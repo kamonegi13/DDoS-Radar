@@ -1,0 +1,1094 @@
+# radar_api.py — Phase 7: MDO C4ISR Dashboard (Production Ready)
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+import requests
+import datetime
+import time
+import threading
+import hashlib
+import os
+import json
+import urllib3
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Optional
+
+app = Flask(__name__)
+CORS(app)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# External Config & Geo Data Loader
+# ─────────────────────────────────────────────────────────────────────────────
+def _load_env(path: str = "config.env") -> None:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(path)
+        print(f"[Config] Loaded via python-dotenv: {path}")
+        return
+    except ImportError:
+        pass
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+        print(f"[Config] Loaded manually: {path}")
+    except FileNotFoundError:
+        print(f"[Config] {path} not found — using defaults")
+
+_load_env()
+
+COUNTRY_COORDS, STATE_ASNS, AIRPORT_BOXES, CHOKEPOINTS = {}, {}, {}, []
+try:
+    with open("geo_data.json", "r", encoding="utf-8") as f:
+        geo_data = json.load(f)
+        COUNTRY_COORDS = geo_data.get("COUNTRY_COORDS", {})
+        STATE_ASNS = geo_data.get("STATE_ASNS", {})
+        AIRPORT_BOXES = geo_data.get("AIRPORT_BOXES", {})
+        CHOKEPOINTS = geo_data.get("CHOKEPOINTS", [])
+        print("[Config] Loaded static data from geo_data.json")
+except Exception as e:
+    print(f"[Warning] Failed to load geo_data.json: {e}")
+
+# ── Proxy & SSL Configuration ──
+HTTP_PROXY  = os.getenv("HTTP_PROXY", "")
+HTTPS_PROXY = os.getenv("HTTPS_PROXY", "")
+GLOBAL_PROXIES = {}
+if HTTP_PROXY:  GLOBAL_PROXIES["http"]  = HTTP_PROXY
+if HTTPS_PROXY: GLOBAL_PROXIES["https"] = HTTPS_PROXY
+
+SSL_VERIFY_ENV = os.getenv("SSL_VERIFY", "true").lower()
+SSL_VERIFY = False if SSL_VERIFY_ENV in ("false", "0", "no") else True
+
+if not SSL_VERIFY:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    print("[Warning] SSL Verification is DISABLED via config.env")
+
+CF_API_TOKEN               = os.getenv("CF_API_TOKEN", "")
+OWM_API_KEY                = os.getenv("OWM_API_KEY", "")
+CURRENT_DATE_RANGE         = os.getenv("CURRENT_DATE_RANGE",  "1d")
+BASELINE_DATE_RANGE        = os.getenv("BASELINE_DATE_RANGE", "7d")
+CACHE_EXPIRY               = int(os.getenv("CACHE_EXPIRY", "900"))
+
+DEFAULT_CORE        = os.getenv("DEFAULT_CORE", "TW")
+DEFAULT_CORRELATES  = [x.strip() for x in os.getenv("DEFAULT_CORRELATES", "JP,US").split(",") if x.strip()]
+DEFAULT_ADVERSARIES = [x.strip() for x in os.getenv("DEFAULT_ADVERSARIES", "CN,RU,KP").split(",") if x.strip()]
+DEFAULT_PINS        = [x.strip() for x in os.getenv("DEFAULT_PINS", "TW,JP,US").split(",") if x.strip()]
+
+CF_HEADERS = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
+
+AIRSPACE_WINDOW             = int(os.getenv("AIRSPACE_WINDOW", "20"))
+AIRSPACE_ANOMALY_THRESHOLD  = float(os.getenv("AIRSPACE_ANOMALY_THRESHOLD", "0.40"))
+AIRSPACE_CLOSURE_THRESHOLD  = float(os.getenv("AIRSPACE_CLOSURE_THRESHOLD", "0.05"))
+GDELT_TONE_ALERT_THRESHOLD  = float(os.getenv("GDELT_TONE_ALERT_THRESHOLD", "-15.0"))
+GDELT_HISTORY_WINDOW        = int(os.getenv("GDELT_HISTORY_WINDOW", "28"))
+CONVERGENCE_DUAL_BONUS      = int(os.getenv("CONVERGENCE_DUAL_BONUS", "1"))
+CONVERGENCE_FULL_BONUS      = int(os.getenv("CONVERGENCE_FULL_BONUS", "2"))
+DEFCON_HYSTERESIS_CYCLES    = int(os.getenv("DEFCON_HYSTERESIS_CYCLES", "1"))
+
+SEVERE_WEATHER_IDS = (
+    set(range(200, 233)) | {500, 502, 503, 504} | {521, 522, 531} |
+    {600, 602, 621, 622} | {711, 762} | {771, 781} | {900, 902}
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data Classes
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
+class RationaleEntry:
+    sensor: str
+    domain: str
+    status: str
+    value: str
+    score: int
+    fired_reason: Optional[str] = None
+    suppressed: bool = False
+    suppress_reason: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "sensor": self.sensor, "domain": self.domain, "status": self.status,
+            "value": self.value, "score": self.score, "fired_reason": self.fired_reason,
+            "suppressed": self.suppressed, "suppress_reason": self.suppress_reason,
+        }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sensors Base
+# ─────────────────────────────────────────────────────────────────────────────
+class BaseSensor(ABC):
+    def __init__(self, name: str, domain: str, poll_interval: int):
+        self.name = name; self.domain = domain; self.poll_interval = poll_interval; self.enabled = True
+        self._cache: dict = {}; self._cache_time: float = 0.0; self._last_error: str = ""
+        self._lock = threading.Lock(); self._fetch_log: list = []
+    @abstractmethod
+    def fetch(self, context: dict) -> dict: pass
+    def get_cache(self) -> dict:
+        with self._lock: return dict(self._cache)
+    def set_cache(self, data: dict):
+        with self._lock:
+            self._cache = data; self._cache_time = time.time(); self._last_error = ""
+            last = self._fetch_log[-1] if self._fetch_log else {}
+            if not last.get("_from_log_fetch"):
+                rec_count = sum(len(v) for v in data.values() if isinstance(v, (list, dict)))
+                self._fetch_log.append({"ts": datetime.datetime.now().isoformat(), "success": True, "duration_ms": None, "http_status": None, "records": rec_count, "error": ""})
+                self._fetch_log = self._fetch_log[-10:]
+    def set_error(self, error: str):
+        with self._lock:
+            self._last_error = error
+            last = self._fetch_log[-1] if self._fetch_log else {}
+            if not last.get("_from_log_fetch"):
+                self._fetch_log.append({"ts": datetime.datetime.now().isoformat(), "success": False, "duration_ms": None, "http_status": None, "records": 0, "error": error[:300]})
+                self._fetch_log = self._fetch_log[-10:]
+    def log_fetch(self, success: bool, duration_ms: int = 0, http_status: int = 0, records: int = 0, error: str = ""):
+        with self._lock:
+            self._fetch_log.append({"ts": datetime.datetime.now().isoformat(), "success": success, "duration_ms": duration_ms, "http_status": http_status, "records": records, "error": error[:300] if error else "", "_from_log_fetch": True})
+            self._fetch_log = self._fetch_log[-10:]
+    def get_fetch_log(self) -> list:
+        with self._lock: return [{k: v for k, v in e.items() if k != "_from_log_fetch"} for e in self._fetch_log]
+    @property
+    def health(self) -> str:
+        if not self.enabled: return "DISABLED"
+        if self._last_error: return "ERROR"
+        elapsed = time.time() - self._cache_time
+        if elapsed > self.poll_interval * 3: return "STALE" if self._cache else "INITIALIZING"
+        return "OK"
+    def to_config_dict(self) -> dict:
+        return {"name": self.name, "domain": self.domain, "enabled": self.enabled, "health": self.health, "poll_interval_sec": self.poll_interval, "last_error": self._last_error, "cache_age_sec": round(time.time() - self._cache_time) if self._cache_time else None}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sensor Implementations
+# ─────────────────────────────────────────────────────────────────────────────
+class IodaSensor(BaseSensor):
+    def __init__(self): super().__init__("ioda_bgp", "physical", 600)
+    def fetch(self, context: dict) -> dict:
+        targets = context.get("all_targets", []); headers = context.get("cf_headers", {})
+        results = {}
+        for code in targets:
+            url = "https://api.cloudflare.com/client/v4/radar/traffic_anomalies"
+            params = {"location": code, "dateRange": "1d", "format": "json"}
+            t0 = time.time()
+            try:
+                res = requests.get(url, headers=headers, params=params, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+                duration = round((time.time() - t0) * 1000)
+                if res.status_code == 200:
+                    anomalies = res.json().get("result", {}).get("trafficAnomalies", [])
+                    results[code] = "BGP_OUTAGE" if anomalies else "NORMAL"
+                    self.log_fetch(True, duration, res.status_code, len(anomalies))
+                else:
+                    results[code] = "NORMAL"
+                    self.log_fetch(False, duration, res.status_code, 0)
+            except Exception as e:
+                results[code] = "NORMAL"
+                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+        result = {"statuses": results}; self.set_cache(result)
+        return result
+
+class CloudflareSensor(BaseSensor):
+    def __init__(self): super().__init__("cloudflare_radar", "cyber", 300)
+    def fetch(self, context: dict) -> dict:
+        result = {"active": True, "date_range": CURRENT_DATE_RANGE}; self.set_cache(result)
+        return result
+
+class OpenSkySensor(BaseSensor):
+    def __init__(self): super().__init__("opensky", "physical", 180)
+    def fetch(self, context: dict) -> dict:
+        theaters = context.get("strategic_theaters", []); results: dict = {}; delta = 0.5
+        for code in theaters:
+            box = AIRPORT_BOXES.get(code)
+            if not box: continue
+            lat, lng = box["lat"], box["lng"]
+            params = {"lamin": lat - delta, "lamax": lat + delta, "lomin": lng - delta, "lomax": lng + delta}
+            t0 = time.time()
+            try:
+                res = requests.get("https://opensky-network.org/api/states/all", params=params, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+                duration = round((time.time() - t0) * 1000)
+                if res.status_code == 200:
+                    count = len(res.json().get("states") or [])
+                    results[code] = {"airport": box["airport"], "count": count, "lat": lat, "lng": lng, "error": None}
+                    self.log_fetch(True, duration, res.status_code, count)
+                else:
+                    results[code] = {"airport": box["airport"], "count": -1, "lat": lat, "lng": lng, "error": f"http_{res.status_code}"}
+                    self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
+            except Exception as e:
+                results[code] = {"airport": box.get("airport", code), "count": -1, "lat": lat, "lng": lng, "error": str(e)}
+                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+        result = {"airports": results}; self.set_cache(result)
+        return result
+
+class OpenWeatherSensor(BaseSensor):
+    def __init__(self): super().__init__("openweather", "physical", 1800)
+    def fetch(self, context: dict) -> dict:
+        targets = context.get("all_targets", []); api_key = context.get("owm_api_key", "")
+        if not api_key:
+            self.set_error("OWM_API_KEY not configured"); return {"conditions": {}}
+        conditions: dict = {}
+        for code in targets:
+            coord = COUNTRY_COORDS.get(code)
+            if not coord: continue
+            t0 = time.time()
+            try:
+                res = requests.get("https://api.openweathermap.org/data/2.5/weather", params={"lat": coord["lat"], "lon": coord["lng"], "appid": api_key, "units": "metric"}, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+                duration = round((time.time() - t0) * 1000)
+                if res.status_code == 200:
+                    d = res.json(); w = (d.get("weather") or [{}])[0]; wind = d.get("wind", {}).get("speed", 0)
+                    wid = w.get("id", 800)
+                    is_severe = wid in SEVERE_WEATHER_IDS or wind > 25
+                    is_moderate = (500 <= wid < 600) or (300 <= wid < 400) or wind > 15
+                    conditions[code] = {"weather_id": wid, "condition": w.get("main", "Clear"), "description": w.get("description", ""), "wind_speed": round(wind, 1), "temp_c": d.get("main", {}).get("temp"), "is_severe": is_severe, "is_moderate": is_moderate, "severity": "SEVERE" if is_severe else "MODERATE" if is_moderate else "NORMAL", "lat": coord["lat"], "lng": coord["lng"]}
+                    self.log_fetch(True, duration, res.status_code, 1)
+                else:
+                    self.log_fetch(False, duration, res.status_code, 0)
+            except Exception as e:
+                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+        result = {"conditions": conditions}; self.set_cache(result)
+        return result
+
+class PeeringDbSensor(BaseSensor):
+    def __init__(self): super().__init__("peeringdb_ixp", "physical", 3600)
+    def fetch(self, context: dict) -> dict:
+        theaters = context.get("strategic_theaters", []); ixp_data: dict = {}
+        for code in theaters:
+            t0 = time.time()
+            try:
+                res = requests.get("https://www.peeringdb.com/api/ix", params={"country": code}, headers={"Accept": "application/json"}, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+                duration = round((time.time() - t0) * 1000)
+                if res.status_code == 200:
+                    items = res.json().get("data", []); coord = COUNTRY_COORDS.get(code, {})
+                    ixps = [{"id": ix.get("id"), "name": ix.get("name", ""), "city": ix.get("city", ""), "country": code, "lat": coord.get("lat", 0), "lng": coord.get("lng", 0), "status": ix.get("status", "ok"), "aka": ix.get("name_long", "")} for ix in items]
+                    ixp_data[code] = {"ixps": ixps, "count": len(ixps)}
+                    self.log_fetch(True, duration, res.status_code, len(items))
+                else:
+                    ixp_data[code] = {"ixps": [], "count": 0, "error": f"HTTP {res.status_code}"}
+                    self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
+            except Exception as e:
+                ixp_data[code] = {"ixps": [], "count": 0, "error": str(e)}
+                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+        result = {"ixp_data": ixp_data}; self.set_cache(result)
+        return result
+
+class BgpRoutingSensor(BaseSensor):
+    BGP_DROP_THRESHOLD = 0.15
+    def __init__(self):
+        super().__init__("ripe_bgp", "cyber", 600); self._baseline: dict = {}
+    def fetch(self, context: dict) -> dict:
+        theaters = context.get("strategic_theaters", []); results: dict = {}
+        for code in theaters:
+            t0 = time.time()
+            try:
+                res = requests.get("https://stat.ripe.net/data/country-routing-stats/data.json", params={"resource": code, "sourceapp": "osint-radar"}, timeout=12, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+                duration = round((time.time() - t0) * 1000)
+                if res.status_code == 200:
+                    stats = res.json().get("data", {}).get("stats", [])
+                    if stats:
+                        latest = stats[-1]; pfx_now = latest.get("announced_prefixes", 0); ases_now = latest.get("seen_ases", 0)
+                        bl = self._baseline.get(code, {})
+                        if not bl: self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": time.time()}; bl = self._baseline[code]
+                        pfx_base = bl.get("prefixes", pfx_now) or pfx_now
+                        drop_ratio = max(0.0, (pfx_base - pfx_now) / pfx_base) if pfx_base else 0.0
+                        is_anomaly = drop_ratio > self.BGP_DROP_THRESHOLD
+                        results[code] = {"announced_prefixes": pfx_now, "baseline_prefixes": pfx_base, "seen_ases": ases_now, "drop_pct": round(drop_ratio * 100, 1), "is_anomaly": is_anomaly, "status": "ANOMALY" if is_anomaly else "NORMAL"}
+                        if time.time() - bl.get("ts", 0) > 3600: self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": time.time()}
+                        self.log_fetch(True, duration, res.status_code, pfx_now)
+                    else:
+                        results[code] = {"status": "NO_DATA", "is_anomaly": False}
+                        self.log_fetch(True, duration, res.status_code, 0)
+                else:
+                    results[code] = {"status": "ERROR", "is_anomaly": False, "error": f"HTTP {res.status_code}"}
+                    self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
+            except Exception as e:
+                results[code] = {"status": "ERROR", "is_anomaly": False, "error": str(e)}
+                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+        result = {"routing_stats": results}; self.set_cache(result)
+        return result
+
+class GDELTSensor(BaseSensor):
+    QUERY_TEMPLATES = {
+        "TW": '"Taiwan" (military OR invasion OR strait OR conflict)', "PH": '"Philippines" (military OR "South China Sea" OR conflict)',
+        "JP": '"Japan" (military OR defense OR strait OR China)', "KR": '"Korea" (military OR nuclear OR "North Korea")',
+        "UA": '"Ukraine" (war OR military OR Russia OR offensive)', "IL": '"Israel" (military OR attack OR Gaza OR Iran)',
+        "US": '"United States" (military OR China OR Taiwan OR Russia)', "AU": '"Australia" (military OR China OR defense OR Pacific)'
+    }
+    def __init__(self): super().__init__("gdelt", "info", 900)
+    def _fetch_tone(self, query: str, timespan: str) -> Optional[float]:
+        try:
+            res = requests.get("https://api.gdeltproject.org/api/v2/doc/doc", params={"query": query, "mode": "TimelineTone", "timespan": timespan, "format": "json"}, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            if res.status_code != 200: return None
+            timeline = res.json().get("timeline") or []
+            if not timeline: return None
+            values = [pt["value"] for pt in timeline[0].get("data", []) if "value" in pt]
+            return round(sum(values) / len(values), 3) if values else None
+        except Exception: return None
+    def fetch(self, context: dict) -> dict:
+        theaters = context.get("strategic_theaters", []); weather_conds = context.get("weather_conditions", {})
+        alert_threshold = context.get("gdelt_tone_threshold", GDELT_TONE_ALERT_THRESHOLD); history_window = context.get("gdelt_history_window", GDELT_HISTORY_WINDOW)
+        tones: dict = {}
+        t0 = time.time()
+        for code in theaters:
+            query = self.QUERY_TEMPLATES.get(code)
+            if not query: continue
+            tone_current = self._fetch_tone(query, "1d"); tone_baseline = self._fetch_tone(query, f"{history_window}d")
+            if tone_current is None:
+                tones[code] = {"status": "NO_DATA"}
+                continue
+            delta = (tone_current - tone_baseline) if tone_baseline is not None else None
+            is_severe_wx = weather_conds.get(code, {}).get("is_severe", False)
+            is_alert = (not is_severe_wx and tone_current < alert_threshold)
+            tones[code] = {"tone_current": tone_current, "tone_baseline": tone_baseline, "delta": round(delta, 3) if delta is not None else None, "is_alert": is_alert, "weather_suppressed": is_severe_wx, "status": ("WEATHER_NOISE" if is_severe_wx and tone_current < alert_threshold else "ALERT" if is_alert else "NORMAL")}
+        self.log_fetch(True, round((time.time() - t0) * 1000), 200, len(tones))
+        result = {"gdelt_tones": tones}; self.set_cache(result)
+        return result
+
+# ── Phase 7 New Sensors (Production Implementation) ──
+class NasaFirmsSensor(BaseSensor):
+    """NASA FIRMS → NASA EONET Wildfires API に切替（FIRMSサーバー到達不可のため）
+    APIキー不要。eonet.gsfc.nasa.gov は企業プロキシ環境でも疎通確認済み。
+    """
+    EONET_URL = "https://eonet.gsfc.nasa.gov/api/v3/events"
+    # 対象シアターに近いイベントか判定する許容距離（度）
+    GEO_RADIUS_DEG = 10.0
+
+    def __init__(self): super().__init__("nasa_firms", "physical", 900)
+
+    def fetch(self, context: dict) -> dict:
+        theaters = context.get("strategic_theaters", [])
+        anomalies = []
+
+        t0 = time.time()
+        try:
+            res = requests.get(
+                self.EONET_URL,
+                params={"category": "wildfires", "status": "open", "days": 1},
+                timeout=15,
+                proxies=GLOBAL_PROXIES,
+                verify=SSL_VERIFY
+            )
+            duration = round((time.time() - t0) * 1000)
+
+            if res.status_code == 200:
+                events = res.json().get("events", [])
+                record_count = len(events)
+                self.log_fetch(True, duration, res.status_code, record_count)
+
+                # 各シアターの座標と距離比較して近傍イベントを抽出
+                for code in theaters:
+                    coord = COUNTRY_COORDS.get(code)
+                    if not coord: continue
+                    tlat, tlng = coord["lat"], coord["lng"]
+
+                    for ev in events:
+                        for geo in (ev.get("geometry") or []):
+                            coords = geo.get("coordinates")
+                            if not coords: continue
+                            # EONET座標は [lng, lat] 形式
+                            elng, elat = coords[0], coords[1]
+                            if (abs(elat - tlat) <= self.GEO_RADIUS_DEG and
+                                    abs(elng - tlng) <= self.GEO_RADIUS_DEG):
+                                anomalies.append({
+                                    "lat": elat, "lng": elng,
+                                    "code": code, "confidence": "HIGH",
+                                    "title": ev.get("title", "Wildfire")
+                                })
+                                break  # 同イベントを同シアターに重複登録しない
+            else:
+                self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
+                self.set_error(f"HTTP {res.status_code}")
+
+        except requests.exceptions.Timeout:
+            self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, "Timeout (EONET)")
+            self.set_error("Timeout connecting to NASA EONET")
+        except Exception as e:
+            self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+            self.set_error(str(e))
+
+        result = {"anomalies": anomalies}; self.set_cache(result)
+        return result
+
+class ThreatFoxSensor(BaseSensor):
+    def __init__(self): super().__init__("threatfox", "cyber", 1800)
+    def fetch(self, context: dict) -> dict:
+        theaters = context.get("strategic_theaters", [])
+        hits = {}
+
+        url = "https://threatfox-api.abuse.ch/api/v1/"
+        payload = {"query": "get_iocs", "days": 1}
+
+        # abuse.ch は get_iocs にも Auth-Key を要求するようになった（2024年以降）
+        tf_api_key = os.getenv("THREATFOX_API_KEY", "")
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        if tf_api_key:
+            headers["Auth-Key"] = tf_api_key
+
+        if HTTP_PROXY:
+            headers["Connection"] = "Keep-Alive"
+
+        t0 = time.time()
+        try:
+            res = requests.post(url, json=payload, headers=headers, timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            duration = round((time.time() - t0) * 1000)
+            
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("query_status") in ["ok", "no_result"]:
+                    iocs = data.get("data", [])
+                    for code in theaters:
+                        country_name = COUNTRY_COORDS.get(code, {}).get("name", "Unknown").lower()
+                        # APTタグ、または対象国名に関連するIoCをカウント
+                        count = sum(1 for ioc in iocs if (ioc.get("tags") and any("apt" in str(tag).lower() or country_name in str(tag).lower() for tag in ioc["tags"])))
+                        if count > 0: hits[code] = {"count": count, "description": f"{count} APT/State-linked IoCs detected"}
+                    self.log_fetch(True, duration, res.status_code, len(iocs))
+                else:
+                    err_msg = data.get("query_status", "Unknown error")
+                    self.log_fetch(False, duration, res.status_code, 0, f"API Error: {err_msg}")
+                    self.set_error(f"API Error: {err_msg}")
+            else:
+                self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
+                self.set_error(f"HTTP {res.status_code}")
+        except requests.exceptions.Timeout:
+            self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, "Read timed out")
+            self.set_error("Timeout connecting to ThreatFox")
+        except Exception as e:
+            self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+            self.set_error(str(e))
+
+        result = {"hits": hits}; self.set_cache(result)
+        return result
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SensorRegistry & Engine
+# ─────────────────────────────────────────────────────────────────────────────
+class SensorRegistry:
+    def __init__(self): self._sensors: dict[str, BaseSensor] = {}; self._lock = threading.Lock()
+    def register(self, sensor: BaseSensor):
+        with self._lock: self._sensors[sensor.name] = sensor
+    def get(self, name: str) -> Optional[BaseSensor]: return self._sensors.get(name)
+    def set_enabled(self, name: str, enabled: bool):
+        with self._lock:
+            if name in self._sensors: self._sensors[name].enabled = enabled
+    def health_report(self) -> dict: return {name: s.health for name, s in self._sensors.items()}
+    def config_list(self) -> list: return [s.to_config_dict() for s in self._sensors.values()]
+
+class WeightedConvergenceEngine:
+    DOMAIN_WEIGHTS = {"cyber": 0.50, "physical": 0.30, "info": 0.20}
+    def compute_domain_scores(self, rationale: list) -> dict:
+        scores = {"cyber": 0, "physical": 0, "info": 0}
+        for entry in rationale:
+            if isinstance(entry, RationaleEntry) and not entry.suppressed and entry.status == "FIRED":
+                if entry.domain in scores: scores[entry.domain] += entry.score
+        return scores
+    def compute_convergence_score(self, domain_scores: dict) -> float:
+        return sum(min(domain_scores.get(d, 0), 10) * w for d, w in self.DOMAIN_WEIGHTS.items())
+    def compute_convergence_level(self, domain_scores: dict) -> str:
+        active = sum(1 for s in domain_scores.values() if s > 0)
+        return "FULL_CONVERGENCE" if active >= 3 else "DUAL_DOMAIN" if active == 2 else "SINGLE_DOMAIN" if active == 1 else "NONE"
+    def apply_convergence_bonus(self, score: int, domain_scores: dict) -> tuple:
+        level = self.compute_convergence_level(domain_scores)
+        bonus = CONVERGENCE_FULL_BONUS if level == "FULL_CONVERGENCE" else CONVERGENCE_DUAL_BONUS if level == "DUAL_DOMAIN" else 0
+        return score + bonus, bonus, level
+    def compute_defcon(self, score: int, defcon_1_hard: bool) -> int:
+        if score >= 9 and defcon_1_hard: return 1
+        if score >= 6: return 2
+        if score >= 4: return 3
+        if score >= 2: return 4
+        return 5
+    def apply_hysteresis(self, new_defcon: int, history: list) -> tuple:
+        if not history: return new_defcon, False
+        last_defcon = history[-1][1]
+        if new_defcon > last_defcon:
+            held = min(new_defcon, last_defcon + 1)
+            return held, (held != new_defcon)
+        return new_defcon, False
+    def build_system_note(self, threat_level: int, domain_scores: dict, convergence_level: str, rationale: list, noise_filters: list, defcon_held: bool = False) -> str:
+        fired = [e for e in rationale if isinstance(e, RationaleEntry) and e.status == "FIRED"]
+        suppressed = [e for e in rationale if isinstance(e, RationaleEntry) and e.suppressed]
+        held_note = " [HYSTERESIS HOLD]" if defcon_held else ""
+        parts = [f"Assessed THREAT LEVEL {threat_level}{held_note}."]
+        conv_label = {"FULL_CONVERGENCE": f"⚡ FULL CONVERGENCE (+{CONVERGENCE_FULL_BONUS}pt bonus)", "DUAL_DOMAIN": f"⚠ DUAL DOMAIN (+{CONVERGENCE_DUAL_BONUS}pt bonus)", "SINGLE_DOMAIN": "Single Domain Activity", "NONE": ""}.get(convergence_level, "")
+        if conv_label: parts.append(conv_label + ".")
+        active_domains = [f"{d.upper()}({domain_scores[d]}pt)" for d in ("cyber", "physical", "info") if domain_scores.get(d, 0) > 0]
+        if active_domains: parts.append(f"Active Domains: {', '.join(active_domains)}.")
+        if fired: parts.append(f"Triggered Sensors: {', '.join(e.sensor for e in fired)}.")
+        if suppressed: parts.append(f"Suppressed (Noise): {', '.join(e.sensor for e in suppressed)}.")
+        if noise_filters: parts.append(f"Active Suppressors: {'; '.join(noise_filters)}.")
+        return " ".join(parts)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Global instances
+# ─────────────────────────────────────────────────────────────────────────────
+registry = SensorRegistry()
+for s in [CloudflareSensor(), IodaSensor(), OpenSkySensor(), OpenWeatherSensor(), GDELTSensor(), PeeringDbSensor(), BgpRoutingSensor(), NasaFirmsSensor(), ThreatFoxSensor()]:
+    registry.register(s)
+engine = WeightedConvergenceEngine()
+
+global_cache      = {"time": 0, "data": {}, "strategic": {}}
+baseline_cache:    dict = {}
+time_series_db:    dict = {}
+time_series_l3_db: dict = {}
+time_series_l7_db: dict = {}
+airspace_baseline: dict = {}
+defcon_history:    list = []
+alert_timeline:    list = []
+ALERT_TIMELINE_MAX = 288
+
+# CF scoring-loop result cache（センサーfetchとは独立したスコアリング用短期キャッシュ）
+# キー: (url, frozenset(params.items())) → {"time": float, "data": list}
+_cf_scoring_cache: dict = {}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper Functions
+# ─────────────────────────────────────────────────────────────────────────────
+def get_fallback_coord(code: str) -> dict:
+    h = int(hashlib.md5((code or "Unknown").encode()).hexdigest(), 16)
+    return {"lat": (h % 100) - 50, "lng": ((h // 100) % 360) - 180, "name": f"Origin: {code}"}
+
+def fetch_cf_data(url: str, params: dict) -> list:
+    try:
+        res = requests.get(url, headers=CF_HEADERS, params=params, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+        if res.status_code == 200: return res.json().get("result", {}).get("top_0", [])
+    except Exception: pass
+    return []
+
+def fetch_cf_data_cached(url: str, params: dict, ttl: float = None) -> list:
+    """スコアリングループ内のCF API呼び出しをキャッシュする。
+    TTL省略時はCACHE_EXPIRYを使用。リロード時の毎回フェッチを防ぐ。"""
+    global _cf_scoring_cache
+    if ttl is None:
+        ttl = CACHE_EXPIRY
+    cache_key = (url, frozenset(params.items()))
+    entry = _cf_scoring_cache.get(cache_key)
+    now = time.time()
+    if entry and (now - entry["time"]) < ttl:
+        return entry["data"]
+    data = fetch_cf_data(url, params)
+    _cf_scoring_cache[cache_key] = {"time": now, "data": data}
+    return data
+
+def parse_origins(origins_list: list) -> dict:
+    parsed = {}
+    for o in origins_list:
+        code = o.get("origin1") or o.get("location") or o.get("clientCountryAlpha2")
+        if not code:
+            for k, v in o.items():
+                if isinstance(v, str) and len(v) == 2 and v.isupper(): code = v; break
+        weight = float(o.get("value") or o.get("count") or 1.0)
+        if code: parsed[code] = weight
+    return parsed
+
+def calculate_overlap(dist1: dict, dist2: dict) -> float:
+    if not dist1 or not dist2: return 0.0
+    return round(sum(min(dist1.get(k, 0.0), dist2.get(k, 0.0)) for k in set(dist1) | set(dist2)), 2)
+
+_asn_cache: dict = {}  # {target_code: {"time": float, "data": dict}}
+
+def fetch_asn_origins(target_code: str) -> dict:
+    global _asn_cache
+    entry = _asn_cache.get(target_code)
+    if entry and (time.time() - entry["time"]) < CACHE_EXPIRY:
+        return entry["data"]
+    try:
+        res = requests.get("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/ases/origin", headers=CF_HEADERS, params={"location": target_code, "dateRange": CURRENT_DATE_RANGE, "format": "json"}, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+        if res.status_code == 200:
+            data = {f"AS{item.get('originAsn') or item.get('clientASN') or item.get('originAsnId')}": float(item.get("value", 0)) for item in res.json().get("result", {}).get("top_0", []) if item.get("originAsn") or item.get("clientASN") or item.get("originAsnId")}
+            _asn_cache[target_code] = {"time": time.time(), "data": data}
+            return data
+    except Exception: pass
+    return {}
+
+def compute_confidence(spike_factor: float, code: str, is_new_actor: bool, is_state_asn: bool) -> str:
+    if is_state_asn and spike_factor > 2.0: return "HIGH"
+    if is_new_actor: return "LOW"
+    if spike_factor > 3.0: return "MEDIUM"
+    if spike_factor > 2.0: return "MEDIUM"
+    return "LOW"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main API Route
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route("/api/app_config", methods=["GET"])
+def app_config():
+    return jsonify({
+        "default_core": DEFAULT_CORE,
+        "default_correlates": DEFAULT_CORRELATES,
+        "default_adversaries": DEFAULT_ADVERSARIES,
+        "default_pins": DEFAULT_PINS,
+    })
+
+@app.route("/api/threat_data", methods=["GET"])
+def get_threat_data():
+    global global_cache, baseline_cache, time_series_db, time_series_l3_db, time_series_l7_db
+
+    current_time = time.time()
+    targets_param  = request.args.get("targets", ",".join(DEFAULT_PINS)); requested_targets = [t.strip().upper() for t in targets_param.split(",") if t.strip()]
+    correlates_param = request.args.get("correlates", ",".join(DEFAULT_CORRELATES)); correlate_targets = [t.strip().upper() for t in correlates_param.split(",") if t.strip()]
+    adv_param = request.args.get("adversaries", ",".join(DEFAULT_ADVERSARIES)); adversary_states = [a.strip().upper() for a in adv_param.split(",") if a.strip()]
+    core_theater = request.args.get("core", DEFAULT_CORE).strip().upper()
+    force_sync   = request.args.get("force", "false").lower() == "true"
+    
+    # [Phase 7] HITL Analyst MUTE parameters
+    muted_sensors = [s.strip() for s in request.args.get("muted", "").split(",") if s.strip()]
+
+    required_keys = set(requested_targets + correlate_targets)
+    if core_theater: required_keys.add(core_theater)
+
+    missing_data = any(k not in global_cache.get("data", {}) for k in required_keys)
+    strategic_theaters_set = set([core_theater] + correlate_targets)
+    
+    sensor_context = {
+        "all_targets": list(required_keys), 
+        "strategic_theaters": list(strategic_theaters_set),
+        "cf_headers": CF_HEADERS, "owm_api_key": OWM_API_KEY, 
+        "weather_conditions": {}, "gdelt_tone_threshold": GDELT_TONE_ALERT_THRESHOLD, 
+        "gdelt_history_window": GDELT_HISTORY_WINDOW
+    }
+
+    # ── Phase 7: Parallel High-Speed Fetch Engine ──
+    if (current_time - global_cache.get("time", 0) > CACHE_EXPIRY) or force_sync or missing_data:
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(sensor.fetch, sensor_context) for sensor in registry._sensors.values() if sensor.enabled]
+            for future in as_completed(futures):
+                pass 
+
+    # Extract required states from caches
+    cf_sensor = registry.get("cloudflare_radar")
+    ioda_sensor = registry.get("ioda_bgp")
+    ioda_data = ioda_sensor.get_cache().get("statuses", {}) if ioda_sensor else {}
+    owm_sensor = registry.get("openweather")
+    weather_conditions = owm_sensor.get_cache().get("conditions", {}) if owm_sensor else {}
+    opensky_sensor = registry.get("opensky")
+    airspace_data = opensky_sensor.get_cache().get("airports", {}) if opensky_sensor else {}
+    gdelt_sensor = registry.get("gdelt")
+    gdelt_tones = gdelt_sensor.get_cache().get("gdelt_tones", {}) if gdelt_sensor else {}
+    peeringdb_sensor = registry.get("peeringdb_ixp")
+    ixp_data = peeringdb_sensor.get_cache().get("ixp_data", {}) if peeringdb_sensor else {}
+    bgp_routing_sensor = registry.get("ripe_bgp")
+    bgp_routing_data = bgp_routing_sensor.get_cache().get("routing_stats", {}) if bgp_routing_sensor else {}
+    nasa_firms_sensor = registry.get("nasa_firms")
+    nasa_firms_data = nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else []
+    threatfox_sensor = registry.get("threatfox")
+    threatfox_data = threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {}
+
+    airspace_anomalies, noise_filters_applied = [], []
+    for code, ainfo in airspace_data.items():
+        count = ainfo.get("count", -1)
+        if count < 0: ainfo["status"] = "ERROR"; continue
+        if code not in airspace_baseline: airspace_baseline[code] = {"readings": [], "avg": 0.0}
+        bl = airspace_baseline[code]
+        bl["readings"].append(count); bl["readings"] = bl["readings"][-AIRSPACE_WINDOW:]
+        n = len(bl["readings"])
+        bl["avg"] = sum(bl["readings"]) / n if n > 0 else 0.0
+        ainfo["baseline_avg"] = round(bl["avg"], 1); ainfo["baseline_n"] = n
+
+        if n < 3 or bl["avg"] < 1:
+            ainfo["status"] = "BASELINE_BUILDING"; ainfo["drop_pct"] = 0.0; continue
+
+        drop_ratio = max(0.0, (bl["avg"] - count) / bl["avg"]); ainfo["drop_pct"] = round(drop_ratio * 100, 1)
+        weather_suppressed = weather_conditions.get(code, {}).get("is_severe", False)
+
+        severity = "CLOSURE" if drop_ratio >= (1.0 - AIRSPACE_CLOSURE_THRESHOLD) else "ANOMALY" if drop_ratio >= (1.0 - AIRSPACE_ANOMALY_THRESHOLD) else "NORMAL"
+        if severity in ("CLOSURE", "ANOMALY"):
+            if weather_suppressed:
+                ainfo["status"] = "WEATHER_NOISE"; noise_filters_applied.append(f"weather_noise@{code}: airspace {severity.lower()} suppressed")
+            else:
+                ainfo["status"] = severity
+                airspace_anomalies.append({"code": code, "airport": ainfo.get("airport", code), "count": count, "baseline": ainfo["baseline_avg"], "drop_pct": ainfo["drop_pct"], "severity": severity, "lat": ainfo.get("lat"), "lng": ainfo.get("lng")})
+        else: ainfo["status"] = "NORMAL"
+
+    degraded_targets_raw, degraded_targets_effective = [], []
+    g_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/target", {"dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+    g_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/target", {"dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+
+    target_details, origin_distributions, origin_distributions_l3, origin_distributions_l7 = {}, {}, {}, {}
+    adversary_strikes, vector_shifts = [], []
+
+    for t in list(required_keys):
+        if ioda_data.get(t, "NORMAL") == "BGP_OUTAGE":
+            degraded_targets_raw.append(t)
+            if weather_conditions.get(t, {}).get("is_severe", False): noise_filters_applied.append(f"weather_noise@{t}: BGP outage suppressed")
+            else: degraded_targets_effective.append(t)
+
+    for t in required_keys:
+        if t not in time_series_db: time_series_db[t] = []
+        if t not in time_series_l3_db: time_series_l3_db[t] = []
+        if t not in time_series_l7_db: time_series_l7_db[t] = []
+
+        if t not in baseline_cache or (current_time - baseline_cache[t]["time"] > 86400):
+            b_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
+            b_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
+            baseline_cache[t] = {"time": current_time, "l3": b_l3, "l7": b_l7}
+
+        b_data = baseline_cache[t]
+        g_l3_share_display, g_l7_share_display = g_l3.get(t, 0.0), g_l7.get(t, 0.0)
+        g_l3_share, g_l7_share = max(g_l3_share_display, 0.1), max(g_l7_share_display, 0.1)
+        global_target_share = (g_l3_share_display + g_l7_share_display) / 2.0
+
+        o_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin", {"location": t, "dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+        o_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+
+        state_asn_hits = {}
+        if t in strategic_theaters_set:
+            for asn_key in fetch_asn_origins(t):
+                if asn_key in STATE_ASNS: state_asn_hits.setdefault(STATE_ASNS[asn_key], []).append(asn_key)
+
+        combined_sources, normalized_dist, normalized_dist_l3, normalized_dist_l7 = {}, {}, {}, {}
+        target_weighted_spike, total_local_pct, target_l3_spike_sum, target_l7_spike_sum = 0.0, 0.0, 0.0, 0.0
+        all_origin_codes = set(o_l3) | set(o_l7)
+
+        # ── Spike anti-inflation guard ──
+        # ベースラインデータが空の場合（起動直後・CF APIエラー時）はスパイク計算をスキップ。
+        # 空ベースラインで計算すると全発信元が最小値(0.5%)基準となり90倍超のフォールスポジティブが発生する。
+        has_baseline = bool(b_data.get("l3") or b_data.get("l7"))
+
+        for code in all_origin_codes:
+            local_l3_pct, local_l7_pct = o_l3.get(code, 0.0), o_l7.get(code, 0.0)
+            current_local_pct = max(local_l3_pct, local_l7_pct)
+
+            is_new_actor = (code not in b_data["l3"]) and (code not in b_data["l7"])
+            # 敵対国（CN/RU/KP等）は低いベースラインフロアを維持して小量攻撃も検知する。
+            # 非敵対国は高いフロア（3%）でノイズを抑制。
+            # 例: KP がベースライン0.1% → 現在2% のケースで4倍スパイクとして正しく検出できる。
+            is_adversary_origin = code in adversary_states
+            _floor_new   = 0.5 if is_adversary_origin else 3.0  # 新規actor（ベースラインにない）
+            _floor_exist = 0.5 if is_adversary_origin else 2.0  # 既存actor
+            base_l3 = max(b_data["l3"].get(code, _floor_new), _floor_exist if code not in b_data["l3"] else _floor_new)
+            base_l7 = max(b_data["l7"].get(code, _floor_new), _floor_exist if code not in b_data["l7"] else _floor_new)
+            l3_spike = (local_l3_pct / base_l3) if local_l3_pct > 0 else 0.0
+            l7_spike = (local_l7_pct / base_l7) if local_l7_pct > 0 else 0.0
+            # スパイク倍率を25倍でキャップ（統計ノイズによる極端な増幅を防ぐ）
+            spike_factor = min(max(l3_spike, l7_spike), 25.0)
+
+            normalized_dist_l3[code], normalized_dist_l7[code], normalized_dist[code] = local_l3_pct, local_l7_pct, current_local_pct
+
+            # ベースラインあり かつ 絶対値が有意（≥1%）の場合のみスパイク集計に算入
+            if has_baseline and current_local_pct >= 1.0:
+                target_weighted_spike += spike_factor * current_local_pct
+                target_l3_spike_sum += l3_spike * current_local_pct
+                target_l7_spike_sum += l7_spike * current_local_pct
+                total_local_pct += current_local_pct
+
+            global_l3_weight = g_l3_share * (local_l3_pct / 100.0); global_l7_weight = g_l7_share * (local_l7_pct / 100.0)
+            total_global_weight = global_l3_weight + global_l7_weight
+
+            is_direct_strike = False
+            if code in adversary_states and t in strategic_theaters_set and spike_factor >= 4.0 and current_local_pct > 3.0:
+                adversary_strikes.append({"actor": code, "target": t, "spike": round(spike_factor, 1), "pct": round(current_local_pct, 1)})
+                is_direct_strike = True
+
+            per_origin_l7_shift = (l7_spike >= 2.5 and l7_spike > l3_spike * 1.5 and local_l7_pct > 1.5)
+            is_state_asn = code in state_asn_hits
+            confidence = compute_confidence(spike_factor, code, is_new_actor, is_state_asn)
+
+            if total_global_weight > 0.01 or is_direct_strike:
+                coord = COUNTRY_COORDS.get(code) or get_fallback_coord(code)
+                combined_sources[code] = {"lat": coord["lat"], "lng": coord["lng"], "name": coord["name"], "code": code, "weight": total_global_weight, "l3_weight": global_l3_weight, "l7_weight": global_l7_weight, "spike_factor": round(spike_factor, 2), "l3_spike": round(l3_spike, 2), "l7_spike": round(l7_spike, 2), "is_l7_shift": per_origin_l7_shift, "is_new_actor": is_new_actor, "is_state_asn": is_state_asn, "state_asns": state_asn_hits.get(code, []), "confidence": confidence}
+
+        origin_distributions[t], origin_distributions_l3[t], origin_distributions_l7[t] = normalized_dist, normalized_dist_l3, normalized_dist_l7
+        # 正規化分母を最低5%に引き上げ（少量トラフィック時のavg_spike過大評価を防ぐ）
+        avg_l3_spike = target_l3_spike_sum / max(total_local_pct, 5.0); avg_l7_spike = target_l7_spike_sum / max(total_local_pct, 5.0)
+        shift_actors = [s["code"] for s in combined_sources.values() if s.get("is_l7_shift")]
+        is_vector_shift = ((avg_l7_spike >= 2.5 and avg_l7_spike > avg_l3_spike * 1.5) or len(shift_actors) > 0)
+        if is_vector_shift and t in strategic_theaters_set: vector_shifts.append(t)
+
+        avg_spike_record = round(target_weighted_spike / max(total_local_pct, 5.0), 2)
+        time_series_db[t].append(avg_spike_record); time_series_db[t] = time_series_db[t][-15:]
+        time_series_l3_db[t].append(round(avg_l3_spike, 2)); time_series_l3_db[t] = time_series_l3_db[t][-15:]
+        time_series_l7_db[t].append(round(avg_l7_spike, 2)); time_series_l7_db[t] = time_series_l7_db[t][-15:]
+
+        target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values())}
+
+    correlations, correlations_l3, correlations_l7 = {}, {}, {}
+    if core_theater in origin_distributions:
+        for t in correlate_targets:
+            if t != core_theater and t in origin_distributions:
+                key = f"{core_theater}-{t}"
+                correlations[key]    = calculate_overlap(origin_distributions[core_theater], origin_distributions[t])
+                correlations_l3[key] = calculate_overlap(origin_distributions_l3.get(core_theater, {}), origin_distributions_l3.get(t, {}))
+                correlations_l7[key] = calculate_overlap(origin_distributions_l7.get(core_theater, {}), origin_distributions_l7.get(t, {}))
+
+    elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
+    is_coordinated = len(elevated_theaters) >= 2
+
+    core_spike     = target_details.get(core_theater, {}).get("avg_spike", 0)
+    core_degraded  = core_theater in degraded_targets_effective
+    core_shifted   = core_theater in vector_shifts
+    # 国家主導の協調作戦は20〜35%重複が典型。45%は民間大型ボットネット水準で高すぎる。
+    high_correlation = any(v > 30.0 for v in correlations.values())
+    major_adversary  = len(adversary_strikes) > 0
+    defcon_1_hard = core_spike > 5.0 and core_degraded
+
+    rationale: list[RationaleEntry] = []
+
+    def add_rat(sensor, domain, status, value, score, fired_reason, is_suppressed=False, suppress_reason=None):
+        _is_muted = (sensor in muted_sensors) or is_suppressed
+        _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
+        rationale.append(RationaleEntry(sensor=sensor, domain=domain, status=status, value=value, score=score, fired_reason=fired_reason, suppressed=_is_muted, suppress_reason=_s_reason))
+
+    if not (cf_sensor and cf_sensor.enabled):
+        add_rat("cloudflare_radar", "cyber", "DISABLED", "sensor off", 0, None)
+    else:
+        spike_score = (1 if core_spike > 2.0 else 0) + (1 if core_spike > 4.0 else 0) + (1 if core_spike > 6.0 else 0)
+        add_rat("cf_spike_core", "cyber", "FIRED" if core_spike > 2.0 else "OK", f"{core_spike:.2f}x", spike_score, f"Core theater spike exceeds 2x baseline" if spike_score else None)
+        max_overlap = max(correlations.values(), default=0.0)
+        add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None)
+        add_rat("cf_vector_shift", "cyber", "FIRED" if core_shifted else "OK", f"theaters={vector_shifts}", 1 if core_shifted else 0, "L7 application-layer escalation detected" if core_shifted else None)
+        add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{len(adversary_strikes)} strike(s)", 2 if major_adversary else 0, f"Adversary state direct strike" if major_adversary else None)
+        add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None)
+
+    if not (ioda_sensor and ioda_sensor.enabled):
+        add_rat("ioda_bgp", "physical", "DISABLED", "sensor off", 0, None)
+    else:
+        weather_suppressed_bgp = [t for t in degraded_targets_raw if t not in degraded_targets_effective]
+        bgp_value = f"bgp={'OUTAGE' if core_degraded else 'NORMAL'}"
+        if weather_suppressed_bgp: bgp_value += f" weather_muted={weather_suppressed_bgp}"
+        _wx_suppressed = (core_theater in weather_suppressed_bgp)
+        add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, f"BGP anomaly confirmed" if core_degraded else None, is_suppressed=_wx_suppressed, suppress_reason=f"Weather-muted: {weather_suppressed_bgp}" if weather_suppressed_bgp else None)
+
+    if not (opensky_sensor and opensky_sensor.enabled):
+        add_rat("opensky", "physical", "DISABLED", "sensor off", 0, None)
+    else:
+        core_airspace = airspace_data.get(core_theater, {})
+        airspace_status = core_airspace.get("status", "NO_DATA")
+        airspace_score, airspace_fired, airspace_reason = 0, False, None
+        if airspace_status == "CLOSURE": airspace_score, airspace_fired, airspace_reason = 3, True, f"Airport near-total closure"
+        elif airspace_status == "ANOMALY": airspace_score, airspace_fired, airspace_reason = 2, True, f"Airspace anomaly"
+        airspace_value = f"{core_airspace.get('airport','N/A')}: {core_airspace.get('count','?')} ac" if core_airspace else "No airport data"
+        add_rat("opensky", "physical", "FIRED" if airspace_fired else ("SUPPRESSED" if airspace_status == "WEATHER_NOISE" else "OK"), airspace_value, airspace_score, airspace_reason, is_suppressed=(airspace_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if airspace_status == "WEATHER_NOISE" else None)
+
+    if not (owm_sensor and owm_sensor.enabled):
+        add_rat("openweather", "physical", "DISABLED", "sensor off", 0, None)
+    else:
+        core_weather = weather_conditions.get(core_theater, {})
+        add_rat("openweather", "physical", "OK", f"{core_theater}: {core_weather.get('severity', 'NORMAL')}", 0, None, suppress_reason=f"Active noise filter" if core_weather.get("is_severe") else None)
+
+    if not (gdelt_sensor and gdelt_sensor.enabled):
+        add_rat("gdelt", "info", "DISABLED", "sensor off", 0, None)
+    else:
+        core_tone = gdelt_tones.get(core_theater, {})
+        tone_status, gdelt_alert = core_tone.get("status", "NO_DATA"), core_tone.get("status") == "ALERT"
+        add_rat("gdelt", "info", "SUPPRESSED" if tone_status == "WEATHER_NOISE" else "FIRED" if gdelt_alert else "OK", tone_status, 1 if gdelt_alert else 0, "Media tone collapse" if gdelt_alert else None, is_suppressed=(tone_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if tone_status == "WEATHER_NOISE" else None)
+
+    if not (bgp_routing_sensor and bgp_routing_sensor.enabled):
+        add_rat("ripe_bgp", "cyber", "DISABLED", "sensor off", 0, None)
+    else:
+        core_bgp, bgp_anomaly = bgp_routing_data.get(core_theater, {}), bgp_routing_data.get(core_theater, {}).get("is_anomaly", False)
+        add_rat("ripe_bgp", "cyber", "FIRED" if bgp_anomaly else "OK", "ANOMALY" if bgp_anomaly else "NORMAL", 1 if bgp_anomaly else 0, "BGP prefix withdrawal" if bgp_anomaly else None)
+
+    # [Phase 7] NASA FIRMS (Physical)
+    if nasa_firms_sensor and nasa_firms_sensor.enabled:
+        has_firms = any(f["code"] == core_theater for f in nasa_firms_data)
+        add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", f"Thermal Anomalies", 3 if has_firms else 0, "Kinetic Strike Precursor")
+
+    # [Phase 7] ThreatFox (Cyber)
+    if threatfox_sensor and threatfox_sensor.enabled:
+        has_tf = core_theater in threatfox_data
+        add_rat("threatfox", "cyber", "FIRED" if has_tf else "OK", "APT C2 Hit", 1 if has_tf else 0, "Known APT infra matched")
+
+    if peeringdb_sensor and peeringdb_sensor.enabled:
+        add_rat("peeringdb_ixp", "physical", "OK", f"IXP(s) registered", 0, None)
+
+    domain_scores = engine.compute_domain_scores(rationale)
+    total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
+    convergence_score = engine.compute_convergence_score(domain_scores)
+    score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
+    defcon_raw = engine.compute_defcon(score_with_bonus, defcon_1_hard)
+    defcon, defcon_held = engine.apply_hysteresis(defcon_raw, defcon_history)
+    defcon_history.append((current_time, defcon))
+    while len(defcon_history) > 20: defcon_history.pop(0)
+
+    system_note = engine.build_system_note(defcon, domain_scores, convergence_level, rationale, noise_filters_applied, defcon_held)
+
+    score_breakdown = {
+        "core_spike_val": round(core_spike, 2), "core_spike_2x": core_spike > 2.0, "core_spike_4x": core_spike > 4.0, "core_spike_6x": core_spike > 6.0,
+        "high_correlation": high_correlation, "core_shifted": core_shifted, "major_adversary": major_adversary, "core_degraded": core_degraded,
+        "is_coordinated": is_coordinated, "defcon_1_hard": defcon_1_hard, "total_score": total_score,
+        "convergence_bonus": conv_bonus, "score_with_bonus": score_with_bonus, "defcon_raw": defcon_raw, "defcon_held": defcon_held,
+    }
+
+    ioda_overlays = [{"code": t, "lat": COUNTRY_COORDS[t]["lat"], "lng": COUNTRY_COORDS[t]["lng"], "name": COUNTRY_COORDS[t]["name"], "status": "BGP_OUTAGE"} for t in degraded_targets_raw if t in COUNTRY_COORDS]
+
+    global_cache = {
+        "time": current_time,
+        "data": target_details,
+        "strategic": {
+            "core_theater": core_theater, "defcon": defcon, "defcon_score": total_score, "defcon_breakdown": score_breakdown,
+            "correlations": correlations, "correlations_l3": correlations_l3, "correlations_l7": correlations_l7,
+            "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
+            "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+            "degraded_theaters_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
+            "coordinated_theaters": elevated_theaters if is_coordinated else [],
+            "domains": {
+                d: {"score": domain_scores.get(d, 0), "weight": engine.DOMAIN_WEIGHTS.get(d, 0), "weighted": round(min(domain_scores.get(d, 0), 10) * engine.DOMAIN_WEIGHTS.get(d, 0), 2), "status": "CRITICAL" if domain_scores.get(d, 0) >= 6 else "ELEVATED" if domain_scores.get(d, 0) >= 3 else "WATCH" if domain_scores.get(d, 0) >= 1 else "NORMAL"} for d in ("cyber", "physical", "info")
+            },
+            "convergence_score": round(convergence_score, 2), "convergence_level": convergence_level,
+            "rationale_matrix": [e.to_dict() for e in rationale], "noise_filters_applied": noise_filters_applied, "system_note": system_note,
+            "country_intel": {
+                code: {
+                    "weather": weather_conditions.get(code), "airspace": airspace_data.get(code), "gdelt": gdelt_tones.get(code),
+                    "bgp_routing": bgp_routing_data.get(code), "ixp_count": ixp_data.get(code, {}).get("count", 0),
+                    "ixp_names": [ix["name"] for ix in ixp_data.get(code, {}).get("ixps", [])], "ioda_status": ioda_data.get(code, "NORMAL"),
+                    "is_bgp_degraded": code in degraded_targets_effective,
+                } for code in strategic_theaters_set if code in COUNTRY_COORDS
+            },
+            "map_overlays": {
+                "ioda_outages": ioda_overlays, "airspace_anomaly": airspace_anomalies,
+                "weather_events": [{"code": c, "lat": info.get("lat"), "lng": info.get("lng"), "condition": info.get("condition", ""), "description": info.get("description", ""), "severity": info.get("severity", "NORMAL"), "wind_speed": info.get("wind_speed", 0), "is_severe": info.get("is_severe", False)} for c, info in weather_conditions.items() if info.get("severity") in ("SEVERE", "MODERATE")],
+                "gdelt_events": [{"code": c, "lat": COUNTRY_COORDS[c]["lat"], "lng": COUNTRY_COORDS[c]["lng"], "name": COUNTRY_COORDS[c]["name"], "tone_current": info.get("tone_current"), "tone_baseline": info.get("tone_baseline"), "delta": info.get("delta"), "status": info.get("status", "NORMAL"), "is_alert": info.get("is_alert", False)} for c, info in gdelt_tones.items() if c in COUNTRY_COORDS and info.get("status") in ("ALERT", "WEATHER_NOISE")],
+                "critical_nodes": [{"type": "IXP", "id": ix["id"], "name": ix["name"], "aka": ix.get("aka", ""), "city": ix["city"], "country": c, "lat": ix["lat"], "lng": ix["lng"], "status": ix.get("status", "ok")} for c, cdata in ixp_data.items() for ix in cdata.get("ixps", []) if ix.get("lat") and ix.get("lng")],
+                "firms_anomalies": nasa_firms_data,
+                "chokepoints": [{"name": c["name"], "lat": c["lat"], "lng": c["lng"], "country": c["country"]} for c in CHOKEPOINTS if c["country"] in requested_targets]
+            },
+        },
+    }
+
+    alert_timeline.append({
+        "ts": current_time, "defcon": defcon, "defcon_raw": defcon_raw, "defcon_held": defcon_held, "score": total_score, "score_with_bonus": score_with_bonus,
+        "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
+        "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
+        "core_theater": core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+        "is_coordinated": is_coordinated, "system_note": system_note,
+    })
+    while len(alert_timeline) > ALERT_TIMELINE_MAX: alert_timeline.pop(0)
+
+    results = []
+    for t in requested_targets:
+        t_info = COUNTRY_COORDS.get(t, {"lat": 0, "lng": 0, "name": t})
+        data = global_cache["data"].get(t, {"global_share": 0, "global_share_l3": 0, "global_share_l7": 0, "is_vector_shift": False, "shift_actors": [], "sources": []})
+        
+        degraded_raw = global_cache["strategic"].get("degraded_theaters_raw", [])
+        degraded_eff = global_cache["strategic"].get("degraded_theaters", [])
+        
+        results.append({
+            "lat": t_info["lat"], "lng": t_info["lng"], "info": t_info["name"], "code": t,
+            "global_share": data.get("global_share", 0.0), "global_share_l3": data.get("global_share_l3", 0.0), "global_share_l7": data.get("global_share_l7", 0.0),
+            "is_bgp_outage": t in degraded_raw,
+            "is_bgp_effective": t in degraded_eff,
+            "is_vector_shift": data.get("is_vector_shift", False), "shift_actors": data.get("shift_actors", []),
+            "trend_history": time_series_db.get(t, []), "trend_history_l3": time_series_l3_db.get(t, []), "trend_history_l7": time_series_l7_db.get(t, []),
+            "sources": data.get("sources", []),
+        })
+
+    return jsonify({
+        "timestamp":       datetime.datetime.now().isoformat(),
+        "sensor_health":   registry.health_report(),
+        "strategic_alert": global_cache["strategic"],
+        "targets":         results,
+        "defcon_history":  defcon_history,
+    })
+
+@app.route("/api/sensor_config", methods=["GET", "POST"])
+def sensor_config():
+    if request.method == "GET": return jsonify({"sensors": registry.config_list(), "domain_weights": engine.DOMAIN_WEIGHTS})
+    body = request.get_json(silent=True) or {}
+    name, enabled = body.get("name", ""), body.get("enabled")
+    if not name or enabled is None: return jsonify({"error": "name and enabled are required"}), 400
+    if registry.get(name) is None: return jsonify({"error": f"Unknown sensor: {name}"}), 404
+    registry.set_enabled(name, bool(enabled))
+    return jsonify({"ok": True, "sensor": name, "enabled": registry.get(name).enabled})
+
+@app.route("/api/data_status", methods=["GET"])
+def data_status():
+    now = time.time(); sensors_status = []
+    for s in registry._sensors.values():
+        log = s.get_fetch_log()
+        sensors_status.append({
+            "sensor": s.name, "domain": s.domain, "enabled": s.enabled, "health": s.health,
+            "poll_interval_sec": s.poll_interval, "cache_age_sec": round(now - s._cache_time) if s._cache_time else None,
+            "cache_size_chars": len(str(s._cache)), "last_error": s._last_error, "last_fetch": log[-1] if log else None, "fetch_log": log,
+        })
+    return jsonify({"ts": datetime.datetime.now().isoformat(), "sensors": sensors_status})
+
+@app.route("/api/alert_timeline", methods=["GET"])
+def api_alert_timeline():
+    limit = min(int(request.args.get("limit", 288)), 288)
+    return jsonify({"ts": datetime.datetime.now().isoformat(), "count": len(alert_timeline), "timeline": alert_timeline[-limit:]})
+
+@app.route("/api/sitrep", methods=["GET"])
+def api_sitrep():
+    now_ts = datetime.datetime.now(datetime.timezone.utc)
+    if not alert_timeline: 
+        return jsonify({"ts": now_ts.isoformat(), "text": "No data available yet.", "summary": {}})
+    
+    recent, latest, oldest = alert_timeline[-12:], alert_timeline[-1], alert_timeline[0]
+    span_min = round((latest["ts"] - oldest["ts"]) / 60) if len(alert_timeline) > 1 else 0
+    levels = [e["defcon"] for e in recent]
+    min_d, max_d, avg_d = min(levels), max(levels), round(sum(levels) / len(levels), 1)
+    
+    conv_counts = {}
+    for e in recent:
+        lv = e.get("convergence_level", "NONE")
+        conv_counts[lv] = conv_counts.get(lv, 0) + 1
+    dominant_conv = max(conv_counts, key=lambda k: conv_counts[k])
+    
+    active_domains = []
+    if latest.get("domain_cyber", 0) > 0: active_domains.append("CYBER")
+    if latest.get("domain_physical", 0) > 0: active_domains.append("PHYSICAL")
+    if latest.get("domain_info", 0) > 0: active_domains.append("INFO")
+    
+    trend = "INSUFFICIENT DATA"
+    if len(levels) >= 3:
+        trend_val = latest["defcon"] - levels[0] 
+        trend = "ESCALATING" if trend_val < 0 else "DE-ESCALATING" if trend_val > 0 else "STABLE"
+
+    core = latest.get("core_theater") or "UNKNOWN"
+    note = latest.get("system_note", "")
+    
+    text_lines = [
+        "UNCLASSIFIED // FOR OFFICIAL USE ONLY",
+        "TACTICAL SITUATION REPORT (SITREP)",
+        f"DTG: {now_ts.strftime('%d%H%MZ %b %Y').upper()}",
+        "--------------------------------------------------",
+        "1. OVERALL ASSESSMENT",
+        f"   CURRENT THREAT LEVEL : LEVEL {latest['defcon']} [{trend}]",
+        f"   PRIMARY THEATER      : {core}",
+        f"   CONVERGENCE STATE    : {dominant_conv.replace('_', ' ')}",
+        f"   OBSERVATION WINDOW   : {span_min} MIN / {len(alert_timeline)} CYCLES",
+        "",
+        "2. DOMAIN ACTIVITY (LAST 1H)",
+        f"   THREAT RANGE         : LV {min_d} - LV {max_d} (AVG: {avg_d})",
+        f"   ACTIVE DOMAINS       : {', '.join(active_domains) if active_domains else 'NONE'}",
+    ]
+    
+    degraded = latest.get("degraded_theaters", [])
+    if degraded: 
+        text_lines += [f"   CRITICAL OUTAGES     : {', '.join(degraded)}"]
+    
+    if latest.get("is_coordinated"): 
+        text_lines += ["   WARNING              : COORDINATED MULTI-FRONT ACTIVITY DETECTED"]
+
+    text_lines += [
+        "",
+        "3. SYSTEM RATIONALE & ANALYST NOTE",
+        f"   {note}" if note else "   NO ADDITIONAL RATIONALE PROVIDED.",
+        "",
+        "4. RECOMMENDATION",
+        "   System assessment is probabilistic. Human-in-the-loop (HITL) verification required.",
+        "--------------------------------------------------"
+    ]
+
+    return jsonify({
+        "ts": now_ts.isoformat(), 
+        "text": "\n".join(text_lines),
+        "summary": {
+            "threat_current": latest["defcon"], 
+            "threat_trend": trend, 
+            "threat_min_1h": max_d, 
+            "threat_max_1h": min_d, 
+            "threat_avg_1h": avg_d, 
+            "convergence": dominant_conv, 
+            "active_domains": active_domains, 
+            "core_theater": core, 
+            "span_minutes": span_min, 
+            "cycle_count": len(alert_timeline)
+        },
+    })
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=8000, debug=True)
