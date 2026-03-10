@@ -1,0 +1,2331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strategic MDO Radar (C4ISR)</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        /* ── Base & Scrollbars ── */
+        body { margin: 0; padding: 0; background-color: #0f0f0f; color: #ffffff; font-family: 'Segoe UI', Tahoma, sans-serif; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #00ffff; }
+
+        /* ── Custom Tooltip ── */
+        #custom-tooltip {
+            position: absolute; background: rgba(10, 10, 10, 0.95); border: 1px solid #00ffff;
+            color: #fff; padding: 6px 12px; border-radius: 4px; font-size: 11px; z-index: 10000;
+            pointer-events: none; white-space: pre-wrap; box-shadow: 0 4px 15px rgba(0,255,255,0.15);
+            display: none; font-family: 'Courier New', Courier, monospace; letter-spacing: 0.5px;
+        }
+
+        /* ── Custom Form Elements (Checkboxes & Radios) ── */
+        input[type="checkbox"], input[type="radio"] {
+            appearance: none; -webkit-appearance: none; width: 14px; height: 14px;
+            border: 1px solid #555; border-radius: 2px; background: #222; outline: none;
+            cursor: pointer; position: relative; margin-right: 6px; vertical-align: middle; transition: 0.2s;
+        }
+        input[type="radio"] { border-radius: 50%; }
+        input[type="checkbox"]:checked, input[type="radio"]:checked { background: rgba(0, 255, 255, 0.2); border-color: #00ffff; }
+        input[type="checkbox"]:checked::after { content: '✔'; position: absolute; top: -3px; left: 2px; color: #00ffff; font-size: 11px; font-weight: bold; }
+        input[type="radio"]:checked::after { content: ''; position: absolute; top: 3px; left: 3px; width: 6px; height: 6px; background: #00ffff; border-radius: 50%; }
+
+        /* ── Tactical Global Loader (動的ログ＆スキャンバー) ── */
+        #global-loader {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #0a0a0a; z-index: 9999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transition: opacity 0.4s ease;
+        }
+        .loader-text {
+            font-family: 'Courier New', monospace; color: #aaa;
+            font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
+        }
+        .blink-cursor {
+            display: inline-block; width: 7px; height: 13px; background-color: #00ffff;
+            margin-left: 6px; vertical-align: middle; animation: blink-cursor 1s step-end infinite;
+        }
+        .tactical-bar {
+            width: 260px; height: 2px; background: #222; margin: 16px 0; position: relative; overflow: hidden;
+        }
+        .tactical-bar-inner {
+            position: absolute; top: 0; left: 0; height: 100%; width: 20%;
+            background: #00ffff; box-shadow: 0 0 8px #00ffff;
+            animation: tactical-scan 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+            will-change: left, width;
+        }
+        .loader-log {
+            font-family: 'Courier New', monospace; font-size: 10px; color: #666;
+            letter-spacing: 1px; text-align: center; white-space: nowrap; width: 100%;
+        }
+        @keyframes tactical-scan {
+            0% { left: 0%; width: 10%; }
+            50% { width: 40%; }
+            100% { left: 90%; width: 10%; }
+        }
+        @keyframes blink-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* ── HUD Layout ── */
+        #top-hud { width: 100vw; background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #444; z-index: 4000; display: flex; flex-direction: column; padding: 6px 15px 4px; box-sizing: border-box; box-shadow: 0 2px 15px rgba(0,0,0,0.8); flex-shrink: 0; }
+        .hud-top-row { display: flex; width: 100%; align-items: center; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px dashed #333; }
+        .hud-bottom-row { display: flex; width: 100%; align-items: center; flex-wrap: wrap; row-gap: 4px; }
+        
+        .hud-item { display: flex; align-items: center; margin-right: 12px; font-size: 12px; border-right: 1px solid #333; padding-right: 12px; white-space: nowrap; }
+        .hud-item:last-of-type { border-right: none; }
+        .hud-label { color: #888; margin-right: 5px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px;}
+        .hud-value { font-weight: bold; cursor: default; }
+        .warn-text { color: #ff2a2a; font-weight: bold; animation: blink 1.5s infinite; will-change: opacity; }
+        .alert-text { color: #ffaa00; font-weight: bold; }
+        
+        .threat-hud { padding: 4px 12px; border-radius: 3px; font-weight: bold; font-size: 13px; letter-spacing: 1px; margin-right: 20px; text-transform: uppercase; white-space: nowrap; cursor: pointer; transition: 0.2s;}
+        .threat-hud:hover { filter: brightness(1.2); }
+        .threat-5-hud { background: rgba(0,255,255,0.1); color: #00ffff; border: 1px solid #00ffff; }
+        .threat-4-hud { background: rgba(255,255,0,0.1); color: #ffff00; border: 1px solid #ffff00; }
+        .threat-3-hud { background: rgba(255,170,0,0.1); color: #ffaa00; border: 1px solid #ffaa00; }
+        .threat-2-hud { background: rgba(255,42,42,0.2); color: #ff2a2a; border: 1px solid #ff2a2a; box-shadow: 0 0 10px rgba(255,42,42,0.5); }
+        .threat-1-hud { background: rgba(255,0,0,0.4); color: #fff; border: 2px solid #ff0000; animation: flashCrit 0.5s infinite; text-shadow: 0 0 5px #fff; will-change: opacity, background; }
+        
+        /* Buttons Uniformity (SYNC CSS FIx) */
+        .btn-tactical { background: transparent; border: 1px solid #555; padding: 5px 12px; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 11px; color: #ccc; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+        .btn-tactical:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: #888; }
+        .btn-action { color: #00ffff; border-color: #00ffff66; margin-left: 8px; }
+        .btn-action:hover { background: rgba(0, 255, 255, 0.15); border-color: #00ffff; color: #00ffff; }
+        
+        .btn-sync { color: #66ff66; border-color: #66ff6666; margin-left: 8px; }
+        .btn-sync:hover { background: rgba(102, 255, 102, 0.15); border-color: #66ff66; color: #66ff66; }
+        .btn-sync.pending { color: #ffaa00; border-color: #ffaa00; box-shadow: 0 0 10px rgba(255,170,0,0.5); }
+        .btn-sync.pending:hover { background: rgba(255,170,0,0.15); border-color: #ffaa00; color: #ffaa00; }
+        .btn-sync.syncing { background: #ffaa00 !important; color: #000 !important; border-color: #ffaa00 !important; box-shadow: none !important; pointer-events: none; }
+
+        .vec-toggle-group { display: flex; gap: 4px; margin-right: 10px; }
+        .vec-btn { background: transparent; border: 1px solid #444; padding: 4px 9px; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 10px; color: #888; transition: 0.15s; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+        .vec-btn:hover { border-color: #aaa; color: #ccc; }
+        .vec-btn.active-all { background: rgba(0,255,255,0.15); border-color: #00ffff; color: #00ffff; }
+        .vec-btn.active-l3  { background: rgba(255,102,102,0.15); border-color: #ff6666; color: #ff6666; }
+        .vec-btn.active-l7  { background: rgba(102,255,102,0.15); border-color: #66ff66; color: #66ff66; }
+
+        #main-container { display: flex; flex-grow: 1; height: 0; width: 100vw; position: relative; }
+        
+        #map-wrapper { flex-grow: 1; position: relative; height: 100%; z-index: 1; }
+        #map { height: 100%; width: 100%; background-color: #0f0f0f; }
+        .leaflet-container { background: #0f0f0f !important; }
+
+        .leaflet-control-layers {
+            background: rgba(15, 15, 15, 0.95) !important; border: 1px solid #444 !important;
+            color: #eee !important; box-shadow: 0 0 15px rgba(0,0,0,0.8) !important; border-radius: 4px !important;
+        }
+        .leaflet-control-layers-separator { border-top: 1px solid #444 !important; margin: 6px 0 !important; }
+        .leaflet-control-layers-toggle { filter: invert(1) brightness(0.8); }
+
+        #sidebar { width: 400px; flex-shrink: 0; background: #121212; border-left: 1px solid #444; display: flex; flex-direction: column; z-index: 10; box-shadow: -5px 0 20px rgba(0,0,0,0.5); }
+        .sidebar-footer { padding: 10px 15px; border-top: 1px solid #333; background: #1a1a1a; font-size: 11px; color: #aaa; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+
+        #target-placeholder { flex-shrink: 0; border-bottom: 2px solid #000; }
+        #dashboard-placeholder { display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
+
+        .panel-header-unified {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 13px; color: #fff; text-transform: uppercase; letter-spacing: 1px; font-weight: bold;
+            border-bottom: 1px solid #555;
+        }
+
+        .draggable-panel { display: flex; flex-direction: column; box-sizing: border-box; }
+        .drag-handle { cursor: grab; user-select: none; }
+        .drag-handle:active { cursor: grabbing; }
+
+        .docked { width: 100%; height: 100%; background: transparent; border: none; box-shadow: none; }
+        .docked .drag-handle { padding: 12px 15px; background: #1a1a1a; margin: 0; }
+        .docked .panel-content { padding: 15px; display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
+
+        .floating { position: absolute; z-index: 4100; background: rgba(15, 15, 15, 0.97); padding: 15px 20px; border-radius: 8px; border: 1px solid #444; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8); }
+        .floating.active { z-index: 4200; border-color: #777; box-shadow: 0 4px 25px rgba(0, 255, 255, 0.2); }
+        .floating .drag-handle { margin: 0 0 10px 0; padding-bottom: 8px; }
+        .floating .panel-content { padding: 0; display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
+        #dashboard-panel.floating { resize: both; min-height: 250px; min-width: 300px; max-height: 80vh; }
+
+        .icon-btn { cursor: pointer; padding: 2px 6px; font-weight: bold; color: #aaa; background: rgba(255,255,255,0.1); border-radius: 3px; font-size: 12px; margin-left: 5px; transition: 0.2s; border: 1px solid transparent;}
+        .icon-btn:hover { color: #fff; background: rgba(255,255,255,0.2); border-color: #777;}
+        .dock-btn { color: #00ffff; }
+        .dock-btn:hover { background: rgba(0,255,255,0.2); border-color: #00ffff;}
+        .icon-btn.active-btn { color: #fff; background: rgba(255,255,255,0.2); }
+
+        .target-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 5px; overflow-y: auto; max-height: 200px; padding-right: 5px;}
+        .target-grid label { font-size: 13px; cursor: pointer; display: flex; align-items: center; color: #ccc; padding: 2px; transition: 0.2s;}
+        .target-grid label:hover { color: #fff; }
+        
+        #origin-list-container { font-size: 12px; color: #ffaa00; flex-grow: 1; overflow-y: auto; padding-right: 5px;}
+        
+        /* ── Modals ── */
+        #settings-backdrop { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.85); z-index: 5000; }
+        .modal-window { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 750px; max-width: 90vw; height: 80vh; max-height: 800px; background: rgba(15, 15, 15, 0.98); padding: 25px; border-radius: 8px; border: 1px solid #00ffff; box-shadow: 0 10px 50px rgba(0, 255, 255, 0.15); z-index: 5100; flex-direction: column; }
+        .modal-header { padding-bottom: 12px; font-size: 15px; }
+        
+        .tabs { display: flex; border-bottom: 1px solid #444; margin: 15px 0; }
+        .tab { padding: 10px 20px; cursor: pointer; font-size: 13px; color: #888; border-bottom: 2px solid transparent; transition: 0.2s; flex-grow: 1; text-align: center; text-transform: uppercase; letter-spacing: 1px; }
+        .tab:hover { color: #ccc; background: rgba(255,255,255,0.05); }
+        .tab.active { color: #00ffff; border-bottom: 2px solid #00ffff; font-weight: bold; background: rgba(0,255,255,0.05); }
+        .tab-content { display: none; flex-grow: 1; overflow-y: auto; padding-right: 10px; }
+        .tab-content.active { display: block; }
+        
+        .help-text { font-size: 12px; color: #aaa; margin-bottom: 15px; line-height: 1.5; background: rgba(255,255,255,0.04); padding: 12px; border-radius: 4px; border-left: 3px solid #555; }
+        .modal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
+        .modal-grid label { font-size: 13px; cursor: pointer; display: flex; align-items: center; color: #ccc; padding: 6px; border-radius: 4px; transition: 0.2s; border: 1px solid transparent;}
+        .modal-grid label:hover { color: #fff; background: rgba(255,255,255,0.05); border-color: #444;}
+        
+        .theater-table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 5px; }
+        .theater-table th { color: #888; font-weight: normal; text-align: center; padding-bottom: 10px; font-size: 12px; border-bottom: 1px solid #555; position: sticky; top: 0; background: #0f0f0f; z-index: 10; text-transform: uppercase;}
+        .theater-table td { padding: 8px 0; border-bottom: 1px solid #222;}
+        .theater-table td.center { text-align: center; width: 80px; }
+        .theater-table label { cursor: pointer; color: #ccc; display: block; padding-left: 10px; transition: 0.2s;}
+        .theater-table label:hover { color: #fff; }
+
+        .manual-content { overflow-y: auto; flex-grow: 1; padding-right: 15px; line-height: 1.6; font-size: 13px; color: #ddd; margin-top: 15px; }
+        .manual-content h4 { color: #00ffff; border-bottom: 1px dashed #555; padding-bottom: 5px; margin-top: 20px; margin-bottom: 10px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+        .manual-content p { margin-bottom: 10px; }
+        .manual-content ul { padding-left: 20px; margin-bottom: 10px; }
+        .manual-content li { margin-bottom: 8px; }
+        .code-block { display: inline-block; background: #222; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', Courier, monospace; color: #00ffff; font-size: 12px; border: 1px solid #444; margin: 2px 0;}
+        .hl-red { color: #ff2a2a; font-weight: bold; }
+        .hl-green { color: #66ff66; font-weight: bold; }
+        .hl-orange { color: #ffaa00; font-weight: bold; }
+        .manual-symbol { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+
+        .target-group-title { display: flex; justify-content: space-between; align-items: center; color: #00ffff; border-bottom: 1px solid #444; margin-top: 12px; padding-bottom: 4px; font-weight: bold; font-size: 13px; cursor: pointer; user-select: none; transition: background 0.2s; text-transform: uppercase; }
+        .target-group-title:hover { background: rgba(255,255,255,0.05); }
+        .target-title-left { display: flex; align-items: center; min-width: 0; flex: 1; margin-right: 10px; }
+        .toggle-arrow { display: inline-block; width: 12px; font-size: 10px; color: #aaa; flex-shrink: 0; }
+        .target-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0 5px; flex-shrink: 1; }
+        .target-share { color: #fff; font-size: 11px; flex-shrink: 0; }
+
+        .target-title-right { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
+        .status-badge { border: 1px solid currentColor; padding: 1px 4px; border-radius: 3px; font-size: 10px; flex-shrink: 0; white-space: nowrap; cursor: help; }
+        .shift-badge { background: #ffaa00; color: #000; padding: 1px 4px; border-radius: 3px; font-size: 10px; flex-shrink: 0; white-space: nowrap; font-weight: bold; cursor: help;}
+
+        /* P7-Opt: sparkline は Canvas で描画するため div系クラスは参照なし（後方互換保持） */
+        .sparkline-canvas { display: inline-block; vertical-align: middle; cursor: help; image-rendering: pixelated; flex-shrink: 0; }
+        
+        .origin-list-ul { margin: 5px 0 10px 0; padding-left: 15px; list-style-type: none;}
+        .origin-item { margin-bottom: 6px; line-height: 1.4; }
+        .origin-stats { color: #ccc; font-size: 11px; margin-left: 20px; display: block; }
+        .conf-badge { padding: 1px 4px; border-radius: 3px; font-size: 9px; border: 1px solid; margin-left: 4px; font-weight: bold; }
+        .conf-high   { color: #ff2a2a; border-color: #ff2a2a; background: rgba(255,42,42,0.1); }
+        .conf-medium { color: #ffaa00; border-color: #ffaa00; background: rgba(255,170,0,0.1); }
+        .conf-low    { color: #555;    border-color: #555;    background: transparent; }
+        .new-actor-badge { color: #ff66ff; border: 1px solid #ff66ff; padding: 1px 4px; border-radius: 3px; font-size: 9px; margin-left: 4px; cursor: help; }
+        .state-asn-badge { color: #ff2a2a; border: 1px solid #ff2a2a; padding: 1px 4px; border-radius: 3px; font-size: 9px; margin-left: 4px; background: rgba(255,42,42,0.15); font-weight: bold; cursor: help; }
+        .spike-alert { color: #ff2a2a; font-weight: bold; font-size: 11px; background: rgba(255,42,42,0.15); padding: 1px 4px; border-radius: 3px; margin-left: 5px; animation: blink 1s infinite; will-change: opacity; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+
+        .target-marker-wrapper { position: relative; width: 80px; height: 80px; }
+        .tm-badges-wrap { position: absolute; bottom: -2px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; white-space: nowrap; pointer-events: none; }
+        .tm-badge { font-size: 9px; font-weight: bold; padding: 1px 4px; border-radius: 2px; border: 1px solid; line-height: 1.4; letter-spacing: 0.5px; }
+        .tm-badge-bgp  { color: #ff2a2a; border-color: #ff2a2a; background: rgba(255,42,42,0.18); }
+        .tm-badge-ixp  { color: #ffee44; border-color: #ffee44; background: rgba(255,238,68,0.15); }
+        .tm-badge-gdelt{ color: #cc44ff; border-color: #cc44ff; background: rgba(204,68,255,0.15); }
+        .tm-badge-air  { color: #ffaa00; border-color: #ffaa00; background: rgba(255,170,0,0.15); }
+        .ddos-core { width: 10px; height: 10px; border-radius: 50%; position: absolute; top: 35px; left: 35px; will-change: transform; }
+        .ddos-ring { border-style: solid; border-radius: 50%; height: 80px; width: 80px; position: absolute; top: 0; left: 0; box-sizing: border-box; opacity: 0; will-change: transform, opacity; }
+        
+        .target-normal .ddos-core { background-color: #66ff66; box-shadow: 0 0 15px #66ff66; }
+        .target-normal .ddos-ring { border-color: #66ff66; border-width: 2px; animation: pulsateNormal 1.5s ease-out infinite; }
+        .target-weather .ddos-core { background-color: #ffaa00; box-shadow: 0 0 15px #ffaa00; animation: coreWeather 1.2s alternate infinite; }
+        .target-weather .ddos-ring { border-color: #ffaa00; border-width: 3px; animation: pulsateWeather 1.5s ease-out infinite; }
+        .target-degraded .ddos-core { background-color: #ff2a2a; box-shadow: 0 0 20px #ff2a2a; animation: coreCritical 0.5s alternate infinite; }
+        .target-degraded .ddos-ring { border-color: #ff2a2a; border-width: 4px; animation: pulsateCritical 0.8s ease-out infinite; }
+        
+        @keyframes pulsateNormal { 0% { transform: scale(0.1); opacity: 1; border-width: 3px; } 100% { transform: scale(1.2); opacity: 0; border-width: 1px; } }
+        @keyframes coreWeather { from { transform: scale(0.9); } to { transform: scale(1.3); } }
+        @keyframes pulsateWeather { 0% { transform: scale(0.1); opacity: 1; border-width: 4px; } 100% { transform: scale(1.4); opacity: 0; border-width: 1px; } }
+        @keyframes coreCritical { from { transform: scale(0.8); } to { transform: scale(1.5); } }
+        @keyframes pulsateCritical { 0% { transform: scale(0.1); opacity: 1; border-width: 6px; } 100% { transform: scale(1.6); opacity: 0; border-width: 1px; } }
+        @keyframes flashCrit { 0%, 100% { opacity: 1; background: #ff0000; } 50% { opacity: 0.5; background: #330000; } }
+
+        .attack-curve { stroke-linecap: round; fill: none; }
+        .flow-fast { stroke-dasharray: 15, 20; animation: flowFast 0.6s linear infinite; } @keyframes flowFast { from { stroke-dashoffset: 35; } to { stroke-dashoffset: 0; } }
+        .flow-medium { stroke-dasharray: 10, 20; animation: flowMedium 1.5s linear infinite; } @keyframes flowMedium { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
+        .flow-slow { stroke-dasharray: 5, 15; animation: flowSlow 3.0s linear infinite; } @keyframes flowSlow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+        /* P8-Opt: glow-high SVG filter removed (GPU負荷削減). JS側でline-weight+1.5px補正. */
+        
+        .country-label { background: transparent; border: none; box-shadow: none; color: #eeeeee; font-weight: bold; font-size: 11px; text-shadow: 0 0 5px #000, 0 0 2px #000; text-transform: uppercase; letter-spacing: 1px; }
+
+        .domain-bar-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; cursor: help; }
+        .domain-label  { font-size: 10px; color: #888; width: 55px; text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
+        .domain-bar    { height: 6px; border-radius: 3px; transition: width 0.4s; will-change: width; }
+        .domain-cyber    { background: #00ffff; }
+        .domain-physical { background: #ffaa00; }
+        .domain-info     { background: #cc66ff; }
+        .domain-status   { font-size: 10px; font-weight: bold; }
+        .domain-status.CRITICAL { color: #ff2a2a; }
+        .domain-status.ELEVATED { color: #ffaa00; }
+        .domain-status.WATCH    { color: #ffff00; }
+        .domain-status.NORMAL   { color: #777; }
+
+        #evidence-modal { border-color: #00ffff80; }
+        .rationale-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 8px; }
+        .rationale-table th { color: #888; font-weight: normal; text-align: left; padding: 6px 8px; border-bottom: 1px solid #444; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; position: sticky; top: 0; background: #0f0f0f; }
+        .rationale-table td { padding: 6px 8px; border-bottom: 1px solid #222; vertical-align: top; }
+        .rationale-table tr:hover td { background: rgba(255,255,255,0.03); }
+        .rat-status-FIRED      { color: #ff2a2a; font-weight: bold; }
+        .rat-status-OK         { color: #444; }
+        .rat-status-SUPPRESSED { color: #ffaa00; }
+        .rat-status-DISABLED   { color: #444; font-style: italic; }
+        .rat-domain-cyber    { color: #00ffff; }
+        .rat-domain-physical { color: #ffaa00; }
+        .rat-domain-info     { color: #cc66ff; }
+        .rat-score-pos { color: #ff2a2a; font-weight: bold; }
+        .rat-score-zero { color: #444; }
+        .evidence-system-note { font-size: 11px; color: #aaa; background: rgba(255,255,255,0.04); border-left: 3px solid #555; padding: 8px 12px; border-radius: 0 4px 4px 0; margin: 12px 0 8px; line-height: 1.6; }
+        .convergence-row { display: flex; gap: 16px; margin: 8px 0 4px; flex-wrap: wrap; }
+
+        /* ── Phase 8: Evidence Chain Timeline ── */
+        #p8-chain-panel { position: fixed; right: 16px; top: 120px; width: 260px; background: rgba(10,12,16,0.96); border: 1px solid #00ffff40; border-radius: 6px; padding: 12px; z-index: 4000; font-size: 11px; display: none; max-height: 70vh; overflow-y: auto; }
+        #p8-chain-panel .p8-panel-title { font-size: 11px; color: #00ffff; font-weight: bold; letter-spacing: 1px; margin-bottom: 10px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+        .p8-chain-event { display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-start; }
+        .p8-chain-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 2px; }
+        .p8-chain-dot-NARRATIVE_BURST { background: #cc66ff; }
+        .p8-chain-dot-ISR_SURGE       { background: #ffaa00; }
+        .p8-chain-dot-SYNC_DDOS       { background: #00ffff; }
+        .p8-chain-dot-FIRMS_ANOMALY   { background: #ff4444; }
+        .p8-chain-dot-AIS_DARK_GAP    { background: #44aaff; }
+        .p8-chain-line { flex: 0 0 1px; background: #333; width: 1px; min-height: 20px; margin: 4px auto; }
+        .p8-chain-text { flex: 1; }
+        .p8-chain-type { font-weight: bold; color: #ddd; font-size: 10px; }
+        .p8-chain-time { color: #555; font-size: 9px; }
+        .p8-seq-status { margin-top: 8px; padding: 6px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; text-align: center; }
+        .p8-seq-FULL_CHAIN  { background: rgba(255,68,68,0.2);  color: #ff4444; border: 1px solid #ff444460; }
+        .p8-seq-PARTIAL     { background: rgba(255,170,0,0.15); color: #ffaa00; border: 1px solid #ffaa0060; }
+        .p8-seq-NONE        { background: rgba(60,60,60,0.3);   color: #666;    border: 1px solid #333; }
+        /* Phase 8: Narrative Burst インジケーター */
+        #hud-narrative-burst { display: none; }
+        #hud-narrative-burst.active { display: inline-block; color: #cc66ff; font-weight: bold; animation: blink 1.2s step-end infinite; font-size: 11px; }
+        .convergence-item { font-size: 12px; }
+        .conv-val { font-weight: bold; color: #00ffff; }
+
+        .sensor-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #222; }
+        .sensor-name { font-size: 12px; color: #ccc; flex: 1; font-family: 'Courier New', monospace; }
+        .sensor-domain-tag { font-size: 10px; padding: 1px 5px; border-radius: 3px; border: 1px solid; flex-shrink: 0; }
+        .sensor-domain-cyber    { color: #00ffff; border-color: #00ffff40; }
+        .sensor-domain-physical { color: #ffaa00; border-color: #ffaa0040; }
+        .sensor-domain-info     { color: #cc66ff; border-color: #cc66ff40; }
+        .sensor-health { font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+        .sensor-health-OK          { color: #66ff66; background: rgba(102,255,102,0.1); }
+        .sensor-health-INITIALIZING{ color: #ffff00; background: rgba(255,255,0,0.1); }
+        .sensor-health-STALE       { color: #ffaa00; background: rgba(255,170,0,0.1); }
+        .sensor-health-ERROR       { color: #ff2a2a; background: rgba(255,42,42,0.1); }
+        .sensor-health-DISABLED    { color: #555; background: rgba(255,255,255,0.05); }
+        .sensor-toggle { background: transparent; border: 1px solid #555; color: #ccc; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; transition: 0.2s; text-transform: uppercase; }
+        .sensor-toggle:hover { background: rgba(255,255,255,0.1); border-color: #888; color: #fff; }
+        .sensor-toggle.active { border-color: #66ff6666; color: #66ff66; }
+        .sensor-toggle.active:hover { background: rgba(102,255,102,0.1); border-color: #66ff66; }
+        .sensor-phase-tag { font-size: 10px; color: #444; font-style: italic; }
+
+        #hud-convergence { font-size: 10px; font-weight: bold; letter-spacing: 1px; padding: 3px 8px; border-radius: 3px; border: 1px solid #333; transition: 0.3s; cursor: help; }
+        .conv-FULL_CONVERGENCE { color: #ff2a2a; border-color: #ff2a2a !important; background: rgba(255,42,42,0.12); animation: blink 1.2s infinite; will-change: opacity; }
+        .conv-DUAL_DOMAIN      { color: #ffaa00; border-color: #ffaa00 !important; background: rgba(255,170,0,0.10); }
+        .conv-SINGLE_DOMAIN    { color: #00ffff; border-color: #00ffff55 !important; background: transparent; }
+        .conv-NONE             { color: #555;    border-color: #333 !important;      background: transparent; }
+
+        .sitrep-card { background: #111; border: 1px solid #222; border-radius: 4px; padding: 10px 12px; text-align: center; }
+        .sitrep-card-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .sitrep-card-value { font-size: 20px; font-weight: bold; color: #eee; }
+        .sitrep-card-sub   { font-size: 11px; color: #888; margin-top: 2px; }
+
+        #country-modal { width: 620px; max-height: 80vh; }
+        .cip-header { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid #333; margin-bottom: 14px; }
+        .cip-flag   { font-size: 28px; line-height: 1; }
+        .cip-title  { font-size: 18px; font-weight: bold; color: #eee; }
+        .cip-code   { font-size: 12px; color: #555; margin-top: 2px; }
+        .cip-section { margin-bottom: 14px; }
+        .cip-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: #555; margin-bottom: 8px; border-bottom: 1px solid #1a1a1a; padding-bottom: 4px; }
+        .cip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .cip-card { background: #111; border: 1px solid #222; border-radius: 4px; padding: 8px 10px; }
+        .cip-card-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+        .cip-card-value { font-size: 13px; color: #ddd; margin-top: 2px; font-weight: bold; }
+        .cip-card-sub   { font-size: 11px; color: #666; margin-top: 2px; }
+        .cip-ok      { color: #66ff66; }
+        .cip-warn    { color: #ffaa00; }
+        .cip-alert   { color: #ff4444; }
+        .cip-sources-list { list-style: none; padding: 0; margin: 4px 0 0; }
+        .cip-sources-list li { font-size: 12px; color: #ccc; padding: 3px 0; border-bottom: 1px solid #1a1a1a; display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body>
+
+<div id="custom-tooltip"></div>
+
+<div id="global-loader">
+    <div class="loader-text">System Initializing<span class="blink-cursor"></span></div>
+    <div class="tactical-bar"><div class="tactical-bar-inner"></div></div>
+    <div id="loader-log" class="loader-log">> Establishing secure connection...</div>
+</div>
+
+<div id="top-hud">
+    <div class="hud-top-row">
+        <div id="hud-threat" class="threat-hud threat-5-hud" data-tooltip="Click to view Analytic Rationale">THREAT Lv 5: NORMAL</div>
+        <div class="hud-item"><span class="hud-label">Epicenter:</span> <span id="hud-epicenter" class="hud-value" style="color:#00ffff;">-</span></div>
+        <div class="hud-item">
+            <span id="hud-convergence" class="conv-NONE" data-tooltip="Multi-Domain Convergence Level">CONVERGENCE: —</span>
+        </div>
+        <div class="hud-item" data-tooltip="Threat Level History (last 24 hours / 288 cycles)">
+            <span class="hud-label">THREAT 24h:</span>
+            <canvas id="hud-defcon-spark" width="80" height="18" style="vertical-align:middle; margin-left:4px; cursor:help;"></canvas>
+        </div>
+        
+        <div style="flex-grow: 1;"></div>
+        
+        <div class="vec-toggle-group" style="margin-right: 15px; border-right: 1px solid #333; padding-right: 15px;">
+            <button id="map-btn-pacific" class="vec-btn active-all" onclick="switchMapCenter('pacific')" data-tooltip="Center map on Indo-Pacific">PACIFIC</button>
+            <button id="map-btn-atlantic" class="vec-btn" onclick="switchMapCenter('atlantic')" data-tooltip="Center map on Atlantic / Europe">ATLANTIC</button>
+        </div>
+        
+        <div class="vec-toggle-group">
+            <button id="vec-btn-all" class="vec-btn active-all" onclick="switchVector('all')">ALL VECTORS</button>
+            <button id="vec-btn-l3"  class="vec-btn"            onclick="switchVector('l3')">L3 VOLUMETRIC</button>
+            <button id="vec-btn-l7"  class="vec-btn"            onclick="switchVector('l7')">L7 APPLICATION</button>
+        </div>
+        <button id="btn-sync-top" class="btn-tactical btn-sync" onclick="forceDataSync()">SYNC</button>
+        <button class="btn-tactical btn-action" onclick="toggleChainPanel()" data-tooltip="Evidence Chain Timeline — Escalation Sequence Viewer">CHAIN</button>
+        <button class="btn-tactical btn-action" onclick="openSitrep()">SITREP</button>
+        <button class="btn-tactical btn-action" onclick="openModal('help-modal')">Intel Guide</button>
+        <button class="btn-tactical btn-action" onclick="openModal('settings-modal')">Config</button>
+    </div>
+    
+    <div class="hud-bottom-row">
+        <div class="hud-item"><span class="hud-label">Overlap:</span> <span id="hud-overlap" class="hud-value">-</span></div>
+        <div class="hud-item"><span class="hud-label">L7 Shift:</span> <span id="hud-vector-shift" class="hud-value">-</span></div>
+        <div class="hud-item"><span class="hud-label">Strikes:</span> <span id="hud-strikes" class="hud-value">-</span></div>
+        <div class="hud-item"><span class="hud-label">BGP:</span> <span id="hud-outages" class="hud-value">-</span></div>
+        <div class="hud-item"><span class="hud-label">Multi-Front:</span> <span id="hud-coordinated" class="hud-value">-</span></div>
+        <!-- Phase 8: Velocity Meter -->
+        <div class="hud-item" data-tooltip="Rate of Escalation (1st derivative of threat score). Destroys Normalcy Bias by showing DIRECTION of change.">
+            <span class="hud-label">VELOCITY:</span>
+            <span id="hud-velocity" class="hud-value" style="font-weight:bold;">—</span>
+            <span id="hud-velocity-arrow" style="margin-left:2px;font-size:13px;">→</span>
+        </div>
+        <!-- Phase 8: Ambush Alert -->
+        <div class="hud-item" id="hud-ambush-wrap" data-tooltip="Ambush Pattern: 2nd derivative Z-Score spike indicating exponential escalation." style="display:none;">
+            <span id="hud-ambush" style="color:#ff2200;font-weight:bold;animation:blink 0.7s step-end infinite;">⚡ AMBUSH</span>
+        </div>
+        <!-- Phase 8: Blockade Index -->
+        <div class="hud-item" data-tooltip="Blockade Index = DDoS Intensity / Network Reachability. Distinguishes Political Noise from Real Infrastructure Neutralization.">
+            <span class="hud-label">BLOCKADE:</span>
+            <span id="hud-blockade" class="hud-value">—</span>
+            <span id="hud-blockade-bar" style="display:inline-block;width:40px;height:8px;background:#333;border-radius:3px;margin-left:4px;vertical-align:middle;"><span id="hud-blockade-fill" style="display:block;height:100%;width:0%;background:#ff6600;border-radius:3px;transition:width 0.5s;"></span></span>
+        </div>
+        <!-- Phase 8: Sequence Chain -->
+        <div class="hud-item" data-tooltip="Escalation Sequence Chain: Evidence chain of Narrative→ISR→DDoS→Kinetic within 24h window.">
+            <span class="hud-label">CHAIN:</span>
+            <span id="hud-chain" class="hud-value" style="font-size:10px;">—</span>
+        </div>
+        <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap">
+            <div id="hud-domain-cyber"    class="domain-bar-row" data-tooltip="Cyber domain score"><span class="domain-label">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
+            <div id="hud-domain-physical" class="domain-bar-row" data-tooltip="Physical domain score"><span class="domain-label">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
+            <div id="hud-domain-info"     class="domain-bar-row" data-tooltip="Info domain score"><span class="domain-label">Info</span><div id="bar-info"     class="domain-bar domain-info"     style="width:0px;"></div><span id="status-info"     class="domain-status NORMAL">-</span></div>
+        </div>
+    </div>
+</div>
+
+<div id="main-container">
+    <div id="map-wrapper">
+        <div id="map"></div>
+    </div>
+
+    <div id="sidebar">
+        <div id="target-placeholder">
+            <div id="target-panel" class="draggable-panel docked">
+                <div class="drag-handle panel-header-unified">
+                    <span>Target Visibility</span>
+                    <div>
+                        <span class="icon-btn dock-btn" style="display:none;" data-tooltip="Snap back to sidebar">Dock</span>
+                        <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+                    </div>
+                </div>
+                <div id="target-content" class="panel-content">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 5px;">Toggle pinned targets on/off.</div>
+                    <div class="target-grid" id="display-checkboxes"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="dashboard-placeholder">
+            <div id="dashboard-panel" class="draggable-panel docked">
+                <div class="drag-handle panel-header-unified">
+                    <span>Live Threat Telemetry</span>
+                    <div>
+                        <span class="icon-btn dock-btn" style="display:none;" data-tooltip="Snap back to sidebar">Dock</span>
+                        <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+                    </div>
+                </div>
+                <div id="dashboard-content" class="panel-content">
+                    <div id="origin-list-container">
+                        <div style='color:grey;'>Waiting for API telemetry...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar-footer">
+            <span id="update-time">System Initializing...</span>
+            <button id="btn-sync-side" class="btn-tactical btn-sync" onclick="forceDataSync()" style="margin:0;">SYNC</button>
+        </div>
+    </div>
+</div>
+
+<div id="settings-backdrop" onclick="closeAllModals()"></div>
+
+<div id="settings-modal" class="modal-window">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555;">
+        <div>Master Configuration</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()">[ X ] Close</button>
+    </div>
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('strategy')">Strategy Scope</div>
+        <div class="tab" onclick="switchTab('actors')">Threat Actors</div>
+        <div class="tab" onclick="switchTab('pins')">Quick Pins</div>
+        <div class="tab" onclick="switchTab('sensors'); loadSensorConfig()">Sensors</div>
+        <div class="tab" onclick="switchTab('fetchlog'); loadFetchLog()">Fetch Log</div>
+    </div>
+    <div id="tab-strategy" class="tab-content active">
+        <div class="help-text">
+            <b style="color:#00ffff">Epicenter (Core):</b> The primary focal point of a contingency scenario.<br>
+            <b style="color:#ffaa00">Correlate (Link):</b> Allied nations to monitor for coordinated attacks originating from the same botnets.
+        </div>
+        <table class="theater-table">
+            <tr>
+                <th data-tooltip="Epicenter (Primary Focus)">Core</th>
+                <th data-tooltip="Calculate Correlation">Link</th>
+                <th style="text-align: left; padding-left: 8px;">Country / Region</th>
+            </tr>
+            <tbody id="strategy-tbody"></tbody>
+        </table>
+    </div>
+    <div id="tab-actors" class="tab-content">
+        <div class="help-text">
+            <b style="color:#ff2a2a">Adversary:</b> Select nation-states to monitor for "Direct Strikes." Alerts trigger when attackers abandon stealth and use their domestic infrastructure for massive operations.
+        </div>
+        <div class="modal-grid" id="actors-grid"></div>
+    </div>
+    <div id="tab-pins" class="tab-content">
+        <div class="help-text">
+            <b style="color:#66ff66">Quick Pin:</b> Select countries to appear in the "Target Visibility" panel on the main screen for rapid on/off switching.
+        </div>
+        <div class="modal-grid" id="pins-grid"></div>
+    </div>
+    <div id="tab-sensors" class="tab-content">
+        <div class="help-text">
+            各センサーモジュールの有効/無効を切り替えます。<b style="color:#00ffff">Cyber</b> = ネットワーク脅威、<b style="color:#ffaa00">Physical</b> = インフラ・空域、<b style="color:#cc66ff">Info</b> = 情報・宣伝。<br>
+            センサーを無効化した場合、そのドメインスコアへの寄与はゼロになります（Graceful Degradation）。
+        </div>
+        <div id="sensor-list-container">
+            <div style="color:#555;">Loading sensor status...</div>
+        </div>
+    </div>
+    <div id="tab-fetchlog" class="tab-content">
+        <div class="help-text">
+            各センサーが外部 API から最後にデータを取得した結果を表示します。
+            <b style="color:#66ff66">✓ 成功</b> / <b style="color:#ff4444">✗ 失敗</b> / <span style="color:#888;">— 未取得</span>。
+            キャッシュ年齢（Cache Age）が Poll 間隔の3倍を超えると <b style="color:#ff8800;">STALE</b> 判定。
+        </div>
+        <div style="margin-bottom:8px;">
+            <button onclick="loadFetchLog()" class="btn-tactical" style="margin-left:0;">↻ Refresh</button>
+            <span id="fetchlog-ts" style="font-size:11px;color:#555;margin-left:10px;"></span>
+        </div>
+        <div id="fetchlog-container">
+            <div style="color:#555;font-size:13px;">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<div id="country-modal" class="modal-window">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #333; padding-bottom:10px;">
+        <div id="country-modal-title">Country Intel</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()">[ X ] Close</button>
+    </div>
+    <div id="country-modal-body" style="overflow-y:auto; flex-grow:1; padding-top:4px;"></div>
+</div>
+
+<div id="sitrep-modal" class="modal-window" style="width:800px;">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #333; padding-bottom:10px;">
+        <div id="sitrep-modal-title">Situation Report (SITREP) — Threat Level Assessment</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()">[ X ] Close</button>
+    </div>
+    <div style="overflow-y:auto; flex-grow:1; padding-top:10px; display:flex; flex-direction:column; gap:12px;">
+        <div id="sitrep-summary" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px;"></div>
+        <div style="border-top:1px solid #333; padding-top:10px;">
+            <div style="font-size:11px; color:#888; margin-bottom:6px; text-transform:uppercase; letter-spacing:1px;">THREAT LEVEL Timeline (last 288 cycles)</div>
+            <canvas id="sitrep-timeline-canvas" width="740" height="80" style="width:100%; background:#0a0a0a; border-radius:4px;"></canvas>
+        </div>
+        <div style="border-top:1px solid #333; padding-top:10px;">
+            <div style="font-size:11px; color:#888; margin-bottom:6px; text-transform:uppercase; letter-spacing:1px;">Auto-generated Report</div>
+            <pre id="sitrep-text" style="font-family:'Courier New',monospace; font-size:12px; color:#ccc; white-space:pre-wrap; margin:0; line-height:1.6;"></pre>
+        </div>
+    </div>
+</div>
+
+<!-- Phase 8: Evidence Chain Timeline サイドパネル（固定オーバーレイ） -->
+<div id="p8-chain-panel">
+    <div class="p8-panel-title">
+        <span>Evidence Chain</span>
+        <button onclick="document.getElementById('p8-chain-panel').style.display='none'" style="background:none;border:none;color:#555;cursor:pointer;font-size:12px;">✕</button>
+    </div>
+    <div id="p8-seq-badge" class="p8-seq-status p8-seq-NONE">NO EVENTS</div>
+    <div id="p8-chain-events" style="margin-top:10px;"></div>
+    <div style="margin-top:10px;padding-top:8px;border-top:1px solid #222;">
+        <div style="color:#555;font-size:9px;text-align:center;">24h WINDOW — LOOSELY ORDERED</div>
+        <!-- Phase 8: Narrative Burst Z-Score -->
+        <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:#cc66ff;font-size:10px;">Narrative Z</span>
+            <span id="p8-narrative-z" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
+        </div>
+        <!-- Phase 8: ISR Count -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+            <span style="color:#ffaa00;font-size:10px;">ISR Aircraft</span>
+            <span id="p8-isr-count" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
+        </div>
+        <!-- Phase 8: AIS Dark Gaps -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+            <span style="color:#44aaff;font-size:10px;">AIS Dark Gaps</span>
+            <span id="p8-ais-gaps" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
+        </div>
+    </div>
+</div>
+
+<div id="evidence-modal" class="modal-window" style="width:800px;">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #333; padding-bottom:10px;">
+        <div>Analytic Rationale — Evidence Panel</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()">[ X ] Close</button>
+    </div>
+    <div style="overflow-y:auto; flex-grow:1; padding-top:10px;">
+        <div id="evidence-convergence" class="convergence-row"></div>
+        <div id="evidence-system-note" class="evidence-system-note"></div>
+        <table class="rationale-table">
+            <thead>
+                <tr>
+                    <th style="width:160px;">Sensor</th>
+                    <th style="width:70px;">Domain</th>
+                    <th style="width:80px;">Status</th>
+                    <th style="width:130px;">Observed Value</th>
+                    <th style="width:40px;">Score</th>
+                    <th>Fired Reason / Note</th>
+                </tr>
+            </thead>
+            <tbody id="evidence-tbody"></tbody>
+        </table>
+        <div style="margin-top:16px; padding: 10px 0; border-top: 1px solid #333; font-size:11px; color:#555;">
+            Noise filters applied: <span id="evidence-noise-filters" style="color:#aaa;">None</span>
+        </div>
+    </div>
+</div>
+
+<div id="help-modal" class="modal-window" style="border-color: #fff;">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555; padding-bottom:10px;">
+        <div>Intelligence Operations Guide (MDO C4ISR)</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()">[ X ] Close</button>
+    </div>
+    <div class="manual-content">
+
+        <p>This platform is a <b>Strategic OSINT Cyber Radar (MDO C4ISR)</b> designed to detect <b>Kinetic Warfare Precursors</b> — indicators across Cyber, Physical, and Information domains that historically precede or accompany physical military action. All data is derived from open-source intelligence (OSINT). The system is calibrated against confirmed historical precedents: Russia→Ukraine (Feb 2022), China→Taiwan Strait (Aug 2022, Pelosi visit), and DPRK persistent operations against the Korean Peninsula.</p>
+        <p style="color:#888; font-size:11px;">Data refreshes automatically every 15 minutes. Use <span class="code-block">SYNC</span> to force an immediate update. Sensor poll intervals vary by source (see Section 1).</p>
+
+        <h4>1. Multi-Domain Sensor Architecture (9 Active Sensors)</h4>
+
+        <p><b>Cyber Domain (Weight: 0.50) — Highest weighted domain. Nation-state cyber operations consistently precede kinetic action by 24–72 hours.</b></p>
+        <ul>
+            <li><i>Cloudflare Radar API</i> [Poll: 5 min]: L3 (volumetric) and L7 (application-layer) DDoS telemetry. Tracks per-origin traffic percentages globally, computes weighted spike ratios against a rolling 7-day baseline, detects botnet overlap across allied theaters, and identifies L7 vector escalation (HTTP flood shift). This is the highest-signal sensor for detecting coordinated state-directed attack campaigns. Data covers &gt;20% of global internet traffic.
+                <br><span style="color:#888; font-size:11px;">Anti-inflation safeguards: Spike calculation is skipped if the 7-day baseline is not yet populated (startup guard). Spike ratio is capped at 25× to prevent statistical outliers from triggering false alerts. Origins with &lt;1% absolute traffic share are excluded from the weighted average. Non-adversary states use a 3% baseline floor; adversary states (CN/RU/KP) use a 0.5% floor to preserve sensitivity to low-volume state operations.</span>
+            </li>
+            <li><i>ThreatFox (abuse.ch) API</i> [Poll: 30 min]: Queries the ThreatFox threat intelligence feed for APT-tagged IoCs (Indicators of Compromise) published within the past 24 hours. Matches IoCs by APT tag or target country name. A hit indicates that known advanced persistent threat infrastructure is active and associated with the monitored theater. Authentication via <span class="code-block">THREATFOX_API_KEY</span> (Auth-Key header, required since 2024 policy change).</li>
+            <li><i>RIPE Stat BGP Routing</i> [Poll: 10 min]: Monitors BGP prefix announcements for the core theater via RIPE NCC. Triggers when announced prefix count drops by &gt;15% relative to the prior poll, indicating mass route withdrawal — a known precursor to internet isolation maneuvers (ref: Russia 2022, Iran 2019).</li>
+        </ul>
+
+        <p><b>Physical/Logistics Domain (Weight: 0.30) — Encompasses infrastructure, airspace, and kinetic pre-strike indicators.</b></p>
+        <ul>
+            <li><i>IODA API (CAIDA)</i> [Poll: 10 min]: Internet Outage Detection and Analysis. Tracks BGP-based internet reachability and active probing (ping) success rates for each monitored country. A simultaneous drop in both BGP routes and active probing indicates a significant infrastructure outage. This sensor correlates with BGP Routing for confirmation.</li>
+            <li><i>NASA EONET Wildfire API</i> [Poll: 15 min]: Real-time open wildfire/thermal event data from NASA's Earth Observatory Natural Event Tracker. For each monitored theater, events within ±10° latitude/longitude of the theater's centroid coordinates are flagged. Wildfires near strategic military positions or logistics corridors may indicate kinetic strikes, artillery fires, or pre-conflict infrastructure destruction — particularly when correlated with GDELT tone collapse and cyber spikes. Note: This sensor replaced the original NASA FIRMS endpoint, which is unreachable from this network environment. EONET requires no API key. Coordinates are in GeoJSON [longitude, latitude] format.</li>
+            <li><i>OpenSky Network</i> [Poll: 3 min]: Civilian airspace monitoring over predefined airport bounding boxes for each theater. Computes a 20-cycle rolling baseline of observed aircraft count. An ANOMALY is triggered when current count deviates by &gt;40% from baseline; CLOSURE is triggered when count drops below 5% of baseline, indicating near-total civilian airspace suspension — historically observed 12–48 hours before military action begins. Weather suppression is applied when OpenWeatherMap reports severe conditions over the target.</li>
+            <li><i>PeeringDB / IXP Chokepoints</i> [Poll: 60 min]: Static reference layer showing registered Internet Exchange Points (IXPs) and undersea cable landing stations critical to the monitored theater. Used as geographic context for interpreting BGP anomalies and physical infrastructure targeting. Displayed as cyan diamond markers on the map.</li>
+        </ul>
+
+        <p><b>Information Domain (Weight: 0.20) — Propaganda and diplomatic tone analysis. Typically the earliest leading indicator, shifting 48–96 hours ahead of operations.</b></p>
+        <ul>
+            <li><i>GDELT TimelineTone API</i> [Poll: 15 min]: Queries the Global Database of Events, Language, and Tone for media coverage of the core theater. Computes a rolling 28-day average tone and compares against the configured alert threshold. A tone score below <b>–12.0</b> constitutes an alert. Calibration reference: Russia→Ukraine onset showed –12 to –15; invasion-day readings reached –18 to –25. The –12.0 threshold provides early-warning sensitivity without excessive peacetime noise. Weather suppression is applied during severe weather conditions.</li>
+        </ul>
+
+        <p><b>Noise Mitigation & Human-in-the-Loop (HITL) Control:</b></p>
+        <ul>
+            <li><i>OpenWeatherMap</i> [Poll: 30 min]: If severe weather (thunderstorms, blizzard, hurricane, etc.) is detected over the core theater, physical domain alerts (IODA BGP outages, OpenSky airspace anomalies) and information domain alerts (GDELT tone) are automatically marked <b>SUPPRESSED</b> and excluded from scoring. This prevents weather events from creating false escalations.</li>
+            <li><i>Analyst MUTE (HITL Override):</i> Every sensor entry in the Evidence Panel shows a <b>[ MUTE ]</b> button. Clicking it immediately excludes that sensor's score contribution from the threat calculation and re-runs convergence. Muted sensors are persisted in browser local storage across sessions. Use this to suppress known false positives while preserving the full audit trail. When multiple sensors are muted simultaneously, the system correctly recalculates domain weights with remaining active sensors only.</li>
+        </ul>
+
+        <h4>2. Map Symbology & Overlay Layers</h4>
+        <ul>
+            <li><b>Target Nodes (Defended Infrastructure):</b>
+                <ul>
+                    <li><span class="manual-symbol" style="background:#66ff66; box-shadow:0 0 5px #66ff66;"></span> <span class="hl-green">Green Pulse (NORMAL):</span> Infrastructure stable. No significant anomalies detected across monitored domains.</li>
+                    <li><span class="manual-symbol" style="background:#ffaa00; box-shadow:0 0 5px #ffaa00;"></span> <span class="hl-orange">Orange Pulse (WEATHER MUTED):</span> Anomaly detected but suppressed by the weather noise filter. Treat as low-confidence until weather clears.</li>
+                    <li><span class="manual-symbol" style="background:#ff2a2a; box-shadow:0 0 5px #ff2a2a;"></span> <span class="hl-red">Red Pulse (DEGRADED):</span> Confirmed BGP outage or severe multi-sensor anomaly. Infrastructure under active stress.</li>
+                </ul>
+            </li>
+            <li><b>Attack Source Curves:</b>
+                <ul>
+                    <li>Curved lines connect attack origin countries to target theaters, weighted by global traffic share.</li>
+                    <li><span class="hl-red">Red</span> = SEVERE spike (&gt;6×), <span class="hl-orange">Orange</span> = ELEVATED (2–6×), <span style="color:#00d8ff; font-weight:bold;">Cyan</span> = NOISE (&lt;2×).</li>
+                    <li>Line thickness scales with traffic weight. State ASN origins are highlighted.</li>
+                    <li>Use the <span class="code-block">ALL / L3 / L7</span> filter buttons to isolate volumetric vs. application-layer attack flows.</li>
+                </ul>
+            </li>
+            <li><b>Overlay Markers:</b>
+                <ul>
+                    <li><span style="color:#ff4400; font-size:15px;">🔥</span> <b>Wildfire/Thermal Anomaly (NASA EONET):</b> Active open wildfire event within ±10° of a monitored theater. High confidence when co-located with military infrastructure.</li>
+                    <li><span style="color:#00ffff; font-size:14px;">◆</span> <b>Chokepoint (PeeringDB):</b> Critical undersea cable landing station or IXP. Monitor for physical infrastructure targeting.</li>
+                    <li><span style="color:#ff8800; font-size:14px;">▼</span> <b>BGP Outage (IODA):</b> Country-level internet infrastructure outage confirmed by CAIDA IODA.</li>
+                </ul>
+            </li>
+            <li><b>Map View Toggle:</b> Switch between Pacific-centered view (default, Taiwan Strait theater) and Atlantic-centered view (European theater) using the <span class="code-block">PAC / ATL</span> buttons.</li>
+        </ul>
+
+        <h4>3. Scoring Engine & Convergence Algorithm</h4>
+        <p>The <b>WeightedConvergenceEngine</b> evaluates a <b>Raw Threat Score</b> from all enabled, non-suppressed sensor signals, then applies a cross-domain convergence bonus. Maximum theoretical score exceeds 16 points.</p>
+
+        <p><b>Raw Score Components:</b></p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #555; line-height: 1.8;">
+            <li>[Cyber] cf_spike_core:     Core theater weighted avg spike &gt;2× (+1), &gt;4× (+1), &gt;6× (+1) — max +3</li>
+            <li>[Cyber] cf_adversary_strike: Adversary state (CN/RU/KP) direct strike ≥4× spike with &gt;3% abs traffic → +2</li>
+            <li>[Cyber] cf_botnet_overlap:  Shared botnet overlap with allied theater &gt;30% → +1</li>
+            <li>[Cyber] cf_vector_shift:    L7 app-layer avg spike &gt;2.5× AND &gt;1.5× greater than L3 avg → +1</li>
+            <li>[Cyber] cf_coordinated:     ≥2 strategic theaters simultaneously above 3× spike → +1</li>
+            <li>[Cyber] ripe_bgp:           BGP prefix withdrawal &gt;15% → +1</li>
+            <li>[Cyber] threatfox:          APT-tagged IoC matched to theater in past 24h → +1</li>
+            <li>[Physical] ioda_bgp:        Confirmed BGP/probing outage (weather-filtered) → +1</li>
+            <li>[Physical] opensky:         Airspace ANOMALY (≥40% deviation from 20-cycle baseline) → +2</li>
+            <li>[Physical] opensky:         Airspace CLOSURE (&lt;5% of baseline, near-total suspension) → +3</li>
+            <li>[Physical] nasa_firms:      NASA EONET wildfire within ±10° of theater centroid → +3</li>
+            <li>[Info]   gdelt:             GDELT media tone &lt; –12.0 (28-day rolling avg, weather-filtered) → +1</li>
+        </ul>
+
+        <p><b>Domain Convergence Bonus</b> — Applied when anomalies simultaneously span multiple domains, indicating coordinated multi-domain operations (MDO) rather than isolated incidents:</p>
+        <ul>
+            <li><span style="color:#ff8800; font-weight:bold;">DUAL CONVERGENCE</span>: Any 2 of 3 domains (Cyber + Physical, or Cyber + Info, or Physical + Info) both active → <b>+1 pt</b></li>
+            <li><span style="color:#ff2a2a; font-weight:bold;">FULL CONVERGENCE</span>: All 3 domains (Cyber + Physical + Info) simultaneously active → <b>+2 pts</b></li>
+        </ul>
+        <p style="color:#888; font-size:11px;">A domain is considered "active" when its weighted score contribution exceeds the domain threshold. Full Convergence is the strongest signal for pre-kinetic operations — historical data shows this pattern in both the 2022 Ukraine invasion and the 2022 Taiwan Strait exercises.</p>
+
+        <p><b>Botnet Overlap Calibration:</b> The 30% threshold reflects confirmed nation-state coordinated attack patterns (20–35% shared botnet infrastructure, per post-incident forensics of GRU/Sandworm operations). The previous 45% threshold matched large civilian botnet patterns (Mirai-class) and was too insensitive to state-directed attacks that use diverse, smaller botnets.</p>
+
+        <h4>4. DEFCON Threat Levels</h4>
+        <p><b>Final Score = Raw Score + Convergence Bonus.</b> Hysteresis (1-cycle delay) is applied when <i>downgrading</i> levels to prevent flickering on borderline readings. Upgrades are immediate.</p>
+        <ul>
+            <li><span style="color:#ff0000; font-weight:bold;">Level 1 — CRITICAL:</span> Score &ge; 9 <b>AND</b> Hard Condition (Core Spike &gt;5.0× AND confirmed BGP outage simultaneously). This compound condition requires both massive cyber surge and infrastructure collapse — the signature of a coordinated pre-invasion blackout operation. Imminent kinetic action probability is extremely high. Activate all contingency procedures.</li>
+            <li><span class="hl-red">Level 2 — SEVERE:</span> Score &ge; 6. Multi-domain threat with direct adversary state attribution or severe infrastructure degradation. High probability of state-directed hostile action. Immediate command notification required.</li>
+            <li><span class="hl-orange">Level 3 — HIGH:</span> Score &ge; 4. Significant coordinated anomaly across at least two sensors. May indicate preparation phase, probing operations, or early escalation. Heightened monitoring warranted.</li>
+            <li><span style="color:#ffff00; font-weight:bold;">Level 4 — ELEVATED:</span> Score &ge; 2. Early-stage indicators: media tone deterioration, isolated BGP events, or minor L7 vector shifts. Consistent with pre-crisis diplomatic deterioration or reconnaissance activity.</li>
+            <li><span style="color:#66ff66; font-weight:bold;">Level 5 — NORMAL:</span> Score &lt; 2. Background noise level. No significant anomalies across monitored domains.</li>
+        </ul>
+
+        <h4>5. Historical Calibration Reference</h4>
+        <p style="color:#888; font-size:11px;">Thresholds in this system are calibrated against the following confirmed events:</p>
+        <ul style="font-size:11px; color:#aaa;">
+            <li><b>Russia → Ukraine (Feb 24, 2022):</b> BGP route withdrawals 10–15% in the 6 hours before invasion. Wiper malware (HermeticWiper) deployed via pre-positioned APT infrastructure 90 min before ground assault. GDELT tone reached –18 to –25 at invasion onset; –12 to –15 during the preceding weeks of military buildup. Civilian flights suspended 24h prior.</li>
+            <li><b>China → Taiwan Strait (Aug 2022, Pelosi visit):</b> CN-origin DDoS traffic spiked 3–5× against TW government and media infrastructure. GDELT tone –13 to –17 during the exercise period. No BGP outage (deliberate — PRC signaling, not isolation). Botnet overlap with JP/US-targeted traffic confirmed in post-incident analysis.</li>
+            <li><b>DPRK persistent operations (ongoing):</b> KP-origin traffic characteristically low in absolute percentage (0.1–0.5%) but highly persistent and targeted. The 0.5% adversary baseline floor preserves detection of these small-volume, high-significance operations that would be masked by a 3% floor.</li>
+        </ul>
+
+        <h4>6. Analyst Workflow & Best Practices</h4>
+        <ul>
+            <li><b>Cross-domain confirmation first:</b> Do not escalate based on a single domain. A DDoS spike alone (Cyber only) is insufficient — civilian botnets routinely produce 3–5× spikes. Full Convergence (Cyber + Physical + Info) is the minimum standard for Level 2 escalation recommendations.</li>
+            <li><b>Use HITL MUTE for known false positives:</b> If a sensor is producing noise from a confirmed non-hostile source (e.g., a major sporting event causing airspace anomalies, or a legitimate CDN maintenance window causing BGP shifts), mute it in the Evidence Panel. The mute state persists across page reloads via browser local storage.</li>
+            <li><b>SITREP for command reporting:</b> Use the <span class="code-block">SITREP</span> button to generate a formatted Situation Report suitable for command-level notification. The report includes domain breakdown, sensor evidence, and trend indicators.</li>
+            <li><b>Baseline awareness:</b> Spike ratios are only computed when the 7-day rolling baseline has been populated. On first startup, the system requires approximately 7 days of sensor operation to establish accurate baselines. During this period, spike scores will be conservatively suppressed (has_baseline guard active). The Data Status panel shows baseline population progress per sensor.</li>
+            <li><b>GDELT tone interpretation:</b> Tone of –12.0 marks the threshold for early military tension rhetoric in open media. Values of –15 to –18 indicate active crisis framing. Values below –18 historically correspond to imminent or ongoing kinetic action. A sudden 3–5 point tone drop within a single polling cycle (15 min) is more significant than a gradual decline to the same value.</li>
+        </ul>
+
+    </div>
+</div>
+
+<script>
+    let latestData = null;
+    let currentVector = 'all';
+    let mapCenterMode = 'pacific';
+    let _lastRenderSig = ''; // P4-Opt: 差分シグネチャキャッシュ
+    let lastSyncedConfig = { core: "", correlates: [], adversaries: [], displays: [] };
+    let lastSyncedTimeText = "System Initializing...";
+    let isFirstLoad = true;
+    let loaderLogInterval;
+
+    // [Phase 7] HITL Analyst Mute State
+    let mutedSensors = new Set(JSON.parse(localStorage.getItem('mutedSensors') || '[]'));
+
+    window.toggleMute = function(sensorName) {
+        if (mutedSensors.has(sensorName)) {
+            mutedSensors.delete(sensorName);
+        } else {
+            mutedSensors.add(sensorName);
+        }
+        localStorage.setItem('mutedSensors', JSON.stringify([...mutedSensors]));
+        forceDataSync(); // Trigger immediate recalculation
+    };
+
+    // ── Custom Tooltip Logic ──
+    const tooltip = document.getElementById('custom-tooltip');
+    document.addEventListener('mouseover', e => {
+        const target = e.target.closest('[data-tooltip]');
+        if (target) {
+            tooltip.textContent = target.getAttribute('data-tooltip');
+            tooltip.style.display = 'block';
+        }
+    });
+    // P6-Opt: mousemove を RAF でスロットリング（毎フレーム1回のみ位置更新）
+    let _ttX = 0, _ttY = 0, _ttRaf = false;
+    document.addEventListener('mousemove', e => {
+        if (tooltip.style.display === 'block') {
+            _ttX = e.pageX; _ttY = e.pageY;
+            if (!_ttRaf) {
+                _ttRaf = true;
+                requestAnimationFrame(() => {
+                    tooltip.style.left = (_ttX + 15) + 'px';
+                    tooltip.style.top  = (_ttY + 15) + 'px';
+                    _ttRaf = false;
+                });
+            }
+        }
+    });
+    document.addEventListener('mouseout', e => {
+        if (e.target.closest('[data-tooltip]')) {
+            tooltip.style.display = 'none';
+        }
+    });
+
+    const loaderLogs = [
+        "> Polling Cloudflare L3/L7 Telemetry...",
+        "> Fetching IODA BGP Outage Data...",
+        "> Scanning OpenSky Network for Airspace Anomalies...",
+        "> Checking NASA FIRMS Thermal Detectors...",
+        "> Cross-referencing ThreatFox APT Signatures...",
+        "> Retrieving GDELT Media Tone Indicators...",
+        "> Compiling PeeringDB/Chokepoint Critical Nodes...",
+        "> Calculating MDO Convergence Score..."
+    ];
+    if (isFirstLoad) {
+        let logIdx = 0;
+        loaderLogInterval = setInterval(() => {
+            const logEl = document.getElementById('loader-log');
+            if (logEl) logEl.innerText = loaderLogs[logIdx % loaderLogs.length];
+            logIdx++;
+        }, 350);
+    }
+
+    function switchMapCenter(mode) {
+        if (mapCenterMode === mode) return;
+        mapCenterMode = mode;
+        
+        document.getElementById('map-btn-pacific').className = 'vec-btn' + (mode === 'pacific' ? ' active-all' : '');
+        document.getElementById('map-btn-atlantic').className = 'vec-btn' + (mode === 'atlantic' ? ' active-all' : '');
+        
+        if (mode === 'pacific') {
+            map.setView([20.0, 150.0], map.getZoom(), { animate: true, duration: 0.5 });
+        } else {
+            map.setView([20.0, 10.0], map.getZoom(), { animate: true, duration: 0.5 });
+        }
+        
+        saveLocalState();
+        if (latestData) renderTelemetry(latestData);
+    }
+
+    function switchVector(v) {
+        currentVector = v;
+        ['all', 'l3', 'l7'].forEach(key => {
+            const btn = document.getElementById(`vec-btn-${key}`);
+            const activeClass = key === 'l3' ? 'active-l3' : key === 'l7' ? 'active-l7' : 'active-all';
+            btn.className = 'vec-btn' + (key === v ? ` ${activeClass}` : '');
+        });
+        saveLocalState();
+        if (latestData) renderTelemetry(latestData);
+    }
+
+    function toggleContent(e, contentId, btn) {
+        e.stopPropagation(); const content = document.getElementById(contentId);
+        if (content.classList.contains('content-collapsed')) { content.classList.remove('content-collapsed'); btn.innerText = '−'; } 
+        else { content.classList.add('content-collapsed'); btn.innerText = '＋'; }
+    }
+    function openModal(modalId) {
+        document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
+        document.getElementById(modalId).style.display = 'flex';
+        document.getElementById('settings-backdrop').style.display = 'block';
+    }
+    function closeAllModals() {
+        document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
+        document.getElementById('settings-backdrop').style.display = 'none';
+    }
+
+    // ── Phase 8: Evidence Chain Panel ────────────────────────────────────────
+    function toggleChainPanel() {
+        const panel = document.getElementById('p8-chain-panel');
+        panel.style.display = (panel.style.display === 'none' || !panel.style.display) ? 'block' : 'none';
+    }
+
+    const EVENT_LABELS = {
+        NARRATIVE_BURST: 'Narrative Burst',
+        ISR_SURGE:       'ISR Surge',
+        SYNC_DDOS:       'Sync DDoS',
+        FIRMS_ANOMALY:   'Kinetic Anomaly',
+        AIS_DARK_GAP:    'AIS Dark Gap',
+    };
+    const EVENT_COLORS = {
+        NARRATIVE_BURST: '#cc66ff',
+        ISR_SURGE:       '#ffaa00',
+        SYNC_DDOS:       '#00ffff',
+        FIRMS_ANOMALY:   '#ff4444',
+        AIS_DARK_GAP:    '#44aaff',
+    };
+
+    function updateChainPanel(strat) {
+        const p8 = strat.phase8 || {};
+        // Sequence badge
+        const badge = document.getElementById('p8-seq-badge');
+        if (badge) {
+            const sc = p8.sequence_status || '';
+            badge.textContent = sc.includes('FULL_CHAIN') ? '✔ FULL CHAIN CONFIRMED'
+                              : sc.includes('PARTIAL')    ? '≈ PARTIAL CHAIN'
+                              : 'NO ACTIVE CHAIN';
+            badge.className = 'p8-seq-status ' + (
+                sc.includes('FULL_CHAIN') ? 'p8-seq-FULL_CHAIN' :
+                sc.includes('PARTIAL')    ? 'p8-seq-PARTIAL' : 'p8-seq-NONE'
+            );
+        }
+        // Quick metrics
+        const nEl = document.getElementById('p8-narrative-z');
+        const iEl = document.getElementById('p8-isr-count');
+        const aEl = document.getElementById('p8-ais-gaps');
+        if (nEl) nEl.textContent = p8.narrative ? (p8.narrative.z_score || 0).toFixed(2) + ' σ' : '—';
+        if (iEl) iEl.textContent = p8.isr ? (p8.isr.count || 0) + ' ac' : '—';
+        if (aEl) aEl.textContent = p8.ais ? (p8.ais.dark_gaps || 0) + ' vessels' : '—';
+
+        // Async: シーケンスイベント一覧をフェッチして描画
+        const theater = strat.core_theater || '';
+        if (!theater) return;
+        fetch(`/api/sequence_chain?theater=${encodeURIComponent(theater)}`)
+            .then(r => r.json())
+            .then(data => {
+                const chain = (data.chains || {})[theater] || {};
+                const events = chain.events || [];
+                const container = document.getElementById('p8-chain-events');
+                if (!container) return;
+                if (!events.length) {
+                    container.innerHTML = '<div style="color:#555;font-size:10px;text-align:center;">No events in 24h window</div>';
+                    return;
+                }
+                let html = '';
+                events.forEach((ev, idx) => {
+                    const color  = EVENT_COLORS[ev.type] || '#888';
+                    const label  = EVENT_LABELS[ev.type] || ev.type;
+                    const dt     = new Date(ev.ts * 1000);
+                    const timeStr = dt.toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'});
+                    html += `<div class="p8-chain-event">
+                        <div style="display:flex;flex-direction:column;align-items:center;">
+                            <div class="p8-chain-dot p8-chain-dot-${ev.type}" style="background:${color};"></div>
+                            ${idx < events.length - 1 ? '<div class="p8-chain-line"></div>' : ''}
+                        </div>
+                        <div class="p8-chain-text">
+                            <div class="p8-chain-type" style="color:${color};">${label}</div>
+                            <div class="p8-chain-time">${timeStr}</div>
+                        </div>
+                    </div>`;
+                });
+                container.innerHTML = html;
+            })
+            .catch(() => {});
+    }
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById(`tab-${tabId}`).classList.add('active');
+    }
+
+    function setupDockablePanel(panelId, placeholderId, defaultWidth) {
+        const panel = document.getElementById(panelId);
+        const placeholder = document.getElementById(placeholderId);
+        const handle = panel.querySelector('.drag-handle');
+        const dockBtn = panel.querySelector('.dock-btn');
+        const toggleBtn = panel.querySelector('.toggle-btn');
+        const content = panel.querySelector('.panel-content');
+        
+        toggleBtn.onmousedown = function(e) {
+            e.stopPropagation();
+            if (content.style.display === 'none') {
+                content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
+                if(panel.classList.contains('docked') && panelId === 'dashboard-panel') panel.style.flexGrow = '1';
+            } else {
+                content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
+                if(panel.classList.contains('docked') && panelId === 'dashboard-panel') panel.style.flexGrow = '0';
+            }
+            saveLocalState(); 
+        };
+
+        dockBtn.onmousedown = function(e) { e.stopPropagation(); dockToSidebar(); };
+
+        function dockToSidebar() {
+            placeholder.appendChild(panel);
+            panel.classList.remove('floating', 'active');
+            panel.classList.add('docked');
+            panel.style.left = ''; panel.style.top = ''; panel.style.width = ''; panel.style.height = ''; 
+            dockBtn.style.display = 'none';
+            saveLocalState(); 
+        }
+
+        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+        
+        panel.onmousedown = function() { 
+            if (panel.classList.contains('floating')) {
+                document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active')); 
+                panel.classList.add('active'); 
+            }
+        };
+        
+        handle.onmousedown = function(e) { 
+            if(e.target.closest('.icon-btn')) return; 
+            e.preventDefault(); 
+            
+            if (panel.classList.contains('docked')) {
+                const rect = panel.getBoundingClientRect();
+                document.body.appendChild(panel); 
+                panel.classList.remove('docked'); panel.classList.add('floating', 'active');
+                panel.style.width = defaultWidth + 'px';
+                if (panelId === 'dashboard-panel') panel.style.height = '400px'; 
+                panel.style.left = rect.left + "px"; panel.style.top = rect.top + "px";
+                dockBtn.style.display = 'inline-block';
+            }
+            
+            pos3 = e.clientX; pos4 = e.clientY; 
+            document.onmouseup = closeDragElement; document.onmousemove = elementDrag; 
+        };
+        
+        function elementDrag(e) { 
+            e.preventDefault(); pos1 = pos3 - e.clientX; pos2 = pos4 - e.clientY; pos3 = e.clientX; pos4 = e.clientY; 
+            panel.style.top = (panel.offsetTop - pos2) + "px"; panel.style.left = (panel.offsetLeft - pos1) + "px"; 
+        }
+        
+        function closeDragElement(e) { 
+            document.onmouseup = null; document.onmousemove = null; 
+            if (e && panel.classList.contains('floating')) {
+                const sidebar = document.getElementById('sidebar');
+                const sidebarRect = sidebar.getBoundingClientRect();
+                if (e.clientX >= sidebarRect.left && e.clientX <= sidebarRect.right && 
+                    e.clientY >= sidebarRect.top && e.clientY <= sidebarRect.bottom) {
+                    dockToSidebar(); return; 
+                }
+            }
+            saveLocalState(); 
+        }
+
+        panel.addEventListener('mouseup', function(e) { saveLocalState(); });
+    }
+
+    setupDockablePanel('target-panel', 'target-placeholder', 280);
+    setupDockablePanel('dashboard-panel', 'dashboard-placeholder', 400);
+
+    const map = L.map('map', { zoomControl: false, minZoom: 2 }).setView([20.0, 150.0], 3);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; CARTO', maxZoom: 18 }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    const targetLayer = L.layerGroup().addTo(map);
+    const sourceLayer = L.layerGroup().addTo(map);
+    const lineLayer   = L.layerGroup().addTo(map);
+    const iodaLayer   = L.layerGroup().addTo(map);
+    const airspaceLayer = L.layerGroup().addTo(map);
+    const weatherLayer  = L.layerGroup().addTo(map);
+    const gdeltLayer    = L.layerGroup().addTo(map);
+    const criticalNodesLayer = L.layerGroup().addTo(map);
+    
+    // [Phase 7] New Layers
+    const firmsLayer = L.layerGroup().addTo(map);
+    const chokepointsLayer = L.layerGroup().addTo(map);
+
+    const overlayLayers = {
+        "Target Nodes":     targetLayer,
+        "Cyber Strikes":    lineLayer,
+        "Attack Origins":   sourceLayer,
+        "BGP Outages":      iodaLayer,
+        "Airspace Anomaly": airspaceLayer,
+        "Weather Events":   weatherLayer,
+        "Media Tone Alert": gdeltLayer,
+        "FIRMS Anomalies":  firmsLayer,
+        "Cable Chokepoints":chokepointsLayer
+    };
+    L.control.layers(null, overlayLayers, { position: 'topright', collapsed: true }).addTo(map);
+
+    const collapsedTargets = new Set();
+    window.toggleTargetList = function(listId, arrowId) {
+        const listEl = document.getElementById(listId); const arrowEl = document.getElementById(arrowId);
+        if (listEl.style.display === 'none') { listEl.style.display = 'block'; arrowEl.innerText = '▼'; collapsedTargets.delete(listId); } 
+        else { listEl.style.display = 'none'; arrowEl.innerText = '▶'; collapsedTargets.add(listId); }
+    };
+
+    function shiftLng(lng) { 
+        if (mapCenterMode === 'pacific') {
+            return lng < -30 ? lng + 360 : lng; 
+        } else {
+            return lng; 
+        }
+    }
+
+    // P5-Opt: ベジェ曲線キャッシュ（同一ペアは再計算なし）
+    const _curveCache = new Map();
+    function getCurvePoints(startLat, startLng, endLat, endLng) {
+        const key = `${startLat},${startLng},${endLat},${endLng}`;
+        if (_curveCache.has(key)) return _curveCache.get(key);
+        const points = []; const numPoints = 20; // 50→20: 視覚差なし、計算量60%削減
+        const midLat = (startLat + endLat) / 2; const midLng = (startLng + endLng) / 2;
+        const diffLat = endLat - startLat; const diffLng = endLng - startLng;
+        const ctrlLat = midLat - diffLng * 0.2; const ctrlLng = midLng + diffLat * 0.2;
+        for (let i = 0; i <= numPoints; i++) {
+            const t = i / numPoints;
+            const lat = Math.pow(1 - t, 2) * startLat + 2 * (1 - t) * t * ctrlLat + Math.pow(t, 2) * endLat;
+            const lng = Math.pow(1 - t, 2) * startLng + 2 * (1 - t) * t * ctrlLng + Math.pow(t, 2) * endLng;
+            points.push([lat, lng]);
+        }
+        if (_curveCache.size > 300) _curveCache.delete(_curveCache.keys().next().value);
+        _curveCache.set(key, points);
+        return points;
+    }
+
+    const THEATERS = [
+        { code: "TW", name: "Taiwan" }, { code: "JP", name: "Japan" }, { code: "KR", name: "S. Korea" },
+        { code: "PH", name: "Philippines" }, { code: "VN", name: "Vietnam" }, { code: "TH", name: "Thailand" },
+        { code: "MY", name: "Malaysia" }, { code: "ID", name: "Indonesia" }, { code: "SG", name: "Singapore" },
+        { code: "AU", name: "Australia" }, { code: "NZ", name: "New Zealand" }, { code: "IN", name: "India" },
+        { code: "US", name: "USA" }, { code: "CA", name: "Canada" }, { code: "BR", name: "Brazil" },
+        { code: "UA", name: "Ukraine" }, { code: "GB", name: "UK" }, { code: "DE", name: "Germany" },
+        { code: "FR", name: "France" }, { code: "IT", name: "Italy" }, { code: "ES", name: "Spain" },
+        { code: "NL", name: "Netherlands" }, { code: "PL", name: "Poland" }, { code: "SE", name: "Sweden" },
+        { code: "FI", name: "Finland" }, { code: "TR", name: "Turkey" }, 
+        { code: "IL", name: "Israel" }, { code: "SA", name: "Saudi Arabia" }, { code: "AE", name: "UAE" }, 
+        { code: "ZA", name: "South Africa" },
+        { code: "CN", name: "China" }, { code: "RU", name: "Russia" }, { code: "KP", name: "N. Korea" },
+        { code: "IR", name: "Iran" }, { code: "BY", name: "Belarus" }
+    ];
+
+    const strategyTbody = document.getElementById('strategy-tbody');
+    const actorsGrid = document.getElementById('actors-grid');
+    const pinsGrid = document.getElementById('pins-grid');
+
+    THEATERS.forEach(t => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="center"><input type="radio" name="core_theater" value="${t.code}" class="radio-core"></td><td class="center"><input type="checkbox" class="check-correlate" value="${t.code}"></td><td><label>${t.name}</label></td>`;
+        strategyTbody.appendChild(tr);
+
+        const advLabel = document.createElement('label');
+        advLabel.innerHTML = `<input type="checkbox" class="check-adversary" value="${t.code}"> ${t.name}`;
+        actorsGrid.appendChild(advLabel);
+
+        const pinLabel = document.createElement('label');
+        pinLabel.innerHTML = `<input type="checkbox" class="check-pin" value="${t.code}"> ${t.name}`;
+        pinsGrid.appendChild(pinLabel);
+    });
+
+    function renderQuickToggles() {
+        const displayGrid = document.getElementById('display-checkboxes');
+        const currentChecked = Array.from(document.querySelectorAll('.check-display:checked')).map(cb => cb.value);
+        
+        const pinnedCodes = new Set();
+        document.querySelectorAll('.check-pin:checked').forEach(cb => pinnedCodes.add(cb.value));
+        const coreVal = document.querySelector('.radio-core:checked')?.value;
+        if (coreVal) pinnedCodes.add(coreVal);
+        document.querySelectorAll('.check-correlate:checked').forEach(cb => pinnedCodes.add(cb.value));
+
+        displayGrid.innerHTML = ''; 
+        
+        Array.from(pinnedCodes).forEach(code => {
+            const t = THEATERS.find(theater => theater.code === code);
+            if (!t) return;
+            const isChecked = currentChecked.includes(code) ? 'checked' : '';
+            const lbl = document.createElement('label');
+            lbl.innerHTML = `<input type="checkbox" class="check-display" value="${code}" ${isChecked}> ${t.name}`;
+            displayGrid.appendChild(lbl);
+        });
+
+        if(displayGrid.innerHTML === '') displayGrid.innerHTML = '<div style="color:#888; font-size:11px;">No targets active in Scope or Pins.</div>';
+    }
+
+    function updateUIConsistency() {
+        document.querySelectorAll('#strategy-tbody tr').forEach(tr => {
+            const coreRadio = tr.querySelector('.radio-core'); const corrCb = tr.querySelector('.check-correlate');
+            if (!coreRadio || !corrCb) return;
+            if (coreRadio.checked) { corrCb.disabled = true; corrCb.checked = false; } else { corrCb.disabled = false; }
+        });
+    }
+
+    function getCurrentConfig() {
+        return {
+            core: document.querySelector('input[name="core_theater"]:checked')?.value || '',
+            correlates: Array.from(document.querySelectorAll('.check-correlate:checked')).map(cb => cb.value),
+            adversaries: Array.from(document.querySelectorAll('.check-adversary:checked')).map(cb => cb.value),
+            displays: Array.from(document.querySelectorAll('.check-display:checked')).map(cb => cb.value)
+        };
+    }
+
+    function checkPendingState() {
+        const curr = getCurrentConfig();
+        let needsApiSync = false;
+
+        if (curr.core !== lastSyncedConfig.core) needsApiSync = true;
+        if (curr.correlates.sort().join(',') !== lastSyncedConfig.correlates.sort().join(',')) needsApiSync = true;
+        if (curr.adversaries.sort().join(',') !== lastSyncedConfig.adversaries.sort().join(',')) needsApiSync = true;
+
+        const fetchedCountries = new Set([
+            lastSyncedConfig.core, 
+            ...lastSyncedConfig.correlates, 
+            ...lastSyncedConfig.displays
+        ].filter(Boolean));
+
+        const hasUnfetchedDisplay = curr.displays.some(code => !fetchedCountries.has(code));
+        if (hasUnfetchedDisplay) needsApiSync = true;
+
+        const syncBtnTop = document.getElementById('btn-sync-top');
+        const syncBtnSide = document.getElementById('btn-sync-side');
+        const updateTimeEl = document.getElementById('update-time');
+
+        if (needsApiSync) {
+            updateTimeEl.innerHTML = `<span style="color:#ffaa00;">Changes pending. Press SYNC.</span>`;
+            syncBtnTop.classList.add("pending");
+            syncBtnSide.classList.add("pending");
+        } else {
+            updateTimeEl.innerText = lastSyncedTimeText;
+            syncBtnTop.classList.remove("pending");
+            syncBtnSide.classList.remove("pending");
+            
+            if (latestData) renderTelemetry(latestData);
+        }
+    }
+
+    function forceDataSync() { fetchDDoSData(true); }
+
+    async function fetchDDoSData(force = false) {
+        const curr = getCurrentConfig();
+        
+        const fetchSet = new Set(curr.displays);
+        if (curr.core) fetchSet.add(curr.core);
+        curr.correlates.forEach(c => fetchSet.add(c));
+        const fetchTargets = Array.from(fetchSet).join(',');
+
+        const selectedCorrelates = curr.correlates.join(',');
+        const selectedAdversaries = curr.adversaries.join(',');
+        const coreTheater = curr.core;
+        const mutedList = Array.from(mutedSensors).join(',');
+
+        const syncBtnTop = document.getElementById('btn-sync-top');
+        const syncBtnSide = document.getElementById('btn-sync-side');
+
+        if (force) {
+            syncBtnTop.innerText = "SYNCING..."; syncBtnTop.classList.add("syncing");
+            syncBtnSide.innerText = "SYNCING..."; syncBtnSide.classList.add("syncing");
+        }
+
+        try {
+            // [Phase 7] Append &muted=${mutedList}
+            const apiUrl = `http://127.0.0.1:8000/api/threat_data?targets=${fetchTargets}&core=${coreTheater}&correlates=${selectedCorrelates}&adversaries=${selectedAdversaries}&muted=${mutedList}&force=${force}`;
+            const response = await fetch(apiUrl);
+            latestData = await response.json(); 
+            
+            lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()} (Next in 15 min)`;
+            document.getElementById('update-time').innerText = lastSyncedTimeText;
+            lastSyncedConfig = getCurrentConfig();
+            
+            renderTelemetry(latestData); 
+
+        } catch (error) { 
+            console.error("API Error:", error); 
+        } finally {
+            syncBtnTop.innerText = "SYNC"; syncBtnTop.classList.remove("syncing");
+            syncBtnSide.innerText = "SYNC"; syncBtnSide.classList.remove("syncing");
+            checkPendingState();
+
+            if (isFirstLoad) {
+                clearInterval(loaderLogInterval);
+                const logEl = document.getElementById('loader-log');
+                if (logEl) {
+                    logEl.style.color = "#00ffff";
+                    logEl.innerText = "> Initialization Complete. Rendering Dashboard.";
+                }
+                const loader = document.getElementById('global-loader');
+                setTimeout(() => {
+                    loader.style.opacity = '0';
+                    setTimeout(() => { loader.style.display = 'none'; }, 500);
+                }, 400); 
+                isFirstLoad = false;
+            }
+        }
+    }
+
+    function renderTelemetry(data) {
+        const curr = getCurrentConfig();
+        const displayTargets = curr.displays;
+
+        // P4-Opt: データ・ベクター・表示対象・マップ中心が変わっていなければスキップ
+        const _sig = `${data.timestamp || ''}_${currentVector}_${[...displayTargets].sort().join(',')}_${mapCenterMode}`;
+        if (_sig === _lastRenderSig) return;
+        _lastRenderSig = _sig;
+
+        const threatEl = document.getElementById('hud-threat');
+        const epicenterEl = document.getElementById('hud-epicenter');
+        const overlapEl = document.getElementById('hud-overlap');
+        const shiftEl = document.getElementById('hud-vector-shift');
+        const strikesEl = document.getElementById('hud-strikes');
+        const outagesEl = document.getElementById('hud-outages');
+        const coordinatedEl = document.getElementById('hud-coordinated');
+
+        if (data.strategic_alert) {
+            const strat = data.strategic_alert;
+            const threatLabels = { 5: "THREAT Lv 5: NORMAL", 4: "THREAT Lv 4: ELEVATED", 3: "THREAT Lv 3: HIGH", 2: "THREAT Lv 2: SEVERE", 1: "THREAT Lv 1: CRITICAL" };
+            threatEl.className = `threat-hud threat-${strat.defcon}-hud`;
+            if (strat.defcon_breakdown) {
+                const b = strat.defcon_breakdown;
+                const lines = [
+                    `Threat Score: ${b.total_score}`,
+                    `Core Spike: ${b.core_spike_val}x  (>2x:${b.core_spike_2x?'✔':'✗'} >4x:${b.core_spike_4x?'✔':'✗'} >6x:${b.core_spike_6x?'✔':'✗'})`,
+                    `High Correlation(>45%): ${b.high_correlation?'✔':'✗'}`,
+                    `L7 Shift: ${b.core_shifted?'✔':'✗'}`,
+                    `Adversary Strike: ${b.major_adversary?'✔':'✗'}`,
+                    `BGP Degraded: ${b.core_degraded?'✔':'✗'}`,
+                    `Multi-Front(>3x): ${b.is_coordinated?'✔':'✗'}`,
+                    `Lv1 Hard Req: ${b.defcon_1_hard?'✔':'✗'}`,
+                    `\nClick to view full Rationale Matrix.`
+                ];
+                threatEl.setAttribute('data-tooltip', lines.join('\n'));
+            }
+            threatEl.innerText = threatLabels[strat.defcon];
+            epicenterEl.innerText = strat.core_theater || 'None';
+
+            let overlapText = "None";
+            if (strat.correlations && Object.keys(strat.correlations).length > 0) {
+                let arr = [];
+                for (const [pair, overlap] of Object.entries(strat.correlations)) {
+                    const color = overlap > 40 ? "#ff2a2a" : (overlap > 20 ? "#ffaa00" : "#fff");
+                    const l3v = strat.correlations_l3 ? (strat.correlations_l3[pair] || 0).toFixed(1) : '-';
+                    const l7v = strat.correlations_l7 ? (strat.correlations_l7[pair] || 0).toFixed(1) : '-';
+                    arr.push(`<span style="color:${color}" data-tooltip="L3 overlap: ${l3v}%\nL7 overlap: ${l7v}%">${pair}: ${overlap}%</span>`);
+                }
+                overlapText = arr.join(' | ');
+            }
+            overlapEl.innerHTML = overlapText;
+            
+            if (strat.vector_shifts && strat.vector_shifts.length > 0) {
+                shiftEl.innerHTML = `<span class="alert-text">${strat.vector_shifts.join(', ')}</span>`;
+            } else {
+                shiftEl.innerText = "None";
+            }
+            
+            let strikesText = "None";
+            if (strat.adversary_strikes && strat.adversary_strikes.length > 0) {
+                let arr = [];
+                strat.adversary_strikes.forEach(strike => { arr.push(`<span class="warn-text">${strike.actor}➔${strike.target} (x${strike.spike})</span>`); });
+                strikesText = arr.join(' | ');
+            }
+            strikesEl.innerHTML = strikesText;
+
+            const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? strat.degraded_theaters.join(', ') : "None";
+            outagesEl.innerHTML = `<span class="${degraded !== 'None' ? 'warn-text' : ''}">${degraded}</span>`;
+
+            if (coordinatedEl) {
+                if (strat.coordinated_theaters && strat.coordinated_theaters.length >= 2) {
+                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${strat.coordinated_theaters.join(', ')}]</span>`;
+                } else {
+                    coordinatedEl.innerText = "None";
+                }
+            }
+
+            if (strat.domains) {
+                ['cyber', 'physical', 'info'].forEach(d => {
+                    const info = strat.domains[d] || { score: 0, status: 'NORMAL' };
+                    const barEl    = document.getElementById(`bar-${d}`);
+                    const statusEl = document.getElementById(`status-${d}`);
+                    if (barEl)    barEl.style.width = `${Math.min(info.score * 8, 80)}px`;
+                    if (statusEl) {
+                        statusEl.textContent = `${info.score}pt`;
+                        statusEl.className = `domain-status ${info.status}`;
+                    }
+                });
+            }
+
+            const convEl = document.getElementById('hud-convergence');
+            if (convEl && strat.convergence_level) {
+                const lvl = strat.convergence_level;
+                const labels = {
+                    FULL_CONVERGENCE: '⚡ FULL CONVERGENCE',
+                    DUAL_DOMAIN:      '⚠ DUAL DOMAIN',
+                    SINGLE_DOMAIN:    '◉ SINGLE DOMAIN',
+                    NONE:             'CONVERGENCE: —',
+                };
+                convEl.textContent = labels[lvl] || lvl;
+                convEl.className = `conv-${lvl}`;
+                const b = strat.defcon_breakdown || {};
+                const bonus = b.convergence_bonus || 0;
+                const held  = b.defcon_held ? ' [HOLD]' : '';
+                convEl.setAttribute('data-tooltip', `Score: ${b.total_score} + Bonus: ${bonus} = ${b.score_with_bonus} → Threat Lv ${b.defcon_raw}${held}`);
+            }
+
+            if (data.defcon_history) {
+                updateDefconSparkline(data.defcon_history);
+            }
+
+            threatEl.onclick = () => openEvidencePanel(strat);
+
+            // ── Phase 8: HUD 更新 ──────────────────────────────────────────
+            const p8 = strat.phase8 || {};
+
+            // Velocity Meter
+            const velEl    = document.getElementById('hud-velocity');
+            const arrowEl  = document.getElementById('hud-velocity-arrow');
+            if (velEl && p8.velocity !== undefined) {
+                const v = p8.velocity;
+                const absV = Math.abs(v);
+                // スケール: 0.001 pt/s = 約0.9 pt/cycle (900s) で通常変動
+                const dispV = absV < 0.0001 ? 'STABLE' : (absV * 900).toFixed(2) + '/cycle';
+                velEl.textContent = dispV;
+                if (v > 0.0001)       { velEl.style.color='#ff6644'; arrowEl.textContent='↑'; arrowEl.style.color='#ff6644'; }
+                else if (v < -0.0001) { velEl.style.color='#66ffaa'; arrowEl.textContent='↓'; arrowEl.style.color='#66ffaa'; }
+                else                  { velEl.style.color='#aaa';    arrowEl.textContent='→'; arrowEl.style.color='#aaa'; }
+            }
+            // Ambush Alert
+            const ambushWrap = document.getElementById('hud-ambush-wrap');
+            if (ambushWrap) ambushWrap.style.display = p8.is_ambush ? 'flex' : 'none';
+
+            // Blockade Index
+            const blockadeEl   = document.getElementById('hud-blockade');
+            const blockadeFill = document.getElementById('hud-blockade-fill');
+            if (blockadeEl && p8.blockade_index !== undefined) {
+                const bi = p8.blockade_index;
+                blockadeEl.textContent = bi.toFixed(1);
+                const pct = Math.min(bi / 10 * 100, 100);
+                if (blockadeFill) {
+                    blockadeFill.style.width = pct + '%';
+                    blockadeFill.style.background = bi >= 7 ? '#ff2200' : bi >= 4 ? '#ff6600' : bi >= 1.5 ? '#ffaa00' : '#338833';
+                }
+                blockadeEl.style.color = bi >= 7 ? '#ff2200' : bi >= 4 ? '#ff6600' : bi >= 1.5 ? '#ffaa00' : '#aaa';
+            }
+            // Sequence Chain badge
+            const chainEl = document.getElementById('hud-chain');
+            if (chainEl && p8.sequence_status) {
+                const sc = p8.sequence_status;
+                chainEl.textContent = sc.includes('FULL_CHAIN') ? '✔ FULL' : sc.includes('PARTIAL') ? '≈ PARTIAL' : '—';
+                chainEl.style.color = sc.includes('FULL_CHAIN') ? '#ff4444' : sc.includes('PARTIAL') ? '#ffaa00' : '#555';
+            }
+            // Evidence Chain Panel の更新
+            updateChainPanel(strat);
+        }
+
+        const originContainer = document.getElementById('origin-list-container');
+        targetLayer.clearLayers(); sourceLayer.clearLayers(); lineLayer.clearLayers(); iodaLayer.clearLayers();
+        let originHtml = "";
+
+        const drawnLabels = new Set();
+
+        function drawCountryLabel(lat, lng, name, code) {
+            if (!drawnLabels.has(code)) {
+                L.circleMarker([lat, lng], { radius: 1, color: 'transparent', fillColor: 'transparent' })
+                 .bindTooltip(name.toUpperCase(), { permanent: true, direction: 'right', className: 'country-label', offset: [12, 0] })
+                 .addTo(sourceLayer);
+                drawnLabels.add(code);
+            }
+        }
+
+        const targetCodesSet = new Set(
+            (data.targets || []).filter(t => displayTargets.includes(t.code)).map(t => t.code)
+        );
+
+        if (displayTargets.length === 0) {
+            originHtml = "<div style='color:grey; padding: 10px;'>No targets active. Turn on toggles in Target Visibility panel.</div>";
+        } else if (data.targets) {
+            const vecShareKey = currentVector === 'l3' ? 'global_share_l3' : currentVector === 'l7' ? 'global_share_l7' : 'global_share';
+            data.targets.sort((a, b) => (b[vecShareKey] || 0) - (a[vecShareKey] || 0)).forEach(t => {
+                if (!displayTargets.includes(t.code)) return;
+
+                const isOutage = t.is_bgp_outage;
+                const isEffOutage = t.is_bgp_effective;
+                
+                let targetClass = "target-normal";
+                if (isOutage) {
+                    targetClass = isEffOutage ? "target-degraded" : "target-weather";
+                }
+
+                const intel = ((data.strategic_alert || {}).country_intel || {})[t.code] || {};
+                const iodaSt = intel.ioda_status || "NORMAL";
+                const ixpCnt = intel.ixp_count || 0;
+                const gdeltD = intel.gdelt;
+                const airspD = intel.airspace;
+
+                let badges = '';
+                if (isOutage) {
+                    if (isEffOutage) {
+                        badges += `<span class="tm-badge tm-badge-bgp" data-tooltip="BGP/Outage Detected">BGP⚠</span>`;
+                    } else {
+                        badges += `<span class="tm-badge" style="border:1px solid #ffaa00; color:#ffaa00; background:rgba(255,170,0,0.18);" data-tooltip="Outage (Weather Muted)">BGP(Wx)</span>`;
+                    }
+                } else if (iodaSt === "BGP_OUTAGE") {
+                    badges += `<span class="tm-badge" style="border:1px solid #ffaa00; color:#ffaa00; background:rgba(255,170,0,0.18);" data-tooltip="Outage (Weather Muted)">BGP(Wx)</span>`;
+                }
+
+                if (ixpCnt > 0)
+                    badges += `<span class="tm-badge tm-badge-ixp">IXP×${ixpCnt}</span>`;
+                
+                if (gdeltD) {
+                    if (gdeltD.status === "ALERT") {
+                        badges += `<span class="tm-badge tm-badge-gdelt" data-tooltip="Media Tone Drop">M⚠</span>`;
+                    } else if (gdeltD.status === "WEATHER_NOISE") {
+                        badges += `<span class="tm-badge" style="border:1px solid #aaa; color:#aaa; background:rgba(170,170,170,0.15);" data-tooltip="Media Tone (Weather Muted)">M(Wx)</span>`;
+                    }
+                }
+                
+                if (airspD && airspD.severity && airspD.severity !== "NORMAL") {
+                    if (airspD.status === "WEATHER_NOISE") {
+                        badges += `<span class="tm-badge" style="border:1px solid #aaa; color:#aaa; background:rgba(170,170,170,0.15);" data-tooltip="Airspace Anomaly (Weather Muted)">✈(Wx)</span>`;
+                    } else {
+                        badges += `<span class="tm-badge tm-badge-air" data-tooltip="Airspace Anomaly">✈</span>`;
+                    }
+                }
+
+                const dynamicIcon = L.divIcon({
+                    className: '',
+                    html: `<div class="target-marker-wrapper ${targetClass}"><div class="ddos-ring"></div><div class="ddos-core"></div>${badges ? `<div class="tm-badges-wrap">${badges}</div>` : ''}</div>`,
+                    iconSize: [80, 80], iconAnchor: [40, 40], popupAnchor: [0, -40]
+                });
+
+                let targetLngShifted = shiftLng(t.lng);
+                
+                const netStatusTextTip = isOutage ? (isEffOutage ? "🔴 BGP/OUTAGE" : "🟠 BGP/OUTAGE (Weather Muted)") : "🟢 NORMAL";
+
+                L.marker([t.lat, targetLngShifted], { icon: dynamicIcon })
+                 .bindTooltip(`<b>${t.info}</b> — ${netStatusTextTip}`, { direction: 'top', sticky: false })
+                 .on('click', () => openCountryDetail(t.code))
+                 .addTo(targetLayer);
+
+                drawCountryLabel(t.lat, targetLngShifted, t.info, t.code);
+
+                // P7-Opt: div×30本 → <canvas>1個に置換（DOM削減）
+                let sparklineHtml = "";
+                const histL3 = t.trend_history_l3 || [];
+                const histL7 = t.trend_history_l7 || [];
+                if (histL3.length > 0 || histL7.length > 0) {
+                    sparklineHtml = `<canvas class="sparkline-canvas" width="64" height="20" data-l3="${histL3.join(',')}" data-l7="${histL7.join(',')}" data-vec="${currentVector}" title="L3(赤)/L7(緑) スパイクトレンド (75分)"></canvas>`;
+                }
+
+                const targetShare = parseFloat(t[vecShareKey] || 0).toFixed(2);
+                const vecLabel = currentVector === 'l3' ? 'L3' : currentVector === 'l7' ? 'L7' : 'GL';
+                
+                const netStatusText = isOutage ? (isEffOutage ? "OUTAGE" : "OUTAGE(Wx)") : "NORMAL";
+                const statusColor = isOutage ? (isEffOutage ? "#ff2a2a" : "#ffaa00") : "#66ff66";
+                const statusBadge = `<span class="status-badge" style="color: ${statusColor}; border-color: ${statusColor};" data-tooltip="Network Status: ${netStatusTextTip}">Net: ${netStatusText}</span>`;
+                
+                const shiftActorStr = (t.shift_actors && t.shift_actors.length > 0) ? ` [${t.shift_actors.join(',')}]` : '';
+                const shiftBadge = t.is_vector_shift ? `<span class="shift-badge" data-tooltip="Per-origin L7 shift detected from:${shiftActorStr}">L7 SHIFT${shiftActorStr}</span>` : "";
+
+                const safeId = t.code.toLowerCase(); const listId = `list-${safeId}`; const arrowId = `arrow-${safeId}`;
+                const displayStyle = collapsedTargets.has(listId) ? 'none' : 'block';
+                const arrowTxt = collapsedTargets.has(listId) ? '▶' : '▼';
+
+                originHtml += `
+                    <div class="target-group-title" onclick="toggleTargetList('${listId}', '${arrowId}')" data-tooltip="${t.info} | Global: ${targetShare}% | Net: ${netStatusTextTip}">
+                        <div class="target-title-left">
+                            <span id="${arrowId}" class="toggle-arrow">${arrowTxt}</span>
+                            <span class="target-name">[ ${t.info} ]</span>
+                            <span class="target-share">(${vecLabel}: ${targetShare}%)</span>
+                        </div>
+                        <div class="target-title-right">
+                            ${shiftBadge}
+                            ${statusBadge}
+                            ${sparklineHtml}
+                        </div>
+                    </div>
+                    <ul id="${listId}" class='origin-list-ul' style="display: ${displayStyle};">
+                `;
+
+                if (t.sources && t.sources.length > 0) {
+                    const getW = s => currentVector === 'l3' ? (s.l3_weight || 0) : currentVector === 'l7' ? (s.l7_weight || 0) : (s.weight || 0);
+                    const getSpike = s => currentVector === 'l3' ? (s.l3_spike || s.spike_factor || 1.0) : currentVector === 'l7' ? (s.l7_spike || s.spike_factor || 1.0) : (s.spike_factor || 1.0);
+
+                    const sortedSources = t.sources
+                        .filter(s => getW(s) > 0.001)
+                        .sort((a, b) => getW(b) - getW(a));
+
+                    if (sortedSources.length === 0) {
+                        originHtml += `<li style="color:grey;">No significant threats in this vector.</li>`;
+                    } else {
+                    sortedSources.forEach(s => {
+                        const w = getW(s); const spike = getSpike(s);
+                        let lineColor, lineOpacity, speedClass, glowClass, spikeHtml = "";
+                        const severity = spike * w;
+
+                        if (spike >= 1.5 && severity >= 0.5) { lineColor = '#ff2a2a'; lineOpacity = 0.9; speedClass = 'flow-fast'; glowClass = 'glow-high'; spikeHtml = `<span class="spike-alert">SEVERE SPIKE (x${spike})</span>`;
+                        } else if (spike >= 1.5 && w > 0.05) { lineColor = '#ffaa00'; lineOpacity = 0.7; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">Minor Spike (x${spike})</span>`;
+                        } else if (w >= 1.0) { lineColor = '#ffaa00'; lineOpacity = 0.4; speedClass = 'flow-medium'; glowClass = 'glow-none';
+                        } else { lineColor = '#00d8ff'; lineOpacity = 0.4; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
+
+                        const totalPct = parseFloat(w).toFixed(2);
+                        const l3Pct = parseFloat(s.l3_weight).toFixed(2); const l7Pct = parseFloat(s.l7_weight).toFixed(2);
+                        const vecDetail = currentVector === 'all'
+                            ? `<span class="origin-stats">↳ <span style="color:#ff6666">L3: ${l3Pct}%</span> / <span style="color:#66ff66">L7: ${l7Pct}%</span></span>`
+                            : currentVector === 'l3'
+                                ? `<span class="origin-stats">↳ <span style="color:#ff6666">L3: ${l3Pct}%</span> <span style="color:#555">/ L7: ${l7Pct}%</span></span>`
+                                : `<span class="origin-stats">↳ <span style="color:#555">L3: ${l3Pct}% /</span> <span style="color:#66ff66"> L7: ${l7Pct}%</span></span>`;
+
+                        const originShiftBadge = s.is_l7_shift ? `<span style="color:#ffaa00; font-size:10px; font-weight:bold; margin-left:5px; border:1px solid #ffaa00; padding:1px 3px; border-radius:2px;">L7&uarr;</span>` : "";
+                        const confClass = s.confidence === 'HIGH' ? 'conf-high' : s.confidence === 'MEDIUM' ? 'conf-medium' : 'conf-low';
+                        const confBadge = s.confidence ? `<span class="conf-badge ${confClass}">${s.confidence}</span>` : "";
+                        const newActorBadge = s.is_new_actor ? `<span class="new-actor-badge" data-tooltip="No 7-day baseline: new infrastructure">NEW</span>` : "";
+                        const asnLabel = s.state_asns && s.state_asns.length > 0 ? s.state_asns.join(',') : '';
+                        const stateAsnBadge = s.is_state_asn ? `<span class="state-asn-badge" data-tooltip="State-attributed ASN detected:\n${asnLabel}">STATE-ASN</span>` : "";
+                        originHtml += `<li class="origin-item"><span style="color:${lineColor}; font-size:14px;">■</span> <b>${s.name}</b> <span style="color:#fff;">[${totalPct}%]</span> ${spikeHtml}${originShiftBadge}${stateAsnBadge}${newActorBadge}${confBadge} ${vecDetail}</li>`;
+
+                        let sourceLngShifted = shiftLng(s.lng);
+
+                        L.circleMarker([s.lat, sourceLngShifted], { radius: 4, color: lineColor, fillColor: lineColor, fillOpacity: lineOpacity + 0.2 })
+                         .addTo(sourceLayer);
+
+                        drawCountryLabel(s.lat, sourceLngShifted, s.name, s.code);
+
+                        const curvePoints = getCurvePoints(s.lat, sourceLngShifted, t.lat, targetLngShifted);
+                        // P1-Opt: drop-shadow削除の代わりに高危険度ラインを太く補正
+                        const baseWidth = Math.max(1.5, Math.min(5, w * 3));
+                        const dynamicLineWidth = glowClass === 'glow-high' ? Math.min(7, baseWidth + 1.5) : baseWidth;
+                        L.polyline(curvePoints, { className: `attack-curve ${speedClass}`, color: lineColor, weight: dynamicLineWidth, opacity: lineOpacity }).addTo(lineLayer);
+                    });
+                    }
+                } else { originHtml += `<li style="color:grey;">No significant threats detected.</li>`; }
+                originHtml += `</ul>`;
+            });
+        }
+        
+        airspaceLayer.clearLayers(); weatherLayer.clearLayers();
+        gdeltLayer.clearLayers(); criticalNodesLayer.clearLayers();
+        
+        // [Phase 7] Clear new layers
+        firmsLayer.clearLayers(); chokepointsLayer.clearLayers();
+
+        const overlays = data.strategic_alert && data.strategic_alert.map_overlays;
+        if (overlays) {
+            (overlays.ioda_outages || []).forEach(o => {
+                if (targetCodesSet.has(o.code)) return;
+                const lngS = shiftLng(o.lng);
+                const icon = L.divIcon({
+                    className: '',
+                    html: `<div style="width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:18px solid #ff2a2a;filter:drop-shadow(0 0 6px #ff2a2a);"></div>`,
+                    iconSize: [18, 18], iconAnchor: [9, 18],
+                });
+                L.marker([o.lat, lngS], { icon })
+                 .bindPopup(`<b>${o.name}</b><br><span style="color:#ff2a2a;">BGP/OUTAGE DETECTED</span>`)
+                 .on('click', () => openCountryDetail(o.code))
+                 .addTo(iodaLayer);
+            });
+
+            (overlays.airspace_anomaly || []).forEach(a => {
+                const lngS = shiftLng(a.lng);
+                const isClosure = a.severity === 'CLOSURE';
+                const col  = isClosure ? '#ff2a2a' : '#ffaa00';
+                const glow = isClosure ? 'drop-shadow(0 0 8px #ff2a2a)' : 'drop-shadow(0 0 5px #ffaa00)';
+                const icon = L.divIcon({
+                    className: '',
+                    html: `<div style="font-size:18px;line-height:1;filter:${glow}; cursor:help;" data-tooltip="${a.airport}: ${a.drop_pct}% drop (${a.count}/${a.baseline} ac)">✈</div>`,
+                    iconSize: [20, 20], iconAnchor: [10, 10],
+                });
+                L.marker([a.lat, lngS], { icon })
+                 .bindPopup(
+                    `<b>${a.airport} (${a.code})</b><br>` +
+                    `<span style="color:${col};font-weight:bold;">${a.severity}</span><br>` +
+                    `Aircraft: ${a.count} (baseline: ${a.baseline})<br>` +
+                    `Drop: <b>${a.drop_pct}%</b>`
+                 )
+                 .addTo(airspaceLayer);
+            });
+
+            (overlays.weather_events || []).forEach(w => {
+                const lngS = shiftLng(w.lng);
+                const isSevere = w.is_severe;
+                const col   = isSevere ? '#ff6600' : '#aaaaaa';
+                const emoji = isSevere ? '⛈' : '🌧';
+                const icon  = L.divIcon({
+                    className: '',
+                    html: `<div style="font-size:16px;line-height:1;filter:drop-shadow(0 0 4px ${col}); cursor:help;" data-tooltip="${w.description} — wind ${w.wind_speed}m/s">${emoji}</div>`,
+                    iconSize: [18, 18], iconAnchor: [-16, 34],
+                });
+                L.marker([w.lat, lngS], { icon })
+                 .bindPopup(
+                    `<b>Weather: ${w.code}</b><br>` +
+                    `<span style="color:${col};">${w.description}</span><br>` +
+                    `Severity: ${w.severity} | Wind: ${w.wind_speed} m/s` +
+                    (isSevere ? '<br><i style="color:#ffaa00;">Noise filter active: suppresses BGP/Airspace alerts</i>' : '')
+                 )
+                 .addTo(weatherLayer);
+            });
+
+            (overlays.gdelt_events || []).forEach(g => {
+                const lngS   = shiftLng(g.lng);
+                const isAlert = g.is_alert;
+                const col    = isAlert ? '#cc44ff' : '#8855aa';
+                const glow   = isAlert ? 'drop-shadow(0 0 8px #cc44ff)' : 'drop-shadow(0 0 4px #8855aa)';
+                const deltaStr = g.delta != null ? `Δ${g.delta > 0 ? '+' : ''}${g.delta.toFixed(1)}` : 'Δ N/A';
+                const icon = L.divIcon({
+                    className: '',
+                    html: `<div style="width:22px;height:22px;border-radius:50%;border:3px solid ${col};background:${col}33;filter:${glow};box-sizing:border-box;"></div>`,
+                    iconSize: [22, 22], iconAnchor: [36, 36],
+                });
+                const baseStr = g.tone_baseline != null ? g.tone_baseline.toFixed(1) : 'N/A';
+                L.marker([g.lat, lngS], { icon })
+                 .bindPopup(
+                    `<b>${g.name} — Media Tone</b><br>` +
+                    `<span style="color:${col};">` +
+                    (g.tone_current != null ? `Tone: <b>${g.tone_current.toFixed(1)}</b>` : 'Tone: N/A') +
+                    `</span><br>` +
+                    `Baseline (28d): ${baseStr} | ${deltaStr}<br>` +
+                    `Status: <b>${g.status}</b>` +
+                    (g.status === 'WEATHER_NOISE' ? '<br><i style="color:#ffaa00;">Noise filter: severe weather active</i>' : '')
+                 )
+                 .addTo(gdeltLayer);
+            });
+
+            const ixpByCountry = {};
+            (overlays.critical_nodes || []).forEach(n => {
+                if (targetCodesSet.has(n.country)) return;
+                if (!ixpByCountry[n.country]) ixpByCountry[n.country] = { lat: n.lat, lng: n.lng, ixps: [] };
+                ixpByCountry[n.country].ixps.push(n.name);
+            });
+            Object.entries(ixpByCountry).forEach(([country, info]) => {
+                const lngS  = shiftLng(info.lng);
+                const count = info.ixps.length;
+                const col   = '#ffee44';
+                const icon  = L.divIcon({
+                    className: '',
+                    html: `<div style="position:relative;width:10px;height:10px;transform:rotate(45deg);background:${col}33;border:2px solid ${col};filter:drop-shadow(0 0 3px ${col});box-sizing:border-box;"></div>`,
+                    iconSize: [10, 10], iconAnchor: [5, 5],
+                });
+                const nameList = info.ixps.slice(0, 5).join('<br>') + (count > 5 ? `<br>…他 ${count-5} 件` : '');
+                L.marker([info.lat, lngS], { icon })
+                 .bindPopup(`<b style="color:${col};">IXP [${country}]</b> × ${count}<br><span style="font-size:11px;color:#aaa;">${nameList}</span>`)
+                 .on('click', () => openCountryDetail(country))
+                 .addTo(criticalNodesLayer);
+            });
+
+            // [Phase 7] Render NASA FIRMS Anomalies
+            (overlays.firms_anomalies || []).forEach(f => {
+                const lngS = shiftLng(f.lng);
+                const icon = L.divIcon({ 
+                    html: `<div style="font-size:20px; filter:drop-shadow(0 0 10px #ff2a2a); cursor:help;" data-tooltip="Thermal Anomaly (FIRMS)">🔥</div>`, 
+                    className: '', 
+                    iconSize: [20,20] 
+                });
+                L.marker([f.lat, lngS], {icon})
+                 .bindPopup(`<b>Thermal Anomaly (FIRMS)</b><br>Code: ${f.code}<br><span style="color:#ff2a2a; font-weight:bold;">Kinetic Strike Precursor</span>`)
+                 .addTo(firmsLayer);
+            });
+
+            // [Phase 7] Render Cable Chokepoints
+            (overlays.chokepoints || []).forEach(c => {
+                const lngS = shiftLng(c.lng);
+                const icon = L.divIcon({ 
+                    html: `<div style="color:#00ffff; font-size:14px; filter:drop-shadow(0 0 5px #00ffff); cursor:help;" data-tooltip="Chokepoint: ${c.name}">◆</div>`, 
+                    className: '', 
+                    iconSize: [14,14] 
+                });
+                L.marker([c.lat, lngS], {icon})
+                 .bindPopup(`<b>Chokepoint</b><br>${c.name}<br>Country: ${c.country}`)
+                 .addTo(chokepointsLayer);
+            });
+        }
+
+        originContainer.innerHTML = originHtml;
+
+        // P7-Opt: innerHTML 確定後にまとめて Canvas へ描画
+        originContainer.querySelectorAll('.sparkline-canvas').forEach(cvs => {
+            const l3 = cvs.dataset.l3 ? cvs.dataset.l3.split(',').map(Number) : [];
+            const l7 = cvs.dataset.l7 ? cvs.dataset.l7.split(',').map(Number) : [];
+            const vec = cvs.dataset.vec || 'all';
+            const ctx = cvs.getContext('2d');
+            const W = cvs.width, H = cvs.height, half = H / 2;
+            const barW = 3, gap = 1;
+            ctx.clearRect(0, 0, W, H);
+            ctx.globalAlpha = vec === 'l7' ? 0.25 : 1.0;
+            ctx.fillStyle = '#ff6666';
+            l3.forEach((v, i) => { const bh = Math.min(half, v * 5); ctx.fillRect(i * (barW + gap), half - bh, barW, bh); });
+            ctx.globalAlpha = vec === 'l3' ? 0.25 : 1.0;
+            ctx.fillStyle = '#66ff66';
+            l7.forEach((v, i) => { const bh = Math.min(half, v * 5); ctx.fillRect(i * (barW + gap), half, barW, bh); });
+        });
+    }
+
+    function saveLocalState() {
+        const stateObj = getCurrentConfig();
+        stateObj.pins = {};
+        document.querySelectorAll('.check-pin').forEach(cb => stateObj.pins[cb.value] = cb.checked);
+        
+        stateObj.layout = {};
+        ['target-panel', 'dashboard-panel'].forEach(id => {
+            const panel = document.getElementById(id);
+            const content = panel.querySelector('.panel-content');
+            stateObj.layout[id] = {
+                docked: panel.classList.contains('docked'),
+                minimized: content.style.display === 'none',
+                top: panel.style.top, left: panel.style.left, width: panel.style.width, height: panel.style.height
+            };
+        });
+        
+        stateObj.ui = {
+            vector: currentVector,
+            mapCenter: mapCenterMode
+        };
+        
+        localStorage.setItem('ctiIntelAlerts', JSON.stringify(stateObj));
+    }
+
+    function restoreLayoutState(layoutState) {
+        ['target-panel', 'dashboard-panel'].forEach(id => {
+            const state = layoutState[id];
+            if (!state) return;
+            const panel = document.getElementById(id);
+            const content = panel.querySelector('.panel-content');
+            const toggleBtn = panel.querySelector('.toggle-btn');
+            const dockBtn = panel.querySelector('.dock-btn');
+            const placeholder = document.getElementById(id.split('-')[0] + '-placeholder');
+
+            if (state.minimized) {
+                content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
+                if (state.docked && id === 'dashboard-panel') panel.style.flexGrow = '0';
+            } else {
+                content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
+                if (state.docked && id === 'dashboard-panel') panel.style.flexGrow = '1';
+            }
+
+            if (!state.docked) {
+                document.body.appendChild(panel);
+                panel.classList.remove('docked'); panel.classList.add('floating');
+                panel.style.top = state.top; panel.style.left = state.left; panel.style.width = state.width; panel.style.height = state.height;
+                dockBtn.style.display = 'inline-block';
+            } else {
+                placeholder.appendChild(panel);
+                panel.classList.remove('floating', 'active'); panel.classList.add('docked');
+                panel.style.left = ''; panel.style.top = ''; panel.style.width = ''; panel.style.height = '';
+                dockBtn.style.display = 'none';
+            }
+        });
+    }
+
+    function loadTargetState(defaults) {
+        const savedState = localStorage.getItem('ctiIntelAlerts');
+        if (savedState) {
+            const stateObj = JSON.parse(savedState);
+            document.querySelectorAll('#strategy-tbody tr').forEach(tr => {
+                const coreRadio = tr.querySelector('.radio-core'); const corrCb = tr.querySelector('.check-correlate');
+                if (coreRadio && stateObj.core === coreRadio.value) coreRadio.checked = true;
+                if (corrCb && stateObj.correlates && Array.isArray(stateObj.correlates)) {
+                    corrCb.checked = stateObj.correlates.includes(corrCb.value);
+                }
+            });
+            document.querySelectorAll('.check-adversary').forEach(cb => { 
+                if (stateObj.adversaries && Array.isArray(stateObj.adversaries)) {
+                    cb.checked = stateObj.adversaries.includes(cb.value);
+                } 
+            });
+            document.querySelectorAll('.check-pin').forEach(cb => { 
+                if (stateObj.pins && stateObj.pins[cb.value] !== undefined) {
+                    cb.checked = stateObj.pins[cb.value]; 
+                }
+            });
+            
+            renderQuickToggles();
+            document.querySelectorAll('.check-display').forEach(cb => { 
+                if (stateObj.displays && Array.isArray(stateObj.displays)) {
+                    cb.checked = stateObj.displays.includes(cb.value); 
+                }
+            });
+            
+            if (stateObj.layout) restoreLayoutState(stateObj.layout);
+            
+            if (stateObj.ui) {
+                currentVector = stateObj.ui.vector || 'all';
+                mapCenterMode = stateObj.ui.mapCenter || 'pacific';
+            }
+        } else {
+            const defaultCore = document.querySelector(`.radio-core[value="${defaults.default_core}"]`); if(defaultCore) defaultCore.checked = true;
+            defaults.default_correlates.forEach(c => { const cb = document.querySelector(`.check-correlate[value="${c}"]`); if(cb) cb.checked = true; });
+            defaults.default_adversaries.forEach(c => { const cb = document.querySelector(`.check-adversary[value="${c}"]`); if(cb) cb.checked = true; });
+            defaults.default_pins.forEach(c => { const cb = document.querySelector(`.check-pin[value="${c}"]`); if(cb) cb.checked = true; });
+            
+            renderQuickToggles();
+            document.querySelectorAll('.check-display').forEach(cb => cb.checked = true);
+        }
+        
+        document.getElementById('map-btn-pacific').className = 'vec-btn' + (mapCenterMode === 'pacific' ? ' active-all' : '');
+        document.getElementById('map-btn-atlantic').className = 'vec-btn' + (mapCenterMode === 'atlantic' ? ' active-all' : '');
+        if (mapCenterMode === 'pacific') {
+            map.setView([20.0, 150.0], map.getZoom(), { animate: false });
+        } else {
+            map.setView([20.0, 10.0], map.getZoom(), { animate: false });
+        }
+        
+        ['all', 'l3', 'l7'].forEach(key => {
+            const btn = document.getElementById(`vec-btn-${key}`);
+            const activeClass = key === 'l3' ? 'active-l3' : key === 'l7' ? 'active-l7' : 'active-all';
+            btn.className = 'vec-btn' + (key === currentVector ? ` ${activeClass}` : '');
+        });
+
+        updateUIConsistency();
+    }
+
+    document.addEventListener('change', (e) => {
+        if (e.target.matches('.check-pin, .radio-core, .check-correlate')) {
+            renderQuickToggles();
+        }
+        if (e.target.matches('.check-pin, .radio-core, .check-correlate, .check-adversary, .check-display')) {
+            updateUIConsistency();
+            saveLocalState();
+            checkPendingState();
+        }
+        if (e.target.matches('.check-display') && latestData) {
+            renderTelemetry(latestData);
+        }
+    });
+
+    async function initApp() {
+        let defaults = {
+            default_core: "TW",
+            default_correlates: ["JP", "US"],
+            default_adversaries: ["CN", "RU", "KP"],
+            default_pins: ["TW", "JP", "US"]
+        };
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/app_config');
+            if (res.ok) {
+                defaults = await res.json();
+            }
+        } catch(e) {
+            console.warn("Failed to load config from backend. Using fallbacks.", e);
+        }
+        
+        loadTargetState(defaults);
+        lastSyncedConfig = getCurrentConfig();
+        fetchDDoSData(false);
+        setInterval(() => fetchDDoSData(false), 900000);
+    }
+    
+    // Boot sequence
+    initApp();
+
+    function openCountryDetail(code) {
+        if (!latestData) return;
+        const strat   = latestData.strategic_alert || {};
+        const intel   = (strat.country_intel || {})[code] || {};
+        const tgtData = (latestData.targets || []).find(t => t.code === code) || {};
+        const coordName = (strat.core_theater === code ? '★ Core' : '◎ Link');
+
+        document.getElementById('country-modal-title').textContent = `Country Intel — ${tgtData.info || code} (${code})`;
+
+        const spike    = tgtData.avg_spike   != null ? `${tgtData.avg_spike.toFixed(2)}x` : '—';
+        const shareL3  = tgtData.global_share_l3 != null ? `${tgtData.global_share_l3.toFixed(2)}%` : '—';
+        const shareL7  = tgtData.global_share_l7 != null ? `${tgtData.global_share_l7.toFixed(2)}%` : '—';
+        const shift    = tgtData.is_vector_shift ? '<span class="cip-warn">L7 SHIFT</span>' : '<span style="color:#555">None</span>';
+        
+        const iodaSt   = intel.ioda_status || 'NORMAL';
+        const isEffDeg = intel.is_bgp_degraded;
+        let iodaCol = 'cip-ok';
+        let iodaTxt = `🟢 NORMAL`;
+        if (iodaSt === "BGP_OUTAGE") {
+            if (isEffDeg) {
+                iodaCol = 'cip-alert';
+                iodaTxt = `🔴 OUTAGE`;
+            } else {
+                iodaCol = 'cip-warn';
+                iodaTxt = `🟠 OUTAGE (Weather Muted)`;
+            }
+        }
+
+        const sortedSrc = ((tgtData.sources || []).filter(s => s.weight > 0)
+            .sort((a, b) => b.spike_factor - a.spike_factor)).slice(0, 5);
+        const srcHtml = sortedSrc.length
+            ? `<ul class="cip-sources-list">${sortedSrc.map(s =>
+                `<li><span>${s.name} [${s.code}]${s.is_state_asn ? ' <b style="color:#ff4444">STATE-ASN</b>' : ''}</span>
+                <span style="color:#ffaa00">spike ${s.spike_factor}x</span></li>`
+              ).join('')}</ul>`
+            : '<span style="color:#555;font-size:12px;">No significant sources</span>';
+
+        const wx     = intel.weather || {};
+        const wxTxt  = wx.condition
+            ? `${wx.condition} — ${wx.description || ''} (wind ${wx.wind_speed || 0}m/s)`
+            : '—';
+        const wxSev  = wx.severity || 'NORMAL';
+        const wxCol  = wxSev === 'SEVERE' ? 'cip-alert' : wxSev === 'MODERATE' ? 'cip-warn' : 'cip-ok';
+
+        const air    = intel.airspace || {};
+        const airTxt = air.status
+            ? `${air.airport || '?'}: ${air.count != null ? air.count : '?'} ac (base ${air.baseline_avg != null ? air.baseline_avg : '?'})`
+            : '—';
+        const airCol = (air.status === 'CLOSURE' || air.status === 'ANOMALY') ? 'cip-alert'
+                     : air.status === 'WEATHER_NOISE' ? 'cip-warn' : 'cip-ok';
+        const airLbl = air.status || '—';
+
+        const bgpR   = intel.bgp_routing || {};
+        const bgpTxt = bgpR.announced_prefixes != null
+            ? `${bgpR.announced_prefixes} pfx / ${bgpR.seen_ases || '?'} ASes`
+            : '—';
+        const bgpCol = bgpR.is_anomaly ? 'cip-alert' : 'cip-ok';
+        const bgpLbl = bgpR.is_anomaly ? `⚠ DROP ${bgpR.drop_pct}%` : (bgpR.status || '—');
+
+        const gdelt  = intel.gdelt || {};
+        const gdTone = gdelt.tone_current != null ? gdelt.tone_current.toFixed(1) : '—';
+        const gdBase = gdelt.tone_baseline != null ? gdelt.tone_baseline.toFixed(1) : '—';
+        const gdDelta= gdelt.delta != null ? `${gdelt.delta > 0 ? '+' : ''}${gdelt.delta.toFixed(1)}` : '—';
+        const gdCol  = gdelt.status === 'ALERT' ? 'cip-alert' : gdelt.status === 'WEATHER_NOISE' ? 'cip-warn' : 'cip-ok';
+        const gdLbl  = gdelt.status || '—';
+
+        const ixpCnt   = intel.ixp_count || 0;
+        const ixpNames = (intel.ixp_names || []).slice(0, 4).join(', ') || '—';
+
+        document.getElementById('country-modal-body').innerHTML = `
+        <div class="cip-header">
+            <div class="cip-flag">🌐</div>
+            <div>
+                <div class="cip-title">${tgtData.info || code}</div>
+                <div class="cip-code">${code} &nbsp;|&nbsp; ${coordName} &nbsp;|&nbsp; Global share L3: ${shareL3} / L7: ${shareL7}</div>
+            </div>
+        </div>
+
+        <div class="cip-section">
+            <div class="cip-section-title">🔵 Cyber Domain — DDoS Telemetry</div>
+            <div class="cip-grid">
+                <div class="cip-card">
+                    <div class="cip-card-label">Avg Spike</div>
+                    <div class="cip-card-value">${spike}</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">L7 Vector Shift</div>
+                    <div class="cip-card-value">${shift}</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">Infra Outage (IODA)</div>
+                    <div class="cip-card-value ${iodaCol}">${iodaTxt}</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">Prefix Routing (RIPE)</div>
+                    <div class="cip-card-value ${bgpCol}">${bgpTxt}</div>
+                    <div class="cip-card-sub">${bgpLbl}</div>
+                </div>
+            </div>
+            <div class="cip-card" style="margin-top:6px;">
+                <div class="cip-card-label">Top Attack Sources (by spike)</div>
+                ${srcHtml}
+            </div>
+        </div>
+
+        <div class="cip-section">
+            <div class="cip-section-title">🟠 Physical Domain — Infrastructure</div>
+            <div class="cip-grid">
+                <div class="cip-card">
+                    <div class="cip-card-label">Weather</div>
+                    <div class="cip-card-value ${wxCol}" style="font-size:12px;">${wxTxt}</div>
+                    <div class="cip-card-sub">${wxSev}</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">Airspace (${air.airport || '?'})</div>
+                    <div class="cip-card-value ${airCol}" style="font-size:12px;">${airTxt}</div>
+                    <div class="cip-card-sub">${airLbl}${air.drop_pct != null ? ' — drop ' + air.drop_pct + '%' : ''}</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">IXP Nodes</div>
+                    <div class="cip-card-value">${ixpCnt}</div>
+                    <div class="cip-card-sub" style="font-size:10px;">${ixpNames}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="cip-section">
+            <div class="cip-section-title">🟣 Info Domain — Media Tone (GDELT)</div>
+            <div class="cip-grid">
+                <div class="cip-card">
+                    <div class="cip-card-label">Current Tone</div>
+                    <div class="cip-card-value ${gdCol}">${gdTone}</div>
+                    <div class="cip-card-sub">Baseline (28d): ${gdBase} &nbsp; Δ ${gdDelta}</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">Alert Status</div>
+                    <div class="cip-card-value ${gdCol}">${gdLbl}</div>
+                    <div class="cip-card-sub">Threshold: ${-15.0}</div>
+                </div>
+            </div>
+        </div>`;
+
+        openModal('country-modal');
+    }
+
+    function openEvidencePanel(strat) {
+        const convEl = document.getElementById('evidence-convergence');
+        if (strat.domains) {
+            convEl.innerHTML = Object.entries(strat.domains).map(([d, info]) =>
+                `<div class="convergence-item"><span class="rat-domain-${d}">${d.toUpperCase()}</span>: <span class="conv-val">${info.score}pt</span> × ${info.weight} = <b style="color:#fff">${info.weighted}</b></div>`
+            ).join('') +
+            (strat.convergence_score !== undefined
+                ? `<div class="convergence-item" style="margin-left:8px; border-left:2px solid #555; padding-left:8px;">Convergence Score: <span class="conv-val">${strat.convergence_score}</span></div>`
+                : '');
+        } else {
+            convEl.innerHTML = '';
+        }
+
+        document.getElementById('evidence-system-note').textContent =
+            strat.system_note || 'No system note available.';
+
+        const nf = strat.noise_filters_applied;
+        document.getElementById('evidence-noise-filters').textContent =
+            (nf && nf.length > 0) ? nf.join(', ') : 'None';
+
+        const tbody = document.getElementById('evidence-tbody');
+        if (strat.rationale_matrix && strat.rationale_matrix.length > 0) {
+            tbody.innerHTML = strat.rationale_matrix.map(e => {
+                const scoreHtml = e.score > 0
+                    ? `<span class="rat-score-pos">+${e.score}</span>`
+                    : `<span class="rat-score-zero">0</span>`;
+                const reasonText = e.suppressed
+                    ? `<span style="color:#ffaa00">SUPPRESSED: ${e.suppress_reason || ''}</span>`
+                    : (e.fired_reason || '<span style="color:#444">—</span>');
+                
+                // [Phase 7] Inject MUTE / UNMUTE button
+                const isMuted = mutedSensors.has(e.sensor);
+                const muteBtnTxt = isMuted ? 'UNMUTE' : 'MUTE';
+                const muteBtnStyle = isMuted ? 'color:#ffaa00; border-color:#ffaa00;' : 'color:#555; border-color:#555;';
+                const muteBtn = `<button onclick="toggleMute('${e.sensor}')" style="background:transparent; border:1px solid; border-radius:3px; font-size:9px; cursor:pointer; margin-left:8px; transition:0.2s; ${muteBtnStyle}">${muteBtnTxt}</button>`;
+
+                return `<tr>
+                    <td style="font-family:monospace; font-size:11px; color:#ccc;">${e.sensor} ${muteBtn}</td>
+                    <td><span class="rat-domain-${e.domain}">${e.domain}</span></td>
+                    <td><span class="rat-status-${e.status}">${e.status}</span></td>
+                    <td style="color:#fff; font-size:11px;">${e.value}</td>
+                    <td style="text-align:center;">${scoreHtml}</td>
+                    <td style="font-size:11px; color:#aaa;">${reasonText}</td>
+                </tr>`;
+            }).join('');
+        } else {
+            tbody.innerHTML = '<tr><td colspan="6" style="color:#555; text-align:center;">No rationale data available.</td></tr>';
+        }
+
+        openModal('evidence-modal');
+    }
+
+    async function loadSensorConfig() {
+        const container = document.getElementById('sensor-list-container');
+        try {
+            const res  = await fetch('http://127.0.0.1:8000/api/sensor_config');
+            const data = await res.json();
+            const sensors = data.sensors || [];
+
+            if (sensors.length === 0) {
+                container.innerHTML = '<div style="color:#555;">No sensors registered.</div>';
+                return;
+            }
+
+            container.innerHTML = sensors.map(s => {
+                const phaseNote = ['opensky', 'openweather'].includes(s.name)
+                    ? '<span class="sensor-phase-tag">Phase 2</span>'
+                    : s.name === 'gdelt'
+                    ? '<span class="sensor-phase-tag">Phase 3</span>'
+                    : ['peeringdb_ixp', 'ripe_bgp'].includes(s.name)
+                    ? '<span class="sensor-phase-tag">Phase 4</span>' 
+                    : ['nasa_firms', 'threatfox'].includes(s.name)
+                    ? '<span class="sensor-phase-tag" style="color:#00ffff;">Phase 7</span>' : '';
+                const healthCls = `sensor-health-${s.health}`;
+                const toggleCls = s.enabled ? 'active' : '';
+                const toggleTxt = s.enabled ? 'Enabled' : 'Disabled';
+                const pollMin   = Math.round(s.poll_interval_sec / 60);
+                return `<div class="sensor-row">
+                    <span class="sensor-name">${s.name}</span>
+                    <span class="sensor-domain-tag sensor-domain-${s.domain}">${s.domain}</span>
+                    <span class="sensor-health ${healthCls}">${s.health}</span>
+                    <span style="font-size:10px; color:#555;">${pollMin}min</span>
+                    ${phaseNote}
+                    <button class="sensor-toggle ${toggleCls}"
+                        onclick="toggleSensor('${s.name}', ${!s.enabled}, this)">
+                        ${toggleTxt}
+                    </button>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            container.innerHTML = `<div style="color:#ff2a2a;">Failed to load sensor config: ${e.message}</div>`;
+        }
+    }
+
+    async function toggleSensor(name, enable, btn) {
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/sensor_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, enabled: enable }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                btn.textContent = data.enabled ? 'Enabled' : 'Disabled';
+                btn.className = 'sensor-toggle' + (data.enabled ? ' active' : '');
+            }
+        } catch (e) {
+            console.error('toggleSensor failed:', e);
+        }
+    }
+
+    async function openSitrep() {
+        openModal('sitrep-modal');
+        document.getElementById('sitrep-text').textContent = 'Loading…';
+        document.getElementById('sitrep-summary').innerHTML = '';
+        try {
+            const [sitrepRes, timelineRes] = await Promise.all([
+                fetch('http://127.0.0.1:8000/api/sitrep'),
+                fetch('http://127.0.0.1:8000/api/alert_timeline?limit=288'),
+            ]);
+            const sitrep   = await sitrepRes.json();
+            const timeline = await timelineRes.json();
+
+            const s = sitrep.summary || {};
+            const defconColor = d => ['','#ff0000','#ff2a2a','#ffaa00','#ffff00','#66ff66'][d] || '#888';
+            const trendIcon   = t => t === 'ESCALATING' ? '▲' : t === 'DE-ESCALATING' ? '▼' : '—';
+            const cards = [
+                { label: 'THREAT NOW', value: `Lv ${s.threat_current || '—'}`, sub: `Trend: ${trendIcon(s.threat_trend)} ${s.threat_trend || '—'}`, color: defconColor(s.threat_current) },
+                { label: 'THREAT 1h RANGE', value: `Lv ${s.threat_min_1h || '—'}–${s.threat_max_1h || '—'}`, sub: `Avg: ${s.threat_avg_1h || '—'}`, color: '#aaa' },
+                { label: 'CONVERGENCE', value: (s.convergence || 'NONE').replace(/_/g,' '), sub: `Domains: ${(s.active_domains || []).join(', ') || 'None'}`, color: s.convergence === 'FULL_CONVERGENCE' ? '#ff2a2a' : s.convergence === 'DUAL_DOMAIN' ? '#ffaa00' : '#888' },
+                { label: 'HISTORY', value: `${s.cycle_count || 0} cycles`, sub: `${Math.round((s.span_minutes || 0) / 60 * 10) / 10}h window`, color: '#555' },
+            ];
+            document.getElementById('sitrep-summary').innerHTML = cards.map(c =>
+                `<div class="sitrep-card">
+                    <div class="sitrep-card-label">${c.label}</div>
+                    <div class="sitrep-card-value" style="color:${c.color};">${c.value}</div>
+                    <div class="sitrep-card-sub">${c.sub}</div>
+                </div>`
+            ).join('');
+
+            document.getElementById('sitrep-text').textContent = sitrep.text || 'No data.';
+
+            const entries = timeline.timeline || [];
+            const canvas  = document.getElementById('sitrep-timeline-canvas');
+            drawDefconTimeline(canvas, entries);
+
+        } catch(e) {
+            document.getElementById('sitrep-text').textContent = `Error: ${e.message}`;
+        }
+    }
+
+    function drawDefconTimeline(canvas, entries) {
+        if (!canvas || entries.length === 0) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth   = 1;
+        for (let d = 1; d <= 5; d++) {
+            const y = Math.round(((d - 1) / 4) * (H - 10)) + 5;
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        }
+
+        ctx.font = '9px monospace';
+        ctx.fillStyle = '#333';
+        for (let d = 1; d <= 5; d++) {
+            const y = Math.round(((d - 1) / 4) * (H - 10)) + 5;
+            ctx.fillText(`L${d}`, 2, y - 1);
+        }
+
+        const defconColors = { 1: '#ff0000', 2: '#ff2a2a', 3: '#ffaa00', 4: '#ffff00', 5: '#66ff66' };
+        const n = entries.length;
+        const barW = Math.max(1, Math.floor(W / n));
+
+        entries.forEach((e, i) => {
+            const d   = e.defcon || 5;
+            const x   = Math.floor(i * (W / n));
+            const y   = Math.round(((d - 1) / 4) * (H - 10)) + 5;
+            const col = defconColors[d] || '#444';
+            ctx.fillStyle = col + '99';
+            ctx.fillRect(x, 5, barW - 1, H - 10);
+            ctx.fillStyle = col;
+            ctx.beginPath(); ctx.arc(x + barW / 2, y, 2, 0, Math.PI * 2); ctx.fill();
+        });
+
+        ctx.strokeStyle = '#00ffff88';
+        ctx.lineWidth   = 1.5;
+        ctx.beginPath();
+        entries.forEach((e, i) => {
+            const d = e.defcon || 5;
+            const x = Math.floor(i * (W / n)) + barW / 2;
+            const y = Math.round(((d - 1) / 4) * (H - 10)) + 5;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    }
+
+    function updateDefconSparkline(defconHistory) {
+        const canvas = document.getElementById('hud-defcon-spark');
+        if (!canvas || !defconHistory || defconHistory.length === 0) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        const n    = defconHistory.length;
+        const barW = Math.max(1, Math.floor(W / n));
+        const defconColors = { 1: '#ff0000', 2: '#ff2a2a', 3: '#ffaa00', 4: '#ffff00', 5: '#66ff66' };
+
+        defconHistory.forEach(([, d], i) => {
+            const x   = Math.floor(i * (W / n));
+            const y   = Math.round(((d - 1) / 4) * (H - 2)) + 1;
+            const col = defconColors[d] || '#444';
+            ctx.fillStyle = col;
+            ctx.fillRect(x, y, barW - 1, H - y);
+        });
+    }
+
+    async function loadFetchLog() {
+        const container = document.getElementById('fetchlog-container');
+        const tsEl      = document.getElementById('fetchlog-ts');
+        try {
+            const res  = await fetch('http://127.0.0.1:8000/api/data_status');
+            const data = await res.json();
+            tsEl.textContent = `Last refreshed: ${new Date(data.ts).toLocaleTimeString()}`;
+
+            const domainColor = { cyber: '#00ffff', physical: '#ffaa00', info: '#cc66ff' };
+
+            container.innerHTML = data.sensors.map(s => {
+                const last = s.last_fetch;
+                const healthCls = { OK:'#66ff66', ERROR:'#ff4444', STALE:'#ff8800',
+                                    INITIALIZING:'#888', DISABLED:'#444' }[s.health] || '#888';
+                const successIcon = last
+                    ? (last.success ? '<span style="color:#66ff66;">✔</span>' : '<span style="color:#ff4444;">✗</span>')
+                    : '<span style="color:#555;">—</span>';
+                const lastTs = last ? new Date(last.ts).toLocaleTimeString() : '—';
+                const duration = last && last.duration_ms != null ? `${last.duration_ms}ms` : '—';
+                const httpSt   = last && last.http_status   ? last.http_status : '—';
+                const cacheAge = s.cache_age_sec != null ? `${s.cache_age_sec}s` : '—';
+                const dCol = domainColor[s.domain] || '#888';
+                const errMsg   = last && last.error ? `<div style="color:#ff4444;font-size:10px;margin-bottom:4px;">${last.error}</div>` : '';
+
+                const histBar = (s.fetch_log || []).map(e =>
+                    `<span style="display:inline-block;width:8px;height:16px;margin:0 1px;vertical-align:middle;border-radius:2px;background:${e.success ? '#66ff66' : '#ff4444'}44;border:1px solid ${e.success ? '#66ff66' : '#ff4444'};" data-tooltip="${new Date(e.ts).toLocaleTimeString()}\nStatus: ${e.success ? 'OK' : 'ERROR'}\n${e.error || ''}"></span>`
+                ).join('');
+
+                return `
+                <div style="margin-bottom:10px;padding:10px;background:#111;border:1px solid #222;border-left:3px solid ${healthCls};border-radius:4px;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                        <span style="font-size:13px;font-weight:bold;color:#eee;">${s.sensor}</span>
+                        <span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${dCol}22;color:${dCol};border:1px solid ${dCol}44; text-transform:uppercase;">${s.domain}</span>
+                        <span style="font-size:11px;padding:1px 6px;border-radius:3px;color:${healthCls};border:1px solid ${healthCls}55;">${s.health}</span>
+                        <span style="margin-left:auto;font-size:11px;color:#555;">poll: ${Math.round(s.poll_interval_sec/60)}min</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px;color:#888;margin-bottom:6px;">
+                        <div>Last fetch<br><b style="color:#ccc;">${successIcon} ${lastTs}</b></div>
+                        <div>Duration<br><b style="color:#ccc;">${duration}</b></div>
+                        <div>HTTP Status<br><b style="color:#ccc;">${httpSt}</b></div>
+                        <div>Cache Age<br><b style="color:#ccc;">${cacheAge}</b></div>
+                    </div>
+                    ${errMsg}
+                    <div style="font-size:10px;color:#555;margin-top:4px;">
+                        History (newest →): ${histBar || '<span style="color:#333;">no data yet</span>'}
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            container.innerHTML = `<div style="color:#ff2a2a;">Failed to load fetch log: ${e.message}</div>`;
+        }
+    }
+</script>
+</body>
+</html>
