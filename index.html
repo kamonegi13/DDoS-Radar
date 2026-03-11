@@ -279,6 +279,7 @@
         .rat-score-zero { color: #444; }
         .evidence-system-note { font-size: 11px; color: #aaa; background: rgba(255,255,255,0.04); border-left: 3px solid #555; padding: 8px 12px; border-radius: 0 4px 4px 0; margin: 12px 0 8px; line-height: 1.6; }
         .convergence-row { display: flex; gap: 16px; margin: 8px 0 4px; flex-wrap: wrap; }
+<<<<<<< HEAD
 
         /* ── Phase 8: Evidence Chain Timeline ── */
         #p8-chain-panel { position: fixed; right: 16px; top: 120px; width: 260px; background: rgba(10,12,16,0.96); border: 1px solid #00ffff40; border-radius: 6px; padding: 12px; z-index: 4000; font-size: 11px; display: none; max-height: 70vh; overflow-y: auto; }
@@ -301,6 +302,8 @@
         /* Phase 8: Narrative Burst インジケーター */
         #hud-narrative-burst { display: none; }
         #hud-narrative-burst.active { display: inline-block; color: #cc66ff; font-weight: bold; animation: blink 1.2s step-end infinite; font-size: 11px; }
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         .convergence-item { font-size: 12px; }
         .conv-val { font-weight: bold; color: #00ffff; }
 
@@ -387,7 +390,10 @@
             <button id="vec-btn-l7"  class="vec-btn"            onclick="switchVector('l7')">L7 APPLICATION</button>
         </div>
         <button id="btn-sync-top" class="btn-tactical btn-sync" onclick="forceDataSync()">SYNC</button>
+<<<<<<< HEAD
         <button class="btn-tactical btn-action" onclick="toggleChainPanel()" data-tooltip="Evidence Chain Timeline — Escalation Sequence Viewer">CHAIN</button>
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         <button class="btn-tactical btn-action" onclick="openSitrep()">SITREP</button>
         <button class="btn-tactical btn-action" onclick="openModal('help-modal')">Intel Guide</button>
         <button class="btn-tactical btn-action" onclick="openModal('settings-modal')">Config</button>
@@ -399,6 +405,7 @@
         <div class="hud-item"><span class="hud-label">Strikes:</span> <span id="hud-strikes" class="hud-value">-</span></div>
         <div class="hud-item"><span class="hud-label">BGP:</span> <span id="hud-outages" class="hud-value">-</span></div>
         <div class="hud-item"><span class="hud-label">Multi-Front:</span> <span id="hud-coordinated" class="hud-value">-</span></div>
+<<<<<<< HEAD
         <!-- Phase 8: Velocity Meter -->
         <div class="hud-item" data-tooltip="Rate of Escalation (1st derivative of threat score). Destroys Normalcy Bias by showing DIRECTION of change.">
             <span class="hud-label">VELOCITY:</span>
@@ -420,6 +427,8 @@
             <span class="hud-label">CHAIN:</span>
             <span id="hud-chain" class="hud-value" style="font-size:10px;">—</span>
         </div>
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap">
             <div id="hud-domain-cyber"    class="domain-bar-row" data-tooltip="Cyber domain score"><span class="domain-label">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
             <div id="hud-domain-physical" class="domain-bar-row" data-tooltip="Physical domain score"><span class="domain-label">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
@@ -565,6 +574,7 @@
     </div>
 </div>
 
+<<<<<<< HEAD
 <!-- Phase 8: Evidence Chain Timeline サイドパネル（固定オーバーレイ） -->
 <div id="p8-chain-panel">
     <div class="p8-panel-title">
@@ -593,6 +603,8 @@
     </div>
 </div>
 
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 <div id="evidence-modal" class="modal-window" style="width:800px;">
     <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #333; padding-bottom:10px;">
         <div>Analytic Rationale — Evidence Panel</div>
@@ -860,6 +872,7 @@
         document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
         document.getElementById('settings-backdrop').style.display = 'none';
     }
+<<<<<<< HEAD
 
     // ── Phase 8: Evidence Chain Panel ────────────────────────────────────────
     function toggleChainPanel() {
@@ -939,6 +952,8 @@
             })
             .catch(() => {});
     }
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
     function switchTab(tabId) {
         document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -1373,6 +1388,7 @@
             }
 
             threatEl.onclick = () => openEvidencePanel(strat);
+<<<<<<< HEAD
 
             // ── Phase 8: HUD 更新 ──────────────────────────────────────────
             const p8 = strat.phase8 || {};
@@ -1416,6 +1432,8 @@
             }
             // Evidence Chain Panel の更新
             updateChainPanel(strat);
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         }
 
         const originContainer = document.getElementById('origin-list-container');
