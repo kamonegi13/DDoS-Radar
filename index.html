@@ -367,7 +367,7 @@
         #pulse-panel canvas { display: block; }
         .pulse-meta { display: flex; justify-content: space-between; align-items: center; padding: 3px 7px 1px; }
         .pulse-meta-lbl { font-size: 8px; color: #446688; font-family: 'Courier New', monospace; letter-spacing: 1px; text-transform: uppercase; }
-        #pulse-defcon { font-size: 11px; font-weight: bold; font-family: 'Courier New', monospace; }
+        #pulse-threat-lv { font-size: 11px; font-weight: bold; font-family: 'Courier New', monospace; }
         #pulse-bpm { font-size: 10px; color: #7799bb; font-family: 'Courier New', monospace; font-weight: bold; }
 
         /* ── Intuition UI: Operational Clock ── */
@@ -472,7 +472,7 @@
         </div>
         <div class="hud-item" data-tooltip="Threat Level History (last 24 hours / 288 cycles)">
             <span class="hud-label">THREAT 24h:</span>
-            <canvas id="hud-defcon-spark" width="80" height="18" style="vertical-align:middle; margin-left:4px; cursor:help;"></canvas>
+            <canvas id="hud-threat-spark" width="80" height="18" style="vertical-align:middle; margin-left:4px; cursor:help;"></canvas>
         </div>
         
         <div style="flex-grow: 1;"></div>
@@ -799,7 +799,7 @@
     </div>
     <div class="panel-content" style="background:#080a0c; padding:0; width:220px;">
         <div class="pulse-meta">
-            <span class="pulse-meta-lbl">DEFCON <span id="pulse-defcon">—</span></span>
+            <span class="pulse-meta-lbl">Threat Lv <span id="pulse-threat-lv">—</span></span>
             <span id="pulse-bpm">— /h</span>
         </div>
         <canvas id="pulse-canvas" width="220" height="58"></canvas>
@@ -1002,7 +1002,7 @@
 
         <p><b>Botnet Overlap Calibration:</b> The 30% threshold reflects confirmed nation-state coordinated attack patterns (20–35% shared botnet infrastructure, per post-incident forensics of GRU/Sandworm operations). The previous 45% threshold matched large civilian botnet patterns (Mirai-class) and was too insensitive to state-directed attacks that use diverse, smaller botnets.</p>
 
-        <h4>4. DEFCON Threat Levels</h4>
+        <h4>4. Threat Levels</h4>
         <p><b>Final Score = Raw Score + Convergence Bonus.</b> Hysteresis (1-cycle delay) is applied when <i>downgrading</i> levels to prevent flickering on borderline readings. Upgrades are immediate.</p>
         <ul>
             <li><span style="color:#ff0000; font-weight:bold;">Level 1 — CRITICAL:</span> Score &ge; 9 <b>AND</b> Hard Condition (Core Spike &gt;5.0× AND confirmed BGP outage simultaneously). This compound condition requires both massive cyber surge and infrastructure collapse — the signature of a coordinated pre-invasion blackout operation. Imminent kinetic action probability is extremely high. Activate all contingency procedures.</li>
@@ -1065,7 +1065,7 @@
         <p><b>B. Pulse Display（脅威パルス波形）</b></p>
         <ul>
             <li><b>表示位置:</b> マップ左下コーナー、常時表示。</li>
-            <li><b>機能:</b> 脅威レベル履歴（最大60サイクル ≈ 15時間）をスクロール型EKG波形Canvasで描画。DEFCON 1(危険)が波形上端、5(平常)が下端。波形の色は現在のDEFCONカラーと連動する（緑/黄/橙/赤）。右上に変化率（/時間）を表示。</li>
+            <li><b>機能:</b> 脅威レベル履歴（最大60サイクル ≈ 15時間）をスクロール型EKG波形Canvasで描画。Threat Lv 1(危険)が波形上端、5(平常)が下端。波形の色は現在のThreat Lvカラーと連動する（緑/黄/橙/赤）。右上に変化率（/時間）を表示。</li>
             <li><b>読み方:</b> 波形が上方向に急峻に動いている → 急速に状況が悪化している。平坦な高止まり → 継続的な高脅威環境。下方向に動き始めた → 緩和の兆候。単なる数値より「物語」として認識できる。</li>
         </ul>
 
@@ -1987,9 +1987,9 @@
         if (data.strategic_alert) {
             const strat = data.strategic_alert;
             const threatLabels = { 5: "THREAT Lv 5: NORMAL", 4: "THREAT Lv 4: ELEVATED", 3: "THREAT Lv 3: HIGH", 2: "THREAT Lv 2: SEVERE", 1: "THREAT Lv 1: CRITICAL" };
-            threatEl.className = `threat-hud threat-${strat.defcon}-hud`;
-            if (strat.defcon_breakdown) {
-                const b = strat.defcon_breakdown;
+            threatEl.className = `threat-hud threat-${strat.threat_level}-hud`;
+            if (strat.threat_breakdown) {
+                const b = strat.threat_breakdown;
                 const lines = [
                     `Threat Score: ${b.total_score}`,
                     `Core Spike: ${b.core_spike_val}x  (>2x:${b.core_spike_2x?'✔':'✗'} >4x:${b.core_spike_4x?'✔':'✗'} >6x:${b.core_spike_6x?'✔':'✗'})`,
@@ -1998,12 +1998,12 @@
                     `Adversary Strike: ${b.major_adversary?'✔':'✗'}`,
                     `BGP Degraded: ${b.core_degraded?'✔':'✗'}`,
                     `Multi-Front(>3x): ${b.is_coordinated?'✔':'✗'}`,
-                    `Lv1 Hard Req: ${b.defcon_1_hard?'✔':'✗'}`,
+                    `Lv1 Hard Req: ${b.tl1_hard?'✔':'✗'}`,
                     `\nClick to view full Rationale Matrix.`
                 ];
                 threatEl.setAttribute('data-tooltip', lines.join('\n'));
             }
-            threatEl.innerText = threatLabels[strat.defcon];
+            threatEl.innerText = threatLabels[strat.threat_level];
             epicenterEl.innerText = strat.core_theater || 'None';
 
             let overlapText = "None";
@@ -2068,14 +2068,14 @@
                 };
                 convEl.textContent = labels[lvl] || lvl;
                 convEl.className = `conv-${lvl}`;
-                const b = strat.defcon_breakdown || {};
+                const b = strat.threat_breakdown || {};
                 const bonus = b.convergence_bonus || 0;
-                const held  = b.defcon_held ? ' [HOLD]' : '';
-                convEl.setAttribute('data-tooltip', `Score: ${b.total_score} + Bonus: ${bonus} = ${b.score_with_bonus} → Threat Lv ${b.defcon_raw}${held}`);
+                const held  = b.threat_held ? ' [HOLD]' : '';
+                convEl.setAttribute('data-tooltip', `Score: ${b.total_score} + Bonus: ${bonus} = ${b.score_with_bonus} → Threat Lv ${b.threat_raw}${held}`);
             }
 
-            if (data.defcon_history) {
-                updateDefconSparkline(data.defcon_history);
+            if (data.threat_history) {
+                updateThreatSparkline(data.threat_history);
             }
 
             threatEl.onclick = () => openEvidencePanel(strat);
@@ -2124,9 +2124,9 @@
             updateChainPanel(strat);
 
             // ── Intuition UI 統合呼び出し ──────────────────────────────
-            applyAmbientAtmosphere(strat.defcon);
+            applyAmbientAtmosphere(strat.threat_level);
             updateRadioSilence(p8, strat);
-            recordSignificantEvent(strat.defcon);
+            recordSignificantEvent(strat.threat_level);
 
             // 開いているパネルのみリフレッシュ（不要なAPI呼び出しを抑制）
             const wbPanel = document.getElementById('weather-brief-panel');
@@ -2457,7 +2457,7 @@
         originContainer.innerHTML = originHtml;
 
         // ── Intuition UI: Pulse Display + Threat Terrain (全render共通) ──
-        updatePulseDisplay(data.defcon_history || []);
+        updatePulseDisplay(data.threat_history || []);
         updateThreatTerrain(data);
 
         // P7-Opt: innerHTML 確定後にまとめて Canvas へ描画
@@ -3000,10 +3000,10 @@
             const timeline = await timelineRes.json();
 
             const s = sitrep.summary || {};
-            const defconColor = d => ['','#ff0000','#ff2a2a','#ffaa00','#ffff00','#66ff66'][d] || '#888';
+            const threatColor = d => ['','#ff0000','#ff2a2a','#ffaa00','#ffff00','#66ff66'][d] || '#888';
             const trendIcon   = t => t === 'ESCALATING' ? '▲' : t === 'DE-ESCALATING' ? '▼' : '—';
             const cards = [
-                { label: 'THREAT NOW', value: `Lv ${s.threat_current || '—'}`, sub: `Trend: ${trendIcon(s.threat_trend)} ${s.threat_trend || '—'}`, color: defconColor(s.threat_current) },
+                { label: 'THREAT NOW', value: `Lv ${s.threat_current || '—'}`, sub: `Trend: ${trendIcon(s.threat_trend)} ${s.threat_trend || '—'}`, color: threatColor(s.threat_current) },
                 { label: 'THREAT 1h RANGE', value: `Lv ${s.threat_min_1h || '—'}–${s.threat_max_1h || '—'}`, sub: `Avg: ${s.threat_avg_1h || '—'}`, color: '#aaa' },
                 { label: 'CONVERGENCE', value: (s.convergence || 'NONE').replace(/_/g,' '), sub: `Domains: ${(s.active_domains || []).join(', ') || 'None'}`, color: s.convergence === 'FULL_CONVERGENCE' ? '#ff2a2a' : s.convergence === 'DUAL_DOMAIN' ? '#ffaa00' : '#888' },
                 { label: 'HISTORY', value: `${s.cycle_count || 0} cycles`, sub: `${Math.round((s.span_minutes || 0) / 60 * 10) / 10}h window`, color: '#555' },
@@ -3020,14 +3020,14 @@
 
             const entries = timeline.timeline || [];
             const canvas  = document.getElementById('sitrep-timeline-canvas');
-            drawDefconTimeline(canvas, entries);
+            drawThreatTimeline(canvas, entries);
 
         } catch(e) {
             document.getElementById('sitrep-text').textContent = `Error: ${e.message}`;
         }
     }
 
-    function drawDefconTimeline(canvas, entries) {
+    function drawThreatTimeline(canvas, entries) {
         if (!canvas || entries.length === 0) return;
         const ctx = canvas.getContext('2d');
         const W = canvas.width, H = canvas.height;
@@ -3047,15 +3047,15 @@
             ctx.fillText(`L${d}`, 2, y - 1);
         }
 
-        const defconColors = { 1: '#ff0000', 2: '#ff2a2a', 3: '#ffaa00', 4: '#ffff00', 5: '#66ff66' };
+        const threatColors = { 1: '#ff0000', 2: '#ff2a2a', 3: '#ffaa00', 4: '#ffff00', 5: '#66ff66' };
         const n = entries.length;
         const barW = Math.max(1, Math.floor(W / n));
 
         entries.forEach((e, i) => {
-            const d   = e.defcon || 5;
+            const d   = e.threat_level || 5;
             const x   = Math.floor(i * (W / n));
             const y   = Math.round(((d - 1) / 4) * (H - 10)) + 5;
-            const col = defconColors[d] || '#444';
+            const col = threatColors[d] || '#444';
             ctx.fillStyle = col + '99';
             ctx.fillRect(x, 5, barW - 1, H - 10);
             ctx.fillStyle = col;
@@ -3066,7 +3066,7 @@
         ctx.lineWidth   = 1.5;
         ctx.beginPath();
         entries.forEach((e, i) => {
-            const d = e.defcon || 5;
+            const d = e.threat_level || 5;
             const x = Math.floor(i * (W / n)) + barW / 2;
             const y = Math.round(((d - 1) / 4) * (H - 10)) + 5;
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
@@ -3074,20 +3074,20 @@
         ctx.stroke();
     }
 
-    function updateDefconSparkline(defconHistory) {
-        const canvas = document.getElementById('hud-defcon-spark');
-        if (!canvas || !defconHistory || defconHistory.length === 0) return;
+    function updateThreatSparkline(threatHistory) {
+        const canvas = document.getElementById('hud-threat-spark');
+        if (!canvas || !threatHistory || threatHistory.length === 0) return;
         const ctx = canvas.getContext('2d');
         const W = canvas.width, H = canvas.height;
         ctx.clearRect(0, 0, W, H);
-        const n    = defconHistory.length;
+        const n    = threatHistory.length;
         const barW = Math.max(1, Math.floor(W / n));
-        const defconColors = { 1: '#ff0000', 2: '#ff2a2a', 3: '#ffaa00', 4: '#ffff00', 5: '#66ff66' };
+        const threatColors = { 1: '#ff0000', 2: '#ff2a2a', 3: '#ffaa00', 4: '#ffff00', 5: '#66ff66' };
 
-        defconHistory.forEach(([, d], i) => {
+        threatHistory.forEach(([, d], i) => {
             const x   = Math.floor(i * (W / n));
             const y   = Math.round(((d - 1) / 4) * (H - 2)) + 1;
-            const col = defconColors[d] || '#444';
+            const col = threatColors[d] || '#444';
             ctx.fillStyle = col;
             ctx.fillRect(x, y, barW - 1, H - y);
         });
@@ -3098,26 +3098,26 @@
     //  アナリストの経験則・直観に訴えかける8つのUI要素
     // ══════════════════════════════════════════════════════════════════════
 
-    let _pulseHistory   = []; // [{ts, defcon}] — EKGパルス履歴
+    let _pulseHistory   = []; // [{ts, threat_level}] — EKGパルス履歴
     let _lastEventTs    = Date.now(); // 最後に重大イベントが発生した時刻
     let _clockInterval  = null;
     let _histEvents     = []; // geo_data HISTORICAL_EVENTS キャッシュ
 
     // ── A. Ambient Atmosphere ──────────────────────────────────────────
     // 脅威レベルに応じてbodyクラスを切替→CSS keyframesで背景を微変色
-    function applyAmbientAtmosphere(defcon) {
+    function applyAmbientAtmosphere(threatLevel) {
         const body = document.body;
         body.classList.remove('atm-critical', 'atm-severe', 'atm-high');
-        if      (defcon === 1) body.classList.add('atm-critical');
-        else if (defcon === 2) body.classList.add('atm-severe');
-        else if (defcon === 3) body.classList.add('atm-high');
+        if      (threatLevel === 1) body.classList.add('atm-critical');
+        else if (threatLevel === 2) body.classList.add('atm-severe');
+        else if (threatLevel === 3) body.classList.add('atm-high');
     }
 
     // ── B. Pulse Display ──────────────────────────────────────────────
     // スクロール型EKG波形 — 脅威スコア時系列を心拍グラフで可視化
-    function updatePulseDisplay(defconHistory) {
-        if (!defconHistory || !defconHistory.length) return;
-        _pulseHistory = defconHistory.slice(-60);
+    function updatePulseDisplay(threatHistory) {
+        if (!threatHistory || !threatHistory.length) return;
+        _pulseHistory = threatHistory.slice(-60);
         drawPulseCanvas();
     }
 
@@ -3142,7 +3142,7 @@
         const lastDef = _pulseHistory[_pulseHistory.length - 1][1];
         const lineCol = col[lastDef] || '#00ffff';
 
-        // defcon: 1(危険,上)→5(平常,下). y = top→bottom
+        // threat_level: 1(危険,上)→5(平常,下). y = top→bottom
         const pts = _pulseHistory.map(([, d], i) => {
             const x = (i / Math.max(n - 1, 1)) * (W - 4) + 2;
             const y = ((d - 1) / 4) * (H - 8) + 4;
@@ -3172,19 +3172,19 @@
         ctx.fillStyle = lineCol;
         ctx.fill();
 
-        // Threat rate (transitions/hour) + current DEFCON indicator
-        const bpmEl    = document.getElementById('pulse-bpm');
-        const defconEl = document.getElementById('pulse-defcon');
+        // Threat rate (transitions/hour) + current Threat Lv indicator
+        const bpmEl = document.getElementById('pulse-bpm');
+        const tlEl  = document.getElementById('pulse-threat-lv');
         if (bpmEl) {
             const changes = _pulseHistory.slice(1).filter(([,d], i) => d !== _pulseHistory[i][1]).length;
             const spanH   = (_pulseHistory.length * 15) / 3600;
             const rate    = spanH > 0 ? Math.round(changes / spanH) : 0;
             bpmEl.textContent = rate + ' /h';
         }
-        if (defconEl) {
-            const DEFCON_COL = { 1:'#ff0000', 2:'#ff4444', 3:'#ffaa00', 4:'#ffff00', 5:'#66ff66' };
-            defconEl.textContent = lastDef;
-            defconEl.style.color = DEFCON_COL[lastDef] || '#ccc';
+        if (tlEl) {
+            const THREAT_COL = { 1:'#ff0000', 2:'#ff4444', 3:'#ffaa00', 4:'#ffff00', 5:'#66ff66' };
+            tlEl.textContent = lastDef;
+            tlEl.style.color = THREAT_COL[lastDef] || '#ccc';
         }
     }
 
@@ -3382,13 +3382,13 @@
             } catch(e) {}
         }
 
-        if (!_histEvents.length || !latestData || !(latestData.defcon_history || []).length) {
+        if (!_histEvents.length || !latestData || !(latestData.threat_history || []).length) {
             bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">データ蓄積中...</div>';
             return;
         }
 
         // 現在パターン: 最新20サイクル → 0(平常)〜1(危機) に正規化
-        const hist = latestData.defcon_history || [];
+        const hist = latestData.threat_history || [];
         const cur20 = hist.slice(-20).map(([, d]) => (5 - d) / 4);
         while (cur20.length < 20) cur20.unshift(0);
 
@@ -3471,7 +3471,7 @@
         if (!wrap || !dot || !txt) return;
 
         const velocity = p8 ? Math.abs(p8.velocity || 0) : 0;
-        const score    = strat ? ((strat.defcon_breakdown || {}).total_score || 0) : 0;
+        const score    = strat ? ((strat.threat_breakdown || {}).total_score || 0) : 0;
         // 「静寂異常」: スコアが有意水準以上だが速度変化が皆無
         const isQuiet  = velocity < 0.00005 && score >= 3;
 
@@ -3514,8 +3514,8 @@
     }
 
     // ── 重大イベント検出 → 作戦テンポ計時リセット ────────────────────
-    function recordSignificantEvent(defcon) {
-        if (defcon <= 3) _lastEventTs = Date.now();
+    function recordSignificantEvent(threatLevel) {
+        if (threatLevel <= 3) _lastEventTs = Date.now();
     }
 
     async function loadFetchLog() {
