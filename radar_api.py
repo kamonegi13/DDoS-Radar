@@ -52,6 +52,7 @@ COUNTRY_COORDS, STATE_ASNS, AIRPORT_BOXES, CHOKEPOINTS = {}, {}, {}, []
 ISR_HOTSPOTS: list = []
 NARRATIVE_SOURCES: dict = {}
 TACTICAL_KEYWORDS: dict = {}
+HISTORICAL_EVENTS: list = []
 try:
     with open("geo_data.json", "r", encoding="utf-8") as f:
         geo_data = json.load(f)
@@ -62,6 +63,7 @@ try:
         ISR_HOTSPOTS        = geo_data.get("ISR_HOTSPOTS", [])
         NARRATIVE_SOURCES   = geo_data.get("NARRATIVE_SOURCES", {})
         TACTICAL_KEYWORDS   = geo_data.get("TACTICAL_KEYWORDS", {})
+        HISTORICAL_EVENTS   = geo_data.get("HISTORICAL_EVENTS", [])
         print("[Config] Loaded static data from geo_data.json")
 except Exception as e:
     print(f"[Warning] Failed to load geo_data.json: {e}")
@@ -1880,6 +1882,203 @@ def api_phase8_analytics():
             ),
         },
     })
+
+
+@app.route("/api/salute_report", methods=["GET"])
+def api_salute_report():
+    """
+    現在の脅威状況を SALUTE フォーマット (Size/Activity/Location/Unit/Time/Equipment)
+    の接触報告として生成して返す。アナリストの訓練された認知モードを起動する。
+    """
+    strat = global_cache.get("strategic", {})
+    p8    = strat.get("phase8", {})
+    now_ts = datetime.datetime.now(datetime.timezone.utc)
+    dtg = now_ts.strftime("%d%H%MZ %b %Y").upper()
+    defcon = strat.get("defcon", 5)
+    core   = strat.get("core_theater", "UNKNOWN")
+    bd     = strat.get("defcon_breakdown", {})
+    adv    = strat.get("adversary_strikes", [])
+    corr   = strat.get("correlations", {})
+    isr    = p8.get("isr", {})
+    ais    = p8.get("ais", {})
+    narr   = p8.get("narrative", {})
+    bi     = p8.get("blockade_index", 0.0)
+    seq    = p8.get("sequence_status", "NO_EVENTS")
+
+    # SIZE: 関与勢力・規模
+    size_parts = []
+    if adv:          size_parts.append(f"ADVERSARY STATES: {', '.join(adv)}")
+    if corr:         size_parts.append(f"CORRELATED THEATERS: {len(corr)}")
+    if isr.get("count", 0): size_parts.append(f"ISR AIRCRAFT: {isr['count']}")
+    size = "; ".join(size_parts) if size_parts else "UNKNOWN — ASSESSMENT IN PROGRESS"
+
+    # ACTIVITY: 観測された活動
+    acts = []
+    if bd.get("core_spike_val", 0) > 2:
+        layer = "L7 APPLICATION" if bd.get("core_shifted") else "L3 VOLUMETRIC"
+        acts.append(f"DDoS {bd['core_spike_val']:.1f}x SPIKE ({layer})")
+    if bd.get("is_coordinated"):  acts.append("COORDINATED MULTI-FRONT ACTIVITY")
+    if isr.get("is_surge"):       acts.append("ISR SURGE CONFIRMED")
+    if ais.get("dark_gaps", 0):   acts.append(f"AIS DARK GAP x{ais['dark_gaps']} AT CHOKEPOINTS")
+    if narr.get("is_burst"):      acts.append(f"NARRATIVE BURST Z={narr.get('z_score',0):.1f}")
+    if p8.get("is_ambush"):       acts.append(f"AMBUSH PATTERN (Z={p8.get('ambush_z_score',0):.1f})")
+    activity = "; ".join(acts) if acts else "ROUTINE — NO SIGNIFICANT ACTIVITY"
+
+    # LOCATION: 主要脅威地点
+    degraded = strat.get("degraded_theaters", [])
+    loc_parts = [f"PRIMARY: {core}"]
+    if degraded: loc_parts.append(f"DEGRADED: {', '.join(degraded)}")
+    location = " / ".join(loc_parts)
+
+    # UNIT: 帰属判断
+    if adv and bd.get("major_adversary"):
+        unit = f"STATE-ATTRIBUTED — {', '.join(adv)} STATE ASN CONFIRMED"
+    elif bd.get("is_coordinated"):
+        unit = "COORDINATED — PROBABLE STATE C2 (UNKNOWN ATTRIBUTION)"
+    else:
+        unit = "UNKNOWN — ATTRIBUTION ASSESSMENT PENDING"
+
+    # EQUIPMENT: 使用手段・攻撃ベクター
+    equip_parts = []
+    if bd.get("core_shifted"):     equip_parts.append("L7 HTTP FLOOD (DECISION-PARALYSIS TYPE)")
+    elif bd.get("core_spike_val", 0) > 2: equip_parts.append("L3 BANDWIDTH EXHAUSTION (BLINDING TYPE)")
+    if bd.get("defcon_1_hard"):    equip_parts.append("INFRASTRUCTURE NEUTRALIZATION CAPABILITY")
+    if isr.get("is_surge"):        equip_parts.append("ISR PLATFORM DEPLOYMENT")
+    if ais.get("dark_gaps", 0):    equip_parts.append("COVERT MARITIME ELEMENT")
+    equip = "; ".join(equip_parts) if equip_parts else "STANDARD CYBER TOOLS"
+
+    # ASSESSMENT
+    sig_map = {1: "CRITICAL", 2: "HIGH", 3: "SIGNIFICANT", 4: "MODERATE", 5: "ROUTINE"}
+    significance = sig_map.get(defcon, "UNKNOWN")
+
+    bi_interp = (
+        "INFRASTRUCTURE_NEUTRALIZATION" if bi >= 7.0 else
+        "SEVERE_DISRUPTION"             if bi >= 4.0 else
+        "POLITICAL_NOISE"               if bi >= 1.5 else "NORMAL"
+    )
+
+    report = {
+        "dtg":          dtg,
+        "size":         size,
+        "activity":     activity,
+        "location":     location,
+        "unit":         unit,
+        "time":         dtg,
+        "equipment":    equip,
+        "assessment":   significance,
+        "threat_level": defcon,
+        "blockade_interpretation": bi_interp,
+        "blockade_index": bi,
+        "sequence_status": seq,
+        "cross_ref": (
+            f"SEQ CHAIN: {seq}" if seq not in ("NO_EVENTS", "INSUFFICIENT_CHAIN (0/4)") else "NO ACTIVE SEQUENCE CHAIN"
+        ),
+    }
+    return jsonify({"ts": now_ts.isoformat(), "report": report})
+
+
+@app.route("/api/weather_brief", methods=["GET"])
+def api_weather_brief():
+    """
+    現在のセンサーデータを「作戦気象ブリーフ」フォーマットに変換して返す。
+    気象用語を使って脅威環境を直感的に表現する。
+    """
+    strat = global_cache.get("strategic", {})
+    p8    = strat.get("phase8", {})
+    bd    = strat.get("defcon_breakdown", {})
+    isr   = p8.get("isr", {})
+    ais   = p8.get("ais", {})
+    narr  = p8.get("narrative", {})
+    bi    = p8.get("blockade_index", 0.0)
+    vel   = p8.get("velocity", 0.0)
+    is_ambush = p8.get("is_ambush", False)
+
+    # CYBER ATMOSPHERE
+    spike = bd.get("core_spike_val", 0.0)
+    if is_ambush:
+        cyber_state = "RAPID INTENSIFICATION"
+        cyber_desc  = f"Exponential escalation detected. Eye-wall forming. Barometric pressure dropping at {vel*900:.2f}pt/cycle."
+    elif spike > 6:
+        cyber_state = "MAJOR STORM"
+        cyber_desc  = f"Category {min(int(spike/2),5)} cyber storm. {spike:.1f}x baseline. L{'7' if bd.get('core_shifted') else '3'} dominant vector."
+    elif spike > 3:
+        cyber_state = "ACTIVE STORM FRONT"
+        cyber_desc  = f"Significant disturbance. {spike:.1f}x baseline. Deepening conditions expected."
+    elif spike > 1:
+        cyber_state = "ELEVATED SWELL"
+        cyber_desc  = f"Choppy seas. {spike:.1f}x baseline. Monitor for front development."
+    else:
+        cyber_state = "CLEAR"
+        cyber_desc  = "Calm conditions. Background noise only. Visibility good."
+
+    # MARITIME ENVIRONMENT (AIS)
+    if ais.get("dark_gaps", 0) > 2:
+        mar_state = "ZERO VISIBILITY — DENSE FOG"
+        mar_desc  = f"{ais['dark_gaps']} vessels gone dark near critical chokepoints. Radio silence indicates covert posture."
+    elif ais.get("dark_gaps", 0) > 0:
+        mar_state = "REDUCED VISIBILITY — PATCHY FOG"
+        mar_desc  = f"{ais['dark_gaps']} AIS Dark Gap(s) detected. Recommend continuous monitoring."
+    elif ais.get("stationary", 0) > 0:
+        mar_state = "RESTRICTED WATERS — OBSTACLE"
+        mar_desc  = f"{ais['stationary']} non-commercial vessel(s) anchored near chokepoint. Anomalous."
+    else:
+        mar_state = "CLEAR PASSAGE"
+        mar_desc  = "Normal maritime traffic. No AIS anomalies detected."
+
+    # INFORMATION ENVIRONMENT (Narrative)
+    nz = narr.get("z_score", 0.0)
+    ns = narr.get("status", "NORMAL")
+    if ns == "CRITICAL_BURST":
+        info_state = "INFORMATION STORM — HURRICANE FORCE"
+        info_desc  = f"Z={nz:.1f}. Tactical keyword saturation. Propaganda machine in overdrive. Pre-operation information preparation detected."
+    elif ns == "BURST":
+        info_state = "ELEVATED PRESSURE — BUILDING STORM"
+        info_desc  = f"Z={nz:.1f}. Unusual keyword spike in state media. Storm front approaching."
+    else:
+        info_state = "STEADY STATE"
+        info_desc  = f"Z={nz:.1f}. Background propaganda within normal parameters. No significant front detected."
+
+    # AIR PICTURE (ISR)
+    if isr.get("is_surge"):
+        air_state = "ACTIVE — FULL ISR DEPLOYMENT"
+        air_desc  = f"{isr.get('count',0)} ISR aircraft confirmed at strategic hotspot(s). Pre-strike reconnaissance posture."
+    elif isr.get("count", 0) > 0:
+        air_state = "OBSERVED — ROUTINE ISR PATTERN"
+        air_desc  = f"{isr.get('count',0)} ISR aircraft observed. Normal patrol frequency."
+    else:
+        air_state = "CLEAR SKIES"
+        air_desc  = "No ISR concentration detected at monitored hotspots."
+
+    # BLOCKADE (Infrastructure pressure)
+    if bi >= 7:
+        infra_state = "CATASTROPHIC — INFRASTRUCTURE COLLAPSE"
+        infra_desc  = f"Index {bi:.1f}. Combined DDoS and BGP withdrawal. Blackout conditions. Invasion precursor signature."
+    elif bi >= 4:
+        infra_state = "SEVERE — SUSTAINED PRESSURE"
+        infra_desc  = f"Index {bi:.1f}. Significant infrastructure degradation concurrent with cyber activity."
+    elif bi >= 1.5:
+        infra_state = "ELEVATED — POLITICAL NOISE LEVEL"
+        infra_desc  = f"Index {bi:.1f}. Cyber activity without confirmed infrastructure impact. Signaling operation likely."
+    else:
+        infra_state = "NOMINAL"
+        infra_desc  = f"Index {bi:.1f}. Infrastructure stable. No disruption confirmed."
+
+    return jsonify({
+        "ts": datetime.datetime.now().isoformat(),
+        "brief": {
+            "cyber":    {"state": cyber_state,  "detail": cyber_desc},
+            "maritime": {"state": mar_state,    "detail": mar_desc},
+            "info":     {"state": info_state,   "detail": info_desc},
+            "air":      {"state": air_state,    "detail": air_desc},
+            "infra":    {"state": infra_state,  "detail": infra_desc},
+        }
+    })
+
+
+@app.route("/api/historical_events", methods=["GET"])
+def api_historical_events():
+    """HISTORICAL_EVENTS パターンライブラリを返す。"""
+    return jsonify({"events": HISTORICAL_EVENTS})
 
 
 if __name__ == "__main__":
