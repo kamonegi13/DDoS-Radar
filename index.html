@@ -707,7 +707,7 @@
      Intuition UI: Operational Clock (draggable)
 ═══════════════════════════════════════════════════════ -->
 <div id="op-clock-panel" class="draggable-panel floating" style="display:none; left:260px; top:130px;">
-    <div class="drag-handle clock-hdr">
+    <div class="drag-handle panel-header-unified">
         <span>OPERATIONAL CLOCK</span>
         <div style="display:flex;gap:3px;">
             <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
@@ -726,7 +726,7 @@
      Intuition UI: Operational Weather Brief (draggable)
 ═══════════════════════════════════════════════════════ -->
 <div id="weather-brief-panel" class="draggable-panel floating" style="display:none; left:16px; top:130px;">
-    <div class="drag-handle wb-hdr">
+    <div class="drag-handle panel-header-unified">
         <span>OPS WEATHER BRIEF</span>
         <div style="display:flex;gap:3px;">
             <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
@@ -745,7 +745,7 @@
      Intuition UI: SALUTE Contact Report (draggable)
 ═══════════════════════════════════════════════════════ -->
 <div id="salute-panel" class="draggable-panel floating" style="display:none; left:16px; top:380px;">
-    <div class="drag-handle salute-hdr">
+    <div class="drag-handle panel-header-unified">
         <span>SALUTE REPORT</span>
         <div style="display:flex;align-items:center;gap:4px;">
             <span class="salute-ts" id="salute-ts">--:--Z</span>
@@ -762,7 +762,7 @@
      Intuition UI: Historical Pattern Analog (draggable)
 ═══════════════════════════════════════════════════════ -->
 <div id="hist-analog-panel" class="draggable-panel floating" style="display:none; left:300px; top:380px;">
-    <div class="drag-handle ha-hdr">
+    <div class="drag-handle panel-header-unified">
         <span>HISTORICAL ANALOG</span>
         <div style="display:flex;gap:3px;">
             <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
@@ -778,7 +778,7 @@
      Intuition UI: Pulse Display (draggable)
 ═══════════════════════════════════════════════════════ -->
 <div id="pulse-panel" class="draggable-panel floating" style="display:none; left:10px; top:140px;">
-    <div class="drag-handle panel-header-unified" style="background:#080a0c; border-color:#1a1a1a; font-size:9px; letter-spacing:2px; padding:5px 8px;">
+    <div class="drag-handle panel-header-unified">
         <span>THREAT PULSE</span>
         <div style="display:flex;gap:3px;">
             <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
@@ -1472,6 +1472,20 @@
         function closeDragElement(e) {
             document.onmouseup = null; document.onmousemove = null;
             if (e && panel.classList.contains('floating')) {
+                const SNAP = 80; // px from screen edge triggers snap
+                const atLeft  = e.clientX < SNAP;
+                const atRight = e.clientX > window.innerWidth - SNAP;
+
+                // Edge snap: left edge → left sidebar, right edge → right sidebar
+                if (atLeft || atRight) {
+                    const snapSidebarId = atLeft ? 'left-sidebar' : 'sidebar';
+                    const snapSb = document.getElementById(snapSidebarId);
+                    if (snapSb && snapSb.contains(placeholder)) {
+                        dockToSidebar(); return;
+                    }
+                }
+
+                // Drop-on-sidebar: works for visible sidebars
                 for (const sid of ['sidebar', 'left-sidebar']) {
                     const sb = document.getElementById(sid);
                     if (!sb || sb.style.display === 'none') continue;
