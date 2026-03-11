@@ -362,23 +362,22 @@
         body.atm-severe   { animation: ambientSevere 3s ease-in-out infinite alternate; }
         body.atm-high     { animation: ambientHigh   5s ease-in-out infinite alternate; }
 
-        /* ── Intuition UI: Pulse Display ── */
-        #pulse-wrap { position: absolute; bottom: 0; left: 0; width: 220px; height: 58px; z-index: 500; background: rgba(8,10,12,0.88); border-top: 1px solid #1a1a1a; border-right: 1px solid #1a1a1a; pointer-events: none; }
-        #pulse-wrap canvas { display: block; }
-        #pulse-label { position: absolute; top: 3px; left: 6px; font-size: 8px; color: #2a2a2a; letter-spacing: 1.5px; text-transform: uppercase; font-family: 'Courier New', monospace; }
-        #pulse-bpm   { position: absolute; top: 3px; right: 6px; font-size: 8px; color: #2a2a2a; font-family: 'Courier New', monospace; }
+        /* ── Intuition UI: Pulse Display panel ── */
+        #pulse-panel .panel-content { background: rgba(8,10,12,0.88); padding: 0; position: relative; width: 220px; }
+        #pulse-panel canvas { display: block; }
+        #pulse-bpm { font-size: 8px; color: #2a2a2a; font-family: 'Courier New', monospace; text-align: right; padding: 2px 6px 0; }
 
         /* ── Intuition UI: Operational Clock ── */
-        #op-clock-panel { position: fixed; top: 130px; right: 420px; background: rgba(8,10,12,0.96); border: 1px solid #1a2a1a; border-radius: 4px; padding: 8px 14px; z-index: 4050; font-family: 'Courier New', monospace; display: none; min-width: 175px; }
-        .clock-hdr { font-size: 8px; color: #335533; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; }
+        .clock-hdr { font-size: 8px; color: #335533; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 0; display: flex; justify-content: space-between; align-items: center; }
+        #op-clock-panel .panel-content { font-family: 'Courier New', monospace; padding: 8px 14px; }
         #clock-zulu  { font-size: 22px; color: #00ff88; font-weight: bold; letter-spacing: 3px; line-height: 1; }
         #clock-local { font-size: 10px; color: #446644; margin-top: 4px; }
         #clock-date  { font-size: 9px; color: #334433; margin-top: 2px; }
         #clock-since { font-size: 9px; color: #555; margin-top: 6px; padding-top: 4px; border-top: 1px solid #1a2a1a; }
 
         /* ── Intuition UI: Operational Weather Brief ── */
-        #weather-brief-panel { position: fixed; left: 16px; top: 130px; width: 215px; background: rgba(8,10,16,0.97); border: 1px solid #1a2a3a; border-radius: 6px; padding: 12px; z-index: 4050; display: none; }
-        .wb-hdr { font-size: 9px; color: #336699; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #1a2a3a; display: flex; justify-content: space-between; align-items: center; }
+        .wb-hdr { font-size: 9px; color: #336699; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        #weather-brief-panel .panel-content { padding: 10px 12px; }
         .wb-close-btn { background: none; border: none; color: #333; cursor: pointer; font-size: 12px; line-height: 1; padding: 0; }
         .wb-close-btn:hover { color: #888; }
         .wb-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
@@ -390,8 +389,8 @@
         .wb-summary { margin-top: 8px; padding-top: 6px; border-top: 1px solid #1a2a3a; font-size: 9px; color: #666; line-height: 1.5; font-style: italic; }
 
         /* ── Intuition UI: SALUTE Board ── */
-        #salute-panel { position: fixed; left: 16px; bottom: 50px; width: 235px; background: rgba(8,10,12,0.97); border: 1px solid #2a1800; border-radius: 6px; padding: 12px; z-index: 4050; display: none; font-family: 'Courier New', monospace; }
-        .salute-hdr { font-size: 9px; color: #664400; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #2a1800; display: flex; justify-content: space-between; align-items: center; }
+        .salute-hdr { font-size: 9px; color: #664400; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        #salute-panel .panel-content { font-family: 'Courier New', monospace; padding: 10px 12px; }
         .salute-ts { font-size: 8px; color: #443322; }
         .s-row { display: flex; gap: 4px; margin-bottom: 5px; line-height: 1.4; }
         .s-key   { color: #ff8800; font-weight: bold; width: 20px; flex-shrink: 0; font-size: 11px; }
@@ -400,8 +399,8 @@
         .s-assess { margin-top: 8px; padding: 6px 8px; background: rgba(255,136,0,0.05); border-left: 2px solid #ff880030; border-radius: 0 4px 4px 0; font-size: 9px; color: #886644; line-height: 1.6; }
 
         /* ── Intuition UI: Historical Analog ── */
-        #hist-analog-panel { position: fixed; right: 420px; bottom: 50px; width: 265px; background: rgba(8,10,12,0.97); border: 1px solid #2a1a00; border-radius: 6px; padding: 12px; z-index: 4050; display: none; }
-        .ha-hdr { font-size: 9px; color: #885500; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #2a1a00; display: flex; justify-content: space-between; align-items: center; }
+        .ha-hdr { font-size: 9px; color: #885500; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        #hist-analog-panel .panel-content { padding: 10px 12px; }
         .ha-event-card { margin-bottom: 8px; padding: 7px 9px; background: rgba(255,255,255,0.02); border-radius: 4px; border-left: 3px solid #333; }
         .ha-event-name { font-size: 10px; font-weight: bold; margin-bottom: 3px; }
         .ha-event-sim  { font-size: 9px; color: #555; display: flex; justify-content: space-between; align-items: center; }
@@ -409,6 +408,17 @@
         .ha-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s; }
         .ha-canvas { width: 100%; height: 32px; display: block; border-radius: 2px; margin-top: 5px; background: #0a0a0a; }
         .ha-note { font-size: 8px; color: #333; text-align: center; margin-top: 6px; letter-spacing: 1px; }
+
+        /* ── Floating color overrides for new panels ── */
+        #op-clock-panel.floating      { background: rgba(8,10,12,0.96) !important; border-color: #1a2a1a !important; }
+        #weather-brief-panel.floating { background: rgba(8,10,16,0.97) !important; border-color: #1a2a3a !important; }
+        #salute-panel.floating        { background: rgba(8,10,12,0.97) !important; border-color: #2a1800 !important; }
+        #hist-analog-panel.floating   { background: rgba(8,10,12,0.97) !important; border-color: #2a1a00 !important; }
+        #pulse-panel.floating         { background: rgba(8,10,12,0.88) !important; border-color: #1a1a1a !important; padding: 0 !important; }
+
+        /* ── Left Sidebar ── */
+        #left-sidebar { width: 280px; flex-shrink: 0; background: #121212; border-right: 1px solid #444; display: none; flex-direction: column; z-index: 10; box-shadow: 5px 0 20px rgba(0,0,0,0.5); overflow-y: auto; }
+        #lsb-ph-pulse, #lsb-ph-wx, #lsb-ph-sal, #lsb-ph-ha, #lsb-ph-clk { flex-shrink: 0; }
 
         /* ── Intuition UI: TOOLS Dropdown Menu ── */
         .tools-dropdown-wrap { position: relative; margin-left: 8px; }
@@ -469,9 +479,15 @@
         </div>
         <button id="btn-sync-top" class="btn-tactical btn-sync" onclick="forceDataSync()">SYNC</button>
         <button class="btn-tactical btn-action" onclick="toggleChainPanel()" data-tooltip="Evidence Chain Timeline — Escalation Sequence Viewer">CHAIN</button>
-        <div class="tools-dropdown-wrap" data-tooltip="Intuition Tools — 直観支援パネル群">
+        <div class="tools-dropdown-wrap" data-tooltip="Intuition Tools — RPD Analysis Panels">
             <button class="btn-tactical btn-action" id="tools-dropdown-btn" onclick="toggleToolsMenu()">TOOLS ▾</button>
             <div id="tools-menu" class="tools-menu">
+                <div class="tools-menu-item" id="tm-item-pulse" onclick="handleToolToggle('pulse-panel', togglePulseDisplay, 'tm-dot-pulse', 'tm-item-pulse')">
+                    <span class="tools-menu-icon">💓</span>
+                    <span class="tools-menu-label">Threat Pulse</span>
+                    <span class="tools-menu-dot" id="tm-dot-pulse"></span>
+                </div>
+                <div class="tools-menu-sep"></div>
                 <div class="tools-menu-item" id="tm-item-wx"  onclick="handleToolToggle('weather-brief-panel', toggleWeatherBrief,  'tm-dot-wx',  'tm-item-wx')">
                     <span class="tools-menu-icon">⛈</span>
                     <span class="tools-menu-label">Weather Brief</span>
@@ -528,7 +544,7 @@
             <span id="hud-chain" class="hud-value" style="font-size:10px;">—</span>
         </div>
         <!-- Intuition UI: Radio Silence -->
-        <div class="hud-item" id="hud-radio-silence" data-tooltip="COMMS: GREEN=全センサー正常 / ORANGE=異常な静寂を検出（センサー抑圧または作戦前通信遮断の可能性）">
+        <div class="hud-item" id="hud-radio-silence" data-tooltip="COMMS: GREEN=All sensors live / ORANGE=Abnormal silence detected — possible sensor suppression or pre-op comms blackout">
             <div class="rs-dot rs-dot-live"></div>
             <span class="hud-label" style="margin-left:4px;">COMMS:</span>
             <span id="hud-rs-text" class="hud-value" style="font-size:10px; color:#00ff88;">LIVE</span>
@@ -542,14 +558,17 @@
 </div>
 
 <div id="main-container">
+    <!-- Left Sidebar (auto-hide when empty) -->
+    <div id="left-sidebar">
+        <div id="lsb-ph-pulse"></div>
+        <div id="lsb-ph-wx"></div>
+        <div id="lsb-ph-sal"></div>
+        <div id="lsb-ph-ha"></div>
+        <div id="lsb-ph-clk"></div>
+    </div>
+
     <div id="map-wrapper">
         <div id="map"></div>
-        <!-- Intuition UI: Pulse Display — スクロール型EKG脅威波形 -->
-        <div id="pulse-wrap">
-            <div id="pulse-label">THREAT PULSE</div>
-            <div id="pulse-bpm">—</div>
-            <canvas id="pulse-canvas" width="220" height="58"></canvas>
-        </div>
     </div>
 
     <div id="sidebar">
@@ -635,8 +654,8 @@
     </div>
     <div id="tab-sensors" class="tab-content">
         <div class="help-text">
-            各センサーモジュールの有効/無効を切り替えます。<b style="color:#00ffff">Cyber</b> = ネットワーク脅威、<b style="color:#ffaa00">Physical</b> = インフラ・空域、<b style="color:#cc66ff">Info</b> = 情報・宣伝。<br>
-            センサーを無効化した場合、そのドメインスコアへの寄与はゼロになります（Graceful Degradation）。
+            Enable or disable individual sensor modules. <b style="color:#00ffff">Cyber</b> = network threats, <b style="color:#ffaa00">Physical</b> = infrastructure &amp; airspace, <b style="color:#cc66ff">Info</b> = information &amp; influence operations.<br>
+            Disabled sensors contribute zero to their domain score (Graceful Degradation).
         </div>
         <div id="sensor-list-container">
             <div style="color:#555;">Loading sensor status...</div>
@@ -644,9 +663,9 @@
     </div>
     <div id="tab-fetchlog" class="tab-content">
         <div class="help-text">
-            各センサーが外部 API から最後にデータを取得した結果を表示します。
-            <b style="color:#66ff66">✓ 成功</b> / <b style="color:#ff4444">✗ 失敗</b> / <span style="color:#888;">— 未取得</span>。
-            キャッシュ年齢（Cache Age）が Poll 間隔の3倍を超えると <b style="color:#ff8800;">STALE</b> 判定。
+            Shows the last fetch result for each sensor from its external API.
+            <b style="color:#66ff66">✓ Success</b> / <b style="color:#ff4444">✗ Failed</b> / <span style="color:#888;">— Not fetched</span>.
+            Cache age exceeding 3× the poll interval is flagged as <b style="color:#ff8800;">STALE</b>.
         </div>
         <div style="margin-bottom:8px;">
             <button onclick="loadFetchLog()" class="btn-tactical" style="margin-left:0;">↻ Refresh</button>
@@ -685,62 +704,90 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
-     Intuition UI: Operational Clock
+     Intuition UI: Operational Clock (draggable)
 ═══════════════════════════════════════════════════════ -->
-<div id="op-clock-panel">
-    <div class="clock-hdr">
+<div id="op-clock-panel" class="draggable-panel floating" style="display:none; left:260px; top:130px;">
+    <div class="drag-handle clock-hdr">
         <span>OPERATIONAL CLOCK</span>
-        <button onclick="document.getElementById('op-clock-panel').style.display='none'; syncToolsMenuState(); if(_clockInterval){clearInterval(_clockInterval);_clockInterval=null;}" style="background:none;border:none;color:#335533;cursor:pointer;font-size:12px;padding:0;">✕</button>
-    </div>
-    <div id="clock-zulu">--:--:--Z</div>
-    <div id="clock-local">LOCAL: --:--:--</div>
-    <div id="clock-date">--- -- --- ----</div>
-    <div id="clock-since">LAST EVENT: --m --s ago</div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════
-     Intuition UI: Operational Weather Brief
-     脅威環境を気象メタファーで直観的に表現
-═══════════════════════════════════════════════════════ -->
-<div id="weather-brief-panel">
-    <div class="wb-hdr">
-        <span>OPS WEATHER BRIEF</span>
-        <button class="wb-close-btn" onclick="document.getElementById('weather-brief-panel').style.display='none'; syncToolsMenuState();">✕</button>
-    </div>
-    <div class="wb-body">
-        <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
-    </div>
-    <div class="wb-summary"></div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════
-     Intuition UI: SALUTE Contact Report
-     SALUTE様式 — アナリスト向け軍事様式インテリジェンスサマリー
-═══════════════════════════════════════════════════════ -->
-<div id="salute-panel">
-    <div class="salute-hdr">
-        <span>SALUTE REPORT</span>
-        <div>
-            <span class="salute-ts" id="salute-ts">--:--Z</span>
-            <button onclick="document.getElementById('salute-panel').style.display='none'; syncToolsMenuState();" style="background:none;border:none;color:#443322;cursor:pointer;font-size:12px;margin-left:8px;padding:0;">✕</button>
+        <div style="display:flex;gap:3px;">
+            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
+            <span class="icon-btn" onclick="document.getElementById('op-clock-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState(); if(_clockInterval){clearInterval(_clockInterval);_clockInterval=null;}">✕</span>
         </div>
     </div>
-    <div class="salute-body">
+    <div class="panel-content">
+        <div id="clock-zulu">--:--:--Z</div>
+        <div id="clock-local">LOCAL: --:--:--</div>
+        <div id="clock-date">--- -- --- ----</div>
+        <div id="clock-since">LAST EVENT: --m --s ago</div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Intuition UI: Operational Weather Brief (draggable)
+═══════════════════════════════════════════════════════ -->
+<div id="weather-brief-panel" class="draggable-panel floating" style="display:none; left:16px; top:130px;">
+    <div class="drag-handle wb-hdr">
+        <span>OPS WEATHER BRIEF</span>
+        <div style="display:flex;gap:3px;">
+            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
+            <span class="icon-btn wb-close-btn" onclick="document.getElementById('weather-brief-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState();">✕</span>
+        </div>
+    </div>
+    <div class="panel-content">
+        <div class="wb-body">
+            <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+        </div>
+        <div class="wb-summary"></div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Intuition UI: SALUTE Contact Report (draggable)
+═══════════════════════════════════════════════════════ -->
+<div id="salute-panel" class="draggable-panel floating" style="display:none; left:16px; top:380px;">
+    <div class="drag-handle salute-hdr">
+        <span>SALUTE REPORT</span>
+        <div style="display:flex;align-items:center;gap:4px;">
+            <span class="salute-ts" id="salute-ts">--:--Z</span>
+            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
+            <span class="icon-btn" onclick="document.getElementById('salute-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState();">✕</span>
+        </div>
+    </div>
+    <div class="panel-content salute-body">
         <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
     </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
-     Intuition UI: Historical Pattern Analog
-     パターン認識 — 既知の歴史的事例との類似度マッチング
+     Intuition UI: Historical Pattern Analog (draggable)
 ═══════════════════════════════════════════════════════ -->
-<div id="hist-analog-panel">
-    <div class="ha-hdr">
+<div id="hist-analog-panel" class="draggable-panel floating" style="display:none; left:300px; top:380px;">
+    <div class="drag-handle ha-hdr">
         <span>HISTORICAL ANALOG</span>
-        <button onclick="document.getElementById('hist-analog-panel').style.display='none'; syncToolsMenuState();" style="background:none;border:none;color:#443300;cursor:pointer;font-size:12px;padding:0;">✕</button>
+        <div style="display:flex;gap:3px;">
+            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
+            <span class="icon-btn" onclick="document.getElementById('hist-analog-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState();">✕</span>
+        </div>
     </div>
-    <div class="ha-body">
+    <div class="panel-content ha-body">
         <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Intuition UI: Pulse Display (draggable)
+═══════════════════════════════════════════════════════ -->
+<div id="pulse-panel" class="draggable-panel floating" style="display:none; left:10px; top:140px;">
+    <div class="drag-handle panel-header-unified" style="background:#080a0c; border-color:#1a1a1a; font-size:9px; letter-spacing:2px; padding:5px 8px;">
+        <span>THREAT PULSE</span>
+        <div style="display:flex;gap:3px;">
+            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
+            <span class="icon-btn" onclick="document.getElementById('pulse-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState();">✕</span>
+        </div>
+    </div>
+    <div class="panel-content" style="background:#080a0c; padding:0; width:220px;">
+        <div id="pulse-bpm">—</div>
+        <canvas id="pulse-canvas" width="220" height="58"></canvas>
     </div>
 </div>
 
@@ -1198,12 +1245,12 @@
     }
 
     // ── Intuition UI: TOOLS Dropdown ──────────────────────────────────────────
-    // パネルIDと状態ドット/アイテムIDのマッピング
     const TOOL_MAP = [
-        { panelId: 'weather-brief-panel', dotId: 'tm-dot-wx',  itemId: 'tm-item-wx'  },
-        { panelId: 'salute-panel',         dotId: 'tm-dot-sal', itemId: 'tm-item-sal' },
-        { panelId: 'hist-analog-panel',    dotId: 'tm-dot-ha',  itemId: 'tm-item-ha'  },
-        { panelId: 'op-clock-panel',       dotId: 'tm-dot-clk', itemId: 'tm-item-clk' },
+        { panelId: 'pulse-panel',          dotId: 'tm-dot-pulse', itemId: 'tm-item-pulse' },
+        { panelId: 'weather-brief-panel',  dotId: 'tm-dot-wx',    itemId: 'tm-item-wx'    },
+        { panelId: 'salute-panel',         dotId: 'tm-dot-sal',   itemId: 'tm-item-sal'   },
+        { panelId: 'hist-analog-panel',    dotId: 'tm-dot-ha',    itemId: 'tm-item-ha'    },
+        { panelId: 'op-clock-panel',       dotId: 'tm-dot-clk',   itemId: 'tm-item-clk'  },
     ];
 
     function toggleToolsMenu() {
@@ -1213,7 +1260,7 @@
         syncToolsMenuState();
     }
 
-    // 外側クリックでメニューを閉じる
+    // Close menu on outside click
     document.addEventListener('click', e => {
         if (!e.target.closest('.tools-dropdown-wrap')) {
             const m = document.getElementById('tools-menu');
@@ -1221,13 +1268,12 @@
         }
     });
 
-    // ツールをトグルしてメニューの状態インジケーターを同期
     function handleToolToggle(panelId, toggleFn, dotId, itemId) {
         toggleFn();
         syncToolsMenuState();
     }
 
-    // 全ツールのドット/アイテム/ボタンの表示状態を同期
+    // Sync dot/item/button appearance for all tools
     function syncToolsMenuState() {
         let anyOpen = false;
         TOOL_MAP.forEach(({ panelId, dotId, itemId }) => {
@@ -1331,6 +1377,28 @@
         document.getElementById(`tab-${tabId}`).classList.add('active');
     }
 
+    // ── Sidebar Visibility ─────────────────────────────────────────────────────
+    function updateSidebarVisibility() {
+        // Left sidebar: show when ≥1 docked panel is visible inside it
+        const lsb = document.getElementById('left-sidebar');
+        if (lsb) {
+            let hasVisible = false;
+            lsb.querySelectorAll('.draggable-panel.docked').forEach(p => {
+                if (p.style.display !== 'none') hasVisible = true;
+            });
+            lsb.style.display = hasVisible ? 'flex' : 'none';
+        }
+        // Right sidebar: show when target-panel or dashboard-panel is docked inside it
+        const rsb = document.getElementById('sidebar');
+        if (rsb) {
+            const tp = document.getElementById('target-panel');
+            const dp = document.getElementById('dashboard-panel');
+            const tpIn = tp && tp.classList.contains('docked') && rsb.contains(tp) && tp.style.display !== 'none';
+            const dpIn = dp && dp.classList.contains('docked') && rsb.contains(dp) && dp.style.display !== 'none';
+            rsb.style.display = (tpIn || dpIn) ? 'flex' : 'none';
+        }
+    }
+
     function setupDockablePanel(panelId, placeholderId, defaultWidth) {
         const panel = document.getElementById(panelId);
         const placeholder = document.getElementById(placeholderId);
@@ -1338,18 +1406,20 @@
         const dockBtn = panel.querySelector('.dock-btn');
         const toggleBtn = panel.querySelector('.toggle-btn');
         const content = panel.querySelector('.panel-content');
-        
-        toggleBtn.onmousedown = function(e) {
-            e.stopPropagation();
-            if (content.style.display === 'none') {
-                content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
-                if(panel.classList.contains('docked') && panelId === 'dashboard-panel') panel.style.flexGrow = '1';
-            } else {
-                content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
-                if(panel.classList.contains('docked') && panelId === 'dashboard-panel') panel.style.flexGrow = '0';
-            }
-            saveLocalState(); 
-        };
+
+        if (toggleBtn && content) {
+            toggleBtn.onmousedown = function(e) {
+                e.stopPropagation();
+                if (content.style.display === 'none') {
+                    content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
+                    if(panel.classList.contains('docked') && panelId === 'dashboard-panel') panel.style.flexGrow = '1';
+                } else {
+                    content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
+                    if(panel.classList.contains('docked') && panelId === 'dashboard-panel') panel.style.flexGrow = '0';
+                }
+                saveLocalState();
+            };
+        }
 
         dockBtn.onmousedown = function(e) { e.stopPropagation(); dockToSidebar(); };
 
@@ -1357,61 +1427,77 @@
             placeholder.appendChild(panel);
             panel.classList.remove('floating', 'active');
             panel.classList.add('docked');
-            panel.style.left = ''; panel.style.top = ''; panel.style.width = ''; panel.style.height = ''; 
+            panel.style.left = ''; panel.style.top = ''; panel.style.width = ''; panel.style.height = '';
+            panel.style.display = 'flex';
             dockBtn.style.display = 'none';
-            saveLocalState(); 
+            updateSidebarVisibility();
+            if (typeof syncToolsMenuState === 'function') syncToolsMenuState();
+            saveLocalState();
         }
 
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-        
-        panel.onmousedown = function() { 
+
+        panel.onmousedown = function() {
             if (panel.classList.contains('floating')) {
-                document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active')); 
-                panel.classList.add('active'); 
+                document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
+                panel.classList.add('active');
             }
         };
-        
-        handle.onmousedown = function(e) { 
-            if(e.target.closest('.icon-btn')) return; 
-            e.preventDefault(); 
-            
+
+        handle.onmousedown = function(e) {
+            if(e.target.closest('.icon-btn')) return;
+            e.preventDefault();
+
             if (panel.classList.contains('docked')) {
                 const rect = panel.getBoundingClientRect();
-                document.body.appendChild(panel); 
+                document.body.appendChild(panel);
                 panel.classList.remove('docked'); panel.classList.add('floating', 'active');
+                panel.style.display = 'flex';
                 panel.style.width = defaultWidth + 'px';
-                if (panelId === 'dashboard-panel') panel.style.height = '400px'; 
+                if (panelId === 'dashboard-panel') panel.style.height = '400px';
                 panel.style.left = rect.left + "px"; panel.style.top = rect.top + "px";
                 dockBtn.style.display = 'inline-block';
+                updateSidebarVisibility();
             }
-            
-            pos3 = e.clientX; pos4 = e.clientY; 
-            document.onmouseup = closeDragElement; document.onmousemove = elementDrag; 
+
+            pos3 = e.clientX; pos4 = e.clientY;
+            document.onmouseup = closeDragElement; document.onmousemove = elementDrag;
         };
-        
-        function elementDrag(e) { 
-            e.preventDefault(); pos1 = pos3 - e.clientX; pos2 = pos4 - e.clientY; pos3 = e.clientX; pos4 = e.clientY; 
-            panel.style.top = (panel.offsetTop - pos2) + "px"; panel.style.left = (panel.offsetLeft - pos1) + "px"; 
+
+        function elementDrag(e) {
+            e.preventDefault(); pos1 = pos3 - e.clientX; pos2 = pos4 - e.clientY; pos3 = e.clientX; pos4 = e.clientY;
+            panel.style.top = (panel.offsetTop - pos2) + "px"; panel.style.left = (panel.offsetLeft - pos1) + "px";
         }
-        
-        function closeDragElement(e) { 
-            document.onmouseup = null; document.onmousemove = null; 
+
+        function closeDragElement(e) {
+            document.onmouseup = null; document.onmousemove = null;
             if (e && panel.classList.contains('floating')) {
-                const sidebar = document.getElementById('sidebar');
-                const sidebarRect = sidebar.getBoundingClientRect();
-                if (e.clientX >= sidebarRect.left && e.clientX <= sidebarRect.right && 
-                    e.clientY >= sidebarRect.top && e.clientY <= sidebarRect.bottom) {
-                    dockToSidebar(); return; 
+                for (const sid of ['sidebar', 'left-sidebar']) {
+                    const sb = document.getElementById(sid);
+                    if (!sb || sb.style.display === 'none') continue;
+                    const sbRect = sb.getBoundingClientRect();
+                    if (e.clientX >= sbRect.left && e.clientX <= sbRect.right &&
+                        e.clientY >= sbRect.top  && e.clientY <= sbRect.bottom &&
+                        sb.contains(placeholder)) {
+                        dockToSidebar(); return;
+                    }
                 }
             }
-            saveLocalState(); 
+            updateSidebarVisibility();
+            saveLocalState();
         }
 
         panel.addEventListener('mouseup', function(e) { saveLocalState(); });
     }
 
-    setupDockablePanel('target-panel', 'target-placeholder', 280);
+    setupDockablePanel('target-panel',    'target-placeholder',    280);
     setupDockablePanel('dashboard-panel', 'dashboard-placeholder', 400);
+    setupDockablePanel('pulse-panel',     'lsb-ph-pulse',          220);
+    setupDockablePanel('weather-brief-panel', 'lsb-ph-wx',         215);
+    setupDockablePanel('salute-panel',    'lsb-ph-sal',            235);
+    setupDockablePanel('hist-analog-panel', 'lsb-ph-ha',           265);
+    setupDockablePanel('op-clock-panel',  'lsb-ph-clk',            195);
+    updateSidebarVisibility();
 
     const map = L.map('map', { zoomControl: false, minZoom: 2 }).setView([20.0, 150.0], 3);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; CARTO', maxZoom: 18 }).addTo(map);
@@ -2458,7 +2544,71 @@
                     <div class="cip-card-sub">Threshold: ${-15.0}</div>
                 </div>
             </div>
+        </div>
+
+        ${(function() {
+            const p8 = strat.phase8 || {};
+            const p8Theater = strat.core_theater || '—';
+            const velRaw = p8.velocity;
+            const velColor = velRaw > 0.0005 ? '#ff4444' : velRaw > 0.0001 ? '#ffaa00' : '#00ff88';
+            const velTxt  = velRaw !== undefined
+                ? `<span style="color:${velColor}">${velRaw > 0 ? '+' : ''}${velRaw.toFixed(4)}</span>`
+                : '—';
+            const biRaw  = p8.blockade_index;
+            const biTxt  = biRaw !== undefined ? biRaw.toFixed(2) : '—';
+            const biCol  = biRaw >= 5 ? 'cip-alert' : biRaw >= 2 ? 'cip-warn' : 'cip-ok';
+            const nzRaw  = p8.narrative ? (p8.narrative.z_score || 0) : null;
+            const nzTxt  = nzRaw !== null ? nzRaw.toFixed(2) + ' σ' : '—';
+            const nzCol  = nzRaw >= 3 ? 'cip-alert' : nzRaw >= 2 ? 'cip-warn' : 'cip-ok';
+            const isrCnt = p8.isr ? (p8.isr.count || 0) : null;
+            const isrTxt = isrCnt !== null ? isrCnt + ' ac' : '—';
+            const isrCol = isrCnt >= 3 ? 'cip-warn' : 'cip-ok';
+            const aisCnt = p8.ais ? (p8.ais.dark_gaps || 0) : null;
+            const aisTxt = aisCnt !== null ? aisCnt + ' vessels' : '—';
+            const aisCol = aisCnt >= 1 ? 'cip-warn' : 'cip-ok';
+            const seqSt  = p8.sequence_status || '';
+            const seqTxt = seqSt.includes('FULL_CHAIN') ? 'FULL CHAIN'
+                         : seqSt.includes('PARTIAL')    ? 'PARTIAL' : 'NO CHAIN';
+            const seqCol = seqSt.includes('FULL_CHAIN') ? 'cip-alert'
+                         : seqSt.includes('PARTIAL')    ? 'cip-warn' : 'cip-ok';
+            const ambushBadge = p8.is_ambush
+                ? '<div style="margin-top:6px; padding:4px 8px; background:rgba(255,34,0,0.1); border-left:3px solid #ff2200; border-radius:0 4px 4px 0; font-size:10px; color:#ff4444; font-weight:bold;">⚡ AMBUSH PATTERN ACTIVE</div>' : '';
+            return `<div class="cip-section">
+            <div class="cip-section-title">⚡ Phase 8 — Predictive Indicators <span style="color:#555;font-size:9px;font-weight:normal;">(theater: ${p8Theater})</span></div>
+            <div class="cip-grid">
+                <div class="cip-card">
+                    <div class="cip-card-label">Escalation Velocity</div>
+                    <div class="cip-card-value">${velTxt}</div>
+                    <div class="cip-card-sub">1st derivative / cycle</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">Blockade Index</div>
+                    <div class="cip-card-value ${biCol}">${biTxt}</div>
+                    <div class="cip-card-sub">DDoS / net reachability</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">Narrative Z-Score</div>
+                    <div class="cip-card-value ${nzCol}">${nzTxt}</div>
+                    <div class="cip-card-sub">30d baseline</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">ISR Aircraft</div>
+                    <div class="cip-card-value ${isrCol}">${isrTxt}</div>
+                    <div class="cip-card-sub">High-alt recon</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">AIS Dark Gaps</div>
+                    <div class="cip-card-value ${aisCol}">${aisTxt}</div>
+                    <div class="cip-card-sub">Transponder blackouts</div>
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">Sequence Chain</div>
+                    <div class="cip-card-value ${seqCol}">${seqTxt}</div>
+                    <div class="cip-card-sub">24h window</div>
+                </div>
+            </div>${ambushBadge}
         </div>`;
+        })()}`;
 
         openModal('country-modal');
     }
@@ -2771,17 +2921,34 @@
 
     // ── C. Operational Clock ──────────────────────────────────────────
     // リアルタイムZulu時刻 + 最終重大イベントからの経過時間
+    function togglePulseDisplay() {
+        const panel = document.getElementById('pulse-panel');
+        if (!panel) return;
+        const show = !panel.style.display || panel.style.display === 'none';
+        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
+            document.body.appendChild(panel);
+            panel.classList.add('floating', 'active');
+        }
+        panel.style.display = show ? 'flex' : 'none';
+        updateSidebarVisibility();
+    }
+
     function toggleOpClock() {
         const panel = document.getElementById('op-clock-panel');
         if (!panel) return;
         const show = !panel.style.display || panel.style.display === 'none';
-        panel.style.display = show ? 'block' : 'none';
+        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
+            document.body.appendChild(panel);
+            panel.classList.add('floating', 'active');
+        }
+        panel.style.display = show ? 'flex' : 'none';
         if (show) {
             tickClock();
             if (!_clockInterval) _clockInterval = setInterval(tickClock, 1000);
         } else {
             if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
         }
+        updateSidebarVisibility();
     }
 
     function tickClock() {
@@ -2814,8 +2981,13 @@
         const panel = document.getElementById('weather-brief-panel');
         if (!panel) return;
         const show = !panel.style.display || panel.style.display === 'none';
-        panel.style.display = show ? 'block' : 'none';
+        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
+            document.body.appendChild(panel);
+            panel.classList.add('floating', 'active');
+        }
+        panel.style.display = show ? 'flex' : 'none';
         if (show) renderWeatherBrief();
+        updateSidebarVisibility();
     }
 
     async function renderWeatherBrief() {
@@ -2858,8 +3030,13 @@
         const panel = document.getElementById('salute-panel');
         if (!panel) return;
         const show = !panel.style.display || panel.style.display === 'none';
-        panel.style.display = show ? 'block' : 'none';
+        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
+            document.body.appendChild(panel);
+            panel.classList.add('floating', 'active');
+        }
+        panel.style.display = show ? 'flex' : 'none';
         if (show) renderSaluteBoard();
+        updateSidebarVisibility();
     }
 
     async function renderSaluteBoard() {
@@ -2905,8 +3082,13 @@
         const panel = document.getElementById('hist-analog-panel');
         if (!panel) return;
         const show = !panel.style.display || panel.style.display === 'none';
-        panel.style.display = show ? 'block' : 'none';
+        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
+            document.body.appendChild(panel);
+            panel.classList.add('floating', 'active');
+        }
+        panel.style.display = show ? 'flex' : 'none';
         if (show) renderHistoricalAnalog();
+        updateSidebarVisibility();
     }
 
     async function renderHistoricalAnalog() {
@@ -3023,13 +3205,13 @@
             txt.textContent  = 'QUIET';
             txt.style.color  = '#ff8800';
             wrap.setAttribute('data-tooltip',
-                'RADIO SILENCE: スコア≥3だが速度変化=0。\nセンサー抑圧または作戦前通信遮断の可能性。\nHITL確認推奨。');
+                'RADIO SILENCE: Score ≥3 but velocity=0.\nPossible sensor suppression or pre-op comms blackout.\nHITL verification recommended.');
         } else {
             dot.className = 'rs-dot rs-dot-live';
             txt.textContent  = 'LIVE';
             txt.style.color  = '#00ff88';
             wrap.setAttribute('data-tooltip',
-                'COMMS LIVE: 全センサー正常報告中。異常な静寂なし。');
+                'COMMS LIVE: All sensors reporting normally. No abnormal silence detected.');
         }
     }
 
