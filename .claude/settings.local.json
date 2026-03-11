@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''radar_api.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''radar_api.py: OK''\\)\")",
+      "Bash(python -c \":*)",
+      "Bash(python -c:*)"
+    ]
+  }
+}

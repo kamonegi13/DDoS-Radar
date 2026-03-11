@@ -182,7 +182,6 @@
     {"name": "Guam Cable Landing Station (US MIL)", "lat": 13.444, "lng": 144.793, "country": "US"},
     {"name": "Bandon Cable Landing Station", "lat": 43.118, "lng": -124.408, "country": "US"},
     {"name": "Bude Cable Landing Station", "lat": 50.825, "lng": -4.551, "country": "GB"},
-<<<<<<< HEAD
     {"name": "Marseille Cable Landing Hub",          "lat": 43.296,  "lng": 5.369,    "country": "FR"},
     {"name": "Luzon Strait Chokepoint",               "lat": 20.500,  "lng": 121.500,  "country": "PH"},
     {"name": "Miyako Strait (1st Island Chain)",       "lat": 24.700,  "lng": 125.300,  "country": "JP"},
@@ -229,8 +228,4 @@
     "DEFAULT": ["military measures", "final warning", "combat readiness", "mobilization",
                 "escalation", "ultimatum", "preemptive"]
   }
-=======
-    {"name": "Marseille Cable Landing Hub", "lat": 43.296, "lng": 5.369, "country": "FR"}
-  ]
->>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 }
