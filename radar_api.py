@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # radar_api.py — Phase 8: MDO C4ISR Dashboard — Predictive Deep Pattern Analysis
+=======
+# radar_api.py — Phase 7: MDO C4ISR Dashboard (Production Ready)
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
@@ -8,9 +12,12 @@ import threading
 import hashlib
 import os
 import json
+<<<<<<< HEAD
 import math
 import xml.etree.ElementTree as ET
 import difflib
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 import urllib3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from abc import ABC, abstractmethod
@@ -49,6 +56,7 @@ def _load_env(path: str = "config.env") -> None:
 _load_env()
 
 COUNTRY_COORDS, STATE_ASNS, AIRPORT_BOXES, CHOKEPOINTS = {}, {}, {}, []
+<<<<<<< HEAD
 ISR_HOTSPOTS: list = []
 NARRATIVE_SOURCES: dict = {}
 TACTICAL_KEYWORDS: dict = {}
@@ -62,6 +70,15 @@ try:
         ISR_HOTSPOTS        = geo_data.get("ISR_HOTSPOTS", [])
         NARRATIVE_SOURCES   = geo_data.get("NARRATIVE_SOURCES", {})
         TACTICAL_KEYWORDS   = geo_data.get("TACTICAL_KEYWORDS", {})
+=======
+try:
+    with open("geo_data.json", "r", encoding="utf-8") as f:
+        geo_data = json.load(f)
+        COUNTRY_COORDS = geo_data.get("COUNTRY_COORDS", {})
+        STATE_ASNS = geo_data.get("STATE_ASNS", {})
+        AIRPORT_BOXES = geo_data.get("AIRPORT_BOXES", {})
+        CHOKEPOINTS = geo_data.get("CHOKEPOINTS", [])
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         print("[Config] Loaded static data from geo_data.json")
 except Exception as e:
     print(f"[Warning] Failed to load geo_data.json: {e}")
@@ -107,6 +124,7 @@ SEVERE_WEATHER_IDS = (
     {600, 602, 621, 622} | {711, 762} | {771, 781} | {900, 902}
 )
 
+<<<<<<< HEAD
 # ── Phase 8: Deep Pattern Analysis Config ──────────────────────────────────────
 # A. DDoS Acceleration Engine
 AMBUSH_ZSCORE_THRESHOLD = float(os.getenv("AMBUSH_ZSCORE_THRESHOLD", "2.0"))
@@ -130,6 +148,8 @@ ISR_ICAO_TYPES           = [t.strip().upper() for t in os.getenv(
 ).split(",") if t.strip()]
 ISR_SURGE_THRESHOLD      = int(os.getenv("ISR_SURGE_THRESHOLD", "3"))
 
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 # ─────────────────────────────────────────────────────────────────────────────
 # Data Classes
 # ─────────────────────────────────────────────────────────────────────────────
@@ -495,6 +515,7 @@ class ThreatFoxSensor(BaseSensor):
         result = {"hits": hits}; self.set_cache(result)
         return result
 
+<<<<<<< HEAD
 # ── Phase 8 New Sensors ───────────────────────────────────────────────────────
 
 class RssNarrativeSensor(BaseSensor):
@@ -850,6 +871,8 @@ class AisMaritimeSensor(BaseSensor):
         self.set_cache(result)
         return result
 
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 # ─────────────────────────────────────────────────────────────────────────────
 # SensorRegistry & Engine
 # ─────────────────────────────────────────────────────────────────────────────
@@ -908,6 +931,7 @@ class WeightedConvergenceEngine:
         if noise_filters: parts.append(f"Active Suppressors: {'; '.join(noise_filters)}.")
         return " ".join(parts)
 
+<<<<<<< HEAD
     # ── Phase 8: Derivative & Synchronicity Methods ───────────────────────────
     @staticmethod
     def _linear_regression_slope(xs: list, ys: list) -> float:
@@ -986,23 +1010,33 @@ class WeightedConvergenceEngine:
                     sync_pairs += 1
         return round(sync_pairs / pair_count, 3) if pair_count > 0 else 0.0
 
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 # ─────────────────────────────────────────────────────────────────────────────
 # Global instances
 # ─────────────────────────────────────────────────────────────────────────────
 registry = SensorRegistry()
+<<<<<<< HEAD
 for s in [
     CloudflareSensor(), IodaSensor(), OpenSkySensor(), OpenWeatherSensor(),
     GDELTSensor(), PeeringDbSensor(), BgpRoutingSensor(), NasaFirmsSensor(), ThreatFoxSensor(),
     # Phase 8 新センサー
     RssNarrativeSensor(), IsrHotspotSensor(), AisMaritimeSensor(),
 ]:
+=======
+for s in [CloudflareSensor(), IodaSensor(), OpenSkySensor(), OpenWeatherSensor(), GDELTSensor(), PeeringDbSensor(), BgpRoutingSensor(), NasaFirmsSensor(), ThreatFoxSensor()]:
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
     registry.register(s)
 engine = WeightedConvergenceEngine()
 
 global_cache      = {"time": 0, "data": {}, "strategic": {}}
 baseline_cache:    dict = {}
+<<<<<<< HEAD
 time_series_db:    dict = {}   # {theater: [float,...]}  ← 後方互換: 値のみ
 time_series_ts_db: dict = {}   # {theater: [(ts, val),...]} ← Phase 8: タイムスタンプ付き
+=======
+time_series_db:    dict = {}
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 time_series_l3_db: dict = {}
 time_series_l7_db: dict = {}
 airspace_baseline: dict = {}
@@ -1010,11 +1044,14 @@ defcon_history:    list = []
 alert_timeline:    list = []
 ALERT_TIMELINE_MAX = 288
 
+<<<<<<< HEAD
 # Phase 8: シーケンス・スコアラー用イベントログ
 # {theater: [{"ts": float, "type": str, "meta": dict}, ...]}
 sequence_event_log: dict = {}
 SEQUENCE_EVENT_TYPES = ["NARRATIVE_BURST", "ISR_SURGE", "SYNC_DDOS", "FIRMS_ANOMALY", "AIS_DARK_GAP"]
 
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 # CF scoring-loop result cache（センサーfetchとは独立したスコアリング用短期キャッシュ）
 # キー: (url, frozenset(params.items())) → {"time": float, "data": list}
 _cf_scoring_cache: dict = {}
@@ -1022,6 +1059,7 @@ _cf_scoring_cache: dict = {}
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper Functions
 # ─────────────────────────────────────────────────────────────────────────────
+<<<<<<< HEAD
 # ── Phase 8: Sequence Scorer ──────────────────────────────────────────────────
 def register_sequence_event(theater: str, event_type: str, meta: dict = None):
     """エスカレーション連鎖ログにイベントを登録する。"""
@@ -1073,6 +1111,8 @@ def compute_sequence_bonus(theater: str) -> tuple:
     else:
         return 0, f"INSUFFICIENT_CHAIN ({found_count}/4)", found_in_chain
 
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 def get_fallback_coord(code: str) -> dict:
     h = int(hashlib.md5((code or "Unknown").encode()).hexdigest(), 16)
     return {"lat": (h % 100) - 50, "lng": ((h // 100) % 360) - 180, "name": f"Origin: {code}"}
@@ -1202,6 +1242,7 @@ def get_threat_data():
     nasa_firms_data = nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else []
     threatfox_sensor = registry.get("threatfox")
     threatfox_data = threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {}
+<<<<<<< HEAD
     # Phase 8 新センサーデータ取得
     rss_narrative_sensor = registry.get("rss_narrative")
     narrative_data = rss_narrative_sensor.get_cache().get("narratives", {}) if rss_narrative_sensor else {}
@@ -1211,6 +1252,8 @@ def get_threat_data():
     ais_dark_gaps        = ais_maritime_sensor.get_cache().get("dark_gaps", []) if ais_maritime_sensor else []
     ais_stationary       = ais_maritime_sensor.get_cache().get("stationary_anomalies", []) if ais_maritime_sensor else []
     ais_has_anomaly      = ais_maritime_sensor.get_cache().get("has_anomaly", False) if ais_maritime_sensor else False
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 
     airspace_anomalies, noise_filters_applied = [], []
     for code, ainfo in airspace_data.items():
@@ -1337,10 +1380,13 @@ def get_threat_data():
         time_series_db[t].append(avg_spike_record); time_series_db[t] = time_series_db[t][-15:]
         time_series_l3_db[t].append(round(avg_l3_spike, 2)); time_series_l3_db[t] = time_series_l3_db[t][-15:]
         time_series_l7_db[t].append(round(avg_l7_spike, 2)); time_series_l7_db[t] = time_series_l7_db[t][-15:]
+<<<<<<< HEAD
         # Phase 8: タイムスタンプ付き時系列を更新（微分計算用）
         if t not in time_series_ts_db: time_series_ts_db[t] = []
         time_series_ts_db[t].append((current_time, avg_spike_record))
         time_series_ts_db[t] = time_series_ts_db[t][-30:]  # 微分には多めに保持
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 
         target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values())}
 
@@ -1434,6 +1480,7 @@ def get_threat_data():
     if peeringdb_sensor and peeringdb_sensor.enabled:
         add_rat("peeringdb_ixp", "physical", "OK", f"IXP(s) registered", 0, None)
 
+<<<<<<< HEAD
     # ── Phase 8: 新センサー rationale + Sequence Event 登録 ───────────────────
 
     # RSS ナラティブバースト
@@ -1504,12 +1551,17 @@ def get_threat_data():
     # ── Phase 8: Sequence Bonus 計算 ──────────────────────────────────────────
     seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
 
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
     domain_scores = engine.compute_domain_scores(rationale)
     total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
     convergence_score = engine.compute_convergence_score(domain_scores)
     score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
+<<<<<<< HEAD
     # Sequence Bonus を最終スコアに加算
     score_with_bonus += seq_bonus
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
     defcon_raw = engine.compute_defcon(score_with_bonus, defcon_1_hard)
     defcon, defcon_held = engine.apply_hysteresis(defcon_raw, defcon_history)
     defcon_history.append((current_time, defcon))
@@ -1517,6 +1569,7 @@ def get_threat_data():
 
     system_note = engine.build_system_note(defcon, domain_scores, convergence_level, rationale, noise_filters_applied, defcon_held)
 
+<<<<<<< HEAD
     # Phase 8 解析結果まとめ
     phase8_analytics = {
         "velocity":        round(velocity_val, 6),
@@ -1547,11 +1600,17 @@ def get_threat_data():
         ),
     }
 
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
     score_breakdown = {
         "core_spike_val": round(core_spike, 2), "core_spike_2x": core_spike > 2.0, "core_spike_4x": core_spike > 4.0, "core_spike_6x": core_spike > 6.0,
         "high_correlation": high_correlation, "core_shifted": core_shifted, "major_adversary": major_adversary, "core_degraded": core_degraded,
         "is_coordinated": is_coordinated, "defcon_1_hard": defcon_1_hard, "total_score": total_score,
+<<<<<<< HEAD
         "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "score_with_bonus": score_with_bonus, "defcon_raw": defcon_raw, "defcon_held": defcon_held,
+=======
+        "convergence_bonus": conv_bonus, "score_with_bonus": score_with_bonus, "defcon_raw": defcon_raw, "defcon_held": defcon_held,
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
     }
 
     ioda_overlays = [{"code": t, "lat": COUNTRY_COORDS[t]["lat"], "lng": COUNTRY_COORDS[t]["lng"], "name": COUNTRY_COORDS[t]["name"], "status": "BGP_OUTAGE"} for t in degraded_targets_raw if t in COUNTRY_COORDS]
@@ -1585,6 +1644,7 @@ def get_threat_data():
                 "gdelt_events": [{"code": c, "lat": COUNTRY_COORDS[c]["lat"], "lng": COUNTRY_COORDS[c]["lng"], "name": COUNTRY_COORDS[c]["name"], "tone_current": info.get("tone_current"), "tone_baseline": info.get("tone_baseline"), "delta": info.get("delta"), "status": info.get("status", "NORMAL"), "is_alert": info.get("is_alert", False)} for c, info in gdelt_tones.items() if c in COUNTRY_COORDS and info.get("status") in ("ALERT", "WEATHER_NOISE")],
                 "critical_nodes": [{"type": "IXP", "id": ix["id"], "name": ix["name"], "aka": ix.get("aka", ""), "city": ix["city"], "country": c, "lat": ix["lat"], "lng": ix["lng"], "status": ix.get("status", "ok")} for c, cdata in ixp_data.items() for ix in cdata.get("ixps", []) if ix.get("lat") and ix.get("lng")],
                 "firms_anomalies": nasa_firms_data,
+<<<<<<< HEAD
                 "chokepoints": [{"name": c["name"], "lat": c["lat"], "lng": c["lng"], "country": c["country"]} for c in CHOKEPOINTS if c["country"] in requested_targets],
                 # Phase 8 新オーバーレイ
                 "isr_hotspots": [
@@ -1599,12 +1659,17 @@ def get_threat_data():
             },
             # Phase 8 解析ブロック
             "phase8": phase8_analytics,
+=======
+                "chokepoints": [{"name": c["name"], "lat": c["lat"], "lng": c["lng"], "country": c["country"]} for c in CHOKEPOINTS if c["country"] in requested_targets]
+            },
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         },
     }
 
     alert_timeline.append({
         "ts": current_time, "defcon": defcon, "defcon_raw": defcon_raw, "defcon_held": defcon_held, "score": total_score, "score_with_bonus": score_with_bonus,
         "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
+<<<<<<< HEAD
         "sequence_bonus": seq_bonus, "sequence_status": seq_status,
         "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
         "core_theater": core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
@@ -1612,6 +1677,11 @@ def get_threat_data():
         # Phase 8
         "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
         "blockade_index": phase8_analytics["blockade_index"],
+=======
+        "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
+        "core_theater": core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+        "is_coordinated": is_coordinated, "system_note": system_note,
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
     })
     while len(alert_timeline) > ALERT_TIMELINE_MAX: alert_timeline.pop(0)
 
@@ -1623,10 +1693,13 @@ def get_threat_data():
         degraded_raw = global_cache["strategic"].get("degraded_theaters_raw", [])
         degraded_eff = global_cache["strategic"].get("degraded_theaters", [])
         
+<<<<<<< HEAD
         # Phase 8: 各ターゲットの速度・加速度計算
         ts_series_t = time_series_ts_db.get(t, [])
         t_vel = engine.compute_velocity(ts_series_t)
         t_ambush, t_ambush_z, _, _ = engine.detect_ambush_pattern(ts_series_t)
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         results.append({
             "lat": t_info["lat"], "lng": t_info["lng"], "info": t_info["name"], "code": t,
             "global_share": data.get("global_share", 0.0), "global_share_l3": data.get("global_share_l3", 0.0), "global_share_l7": data.get("global_share_l7", 0.0),
@@ -1635,10 +1708,13 @@ def get_threat_data():
             "is_vector_shift": data.get("is_vector_shift", False), "shift_actors": data.get("shift_actors", []),
             "trend_history": time_series_db.get(t, []), "trend_history_l3": time_series_l3_db.get(t, []), "trend_history_l7": time_series_l7_db.get(t, []),
             "sources": data.get("sources", []),
+<<<<<<< HEAD
             # Phase 8
             "velocity": round(t_vel, 5),
             "is_ambush": t_ambush,
             "ambush_z":  t_ambush_z,
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         })
 
     return jsonify({
@@ -1756,6 +1832,7 @@ def api_sitrep():
         },
     })
 
+<<<<<<< HEAD
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 8: New API Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1882,5 +1959,7 @@ def api_phase8_analytics():
     })
 
 
+=======
+>>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8000, debug=True)
