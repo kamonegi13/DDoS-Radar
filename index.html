@@ -120,8 +120,8 @@
         .leaflet-control-layers-separator { border-top: 1px solid #444 !important; margin: 6px 0 !important; }
         .leaflet-control-layers-toggle { filter: invert(1) brightness(0.8); }
 
-        #sidebar { width: 400px; flex-shrink: 0; background: #121212; border-left: 1px solid #444; display: flex; flex-direction: column; z-index: 10; box-shadow: -5px 0 20px rgba(0,0,0,0.5); }
-        .sidebar-footer { padding: 10px 15px; border-top: 1px solid #333; background: #1a1a1a; font-size: 11px; color: #aaa; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+        #sidebar { width: 400px; flex-shrink: 0; background: #121212; border-left: 1px solid #444; display: flex; flex-direction: column; z-index: 10; box-shadow: -5px 0 20px rgba(0,0,0,0.5); padding-bottom: 42px; }
+        .sidebar-footer { position: fixed; bottom: 0; right: 0; width: 400px; padding: 10px 15px; border-top: 1px solid #333; border-left: 1px solid #444; background: #1a1a1a; font-size: 11px; color: #aaa; z-index: 11; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
 
         #target-placeholder { flex-shrink: 0; border-bottom: 2px solid #000; }
         #dashboard-placeholder { display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
@@ -365,15 +365,18 @@
         /* ── Intuition UI: Pulse Display panel ── */
         #pulse-panel .panel-content { background: rgba(8,10,12,0.88); padding: 0; position: relative; width: 220px; }
         #pulse-panel canvas { display: block; }
-        #pulse-bpm { font-size: 8px; color: #2a2a2a; font-family: 'Courier New', monospace; text-align: right; padding: 2px 6px 0; }
+        .pulse-meta { display: flex; justify-content: space-between; align-items: center; padding: 3px 7px 1px; }
+        .pulse-meta-lbl { font-size: 8px; color: #446688; font-family: 'Courier New', monospace; letter-spacing: 1px; text-transform: uppercase; }
+        #pulse-defcon { font-size: 11px; font-weight: bold; font-family: 'Courier New', monospace; }
+        #pulse-bpm { font-size: 10px; color: #7799bb; font-family: 'Courier New', monospace; font-weight: bold; }
 
         /* ── Intuition UI: Operational Clock ── */
         .clock-hdr { font-size: 8px; color: #335533; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 0; display: flex; justify-content: space-between; align-items: center; }
         #op-clock-panel .panel-content { font-family: 'Courier New', monospace; padding: 8px 14px; }
         #clock-zulu  { font-size: 22px; color: #00ff88; font-weight: bold; letter-spacing: 3px; line-height: 1; }
-        #clock-local { font-size: 10px; color: #446644; margin-top: 4px; }
-        #clock-date  { font-size: 9px; color: #334433; margin-top: 2px; }
-        #clock-since { font-size: 9px; color: #555; margin-top: 6px; padding-top: 4px; border-top: 1px solid #1a2a1a; }
+        #clock-local { font-size: 10px; color: #7ab87a; margin-top: 4px; }
+        #clock-date  { font-size: 9px; color: #5d7a5d; margin-top: 2px; }
+        #clock-since { font-size: 9px; color: #8a9a8a; margin-top: 6px; padding-top: 4px; border-top: 1px solid #2a3a2a; }
 
         /* ── Intuition UI: Operational Weather Brief ── */
         .wb-hdr { font-size: 9px; color: #336699; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
@@ -383,31 +386,38 @@
         .wb-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
         .wb-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; margin-top: 1px; }
         .wb-info { flex: 1; min-width: 0; }
-        .wb-domain-tag { font-size: 8px; color: #333; text-transform: uppercase; letter-spacing: 1px; }
+        .wb-domain-tag { font-size: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; opacity: 0.85; }
+        .wb-domain-cyber    { color: #00cccc; }
+        .wb-domain-physical { color: #cc8800; }
+        .wb-domain-info     { color: #aa55cc; }
         .wb-condition { font-size: 11px; font-weight: bold; white-space: nowrap; }
-        .wb-desc { font-size: 9px; color: #555; line-height: 1.3; }
-        .wb-summary { margin-top: 8px; padding-top: 6px; border-top: 1px solid #1a2a3a; font-size: 9px; color: #666; line-height: 1.5; font-style: italic; }
+        .wb-desc { font-size: 9px; color: #9a9a9a; line-height: 1.4; }
+        .wb-summary { margin-top: 8px; padding-top: 6px; border-top: 1px solid #1a2a3a; font-size: 9px; color: #aaa; line-height: 1.5; font-style: italic; }
 
         /* ── Intuition UI: SALUTE Board ── */
         .salute-hdr { font-size: 9px; color: #664400; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         #salute-panel .panel-content { font-family: 'Courier New', monospace; padding: 10px 12px; }
-        .salute-ts { font-size: 8px; color: #443322; }
+        .salute-ts { font-size: 8px; color: #aa8855; }
         .s-row { display: flex; gap: 4px; margin-bottom: 5px; line-height: 1.4; }
-        .s-key   { color: #ff8800; font-weight: bold; width: 20px; flex-shrink: 0; font-size: 11px; }
-        .s-label { color: #553311; width: 72px; flex-shrink: 0; font-size: 9px; padding-top: 1px; text-transform: uppercase; letter-spacing: 1px; }
-        .s-val   { color: #ccaa88; flex: 1; font-size: 10px; line-height: 1.4; }
-        .s-assess { margin-top: 8px; padding: 6px 8px; background: rgba(255,136,0,0.05); border-left: 2px solid #ff880030; border-radius: 0 4px 4px 0; font-size: 9px; color: #886644; line-height: 1.6; }
+        .s-key   { color: #ff9922; font-weight: bold; width: 20px; flex-shrink: 0; font-size: 12px; }
+        .s-label { color: #bb8844; width: 72px; flex-shrink: 0; font-size: 9px; padding-top: 2px; text-transform: uppercase; letter-spacing: 1px; }
+        .s-val   { color: #ddcc99; flex: 1; font-size: 10px; line-height: 1.4; }
+        .s-assess { margin-top: 8px; padding: 6px 8px; background: rgba(255,136,0,0.08); border-left: 2px solid #ff880055; border-radius: 0 4px 4px 0; font-size: 9px; color: #cc9966; line-height: 1.6; }
 
         /* ── Intuition UI: Historical Analog ── */
         .ha-hdr { font-size: 9px; color: #885500; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         #hist-analog-panel .panel-content { padding: 10px 12px; }
-        .ha-event-card { margin-bottom: 8px; padding: 7px 9px; background: rgba(255,255,255,0.02); border-radius: 4px; border-left: 3px solid #333; }
+        .ha-event-card { margin-bottom: 8px; padding: 7px 9px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 3px solid #444; }
         .ha-event-name { font-size: 10px; font-weight: bold; margin-bottom: 3px; }
-        .ha-event-sim  { font-size: 9px; color: #555; display: flex; justify-content: space-between; align-items: center; }
-        .ha-bar { height: 3px; background: #1a1a1a; border-radius: 2px; margin-top: 5px; overflow: hidden; }
+        .ha-event-sim  { font-size: 9px; color: #888; display: flex; justify-content: space-between; align-items: center; }
+        .ha-bar { height: 3px; background: #222; border-radius: 2px; margin-top: 5px; overflow: hidden; }
         .ha-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s; }
         .ha-canvas { width: 100%; height: 32px; display: block; border-radius: 2px; margin-top: 5px; background: #0a0a0a; }
-        .ha-note { font-size: 8px; color: #333; text-align: center; margin-top: 6px; letter-spacing: 1px; }
+        .ha-note { font-size: 8px; color: #778; text-align: center; margin-top: 6px; letter-spacing: 1px; }
+
+        /* ── Sidebar sort: drop indicator + dragging state ── */
+        .sb-drop-indicator { height: 3px; background: #00ffff88; border-radius: 2px; margin: 2px 8px; flex-shrink: 0; pointer-events: none; }
+        .sb-dragging { opacity: 0.45; pointer-events: none; }
 
         /* ── Floating color overrides for new panels ── */
         #op-clock-panel.floating      { background: rgba(8,10,12,0.96) !important; border-color: #1a2a1a !important; }
@@ -606,12 +616,13 @@
         </div>
 
         <div id="chain-placeholder" style="flex-shrink:0; border-top:1px solid #1a1a1a;"></div>
-
-        <div class="sidebar-footer">
-            <span id="update-time">System Initializing...</span>
-            <button id="btn-sync-side" class="btn-tactical btn-sync" onclick="forceDataSync()" style="margin:0;">SYNC</button>
-        </div>
     </div>
+</div>
+
+<!-- Data Synced footer: fixed at bottom-right, always visible regardless of sidebar state -->
+<div class="sidebar-footer">
+    <span id="update-time">System Initializing...</span>
+    <button id="btn-sync-side" class="btn-tactical btn-sync" onclick="forceDataSync()" style="margin:0;">SYNC</button>
 </div>
 
 <div id="settings-backdrop" onclick="closeAllModals()"></div>
@@ -737,7 +748,7 @@
     </div>
     <div class="panel-content">
         <div class="wb-body">
-            <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+            <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
         </div>
         <div class="wb-summary"></div>
     </div>
@@ -755,7 +766,7 @@
         </div>
     </div>
     <div class="panel-content salute-body">
-        <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+        <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
     </div>
 </div>
 
@@ -771,7 +782,7 @@
         </div>
     </div>
     <div class="panel-content ha-body">
-        <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+        <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
     </div>
 </div>
 
@@ -787,13 +798,16 @@
         </div>
     </div>
     <div class="panel-content" style="background:#080a0c; padding:0; width:220px;">
-        <div id="pulse-bpm">—</div>
+        <div class="pulse-meta">
+            <span class="pulse-meta-lbl">DEFCON <span id="pulse-defcon">—</span></span>
+            <span id="pulse-bpm">— /h</span>
+        </div>
         <canvas id="pulse-canvas" width="220" height="58"></canvas>
     </div>
 </div>
 
 <!-- Phase 8: Evidence Chain Timeline (draggable, docks to right sidebar) -->
-<div id="p8-chain-panel" class="draggable-panel floating" style="display:none; left:1100px; top:120px;">
+<div id="p8-chain-panel" class="draggable-panel floating" style="display:none; left:600px; top:120px;">
     <div class="drag-handle panel-header-unified">
         <span>Evidence Chain</span>
         <div>
@@ -1303,11 +1317,11 @@
         if (show && !panel.classList.contains('docked')) {
             if (panel.parentElement !== document.body) document.body.appendChild(panel);
             panel.classList.add('floating', 'active');
-            // Set initial position near right edge if not already positioned
-            if (!panel.style.left || panel.style.left === '1100px') {
-                panel.style.left = Math.max(10, window.innerWidth - 700) + 'px';
-                panel.style.top  = '120px';
-            }
+            // Clamp stored position to viewport so panel is always reachable
+            const rawLeft = parseInt(panel.style.left) || (window.innerWidth - 700);
+            const rawTop  = parseInt(panel.style.top)  || 120;
+            panel.style.left = Math.max(10, Math.min(rawLeft, window.innerWidth  - 200)) + 'px';
+            panel.style.top  = Math.max(10, Math.min(rawTop,  window.innerHeight - 100)) + 'px';
         }
         panel.style.display = show ? 'flex' : 'none';
         updateSidebarVisibility();
@@ -1392,6 +1406,56 @@
         document.getElementById(`tab-${tabId}`).classList.add('active');
     }
 
+    // ── Panel Registry & Sidebar Order ──────────────────────────────────────────
+    const ALL_DOCKABLE_PANELS = [
+        { id: 'target-panel',         ph: 'target-placeholder'    },
+        { id: 'dashboard-panel',      ph: 'dashboard-placeholder' },
+        { id: 'p8-chain-panel',       ph: 'chain-placeholder'     },
+        { id: 'pulse-panel',          ph: 'lsb-ph-pulse'          },
+        { id: 'weather-brief-panel',  ph: 'lsb-ph-wx'             },
+        { id: 'salute-panel',         ph: 'lsb-ph-sal'            },
+        { id: 'hist-analog-panel',    ph: 'lsb-ph-ha'             },
+        { id: 'op-clock-panel',       ph: 'lsb-ph-clk'            },
+    ];
+
+    // Remembered order of panels within each sidebar (panel IDs, top→bottom)
+    let _sidebarOrder = {
+        'sidebar':      ['target-panel', 'dashboard-panel', 'p8-chain-panel'],
+        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel']
+    };
+
+    // Re-order placeholder divs within a sidebar to match _sidebarOrder
+    function applyPlaceholderOrder(sidebarId) {
+        const sb = document.getElementById(sidebarId);
+        if (!sb) return;
+        const order  = (_sidebarOrder[sidebarId] || []).slice();
+        const footer = sb.querySelector('.sidebar-footer');
+        // Move known ordered placeholders first
+        order.forEach(panelId => {
+            const entry = ALL_DOCKABLE_PANELS.find(p => p.id === panelId);
+            if (!entry) return;
+            const ph = document.getElementById(entry.ph);
+            if (!ph || !sb.contains(ph)) return;
+            if (footer) sb.insertBefore(ph, footer); else sb.appendChild(ph);
+        });
+        // Any placeholders not yet in order list go at end
+        ALL_DOCKABLE_PANELS.forEach(({ id, ph: phId }) => {
+            if (order.includes(id)) return;
+            const ph = document.getElementById(phId);
+            if (!ph || !sb.contains(ph)) return;
+            if (footer) sb.insertBefore(ph, footer); else sb.appendChild(ph);
+        });
+    }
+
+    // Update _sidebarOrder by reading current DOM order for a sidebar
+    function updateSidebarOrderFromDOM(sidebarId) {
+        const sb = document.getElementById(sidebarId);
+        if (!sb) return;
+        const order = [];
+        sb.querySelectorAll('.draggable-panel').forEach(p => { if (p.id) order.push(p.id); });
+        _sidebarOrder[sidebarId] = order;
+    }
+
     // ── Sidebar Visibility ─────────────────────────────────────────────────────
     function updateSidebarVisibility() {
         // Left sidebar: show when ≥1 docked panel is visible inside it
@@ -1403,14 +1467,34 @@
             });
             lsb.style.display = hasVisible ? 'flex' : 'none';
         }
-        // Right sidebar: show when target-panel or dashboard-panel is docked inside it
+        // Right sidebar: show/hide panel area; footer is fixed so always visible independently
         const rsb = document.getElementById('sidebar');
         if (rsb) {
-            const tp = document.getElementById('target-panel');
-            const dp = document.getElementById('dashboard-panel');
-            const tpIn = tp && tp.classList.contains('docked') && rsb.contains(tp) && tp.style.display !== 'none';
-            const dpIn = dp && dp.classList.contains('docked') && rsb.contains(dp) && dp.style.display !== 'none';
-            rsb.style.display = (tpIn || dpIn) ? 'flex' : 'none';
+            const anyDocked = rsb.querySelectorAll('.draggable-panel.docked').length > 0;
+            rsb.style.display = anyDocked ? 'flex' : 'none';
+
+            // dashboard-placeholder flex-grow: 1 only when dashboard-panel is actually docked inside it.
+            // Without this, an empty placeholder pushes chain-panel to the bottom of the sidebar.
+            const dashPh    = document.getElementById('dashboard-placeholder');
+            const dashPanel = document.getElementById('dashboard-panel');
+            if (dashPh && dashPanel) {
+                const isDashDocked = dashPanel.classList.contains('docked') && dashPh.contains(dashPanel);
+                dashPh.style.flexGrow = isDashDocked ? '' : '0';
+            }
+
+            // Zoom control: lower when sidebar is present (don't need to clear footer), raise when absent
+            const zoomCtrl = document.querySelector('.leaflet-bottom.leaflet-right');
+            if (zoomCtrl) zoomCtrl.style.bottom = anyDocked ? '' : '46px';
+
+            // Sync footer width to sidebar's actual rendered width so they align perfectly
+            const footerEl = document.querySelector('.sidebar-footer');
+            if (footerEl) {
+                requestAnimationFrame(() => {
+                    footerEl.style.width = anyDocked
+                        ? rsb.getBoundingClientRect().width + 'px'
+                        : '400px';
+                });
+            }
         }
     }
 
@@ -1427,27 +1511,149 @@
                 e.stopPropagation();
                 if (content.style.display === 'none') {
                     content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
-                    if(panel.classList.contains('docked') && panelId === 'dashboard-panel') panel.style.flexGrow = '1';
+                    if(panel.classList.contains('docked') && panelId === 'dashboard-panel') { panel.style.flexGrow = '1'; placeholder.style.flexGrow = ''; }
                 } else {
                     content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
-                    if(panel.classList.contains('docked') && panelId === 'dashboard-panel') panel.style.flexGrow = '0';
+                    if(panel.classList.contains('docked') && panelId === 'dashboard-panel') { panel.style.flexGrow = '0'; placeholder.style.flexGrow = '0'; }
                 }
                 saveLocalState();
             };
         }
 
-        dockBtn.onmousedown = function(e) { e.stopPropagation(); dockToSidebar(); };
+        // Which sidebar currently contains this panel's placeholder?
+        function getSidebarId() {
+            const lsb = document.getElementById('left-sidebar');
+            const rsb = document.getElementById('sidebar');
+            if (lsb && lsb.contains(placeholder)) return 'left-sidebar';
+            if (rsb && rsb.contains(placeholder)) return 'sidebar';
+            return null;
+        }
 
-        function dockToSidebar() {
+        // Dock button: use remembered order
+        dockBtn.onmousedown = function(e) { e.stopPropagation(); dockToSidebar(null); };
+
+        // Dock panel — mouseY=null → remembered order; mouseY=number → position by drag
+        function dockToSidebar(mouseY) {
             placeholder.appendChild(panel);
             panel.classList.remove('floating', 'active');
             panel.classList.add('docked');
             panel.style.left = ''; panel.style.top = ''; panel.style.width = ''; panel.style.height = '';
             panel.style.display = 'flex';
             dockBtn.style.display = 'none';
+
+            const sbId = getSidebarId();
+            const sb   = sbId ? document.getElementById(sbId) : null;
+            if (sb) {
+                if (mouseY != null) {
+                    // Drag-to-dock: insert near cursor Y
+                    const footer = sb.querySelector('.sidebar-footer');
+                    const candidates = [...sb.children].filter(ch => ch !== placeholder && (footer ? ch !== footer : true));
+                    let insertBefore = footer || null;
+                    for (const ch of candidates) {
+                        const r = ch.getBoundingClientRect();
+                        if (mouseY < r.top + r.height / 2) { insertBefore = ch; break; }
+                    }
+                    sb.insertBefore(placeholder, insertBefore);
+                    updateSidebarOrderFromDOM(sbId);
+                } else {
+                    // Dock button: restore remembered position
+                    applyPlaceholderOrder(sbId);
+                }
+            }
+
             updateSidebarVisibility();
             if (typeof syncToolsMenuState === 'function') syncToolsMenuState();
             saveLocalState();
+        }
+
+        // Undock from sidebar and start floating (optionally continue drag from currentE)
+        function undockAndFloat(startE, currentE) {
+            const rect = panel.getBoundingClientRect();
+            document.body.appendChild(panel);
+            panel.classList.remove('docked'); panel.classList.add('floating', 'active');
+            panel.style.display = 'flex';
+            panel.style.width = defaultWidth + 'px';
+            if (panelId === 'dashboard-panel') panel.style.height = '400px';
+            panel.style.left = rect.left + 'px'; panel.style.top = rect.top + 'px';
+            dockBtn.style.display = 'inline-block';
+            updateSidebarVisibility();
+            if (currentE) {
+                pos3 = currentE.clientX; pos4 = currentE.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+        }
+
+        // Drag-within-sidebar to reorder; drift outside sidebar boundary → undock
+        function startSidebarSort(startE) {
+            const sbId = getSidebarId();
+            const sb   = sbId ? document.getElementById(sbId) : null;
+            if (!sb) { undockAndFloat(startE, null); return; }
+
+            const indicator = document.createElement('div');
+            indicator.className = 'sb-drop-indicator';
+            let currentInsertBefore = null;
+            let movedOutside = false;
+            let hasMoved = false; // true only after actual mouse movement
+
+            function getInsertTarget(my) {
+                const footer = sb.querySelector('.sidebar-footer');
+                const others = [...sb.children].filter(ch => ch !== placeholder && ch !== indicator && (footer ? ch !== footer : true));
+                let ins = footer || null;
+                for (const ch of others) {
+                    const r = ch.getBoundingClientRect();
+                    if (my < r.top + r.height / 2) { ins = ch; break; }
+                }
+                return ins;
+            }
+
+            function onMove(me) {
+                if (!hasMoved) {
+                    // Only start visual drag after a few pixels of movement
+                    const dx = me.clientX - startE.clientX;
+                    const dy = me.clientY - startE.clientY;
+                    if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+                    hasMoved = true;
+                    panel.classList.add('sb-dragging');
+                }
+                const sbRect = sb.getBoundingClientRect();
+                if (!movedOutside && (me.clientX < sbRect.left - 40 || me.clientX > sbRect.right + 40)) {
+                    movedOutside = true;
+                    panel.classList.remove('sb-dragging');
+                    if (indicator.parentElement) indicator.parentElement.removeChild(indicator);
+                    document.onmousemove = null; document.onmouseup = null;
+                    undockAndFloat(startE, me);
+                    return;
+                }
+                currentInsertBefore = getInsertTarget(me.clientY);
+                if (indicator.parentElement) indicator.parentElement.removeChild(indicator);
+                sb.insertBefore(indicator, currentInsertBefore);
+            }
+
+            function onUp() {
+                document.onmousemove = null; document.onmouseup = null;
+                panel.classList.remove('sb-dragging');
+                if (indicator.parentElement) indicator.parentElement.removeChild(indicator);
+                if (hasMoved && !movedOutside) {
+                    // Only reorder if user actually dragged within sidebar
+                    sb.insertBefore(placeholder, currentInsertBefore);
+                    updateSidebarOrderFromDOM(sbId);
+                    saveLocalState();
+                } else if (!hasMoved && content && toggleBtn) {
+                    // Pure click on header → toggle minimize (same as toggle-btn)
+                    if (content.style.display === 'none') {
+                        content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
+                        if (panel.classList.contains('docked') && panelId === 'dashboard-panel') { panel.style.flexGrow = '1'; placeholder.style.flexGrow = ''; }
+                    } else {
+                        content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
+                        if (panel.classList.contains('docked') && panelId === 'dashboard-panel') { panel.style.flexGrow = '0'; placeholder.style.flexGrow = '0'; }
+                    }
+                    saveLocalState();
+                }
+            }
+
+            document.onmousemove = onMove;
+            document.onmouseup = onUp;
         }
 
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -1464,17 +1670,14 @@
             e.preventDefault();
 
             if (panel.classList.contains('docked')) {
-                const rect = panel.getBoundingClientRect();
-                document.body.appendChild(panel);
-                panel.classList.remove('docked'); panel.classList.add('floating', 'active');
-                panel.style.display = 'flex';
-                panel.style.width = defaultWidth + 'px';
-                if (panelId === 'dashboard-panel') panel.style.height = '400px';
-                panel.style.left = rect.left + "px"; panel.style.top = rect.top + "px";
-                dockBtn.style.display = 'inline-block';
-                updateSidebarVisibility();
+                // Docked panel drag: reorder within sidebar, or drift outside to undock
+                startSidebarSort(e);
+                return;
             }
 
+            // Floating panel drag
+            document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
+            panel.classList.add('active');
             pos3 = e.clientX; pos4 = e.clientY;
             document.onmouseup = closeDragElement; document.onmousemove = elementDrag;
         };
@@ -1487,20 +1690,18 @@
         function closeDragElement(e) {
             document.onmouseup = null; document.onmousemove = null;
             if (e && panel.classList.contains('floating')) {
-                const SNAP = 80; // px from screen edge triggers snap
+                const SNAP = 80;
                 const atLeft  = e.clientX < SNAP;
                 const atRight = e.clientX > window.innerWidth - SNAP;
 
-                // Edge snap: left edge → left sidebar, right edge → right sidebar
                 if (atLeft || atRight) {
                     const snapSidebarId = atLeft ? 'left-sidebar' : 'sidebar';
                     const snapSb = document.getElementById(snapSidebarId);
                     if (snapSb && snapSb.contains(placeholder)) {
-                        dockToSidebar(); return;
+                        dockToSidebar(e.clientY); return;
                     }
                 }
 
-                // Drop-on-sidebar: works for visible sidebars
                 for (const sid of ['sidebar', 'left-sidebar']) {
                     const sb = document.getElementById(sid);
                     if (!sb || sb.style.display === 'none') continue;
@@ -1508,7 +1709,7 @@
                     if (e.clientX >= sbRect.left && e.clientX <= sbRect.right &&
                         e.clientY >= sbRect.top  && e.clientY <= sbRect.bottom &&
                         sb.contains(placeholder)) {
-                        dockToSidebar(); return;
+                        dockToSidebar(e.clientY); return;
                     }
                 }
             }
@@ -2277,18 +2478,6 @@
         });
     }
 
-    // All dockable panels with their placeholder IDs
-    const ALL_DOCKABLE_PANELS = [
-        { id: 'target-panel',         ph: 'target-placeholder'    },
-        { id: 'dashboard-panel',      ph: 'dashboard-placeholder' },
-        { id: 'p8-chain-panel',       ph: 'chain-placeholder'     },
-        { id: 'pulse-panel',          ph: 'lsb-ph-pulse'          },
-        { id: 'weather-brief-panel',  ph: 'lsb-ph-wx'             },
-        { id: 'salute-panel',         ph: 'lsb-ph-sal'            },
-        { id: 'hist-analog-panel',    ph: 'lsb-ph-ha'             },
-        { id: 'op-clock-panel',       ph: 'lsb-ph-clk'            },
-    ];
-
     function saveLocalState() {
         const stateObj = getCurrentConfig();
         stateObj.pins = {};
@@ -2314,6 +2503,8 @@
             vector: currentVector,
             mapCenter: mapCenterMode
         };
+        stateObj.layoutVersion = LAYOUT_VERSION;
+        stateObj.sidebarOrder  = JSON.parse(JSON.stringify(_sidebarOrder));
 
         localStorage.setItem('ctiIntelAlerts', JSON.stringify(stateObj));
     }
@@ -2334,15 +2525,15 @@
             if (content && toggleBtn) {
                 if (state.minimized) {
                     content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
-                    if (state.docked && id === 'dashboard-panel') panel.style.flexGrow = '0';
+                    if (state.docked && id === 'dashboard-panel') { panel.style.flexGrow = '0'; if (placeholder) placeholder.style.flexGrow = '0'; }
                 } else {
                     content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
-                    if (state.docked && id === 'dashboard-panel') panel.style.flexGrow = '1';
+                    if (state.docked && id === 'dashboard-panel') { panel.style.flexGrow = '1'; if (placeholder) placeholder.style.flexGrow = ''; }
                 }
             }
 
-            // visible defaults to true when undefined (backwards-compat with old saved state)
-            const isVisible = state.visible !== false;
+            // Docked panels are always visible; floating panels use saved visibility (default: true)
+            const isVisible = state.docked ? true : (state.visible !== false);
             if (state.docked && placeholder) {
                 placeholder.appendChild(panel);
                 panel.classList.remove('floating', 'active'); panel.classList.add('docked');
@@ -2364,10 +2555,16 @@
         syncToolsMenuState();
     }
 
+    const LAYOUT_VERSION = 3; // bump when layout structure changes to auto-clear stale state
+
     function loadTargetState(defaults) {
         const savedState = localStorage.getItem('ctiIntelAlerts');
         if (savedState) {
             const stateObj = JSON.parse(savedState);
+            // If saved layout version is outdated, discard only the layout portion
+            if (!stateObj.layoutVersion || stateObj.layoutVersion < LAYOUT_VERSION) {
+                delete stateObj.layout;
+            }
             document.querySelectorAll('#strategy-tbody tr').forEach(tr => {
                 const coreRadio = tr.querySelector('.radio-core'); const corrCb = tr.querySelector('.check-correlate');
                 if (coreRadio && stateObj.core === coreRadio.value) coreRadio.checked = true;
@@ -2394,7 +2591,12 @@
             });
             
             if (stateObj.layout) restoreLayoutState(stateObj.layout);
-            
+            if (stateObj.sidebarOrder) {
+                _sidebarOrder = stateObj.sidebarOrder;
+                applyPlaceholderOrder('left-sidebar');
+                applyPlaceholderOrder('sidebar');
+            }
+
             if (stateObj.ui) {
                 currentVector = stateObj.ui.vector || 'all';
                 mapCenterMode = stateObj.ui.mapCenter || 'pacific';
@@ -2970,13 +3172,19 @@
         ctx.fillStyle = lineCol;
         ctx.fill();
 
-        // 変化率 (BPM風: 1時間あたりの脅威レベル変化回数)
-        const bpmEl = document.getElementById('pulse-bpm');
+        // Threat rate (transitions/hour) + current DEFCON indicator
+        const bpmEl    = document.getElementById('pulse-bpm');
+        const defconEl = document.getElementById('pulse-defcon');
         if (bpmEl) {
             const changes = _pulseHistory.slice(1).filter(([,d], i) => d !== _pulseHistory[i][1]).length;
-            const spanH   = (_pulseHistory.length * 15) / 3600; // ~15s/cycle
+            const spanH   = (_pulseHistory.length * 15) / 3600;
             const rate    = spanH > 0 ? Math.round(changes / spanH) : 0;
-            bpmEl.textContent = rate + '/h';
+            bpmEl.textContent = rate + ' /h';
+        }
+        if (defconEl) {
+            const DEFCON_COL = { 1:'#ff0000', 2:'#ff4444', 3:'#ffaa00', 4:'#ffff00', 5:'#66ff66' };
+            defconEl.textContent = lastDef;
+            defconEl.style.color = DEFCON_COL[lastDef] || '#ccc';
         }
     }
 
@@ -3070,18 +3278,25 @@
             const res = await fetch('http://127.0.0.1:8000/api/weather_brief');
             const wb  = await res.json();
             const rows = wb.conditions || [];
+            const domainCls = d => {
+                const k = (d||'').toUpperCase();
+                if (k === 'CYBER')    return 'wb-domain-cyber';
+                if (k === 'PHYSICAL') return 'wb-domain-physical';
+                if (k === 'INFO')     return 'wb-domain-info';
+                return '';
+            };
             bodyEl.innerHTML = rows.map(r => `
                 <div class="wb-row">
                     <div class="wb-icon">${ICONS[r.condition_key] || ICONS.default}</div>
                     <div class="wb-info">
-                        <div class="wb-domain-tag">${r.domain}</div>
+                        <div class="wb-domain-tag ${domainCls(r.domain)}">${r.domain}</div>
                         <div class="wb-condition" style="color:${r.color||'#ccc'};">${r.condition}</div>
                         <div class="wb-desc">${r.description}</div>
                     </div>
                 </div>`).join('');
             if (sumEl) sumEl.textContent = wb.summary || '';
         } catch(e) {
-            bodyEl.innerHTML = '<div style="color:#333;font-size:10px;text-align:center;">API unavailable</div>';
+            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API unavailable</div>';
         }
     }
 
@@ -3133,7 +3348,7 @@
             ).join('') + (sal.assessment
                 ? `<div class="s-assess">${sal.assessment}</div>` : '');
         } catch(e) {
-            bodyEl.innerHTML = '<div style="color:#333;font-size:10px;text-align:center;">API unavailable</div>';
+            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API unavailable</div>';
         }
     }
 
@@ -3168,7 +3383,7 @@
         }
 
         if (!_histEvents.length || !latestData || !(latestData.defcon_history || []).length) {
-            bodyEl.innerHTML = '<div style="color:#333;font-size:10px;text-align:center;">データ蓄積中...</div>';
+            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">データ蓄積中...</div>';
             return;
         }
 
@@ -3202,13 +3417,13 @@
             return `<div class="ha-event-card" style="border-left-color:${col}50;">
                 <div class="ha-event-name" style="color:${col};">${ev.label || ev.id}</div>
                 <div class="ha-event-sim">
-                    <span style="color:#444; font-size:9px;">${ev.short || ''}</span>
-                    <span style="color:${pct > 55 ? col : '#444'}; font-weight:${pct > 55 ? 'bold' : 'normal'};">${pct}%</span>
+                    <span style="color:#888; font-size:9px;">${ev.short || ''}</span>
+                    <span style="color:${pct > 45 ? col : '#778'}; font-weight:${pct > 55 ? 'bold' : 'normal'};">${pct}%</span>
                 </div>
                 <div class="ha-bar"><div class="ha-bar-fill" style="width:${pct}%; background:${col};"></div></div>
                 <canvas id="${cid}" class="ha-canvas" width="241" height="32"></canvas>
             </div>`;
-        }).join('') + '<div class="ha-note">Pearson R — 直近20サイクル vs 既知事例</div>';
+        }).join('') + '<div class="ha-note">PEARSON R — LAST 20 CYCLES vs KNOWN EVENTS</div>';
 
         // 各カードのminiグラフを描画（現在=cyan、過去=dim color）
         requestAnimationFrame(() => {
