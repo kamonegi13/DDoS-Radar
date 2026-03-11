@@ -1,231 +1,1234 @@
 {
   "COUNTRY_COORDS": {
-    "AD": {"lat": 42.5462, "lng": 1.6015, "name": "Andorra"},
-    "AE": {"lat": 23.4241, "lng": 53.8478, "name": "UAE"},
-    "AF": {"lat": 33.9391, "lng": 67.7100, "name": "Afghanistan"},
-    "AL": {"lat": 41.1533, "lng": 20.1683, "name": "Albania"},
-    "AM": {"lat": 40.0691, "lng": 45.0382, "name": "Armenia"},
-    "AO": {"lat": -11.2027, "lng": 17.8739, "name": "Angola"},
-    "AR": {"lat": -38.4161, "lng": -63.6167, "name": "Argentina"},
-    "AT": {"lat": 47.5162, "lng": 14.5501, "name": "Austria"},
-    "AU": {"lat": -25.2744, "lng": 133.7751, "name": "Australia"},
-    "AZ": {"lat": 40.1431, "lng": 47.5769, "name": "Azerbaijan"},
-    "BA": {"lat": 43.9159, "lng": 17.6791, "name": "Bosnia"},
-    "BD": {"lat": 23.6850, "lng": 90.3563, "name": "Bangladesh"},
-    "BE": {"lat": 50.5039, "lng": 4.4699, "name": "Belgium"},
-    "BG": {"lat": 42.7339, "lng": 25.4858, "name": "Bulgaria"},
-    "BH": {"lat": 25.9304, "lng": 50.6378, "name": "Bahrain"},
-    "BO": {"lat": -16.2902, "lng": -63.5887, "name": "Bolivia"},
-    "BR": {"lat": -14.2350, "lng": -51.9253, "name": "Brazil"},
-    "BY": {"lat": 53.7098, "lng": 27.9534, "name": "Belarus"},
-    "CA": {"lat": 56.1304, "lng": -106.3468, "name": "Canada"},
-    "CH": {"lat": 46.8182, "lng": 8.2275, "name": "Switzerland"},
-    "CL": {"lat": -35.6751, "lng": -71.5430, "name": "Chile"},
-    "CN": {"lat": 35.8617, "lng": 104.1954, "name": "China"},
-    "CO": {"lat": 4.5709, "lng": -74.2973, "name": "Colombia"},
-    "CR": {"lat": 9.7489, "lng": -83.7534, "name": "Costa Rica"},
-    "CU": {"lat": 21.5218, "lng": -77.7812, "name": "Cuba"},
-    "CY": {"lat": 35.1264, "lng": 33.4299, "name": "Cyprus"},
-    "CZ": {"lat": 49.8153, "lng": 15.4730, "name": "Czechia"},
-    "DE": {"lat": 51.1657, "lng": 10.4515, "name": "Germany"},
-    "DK": {"lat": 56.2639, "lng": 9.5018, "name": "Denmark"},
-    "DO": {"lat": 18.7357, "lng": -70.1627, "name": "Dominican Rep."},
-    "DZ": {"lat": 28.0339, "lng": 1.6596, "name": "Algeria"},
-    "EC": {"lat": -1.8312, "lng": -78.1834, "name": "Ecuador"},
-    "EE": {"lat": 58.5953, "lng": 25.0136, "name": "Estonia"},
-    "EG": {"lat": 26.8206, "lng": 30.8025, "name": "Egypt"},
-    "ES": {"lat": 40.4637, "lng": -3.7492, "name": "Spain"},
-    "ET": {"lat": 9.1450, "lng": 40.4897, "name": "Ethiopia"},
-    "FI": {"lat": 61.9241, "lng": 25.7482, "name": "Finland"},
-    "FR": {"lat": 46.2276, "lng": 2.2137, "name": "France"},
-    "GB": {"lat": 55.3781, "lng": -3.4360, "name": "UK"},
-    "GE": {"lat": 42.3154, "lng": 43.3569, "name": "Georgia"},
-    "GH": {"lat": 7.9465, "lng": -1.0232, "name": "Ghana"},
-    "GR": {"lat": 39.0742, "lng": 21.8243, "name": "Greece"},
-    "GT": {"lat": 15.7835, "lng": -90.2308, "name": "Guatemala"},
-    "HK": {"lat": 22.3193, "lng": 114.1694, "name": "Hong Kong"},
-    "HN": {"lat": 15.2000, "lng": -86.2419, "name": "Honduras"},
-    "HR": {"lat": 45.1000, "lng": 15.2000, "name": "Croatia"},
-    "HU": {"lat": 47.1625, "lng": 19.5033, "name": "Hungary"},
-    "ID": {"lat": -0.7893, "lng": 113.9213, "name": "Indonesia"},
-    "IE": {"lat": 53.1424, "lng": -7.6921, "name": "Ireland"},
-    "IL": {"lat": 31.0461, "lng": 34.8516, "name": "Israel"},
-    "IN": {"lat": 20.5937, "lng": 78.9629, "name": "India"},
-    "IQ": {"lat": 33.2232, "lng": 43.6793, "name": "Iraq"},
-    "IR": {"lat": 32.4279, "lng": 53.6880, "name": "Iran"},
-    "IS": {"lat": 64.9631, "lng": -19.0208, "name": "Iceland"},
-    "IT": {"lat": 41.8719, "lng": 12.5674, "name": "Italy"},
-    "JM": {"lat": 18.1096, "lng": -77.2975, "name": "Jamaica"},
-    "JO": {"lat": 30.5852, "lng": 36.2384, "name": "Jordan"},
-    "JP": {"lat": 36.2048, "lng": 138.2529, "name": "Japan"},
-    "KE": {"lat": -0.0236, "lng": 37.9062, "name": "Kenya"},
-    "KG": {"lat": 41.2044, "lng": 74.7661, "name": "Kyrgyzstan"},
-    "KH": {"lat": 12.5657, "lng": 104.9910, "name": "Cambodia"},
-    "KP": {"lat": 40.3399, "lng": 127.5101, "name": "N. Korea"},
-    "KR": {"lat": 35.9078, "lng": 127.7669, "name": "South Korea"},
-    "KW": {"lat": 29.3117, "lng": 47.4818, "name": "Kuwait"},
-    "KZ": {"lat": 48.0196, "lng": 66.9237, "name": "Kazakhstan"},
-    "LB": {"lat": 33.8547, "lng": 35.8623, "name": "Lebanon"},
-    "LK": {"lat": 7.8731, "lng": 80.7718, "name": "Sri Lanka"},
-    "LT": {"lat": 55.1694, "lng": 23.8813, "name": "Lithuania"},
-    "LU": {"lat": 49.8153, "lng": 6.1296, "name": "Luxembourg"},
-    "LV": {"lat": 56.8796, "lng": 24.6032, "name": "Latvia"},
-    "LY": {"lat": 26.3351, "lng": 17.2283, "name": "Libya"},
-    "MA": {"lat": 31.7917, "lng": -7.0926, "name": "Morocco"},
-    "MD": {"lat": 47.4116, "lng": 28.3699, "name": "Moldova"},
-    "ME": {"lat": 42.7087, "lng": 19.3744, "name": "Montenegro"},
-    "MK": {"lat": 41.6086, "lng": 21.7453, "name": "North Macedonia"},
-    "MM": {"lat": 21.9162, "lng": 95.9560, "name": "Myanmar"},
-    "MN": {"lat": 46.8625, "lng": 103.8467, "name": "Mongolia"},
-    "MO": {"lat": 22.1987, "lng": 113.5439, "name": "Macau"},
-    "MT": {"lat": 35.9375, "lng": 14.3754, "name": "Malta"},
-    "MU": {"lat": -20.3484, "lng": 57.5522, "name": "Mauritius"},
-    "MV": {"lat": 3.2028, "lng": 73.2207, "name": "Maldives"},
-    "MX": {"lat": 23.6345, "lng": -102.5528, "name": "Mexico"},
-    "MY": {"lat": 4.2105, "lng": 101.9758, "name": "Malaysia"},
-    "NG": {"lat": 9.0820, "lng": 8.6753, "name": "Nigeria"},
-    "NL": {"lat": 52.1326, "lng": 5.2913, "name": "Netherlands"},
-    "NO": {"lat": 60.4720, "lng": 8.4689, "name": "Norway"},
-    "NP": {"lat": 28.3949, "lng": 84.1240, "name": "Nepal"},
-    "NZ": {"lat": -40.9006, "lng": 174.8860, "name": "New Zealand"},
-    "OM": {"lat": 21.4735, "lng": 55.9754, "name": "Oman"},
-    "PA": {"lat": 8.5380, "lng": -80.7821, "name": "Panama"},
-    "PE": {"lat": -9.1900, "lng": -75.0152, "name": "Peru"},
-    "PH": {"lat": 12.8797, "lng": 121.7740, "name": "Philippines"},
-    "PK": {"lat": 30.3753, "lng": 69.3451, "name": "Pakistan"},
-    "PL": {"lat": 51.9194, "lng": 19.1451, "name": "Poland"},
-    "PR": {"lat": 18.2208, "lng": -66.5901, "name": "Puerto Rico"},
-    "PT": {"lat": 39.3999, "lng": -8.2245, "name": "Portugal"},
-    "PY": {"lat": -23.4425, "lng": -58.4438, "name": "Paraguay"},
-    "QA": {"lat": 25.3548, "lng": 51.1839, "name": "Qatar"},
-    "RO": {"lat": 45.9432, "lng": 24.9668, "name": "Romania"},
-    "RS": {"lat": 44.0165, "lng": 21.0059, "name": "Serbia"},
-    "RU": {"lat": 61.5240, "lng": 105.3188, "name": "Russia"},
-    "RW": {"lat": -1.9403, "lng": 29.8739, "name": "Rwanda"},
-    "SA": {"lat": 23.8859, "lng": 45.0792, "name": "Saudi Arabia"},
-    "SD": {"lat": 12.8628, "lng": 30.2176, "name": "Sudan"},
-    "SE": {"lat": 60.1282, "lng": 18.6435, "name": "Sweden"},
-    "SG": {"lat": 1.3521, "lng": 103.8198, "name": "Singapore"},
-    "SI": {"lat": 46.1512, "lng": 14.9955, "name": "Slovenia"},
-    "SK": {"lat": 48.6690, "lng": 19.6990, "name": "Slovakia"},
-    "SN": {"lat": 14.4974, "lng": -14.4524, "name": "Senegal"},
-    "SV": {"lat": 13.7942, "lng": -88.8965, "name": "El Salvador"},
-    "SY": {"lat": 34.8021, "lng": 38.9968, "name": "Syria"},
-    "TH": {"lat": 15.8700, "lng": 100.9925, "name": "Thailand"},
-    "TN": {"lat": 33.8869, "lng": 9.5375, "name": "Tunisia"},
-    "TR": {"lat": 38.9637, "lng": 35.2433, "name": "Turkey"},
-    "TW": {"lat": 23.6978, "lng": 120.9605, "name": "Taiwan"},
-    "TZ": {"lat": -6.3690, "lng": 34.8888, "name": "Tanzania"},
-    "UA": {"lat": 48.3794, "lng": 31.1656, "name": "Ukraine"},
-    "UG": {"lat": 1.3733, "lng": 32.2903, "name": "Uganda"},
-    "US": {"lat": 37.0902, "lng": -95.7129, "name": "USA"},
-    "UY": {"lat": -32.5228, "lng": -55.7658, "name": "Uruguay"},
-    "UZ": {"lat": 41.3775, "lng": 64.5853, "name": "Uzbekistan"},
-    "VE": {"lat": 6.4238, "lng": -66.5897, "name": "Venezuela"},
-    "VN": {"lat": 14.0583, "lng": 108.2772, "name": "Vietnam"},
-    "YE": {"lat": 15.5527, "lng": 48.5164, "name": "Yemen"},
-    "ZA": {"lat": -30.5595, "lng": 22.9375, "name": "South Africa"},
-    "ZM": {"lat": -13.1339, "lng": 27.8493, "name": "Zambia"},
-    "ZW": {"lat": -19.0154, "lng": 29.1549, "name": "Zimbabwe"}
+    "AD": {
+      "lat": 42.5462,
+      "lng": 1.6015,
+      "name": "Andorra"
+    },
+    "AE": {
+      "lat": 23.4241,
+      "lng": 53.8478,
+      "name": "UAE"
+    },
+    "AF": {
+      "lat": 33.9391,
+      "lng": 67.71,
+      "name": "Afghanistan"
+    },
+    "AL": {
+      "lat": 41.1533,
+      "lng": 20.1683,
+      "name": "Albania"
+    },
+    "AM": {
+      "lat": 40.0691,
+      "lng": 45.0382,
+      "name": "Armenia"
+    },
+    "AO": {
+      "lat": -11.2027,
+      "lng": 17.8739,
+      "name": "Angola"
+    },
+    "AR": {
+      "lat": -38.4161,
+      "lng": -63.6167,
+      "name": "Argentina"
+    },
+    "AT": {
+      "lat": 47.5162,
+      "lng": 14.5501,
+      "name": "Austria"
+    },
+    "AU": {
+      "lat": -25.2744,
+      "lng": 133.7751,
+      "name": "Australia"
+    },
+    "AZ": {
+      "lat": 40.1431,
+      "lng": 47.5769,
+      "name": "Azerbaijan"
+    },
+    "BA": {
+      "lat": 43.9159,
+      "lng": 17.6791,
+      "name": "Bosnia"
+    },
+    "BD": {
+      "lat": 23.685,
+      "lng": 90.3563,
+      "name": "Bangladesh"
+    },
+    "BE": {
+      "lat": 50.5039,
+      "lng": 4.4699,
+      "name": "Belgium"
+    },
+    "BG": {
+      "lat": 42.7339,
+      "lng": 25.4858,
+      "name": "Bulgaria"
+    },
+    "BH": {
+      "lat": 25.9304,
+      "lng": 50.6378,
+      "name": "Bahrain"
+    },
+    "BO": {
+      "lat": -16.2902,
+      "lng": -63.5887,
+      "name": "Bolivia"
+    },
+    "BR": {
+      "lat": -14.235,
+      "lng": -51.9253,
+      "name": "Brazil"
+    },
+    "BY": {
+      "lat": 53.7098,
+      "lng": 27.9534,
+      "name": "Belarus"
+    },
+    "CA": {
+      "lat": 56.1304,
+      "lng": -106.3468,
+      "name": "Canada"
+    },
+    "CH": {
+      "lat": 46.8182,
+      "lng": 8.2275,
+      "name": "Switzerland"
+    },
+    "CL": {
+      "lat": -35.6751,
+      "lng": -71.543,
+      "name": "Chile"
+    },
+    "CN": {
+      "lat": 35.8617,
+      "lng": 104.1954,
+      "name": "China"
+    },
+    "CO": {
+      "lat": 4.5709,
+      "lng": -74.2973,
+      "name": "Colombia"
+    },
+    "CR": {
+      "lat": 9.7489,
+      "lng": -83.7534,
+      "name": "Costa Rica"
+    },
+    "CU": {
+      "lat": 21.5218,
+      "lng": -77.7812,
+      "name": "Cuba"
+    },
+    "CY": {
+      "lat": 35.1264,
+      "lng": 33.4299,
+      "name": "Cyprus"
+    },
+    "CZ": {
+      "lat": 49.8153,
+      "lng": 15.473,
+      "name": "Czechia"
+    },
+    "DE": {
+      "lat": 51.1657,
+      "lng": 10.4515,
+      "name": "Germany"
+    },
+    "DK": {
+      "lat": 56.2639,
+      "lng": 9.5018,
+      "name": "Denmark"
+    },
+    "DO": {
+      "lat": 18.7357,
+      "lng": -70.1627,
+      "name": "Dominican Rep."
+    },
+    "DZ": {
+      "lat": 28.0339,
+      "lng": 1.6596,
+      "name": "Algeria"
+    },
+    "EC": {
+      "lat": -1.8312,
+      "lng": -78.1834,
+      "name": "Ecuador"
+    },
+    "EE": {
+      "lat": 58.5953,
+      "lng": 25.0136,
+      "name": "Estonia"
+    },
+    "EG": {
+      "lat": 26.8206,
+      "lng": 30.8025,
+      "name": "Egypt"
+    },
+    "ES": {
+      "lat": 40.4637,
+      "lng": -3.7492,
+      "name": "Spain"
+    },
+    "ET": {
+      "lat": 9.145,
+      "lng": 40.4897,
+      "name": "Ethiopia"
+    },
+    "FI": {
+      "lat": 61.9241,
+      "lng": 25.7482,
+      "name": "Finland"
+    },
+    "FR": {
+      "lat": 46.2276,
+      "lng": 2.2137,
+      "name": "France"
+    },
+    "GB": {
+      "lat": 55.3781,
+      "lng": -3.436,
+      "name": "UK"
+    },
+    "GE": {
+      "lat": 42.3154,
+      "lng": 43.3569,
+      "name": "Georgia"
+    },
+    "GH": {
+      "lat": 7.9465,
+      "lng": -1.0232,
+      "name": "Ghana"
+    },
+    "GR": {
+      "lat": 39.0742,
+      "lng": 21.8243,
+      "name": "Greece"
+    },
+    "GT": {
+      "lat": 15.7835,
+      "lng": -90.2308,
+      "name": "Guatemala"
+    },
+    "HK": {
+      "lat": 22.3193,
+      "lng": 114.1694,
+      "name": "Hong Kong"
+    },
+    "HN": {
+      "lat": 15.2,
+      "lng": -86.2419,
+      "name": "Honduras"
+    },
+    "HR": {
+      "lat": 45.1,
+      "lng": 15.2,
+      "name": "Croatia"
+    },
+    "HU": {
+      "lat": 47.1625,
+      "lng": 19.5033,
+      "name": "Hungary"
+    },
+    "ID": {
+      "lat": -0.7893,
+      "lng": 113.9213,
+      "name": "Indonesia"
+    },
+    "IE": {
+      "lat": 53.1424,
+      "lng": -7.6921,
+      "name": "Ireland"
+    },
+    "IL": {
+      "lat": 31.0461,
+      "lng": 34.8516,
+      "name": "Israel"
+    },
+    "IN": {
+      "lat": 20.5937,
+      "lng": 78.9629,
+      "name": "India"
+    },
+    "IQ": {
+      "lat": 33.2232,
+      "lng": 43.6793,
+      "name": "Iraq"
+    },
+    "IR": {
+      "lat": 32.4279,
+      "lng": 53.688,
+      "name": "Iran"
+    },
+    "IS": {
+      "lat": 64.9631,
+      "lng": -19.0208,
+      "name": "Iceland"
+    },
+    "IT": {
+      "lat": 41.8719,
+      "lng": 12.5674,
+      "name": "Italy"
+    },
+    "JM": {
+      "lat": 18.1096,
+      "lng": -77.2975,
+      "name": "Jamaica"
+    },
+    "JO": {
+      "lat": 30.5852,
+      "lng": 36.2384,
+      "name": "Jordan"
+    },
+    "JP": {
+      "lat": 36.2048,
+      "lng": 138.2529,
+      "name": "Japan"
+    },
+    "KE": {
+      "lat": -0.0236,
+      "lng": 37.9062,
+      "name": "Kenya"
+    },
+    "KG": {
+      "lat": 41.2044,
+      "lng": 74.7661,
+      "name": "Kyrgyzstan"
+    },
+    "KH": {
+      "lat": 12.5657,
+      "lng": 104.991,
+      "name": "Cambodia"
+    },
+    "KP": {
+      "lat": 40.3399,
+      "lng": 127.5101,
+      "name": "N. Korea"
+    },
+    "KR": {
+      "lat": 35.9078,
+      "lng": 127.7669,
+      "name": "South Korea"
+    },
+    "KW": {
+      "lat": 29.3117,
+      "lng": 47.4818,
+      "name": "Kuwait"
+    },
+    "KZ": {
+      "lat": 48.0196,
+      "lng": 66.9237,
+      "name": "Kazakhstan"
+    },
+    "LB": {
+      "lat": 33.8547,
+      "lng": 35.8623,
+      "name": "Lebanon"
+    },
+    "LK": {
+      "lat": 7.8731,
+      "lng": 80.7718,
+      "name": "Sri Lanka"
+    },
+    "LT": {
+      "lat": 55.1694,
+      "lng": 23.8813,
+      "name": "Lithuania"
+    },
+    "LU": {
+      "lat": 49.8153,
+      "lng": 6.1296,
+      "name": "Luxembourg"
+    },
+    "LV": {
+      "lat": 56.8796,
+      "lng": 24.6032,
+      "name": "Latvia"
+    },
+    "LY": {
+      "lat": 26.3351,
+      "lng": 17.2283,
+      "name": "Libya"
+    },
+    "MA": {
+      "lat": 31.7917,
+      "lng": -7.0926,
+      "name": "Morocco"
+    },
+    "MD": {
+      "lat": 47.4116,
+      "lng": 28.3699,
+      "name": "Moldova"
+    },
+    "ME": {
+      "lat": 42.7087,
+      "lng": 19.3744,
+      "name": "Montenegro"
+    },
+    "MK": {
+      "lat": 41.6086,
+      "lng": 21.7453,
+      "name": "North Macedonia"
+    },
+    "MM": {
+      "lat": 21.9162,
+      "lng": 95.956,
+      "name": "Myanmar"
+    },
+    "MN": {
+      "lat": 46.8625,
+      "lng": 103.8467,
+      "name": "Mongolia"
+    },
+    "MO": {
+      "lat": 22.1987,
+      "lng": 113.5439,
+      "name": "Macau"
+    },
+    "MT": {
+      "lat": 35.9375,
+      "lng": 14.3754,
+      "name": "Malta"
+    },
+    "MU": {
+      "lat": -20.3484,
+      "lng": 57.5522,
+      "name": "Mauritius"
+    },
+    "MV": {
+      "lat": 3.2028,
+      "lng": 73.2207,
+      "name": "Maldives"
+    },
+    "MX": {
+      "lat": 23.6345,
+      "lng": -102.5528,
+      "name": "Mexico"
+    },
+    "MY": {
+      "lat": 4.2105,
+      "lng": 101.9758,
+      "name": "Malaysia"
+    },
+    "NG": {
+      "lat": 9.082,
+      "lng": 8.6753,
+      "name": "Nigeria"
+    },
+    "NL": {
+      "lat": 52.1326,
+      "lng": 5.2913,
+      "name": "Netherlands"
+    },
+    "NO": {
+      "lat": 60.472,
+      "lng": 8.4689,
+      "name": "Norway"
+    },
+    "NP": {
+      "lat": 28.3949,
+      "lng": 84.124,
+      "name": "Nepal"
+    },
+    "NZ": {
+      "lat": -40.9006,
+      "lng": 174.886,
+      "name": "New Zealand"
+    },
+    "OM": {
+      "lat": 21.4735,
+      "lng": 55.9754,
+      "name": "Oman"
+    },
+    "PA": {
+      "lat": 8.538,
+      "lng": -80.7821,
+      "name": "Panama"
+    },
+    "PE": {
+      "lat": -9.19,
+      "lng": -75.0152,
+      "name": "Peru"
+    },
+    "PH": {
+      "lat": 12.8797,
+      "lng": 121.774,
+      "name": "Philippines"
+    },
+    "PK": {
+      "lat": 30.3753,
+      "lng": 69.3451,
+      "name": "Pakistan"
+    },
+    "PL": {
+      "lat": 51.9194,
+      "lng": 19.1451,
+      "name": "Poland"
+    },
+    "PR": {
+      "lat": 18.2208,
+      "lng": -66.5901,
+      "name": "Puerto Rico"
+    },
+    "PT": {
+      "lat": 39.3999,
+      "lng": -8.2245,
+      "name": "Portugal"
+    },
+    "PY": {
+      "lat": -23.4425,
+      "lng": -58.4438,
+      "name": "Paraguay"
+    },
+    "QA": {
+      "lat": 25.3548,
+      "lng": 51.1839,
+      "name": "Qatar"
+    },
+    "RO": {
+      "lat": 45.9432,
+      "lng": 24.9668,
+      "name": "Romania"
+    },
+    "RS": {
+      "lat": 44.0165,
+      "lng": 21.0059,
+      "name": "Serbia"
+    },
+    "RU": {
+      "lat": 61.524,
+      "lng": 105.3188,
+      "name": "Russia"
+    },
+    "RW": {
+      "lat": -1.9403,
+      "lng": 29.8739,
+      "name": "Rwanda"
+    },
+    "SA": {
+      "lat": 23.8859,
+      "lng": 45.0792,
+      "name": "Saudi Arabia"
+    },
+    "SD": {
+      "lat": 12.8628,
+      "lng": 30.2176,
+      "name": "Sudan"
+    },
+    "SE": {
+      "lat": 60.1282,
+      "lng": 18.6435,
+      "name": "Sweden"
+    },
+    "SG": {
+      "lat": 1.3521,
+      "lng": 103.8198,
+      "name": "Singapore"
+    },
+    "SI": {
+      "lat": 46.1512,
+      "lng": 14.9955,
+      "name": "Slovenia"
+    },
+    "SK": {
+      "lat": 48.669,
+      "lng": 19.699,
+      "name": "Slovakia"
+    },
+    "SN": {
+      "lat": 14.4974,
+      "lng": -14.4524,
+      "name": "Senegal"
+    },
+    "SV": {
+      "lat": 13.7942,
+      "lng": -88.8965,
+      "name": "El Salvador"
+    },
+    "SY": {
+      "lat": 34.8021,
+      "lng": 38.9968,
+      "name": "Syria"
+    },
+    "TH": {
+      "lat": 15.87,
+      "lng": 100.9925,
+      "name": "Thailand"
+    },
+    "TN": {
+      "lat": 33.8869,
+      "lng": 9.5375,
+      "name": "Tunisia"
+    },
+    "TR": {
+      "lat": 38.9637,
+      "lng": 35.2433,
+      "name": "Turkey"
+    },
+    "TW": {
+      "lat": 23.6978,
+      "lng": 120.9605,
+      "name": "Taiwan"
+    },
+    "TZ": {
+      "lat": -6.369,
+      "lng": 34.8888,
+      "name": "Tanzania"
+    },
+    "UA": {
+      "lat": 48.3794,
+      "lng": 31.1656,
+      "name": "Ukraine"
+    },
+    "UG": {
+      "lat": 1.3733,
+      "lng": 32.2903,
+      "name": "Uganda"
+    },
+    "US": {
+      "lat": 37.0902,
+      "lng": -95.7129,
+      "name": "USA"
+    },
+    "UY": {
+      "lat": -32.5228,
+      "lng": -55.7658,
+      "name": "Uruguay"
+    },
+    "UZ": {
+      "lat": 41.3775,
+      "lng": 64.5853,
+      "name": "Uzbekistan"
+    },
+    "VE": {
+      "lat": 6.4238,
+      "lng": -66.5897,
+      "name": "Venezuela"
+    },
+    "VN": {
+      "lat": 14.0583,
+      "lng": 108.2772,
+      "name": "Vietnam"
+    },
+    "YE": {
+      "lat": 15.5527,
+      "lng": 48.5164,
+      "name": "Yemen"
+    },
+    "ZA": {
+      "lat": -30.5595,
+      "lng": 22.9375,
+      "name": "South Africa"
+    },
+    "ZM": {
+      "lat": -13.1339,
+      "lng": 27.8493,
+      "name": "Zambia"
+    },
+    "ZW": {
+      "lat": -19.0154,
+      "lng": 29.1549,
+      "name": "Zimbabwe"
+    }
   },
   "STATE_ASNS": {
-    "AS4134": "CN", "AS4837": "CN", "AS9808": "CN",
-    "AS12389": "RU", "AS8359": "RU", "AS31133": "RU",
-    "AS131279": "KP", "AS17564": "KP",
-    "AS12880": "IR", "AS43754": "IR", "AS58224": "IR",
+    "AS4134": "CN",
+    "AS4837": "CN",
+    "AS9808": "CN",
+    "AS12389": "RU",
+    "AS8359": "RU",
+    "AS31133": "RU",
+    "AS131279": "KP",
+    "AS17564": "KP",
+    "AS12880": "IR",
+    "AS43754": "IR",
+    "AS58224": "IR",
     "AS21338": "BY"
   },
   "AIRPORT_BOXES": {
-    "TW": {"airport": "TPE", "lat": 25.0777, "lng": 121.2322},
-    "JP": {"airport": "HND", "lat": 35.5494, "lng": 139.7798},
-    "KR": {"airport": "ICN", "lat": 37.4602, "lng": 126.4407},
-    "PH": {"airport": "MNL", "lat": 14.5090, "lng": 121.0194},
-    "VN": {"airport": "HAN", "lat": 21.2187, "lng": 105.8042},
-    "TH": {"airport": "BKK", "lat": 13.6900, "lng": 100.7501},
-    "MY": {"airport": "KUL", "lat": 2.7456, "lng": 101.7099},
-    "ID": {"airport": "CGK", "lat": -6.1256, "lng": 106.6558},
-    "SG": {"airport": "SIN", "lat": 1.3644, "lng": 103.9915},
-    "AU": {"airport": "SYD", "lat": -33.9399, "lng": 151.1753},
-    "NZ": {"airport": "AKL", "lat": -37.0082, "lng": 174.7915},
-    "IN": {"airport": "DEL", "lat": 28.5562, "lng": 77.1000},
-    "US": {"airport": "DCA", "lat": 38.8521, "lng": -77.0377},
-    "CA": {"airport": "YYZ", "lat": 43.6777, "lng": -79.6248},
-    "BR": {"airport": "BSB", "lat": -15.8697, "lng": -47.9172},
-    "UA": {"airport": "KBP", "lat": 50.3450, "lng": 30.8947},
-    "GB": {"airport": "LHR", "lat": 51.4700, "lng": -0.4543},
-    "DE": {"airport": "BER", "lat": 52.3667, "lng": 13.5033},
-    "FR": {"airport": "CDG", "lat": 49.0097, "lng": 2.5479},
-    "IT": {"airport": "FCO", "lat": 41.7999, "lng": 12.2462},
-    "ES": {"airport": "MAD", "lat": 40.4839, "lng": -3.5680},
-    "NL": {"airport": "AMS", "lat": 52.3105, "lng": 4.7683},
-    "PL": {"airport": "WAW", "lat": 52.1657, "lng": 20.9671},
-    "SE": {"airport": "ARN", "lat": 59.6519, "lng": 17.9186},
-    "FI": {"airport": "HEL", "lat": 60.3172, "lng": 24.9633},
-    "TR": {"airport": "IST", "lat": 41.2753, "lng": 28.7519},
-    "IL": {"airport": "TLV", "lat": 32.0114, "lng": 34.8867},
-    "SA": {"airport": "RUH", "lat": 24.9576, "lng": 46.6988},
-    "AE": {"airport": "DXB", "lat": 25.2528, "lng": 55.3644},
-    "ZA": {"airport": "JNB", "lat": -26.1367, "lng": 28.2411},
-    "CN": {"airport": "PEK", "lat": 40.0799, "lng": 116.6031},
-    "RU": {"airport": "SVO", "lat": 55.9726, "lng": 37.4146},
-    "KP": {"airport": "FNJ", "lat": 39.2241, "lng": 125.6703},
-    "IR": {"airport": "IKA", "lat": 35.4161, "lng": 51.1522},
-    "BY": {"airport": "MSQ", "lat": 53.8825, "lng": 28.0307}
+    "TW": {
+      "airport": "TPE",
+      "lat": 25.0777,
+      "lng": 121.2322
+    },
+    "JP": {
+      "airport": "HND",
+      "lat": 35.5494,
+      "lng": 139.7798
+    },
+    "KR": {
+      "airport": "ICN",
+      "lat": 37.4602,
+      "lng": 126.4407
+    },
+    "PH": {
+      "airport": "MNL",
+      "lat": 14.509,
+      "lng": 121.0194
+    },
+    "VN": {
+      "airport": "HAN",
+      "lat": 21.2187,
+      "lng": 105.8042
+    },
+    "TH": {
+      "airport": "BKK",
+      "lat": 13.69,
+      "lng": 100.7501
+    },
+    "MY": {
+      "airport": "KUL",
+      "lat": 2.7456,
+      "lng": 101.7099
+    },
+    "ID": {
+      "airport": "CGK",
+      "lat": -6.1256,
+      "lng": 106.6558
+    },
+    "SG": {
+      "airport": "SIN",
+      "lat": 1.3644,
+      "lng": 103.9915
+    },
+    "AU": {
+      "airport": "SYD",
+      "lat": -33.9399,
+      "lng": 151.1753
+    },
+    "NZ": {
+      "airport": "AKL",
+      "lat": -37.0082,
+      "lng": 174.7915
+    },
+    "IN": {
+      "airport": "DEL",
+      "lat": 28.5562,
+      "lng": 77.1
+    },
+    "US": {
+      "airport": "DCA",
+      "lat": 38.8521,
+      "lng": -77.0377
+    },
+    "CA": {
+      "airport": "YYZ",
+      "lat": 43.6777,
+      "lng": -79.6248
+    },
+    "BR": {
+      "airport": "BSB",
+      "lat": -15.8697,
+      "lng": -47.9172
+    },
+    "UA": {
+      "airport": "KBP",
+      "lat": 50.345,
+      "lng": 30.8947
+    },
+    "GB": {
+      "airport": "LHR",
+      "lat": 51.47,
+      "lng": -0.4543
+    },
+    "DE": {
+      "airport": "BER",
+      "lat": 52.3667,
+      "lng": 13.5033
+    },
+    "FR": {
+      "airport": "CDG",
+      "lat": 49.0097,
+      "lng": 2.5479
+    },
+    "IT": {
+      "airport": "FCO",
+      "lat": 41.7999,
+      "lng": 12.2462
+    },
+    "ES": {
+      "airport": "MAD",
+      "lat": 40.4839,
+      "lng": -3.568
+    },
+    "NL": {
+      "airport": "AMS",
+      "lat": 52.3105,
+      "lng": 4.7683
+    },
+    "PL": {
+      "airport": "WAW",
+      "lat": 52.1657,
+      "lng": 20.9671
+    },
+    "SE": {
+      "airport": "ARN",
+      "lat": 59.6519,
+      "lng": 17.9186
+    },
+    "FI": {
+      "airport": "HEL",
+      "lat": 60.3172,
+      "lng": 24.9633
+    },
+    "TR": {
+      "airport": "IST",
+      "lat": 41.2753,
+      "lng": 28.7519
+    },
+    "IL": {
+      "airport": "TLV",
+      "lat": 32.0114,
+      "lng": 34.8867
+    },
+    "SA": {
+      "airport": "RUH",
+      "lat": 24.9576,
+      "lng": 46.6988
+    },
+    "AE": {
+      "airport": "DXB",
+      "lat": 25.2528,
+      "lng": 55.3644
+    },
+    "ZA": {
+      "airport": "JNB",
+      "lat": -26.1367,
+      "lng": 28.2411
+    },
+    "CN": {
+      "airport": "PEK",
+      "lat": 40.0799,
+      "lng": 116.6031
+    },
+    "RU": {
+      "airport": "SVO",
+      "lat": 55.9726,
+      "lng": 37.4146
+    },
+    "KP": {
+      "airport": "FNJ",
+      "lat": 39.2241,
+      "lng": 125.6703
+    },
+    "IR": {
+      "airport": "IKA",
+      "lat": 35.4161,
+      "lng": 51.1522
+    },
+    "BY": {
+      "airport": "MSQ",
+      "lat": 53.8825,
+      "lng": 28.0307
+    }
   },
   "CHOKEPOINTS": [
-    {"name": "Tanshui Cable Landing Station", "lat": 25.176, "lng": 121.439, "country": "TW"},
-    {"name": "Fangshan Cable Landing Station", "lat": 22.261, "lng": 120.655, "country": "TW"},
-    {"name": "Toucheng Cable Landing Station", "lat": 24.857, "lng": 121.823, "country": "TW"},
-    {"name": "Shima Cable Landing Station", "lat": 34.298, "lng": 136.824, "country": "JP"},
-    {"name": "Chikura Cable Landing Station", "lat": 34.968, "lng": 139.963, "country": "JP"},
-    {"name": "Tuas Cable Landing Station", "lat": 1.319, "lng": 103.636, "country": "SG"},
-    {"name": "Guam Cable Landing Station (US MIL)", "lat": 13.444, "lng": 144.793, "country": "US"},
-    {"name": "Bandon Cable Landing Station", "lat": 43.118, "lng": -124.408, "country": "US"},
-    {"name": "Bude Cable Landing Station", "lat": 50.825, "lng": -4.551, "country": "GB"},
-    {"name": "Marseille Cable Landing Hub",          "lat": 43.296,  "lng": 5.369,    "country": "FR"},
-    {"name": "Luzon Strait Chokepoint",               "lat": 20.500,  "lng": 121.500,  "country": "PH"},
-    {"name": "Miyako Strait (1st Island Chain)",       "lat": 24.700,  "lng": 125.300,  "country": "JP"},
-    {"name": "Tsushima Strait",                        "lat": 34.500,  "lng": 129.500,  "country": "KR"},
-    {"name": "Strait of Hormuz Chokepoint",            "lat": 26.600,  "lng": 56.300,   "country": "IR"},
-    {"name": "Bab-el-Mandeb Strait",                   "lat": 12.600,  "lng": 43.400,   "country": "YE"},
-    {"name": "Baltic Sea NATO Cable Corridor",         "lat": 57.000,  "lng": 19.000,   "country": "SE"},
-    {"name": "Black Sea Bosphorus Entry",              "lat": 41.100,  "lng": 29.000,   "country": "TR"}
+    {
+      "name": "Tanshui Cable Landing Station",
+      "lat": 25.176,
+      "lng": 121.439,
+      "country": "TW"
+    },
+    {
+      "name": "Fangshan Cable Landing Station",
+      "lat": 22.261,
+      "lng": 120.655,
+      "country": "TW"
+    },
+    {
+      "name": "Toucheng Cable Landing Station",
+      "lat": 24.857,
+      "lng": 121.823,
+      "country": "TW"
+    },
+    {
+      "name": "Shima Cable Landing Station",
+      "lat": 34.298,
+      "lng": 136.824,
+      "country": "JP"
+    },
+    {
+      "name": "Chikura Cable Landing Station",
+      "lat": 34.968,
+      "lng": 139.963,
+      "country": "JP"
+    },
+    {
+      "name": "Tuas Cable Landing Station",
+      "lat": 1.319,
+      "lng": 103.636,
+      "country": "SG"
+    },
+    {
+      "name": "Guam Cable Landing Station (US MIL)",
+      "lat": 13.444,
+      "lng": 144.793,
+      "country": "US"
+    },
+    {
+      "name": "Bandon Cable Landing Station",
+      "lat": 43.118,
+      "lng": -124.408,
+      "country": "US"
+    },
+    {
+      "name": "Bude Cable Landing Station",
+      "lat": 50.825,
+      "lng": -4.551,
+      "country": "GB"
+    },
+    {
+      "name": "Marseille Cable Landing Hub",
+      "lat": 43.296,
+      "lng": 5.369,
+      "country": "FR"
+    },
+    {
+      "name": "Luzon Strait Chokepoint",
+      "lat": 20.5,
+      "lng": 121.5,
+      "country": "PH"
+    },
+    {
+      "name": "Miyako Strait (1st Island Chain)",
+      "lat": 24.7,
+      "lng": 125.3,
+      "country": "JP"
+    },
+    {
+      "name": "Tsushima Strait",
+      "lat": 34.5,
+      "lng": 129.5,
+      "country": "KR"
+    },
+    {
+      "name": "Strait of Hormuz Chokepoint",
+      "lat": 26.6,
+      "lng": 56.3,
+      "country": "IR"
+    },
+    {
+      "name": "Bab-el-Mandeb Strait",
+      "lat": 12.6,
+      "lng": 43.4,
+      "country": "YE"
+    },
+    {
+      "name": "Baltic Sea NATO Cable Corridor",
+      "lat": 57.0,
+      "lng": 19.0,
+      "country": "SE"
+    },
+    {
+      "name": "Black Sea Bosphorus Entry",
+      "lat": 41.1,
+      "lng": 29.0,
+      "country": "TR"
+    }
   ],
   "ISR_HOTSPOTS": [
-    {"name": "Taiwan Strait Median Line",              "lat": 24.000,  "lng": 119.500,  "theater": "TW", "radius_km": 200},
-    {"name": "East China Sea ADIZ Overlap",            "lat": 27.000,  "lng": 125.000,  "theater": "TW", "radius_km": 200},
-    {"name": "South China Sea Spratlys",               "lat": 10.000,  "lng": 114.000,  "theater": "PH", "radius_km": 200},
-    {"name": "Korean Peninsula DMZ",                   "lat": 38.000,  "lng": 127.500,  "theater": "KR", "radius_km": 200},
-    {"name": "Kaliningrad Exclave Perimeter",          "lat": 54.700,  "lng": 20.500,   "theater": "PL", "radius_km": 200},
-    {"name": "Black Sea NATO Patrol Zone",             "lat": 43.500,  "lng": 33.000,   "theater": "UA", "radius_km": 200},
-    {"name": "Strait of Hormuz ISR Zone",              "lat": 26.600,  "lng": 56.300,   "theater": "IR", "radius_km": 200},
-    {"name": "Baltic Air Policing Zone",               "lat": 57.500,  "lng": 23.000,   "theater": "LV", "radius_km": 200},
-    {"name": "Miyako Strait Patrol Corridor",          "lat": 24.700,  "lng": 125.300,  "theater": "JP", "radius_km": 200},
-    {"name": "Guam Strategic Defense Perimeter",       "lat": 13.444,  "lng": 144.793,  "theater": "US", "radius_km": 200}
+    {
+      "name": "Taiwan Strait Median Line",
+      "lat": 24.0,
+      "lng": 119.5,
+      "theater": "TW",
+      "radius_km": 200
+    },
+    {
+      "name": "East China Sea ADIZ Overlap",
+      "lat": 27.0,
+      "lng": 125.0,
+      "theater": "TW",
+      "radius_km": 200
+    },
+    {
+      "name": "South China Sea Spratlys",
+      "lat": 10.0,
+      "lng": 114.0,
+      "theater": "PH",
+      "radius_km": 200
+    },
+    {
+      "name": "Korean Peninsula DMZ",
+      "lat": 38.0,
+      "lng": 127.5,
+      "theater": "KR",
+      "radius_km": 200
+    },
+    {
+      "name": "Kaliningrad Exclave Perimeter",
+      "lat": 54.7,
+      "lng": 20.5,
+      "theater": "PL",
+      "radius_km": 200
+    },
+    {
+      "name": "Black Sea NATO Patrol Zone",
+      "lat": 43.5,
+      "lng": 33.0,
+      "theater": "UA",
+      "radius_km": 200
+    },
+    {
+      "name": "Strait of Hormuz ISR Zone",
+      "lat": 26.6,
+      "lng": 56.3,
+      "theater": "IR",
+      "radius_km": 200
+    },
+    {
+      "name": "Baltic Air Policing Zone",
+      "lat": 57.5,
+      "lng": 23.0,
+      "theater": "LV",
+      "radius_km": 200
+    },
+    {
+      "name": "Miyako Strait Patrol Corridor",
+      "lat": 24.7,
+      "lng": 125.3,
+      "theater": "JP",
+      "radius_km": 200
+    },
+    {
+      "name": "Guam Strategic Defense Perimeter",
+      "lat": 13.444,
+      "lng": 144.793,
+      "theater": "US",
+      "radius_km": 200
+    }
   ],
   "NARRATIVE_SOURCES": {
-    "tass":    "https://tass.com/rss/v2.xml",
-    "xinhua":  "https://www.xinhuanet.com/english/rss/worldrss.xml",
-    "mehr":    "https://en.mehrnews.com/rss",
-    "rt":      "https://www.rt.com/rss/",
-    "kcna":    "https://kcnawatch.org/newstream/rss/"
+    "tass": "https://tass.com/rss/v2.xml",
+    "xinhua": "https://www.xinhuanet.com/english/rss/worldrss.xml",
+    "mehr": "https://en.mehrnews.com/rss",
+    "rt": "https://www.rt.com/rss/",
+    "kcna": "https://kcnawatch.org/newstream/rss/"
   },
   "TACTICAL_KEYWORDS": {
-    "TW": ["military measures", "final warning", "combat readiness", "encirclement",
-           "reunification by force", "live-fire exercise", "island chain", "crossing median line"],
-    "UA": ["military measures", "mobilization", "offensive operations", "escalation",
-           "nuclear", "red line", "ultimatum", "special operation"],
-    "IL": ["military operations", "air defense", "ground maneuver", "ultimatum",
-           "imminent threat", "preemptive strike", "retaliation"],
-    "KR": ["provocation", "military alert", "preemptive", "crisis response",
-           "nuclear test", "missile launch", "combat posture"],
-    "IR": ["military measures", "red line", "maximum pressure", "naval blockade",
-           "uranium enrichment", "military exercise", "strait closure"],
-    "PH": ["sovereignty violation", "water cannon", "military buildup", "island seizure",
-           "patrol confrontation", "exclusion zone"],
-    "PL": ["article 5", "eastern flank", "hybrid attack", "border incident",
-           "military reinforcement", "defense alert"],
-    "DEFAULT": ["military measures", "final warning", "combat readiness", "mobilization",
-                "escalation", "ultimatum", "preemptive"]
-  }
+    "TW": [
+      "military measures",
+      "final warning",
+      "combat readiness",
+      "encirclement",
+      "reunification by force",
+      "live-fire exercise",
+      "island chain",
+      "crossing median line"
+    ],
+    "UA": [
+      "military measures",
+      "mobilization",
+      "offensive operations",
+      "escalation",
+      "nuclear",
+      "red line",
+      "ultimatum",
+      "special operation"
+    ],
+    "IL": [
+      "military operations",
+      "air defense",
+      "ground maneuver",
+      "ultimatum",
+      "imminent threat",
+      "preemptive strike",
+      "retaliation"
+    ],
+    "KR": [
+      "provocation",
+      "military alert",
+      "preemptive",
+      "crisis response",
+      "nuclear test",
+      "missile launch",
+      "combat posture"
+    ],
+    "IR": [
+      "military measures",
+      "red line",
+      "maximum pressure",
+      "naval blockade",
+      "uranium enrichment",
+      "military exercise",
+      "strait closure"
+    ],
+    "PH": [
+      "sovereignty violation",
+      "water cannon",
+      "military buildup",
+      "island seizure",
+      "patrol confrontation",
+      "exclusion zone"
+    ],
+    "PL": [
+      "article 5",
+      "eastern flank",
+      "hybrid attack",
+      "border incident",
+      "military reinforcement",
+      "defense alert"
+    ],
+    "DEFAULT": [
+      "military measures",
+      "final warning",
+      "combat readiness",
+      "mobilization",
+      "escalation",
+      "ultimatum",
+      "preemptive"
+    ]
+  },
+  "HISTORICAL_EVENTS": [
+    {
+      "id": "ukraine_invasion_2022",
+      "label": "Russia-Ukraine T-6h (2022-02-24)",
+      "short": "UA Invasion T-6h",
+      "color": "#ff4444",
+      "pattern": [
+        0.1,
+        0.2,
+        0.2,
+        0.3,
+        0.4,
+        0.6,
+        0.9,
+        1.2,
+        1.5,
+        2.0,
+        2.8,
+        3.5,
+        4.2,
+        5.0,
+        6.1,
+        7.2,
+        7.8,
+        8.2,
+        8.5,
+        9.0
+      ],
+      "description": "Wiper malware + BGP withdrawal 90min before ground assault. GDELT tone -22."
+    },
+    {
+      "id": "taiwan_strait_2022",
+      "label": "China-Taiwan Strait (2022-08-02)",
+      "short": "TW Strait Exercise",
+      "color": "#ff8800",
+      "pattern": [
+        0.2,
+        0.3,
+        0.3,
+        0.5,
+        0.7,
+        1.0,
+        1.4,
+        1.8,
+        2.2,
+        2.5,
+        2.8,
+        3.0,
+        3.2,
+        3.0,
+        2.8,
+        2.6,
+        2.4,
+        2.2,
+        2.0,
+        1.8
+      ],
+      "description": "CN DDoS 3-5x vs TW gov/media. No BGP outage (deliberate signaling)."
+    },
+    {
+      "id": "iran_shutdown_2019",
+      "label": "Iran Internet Shutdown (2019-11-16)",
+      "short": "IR Shutdown",
+      "color": "#cc66ff",
+      "pattern": [
+        0.1,
+        0.1,
+        0.2,
+        0.3,
+        0.5,
+        0.8,
+        1.2,
+        1.8,
+        2.5,
+        3.5,
+        5.0,
+        7.0,
+        8.5,
+        9.2,
+        9.5,
+        9.8,
+        9.9,
+        10.0,
+        9.8,
+        9.5
+      ],
+      "description": "BGP prefix withdrawal >80%. Near-total internet blackout."
+    },
+    {
+      "id": "georgia_russia_2008",
+      "label": "Russia-Georgia (2008-08-07)",
+      "short": "GE Invasion T-12h",
+      "color": "#44aaff",
+      "pattern": [
+        0.3,
+        0.4,
+        0.5,
+        0.7,
+        1.0,
+        1.3,
+        1.6,
+        1.9,
+        2.2,
+        2.6,
+        3.0,
+        3.3,
+        3.6,
+        3.9,
+        4.2,
+        4.5,
+        4.8,
+        5.0,
+        5.2,
+        5.4
+      ],
+      "description": "First confirmed state-sponsored cyber + kinetic coordination."
+    },
+    {
+      "id": "normal_baseline",
+      "label": "Normal Operations Baseline",
+      "short": "Normal Baseline",
+      "color": "#66ff66",
+      "pattern": [
+        0.2,
+        0.3,
+        0.2,
+        0.4,
+        0.3,
+        0.2,
+        0.3,
+        0.4,
+        0.3,
+        0.2,
+        0.3,
+        0.4,
+        0.3,
+        0.2,
+        0.3,
+        0.4,
+        0.3,
+        0.2,
+        0.3,
+        0.4
+      ],
+      "description": "Expected peacetime noise floor."
+    }
+  ]
 }

@@ -350,6 +350,73 @@
         .cip-alert   { color: #ff4444; }
         .cip-sources-list { list-style: none; padding: 0; margin: 4px 0 0; }
         .cip-sources-list li { font-size: 12px; color: #ccc; padding: 3px 0; border-bottom: 1px solid #1a1a1a; display: flex; justify-content: space-between; }
+
+        /* ══════════════════════════════════════════════════════════════
+           ── Intuition UI: Ambient Atmosphere ──
+           脅威レベルに応じて背景を微妙に変色させアナリストの注意を喚起
+        ══════════════════════════════════════════════════════════════ */
+        @keyframes ambientCrit   { from { background-color: #0f0f0f; } to { background-color: #160909; } }
+        @keyframes ambientSevere { from { background-color: #0f0f0f; } to { background-color: #130d08; } }
+        @keyframes ambientHigh   { from { background-color: #0f0f0f; } to { background-color: #0f1009; } }
+        body.atm-critical { animation: ambientCrit   2s ease-in-out infinite alternate; }
+        body.atm-severe   { animation: ambientSevere 3s ease-in-out infinite alternate; }
+        body.atm-high     { animation: ambientHigh   5s ease-in-out infinite alternate; }
+
+        /* ── Intuition UI: Pulse Display ── */
+        #pulse-wrap { position: absolute; bottom: 0; left: 0; width: 220px; height: 58px; z-index: 500; background: rgba(8,10,12,0.88); border-top: 1px solid #1a1a1a; border-right: 1px solid #1a1a1a; pointer-events: none; }
+        #pulse-wrap canvas { display: block; }
+        #pulse-label { position: absolute; top: 3px; left: 6px; font-size: 8px; color: #2a2a2a; letter-spacing: 1.5px; text-transform: uppercase; font-family: 'Courier New', monospace; }
+        #pulse-bpm   { position: absolute; top: 3px; right: 6px; font-size: 8px; color: #2a2a2a; font-family: 'Courier New', monospace; }
+
+        /* ── Intuition UI: Operational Clock ── */
+        #op-clock-panel { position: fixed; top: 130px; right: 420px; background: rgba(8,10,12,0.96); border: 1px solid #1a2a1a; border-radius: 4px; padding: 8px 14px; z-index: 4050; font-family: 'Courier New', monospace; display: none; min-width: 175px; }
+        .clock-hdr { font-size: 8px; color: #335533; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; }
+        #clock-zulu  { font-size: 22px; color: #00ff88; font-weight: bold; letter-spacing: 3px; line-height: 1; }
+        #clock-local { font-size: 10px; color: #446644; margin-top: 4px; }
+        #clock-date  { font-size: 9px; color: #334433; margin-top: 2px; }
+        #clock-since { font-size: 9px; color: #555; margin-top: 6px; padding-top: 4px; border-top: 1px solid #1a2a1a; }
+
+        /* ── Intuition UI: Operational Weather Brief ── */
+        #weather-brief-panel { position: fixed; left: 16px; top: 130px; width: 215px; background: rgba(8,10,16,0.97); border: 1px solid #1a2a3a; border-radius: 6px; padding: 12px; z-index: 4050; display: none; }
+        .wb-hdr { font-size: 9px; color: #336699; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #1a2a3a; display: flex; justify-content: space-between; align-items: center; }
+        .wb-close-btn { background: none; border: none; color: #333; cursor: pointer; font-size: 12px; line-height: 1; padding: 0; }
+        .wb-close-btn:hover { color: #888; }
+        .wb-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+        .wb-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; margin-top: 1px; }
+        .wb-info { flex: 1; min-width: 0; }
+        .wb-domain-tag { font-size: 8px; color: #333; text-transform: uppercase; letter-spacing: 1px; }
+        .wb-condition { font-size: 11px; font-weight: bold; white-space: nowrap; }
+        .wb-desc { font-size: 9px; color: #555; line-height: 1.3; }
+        .wb-summary { margin-top: 8px; padding-top: 6px; border-top: 1px solid #1a2a3a; font-size: 9px; color: #666; line-height: 1.5; font-style: italic; }
+
+        /* ── Intuition UI: SALUTE Board ── */
+        #salute-panel { position: fixed; left: 16px; bottom: 50px; width: 235px; background: rgba(8,10,12,0.97); border: 1px solid #2a1800; border-radius: 6px; padding: 12px; z-index: 4050; display: none; font-family: 'Courier New', monospace; }
+        .salute-hdr { font-size: 9px; color: #664400; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #2a1800; display: flex; justify-content: space-between; align-items: center; }
+        .salute-ts { font-size: 8px; color: #443322; }
+        .s-row { display: flex; gap: 4px; margin-bottom: 5px; line-height: 1.4; }
+        .s-key   { color: #ff8800; font-weight: bold; width: 20px; flex-shrink: 0; font-size: 11px; }
+        .s-label { color: #553311; width: 72px; flex-shrink: 0; font-size: 9px; padding-top: 1px; text-transform: uppercase; letter-spacing: 1px; }
+        .s-val   { color: #ccaa88; flex: 1; font-size: 10px; line-height: 1.4; }
+        .s-assess { margin-top: 8px; padding: 6px 8px; background: rgba(255,136,0,0.05); border-left: 2px solid #ff880030; border-radius: 0 4px 4px 0; font-size: 9px; color: #886644; line-height: 1.6; }
+
+        /* ── Intuition UI: Historical Analog ── */
+        #hist-analog-panel { position: fixed; right: 420px; bottom: 50px; width: 265px; background: rgba(8,10,12,0.97); border: 1px solid #2a1a00; border-radius: 6px; padding: 12px; z-index: 4050; display: none; }
+        .ha-hdr { font-size: 9px; color: #885500; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #2a1a00; display: flex; justify-content: space-between; align-items: center; }
+        .ha-event-card { margin-bottom: 8px; padding: 7px 9px; background: rgba(255,255,255,0.02); border-radius: 4px; border-left: 3px solid #333; }
+        .ha-event-name { font-size: 10px; font-weight: bold; margin-bottom: 3px; }
+        .ha-event-sim  { font-size: 9px; color: #555; display: flex; justify-content: space-between; align-items: center; }
+        .ha-bar { height: 3px; background: #1a1a1a; border-radius: 2px; margin-top: 5px; overflow: hidden; }
+        .ha-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s; }
+        .ha-canvas { width: 100%; height: 32px; display: block; border-radius: 2px; margin-top: 5px; background: #0a0a0a; }
+        .ha-note { font-size: 8px; color: #333; text-align: center; margin-top: 6px; letter-spacing: 1px; }
+
+        /* ── Intuition UI: Radio Silence Indicator ── */
+        #hud-radio-silence { display: none; }
+        #hud-radio-silence.active { display: flex; }
+        .rs-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .rs-dot-live  { background: #00ff88; box-shadow: 0 0 5px #00ff88; animation: rsPulse 2.5s ease-in-out infinite; }
+        .rs-dot-quiet { background: #ff8800; animation: blink 1.5s step-end infinite; }
+        @keyframes rsPulse { 0%,100%{opacity:1;box-shadow:0 0 5px #00ff88;} 50%{opacity:0.3;box-shadow:none;} }
     </style>
 </head>
 <body>
@@ -388,6 +455,10 @@
         </div>
         <button id="btn-sync-top" class="btn-tactical btn-sync" onclick="forceDataSync()">SYNC</button>
         <button class="btn-tactical btn-action" onclick="toggleChainPanel()" data-tooltip="Evidence Chain Timeline — Escalation Sequence Viewer">CHAIN</button>
+        <button class="btn-tactical btn-action" onclick="toggleWeatherBrief()" data-tooltip="Operational Weather Brief — 脅威環境を気象メタファーで表現">WX</button>
+        <button class="btn-tactical btn-action" onclick="toggleSaluteBoard()" data-tooltip="SALUTE Contact Report — 軍事様式インテリジェンスサマリー">SALUTE</button>
+        <button class="btn-tactical btn-action" onclick="toggleHistAnalog()" data-tooltip="Historical Pattern Analog — 既知パターンとの類似度マッチング">ANALOG</button>
+        <button class="btn-tactical btn-action" onclick="toggleOpClock()" data-tooltip="Operational Clock — Zulu時刻 / 作戦テンポ">CLOCK</button>
         <button class="btn-tactical btn-action" onclick="openSitrep()">SITREP</button>
         <button class="btn-tactical btn-action" onclick="openModal('help-modal')">Intel Guide</button>
         <button class="btn-tactical btn-action" onclick="openModal('settings-modal')">Config</button>
@@ -420,6 +491,12 @@
             <span class="hud-label">CHAIN:</span>
             <span id="hud-chain" class="hud-value" style="font-size:10px;">—</span>
         </div>
+        <!-- Intuition UI: Radio Silence -->
+        <div class="hud-item" id="hud-radio-silence" data-tooltip="COMMS: GREEN=全センサー正常 / ORANGE=異常な静寂を検出（センサー抑圧または作戦前通信遮断の可能性）">
+            <div class="rs-dot rs-dot-live"></div>
+            <span class="hud-label" style="margin-left:4px;">COMMS:</span>
+            <span id="hud-rs-text" class="hud-value" style="font-size:10px; color:#00ff88;">LIVE</span>
+        </div>
         <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap">
             <div id="hud-domain-cyber"    class="domain-bar-row" data-tooltip="Cyber domain score"><span class="domain-label">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
             <div id="hud-domain-physical" class="domain-bar-row" data-tooltip="Physical domain score"><span class="domain-label">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
@@ -431,6 +508,12 @@
 <div id="main-container">
     <div id="map-wrapper">
         <div id="map"></div>
+        <!-- Intuition UI: Pulse Display — スクロール型EKG脅威波形 -->
+        <div id="pulse-wrap">
+            <div id="pulse-label">THREAT PULSE</div>
+            <div id="pulse-bpm">—</div>
+            <canvas id="pulse-canvas" width="220" height="58"></canvas>
+        </div>
     </div>
 
     <div id="sidebar">
@@ -562,6 +645,66 @@
             <div style="font-size:11px; color:#888; margin-bottom:6px; text-transform:uppercase; letter-spacing:1px;">Auto-generated Report</div>
             <pre id="sitrep-text" style="font-family:'Courier New',monospace; font-size:12px; color:#ccc; white-space:pre-wrap; margin:0; line-height:1.6;"></pre>
         </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Intuition UI: Operational Clock
+═══════════════════════════════════════════════════════ -->
+<div id="op-clock-panel">
+    <div class="clock-hdr">
+        <span>OPERATIONAL CLOCK</span>
+        <button onclick="document.getElementById('op-clock-panel').style.display='none'" style="background:none;border:none;color:#335533;cursor:pointer;font-size:12px;padding:0;">✕</button>
+    </div>
+    <div id="clock-zulu">--:--:--Z</div>
+    <div id="clock-local">LOCAL: --:--:--</div>
+    <div id="clock-date">--- -- --- ----</div>
+    <div id="clock-since">LAST EVENT: --m --s ago</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Intuition UI: Operational Weather Brief
+     脅威環境を気象メタファーで直観的に表現
+═══════════════════════════════════════════════════════ -->
+<div id="weather-brief-panel">
+    <div class="wb-hdr">
+        <span>OPS WEATHER BRIEF</span>
+        <button class="wb-close-btn" onclick="document.getElementById('weather-brief-panel').style.display='none'">✕</button>
+    </div>
+    <div class="wb-body">
+        <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+    </div>
+    <div class="wb-summary"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Intuition UI: SALUTE Contact Report
+     SALUTE様式 — アナリスト向け軍事様式インテリジェンスサマリー
+═══════════════════════════════════════════════════════ -->
+<div id="salute-panel">
+    <div class="salute-hdr">
+        <span>SALUTE REPORT</span>
+        <div>
+            <span class="salute-ts" id="salute-ts">--:--Z</span>
+            <button onclick="document.getElementById('salute-panel').style.display='none'" style="background:none;border:none;color:#443322;cursor:pointer;font-size:12px;margin-left:8px;padding:0;">✕</button>
+        </div>
+    </div>
+    <div class="salute-body">
+        <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Intuition UI: Historical Pattern Analog
+     パターン認識 — 既知の歴史的事例との類似度マッチング
+═══════════════════════════════════════════════════════ -->
+<div id="hist-analog-panel">
+    <div class="ha-hdr">
+        <span>HISTORICAL ANALOG</span>
+        <button onclick="document.getElementById('hist-analog-panel').style.display='none'" style="background:none;border:none;color:#443300;cursor:pointer;font-size:12px;padding:0;">✕</button>
+    </div>
+    <div class="ha-body">
+        <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
     </div>
 </div>
 
@@ -1104,6 +1247,9 @@
     const firmsLayer = L.layerGroup().addTo(map);
     const chokepointsLayer = L.layerGroup().addTo(map);
 
+    // [Intuition UI] Threat Terrain — 脅威密度ヒートマップ風サークルオーバーレイ
+    const threatTerrainLayer = L.layerGroup(); // デフォルト非表示
+
     const overlayLayers = {
         "Target Nodes":     targetLayer,
         "Cyber Strikes":    lineLayer,
@@ -1113,7 +1259,8 @@
         "Weather Events":   weatherLayer,
         "Media Tone Alert": gdeltLayer,
         "FIRMS Anomalies":  firmsLayer,
-        "Cable Chokepoints":chokepointsLayer
+        "Cable Chokepoints":chokepointsLayer,
+        "Threat Terrain":   threatTerrainLayer
     };
     L.control.layers(null, overlayLayers, { position: 'topright', collapsed: true }).addTo(map);
 
@@ -1475,6 +1622,19 @@
             }
             // Evidence Chain Panel の更新
             updateChainPanel(strat);
+
+            // ── Intuition UI 統合呼び出し ──────────────────────────────
+            applyAmbientAtmosphere(strat.defcon);
+            updateRadioSilence(p8, strat);
+            recordSignificantEvent(strat.defcon);
+
+            // 開いているパネルのみリフレッシュ（不要なAPI呼び出しを抑制）
+            const wbPanel = document.getElementById('weather-brief-panel');
+            if (wbPanel && wbPanel.style.display !== 'none') renderWeatherBrief();
+            const salPanel = document.getElementById('salute-panel');
+            if (salPanel && salPanel.style.display !== 'none') renderSaluteBoard();
+            const haPanel = document.getElementById('hist-analog-panel');
+            if (haPanel && haPanel.style.display !== 'none') renderHistoricalAnalog();
         }
 
         const originContainer = document.getElementById('origin-list-container');
@@ -1795,6 +1955,10 @@
         }
 
         originContainer.innerHTML = originHtml;
+
+        // ── Intuition UI: Pulse Display + Threat Terrain (全render共通) ──
+        updatePulseDisplay(data.defcon_history || []);
+        updateThreatTerrain(data);
 
         // P7-Opt: innerHTML 確定後にまとめて Canvas へ描画
         originContainer.querySelectorAll('.sparkline-canvas').forEach(cvs => {
@@ -2331,6 +2495,386 @@
             ctx.fillStyle = col;
             ctx.fillRect(x, y, barW - 1, H - y);
         });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  INTUITION UI — Recognition-Primed Decision (RPD) Components
+    //  アナリストの経験則・直観に訴えかける8つのUI要素
+    // ══════════════════════════════════════════════════════════════════════
+
+    let _pulseHistory   = []; // [{ts, defcon}] — EKGパルス履歴
+    let _lastEventTs    = Date.now(); // 最後に重大イベントが発生した時刻
+    let _clockInterval  = null;
+    let _histEvents     = []; // geo_data HISTORICAL_EVENTS キャッシュ
+
+    // ── A. Ambient Atmosphere ──────────────────────────────────────────
+    // 脅威レベルに応じてbodyクラスを切替→CSS keyframesで背景を微変色
+    function applyAmbientAtmosphere(defcon) {
+        const body = document.body;
+        body.classList.remove('atm-critical', 'atm-severe', 'atm-high');
+        if      (defcon === 1) body.classList.add('atm-critical');
+        else if (defcon === 2) body.classList.add('atm-severe');
+        else if (defcon === 3) body.classList.add('atm-high');
+    }
+
+    // ── B. Pulse Display ──────────────────────────────────────────────
+    // スクロール型EKG波形 — 脅威スコア時系列を心拍グラフで可視化
+    function updatePulseDisplay(defconHistory) {
+        if (!defconHistory || !defconHistory.length) return;
+        _pulseHistory = defconHistory.slice(-60);
+        drawPulseCanvas();
+    }
+
+    function drawPulseCanvas() {
+        const canvas = document.getElementById('pulse-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        if (!_pulseHistory.length) return;
+
+        // 薄いグリッド線
+        ctx.strokeStyle = '#1c1c1c';
+        ctx.lineWidth = 0.5;
+        for (let i = 0; i <= 4; i++) {
+            const y = (i / 4) * (H - 6) + 3;
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        }
+
+        const n   = _pulseHistory.length;
+        const col = { 1:'#ff0000', 2:'#ff2a2a', 3:'#ffaa00', 4:'#ffff00', 5:'#66ff66' };
+        const lastDef = _pulseHistory[_pulseHistory.length - 1][1];
+        const lineCol = col[lastDef] || '#00ffff';
+
+        // defcon: 1(危険,上)→5(平常,下). y = top→bottom
+        const pts = _pulseHistory.map(([, d], i) => {
+            const x = (i / Math.max(n - 1, 1)) * (W - 4) + 2;
+            const y = ((d - 1) / 4) * (H - 8) + 4;
+            return [x, y];
+        });
+
+        // 塗りつぶし
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], H);
+        pts.forEach(([x, y]) => ctx.lineTo(x, y));
+        ctx.lineTo(pts[pts.length - 1][0], H);
+        ctx.closePath();
+        ctx.fillStyle = lineCol + '14';
+        ctx.fill();
+
+        // ライン
+        ctx.beginPath();
+        pts.forEach(([x, y], i) => { if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+        ctx.strokeStyle = lineCol + 'cc';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // 最新ドット
+        const [lx, ly] = pts[pts.length - 1];
+        ctx.beginPath();
+        ctx.arc(lx, ly, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = lineCol;
+        ctx.fill();
+
+        // 変化率 (BPM風: 1時間あたりの脅威レベル変化回数)
+        const bpmEl = document.getElementById('pulse-bpm');
+        if (bpmEl) {
+            const changes = _pulseHistory.slice(1).filter(([,d], i) => d !== _pulseHistory[i][1]).length;
+            const spanH   = (_pulseHistory.length * 15) / 3600; // ~15s/cycle
+            const rate    = spanH > 0 ? Math.round(changes / spanH) : 0;
+            bpmEl.textContent = rate + '/h';
+        }
+    }
+
+    // ── C. Operational Clock ──────────────────────────────────────────
+    // リアルタイムZulu時刻 + 最終重大イベントからの経過時間
+    function toggleOpClock() {
+        const panel = document.getElementById('op-clock-panel');
+        if (!panel) return;
+        const show = !panel.style.display || panel.style.display === 'none';
+        panel.style.display = show ? 'block' : 'none';
+        if (show) {
+            tickClock();
+            if (!_clockInterval) _clockInterval = setInterval(tickClock, 1000);
+        } else {
+            if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
+        }
+    }
+
+    function tickClock() {
+        const zEl = document.getElementById('clock-zulu');
+        const lEl = document.getElementById('clock-local');
+        const dEl = document.getElementById('clock-date');
+        const sEl = document.getElementById('clock-since');
+        if (!zEl) return;
+
+        const now  = new Date();
+        const pad  = n => String(n).padStart(2, '0');
+        const zulu = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())}Z`;
+        zEl.textContent = zulu;
+        if (lEl) lEl.textContent = 'LOCAL: ' + now.toLocaleTimeString();
+        if (dEl) {
+            const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+            dEl.textContent = `${now.getUTCDate()} ${months[now.getUTCMonth()]} ${now.getUTCFullYear()} UTC`;
+        }
+        if (sEl) {
+            const ms   = Date.now() - _lastEventTs;
+            const mins = Math.floor(ms / 60000);
+            const secs = Math.floor((ms % 60000) / 1000);
+            sEl.textContent = `LAST EVENT: ${mins}m ${secs}s ago`;
+        }
+    }
+
+    // ── D. Operational Weather Brief ──────────────────────────────────
+    // 脅威環境を気象メタファーで直観的表現 — /api/weather_brief から取得
+    function toggleWeatherBrief() {
+        const panel = document.getElementById('weather-brief-panel');
+        if (!panel) return;
+        const show = !panel.style.display || panel.style.display === 'none';
+        panel.style.display = show ? 'block' : 'none';
+        if (show) renderWeatherBrief();
+    }
+
+    async function renderWeatherBrief() {
+        const panel = document.getElementById('weather-brief-panel');
+        if (!panel || panel.style.display === 'none') return;
+        const bodyEl = panel.querySelector('.wb-body');
+        const sumEl  = panel.querySelector('.wb-summary');
+        if (!bodyEl) return;
+
+        const ICONS = {
+            clear:'☀️', hazy:'🌤', overcast:'☁️', squall:'🌩', storm:'⛈', fog:'🌫',
+            rising_pressure:'📈', falling_pressure:'📉', stable_pressure:'🟰',
+            calm:'🌊', choppy:'🌊', rough:'🌊', turbulent:'⚡',
+            clear_sky:'🔭', limited_vis:'👁', surge:'🛩', blackout:'🚫',
+            dark:'🌑', default:'●'
+        };
+
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/weather_brief');
+            const wb  = await res.json();
+            const rows = wb.conditions || [];
+            bodyEl.innerHTML = rows.map(r => `
+                <div class="wb-row">
+                    <div class="wb-icon">${ICONS[r.condition_key] || ICONS.default}</div>
+                    <div class="wb-info">
+                        <div class="wb-domain-tag">${r.domain}</div>
+                        <div class="wb-condition" style="color:${r.color||'#ccc'};">${r.condition}</div>
+                        <div class="wb-desc">${r.description}</div>
+                    </div>
+                </div>`).join('');
+            if (sumEl) sumEl.textContent = wb.summary || '';
+        } catch(e) {
+            bodyEl.innerHTML = '<div style="color:#333;font-size:10px;text-align:center;">API unavailable</div>';
+        }
+    }
+
+    // ── E. SALUTE Board ───────────────────────────────────────────────
+    // Size/Activity/Location/Unit/Time/Equipment — 軍事接触報告様式
+    function toggleSaluteBoard() {
+        const panel = document.getElementById('salute-panel');
+        if (!panel) return;
+        const show = !panel.style.display || panel.style.display === 'none';
+        panel.style.display = show ? 'block' : 'none';
+        if (show) renderSaluteBoard();
+    }
+
+    async function renderSaluteBoard() {
+        const panel = document.getElementById('salute-panel');
+        if (!panel || panel.style.display === 'none') return;
+        const bodyEl = panel.querySelector('.salute-body');
+        const tsEl   = document.getElementById('salute-ts');
+        if (!bodyEl) return;
+
+        if (tsEl) {
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            tsEl.textContent = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}Z`;
+        }
+
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/salute_report');
+            const sal = await res.json();
+            const fields = [
+                { k:'S', l:'SIZE',     v: sal.size      || '—' },
+                { k:'A', l:'ACTIVITY', v: sal.activity  || '—' },
+                { k:'L', l:'LOCATION', v: sal.location  || '—' },
+                { k:'U', l:'UNIT',     v: sal.unit       || '—' },
+                { k:'T', l:'TIME',     v: sal.time       || '—' },
+                { k:'E', l:'EQUIP',    v: sal.equipment  || '—' },
+            ];
+            bodyEl.innerHTML = fields.map(f =>
+                `<div class="s-row">
+                    <span class="s-key">${f.k}</span>
+                    <span class="s-label">${f.l}</span>
+                    <span class="s-val">${f.v}</span>
+                </div>`
+            ).join('') + (sal.assessment
+                ? `<div class="s-assess">${sal.assessment}</div>` : '');
+        } catch(e) {
+            bodyEl.innerHTML = '<div style="color:#333;font-size:10px;text-align:center;">API unavailable</div>';
+        }
+    }
+
+    // ── F. Historical Pattern Analog ──────────────────────────────────
+    // 現在のパターンを過去の確認済み事例とPearson相関でマッチング
+    function toggleHistAnalog() {
+        const panel = document.getElementById('hist-analog-panel');
+        if (!panel) return;
+        const show = !panel.style.display || panel.style.display === 'none';
+        panel.style.display = show ? 'block' : 'none';
+        if (show) renderHistoricalAnalog();
+    }
+
+    async function renderHistoricalAnalog() {
+        const panel = document.getElementById('hist-analog-panel');
+        if (!panel || panel.style.display === 'none') return;
+        const bodyEl = panel.querySelector('.ha-body');
+        if (!bodyEl) return;
+
+        // 歴史パターンをキャッシュ（初回のみAPI取得）
+        if (!_histEvents.length) {
+            try {
+                const res = await fetch('http://127.0.0.1:8000/api/historical_events');
+                const d   = await res.json();
+                _histEvents = (d.events || []).filter(e => e.id !== 'normal_baseline');
+            } catch(e) {}
+        }
+
+        if (!_histEvents.length || !latestData || !(latestData.defcon_history || []).length) {
+            bodyEl.innerHTML = '<div style="color:#333;font-size:10px;text-align:center;">データ蓄積中...</div>';
+            return;
+        }
+
+        // 現在パターン: 最新20サイクル → 0(平常)〜1(危機) に正規化
+        const hist = latestData.defcon_history || [];
+        const cur20 = hist.slice(-20).map(([, d]) => (5 - d) / 4);
+        while (cur20.length < 20) cur20.unshift(0);
+
+        // Pearson相関係数でマッチング
+        function pearson(a, b) {
+            const n = a.length;
+            const ma = a.reduce((s, v) => s + v, 0) / n;
+            const mb = b.reduce((s, v) => s + v, 0) / n;
+            let num = 0, da = 0, db = 0;
+            for (let i = 0; i < n; i++) {
+                const ai = a[i] - ma, bi = b[i] - mb;
+                num += ai * bi; da += ai * ai; db += bi * bi;
+            }
+            return da * db > 0 ? num / Math.sqrt(da * db) : 0;
+        }
+
+        const matches = _histEvents.map(ev => ({
+            ...ev,
+            sim: Math.max(0, pearson(cur20, (ev.pattern || new Array(20).fill(0))))
+        })).sort((a, b) => b.sim - a.sim).slice(0, 3);
+
+        bodyEl.innerHTML = matches.map(ev => {
+            const pct = Math.round(ev.sim * 100);
+            const col = ev.color || '#666';
+            const cid = `ha-cv-${ev.id}`;
+            return `<div class="ha-event-card" style="border-left-color:${col}50;">
+                <div class="ha-event-name" style="color:${col};">${ev.label || ev.id}</div>
+                <div class="ha-event-sim">
+                    <span style="color:#444; font-size:9px;">${ev.short || ''}</span>
+                    <span style="color:${pct > 55 ? col : '#444'}; font-weight:${pct > 55 ? 'bold' : 'normal'};">${pct}%</span>
+                </div>
+                <div class="ha-bar"><div class="ha-bar-fill" style="width:${pct}%; background:${col};"></div></div>
+                <canvas id="${cid}" class="ha-canvas" width="241" height="32"></canvas>
+            </div>`;
+        }).join('') + '<div class="ha-note">Pearson R — 直近20サイクル vs 既知事例</div>';
+
+        // 各カードのminiグラフを描画（現在=cyan、過去=dim color）
+        requestAnimationFrame(() => {
+            matches.forEach(ev => {
+                const cvs = document.getElementById(`ha-cv-${ev.id}`);
+                if (!cvs) return;
+                const ctx = cvs.getContext('2d');
+                const W = cvs.width, H = cvs.height;
+                ctx.clearRect(0, 0, W, H);
+                const col = ev.color || '#666';
+                const pat = ev.pattern || new Array(20).fill(0);
+                const n   = 20;
+
+                // 過去パターン（薄い）
+                ctx.beginPath();
+                pat.forEach((v, i) => {
+                    const x = (i / (n-1)) * (W-2) + 1;
+                    const y = H - v * (H-4) - 2;
+                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                });
+                ctx.strokeStyle = col + '55';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // 現在パターン（明瞭）
+                ctx.beginPath();
+                cur20.forEach((v, i) => {
+                    const x = (i / (n-1)) * (W-2) + 1;
+                    const y = H - v * (H-4) - 2;
+                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                });
+                ctx.strokeStyle = '#00ffff77';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            });
+        });
+    }
+
+    // ── G. Radio Silence Indicator ────────────────────────────────────
+    // 全センサーが異常に静かな場合: センサー抑圧 or 作戦前通信遮断の兆候
+    function updateRadioSilence(p8, strat) {
+        const wrap = document.getElementById('hud-radio-silence');
+        const dot  = wrap ? wrap.querySelector('.rs-dot') : null;
+        const txt  = document.getElementById('hud-rs-text');
+        if (!wrap || !dot || !txt) return;
+
+        const velocity = p8 ? Math.abs(p8.velocity || 0) : 0;
+        const score    = strat ? ((strat.defcon_breakdown || {}).total_score || 0) : 0;
+        // 「静寂異常」: スコアが有意水準以上だが速度変化が皆無
+        const isQuiet  = velocity < 0.00005 && score >= 3;
+
+        wrap.classList.add('active');
+        if (isQuiet) {
+            dot.className = 'rs-dot rs-dot-quiet';
+            txt.textContent  = 'QUIET';
+            txt.style.color  = '#ff8800';
+            wrap.setAttribute('data-tooltip',
+                'RADIO SILENCE: スコア≥3だが速度変化=0。\nセンサー抑圧または作戦前通信遮断の可能性。\nHITL確認推奨。');
+        } else {
+            dot.className = 'rs-dot rs-dot-live';
+            txt.textContent  = 'LIVE';
+            txt.style.color  = '#00ff88';
+            wrap.setAttribute('data-tooltip',
+                'COMMS LIVE: 全センサー正常報告中。異常な静寂なし。');
+        }
+    }
+
+    // ── H. Threat Terrain Overlay ─────────────────────────────────────
+    // 国別脅威強度をLeaflet Circleで可視化（choropleth風）
+    function updateThreatTerrain(data) {
+        threatTerrainLayer.clearLayers();
+        if (!data.targets) return;
+        data.targets.forEach(t => {
+            const spike = t.avg_spike || 1;
+            const isOut = t.is_bgp_effective;
+            if (spike < 1.5 && !isOut) return; // 平常はスキップ
+            const intensity = Math.min(1, (spike - 1) / 6);
+            const radius    = 120000 + intensity * 500000; // メートル
+            const col = isOut ? '#ff0000' : spike > 4 ? '#ff6600' : '#ffaa00';
+            L.circle([t.lat, shiftLng(t.lng)], {
+                radius,
+                color: 'transparent',
+                fillColor: col,
+                fillOpacity: 0.04 + intensity * 0.10,
+                interactive: false,
+            }).addTo(threatTerrainLayer);
+        });
+    }
+
+    // ── 重大イベント検出 → 作戦テンポ計時リセット ────────────────────
+    function recordSignificantEvent(defcon) {
+        if (defcon <= 3) _lastEventTs = Date.now();
     }
 
     async function loadFetchLog() {
