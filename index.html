@@ -281,8 +281,8 @@
         .convergence-row { display: flex; gap: 16px; margin: 8px 0 4px; flex-wrap: wrap; }
 
         /* ── Phase 8: Evidence Chain Timeline ── */
-        #p8-chain-panel { position: fixed; right: 16px; top: 120px; width: 260px; background: rgba(10,12,16,0.96); border: 1px solid #00ffff40; border-radius: 6px; padding: 12px; z-index: 4000; font-size: 11px; display: none; max-height: 70vh; overflow-y: auto; }
-        #p8-chain-panel .p8-panel-title { font-size: 11px; color: #00ffff; font-weight: bold; letter-spacing: 1px; margin-bottom: 10px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+        #p8-chain-panel.floating { background: rgba(10,12,16,0.96) !important; border-color: #00ffff40 !important; }
+        #p8-chain-panel .panel-content { font-size: 11px; overflow-y: auto; max-height: 60vh; }
         .p8-chain-event { display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-start; }
         .p8-chain-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 2px; }
         .p8-chain-dot-NARRATIVE_BURST { background: #cc66ff; }
@@ -605,6 +605,8 @@
             </div>
         </div>
 
+        <div id="chain-placeholder" style="flex-shrink:0; border-top:1px solid #1a1a1a;"></div>
+
         <div class="sidebar-footer">
             <span id="update-time">System Initializing...</span>
             <button id="btn-sync-side" class="btn-tactical btn-sync" onclick="forceDataSync()" style="margin:0;">SYNC</button>
@@ -709,9 +711,9 @@
 <div id="op-clock-panel" class="draggable-panel floating" style="display:none; left:260px; top:130px;">
     <div class="drag-handle panel-header-unified">
         <span>OPERATIONAL CLOCK</span>
-        <div style="display:flex;gap:3px;">
-            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
-            <span class="icon-btn" onclick="document.getElementById('op-clock-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState(); if(_clockInterval){clearInterval(_clockInterval);_clockInterval=null;}">✕</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
         </div>
     </div>
     <div class="panel-content">
@@ -728,9 +730,9 @@
 <div id="weather-brief-panel" class="draggable-panel floating" style="display:none; left:16px; top:130px;">
     <div class="drag-handle panel-header-unified">
         <span>OPS WEATHER BRIEF</span>
-        <div style="display:flex;gap:3px;">
-            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
-            <span class="icon-btn wb-close-btn" onclick="document.getElementById('weather-brief-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState();">✕</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
         </div>
     </div>
     <div class="panel-content">
@@ -746,11 +748,10 @@
 ═══════════════════════════════════════════════════════ -->
 <div id="salute-panel" class="draggable-panel floating" style="display:none; left:16px; top:380px;">
     <div class="drag-handle panel-header-unified">
-        <span>SALUTE REPORT</span>
-        <div style="display:flex;align-items:center;gap:4px;">
-            <span class="salute-ts" id="salute-ts">--:--Z</span>
-            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
-            <span class="icon-btn" onclick="document.getElementById('salute-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState();">✕</span>
+        <span>SALUTE REPORT <span class="salute-ts" id="salute-ts" style="font-size:9px; font-weight:normal; color:#444; letter-spacing:0;">--:--Z</span></span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
         </div>
     </div>
     <div class="panel-content salute-body">
@@ -764,9 +765,9 @@
 <div id="hist-analog-panel" class="draggable-panel floating" style="display:none; left:300px; top:380px;">
     <div class="drag-handle panel-header-unified">
         <span>HISTORICAL ANALOG</span>
-        <div style="display:flex;gap:3px;">
-            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
-            <span class="icon-btn" onclick="document.getElementById('hist-analog-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState();">✕</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
         </div>
     </div>
     <div class="panel-content ha-body">
@@ -780,9 +781,9 @@
 <div id="pulse-panel" class="draggable-panel floating" style="display:none; left:10px; top:140px;">
     <div class="drag-handle panel-header-unified">
         <span>THREAT PULSE</span>
-        <div style="display:flex;gap:3px;">
-            <span class="icon-btn dock-btn" title="Dock to sidebar">⊢</span>
-            <span class="icon-btn" onclick="document.getElementById('pulse-panel').style.display='none'; updateSidebarVisibility(); syncToolsMenuState();">✕</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
         </div>
     </div>
     <div class="panel-content" style="background:#080a0c; padding:0; width:220px;">
@@ -791,30 +792,32 @@
     </div>
 </div>
 
-<!-- Phase 8: Evidence Chain Timeline サイドパネル（固定オーバーレイ） -->
-<div id="p8-chain-panel">
-    <div class="p8-panel-title">
+<!-- Phase 8: Evidence Chain Timeline (draggable, docks to right sidebar) -->
+<div id="p8-chain-panel" class="draggable-panel floating" style="display:none; left:1100px; top:120px;">
+    <div class="drag-handle panel-header-unified">
         <span>Evidence Chain</span>
-        <button onclick="document.getElementById('p8-chain-panel').style.display='none'" style="background:none;border:none;color:#555;cursor:pointer;font-size:12px;">✕</button>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+        </div>
     </div>
-    <div id="p8-seq-badge" class="p8-seq-status p8-seq-NONE">NO EVENTS</div>
-    <div id="p8-chain-events" style="margin-top:10px;"></div>
-    <div style="margin-top:10px;padding-top:8px;border-top:1px solid #222;">
-        <div style="color:#555;font-size:9px;text-align:center;">24h WINDOW — LOOSELY ORDERED</div>
-        <!-- Phase 8: Narrative Burst Z-Score -->
-        <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
-            <span style="color:#cc66ff;font-size:10px;">Narrative Z</span>
-            <span id="p8-narrative-z" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
-        </div>
-        <!-- Phase 8: ISR Count -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-            <span style="color:#ffaa00;font-size:10px;">ISR Aircraft</span>
-            <span id="p8-isr-count" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
-        </div>
-        <!-- Phase 8: AIS Dark Gaps -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-            <span style="color:#44aaff;font-size:10px;">AIS Dark Gaps</span>
-            <span id="p8-ais-gaps" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
+    <div class="panel-content">
+        <div id="p8-seq-badge" class="p8-seq-status p8-seq-NONE">NO EVENTS</div>
+        <div id="p8-chain-events" style="margin-top:10px;"></div>
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid #222;">
+            <div style="color:#555;font-size:9px;text-align:center;">24h WINDOW — LOOSELY ORDERED</div>
+            <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:#cc66ff;font-size:10px;">Narrative Z</span>
+                <span id="p8-narrative-z" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                <span style="color:#ffaa00;font-size:10px;">ISR Aircraft</span>
+                <span id="p8-isr-count" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                <span style="color:#44aaff;font-size:10px;">AIS Dark Gaps</span>
+                <span id="p8-ais-gaps" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
+            </div>
         </div>
     </div>
 </div>
@@ -1295,7 +1298,19 @@
     // ── Phase 8: Evidence Chain Panel ────────────────────────────────────────
     function toggleChainPanel() {
         const panel = document.getElementById('p8-chain-panel');
-        panel.style.display = (panel.style.display === 'none' || !panel.style.display) ? 'block' : 'none';
+        if (!panel) return;
+        const show = !panel.style.display || panel.style.display === 'none';
+        if (show && !panel.classList.contains('docked')) {
+            if (panel.parentElement !== document.body) document.body.appendChild(panel);
+            panel.classList.add('floating', 'active');
+            // Set initial position near right edge if not already positioned
+            if (!panel.style.left || panel.style.left === '1100px') {
+                panel.style.left = Math.max(10, window.innerWidth - 700) + 'px';
+                panel.style.top  = '120px';
+            }
+        }
+        panel.style.display = show ? 'flex' : 'none';
+        updateSidebarVisibility();
     }
 
     const EVENT_LABELS = {
@@ -1504,13 +1519,14 @@
         panel.addEventListener('mouseup', function(e) { saveLocalState(); });
     }
 
-    setupDockablePanel('target-panel',    'target-placeholder',    280);
-    setupDockablePanel('dashboard-panel', 'dashboard-placeholder', 400);
-    setupDockablePanel('pulse-panel',     'lsb-ph-pulse',          220);
-    setupDockablePanel('weather-brief-panel', 'lsb-ph-wx',         215);
-    setupDockablePanel('salute-panel',    'lsb-ph-sal',            235);
-    setupDockablePanel('hist-analog-panel', 'lsb-ph-ha',           265);
-    setupDockablePanel('op-clock-panel',  'lsb-ph-clk',            195);
+    setupDockablePanel('target-panel',        'target-placeholder',    280);
+    setupDockablePanel('dashboard-panel',     'dashboard-placeholder', 400);
+    setupDockablePanel('p8-chain-panel',      'chain-placeholder',     260);
+    setupDockablePanel('pulse-panel',         'lsb-ph-pulse',          220);
+    setupDockablePanel('weather-brief-panel', 'lsb-ph-wx',             215);
+    setupDockablePanel('salute-panel',        'lsb-ph-sal',            235);
+    setupDockablePanel('hist-analog-panel',   'lsb-ph-ha',             265);
+    setupDockablePanel('op-clock-panel',      'lsb-ph-clk',            195);
     updateSidebarVisibility();
 
     const map = L.map('map', { zoomControl: false, minZoom: 2 }).setView([20.0, 150.0], 3);
@@ -2261,60 +2277,89 @@
         });
     }
 
+    // All dockable panels with their placeholder IDs
+    const ALL_DOCKABLE_PANELS = [
+        { id: 'target-panel',         ph: 'target-placeholder'    },
+        { id: 'dashboard-panel',      ph: 'dashboard-placeholder' },
+        { id: 'p8-chain-panel',       ph: 'chain-placeholder'     },
+        { id: 'pulse-panel',          ph: 'lsb-ph-pulse'          },
+        { id: 'weather-brief-panel',  ph: 'lsb-ph-wx'             },
+        { id: 'salute-panel',         ph: 'lsb-ph-sal'            },
+        { id: 'hist-analog-panel',    ph: 'lsb-ph-ha'             },
+        { id: 'op-clock-panel',       ph: 'lsb-ph-clk'            },
+    ];
+
     function saveLocalState() {
         const stateObj = getCurrentConfig();
         stateObj.pins = {};
         document.querySelectorAll('.check-pin').forEach(cb => stateObj.pins[cb.value] = cb.checked);
-        
+
         stateObj.layout = {};
-        ['target-panel', 'dashboard-panel'].forEach(id => {
+        ALL_DOCKABLE_PANELS.forEach(({ id, ph }) => {
             const panel = document.getElementById(id);
+            if (!panel) return;
             const content = panel.querySelector('.panel-content');
+            const toggleBtn = panel.querySelector('.toggle-btn');
             stateObj.layout[id] = {
-                docked: panel.classList.contains('docked'),
-                minimized: content.style.display === 'none',
-                top: panel.style.top, left: panel.style.left, width: panel.style.width, height: panel.style.height
+                docked:    panel.classList.contains('docked'),
+                visible:   panel.style.display !== 'none',
+                minimized: content && toggleBtn ? content.style.display === 'none' : false,
+                top: panel.style.top, left: panel.style.left,
+                width: panel.style.width, height: panel.style.height,
+                ph,
             };
         });
-        
+
         stateObj.ui = {
             vector: currentVector,
             mapCenter: mapCenterMode
         };
-        
+
         localStorage.setItem('ctiIntelAlerts', JSON.stringify(stateObj));
     }
 
     function restoreLayoutState(layoutState) {
-        ['target-panel', 'dashboard-panel'].forEach(id => {
+        ALL_DOCKABLE_PANELS.forEach(({ id, ph: defaultPh }) => {
             const state = layoutState[id];
             if (!state) return;
             const panel = document.getElementById(id);
-            const content = panel.querySelector('.panel-content');
+            if (!panel) return;
+            const content  = panel.querySelector('.panel-content');
             const toggleBtn = panel.querySelector('.toggle-btn');
-            const dockBtn = panel.querySelector('.dock-btn');
-            const placeholder = document.getElementById(id.split('-')[0] + '-placeholder');
+            const dockBtn  = panel.querySelector('.dock-btn');
+            const phId     = state.ph || defaultPh;
+            const placeholder = document.getElementById(phId);
 
-            if (state.minimized) {
-                content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
-                if (state.docked && id === 'dashboard-panel') panel.style.flexGrow = '0';
-            } else {
-                content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
-                if (state.docked && id === 'dashboard-panel') panel.style.flexGrow = '1';
+            // Restore minimize state
+            if (content && toggleBtn) {
+                if (state.minimized) {
+                    content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
+                    if (state.docked && id === 'dashboard-panel') panel.style.flexGrow = '0';
+                } else {
+                    content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
+                    if (state.docked && id === 'dashboard-panel') panel.style.flexGrow = '1';
+                }
             }
 
-            if (!state.docked) {
-                document.body.appendChild(panel);
-                panel.classList.remove('docked'); panel.classList.add('floating');
-                panel.style.top = state.top; panel.style.left = state.left; panel.style.width = state.width; panel.style.height = state.height;
-                dockBtn.style.display = 'inline-block';
-            } else {
+            if (state.docked && placeholder) {
                 placeholder.appendChild(panel);
                 panel.classList.remove('floating', 'active'); panel.classList.add('docked');
                 panel.style.left = ''; panel.style.top = ''; panel.style.width = ''; panel.style.height = '';
-                dockBtn.style.display = 'none';
+                panel.style.display = state.visible ? 'flex' : 'none';
+                if (dockBtn) dockBtn.style.display = 'none';
+            } else {
+                document.body.appendChild(panel);
+                panel.classList.remove('docked'); panel.classList.add('floating');
+                panel.style.top   = state.top   || '';
+                panel.style.left  = state.left  || '';
+                panel.style.width = state.width || '';
+                panel.style.height = state.height || '';
+                panel.style.display = state.visible ? 'flex' : 'none';
+                if (dockBtn) dockBtn.style.display = 'inline-block';
             }
         });
+        updateSidebarVisibility();
+        syncToolsMenuState();
     }
 
     function loadTargetState(defaults) {
