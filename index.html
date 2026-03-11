@@ -2341,11 +2341,13 @@
                 }
             }
 
+            // visible defaults to true when undefined (backwards-compat with old saved state)
+            const isVisible = state.visible !== false;
             if (state.docked && placeholder) {
                 placeholder.appendChild(panel);
                 panel.classList.remove('floating', 'active'); panel.classList.add('docked');
                 panel.style.left = ''; panel.style.top = ''; panel.style.width = ''; panel.style.height = '';
-                panel.style.display = state.visible ? 'flex' : 'none';
+                panel.style.display = isVisible ? 'flex' : 'none';
                 if (dockBtn) dockBtn.style.display = 'none';
             } else {
                 document.body.appendChild(panel);
@@ -2354,7 +2356,7 @@
                 panel.style.left  = state.left  || '';
                 panel.style.width = state.width || '';
                 panel.style.height = state.height || '';
-                panel.style.display = state.visible ? 'flex' : 'none';
+                panel.style.display = isVisible ? 'flex' : 'none';
                 if (dockBtn) dockBtn.style.display = 'inline-block';
             }
         });

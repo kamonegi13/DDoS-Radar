@@ -1897,7 +1897,8 @@ def api_salute_report():
     defcon = strat.get("defcon", 5)
     core   = strat.get("core_theater", "UNKNOWN")
     bd     = strat.get("defcon_breakdown", {})
-    adv    = strat.get("adversary_strikes", [])
+    adv_raw = strat.get("adversary_strikes", [])
+    adv     = [a["actor"] if isinstance(a, dict) else str(a) for a in adv_raw]
     corr   = strat.get("correlations", {})
     isr    = p8.get("isr", {})
     ais    = p8.get("ais", {})
