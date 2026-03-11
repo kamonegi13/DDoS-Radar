@@ -102,7 +102,7 @@ GDELT_TONE_ALERT_THRESHOLD  = float(os.getenv("GDELT_TONE_ALERT_THRESHOLD", "-15
 GDELT_HISTORY_WINDOW        = int(os.getenv("GDELT_HISTORY_WINDOW", "28"))
 CONVERGENCE_DUAL_BONUS      = int(os.getenv("CONVERGENCE_DUAL_BONUS", "1"))
 CONVERGENCE_FULL_BONUS      = int(os.getenv("CONVERGENCE_FULL_BONUS", "2"))
-DEFCON_HYSTERESIS_CYCLES    = int(os.getenv("DEFCON_HYSTERESIS_CYCLES", "1"))
+THREAT_LEVEL_HYSTERESIS_CYCLES = int(os.getenv("THREAT_LEVEL_HYSTERESIS_CYCLES", os.getenv("DEFCON_HYSTERESIS_CYCLES", "1")))
 
 SEVERE_WEATHER_IDS = (
     set(range(200, 233)) | {500, 502, 503, 504} | {521, 522, 531} |
@@ -908,23 +908,23 @@ class WeightedConvergenceEngine:
         level = self.compute_convergence_level(domain_scores)
         bonus = CONVERGENCE_FULL_BONUS if level == "FULL_CONVERGENCE" else CONVERGENCE_DUAL_BONUS if level == "DUAL_DOMAIN" else 0
         return score + bonus, bonus, level
-    def compute_defcon(self, score: int, defcon_1_hard: bool) -> int:
-        if score >= 9 and defcon_1_hard: return 1
+    def compute_threat_level(self, score: int, tl1_hard: bool) -> int:
+        if score >= 9 and tl1_hard: return 1
         if score >= 6: return 2
         if score >= 4: return 3
         if score >= 2: return 4
         return 5
-    def apply_hysteresis(self, new_defcon: int, history: list) -> tuple:
-        if not history: return new_defcon, False
-        last_defcon = history[-1][1]
-        if new_defcon > last_defcon:
-            held = min(new_defcon, last_defcon + 1)
-            return held, (held != new_defcon)
-        return new_defcon, False
-    def build_system_note(self, threat_level: int, domain_scores: dict, convergence_level: str, rationale: list, noise_filters: list, defcon_held: bool = False) -> str:
+    def apply_hysteresis(self, new_tl: int, history: list) -> tuple:
+        if not history: return new_tl, False
+        last_tl = history[-1][1]
+        if new_tl > last_tl:
+            held = min(new_tl, last_tl + 1)
+            return held, (held != new_tl)
+        return new_tl, False
+    def build_system_note(self, threat_level: int, domain_scores: dict, convergence_level: str, rationale: list, noise_filters: list, tl_held: bool = False) -> str:
         fired = [e for e in rationale if isinstance(e, RationaleEntry) and e.status == "FIRED"]
         suppressed = [e for e in rationale if isinstance(e, RationaleEntry) and e.suppressed]
-        held_note = " [HYSTERESIS HOLD]" if defcon_held else ""
+        held_note = " [HYSTERESIS HOLD]" if tl_held else ""
         parts = [f"Assessed THREAT LEVEL {threat_level}{held_note}."]
         conv_label = {"FULL_CONVERGENCE": f"⚡ FULL CONVERGENCE (+{CONVERGENCE_FULL_BONUS}pt bonus)", "DUAL_DOMAIN": f"⚠ DUAL DOMAIN (+{CONVERGENCE_DUAL_BONUS}pt bonus)", "SINGLE_DOMAIN": "Single Domain Activity", "NONE": ""}.get(convergence_level, "")
         if conv_label: parts.append(conv_label + ".")
@@ -1033,7 +1033,7 @@ time_series_ts_db: dict = {}   # {theater: [(ts, val),...]} ← Phase 8: タイ�
 time_series_l3_db: dict = {}
 time_series_l7_db: dict = {}
 airspace_baseline: dict = {}
-defcon_history:    list = []
+threat_history:    list = []
 alert_timeline:    list = []
 ALERT_TIMELINE_MAX = 288
 
@@ -1389,7 +1389,7 @@ def get_threat_data():
     # 国家主導の協調作戦は20〜35%重複が典型。45%は民間大型ボットネット水準で高すぎる。
     high_correlation = any(v > 30.0 for v in correlations.values())
     major_adversary  = len(adversary_strikes) > 0
-    defcon_1_hard = core_spike > 5.0 and core_degraded
+    tl1_hard = core_spike > 5.0 and core_degraded
 
     rationale: list[RationaleEntry] = []
 
@@ -1537,12 +1537,12 @@ def get_threat_data():
     score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
     # Sequence Bonus を最終スコアに加算
     score_with_bonus += seq_bonus
-    defcon_raw = engine.compute_defcon(score_with_bonus, defcon_1_hard)
-    defcon, defcon_held = engine.apply_hysteresis(defcon_raw, defcon_history)
-    defcon_history.append((current_time, defcon))
-    while len(defcon_history) > 20: defcon_history.pop(0)
+    tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard)
+    threat_level, tl_held = engine.apply_hysteresis(tl_raw, threat_history)
+    threat_history.append((current_time, threat_level))
+    while len(threat_history) > 20: threat_history.pop(0)
 
-    system_note = engine.build_system_note(defcon, domain_scores, convergence_level, rationale, noise_filters_applied, defcon_held)
+    system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
 
     # Phase 8 解析結果まとめ
     phase8_analytics = {
@@ -1577,8 +1577,8 @@ def get_threat_data():
     score_breakdown = {
         "core_spike_val": round(core_spike, 2), "core_spike_2x": core_spike > 2.0, "core_spike_4x": core_spike > 4.0, "core_spike_6x": core_spike > 6.0,
         "high_correlation": high_correlation, "core_shifted": core_shifted, "major_adversary": major_adversary, "core_degraded": core_degraded,
-        "is_coordinated": is_coordinated, "defcon_1_hard": defcon_1_hard, "total_score": total_score,
-        "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "score_with_bonus": score_with_bonus, "defcon_raw": defcon_raw, "defcon_held": defcon_held,
+        "is_coordinated": is_coordinated, "tl1_hard": tl1_hard, "total_score": total_score,
+        "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "score_with_bonus": score_with_bonus, "threat_raw": tl_raw, "threat_held": tl_held,
     }
 
     ioda_overlays = [{"code": t, "lat": COUNTRY_COORDS[t]["lat"], "lng": COUNTRY_COORDS[t]["lng"], "name": COUNTRY_COORDS[t]["name"], "status": "BGP_OUTAGE"} for t in degraded_targets_raw if t in COUNTRY_COORDS]
@@ -1587,7 +1587,7 @@ def get_threat_data():
         "time": current_time,
         "data": target_details,
         "strategic": {
-            "core_theater": core_theater, "defcon": defcon, "defcon_score": total_score, "defcon_breakdown": score_breakdown,
+            "core_theater": core_theater, "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
             "correlations": correlations, "correlations_l3": correlations_l3, "correlations_l7": correlations_l7,
             "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
             "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
@@ -1630,7 +1630,7 @@ def get_threat_data():
     }
 
     alert_timeline.append({
-        "ts": current_time, "defcon": defcon, "defcon_raw": defcon_raw, "defcon_held": defcon_held, "score": total_score, "score_with_bonus": score_with_bonus,
+        "ts": current_time, "threat_level": threat_level, "threat_raw": tl_raw, "threat_held": tl_held, "score": total_score, "score_with_bonus": score_with_bonus,
         "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
         "sequence_bonus": seq_bonus, "sequence_status": seq_status,
         "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
@@ -1673,7 +1673,7 @@ def get_threat_data():
         "sensor_health":   registry.health_report(),
         "strategic_alert": global_cache["strategic"],
         "targets":         results,
-        "defcon_history":  defcon_history,
+        "threat_history":  threat_history,
     })
 
 @app.route("/api/sensor_config", methods=["GET", "POST"])
@@ -1711,7 +1711,7 @@ def api_sitrep():
     
     recent, latest, oldest = alert_timeline[-12:], alert_timeline[-1], alert_timeline[0]
     span_min = round((latest["ts"] - oldest["ts"]) / 60) if len(alert_timeline) > 1 else 0
-    levels = [e["defcon"] for e in recent]
+    levels = [e["threat_level"] for e in recent]
     min_d, max_d, avg_d = min(levels), max(levels), round(sum(levels) / len(levels), 1)
     
     conv_counts = {}
@@ -1727,7 +1727,7 @@ def api_sitrep():
     
     trend = "INSUFFICIENT DATA"
     if len(levels) >= 3:
-        trend_val = latest["defcon"] - levels[0] 
+        trend_val = latest["threat_level"] - levels[0]
         trend = "ESCALATING" if trend_val < 0 else "DE-ESCALATING" if trend_val > 0 else "STABLE"
 
     core = latest.get("core_theater") or "UNKNOWN"
@@ -1739,7 +1739,7 @@ def api_sitrep():
         f"DTG: {now_ts.strftime('%d%H%MZ %b %Y').upper()}",
         "--------------------------------------------------",
         "1. OVERALL ASSESSMENT",
-        f"   CURRENT THREAT LEVEL : LEVEL {latest['defcon']} [{trend}]",
+        f"   CURRENT THREAT LEVEL : LEVEL {latest['threat_level']} [{trend}]",
         f"   PRIMARY THEATER      : {core}",
         f"   CONVERGENCE STATE    : {dominant_conv.replace('_', ' ')}",
         f"   OBSERVATION WINDOW   : {span_min} MIN / {len(alert_timeline)} CYCLES",
@@ -1770,7 +1770,7 @@ def api_sitrep():
         "ts": now_ts.isoformat(), 
         "text": "\n".join(text_lines),
         "summary": {
-            "threat_current": latest["defcon"], 
+            "threat_current": latest["threat_level"],
             "threat_trend": trend, 
             "threat_min_1h": max_d, 
             "threat_max_1h": min_d, 
@@ -1838,7 +1838,7 @@ def api_phase8_analytics():
 
     # Blockade Index: core DDoS spike / IODA degradation factor
     strategic = global_cache.get("strategic", {})
-    core_spike_v = strategic.get("defcon_breakdown", {}).get("core_spike_val", 0.0)
+    core_spike_v = strategic.get("threat_breakdown", {}).get("core_spike_val", 0.0)
     is_degraded  = theater_param in strategic.get("degraded_theaters", [])
     blockade_idx = round(min(core_spike_v, 10.0) / max(0.1 if is_degraded else 1.0, 0.1), 2)
 
@@ -1919,9 +1919,9 @@ def api_salute_report():
     p8    = strat.get("phase8", {})
     now_ts = datetime.datetime.now(datetime.timezone.utc)
     dtg = now_ts.strftime("%d%H%MZ %b %Y").upper()
-    defcon = strat.get("defcon", 5)
+    threat_level = strat.get("threat_level", 5)
     core   = strat.get("core_theater", "UNKNOWN")
-    bd     = strat.get("defcon_breakdown", {})
+    bd     = strat.get("threat_breakdown", {})
     adv_raw = strat.get("adversary_strikes", [])
     adv     = [a["actor"] if isinstance(a, dict) else str(a) for a in adv_raw]
     corr   = strat.get("correlations", {})
@@ -1968,14 +1968,14 @@ def api_salute_report():
     equip_parts = []
     if bd.get("core_shifted"):     equip_parts.append("L7 HTTP FLOOD (DECISION-PARALYSIS TYPE)")
     elif bd.get("core_spike_val", 0) > 2: equip_parts.append("L3 BANDWIDTH EXHAUSTION (BLINDING TYPE)")
-    if bd.get("defcon_1_hard"):    equip_parts.append("INFRASTRUCTURE NEUTRALIZATION CAPABILITY")
+    if bd.get("tl1_hard"):         equip_parts.append("INFRASTRUCTURE NEUTRALIZATION CAPABILITY")
     if isr.get("is_surge"):        equip_parts.append("ISR PLATFORM DEPLOYMENT")
     if ais.get("dark_gaps", 0):    equip_parts.append("COVERT MARITIME ELEMENT")
     equip = "; ".join(equip_parts) if equip_parts else "STANDARD CYBER TOOLS"
 
     # ASSESSMENT
     sig_map = {1: "CRITICAL", 2: "HIGH", 3: "SIGNIFICANT", 4: "MODERATE", 5: "ROUTINE"}
-    significance = sig_map.get(defcon, "UNKNOWN")
+    significance = sig_map.get(threat_level, "UNKNOWN")
 
     bi_interp = (
         "INFRASTRUCTURE_NEUTRALIZATION" if bi >= 7.0 else
@@ -1992,7 +1992,7 @@ def api_salute_report():
         "time":         dtg,
         "equipment":    equip,
         "assessment":   significance,
-        "threat_level": defcon,
+        "threat_level": threat_level,
         "blockade_interpretation": bi_interp,
         "blockade_index": bi,
         "sequence_status": seq,
@@ -2011,7 +2011,7 @@ def api_weather_brief():
     """
     strat = global_cache.get("strategic", {})
     p8    = strat.get("phase8", {})
-    bd    = strat.get("defcon_breakdown", {})
+    bd    = strat.get("threat_breakdown", {})
     isr   = p8.get("isr", {})
     ais   = p8.get("ais", {})
     narr  = p8.get("narrative", {})
