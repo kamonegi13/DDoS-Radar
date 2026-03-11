@@ -279,7 +279,6 @@
         .rat-score-zero { color: #444; }
         .evidence-system-note { font-size: 11px; color: #aaa; background: rgba(255,255,255,0.04); border-left: 3px solid #555; padding: 8px 12px; border-radius: 0 4px 4px 0; margin: 12px 0 8px; line-height: 1.6; }
         .convergence-row { display: flex; gap: 16px; margin: 8px 0 4px; flex-wrap: wrap; }
-<<<<<<< HEAD
 
         /* ── Phase 8: Evidence Chain Timeline ── */
         #p8-chain-panel { position: fixed; right: 16px; top: 120px; width: 260px; background: rgba(10,12,16,0.96); border: 1px solid #00ffff40; border-radius: 6px; padding: 12px; z-index: 4000; font-size: 11px; display: none; max-height: 70vh; overflow-y: auto; }
@@ -302,8 +301,6 @@
         /* Phase 8: Narrative Burst インジケーター */
         #hud-narrative-burst { display: none; }
         #hud-narrative-burst.active { display: inline-block; color: #cc66ff; font-weight: bold; animation: blink 1.2s step-end infinite; font-size: 11px; }
-=======
->>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         .convergence-item { font-size: 12px; }
         .conv-val { font-weight: bold; color: #00ffff; }
 
@@ -390,10 +387,7 @@
             <button id="vec-btn-l7"  class="vec-btn"            onclick="switchVector('l7')">L7 APPLICATION</button>
         </div>
         <button id="btn-sync-top" class="btn-tactical btn-sync" onclick="forceDataSync()">SYNC</button>
-<<<<<<< HEAD
         <button class="btn-tactical btn-action" onclick="toggleChainPanel()" data-tooltip="Evidence Chain Timeline — Escalation Sequence Viewer">CHAIN</button>
-=======
->>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         <button class="btn-tactical btn-action" onclick="openSitrep()">SITREP</button>
         <button class="btn-tactical btn-action" onclick="openModal('help-modal')">Intel Guide</button>
         <button class="btn-tactical btn-action" onclick="openModal('settings-modal')">Config</button>
@@ -405,7 +399,6 @@
         <div class="hud-item"><span class="hud-label">Strikes:</span> <span id="hud-strikes" class="hud-value">-</span></div>
         <div class="hud-item"><span class="hud-label">BGP:</span> <span id="hud-outages" class="hud-value">-</span></div>
         <div class="hud-item"><span class="hud-label">Multi-Front:</span> <span id="hud-coordinated" class="hud-value">-</span></div>
-<<<<<<< HEAD
         <!-- Phase 8: Velocity Meter -->
         <div class="hud-item" data-tooltip="Rate of Escalation (1st derivative of threat score). Destroys Normalcy Bias by showing DIRECTION of change.">
             <span class="hud-label">VELOCITY:</span>
@@ -427,8 +420,6 @@
             <span class="hud-label">CHAIN:</span>
             <span id="hud-chain" class="hud-value" style="font-size:10px;">—</span>
         </div>
-=======
->>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap">
             <div id="hud-domain-cyber"    class="domain-bar-row" data-tooltip="Cyber domain score"><span class="domain-label">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
             <div id="hud-domain-physical" class="domain-bar-row" data-tooltip="Physical domain score"><span class="domain-label">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
@@ -574,7 +565,6 @@
     </div>
 </div>
 
-<<<<<<< HEAD
 <!-- Phase 8: Evidence Chain Timeline サイドパネル（固定オーバーレイ） -->
 <div id="p8-chain-panel">
     <div class="p8-panel-title">
@@ -603,8 +593,6 @@
     </div>
 </div>
 
-=======
->>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
 <div id="evidence-modal" class="modal-window" style="width:800px;">
     <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #333; padding-bottom:10px;">
         <div>Analytic Rationale — Evidence Panel</div>
@@ -640,9 +628,21 @@
     <div class="manual-content">
 
         <p>This platform is a <b>Strategic OSINT Cyber Radar (MDO C4ISR)</b> designed to detect <b>Kinetic Warfare Precursors</b> — indicators across Cyber, Physical, and Information domains that historically precede or accompany physical military action. All data is derived from open-source intelligence (OSINT). The system is calibrated against confirmed historical precedents: Russia→Ukraine (Feb 2022), China→Taiwan Strait (Aug 2022, Pelosi visit), and DPRK persistent operations against the Korean Peninsula.</p>
-        <p style="color:#888; font-size:11px;">Data refreshes automatically every 15 minutes. Use <span class="code-block">SYNC</span> to force an immediate update. Sensor poll intervals vary by source (see Section 1).</p>
+        <p style="color:#888; font-size:11px;">Data refreshes automatically every 15 minutes. Use <span class="code-block">SYNC</span> to force an immediate update. Sensor poll intervals vary by source (see Section 1). <b>Phase 8</b> added 3 new sensors, a Derivative Engine, a Sequence Scorer, and four new HUD gauges.</p>
 
-        <h4>1. Multi-Domain Sensor Architecture (9 Active Sensors)</h4>
+        <div style="border:1px solid #ff440044; background:rgba(255,68,0,0.06); border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
+            <div style="color:#ff8844; font-weight:bold; font-size:12px; letter-spacing:1px; margin-bottom:6px;">PHASE 8 — NEW IN THIS VERSION</div>
+            <ul style="margin:0; padding-left:18px; font-size:11px; color:#ccc; line-height:1.9;">
+                <li><b>DDoS Acceleration Engine</b> — 1st/2nd derivative of threat score. Ambush Pattern detection (2階微分 Z-Score &gt; 2.0).</li>
+                <li><b>RSS Narrative Burst Sensor</b> — Z-Score analysis of TASS / Xinhua / Mehr / RT / KCNA feeds against a 30-day baseline. Filters daily propaganda noise; alerts only on statistically significant tactical keyword spikes.</li>
+                <li><b>ISR Hotspot Sensor</b> — OpenSky Network filtered by ISR aircraft characteristics (high-alt &gt;9000 m, low-speed &lt;160 m/s, military squawk/callsign) over 10 strategic chokepoints. Independent of civilian airspace monitoring.</li>
+                <li><b>AIS Maritime Sensor</b> — AISHub public data for undersea cable chokepoints. Detects AIS Dark Gaps (≥1 h transmission blackout) and stationary non-commercial vessels.</li>
+                <li><b>Sequence Scorer</b> — Validates the logical escalation chain [Narrative Burst → ISR Surge → Sync DDoS → Kinetic Anomaly] within a 24 h window. Grants up to +3 pts bonus if full chain confirmed.</li>
+                <li><b>HUD</b> — VELOCITY meter, AMBUSH alert, BLOCKADE INDEX gauge, CHAIN badge, Evidence Chain Timeline side panel.</li>
+            </ul>
+        </div>
+
+        <h4>1. Multi-Domain Sensor Architecture (12 Active Sensors)</h4>
 
         <p><b>Cyber Domain (Weight: 0.50) — Highest weighted domain. Nation-state cyber operations consistently precede kinetic action by 24–72 hours.</b></p>
         <ul>
@@ -651,25 +651,29 @@
             </li>
             <li><i>ThreatFox (abuse.ch) API</i> [Poll: 30 min]: Queries the ThreatFox threat intelligence feed for APT-tagged IoCs (Indicators of Compromise) published within the past 24 hours. Matches IoCs by APT tag or target country name. A hit indicates that known advanced persistent threat infrastructure is active and associated with the monitored theater. Authentication via <span class="code-block">THREATFOX_API_KEY</span> (Auth-Key header, required since 2024 policy change).</li>
             <li><i>RIPE Stat BGP Routing</i> [Poll: 10 min]: Monitors BGP prefix announcements for the core theater via RIPE NCC. Triggers when announced prefix count drops by &gt;15% relative to the prior poll, indicating mass route withdrawal — a known precursor to internet isolation maneuvers (ref: Russia 2022, Iran 2019).</li>
+            <li style="border-left:2px solid #ff8844; padding-left:8px;"><b>[Phase 8]</b> <i>DDoS Acceleration Engine</i> [Computed in-engine, no external poll]: Computes 1st derivative (velocity, pt/s) and 2nd derivative (acceleration, pt/s²) of the core theater's threat score time series using linear regression over a rolling window (<span class="code-block">DERIVATIVE_WINDOW=5</span> points). An <b>Ambush Pattern</b> is declared when the acceleration's Z-Score (vs. its own rolling history) exceeds <span class="code-block">AMBUSH_ZSCORE_THRESHOLD=2.0</span> <i>and</i> both velocity and acceleration are positive — indicating exponential escalation rather than linear growth. Adds +2 to Cyber domain when fired. The VELOCITY HUD meter displays escalation rate in threat-points per poll cycle. Destroys Normalcy Bias by showing the direction and rate of change, not just the current level.</li>
         </ul>
 
-        <p><b>Physical/Logistics Domain (Weight: 0.30) — Encompasses infrastructure, airspace, and kinetic pre-strike indicators.</b></p>
+        <p><b>Physical/Logistics Domain (Weight: 0.30) — Encompasses infrastructure, airspace, maritime, and kinetic pre-strike indicators.</b></p>
         <ul>
             <li><i>IODA API (CAIDA)</i> [Poll: 10 min]: Internet Outage Detection and Analysis. Tracks BGP-based internet reachability and active probing (ping) success rates for each monitored country. A simultaneous drop in both BGP routes and active probing indicates a significant infrastructure outage. This sensor correlates with BGP Routing for confirmation.</li>
             <li><i>NASA EONET Wildfire API</i> [Poll: 15 min]: Real-time open wildfire/thermal event data from NASA's Earth Observatory Natural Event Tracker. For each monitored theater, events within ±10° latitude/longitude of the theater's centroid coordinates are flagged. Wildfires near strategic military positions or logistics corridors may indicate kinetic strikes, artillery fires, or pre-conflict infrastructure destruction — particularly when correlated with GDELT tone collapse and cyber spikes. Note: This sensor replaced the original NASA FIRMS endpoint, which is unreachable from this network environment. EONET requires no API key. Coordinates are in GeoJSON [longitude, latitude] format.</li>
-            <li><i>OpenSky Network</i> [Poll: 3 min]: Civilian airspace monitoring over predefined airport bounding boxes for each theater. Computes a 20-cycle rolling baseline of observed aircraft count. An ANOMALY is triggered when current count deviates by &gt;40% from baseline; CLOSURE is triggered when count drops below 5% of baseline, indicating near-total civilian airspace suspension — historically observed 12–48 hours before military action begins. Weather suppression is applied when OpenWeatherMap reports severe conditions over the target.</li>
+            <li><i>OpenSky Network (Civilian)</i> [Poll: 3 min]: Civilian airspace monitoring over predefined airport bounding boxes for each theater. Computes a 20-cycle rolling baseline of observed aircraft count. An ANOMALY is triggered when current count deviates by &gt;40% from baseline; CLOSURE is triggered when count drops below 5% of baseline, indicating near-total civilian airspace suspension — historically observed 12–48 hours before military action begins. Weather suppression is applied when OpenWeatherMap reports severe conditions over the target.</li>
             <li><i>PeeringDB / IXP Chokepoints</i> [Poll: 60 min]: Static reference layer showing registered Internet Exchange Points (IXPs) and undersea cable landing stations critical to the monitored theater. Used as geographic context for interpreting BGP anomalies and physical infrastructure targeting. Displayed as cyan diamond markers on the map.</li>
+            <li style="border-left:2px solid #ff8844; padding-left:8px;"><b>[Phase 8]</b> <i>ISR Hotspot Sensor (OpenSky — Military ISR)</i> [Poll: 5 min]: Monitors 10 strategically defined ISR_HOTSPOT bounding boxes (200 km radius around Taiwan Strait, East China Sea, Spratlys, Korean DMZ, Black Sea, Baltic, etc.) for Intelligence, Surveillance, and Reconnaissance (ISR) aircraft. <b>Detection logic:</b> aircraft are flagged as ISR-pattern if they meet ANY of: (1) altitude &gt;9,000 m AND speed &lt;160 m/s (slow, high-altitude orbit); (2) squawk code 7777 (government/military transponder); (3) callsign prefix matches known ISR designations (FORTE, JAKE, MYSTIC, RICO, TROLL, etc.). An <b>ISR Surge</b> is declared when ≥3 qualifying aircraft (<span class="code-block">ISR_SURGE_THRESHOLD</span>) are observed simultaneously within a hotspot. Adds +2 to Physical domain when fired. <i>This sensor is independent of the civilian OpenSky sensor — it monitors sea straits and patrol corridors, not airports.</i></li>
+            <li style="border-left:2px solid #ff8844; padding-left:8px;"><b>[Phase 8]</b> <i>AIS Maritime Sensor (AISHub)</i> [Poll: 30 min]: Monitors vessels near critical undersea cable chokepoints (Taiwan Strait, Luzon Strait, Miyako Strait, Hormuz, Bab-el-Mandeb, Baltic, Bosphorus, etc.) using AISHub's public position data. Two anomaly types are detected: (1) <b>AIS Dark Gap</b> — a vessel previously tracked near a chokepoint has not transmitted AIS for &gt;<span class="code-block">AIS_DARK_GAP_THRESHOLD=3600</span> seconds (1 hour), consistent with deliberate radio silence (e.g., submarine positioning, covert survey vessel); (2) <b>Stationary Anomaly</b> — a non-commercial, non-fishing vessel (AIS ship type not in classes 60–89) is moving at &lt;0.5 knots within <span class="code-block">AIS_ANCHOR_RADIUS_KM=50</span> km of a chokepoint. Adds +1 to Physical domain. Dark gap markers are displayed on the map (blue vessel icons).</li>
         </ul>
 
         <p><b>Information Domain (Weight: 0.20) — Propaganda and diplomatic tone analysis. Typically the earliest leading indicator, shifting 48–96 hours ahead of operations.</b></p>
         <ul>
             <li><i>GDELT TimelineTone API</i> [Poll: 15 min]: Queries the Global Database of Events, Language, and Tone for media coverage of the core theater. Computes a rolling 28-day average tone and compares against the configured alert threshold. A tone score below <b>–12.0</b> constitutes an alert. Calibration reference: Russia→Ukraine onset showed –12 to –15; invasion-day readings reached –18 to –25. The –12.0 threshold provides early-warning sensitivity without excessive peacetime noise. Weather suppression is applied during severe weather conditions.</li>
+            <li style="border-left:2px solid #ff8844; padding-left:8px;"><b>[Phase 8]</b> <i>RSS Narrative Burst Sensor</i> [Poll: 30 min]: Scrapes five state-affiliated RSS feeds simultaneously: TASS (RU), Xinhua (CN), Mehr News (IR), RT, and KCNA Watch (KP). For each theater, a list of theater-specific <b>tactical keywords</b> is matched against article titles and descriptions (e.g., for Taiwan: "military measures," "final warning," "crossing median line," "live-fire exercise"). <b>Daily noise filtering:</b> instead of counting raw hits, the system computes a <i>normalized frequency</i> (keyword hits ÷ total articles) and runs Z-Score analysis against a 30-day rolling baseline. <b>Alert thresholds:</b> Z &gt; <span class="code-block">NARRATIVE_ZSCORE_ALERT=2.0</span> → BURST (+1 pt, Info domain); Z &gt; <span class="code-block">NARRATIVE_ZSCORE_CRITICAL=3.0</span> → CRITICAL_BURST (+2 pt). Duplicate articles (title similarity &gt;85%) are excluded using difflib. A Z-Score of 2.0 means the current tactical keyword density is 2 standard deviations above the 30-day average — statistically unusual even for adversary state media. The baseline must accumulate ≥7 days of data before alerting begins (cold-start guard). This sensor deliberately ignores steady-state propaganda; it is triggered only by acute, statistically anomalous surges in military-operational language that correlates with actual preparation cycles.</li>
         </ul>
 
         <p><b>Noise Mitigation & Human-in-the-Loop (HITL) Control:</b></p>
         <ul>
             <li><i>OpenWeatherMap</i> [Poll: 30 min]: If severe weather (thunderstorms, blizzard, hurricane, etc.) is detected over the core theater, physical domain alerts (IODA BGP outages, OpenSky airspace anomalies) and information domain alerts (GDELT tone) are automatically marked <b>SUPPRESSED</b> and excluded from scoring. This prevents weather events from creating false escalations.</li>
-            <li><i>Analyst MUTE (HITL Override):</i> Every sensor entry in the Evidence Panel shows a <b>[ MUTE ]</b> button. Clicking it immediately excludes that sensor's score contribution from the threat calculation and re-runs convergence. Muted sensors are persisted in browser local storage across sessions. Use this to suppress known false positives while preserving the full audit trail. When multiple sensors are muted simultaneously, the system correctly recalculates domain weights with remaining active sensors only.</li>
+            <li><i>Analyst MUTE (HITL Override):</i> Every sensor entry in the Evidence Panel shows a <b>[ MUTE ]</b> button. Clicking it immediately excludes that sensor's score contribution from the threat calculation and re-runs convergence. Muted sensors are persisted in browser local storage across sessions. Use this to suppress known false positives while preserving the full audit trail. When multiple sensors are muted simultaneously, the system correctly recalculates domain weights with remaining active sensors only. <b>All 12 sensors including Phase 8 additions support MUTE.</b></li>
         </ul>
 
         <h4>2. Map Symbology & Overlay Layers</h4>
@@ -694,28 +698,34 @@
                     <li><span style="color:#ff4400; font-size:15px;">🔥</span> <b>Wildfire/Thermal Anomaly (NASA EONET):</b> Active open wildfire event within ±10° of a monitored theater. High confidence when co-located with military infrastructure.</li>
                     <li><span style="color:#00ffff; font-size:14px;">◆</span> <b>Chokepoint (PeeringDB):</b> Critical undersea cable landing station or IXP. Monitor for physical infrastructure targeting.</li>
                     <li><span style="color:#ff8800; font-size:14px;">▼</span> <b>BGP Outage (IODA):</b> Country-level internet infrastructure outage confirmed by CAIDA IODA.</li>
+                    <li><span style="color:#ffaa00; font-size:14px;">✈</span> <b>[Phase 8] ISR Hotspot (IsrHotspotSensor):</b> Strategic ISR patrol zone. Icon turns red when ISR Surge threshold is exceeded (≥3 qualifying aircraft). Hotspots include Taiwan Strait, Miyako Strait, East China Sea ADIZ, Spratly Islands, Korean DMZ, Baltic Air Policing Zone, Black Sea NATO Patrol Zone, and others.</li>
+                    <li><span style="color:#44aaff; font-size:14px;">⚓</span> <b>[Phase 8] AIS Dark Gap / Stationary Anomaly (AisMaritimeSensor):</b> Vessel near a chokepoint with AIS transmission blackout ≥1 h, or non-commercial vessel anchored within 50 km of a cable landing station. Consistent with covert survey operations, submarine positioning, or pre-sabotage staging.</li>
                 </ul>
             </li>
             <li><b>Map View Toggle:</b> Switch between Pacific-centered view (default, Taiwan Strait theater) and Atlantic-centered view (European theater) using the <span class="code-block">PAC / ATL</span> buttons.</li>
         </ul>
 
-        <h4>3. Scoring Engine & Convergence Algorithm</h4>
-        <p>The <b>WeightedConvergenceEngine</b> evaluates a <b>Raw Threat Score</b> from all enabled, non-suppressed sensor signals, then applies a cross-domain convergence bonus. Maximum theoretical score exceeds 16 points.</p>
+        <h4>3. Scoring Engine & Convergence Algorithm (Phase 8 Extended)</h4>
+        <p>The <b>WeightedConvergenceEngine</b> evaluates a <b>Raw Threat Score</b> from all enabled, non-suppressed sensor signals, then applies a cross-domain convergence bonus and a Sequence Bonus. Maximum theoretical score exceeds 22 points (Phase 8).</p>
 
         <p><b>Raw Score Components:</b></p>
         <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #555; line-height: 1.8;">
-            <li>[Cyber] cf_spike_core:     Core theater weighted avg spike &gt;2× (+1), &gt;4× (+1), &gt;6× (+1) — max +3</li>
-            <li>[Cyber] cf_adversary_strike: Adversary state (CN/RU/KP) direct strike ≥4× spike with &gt;3% abs traffic → +2</li>
-            <li>[Cyber] cf_botnet_overlap:  Shared botnet overlap with allied theater &gt;30% → +1</li>
-            <li>[Cyber] cf_vector_shift:    L7 app-layer avg spike &gt;2.5× AND &gt;1.5× greater than L3 avg → +1</li>
-            <li>[Cyber] cf_coordinated:     ≥2 strategic theaters simultaneously above 3× spike → +1</li>
-            <li>[Cyber] ripe_bgp:           BGP prefix withdrawal &gt;15% → +1</li>
-            <li>[Cyber] threatfox:          APT-tagged IoC matched to theater in past 24h → +1</li>
-            <li>[Physical] ioda_bgp:        Confirmed BGP/probing outage (weather-filtered) → +1</li>
-            <li>[Physical] opensky:         Airspace ANOMALY (≥40% deviation from 20-cycle baseline) → +2</li>
-            <li>[Physical] opensky:         Airspace CLOSURE (&lt;5% of baseline, near-total suspension) → +3</li>
-            <li>[Physical] nasa_firms:      NASA EONET wildfire within ±10° of theater centroid → +3</li>
-            <li>[Info]   gdelt:             GDELT media tone &lt; –12.0 (28-day rolling avg, weather-filtered) → +1</li>
+            <li>[Cyber]    cf_spike_core:       Core theater weighted avg spike &gt;2× (+1), &gt;4× (+1), &gt;6× (+1) — max +3</li>
+            <li>[Cyber]    cf_adversary_strike: Adversary state (CN/RU/KP) direct strike ≥4× spike with &gt;3% abs traffic → +2</li>
+            <li>[Cyber]    cf_botnet_overlap:   Shared botnet overlap with allied theater &gt;30% → +1</li>
+            <li>[Cyber]    cf_vector_shift:     L7 app-layer avg spike &gt;2.5× AND &gt;1.5× greater than L3 avg → +1</li>
+            <li>[Cyber]    cf_coordinated:      ≥2 strategic theaters simultaneously above 3× spike → +1</li>
+            <li>[Cyber]    ripe_bgp:            BGP prefix withdrawal &gt;15% → +1</li>
+            <li>[Cyber]    threatfox:           APT-tagged IoC matched to theater in past 24h → +1</li>
+            <li>[Cyber]    ddos_acceleration:   Ambush Pattern (2nd-deriv Z-Score &gt; 2.0, positive accel) → +2  ★Phase 8</li>
+            <li>[Physical] ioda_bgp:            Confirmed BGP/probing outage (weather-filtered) → +1</li>
+            <li>[Physical] opensky:             Airspace ANOMALY (≥40% deviation from 20-cycle baseline) → +2</li>
+            <li>[Physical] opensky:             Airspace CLOSURE (&lt;5% of baseline, near-total suspension) → +3</li>
+            <li>[Physical] nasa_firms:          NASA EONET wildfire within ±10° of theater centroid → +3</li>
+            <li>[Physical] isr_hotspot:         ISR Surge ≥3 qualifying aircraft at strategic hotspot → +2  ★Phase 8</li>
+            <li>[Physical] ais_maritime:        AIS Dark Gap or Stationary anomaly at chokepoint → +1  ★Phase 8</li>
+            <li>[Info]     gdelt:               GDELT media tone &lt; –12.0 (28-day rolling avg, weather-filtered) → +1</li>
+            <li>[Info]     rss_narrative:       Narrative Burst Z &gt; 2.0 → +1; Critical Burst Z &gt; 3.0 → +2  ★Phase 8</li>
         </ul>
 
         <p><b>Domain Convergence Bonus</b> — Applied when anomalies simultaneously span multiple domains, indicating coordinated multi-domain operations (MDO) rather than isolated incidents:</p>
@@ -724,6 +734,28 @@
             <li><span style="color:#ff2a2a; font-weight:bold;">FULL CONVERGENCE</span>: All 3 domains (Cyber + Physical + Info) simultaneously active → <b>+2 pts</b></li>
         </ul>
         <p style="color:#888; font-size:11px;">A domain is considered "active" when its weighted score contribution exceeds the domain threshold. Full Convergence is the strongest signal for pre-kinetic operations — historical data shows this pattern in both the 2022 Ukraine invasion and the 2022 Taiwan Strait exercises.</p>
+
+        <p><b>[Phase 8] Sequence Bonus</b> — Applied on top of convergence bonus when the logical escalation chain is confirmed within a 24-hour window. This mechanism prevents confirmation bias by requiring cross-domain evidence in the correct logical order of operations:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #ff8844; line-height: 1.8;">
+            <li>Chain definition (loosely ordered — existence within 24h window, not strict sequential):
+                <br>  [1] NARRATIVE_BURST — Tactical keyword Z-Score spike in state media
+                <br>  [2] ISR_SURGE       — Reconnaissance aircraft detected at strategic hotspot
+                <br>  [3] SYNC_DDOS      — Coordinated DDoS from ≥2 theaters with high botnet overlap
+                <br>  [4] FIRMS_ANOMALY  — Thermal/kinetic event from NASA EONET</li>
+            <li>4/4 chain confirmed within 24h → SEQUENCE_FULL_BONUS = +3 pts</li>
+            <li>3/4 chain confirmed within 24h → SEQUENCE_PARTIAL_BONUS = +1 pt</li>
+            <li>&lt;3 events → no bonus (insufficient pattern)</li>
+        </ul>
+        <p style="color:#888; font-size:11px;"><b>Design rationale:</b> The sequence bonus is the system's primary anti-confirmation-bias mechanism. A single dramatic DDoS spike could be a civilian botnet. A narrative burst alone is daily adversary media. Only when multiple independent physical, cyber, and information indicators co-occur in the logical pattern of pre-kinetic preparation does the system grant an escalation bonus — forcing the analyst to see evidence across domains, not just within one.</p>
+
+        <p><b>Blockade Index</b> — A computed gauge (displayed in the HUD) that distinguishes "political noise" DDoS from real infrastructure neutralization:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #ff8844; line-height: 1.6;">
+            <li>Formula:  Blockade Index = min(DDoS_spike_core, 10) ÷ (0.1 if BGP_degraded else 1.0)</li>
+            <li>NORMAL               — Index &lt; 1.5: DDoS present but infrastructure remains reachable. Typical of signaling operations.</li>
+            <li>POLITICAL_NOISE      — Index 1.5–3.9: Significant cyber activity, no confirmed infrastructure impact.</li>
+            <li>SEVERE_DISRUPTION    — Index 4.0–6.9: High DDoS concurrent with partial BGP degradation.</li>
+            <li>INFRASTRUCTURE_NEUTRALIZATION — Index ≥ 7.0: Massive DDoS + confirmed BGP outage. Pre-invasion blackout signature.</li>
+        </ul>
 
         <p><b>Botnet Overlap Calibration:</b> The 30% threshold reflects confirmed nation-state coordinated attack patterns (20–35% shared botnet infrastructure, per post-incident forensics of GRU/Sandworm operations). The previous 45% threshold matched large civilian botnet patterns (Mirai-class) and was too insensitive to state-directed attacks that use diverse, smaller botnets.</p>
 
@@ -750,8 +782,23 @@
             <li><b>Cross-domain confirmation first:</b> Do not escalate based on a single domain. A DDoS spike alone (Cyber only) is insufficient — civilian botnets routinely produce 3–5× spikes. Full Convergence (Cyber + Physical + Info) is the minimum standard for Level 2 escalation recommendations.</li>
             <li><b>Use HITL MUTE for known false positives:</b> If a sensor is producing noise from a confirmed non-hostile source (e.g., a major sporting event causing airspace anomalies, or a legitimate CDN maintenance window causing BGP shifts), mute it in the Evidence Panel. The mute state persists across page reloads via browser local storage.</li>
             <li><b>SITREP for command reporting:</b> Use the <span class="code-block">SITREP</span> button to generate a formatted Situation Report suitable for command-level notification. The report includes domain breakdown, sensor evidence, and trend indicators.</li>
-            <li><b>Baseline awareness:</b> Spike ratios are only computed when the 7-day rolling baseline has been populated. On first startup, the system requires approximately 7 days of sensor operation to establish accurate baselines. During this period, spike scores will be conservatively suppressed (has_baseline guard active). The Data Status panel shows baseline population progress per sensor.</li>
+            <li><b>Baseline awareness:</b> Spike ratios are only computed when the 7-day rolling baseline has been populated. On first startup, the system requires approximately 7 days of sensor operation to establish accurate baselines. During this period, spike scores will be conservatively suppressed (has_baseline guard active). The Data Status panel shows baseline population progress per sensor. <b>[Phase 8]</b> The RSS Narrative Sensor similarly requires ≥7 days of data before its Z-Score alerts are active.</li>
             <li><b>GDELT tone interpretation:</b> Tone of –12.0 marks the threshold for early military tension rhetoric in open media. Values of –15 to –18 indicate active crisis framing. Values below –18 historically correspond to imminent or ongoing kinetic action. A sudden 3–5 point tone drop within a single polling cycle (15 min) is more significant than a gradual decline to the same value.</li>
+            <li><b>[Phase 8] CHAIN panel for escalation narrative:</b> Click the <span class="code-block">CHAIN</span> button (top-right of HUD) to open the Evidence Chain Timeline. This panel shows the last 24 hours of escalation events (Narrative Burst → ISR Surge → Sync DDoS → Kinetic Anomaly) with timestamps, enabling the analyst to see the "story" behind the threat score — not just a number. A FULL CHAIN confirmation (+3 pts) means all four event types occurred within 24 hours and is a strong indicator of coordinated multi-domain preparation.</li>
+            <li><b>[Phase 8] VELOCITY meter interpretation:</b> The VELOCITY display shows threat-score change rate in points-per-poll-cycle (≈900 seconds). A stable situation reads "STABLE" (grey). Positive velocity (red, ↑) means the threat level is actively rising. Negative velocity (green, ↓) means the situation is improving. An <span style="color:#ff2200;font-weight:bold;">⚡ AMBUSH</span> alert (blinking red) means the <i>rate of change itself</i> is accelerating exponentially — the system detected a 2nd-derivative spike, the mathematical signature of a rapidly compressing attack window rather than a gradual escalation. This is the most time-critical signal in the system.</li>
+            <li><b>[Phase 8] Blockade Index interpretation:</b> The BLOCKADE gauge on the HUD distinguishes DDoS operations by their actual infrastructure impact. A high-volume DDoS that doesn't degrade BGP reachability (<span style="color:#888;">Index &lt; 1.5</span>) is political signaling. An <span style="color:#ff2200;">INFRASTRUCTURE_NEUTRALIZATION</span> reading (Index ≥ 7.0) means the adversary is achieving actual internet blackout alongside the DDoS — the pattern seen 30–90 minutes before the Russian ground invasion of Ukraine in February 2022.</li>
+        </ul>
+
+        <h4>7. API Reference (Analyst / Integration Endpoints)</h4>
+        <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
+            <li><span class="code-block">GET /api/data?core=TW&correlates=JP,US&adversaries=CN,RU</span> — Primary data feed. Returns all sensor data, threat scores, domain breakdown, Phase 8 analytics block.</li>
+            <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — Full threat level history (up to 24h / 288 cycles). Includes velocity, ambush flag, blockade index per cycle.</li>
+            <li><span class="code-block">GET /api/sitrep</span> — Machine-readable SITREP with trend, domain activity, convergence state.</li>
+            <li><span class="code-block">GET /api/data_status</span> — Sensor health, poll intervals, last fetch times, error logs.</li>
+            <li><span class="code-block">GET /api/sensor_config</span> — List all sensors with enabled/domain/health status.</li>
+            <li><span class="code-block">POST /api/sensor_config</span> — Enable/disable a sensor by name. Body: <span class="code-block">{"name":"rss_narrative","enabled":false}</span></li>
+            <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> <b>[Phase 8]</b> — Returns escalation chain events for the specified theater within the 24 h window, including timestamps, event types, and chain bonus status.</li>
+            <li><span class="code-block">GET /api/phase8_analytics?theater=TW</span> <b>[Phase 8]</b> — Full Phase 8 diagnostic dump: velocity series, acceleration, ambush Z-score, narrative Z-score, ISR aircraft count, AIS dark gaps, blockade index with interpretation label.</li>
         </ul>
 
     </div>
@@ -872,7 +919,6 @@
         document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
         document.getElementById('settings-backdrop').style.display = 'none';
     }
-<<<<<<< HEAD
 
     // ── Phase 8: Evidence Chain Panel ────────────────────────────────────────
     function toggleChainPanel() {
@@ -952,8 +998,6 @@
             })
             .catch(() => {});
     }
-=======
->>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
     function switchTab(tabId) {
         document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -1388,7 +1432,6 @@
             }
 
             threatEl.onclick = () => openEvidencePanel(strat);
-<<<<<<< HEAD
 
             // ── Phase 8: HUD 更新 ──────────────────────────────────────────
             const p8 = strat.phase8 || {};
@@ -1432,8 +1475,6 @@
             }
             // Evidence Chain Panel の更新
             updateChainPanel(strat);
-=======
->>>>>>> 56b4dff0c7f1a91c97f64eeb76f403defa9b2152
         }
 
         const originContainer = document.getElementById('origin-list-container');
