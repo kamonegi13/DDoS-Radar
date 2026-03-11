@@ -410,6 +410,20 @@
         .ha-canvas { width: 100%; height: 32px; display: block; border-radius: 2px; margin-top: 5px; background: #0a0a0a; }
         .ha-note { font-size: 8px; color: #333; text-align: center; margin-top: 6px; letter-spacing: 1px; }
 
+        /* ── Intuition UI: TOOLS Dropdown Menu ── */
+        .tools-dropdown-wrap { position: relative; margin-left: 8px; }
+        .tools-menu { position: absolute; right: 0; top: calc(100% + 6px); background: rgba(10,12,16,0.98); border: 1px solid #444; border-radius: 5px; padding: 4px; z-index: 6000; display: none; min-width: 192px; box-shadow: 0 8px 30px rgba(0,0,0,0.7); }
+        .tools-menu.open { display: block; }
+        .tools-menu-sep { height: 1px; background: #222; margin: 3px 6px; }
+        .tools-menu-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 3px; cursor: pointer; font-size: 10px; color: #777; transition: 0.12s; user-select: none; text-transform: uppercase; letter-spacing: 0.8px; }
+        .tools-menu-item:hover { background: rgba(255,255,255,0.06); color: #ddd; }
+        .tools-menu-item.tm-active { color: #00ffff; background: rgba(0,255,255,0.04); }
+        .tools-menu-icon { font-size: 13px; width: 18px; text-align: center; flex-shrink: 0; line-height: 1; }
+        .tools-menu-label { flex: 1; font-weight: bold; }
+        .tools-menu-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; border: 1px solid #333; background: transparent; transition: all 0.2s; }
+        .tools-menu-dot.on { background: #00ffff; border-color: #00ffff; box-shadow: 0 0 5px #00ffff88; }
+        #tools-dropdown-btn.tools-active { color: #00ffff; border-color: #00ffff66; }
+
         /* ── Intuition UI: Radio Silence Indicator ── */
         #hud-radio-silence { display: none; }
         #hud-radio-silence.active { display: flex; }
@@ -455,10 +469,32 @@
         </div>
         <button id="btn-sync-top" class="btn-tactical btn-sync" onclick="forceDataSync()">SYNC</button>
         <button class="btn-tactical btn-action" onclick="toggleChainPanel()" data-tooltip="Evidence Chain Timeline — Escalation Sequence Viewer">CHAIN</button>
-        <button class="btn-tactical btn-action" onclick="toggleWeatherBrief()" data-tooltip="Operational Weather Brief — 脅威環境を気象メタファーで表現">WX</button>
-        <button class="btn-tactical btn-action" onclick="toggleSaluteBoard()" data-tooltip="SALUTE Contact Report — 軍事様式インテリジェンスサマリー">SALUTE</button>
-        <button class="btn-tactical btn-action" onclick="toggleHistAnalog()" data-tooltip="Historical Pattern Analog — 既知パターンとの類似度マッチング">ANALOG</button>
-        <button class="btn-tactical btn-action" onclick="toggleOpClock()" data-tooltip="Operational Clock — Zulu時刻 / 作戦テンポ">CLOCK</button>
+        <div class="tools-dropdown-wrap" data-tooltip="Intuition Tools — 直観支援パネル群">
+            <button class="btn-tactical btn-action" id="tools-dropdown-btn" onclick="toggleToolsMenu()">TOOLS ▾</button>
+            <div id="tools-menu" class="tools-menu">
+                <div class="tools-menu-item" id="tm-item-wx"  onclick="handleToolToggle('weather-brief-panel', toggleWeatherBrief,  'tm-dot-wx',  'tm-item-wx')">
+                    <span class="tools-menu-icon">⛈</span>
+                    <span class="tools-menu-label">Weather Brief</span>
+                    <span class="tools-menu-dot" id="tm-dot-wx"></span>
+                </div>
+                <div class="tools-menu-item" id="tm-item-sal" onclick="handleToolToggle('salute-panel',          toggleSaluteBoard, 'tm-dot-sal', 'tm-item-sal')">
+                    <span class="tools-menu-icon">📋</span>
+                    <span class="tools-menu-label">SALUTE Board</span>
+                    <span class="tools-menu-dot" id="tm-dot-sal"></span>
+                </div>
+                <div class="tools-menu-item" id="tm-item-ha"  onclick="handleToolToggle('hist-analog-panel',     toggleHistAnalog,  'tm-dot-ha',  'tm-item-ha')">
+                    <span class="tools-menu-icon">📊</span>
+                    <span class="tools-menu-label">Historical Analog</span>
+                    <span class="tools-menu-dot" id="tm-dot-ha"></span>
+                </div>
+                <div class="tools-menu-sep"></div>
+                <div class="tools-menu-item" id="tm-item-clk" onclick="handleToolToggle('op-clock-panel',        toggleOpClock,     'tm-dot-clk', 'tm-item-clk')">
+                    <span class="tools-menu-icon">⏱</span>
+                    <span class="tools-menu-label">Ops Clock</span>
+                    <span class="tools-menu-dot" id="tm-dot-clk"></span>
+                </div>
+            </div>
+        </div>
         <button class="btn-tactical btn-action" onclick="openSitrep()">SITREP</button>
         <button class="btn-tactical btn-action" onclick="openModal('help-modal')">Intel Guide</button>
         <button class="btn-tactical btn-action" onclick="openModal('settings-modal')">Config</button>
@@ -654,7 +690,7 @@
 <div id="op-clock-panel">
     <div class="clock-hdr">
         <span>OPERATIONAL CLOCK</span>
-        <button onclick="document.getElementById('op-clock-panel').style.display='none'" style="background:none;border:none;color:#335533;cursor:pointer;font-size:12px;padding:0;">✕</button>
+        <button onclick="document.getElementById('op-clock-panel').style.display='none'; syncToolsMenuState(); if(_clockInterval){clearInterval(_clockInterval);_clockInterval=null;}" style="background:none;border:none;color:#335533;cursor:pointer;font-size:12px;padding:0;">✕</button>
     </div>
     <div id="clock-zulu">--:--:--Z</div>
     <div id="clock-local">LOCAL: --:--:--</div>
@@ -669,7 +705,7 @@
 <div id="weather-brief-panel">
     <div class="wb-hdr">
         <span>OPS WEATHER BRIEF</span>
-        <button class="wb-close-btn" onclick="document.getElementById('weather-brief-panel').style.display='none'">✕</button>
+        <button class="wb-close-btn" onclick="document.getElementById('weather-brief-panel').style.display='none'; syncToolsMenuState();">✕</button>
     </div>
     <div class="wb-body">
         <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
@@ -686,7 +722,7 @@
         <span>SALUTE REPORT</span>
         <div>
             <span class="salute-ts" id="salute-ts">--:--Z</span>
-            <button onclick="document.getElementById('salute-panel').style.display='none'" style="background:none;border:none;color:#443322;cursor:pointer;font-size:12px;margin-left:8px;padding:0;">✕</button>
+            <button onclick="document.getElementById('salute-panel').style.display='none'; syncToolsMenuState();" style="background:none;border:none;color:#443322;cursor:pointer;font-size:12px;margin-left:8px;padding:0;">✕</button>
         </div>
     </div>
     <div class="salute-body">
@@ -701,7 +737,7 @@
 <div id="hist-analog-panel">
     <div class="ha-hdr">
         <span>HISTORICAL ANALOG</span>
-        <button onclick="document.getElementById('hist-analog-panel').style.display='none'" style="background:none;border:none;color:#443300;cursor:pointer;font-size:12px;padding:0;">✕</button>
+        <button onclick="document.getElementById('hist-analog-panel').style.display='none'; syncToolsMenuState();" style="background:none;border:none;color:#443300;cursor:pointer;font-size:12px;padding:0;">✕</button>
     </div>
     <div class="ha-body">
         <div style="color:#333; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
@@ -942,6 +978,104 @@
             <li><span class="code-block">POST /api/sensor_config</span> — Enable/disable a sensor by name. Body: <span class="code-block">{"name":"rss_narrative","enabled":false}</span></li>
             <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> <b>[Phase 8]</b> — Returns escalation chain events for the specified theater within the 24 h window, including timestamps, event types, and chain bonus status.</li>
             <li><span class="code-block">GET /api/phase8_analytics?theater=TW</span> <b>[Phase 8]</b> — Full Phase 8 diagnostic dump: velocity series, acceleration, ambush Z-score, narrative Z-score, ISR aircraft count, AIS dark gaps, blockade index with interpretation label.</li>
+            <li><span class="code-block">GET /api/salute_report</span> <b>[Intuition UI]</b> — Generates a SALUTE-format contact report (Size/Activity/Location/Unit/Time/Equipment + Assessment) from the current threat state. Used by the SALUTE Board panel.</li>
+            <li><span class="code-block">GET /api/weather_brief</span> <b>[Intuition UI]</b> — Maps current sensor readings to meteorological metaphors (storm/fog/calm etc.) per domain. Returns a list of conditions with color coding, icons, and a plain-language summary paragraph. Used by the Weather Brief panel.</li>
+            <li><span class="code-block">GET /api/historical_events</span> <b>[Intuition UI]</b> — Returns the HISTORICAL_EVENTS pattern library from geo_data.json: 5 reference crisis fingerprints (Ukraine 2022, Taiwan Strait 2022, Iran 2019, Georgia 2008, Normal Baseline), each with a 20-point normalized pattern array, color, and description. Used by the Historical Analog panel.</li>
+        </ul>
+
+        <h4>8. Intuition UI — Recognition-Primed Decision (RPD) Components</h4>
+        <p>Phase 8 追加機能。数値計算だけでなく、<b>アナリストの経験則・直観（Recognition-Primed Decision）</b>を刺激する8つのビジュアルコンポーネント。NDM（Naturalistic Decision Making）理論に基づき、状況認識を即座に形成することを目的としている。すべて既存の数値表示と共存する。</p>
+
+        <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
+            <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">操作方法</div>
+            <p style="font-size:11px; color:#aaa; margin:0;">HUD右上の <span class="code-block">TOOLS ▾</span> ボタンをクリックするとドロップダウンメニューが開き、Weather Brief / SALUTE Board / Historical Analog / Ops Clock の4パネルを個別に有効化できる。アクティブなパネルは <span style="color:#00ffff;">シアン</span> 点灯で示される。各パネル右上の ✕ で個別に閉じることができ、パネルを閉じてもドロップダウンの状態インジケーターが即座に同期される。<br>常時表示のコンポーネント（Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain）はボタン操作不要で自動的に動作する。</p>
+        </div>
+
+        <p><b>A. Ambient Atmosphere（環境光）</b></p>
+        <ul>
+            <li><b>機能:</b> 脅威レベルに応じて画面全体の背景色を極微妙に変色させる。Lv 3(HIGH)→緑み、Lv 2(SEVERE)→赤橙み、Lv 1(CRITICAL)→深紅み、2〜5秒周期のkeyframesアニメーション。</li>
+            <li><b>設計意図:</b> 意識的に数値を読まなくても、周辺視野で「何かがおかしい」と気付かせる。長時間監視セッションにおける注意の固着（Attentional Tunneling）を防ぐ。</li>
+            <li><b>常時動作:</b> 自動的に適用される。明示的な操作不要。</li>
+        </ul>
+
+        <p><b>B. Pulse Display（脅威パルス波形）</b></p>
+        <ul>
+            <li><b>表示位置:</b> マップ左下コーナー、常時表示。</li>
+            <li><b>機能:</b> 脅威レベル履歴（最大60サイクル ≈ 15時間）をスクロール型EKG波形Canvasで描画。DEFCON 1(危険)が波形上端、5(平常)が下端。波形の色は現在のDEFCONカラーと連動する（緑/黄/橙/赤）。右上に変化率（/時間）を表示。</li>
+            <li><b>読み方:</b> 波形が上方向に急峻に動いている → 急速に状況が悪化している。平坦な高止まり → 継続的な高脅威環境。下方向に動き始めた → 緩和の兆候。単なる数値より「物語」として認識できる。</li>
+        </ul>
+
+        <p><b>C. Operational Clock（作戦時計）</b></p>
+        <ul>
+            <li><b>アクセス:</b> <span class="code-block">TOOLS ▾</span> → <i>Ops Clock</i></li>
+            <li><b>機能:</b> リアルタイムのZulu（UTC）時刻を大型フォントで表示（秒単位更新）。ローカル時刻・UTCカレンダー日付・「最後に重大イベント（Lv 3以下）が発生してからの経過時間」を同時表示。</li>
+            <li><b>設計意図:</b> 軍事作戦において時刻はすべての報告書の基準である。アナリストが報告書を作成する際、別ウインドウで時計を参照する手間を省く。「最終イベントからの経過時間」は状況が安定しているのか単に沈黙しているのかを区別するための手掛かりになる。</li>
+        </ul>
+
+        <p><b>D. Operational Weather Brief（作戦気象概況）</b></p>
+        <ul>
+            <li><b>アクセス:</b> <span class="code-block">TOOLS ▾</span> → <i>Weather Brief</i></li>
+            <li><b>機能:</b> <span class="code-block">GET /api/weather_brief</span> を呼び出し、Cyber/Physical/Info各ドメインの脅威状態を気象メタファーで表示する。例: Cyber=「サイバーストーム(STORM)」= 大規模DDoSスパイク活発。Physical=「海峡霧(FOG)」= AIS暗区間発生中。Info=「気圧上昇(RISING PRESSURE)」= ナラティブ工作が強まっている。</li>
+            <li><b>設計意図:</b> 気象予報は専門家でなくても直観的に理解できる唯一の科学的表現系の一つ。「明日は嵐です」が「降水確率87%」より行動につながりやすいのと同じ原理。意思決定速度の向上を目的とする。</li>
+            <li><b>データソース:</b> <span class="code-block">/api/weather_brief</span> — センサー値をthreshold比較してcondition_keyを決定し、その結果をフロントエンドがアイコン付きで描画する。</li>
+        </ul>
+
+        <p><b>E. SALUTE Board（接触報告板）</b></p>
+        <ul>
+            <li><b>アクセス:</b> <span class="code-block">TOOLS ▾</span> → <i>SALUTE Board</i></li>
+            <li><b>機能:</b> <span class="code-block">GET /api/salute_report</span> から軍事接触報告書（SALUTE様式）を生成する。</li>
+            <li><b>SALUTE様式:</b>
+                <ul style="font-family:monospace; font-size:11px; background:rgba(0,0,0,0.3); padding:8px; border-left:2px solid #ff880044; line-height:1.9; margin-top:6px;">
+                    <li><b>S</b> ize     — 敵勢力規模 (例: Botnet 12 origins, 3 state-ASN)</li>
+                    <li><b>A</b> ctivity — 確認された活動種別 (例: Coordinated L7 surge + Narrative Burst)</li>
+                    <li><b>L</b> ocation — 標的地域 (例: TW, correlated JP/US)</li>
+                    <li><b>U</b> nit     — 帰属推定 (例: CN/RU attributed — state-ASN matched)</li>
+                    <li><b>T</b> ime     — 最初の活動観測時刻 (UTC)</li>
+                    <li><b>E</b> quipment — 使用手段 (例: L3 volumetric + BGP withdrawal + ISR surge)</li>
+                    <li><b>+ Assessment</b> — 統合評価文（AIが現在の脅威状態から自動生成）</li>
+                </ul>
+            </li>
+            <li><b>設計意図:</b> ブリーフィング・指揮報告に即座に使える標準化フォーマット。センサーデータを「数値の羅列」から「報告文」へ変換することで、指揮官への伝達速度を向上させる。</li>
+        </ul>
+
+        <p><b>F. Historical Pattern Analog（歴史的類似事例）</b></p>
+        <ul>
+            <li><b>アクセス:</b> <span class="code-block">TOOLS ▾</span> → <i>Historical Analog</i></li>
+            <li><b>機能:</b> 現在の脅威スコア時系列（最新20サイクル）を、<code>geo_data.json</code> に収録された5件の歴史的事例パターンとPearson相関係数で比較し、類似度の高い順に上位3件を表示する。各カードに類似度%と「過去パターン（dim）vs 現在パターン（cyan）」の重ね合わせグラフを描画。</li>
+            <li><b>収録パターン:</b>
+                <ul style="font-size:11px; color:#aaa;">
+                    <li>🔴 <b>Ukraine Invasion 2022</b> — BGP撤退→ワイパー展開→地上侵攻の前日パターン</li>
+                    <li>🟠 <b>Taiwan Strait 2022</b> — ペロシ訪問前後: 政治的シグナリングDDoS+GDELT急落</li>
+                    <li>🟡 <b>Iran Shutdown 2019</b> — 国内選挙前のインターネット完全遮断パターン</li>
+                    <li>🔵 <b>Georgia-Russia 2008</b> — 先行サイバー作戦から地上侵攻までの上昇曲線</li>
+                    <li>⬜ <b>Normal Baseline</b> — 平常時ノイズ（参照基準）</li>
+                </ul>
+            </li>
+            <li><b>設計意図:</b> 「現在の状況はどの過去事例に似ているか」を直観的に示す。Pearson相関で70%以上の類似度 = 統計的に注目に値するパターン一致。分析官はこれを出発点として歴史的文脈と現在の差異を検討する。<b>相関 ≠ 因果: これは意思決定補助であり予測ではない。</b></li>
+        </ul>
+
+        <p><b>G. Radio Silence Indicator（無線通信途絶インジケーター）</b></p>
+        <ul>
+            <li><b>表示位置:</b> HUD下段、常時表示。<span style="color:#00ff88;">🟢 LIVE</span> / <span style="color:#ff8800;">🟠 QUIET</span> の2状態。</li>
+            <li><b>機能:</b> 「脅威スコアが有意（≥3点）であるにもかかわらず、速度（velocity）変化がほぼゼロ」の状態を検出し <b>QUIET</b> と判定する。</li>
+            <li><b>何を示すか:</b>
+                <ul>
+                    <li><span class="hl-green">LIVE</span>: 全センサーが変動を報告中。通常の監視状態。</li>
+                    <li><span class="hl-orange">QUIET</span>: 異常な静寂。以下の可能性を示唆:
+                        (1) 作戦前の通信封鎖（pre-kinetic EMCON）、
+                        (2) センサー抑圧（adversary jamming/spoofing）、
+                        (3) 攻撃者が戦術的一時停止に入っている。
+                    </li>
+                </ul>
+            </li>
+            <li><b>設計意図:</b> 真の静寂は平和を意味しない。ロシア→ウクライナ作戦では、侵攻直前の数時間に一部センサーが「静止」するパターンが確認されている。「何も起きていない」という誤認を防ぐため、静寂そのものを異常検出の対象とする。</li>
+        </ul>
+
+        <p><b>H. Threat Terrain Overlay（脅威地形オーバーレイ）</b></p>
+        <ul>
+            <li><b>アクセス:</b> マップ右上のレイヤーコントロール → <i>Threat Terrain</i> にチェックを入れる。</li>
+            <li><b>機能:</b> 監視中の各国のDDoSスパイク強度（avg_spike）に応じて、Leafletの半透明サークルをchoropleth風に描画する。BGP障害が確認された国は赤色、スパイク4倍以上はオレンジ、それ以下は黄色。半径はスパイク強度に比例（最大約620km）。</li>
+            <li><b>設計意図:</b> 個別の数値ではなく「地理的な圧力分布」として脅威を認識させる。どの地域に負荷が集中しているかを一瞥で把握でき、従来の折れ線グラフでは見えにくい「地政学的パターン」を浮き上がらせる。スパイク平常以下の国はオーバーレイを描画しないためノイズを最小化する。</li>
         </ul>
 
     </div>
@@ -1061,6 +1195,55 @@
     function closeAllModals() {
         document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
         document.getElementById('settings-backdrop').style.display = 'none';
+    }
+
+    // ── Intuition UI: TOOLS Dropdown ──────────────────────────────────────────
+    // パネルIDと状態ドット/アイテムIDのマッピング
+    const TOOL_MAP = [
+        { panelId: 'weather-brief-panel', dotId: 'tm-dot-wx',  itemId: 'tm-item-wx'  },
+        { panelId: 'salute-panel',         dotId: 'tm-dot-sal', itemId: 'tm-item-sal' },
+        { panelId: 'hist-analog-panel',    dotId: 'tm-dot-ha',  itemId: 'tm-item-ha'  },
+        { panelId: 'op-clock-panel',       dotId: 'tm-dot-clk', itemId: 'tm-item-clk' },
+    ];
+
+    function toggleToolsMenu() {
+        const menu = document.getElementById('tools-menu');
+        if (!menu) return;
+        menu.classList.toggle('open');
+        syncToolsMenuState();
+    }
+
+    // 外側クリックでメニューを閉じる
+    document.addEventListener('click', e => {
+        if (!e.target.closest('.tools-dropdown-wrap')) {
+            const m = document.getElementById('tools-menu');
+            if (m) m.classList.remove('open');
+        }
+    });
+
+    // ツールをトグルしてメニューの状態インジケーターを同期
+    function handleToolToggle(panelId, toggleFn, dotId, itemId) {
+        toggleFn();
+        syncToolsMenuState();
+    }
+
+    // 全ツールのドット/アイテム/ボタンの表示状態を同期
+    function syncToolsMenuState() {
+        let anyOpen = false;
+        TOOL_MAP.forEach(({ panelId, dotId, itemId }) => {
+            const panel  = document.getElementById(panelId);
+            const dot    = document.getElementById(dotId);
+            const item   = document.getElementById(itemId);
+            const isOpen = !!(panel && panel.style.display && panel.style.display !== 'none');
+            if (isOpen) anyOpen = true;
+            if (dot)  dot.className  = 'tools-menu-dot'  + (isOpen ? ' on' : '');
+            if (item) item.className = 'tools-menu-item' + (isOpen ? ' tm-active' : '');
+        });
+        const btn = document.getElementById('tools-dropdown-btn');
+        if (btn) {
+            if (anyOpen) btn.classList.add('tools-active');
+            else         btn.classList.remove('tools-active');
+        }
     }
 
     // ── Phase 8: Evidence Chain Panel ────────────────────────────────────────
