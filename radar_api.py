@@ -10,8 +10,8 @@ import os
 import json
 import math
 import xml.etree.ElementTree as ET
-import difflib
 import urllib3
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -562,7 +562,8 @@ class RssNarrativeSensor(BaseSensor):
         except ET.ParseError:
             return 0, 0
 
-        titles_seen = []
+        # 重複判定: タイトル先頭60文字の正規化ハッシュを set で管理 (O(N) vs O(N²))
+        titles_seen: set = set()
         keyword_hits, article_count = 0, 0
         keywords_lower = [k.lower() for k in keywords]
 
@@ -573,15 +574,12 @@ class RssNarrativeSensor(BaseSensor):
             desc  = (desc_el.text  or "").strip() if desc_el  is not None else ""
             text  = (title + " " + desc).lower()
 
-            # 重複タイトル除外 (シミラリティ > 0.85)
-            is_dup = any(
-                difflib.SequenceMatcher(None, title.lower(), seen).ratio() > 0.85
-                for seen in titles_seen
-            )
-            if is_dup:
+            # 先頭60文字の正規化キーで重複を検出（SequenceMatcherのO(N²)を排除）
+            title_key = "".join(c for c in title.lower()[:60] if c.isalnum())
+            if title_key and title_key in titles_seen:
                 continue
-            if title:
-                titles_seen.append(title.lower())
+            if title_key:
+                titles_seen.add(title_key)
 
             article_count += 1
             if any(kw in text for kw in keywords_lower):
@@ -867,6 +865,17 @@ class AisMaritimeSensor(BaseSensor):
                 # 艦船履歴を更新
                 self._vessel_history[mmsi] = {"last_ts": last_ts, "lat": lat, "lng": lng}
 
+        # 24時間以上前の艦船履歴を削除（メモリリーク対策）
+        cutoff_ts = now - 86400
+        stale_mmsi = [m for m, v in self._vessel_history.items() if v["last_ts"] < cutoff_ts]
+        for m in stale_mmsi:
+            del self._vessel_history[m]
+        # 上限超過時は最古エントリから削除（最大5000隻）
+        if len(self._vessel_history) > 5000:
+            sorted_mmsi = sorted(self._vessel_history, key=lambda m: self._vessel_history[m]["last_ts"])
+            for m in sorted_mmsi[:len(self._vessel_history) - 5000]:
+                del self._vessel_history[m]
+
         total_anomalies = len(dark_gaps) + len(stationary_anomalies)
         self.log_fetch(True, round((time.time() - t0) * 1000), 200, total_anomalies)
         result = {
@@ -1027,15 +1036,16 @@ for s in [
 engine = WeightedConvergenceEngine()
 
 global_cache      = {"time": 0, "data": {}, "strategic": {}}
+_global_cache_lock = threading.Lock()   # global_cache 全体置き換え時のスレッド安全
 baseline_cache:    dict = {}
 time_series_db:    dict = {}   # {theater: [float,...]}  ← 後方互換: 値のみ
 time_series_ts_db: dict = {}   # {theater: [(ts, val),...]} ← タイムスタンプ付き
 time_series_l3_db: dict = {}
 time_series_l7_db: dict = {}
 airspace_baseline: dict = {}
-threat_history:    list = []
-alert_timeline:    list = []
-ALERT_TIMELINE_MAX = 288
+threat_history:    deque = deque(maxlen=20)
+alert_timeline:    deque = deque(maxlen=288)
+ALERT_TIMELINE_MAX = 288  # deque の maxlen と一致させること
 
 # シーケンス・スコアラー用イベントログ
 # {theater: [{"ts": float, "type": str, "meta": dict}, ...]}
@@ -1113,13 +1123,18 @@ def fetch_cf_data(url: str, params: dict) -> list:
 
 def fetch_cf_data_cached(url: str, params: dict, ttl: float = None) -> list:
     """スコアリングループ内のCF API呼び出しをキャッシュする。
-    TTL省略時はCACHE_EXPIRYを使用。リロード時の毎回フェッチを防ぐ。"""
+    TTL省略時はCACHE_EXPIRYを使用。リロード時の毎回フェッチを防ぐ。
+    呼び出しごとに期限切れエントリを削除してメモリリークを防ぐ。"""
     global _cf_scoring_cache
     if ttl is None:
         ttl = CACHE_EXPIRY
+    now = time.time()
+    # 期限切れエントリを削除（メモリリーク対策）
+    expired = [k for k, v in _cf_scoring_cache.items() if now - v["time"] > ttl * 2]
+    for k in expired:
+        del _cf_scoring_cache[k]
     cache_key = (url, frozenset(params.items()))
     entry = _cf_scoring_cache.get(cache_key)
-    now = time.time()
     if entry and (now - entry["time"]) < ttl:
         return entry["data"]
     data = fetch_cf_data(url, params)
@@ -1145,14 +1160,19 @@ _asn_cache: dict = {}  # {target_code: {"time": float, "data": dict}}
 
 def fetch_asn_origins(target_code: str) -> dict:
     global _asn_cache
+    now = time.time()
+    # 期限切れエントリを削除（メモリリーク対策）
+    expired = [k for k, v in _asn_cache.items() if now - v["time"] > CACHE_EXPIRY * 2]
+    for k in expired:
+        del _asn_cache[k]
     entry = _asn_cache.get(target_code)
-    if entry and (time.time() - entry["time"]) < CACHE_EXPIRY:
+    if entry and (now - entry["time"]) < CACHE_EXPIRY:
         return entry["data"]
     try:
         res = requests.get("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/ases/origin", headers=CF_HEADERS, params={"location": target_code, "dateRange": CURRENT_DATE_RANGE, "format": "json"}, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
         if res.status_code == 200:
             data = {f"AS{item.get('originAsn') or item.get('clientASN') or item.get('originAsnId')}": float(item.get("value", 0)) for item in res.json().get("result", {}).get("top_0", []) if item.get("originAsn") or item.get("clientASN") or item.get("originAsnId")}
-            _asn_cache[target_code] = {"time": time.time(), "data": data}
+            _asn_cache[target_code] = {"time": now, "data": data}
             return data
     except Exception: pass
     return {}
@@ -1540,7 +1560,7 @@ def get_threat_data():
     tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard)
     threat_level, tl_held = engine.apply_hysteresis(tl_raw, threat_history)
     threat_history.append((current_time, threat_level))
-    while len(threat_history) > 20: threat_history.pop(0)
+    # deque(maxlen=20) により自動的に古いエントリが削除される
 
     system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
 
@@ -1583,7 +1603,7 @@ def get_threat_data():
 
     ioda_overlays = [{"code": t, "lat": COUNTRY_COORDS[t]["lat"], "lng": COUNTRY_COORDS[t]["lng"], "name": COUNTRY_COORDS[t]["name"], "status": "BGP_OUTAGE"} for t in degraded_targets_raw if t in COUNTRY_COORDS]
 
-    global_cache = {
+    _new_cache = {
         "time": current_time,
         "data": target_details,
         "strategic": {
@@ -1628,6 +1648,8 @@ def get_threat_data():
             "analytics": deep_analytics,
         },
     }
+    with _global_cache_lock:
+        global_cache = _new_cache
 
     alert_timeline.append({
         "ts": current_time, "threat_level": threat_level, "threat_raw": tl_raw, "threat_held": tl_held, "score": total_score, "score_with_bonus": score_with_bonus,
@@ -1639,7 +1661,7 @@ def get_threat_data():
         "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
         "blockade_index": deep_analytics["blockade_index"],
     })
-    while len(alert_timeline) > ALERT_TIMELINE_MAX: alert_timeline.pop(0)
+    # deque(maxlen=ALERT_TIMELINE_MAX) により自動的に古いエントリが削除される
 
     results = []
     for t in requested_targets:
@@ -1671,7 +1693,7 @@ def get_threat_data():
         "sensor_health":   registry.health_report(),
         "strategic_alert": global_cache["strategic"],
         "targets":         results,
-        "threat_history":  threat_history,
+        "threat_history":  list(threat_history),
     })
 
 @app.route("/api/sensor_config", methods=["GET", "POST"])
@@ -1699,7 +1721,7 @@ def data_status():
 @app.route("/api/alert_timeline", methods=["GET"])
 def api_alert_timeline():
     limit = min(int(request.args.get("limit", 288)), 288)
-    return jsonify({"ts": datetime.datetime.now().isoformat(), "count": len(alert_timeline), "timeline": alert_timeline[-limit:]})
+    return jsonify({"ts": datetime.datetime.now().isoformat(), "count": len(alert_timeline), "timeline": list(alert_timeline)[-limit:]})
 
 @app.route("/api/sitrep", methods=["GET"])
 def api_sitrep():
@@ -1707,7 +1729,8 @@ def api_sitrep():
     if not alert_timeline: 
         return jsonify({"ts": now_ts.isoformat(), "text": "No data available yet.", "summary": {}})
     
-    recent, latest, oldest = alert_timeline[-12:], alert_timeline[-1], alert_timeline[0]
+    _tl = list(alert_timeline)
+    recent, latest, oldest = _tl[-12:], _tl[-1], _tl[0]
     span_min = round((latest["ts"] - oldest["ts"]) / 60) if len(alert_timeline) > 1 else 0
     levels = [e["threat_level"] for e in recent]
     min_d, max_d, avg_d = min(levels), max(levels), round(sum(levels) / len(levels), 1)
@@ -2104,6 +2127,45 @@ def api_historical_events():
     """HISTORICAL_EVENTS パターンライブラリを返す。"""
     return jsonify({"events": HISTORICAL_EVENTS})
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# バックグラウンドクリーンアップスレッド
+# 1時間ごとに各グローバルキャッシュの古いエントリを削除し、長期稼働時のメモリリークを防ぐ。
+# ─────────────────────────────────────────────────────────────────────────────
+def _cache_cleanup_worker():
+    """デーモンスレッド: 1時間ごとに各種キャッシュの期限切れエントリを削除する。"""
+    CLEANUP_INTERVAL = 3600  # 1時間
+    BASELINE_MAX_AGE = 86400 * 7   # baselineは7日で失効
+    SEQ_LOG_WINDOW   = SEQUENCE_WINDOW  # 24h
+    while True:
+        time.sleep(CLEANUP_INTERVAL)
+        try:
+            now = time.time()
+            # baseline_cache: 7日以上更新されていないシアターを削除
+            stale = [k for k, v in list(baseline_cache.items()) if now - v.get("time", 0) > BASELINE_MAX_AGE]
+            for k in stale:
+                baseline_cache.pop(k, None)
+
+            # sequence_event_log: 各シアターの24h超エントリを再トリムし、空シアターを削除
+            cutoff = now - SEQ_LOG_WINDOW
+            for th in list(sequence_event_log.keys()):
+                sequence_event_log[th] = [e for e in sequence_event_log[th] if e["ts"] >= cutoff]
+                if not sequence_event_log[th]:
+                    del sequence_event_log[th]
+
+            # _cf_scoring_cache / _asn_cache: 念のため全失効エントリを掃除
+            for k in [k for k, v in list(_cf_scoring_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
+                _cf_scoring_cache.pop(k, None)
+            for k in [k for k, v in list(_asn_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
+                _asn_cache.pop(k, None)
+
+            print(f"[Cleanup] baseline_cache={len(baseline_cache)} seqlog={len(sequence_event_log)} "
+                  f"cf_cache={len(_cf_scoring_cache)} asn_cache={len(_asn_cache)}")
+        except Exception as e:
+            print(f"[Cleanup] Error: {e}")
+
+_cleanup_thread = threading.Thread(target=_cache_cleanup_worker, daemon=True, name="cache-cleanup")
+_cleanup_thread.start()
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8000, debug=True)
