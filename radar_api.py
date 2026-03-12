@@ -133,6 +133,35 @@ ISR_ICAO_TYPES           = [t.strip().upper() for t in os.getenv(
 ).split(",") if t.strip()]
 ISR_SURGE_THRESHOLD      = int(os.getenv("ISR_SURGE_THRESHOLD", "3"))
 
+# OpenSky Network 認証 (登録アカウントで上限 400→4000 req/day に増加)
+OPENSKY_USERNAME = os.getenv("OPENSKY_USERNAME", "")
+OPENSKY_PASSWORD = os.getenv("OPENSKY_PASSWORD", "")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenSky API 共有レートリミッター
+# OpenSkySensor と IsrHotspotSensor が同一 API を叩くため、モジュールレベルで共有する。
+# 匿名: 400 req/day → 約 3.5 分/req の制限
+# 認証済み: 4000 req/day → OPENSKY_USERNAME/PASSWORD を設定推奨
+# ─────────────────────────────────────────────────────────────────────────────
+_opensky_lock          = threading.Lock()
+_opensky_last_req_time = 0.0
+OPENSKY_MIN_INTERVAL   = int(os.getenv("OPENSKY_MIN_INTERVAL", "10"))  # 秒/リクエスト
+
+def _opensky_get(params: dict, timeout: int = 12) -> requests.Response:
+    """両センサー共有の OpenSky API リクエスト関数（レートリミッター内蔵）。"""
+    global _opensky_last_req_time
+    with _opensky_lock:
+        elapsed = time.time() - _opensky_last_req_time
+        if elapsed < OPENSKY_MIN_INTERVAL:
+            time.sleep(OPENSKY_MIN_INTERVAL - elapsed)
+        _opensky_last_req_time = time.time()
+        auth = (OPENSKY_USERNAME, OPENSKY_PASSWORD) if OPENSKY_USERNAME else None
+        return requests.get(
+            "https://opensky-network.org/api/states/all",
+            params=params, timeout=timeout,
+            auth=auth, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
+        )
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Data Classes
 # ─────────────────────────────────────────────────────────────────────────────
@@ -262,7 +291,7 @@ class CloudflareSensor(BaseSensor):
         return result
 
 class OpenSkySensor(BaseSensor):
-    def __init__(self): super().__init__("opensky", "physical", 600)
+    def __init__(self): super().__init__("opensky", "physical", 1800)
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); results: dict = {}; delta = 0.5
         t0 = time.time(); total_states = 0; any_success = False; last_status = 0; last_error = ""
@@ -272,7 +301,7 @@ class OpenSkySensor(BaseSensor):
             lat, lng = box["lat"], box["lng"]
             params = {"lamin": lat - delta, "lamax": lat + delta, "lomin": lng - delta, "lomax": lng + delta}
             try:
-                res = requests.get("https://opensky-network.org/api/states/all", params=params, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+                res = _opensky_get(params)
                 last_status = res.status_code
                 if res.status_code == 200:
                     count = len(res.json().get("states") or [])
@@ -280,6 +309,7 @@ class OpenSkySensor(BaseSensor):
                     total_states += count; any_success = True
                 else:
                     results[code] = {"airport": box["airport"], "count": -1, "lat": lat, "lng": lng, "error": f"http_{res.status_code}"}
+                    last_error = f"HTTP {res.status_code}"
             except Exception as e:
                 results[code] = {"airport": box.get("airport", code), "count": -1, "lat": lat, "lng": lng, "error": str(e)}
                 last_error = str(e)
@@ -704,12 +734,13 @@ class IsrHotspotSensor(BaseSensor):
     RADIUS_DEG = 1.8
 
     def __init__(self):
-        super().__init__("isr_hotspot", "physical", 600)
+        super().__init__("isr_hotspot", "physical", 1800)
 
     def fetch(self, context: dict) -> dict:
         theaters = set(context.get("strategic_theaters", []))
         results: dict = {}
         t0 = time.time()
+        any_success = False; last_status = 0; last_error = ""
 
         for hotspot in ISR_HOTSPOTS:
             theater = hotspot.get("theater", "")
@@ -723,12 +754,7 @@ class IsrHotspotSensor(BaseSensor):
                 "lomin": lng - r, "lomax": lng + r,
             }
             try:
-                res = requests.get(
-                    "https://opensky-network.org/api/states/all",
-                    params=params, timeout=10,
-                    proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
-                )
-                duration = round((time.time() - t0) * 1000)
+                res = _opensky_get(params)
                 if res.status_code == 200:
                     states = res.json().get("states") or []
                     # ISR 特性フィルター: 高高度 (>9000m) + 低速 (<160 m/s)
@@ -771,11 +797,15 @@ class IsrHotspotSensor(BaseSensor):
                         "tracks":    isr_tracks[:5],  # 最大5機分のメタデータ
                     })
                     results[theater] = existing
-                    self.log_fetch(True, duration, res.status_code, isr_count)
+                    any_success = True; last_status = res.status_code
                 else:
-                    self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
+                    last_status = res.status_code
+                    last_error = f"HTTP {res.status_code}"
             except Exception as e:
-                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+                last_error = str(e)
+
+        total_isr = sum(d["count"] for d in results.values())
+        self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_isr, last_error if not any_success else "")
 
         # ISR サージ判定
         for theater, data in results.items():
@@ -922,8 +952,10 @@ class AisMaritimeSensor(BaseSensor):
                 del self._vessel_history[m]
 
         total_anomalies = len(dark_gaps) + len(stationary_anomalies)
+        # cp_errors=0 かつ cp_success=0 はレート制限による全スキップ → ERRORではなくOKとして扱う
+        fetch_ok = (cp_success > 0) or (cp_errors == 0)
         err_note = f"{cp_errors} CP errors: {last_error}" if cp_errors and not cp_success else ""
-        self.log_fetch(cp_success > 0, round((time.time() - t0) * 1000), 200 if cp_success else 0, total_anomalies, err_note)
+        self.log_fetch(fetch_ok, round((time.time() - t0) * 1000), 200 if cp_success else 0, total_anomalies, err_note)
         result = {
             "dark_gaps":            dark_gaps,
             "stationary_anomalies": stationary_anomalies,
