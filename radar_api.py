@@ -146,6 +146,8 @@ OPENSKY_TOKEN_URL     = "https://auth.opensky-network.org/auth/realms/opensky-ne
 # ─────────────────────────────────────────────────────────────────────────────
 _opensky_oauth_token: dict = {"access_token": "", "expires_at": 0.0}
 _opensky_oauth_lock         = threading.Lock()
+if not OPENSKY_CLIENT_ID:
+    print("[OpenSky] WARNING: OPENSKY_CLIENT_ID not set — running in anonymous mode (400 req/day limit)")
 
 def _get_opensky_bearer() -> str:
     """OAuth2 Client Credentials フローで Bearer トークンを取得・キャッシュする。
@@ -168,8 +170,9 @@ def _get_opensky_bearer() -> str:
                 td = res.json()
                 _opensky_oauth_token["access_token"] = td.get("access_token", "")
                 _opensky_oauth_token["expires_at"]   = time.time() + td.get("expires_in", 1800)
+                print(f"[OpenSky OAuth2] Token acquired, expires_in={td.get('expires_in')}s")
                 return _opensky_oauth_token["access_token"]
-            print(f"[OpenSky OAuth2] Token fetch failed: HTTP {res.status_code}")
+            print(f"[OpenSky OAuth2] Token fetch failed: HTTP {res.status_code} — {res.text[:200]}")
         except Exception as e:
             print(f"[OpenSky OAuth2] Token fetch error: {e}")
         return ""
@@ -183,13 +186,11 @@ _opensky_last_req_time = 0.0
 OPENSKY_MIN_INTERVAL   = int(os.getenv("OPENSKY_MIN_INTERVAL", "10"))  # 秒/リクエスト
 
 def _opensky_get(params: dict, timeout: int = 12) -> requests.Response:
-    """両センサー共有の OpenSky API リクエスト関数（レートリミッター＋OAuth2内蔵）。"""
+    """両センサー共有の OpenSky API リクエスト関数（レートリミッター＋OAuth2内蔵）。
+    429 受信時は Retry-After ヘッダーを尊重して待機後リトライ（1回）。"""
     global _opensky_last_req_time
-    with _opensky_lock:
-        elapsed = time.time() - _opensky_last_req_time
-        if elapsed < OPENSKY_MIN_INTERVAL:
-            time.sleep(OPENSKY_MIN_INTERVAL - elapsed)
-        _opensky_last_req_time = time.time()
+
+    def _do_request() -> requests.Response:
         headers = {}
         token = _get_opensky_bearer()
         if token:
@@ -199,6 +200,27 @@ def _opensky_get(params: dict, timeout: int = 12) -> requests.Response:
             params=params, timeout=timeout,
             headers=headers, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
         )
+
+    with _opensky_lock:
+        elapsed = time.time() - _opensky_last_req_time
+        if elapsed < OPENSKY_MIN_INTERVAL:
+            time.sleep(OPENSKY_MIN_INTERVAL - elapsed)
+        _opensky_last_req_time = time.time()
+        res = _do_request()
+
+    # 429 処理はロック外で行う（長時間 sleep でロックを占有しないため）
+    if res.status_code == 429:
+        retry_after = int(res.headers.get("X-Rate-Limit-Retry-After-Seconds", 60))
+        auth_status = 'yes' if _opensky_oauth_token.get('access_token') else 'no'
+        print(f"[OpenSky] 429 rate-limited, Retry-After={retry_after}s (auth={auth_status})")
+        if retry_after <= 120:
+            # 短い待機のみリトライ。長時間（匿名上限超過）はそのまま 429 を返す
+            time.sleep(retry_after)
+            with _opensky_lock:
+                _opensky_last_req_time = time.time()
+                res = _do_request()
+
+    return res
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data Classes
