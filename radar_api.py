@@ -133,33 +133,71 @@ ISR_ICAO_TYPES           = [t.strip().upper() for t in os.getenv(
 ).split(",") if t.strip()]
 ISR_SURGE_THRESHOLD      = int(os.getenv("ISR_SURGE_THRESHOLD", "3"))
 
-# OpenSky Network 認証 (登録アカウントで上限 400→4000 req/day に増加)
-OPENSKY_USERNAME = os.getenv("OPENSKY_USERNAME", "")
-OPENSKY_PASSWORD = os.getenv("OPENSKY_PASSWORD", "")
+# OpenSky Network 認証
+# 2026-03-18 以降 Basic 認証廃止 → OAuth2 Bearer トークン方式に移行
+# OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET を config.env に設定する
+# 認証済み: 4000 req/day (匿名: 400 req/day)
+OPENSKY_CLIENT_ID     = os.getenv("OPENSKY_CLIENT_ID", "")
+OPENSKY_CLIENT_SECRET = os.getenv("OPENSKY_CLIENT_SECRET", "")
+OPENSKY_TOKEN_URL     = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenSky OAuth2 トークンキャッシュ
+# ─────────────────────────────────────────────────────────────────────────────
+_opensky_oauth_token: dict = {"access_token": "", "expires_at": 0.0}
+_opensky_oauth_lock         = threading.Lock()
+
+def _get_opensky_bearer() -> str:
+    """OAuth2 Client Credentials フローで Bearer トークンを取得・キャッシュする。
+    有効期限の5分前に自動更新。認証情報未設定時は空文字列を返す（匿名アクセス）。"""
+    global _opensky_oauth_token
+    if not OPENSKY_CLIENT_ID:
+        return ""
+    with _opensky_oauth_lock:
+        if time.time() < _opensky_oauth_token["expires_at"] - 300:
+            return _opensky_oauth_token["access_token"]
+        try:
+            res = requests.post(
+                OPENSKY_TOKEN_URL,
+                data={"grant_type": "client_credentials",
+                      "client_id": OPENSKY_CLIENT_ID,
+                      "client_secret": OPENSKY_CLIENT_SECRET},
+                timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
+            )
+            if res.status_code == 200:
+                td = res.json()
+                _opensky_oauth_token["access_token"] = td.get("access_token", "")
+                _opensky_oauth_token["expires_at"]   = time.time() + td.get("expires_in", 1800)
+                return _opensky_oauth_token["access_token"]
+            print(f"[OpenSky OAuth2] Token fetch failed: HTTP {res.status_code}")
+        except Exception as e:
+            print(f"[OpenSky OAuth2] Token fetch error: {e}")
+        return ""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OpenSky API 共有レートリミッター
 # OpenSkySensor と IsrHotspotSensor が同一 API を叩くため、モジュールレベルで共有する。
-# 匿名: 400 req/day → 約 3.5 分/req の制限
-# 認証済み: 4000 req/day → OPENSKY_USERNAME/PASSWORD を設定推奨
 # ─────────────────────────────────────────────────────────────────────────────
 _opensky_lock          = threading.Lock()
 _opensky_last_req_time = 0.0
 OPENSKY_MIN_INTERVAL   = int(os.getenv("OPENSKY_MIN_INTERVAL", "10"))  # 秒/リクエスト
 
 def _opensky_get(params: dict, timeout: int = 12) -> requests.Response:
-    """両センサー共有の OpenSky API リクエスト関数（レートリミッター内蔵）。"""
+    """両センサー共有の OpenSky API リクエスト関数（レートリミッター＋OAuth2内蔵）。"""
     global _opensky_last_req_time
     with _opensky_lock:
         elapsed = time.time() - _opensky_last_req_time
         if elapsed < OPENSKY_MIN_INTERVAL:
             time.sleep(OPENSKY_MIN_INTERVAL - elapsed)
         _opensky_last_req_time = time.time()
-        auth = (OPENSKY_USERNAME, OPENSKY_PASSWORD) if OPENSKY_USERNAME else None
+        headers = {}
+        token = _get_opensky_bearer()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return requests.get(
             "https://opensky-network.org/api/states/all",
             params=params, timeout=timeout,
-            auth=auth, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
+            headers=headers, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
         )
 
 # ─────────────────────────────────────────────────────────────────────────────
