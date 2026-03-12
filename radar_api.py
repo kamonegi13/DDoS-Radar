@@ -1094,26 +1094,51 @@ def _build_default_context() -> dict:
     }
 
 def _sensor_scheduler_worker(sensor: BaseSensor):
-    """センサー専用のバックグラウンドフェッチスレッド。poll_interval ごとに定期フェッチする。"""
-    # 起動時は即時フェッチ
-    try:
+    """センサー専用のバックグラウンドフェッチスレッド。
+    - 通常: poll_interval ごとに定期フェッチ
+    - 失敗時: poll_interval より短いリトライ間隔 [5min, 10min, 30min] で最大3回リトライ
+    """
+    # poll_interval より短いリトライ間隔のみ使用
+    # (IODA=5分 のような短周期センサーはリトライ不要 → 空リストになる)
+    _RETRY_DELAYS = [d for d in [300, 600, 1800] if d < sensor.poll_interval]
+
+    def _do_fetch() -> bool:
         ctx = _build_default_context()
         if sensor.name == "gdelt":
             owm = registry.get("openweather")
             if owm: ctx["weather_conditions"] = owm.get_cache().get("conditions", {})
         sensor.fetch(ctx)
+        log = sensor.get_fetch_log()
+        return bool(log and log[-1].get("success"))
+
+    # 起動時は即時フェッチ
+    try:
+        success = _do_fetch()
     except Exception as e:
         print(f"[Sensor/{sensor.name}] Initial fetch error: {e}")
+        success = False
+
     while True:
-        time.sleep(sensor.poll_interval)
+        if not success and _RETRY_DELAYS:
+            # 失敗時: 短い間隔でリトライ
+            for delay in _RETRY_DELAYS:
+                time.sleep(delay)
+                try:
+                    success = _do_fetch()
+                    if success:
+                        print(f"[Sensor/{sensor.name}] Retry succeeded after {delay}s")
+                        break
+                except Exception as e:
+                    print(f"[Sensor/{sensor.name}] Retry error (delay={delay}s): {e}")
+            # リトライ完了後は通常の poll_interval 待機へ移行
+        else:
+            time.sleep(sensor.poll_interval)
+
         try:
-            ctx = _build_default_context()
-            if sensor.name == "gdelt":
-                owm = registry.get("openweather")
-                if owm: ctx["weather_conditions"] = owm.get_cache().get("conditions", {})
-            sensor.fetch(ctx)
+            success = _do_fetch()
         except Exception as e:
             print(f"[Sensor/{sensor.name}] Scheduled fetch error: {e}")
+            success = False
 
 # バックグラウンドセンサースケジューラを起動
 for _s in registry._sensors.values():
