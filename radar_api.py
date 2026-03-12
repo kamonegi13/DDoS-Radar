@@ -1,4 +1,4 @@
-# radar_api.py — Phase 8: MDO C4ISR Dashboard — Predictive Deep Pattern Analysis
+# radar_api.py — MDO C4ISR Dashboard — Predictive Deep Pattern Analysis
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
@@ -109,7 +109,7 @@ SEVERE_WEATHER_IDS = (
     {600, 602, 621, 622} | {711, 762} | {771, 781} | {900, 902}
 )
 
-# ── Phase 8: Deep Pattern Analysis Config ──────────────────────────────────────
+# ── Deep Pattern Analysis Config ───────────────────────────────────────────────
 # A. DDoS Acceleration Engine
 AMBUSH_ZSCORE_THRESHOLD = float(os.getenv("AMBUSH_ZSCORE_THRESHOLD", "2.0"))
 DERIVATIVE_WINDOW       = int(os.getenv("DERIVATIVE_WINDOW", "5"))
@@ -404,7 +404,7 @@ class GDELTSensor(BaseSensor):
         result = {"gdelt_tones": tones}; self.set_cache(result)
         return result
 
-# ── Phase 7 New Sensors (Production Implementation) ──
+# ── Sensors (Production Implementation) ──
 class NasaFirmsSensor(BaseSensor):
     """NASA FIRMS → NASA EONET Wildfires API に切替（FIRMSサーバー到達不可のため）
     APIキー不要。eonet.gsfc.nasa.gov は企業プロキシ環境でも疎通確認済み。
@@ -522,7 +522,7 @@ class ThreatFoxSensor(BaseSensor):
         result = {"hits": hits}; self.set_cache(result)
         return result
 
-# ── Phase 8 New Sensors ───────────────────────────────────────────────────────
+# ── Additional Sensors ────────────────────────────────────────────────────────
 
 class RssNarrativeSensor(BaseSensor):
     """
@@ -935,7 +935,7 @@ class WeightedConvergenceEngine:
         if noise_filters: parts.append(f"Active Suppressors: {'; '.join(noise_filters)}.")
         return " ".join(parts)
 
-    # ── Phase 8: Derivative & Synchronicity Methods ───────────────────────────
+    # ── Derivative & Synchronicity Methods ────────────────────────────────────
     @staticmethod
     def _linear_regression_slope(xs: list, ys: list) -> float:
         """最小二乗法による線形回帰の傾きを返す。"""
@@ -1020,7 +1020,7 @@ registry = SensorRegistry()
 for s in [
     CloudflareSensor(), IodaSensor(), OpenSkySensor(), OpenWeatherSensor(),
     GDELTSensor(), PeeringDbSensor(), BgpRoutingSensor(), NasaFirmsSensor(), ThreatFoxSensor(),
-    # Phase 8 新センサー
+    # 追加センサー
     RssNarrativeSensor(), IsrHotspotSensor(), AisMaritimeSensor(),
 ]:
     registry.register(s)
@@ -1029,7 +1029,7 @@ engine = WeightedConvergenceEngine()
 global_cache      = {"time": 0, "data": {}, "strategic": {}}
 baseline_cache:    dict = {}
 time_series_db:    dict = {}   # {theater: [float,...]}  ← 後方互換: 値のみ
-time_series_ts_db: dict = {}   # {theater: [(ts, val),...]} ← Phase 8: タイムスタンプ付き
+time_series_ts_db: dict = {}   # {theater: [(ts, val),...]} ← タイムスタンプ付き
 time_series_l3_db: dict = {}
 time_series_l7_db: dict = {}
 airspace_baseline: dict = {}
@@ -1037,7 +1037,7 @@ threat_history:    list = []
 alert_timeline:    list = []
 ALERT_TIMELINE_MAX = 288
 
-# Phase 8: シーケンス・スコアラー用イベントログ
+# シーケンス・スコアラー用イベントログ
 # {theater: [{"ts": float, "type": str, "meta": dict}, ...]}
 sequence_event_log: dict = {}
 SEQUENCE_EVENT_TYPES = ["NARRATIVE_BURST", "ISR_SURGE", "SYNC_DDOS", "FIRMS_ANOMALY", "AIS_DARK_GAP"]
@@ -1049,7 +1049,7 @@ _cf_scoring_cache: dict = {}
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper Functions
 # ─────────────────────────────────────────────────────────────────────────────
-# ── Phase 8: Sequence Scorer ──────────────────────────────────────────────────
+# ── Sequence Scorer ───────────────────────────────────────────────────────────
 def register_sequence_event(theater: str, event_type: str, meta: dict = None):
     """エスカレーション連鎖ログにイベントを登録する。"""
     global sequence_event_log
@@ -1187,7 +1187,7 @@ def get_threat_data():
     core_theater = request.args.get("core", DEFAULT_CORE).strip().upper()
     force_sync   = request.args.get("force", "false").lower() == "true"
     
-    # [Phase 7] HITL Analyst MUTE parameters
+    # HITL Analyst MUTE parameters
     muted_sensors = [s.strip() for s in request.args.get("muted", "").split(",") if s.strip()]
 
     required_keys = set(requested_targets + correlate_targets)
@@ -1204,7 +1204,7 @@ def get_threat_data():
         "gdelt_history_window": GDELT_HISTORY_WINDOW
     }
 
-    # ── Phase 7: Parallel High-Speed Fetch Engine ──
+    # ── Parallel High-Speed Fetch Engine ──
     if (current_time - global_cache.get("time", 0) > CACHE_EXPIRY) or force_sync or missing_data:
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(sensor.fetch, sensor_context) for sensor in registry._sensors.values() if sensor.enabled]
@@ -1229,7 +1229,7 @@ def get_threat_data():
     nasa_firms_data = nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else []
     threatfox_sensor = registry.get("threatfox")
     threatfox_data = threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {}
-    # Phase 8 新センサーデータ取得
+    # 追加センサーデータ取得
     rss_narrative_sensor = registry.get("rss_narrative")
     narrative_data = rss_narrative_sensor.get_cache().get("narratives", {}) if rss_narrative_sensor else {}
     isr_hotspot_sensor = registry.get("isr_hotspot")
@@ -1364,7 +1364,7 @@ def get_threat_data():
         time_series_db[t].append(avg_spike_record); time_series_db[t] = time_series_db[t][-15:]
         time_series_l3_db[t].append(round(avg_l3_spike, 2)); time_series_l3_db[t] = time_series_l3_db[t][-15:]
         time_series_l7_db[t].append(round(avg_l7_spike, 2)); time_series_l7_db[t] = time_series_l7_db[t][-15:]
-        # Phase 8: タイムスタンプ付き時系列を更新（微分計算用）
+        # タイムスタンプ付き時系列を更新（微分計算用）
         if t not in time_series_ts_db: time_series_ts_db[t] = []
         time_series_ts_db[t].append((current_time, avg_spike_record))
         time_series_ts_db[t] = time_series_ts_db[t][-30:]  # 微分には多めに保持
@@ -1448,12 +1448,12 @@ def get_threat_data():
         core_bgp, bgp_anomaly = bgp_routing_data.get(core_theater, {}), bgp_routing_data.get(core_theater, {}).get("is_anomaly", False)
         add_rat("ripe_bgp", "cyber", "FIRED" if bgp_anomaly else "OK", "ANOMALY" if bgp_anomaly else "NORMAL", 1 if bgp_anomaly else 0, "BGP prefix withdrawal" if bgp_anomaly else None)
 
-    # [Phase 7] NASA FIRMS (Physical)
+    # NASA FIRMS (Physical)
     if nasa_firms_sensor and nasa_firms_sensor.enabled:
         has_firms = any(f["code"] == core_theater for f in nasa_firms_data)
         add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", f"Thermal Anomalies", 3 if has_firms else 0, "Kinetic Strike Precursor")
 
-    # [Phase 7] ThreatFox (Cyber)
+    # ThreatFox (Cyber)
     if threatfox_sensor and threatfox_sensor.enabled:
         has_tf = core_theater in threatfox_data
         add_rat("threatfox", "cyber", "FIRED" if has_tf else "OK", "APT C2 Hit", 1 if has_tf else 0, "Known APT infra matched")
@@ -1461,7 +1461,7 @@ def get_threat_data():
     if peeringdb_sensor and peeringdb_sensor.enabled:
         add_rat("peeringdb_ixp", "physical", "OK", f"IXP(s) registered", 0, None)
 
-    # ── Phase 8: 新センサー rationale + Sequence Event 登録 ───────────────────
+    # ── 追加センサー rationale + Sequence Event 登録 ──────────────────────────
 
     # RSS ナラティブバースト
     core_narrative = narrative_data.get(core_theater, {})
@@ -1520,7 +1520,7 @@ def get_threat_data():
                                 {"coordinated_theaters": elevated_theaters,
                                  "max_overlap": max(correlations.values(), default=0.0)})
 
-    # ── Phase 8: 微分計算 (Velocity / Acceleration / Ambush) ─────────────────
+    # ── 微分計算 (Velocity / Acceleration / Ambush) ───────────────────────────
     ts_series_core = time_series_ts_db.get(core_theater, [])
     is_ambush, ambush_z, velocity_val, acceleration_val = engine.detect_ambush_pattern(ts_series_core)
     if is_ambush:
@@ -1528,7 +1528,7 @@ def get_threat_data():
                 "FIRED", f"Ambush Z={ambush_z:.2f} v={velocity_val:.4f}",
                 2, f"Exponential escalation detected (2nd derivative Z={ambush_z:.2f})")
 
-    # ── Phase 8: Sequence Bonus 計算 ──────────────────────────────────────────
+    # ── Sequence Bonus 計算 ───────────────────────────────────────────────────
     seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
 
     domain_scores = engine.compute_domain_scores(rationale)
@@ -1544,8 +1544,8 @@ def get_threat_data():
 
     system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
 
-    # Phase 8 解析結果まとめ
-    phase8_analytics = {
+    # 深層解析結果まとめ
+    deep_analytics = {
         "velocity":        round(velocity_val, 6),
         "acceleration":    round(acceleration_val, 8),
         "is_ambush":       is_ambush,
@@ -1613,7 +1613,7 @@ def get_threat_data():
                 "critical_nodes": [{"type": "IXP", "id": ix["id"], "name": ix["name"], "aka": ix.get("aka", ""), "city": ix["city"], "country": c, "lat": ix["lat"], "lng": ix["lng"], "status": ix.get("status", "ok")} for c, cdata in ixp_data.items() for ix in cdata.get("ixps", []) if ix.get("lat") and ix.get("lng")],
                 "firms_anomalies": nasa_firms_data,
                 "chokepoints": [{"name": c["name"], "lat": c["lat"], "lng": c["lng"], "country": c["country"]} for c in CHOKEPOINTS if c["country"] in requested_targets],
-                # Phase 8 新オーバーレイ
+                # 追加オーバーレイ
                 "isr_hotspots": [
                     {"name": hs["name"], "lat": hs["lat"], "lng": hs["lng"],
                      "theater": hs["theater"],
@@ -1624,8 +1624,8 @@ def get_threat_data():
                 "ais_dark_gaps":  ais_dark_gaps[:10],
                 "ais_stationary": ais_stationary[:10],
             },
-            # Phase 8 解析ブロック
-            "phase8": phase8_analytics,
+            # 深層解析ブロック
+            "analytics": deep_analytics,
         },
     }
 
@@ -1636,9 +1636,8 @@ def get_threat_data():
         "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
         "core_theater": core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
         "is_coordinated": is_coordinated, "system_note": system_note,
-        # Phase 8
         "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
-        "blockade_index": phase8_analytics["blockade_index"],
+        "blockade_index": deep_analytics["blockade_index"],
     })
     while len(alert_timeline) > ALERT_TIMELINE_MAX: alert_timeline.pop(0)
 
@@ -1650,7 +1649,7 @@ def get_threat_data():
         degraded_raw = global_cache["strategic"].get("degraded_theaters_raw", [])
         degraded_eff = global_cache["strategic"].get("degraded_theaters", [])
         
-        # Phase 8: 各ターゲットの速度・加速度計算
+        # 各ターゲットの速度・加速度計算
         ts_series_t = time_series_ts_db.get(t, [])
         t_vel = engine.compute_velocity(ts_series_t)
         t_ambush, t_ambush_z, _, _ = engine.detect_ambush_pattern(ts_series_t)
@@ -1662,7 +1661,6 @@ def get_threat_data():
             "is_vector_shift": data.get("is_vector_shift", False), "shift_actors": data.get("shift_actors", []),
             "trend_history": time_series_db.get(t, []), "trend_history_l3": time_series_l3_db.get(t, []), "trend_history_l7": time_series_l7_db.get(t, []),
             "sources": data.get("sources", []),
-            # Phase 8
             "velocity": round(t_vel, 5),
             "is_ambush": t_ambush,
             "ambush_z":  t_ambush_z,
@@ -1784,7 +1782,7 @@ def api_sitrep():
     })
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Phase 8: New API Endpoints
+# ── Advanced Analytics Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/sequence_chain", methods=["GET"])
@@ -1815,10 +1813,10 @@ def api_sequence_chain():
     return jsonify({"ts": datetime.datetime.now().isoformat(), "chains": result})
 
 
-@app.route("/api/phase8_analytics", methods=["GET"])
-def api_phase8_analytics():
+@app.route("/api/deep_analytics", methods=["GET"])
+def api_deep_analytics():
     """
-    Phase 8 解析結果の詳細エンドポイント。
+    深層解析結果の詳細エンドポイント。
     velocity/acceleration/ambush/narrative/ISR/AIS/blockade_index を返す。
     """
     theater_param = request.args.get("theater", DEFAULT_CORE).upper()
@@ -1916,7 +1914,7 @@ def api_salute_report():
     の接触報告として生成して返す。アナリストの訓練された認知モードを起動する。
     """
     strat = global_cache.get("strategic", {})
-    p8    = strat.get("phase8", {})
+    p8    = strat.get("analytics", {})
     now_ts = datetime.datetime.now(datetime.timezone.utc)
     dtg = now_ts.strftime("%d%H%MZ %b %Y").upper()
     threat_level = strat.get("threat_level", 5)
@@ -2010,7 +2008,7 @@ def api_weather_brief():
     気象用語を使って脅威環境を直感的に表現する。
     """
     strat = global_cache.get("strategic", {})
-    p8    = strat.get("phase8", {})
+    p8    = strat.get("analytics", {})
     bd    = strat.get("threat_breakdown", {})
     isr   = p8.get("isr", {})
     ais   = p8.get("ais", {})
