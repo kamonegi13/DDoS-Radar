@@ -87,6 +87,7 @@ OWM_API_KEY                = os.getenv("OWM_API_KEY", "")
 CURRENT_DATE_RANGE         = os.getenv("CURRENT_DATE_RANGE",  "1d")
 BASELINE_DATE_RANGE        = os.getenv("BASELINE_DATE_RANGE", "7d")
 CACHE_EXPIRY               = int(os.getenv("CACHE_EXPIRY", "900"))
+SCORE_REFRESH_SEC          = int(os.getenv("SCORE_REFRESH_SEC", "60"))   # スコアリング計算の最短間隔 (秒)
 
 DEFAULT_CORE        = os.getenv("DEFAULT_CORE", "TW")
 DEFAULT_CORRELATES  = [x.strip() for x in os.getenv("DEFAULT_CORRELATES", "JP,US").split(",") if x.strip()]
@@ -200,7 +201,7 @@ class BaseSensor(ABC):
 # Sensor Implementations
 # ─────────────────────────────────────────────────────────────────────────────
 class IodaSensor(BaseSensor):
-    def __init__(self): super().__init__("ioda_bgp", "physical", 600)
+    def __init__(self): super().__init__("ioda_bgp", "physical", 300)
     def fetch(self, context: dict) -> dict:
         targets = context.get("all_targets", []); headers = context.get("cf_headers", {})
         results = {}
@@ -224,7 +225,7 @@ class IodaSensor(BaseSensor):
         return result
 
 class CloudflareSensor(BaseSensor):
-    def __init__(self): super().__init__("cloudflare_radar", "cyber", 300)
+    def __init__(self): super().__init__("cloudflare_radar", "cyber", 900)
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
         params = {"dateRange": CURRENT_DATE_RANGE, "format": "json"}
@@ -255,7 +256,7 @@ class CloudflareSensor(BaseSensor):
         return result
 
 class OpenSkySensor(BaseSensor):
-    def __init__(self): super().__init__("opensky", "physical", 180)
+    def __init__(self): super().__init__("opensky", "physical", 600)
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); results: dict = {}; delta = 0.5
         t0 = time.time(); total_states = 0; any_success = False; last_status = 0; last_error = ""
@@ -308,7 +309,7 @@ class OpenWeatherSensor(BaseSensor):
         return result
 
 class PeeringDbSensor(BaseSensor):
-    def __init__(self): super().__init__("peeringdb_ixp", "physical", 3600)
+    def __init__(self): super().__init__("peeringdb_ixp", "physical", 14400)
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); ixp_data: dict = {}
         t0 = time.time(); total_ixps = 0; any_success = False; last_status = 0; last_error = ""
@@ -333,7 +334,7 @@ class PeeringDbSensor(BaseSensor):
 class BgpRoutingSensor(BaseSensor):
     BGP_DROP_THRESHOLD = 0.15
     def __init__(self):
-        super().__init__("ripe_bgp", "cyber", 600); self._baseline: dict = {}
+        super().__init__("ripe_bgp", "cyber", 1800); self._baseline: dict = {}
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); results: dict = {}
         t0 = time.time(); total_prefixes = 0; any_success = False; last_status = 0; last_error = ""
@@ -372,7 +373,7 @@ class GDELTSensor(BaseSensor):
         "UA": '"Ukraine" (war OR military OR Russia OR offensive)', "IL": '"Israel" (military OR attack OR Gaza OR Iran)',
         "US": '"United States" (military OR China OR Taiwan OR Russia)', "AU": '"Australia" (military OR China OR defense OR Pacific)'
     }
-    def __init__(self): super().__init__("gdelt", "info", 900)
+    def __init__(self): super().__init__("gdelt", "info", 1800)
     def _fetch_tone(self, query: str, timespan: str) -> Optional[float]:
         try:
             res = requests.get("https://api.gdeltproject.org/api/v2/doc/doc", params={"query": query, "mode": "TimelineTone", "timespan": timespan, "format": "json"}, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
@@ -411,7 +412,7 @@ class NasaFirmsSensor(BaseSensor):
     # 対象シアターに近いイベントか判定する許容距離（度）
     GEO_RADIUS_DEG = 10.0
 
-    def __init__(self): super().__init__("nasa_firms", "physical", 900)
+    def __init__(self): super().__init__("nasa_firms", "physical", 3600)
 
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", [])
@@ -468,7 +469,7 @@ class NasaFirmsSensor(BaseSensor):
         return result
 
 class ThreatFoxSensor(BaseSensor):
-    def __init__(self): super().__init__("threatfox", "cyber", 1800)
+    def __init__(self): super().__init__("threatfox", "cyber", 3600)
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", [])
         hits = {}
@@ -530,7 +531,7 @@ class RssNarrativeSensor(BaseSensor):
     統計的に有意なスパイクのみをアラートする。
     """
     def __init__(self):
-        super().__init__("rss_narrative", "info", NARRATIVE_POLL_INTERVAL)
+        super().__init__("rss_narrative", "info", 1800)
         self._baseline: dict = {}   # {theater: {"daily_counts": [float,...], "last_updated": float}}
         self._lock = threading.Lock()
 
@@ -672,7 +673,7 @@ class IsrHotspotSensor(BaseSensor):
     RADIUS_DEG = 1.8
 
     def __init__(self):
-        super().__init__("isr_hotspot", "physical", 300)
+        super().__init__("isr_hotspot", "physical", 600)
 
     def fetch(self, context: dict) -> dict:
         theaters = set(context.get("strategic_theaters", []))
@@ -1033,6 +1034,45 @@ for s in [
     registry.register(s)
 engine = WeightedConvergenceEngine()
 
+def _build_default_context() -> dict:
+    """デフォルト設定ベースのセンサーコンテキストを構築する。バックグラウンドスケジューラが使用。"""
+    return {
+        "all_targets":         sorted(set([DEFAULT_CORE] + DEFAULT_CORRELATES + DEFAULT_PINS)),
+        "strategic_theaters":  sorted(set([DEFAULT_CORE] + DEFAULT_CORRELATES)),
+        "cf_headers":          CF_HEADERS,
+        "owm_api_key":         OWM_API_KEY,
+        "weather_conditions":  {},
+        "gdelt_tone_threshold": GDELT_TONE_ALERT_THRESHOLD,
+        "gdelt_history_window": GDELT_HISTORY_WINDOW,
+    }
+
+def _sensor_scheduler_worker(sensor: BaseSensor):
+    """センサー専用のバックグラウンドフェッチスレッド。poll_interval ごとに定期フェッチする。"""
+    # 起動時は即時フェッチ
+    try:
+        ctx = _build_default_context()
+        if sensor.name == "gdelt":
+            owm = registry.get("openweather")
+            if owm: ctx["weather_conditions"] = owm.get_cache().get("conditions", {})
+        sensor.fetch(ctx)
+    except Exception as e:
+        print(f"[Sensor/{sensor.name}] Initial fetch error: {e}")
+    while True:
+        time.sleep(sensor.poll_interval)
+        try:
+            ctx = _build_default_context()
+            if sensor.name == "gdelt":
+                owm = registry.get("openweather")
+                if owm: ctx["weather_conditions"] = owm.get_cache().get("conditions", {})
+            sensor.fetch(ctx)
+        except Exception as e:
+            print(f"[Sensor/{sensor.name}] Scheduled fetch error: {e}")
+
+# バックグラウンドセンサースケジューラを起動
+for _s in registry._sensors.values():
+    threading.Thread(target=_sensor_scheduler_worker, args=(_s,),
+                     daemon=True, name=f"sensor-{_s.name}").start()
+
 global_cache      = {"time": 0, "data": {}, "strategic": {}}
 _global_cache_lock = threading.Lock()   # global_cache 全体置き換え時のスレッド安全
 baseline_cache:    dict = {}
@@ -1222,444 +1262,446 @@ def get_threat_data():
         "gdelt_history_window": GDELT_HISTORY_WINDOW
     }
 
-    # ── Parallel High-Speed Fetch Engine ──
-    if (current_time - global_cache.get("time", 0) > CACHE_EXPIRY) or force_sync or missing_data:
+    # センサーはバックグラウンドで個別スケジューリング済み。
+    # force_sync または必要データ不足時のみ即時全センサーフェッチを行う。
+    if force_sync or missing_data:
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(sensor.fetch, sensor_context) for sensor in registry._sensors.values() if sensor.enabled]
             for future in as_completed(futures):
-                pass 
+                pass
 
-    # Extract required states from caches
-    cf_sensor = registry.get("cloudflare_radar")
-    ioda_sensor = registry.get("ioda_bgp")
-    ioda_data = ioda_sensor.get_cache().get("statuses", {}) if ioda_sensor else {}
-    owm_sensor = registry.get("openweather")
-    weather_conditions = owm_sensor.get_cache().get("conditions", {}) if owm_sensor else {}
-    opensky_sensor = registry.get("opensky")
-    airspace_data = opensky_sensor.get_cache().get("airports", {}) if opensky_sensor else {}
-    gdelt_sensor = registry.get("gdelt")
-    gdelt_tones = gdelt_sensor.get_cache().get("gdelt_tones", {}) if gdelt_sensor else {}
-    peeringdb_sensor = registry.get("peeringdb_ixp")
-    ixp_data = peeringdb_sensor.get_cache().get("ixp_data", {}) if peeringdb_sensor else {}
-    bgp_routing_sensor = registry.get("ripe_bgp")
-    bgp_routing_data = bgp_routing_sensor.get_cache().get("routing_stats", {}) if bgp_routing_sensor else {}
-    nasa_firms_sensor = registry.get("nasa_firms")
-    nasa_firms_data = nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else []
-    threatfox_sensor = registry.get("threatfox")
-    threatfox_data = threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {}
-    # 追加センサーデータ取得
-    rss_narrative_sensor = registry.get("rss_narrative")
-    narrative_data = rss_narrative_sensor.get_cache().get("narratives", {}) if rss_narrative_sensor else {}
-    isr_hotspot_sensor = registry.get("isr_hotspot")
-    isr_data = isr_hotspot_sensor.get_cache().get("isr_data", {}) if isr_hotspot_sensor else {}
-    ais_maritime_sensor = registry.get("ais_maritime")
-    ais_dark_gaps        = ais_maritime_sensor.get_cache().get("dark_gaps", []) if ais_maritime_sensor else []
-    ais_stationary       = ais_maritime_sensor.get_cache().get("stationary_anomalies", []) if ais_maritime_sensor else []
-    ais_has_anomaly      = ais_maritime_sensor.get_cache().get("has_anomaly", False) if ais_maritime_sensor else False
+    if (current_time - global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync or missing_data:
+        # Extract required states from caches
+        cf_sensor = registry.get("cloudflare_radar")
+        ioda_sensor = registry.get("ioda_bgp")
+        ioda_data = ioda_sensor.get_cache().get("statuses", {}) if ioda_sensor else {}
+        owm_sensor = registry.get("openweather")
+        weather_conditions = owm_sensor.get_cache().get("conditions", {}) if owm_sensor else {}
+        opensky_sensor = registry.get("opensky")
+        airspace_data = opensky_sensor.get_cache().get("airports", {}) if opensky_sensor else {}
+        gdelt_sensor = registry.get("gdelt")
+        gdelt_tones = gdelt_sensor.get_cache().get("gdelt_tones", {}) if gdelt_sensor else {}
+        peeringdb_sensor = registry.get("peeringdb_ixp")
+        ixp_data = peeringdb_sensor.get_cache().get("ixp_data", {}) if peeringdb_sensor else {}
+        bgp_routing_sensor = registry.get("ripe_bgp")
+        bgp_routing_data = bgp_routing_sensor.get_cache().get("routing_stats", {}) if bgp_routing_sensor else {}
+        nasa_firms_sensor = registry.get("nasa_firms")
+        nasa_firms_data = nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else []
+        threatfox_sensor = registry.get("threatfox")
+        threatfox_data = threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {}
+        # 追加センサーデータ取得
+        rss_narrative_sensor = registry.get("rss_narrative")
+        narrative_data = rss_narrative_sensor.get_cache().get("narratives", {}) if rss_narrative_sensor else {}
+        isr_hotspot_sensor = registry.get("isr_hotspot")
+        isr_data = isr_hotspot_sensor.get_cache().get("isr_data", {}) if isr_hotspot_sensor else {}
+        ais_maritime_sensor = registry.get("ais_maritime")
+        ais_dark_gaps        = ais_maritime_sensor.get_cache().get("dark_gaps", []) if ais_maritime_sensor else []
+        ais_stationary       = ais_maritime_sensor.get_cache().get("stationary_anomalies", []) if ais_maritime_sensor else []
+        ais_has_anomaly      = ais_maritime_sensor.get_cache().get("has_anomaly", False) if ais_maritime_sensor else False
 
-    airspace_anomalies, noise_filters_applied = [], []
-    for code, ainfo in airspace_data.items():
-        count = ainfo.get("count", -1)
-        if count < 0: ainfo["status"] = "ERROR"; continue
-        if code not in airspace_baseline: airspace_baseline[code] = {"readings": [], "avg": 0.0}
-        bl = airspace_baseline[code]
-        bl["readings"].append(count); bl["readings"] = bl["readings"][-AIRSPACE_WINDOW:]
-        n = len(bl["readings"])
-        bl["avg"] = sum(bl["readings"]) / n if n > 0 else 0.0
-        ainfo["baseline_avg"] = round(bl["avg"], 1); ainfo["baseline_n"] = n
+        airspace_anomalies, noise_filters_applied = [], []
+        for code, ainfo in airspace_data.items():
+            count = ainfo.get("count", -1)
+            if count < 0: ainfo["status"] = "ERROR"; continue
+            if code not in airspace_baseline: airspace_baseline[code] = {"readings": [], "avg": 0.0}
+            bl = airspace_baseline[code]
+            bl["readings"].append(count); bl["readings"] = bl["readings"][-AIRSPACE_WINDOW:]
+            n = len(bl["readings"])
+            bl["avg"] = sum(bl["readings"]) / n if n > 0 else 0.0
+            ainfo["baseline_avg"] = round(bl["avg"], 1); ainfo["baseline_n"] = n
 
-        if n < 3 or bl["avg"] < 1:
-            ainfo["status"] = "BASELINE_BUILDING"; ainfo["drop_pct"] = 0.0; continue
+            if n < 3 or bl["avg"] < 1:
+                ainfo["status"] = "BASELINE_BUILDING"; ainfo["drop_pct"] = 0.0; continue
 
-        drop_ratio = max(0.0, (bl["avg"] - count) / bl["avg"]); ainfo["drop_pct"] = round(drop_ratio * 100, 1)
-        weather_suppressed = weather_conditions.get(code, {}).get("is_severe", False)
+            drop_ratio = max(0.0, (bl["avg"] - count) / bl["avg"]); ainfo["drop_pct"] = round(drop_ratio * 100, 1)
+            weather_suppressed = weather_conditions.get(code, {}).get("is_severe", False)
 
-        severity = "CLOSURE" if drop_ratio >= (1.0 - AIRSPACE_CLOSURE_THRESHOLD) else "ANOMALY" if drop_ratio >= (1.0 - AIRSPACE_ANOMALY_THRESHOLD) else "NORMAL"
-        if severity in ("CLOSURE", "ANOMALY"):
-            if weather_suppressed:
-                ainfo["status"] = "WEATHER_NOISE"; noise_filters_applied.append(f"weather_noise@{code}: airspace {severity.lower()} suppressed")
-            else:
-                ainfo["status"] = severity
-                airspace_anomalies.append({"code": code, "airport": ainfo.get("airport", code), "count": count, "baseline": ainfo["baseline_avg"], "drop_pct": ainfo["drop_pct"], "severity": severity, "lat": ainfo.get("lat"), "lng": ainfo.get("lng")})
-        else: ainfo["status"] = "NORMAL"
+            severity = "CLOSURE" if drop_ratio >= (1.0 - AIRSPACE_CLOSURE_THRESHOLD) else "ANOMALY" if drop_ratio >= (1.0 - AIRSPACE_ANOMALY_THRESHOLD) else "NORMAL"
+            if severity in ("CLOSURE", "ANOMALY"):
+                if weather_suppressed:
+                    ainfo["status"] = "WEATHER_NOISE"; noise_filters_applied.append(f"weather_noise@{code}: airspace {severity.lower()} suppressed")
+                else:
+                    ainfo["status"] = severity
+                    airspace_anomalies.append({"code": code, "airport": ainfo.get("airport", code), "count": count, "baseline": ainfo["baseline_avg"], "drop_pct": ainfo["drop_pct"], "severity": severity, "lat": ainfo.get("lat"), "lng": ainfo.get("lng")})
+            else: ainfo["status"] = "NORMAL"
 
-    degraded_targets_raw, degraded_targets_effective = [], []
-    g_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/target", {"dateRange": CURRENT_DATE_RANGE, "format": "json"}))
-    g_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/target", {"dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+        degraded_targets_raw, degraded_targets_effective = [], []
+        g_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/target", {"dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+        g_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/target", {"dateRange": CURRENT_DATE_RANGE, "format": "json"}))
 
-    target_details, origin_distributions, origin_distributions_l3, origin_distributions_l7 = {}, {}, {}, {}
-    adversary_strikes, vector_shifts = [], []
+        target_details, origin_distributions, origin_distributions_l3, origin_distributions_l7 = {}, {}, {}, {}
+        adversary_strikes, vector_shifts = [], []
 
-    for t in list(required_keys):
-        if ioda_data.get(t, "NORMAL") == "BGP_OUTAGE":
-            degraded_targets_raw.append(t)
-            if weather_conditions.get(t, {}).get("is_severe", False): noise_filters_applied.append(f"weather_noise@{t}: BGP outage suppressed")
-            else: degraded_targets_effective.append(t)
+        for t in list(required_keys):
+            if ioda_data.get(t, "NORMAL") == "BGP_OUTAGE":
+                degraded_targets_raw.append(t)
+                if weather_conditions.get(t, {}).get("is_severe", False): noise_filters_applied.append(f"weather_noise@{t}: BGP outage suppressed")
+                else: degraded_targets_effective.append(t)
 
-    for t in required_keys:
-        if t not in time_series_db: time_series_db[t] = []
-        if t not in time_series_l3_db: time_series_l3_db[t] = []
-        if t not in time_series_l7_db: time_series_l7_db[t] = []
+        for t in required_keys:
+            if t not in time_series_db: time_series_db[t] = []
+            if t not in time_series_l3_db: time_series_l3_db[t] = []
+            if t not in time_series_l7_db: time_series_l7_db[t] = []
 
-        if t not in baseline_cache or (current_time - baseline_cache[t]["time"] > 86400):
-            b_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
-            b_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
-            baseline_cache[t] = {"time": current_time, "l3": b_l3, "l7": b_l7}
+            if t not in baseline_cache or (current_time - baseline_cache[t]["time"] > 86400):
+                b_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
+                b_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
+                baseline_cache[t] = {"time": current_time, "l3": b_l3, "l7": b_l7}
 
-        b_data = baseline_cache[t]
-        g_l3_share_display, g_l7_share_display = g_l3.get(t, 0.0), g_l7.get(t, 0.0)
-        g_l3_share, g_l7_share = max(g_l3_share_display, 0.1), max(g_l7_share_display, 0.1)
-        global_target_share = (g_l3_share_display + g_l7_share_display) / 2.0
+            b_data = baseline_cache[t]
+            g_l3_share_display, g_l7_share_display = g_l3.get(t, 0.0), g_l7.get(t, 0.0)
+            g_l3_share, g_l7_share = max(g_l3_share_display, 0.1), max(g_l7_share_display, 0.1)
+            global_target_share = (g_l3_share_display + g_l7_share_display) / 2.0
 
-        o_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin", {"location": t, "dateRange": CURRENT_DATE_RANGE, "format": "json"}))
-        o_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+            o_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin", {"location": t, "dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+            o_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": CURRENT_DATE_RANGE, "format": "json"}))
 
-        state_asn_hits = {}
-        if t in strategic_theaters_set:
-            for asn_key in fetch_asn_origins(t):
-                if asn_key in STATE_ASNS: state_asn_hits.setdefault(STATE_ASNS[asn_key], []).append(asn_key)
+            state_asn_hits = {}
+            if t in strategic_theaters_set:
+                for asn_key in fetch_asn_origins(t):
+                    if asn_key in STATE_ASNS: state_asn_hits.setdefault(STATE_ASNS[asn_key], []).append(asn_key)
 
-        combined_sources, normalized_dist, normalized_dist_l3, normalized_dist_l7 = {}, {}, {}, {}
-        target_weighted_spike, total_local_pct, target_l3_spike_sum, target_l7_spike_sum = 0.0, 0.0, 0.0, 0.0
-        all_origin_codes = set(o_l3) | set(o_l7)
+            combined_sources, normalized_dist, normalized_dist_l3, normalized_dist_l7 = {}, {}, {}, {}
+            target_weighted_spike, total_local_pct, target_l3_spike_sum, target_l7_spike_sum = 0.0, 0.0, 0.0, 0.0
+            all_origin_codes = set(o_l3) | set(o_l7)
 
-        # ── Spike anti-inflation guard ──
-        # ベースラインデータが空の場合（起動直後・CF APIエラー時）はスパイク計算をスキップ。
-        # 空ベースラインで計算すると全発信元が最小値(0.5%)基準となり90倍超のフォールスポジティブが発生する。
-        has_baseline = bool(b_data.get("l3") or b_data.get("l7"))
+            # ── Spike anti-inflation guard ──
+            # ベースラインデータが空の場合（起動直後・CF APIエラー時）はスパイク計算をスキップ。
+            # 空ベースラインで計算すると全発信元が最小値(0.5%)基準となり90倍超のフォールスポジティブが発生する。
+            has_baseline = bool(b_data.get("l3") or b_data.get("l7"))
 
-        for code in all_origin_codes:
-            local_l3_pct, local_l7_pct = o_l3.get(code, 0.0), o_l7.get(code, 0.0)
-            current_local_pct = max(local_l3_pct, local_l7_pct)
+            for code in all_origin_codes:
+                local_l3_pct, local_l7_pct = o_l3.get(code, 0.0), o_l7.get(code, 0.0)
+                current_local_pct = max(local_l3_pct, local_l7_pct)
 
-            is_new_actor = (code not in b_data["l3"]) and (code not in b_data["l7"])
-            # 敵対国（CN/RU/KP等）は低いベースラインフロアを維持して小量攻撃も検知する。
-            # 非敵対国は高いフロア（3%）でノイズを抑制。
-            # 例: KP がベースライン0.1% → 現在2% のケースで4倍スパイクとして正しく検出できる。
-            is_adversary_origin = code in adversary_states
-            _floor_new   = 0.5 if is_adversary_origin else 3.0  # 新規actor（ベースラインにない）
-            _floor_exist = 0.5 if is_adversary_origin else 2.0  # 既存actor
-            base_l3 = max(b_data["l3"].get(code, _floor_new), _floor_exist if code not in b_data["l3"] else _floor_new)
-            base_l7 = max(b_data["l7"].get(code, _floor_new), _floor_exist if code not in b_data["l7"] else _floor_new)
-            l3_spike = (local_l3_pct / base_l3) if local_l3_pct > 0 else 0.0
-            l7_spike = (local_l7_pct / base_l7) if local_l7_pct > 0 else 0.0
-            # スパイク倍率を25倍でキャップ（統計ノイズによる極端な増幅を防ぐ）
-            spike_factor = min(max(l3_spike, l7_spike), 25.0)
+                is_new_actor = (code not in b_data["l3"]) and (code not in b_data["l7"])
+                # 敵対国（CN/RU/KP等）は低いベースラインフロアを維持して小量攻撃も検知する。
+                # 非敵対国は高いフロア（3%）でノイズを抑制。
+                # 例: KP がベースライン0.1% → 現在2% のケースで4倍スパイクとして正しく検出できる。
+                is_adversary_origin = code in adversary_states
+                _floor_new   = 0.5 if is_adversary_origin else 3.0  # 新規actor（ベースラインにない）
+                _floor_exist = 0.5 if is_adversary_origin else 2.0  # 既存actor
+                base_l3 = max(b_data["l3"].get(code, _floor_new), _floor_exist if code not in b_data["l3"] else _floor_new)
+                base_l7 = max(b_data["l7"].get(code, _floor_new), _floor_exist if code not in b_data["l7"] else _floor_new)
+                l3_spike = (local_l3_pct / base_l3) if local_l3_pct > 0 else 0.0
+                l7_spike = (local_l7_pct / base_l7) if local_l7_pct > 0 else 0.0
+                # スパイク倍率を25倍でキャップ（統計ノイズによる極端な増幅を防ぐ）
+                spike_factor = min(max(l3_spike, l7_spike), 25.0)
 
-            normalized_dist_l3[code], normalized_dist_l7[code], normalized_dist[code] = local_l3_pct, local_l7_pct, current_local_pct
+                normalized_dist_l3[code], normalized_dist_l7[code], normalized_dist[code] = local_l3_pct, local_l7_pct, current_local_pct
 
-            # ベースラインあり かつ 絶対値が有意（≥1%）の場合のみスパイク集計に算入
-            if has_baseline and current_local_pct >= 1.0:
-                target_weighted_spike += spike_factor * current_local_pct
-                target_l3_spike_sum += l3_spike * current_local_pct
-                target_l7_spike_sum += l7_spike * current_local_pct
-                total_local_pct += current_local_pct
+                # ベースラインあり かつ 絶対値が有意（≥1%）の場合のみスパイク集計に算入
+                if has_baseline and current_local_pct >= 1.0:
+                    target_weighted_spike += spike_factor * current_local_pct
+                    target_l3_spike_sum += l3_spike * current_local_pct
+                    target_l7_spike_sum += l7_spike * current_local_pct
+                    total_local_pct += current_local_pct
 
-            global_l3_weight = g_l3_share * (local_l3_pct / 100.0); global_l7_weight = g_l7_share * (local_l7_pct / 100.0)
-            total_global_weight = global_l3_weight + global_l7_weight
+                global_l3_weight = g_l3_share * (local_l3_pct / 100.0); global_l7_weight = g_l7_share * (local_l7_pct / 100.0)
+                total_global_weight = global_l3_weight + global_l7_weight
 
-            is_direct_strike = False
-            if code in adversary_states and t in strategic_theaters_set and spike_factor >= 4.0 and current_local_pct > 3.0:
-                adversary_strikes.append({"actor": code, "target": t, "spike": round(spike_factor, 1), "pct": round(current_local_pct, 1)})
-                is_direct_strike = True
+                is_direct_strike = False
+                if code in adversary_states and t in strategic_theaters_set and spike_factor >= 4.0 and current_local_pct > 3.0:
+                    adversary_strikes.append({"actor": code, "target": t, "spike": round(spike_factor, 1), "pct": round(current_local_pct, 1)})
+                    is_direct_strike = True
 
-            per_origin_l7_shift = (l7_spike >= 2.5 and l7_spike > l3_spike * 1.5 and local_l7_pct > 1.5)
-            is_state_asn = code in state_asn_hits
-            confidence = compute_confidence(spike_factor, code, is_new_actor, is_state_asn)
+                per_origin_l7_shift = (l7_spike >= 2.5 and l7_spike > l3_spike * 1.5 and local_l7_pct > 1.5)
+                is_state_asn = code in state_asn_hits
+                confidence = compute_confidence(spike_factor, code, is_new_actor, is_state_asn)
 
-            if total_global_weight > 0.01 or is_direct_strike:
-                coord = COUNTRY_COORDS.get(code) or get_fallback_coord(code)
-                combined_sources[code] = {"lat": coord["lat"], "lng": coord["lng"], "name": coord["name"], "code": code, "weight": total_global_weight, "l3_weight": global_l3_weight, "l7_weight": global_l7_weight, "spike_factor": round(spike_factor, 2), "l3_spike": round(l3_spike, 2), "l7_spike": round(l7_spike, 2), "is_l7_shift": per_origin_l7_shift, "is_new_actor": is_new_actor, "is_state_asn": is_state_asn, "state_asns": state_asn_hits.get(code, []), "confidence": confidence}
+                if total_global_weight > 0.01 or is_direct_strike:
+                    coord = COUNTRY_COORDS.get(code) or get_fallback_coord(code)
+                    combined_sources[code] = {"lat": coord["lat"], "lng": coord["lng"], "name": coord["name"], "code": code, "weight": total_global_weight, "l3_weight": global_l3_weight, "l7_weight": global_l7_weight, "spike_factor": round(spike_factor, 2), "l3_spike": round(l3_spike, 2), "l7_spike": round(l7_spike, 2), "is_l7_shift": per_origin_l7_shift, "is_new_actor": is_new_actor, "is_state_asn": is_state_asn, "state_asns": state_asn_hits.get(code, []), "confidence": confidence}
 
-        origin_distributions[t], origin_distributions_l3[t], origin_distributions_l7[t] = normalized_dist, normalized_dist_l3, normalized_dist_l7
-        # 正規化分母を最低5%に引き上げ（少量トラフィック時のavg_spike過大評価を防ぐ）
-        avg_l3_spike = target_l3_spike_sum / max(total_local_pct, 5.0); avg_l7_spike = target_l7_spike_sum / max(total_local_pct, 5.0)
-        shift_actors = [s["code"] for s in combined_sources.values() if s.get("is_l7_shift")]
-        is_vector_shift = ((avg_l7_spike >= 2.5 and avg_l7_spike > avg_l3_spike * 1.5) or len(shift_actors) > 0)
-        if is_vector_shift and t in strategic_theaters_set: vector_shifts.append(t)
+            origin_distributions[t], origin_distributions_l3[t], origin_distributions_l7[t] = normalized_dist, normalized_dist_l3, normalized_dist_l7
+            # 正規化分母を最低5%に引き上げ（少量トラフィック時のavg_spike過大評価を防ぐ）
+            avg_l3_spike = target_l3_spike_sum / max(total_local_pct, 5.0); avg_l7_spike = target_l7_spike_sum / max(total_local_pct, 5.0)
+            shift_actors = [s["code"] for s in combined_sources.values() if s.get("is_l7_shift")]
+            is_vector_shift = ((avg_l7_spike >= 2.5 and avg_l7_spike > avg_l3_spike * 1.5) or len(shift_actors) > 0)
+            if is_vector_shift and t in strategic_theaters_set: vector_shifts.append(t)
 
-        avg_spike_record = round(target_weighted_spike / max(total_local_pct, 5.0), 2)
-        time_series_db[t].append(avg_spike_record); time_series_db[t] = time_series_db[t][-15:]
-        time_series_l3_db[t].append(round(avg_l3_spike, 2)); time_series_l3_db[t] = time_series_l3_db[t][-15:]
-        time_series_l7_db[t].append(round(avg_l7_spike, 2)); time_series_l7_db[t] = time_series_l7_db[t][-15:]
-        # タイムスタンプ付き時系列を更新（微分計算用）
-        if t not in time_series_ts_db: time_series_ts_db[t] = []
-        time_series_ts_db[t].append((current_time, avg_spike_record))
-        time_series_ts_db[t] = time_series_ts_db[t][-30:]  # 微分には多めに保持
+            avg_spike_record = round(target_weighted_spike / max(total_local_pct, 5.0), 2)
+            time_series_db[t].append(avg_spike_record); time_series_db[t] = time_series_db[t][-15:]
+            time_series_l3_db[t].append(round(avg_l3_spike, 2)); time_series_l3_db[t] = time_series_l3_db[t][-15:]
+            time_series_l7_db[t].append(round(avg_l7_spike, 2)); time_series_l7_db[t] = time_series_l7_db[t][-15:]
+            # タイムスタンプ付き時系列を更新（微分計算用）
+            if t not in time_series_ts_db: time_series_ts_db[t] = []
+            time_series_ts_db[t].append((current_time, avg_spike_record))
+            time_series_ts_db[t] = time_series_ts_db[t][-30:]  # 微分には多めに保持
 
-        target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values())}
+            target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values())}
 
-    correlations, correlations_l3, correlations_l7 = {}, {}, {}
-    if core_theater in origin_distributions:
-        for t in correlate_targets:
-            if t != core_theater and t in origin_distributions:
-                key = f"{core_theater}-{t}"
-                correlations[key]    = calculate_overlap(origin_distributions[core_theater], origin_distributions[t])
-                correlations_l3[key] = calculate_overlap(origin_distributions_l3.get(core_theater, {}), origin_distributions_l3.get(t, {}))
-                correlations_l7[key] = calculate_overlap(origin_distributions_l7.get(core_theater, {}), origin_distributions_l7.get(t, {}))
+        correlations, correlations_l3, correlations_l7 = {}, {}, {}
+        if core_theater in origin_distributions:
+            for t in correlate_targets:
+                if t != core_theater and t in origin_distributions:
+                    key = f"{core_theater}-{t}"
+                    correlations[key]    = calculate_overlap(origin_distributions[core_theater], origin_distributions[t])
+                    correlations_l3[key] = calculate_overlap(origin_distributions_l3.get(core_theater, {}), origin_distributions_l3.get(t, {}))
+                    correlations_l7[key] = calculate_overlap(origin_distributions_l7.get(core_theater, {}), origin_distributions_l7.get(t, {}))
 
-    elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
-    is_coordinated = len(elevated_theaters) >= 2
+        elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
+        is_coordinated = len(elevated_theaters) >= 2
 
-    core_spike     = target_details.get(core_theater, {}).get("avg_spike", 0)
-    core_degraded  = core_theater in degraded_targets_effective
-    core_shifted   = core_theater in vector_shifts
-    # 国家主導の協調作戦は20〜35%重複が典型。45%は民間大型ボットネット水準で高すぎる。
-    high_correlation = any(v > 30.0 for v in correlations.values())
-    major_adversary  = len(adversary_strikes) > 0
-    tl1_hard = core_spike > 5.0 and core_degraded
+        core_spike     = target_details.get(core_theater, {}).get("avg_spike", 0)
+        core_degraded  = core_theater in degraded_targets_effective
+        core_shifted   = core_theater in vector_shifts
+        # 国家主導の協調作戦は20〜35%重複が典型。45%は民間大型ボットネット水準で高すぎる。
+        high_correlation = any(v > 30.0 for v in correlations.values())
+        major_adversary  = len(adversary_strikes) > 0
+        tl1_hard = core_spike > 5.0 and core_degraded
 
-    rationale: list[RationaleEntry] = []
+        rationale: list[RationaleEntry] = []
 
-    def add_rat(sensor, domain, status, value, score, fired_reason, is_suppressed=False, suppress_reason=None):
-        _is_muted = (sensor in muted_sensors) or is_suppressed
-        _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
-        rationale.append(RationaleEntry(sensor=sensor, domain=domain, status=status, value=value, score=score, fired_reason=fired_reason, suppressed=_is_muted, suppress_reason=_s_reason))
+        def add_rat(sensor, domain, status, value, score, fired_reason, is_suppressed=False, suppress_reason=None):
+            _is_muted = (sensor in muted_sensors) or is_suppressed
+            _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
+            rationale.append(RationaleEntry(sensor=sensor, domain=domain, status=status, value=value, score=score, fired_reason=fired_reason, suppressed=_is_muted, suppress_reason=_s_reason))
 
-    if not (cf_sensor and cf_sensor.enabled):
-        add_rat("cloudflare_radar", "cyber", "DISABLED", "sensor off", 0, None)
-    else:
-        spike_score = (1 if core_spike > 2.0 else 0) + (1 if core_spike > 4.0 else 0) + (1 if core_spike > 6.0 else 0)
-        add_rat("cf_spike_core", "cyber", "FIRED" if core_spike > 2.0 else "OK", f"{core_spike:.2f}x", spike_score, f"Core theater spike exceeds 2x baseline" if spike_score else None)
-        max_overlap = max(correlations.values(), default=0.0)
-        add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None)
-        add_rat("cf_vector_shift", "cyber", "FIRED" if core_shifted else "OK", f"theaters={vector_shifts}", 1 if core_shifted else 0, "L7 application-layer escalation detected" if core_shifted else None)
-        add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{len(adversary_strikes)} strike(s)", 2 if major_adversary else 0, f"Adversary state direct strike" if major_adversary else None)
-        add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None)
+        if not (cf_sensor and cf_sensor.enabled):
+            add_rat("cloudflare_radar", "cyber", "DISABLED", "sensor off", 0, None)
+        else:
+            spike_score = (1 if core_spike > 2.0 else 0) + (1 if core_spike > 4.0 else 0) + (1 if core_spike > 6.0 else 0)
+            add_rat("cf_spike_core", "cyber", "FIRED" if core_spike > 2.0 else "OK", f"{core_spike:.2f}x", spike_score, f"Core theater spike exceeds 2x baseline" if spike_score else None)
+            max_overlap = max(correlations.values(), default=0.0)
+            add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None)
+            add_rat("cf_vector_shift", "cyber", "FIRED" if core_shifted else "OK", f"theaters={vector_shifts}", 1 if core_shifted else 0, "L7 application-layer escalation detected" if core_shifted else None)
+            add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{len(adversary_strikes)} strike(s)", 2 if major_adversary else 0, f"Adversary state direct strike" if major_adversary else None)
+            add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None)
 
-    if not (ioda_sensor and ioda_sensor.enabled):
-        add_rat("ioda_bgp", "physical", "DISABLED", "sensor off", 0, None)
-    else:
-        weather_suppressed_bgp = [t for t in degraded_targets_raw if t not in degraded_targets_effective]
-        bgp_value = f"bgp={'OUTAGE' if core_degraded else 'NORMAL'}"
-        if weather_suppressed_bgp: bgp_value += f" weather_muted={weather_suppressed_bgp}"
-        _wx_suppressed = (core_theater in weather_suppressed_bgp)
-        add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, f"BGP anomaly confirmed" if core_degraded else None, is_suppressed=_wx_suppressed, suppress_reason=f"Weather-muted: {weather_suppressed_bgp}" if weather_suppressed_bgp else None)
+        if not (ioda_sensor and ioda_sensor.enabled):
+            add_rat("ioda_bgp", "physical", "DISABLED", "sensor off", 0, None)
+        else:
+            weather_suppressed_bgp = [t for t in degraded_targets_raw if t not in degraded_targets_effective]
+            bgp_value = f"bgp={'OUTAGE' if core_degraded else 'NORMAL'}"
+            if weather_suppressed_bgp: bgp_value += f" weather_muted={weather_suppressed_bgp}"
+            _wx_suppressed = (core_theater in weather_suppressed_bgp)
+            add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, f"BGP anomaly confirmed" if core_degraded else None, is_suppressed=_wx_suppressed, suppress_reason=f"Weather-muted: {weather_suppressed_bgp}" if weather_suppressed_bgp else None)
 
-    if not (opensky_sensor and opensky_sensor.enabled):
-        add_rat("opensky", "physical", "DISABLED", "sensor off", 0, None)
-    else:
-        core_airspace = airspace_data.get(core_theater, {})
-        airspace_status = core_airspace.get("status", "NO_DATA")
-        airspace_score, airspace_fired, airspace_reason = 0, False, None
-        if airspace_status == "CLOSURE": airspace_score, airspace_fired, airspace_reason = 3, True, f"Airport near-total closure"
-        elif airspace_status == "ANOMALY": airspace_score, airspace_fired, airspace_reason = 2, True, f"Airspace anomaly"
-        airspace_value = f"{core_airspace.get('airport','N/A')}: {core_airspace.get('count','?')} ac" if core_airspace else "No airport data"
-        add_rat("opensky", "physical", "FIRED" if airspace_fired else ("SUPPRESSED" if airspace_status == "WEATHER_NOISE" else "OK"), airspace_value, airspace_score, airspace_reason, is_suppressed=(airspace_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if airspace_status == "WEATHER_NOISE" else None)
+        if not (opensky_sensor and opensky_sensor.enabled):
+            add_rat("opensky", "physical", "DISABLED", "sensor off", 0, None)
+        else:
+            core_airspace = airspace_data.get(core_theater, {})
+            airspace_status = core_airspace.get("status", "NO_DATA")
+            airspace_score, airspace_fired, airspace_reason = 0, False, None
+            if airspace_status == "CLOSURE": airspace_score, airspace_fired, airspace_reason = 3, True, f"Airport near-total closure"
+            elif airspace_status == "ANOMALY": airspace_score, airspace_fired, airspace_reason = 2, True, f"Airspace anomaly"
+            airspace_value = f"{core_airspace.get('airport','N/A')}: {core_airspace.get('count','?')} ac" if core_airspace else "No airport data"
+            add_rat("opensky", "physical", "FIRED" if airspace_fired else ("SUPPRESSED" if airspace_status == "WEATHER_NOISE" else "OK"), airspace_value, airspace_score, airspace_reason, is_suppressed=(airspace_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if airspace_status == "WEATHER_NOISE" else None)
 
-    if not (owm_sensor and owm_sensor.enabled):
-        add_rat("openweather", "physical", "DISABLED", "sensor off", 0, None)
-    else:
-        core_weather = weather_conditions.get(core_theater, {})
-        add_rat("openweather", "physical", "OK", f"{core_theater}: {core_weather.get('severity', 'NORMAL')}", 0, None, suppress_reason=f"Active noise filter" if core_weather.get("is_severe") else None)
+        if not (owm_sensor and owm_sensor.enabled):
+            add_rat("openweather", "physical", "DISABLED", "sensor off", 0, None)
+        else:
+            core_weather = weather_conditions.get(core_theater, {})
+            add_rat("openweather", "physical", "OK", f"{core_theater}: {core_weather.get('severity', 'NORMAL')}", 0, None, suppress_reason=f"Active noise filter" if core_weather.get("is_severe") else None)
 
-    if not (gdelt_sensor and gdelt_sensor.enabled):
-        add_rat("gdelt", "info", "DISABLED", "sensor off", 0, None)
-    else:
-        core_tone = gdelt_tones.get(core_theater, {})
-        tone_status, gdelt_alert = core_tone.get("status", "NO_DATA"), core_tone.get("status") == "ALERT"
-        add_rat("gdelt", "info", "SUPPRESSED" if tone_status == "WEATHER_NOISE" else "FIRED" if gdelt_alert else "OK", tone_status, 1 if gdelt_alert else 0, "Media tone collapse" if gdelt_alert else None, is_suppressed=(tone_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if tone_status == "WEATHER_NOISE" else None)
+        if not (gdelt_sensor and gdelt_sensor.enabled):
+            add_rat("gdelt", "info", "DISABLED", "sensor off", 0, None)
+        else:
+            core_tone = gdelt_tones.get(core_theater, {})
+            tone_status, gdelt_alert = core_tone.get("status", "NO_DATA"), core_tone.get("status") == "ALERT"
+            add_rat("gdelt", "info", "SUPPRESSED" if tone_status == "WEATHER_NOISE" else "FIRED" if gdelt_alert else "OK", tone_status, 1 if gdelt_alert else 0, "Media tone collapse" if gdelt_alert else None, is_suppressed=(tone_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if tone_status == "WEATHER_NOISE" else None)
 
-    if not (bgp_routing_sensor and bgp_routing_sensor.enabled):
-        add_rat("ripe_bgp", "cyber", "DISABLED", "sensor off", 0, None)
-    else:
-        core_bgp, bgp_anomaly = bgp_routing_data.get(core_theater, {}), bgp_routing_data.get(core_theater, {}).get("is_anomaly", False)
-        add_rat("ripe_bgp", "cyber", "FIRED" if bgp_anomaly else "OK", "ANOMALY" if bgp_anomaly else "NORMAL", 1 if bgp_anomaly else 0, "BGP prefix withdrawal" if bgp_anomaly else None)
+        if not (bgp_routing_sensor and bgp_routing_sensor.enabled):
+            add_rat("ripe_bgp", "cyber", "DISABLED", "sensor off", 0, None)
+        else:
+            core_bgp, bgp_anomaly = bgp_routing_data.get(core_theater, {}), bgp_routing_data.get(core_theater, {}).get("is_anomaly", False)
+            add_rat("ripe_bgp", "cyber", "FIRED" if bgp_anomaly else "OK", "ANOMALY" if bgp_anomaly else "NORMAL", 1 if bgp_anomaly else 0, "BGP prefix withdrawal" if bgp_anomaly else None)
 
-    # NASA FIRMS (Physical)
-    if nasa_firms_sensor and nasa_firms_sensor.enabled:
-        has_firms = any(f["code"] == core_theater for f in nasa_firms_data)
-        add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", f"Thermal Anomalies", 3 if has_firms else 0, "Kinetic Strike Precursor")
+        # NASA FIRMS (Physical)
+        if nasa_firms_sensor and nasa_firms_sensor.enabled:
+            has_firms = any(f["code"] == core_theater for f in nasa_firms_data)
+            add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", f"Thermal Anomalies", 3 if has_firms else 0, "Kinetic Strike Precursor")
 
-    # ThreatFox (Cyber)
-    if threatfox_sensor and threatfox_sensor.enabled:
-        has_tf = core_theater in threatfox_data
-        add_rat("threatfox", "cyber", "FIRED" if has_tf else "OK", "APT C2 Hit", 1 if has_tf else 0, "Known APT infra matched")
+        # ThreatFox (Cyber)
+        if threatfox_sensor and threatfox_sensor.enabled:
+            has_tf = core_theater in threatfox_data
+            add_rat("threatfox", "cyber", "FIRED" if has_tf else "OK", "APT C2 Hit", 1 if has_tf else 0, "Known APT infra matched")
 
-    if peeringdb_sensor and peeringdb_sensor.enabled:
-        add_rat("peeringdb_ixp", "physical", "OK", f"IXP(s) registered", 0, None)
+        if peeringdb_sensor and peeringdb_sensor.enabled:
+            add_rat("peeringdb_ixp", "physical", "OK", f"IXP(s) registered", 0, None)
 
-    # ── 追加センサー rationale + Sequence Event 登録 ──────────────────────────
+        # ── 追加センサー rationale + Sequence Event 登録 ──────────────────────────
 
-    # RSS ナラティブバースト
-    core_narrative = narrative_data.get(core_theater, {})
-    narrative_burst = core_narrative.get("is_burst", False)
-    narrative_z     = core_narrative.get("z_score", 0.0)
-    narrative_status = core_narrative.get("status", "NORMAL")
-    if rss_narrative_sensor and rss_narrative_sensor.enabled:
-        n_score = 2 if narrative_status == "CRITICAL_BURST" else 1 if narrative_burst else 0
-        add_rat("rss_narrative", "info",
-                "FIRED" if narrative_burst else "OK",
-                f"Z={narrative_z:.2f} [{narrative_status}]",
-                n_score,
-                f"Narrative Burst Z={narrative_z:.2f}" if narrative_burst else None)
-        if narrative_burst:
-            register_sequence_event(core_theater, "NARRATIVE_BURST",
-                                    {"z_score": narrative_z, "status": narrative_status})
+        # RSS ナラティブバースト
+        core_narrative = narrative_data.get(core_theater, {})
+        narrative_burst = core_narrative.get("is_burst", False)
+        narrative_z     = core_narrative.get("z_score", 0.0)
+        narrative_status = core_narrative.get("status", "NORMAL")
+        if rss_narrative_sensor and rss_narrative_sensor.enabled:
+            n_score = 2 if narrative_status == "CRITICAL_BURST" else 1 if narrative_burst else 0
+            add_rat("rss_narrative", "info",
+                    "FIRED" if narrative_burst else "OK",
+                    f"Z={narrative_z:.2f} [{narrative_status}]",
+                    n_score,
+                    f"Narrative Burst Z={narrative_z:.2f}" if narrative_burst else None)
+            if narrative_burst:
+                register_sequence_event(core_theater, "NARRATIVE_BURST",
+                                        {"z_score": narrative_z, "status": narrative_status})
 
-    # ISR ホットスポットサージ
-    core_isr = isr_data.get(core_theater, {})
-    isr_surge = core_isr.get("is_surge", False)
-    isr_count = core_isr.get("count", 0)
-    if isr_hotspot_sensor and isr_hotspot_sensor.enabled:
-        add_rat("isr_hotspot", "physical",
-                "FIRED" if isr_surge else "OK",
-                f"{isr_count} ISR ac in hotspot",
-                2 if isr_surge else 0,
-                f"ISR surge: {isr_count} aircraft" if isr_surge else None)
-        if isr_surge:
-            register_sequence_event(core_theater, "ISR_SURGE",
-                                    {"count": isr_count, "hotspots": core_isr.get("hotspots", [])})
+        # ISR ホットスポットサージ
+        core_isr = isr_data.get(core_theater, {})
+        isr_surge = core_isr.get("is_surge", False)
+        isr_count = core_isr.get("count", 0)
+        if isr_hotspot_sensor and isr_hotspot_sensor.enabled:
+            add_rat("isr_hotspot", "physical",
+                    "FIRED" if isr_surge else "OK",
+                    f"{isr_count} ISR ac in hotspot",
+                    2 if isr_surge else 0,
+                    f"ISR surge: {isr_count} aircraft" if isr_surge else None)
+            if isr_surge:
+                register_sequence_event(core_theater, "ISR_SURGE",
+                                        {"count": isr_count, "hotspots": core_isr.get("hotspots", [])})
 
-    # AIS 海上異常
-    if ais_maritime_sensor and ais_maritime_sensor.enabled:
-        core_gaps = [g for g in ais_dark_gaps if any(
-            cp["country"] == core_theater for cp in CHOKEPOINTS if cp["name"] == g.get("chokepoint")
-        )]
-        ais_fired = ais_has_anomaly or len(core_gaps) > 0
-        add_rat("ais_maritime", "physical",
-                "FIRED" if ais_fired else "OK",
-                f"dark_gaps={len(ais_dark_gaps)} stationary={len(ais_stationary)}",
-                1 if ais_fired else 0,
-                "AIS Dark Gap / Stationary Anomaly at chokepoint" if ais_fired else None)
-        if ais_fired:
-            register_sequence_event(core_theater, "AIS_DARK_GAP",
-                                    {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)})
+        # AIS 海上異常
+        if ais_maritime_sensor and ais_maritime_sensor.enabled:
+            core_gaps = [g for g in ais_dark_gaps if any(
+                cp["country"] == core_theater for cp in CHOKEPOINTS if cp["name"] == g.get("chokepoint")
+            )]
+            ais_fired = ais_has_anomaly or len(core_gaps) > 0
+            add_rat("ais_maritime", "physical",
+                    "FIRED" if ais_fired else "OK",
+                    f"dark_gaps={len(ais_dark_gaps)} stationary={len(ais_stationary)}",
+                    1 if ais_fired else 0,
+                    "AIS Dark Gap / Stationary Anomaly at chokepoint" if ais_fired else None)
+            if ais_fired:
+                register_sequence_event(core_theater, "AIS_DARK_GAP",
+                                        {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)})
 
-    # FIRMS → Sequence Event 登録（既存センサーの結果を流用）
-    has_firms_core = any(f.get("code") == core_theater for f in nasa_firms_data)
-    if has_firms_core:
-        register_sequence_event(core_theater, "FIRMS_ANOMALY",
-                                {"hotspots": [f for f in nasa_firms_data if f.get("code") == core_theater]})
+        # FIRMS → Sequence Event 登録（既存センサーの結果を流用）
+        has_firms_core = any(f.get("code") == core_theater for f in nasa_firms_data)
+        if has_firms_core:
+            register_sequence_event(core_theater, "FIRMS_ANOMALY",
+                                    {"hotspots": [f for f in nasa_firms_data if f.get("code") == core_theater]})
 
-    # Sync DDoS 検出 → Sequence Event 登録（高同期性かつ高スコアの場合）
-    if is_coordinated and high_correlation:
-        register_sequence_event(core_theater, "SYNC_DDOS",
-                                {"coordinated_theaters": elevated_theaters,
-                                 "max_overlap": max(correlations.values(), default=0.0)})
+        # Sync DDoS 検出 → Sequence Event 登録（高同期性かつ高スコアの場合）
+        if is_coordinated and high_correlation:
+            register_sequence_event(core_theater, "SYNC_DDOS",
+                                    {"coordinated_theaters": elevated_theaters,
+                                     "max_overlap": max(correlations.values(), default=0.0)})
 
-    # ── 微分計算 (Velocity / Acceleration / Ambush) ───────────────────────────
-    ts_series_core = time_series_ts_db.get(core_theater, [])
-    is_ambush, ambush_z, velocity_val, acceleration_val = engine.detect_ambush_pattern(ts_series_core)
-    if is_ambush:
-        add_rat("ddos_acceleration", "cyber",
-                "FIRED", f"Ambush Z={ambush_z:.2f} v={velocity_val:.4f}",
-                2, f"Exponential escalation detected (2nd derivative Z={ambush_z:.2f})")
+        # ── 微分計算 (Velocity / Acceleration / Ambush) ───────────────────────────
+        ts_series_core = time_series_ts_db.get(core_theater, [])
+        is_ambush, ambush_z, velocity_val, acceleration_val = engine.detect_ambush_pattern(ts_series_core)
+        if is_ambush:
+            add_rat("ddos_acceleration", "cyber",
+                    "FIRED", f"Ambush Z={ambush_z:.2f} v={velocity_val:.4f}",
+                    2, f"Exponential escalation detected (2nd derivative Z={ambush_z:.2f})")
 
-    # ── Sequence Bonus 計算 ───────────────────────────────────────────────────
-    seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
+        # ── Sequence Bonus 計算 ───────────────────────────────────────────────────
+        seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
 
-    domain_scores = engine.compute_domain_scores(rationale)
-    total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
-    convergence_score = engine.compute_convergence_score(domain_scores)
-    score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
-    # Sequence Bonus を最終スコアに加算
-    score_with_bonus += seq_bonus
-    tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard)
-    threat_level, tl_held = engine.apply_hysteresis(tl_raw, threat_history)
-    threat_history.append((current_time, threat_level))
-    # deque(maxlen=20) により自動的に古いエントリが削除される
+        domain_scores = engine.compute_domain_scores(rationale)
+        total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
+        convergence_score = engine.compute_convergence_score(domain_scores)
+        score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
+        # Sequence Bonus を最終スコアに加算
+        score_with_bonus += seq_bonus
+        tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard)
+        threat_level, tl_held = engine.apply_hysteresis(tl_raw, threat_history)
+        threat_history.append((current_time, threat_level))
+        # deque(maxlen=20) により自動的に古いエントリが削除される
 
-    system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
+        system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
 
-    # 深層解析結果まとめ
-    deep_analytics = {
-        "velocity":        round(velocity_val, 6),
-        "acceleration":    round(acceleration_val, 8),
-        "is_ambush":       is_ambush,
-        "ambush_z_score":  ambush_z,
-        "sequence_bonus":  seq_bonus,
-        "sequence_status": seq_status,
-        "sequence_chain":  seq_chain,
-        "narrative": {
-            "z_score": narrative_z,
-            "status":  narrative_status,
-            "is_burst": narrative_burst,
-        },
-        "isr": {
-            "count":    isr_count,
-            "is_surge": isr_surge,
-        },
-        "ais": {
-            "dark_gaps":   len(ais_dark_gaps),
-            "stationary":  len(ais_stationary),
-            "has_anomaly": ais_has_anomaly,
-        },
-        # Blockade Index: DDoS強度 / ネットワーク到達可能性 (0〜10)
-        # IODA BGP 正常 = 1.0, OUTAGE = 0.1（到達不可）
-        "blockade_index": round(
-            min(core_spike, 10.0) / max(0.1 if core_degraded else 1.0, 0.1), 2
-        ),
-    }
-
-    score_breakdown = {
-        "core_spike_val": round(core_spike, 2), "core_spike_2x": core_spike > 2.0, "core_spike_4x": core_spike > 4.0, "core_spike_6x": core_spike > 6.0,
-        "high_correlation": high_correlation, "core_shifted": core_shifted, "major_adversary": major_adversary, "core_degraded": core_degraded,
-        "is_coordinated": is_coordinated, "tl1_hard": tl1_hard, "total_score": total_score,
-        "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "score_with_bonus": score_with_bonus, "threat_raw": tl_raw, "threat_held": tl_held,
-    }
-
-    ioda_overlays = [{"code": t, "lat": COUNTRY_COORDS[t]["lat"], "lng": COUNTRY_COORDS[t]["lng"], "name": COUNTRY_COORDS[t]["name"], "status": "BGP_OUTAGE"} for t in degraded_targets_raw if t in COUNTRY_COORDS]
-
-    _new_cache = {
-        "time": current_time,
-        "data": target_details,
-        "strategic": {
-            "core_theater": core_theater, "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
-            "correlations": correlations, "correlations_l3": correlations_l3, "correlations_l7": correlations_l7,
-            "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
-            "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
-            "degraded_theaters_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
-            "coordinated_theaters": elevated_theaters if is_coordinated else [],
-            "domains": {
-                d: {"score": domain_scores.get(d, 0), "weight": engine.DOMAIN_WEIGHTS.get(d, 0), "weighted": round(min(domain_scores.get(d, 0), 10) * engine.DOMAIN_WEIGHTS.get(d, 0), 2), "status": "CRITICAL" if domain_scores.get(d, 0) >= 6 else "ELEVATED" if domain_scores.get(d, 0) >= 3 else "WATCH" if domain_scores.get(d, 0) >= 1 else "NORMAL"} for d in ("cyber", "physical", "info")
+        # 深層解析結果まとめ
+        deep_analytics = {
+            "velocity":        round(velocity_val, 6),
+            "acceleration":    round(acceleration_val, 8),
+            "is_ambush":       is_ambush,
+            "ambush_z_score":  ambush_z,
+            "sequence_bonus":  seq_bonus,
+            "sequence_status": seq_status,
+            "sequence_chain":  seq_chain,
+            "narrative": {
+                "z_score": narrative_z,
+                "status":  narrative_status,
+                "is_burst": narrative_burst,
             },
-            "convergence_score": round(convergence_score, 2), "convergence_level": convergence_level,
-            "rationale_matrix": [e.to_dict() for e in rationale], "noise_filters_applied": noise_filters_applied, "system_note": system_note,
-            "country_intel": {
-                code: {
-                    "weather": weather_conditions.get(code), "airspace": airspace_data.get(code), "gdelt": gdelt_tones.get(code),
-                    "bgp_routing": bgp_routing_data.get(code), "ixp_count": ixp_data.get(code, {}).get("count", 0),
-                    "ixp_names": [ix["name"] for ix in ixp_data.get(code, {}).get("ixps", [])], "ioda_status": ioda_data.get(code, "NORMAL"),
-                    "is_bgp_degraded": code in degraded_targets_effective,
-                } for code in strategic_theaters_set if code in COUNTRY_COORDS
+            "isr": {
+                "count":    isr_count,
+                "is_surge": isr_surge,
             },
-            "map_overlays": {
-                "ioda_outages": ioda_overlays, "airspace_anomaly": airspace_anomalies,
-                "weather_events": [{"code": c, "lat": info.get("lat"), "lng": info.get("lng"), "condition": info.get("condition", ""), "description": info.get("description", ""), "severity": info.get("severity", "NORMAL"), "wind_speed": info.get("wind_speed", 0), "is_severe": info.get("is_severe", False)} for c, info in weather_conditions.items() if info.get("severity") in ("SEVERE", "MODERATE")],
-                "gdelt_events": [{"code": c, "lat": COUNTRY_COORDS[c]["lat"], "lng": COUNTRY_COORDS[c]["lng"], "name": COUNTRY_COORDS[c]["name"], "tone_current": info.get("tone_current"), "tone_baseline": info.get("tone_baseline"), "delta": info.get("delta"), "status": info.get("status", "NORMAL"), "is_alert": info.get("is_alert", False)} for c, info in gdelt_tones.items() if c in COUNTRY_COORDS and info.get("status") in ("ALERT", "WEATHER_NOISE")],
-                "critical_nodes": [{"type": "IXP", "id": ix["id"], "name": ix["name"], "aka": ix.get("aka", ""), "city": ix["city"], "country": c, "lat": ix["lat"], "lng": ix["lng"], "status": ix.get("status", "ok")} for c, cdata in ixp_data.items() for ix in cdata.get("ixps", []) if ix.get("lat") and ix.get("lng")],
-                "firms_anomalies": nasa_firms_data,
-                "chokepoints": [{"name": c["name"], "lat": c["lat"], "lng": c["lng"], "country": c["country"]} for c in CHOKEPOINTS if c["country"] in requested_targets],
-                # 追加オーバーレイ
-                "isr_hotspots": [
-                    {"name": hs["name"], "lat": hs["lat"], "lng": hs["lng"],
-                     "theater": hs["theater"],
-                     "isr_count": isr_data.get(hs["theater"], {}).get("count", 0),
-                     "is_surge": isr_data.get(hs["theater"], {}).get("is_surge", False)}
-                    for hs in ISR_HOTSPOTS if hs["theater"] in strategic_theaters_set
-                ],
-                "ais_dark_gaps":  ais_dark_gaps[:10],
-                "ais_stationary": ais_stationary[:10],
+            "ais": {
+                "dark_gaps":   len(ais_dark_gaps),
+                "stationary":  len(ais_stationary),
+                "has_anomaly": ais_has_anomaly,
             },
-            # 深層解析ブロック
-            "analytics": deep_analytics,
-        },
-    }
-    with _global_cache_lock:
-        global_cache = _new_cache
+            # Blockade Index: DDoS強度 / ネットワーク到達可能性 (0〜10)
+            # IODA BGP 正常 = 1.0, OUTAGE = 0.1（到達不可）
+            "blockade_index": round(
+                min(core_spike, 10.0) / max(0.1 if core_degraded else 1.0, 0.1), 2
+            ),
+        }
 
-    alert_timeline.append({
-        "ts": current_time, "threat_level": threat_level, "threat_raw": tl_raw, "threat_held": tl_held, "score": total_score, "score_with_bonus": score_with_bonus,
-        "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
-        "sequence_bonus": seq_bonus, "sequence_status": seq_status,
-        "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
-        "core_theater": core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
-        "is_coordinated": is_coordinated, "system_note": system_note,
-        "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
-        "blockade_index": deep_analytics["blockade_index"],
-    })
-    # deque(maxlen=ALERT_TIMELINE_MAX) により自動的に古いエントリが削除される
+        score_breakdown = {
+            "core_spike_val": round(core_spike, 2), "core_spike_2x": core_spike > 2.0, "core_spike_4x": core_spike > 4.0, "core_spike_6x": core_spike > 6.0,
+            "high_correlation": high_correlation, "core_shifted": core_shifted, "major_adversary": major_adversary, "core_degraded": core_degraded,
+            "is_coordinated": is_coordinated, "tl1_hard": tl1_hard, "total_score": total_score,
+            "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "score_with_bonus": score_with_bonus, "threat_raw": tl_raw, "threat_held": tl_held,
+        }
+
+        ioda_overlays = [{"code": t, "lat": COUNTRY_COORDS[t]["lat"], "lng": COUNTRY_COORDS[t]["lng"], "name": COUNTRY_COORDS[t]["name"], "status": "BGP_OUTAGE"} for t in degraded_targets_raw if t in COUNTRY_COORDS]
+
+        _new_cache = {
+            "time": current_time,
+            "data": target_details,
+            "strategic": {
+                "core_theater": core_theater, "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
+                "correlations": correlations, "correlations_l3": correlations_l3, "correlations_l7": correlations_l7,
+                "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
+                "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+                "degraded_theaters_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
+                "coordinated_theaters": elevated_theaters if is_coordinated else [],
+                "domains": {
+                    d: {"score": domain_scores.get(d, 0), "weight": engine.DOMAIN_WEIGHTS.get(d, 0), "weighted": round(min(domain_scores.get(d, 0), 10) * engine.DOMAIN_WEIGHTS.get(d, 0), 2), "status": "CRITICAL" if domain_scores.get(d, 0) >= 6 else "ELEVATED" if domain_scores.get(d, 0) >= 3 else "WATCH" if domain_scores.get(d, 0) >= 1 else "NORMAL"} for d in ("cyber", "physical", "info")
+                },
+                "convergence_score": round(convergence_score, 2), "convergence_level": convergence_level,
+                "rationale_matrix": [e.to_dict() for e in rationale], "noise_filters_applied": noise_filters_applied, "system_note": system_note,
+                "country_intel": {
+                    code: {
+                        "weather": weather_conditions.get(code), "airspace": airspace_data.get(code), "gdelt": gdelt_tones.get(code),
+                        "bgp_routing": bgp_routing_data.get(code), "ixp_count": ixp_data.get(code, {}).get("count", 0),
+                        "ixp_names": [ix["name"] for ix in ixp_data.get(code, {}).get("ixps", [])], "ioda_status": ioda_data.get(code, "NORMAL"),
+                        "is_bgp_degraded": code in degraded_targets_effective,
+                    } for code in strategic_theaters_set if code in COUNTRY_COORDS
+                },
+                "map_overlays": {
+                    "ioda_outages": ioda_overlays, "airspace_anomaly": airspace_anomalies,
+                    "weather_events": [{"code": c, "lat": info.get("lat"), "lng": info.get("lng"), "condition": info.get("condition", ""), "description": info.get("description", ""), "severity": info.get("severity", "NORMAL"), "wind_speed": info.get("wind_speed", 0), "is_severe": info.get("is_severe", False)} for c, info in weather_conditions.items() if info.get("severity") in ("SEVERE", "MODERATE")],
+                    "gdelt_events": [{"code": c, "lat": COUNTRY_COORDS[c]["lat"], "lng": COUNTRY_COORDS[c]["lng"], "name": COUNTRY_COORDS[c]["name"], "tone_current": info.get("tone_current"), "tone_baseline": info.get("tone_baseline"), "delta": info.get("delta"), "status": info.get("status", "NORMAL"), "is_alert": info.get("is_alert", False)} for c, info in gdelt_tones.items() if c in COUNTRY_COORDS and info.get("status") in ("ALERT", "WEATHER_NOISE")],
+                    "critical_nodes": [{"type": "IXP", "id": ix["id"], "name": ix["name"], "aka": ix.get("aka", ""), "city": ix["city"], "country": c, "lat": ix["lat"], "lng": ix["lng"], "status": ix.get("status", "ok")} for c, cdata in ixp_data.items() for ix in cdata.get("ixps", []) if ix.get("lat") and ix.get("lng")],
+                    "firms_anomalies": nasa_firms_data,
+                    "chokepoints": [{"name": c["name"], "lat": c["lat"], "lng": c["lng"], "country": c["country"]} for c in CHOKEPOINTS if c["country"] in requested_targets],
+                    # 追加オーバーレイ
+                    "isr_hotspots": [
+                        {"name": hs["name"], "lat": hs["lat"], "lng": hs["lng"],
+                         "theater": hs["theater"],
+                         "isr_count": isr_data.get(hs["theater"], {}).get("count", 0),
+                         "is_surge": isr_data.get(hs["theater"], {}).get("is_surge", False)}
+                        for hs in ISR_HOTSPOTS if hs["theater"] in strategic_theaters_set
+                    ],
+                    "ais_dark_gaps":  ais_dark_gaps[:10],
+                    "ais_stationary": ais_stationary[:10],
+                },
+                # 深層解析ブロック
+                "analytics": deep_analytics,
+            },
+        }
+        with _global_cache_lock:
+            global_cache = _new_cache
+
+        alert_timeline.append({
+            "ts": current_time, "threat_level": threat_level, "threat_raw": tl_raw, "threat_held": tl_held, "score": total_score, "score_with_bonus": score_with_bonus,
+            "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
+            "sequence_bonus": seq_bonus, "sequence_status": seq_status,
+            "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
+            "core_theater": core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+            "is_coordinated": is_coordinated, "system_note": system_note,
+            "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
+            "blockade_index": deep_analytics["blockade_index"],
+        })
+        # deque(maxlen=ALERT_TIMELINE_MAX) により自動的に古いエントリが削除される
 
     results = []
     for t in requested_targets:
