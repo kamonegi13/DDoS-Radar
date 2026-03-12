@@ -206,20 +206,26 @@ class IodaSensor(BaseSensor):
         targets = context.get("all_targets", []); headers = context.get("cf_headers", {})
         results = {}
         t0 = time.time(); total_anomalies = 0; any_success = False; last_status = 0; last_error = ""
-        for code in targets:
-            url = "https://api.cloudflare.com/client/v4/radar/traffic_anomalies"
-            params = {"location": code, "dateRange": "1d", "format": "json"}
-            try:
-                res = requests.get(url, headers=headers, params=params, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-                last_status = res.status_code
-                if res.status_code == 200:
-                    anomalies = res.json().get("result", {}).get("trafficAnomalies", [])
-                    results[code] = "BGP_OUTAGE" if anomalies else "NORMAL"
-                    total_anomalies += len(anomalies); any_success = True
-                else:
+        # 1回のリクエストで全国を取得 (location 指定なし → グローバル結果から国別にフィルタ)
+        url = "https://api.cloudflare.com/client/v4/radar/traffic_anomalies"
+        params = {"dateRange": "1d", "format": "json"}
+        try:
+            res = requests.get(url, headers=headers, params=params, timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            last_status = res.status_code
+            if res.status_code == 200:
+                anomalies = res.json().get("result", {}).get("trafficAnomalies", [])
+                # 国別に仕分け
+                affected = {a.get("locationAlpha2", "").upper() for a in anomalies if a.get("locationAlpha2")}
+                for code in targets:
+                    results[code] = "BGP_OUTAGE" if code in affected else "NORMAL"
+                total_anomalies = len(anomalies); any_success = True
+            else:
+                for code in targets:
                     results[code] = "NORMAL"
-            except Exception as e:
-                results[code] = "NORMAL"; last_error = str(e)
+        except Exception as e:
+            for code in targets:
+                results[code] = "NORMAL"
+            last_error = str(e)
         self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_anomalies, last_error)
         result = {"statuses": results}; self.set_cache(result)
         return result
@@ -313,13 +319,29 @@ class PeeringDbSensor(BaseSensor):
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); ixp_data: dict = {}
         t0 = time.time(); total_ixps = 0; any_success = False; last_status = 0; last_error = ""
+        def _fetch_peeringdb(code: str):
+            return requests.get(
+                "https://www.peeringdb.com/api/ix",
+                params={"country": code},
+                headers={"Accept": "application/json"},
+                timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
+            )
+
         rate_limited = 0
         for idx, code in enumerate(theaters):
             if idx > 0:
-                time.sleep(3)   # PeeringDB burst rate limit 対策 (3s/request)
+                time.sleep(10)  # PeeringDB レート制限対策 (10s/request)
             try:
-                res = requests.get("https://www.peeringdb.com/api/ix", params={"country": code}, headers={"Accept": "application/json"}, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+                res = _fetch_peeringdb(code)
                 last_status = res.status_code
+                if res.status_code == 429:
+                    # 429 → 60秒待機して1回リトライ
+                    time.sleep(60)
+                    try:
+                        res = _fetch_peeringdb(code)
+                        last_status = res.status_code
+                    except Exception:
+                        pass
                 if res.status_code == 200:
                     items = res.json().get("data", []); coord = COUNTRY_COORDS.get(code, {})
                     ixps = [{"id": ix.get("id"), "name": ix.get("name", ""), "city": ix.get("city", ""), "country": code, "lat": coord.get("lat", 0), "lng": coord.get("lng", 0), "status": ix.get("status", "ok"), "aka": ix.get("name_long", "")} for ix in items]
@@ -824,11 +846,19 @@ class AisMaritimeSensor(BaseSensor):
                 if res.status_code != 200:
                     cp_errors += 1; last_error = f"HTTP {res.status_code}"
                     continue
-                vessels_raw = res.json()
+                raw_text = res.text.strip()
+                if not raw_text:
+                    # AISHub ゲストAPI: レート制限時は HTTP 200 + 空ボディを返す
+                    # エラーではなく「データなし」として扱い次のCPへ
+                    continue
+                try:
+                    vessels_raw = res.json()
+                except ValueError:
+                    # 空でないが JSON でない場合 (HTML エラーページ等) → スキップ
+                    continue
                 # AISHub レスポンス: [[header], [vessel,...], ...]
                 if not isinstance(vessels_raw, list) or len(vessels_raw) < 2:
-                    cp_errors += 1; last_error = "Unexpected response format"
-                    continue
+                    continue  # 周辺に艦船なし (正常)
                 header  = vessels_raw[0]
                 vessels = vessels_raw[1:]
                 cp_success += 1
@@ -1268,7 +1298,6 @@ def get_threat_data():
     required_keys = set(requested_targets + correlate_targets)
     if core_theater: required_keys.add(core_theater)
 
-    missing_data = any(k not in global_cache.get("data", {}) for k in required_keys)
     strategic_theaters_set = set([core_theater] + correlate_targets)
     
     sensor_context = {
@@ -1280,14 +1309,16 @@ def get_threat_data():
     }
 
     # センサーはバックグラウンドで個別スケジューリング済み。
-    # force_sync または必要データ不足時のみ即時全センサーフェッチを行う。
-    if force_sync or missing_data:
+    # force_sync (SYNCボタン) 時のみ即時フェッチ。missing_data では待機しない
+    # (起動直後はバックグラウンドスレッドが並行フェッチ中のため、同期待ちすると
+    #  PeeringDB/AIS 等の低速センサーで数分ブロックされる)。
+    if force_sync:
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(sensor.fetch, sensor_context) for sensor in registry._sensors.values() if sensor.enabled]
-            for future in as_completed(futures):
+            for future in as_completed(futures, timeout=60):
                 pass
 
-    if (current_time - global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync or missing_data:
+    if (current_time - global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync:
         # Extract required states from caches
         cf_sensor = registry.get("cloudflare_radar")
         ioda_sensor = registry.get("ioda_bgp")
