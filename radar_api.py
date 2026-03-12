@@ -313,7 +313,10 @@ class PeeringDbSensor(BaseSensor):
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); ixp_data: dict = {}
         t0 = time.time(); total_ixps = 0; any_success = False; last_status = 0; last_error = ""
-        for code in theaters:
+        rate_limited = 0
+        for idx, code in enumerate(theaters):
+            if idx > 0:
+                time.sleep(3)   # PeeringDB burst rate limit 対策 (3s/request)
             try:
                 res = requests.get("https://www.peeringdb.com/api/ix", params={"country": code}, headers={"Accept": "application/json"}, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
                 last_status = res.status_code
@@ -322,12 +325,18 @@ class PeeringDbSensor(BaseSensor):
                     ixps = [{"id": ix.get("id"), "name": ix.get("name", ""), "city": ix.get("city", ""), "country": code, "lat": coord.get("lat", 0), "lng": coord.get("lng", 0), "status": ix.get("status", "ok"), "aka": ix.get("name_long", "")} for ix in items]
                     ixp_data[code] = {"ixps": ixps, "count": len(ixps)}
                     total_ixps += len(items); any_success = True
+                elif res.status_code == 429:
+                    ixp_data[code] = {"ixps": [], "count": 0, "error": "rate_limited"}
+                    rate_limited += 1
                 else:
                     ixp_data[code] = {"ixps": [], "count": 0, "error": f"HTTP {res.status_code}"}
+                    last_error = f"HTTP {res.status_code}"
             except Exception as e:
                 ixp_data[code] = {"ixps": [], "count": 0, "error": str(e)}
                 last_error = str(e)
-        self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_ixps, last_error)
+        if rate_limited and not last_error:
+            last_error = f"rate_limited ({rate_limited} countries)"
+        self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_ixps, last_error if not any_success else "")
         result = {"ixp_data": ixp_data}; self.set_cache(result)
         return result
 
