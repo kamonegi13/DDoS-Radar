@@ -233,13 +233,13 @@ class CloudflareSensor(BaseSensor):
         l7_url = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/target"
         try:
             r3 = requests.get(l3_url, headers=CF_HEADERS, params=params, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            duration = round((time.time() - t0) * 1000)
             if r3.status_code == 200:
                 l3_data = r3.json().get("result", {}).get("top_0", [])
                 r7 = requests.get(l7_url, headers=CF_HEADERS, params=params, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
                 l7_data = r7.json().get("result", {}).get("top_0", []) if r7.status_code == 200 else []
                 records = len(l3_data) + len(l7_data)
-                duration = round((time.time() - t0) * 1000)  # L3+L7 両リクエスト完了後に計測
-                # スコアリングループのキャッシュにも結果を書き込み、重複フェッチを防ぐ
+                duration = round((time.time() - t0) * 1000)  # L3+L7 両リクエスト完了後に再計測
                 now = time.time()
                 _cf_scoring_cache[(l3_url, frozenset(params.items()))] = {"time": now, "data": l3_data}
                 _cf_scoring_cache[(l7_url, frozenset(params.items()))] = {"time": now, "data": l7_data}
@@ -789,11 +789,15 @@ class AisMaritimeSensor(BaseSensor):
         now = time.time()
         dark_gaps, stationary_anomalies, chokepoint_alerts = [], [], []
         t0 = time.time()
+        cp_success = 0; cp_errors = 0; last_error = ""
 
         for cp in CHOKEPOINTS:
             cp_lat, cp_lng = cp["lat"], cp["lng"]
             cp_name = cp["name"]
             # AISHub から当該チョークポイント周辺の艦船を取得
+            # ゲストAPIは連続リクエストにレート制限があるため、リクエスト間に待機を挿入
+            if cp_success + cp_errors > 0:
+                time.sleep(2)   # AISHub ゲスト API レート制限への配慮 (2s/request)
             params = {
                 "username":  "guest",  # AISHub ゲストアクセス
                 "format":    "1",      # JSON 形式
@@ -809,15 +813,18 @@ class AisMaritimeSensor(BaseSensor):
                     headers={"User-Agent": "OSINT-Radar/8.0"}
                 )
                 if res.status_code != 200:
+                    cp_errors += 1; last_error = f"HTTP {res.status_code}"
                     continue
                 vessels_raw = res.json()
                 # AISHub レスポンス: [[header], [vessel,...], ...]
                 if not isinstance(vessels_raw, list) or len(vessels_raw) < 2:
+                    cp_errors += 1; last_error = "Unexpected response format"
                     continue
                 header  = vessels_raw[0]
                 vessels = vessels_raw[1:]
+                cp_success += 1
             except Exception as e:
-                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+                cp_errors += 1; last_error = str(e)
                 continue
 
             for vessel in vessels:
@@ -876,7 +883,8 @@ class AisMaritimeSensor(BaseSensor):
                 del self._vessel_history[m]
 
         total_anomalies = len(dark_gaps) + len(stationary_anomalies)
-        self.log_fetch(True, round((time.time() - t0) * 1000), 200, total_anomalies)
+        err_note = f"{cp_errors} CP errors: {last_error}" if cp_errors and not cp_success else ""
+        self.log_fetch(cp_success > 0, round((time.time() - t0) * 1000), 200 if cp_success else 0, total_anomalies, err_note)
         result = {
             "dark_gaps":            dark_gaps,
             "stationary_anomalies": stationary_anomalies,
