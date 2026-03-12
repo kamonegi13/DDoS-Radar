@@ -204,23 +204,22 @@ class IodaSensor(BaseSensor):
     def fetch(self, context: dict) -> dict:
         targets = context.get("all_targets", []); headers = context.get("cf_headers", {})
         results = {}
+        t0 = time.time(); total_anomalies = 0; any_success = False; last_status = 0; last_error = ""
         for code in targets:
             url = "https://api.cloudflare.com/client/v4/radar/traffic_anomalies"
             params = {"location": code, "dateRange": "1d", "format": "json"}
-            t0 = time.time()
             try:
                 res = requests.get(url, headers=headers, params=params, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-                duration = round((time.time() - t0) * 1000)
+                last_status = res.status_code
                 if res.status_code == 200:
                     anomalies = res.json().get("result", {}).get("trafficAnomalies", [])
                     results[code] = "BGP_OUTAGE" if anomalies else "NORMAL"
-                    self.log_fetch(True, duration, res.status_code, len(anomalies))
+                    total_anomalies += len(anomalies); any_success = True
                 else:
                     results[code] = "NORMAL"
-                    self.log_fetch(False, duration, res.status_code, 0)
             except Exception as e:
-                results[code] = "NORMAL"
-                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+                results[code] = "NORMAL"; last_error = str(e)
+        self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_anomalies, last_error)
         result = {"statuses": results}; self.set_cache(result)
         return result
 
@@ -233,12 +232,12 @@ class CloudflareSensor(BaseSensor):
         l7_url = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/target"
         try:
             r3 = requests.get(l3_url, headers=CF_HEADERS, params=params, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-            duration = round((time.time() - t0) * 1000)
             if r3.status_code == 200:
                 l3_data = r3.json().get("result", {}).get("top_0", [])
                 r7 = requests.get(l7_url, headers=CF_HEADERS, params=params, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
                 l7_data = r7.json().get("result", {}).get("top_0", []) if r7.status_code == 200 else []
                 records = len(l3_data) + len(l7_data)
+                duration = round((time.time() - t0) * 1000)  # L3+L7 両リクエスト完了後に計測
                 # スコアリングループのキャッシュにも結果を書き込み、重複フェッチを防ぐ
                 now = time.time()
                 _cf_scoring_cache[(l3_url, frozenset(params.items()))] = {"time": now, "data": l3_data}
@@ -259,25 +258,25 @@ class OpenSkySensor(BaseSensor):
     def __init__(self): super().__init__("opensky", "physical", 180)
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); results: dict = {}; delta = 0.5
+        t0 = time.time(); total_states = 0; any_success = False; last_status = 0; last_error = ""
         for code in theaters:
             box = AIRPORT_BOXES.get(code)
             if not box: continue
             lat, lng = box["lat"], box["lng"]
             params = {"lamin": lat - delta, "lamax": lat + delta, "lomin": lng - delta, "lomax": lng + delta}
-            t0 = time.time()
             try:
                 res = requests.get("https://opensky-network.org/api/states/all", params=params, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-                duration = round((time.time() - t0) * 1000)
+                last_status = res.status_code
                 if res.status_code == 200:
                     count = len(res.json().get("states") or [])
                     results[code] = {"airport": box["airport"], "count": count, "lat": lat, "lng": lng, "error": None}
-                    self.log_fetch(True, duration, res.status_code, count)
+                    total_states += count; any_success = True
                 else:
                     results[code] = {"airport": box["airport"], "count": -1, "lat": lat, "lng": lng, "error": f"http_{res.status_code}"}
-                    self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
             except Exception as e:
                 results[code] = {"airport": box.get("airport", code), "count": -1, "lat": lat, "lng": lng, "error": str(e)}
-                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+                last_error = str(e)
+        self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_states, last_error)
         result = {"airports": results}; self.set_cache(result)
         return result
 
@@ -288,24 +287,23 @@ class OpenWeatherSensor(BaseSensor):
         if not api_key:
             self.set_error("OWM_API_KEY not configured"); return {"conditions": {}}
         conditions: dict = {}
+        t0 = time.time(); total_records = 0; any_success = False; last_status = 0; last_error = ""
         for code in targets:
             coord = COUNTRY_COORDS.get(code)
             if not coord: continue
-            t0 = time.time()
             try:
                 res = requests.get("https://api.openweathermap.org/data/2.5/weather", params={"lat": coord["lat"], "lon": coord["lng"], "appid": api_key, "units": "metric"}, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-                duration = round((time.time() - t0) * 1000)
+                last_status = res.status_code
                 if res.status_code == 200:
                     d = res.json(); w = (d.get("weather") or [{}])[0]; wind = d.get("wind", {}).get("speed", 0)
                     wid = w.get("id", 800)
                     is_severe = wid in SEVERE_WEATHER_IDS or wind > 25
                     is_moderate = (500 <= wid < 600) or (300 <= wid < 400) or wind > 15
                     conditions[code] = {"weather_id": wid, "condition": w.get("main", "Clear"), "description": w.get("description", ""), "wind_speed": round(wind, 1), "temp_c": d.get("main", {}).get("temp"), "is_severe": is_severe, "is_moderate": is_moderate, "severity": "SEVERE" if is_severe else "MODERATE" if is_moderate else "NORMAL", "lat": coord["lat"], "lng": coord["lng"]}
-                    self.log_fetch(True, duration, res.status_code, 1)
-                else:
-                    self.log_fetch(False, duration, res.status_code, 0)
+                    total_records += 1; any_success = True
             except Exception as e:
-                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+                last_error = str(e)
+        self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_records, last_error)
         result = {"conditions": conditions}; self.set_cache(result)
         return result
 
@@ -313,22 +311,22 @@ class PeeringDbSensor(BaseSensor):
     def __init__(self): super().__init__("peeringdb_ixp", "physical", 3600)
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); ixp_data: dict = {}
+        t0 = time.time(); total_ixps = 0; any_success = False; last_status = 0; last_error = ""
         for code in theaters:
-            t0 = time.time()
             try:
                 res = requests.get("https://www.peeringdb.com/api/ix", params={"country": code}, headers={"Accept": "application/json"}, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-                duration = round((time.time() - t0) * 1000)
+                last_status = res.status_code
                 if res.status_code == 200:
                     items = res.json().get("data", []); coord = COUNTRY_COORDS.get(code, {})
                     ixps = [{"id": ix.get("id"), "name": ix.get("name", ""), "city": ix.get("city", ""), "country": code, "lat": coord.get("lat", 0), "lng": coord.get("lng", 0), "status": ix.get("status", "ok"), "aka": ix.get("name_long", "")} for ix in items]
                     ixp_data[code] = {"ixps": ixps, "count": len(ixps)}
-                    self.log_fetch(True, duration, res.status_code, len(items))
+                    total_ixps += len(items); any_success = True
                 else:
                     ixp_data[code] = {"ixps": [], "count": 0, "error": f"HTTP {res.status_code}"}
-                    self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
             except Exception as e:
                 ixp_data[code] = {"ixps": [], "count": 0, "error": str(e)}
-                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+                last_error = str(e)
+        self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_ixps, last_error)
         result = {"ixp_data": ixp_data}; self.set_cache(result)
         return result
 
@@ -338,11 +336,11 @@ class BgpRoutingSensor(BaseSensor):
         super().__init__("ripe_bgp", "cyber", 600); self._baseline: dict = {}
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); results: dict = {}
+        t0 = time.time(); total_prefixes = 0; any_success = False; last_status = 0; last_error = ""
         for code in theaters:
-            t0 = time.time()
             try:
                 res = requests.get("https://stat.ripe.net/data/country-routing-stats/data.json", params={"resource": code, "sourceapp": "osint-radar"}, timeout=12, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-                duration = round((time.time() - t0) * 1000)
+                last_status = res.status_code
                 if res.status_code == 200:
                     stats = res.json().get("data", {}).get("stats", [])
                     if stats:
@@ -354,16 +352,16 @@ class BgpRoutingSensor(BaseSensor):
                         is_anomaly = drop_ratio > self.BGP_DROP_THRESHOLD
                         results[code] = {"announced_prefixes": pfx_now, "baseline_prefixes": pfx_base, "seen_ases": ases_now, "drop_pct": round(drop_ratio * 100, 1), "is_anomaly": is_anomaly, "status": "ANOMALY" if is_anomaly else "NORMAL"}
                         if time.time() - bl.get("ts", 0) > 3600: self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": time.time()}
-                        self.log_fetch(True, duration, res.status_code, pfx_now)
+                        total_prefixes += pfx_now; any_success = True
                     else:
                         results[code] = {"status": "NO_DATA", "is_anomaly": False}
-                        self.log_fetch(True, duration, res.status_code, 0)
+                        any_success = True
                 else:
                     results[code] = {"status": "ERROR", "is_anomaly": False, "error": f"HTTP {res.status_code}"}
-                    self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
             except Exception as e:
                 results[code] = {"status": "ERROR", "is_anomaly": False, "error": str(e)}
-                self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
+                last_error = str(e)
+        self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_prefixes, last_error)
         result = {"routing_stats": results}; self.set_cache(result)
         return result
 
