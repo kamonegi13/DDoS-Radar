@@ -483,10 +483,6 @@
         
         <div style="flex-grow: 1;"></div>
         
-        <div class="vec-toggle-group" style="margin-right: 15px; border-right: 1px solid #333; padding-right: 15px;">
-            <span class="vec-btn active-all" style="cursor:default;" data-tooltip="Map fixed to Atlantic / global view">ATLANTIC</span>
-        </div>
-        
         <div class="vec-toggle-group">
             <button id="vec-btn-all" class="vec-btn active-all" onclick="switchVector('all')">ALL VECTORS</button>
             <button id="vec-btn-l3"  class="vec-btn"            onclick="switchVector('l3')">L3 VOLUMETRIC</button>
@@ -1711,9 +1707,31 @@
     setupDockablePanel('op-clock-panel',      'lsb-ph-clk',            195);
     updateSidebarVisibility();
 
-    const map = L.map('map', { zoomControl: false, minZoom: 2 }).setView([20.0, 10.0], 3);
+    const map = L.map('map', {
+        zoomControl: false,
+        zoomSnap: 0.1,
+        zoomDelta: 0.5,
+        maxBoundsViscosity: 1.0,
+        worldCopyJump: false,
+        maxBounds: [[-85.0511, -180], [85.0511, 180]],
+    }).setView([20.0, 10.0], 3);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; CARTO', maxZoom: 18 }).addTo(map);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    // 画面幅・高さ両方に世界地図1枚をフィット — 空白タイル領域を完全に非表示
+    function _fitMapToViewport() {
+        const el = document.getElementById('map');
+        const W  = el.offsetWidth  || window.innerWidth;
+        const H  = el.offsetHeight || window.innerHeight;
+        const zW = Math.log2(W / 256);
+        const zH = Math.log2(H / 256);
+        const z  = Math.max(zW, zH); // 幅・高さどちらでも空白が出ないズーム
+        map.setMinZoom(z);
+        if (map.getZoom() < z) map.setZoom(z, { animate: false });
+    }
+    _fitMapToViewport();
+    map.on('resize', _fitMapToViewport);
+    window.addEventListener('resize', _fitMapToViewport);
 
     const targetLayer = L.layerGroup().addTo(map);
     const sourceLayer = L.layerGroup().addTo(map);
