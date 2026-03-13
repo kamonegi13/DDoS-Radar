@@ -1022,6 +1022,56 @@
         {"lat": 30.0,  "lng": 139.0},
         {"lat": 34.968,"lng": 139.963}
       ]
+    },
+    {
+      "name": "APG / SJC (Luzon-Taiwan Link)",
+      "description": "Asia Pacific Gateway / SJC — Philippines to Taiwan direct connection",
+      "connects": ["Luzon Strait Chokepoint", "Fangshan Cable Landing Station", "Tanshui Cable Landing Station"],
+      "waypoints": [
+        {"lat": 20.5,  "lng": 121.5},
+        {"lat": 21.5,  "lng": 121.0},
+        {"lat": 22.261,"lng": 120.655},
+        {"lat": 23.5,  "lng": 121.1},
+        {"lat": 25.176,"lng": 121.439}
+      ]
+    },
+    {
+      "name": "KJCN / SJC-Korea (Korea-Japan Cable)",
+      "description": "Korea-Japan Cable Network — Korea Strait to Japan via Tsushima",
+      "connects": ["Tsushima Strait", "Chikura Cable Landing Station"],
+      "waypoints": [
+        {"lat": 34.5,  "lng": 129.5},
+        {"lat": 34.5,  "lng": 132.0},
+        {"lat": 34.7,  "lng": 136.0},
+        {"lat": 34.968,"lng": 139.963}
+      ]
+    },
+    {
+      "name": "IMEWE / SMW-4 (Arabian Sea)",
+      "description": "India-Middle East-Western Europe — Persian Gulf to Singapore via Indian Ocean",
+      "connects": ["Strait of Hormuz Chokepoint", "Tuas Cable Landing Station"],
+      "waypoints": [
+        {"lat": 26.6,  "lng": 56.3},
+        {"lat": 22.0,  "lng": 60.0},
+        {"lat": 15.0,  "lng": 65.0},
+        {"lat": 8.0,   "lng": 73.0},
+        {"lat": 4.0,   "lng": 80.0},
+        {"lat": 1.319, "lng": 103.636}
+      ]
+    },
+    {
+      "name": "SMW-3 / PEACE (Mediterranean East)",
+      "description": "Sub-Marine West 3 / PEACE Cable — Bosphorus to Marseille via Mediterranean",
+      "connects": ["Black Sea Bosphorus Entry", "Marseille Cable Landing Hub"],
+      "waypoints": [
+        {"lat": 41.1,  "lng": 29.0},
+        {"lat": 38.5,  "lng": 26.0},
+        {"lat": 36.0,  "lng": 22.0},
+        {"lat": 36.5,  "lng": 16.0},
+        {"lat": 38.0,  "lng": 11.0},
+        {"lat": 40.5,  "lng": 8.0},
+        {"lat": 43.296,"lng": 5.369}
+      ]
     }
   ],
   "ISR_HOTSPOTS": [
