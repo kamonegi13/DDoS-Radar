@@ -1853,10 +1853,7 @@ def get_threat_data():
                         }
                         for c in CHOKEPOINTS if c["country"] in requested_targets
                     ])(),
-                    "cable_routes": (lambda cp_names={c["name"] for c in CHOKEPOINTS if c["country"] in requested_targets}: [
-                        r for r in CABLE_ROUTES
-                        if any(cn in cp_names for cn in r.get("connects", []))
-                    ])(),
+                    "cable_routes": CABLE_ROUTES,
                     # 追加オーバーレイ
                     "isr_hotspots": [
                         {"name": hs["name"], "lat": hs["lat"], "lng": hs["lng"],
