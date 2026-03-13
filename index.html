@@ -939,270 +939,274 @@
 
 <div id="help-modal" class="modal-window" style="border-color: #fff;">
     <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555; padding-bottom:10px;">
-        <div>Intelligence Operations Guide (MDO C4ISR)</div>
+        <div>Intelligence Operations Guide — MDO C4ISR Strategic Radar</div>
         <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()">[ X ] Close</button>
     </div>
     <div class="manual-content">
 
-        <p>This platform is a <b>Strategic OSINT Cyber Radar (MDO C4ISR)</b> designed to detect <b>Kinetic Warfare Precursors</b> — indicators across Cyber, Physical, and Information domains that historically precede or accompany physical military action. All data is derived from open-source intelligence (OSINT). The system is calibrated against confirmed historical precedents: Russia→Ukraine (Feb 2022), China→Taiwan Strait (Aug 2022, Pelosi visit), and DPRK persistent operations against the Korean Peninsula.</p>
-        <p style="color:#888; font-size:11px;">Each sensor runs on an independent background schedule — poll intervals range from 5 minutes (IODA) to 4 hours (PeeringDB), tuned to each source's update cadence. The convergence score is recomputed every <span class="code-block">SCORE_REFRESH_SEC=60</span> seconds from the latest cached sensor data. Use <span class="code-block">SYNC</span> to force an immediate sensor fetch and score update.</p>
+        <p>このプラットフォームは <b>MDO C4ISR 戦略 OSINT レーダー</b>であり、Cyber・Physical・Information の3ドメインを横断してキネティック作戦の前兆指標を検出する。全データはオープンソース情報（OSINT）から取得。センサーはバックグラウンドで独立スケジュール動作し、収束スコアは最新キャッシュデータから毎 <span class="code-block">SCORE_REFRESH_SEC=60</span> 秒再計算される。<span class="code-block">SYNC</span> ボタンで即時フェッチおよびスコア更新を強制実行できる。</p>
 
+        <h4>1. マルチドメイン・センサーアーキテクチャ（12センサー）</h4>
 
-        <h4>1. Multi-Domain Sensor Architecture (12 Active Sensors)</h4>
-
-        <p><b>Cyber Domain (Weight: 0.50) — Highest weighted domain. Nation-state cyber operations consistently precede kinetic action by 24–72 hours.</b></p>
+        <p><b>Cyber ドメイン（重み 0.50）</b> — 最高重み付きドメイン。国家サイバー作戦はキネティック行動に先行して24〜72時間前に出現する。</p>
         <ul>
-            <li><i>Cloudflare Radar API</i> [Poll: 15 min]: L3 (volumetric) and L7 (application-layer) DDoS telemetry. Tracks per-origin traffic percentages globally, computes weighted spike ratios against a rolling 7-day baseline, detects botnet overlap across allied theaters, and identifies L7 vector escalation (HTTP flood shift). This is the highest-signal sensor for detecting coordinated state-directed attack campaigns. Data covers &gt;20% of global internet traffic.
-                <br><span style="color:#888; font-size:11px;">Anti-inflation safeguards: Spike calculation is skipped if the 7-day baseline is not yet populated (startup guard). Spike ratio is capped at 25× to prevent statistical outliers from triggering false alerts. Origins with &lt;1% absolute traffic share are excluded from the weighted average. Non-adversary states use a 3% baseline floor; adversary states (CN/RU/KP) use a 0.5% floor to preserve sensitivity to low-volume state operations.</span>
+            <li><i>Cloudflare Radar API</i> [ポーリング: 15分]: グローバルインターネットトラフィックの20%以上をカバー。L3（ボリューメトリック）およびL7（アプリケーション層）DDoSテレメトリ。送信元国ごとのトラフィック比率を7日間ローリングベースラインと比較したスパイク比を算出し、連合シアター間のボットネット重複検出、L7ベクター転換（HTTPフラッド移行）を検知する。
+                <br><span style="color:#888; font-size:11px;">スパイク上限25×でアウトライアを除外。絶対シェア&lt;1%の発信元は除外。非敵対国は3%フロア、敵対国（CN/RU/KP）は0.5%フロア（低ボリューム国家作戦の検知を保持）。7日間ベースライン未充足時はスパイク算出をスキップ（cold-start guard）。</span>
             </li>
-            <li><i>ThreatFox (abuse.ch) API</i> [Poll: 1 h]: Queries the ThreatFox threat intelligence feed for APT-tagged IoCs (Indicators of Compromise) published within the past 24 hours. Matches IoCs by APT tag or target country name. A hit indicates that known advanced persistent threat infrastructure is active and associated with the monitored theater. Authentication via <span class="code-block">THREATFOX_API_KEY</span> (Auth-Key header, required since 2024 policy change).</li>
-            <li><i>RIPE Stat BGP Routing</i> [Poll: 30 min]: Monitors BGP prefix announcements for the core theater via RIPE NCC. Triggers when announced prefix count drops by &gt;15% relative to the prior poll, indicating mass route withdrawal — a known precursor to internet isolation maneuvers (ref: Russia 2022, Iran 2019).</li>
-            <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>DDoS Acceleration Engine</i> [Computed in-engine, no external poll]: Computes 1st derivative (velocity, pt/s) and 2nd derivative (acceleration, pt/s²) of the core theater's threat score time series using linear regression over a rolling window (<span class="code-block">DERIVATIVE_WINDOW=5</span> points). An <b>Ambush Pattern</b> is declared when the acceleration's Z-Score (vs. its own rolling history) exceeds <span class="code-block">AMBUSH_ZSCORE_THRESHOLD=2.0</span> <i>and</i> both velocity and acceleration are positive — indicating exponential escalation rather than linear growth. Adds +2 to Cyber domain when fired. The VELOCITY HUD meter displays escalation rate in threat-points per poll cycle. Destroys Normalcy Bias by showing the direction and rate of change, not just the current level.</li>
+            <li><i>ThreatFox (abuse.ch) API</i> [ポーリング: 1時間]: 過去24時間に公開されたAPTタグ付きIoC（侵害指標）をクエリ。APTタグまたは対象国名でマッチング。ヒットは既知APTインフラがシアターに関連して活動中であることを示す。認証: <span class="code-block">THREATFOX_API_KEY</span>（Auth-Keyヘッダー）が必要。</li>
+            <li><i>RIPE Stat BGP ルーティング</i> [ポーリング: 30分]: RIPE NCC経由でコアシアターのBGPプレフィックスアナウンス数を監視。前回比で15%超の経路削減でトリガー。インターネット孤立化操作（ルート撤退）の既知前兆。</li>
+            <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>DDoS 加速エンジン</i> [外部ポーリングなし・エンジン内計算]: コアシアターの脅威スコア時系列から線形回帰で1次微分（速度）と2次微分（加速度）を算出（<span class="code-block">DERIVATIVE_WINDOW=5</span>点のローリング窓）。加速度のZスコア（自身のローリング履歴比）が <span class="code-block">AMBUSH_ZSCORE_THRESHOLD=2.0</span> を超え、かつ速度・加速度が共に正の場合に<b>アンブッシュパターン</b>を宣言（指数的エスカレーションのシグネチャ）。Cyberドメインに+2。VELOCITYメーターに現在の変化率を表示。</li>
         </ul>
 
-        <p><b>Physical/Logistics Domain (Weight: 0.30) — Encompasses infrastructure, airspace, maritime, and kinetic pre-strike indicators.</b></p>
+        <p><b>Physical/Logistics ドメイン（重み 0.30）</b> — インフラ、空域、海上、運動学的プレストライク指標を網羅。</p>
         <ul>
-            <li><i>IODA API (CAIDA)</i> [Poll: 5 min]: Internet Outage Detection and Analysis. Tracks BGP-based internet reachability and active probing (ping) success rates for each monitored country. A simultaneous drop in both BGP routes and active probing indicates a significant infrastructure outage. This sensor correlates with BGP Routing for confirmation.</li>
-            <li><i>NASA EONET Wildfire API</i> [Poll: 1 h]: Real-time open wildfire/thermal event data from NASA's Earth Observatory Natural Event Tracker. For each monitored theater, events within ±10° latitude/longitude of the theater's centroid coordinates are flagged. Wildfires near strategic military positions or logistics corridors may indicate kinetic strikes, artillery fires, or pre-conflict infrastructure destruction — particularly when correlated with GDELT tone collapse and cyber spikes. Note: This sensor replaced the original NASA FIRMS endpoint, which is unreachable from this network environment. EONET requires no API key. Coordinates are in GeoJSON [longitude, latitude] format.</li>
-            <li><i>OpenSky Network (Civilian)</i> [Poll: 30 min]: Civilian airspace monitoring over predefined airport bounding boxes for each theater. Computes a 20-cycle rolling baseline of observed aircraft count. An ANOMALY is triggered when current count deviates by &gt;40% from baseline; CLOSURE is triggered when count drops below 5% of baseline, indicating near-total civilian airspace suspension — historically observed 12–48 hours before military action begins. Weather suppression is applied when OpenWeatherMap reports severe conditions over the target. <span style="color:#888; font-size:11px;">Rate limiting: OpenSky anonymous API is capped at 400 req/day; both OpenSky and ISR sensors share a module-level rate limiter (10 s min between requests). Set <span class="code-block">OPENSKY_CLIENT_ID</span> / <span class="code-block">OPENSKY_CLIENT_SECRET</span> (OAuth2 Client Credentials, issued from your OpenSky account settings) to raise the limit to 4,000 req/day. Note: Basic auth (username/password) was deprecated 2026-03-18.</span></li>
-            <li><i>PeeringDB / IXP Chokepoints</i> [Poll: 4 h]: Static reference layer showing registered Internet Exchange Points (IXPs) and undersea cable landing stations critical to the monitored theater. Used as geographic context for interpreting BGP anomalies and physical infrastructure targeting. Displayed as cyan diamond markers on the map.</li>
-            <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>ISR Hotspot Sensor (OpenSky — Military ISR)</i> [Poll: 30 min]: Monitors 10 strategically defined ISR_HOTSPOT bounding boxes (200 km radius around Taiwan Strait, East China Sea, Spratlys, Korean DMZ, Black Sea, Baltic, etc.) for Intelligence, Surveillance, and Reconnaissance (ISR) aircraft. <b>Detection logic:</b> aircraft are flagged as ISR-pattern if they meet ANY of: (1) altitude &gt;9,000 m AND speed &lt;160 m/s (slow, high-altitude orbit); (2) squawk code 7777 (government/military transponder); (3) callsign prefix matches known ISR designations (FORTE, JAKE, MYSTIC, RICO, TROLL, etc.). An <b>ISR Surge</b> is declared when ≥3 qualifying aircraft (<span class="code-block">ISR_SURGE_THRESHOLD</span>) are observed simultaneously within a hotspot. Adds +2 to Physical domain when fired. <i>This sensor is independent of the civilian OpenSky sensor — it monitors sea straits and patrol corridors, not airports.</i></li>
-            <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>AIS Maritime Sensor (AISHub)</i> [Poll: 30 min]: Monitors vessels near critical undersea cable chokepoints (Taiwan Strait, Luzon Strait, Miyako Strait, Hormuz, Bab-el-Mandeb, Baltic, Bosphorus, etc.) using AISHub's public position data. Two anomaly types are detected: (1) <b>AIS Dark Gap</b> — a vessel previously tracked near a chokepoint has not transmitted AIS for &gt;<span class="code-block">AIS_DARK_GAP_THRESHOLD=3600</span> seconds (1 hour), consistent with deliberate radio silence (e.g., submarine positioning, covert survey vessel); (2) <b>Stationary Anomaly</b> — a non-commercial, non-fishing vessel (AIS ship type not in classes 60–89) is moving at &lt;0.5 knots within <span class="code-block">AIS_ANCHOR_RADIUS_KM=50</span> km of a chokepoint. Adds +1 to Physical domain. Dark gap markers are displayed on the map (blue vessel icons). <span style="color:#888; font-size:11px;">Rate limiting: AISHub guest API enforces per-minute limits; the sensor inserts a 2-second delay between chokepoint requests and aggregates all chokepoint results into a single fetch log entry.</span></li>
+            <li><i>IODA API (CAIDA)</i> [ポーリング: 5分]: BGPベースのインターネット到達性と能動的プロービング（ping）成功率を追跡。BGP経路とプロービング成功が同時低下した場合に重大インフラ障害と判定。BGPルーティングセンサーと相互検証。</li>
+            <li><i>NASA EONET Wildfire API</i> [ポーリング: 1時間]: NASAの地球観測自然イベントトラッカーから取得したリアルタイム野火・熱イベントデータ。シアター中心座標から±10°以内のイベントをフラグ。軍事インフラ付近での高温異常はキネティックストライク、砲撃火、事前インフラ破壊の指標となる（GDELTトーン低下・サイバースパイクとの相関が高い）。APIキー不要。</li>
+            <li><i>OpenSky Network（民間空域）</i> [ポーリング: 30分]: 各シアターの空港バウンディングボックスで民間機数を監視。20サイクルのローリングベースラインを構築。ベースライン比40%超偏差でANOMALY（+2）、5%未満でCLOSURE（+3、ほぼ完全な空域停止）。悪天候時はOpenWeatherMapのデータに基づきスコアを自動抑制。
+                <br><span style="color:#888; font-size:11px;">匿名API: 400リクエスト/日。<span class="code-block">OPENSKY_CLIENT_ID</span>/<span class="code-block">OPENSKY_CLIENT_SECRET</span>（OAuth2クライアントクレデンシャル）設定で4,000リクエスト/日に拡張。</span></li>
+            <li><i>PeeringDB / IXP クリティカルノード</i> [ポーリング: 4時間]: 監視シアターに関連するIXP（インターネット交換ポイント）の登録情報を取得。BGP異常・物理インフラ標的の地理的文脈として参照。マップ上に黄色ダイヤ(◆)で表示。</li>
+            <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>ISR ホットスポットセンサー（OpenSky 軍事ISR）</i> [ポーリング: 30分]: 台湾海峡・東シナ海ADIZ・南沙諸島・韓半島DMZ・黒海・バルト海など10か所のISR_HOTSPOTを半径200km範囲で監視。以下のいずれかに該当する機体をISRパターンとして検出: (1) 高度9,000m超かつ速度160m/s未満（高高度低速周回）、(2) スコーク7777（政府・軍トランスポンダ）、(3) 既知ISRコールサイン接頭辞（FORTE/JAKE/MYSTIC/RICO/TROLLなど）。同一ホットスポット内で同時3機以上を検出した場合に<b>ISRサージ</b>宣言、Physicalドメインに+2。民間空域センサーとは独立して動作（空港ではなく海峡・哨戒回廊を対象）。</li>
+            <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>AIS 海上センサー（AISHub）</i> [ポーリング: 30分]: 台湾海峡・ルソン海峡・マラッカ海峡・ホルムズ・バブ・エル・マンデブ・バルト海・ボスポラス・スエズなど23か所のチョークポイント付近の船舶をAISHub公開位置データで監視。2種類の異常を検出: (1) <b>AIS暗区間（Dark Gap）</b> — チョークポイント付近で追跡していた船舶がAIS送信を <span class="code-block">AIS_DARK_GAP_THRESHOLD=3600</span> 秒（1時間）以上停止（意図的な無線封止、潜水艦ポジショニング、秘密測量船と一致）; (2) <b>定点異常</b> — 非商用・非漁業船舶（AIS船種60〜89以外）がチョークポイント50km以内で0.5ノット未満。Physicalドメインに+1。Dark Gap船舶はマップ上に赤ハロー付き錨アイコンで表示。
+                <br><span style="color:#888; font-size:11px;">AISHubゲストAPIのレート制限対策として各チョークポイントリクエスト間に2秒ディレイを挿入。</span></li>
         </ul>
 
-        <p><b>Information Domain (Weight: 0.20) — Propaganda and diplomatic tone analysis. Typically the earliest leading indicator, shifting 48–96 hours ahead of operations.</b></p>
+        <p><b>Information ドメイン（重み 0.20）</b> — プロパガンダ・外交トーン分析。最も早期の先行指標で、作戦の48〜96時間前からシフトする傾向がある。</p>
         <ul>
-            <li><i>GDELT TimelineTone API</i> [Poll: 30 min]: Queries the Global Database of Events, Language, and Tone for media coverage of the core theater. Computes a rolling 28-day average tone and compares against the configured alert threshold. A tone score below <b>–12.0</b> constitutes an alert. Calibration reference: Russia→Ukraine onset showed –12 to –15; invasion-day readings reached –18 to –25. The –12.0 threshold provides early-warning sensitivity without excessive peacetime noise. Weather suppression is applied during severe weather conditions.</li>
-            <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>RSS Narrative Burst Sensor</i> [Poll: 30 min]: Scrapes five state-affiliated RSS feeds simultaneously: TASS (RU), Xinhua (CN), Mehr News (IR), RT, and KCNA Watch (KP). For each theater, a list of theater-specific <b>tactical keywords</b> is matched against article titles and descriptions (e.g., for Taiwan: "military measures," "final warning," "crossing median line," "live-fire exercise"). <b>Daily noise filtering:</b> instead of counting raw hits, the system computes a <i>normalized frequency</i> (keyword hits ÷ total articles) and runs Z-Score analysis against a 30-day rolling baseline. <b>Alert thresholds:</b> Z &gt; <span class="code-block">NARRATIVE_ZSCORE_ALERT=2.0</span> → BURST (+1 pt, Info domain); Z &gt; <span class="code-block">NARRATIVE_ZSCORE_CRITICAL=3.0</span> → CRITICAL_BURST (+2 pt). Duplicate articles are excluded using a set-based normalized 60-character title key (O(N) dedup, no fuzzy matching overhead). A Z-Score of 2.0 means the current tactical keyword density is 2 standard deviations above the 30-day average — statistically unusual even for adversary state media. The baseline must accumulate ≥7 days of data before alerting begins (cold-start guard). This sensor deliberately ignores steady-state propaganda; it is triggered only by acute, statistically anomalous surges in military-operational language that correlates with actual preparation cycles.</li>
+            <li><i>GDELT TimelineTone API</i> [ポーリング: 30分]: グローバル事件・言語・トーンデータベースからコアシアターのメディアトーンを取得。28日間ローリング平均との比較でトーンスコアが<b>–12.0</b>を下回るとアラート（+1）。参考値: Russia→Ukraine前哨期間は–12〜–15、侵攻当日は–18〜–25。–12.0は早期の軍事緊張レトリックの閾値。悪天候時は自動抑制。</li>
+            <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>RSS ナラティブバーストセンサー</i> [ポーリング: 30分]: TASS（RU）・新華社（CN）・Mehr News（IR）・RT・KCNA Watch（KP）の5つの国家系RSSフィードを同時スキャン。シアター固有の<b>戦術キーワード</b>（例: 台湾向け「軍事措置」「最後通告」「中間線越え」「実弾演習」）を記事タイトル・説明文に対してマッチング。生カウントではなく正規化頻度（ヒット数÷総記事数）に対してZスコア分析を実施（30日間ローリング基準値）。<b>アラート閾値:</b> Z &gt; <span class="code-block">NARRATIVE_ZSCORE_ALERT=2.0</span> → BURST（+1）; Z &gt; <span class="code-block">NARRATIVE_ZSCORE_CRITICAL=3.0</span> → CRITICAL_BURST（+2）。正規化60文字タイトルキーによる重複排除（O(N)）。基準値は7日分以上のデータ蓄積後に有効化（cold-start guard）。平常時の定常プロパガンダを無視し、作戦準備サイクルと相関する統計的に異常なサージのみを検出する。</li>
         </ul>
 
-        <p><b>Noise Mitigation & Human-in-the-Loop (HITL) Control:</b></p>
+        <p><b>ノイズ軽減 &amp; Human-in-the-Loop (HITL) 制御</b></p>
         <ul>
-            <li><i>OpenWeatherMap</i> [Poll: 30 min]: If severe weather (thunderstorms, blizzard, hurricane, etc.) is detected over the core theater, physical domain alerts (IODA BGP outages, OpenSky airspace anomalies) and information domain alerts (GDELT tone) are automatically marked <b>SUPPRESSED</b> and excluded from scoring. This prevents weather events from creating false escalations.</li>
-            <li><i>Analyst MUTE (HITL Override):</i> Every sensor entry in the Evidence Panel shows a <b>[ MUTE ]</b> button. Clicking it immediately excludes that sensor's score contribution from the threat calculation and re-runs convergence. Muted sensors are persisted in browser local storage across sessions. Use this to suppress known false positives while preserving the full audit trail. When multiple sensors are muted simultaneously, the system correctly recalculates domain weights with remaining active sensors only. All 12 sensors support MUTE.</li>
+            <li><i>OpenWeatherMap（気象ノイズフィルタ）</i> [ポーリング: 30分]: コアシアターで重大な気象現象（雷雨・猛吹雪・ハリケーン等）が検出された場合、Physicalドメインのアラート（IODA BGP障害、OpenSky空域異常）とInformationドメインのアラート（GDELTトーン）を自動的に<b>SUPPRESSED</b>としてスコアから除外。これにより気象事象が誤ったエスカレーションを引き起こすのを防ぐ。</li>
+            <li><i>アナリスト MUTE（HITL オーバーライド）</i>: エビデンスパネルの各センサーに <b>[ MUTE ]</b> ボタンがある。クリックすると即座にそのセンサーのスコア貢献を除外して収束スコアを再計算する。MUTE状態はブラウザのlocalStorageにセッション跨ぎで永続保存される。既知の偽陽性を感査記録を保全したまま抑制する手段として使用する。複数センサーをMUTE中は、残存アクティブセンサーのみでドメイン重みを正しく再計算する。全12センサーがMUTEをサポート。</li>
         </ul>
 
-        <h4>2. Map Symbology & Overlay Layers</h4>
+        <h4>2. マップ シンボル &amp; オーバーレイレイヤー</h4>
         <ul>
-            <li><b>Target Nodes (Defended Infrastructure):</b>
+            <li><b>ターゲットノード（防衛インフラ）</b>
                 <ul>
-                    <li><span class="manual-symbol" style="background:#66ff66; box-shadow:0 0 5px #66ff66;"></span> <span class="hl-green">Green Pulse (NORMAL):</span> Infrastructure stable. No significant anomalies detected across monitored domains.</li>
-                    <li><span class="manual-symbol" style="background:#ffaa00; box-shadow:0 0 5px #ffaa00;"></span> <span class="hl-orange">Orange Pulse (WEATHER MUTED):</span> Anomaly detected but suppressed by the weather noise filter. Treat as low-confidence until weather clears.</li>
-                    <li><span class="manual-symbol" style="background:#ff2a2a; box-shadow:0 0 5px #ff2a2a;"></span> <span class="hl-red">Red Pulse (DEGRADED):</span> Confirmed BGP outage or severe multi-sensor anomaly. Infrastructure under active stress.</li>
+                    <li><span class="manual-symbol" style="background:#66ff66; box-shadow:0 0 5px #66ff66;"></span> <span class="hl-green">緑パルス（NORMAL）</span>: インフラ安定。監視ドメイン全域で有意な異常なし。</li>
+                    <li><span class="manual-symbol" style="background:#ffaa00; box-shadow:0 0 5px #ffaa00;"></span> <span class="hl-orange">橙パルス（WEATHER MUTED）</span>: 異常を検出したが気象ノイズフィルタにより抑制。気象回復まで低信頼として扱う。</li>
+                    <li><span class="manual-symbol" style="background:#ff2a2a; box-shadow:0 0 5px #ff2a2a;"></span> <span class="hl-red">赤パルス（DEGRADED）</span>: BGP障害確認またはマルチセンサー重大異常。インフラが能動的ストレス下。</li>
                 </ul>
             </li>
-            <li><b>Attack Source Curves:</b>
+            <li><b>攻撃源曲線（Attack Source Curves）</b>
                 <ul>
-                    <li>Curved lines connect attack origin countries to target theaters, weighted by global traffic share.</li>
-                    <li><span class="hl-red">Red</span> = SEVERE spike (&gt;6×), <span class="hl-orange">Orange</span> = ELEVATED (2–6×), <span style="color:#00d8ff; font-weight:bold;">Cyan</span> = NOISE (&lt;2×).</li>
-                    <li>Line thickness scales with traffic weight. State ASN origins are highlighted.</li>
-                    <li>Use the <span class="code-block">ALL / L3 / L7</span> filter buttons to isolate volumetric vs. application-layer attack flows.</li>
+                    <li>攻撃元国からターゲットシアターへの弧線。グローバルトラフィックシェアで重み付け。</li>
+                    <li><span class="hl-red">赤（SEVERE）</span>: スパイク6倍超。<span class="hl-orange">橙（ELEVATED）</span>: 2〜6倍。<span style="color:#00d8ff;font-weight:bold;">シアン（NOISE）</span>: 2倍未満。</li>
+                    <li>線幅はトラフィック重みに比例。国家ASN帰属源はバッジ表示。</li>
+                    <li><span class="code-block">ALL / L3 / L7</span> フィルタボタンでボリューメトリック vs. アプリケーション層の分離表示が可能。</li>
                 </ul>
             </li>
-            <li><b>Overlay Markers:</b>
+            <li><b>オーバーレイマーカー</b>
                 <ul>
-                    <li><span style="color:#ff4400; font-size:15px;">🔥</span> <b>Wildfire/Thermal Anomaly (NASA EONET):</b> Active open wildfire event within ±10° of a monitored theater. High confidence when co-located with military infrastructure.</li>
-                    <li><span style="color:#00ffff; font-size:14px;">◆</span> <b>Chokepoint (PeeringDB):</b> Critical undersea cable landing station or IXP. Monitor for physical infrastructure targeting.</li>
-                    <li><span style="color:#ff8800; font-size:14px;">▼</span> <b>BGP Outage (IODA):</b> Country-level internet infrastructure outage confirmed by CAIDA IODA.</li>
-                    <li><span style="color:#ffaa00; font-size:14px;">✈</span> <b>ISR Hotspot (IsrHotspotSensor):</b> Strategic ISR patrol zone. Icon turns red when ISR Surge threshold is exceeded (≥3 qualifying aircraft). Hotspots include Taiwan Strait, Miyako Strait, East China Sea ADIZ, Spratly Islands, Korean DMZ, Baltic Air Policing Zone, Black Sea NATO Patrol Zone, and others.</li>
-                    <li><span style="color:#44aaff; font-size:14px;">⚓</span> <b>AIS Dark Gap / Stationary Anomaly (AisMaritimeSensor):</b> Vessel near a chokepoint with AIS transmission blackout ≥1 h, or non-commercial vessel anchored within 50 km of a cable landing station. Consistent with covert survey operations, submarine positioning, or pre-sabotage staging.</li>
+                    <li><span style="color:#ff4400;font-size:15px;">🔥</span> <b>野火・熱異常（NASA EONET）</b>: シアター中心から±10°以内のアクティブ野火イベント。軍事インフラと共存する場合は高信頼度。</li>
+                    <li><span style="color:#ff8800;font-size:14px;">▼</span> <b>BGP障害（IODA）</b>: CAIDA IODAが確認した国レベルのインターネットインフラ障害。</li>
+                    <li><span style="color:#ffaa00;font-size:14px;">✈</span> <b>ISRホットスポット（IsrHotspotSensor）</b>: 戦略的ISR哨戒区域。ISRサージ閾値（≥3機）超過時に赤変。対象エリア: 台湾海峡・宮古海峡・東シナ海ADIZ・南沙諸島・DMZ・バルト空域哨戒ゾーン・黒海NATO哨戒ゾーン他。</li>
+                    <li><span style="color:#44aaff;font-size:14px;">⚓</span> <b>AIS暗区間・定点異常（AisMaritimeSensor）</b>: チョークポイント付近でのAIS送信断絶（≥1時間）または50km以内での非商用船舶の停泊異常。秘密測量作戦・潜水艦ポジショニング・破壊工作前哨活動と一致。Dark Gap（赤ハロー）/ Stationary（橙）で色分け表示。</li>
+                    <li><span style="color:#888;font-size:14px;">◆</span> <b>IXP クリティカルノード（PeeringDB）</b>: 監視シアター内の重要インターネット交換ポイント。BGP異常の地理的解釈文脈として使用。</li>
                 </ul>
             </li>
-            <li><b>Map View Toggle:</b> Switch between Pacific-centered view (default, Taiwan Strait theater) and Atlantic-centered view (European theater) using the <span class="code-block">PAC / ATL</span> buttons.</li>
+            <li><b>海底ケーブルルート（Cable Routes レイヤー）</b>
+                <p style="margin:4px 0 6px;">マップ右上レイヤーコントロールの <i>Cable Routes</i> チェックで表示/非表示を切り替え。破線ティールカラーで10本の主要海底ケーブルルートを描画。クリックでケーブル名・説明・接続チョークポイントのポップアップを表示。</p>
+                <ul style="font-size:11px; color:#aaa; line-height:1.8;">
+                    <li>APCN2 / Asia Ring — シンガポール〜台湾〜日本（アジア太平洋ループ）</li>
+                    <li>Trans-Pacific Express (TPE) — 台湾〜グアム〜米国西海岸（南回り）</li>
+                    <li>Trans-Pacific North (FASTER/PC-1) — 日本〜米国西海岸（北回り大圏航路）</li>
+                    <li>SEA-ME-WE 5 — シンガポール〜マラッカ海峡〜インド洋〜バブ・エル・マンデブ〜スエズ〜マルセイユ</li>
+                    <li>Trans-Atlantic (FLAG/TAT-14) — バージニアビーチ〜北大西洋〜Bude（UK）〜マルセイユ</li>
+                    <li>Guam-Japan Military Link — グアム〜千倉（米軍用海底ケーブル）</li>
+                    <li>APG / SJC — ルソン海峡〜台湾（フィリピン〜台湾直結）</li>
+                    <li>KJCN / SJC-Korea — 対馬海峡〜千倉（韓国〜日本）</li>
+                    <li>IMEWE / SMW-4 — ホルムズ海峡〜インド洋〜マラッカ〜シンガポール</li>
+                    <li>SMW-3 / PEACE — ボスポラス〜地中海〜マルセイユ</li>
+                </ul>
+            </li>
+            <li><b>チョークポイント（Cable Chokepoints レイヤー）</b>
+                <p style="margin:4px 0 6px;">23か所の戦略的チョークポイントを3種類のアイコンで表示。クリックでタイプ・国・AISステータス・接続ケーブルのポップアップを表示。</p>
+                <ul>
+                    <li><span style="color:#00ffff;font-size:14px;">◆</span> <b>cable_landing（ケーブル陸揚局）</b>: 海底ケーブルが陸地に接続する物理拠点。破断・盗聴・サイバー攻撃の主要標的。</li>
+                    <li><span style="color:#ffaa00;font-size:14px;">⬡</span> <b>maritime_strait（海上チョークポイント）</b>: 船舶・ケーブルが通過する海峡・運河。マラッカ・スエズ・ホルムズ・バブ・エル・マンデブ・台湾海峡・ルソン・宮古・対馬・ボスポラス・パナマを含む。</li>
+                    <li><span style="color:#cc66ff;font-size:14px;">⬟</span> <b>nato_corridor（NATOケーブル回廊）</b>: NATOの重要ケーブル・通信インフラ区域。バルト海・GIUKギャップ。</li>
+                </ul>
+                <p style="font-size:11px; color:#888; margin-top:4px;">AIS状態による色分け: 暗区間（赤+点滅） / 定点異常（橙） / 正常（タイプ固有色）。チョークポイント周囲55km圏内はAIS監視ゾーンとしてサークル表示。</p>
+            </li>
         </ul>
 
-        <h4>3. Scoring Engine & Convergence Algorithm</h4>
-        <p>The <b>WeightedConvergenceEngine</b> evaluates a <b>Raw Threat Score</b> from all enabled, non-suppressed sensor signals, then applies a cross-domain convergence bonus and a Sequence Bonus. Maximum theoretical score exceeds 22 points.</p>
+        <h4>3. スコアリングエンジン &amp; 収束アルゴリズム</h4>
+        <p><b>WeightedConvergenceEngine</b> が全有効・非抑制センサー信号から<b>生脅威スコア</b>を算出し、ドメイン収束ボーナスとシーケンスボーナスを加算する。理論的最大スコアは22点を超える。</p>
 
-        <p><b>Raw Score Components:</b></p>
+        <p><b>生スコアの構成要素</b></p>
         <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #555; line-height: 1.8;">
-            <li>[Cyber]    cf_spike_core:       Core theater weighted avg spike &gt;2× (+1), &gt;4× (+1), &gt;6× (+1) — max +3</li>
-            <li>[Cyber]    cf_adversary_strike: Adversary state (CN/RU/KP) direct strike ≥4× spike with &gt;3% abs traffic → +2</li>
-            <li>[Cyber]    cf_botnet_overlap:   Shared botnet overlap with allied theater &gt;30% → +1</li>
-            <li>[Cyber]    cf_vector_shift:     L7 app-layer avg spike &gt;2.5× AND &gt;1.5× greater than L3 avg → +1</li>
-            <li>[Cyber]    cf_coordinated:      ≥2 strategic theaters simultaneously above 3× spike → +1</li>
-            <li>[Cyber]    ripe_bgp:            BGP prefix withdrawal &gt;15% → +1</li>
-            <li>[Cyber]    threatfox:           APT-tagged IoC matched to theater in past 24h → +1</li>
-            <li>[Cyber]    ddos_acceleration:   Ambush Pattern (2nd-deriv Z-Score &gt; 2.0, positive accel) → +2</li>
-            <li>[Physical] ioda_bgp:            Confirmed BGP/probing outage (weather-filtered) → +1</li>
-            <li>[Physical] opensky:             Airspace ANOMALY (≥40% deviation from 20-cycle baseline) → +2</li>
-            <li>[Physical] opensky:             Airspace CLOSURE (&lt;5% of baseline, near-total suspension) → +3</li>
-            <li>[Physical] nasa_firms:          NASA EONET wildfire within ±10° of theater centroid → +3</li>
-            <li>[Physical] isr_hotspot:         ISR Surge ≥3 qualifying aircraft at strategic hotspot → +2</li>
-            <li>[Physical] ais_maritime:        AIS Dark Gap or Stationary anomaly at chokepoint → +1</li>
-            <li>[Info]     gdelt:               GDELT media tone &lt; –12.0 (28-day rolling avg, weather-filtered) → +1</li>
-            <li>[Info]     rss_narrative:       Narrative Burst Z &gt; 2.0 → +1; Critical Burst Z &gt; 3.0 → +2</li>
+            <li>[Cyber]    cf_spike_core:       コアシアター加重平均スパイク &gt;2×(+1), &gt;4×(+1), &gt;6×(+1) — 最大+3</li>
+            <li>[Cyber]    cf_adversary_strike: 敵対国（CN/RU/KP）の直接攻撃 ≥4×スパイク かつ絶対シェア&gt;3% → +2</li>
+            <li>[Cyber]    cf_botnet_overlap:   連合シアターとのボットネット重複 &gt;30% → +1</li>
+            <li>[Cyber]    cf_vector_shift:     L7平均スパイク &gt;2.5× かつ L3平均の1.5×超 → +1</li>
+            <li>[Cyber]    cf_coordinated:      戦略シアター2か所以上が同時に3×スパイク超 → +1</li>
+            <li>[Cyber]    ripe_bgp:            BGPプレフィックス削減 &gt;15% → +1</li>
+            <li>[Cyber]    threatfox:           過去24時間でAPT IoC がシアターに一致 → +1</li>
+            <li>[Cyber]    ddos_acceleration:   アンブッシュパターン（2次微分Zスコア&gt;2.0、正加速度） → +2</li>
+            <li>[Physical] ioda_bgp:            BGP/プロービング障害確認（気象フィルタ適用後） → +1</li>
+            <li>[Physical] opensky:             空域ANOMALY（20サイクルベースライン比 ≥40%偏差） → +2</li>
+            <li>[Physical] opensky:             空域CLOSURE（ベースライン比 &lt;5%、ほぼ完全停止） → +3</li>
+            <li>[Physical] nasa_firms:          NASA EONET 野火 シアター中心から±10°以内 → +3</li>
+            <li>[Physical] isr_hotspot:         ISRサージ ≥3機（戦略ホットスポット） → +2</li>
+            <li>[Physical] ais_maritime:        AIS暗区間または定点異常 → +1</li>
+            <li>[Info]     gdelt:               GDELTメディアトーン &lt; -12.0（28日ローリング平均） → +1</li>
+            <li>[Info]     rss_narrative:       ナラティブバースト Z &gt; 2.0 → +1; クリティカルバースト Z &gt; 3.0 → +2</li>
         </ul>
 
-        <p><b>Domain Convergence Bonus</b> — Applied when anomalies simultaneously span multiple domains, indicating coordinated multi-domain operations (MDO) rather than isolated incidents:</p>
+        <p><b>ドメイン収束ボーナス</b> — 複数ドメインに同時に異常が出現した場合（孤立したインシデントではなく協調的MDO操作の証拠）に加算:</p>
         <ul>
-            <li><span style="color:#ff8800; font-weight:bold;">DUAL CONVERGENCE</span>: Any 2 of 3 domains (Cyber + Physical, or Cyber + Info, or Physical + Info) both active → <b>+1 pt</b></li>
-            <li><span style="color:#ff2a2a; font-weight:bold;">FULL CONVERGENCE</span>: All 3 domains (Cyber + Physical + Info) simultaneously active → <b>+2 pts</b></li>
+            <li><span style="color:#ff8800;font-weight:bold;">DUAL CONVERGENCE</span>: 3ドメインのうち任意の2つが同時にアクティブ → <b>+1pt</b></li>
+            <li><span style="color:#ff2a2a;font-weight:bold;">FULL CONVERGENCE</span>: Cyber + Physical + Info 全3ドメインが同時にアクティブ → <b>+2pt</b></li>
         </ul>
-        <p style="color:#888; font-size:11px;">A domain is considered "active" when its weighted score contribution exceeds the domain threshold. Full Convergence is the strongest signal for pre-kinetic operations — historical data shows this pattern in both the 2022 Ukraine invasion and the 2022 Taiwan Strait exercises.</p>
+        <p style="color:#888; font-size:11px;">ドメインは重み付きスコア貢献がドメイン閾値を超えた場合に「アクティブ」とみなす。FULL CONVERGENCEはプレキネティック作戦の最強シグナル。</p>
 
-        <p><b>Sequence Bonus</b> — Applied on top of convergence bonus when the logical escalation chain is confirmed within a 24-hour window. This mechanism prevents confirmation bias by requiring cross-domain evidence in the correct logical order of operations:</p>
+        <p><b>シーケンスボーナス</b> — 収束ボーナスの上位に加算。論理的エスカレーション連鎖が24時間窓内に確認された場合に付与。確証バイアス防止機構として機能する（単一ドメインの劇的シグナルでは発火しない）:</p>
         <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #ff8844; line-height: 1.8;">
-            <li>Chain definition (loosely ordered — existence within 24h window, not strict sequential):
-                <br>  [1] NARRATIVE_BURST — Tactical keyword Z-Score spike in state media
-                <br>  [2] ISR_SURGE       — Reconnaissance aircraft detected at strategic hotspot
-                <br>  [3] SYNC_DDOS      — Coordinated DDoS from ≥2 theaters with high botnet overlap
-                <br>  [4] FIRMS_ANOMALY  — Thermal/kinetic event from NASA EONET</li>
-            <li>4/4 chain confirmed within 24h → SEQUENCE_FULL_BONUS = +3 pts</li>
-            <li>3/4 chain confirmed within 24h → SEQUENCE_PARTIAL_BONUS = +1 pt</li>
-            <li>&lt;3 events → no bonus (insufficient pattern)</li>
+            <li>連鎖定義（緩やかな順序制約 — 24時間窓内の存在確認、厳密な時系列不要）:
+                <br>  [1] NARRATIVE_BURST  — 国家メディアでの戦術キーワードZスコアスパイク
+                <br>  [2] ISR_SURGE        — 戦略ホットスポットでの偵察機検出
+                <br>  [3] SYNC_DDOS        — ≥2シアターからの協調DDoS（高ボットネット重複）
+                <br>  [4] FIRMS_ANOMALY    — NASA EONETからの熱・運動学的イベント</li>
+            <li>4/4 確認（24時間以内） → SEQUENCE_FULL_BONUS = +3pt</li>
+            <li>3/4 確認（24時間以内） → SEQUENCE_PARTIAL_BONUS = +1pt</li>
+            <li>&lt;3イベント → ボーナスなし（パターン不十分）</li>
         </ul>
-        <p style="color:#888; font-size:11px;"><b>Design rationale:</b> The sequence bonus is the system's primary anti-confirmation-bias mechanism. A single dramatic DDoS spike could be a civilian botnet. A narrative burst alone is daily adversary media. Only when multiple independent physical, cyber, and information indicators co-occur in the logical pattern of pre-kinetic preparation does the system grant an escalation bonus — forcing the analyst to see evidence across domains, not just within one.</p>
 
-        <p><b>Blockade Index</b> — A computed gauge (displayed in the HUD) that distinguishes "political noise" DDoS from real infrastructure neutralization:</p>
+        <p><b>ブロッケードインデックス（HUD表示）</b> — 「政治的シグナリング」DDoSと実際のインフラ無力化を定量的に区別するゲージ:</p>
         <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #ff8844; line-height: 1.6;">
-            <li>Formula:  Blockade Index = min(DDoS_spike_core, 10) ÷ (0.1 if BGP_degraded else 1.0)</li>
-            <li>NORMAL               — Index &lt; 1.5: DDoS present but infrastructure remains reachable. Typical of signaling operations.</li>
-            <li>POLITICAL_NOISE      — Index 1.5–3.9: Significant cyber activity, no confirmed infrastructure impact.</li>
-            <li>SEVERE_DISRUPTION    — Index 4.0–6.9: High DDoS concurrent with partial BGP degradation.</li>
-            <li>INFRASTRUCTURE_NEUTRALIZATION — Index ≥ 7.0: Massive DDoS + confirmed BGP outage. Pre-invasion blackout signature.</li>
+            <li>計算式: Blockade Index = min(DDoS_spike_core, 10) ÷ (BGP障害確認時は0.1、それ以外は1.0)</li>
+            <li>NORMAL               — インデックス &lt; 1.5: DDoSはあるがインフラは到達可能。シグナリング作戦の典型。</li>
+            <li>POLITICAL_NOISE      — 1.5〜3.9: 重大なサイバー活動、インフラ影響は未確認。</li>
+            <li>SEVERE_DISRUPTION    — 4.0〜6.9: 高DDoSとBGP部分劣化が同時発生。</li>
+            <li>INFRASTRUCTURE_NEUTRALIZATION — ≥ 7.0: 大規模DDoS + BGP障害確認。侵攻前ブラックアウトのシグネチャ。</li>
         </ul>
 
-        <p><b>Botnet Overlap Calibration:</b> The 30% threshold reflects confirmed nation-state coordinated attack patterns (20–35% shared botnet infrastructure, per post-incident forensics of GRU/Sandworm operations). The previous 45% threshold matched large civilian botnet patterns (Mirai-class) and was too insensitive to state-directed attacks that use diverse, smaller botnets.</p>
-
-        <h4>4. Threat Levels</h4>
-        <p><b>Final Score = Raw Score + Convergence Bonus.</b> Hysteresis (1-cycle delay) is applied when <i>downgrading</i> levels to prevent flickering on borderline readings. Upgrades are immediate.</p>
+        <h4>4. 脅威レベル</h4>
+        <p><b>最終スコア = 生スコア + 収束ボーナス + シーケンスボーナス。</b>ダウングレード時のみ1サイクルのヒステリシス遅延を適用（境界値での点滅を防止）。アップグレードは即時。</p>
         <ul>
-            <li><span style="color:#ff0000; font-weight:bold;">Level 1 — CRITICAL:</span> Score &ge; 9 <b>AND</b> Hard Condition (Core Spike &gt;5.0× AND confirmed BGP outage simultaneously). This compound condition requires both massive cyber surge and infrastructure collapse — the signature of a coordinated pre-invasion blackout operation. Imminent kinetic action probability is extremely high. Activate all contingency procedures.</li>
-            <li><span class="hl-red">Level 2 — SEVERE:</span> Score &ge; 6. Multi-domain threat with direct adversary state attribution or severe infrastructure degradation. High probability of state-directed hostile action. Immediate command notification required.</li>
-            <li><span class="hl-orange">Level 3 — HIGH:</span> Score &ge; 4. Significant coordinated anomaly across at least two sensors. May indicate preparation phase, probing operations, or early escalation. Heightened monitoring warranted.</li>
-            <li><span style="color:#ffff00; font-weight:bold;">Level 4 — ELEVATED:</span> Score &ge; 2. Early-stage indicators: media tone deterioration, isolated BGP events, or minor L7 vector shifts. Consistent with pre-crisis diplomatic deterioration or reconnaissance activity.</li>
-            <li><span style="color:#66ff66; font-weight:bold;">Level 5 — NORMAL:</span> Score &lt; 2. Background noise level. No significant anomalies across monitored domains.</li>
+            <li><span style="color:#ff0000;font-weight:bold;">Level 1 — CRITICAL</span>: スコア ≥ 9 <b>かつ</b> ハード条件（コアスパイク &gt;5.0× AND BGP障害同時確認）。大規模サイバーサージとインフラ崩壊の複合条件。協調的侵攻前ブラックアウト作戦のシグネチャ。キネティック行動の確率が極めて高い。全緊急手順を起動。</li>
+            <li><span class="hl-red">Level 2 — SEVERE</span>: スコア ≥ 6。直接的な敵対国帰属または重大インフラ劣化を伴うマルチドメイン脅威。即時指揮官報告が必要。</li>
+            <li><span class="hl-orange">Level 3 — HIGH</span>: スコア ≥ 4。少なくとも2センサーにまたがる有意な協調異常。準備フェーズ・探索作戦・初期エスカレーションを示唆。監視強化が必要。</li>
+            <li><span style="color:#ffff00;font-weight:bold;">Level 4 — ELEVATED</span>: スコア ≥ 2。メディアトーン悪化・孤立したBGPイベント・L7ベクター軽微転換など早期指標。外交的緊張悪化または偵察活動と一致。</li>
+            <li><span style="color:#66ff66;font-weight:bold;">Level 5 — NORMAL</span>: スコア &lt; 2。背景ノイズレベル。監視ドメイン全域で有意な異常なし。</li>
         </ul>
 
-        <h4>5. Historical Calibration Reference</h4>
-        <p style="color:#888; font-size:11px;">Thresholds in this system are calibrated against the following confirmed events:</p>
+        <h4>5. 閾値キャリブレーション参照値</h4>
+        <p style="color:#888; font-size:11px;">本システムの閾値は以下の確認済み事例に基づきキャリブレーションされている:</p>
         <ul style="font-size:11px; color:#aaa;">
-            <li><b>Russia → Ukraine (Feb 24, 2022):</b> BGP route withdrawals 10–15% in the 6 hours before invasion. Wiper malware (HermeticWiper) deployed via pre-positioned APT infrastructure 90 min before ground assault. GDELT tone reached –18 to –25 at invasion onset; –12 to –15 during the preceding weeks of military buildup. Civilian flights suspended 24h prior.</li>
-            <li><b>China → Taiwan Strait (Aug 2022, Pelosi visit):</b> CN-origin DDoS traffic spiked 3–5× against TW government and media infrastructure. GDELT tone –13 to –17 during the exercise period. No BGP outage (deliberate — PRC signaling, not isolation). Botnet overlap with JP/US-targeted traffic confirmed in post-incident analysis.</li>
-            <li><b>DPRK persistent operations (ongoing):</b> KP-origin traffic characteristically low in absolute percentage (0.1–0.5%) but highly persistent and targeted. The 0.5% adversary baseline floor preserves detection of these small-volume, high-significance operations that would be masked by a 3% floor.</li>
+            <li><b>Russia → Ukraine（2022年2月24日）</b>: 侵攻6時間前にBGP経路が10〜15%削減。HermeticWiperワイパーマルウェアが地上侵攻90分前に展開。GDELT前哨期間は–12〜–15、侵攻当日は–18〜–25。民間フライトは24時間前に停止。</li>
+            <li><b>China → Taiwan Strait（2022年8月、ペロシ訪問）</b>: TW政府・メディアインフラへのCN起源DDoSが3〜5倍スパイク。演習期間中のGDELTトーン –13〜–17。BGP障害なし（意図的 — PRC シグナリング、孤立化操作ではない）。JP/US標的トラフィックとのボットネット重複を事後分析で確認。</li>
+            <li><b>DPRK 持続的作戦（進行中）</b>: KP起源トラフィックは絶対シェアが0.1〜0.5%と低い。敵対国の0.5%ベースラインフロアは、3%フロアでは検出不能になるこの低ボリューム・高重要度の作戦を保持するために設定。</li>
+            <li><b>Iran Internet Shutdown（2019年）</b>: 国内選挙前にBGP経路をほぼ完全に撤退させた完全孤立化パターン。BlockadeインデックスのINFRASTRUCTURE_NEUTRALIZATIONに相当。</li>
+            <li><b>Georgia-Russia（2008年8月）</b>: 地上侵攻に先行した5日間のサイバー作戦。GDELTトーンは–10〜–14から侵攻開始とともに–18以下へ急落。</li>
         </ul>
 
-        <h4>6. Analyst Workflow & Best Practices</h4>
+        <h4>6. アナリスト ワークフロー &amp; ベストプラクティス</h4>
         <ul>
-            <li><b>Cross-domain confirmation first:</b> Do not escalate based on a single domain. A DDoS spike alone (Cyber only) is insufficient — civilian botnets routinely produce 3–5× spikes. Full Convergence (Cyber + Physical + Info) is the minimum standard for Level 2 escalation recommendations.</li>
-            <li><b>Use HITL MUTE for known false positives:</b> If a sensor is producing noise from a confirmed non-hostile source (e.g., a major sporting event causing airspace anomalies, or a legitimate CDN maintenance window causing BGP shifts), mute it in the Evidence Panel. The mute state persists across page reloads via browser local storage.</li>
-            <li><b>SITREP for command reporting:</b> Use the <span class="code-block">SITREP</span> button to generate a formatted Situation Report suitable for command-level notification. The report includes domain breakdown, sensor evidence, and trend indicators.</li>
-            <li><b>Baseline awareness:</b> Spike ratios are only computed when the 7-day rolling baseline has been populated. On first startup, the system requires approximately 7 days of sensor operation to establish accurate baselines. During this period, spike scores will be conservatively suppressed (has_baseline guard active). The Data Status panel shows baseline population progress per sensor. The RSS Narrative Sensor similarly requires ≥7 days of data before its Z-Score alerts are active.</li>
-            <li><b>GDELT tone interpretation:</b> Tone of –12.0 marks the threshold for early military tension rhetoric in open media. Values of –15 to –18 indicate active crisis framing. Values below –18 historically correspond to imminent or ongoing kinetic action. A sudden 3–5 point tone drop within a single polling cycle (30 min) is more significant than a gradual decline to the same value.</li>
-            <li><b>CHAIN panel for escalation narrative:</b> Click the <span class="code-block">CHAIN</span> button (top-right of HUD) to open the Evidence Chain Timeline. This panel shows the last 24 hours of escalation events (Narrative Burst → ISR Surge → Sync DDoS → Kinetic Anomaly) with timestamps, enabling the analyst to see the "story" behind the threat score — not just a number. A FULL CHAIN confirmation (+3 pts) means all four event types occurred within 24 hours and is a strong indicator of coordinated multi-domain preparation.</li>
-            <li><b>VELOCITY meter interpretation:</b> The VELOCITY display shows threat-score change rate in points-per-poll-cycle (≈900 seconds). A stable situation reads "STABLE" (grey). Positive velocity (red, ↑) means the threat level is actively rising. Negative velocity (green, ↓) means the situation is improving. An <span style="color:#ff2200;font-weight:bold;">⚡ AMBUSH</span> alert (blinking red) means the <i>rate of change itself</i> is accelerating exponentially — the system detected a 2nd-derivative spike, the mathematical signature of a rapidly compressing attack window rather than a gradual escalation. This is the most time-critical signal in the system.</li>
-            <li><b>Blockade Index interpretation:</b> The BLOCKADE gauge on the HUD distinguishes DDoS operations by their actual infrastructure impact. A high-volume DDoS that doesn't degrade BGP reachability (<span style="color:#888;">Index &lt; 1.5</span>) is political signaling. An <span style="color:#ff2200;">INFRASTRUCTURE_NEUTRALIZATION</span> reading (Index ≥ 7.0) means the adversary is achieving actual internet blackout alongside the DDoS — the pattern seen 30–90 minutes before the Russian ground invasion of Ukraine in February 2022.</li>
+            <li><b>クロスドメイン確証を優先する</b>: 単一ドメインのみの指標ではエスカレーションしない。Cyber単独のDDoSスパイクは民間ボットネットでも3〜5倍を常時発生させる。Level 2エスカレーション推奨の最低基準はFULL CONVERGENCE（Cyber + Physical + Info）。</li>
+            <li><b>既知の偽陽性はHITL MUTEで抑制する</b>: 非敵対的ソース（大規模スポーツイベントによる空域異常、正当なCDNメンテナンスによるBGPシフト等）が確認された場合、エビデンスパネルでそのセンサーをMUTE。MUTE状態はリロード跨ぎでlocalStorageに保持。</li>
+            <li><b>SITREPで指揮官報告</b>: <span class="code-block">SITREP</span> ボタンでドメイン内訳・センサーエビデンス・トレンド指標を含む指揮官向け状況報告書を生成。</li>
+            <li><b>ベースライン充足を確認する</b>: スパイク比はCloudflare 7日間ローリングベースライン充足後に有効化（起動直後は保守的抑制）。RSS Narrativeも同様に7日間以上のデータが必要。Data Statusパネルで各センサーのベースライン充足率を確認。</li>
+            <li><b>VELOCITY / AMBUSH メーターを読む</b>: VELOCITYは現在の脅威スコアの変化速度（点/ポーリングサイクル ≈ 900秒）。正速度（赤 ↑）= 積極的に悪化中。負速度（緑 ↓）= 改善中。<span style="color:#ff2200;font-weight:bold;">⚡ AMBUSH</span>（赤点滅）= 変化速度自体が加速中——2次微分スパイクの数学的シグネチャ。急速に圧縮しつつある攻撃ウィンドウを示す最も時間的に重要なシグナル。</li>
+            <li><b>CHAINパネルでエスカレーション物語を読む</b>: <span class="code-block">CHAIN</span>ボタン（HUD右上）でエビデンスチェーンタイムラインを開く。過去24時間の[NARRATIVE_BURST → ISR_SURGE → SYNC_DDOS → FIRMS_ANOMALY]のエスカレーションイベントをタイムスタンプ付きで表示。FULL CHAIN確認（+3pt）は全4タイプが24時間以内に出現したことを意味し、協調マルチドメイン準備の強力な指標。</li>
+            <li><b>GDELTトーン解釈</b>: –12.0 = 早期軍事緊張レトリックの閾値。–15〜–18 = 積極的危機フレーミング。–18以下 = 歴史的にキネティック行動直前または進行中。単一ポーリングサイクル（30分）内での3〜5ポイント急落は、同じ値への漸進的低下より重要。</li>
+            <li><b>ブロッケードインデックス解釈</b>: BGP到達性を劣化させない高ボリュームDDoSはシグナリング操作（Index &lt; 1.5）。INFRASTRUCTURE_NEUTRALIZATION（Index ≥ 7.0）は実際のインターネットブラックアウトを達成中——2022年2月ロシア地上侵攻の30〜90分前に観測されたパターン。</li>
         </ul>
 
-        <h4>7. API Reference (Analyst / Integration Endpoints)</h4>
-        <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
-            <li><span class="code-block">GET /api/data?core=TW&correlates=JP,US&adversaries=CN,RU</span> — Primary data feed. Returns all sensor data, threat scores, domain breakdown, deep analytics block.</li>
-            <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — Full threat level history (up to 24h / 288 cycles). Includes velocity, ambush flag, blockade index per cycle.</li>
-            <li><span class="code-block">GET /api/sitrep</span> — Machine-readable SITREP with trend, domain activity, convergence state.</li>
-            <li><span class="code-block">GET /api/data_status</span> — Sensor health, poll intervals, last fetch times, error logs.</li>
-            <li><span class="code-block">GET /api/sensor_config</span> — List all sensors with enabled/domain/health status.</li>
-            <li><span class="code-block">POST /api/sensor_config</span> — Enable/disable a sensor by name. Body: <span class="code-block">{"name":"rss_narrative","enabled":false}</span></li>
-            <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> — Returns escalation chain events for the specified theater within the 24 h window, including timestamps, event types, and chain bonus status.</li>
-            <li><span class="code-block">GET /api/deep_analytics?theater=TW</span> — Deep analytics diagnostic dump: velocity series, acceleration, ambush Z-score, narrative Z-score, ISR aircraft count, AIS dark gaps, blockade index with interpretation label.</li>
-            <li><span class="code-block">GET /api/salute_report</span> <b>[Intuition UI]</b> — Generates a SALUTE-format contact report (Size/Activity/Location/Unit/Time/Equipment + Assessment) from the current threat state. Used by the SALUTE Board panel.</li>
-            <li><span class="code-block">GET /api/weather_brief</span> <b>[Intuition UI]</b> — Maps current sensor readings to meteorological metaphors (storm/fog/calm etc.) per domain. Returns a list of conditions with color coding, icons, and a plain-language summary paragraph. Used by the Weather Brief panel.</li>
-            <li><span class="code-block">GET /api/historical_events</span> <b>[Intuition UI]</b> — Returns the HISTORICAL_EVENTS pattern library from geo_data.json: 5 reference crisis fingerprints (Ukraine 2022, Taiwan Strait 2022, Iran 2019, Georgia 2008, Normal Baseline), each with a 20-point normalized pattern array, color, and description. Used by the Historical Analog panel.</li>
+        <h4>7. 設定（Config） &amp; 監視対象管理</h4>
+        <p>ツールバーの <span class="code-block">Config</span> ボタンでマスター設定モーダルを開く。5つのタブで構成される。</p>
+        <ul>
+            <li><b>Strategy Scope</b>: <b>Epicenter（Core）</b> は主要焦点シアター（単一選択）。ほぼ全てのセンサーと収束スコアはCoreを基準に算出される。<b>Correlate（Link）</b> は同一ボットネットからの協調攻撃を監視する連合国。監視対象は全世界（~127カ国）のCloudflare取得国からなる。</li>
+            <li><b>Threat Actors</b>: 直接攻撃（Direct Strike）の監視対象とする敵対国を選択。指定国のASNが大量トラフィックに使用された場合に国家帰属バッジが表示される。</li>
+            <li><b>Quick Pins</b>: メイン画面の「Target Visibility」パネルにクイックトグルとして表示する国を選択。</li>
+            <li><b>Sensors</b>: 各センサーの有効/無効を切り替え。無効センサーのスコア貢献はゼロ（Graceful Degradation）。</li>
+            <li><b>Fetch Log</b>: 各センサーの最終フェッチ結果を表示（成功/失敗/キャッシュ経過時間）。ポーリング間隔の3倍を超えるキャッシュはSTALEとしてフラグ。</li>
         </ul>
+        <p style="color:#888; font-size:11px;"><b>地域フィルター（Region Pill）</b>: Strategy Scope / Threat Actors / Quick Pins の各タブには地域別フィルターピルが並ぶ（East Asia / SE Asia / Middle East など全16地域）。ピルをクリックすると右側の Region Preview ミニマップがその地域にズームし、現在選択中の国をCore（シアン）/ Link（アンバー）/ Adversary（赤）/ Pin（緑）でドットマーカー表示する。ピル選択はタブ切り替え後も保持される。</p>
 
-        <h4>8. Intuition UI — Recognition-Primed Decision (RPD) Components</h4>
-        <p>数値計算だけでなく、アナリストの経験則・直観（Recognition-Primed Decision）を刺激する8つのビジュアルコンポーネント。NDM（Naturalistic Decision Making）理論に基づき、状況認識を即座に形成することを目的としている。すべて既存の数値表示と共存する。</p>
+        <h4>8. Intuition UI — 識別優先意思決定（RPD）コンポーネント</h4>
+        <p>数値計算と並行してアナリストの経験則・直観（Recognition-Primed Decision）を刺激する8つのビジュアルコンポーネント。NDM（Naturalistic Decision Making）理論に基づき、状況認識を即座に形成することを目的とする。</p>
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
-            <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">操作方法</div>
-            <p style="font-size:11px; color:#aaa; margin:0;">HUD右上の <span class="code-block">TOOLS ▾</span> ボタンをクリックするとドロップダウンメニューが開き、Weather Brief / SALUTE Board / Historical Analog / Ops Clock の4パネルを個別に有効化できる。アクティブなパネルは <span style="color:#00ffff;">シアン</span> 点灯で示される。各パネル右上の ✕ で個別に閉じることができ、パネルを閉じてもドロップダウンの状態インジケーターが即座に同期される。<br>常時表示のコンポーネント（Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain）はボタン操作不要で自動的に動作する。</p>
+            <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">アクセス方法</div>
+            <p style="font-size:11px; color:#aaa; margin:0;">HUD右上の <span class="code-block">TOOLS ▾</span> ドロップダウンから Weather Brief / SALUTE Board / Historical Analog / Ops Clock の4パネルを個別に有効化できる（シアン点灯 = アクティブ）。各パネル右上の ✕ で個別に閉じる。常時表示コンポーネント（Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain）は操作不要で自動動作する。</p>
         </div>
 
         <p><b>A. Ambient Atmosphere（環境光）</b></p>
         <ul>
-            <li><b>機能:</b> 脅威レベルに応じて画面全体の背景色を極微妙に変色させる。Lv 3(HIGH)→緑み、Lv 2(SEVERE)→赤橙み、Lv 1(CRITICAL)→深紅み、2〜5秒周期のkeyframesアニメーション。</li>
-            <li><b>設計意図:</b> 意識的に数値を読まなくても、周辺視野で「何かがおかしい」と気付かせる。長時間監視セッションにおける注意の固着（Attentional Tunneling）を防ぐ。</li>
-            <li><b>常時動作:</b> 自動的に適用される。明示的な操作不要。</li>
+            <li><b>常時動作。</b>脅威レベルに応じて画面全体の背景色を微変色（Lv3→緑み / Lv2→赤橙み / Lv1→深紅み、2〜5秒周期アニメーション）。周辺視野で「何かがおかしい」と気付かせ、長時間監視セッション中の注意固着（Attentional Tunneling）を防ぐ。</li>
         </ul>
 
         <p><b>B. Pulse Display（脅威パルス波形）</b></p>
         <ul>
-            <li><b>表示位置:</b> マップ左下コーナー、常時表示。</li>
-            <li><b>機能:</b> 脅威レベル履歴（最大60サイクル ≈ 15時間）をスクロール型EKG波形Canvasで描画。Threat Lv 1(危険)が波形上端、5(平常)が下端。波形の色は現在のThreat Lvカラーと連動する（緑/黄/橙/赤）。右上に変化率（/時間）を表示。</li>
-            <li><b>読み方:</b> 波形が上方向に急峻に動いている → 急速に状況が悪化している。平坦な高止まり → 継続的な高脅威環境。下方向に動き始めた → 緩和の兆候。単なる数値より「物語」として認識できる。</li>
+            <li><b>マップ左下に常時表示。</b>脅威レベル履歴（最大60サイクル ≈ 15時間）をスクロール型EKG波形（Canvas）で描画。Level 1が波形上端、Level 5が下端。波形色は現在のThreat Levelカラーと連動。右上に変化率（/時間）を表示。<br>
+            <span style="color:#888;font-size:11px;">読み方: 波形が急激に上昇中 → 状況が急速に悪化。平坦な高止まり → 持続的高脅威環境。下降開始 → 緩和の兆候。</span></li>
         </ul>
 
-        <p><b>C. Operational Clock（作戦時計）</b></p>
+        <p><b>C. Operational Clock（作戦時計）</b> — <span class="code-block">TOOLS ▾</span> → Ops Clock</p>
         <ul>
-            <li><b>アクセス:</b> <span class="code-block">TOOLS ▾</span> → <i>Ops Clock</i></li>
-            <li><b>機能:</b> リアルタイムのZulu（UTC）時刻を大型フォントで表示（秒単位更新）。ローカル時刻・UTCカレンダー日付・「最後に重大イベント（Lv 3以下）が発生してからの経過時間」を同時表示。</li>
-            <li><b>設計意図:</b> 軍事作戦において時刻はすべての報告書の基準である。アナリストが報告書を作成する際、別ウインドウで時計を参照する手間を省く。「最終イベントからの経過時間」は状況が安定しているのか単に沈黙しているのかを区別するための手掛かりになる。</li>
+            <li>Zulu（UTC）時刻をリアルタイム大型フォントで表示（秒更新）。ローカル時刻・UTCカレンダー日付・最後に重大イベント（Level 3以下）が発生してからの経過時間を同時表示。静止しているのか単なる沈黙なのかを区別する手掛かりとなる。</li>
         </ul>
 
-        <p><b>D. Operational Weather Brief（作戦気象概況）</b></p>
+        <p><b>D. Operational Weather Brief（作戦気象概況）</b> — <span class="code-block">TOOLS ▾</span> → Weather Brief</p>
         <ul>
-            <li><b>アクセス:</b> <span class="code-block">TOOLS ▾</span> → <i>Weather Brief</i></li>
-            <li><b>機能:</b> <span class="code-block">GET /api/weather_brief</span> を呼び出し、Cyber/Physical/Info各ドメインの脅威状態を気象メタファーで表示する。例: Cyber=「サイバーストーム(STORM)」= 大規模DDoSスパイク活発。Physical=「海峡霧(FOG)」= AIS暗区間発生中。Info=「気圧上昇(RISING PRESSURE)」= ナラティブ工作が強まっている。</li>
-            <li><b>設計意図:</b> 気象予報は専門家でなくても直観的に理解できる唯一の科学的表現系の一つ。「明日は嵐です」が「降水確率87%」より行動につながりやすいのと同じ原理。意思決定速度の向上を目的とする。</li>
-            <li><b>データソース:</b> <span class="code-block">/api/weather_brief</span> — センサー値をthreshold比較してcondition_keyを決定し、その結果をフロントエンドがアイコン付きで描画する。</li>
+            <li>Cyber / Physical / Info 各ドメインの脅威状態を気象メタファーで表示（例: Cyber=「サイバーストーム」= 大規模DDoSスパイク、Physical=「海峡霧」= AIS暗区間発生中、Info=「気圧上昇」= ナラティブ工作が強化中）。専門知識なしに直観的理解を可能にし、意思決定速度を向上させる。</li>
         </ul>
 
-        <p><b>E. SALUTE Board（接触報告板）</b></p>
+        <p><b>E. SALUTE Board（接触報告板）</b> — <span class="code-block">TOOLS ▾</span> → SALUTE Board</p>
         <ul>
-            <li><b>アクセス:</b> <span class="code-block">TOOLS ▾</span> → <i>SALUTE Board</i></li>
-            <li><b>機能:</b> <span class="code-block">GET /api/salute_report</span> から軍事接触報告書（SALUTE様式）を生成する。</li>
-            <li><b>SALUTE様式:</b>
+            <li>現在の脅威状態から軍事標準書式（SALUTE）の接触報告書を自動生成:
                 <ul style="font-family:monospace; font-size:11px; background:rgba(0,0,0,0.3); padding:8px; border-left:2px solid #ff880044; line-height:1.9; margin-top:6px;">
-                    <li><b>S</b> ize     — 敵勢力規模 (例: Botnet 12 origins, 3 state-ASN)</li>
-                    <li><b>A</b> ctivity — 確認された活動種別 (例: Coordinated L7 surge + Narrative Burst)</li>
-                    <li><b>L</b> ocation — 標的地域 (例: TW, correlated JP/US)</li>
-                    <li><b>U</b> nit     — 帰属推定 (例: CN/RU attributed — state-ASN matched)</li>
-                    <li><b>T</b> ime     — 最初の活動観測時刻 (UTC)</li>
-                    <li><b>E</b> quipment — 使用手段 (例: L3 volumetric + BGP withdrawal + ISR surge)</li>
-                    <li><b>+ Assessment</b> — 統合評価文（AIが現在の脅威状態から自動生成）</li>
+                    <li><b>S</b>ize     — 敵勢力規模（例: ボットネット12発信元、3 state-ASN）</li>
+                    <li><b>A</b>ctivity — 確認された活動種別（例: L7協調サージ + ナラティブバースト）</li>
+                    <li><b>L</b>ocation — 標的地域（例: TW、相関: JP/US）</li>
+                    <li><b>U</b>nit     — 帰属推定（例: CN帰属 — state-ASN一致）</li>
+                    <li><b>T</b>ime     — 最初の活動観測時刻（UTC）</li>
+                    <li><b>E</b>quipment— 使用手段（例: L3ボリューメトリック + BGP撤退 + ISRサージ）</li>
+                    <li>+Assessment — 現在の脅威状態からの統合評価文</li>
                 </ul>
             </li>
-            <li><b>設計意図:</b> ブリーフィング・指揮報告に即座に使える標準化フォーマット。センサーデータを「数値の羅列」から「報告文」へ変換することで、指揮官への伝達速度を向上させる。</li>
         </ul>
 
-        <p><b>F. Historical Pattern Analog（歴史的類似事例）</b></p>
+        <p><b>F. Historical Pattern Analog（歴史的パターン類推）</b> — <span class="code-block">TOOLS ▾</span> → Historical Analog</p>
         <ul>
-            <li><b>アクセス:</b> <span class="code-block">TOOLS ▾</span> → <i>Historical Analog</i></li>
-            <li><b>機能:</b> 現在の脅威スコア時系列（最新20サイクル）を、<code>geo_data.json</code> に収録された5件の歴史的事例パターンとPearson相関係数で比較し、類似度の高い順に上位3件を表示する。各カードに類似度%と「過去パターン（dim）vs 現在パターン（cyan）」の重ね合わせグラフを描画。</li>
-            <li><b>収録パターン:</b>
+            <li>現在の脅威スコア時系列（最新20サイクル）を5件の歴史的事例パターンとPearson相関係数で比較し、類似度上位3件を表示:
                 <ul style="font-size:11px; color:#aaa;">
-                    <li>🔴 <b>Ukraine Invasion 2022</b> — BGP撤退→ワイパー展開→地上侵攻の前日パターン</li>
-                    <li>🟠 <b>Taiwan Strait 2022</b> — ペロシ訪問前後: 政治的シグナリングDDoS+GDELT急落</li>
-                    <li>🟡 <b>Iran Shutdown 2019</b> — 国内選挙前のインターネット完全遮断パターン</li>
-                    <li>🔵 <b>Georgia-Russia 2008</b> — 先行サイバー作戦から地上侵攻までの上昇曲線</li>
-                    <li>⬜ <b>Normal Baseline</b> — 平常時ノイズ（参照基準）</li>
+                    <li>🔴 Ukraine Invasion 2022 / 🟠 Taiwan Strait 2022 / 🟡 Iran Shutdown 2019 / 🔵 Georgia-Russia 2008 / ⬜ Normal Baseline</li>
                 </ul>
             </li>
-            <li><b>設計意図:</b> 「現在の状況はどの過去事例に似ているか」を直観的に示す。Pearson相関で70%以上の類似度 = 統計的に注目に値するパターン一致。分析官はこれを出発点として歴史的文脈と現在の差異を検討する。<b>相関 ≠ 因果: これは意思決定補助であり予測ではない。</b></li>
+            <li>各カードに類似度%と「過去パターン（dim）vs 現在パターン（シアン）」の重ね合わせグラフを描画。Pearson 70%以上 = 統計的に注目に値するパターン一致。<b>相関 ≠ 因果: これは意思決定補助であり予測ではない。</b></li>
         </ul>
 
         <p><b>G. Radio Silence Indicator（無線通信途絶インジケーター）</b></p>
         <ul>
-            <li><b>表示位置:</b> HUD下段、常時表示。<span style="color:#00ff88;">🟢 LIVE</span> / <span style="color:#ff8800;">🟠 QUIET</span> の2状態。</li>
-            <li><b>機能:</b> 「脅威スコアが有意（≥3点）であるにもかかわらず、速度（velocity）変化がほぼゼロ」の状態を検出し <b>QUIET</b> と判定する。</li>
-            <li><b>何を示すか:</b>
-                <ul>
-                    <li><span class="hl-green">LIVE</span>: 全センサーが変動を報告中。通常の監視状態。</li>
-                    <li><span class="hl-orange">QUIET</span>: 異常な静寂。以下の可能性を示唆:
-                        (1) 作戦前の通信封鎖（pre-kinetic EMCON）、
-                        (2) センサー抑圧（adversary jamming/spoofing）、
-                        (3) 攻撃者が戦術的一時停止に入っている。
-                    </li>
-                </ul>
-            </li>
-            <li><b>設計意図:</b> 真の静寂は平和を意味しない。ロシア→ウクライナ作戦では、侵攻直前の数時間に一部センサーが「静止」するパターンが確認されている。「何も起きていない」という誤認を防ぐため、静寂そのものを異常検出の対象とする。</li>
+            <li><b>HUD下段に常時表示。</b>脅威スコアが有意（≥3点）にもかかわらず速度変化がほぼゼロの状態を <span style="color:#ff8800;font-weight:bold;">QUIET</span> として検出。<br>
+            QUIET の示唆: (1) 作戦前の通信封鎖（pre-kinetic EMCON）、(2) センサー抑圧（adversary jamming/spoofing）、(3) 攻撃者の戦術的一時停止。真の静寂は平和を意味しない——「何も起きていない」という誤認を防ぐため、静寂そのものを異常検出の対象とする。</li>
         </ul>
 
         <p><b>H. Threat Terrain Overlay（脅威地形オーバーレイ）</b></p>
         <ul>
-            <li><b>アクセス:</b> マップ右上のレイヤーコントロール → <i>Threat Terrain</i> にチェックを入れる。</li>
-            <li><b>機能:</b> 監視中の各国のDDoSスパイク強度（avg_spike）に応じて、Leafletの半透明サークルをchoropleth風に描画する。BGP障害が確認された国は赤色、スパイク4倍以上はオレンジ、それ以下は黄色。半径はスパイク強度に比例（最大約620km）。</li>
-            <li><b>設計意図:</b> 個別の数値ではなく「地理的な圧力分布」として脅威を認識させる。どの地域に負荷が集中しているかを一瞥で把握でき、従来の折れ線グラフでは見えにくい「地政学的パターン」を浮き上がらせる。スパイク平常以下の国はオーバーレイを描画しないためノイズを最小化する。</li>
+            <li><b>マップ右上レイヤーコントロール → Threat Terrain。</b>監視中の各国のDDoSスパイク強度（avg_spike）に応じた半透明サークルをchoropleth風に描画。BGP障害確認国 = 赤、スパイク4倍以上 = オレンジ、それ以下 = 黄色。半径はスパイク強度に比例（最大約620km）。地理的な圧力分布として脅威を認識させ、一瞥で集中地域を把握できる。スパイク平常以下の国は描画しないためノイズを最小化。</li>
+        </ul>
+
+        <h4>9. API リファレンス（アナリスト / 統合エンドポイント）</h4>
+        <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
+            <li><span class="code-block">GET /api/data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — プライマリデータフィード。全センサーデータ・脅威スコア・ドメイン内訳・ディープアナリティクスブロックを返す。</li>
+            <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — 脅威レベル履歴（最大24時間 / 288サイクル）。サイクルごとに速度・アンブッシュフラグ・ブロッケードインデックスを含む。</li>
+            <li><span class="code-block">GET /api/sitrep</span> — トレンド・ドメイン活動・収束状態を含む機械可読SITREP。</li>
+            <li><span class="code-block">GET /api/data_status</span> — センサーヘルス・ポーリング間隔・最終フェッチ時刻・エラーログ。</li>
+            <li><span class="code-block">GET /api/sensor_config</span> — 全センサーの有効/ドメイン/ヘルス状態一覧。</li>
+            <li><span class="code-block">POST /api/sensor_config</span> — センサーの有効/無効切り替え。ボディ例: <span class="code-block">{"name":"rss_narrative","enabled":false}</span></li>
+            <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> — 指定シアターの24時間窓内エスカレーション連鎖イベント（タイムスタンプ・イベントタイプ・連鎖ボーナス状態）を返す。</li>
+            <li><span class="code-block">GET /api/phase8_analytics?theater=TW</span> — ディープアナリティクス診断ダンプ: 速度系列・加速度・アンブッシュZスコア・ナラティブZスコア・ISR機体数・AIS暗区間・ブロッケードインデックス（解釈ラベル付き）。</li>
+            <li><span class="code-block">GET /api/salute_report</span> — SALUTE形式接触報告書を現在の脅威状態から生成。SALUTE Boardパネルが使用。</li>
+            <li><span class="code-block">GET /api/weather_brief</span> — センサー値を気象メタファーにマッピング。ドメインごとの状態・カラー・アイコン・概況文を返す。Weather Briefパネルが使用。</li>
+            <li><span class="code-block">GET /api/historical_events</span> — geo_data.jsonの歴史的事例パターンライブラリ（5件の基準フィンガープリント）を返す。Historical Analogパネルが使用。</li>
+            <li><span class="code-block">GET /api/app_config</span> — デフォルト設定・全世界監視対象国リスト（コード・名称・地域・座標付き）を返す。起動時のUI初期化に使用。</li>
         </ul>
 
     </div>
