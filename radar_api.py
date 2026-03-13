@@ -1501,10 +1501,21 @@ def get_threat_data():
     # (起動直後はバックグラウンドスレッドが並行フェッチ中のため、同期待ちすると
     #  PeeringDB/AIS 等の低速センサーで数分ブロックされる)。
     if force_sync:
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(sensor.fetch, sensor_context) for sensor in registry._sensors.values() if sensor.enabled]
+        executor = ThreadPoolExecutor(max_workers=10)
+        futures = [executor.submit(sensor.fetch, sensor_context)
+                   for sensor in registry._sensors.values() if sensor.enabled]
+        try:
             for future in as_completed(futures, timeout=60):
-                pass
+                try:
+                    future.result()
+                except Exception:
+                    pass
+        except TimeoutError:
+            # タイムアウトしたセンサーはキャッシュデータを使用。
+            # バックグラウンドで完走させてキャッシュを更新。
+            pass
+        finally:
+            executor.shutdown(wait=False, cancel_futures=False)
 
     if (current_time - global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync:
         # Extract required states from caches
