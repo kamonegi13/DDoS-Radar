@@ -184,9 +184,15 @@
         .country-scroll { max-height: 340px; overflow-y: auto; border: 1px solid #222; border-radius: 3px; margin-top: 4px; }
         .grid-scroll    { max-height: 280px; overflow-y: auto; border: 1px solid #222; border-radius: 3px; margin-top: 4px; }
         .search-country { width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333; color: #ccc;
-                          padding: 5px 8px; font-size: 12px; border-radius: 3px; margin-top: 8px; outline: none; }
+                          padding: 5px 8px; font-size: 12px; border-radius: 3px; margin-top: 6px; outline: none; }
         .search-country:focus { border-color: #00ffff44; }
         .search-country::placeholder { color: #555; }
+        .region-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+        .region-pill { padding: 3px 9px; font-size: 10px; cursor: pointer; border: 1px solid #444; border-radius: 10px;
+                       color: #777; background: transparent; transition: 0.15s; letter-spacing: 0.5px;
+                       text-transform: uppercase; white-space: nowrap; font-family: inherit; }
+        .region-pill:hover { color: #bbb; border-color: #666; }
+        .region-pill.active { color: #00ffff; border-color: #00ffff88; background: rgba(0,255,255,0.07); }
 
         .manual-content { overflow-y: auto; flex-grow: 1; padding-right: 15px; line-height: 1.6; font-size: 13px; color: #ddd; margin-top: 15px; }
         .manual-content h4 { color: #00ffff; border-bottom: 1px dashed #555; padding-bottom: 5px; margin-top: 20px; margin-bottom: 10px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
@@ -651,6 +657,7 @@
             <b style="color:#00ffff">Epicenter (Core):</b> The primary focal point of a contingency scenario.<br>
             <b style="color:#ffaa00">Correlate (Link):</b> Allied nations to monitor for coordinated attacks originating from the same botnets.
         </div>
+        <div class="region-pills" id="pills-strategy"></div>
         <input type="text" class="search-country" id="search-strategy" placeholder="Filter countries...">
         <div class="country-scroll">
             <table class="theater-table">
@@ -667,6 +674,7 @@
         <div class="help-text">
             <b style="color:#ff2a2a">Adversary:</b> Select nation-states to monitor for "Direct Strikes." Alerts trigger when attackers abandon stealth and use their domestic infrastructure for massive operations.
         </div>
+        <div class="region-pills" id="pills-actors"></div>
         <input type="text" class="search-country" id="search-actors" placeholder="Filter countries...">
         <div class="grid-scroll"><div class="modal-grid" id="actors-grid"></div></div>
     </div>
@@ -674,6 +682,7 @@
         <div class="help-text">
             <b style="color:#66ff66">Quick Pin:</b> Select countries to appear in the "Target Visibility" panel on the main screen for rapid on/off switching.
         </div>
+        <div class="region-pills" id="pills-pins"></div>
         <input type="text" class="search-country" id="search-pins" placeholder="Filter countries...">
         <div class="grid-scroll"><div class="modal-grid" id="pins-grid"></div></div>
     </div>
@@ -1824,6 +1833,13 @@
     // THEATERS は app_config から動的取得 — 初期値は空
     let THEATERS = [];
 
+    // 地域表示順
+    const REGION_ORDER = [
+        "East Asia","SE Asia","S. Asia","C. Asia","Middle East",
+        "N. Africa","Africa","W. Europe","N. Europe","E. Europe",
+        "Russia","N. America","L. America","Caribbean","Oceania","Other"
+    ];
+
     function buildTheaterUI() {
         const strategyTbody = document.getElementById('strategy-tbody');
         const actorsGrid    = document.getElementById('actors-grid');
@@ -1831,37 +1847,72 @@
         strategyTbody.innerHTML = '';
         actorsGrid.innerHTML    = '';
         pinsGrid.innerHTML      = '';
+
         THEATERS.forEach(t => {
+            const region = t.region || 'Other';
+
             const tr = document.createElement('tr');
-            tr.dataset.name = t.name.toLowerCase();
+            tr.dataset.name   = t.name.toLowerCase();
+            tr.dataset.region = region;
             tr.innerHTML = `<td class="center"><input type="radio" name="core_theater" value="${t.code}" class="radio-core"></td><td class="center"><input type="checkbox" class="check-correlate" value="${t.code}"></td><td><label>${t.name} <span style="color:#555;font-size:10px;">${t.code}</span></label></td>`;
             strategyTbody.appendChild(tr);
 
             const advLabel = document.createElement('label');
-            advLabel.dataset.name = t.name.toLowerCase();
+            advLabel.dataset.name   = t.name.toLowerCase();
+            advLabel.dataset.region = region;
             advLabel.innerHTML = `<input type="checkbox" class="check-adversary" value="${t.code}"> ${t.name}`;
             actorsGrid.appendChild(advLabel);
 
             const pinLabel = document.createElement('label');
-            pinLabel.dataset.name = t.name.toLowerCase();
+            pinLabel.dataset.name   = t.name.toLowerCase();
+            pinLabel.dataset.region = region;
             pinLabel.innerHTML = `<input type="checkbox" class="check-pin" value="${t.code}"> ${t.name}`;
             pinsGrid.appendChild(pinLabel);
         });
 
-        // 検索フィルタのイベントリスナー
-        function setupSearch(inputId, rows, selector) {
-            const el = document.getElementById(inputId);
-            if (!el) return;
-            el.addEventListener('input', () => {
-                const q = el.value.toLowerCase();
-                rows().forEach(r => {
-                    r.style.display = (!q || r.dataset.name.includes(q)) ? '' : 'none';
-                });
-            });
+        // 利用中の地域一覧（表示順でソート）
+        const allRegions = [...new Set(THEATERS.map(t => t.region || 'Other'))];
+        allRegions.sort((a, b) => {
+            const ia = REGION_ORDER.indexOf(a), ib = REGION_ORDER.indexOf(b);
+            if (ia < 0 && ib < 0) return a.localeCompare(b);
+            if (ia < 0) return 1; if (ib < 0) return -1;
+            return ia - ib;
+        });
+
+        // ピルコンテナを初期化してボタン生成
+        function buildPills(containerId) {
+            const c = document.getElementById(containerId);
+            if (!c) return c;
+            c.innerHTML = `<button class="region-pill active" data-region="">ALL</button>` +
+                allRegions.map(r => `<button class="region-pill" data-region="${r}">${r}</button>`).join('');
+            return c;
         }
-        setupSearch('search-strategy', () => strategyTbody.querySelectorAll('tr'),   'tr');
-        setupSearch('search-actors',   () => actorsGrid.querySelectorAll('label'),    'label');
-        setupSearch('search-pins',     () => pinsGrid.querySelectorAll('label'),      'label');
+
+        // 地域フィルター × テキスト検索の複合フィルター
+        function makeFilter(pillContainer, searchInputId, getRows) {
+            if (!pillContainer) return;
+            let activeRegion = '', searchText = '';
+            function apply() {
+                getRows().forEach(r => {
+                    const rm = !activeRegion || r.dataset.region === activeRegion;
+                    const nm = !searchText || r.dataset.name.includes(searchText);
+                    r.style.display = (rm && nm) ? '' : 'none';
+                });
+            }
+            pillContainer.addEventListener('click', e => {
+                if (!e.target.classList.contains('region-pill')) return;
+                pillContainer.querySelectorAll('.region-pill').forEach(p => p.classList.remove('active'));
+                e.target.classList.add('active');
+                activeRegion = e.target.dataset.region;
+                apply();
+            });
+            const el = document.getElementById(searchInputId);
+            if (el) el.addEventListener('input', () => { searchText = el.value.toLowerCase(); apply(); });
+        }
+
+        makeFilter(buildPills('pills-strategy'), 'search-strategy', () => strategyTbody.querySelectorAll('tr'));
+        makeFilter(buildPills('pills-actors'),   'search-actors',   () => actorsGrid.querySelectorAll('label'));
+        makeFilter(buildPills('pills-pins'),     'search-pins',     () => pinsGrid.querySelectorAll('label'));
     }
 
     function renderQuickToggles() {
@@ -2710,7 +2761,7 @@
     function loadTargetState(defaults) {
         // THEATERS を app_config の全世界リストで初期化してからUIを構築
         if (defaults.available_countries && defaults.available_countries.length) {
-            THEATERS = defaults.available_countries.map(c => ({ code: c.code, name: c.name }));
+            THEATERS = defaults.available_countries.map(c => ({ code: c.code, name: c.name, region: c.region || 'Other' }));
         }
         buildTheaterUI();
 
