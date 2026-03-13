@@ -952,7 +952,7 @@
       "name": "Taiwan Strait",
       "lat": 24.5, "lng": 119.8, "country": "TW",
       "type": "maritime_strait",
-      "cables": ["APCN2", "TPE", "APG"]
+      "cables": []
     },
     {
       "name": "Panama Canal",
@@ -1021,16 +1021,18 @@
     },
     {
       "name": "SEA-ME-WE 5",
-      "description": "South-East Asia – Middle East – Western Europe 5",
-      "connects": ["Tuas Cable Landing Station", "Bab-el-Mandeb Strait", "Marseille Cable Landing Hub"],
+      "description": "South-East Asia – Middle East – Western Europe 5 — Singapore through Malacca, Indian Ocean, Suez to Marseille",
+      "connects": ["Tuas Cable Landing Station", "Strait of Malacca", "Bab-el-Mandeb Strait", "Suez Canal", "Marseille Cable Landing Hub"],
       "waypoints": [
         {"lat": 1.319, "lng": 103.636},
-        {"lat": 4.0,   "lng": 80.0},
+        {"lat": 3.0,   "lng": 100.5},
+        {"lat": 6.0,   "lng": 90.0},
         {"lat": 7.0,   "lng": 73.0},
         {"lat": 10.0,  "lng": 50.0},
         {"lat": 12.6,  "lng": 43.4},
         {"lat": 20.0,  "lng": 38.5},
         {"lat": 27.0,  "lng": 34.0},
+        {"lat": 30.0,  "lng": 32.55},
         {"lat": 32.5,  "lng": 32.3},
         {"lat": 38.0,  "lng": 13.0},
         {"lat": 43.296,"lng": 5.369}
@@ -1088,14 +1090,15 @@
     },
     {
       "name": "IMEWE / SMW-4 (Arabian Sea)",
-      "description": "India-Middle East-Western Europe — Persian Gulf to Singapore via Indian Ocean",
-      "connects": ["Strait of Hormuz Chokepoint", "Tuas Cable Landing Station"],
+      "description": "India-Middle East-Western Europe — Persian Gulf to Singapore via Indian Ocean and Malacca Strait",
+      "connects": ["Strait of Hormuz Chokepoint", "Strait of Malacca", "Tuas Cable Landing Station"],
       "waypoints": [
         {"lat": 26.6,  "lng": 56.3},
         {"lat": 22.0,  "lng": 60.0},
         {"lat": 15.0,  "lng": 65.0},
         {"lat": 8.0,   "lng": 73.0},
-        {"lat": 4.0,   "lng": 80.0},
+        {"lat": 4.0,   "lng": 83.0},
+        {"lat": 3.0,   "lng": 100.5},
         {"lat": 1.319, "lng": 103.636}
       ]
     },
