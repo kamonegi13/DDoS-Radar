@@ -1433,7 +1433,12 @@
         const mapPanel = document.getElementById('modal-map-panel');
         const showMap  = ['strategy', 'actors', 'pins'].includes(tabId);
         if (mapPanel) mapPanel.style.display = showMap ? 'flex' : 'none';
-        if (showMap) { _initMinimap(); requestAnimationFrame(() => { _minimap?.invalidateSize(); _updateMinimap(); }); }
+        if (showMap) {
+            _initMinimap();
+            _syncPillsVisual();   // 全タブのピルを現在の選択地域に合わせる
+            _reapplyFilters();    // 現在の地域フィルターを再適用
+            requestAnimationFrame(() => { _minimap?.invalidateSize(); _updateMinimap(); });
+        }
     }
 
     // ── Panel Registry & Sidebar Order ──────────────────────────────────────────
@@ -1869,6 +1874,9 @@
     // ── Region Preview Mini-map ────────────────────────────────────────────────
     let _minimap = null;
     let _minimapMarkers = null;
+    let _activeRegion    = '';          // タブ間で共有する選択地域
+    let _syncPillsVisual = () => {};    // 全ピルコンテナのactive状態を同期
+    let _reapplyFilters  = () => {};
 
     const REGION_BOUNDS = {
         "East Asia":   [[18, 98],  [52, 150]],
@@ -1928,7 +1936,7 @@
     function _minimapFlyTo(region) {
         if (!_minimap) return;
         if (!region) {
-            _minimap.flyTo([20, 15], 2, { animate: true, duration: 0.4 });
+            _minimap.flyToBounds([[-78, -175], [78, 175]], { padding: [4, 4], animate: true, duration: 0.4 });
         } else {
             const b = REGION_BOUNDS[region];
             if (b) _minimap.flyToBounds(b, { padding: [8, 8], maxZoom: 6, animate: true, duration: 0.4 });
@@ -1981,41 +1989,56 @@
             return ia - ib;
         });
 
-        // ピルコンテナを初期化してボタン生成
+        // ピルコンテナを初期化（現在の_activeRegionをアクティブ表示）
         function buildPills(containerId) {
             const c = document.getElementById(containerId);
             if (!c) return c;
-            c.innerHTML = `<button class="region-pill active" data-region="">ALL</button>` +
-                allRegions.map(r => `<button class="region-pill" data-region="${r}">${r}</button>`).join('');
+            c.innerHTML = `<button class="region-pill${_activeRegion === '' ? ' active' : ''}" data-region="">ALL</button>` +
+                allRegions.map(r => `<button class="region-pill${r === _activeRegion ? ' active' : ''}" data-region="${r}">${r}</button>`).join('');
             return c;
         }
 
-        // 地域フィルター × テキスト検索の複合フィルター
+        // 全ピルコンテナのactive状態を_activeRegionに同期
+        _syncPillsVisual = () => {
+            ['pills-strategy', 'pills-actors', 'pills-pins'].forEach(id => {
+                const c = document.getElementById(id);
+                if (!c) return;
+                c.querySelectorAll('.region-pill').forEach(p => {
+                    p.classList.toggle('active', p.dataset.region === _activeRegion);
+                });
+            });
+        };
+
+        // 地域フィルター × テキスト検索の複合フィルター（_activeRegionを共有）
         function makeFilter(pillContainer, searchInputId, getRows) {
-            if (!pillContainer) return;
-            let activeRegion = '', searchText = '';
+            if (!pillContainer) return () => {};
+            let searchText = '';
             function apply() {
                 getRows().forEach(r => {
-                    const rm = !activeRegion || r.dataset.region === activeRegion;
+                    const rm = !_activeRegion || r.dataset.region === _activeRegion;
                     const nm = !searchText || r.dataset.name.includes(searchText);
                     r.style.display = (rm && nm) ? '' : 'none';
                 });
             }
             pillContainer.addEventListener('click', e => {
                 if (!e.target.classList.contains('region-pill')) return;
-                pillContainer.querySelectorAll('.region-pill').forEach(p => p.classList.remove('active'));
-                e.target.classList.add('active');
-                activeRegion = e.target.dataset.region;
-                apply();
-                _minimapFlyTo(activeRegion);
+                _activeRegion = e.target.dataset.region;
+                _syncPillsVisual();
+                _reapplyFilters();
+                _minimapFlyTo(_activeRegion);
             });
             const el = document.getElementById(searchInputId);
             if (el) el.addEventListener('input', () => { searchText = el.value.toLowerCase(); apply(); });
+            return apply;
         }
 
-        makeFilter(buildPills('pills-strategy'), 'search-strategy', () => strategyTbody.querySelectorAll('tr'));
-        makeFilter(buildPills('pills-actors'),   'search-actors',   () => actorsGrid.querySelectorAll('label'));
-        makeFilter(buildPills('pills-pins'),     'search-pins',     () => pinsGrid.querySelectorAll('label'));
+        const applyS = makeFilter(buildPills('pills-strategy'), 'search-strategy', () => strategyTbody.querySelectorAll('tr'));
+        const applyA = makeFilter(buildPills('pills-actors'),   'search-actors',   () => actorsGrid.querySelectorAll('label'));
+        const applyP = makeFilter(buildPills('pills-pins'),     'search-pins',     () => pinsGrid.querySelectorAll('label'));
+        _reapplyFilters = () => { applyS(); applyA(); applyP(); };
+
+        // 初回適用（保持中の地域があれば反映）
+        _reapplyFilters();
 
         // チェックボックス/ラジオ変更時にミニマップを更新
         [strategyTbody, actorsGrid, pinsGrid].forEach(container => {
