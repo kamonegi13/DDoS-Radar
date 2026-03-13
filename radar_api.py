@@ -2251,7 +2251,7 @@ def api_salute_report():
     core   = strat.get("core_theater", "UNKNOWN")
     bd     = strat.get("threat_breakdown", {})
     adv_raw = strat.get("adversary_strikes", [])
-    adv     = [a["actor"] if isinstance(a, dict) else str(a) for a in adv_raw]
+    adv     = list(dict.fromkeys(a["actor"] if isinstance(a, dict) else str(a) for a in adv_raw))
     corr   = strat.get("correlations", {})
     isr    = p8.get("isr", {})
     ais    = p8.get("ais", {})
