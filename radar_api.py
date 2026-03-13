@@ -1463,7 +1463,8 @@ def app_config():
         "default_adversaries": DEFAULT_ADVERSARIES,
         "default_pins": DEFAULT_PINS,
         "available_countries": [
-            {"code": code, "name": info["name"], "region": COUNTRY_REGIONS.get(code, "Other")}
+            {"code": code, "name": info["name"], "region": COUNTRY_REGIONS.get(code, "Other"),
+             "lat": info["lat"], "lng": info["lng"]}
             for code, info in sorted(COUNTRY_COORDS.items(), key=lambda x: x[1]["name"])
         ],
     })
