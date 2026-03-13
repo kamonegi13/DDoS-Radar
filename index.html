@@ -484,8 +484,7 @@
         <div style="flex-grow: 1;"></div>
         
         <div class="vec-toggle-group" style="margin-right: 15px; border-right: 1px solid #333; padding-right: 15px;">
-            <button id="map-btn-pacific" class="vec-btn active-all" onclick="switchMapCenter('pacific')" data-tooltip="Center map on Indo-Pacific">PACIFIC</button>
-            <button id="map-btn-atlantic" class="vec-btn" onclick="switchMapCenter('atlantic')" data-tooltip="Center map on Atlantic / Europe">ATLANTIC</button>
+            <span class="vec-btn active-all" style="cursor:default;" data-tooltip="Map fixed to Atlantic / global view">ATLANTIC</span>
         </div>
         
         <div class="vec-toggle-group">
@@ -1143,7 +1142,7 @@
 <script>
     let latestData = null;
     let currentVector = 'all';
-    let mapCenterMode = 'pacific';
+    let mapCenterMode = 'atlantic';
     let _lastRenderSig = ''; // P4-Opt: 差分シグネチャキャッシュ
     let lastSyncedConfig = { core: "", correlates: [], adversaries: [], displays: [] };
     let lastSyncedTimeText = "System Initializing...";
@@ -1213,20 +1212,7 @@
     }
 
     function switchMapCenter(mode) {
-        if (mapCenterMode === mode) return;
-        mapCenterMode = mode;
-        
-        document.getElementById('map-btn-pacific').className = 'vec-btn' + (mode === 'pacific' ? ' active-all' : '');
-        document.getElementById('map-btn-atlantic').className = 'vec-btn' + (mode === 'atlantic' ? ' active-all' : '');
-        
-        if (mode === 'pacific') {
-            map.setView([20.0, 150.0], map.getZoom(), { animate: true, duration: 0.5 });
-        } else {
-            map.setView([20.0, 10.0], map.getZoom(), { animate: true, duration: 0.5 });
-        }
-        
-        saveLocalState();
-        if (latestData) renderTelemetry(latestData);
+        // Map is fixed to Atlantic view — no-op
     }
 
     function switchVector(v) {
@@ -1725,7 +1711,7 @@
     setupDockablePanel('op-clock-panel',      'lsb-ph-clk',            195);
     updateSidebarVisibility();
 
-    const map = L.map('map', { zoomControl: false, minZoom: 2 }).setView([20.0, 150.0], 3);
+    const map = L.map('map', { zoomControl: false, minZoom: 2 }).setView([20.0, 10.0], 3);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; CARTO', maxZoom: 18 }).addTo(map);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -2438,22 +2424,45 @@
             });
 
             // ── Render Cable Routes (static polylines) ──────────────────
+            // 子午線越えセグメント分割: Atlanticモードで|ΔLng|>180の区間を別セグメントに分割し
+            // ポリラインが地球を逆方向に横断するLeafletの描画バグを防ぐ
+            function buildRouteSegments(waypoints) {
+                const pts = waypoints.map(w => [w.lat, shiftLng(w.lng)]);
+                if (mapCenterMode === 'pacific') return [pts]; // shiftLngが解決済み
+                const segments = [];
+                let seg = [pts[0]];
+                for (let i = 1; i < pts.length; i++) {
+                    const dLng = pts[i][1] - seg[seg.length - 1][1];
+                    if (Math.abs(dLng) > 180) {
+                        if (seg.length >= 2) segments.push(seg);
+                        seg = [pts[i]];
+                    } else {
+                        seg.push(pts[i]);
+                    }
+                }
+                if (seg.length >= 2) segments.push(seg);
+                return segments;
+            }
+
             (overlays.cable_routes || []).forEach(route => {
-                const pts = (route.waypoints || []).map(w => [w.lat, shiftLng(w.lng)]);
-                if (pts.length < 2) return;
-                L.polyline(pts, {
-                    color: '#00ffff',
-                    weight: 1.5,
-                    opacity: 0.30,
-                    dashArray: '7 5',
-                    lineJoin: 'round'
-                }).bindPopup(`
+                const segs = buildRouteSegments(route.waypoints || []);
+                if (!segs.length) return;
+                const popupHtml = `
                     <div style="font-family:monospace;font-size:11px;min-width:200px;">
                         <div style="color:#00ffff;font-weight:bold;margin-bottom:4px;">🔌 ${route.name}</div>
                         <div style="color:#aaa;font-size:10px;margin-bottom:5px;">${route.description || ''}</div>
                         ${route.connects && route.connects.length ? `<div style="color:#888;font-size:9px;border-top:1px solid #1a2a3a;padding-top:4px;">CONNECTS:<br>${route.connects.join(' → ')}</div>` : ''}
                     </div>
-                `).addTo(cableRoutesLayer);
+                `;
+                segs.forEach(pts => {
+                    L.polyline(pts, {
+                        color: '#00ffff',
+                        weight: 1.5,
+                        opacity: 0.30,
+                        dashArray: '7 5',
+                        lineJoin: 'round'
+                    }).bindPopup(popupHtml).addTo(cableRoutesLayer);
+                });
             });
 
             // ── Render Cable Chokepoints (enhanced) ──────────────────────
@@ -2687,13 +2696,8 @@
             document.querySelectorAll('.check-display').forEach(cb => cb.checked = true);
         }
         
-        document.getElementById('map-btn-pacific').className = 'vec-btn' + (mapCenterMode === 'pacific' ? ' active-all' : '');
-        document.getElementById('map-btn-atlantic').className = 'vec-btn' + (mapCenterMode === 'atlantic' ? ' active-all' : '');
-        if (mapCenterMode === 'pacific') {
-            map.setView([20.0, 150.0], map.getZoom(), { animate: false });
-        } else {
-            map.setView([20.0, 10.0], map.getZoom(), { animate: false });
-        }
+        mapCenterMode = 'atlantic';
+        map.setView([20.0, 10.0], map.getZoom(), { animate: false });
         
         ['all', 'l3', 'l7'].forEach(key => {
             const btn = document.getElementById(`vec-btn-${key}`);
