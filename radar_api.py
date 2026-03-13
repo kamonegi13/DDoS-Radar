@@ -294,27 +294,27 @@ class BaseSensor(ABC):
 class IodaSensor(BaseSensor):
     def __init__(self): super().__init__("ioda_bgp", "physical", 300)
     def fetch(self, context: dict) -> dict:
-        targets = context.get("all_targets", []); headers = context.get("cf_headers", {})
+        headers = context.get("cf_headers", {})
         results = {}
         t0 = time.time(); total_anomalies = 0; any_success = False; last_status = 0; last_error = ""
-        # 1回のリクエストで全国を取得 (location 指定なし → グローバル結果から国別にフィルタ)
+        # 1回のリクエストで全世界を取得し、COUNTRY_COORDS の全国に対してマッピング
         url = "https://api.cloudflare.com/client/v4/radar/traffic_anomalies"
         params = {"dateRange": "1d", "format": "json"}
+        all_codes = list(COUNTRY_COORDS.keys())
         try:
             res = requests.get(url, headers=headers, params=params, timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
             last_status = res.status_code
             if res.status_code == 200:
                 anomalies = res.json().get("result", {}).get("trafficAnomalies", [])
-                # 国別に仕分け
                 affected = {a.get("locationAlpha2", "").upper() for a in anomalies if a.get("locationAlpha2")}
-                for code in targets:
+                for code in all_codes:
                     results[code] = "BGP_OUTAGE" if code in affected else "NORMAL"
                 total_anomalies = len(anomalies); any_success = True
             else:
-                for code in targets:
+                for code in all_codes:
                     results[code] = "NORMAL"
         except Exception as e:
-            for code in targets:
+            for code in all_codes:
                 results[code] = "NORMAL"
             last_error = str(e)
         self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_anomalies, last_error)
@@ -382,7 +382,8 @@ class OpenSkySensor(BaseSensor):
 class OpenWeatherSensor(BaseSensor):
     def __init__(self): super().__init__("openweather", "physical", 1800)
     def fetch(self, context: dict) -> dict:
-        targets = context.get("all_targets", []); api_key = context.get("owm_api_key", "")
+        # strategic_theaters のみ天候ノイズ判定（all_targets は数が多くAPI上限超過のリスク）
+        targets = context.get("strategic_theaters", []); api_key = context.get("owm_api_key", "")
         if not api_key:
             self.set_error("OWM_API_KEY not configured"); return {"conditions": {}}
         conditions: dict = {}
@@ -513,7 +514,9 @@ class GDELTSensor(BaseSensor):
         t0 = time.time()
         for code in theaters:
             query = self.QUERY_TEMPLATES.get(code)
-            if not query: continue
+            if not query:
+                country_name = COUNTRY_COORDS.get(code, {}).get("name", code)
+                query = f'"{country_name}" (military OR conflict OR attack OR defense OR war)'
             tone_current = self._fetch_tone(query, "1d"); tone_baseline = self._fetch_tone(query, f"{history_window}d")
             if tone_current is None:
                 tones[code] = {"status": "NO_DATA"}
@@ -1398,6 +1401,10 @@ def app_config():
         "default_correlates": DEFAULT_CORRELATES,
         "default_adversaries": DEFAULT_ADVERSARIES,
         "default_pins": DEFAULT_PINS,
+        "available_countries": [
+            {"code": code, "name": info["name"]}
+            for code, info in sorted(COUNTRY_COORDS.items(), key=lambda x: x[1]["name"])
+        ],
     })
 
 @app.route("/api/threat_data", methods=["GET"])
@@ -1808,7 +1815,13 @@ def get_threat_data():
             "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "score_with_bonus": score_with_bonus, "threat_raw": tl_raw, "threat_held": tl_held,
         }
 
-        ioda_overlays = [{"code": t, "lat": COUNTRY_COORDS[t]["lat"], "lng": COUNTRY_COORDS[t]["lng"], "name": COUNTRY_COORDS[t]["name"], "status": "BGP_OUTAGE"} for t in degraded_targets_raw if t in COUNTRY_COORDS]
+        # ioda_overlays: IODA キャッシュ全体から BGP_OUTAGE 国を抽出（全世界表示）
+        ioda_overlays = [
+            {"code": code, "lat": COUNTRY_COORDS[code]["lat"], "lng": COUNTRY_COORDS[code]["lng"],
+             "name": COUNTRY_COORDS[code]["name"], "status": "BGP_OUTAGE"}
+            for code, status in ioda_data.items()
+            if status == "BGP_OUTAGE" and code in COUNTRY_COORDS
+        ]
 
         _new_cache = {
             "time": current_time,
@@ -1851,7 +1864,7 @@ def get_threat_data():
                                         "stationary" if c["name"] in st_names else
                                         "normal"),
                         }
-                        for c in CHOKEPOINTS if c["country"] in requested_targets
+                        for c in CHOKEPOINTS  # 全チョークポイントを表示（国フィルタなし）
                     ])(),
                     "cable_routes": CABLE_ROUTES,
                     # 追加オーバーレイ
