@@ -1442,7 +1442,14 @@
             lsb.querySelectorAll('.draggable-panel.docked').forEach(p => {
                 if (p.style.display !== 'none') hasVisible = true;
             });
+            const lsbWasVisible = lsb.style.display !== 'none';
             lsb.style.display = hasVisible ? 'flex' : 'none';
+            if (lsbWasVisible !== hasVisible) {
+                requestAnimationFrame(() => {
+                    map.invalidateSize({ animate: false });
+                    _fitMapToViewport();
+                });
+            }
         }
         // Right sidebar: show/hide panel area; footer is fixed so always visible independently
         const rsb = document.getElementById('sidebar');
@@ -1465,13 +1472,16 @@
 
             // Sync footer width to sidebar's actual rendered width so they align perfectly
             const footerEl = document.querySelector('.sidebar-footer');
-            if (footerEl) {
-                requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (footerEl) {
                     footerEl.style.width = anyDocked
                         ? rsb.getBoundingClientRect().width + 'px'
                         : '400px';
-                });
-            }
+                }
+                // ドック表示変化後に地図サイズを再計算
+                map.invalidateSize({ animate: false });
+                _fitMapToViewport();
+            });
         }
     }
 
@@ -2442,20 +2452,37 @@
             });
 
             // ── Render Cable Routes (static polylines) ──────────────────
-            // 子午線越えセグメント分割: Atlanticモードで|ΔLng|>180の区間を別セグメントに分割し
-            // ポリラインが地球を逆方向に横断するLeafletの描画バグを防ぐ
+            // 子午線越えセグメント分割 + 端点補間:
+            // |ΔLng|>180 の区間を検出し、地図端(±180°)の正確な緯度を線形補間して
+            // セグメント端点を±180°にピッタリ合わせる。これにより地図の切れ目と
+            // ケーブルラインの切れ目が一致する。
             function buildRouteSegments(waypoints) {
                 const pts = waypoints.map(w => [w.lat, shiftLng(w.lng)]);
                 if (mapCenterMode === 'pacific') return [pts]; // shiftLngが解決済み
                 const segments = [];
                 let seg = [pts[0]];
                 for (let i = 1; i < pts.length; i++) {
-                    const dLng = pts[i][1] - seg[seg.length - 1][1];
+                    const prev = seg[seg.length - 1];
+                    const curr = pts[i];
+                    const dLng = curr[1] - prev[1];
                     if (Math.abs(dLng) > 180) {
+                        // 子午線(±180°)を越える区間: 交差点を補間
+                        const fromEast  = prev[1] > 0; // +180側から越えるか
+                        const edgeA     = fromEast ?  180 : -180; // このセグメントの終端経度
+                        const edgeB     = fromEast ? -180 :  180; // 次セグメントの始端経度
+                        // 実際に越える角度距離 (常に正)
+                        const totalDist = fromEast
+                            ? (180 - prev[1]) + (curr[1] + 180)
+                            : (prev[1] + 180) + (180 - curr[1]);
+                        const frac      = fromEast
+                            ? (180 - prev[1]) / totalDist
+                            : (prev[1] + 180) / totalDist;
+                        const crossLat  = prev[0] + frac * (curr[0] - prev[0]);
+                        seg.push([crossLat, edgeA]);
                         if (seg.length >= 2) segments.push(seg);
-                        seg = [pts[i]];
+                        seg = [[crossLat, edgeB], curr];
                     } else {
-                        seg.push(pts[i]);
+                        seg.push(curr);
                     }
                 }
                 if (seg.length >= 2) segments.push(seg);
