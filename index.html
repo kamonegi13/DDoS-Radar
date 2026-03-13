@@ -175,12 +175,18 @@
         .modal-grid label { font-size: 13px; cursor: pointer; display: flex; align-items: center; color: #ccc; padding: 6px; border-radius: 4px; transition: 0.2s; border: 1px solid transparent;}
         .modal-grid label:hover { color: #fff; background: rgba(255,255,255,0.05); border-color: #444;}
         
-        .theater-table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 5px; }
+        .theater-table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 0; }
         .theater-table th { color: #888; font-weight: normal; text-align: center; padding-bottom: 10px; font-size: 12px; border-bottom: 1px solid #555; position: sticky; top: 0; background: #0f0f0f; z-index: 10; text-transform: uppercase;}
-        .theater-table td { padding: 8px 0; border-bottom: 1px solid #222;}
+        .theater-table td { padding: 6px 0; border-bottom: 1px solid #1a1a1a;}
         .theater-table td.center { text-align: center; width: 80px; }
         .theater-table label { cursor: pointer; color: #ccc; display: block; padding-left: 10px; transition: 0.2s;}
         .theater-table label:hover { color: #fff; }
+        .country-scroll { max-height: 340px; overflow-y: auto; border: 1px solid #222; border-radius: 3px; margin-top: 4px; }
+        .grid-scroll    { max-height: 280px; overflow-y: auto; border: 1px solid #222; border-radius: 3px; margin-top: 4px; }
+        .search-country { width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333; color: #ccc;
+                          padding: 5px 8px; font-size: 12px; border-radius: 3px; margin-top: 8px; outline: none; }
+        .search-country:focus { border-color: #00ffff44; }
+        .search-country::placeholder { color: #555; }
 
         .manual-content { overflow-y: auto; flex-grow: 1; padding-right: 15px; line-height: 1.6; font-size: 13px; color: #ddd; margin-top: 15px; }
         .manual-content h4 { color: #00ffff; border-bottom: 1px dashed #555; padding-bottom: 5px; margin-top: 20px; margin-bottom: 10px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
@@ -645,26 +651,31 @@
             <b style="color:#00ffff">Epicenter (Core):</b> The primary focal point of a contingency scenario.<br>
             <b style="color:#ffaa00">Correlate (Link):</b> Allied nations to monitor for coordinated attacks originating from the same botnets.
         </div>
-        <table class="theater-table">
-            <tr>
-                <th data-tooltip="Epicenter (Primary Focus)">Core</th>
-                <th data-tooltip="Calculate Correlation">Link</th>
-                <th style="text-align: left; padding-left: 8px;">Country / Region</th>
-            </tr>
-            <tbody id="strategy-tbody"></tbody>
-        </table>
+        <input type="text" class="search-country" id="search-strategy" placeholder="Filter countries...">
+        <div class="country-scroll">
+            <table class="theater-table">
+                <thead><tr>
+                    <th data-tooltip="Epicenter (Primary Focus)">Core</th>
+                    <th data-tooltip="Calculate Correlation">Link</th>
+                    <th style="text-align: left; padding-left: 8px;">Country / Region</th>
+                </tr></thead>
+                <tbody id="strategy-tbody"></tbody>
+            </table>
+        </div>
     </div>
     <div id="tab-actors" class="tab-content">
         <div class="help-text">
             <b style="color:#ff2a2a">Adversary:</b> Select nation-states to monitor for "Direct Strikes." Alerts trigger when attackers abandon stealth and use their domestic infrastructure for massive operations.
         </div>
-        <div class="modal-grid" id="actors-grid"></div>
+        <input type="text" class="search-country" id="search-actors" placeholder="Filter countries...">
+        <div class="grid-scroll"><div class="modal-grid" id="actors-grid"></div></div>
     </div>
     <div id="tab-pins" class="tab-content">
         <div class="help-text">
             <b style="color:#66ff66">Quick Pin:</b> Select countries to appear in the "Target Visibility" panel on the main screen for rapid on/off switching.
         </div>
-        <div class="modal-grid" id="pins-grid"></div>
+        <input type="text" class="search-country" id="search-pins" placeholder="Filter countries...">
+        <div class="grid-scroll"><div class="modal-grid" id="pins-grid"></div></div>
     </div>
     <div id="tab-sensors" class="tab-content">
         <div class="help-text">
@@ -1810,39 +1821,48 @@
         return points;
     }
 
-    const THEATERS = [
-        { code: "TW", name: "Taiwan" }, { code: "JP", name: "Japan" }, { code: "KR", name: "S. Korea" },
-        { code: "PH", name: "Philippines" }, { code: "VN", name: "Vietnam" }, { code: "TH", name: "Thailand" },
-        { code: "MY", name: "Malaysia" }, { code: "ID", name: "Indonesia" }, { code: "SG", name: "Singapore" },
-        { code: "AU", name: "Australia" }, { code: "NZ", name: "New Zealand" }, { code: "IN", name: "India" },
-        { code: "US", name: "USA" }, { code: "CA", name: "Canada" }, { code: "BR", name: "Brazil" },
-        { code: "UA", name: "Ukraine" }, { code: "GB", name: "UK" }, { code: "DE", name: "Germany" },
-        { code: "FR", name: "France" }, { code: "IT", name: "Italy" }, { code: "ES", name: "Spain" },
-        { code: "NL", name: "Netherlands" }, { code: "PL", name: "Poland" }, { code: "SE", name: "Sweden" },
-        { code: "FI", name: "Finland" }, { code: "TR", name: "Turkey" }, 
-        { code: "IL", name: "Israel" }, { code: "SA", name: "Saudi Arabia" }, { code: "AE", name: "UAE" }, 
-        { code: "ZA", name: "South Africa" },
-        { code: "CN", name: "China" }, { code: "RU", name: "Russia" }, { code: "KP", name: "N. Korea" },
-        { code: "IR", name: "Iran" }, { code: "BY", name: "Belarus" }
-    ];
+    // THEATERS は app_config から動的取得 — 初期値は空
+    let THEATERS = [];
 
-    const strategyTbody = document.getElementById('strategy-tbody');
-    const actorsGrid = document.getElementById('actors-grid');
-    const pinsGrid = document.getElementById('pins-grid');
+    function buildTheaterUI() {
+        const strategyTbody = document.getElementById('strategy-tbody');
+        const actorsGrid    = document.getElementById('actors-grid');
+        const pinsGrid      = document.getElementById('pins-grid');
+        strategyTbody.innerHTML = '';
+        actorsGrid.innerHTML    = '';
+        pinsGrid.innerHTML      = '';
+        THEATERS.forEach(t => {
+            const tr = document.createElement('tr');
+            tr.dataset.name = t.name.toLowerCase();
+            tr.innerHTML = `<td class="center"><input type="radio" name="core_theater" value="${t.code}" class="radio-core"></td><td class="center"><input type="checkbox" class="check-correlate" value="${t.code}"></td><td><label>${t.name} <span style="color:#555;font-size:10px;">${t.code}</span></label></td>`;
+            strategyTbody.appendChild(tr);
 
-    THEATERS.forEach(t => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td class="center"><input type="radio" name="core_theater" value="${t.code}" class="radio-core"></td><td class="center"><input type="checkbox" class="check-correlate" value="${t.code}"></td><td><label>${t.name}</label></td>`;
-        strategyTbody.appendChild(tr);
+            const advLabel = document.createElement('label');
+            advLabel.dataset.name = t.name.toLowerCase();
+            advLabel.innerHTML = `<input type="checkbox" class="check-adversary" value="${t.code}"> ${t.name}`;
+            actorsGrid.appendChild(advLabel);
 
-        const advLabel = document.createElement('label');
-        advLabel.innerHTML = `<input type="checkbox" class="check-adversary" value="${t.code}"> ${t.name}`;
-        actorsGrid.appendChild(advLabel);
+            const pinLabel = document.createElement('label');
+            pinLabel.dataset.name = t.name.toLowerCase();
+            pinLabel.innerHTML = `<input type="checkbox" class="check-pin" value="${t.code}"> ${t.name}`;
+            pinsGrid.appendChild(pinLabel);
+        });
 
-        const pinLabel = document.createElement('label');
-        pinLabel.innerHTML = `<input type="checkbox" class="check-pin" value="${t.code}"> ${t.name}`;
-        pinsGrid.appendChild(pinLabel);
-    });
+        // 検索フィルタのイベントリスナー
+        function setupSearch(inputId, rows, selector) {
+            const el = document.getElementById(inputId);
+            if (!el) return;
+            el.addEventListener('input', () => {
+                const q = el.value.toLowerCase();
+                rows().forEach(r => {
+                    r.style.display = (!q || r.dataset.name.includes(q)) ? '' : 'none';
+                });
+            });
+        }
+        setupSearch('search-strategy', () => strategyTbody.querySelectorAll('tr'),   'tr');
+        setupSearch('search-actors',   () => actorsGrid.querySelectorAll('label'),    'label');
+        setupSearch('search-pins',     () => pinsGrid.querySelectorAll('label'),      'label');
+    }
 
     function renderQuickToggles() {
         const displayGrid = document.getElementById('display-checkboxes');
@@ -2688,6 +2708,12 @@
     const LAYOUT_VERSION = 3; // bump when layout structure changes to auto-clear stale state
 
     function loadTargetState(defaults) {
+        // THEATERS を app_config の全世界リストで初期化してからUIを構築
+        if (defaults.available_countries && defaults.available_countries.length) {
+            THEATERS = defaults.available_countries.map(c => ({ code: c.code, name: c.name }));
+        }
+        buildTheaterUI();
+
         const savedState = localStorage.getItem('ctiIntelAlerts');
         if (savedState) {
             const stateObj = JSON.parse(savedState);
