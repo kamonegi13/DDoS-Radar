@@ -49,6 +49,67 @@ def _load_env(path: str = "config.env") -> None:
 _load_env()
 
 COUNTRY_COORDS, STATE_ASNS, AIRPORT_BOXES, CHOKEPOINTS = {}, {}, {}, []
+
+# Country → Region mapping for UI grouping
+COUNTRY_REGIONS: dict[str, str] = {
+    # East Asia
+    "CN": "East Asia", "JP": "East Asia", "KR": "East Asia", "TW": "East Asia",
+    "KP": "East Asia", "MN": "East Asia", "HK": "East Asia", "MO": "East Asia",
+    # SE Asia
+    "PH": "SE Asia", "VN": "SE Asia", "TH": "SE Asia", "ID": "SE Asia",
+    "MY": "SE Asia", "SG": "SE Asia", "MM": "SE Asia", "KH": "SE Asia",
+    "LA": "SE Asia", "TL": "SE Asia", "BN": "SE Asia",
+    # South Asia
+    "IN": "S. Asia", "PK": "S. Asia", "BD": "S. Asia", "LK": "S. Asia",
+    "NP": "S. Asia", "MV": "S. Asia", "AF": "S. Asia", "BT": "S. Asia",
+    # Central Asia
+    "KZ": "C. Asia", "UZ": "C. Asia", "KG": "C. Asia", "TJ": "C. Asia",
+    "TM": "C. Asia", "AZ": "C. Asia", "AM": "C. Asia", "GE": "C. Asia",
+    # Middle East
+    "IR": "Middle East", "IQ": "Middle East", "SA": "Middle East", "AE": "Middle East",
+    "IL": "Middle East", "YE": "Middle East", "SY": "Middle East", "LB": "Middle East",
+    "JO": "Middle East", "KW": "Middle East", "QA": "Middle East", "OM": "Middle East",
+    "BH": "Middle East", "TR": "Middle East",
+    # North Africa
+    "EG": "N. Africa", "LY": "N. Africa", "TN": "N. Africa", "DZ": "N. Africa",
+    "MA": "N. Africa", "SD": "N. Africa",
+    # Sub-Saharan Africa
+    "NG": "Africa", "GH": "Africa", "SN": "Africa", "ET": "Africa",
+    "KE": "Africa", "TZ": "Africa", "ZA": "Africa", "RW": "Africa",
+    "UG": "Africa", "ZM": "Africa", "ZW": "Africa", "AO": "Africa",
+    "CD": "Africa", "CM": "Africa", "CI": "Africa", "MG": "Africa",
+    "MZ": "Africa", "ML": "Africa", "NE": "Africa",
+    # Western Europe
+    "GB": "W. Europe", "FR": "W. Europe", "DE": "W. Europe", "IT": "W. Europe",
+    "ES": "W. Europe", "NL": "W. Europe", "BE": "W. Europe", "PT": "W. Europe",
+    "CH": "W. Europe", "AT": "W. Europe", "IE": "W. Europe", "GR": "W. Europe",
+    "LU": "W. Europe", "MT": "W. Europe", "CY": "W. Europe", "IS": "W. Europe",
+    "AD": "W. Europe",
+    # Northern Europe
+    "SE": "N. Europe", "NO": "N. Europe", "DK": "N. Europe", "FI": "N. Europe",
+    "EE": "N. Europe", "LV": "N. Europe", "LT": "N. Europe",
+    # Eastern Europe
+    "UA": "E. Europe", "PL": "E. Europe", "CZ": "E. Europe", "SK": "E. Europe",
+    "HU": "E. Europe", "RO": "E. Europe", "BG": "E. Europe", "BY": "E. Europe",
+    "MD": "E. Europe", "RS": "E. Europe", "HR": "E. Europe", "BA": "E. Europe",
+    "AL": "E. Europe", "MK": "E. Europe", "ME": "E. Europe", "SI": "E. Europe",
+    "XK": "E. Europe",
+    # Russia
+    "RU": "Russia",
+    # North America
+    "US": "N. America", "CA": "N. America", "MX": "N. America", "PR": "N. America",
+    # Latin America
+    "BR": "L. America", "AR": "L. America", "CO": "L. America", "CL": "L. America",
+    "PE": "L. America", "VE": "L. America", "EC": "L. America", "BO": "L. America",
+    "UY": "L. America", "PY": "L. America", "GY": "L. America", "SR": "L. America",
+    # Caribbean / C. America
+    "CU": "Caribbean", "DO": "Caribbean", "JM": "Caribbean",
+    "GT": "Caribbean", "HN": "Caribbean", "SV": "Caribbean",
+    "CR": "Caribbean", "PA": "Caribbean", "NI": "Caribbean",
+    # Oceania
+    "AU": "Oceania", "NZ": "Oceania", "MU": "Oceania", "FJ": "Oceania",
+    "PG": "Oceania",
+}
 ISR_HOTSPOTS: list = []
 NARRATIVE_SOURCES: dict = {}
 TACTICAL_KEYWORDS: dict = {}
@@ -1402,7 +1463,7 @@ def app_config():
         "default_adversaries": DEFAULT_ADVERSARIES,
         "default_pins": DEFAULT_PINS,
         "available_countries": [
-            {"code": code, "name": info["name"]}
+            {"code": code, "name": info["name"], "region": COUNTRY_REGIONS.get(code, "Other")}
             for code, info in sorted(COUNTRY_COORDS.items(), key=lambda x: x[1]["name"])
         ],
     })

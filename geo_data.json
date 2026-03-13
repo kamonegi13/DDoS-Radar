@@ -929,6 +929,42 @@
       "lat": 41.1, "lng": 29.0, "country": "TR",
       "type": "maritime_strait",
       "cables": []
+    },
+    {
+      "name": "Virginia Beach Cable Landing Station",
+      "lat": 36.823, "lng": -76.025, "country": "US",
+      "type": "cable_landing",
+      "cables": ["TAT-14", "MAREA", "FLAG", "AEConnect-1"]
+    },
+    {
+      "name": "Strait of Malacca",
+      "lat": 3.0, "lng": 100.5, "country": "MY",
+      "type": "maritime_strait",
+      "cables": ["APCN2", "SEA-ME-WE 5", "SMW-3"]
+    },
+    {
+      "name": "Suez Canal",
+      "lat": 30.0, "lng": 32.55, "country": "EG",
+      "type": "maritime_strait",
+      "cables": ["SEA-ME-WE 5", "FLAG", "SMW-3", "PEACE"]
+    },
+    {
+      "name": "Taiwan Strait",
+      "lat": 24.5, "lng": 119.8, "country": "TW",
+      "type": "maritime_strait",
+      "cables": ["APCN2", "TPE", "APG"]
+    },
+    {
+      "name": "Panama Canal",
+      "lat": 9.1, "lng": -79.7, "country": "PA",
+      "type": "maritime_strait",
+      "cables": []
+    },
+    {
+      "name": "GIUK Gap (NATO ASW Barrier)",
+      "lat": 63.0, "lng": -17.0, "country": "IS",
+      "type": "nato_corridor",
+      "cables": []
     }
   ],
   "CABLE_ROUTES": [
@@ -1001,14 +1037,18 @@
       ]
     },
     {
-      "name": "Atlantic Hub (FLAG / TAT-14)",
-      "description": "UK to France — European segment of global cable backbone",
-      "connects": ["Bude Cable Landing Station", "Marseille Cable Landing Hub"],
+      "name": "Trans-Atlantic (FLAG / TAT-14)",
+      "description": "US East Coast to Western Europe — Atlantic backbone connecting Americas to Europe and Middle East",
+      "connects": ["Virginia Beach Cable Landing Station", "Bude Cable Landing Station", "Marseille Cable Landing Hub"],
       "waypoints": [
-        {"lat": 50.825,"lng": -4.551},
-        {"lat": 46.0,  "lng": -2.0},
-        {"lat": 44.0,  "lng": 0.0},
-        {"lat": 43.296,"lng": 5.369}
+        {"lat": 36.823, "lng": -76.025},
+        {"lat": 40.0,   "lng": -55.0},
+        {"lat": 45.0,   "lng": -30.0},
+        {"lat": 48.0,   "lng": -15.0},
+        {"lat": 50.825, "lng": -4.551},
+        {"lat": 46.0,   "lng": -2.0},
+        {"lat": 44.0,   "lng": 0.0},
+        {"lat": 43.296, "lng": 5.369}
       ]
     },
     {
