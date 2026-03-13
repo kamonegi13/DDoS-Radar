@@ -194,6 +194,17 @@
         .region-pill:hover { color: #bbb; border-color: #666; }
         .region-pill.active { color: #00ffff; border-color: #00ffff88; background: rgba(0,255,255,0.07); }
 
+        /* ── Settings Modal: Wide layout with mini-map ── */
+        #settings-modal { width: min(1060px, 95vw); }
+        .modal-main-area { display: flex; gap: 12px; flex: 1; min-height: 0; overflow: hidden; }
+        .modal-content-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+        .tab-content { display: none; flex-direction: column; flex: 1; overflow-y: auto; padding-right: 4px; }
+        .tab-content.active { display: flex; }
+        #modal-map-panel { width: 252px; flex-shrink: 0; display: flex; flex-direction: column; gap: 5px; }
+        #modal-minimap { flex: 1; min-height: 200px; border-radius: 4px; border: 1px solid #1e2a2a; background: #080d0d; }
+        .minimap-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: #666; line-height: 1.6; }
+        .minimap-tooltip.leaflet-tooltip { background: rgba(0,0,0,0.88); border: 1px solid #2a3a3a; color: #bbb; font-size: 11px; padding: 2px 7px; border-radius: 3px; box-shadow: none; white-space: nowrap; }
+
         .manual-content { overflow-y: auto; flex-grow: 1; padding-right: 15px; line-height: 1.6; font-size: 13px; color: #ddd; margin-top: 15px; }
         .manual-content h4 { color: #00ffff; border-bottom: 1px dashed #555; padding-bottom: 5px; margin-top: 20px; margin-bottom: 10px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
         .manual-content p { margin-bottom: 10px; }
@@ -652,61 +663,76 @@
         <div class="tab" onclick="switchTab('sensors'); loadSensorConfig()">Sensors</div>
         <div class="tab" onclick="switchTab('fetchlog'); loadFetchLog()">Fetch Log</div>
     </div>
-    <div id="tab-strategy" class="tab-content active">
-        <div class="help-text">
-            <b style="color:#00ffff">Epicenter (Core):</b> The primary focal point of a contingency scenario.<br>
-            <b style="color:#ffaa00">Correlate (Link):</b> Allied nations to monitor for coordinated attacks originating from the same botnets.
+    <div class="modal-main-area">
+        <div class="modal-content-panel">
+            <div id="tab-strategy" class="tab-content active">
+                <div class="help-text">
+                    <b style="color:#00ffff">Epicenter (Core):</b> The primary focal point of a contingency scenario.<br>
+                    <b style="color:#ffaa00">Correlate (Link):</b> Allied nations to monitor for coordinated attacks originating from the same botnets.
+                </div>
+                <div class="region-pills" id="pills-strategy"></div>
+                <input type="text" class="search-country" id="search-strategy" placeholder="Filter countries...">
+                <div class="country-scroll">
+                    <table class="theater-table">
+                        <thead><tr>
+                            <th data-tooltip="Epicenter (Primary Focus)">Core</th>
+                            <th data-tooltip="Calculate Correlation">Link</th>
+                            <th style="text-align: left; padding-left: 8px;">Country / Region</th>
+                        </tr></thead>
+                        <tbody id="strategy-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="tab-actors" class="tab-content">
+                <div class="help-text">
+                    <b style="color:#ff2a2a">Adversary:</b> Select nation-states to monitor for "Direct Strikes." Alerts trigger when attackers abandon stealth and use their domestic infrastructure for massive operations.
+                </div>
+                <div class="region-pills" id="pills-actors"></div>
+                <input type="text" class="search-country" id="search-actors" placeholder="Filter countries...">
+                <div class="grid-scroll"><div class="modal-grid" id="actors-grid"></div></div>
+            </div>
+            <div id="tab-pins" class="tab-content">
+                <div class="help-text">
+                    <b style="color:#66ff66">Quick Pin:</b> Select countries to appear in the "Target Visibility" panel on the main screen for rapid on/off switching.
+                </div>
+                <div class="region-pills" id="pills-pins"></div>
+                <input type="text" class="search-country" id="search-pins" placeholder="Filter countries...">
+                <div class="grid-scroll"><div class="modal-grid" id="pins-grid"></div></div>
+            </div>
+            <div id="tab-sensors" class="tab-content">
+                <div class="help-text">
+                    Enable or disable individual sensor modules. <b style="color:#00ffff">Cyber</b> = network threats, <b style="color:#ffaa00">Physical</b> = infrastructure &amp; airspace, <b style="color:#cc66ff">Info</b> = information &amp; influence operations.<br>
+                    Disabled sensors contribute zero to their domain score (Graceful Degradation).
+                </div>
+                <div id="sensor-list-container">
+                    <div style="color:#555;">Loading sensor status...</div>
+                </div>
+            </div>
+            <div id="tab-fetchlog" class="tab-content">
+                <div class="help-text">
+                    Shows the last fetch result for each sensor from its external API.
+                    <b style="color:#66ff66">✓ Success</b> / <b style="color:#ff4444">✗ Failed</b> / <span style="color:#888;">— Not fetched</span>.
+                    Cache age exceeding 3× the poll interval is flagged as <b style="color:#ff8800;">STALE</b>.
+                </div>
+                <div style="margin-bottom:8px;">
+                    <button onclick="loadFetchLog()" class="btn-tactical" style="margin-left:0;">↻ Refresh</button>
+                    <span id="fetchlog-ts" style="font-size:11px;color:#555;margin-left:10px;"></span>
+                </div>
+                <div id="fetchlog-container">
+                    <div style="color:#555;font-size:13px;">Loading...</div>
+                </div>
+            </div>
         </div>
-        <div class="region-pills" id="pills-strategy"></div>
-        <input type="text" class="search-country" id="search-strategy" placeholder="Filter countries...">
-        <div class="country-scroll">
-            <table class="theater-table">
-                <thead><tr>
-                    <th data-tooltip="Epicenter (Primary Focus)">Core</th>
-                    <th data-tooltip="Calculate Correlation">Link</th>
-                    <th style="text-align: left; padding-left: 8px;">Country / Region</th>
-                </tr></thead>
-                <tbody id="strategy-tbody"></tbody>
-            </table>
-        </div>
-    </div>
-    <div id="tab-actors" class="tab-content">
-        <div class="help-text">
-            <b style="color:#ff2a2a">Adversary:</b> Select nation-states to monitor for "Direct Strikes." Alerts trigger when attackers abandon stealth and use their domestic infrastructure for massive operations.
-        </div>
-        <div class="region-pills" id="pills-actors"></div>
-        <input type="text" class="search-country" id="search-actors" placeholder="Filter countries...">
-        <div class="grid-scroll"><div class="modal-grid" id="actors-grid"></div></div>
-    </div>
-    <div id="tab-pins" class="tab-content">
-        <div class="help-text">
-            <b style="color:#66ff66">Quick Pin:</b> Select countries to appear in the "Target Visibility" panel on the main screen for rapid on/off switching.
-        </div>
-        <div class="region-pills" id="pills-pins"></div>
-        <input type="text" class="search-country" id="search-pins" placeholder="Filter countries...">
-        <div class="grid-scroll"><div class="modal-grid" id="pins-grid"></div></div>
-    </div>
-    <div id="tab-sensors" class="tab-content">
-        <div class="help-text">
-            Enable or disable individual sensor modules. <b style="color:#00ffff">Cyber</b> = network threats, <b style="color:#ffaa00">Physical</b> = infrastructure &amp; airspace, <b style="color:#cc66ff">Info</b> = information &amp; influence operations.<br>
-            Disabled sensors contribute zero to their domain score (Graceful Degradation).
-        </div>
-        <div id="sensor-list-container">
-            <div style="color:#555;">Loading sensor status...</div>
-        </div>
-    </div>
-    <div id="tab-fetchlog" class="tab-content">
-        <div class="help-text">
-            Shows the last fetch result for each sensor from its external API.
-            <b style="color:#66ff66">✓ Success</b> / <b style="color:#ff4444">✗ Failed</b> / <span style="color:#888;">— Not fetched</span>.
-            Cache age exceeding 3× the poll interval is flagged as <b style="color:#ff8800;">STALE</b>.
-        </div>
-        <div style="margin-bottom:8px;">
-            <button onclick="loadFetchLog()" class="btn-tactical" style="margin-left:0;">↻ Refresh</button>
-            <span id="fetchlog-ts" style="font-size:11px;color:#555;margin-left:10px;"></span>
-        </div>
-        <div id="fetchlog-container">
-            <div style="color:#555;font-size:13px;">Loading...</div>
+        <!-- Region Preview mini-map (hidden for Sensors/Fetchlog tabs) -->
+        <div id="modal-map-panel">
+            <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px;">Region Preview</div>
+            <div id="modal-minimap"></div>
+            <div class="minimap-legend">
+                <span><span style="color:#00ffff;">◆</span> Core</span>
+                <span><span style="color:#ffaa00;">◆</span> Link</span>
+                <span><span style="color:#ff5555;">◆</span> Adversary</span>
+                <span><span style="color:#55ee77;">◆</span> Pin</span>
+            </div>
         </div>
     </div>
 </div>
@@ -1252,6 +1278,9 @@
         document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
         document.getElementById(modalId).style.display = 'flex';
         document.getElementById('settings-backdrop').style.display = 'block';
+        if (modalId === 'settings-modal') {
+            requestAnimationFrame(() => { _initMinimap(); _updateMinimap(); });
+        }
     }
     function closeAllModals() {
         document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
@@ -1401,6 +1430,10 @@
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
         event.target.classList.add('active');
         document.getElementById(`tab-${tabId}`).classList.add('active');
+        const mapPanel = document.getElementById('modal-map-panel');
+        const showMap  = ['strategy', 'actors', 'pins'].includes(tabId);
+        if (mapPanel) mapPanel.style.display = showMap ? 'flex' : 'none';
+        if (showMap) { _initMinimap(); requestAnimationFrame(() => { _minimap?.invalidateSize(); _updateMinimap(); }); }
     }
 
     // ── Panel Registry & Sidebar Order ──────────────────────────────────────────
@@ -1833,6 +1866,75 @@
     // THEATERS は app_config から動的取得 — 初期値は空
     let THEATERS = [];
 
+    // ── Region Preview Mini-map ────────────────────────────────────────────────
+    let _minimap = null;
+    let _minimapMarkers = null;
+
+    const REGION_BOUNDS = {
+        "East Asia":   [[18, 98],  [52, 150]],
+        "SE Asia":     [[-10, 92], [28, 142]],
+        "S. Asia":     [[4, 58],   [38, 100]],
+        "C. Asia":     [[35, 42],  [62, 92]],
+        "Middle East": [[10, 30],  [44, 66]],
+        "N. Africa":   [[14, -20], [38, 58]],
+        "Africa":      [[-36, -22], [28, 58]],
+        "W. Europe":   [[34, -16], [72, 32]],
+        "N. Europe":   [[54, 4],   [72, 32]],
+        "E. Europe":   [[40, 12],  [62, 44]],
+        "Russia":      [[48, 28],  [78, 180]],
+        "N. America":  [[13, -170], [73, -52]],
+        "L. America":  [[-56, -84], [14, -33]],
+        "Caribbean":   [[4, -93],  [26, -57]],
+        "Oceania":     [[-48, 108], [5, 180]],
+    };
+
+    function _initMinimap() {
+        if (_minimap) return;
+        _minimap = L.map('modal-minimap', {
+            zoomControl: false, attributionControl: false,
+            dragging: true, scrollWheelZoom: true, doubleClickZoom: true, boxZoom: false,
+            maxBoundsViscosity: 0.6,
+        }).setView([20, 15], 2);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 8, subdomains: 'abcd',
+        }).addTo(_minimap);
+        _minimapMarkers = L.layerGroup().addTo(_minimap);
+    }
+
+    function _updateMinimap() {
+        if (!_minimap || !_minimapMarkers) return;
+        _minimapMarkers.clearLayers();
+        const coreVal  = document.querySelector('.radio-core:checked')?.value;
+        const linkVals = new Set([...document.querySelectorAll('.check-correlate:checked')].map(c => c.value));
+        const advVals  = new Set([...document.querySelectorAll('.check-adversary:checked')].map(c => c.value));
+        const pinVals  = new Set([...document.querySelectorAll('.check-pin:checked')].map(c => c.value));
+
+        THEATERS.forEach(t => {
+            if (t.lat == null || t.lng == null) return;
+            let color, radius, fillOpacity, weight, opacity;
+            if (t.code === coreVal)         { color = '#00ffff'; radius = 7; fillOpacity = 0.9; weight = 2;   opacity = 1.0; }
+            else if (linkVals.has(t.code))  { color = '#ffaa00'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
+            else if (advVals.has(t.code))   { color = '#ff5555'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
+            else if (pinVals.has(t.code))   { color = '#55ee77'; radius = 4; fillOpacity = 0.7; weight = 1.5; opacity = 1.0; }
+            else                            { color = '#334455'; radius = 2; fillOpacity = 0.5; weight = 0;   opacity = 0.5; }
+
+            L.circleMarker([t.lat, t.lng], { radius, color, fillColor: color, fillOpacity, weight, opacity })
+             .bindTooltip(`${t.name} (${t.code})`, { sticky: true, className: 'minimap-tooltip' })
+             .addTo(_minimapMarkers);
+        });
+        setTimeout(() => _minimap.invalidateSize(), 50);
+    }
+
+    function _minimapFlyTo(region) {
+        if (!_minimap) return;
+        if (!region) {
+            _minimap.flyTo([20, 15], 2, { animate: true, duration: 0.4 });
+        } else {
+            const b = REGION_BOUNDS[region];
+            if (b) _minimap.flyToBounds(b, { padding: [8, 8], maxZoom: 6, animate: true, duration: 0.4 });
+        }
+    }
+
     // 地域表示順
     const REGION_ORDER = [
         "East Asia","SE Asia","S. Asia","C. Asia","Middle East",
@@ -1905,6 +2007,7 @@
                 e.target.classList.add('active');
                 activeRegion = e.target.dataset.region;
                 apply();
+                _minimapFlyTo(activeRegion);
             });
             const el = document.getElementById(searchInputId);
             if (el) el.addEventListener('input', () => { searchText = el.value.toLowerCase(); apply(); });
@@ -1913,6 +2016,11 @@
         makeFilter(buildPills('pills-strategy'), 'search-strategy', () => strategyTbody.querySelectorAll('tr'));
         makeFilter(buildPills('pills-actors'),   'search-actors',   () => actorsGrid.querySelectorAll('label'));
         makeFilter(buildPills('pills-pins'),     'search-pins',     () => pinsGrid.querySelectorAll('label'));
+
+        // チェックボックス/ラジオ変更時にミニマップを更新
+        [strategyTbody, actorsGrid, pinsGrid].forEach(container => {
+            container.addEventListener('change', () => _updateMinimap());
+        });
     }
 
     function renderQuickToggles() {
@@ -2572,10 +2680,10 @@
                 `;
                 segs.forEach(pts => {
                     L.polyline(pts, {
-                        color: '#00ffff',
-                        weight: 1.5,
-                        opacity: 0.30,
-                        dashArray: '7 5',
+                        color: '#4a7f8f',
+                        weight: 1.2,
+                        opacity: 0.22,
+                        dashArray: '5 9',
                         lineJoin: 'round'
                     }).bindPopup(popupHtml).addTo(cableRoutesLayer);
                 });
@@ -2761,7 +2869,7 @@
     function loadTargetState(defaults) {
         // THEATERS を app_config の全世界リストで初期化してからUIを構築
         if (defaults.available_countries && defaults.available_countries.length) {
-            THEATERS = defaults.available_countries.map(c => ({ code: c.code, name: c.name, region: c.region || 'Other' }));
+            THEATERS = defaults.available_countries.map(c => ({ code: c.code, name: c.name, region: c.region || 'Other', lat: c.lat, lng: c.lng }));
         }
         buildTheaterUI();
 
