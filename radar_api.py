@@ -53,6 +53,7 @@ ISR_HOTSPOTS: list = []
 NARRATIVE_SOURCES: dict = {}
 TACTICAL_KEYWORDS: dict = {}
 HISTORICAL_EVENTS: list = []
+CABLE_ROUTES: list = []
 try:
     with open("geo_data.json", "r", encoding="utf-8") as f:
         geo_data = json.load(f)
@@ -64,6 +65,7 @@ try:
         NARRATIVE_SOURCES   = geo_data.get("NARRATIVE_SOURCES", {})
         TACTICAL_KEYWORDS   = geo_data.get("TACTICAL_KEYWORDS", {})
         HISTORICAL_EVENTS   = geo_data.get("HISTORICAL_EVENTS", [])
+        CABLE_ROUTES        = geo_data.get("CABLE_ROUTES", [])
         print("[Config] Loaded static data from geo_data.json")
 except Exception as e:
     print(f"[Warning] Failed to load geo_data.json: {e}")
@@ -1837,7 +1839,21 @@ def get_threat_data():
                     "gdelt_events": [{"code": c, "lat": COUNTRY_COORDS[c]["lat"], "lng": COUNTRY_COORDS[c]["lng"], "name": COUNTRY_COORDS[c]["name"], "tone_current": info.get("tone_current"), "tone_baseline": info.get("tone_baseline"), "delta": info.get("delta"), "status": info.get("status", "NORMAL"), "is_alert": info.get("is_alert", False)} for c, info in gdelt_tones.items() if c in COUNTRY_COORDS and info.get("status") in ("ALERT", "WEATHER_NOISE")],
                     "critical_nodes": [{"type": "IXP", "id": ix["id"], "name": ix["name"], "aka": ix.get("aka", ""), "city": ix["city"], "country": c, "lat": ix["lat"], "lng": ix["lng"], "status": ix.get("status", "ok")} for c, cdata in ixp_data.items() for ix in cdata.get("ixps", []) if ix.get("lat") and ix.get("lng")],
                     "firms_anomalies": nasa_firms_data,
-                    "chokepoints": [{"name": c["name"], "lat": c["lat"], "lng": c["lng"], "country": c["country"]} for c in CHOKEPOINTS if c["country"] in requested_targets],
+                    "chokepoints": (lambda dg_names={g["chokepoint"] for g in ais_dark_gaps}, st_names={s["chokepoint"] for s in ais_stationary}: [
+                        {
+                            "name":    c["name"],
+                            "lat":     c["lat"],
+                            "lng":     c["lng"],
+                            "country": c["country"],
+                            "type":    c.get("type", "cable_landing"),
+                            "cables":  c.get("cables", []),
+                            "status":  ("dark_gap"   if c["name"] in dg_names else
+                                        "stationary" if c["name"] in st_names else
+                                        "normal"),
+                        }
+                        for c in CHOKEPOINTS if c["country"] in requested_targets
+                    ])(),
+                    "cable_routes": CABLE_ROUTES,
                     # 追加オーバーレイ
                     "isr_hotspots": [
                         {"name": hs["name"], "lat": hs["lat"], "lng": hs["lng"],
