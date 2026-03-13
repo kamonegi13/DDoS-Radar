@@ -394,6 +394,12 @@
         .wb-desc { font-size: 9px; color: #9a9a9a; line-height: 1.4; }
         .wb-summary { margin-top: 8px; padding-top: 6px; border-top: 1px solid #1a2a3a; font-size: 9px; color: #aaa; line-height: 1.5; font-style: italic; }
 
+        /* ── Cable Chokepoint: pulse animation for dark-gap alert ── */
+        @keyframes cp-pulse {
+            0%,100% { opacity: 1; }
+            50%      { opacity: 0.25; }
+        }
+
         /* ── Intuition UI: SALUTE Board ── */
         .salute-hdr { font-size: 9px; color: #664400; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         #salute-panel .panel-content { font-family: 'Courier New', monospace; padding: 10px 12px; }
@@ -1734,7 +1740,8 @@
     
     // Additional Map Layers
     const firmsLayer = L.layerGroup().addTo(map);
-    const chokepointsLayer = L.layerGroup().addTo(map);
+    const cableRoutesLayer  = L.layerGroup().addTo(map);
+    const chokepointsLayer  = L.layerGroup().addTo(map);
 
     // [Intuition UI] Threat Terrain — 脅威密度ヒートマップ風サークルオーバーレイ
     const threatTerrainLayer = L.layerGroup(); // デフォルト非表示
@@ -1748,6 +1755,7 @@
         "Weather Events":   weatherLayer,
         "Media Tone Alert": gdeltLayer,
         "FIRMS Anomalies":  firmsLayer,
+        "Cable Routes":     cableRoutesLayer,
         "Cable Chokepoints":chokepointsLayer,
         "Threat Terrain":   threatTerrainLayer
     };
@@ -2311,7 +2319,7 @@
         gdeltLayer.clearLayers(); criticalNodesLayer.clearLayers();
         
         // Clear layers
-        firmsLayer.clearLayers(); chokepointsLayer.clearLayers();
+        firmsLayer.clearLayers(); cableRoutesLayer.clearLayers(); chokepointsLayer.clearLayers();
 
         const overlays = data.strategic_alert && data.strategic_alert.map_overlays;
         if (overlays) {
@@ -2429,16 +2437,95 @@
                  .addTo(firmsLayer);
             });
 
-            // Render Cable Chokepoints
+            // ── Render Cable Routes (static polylines) ──────────────────
+            (overlays.cable_routes || []).forEach(route => {
+                const pts = (route.waypoints || []).map(w => [w.lat, shiftLng(w.lng)]);
+                if (pts.length < 2) return;
+                L.polyline(pts, {
+                    color: '#00ffff',
+                    weight: 1.5,
+                    opacity: 0.30,
+                    dashArray: '7 5',
+                    lineJoin: 'round'
+                }).bindPopup(`
+                    <div style="font-family:monospace;font-size:11px;min-width:200px;">
+                        <div style="color:#00ffff;font-weight:bold;margin-bottom:4px;">🔌 ${route.name}</div>
+                        <div style="color:#aaa;font-size:10px;margin-bottom:5px;">${route.description || ''}</div>
+                        ${route.connects && route.connects.length ? `<div style="color:#888;font-size:9px;border-top:1px solid #1a2a3a;padding-top:4px;">CONNECTS:<br>${route.connects.join(' → ')}</div>` : ''}
+                    </div>
+                `).addTo(cableRoutesLayer);
+            });
+
+            // ── Render Cable Chokepoints (enhanced) ──────────────────────
             (overlays.chokepoints || []).forEach(c => {
-                const lngS = shiftLng(c.lng);
-                const icon = L.divIcon({ 
-                    html: `<div style="color:#00ffff; font-size:14px; filter:drop-shadow(0 0 5px #00ffff); cursor:help;" data-tooltip="Chokepoint: ${c.name}">◆</div>`, 
-                    className: '', 
-                    iconSize: [14,14] 
+                const lngS  = shiftLng(c.lng);
+                const status = c.status  || 'normal';
+                const cpType = c.type    || 'cable_landing';
+
+                // 状態・種別ごとの色
+                const BASE_COLOR = {
+                    cable_landing:   '#00ffff',
+                    maritime_strait: '#ffaa00',
+                    nato_corridor:   '#4488ff',
+                };
+                const STATUS_COLOR = {
+                    dark_gap:   '#ff3300',
+                    stationary: '#ff9900',
+                    normal:     BASE_COLOR[cpType] || '#00ffff',
+                };
+                const color = STATUS_COLOR[status];
+
+                // AIS 監視ゾーンサークル (55 km)
+                const zoneAlpha = status === 'dark_gap' ? 0.18 : status === 'stationary' ? 0.10 : 0.04;
+                L.circle([c.lat, lngS], {
+                    radius:      55000,
+                    color:       color,
+                    weight:      status === 'dark_gap' ? 1.5 : 0.8,
+                    opacity:     status !== 'normal'   ? 0.65 : 0.25,
+                    fillColor:   color,
+                    fillOpacity: zoneAlpha,
+                    interactive: false,
+                    dashArray:   status === 'normal' ? '4 6' : null,
+                }).addTo(chokepointsLayer);
+
+                // 種別アイコン
+                const ICON_CHAR = { cable_landing:'◆', maritime_strait:'⬡', nato_corridor:'⬟' };
+                const iconChar  = ICON_CHAR[cpType] || '◆';
+                const fontSize  = cpType === 'maritime_strait' ? 16 : 14;
+                const pulseStyle = status === 'dark_gap' ? 'animation:cp-pulse 1s infinite;' : '';
+
+                const icon = L.divIcon({
+                    html: `<div style="color:${color};font-size:${fontSize}px;filter:drop-shadow(0 0 6px ${color});cursor:help;${pulseStyle}">${iconChar}</div>`,
+                    className: '',
+                    iconSize:   [16, 16],
+                    iconAnchor: [8, 8],
                 });
+
+                // リッチポップアップ
+                const TYPE_LABEL = {
+                    cable_landing:   'Cable Landing Station',
+                    maritime_strait: 'Maritime Chokepoint',
+                    nato_corridor:   'NATO Cable Corridor',
+                };
+                const STATUS_BADGE = {
+                    dark_gap:   `<span style="color:#ff3300;font-weight:bold;">⚠ AIS DARK GAP DETECTED</span>`,
+                    stationary: `<span style="color:#ff9900;font-weight:bold;">⚓ STATIONARY ANOMALY</span>`,
+                    normal:     `<span style="color:#00cc66;">● NORMAL</span>`,
+                };
+                const cablesHtml = (c.cables && c.cables.length)
+                    ? `<div style="margin-top:5px;color:#aaa;font-size:9px;">CABLES: ${c.cables.join(', ')}</div>`
+                    : '';
+
                 L.marker([c.lat, lngS], {icon})
-                 .bindPopup(`<b>Chokepoint</b><br>${c.name}<br>Country: ${c.country}`)
+                 .bindPopup(`
+                    <div style="font-family:monospace;font-size:11px;min-width:210px;">
+                        <div style="color:${color};font-weight:bold;font-size:12px;margin-bottom:3px;">${iconChar} ${c.name}</div>
+                        <div style="color:#888;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">${TYPE_LABEL[cpType]||cpType} · ${c.country}</div>
+                        <div style="border-top:1px solid #1a2a3a;padding-top:5px;">${STATUS_BADGE[status]||STATUS_BADGE.normal}</div>
+                        ${cablesHtml}
+                        <div style="margin-top:5px;color:#555;font-size:9px;">AIS MONITOR RADIUS: 55 km</div>
+                    </div>
+                 `)
                  .addTo(chokepointsLayer);
             });
         }
@@ -3259,23 +3346,37 @@
         try {
             const res = await fetch('http://127.0.0.1:8000/api/weather_brief');
             const wb  = await res.json();
-            const rows = wb.conditions || [];
-            const domainCls = d => {
-                const k = (d||'').toUpperCase();
-                if (k === 'CYBER')    return 'wb-domain-cyber';
-                if (k === 'PHYSICAL') return 'wb-domain-physical';
-                if (k === 'INFO')     return 'wb-domain-info';
-                return '';
+            const brief = wb.brief || {};
+            const DOMAIN_ICON = { cyber:'⛈', maritime:'🌫', info:'📡', air:'🔭', infra:'🏗' };
+            const DOMAIN_CLS  = {
+                cyber: 'wb-domain-cyber', info: 'wb-domain-info',
+                maritime: 'wb-domain-physical', infra: 'wb-domain-physical', air: ''
             };
-            bodyEl.innerHTML = rows.map(r => `
-                <div class="wb-row">
-                    <div class="wb-icon">${ICONS[r.condition_key] || ICONS.default}</div>
+            const STATE_COLOR = {
+                'CLEAR':'#00cc66','CLEAR PASSAGE':'#00cc66','CLEAR SKIES':'#00cc66',
+                'STEADY STATE':'#00cc66','NOMINAL':'#00cc66',
+                'ELEVATED SWELL':'#cccc00','OBSERVED — ROUTINE ISR PATTERN':'#cccc00',
+                'ELEVATED — POLITICAL NOISE LEVEL':'#cccc00','RESTRICTED WATERS — OBSTACLE':'#cccc00',
+                'ACTIVE STORM FRONT':'#cc8800','REDUCED VISIBILITY — PATCHY FOG':'#cc8800',
+                'ELEVATED PRESSURE — BUILDING STORM':'#cc8800','SEVERE — SUSTAINED PRESSURE':'#cc8800',
+                'MAJOR STORM':'#cc4400','ZERO VISIBILITY — DENSE FOG':'#cc4400',
+                'ACTIVE — FULL ISR DEPLOYMENT':'#cc4400',
+                'RAPID INTENSIFICATION':'#ff2200','INFORMATION STORM — HURRICANE FORCE':'#ff2200',
+                'CATASTROPHIC — INFRASTRUCTURE COLLAPSE':'#ff2200',
+            };
+            bodyEl.innerHTML = Object.entries(brief).map(([key, v]) => {
+                const icon  = DOMAIN_ICON[key] || '●';
+                const cls   = DOMAIN_CLS[key] || '';
+                const color = STATE_COLOR[v.state] || '#aaa';
+                return `<div class="wb-row">
+                    <div class="wb-icon">${icon}</div>
                     <div class="wb-info">
-                        <div class="wb-domain-tag ${domainCls(r.domain)}">${r.domain}</div>
-                        <div class="wb-condition" style="color:${r.color||'#ccc'};">${r.condition}</div>
-                        <div class="wb-desc">${r.description}</div>
+                        <div class="wb-domain-tag ${cls}">${key.toUpperCase()}</div>
+                        <div class="wb-condition" style="color:${color};">${v.state}</div>
+                        <div class="wb-desc">${v.detail}</div>
                     </div>
-                </div>`).join('');
+                </div>`;
+            }).join('');
             if (sumEl) sumEl.textContent = wb.summary || '';
         } catch(e) {
             bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API unavailable</div>';
@@ -3312,7 +3413,7 @@
 
         try {
             const res = await fetch('http://127.0.0.1:8000/api/salute_report');
-            const sal = await res.json();
+            const sal = (await res.json()).report || {};
             const fields = [
                 { k:'S', l:'SIZE',     v: sal.size      || '—' },
                 { k:'A', l:'ACTIVITY', v: sal.activity  || '—' },

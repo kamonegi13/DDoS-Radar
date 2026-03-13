@@ -830,105 +830,198 @@
   "CHOKEPOINTS": [
     {
       "name": "Tanshui Cable Landing Station",
-      "lat": 25.176,
-      "lng": 121.439,
-      "country": "TW"
+      "lat": 25.176, "lng": 121.439, "country": "TW",
+      "type": "cable_landing",
+      "cables": ["APCN2", "EAC-C2C", "TPE"]
     },
     {
       "name": "Fangshan Cable Landing Station",
-      "lat": 22.261,
-      "lng": 120.655,
-      "country": "TW"
+      "lat": 22.261, "lng": 120.655, "country": "TW",
+      "type": "cable_landing",
+      "cables": ["APCN2", "EAC-C2C", "C2C"]
     },
     {
       "name": "Toucheng Cable Landing Station",
-      "lat": 24.857,
-      "lng": 121.823,
-      "country": "TW"
+      "lat": 24.857, "lng": 121.823, "country": "TW",
+      "type": "cable_landing",
+      "cables": ["APCN2", "TPE", "NCP"]
     },
     {
       "name": "Shima Cable Landing Station",
-      "lat": 34.298,
-      "lng": 136.824,
-      "country": "JP"
+      "lat": 34.298, "lng": 136.824, "country": "JP",
+      "type": "cable_landing",
+      "cables": ["APCN2", "PC-1", "Guam-Japan"]
     },
     {
       "name": "Chikura Cable Landing Station",
-      "lat": 34.968,
-      "lng": 139.963,
-      "country": "JP"
+      "lat": 34.968, "lng": 139.963, "country": "JP",
+      "type": "cable_landing",
+      "cables": ["APCN2", "EAC-C2C", "FASTER", "PC-1"]
     },
     {
       "name": "Tuas Cable Landing Station",
-      "lat": 1.319,
-      "lng": 103.636,
-      "country": "SG"
+      "lat": 1.319, "lng": 103.636, "country": "SG",
+      "type": "cable_landing",
+      "cables": ["APCN2", "SEA-ME-WE 5", "SMW-3"]
     },
     {
       "name": "Guam Cable Landing Station (US MIL)",
-      "lat": 13.444,
-      "lng": 144.793,
-      "country": "US"
+      "lat": 13.444, "lng": 144.793, "country": "US",
+      "type": "cable_landing",
+      "cables": ["TPE", "Guam-Japan", "TPC-5"]
     },
     {
       "name": "Bandon Cable Landing Station",
-      "lat": 43.118,
-      "lng": -124.408,
-      "country": "US"
+      "lat": 43.118, "lng": -124.408, "country": "US",
+      "type": "cable_landing",
+      "cables": ["FASTER", "TPE", "PC-1"]
     },
     {
       "name": "Bude Cable Landing Station",
-      "lat": 50.825,
-      "lng": -4.551,
-      "country": "GB"
+      "lat": 50.825, "lng": -4.551, "country": "GB",
+      "type": "cable_landing",
+      "cables": ["TAT-14", "AEConnect", "FLAG"]
     },
     {
       "name": "Marseille Cable Landing Hub",
-      "lat": 43.296,
-      "lng": 5.369,
-      "country": "FR"
+      "lat": 43.296, "lng": 5.369, "country": "FR",
+      "type": "cable_landing",
+      "cables": ["SEA-ME-WE 5", "SMW-3", "PEACE"]
     },
     {
       "name": "Luzon Strait Chokepoint",
-      "lat": 20.5,
-      "lng": 121.5,
-      "country": "PH"
+      "lat": 20.5, "lng": 121.5, "country": "PH",
+      "type": "maritime_strait",
+      "cables": []
     },
     {
       "name": "Miyako Strait (1st Island Chain)",
-      "lat": 24.7,
-      "lng": 125.3,
-      "country": "JP"
+      "lat": 24.7, "lng": 125.3, "country": "JP",
+      "type": "maritime_strait",
+      "cables": []
     },
     {
       "name": "Tsushima Strait",
-      "lat": 34.5,
-      "lng": 129.5,
-      "country": "KR"
+      "lat": 34.5, "lng": 129.5, "country": "KR",
+      "type": "maritime_strait",
+      "cables": []
     },
     {
       "name": "Strait of Hormuz Chokepoint",
-      "lat": 26.6,
-      "lng": 56.3,
-      "country": "IR"
+      "lat": 26.6, "lng": 56.3, "country": "IR",
+      "type": "maritime_strait",
+      "cables": []
     },
     {
       "name": "Bab-el-Mandeb Strait",
-      "lat": 12.6,
-      "lng": 43.4,
-      "country": "YE"
+      "lat": 12.6, "lng": 43.4, "country": "YE",
+      "type": "maritime_strait",
+      "cables": []
     },
     {
       "name": "Baltic Sea NATO Cable Corridor",
-      "lat": 57.0,
-      "lng": 19.0,
-      "country": "SE"
+      "lat": 57.0, "lng": 19.0, "country": "SE",
+      "type": "nato_corridor",
+      "cables": ["NordBalt", "EstLink", "Balticconnector"]
     },
     {
       "name": "Black Sea Bosphorus Entry",
-      "lat": 41.1,
-      "lng": 29.0,
-      "country": "TR"
+      "lat": 41.1, "lng": 29.0, "country": "TR",
+      "type": "maritime_strait",
+      "cables": []
+    }
+  ],
+  "CABLE_ROUTES": [
+    {
+      "name": "APCN2 / Asia Ring",
+      "description": "Asia-Pacific Cable Network 2 — Singapore to Japan via Taiwan",
+      "connects": ["Tuas Cable Landing Station", "Fangshan Cable Landing Station", "Tanshui Cable Landing Station", "Toucheng Cable Landing Station", "Shima Cable Landing Station", "Chikura Cable Landing Station"],
+      "waypoints": [
+        {"lat": 1.319,  "lng": 103.636},
+        {"lat": 5.0,   "lng": 107.0},
+        {"lat": 10.0,  "lng": 112.0},
+        {"lat": 16.0,  "lng": 118.5},
+        {"lat": 20.5,  "lng": 121.5},
+        {"lat": 22.261,"lng": 120.655},
+        {"lat": 23.5,  "lng": 121.0},
+        {"lat": 25.176,"lng": 121.439},
+        {"lat": 24.857,"lng": 121.823},
+        {"lat": 24.7,  "lng": 125.3},
+        {"lat": 28.0,  "lng": 131.0},
+        {"lat": 34.298,"lng": 136.824},
+        {"lat": 34.968,"lng": 139.963}
+      ]
+    },
+    {
+      "name": "Trans-Pacific Express (TPE / NCP)",
+      "description": "Taiwan to US West Coast via Guam — southern trans-Pacific route",
+      "connects": ["Toucheng Cable Landing Station", "Guam Cable Landing Station (US MIL)", "Bandon Cable Landing Station"],
+      "waypoints": [
+        {"lat": 24.857,"lng": 121.823},
+        {"lat": 22.0,  "lng": 132.0},
+        {"lat": 18.0,  "lng": 140.0},
+        {"lat": 13.444,"lng": 144.793},
+        {"lat": 16.0,  "lng": 160.0},
+        {"lat": 20.0,  "lng": -175.0},
+        {"lat": 30.0,  "lng": -155.0},
+        {"lat": 38.0,  "lng": -135.0},
+        {"lat": 43.118,"lng": -124.408}
+      ]
+    },
+    {
+      "name": "Trans-Pacific North (FASTER / PC-1)",
+      "description": "Japan to US West Coast — northern great-circle route",
+      "connects": ["Chikura Cable Landing Station", "Bandon Cable Landing Station"],
+      "waypoints": [
+        {"lat": 34.968,"lng": 139.963},
+        {"lat": 38.0,  "lng": 148.0},
+        {"lat": 42.0,  "lng": 160.0},
+        {"lat": 46.0,  "lng": 175.0},
+        {"lat": 48.0,  "lng": -165.0},
+        {"lat": 48.0,  "lng": -148.0},
+        {"lat": 46.0,  "lng": -135.0},
+        {"lat": 43.118,"lng": -124.408}
+      ]
+    },
+    {
+      "name": "SEA-ME-WE 5",
+      "description": "South-East Asia – Middle East – Western Europe 5",
+      "connects": ["Tuas Cable Landing Station", "Bab-el-Mandeb Strait", "Marseille Cable Landing Hub"],
+      "waypoints": [
+        {"lat": 1.319, "lng": 103.636},
+        {"lat": 4.0,   "lng": 80.0},
+        {"lat": 7.0,   "lng": 73.0},
+        {"lat": 10.0,  "lng": 50.0},
+        {"lat": 12.6,  "lng": 43.4},
+        {"lat": 20.0,  "lng": 38.5},
+        {"lat": 27.0,  "lng": 34.0},
+        {"lat": 32.5,  "lng": 32.3},
+        {"lat": 38.0,  "lng": 13.0},
+        {"lat": 43.296,"lng": 5.369}
+      ]
+    },
+    {
+      "name": "Atlantic Hub (FLAG / TAT-14)",
+      "description": "UK to France — European segment of global cable backbone",
+      "connects": ["Bude Cable Landing Station", "Marseille Cable Landing Hub"],
+      "waypoints": [
+        {"lat": 50.825,"lng": -4.551},
+        {"lat": 46.0,  "lng": -2.0},
+        {"lat": 44.0,  "lng": 0.0},
+        {"lat": 43.296,"lng": 5.369}
+      ]
+    },
+    {
+      "name": "Guam-Japan Military Link",
+      "description": "US military undersea cable — Guam to Japan (strategic communications)",
+      "connects": ["Guam Cable Landing Station (US MIL)", "Chikura Cable Landing Station"],
+      "waypoints": [
+        {"lat": 13.444,"lng": 144.793},
+        {"lat": 20.0,  "lng": 142.0},
+        {"lat": 26.0,  "lng": 140.0},
+        {"lat": 30.0,  "lng": 139.0},
+        {"lat": 34.968,"lng": 139.963}
+      ]
     }
   ],
   "ISR_HOTSPOTS": [
