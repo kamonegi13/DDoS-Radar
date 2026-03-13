@@ -423,6 +423,33 @@
             50%      { opacity: 0.25; }
         }
 
+        /* ── Leaflet popup: tactical dark theme override ── */
+        .leaflet-popup-content-wrapper {
+            background: rgba(6, 10, 14, 0.96);
+            border: 1px solid #1e3a4a;
+            border-radius: 3px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.85), 0 0 0 1px rgba(0,255,255,0.06);
+            color: #ccc;
+            padding: 0;
+        }
+        .leaflet-popup-content {
+            margin: 0;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+        .leaflet-popup-tip-container .leaflet-popup-tip {
+            background: #1e3a4a;
+            box-shadow: none;
+        }
+        .leaflet-popup-close-button {
+            color: #446677 !important;
+            font-size: 16px !important;
+            top: 4px !important;
+            right: 6px !important;
+        }
+        .leaflet-popup-close-button:hover { color: #00ffff !important; }
+
         /* ── Intuition UI: SALUTE Board ── */
         .salute-hdr { font-size: 9px; color: #664400; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         #salute-panel .panel-content { font-family: 'Courier New', monospace; padding: 10px 12px; }
@@ -2695,10 +2722,11 @@
                 const segs = buildRouteSegments(route.waypoints || []);
                 if (!segs.length) return;
                 const popupHtml = `
-                    <div style="font-family:monospace;font-size:11px;min-width:200px;">
-                        <div style="color:#00ffff;font-weight:bold;margin-bottom:4px;">🔌 ${route.name}</div>
-                        <div style="color:#aaa;font-size:10px;margin-bottom:5px;">${route.description || ''}</div>
-                        ${route.connects && route.connects.length ? `<div style="color:#888;font-size:9px;border-top:1px solid #1a2a3a;padding-top:4px;">CONNECTS:<br>${route.connects.join(' → ')}</div>` : ''}
+                    <div style="min-width:220px;padding:10px 12px 8px;">
+                        <div style="color:#5ab8cc;font-weight:bold;font-size:12px;letter-spacing:0.5px;margin-bottom:2px;">▬ ${route.name}</div>
+                        <div style="color:#335566;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">SUBMARINE CABLE ROUTE</div>
+                        <div style="color:#889;font-size:10px;margin-bottom:6px;">${route.description || ''}</div>
+                        ${route.connects && route.connects.length ? `<div style="color:#446677;font-size:9px;border-top:1px solid #1a2e3a;padding-top:5px;line-height:1.7;">CONNECTS:<br><span style="color:#667;">${route.connects.join(' → ')}</span></div>` : ''}
                     </div>
                 `;
                 segs.forEach(pts => {
@@ -2774,14 +2802,14 @@
 
                 L.marker([c.lat, lngS], {icon})
                  .bindPopup(`
-                    <div style="font-family:monospace;font-size:11px;min-width:210px;">
-                        <div style="color:${color};font-weight:bold;font-size:12px;margin-bottom:3px;">${iconChar} ${c.name}</div>
-                        <div style="color:#888;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">${TYPE_LABEL[cpType]||cpType} · ${c.country}</div>
-                        <div style="border-top:1px solid #1a2a3a;padding-top:5px;">${STATUS_BADGE[status]||STATUS_BADGE.normal}</div>
+                    <div style="min-width:220px;padding:10px 12px 8px;">
+                        <div style="color:${color};font-weight:bold;font-size:12px;letter-spacing:0.5px;margin-bottom:2px;">${iconChar} ${c.name}</div>
+                        <div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">${TYPE_LABEL[cpType]||cpType} &nbsp;·&nbsp; ${c.country}</div>
+                        <div style="margin-bottom:6px;">${STATUS_BADGE[status]||STATUS_BADGE.normal}</div>
                         ${cablesHtml}
-                        <div style="margin-top:5px;color:#555;font-size:9px;">AIS MONITOR RADIUS: 55 km</div>
+                        <div style="margin-top:7px;color:#334455;font-size:9px;letter-spacing:0.5px;">AIS MONITOR RADIUS: 55 km</div>
                     </div>
-                 `)
+                 `, { maxWidth: 280 })
                  .addTo(chokepointsLayer);
             });
         }
