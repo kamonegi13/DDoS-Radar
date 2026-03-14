@@ -33,7 +33,7 @@
         input[type="checkbox"]:checked::after { content: '✔'; position: absolute; top: -3px; left: 2px; color: #00ffff; font-size: 11px; font-weight: bold; }
         input[type="radio"]:checked::after { content: ''; position: absolute; top: 3px; left: 3px; width: 6px; height: 6px; background: #00ffff; border-radius: 50%; }
 
-        /* ── Tactical Global Loader (動的ログ＆スキャンバー) ── */
+        /* ── Tactical Global Loader (dynamic log & scan bar) ── */
         #global-loader {
             position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
             background: #0a0a0a; z-index: 9999;
@@ -131,7 +131,8 @@
             font-size: 13px; color: #fff; text-transform: uppercase; letter-spacing: 1px; font-weight: bold;
             border-bottom: 1px solid #555;
         }
-        .panel-header-unified > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .panel-header-unified > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .panel-header-unified > div { display: flex; align-items: center; flex-shrink: 0; }
 
         .draggable-panel { display: flex; flex-direction: column; box-sizing: border-box; }
         .drag-handle { cursor: grab; user-select: none; }
@@ -228,7 +229,7 @@
         .status-badge { border: 1px solid currentColor; padding: 1px 4px; border-radius: 3px; font-size: 10px; flex-shrink: 0; white-space: nowrap; cursor: help; }
         .shift-badge { background: #ffaa00; color: #000; padding: 1px 4px; border-radius: 3px; font-size: 10px; flex-shrink: 0; white-space: nowrap; font-weight: bold; cursor: help;}
 
-        /* P7-Opt: sparkline は Canvas で描画するため div系クラスは参照なし（後方互換保持） */
+        /* P7-Opt: sparkline rendered on Canvas — no div-class references needed (backward compat) */
         .sparkline-canvas { display: inline-block; vertical-align: middle; cursor: help; image-rendering: pixelated; flex-shrink: 0; }
         
         .origin-list-ul { margin: 5px 0 10px 0; padding-left: 15px; list-style-type: none;}
@@ -271,7 +272,7 @@
         .flow-fast { stroke-dasharray: 15, 20; animation: flowFast 0.6s linear infinite; } @keyframes flowFast { from { stroke-dashoffset: 35; } to { stroke-dashoffset: 0; } }
         .flow-medium { stroke-dasharray: 10, 20; animation: flowMedium 1.5s linear infinite; } @keyframes flowMedium { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
         .flow-slow { stroke-dasharray: 5, 15; animation: flowSlow 3.0s linear infinite; } @keyframes flowSlow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
-        /* P8-Opt: glow-high SVG filter removed (GPU負荷削減). JS側でline-weight+1.5px補正. */
+        /* P8-Opt: glow-high SVG filter removed (GPU load reduction). JS compensates with line-weight+1.5px. */
         
         .country-label { background: transparent; border: none; box-shadow: none; color: #eeeeee; font-weight: bold; font-size: 11px; text-shadow: 0 0 5px #000, 0 0 2px #000; text-transform: uppercase; letter-spacing: 1px; }
 
@@ -322,7 +323,7 @@
         .chain-seq-FULL_CHAIN  { background: rgba(255,68,68,0.2);  color: #ff4444; border: 1px solid #ff444460; }
         .chain-seq-PARTIAL     { background: rgba(255,170,0,0.15); color: #ffaa00; border: 1px solid #ffaa0060; }
         .chain-seq-NONE        { background: rgba(60,60,60,0.3);   color: #666;    border: 1px solid #333; }
-        /* Narrative Burst インジケーター */
+        /* Narrative Burst indicator */
         #hud-narrative-burst { display: none; }
         #hud-narrative-burst.active { display: inline-block; color: #cc66ff; font-weight: bold; animation: blink 1.2s step-end infinite; font-size: 11px; }
         .convergence-item { font-size: 12px; }
@@ -377,7 +378,7 @@
 
         /* ══════════════════════════════════════════════════════════════
            ── Intuition UI: Ambient Atmosphere ──
-           脅威レベルに応じて背景を微妙に変色させアナリストの注意を喚起
+           Subtly tint the background based on threat level to draw analyst attention
         ══════════════════════════════════════════════════════════════ */
         @keyframes ambientCrit   { from { background-color: #0f0f0f; } to { background-color: #160909; } }
         @keyframes ambientSevere { from { background-color: #0f0f0f; } to { background-color: #130d08; } }
@@ -616,6 +617,27 @@
         <div class="tools-dropdown-wrap" data-tooltip="Intuition Tools — RPD Analysis Panels">
             <button class="btn-tactical btn-action" id="tools-dropdown-btn" onclick="toggleToolsMenu()">TOOLS ▾</button>
             <div id="tools-menu" class="tools-menu">
+                <div class="tools-menu-item" id="tm-item-tgt"  onclick="handleToolToggle('target-panel',    toggleTargetPanel,    'tm-dot-tgt',   'tm-item-tgt')">
+                    <span class="tools-menu-icon">🎯</span>
+                    <span class="tools-menu-label">Target Visibility</span>
+                    <span class="tools-menu-dot" id="tm-dot-tgt"></span>
+                </div>
+                <div class="tools-menu-item" id="tm-item-dash" onclick="handleToolToggle('dashboard-panel', toggleDashboardPanel, 'tm-dot-dash',  'tm-item-dash')">
+                    <span class="tools-menu-icon">📡</span>
+                    <span class="tools-menu-label">Live Threat Telemetry</span>
+                    <span class="tools-menu-dot" id="tm-dot-dash"></span>
+                </div>
+                <div class="tools-menu-item" id="tm-item-chain" onclick="handleToolToggle('chain-panel',    toggleChainPanel,     'tm-dot-chain', 'tm-item-chain')">
+                    <span class="tools-menu-icon">🔗</span>
+                    <span class="tools-menu-label">Evidence Chain</span>
+                    <span class="tools-menu-dot" id="tm-dot-chain"></span>
+                </div>
+                <div class="tools-menu-item" id="tm-item-tg"   onclick="handleToolToggle('tg-sigint-panel', toggleTgSigint,       'tm-dot-tg',    'tm-item-tg')">
+                    <span class="tools-menu-icon">📻</span>
+                    <span class="tools-menu-label">Telegram SIGINT</span>
+                    <span class="tools-menu-dot" id="tm-dot-tg"></span>
+                </div>
+                <div class="tools-menu-sep"></div>
                 <div class="tools-menu-item" id="tm-item-pulse" onclick="handleToolToggle('pulse-panel', togglePulseDisplay, 'tm-dot-pulse', 'tm-item-pulse')">
                     <span class="tools-menu-icon">💓</span>
                     <span class="tools-menu-label">Threat Pulse</span>
@@ -683,14 +705,14 @@
             <span id="hud-blockade" class="hud-value">—</span>
             <span id="hud-blockade-bar" style="display:inline-block;width:40px;height:8px;background:#333;border-radius:3px;margin-left:4px;vertical-align:middle;"><span id="hud-blockade-fill" style="display:block;height:100%;width:0%;background:#ff6600;border-radius:3px;transition:width 0.5s;"></span></span>
         </div>
-        <!-- v9: Survival HUD — Check-Host インフラ生存状態 -->
-        <div class="hud-item" data-tooltip="SURVIVAL: Check-Host.net による主要インフラの実死活確認。OK=全ノード疎通 / PARTIAL=一部障害 / BLACKOUT=全ノード到達不可">
+        <!-- v9: Survival HUD — Check-Host infrastructure liveness status -->
+        <div class="hud-item" data-tooltip="SURVIVAL: Check-Host.net real liveness check for key infrastructure. OK=all nodes reachable / PARTIAL=partial outage / BLACKOUT=all nodes unreachable">
             <span class="hud-label">SURVIVAL:</span>
             <span id="hud-survival" class="hud-value" style="font-weight:700;letter-spacing:1px;">—</span>
             <span id="hud-survival-icon" style="margin-left:4px;font-size:12px;"></span>
         </div>
-        <!-- v9: Temporal Coherence — C2 同期 -->
-        <div class="hud-item" data-tooltip="C2 SYNC: 複数シアターへの攻撃開始が60秒以内に収束 → 国家レベル指揮統制の証拠">
+        <!-- v9: Temporal Coherence — C2 sync -->
+        <div class="hud-item" data-tooltip="C2 SYNC: Multiple theater attack onsets converge within 60 s → evidence of nation-state command and control">
             <span class="hud-label">C2-SYNC:</span>
             <span id="hud-c2sync" class="hud-value" style="font-size:10px;">—</span>
         </div>
@@ -738,6 +760,7 @@
                     <div>
                         <span class="icon-btn dock-btn" style="display:none;" data-tooltip="Snap back to sidebar">Dock</span>
                         <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+                        <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('target-panel')" style="color:#ff444488;">✕</span>
                     </div>
                 </div>
                 <div id="target-content" class="panel-content">
@@ -754,6 +777,7 @@
                     <div>
                         <span class="icon-btn dock-btn" style="display:none;" data-tooltip="Snap back to sidebar">Dock</span>
                         <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+                        <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('dashboard-panel')" style="color:#ff444488;">✕</span>
                     </div>
                 </div>
                 <div id="dashboard-content" class="panel-content">
@@ -897,6 +921,7 @@
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('op-clock-panel')" style="color:#ff444488;">✕</span>
         </div>
     </div>
     <div class="panel-content">
@@ -916,6 +941,7 @@
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('weather-brief-panel')" style="color:#ff444488;">✕</span>
         </div>
     </div>
     <div class="panel-content">
@@ -935,6 +961,7 @@
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('salute-panel')" style="color:#ff444488;">✕</span>
         </div>
     </div>
     <div class="panel-content salute-body">
@@ -951,6 +978,7 @@
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('hist-analog-panel')" style="color:#ff444488;">✕</span>
         </div>
     </div>
     <div class="panel-content ha-body">
@@ -967,6 +995,7 @@
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('pulse-panel')" style="color:#ff444488;">✕</span>
         </div>
     </div>
     <div class="panel-content" style="background:#080a0c; padding:0;">
@@ -985,6 +1014,7 @@
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('chain-panel')" style="color:#ff444488;">✕</span>
         </div>
     </div>
     <div class="panel-content">
@@ -1277,7 +1307,7 @@
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">How to access</div>
-            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of 6 panels: Weather Brief / SALUTE Board / Historical Analog / Ops Clock / GreyNoise / Analyst Notebook (cyan = active). Close each panel individually with ✕. Always-on components (Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain) operate automatically without any interaction.</p>
+            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of 6 panels: Weather Brief / SALUTE Board / Historical Analog / Ops Clock / GreyNoise / Analyst Notebook (cyan = active). Close each panel individually with ✕. Always-on components (Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain) operate automatically without any interaction. The <b>Telegram SIGINT</b> panel is opened via the <b>SIGINT↗</b> button on the Telegram Mirror row in the CHAIN panel.</p>
         </div>
 
         <p><b>A. Ambient Atmosphere</b></p>
@@ -1358,6 +1388,16 @@
             <li><b>Watch Handoff</b>: The "WATCH FOR" field at the bottom persists a handoff note for the next analyst shift. Use EXPORT to copy the full shift log to clipboard for shift turnover or incident reporting.</li>
         </ul>
 
+        <p><b>K. Telegram SIGINT</b> — <span class="code-block">CHAIN</span> panel → <b>SIGINT↗</b> button on the Telegram Mirror row</p>
+        <ul>
+            <li><b>Purpose:</b> A dedicated floating/dockable panel that surfaces Telegram Mirror sensor intelligence in a structured SIGINT format — combining real-time status, theater activity breakdown, a scrollable intercept log, and the monitored channel roster.</li>
+            <li><b>Status Badge:</b> Shows the current sensor state — <span style="color:#ff2200;font-weight:bold;">INTENT DETECTED</span> / <span style="color:#ffaa00;font-weight:bold;">TARGETS FOUND</span> / <span style="color:#00ff88;font-weight:bold;">CLEAR</span> / <span style="color:#555;">PENDING</span> — plus the last-poll timestamp and success/failure indicator.</li>
+            <li><b>Theater Activity Grid:</b> One tile per active theater. Each tile displays the theater code, total hit count, and highest detection level badge. Empty-state text is context-aware: "Sensor not yet polled" before the first cycle; "No channel activity detected" once polling has completed with no hits. Click any tile to filter the intercept log to that theater only.</li>
+            <li><b>Intercept Log:</b> A chronological ring buffer of up to 50 detections, persisted across polls in memory (cleared on server restart). Each entry shows channel name (linked), timestamp (UTC), detection type badge, matched keywords, targeted government/military domains, and a 200-character text snippet showing the surrounding context. Entries are color-coded: red border = INTENT, amber = TARGETS. Click a channel name to open the mirror URL. Use the <b>[CLEAR]</b> button in the log header to wipe the log (calls <span class="code-block">POST /api/telegram_log/clear</span>). Filter by theater tile or <b>[All Theaters]</b> to reset.</li>
+            <li><b>Channel Roster:</b> Lists all channels configured in <span class="code-block">THREAT_ACTOR_MAPPING</span> with their associated theater and mirror URL. Use as a reference to verify channel coverage and add new channels to monitoring.</li>
+            <li><b>False-Positive Suppression:</b> The sensor applies word-boundary regex matching (<span class="code-block">\b</span>) to avoid substring collisions (e.g., "target" matching "targeting"). Keywords ≤ 2 characters are skipped entirely. Multi-word keywords and hashtags use exact substring matching.</li>
+        </ul>
+
         <h4>9. API Reference (Analyst / Integration Endpoints)</h4>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
             <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data, threat score, domain breakdown, and deep analytics block (including v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise).</li>
@@ -1373,6 +1413,7 @@
             <li><span class="code-block">GET /api/weather_brief</span> — Maps sensor values to weather metaphors. Returns per-domain state, color, icon, and summary text. Used by the Weather Brief panel.</li>
             <li><span class="code-block">GET /api/historical_events</span> — Returns the historical case pattern library from geo_data.json (5 reference fingerprints). Used by the Historical Analog panel.</li>
             <li><span class="code-block">GET /api/app_config</span> — Returns default settings and the global monitored country list (with code, name, region, and coordinates). Used for UI initialization on startup.</li>
+            <li><span class="code-block">POST /api/telegram_log/clear</span> — Clears the in-memory Telegram SIGINT intercept log ring buffer. Used by the [CLEAR] button in the Telegram SIGINT panel.</li>
         </ul>
 
     </div>
@@ -1387,6 +1428,7 @@
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('gn-panel')" style="color:#ff444488;">✕</span>
         </div>
     </div>
     <div class="panel-content">
@@ -1429,6 +1471,7 @@
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('notebook-panel')" style="color:#ff444488;">✕</span>
         </div>
     </div>
     <div class="panel-content">
@@ -1482,6 +1525,7 @@
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('tg-sigint-panel')" style="color:#ff444488;">✕</span>
         </div>
     </div>
     <div class="panel-content">
@@ -1517,7 +1561,7 @@
     let latestData = null;
     let currentVector = 'all';
     let mapCenterMode = 'atlantic';
-    let _lastRenderSig = ''; // P4-Opt: 差分シグネチャキャッシュ
+    let _lastRenderSig = ''; // P4-Opt: diff signature cache
     let lastSyncedConfig = { core: "", correlates: [], adversaries: [], displays: [] };
     let lastSyncedTimeText = "System Initializing...";
     let isFirstLoad = true;
@@ -1531,7 +1575,7 @@
             mutedSensors.delete(sensorName);
             addNotebookEntry('UNMUTE', `Sensor unmuted: ${sensorName}`);
         } else {
-            // 理由入力ダイアログ（省略可能）
+            // Reason input dialog (optional)
             const reason = prompt(`Muting sensor: ${sensorName}\nReason (optional — recorded in Analyst Notebook):`, '') ?? '';
             mutedSensors.add(sensorName);
             addNotebookEntry('MUTE', `Sensor muted: ${sensorName}${reason ? ' — ' + reason : ''}`);
@@ -1655,12 +1699,59 @@
     let _tgFilter   = null;
     let _tgLastData = {};
 
+    // ── Generic panel close (all panels) ─────────────────────────────────────
+    function _panelClose(panelId) {
+        const p = document.getElementById(panelId);
+        if (!p) return;
+        p.style.display = 'none';
+        // Stop clock interval when closing op-clock
+        if (panelId === 'op-clock-panel' && _clockInterval) {
+            clearInterval(_clockInterval); _clockInterval = null;
+        }
+        updateSidebarVisibility();
+        if (typeof syncToolsMenuState === 'function') syncToolsMenuState();
+        saveLocalState();
+    }
+
+    function toggleTargetPanel() {
+        const p = document.getElementById('target-panel');
+        if (!p) return;
+        const hidden = !p.style.display || p.style.display === 'none';
+        p.style.display = hidden ? 'flex' : 'none';
+        updateSidebarVisibility();
+        syncToolsMenuState();
+        saveLocalState();
+    }
+
+    function toggleDashboardPanel() {
+        const p = document.getElementById('dashboard-panel');
+        if (!p) return;
+        const hidden = !p.style.display || p.style.display === 'none';
+        p.style.display = hidden ? 'flex' : 'none';
+        updateSidebarVisibility();
+        syncToolsMenuState();
+        saveLocalState();
+    }
+
     function openTgSigint() {
         const p = document.getElementById('tg-sigint-panel');
         if (!p) return;
-        p.style.display = '';
-        p.classList.add('active');
+        if (!p.classList.contains('docked') && p.parentElement !== document.body)
+            document.body.appendChild(p);
+        p.style.display = 'flex';
+        p.classList.add('floating', 'active');
         setTimeout(() => p.classList.remove('active'), 1000);
+        updateSidebarVisibility();
+        syncToolsMenuState();
+        saveLocalState();
+    }
+
+    // toggle wrapper used by TOOLS menu handleToolToggle
+    function toggleTgSigint() {
+        const p = document.getElementById('tg-sigint-panel');
+        if (!p) return;
+        const hidden = !p.style.display || p.style.display === 'none';
+        if (hidden) openTgSigint(); else _panelClose('tg-sigint-panel');
     }
 
     function tgSetFilter(type, value) {
@@ -1822,7 +1913,7 @@
     let _nbLog        = JSON.parse(localStorage.getItem('nbLog')        || '[]');
     let _nbConfidence = parseInt(localStorage.getItem('nbConfidence')   || '3');
     let _nbAssessment = localStorage.getItem('nbAssessment')            || 'NOMINAL';
-    let _lastDefconLevel = null;   // DEFCON自動ログ用
+    let _lastDefconLevel = null;   // for DEFCON auto-log
 
     function toggleNotebook() {
         const panel = document.getElementById('notebook-panel');
@@ -1948,7 +2039,7 @@
             tooltip.style.display = 'block';
         }
     });
-    // P6-Opt: mousemove を RAF でスロットリング（毎フレーム1回のみ位置更新）
+    // P6-Opt: throttle mousemove with RAF (position update at most once per frame)
     let _ttX = 0, _ttY = 0, _ttRaf = false;
     document.addEventListener('mousemove', e => {
         if (tooltip.style.display === 'block') {
@@ -2024,12 +2115,16 @@
 
     // ── Intuition UI: TOOLS Dropdown ──────────────────────────────────────────
     const TOOL_MAP = [
+        { panelId: 'target-panel',         dotId: 'tm-dot-tgt',   itemId: 'tm-item-tgt'   },
+        { panelId: 'dashboard-panel',      dotId: 'tm-dot-dash',  itemId: 'tm-item-dash'  },
+        { panelId: 'chain-panel',          dotId: 'tm-dot-chain', itemId: 'tm-item-chain' },
+        { panelId: 'tg-sigint-panel',      dotId: 'tm-dot-tg',    itemId: 'tm-item-tg'    },
         { panelId: 'pulse-panel',          dotId: 'tm-dot-pulse', itemId: 'tm-item-pulse' },
         { panelId: 'weather-brief-panel',  dotId: 'tm-dot-wx',    itemId: 'tm-item-wx'    },
         { panelId: 'salute-panel',         dotId: 'tm-dot-sal',   itemId: 'tm-item-sal'   },
         { panelId: 'hist-analog-panel',    dotId: 'tm-dot-ha',    itemId: 'tm-item-ha'    },
         { panelId: 'op-clock-panel',       dotId: 'tm-dot-clk',   itemId: 'tm-item-clk'  },
-        { panelId: 'gn-panel',            dotId: 'tm-dot-gn',    itemId: 'tm-item-gn'    },
+        { panelId: 'gn-panel',             dotId: 'tm-dot-gn',    itemId: 'tm-item-gn'    },
         { panelId: 'notebook-panel',       dotId: 'tm-dot-nb',    itemId: 'tm-item-nb'    },
     ];
 
@@ -2060,7 +2155,10 @@
             const panel  = document.getElementById(panelId);
             const dot    = document.getElementById(dotId);
             const item   = document.getElementById(itemId);
-            const isOpen = !!(panel && panel.style.display && panel.style.display !== 'none');
+            // Docked panels with no inline display (display='') are visually shown via CSS;
+            // treat them as open unless explicitly set to 'none'.
+            const isOpen = !!(panel && panel.style.display !== 'none' &&
+                              (panel.style.display || panel.classList.contains('docked')));
             if (isOpen) anyOpen = true;
             if (dot)  dot.className  = 'tools-menu-dot'  + (isOpen ? ' on' : '');
             if (item) item.className = 'tools-menu-item' + (isOpen ? ' tm-active' : '');
@@ -2141,7 +2239,7 @@
         const survEl   = document.getElementById('hud-survival');
         const survIcon = document.getElementById('hud-survival-icon');
         const ch = p8.check_host || {};
-        const tg = p8.telegram_mirror || {};   // ここで定義 — 後方の詳細コードより先に宣言
+        const tg = p8.telegram_mirror || {};   // defined here — before the detail code further below
         const chStatus = ch.status || 'UNKNOWN';
         const chRate   = ch.theater_success_rate;
         if (survEl) {
@@ -2260,7 +2358,7 @@
             c2dEl.style.color  = tc.is_c2_sync ? '#ff2200' : tc.coherence_score > 0 ? '#ffaa00' : '#555';
         }
 
-        // Async: シーケンスイベント一覧をフェッチして描画
+        // Async: fetch sequence event list and render
         const theater = strat.core_theater || '';
         if (!theater) return;
         fetch(`/api/sequence_chain?theater=${encodeURIComponent(theater)}`)
@@ -2306,8 +2404,8 @@
         if (showMap) {
             _initMinimap();
             _minimapFlyTo(_activeRegion);
-            _syncPillsVisual();   // 全タブのピルを現在の選択地域に合わせる
-            _reapplyFilters();    // 現在の地域フィルターを再適用
+            _syncPillsVisual();   // sync all tab pills to current selected region
+            _reapplyFilters();    // reapply current region filter
             requestAnimationFrame(() => { _minimap?.invalidateSize(); _updateMinimap(); });
         }
     }
@@ -2409,7 +2507,7 @@
                         ? rsb.getBoundingClientRect().width + 'px'
                         : '400px';
                 }
-                // ドック表示変化後に地図サイズを再計算
+                // Recalculate map size after dock visibility change
                 map.invalidateSize({ animate: false });
                 _fitMapToViewport();
             });
@@ -2438,7 +2536,7 @@
             };
         }
 
-        // 初期フローティング状態にも defaultWidth を適用（dock→undock 後と同じサイズにする）
+        // Apply defaultWidth to initial floating state as well (same size as after dock→undock)
         if (panel.classList.contains('floating') && !panel.classList.contains('docked')) {
             if (!panel.style.width) panel.style.width = defaultWidth + 'px';
         }
@@ -2643,7 +2741,7 @@
         panel.addEventListener('mouseup', function(e) { saveLocalState(); });
     }
 
-    // defaultWidth: タイトルはwhite-space:nowrapで折り返し禁止。幅は内容優先で設定
+    // defaultWidth: title uses white-space:nowrap (no wrapping); width is content-first
     setupDockablePanel('target-panel',        'target-placeholder',    340);
     setupDockablePanel('dashboard-panel',     'dashboard-placeholder', 400);
     setupDockablePanel('chain-panel',         'chain-placeholder',     300);
@@ -2668,14 +2766,14 @@
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; CARTO', maxZoom: 18 }).addTo(map);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // 画面幅・高さ両方に世界地図1枚をフィット — 空白タイル領域を完全に非表示
+    // Fit one world map tile to both screen width and height — hide blank tile areas completely
     function _fitMapToViewport() {
         const el = document.getElementById('map');
         const W  = el.offsetWidth  || window.innerWidth;
         const H  = el.offsetHeight || window.innerHeight;
         const zW = Math.log2(W / 256);
         const zH = Math.log2(H / 256);
-        const z  = Math.max(zW, zH); // 幅・高さどちらでも空白が出ないズーム
+        const z  = Math.max(zW, zH); // zoom that leaves no blank tiles for either width or height
         map.setMinZoom(z);
         if (map.getZoom() < z) map.setZoom(z, { animate: false });
     }
@@ -2697,8 +2795,8 @@
     const cableRoutesLayer  = L.layerGroup().addTo(map);
     const chokepointsLayer  = L.layerGroup().addTo(map);
 
-    // [Intuition UI] Threat Terrain — 脅威密度ヒートマップ風サークルオーバーレイ
-    const threatTerrainLayer = L.layerGroup(); // デフォルト非表示
+    // [Intuition UI] Threat Terrain — threat-density heatmap-style circle overlay
+    const threatTerrainLayer = L.layerGroup(); // hidden by default
 
     const overlayLayers = {
         "Target Nodes":     targetLayer,
@@ -2730,12 +2828,12 @@
         }
     }
 
-    // P5-Opt: ベジェ曲線キャッシュ（同一ペアは再計算なし）
+    // P5-Opt: Bézier curve cache (same pair is not recalculated)
     const _curveCache = new Map();
     function getCurvePoints(startLat, startLng, endLat, endLng) {
         const key = `${startLat},${startLng},${endLat},${endLng}`;
         if (_curveCache.has(key)) return _curveCache.get(key);
-        const points = []; const numPoints = 20; // 50→20: 視覚差なし、計算量60%削減
+        const points = []; const numPoints = 20; // 50→20: no visible difference, 60% less computation
         const midLat = (startLat + endLat) / 2; const midLng = (startLng + endLng) / 2;
         const diffLat = endLat - startLat; const diffLng = endLng - startLng;
         const ctrlLat = midLat - diffLng * 0.2; const ctrlLng = midLng + diffLat * 0.2;
@@ -2750,14 +2848,14 @@
         return points;
     }
 
-    // THEATERS は app_config から動的取得 — 初期値は空
+    // THEATERS: dynamically fetched from app_config — initially empty
     let THEATERS = [];
 
     // ── Region Preview Mini-map ────────────────────────────────────────────────
     let _minimap = null;
     let _minimapMarkers = null;
-    let _activeRegion    = '';          // タブ間で共有する選択地域
-    let _syncPillsVisual = () => {};    // 全ピルコンテナのactive状態を同期
+    let _activeRegion    = '';          // selected region shared across tabs
+    let _syncPillsVisual = () => {};    // sync active state across all pill containers
     let _reapplyFilters  = () => {};
 
     const REGION_BOUNDS = {
@@ -2825,7 +2923,7 @@
         }
     }
 
-    // 地域表示順
+    // Region display order
     const REGION_ORDER = [
         "East Asia","SE Asia","S. Asia","C. Asia","Middle East",
         "N. Africa","Africa","W. Europe","N. Europe","E. Europe",
@@ -2862,7 +2960,7 @@
             pinsGrid.appendChild(pinLabel);
         });
 
-        // 利用中の地域一覧（表示順でソート）
+        // List of active regions (sorted by display order)
         const allRegions = [...new Set(THEATERS.map(t => t.region || 'Other'))];
         allRegions.sort((a, b) => {
             const ia = REGION_ORDER.indexOf(a), ib = REGION_ORDER.indexOf(b);
@@ -2871,7 +2969,7 @@
             return ia - ib;
         });
 
-        // ピルコンテナを初期化（現在の_activeRegionをアクティブ表示）
+        // Initialize pill containers (display current _activeRegion as active)
         function buildPills(containerId) {
             const c = document.getElementById(containerId);
             if (!c) return c;
@@ -2880,7 +2978,7 @@
             return c;
         }
 
-        // 全ピルコンテナのactive状態を_activeRegionに同期
+        // Sync active state of all pill containers to _activeRegion
         _syncPillsVisual = () => {
             ['pills-strategy', 'pills-actors', 'pills-pins'].forEach(id => {
                 const c = document.getElementById(id);
@@ -2891,7 +2989,7 @@
             });
         };
 
-        // 地域フィルター × テキスト検索の複合フィルター（_activeRegionを共有）
+        // Combined region filter × text search (sharing _activeRegion)
         function makeFilter(pillContainer, searchInputId, getRows) {
             if (!pillContainer) return () => {};
             let searchText = '';
@@ -2919,10 +3017,10 @@
         const applyP = makeFilter(buildPills('pills-pins'),     'search-pins',     () => pinsGrid.querySelectorAll('label'));
         _reapplyFilters = () => { applyS(); applyA(); applyP(); };
 
-        // 初回適用（保持中の地域があれば反映）
+        // Initial application (reflect any retained region)
         _reapplyFilters();
 
-        // チェックボックス/ラジオ変更時にミニマップを更新
+        // Update minimap when checkboxes/radios change
         [strategyTbody, actorsGrid, pinsGrid].forEach(container => {
             container.addEventListener('change', () => _updateMinimap());
         });
@@ -3066,7 +3164,7 @@
         const curr = getCurrentConfig();
         const displayTargets = curr.displays;
 
-        // P4-Opt: データ・ベクター・表示対象・マップ中心が変わっていなければスキップ
+        // P4-Opt: skip if data, vector, display targets, and map center are unchanged
         const _sig = `${data.timestamp || ''}_${currentVector}_${[...displayTargets].sort().join(',')}_${mapCenterMode}`;
         if (_sig === _lastRenderSig) return;
         _lastRenderSig = _sig;
@@ -3175,7 +3273,7 @@
 
             threatEl.onclick = () => openEvidencePanel(strat);
 
-            // ── HUD 更新 ──────────────────────────────────────────────────
+            // ── HUD update ────────────────────────────────────────────────
             const p8 = strat.analytics || {};
 
             // Velocity Meter
@@ -3184,7 +3282,7 @@
             if (velEl && p8.velocity !== undefined) {
                 const v = p8.velocity;
                 const absV = Math.abs(v);
-                // スケール: 0.001 pt/s = 約0.9 pt/cycle (900s) で通常変動
+                // Scale: 0.001 pt/s ≈ 0.9 pt/cycle (900 s) for typical variation
                 const dispV = absV < 0.0001 ? 'STABLE' : (absV * 900).toFixed(2) + '/cycle';
                 velEl.textContent = dispV;
                 if (v > 0.0001)       { velEl.style.color='#ff6644'; arrowEl.textContent='↑'; arrowEl.style.color='#ff6644'; }
@@ -3215,14 +3313,14 @@
                 chainEl.textContent = sc.includes('FULL_CHAIN') ? '✔ FULL' : sc.includes('PARTIAL') ? '≈ PARTIAL' : '—';
                 chainEl.style.color = sc.includes('FULL_CHAIN') ? '#ff4444' : sc.includes('PARTIAL') ? '#ffaa00' : '#555';
             }
-            // Evidence Chain Panel の更新
+            // Update Evidence Chain Panel
             updateChainPanel(strat);
 
-            // ── v9 新センサーパネル更新 ───────────────────────────────
+            // ── v9 new sensor panel update ───────────────────────────────
             if (document.getElementById('gn-panel')?.style.display !== 'none') {
                 updateGreyNoisePanel(p8);
             }
-            // DEFCON 変化を Analyst Notebook に自動ログ
+            // Auto-log DEFCON changes to Analyst Notebook
             const newLevel = strat.threat_level;
             if (_lastDefconLevel !== null && _lastDefconLevel !== newLevel) {
                 addNotebookEntry('DEFCON',
@@ -3230,12 +3328,12 @@
             }
             _lastDefconLevel = newLevel;
 
-            // ── Intuition UI 統合呼び出し ──────────────────────────────
+            // ── Intuition UI integrated call ───────────────────────────
             applyAmbientAtmosphere(strat.threat_level);
             updateRadioSilence(p8, strat);
             recordSignificantEvent(strat.threat_level);
 
-            // 開いているパネルのみリフレッシュ（不要なAPI呼び出しを抑制）
+            // Refresh open panels only (suppress unnecessary API calls)
             const wbPanel = document.getElementById('weather-brief-panel');
             if (wbPanel && wbPanel.style.display !== 'none') renderWeatherBrief();
             const salPanel = document.getElementById('salute-panel');
@@ -3331,12 +3429,12 @@
 
                 drawCountryLabel(t.lat, targetLngShifted, t.info, t.code);
 
-                // P7-Opt: div×30本 → <canvas>1個に置換（DOM削減）
+                // P7-Opt: replace 30 divs with a single <canvas> (DOM reduction)
                 let sparklineHtml = "";
                 const histL3 = t.trend_history_l3 || [];
                 const histL7 = t.trend_history_l7 || [];
                 if (histL3.length > 0 || histL7.length > 0) {
-                    sparklineHtml = `<canvas class="sparkline-canvas" width="64" height="20" data-l3="${histL3.join(',')}" data-l7="${histL7.join(',')}" data-vec="${currentVector}" title="L3(赤)/L7(緑) スパイクトレンド (75分)"></canvas>`;
+                    sparklineHtml = `<canvas class="sparkline-canvas" width="64" height="20" data-l3="${histL3.join(',')}" data-l7="${histL7.join(',')}" data-vec="${currentVector}" title="L3(red)/L7(green) spike trend (75 min)"></canvas>`;
                 }
 
                 const targetShare = parseFloat(t[vecShareKey] || 0).toFixed(2);
@@ -3414,7 +3512,7 @@
                         drawCountryLabel(s.lat, sourceLngShifted, s.name, s.code);
 
                         const curvePoints = getCurvePoints(s.lat, sourceLngShifted, t.lat, targetLngShifted);
-                        // P1-Opt: drop-shadow削除の代わりに高危険度ラインを太く補正
+                        // P1-Opt: instead of drop-shadow, compensate by thickening high-risk lines
                         const baseWidth = Math.max(1.5, Math.min(5, w * 3));
                         const dynamicLineWidth = glowClass === 'glow-high' ? Math.min(7, baseWidth + 1.5) : baseWidth;
                         L.polyline(curvePoints, { className: `attack-curve ${speedClass}`, color: lineColor, weight: dynamicLineWidth, opacity: lineOpacity }).addTo(lineLayer);
@@ -3527,7 +3625,7 @@
                     html: `<div style="position:relative;width:10px;height:10px;transform:rotate(45deg);background:${col}33;border:2px solid ${col};filter:drop-shadow(0 0 3px ${col});box-sizing:border-box;"></div>`,
                     iconSize: [10, 10], iconAnchor: [5, 5],
                 });
-                const nameList = info.ixps.slice(0, 5).join('<br>') + (count > 5 ? `<br>…他 ${count-5} 件` : '');
+                const nameList = info.ixps.slice(0, 5).join('<br>') + (count > 5 ? `<br>…and ${count-5} more` : '');
                 L.marker([info.lat, lngS], { icon })
                  .bindPopup(`<b style="color:${col};">IXP [${country}]</b> × ${count}<br><span style="font-size:11px;color:#aaa;">${nameList}</span>`)
                  .on('click', () => openCountryDetail(country))
@@ -3548,13 +3646,13 @@
             });
 
             // ── Render Cable Routes (static polylines) ──────────────────
-            // 子午線越えセグメント分割 + 端点補間:
-            // |ΔLng|>180 の区間を検出し、地図端(±180°)の正確な緯度を線形補間して
-            // セグメント端点を±180°にピッタリ合わせる。これにより地図の切れ目と
-            // ケーブルラインの切れ目が一致する。
+            // Anti-meridian segment splitting + endpoint interpolation:
+            // Detect segments where |ΔLng|>180, linearly interpolate the exact latitude
+            // at the map edge (±180°), and snap segment endpoints to ±180° exactly.
+            // This ensures the map cut and the cable line cut coincide.
             function buildRouteSegments(waypoints) {
                 const pts = waypoints.map(w => [w.lat, shiftLng(w.lng)]);
-                if (mapCenterMode === 'pacific') return [pts]; // shiftLngが解決済み
+                if (mapCenterMode === 'pacific') return [pts]; // shiftLng already resolved
                 const segments = [];
                 let seg = [pts[0]];
                 for (let i = 1; i < pts.length; i++) {
@@ -3562,11 +3660,11 @@
                     const curr = pts[i];
                     const dLng = curr[1] - prev[1];
                     if (Math.abs(dLng) > 180) {
-                        // 子午線(±180°)を越える区間: 交差点を補間
-                        const fromEast  = prev[1] > 0; // +180側から越えるか
-                        const edgeA     = fromEast ?  180 : -180; // このセグメントの終端経度
-                        const edgeB     = fromEast ? -180 :  180; // 次セグメントの始端経度
-                        // 実際に越える角度距離 (常に正)
+                        // Segment crossing the anti-meridian (±180°): interpolate the crossing point
+                        const fromEast  = prev[1] > 0; // crossing from the +180 side?
+                        const edgeA     = fromEast ?  180 : -180; // end longitude of this segment
+                        const edgeB     = fromEast ? -180 :  180; // start longitude of next segment
+                        // actual angular distance crossed (always positive)
                         const totalDist = fromEast
                             ? (180 - prev[1]) + (curr[1] + 180)
                             : (prev[1] + 180) + (180 - curr[1]);
@@ -3612,7 +3710,7 @@
                 const status = c.status  || 'normal';
                 const cpType = c.type    || 'cable_landing';
 
-                // 状態・種別ごとの色
+                // Color by status and type
                 const BASE_COLOR = {
                     cable_landing:   '#00ffff',
                     maritime_strait: '#ffaa00',
@@ -3625,7 +3723,7 @@
                 };
                 const color = STATUS_COLOR[status];
 
-                // AIS 監視ゾーンサークル (55 km)
+                // AIS surveillance zone circle (55 km)
                 const zoneAlpha = status === 'dark_gap' ? 0.18 : status === 'stationary' ? 0.10 : 0.04;
                 L.circle([c.lat, lngS], {
                     radius:      55000,
@@ -3638,7 +3736,7 @@
                     dashArray:   status === 'normal' ? '4 6' : null,
                 }).addTo(chokepointsLayer);
 
-                // 種別アイコン
+                // Type icon
                 const ICON_CHAR = { cable_landing:'◆', maritime_strait:'⬡', nato_corridor:'⬟' };
                 const iconChar  = ICON_CHAR[cpType] || '◆';
                 const fontSize  = cpType === 'maritime_strait' ? 16 : 14;
@@ -3651,7 +3749,7 @@
                     iconAnchor: [8, 8],
                 });
 
-                // リッチポップアップ
+                // Rich popup
                 const TYPE_LABEL = {
                     cable_landing:   'Cable Landing Station',
                     maritime_strait: 'Maritime Chokepoint',
@@ -3682,11 +3780,11 @@
 
         originContainer.innerHTML = originHtml;
 
-        // ── Intuition UI: Pulse Display + Threat Terrain (全render共通) ──
+        // ── Intuition UI: Pulse Display + Threat Terrain (common to all renders) ──
         updatePulseDisplay(data.threat_history || []);
         updateThreatTerrain(data);
 
-        // P7-Opt: innerHTML 確定後にまとめて Canvas へ描画
+        // P7-Opt: batch Canvas rendering after innerHTML is finalized
         originContainer.querySelectorAll('.sparkline-canvas').forEach(cvs => {
             const l3 = cvs.dataset.l3 ? cvs.dataset.l3.split(',').map(Number) : [];
             const l7 = cvs.dataset.l7 ? cvs.dataset.l7.split(',').map(Number) : [];
@@ -3784,7 +3882,7 @@
     const LAYOUT_VERSION = 10; // bump when layout structure changes to auto-clear stale state
 
     function loadTargetState(defaults) {
-        // THEATERS を app_config の全世界リストで初期化してからUIを構築
+        // Initialize THEATERS from app_config global list before building UI
         if (defaults.available_countries && defaults.available_countries.length) {
             THEATERS = defaults.available_countries.map(c => ({ code: c.code, name: c.name, region: c.region || 'Other', lat: c.lat, lng: c.lng }));
         }
@@ -4315,16 +4413,16 @@
 
     // ══════════════════════════════════════════════════════════════════════
     //  INTUITION UI — Recognition-Primed Decision (RPD) Components
-    //  アナリストの経験則・直観に訴えかける8つのUI要素
+    //  Eight UI elements that appeal to the analyst's heuristics and intuition
     // ══════════════════════════════════════════════════════════════════════
 
-    let _pulseHistory   = []; // [{ts, threat_level}] — EKGパルス履歴
-    let _lastEventTs    = Date.now(); // 最後に重大イベントが発生した時刻
+    let _pulseHistory   = []; // [{ts, threat_level}] — EKG pulse history
+    let _lastEventTs    = Date.now(); // timestamp of the last significant event
     let _clockInterval  = null;
-    let _histEvents     = []; // geo_data HISTORICAL_EVENTS キャッシュ
+    let _histEvents     = []; // geo_data HISTORICAL_EVENTS cache
 
     // ── A. Ambient Atmosphere ──────────────────────────────────────────
-    // 脅威レベルに応じてbodyクラスを切替→CSS keyframesで背景を微変色
+    // Switch body class based on threat level → CSS keyframes subtly tint background
     function applyAmbientAtmosphere(threatLevel) {
         const body = document.body;
         body.classList.remove('atm-critical', 'atm-severe', 'atm-high');
@@ -4334,7 +4432,7 @@
     }
 
     // ── B. Pulse Display ──────────────────────────────────────────────
-    // スクロール型EKG波形 — 脅威スコア時系列を心拍グラフで可視化
+    // Scrolling EKG waveform — visualize threat score time series as a heartbeat graph
     function updatePulseDisplay(threatHistory) {
         if (!threatHistory || !threatHistory.length) return;
         _pulseHistory = threatHistory.slice(-60);
@@ -4349,7 +4447,7 @@
         ctx.clearRect(0, 0, W, H);
         if (!_pulseHistory.length) return;
 
-        // 薄いグリッド線
+        // Faint grid lines
         ctx.strokeStyle = '#1c1c1c';
         ctx.lineWidth = 0.5;
         for (let i = 0; i <= 4; i++) {
@@ -4362,14 +4460,14 @@
         const lastDef = _pulseHistory[_pulseHistory.length - 1][1];
         const lineCol = col[lastDef] || '#00ffff';
 
-        // threat_level: 1(危険,上)→5(平常,下). y = top→bottom
+        // threat_level: 1(critical, top)→5(normal, bottom). y = top→bottom
         const pts = _pulseHistory.map(([, d], i) => {
             const x = (i / Math.max(n - 1, 1)) * (W - 4) + 2;
             const y = ((d - 1) / 4) * (H - 8) + 4;
             return [x, y];
         });
 
-        // 塗りつぶし
+        // Fill area
         ctx.beginPath();
         ctx.moveTo(pts[0][0], H);
         pts.forEach(([x, y]) => ctx.lineTo(x, y));
@@ -4378,14 +4476,14 @@
         ctx.fillStyle = lineCol + '14';
         ctx.fill();
 
-        // ライン
+        // Line
         ctx.beginPath();
         pts.forEach(([x, y], i) => { if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
         ctx.strokeStyle = lineCol + 'cc';
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // 最新ドット
+        // Latest dot
         const [lx, ly] = pts[pts.length - 1];
         ctx.beginPath();
         ctx.arc(lx, ly, 2.5, 0, Math.PI * 2);
@@ -4409,7 +4507,7 @@
     }
 
     // ── C. Operational Clock ──────────────────────────────────────────
-    // リアルタイムZulu時刻 + 最終重大イベントからの経過時間
+    // Real-time Zulu time + elapsed time since last significant event
     function togglePulseDisplay() {
         const panel = document.getElementById('pulse-panel');
         if (!panel) return;
@@ -4465,7 +4563,7 @@
     }
 
     // ── D. Operational Weather Brief ──────────────────────────────────
-    // 脅威環境を気象メタファーで直観的表現 — /api/weather_brief から取得
+    // Intuitive weather-metaphor representation of the threat environment — fetched from /api/weather_brief
     function toggleWeatherBrief() {
         const panel = document.getElementById('weather-brief-panel');
         if (!panel) return;
@@ -4535,7 +4633,7 @@
     }
 
     // ── E. SALUTE Board ───────────────────────────────────────────────
-    // Size/Activity/Location/Unit/Time/Equipment — 軍事接触報告様式
+    // Size/Activity/Location/Unit/Time/Equipment — military contact report format
     function toggleSaluteBoard() {
         const panel = document.getElementById('salute-panel');
         if (!panel) return;
@@ -4587,7 +4685,7 @@
     }
 
     // ── F. Historical Pattern Analog ──────────────────────────────────
-    // 現在のパターンを過去の確認済み事例とPearson相関でマッチング
+    // Match current pattern against past confirmed cases using Pearson correlation
     function toggleHistAnalog() {
         const panel = document.getElementById('hist-analog-panel');
         if (!panel) return;
@@ -4607,7 +4705,7 @@
         const bodyEl = panel.querySelector('.ha-body');
         if (!bodyEl) return;
 
-        // 歴史パターンをキャッシュ（初回のみAPI取得）
+        // Cache historical patterns (API fetch on first call only)
         if (!_histEvents.length) {
             try {
                 const res = await fetch('http://127.0.0.1:8000/api/historical_events');
@@ -4617,16 +4715,16 @@
         }
 
         if (!_histEvents.length || !latestData || !(latestData.threat_history || []).length) {
-            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">データ蓄積中...</div>';
+            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">Accumulating data...</div>';
             return;
         }
 
-        // 現在パターン: 最新20サイクル → 0(平常)〜1(危機) に正規化
+        // Current pattern: last 20 cycles → normalized to 0(normal)–1(crisis)
         const hist = latestData.threat_history || [];
         const cur20 = hist.slice(-20).map(([, d]) => (5 - d) / 4);
         while (cur20.length < 20) cur20.unshift(0);
 
-        // Pearson相関係数でマッチング
+        // Match using Pearson correlation coefficient
         function pearson(a, b) {
             const n = a.length;
             const ma = a.reduce((s, v) => s + v, 0) / n;
@@ -4659,7 +4757,7 @@
             </div>`;
         }).join('') + '<div class="ha-note">PEARSON R — LAST 20 CYCLES vs KNOWN EVENTS</div>';
 
-        // 各カードのminiグラフを描画（現在=cyan、過去=dim color）
+        // Draw mini-graph for each card (current=cyan, historical=dim color)
         requestAnimationFrame(() => {
             matches.forEach(ev => {
                 const cvs = document.getElementById(`ha-cv-${ev.id}`);
@@ -4671,7 +4769,7 @@
                 const pat = ev.pattern || new Array(20).fill(0);
                 const n   = 20;
 
-                // 過去パターン（薄い）
+                // Historical pattern (faint)
                 ctx.beginPath();
                 pat.forEach((v, i) => {
                     const x = (i / (n-1)) * (W-2) + 1;
@@ -4682,7 +4780,7 @@
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
-                // 現在パターン（明瞭）
+                // Current pattern (sharp)
                 ctx.beginPath();
                 cur20.forEach((v, i) => {
                     const x = (i / (n-1)) * (W-2) + 1;
@@ -4697,7 +4795,7 @@
     }
 
     // ── G. Radio Silence Indicator ────────────────────────────────────
-    // 全センサーが異常に静かな場合: センサー抑圧 or 作戦前通信遮断の兆候
+    // All sensors abnormally quiet: possible sensor suppression or pre-operation comms blackout
     function updateRadioSilence(p8, strat) {
         const wrap = document.getElementById('hud-radio-silence');
         const dot  = wrap ? wrap.querySelector('.rs-dot') : null;
@@ -4706,7 +4804,7 @@
 
         const velocity = p8 ? Math.abs(p8.velocity || 0) : 0;
         const score    = strat ? ((strat.threat_breakdown || {}).total_score || 0) : 0;
-        // 「静寂異常」: スコアが有意水準以上だが速度変化が皆無
+        // "Quiet anomaly": score at or above significance level but velocity is zero
         const isQuiet  = velocity < 0.00005 && score >= 3;
 
         wrap.classList.add('active');
@@ -4726,16 +4824,16 @@
     }
 
     // ── H. Threat Terrain Overlay ─────────────────────────────────────
-    // 国別脅威強度をLeaflet Circleで可視化（choropleth風）
+    // Visualize per-country threat intensity with Leaflet Circles (choropleth-style)
     function updateThreatTerrain(data) {
         threatTerrainLayer.clearLayers();
         if (!data.targets) return;
         data.targets.forEach(t => {
             const spike = t.avg_spike || 1;
             const isOut = t.is_bgp_effective;
-            if (spike < 1.5 && !isOut) return; // 平常はスキップ
+            if (spike < 1.5 && !isOut) return; // skip normal
             const intensity = Math.min(1, (spike - 1) / 6);
-            const radius    = 120000 + intensity * 500000; // メートル
+            const radius    = 120000 + intensity * 500000; // metres
             const col = isOut ? '#ff0000' : spike > 4 ? '#ff6600' : '#ffaa00';
             L.circle([t.lat, shiftLng(t.lng)], {
                 radius,
@@ -4747,7 +4845,7 @@
         });
     }
 
-    // ── 重大イベント検出 → 作戦テンポ計時リセット ────────────────────
+    // ── Significant event detected → reset operational tempo timer ────
     function recordSignificantEvent(threatLevel) {
         if (threatLevel <= 3) _lastEventTs = Date.now();
     }
