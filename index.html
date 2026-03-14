@@ -1496,9 +1496,12 @@
         <!-- Intercept log -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
             <span style="font-size:9px;color:#555;letter-spacing:1px;">INTERCEPT LOG</span>
-            <span id="tgsig-filter-label" style="display:none;font-size:9px;color:#ff66cc;">
-                <span id="tgsig-filter-text"></span>
-                <span onclick="tgClearFilter()" style="cursor:pointer;color:#555;margin-left:4px;" data-tooltip="Clear filter">✕</span>
+            <span style="display:flex;align-items:center;gap:8px;">
+                <span id="tgsig-filter-label" style="display:none;font-size:9px;color:#ff66cc;">
+                    <span id="tgsig-filter-text"></span>
+                    <span onclick="tgClearFilter()" style="cursor:pointer;color:#555;margin-left:4px;" data-tooltip="Clear filter">✕</span>
+                </span>
+                <button onclick="tgClearLog()" style="background:none;border:none;color:#333;font-size:9px;cursor:pointer;letter-spacing:1px;padding:0;" data-tooltip="Clear intercept log on server">CLEAR</button>
             </span>
         </div>
         <div id="tgsig-intercept-log" style="max-height:220px;overflow-y:auto;margin-bottom:8px;"></div>
@@ -1676,6 +1679,16 @@
         _renderTgLog(_tgLastData);
     }
 
+    function tgClearLog() {
+        if (!confirm('Clear intercept log on server?')) return;
+        fetch('http://127.0.0.1:8000/api/telegram_log/clear', { method: 'POST' })
+            .then(() => {
+                _tgLastData = Object.assign({}, _tgLastData, { recent_hits: [] });
+                _renderTgLog(_tgLastData);
+            })
+            .catch(() => {});
+    }
+
     function _tgEsc(s) {
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
@@ -1718,7 +1731,12 @@
             const breakdown = tg.theater_breakdown || {};
             const entries   = Object.entries(breakdown);
             if (entries.length === 0) {
-                grid.innerHTML = '<span style="font-size:9px;color:#333;">No theaters configured</span>';
+                const hasHistory = (tg.recent_hits || []).length > 0;
+                const polled     = !!tg.last_poll_ts;
+                const gridMsg    = !polled          ? 'Sensor not yet polled'
+                                 : hasHistory       ? 'No active channels this cycle — see log below'
+                                 : 'No channel activity detected';
+                grid.innerHTML = `<span style="font-size:9px;color:#333;">${gridMsg}</span>`;
             } else {
                 grid.innerHTML = entries.map(([theater, data]) => {
                     const st    = data.status || 'CLEAR';

@@ -1173,22 +1173,44 @@ class TelegramMirrorSensor(BaseSensor):
 
     def _parse_posts(self, text: str, keywords: list) -> tuple:
         """テキストからターゲットURLと攻撃宣言を抽出する。
-        Returns: (targets: list[str], has_attack_intent: bool, matched_keywords: list[str])"""
+        Returns: (targets: list[str], has_attack_intent: bool, matched_keywords: list[str])
+        単語境界マッチング: "target" が "targeting" にマッチしないよう \\b を使用。
+        2文字以下のキーワード（例: "op"）は偽陽性を多発させるためスキップ。
+        フレーズ（スペースあり）と #ハッシュタグ は部分一致で十分に特定的。
+        """
+        import re as _re
         targets = self._URL_RE.findall(text)
         gov_targets = [u for u in targets if any(
             pat in u for pat in (".gov", ".mil", ".parliament", ".bundestag",
                                   ".elysee", ".president", "bank", "energy", "telecom")
         )]
-        matched_kws = [kw for kw in keywords if kw in text]
-        has_intent  = len(matched_kws) > 0
+        matched_kws = []
+        for kw in keywords:
+            if len(kw) <= 2:                          # "op" 等 — 短すぎてノイズになるためスキップ
+                continue
+            if ' ' in kw or kw.startswith('#'):       # フレーズ / ハッシュタグ — 部分一致で十分
+                if kw in text:
+                    matched_kws.append(kw)
+            else:                                     # 単語 — "targeting" が "target" にマッチしないよう境界指定
+                if _re.search(r'\b' + _re.escape(kw) + r'\b', text):
+                    matched_kws.append(kw)
+        has_intent = len(matched_kws) > 0
         return gov_targets[:10], has_intent, matched_kws
 
     def _extract_snippet(self, text: str, keywords: list, context: int = 100) -> str:
-        """キーワード周辺のテキストを最大200文字抽出してスニペットを返す。"""
+        """キーワード周辺のテキストを最大200文字抽出してスニペットを返す。
+        _parse_posts と同じ単語境界ロジックを使い、フォールスポジティブのスニペットを防ぐ。
+        """
         import re as _re
         for kw in keywords:
-            idx = text.find(kw)
-            if idx >= 0:
+            if len(kw) <= 2:
+                continue
+            if ' ' in kw or kw.startswith('#'):
+                m = _re.search(_re.escape(kw), text)
+            else:
+                m = _re.search(r'\b' + _re.escape(kw) + r'\b', text)
+            if m:
+                idx   = m.start()
                 start = max(0, idx - 60)
                 end   = min(len(text), idx + len(kw) + context)
                 raw   = text[start:end].strip()
@@ -2769,6 +2791,12 @@ def data_status():
 def api_alert_timeline():
     limit = min(int(request.args.get("limit", 288)), 288)
     return jsonify({"ts": datetime.datetime.now().isoformat(), "count": len(alert_timeline), "timeline": list(alert_timeline)[-limit:]})
+
+@app.route("/api/telegram_log/clear", methods=["POST"])
+def api_telegram_log_clear():
+    """Telegram SIGINT インターセプトログをクリアする。"""
+    TelegramMirrorSensor._intercept_log.clear()
+    return jsonify({"ok": True, "ts": datetime.datetime.now(datetime.timezone.utc).isoformat()})
 
 @app.route("/api/sitrep", methods=["GET"])
 def api_sitrep():
