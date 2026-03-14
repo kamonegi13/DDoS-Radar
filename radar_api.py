@@ -2261,8 +2261,8 @@ def get_threat_data():
                 is_adversary_origin = code in adversary_states
                 _floor_new   = 0.5 if is_adversary_origin else 3.0  # 新規actor（ベースラインにない）
                 _floor_exist = 0.5 if is_adversary_origin else 2.0  # 既存actor
-                base_l3 = max(b_data["l3"].get(code, _floor_new), _floor_exist if code not in b_data["l3"] else _floor_new)
-                base_l7 = max(b_data["l7"].get(code, _floor_new), _floor_exist if code not in b_data["l7"] else _floor_new)
+                base_l3 = max(b_data["l3"].get(code, _floor_new), _floor_new if code not in b_data["l3"] else _floor_exist)
+                base_l7 = max(b_data["l7"].get(code, _floor_new), _floor_new if code not in b_data["l7"] else _floor_exist)
                 l3_spike = (local_l3_pct / base_l3) if local_l3_pct > 0 else 0.0
                 l7_spike = (local_l7_pct / base_l7) if local_l7_pct > 0 else 0.0
                 # スパイク倍率を25倍でキャップ（統計ノイズによる極端な増幅を防ぐ）
@@ -2840,8 +2840,8 @@ def api_sitrep():
         "summary": {
             "threat_current": latest["threat_level"],
             "threat_trend": trend, 
-            "threat_min_1h": max_d, 
-            "threat_max_1h": min_d, 
+            "threat_min_1h": min_d,
+            "threat_max_1h": max_d,
             "threat_avg_1h": avg_d, 
             "convergence": dominant_conv, 
             "active_domains": active_domains, 
@@ -3000,7 +3000,7 @@ def api_salute_report():
     core   = strat.get("core_theater", "UNKNOWN")
     bd     = strat.get("threat_breakdown", {})
     adv_raw = strat.get("adversary_strikes", [])
-    adv     = list(dict.fromkeys(a["actor"] if isinstance(a, dict) else str(a) for a in adv_raw))
+    adv     = list(dict.fromkeys(a.get("actor", str(a)) if isinstance(a, dict) else str(a) for a in adv_raw))
     corr   = strat.get("correlations", {})
     isr    = p8.get("isr", {})
     ais    = p8.get("ais", {})
