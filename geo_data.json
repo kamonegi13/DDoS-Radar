@@ -825,144 +825,794 @@
       "airport": "MSQ",
       "lat": 53.8825,
       "lng": 28.0307
+    },
+    "AD": {
+      "airport": "LEU",
+      "lat": 42.3386,
+      "lng": 1.4092
+    },
+    "AF": {
+      "airport": "KBL",
+      "lat": 34.5659,
+      "lng": 69.2119
+    },
+    "AL": {
+      "airport": "TIA",
+      "lat": 41.4147,
+      "lng": 19.7206
+    },
+    "AM": {
+      "airport": "EVN",
+      "lat": 40.1473,
+      "lng": 44.3959
+    },
+    "AO": {
+      "airport": "LAD",
+      "lat": -8.8585,
+      "lng": 13.2312
+    },
+    "AR": {
+      "airport": "EZE",
+      "lat": -34.8222,
+      "lng": -58.5358
+    },
+    "AT": {
+      "airport": "VIE",
+      "lat": 48.1103,
+      "lng": 16.5697
+    },
+    "AZ": {
+      "airport": "GYD",
+      "lat": 40.4675,
+      "lng": 50.0466
+    },
+    "BA": {
+      "airport": "SJJ",
+      "lat": 43.8246,
+      "lng": 18.3315
+    },
+    "BD": {
+      "airport": "DAC",
+      "lat": 23.8433,
+      "lng": 90.3979
+    },
+    "BE": {
+      "airport": "BRU",
+      "lat": 50.9014,
+      "lng": 4.4844
+    },
+    "BG": {
+      "airport": "SOF",
+      "lat": 42.6967,
+      "lng": 23.4114
+    },
+    "BH": {
+      "airport": "BAH",
+      "lat": 26.2708,
+      "lng": 50.6336
+    },
+    "BO": {
+      "airport": "LPB",
+      "lat": -16.5133,
+      "lng": -68.1922
+    },
+    "BN": {
+      "airport": "BWN",
+      "lat": 4.9442,
+      "lng": 114.928
+    },
+    "CH": {
+      "airport": "ZRH",
+      "lat": 47.4647,
+      "lng": 8.5492
+    },
+    "CI": {
+      "airport": "ABJ",
+      "lat": 5.2613,
+      "lng": -3.9262
+    },
+    "CL": {
+      "airport": "SCL",
+      "lat": -33.3931,
+      "lng": -70.7858
+    },
+    "CM": {
+      "airport": "DLA",
+      "lat": 4.0061,
+      "lng": 9.7194
+    },
+    "CO": {
+      "airport": "BOG",
+      "lat": 4.7016,
+      "lng": -74.1469
+    },
+    "CR": {
+      "airport": "SJO",
+      "lat": 9.9939,
+      "lng": -84.2088
+    },
+    "CU": {
+      "airport": "HAV",
+      "lat": 22.9893,
+      "lng": -82.4091
+    },
+    "CY": {
+      "airport": "LCA",
+      "lat": 34.8751,
+      "lng": 33.6249
+    },
+    "CZ": {
+      "airport": "PRG",
+      "lat": 50.1008,
+      "lng": 14.26
+    },
+    "DK": {
+      "airport": "CPH",
+      "lat": 55.618,
+      "lng": 12.6561
+    },
+    "DO": {
+      "airport": "SDQ",
+      "lat": 18.4297,
+      "lng": -69.6689
+    },
+    "DZ": {
+      "airport": "ALG",
+      "lat": 36.691,
+      "lng": 3.2154
+    },
+    "EC": {
+      "airport": "UIO",
+      "lat": -0.1292,
+      "lng": -78.3575
+    },
+    "EE": {
+      "airport": "TLL",
+      "lat": 59.4133,
+      "lng": 24.8328
+    },
+    "EG": {
+      "airport": "CAI",
+      "lat": 30.1219,
+      "lng": 31.4056
+    },
+    "ET": {
+      "airport": "ADD",
+      "lat": 8.9779,
+      "lng": 38.7993
+    },
+    "FJ": {
+      "airport": "NAN",
+      "lat": -17.7554,
+      "lng": 177.443
+    },
+    "GE": {
+      "airport": "TBS",
+      "lat": 41.6693,
+      "lng": 44.9547
+    },
+    "GH": {
+      "airport": "ACC",
+      "lat": 5.6052,
+      "lng": -0.1668
+    },
+    "GR": {
+      "airport": "ATH",
+      "lat": 37.9364,
+      "lng": 23.9445
+    },
+    "GT": {
+      "airport": "GUA",
+      "lat": 14.5833,
+      "lng": -90.5275
+    },
+    "GY": {
+      "airport": "GEO",
+      "lat": 6.4986,
+      "lng": -58.2541
+    },
+    "HK": {
+      "airport": "HKG",
+      "lat": 22.3089,
+      "lng": 113.9145
+    },
+    "HN": {
+      "airport": "TGU",
+      "lat": 14.0608,
+      "lng": -87.2172
+    },
+    "HR": {
+      "airport": "ZAG",
+      "lat": 45.7429,
+      "lng": 16.0688
+    },
+    "HU": {
+      "airport": "BUD",
+      "lat": 47.4298,
+      "lng": 19.2611
+    },
+    "IE": {
+      "airport": "DUB",
+      "lat": 53.4273,
+      "lng": -6.2436
+    },
+    "IQ": {
+      "airport": "BGW",
+      "lat": 33.2625,
+      "lng": 44.2346
+    },
+    "IS": {
+      "airport": "KEF",
+      "lat": 63.985,
+      "lng": -22.6056
+    },
+    "JM": {
+      "airport": "KIN",
+      "lat": 17.9358,
+      "lng": -76.7875
+    },
+    "JO": {
+      "airport": "AMM",
+      "lat": 31.7226,
+      "lng": 35.9932
+    },
+    "KE": {
+      "airport": "NBO",
+      "lat": -1.3192,
+      "lng": 36.9275
+    },
+    "KG": {
+      "airport": "FRU",
+      "lat": 43.0613,
+      "lng": 74.4777
+    },
+    "KH": {
+      "airport": "PNH",
+      "lat": 11.5466,
+      "lng": 104.844
+    },
+    "KW": {
+      "airport": "KWI",
+      "lat": 29.2267,
+      "lng": 47.9689
+    },
+    "KZ": {
+      "airport": "NQZ",
+      "lat": 51.0223,
+      "lng": 71.4669
+    },
+    "LA": {
+      "airport": "VTE",
+      "lat": 17.9883,
+      "lng": 102.5633
+    },
+    "LB": {
+      "airport": "BEY",
+      "lat": 33.8209,
+      "lng": 35.4883
+    },
+    "LK": {
+      "airport": "CMB",
+      "lat": 7.1808,
+      "lng": 79.8841
+    },
+    "LT": {
+      "airport": "VNO",
+      "lat": 54.6341,
+      "lng": 25.2878
+    },
+    "LU": {
+      "airport": "LUX",
+      "lat": 49.6233,
+      "lng": 6.2044
+    },
+    "LV": {
+      "airport": "RIX",
+      "lat": 56.9236,
+      "lng": 23.9711
+    },
+    "LY": {
+      "airport": "TIP",
+      "lat": 32.6635,
+      "lng": 13.1591
+    },
+    "MA": {
+      "airport": "CMN",
+      "lat": 33.3675,
+      "lng": -7.5897
+    },
+    "MD": {
+      "airport": "KIV",
+      "lat": 46.9277,
+      "lng": 28.9309
+    },
+    "ME": {
+      "airport": "TGD",
+      "lat": 42.3594,
+      "lng": 19.2519
+    },
+    "MG": {
+      "airport": "TNR",
+      "lat": -18.7969,
+      "lng": 47.4788
+    },
+    "MK": {
+      "airport": "SKP",
+      "lat": 41.9614,
+      "lng": 21.6214
+    },
+    "ML": {
+      "airport": "BKO",
+      "lat": 12.5335,
+      "lng": -7.9499
+    },
+    "MM": {
+      "airport": "RGN",
+      "lat": 16.9073,
+      "lng": 96.1332
+    },
+    "MN": {
+      "airport": "ULN",
+      "lat": 47.8431,
+      "lng": 106.766
+    },
+    "MO": {
+      "airport": "MFM",
+      "lat": 22.1496,
+      "lng": 113.5916
+    },
+    "MT": {
+      "airport": "MLA",
+      "lat": 35.8574,
+      "lng": 14.4775
+    },
+    "MU": {
+      "airport": "MRU",
+      "lat": -20.4302,
+      "lng": 57.6836
+    },
+    "MV": {
+      "airport": "MLE",
+      "lat": 4.1918,
+      "lng": 73.529
+    },
+    "MX": {
+      "airport": "MEX",
+      "lat": 19.4363,
+      "lng": -99.0721
+    },
+    "NE": {
+      "airport": "NIM",
+      "lat": 13.4815,
+      "lng": 2.1835
+    },
+    "NG": {
+      "airport": "LOS",
+      "lat": 6.5774,
+      "lng": 3.3216
+    },
+    "NI": {
+      "airport": "MGA",
+      "lat": 12.1415,
+      "lng": -86.1682
+    },
+    "NO": {
+      "airport": "OSL",
+      "lat": 60.1939,
+      "lng": 11.1004
+    },
+    "NP": {
+      "airport": "KTM",
+      "lat": 27.6966,
+      "lng": 85.3591
+    },
+    "OM": {
+      "airport": "MCT",
+      "lat": 23.5933,
+      "lng": 58.2844
+    },
+    "PA": {
+      "airport": "PTY",
+      "lat": 9.0713,
+      "lng": -79.3835
+    },
+    "PE": {
+      "airport": "LIM",
+      "lat": -12.0219,
+      "lng": -77.1143
+    },
+    "PG": {
+      "airport": "POM",
+      "lat": -9.4434,
+      "lng": 147.22
+    },
+    "PK": {
+      "airport": "ISB",
+      "lat": 33.6167,
+      "lng": 73.0997
+    },
+    "PR": {
+      "airport": "SJU",
+      "lat": 18.4394,
+      "lng": -66.0018
+    },
+    "PT": {
+      "airport": "LIS",
+      "lat": 38.7756,
+      "lng": -9.1354
+    },
+    "PY": {
+      "airport": "ASU",
+      "lat": -25.24,
+      "lng": -57.5197
+    },
+    "QA": {
+      "airport": "DOH",
+      "lat": 25.2731,
+      "lng": 51.6081
+    },
+    "RO": {
+      "airport": "OTP",
+      "lat": 44.5711,
+      "lng": 26.085
+    },
+    "RS": {
+      "airport": "BEG",
+      "lat": 44.8184,
+      "lng": 20.3091
+    },
+    "RW": {
+      "airport": "KGL",
+      "lat": -1.9686,
+      "lng": 30.1395
+    },
+    "SD": {
+      "airport": "KRT",
+      "lat": 15.5895,
+      "lng": 32.5532
+    },
+    "SI": {
+      "airport": "LJU",
+      "lat": 46.2237,
+      "lng": 14.4576
+    },
+    "SK": {
+      "airport": "BTS",
+      "lat": 48.1702,
+      "lng": 17.2127
+    },
+    "SN": {
+      "airport": "DSS",
+      "lat": 14.6703,
+      "lng": -17.0721
+    },
+    "SR": {
+      "airport": "PBM",
+      "lat": 5.4528,
+      "lng": -55.1878
+    },
+    "SV": {
+      "airport": "SAL",
+      "lat": 13.4409,
+      "lng": -89.0557
+    },
+    "SY": {
+      "airport": "DAM",
+      "lat": 33.4114,
+      "lng": 36.5156
+    },
+    "TJ": {
+      "airport": "DYU",
+      "lat": 38.5433,
+      "lng": 68.7747
+    },
+    "TL": {
+      "airport": "DIL",
+      "lat": -8.5468,
+      "lng": 125.5248
+    },
+    "TM": {
+      "airport": "ASB",
+      "lat": 37.9868,
+      "lng": 58.361
+    },
+    "TN": {
+      "airport": "TUN",
+      "lat": 36.851,
+      "lng": 10.2272
+    },
+    "TZ": {
+      "airport": "DAR",
+      "lat": -6.8781,
+      "lng": 39.2026
+    },
+    "UG": {
+      "airport": "EBB",
+      "lat": 0.0424,
+      "lng": 32.4435
+    },
+    "UY": {
+      "airport": "MVD",
+      "lat": -34.8384,
+      "lng": -56.0308
+    },
+    "UZ": {
+      "airport": "TAS",
+      "lat": 41.2579,
+      "lng": 69.2816
+    },
+    "VE": {
+      "airport": "CCS",
+      "lat": 10.6013,
+      "lng": -66.9913
+    },
+    "XK": {
+      "airport": "PRN",
+      "lat": 42.5728,
+      "lng": 21.0358
+    },
+    "YE": {
+      "airport": "SAH",
+      "lat": 15.4763,
+      "lng": 44.2197
+    },
+    "ZM": {
+      "airport": "LUN",
+      "lat": -15.3308,
+      "lng": 28.4526
+    },
+    "ZW": {
+      "airport": "HRE",
+      "lat": -17.9318,
+      "lng": 31.0928
+    },
+    "CD": {
+      "airport": "FIH",
+      "lat": -4.3857,
+      "lng": 15.4446
     }
   },
   "CHOKEPOINTS": [
     {
       "name": "Tanshui Cable Landing Station",
-      "lat": 25.176, "lng": 121.439, "country": "TW",
+      "lat": 25.176,
+      "lng": 121.439,
+      "country": "TW",
       "type": "cable_landing",
-      "cables": ["APCN2", "EAC-C2C", "TPE"]
+      "cables": [
+        "APCN2",
+        "EAC-C2C",
+        "TPE"
+      ]
     },
     {
       "name": "Fangshan Cable Landing Station",
-      "lat": 22.261, "lng": 120.655, "country": "TW",
+      "lat": 22.261,
+      "lng": 120.655,
+      "country": "TW",
       "type": "cable_landing",
-      "cables": ["APCN2", "EAC-C2C", "C2C"]
+      "cables": [
+        "APCN2",
+        "EAC-C2C",
+        "C2C"
+      ]
     },
     {
       "name": "Toucheng Cable Landing Station",
-      "lat": 24.857, "lng": 121.823, "country": "TW",
+      "lat": 24.857,
+      "lng": 121.823,
+      "country": "TW",
       "type": "cable_landing",
-      "cables": ["APCN2", "TPE", "NCP"]
+      "cables": [
+        "APCN2",
+        "TPE",
+        "NCP"
+      ]
     },
     {
       "name": "Shima Cable Landing Station",
-      "lat": 34.298, "lng": 136.824, "country": "JP",
+      "lat": 34.298,
+      "lng": 136.824,
+      "country": "JP",
       "type": "cable_landing",
-      "cables": ["APCN2", "PC-1", "Guam-Japan"]
+      "cables": [
+        "APCN2",
+        "PC-1",
+        "Guam-Japan"
+      ]
     },
     {
       "name": "Chikura Cable Landing Station",
-      "lat": 34.968, "lng": 139.963, "country": "JP",
+      "lat": 34.968,
+      "lng": 139.963,
+      "country": "JP",
       "type": "cable_landing",
-      "cables": ["APCN2", "EAC-C2C", "FASTER", "PC-1"]
+      "cables": [
+        "APCN2",
+        "EAC-C2C",
+        "FASTER",
+        "PC-1"
+      ]
     },
     {
       "name": "Tuas Cable Landing Station",
-      "lat": 1.319, "lng": 103.636, "country": "SG",
+      "lat": 1.319,
+      "lng": 103.636,
+      "country": "SG",
       "type": "cable_landing",
-      "cables": ["APCN2", "SEA-ME-WE 5", "SMW-3"]
+      "cables": [
+        "APCN2",
+        "SEA-ME-WE 5",
+        "SMW-3"
+      ]
     },
     {
       "name": "Guam Cable Landing Station (US MIL)",
-      "lat": 13.444, "lng": 144.793, "country": "US",
+      "lat": 13.444,
+      "lng": 144.793,
+      "country": "US",
       "type": "cable_landing",
-      "cables": ["TPE", "Guam-Japan", "TPC-5"]
+      "cables": [
+        "TPE",
+        "Guam-Japan",
+        "TPC-5"
+      ]
     },
     {
       "name": "Bandon Cable Landing Station",
-      "lat": 43.118, "lng": -124.408, "country": "US",
+      "lat": 43.118,
+      "lng": -124.408,
+      "country": "US",
       "type": "cable_landing",
-      "cables": ["FASTER", "TPE", "PC-1"]
+      "cables": [
+        "FASTER",
+        "TPE",
+        "PC-1"
+      ]
     },
     {
       "name": "Bude Cable Landing Station",
-      "lat": 50.825, "lng": -4.551, "country": "GB",
+      "lat": 50.825,
+      "lng": -4.551,
+      "country": "GB",
       "type": "cable_landing",
-      "cables": ["TAT-14", "AEConnect", "FLAG"]
+      "cables": [
+        "TAT-14",
+        "AEConnect",
+        "FLAG"
+      ]
     },
     {
       "name": "Marseille Cable Landing Hub",
-      "lat": 43.296, "lng": 5.369, "country": "FR",
+      "lat": 43.296,
+      "lng": 5.369,
+      "country": "FR",
       "type": "cable_landing",
-      "cables": ["SEA-ME-WE 5", "SMW-3", "PEACE"]
+      "cables": [
+        "SEA-ME-WE 5",
+        "SMW-3",
+        "PEACE"
+      ]
     },
     {
       "name": "Luzon Strait Chokepoint",
-      "lat": 20.5, "lng": 121.5, "country": "PH",
+      "lat": 20.5,
+      "lng": 121.5,
+      "country": "PH",
       "type": "maritime_strait",
       "cables": []
     },
     {
       "name": "Miyako Strait (1st Island Chain)",
-      "lat": 24.7, "lng": 125.3, "country": "JP",
+      "lat": 24.7,
+      "lng": 125.3,
+      "country": "JP",
       "type": "maritime_strait",
       "cables": []
     },
     {
       "name": "Tsushima Strait",
-      "lat": 34.5, "lng": 129.5, "country": "KR",
+      "lat": 34.5,
+      "lng": 129.5,
+      "country": "KR",
       "type": "maritime_strait",
       "cables": []
     },
     {
       "name": "Strait of Hormuz Chokepoint",
-      "lat": 26.6, "lng": 56.3, "country": "IR",
+      "lat": 26.6,
+      "lng": 56.3,
+      "country": "IR",
       "type": "maritime_strait",
       "cables": []
     },
     {
       "name": "Bab-el-Mandeb Strait",
-      "lat": 12.6, "lng": 43.4, "country": "YE",
+      "lat": 12.6,
+      "lng": 43.4,
+      "country": "YE",
       "type": "maritime_strait",
       "cables": []
     },
     {
       "name": "Baltic Sea NATO Cable Corridor",
-      "lat": 57.0, "lng": 19.0, "country": "SE",
+      "lat": 57.0,
+      "lng": 19.0,
+      "country": "SE",
       "type": "nato_corridor",
-      "cables": ["NordBalt", "EstLink", "Balticconnector"]
+      "cables": [
+        "NordBalt",
+        "EstLink",
+        "Balticconnector"
+      ]
     },
     {
       "name": "Black Sea Bosphorus Entry",
-      "lat": 41.1, "lng": 29.0, "country": "TR",
+      "lat": 41.1,
+      "lng": 29.0,
+      "country": "TR",
       "type": "maritime_strait",
       "cables": []
     },
     {
       "name": "Virginia Beach Cable Landing Station",
-      "lat": 36.823, "lng": -76.025, "country": "US",
+      "lat": 36.823,
+      "lng": -76.025,
+      "country": "US",
       "type": "cable_landing",
-      "cables": ["TAT-14", "MAREA", "FLAG", "AEConnect-1"]
+      "cables": [
+        "TAT-14",
+        "MAREA",
+        "FLAG",
+        "AEConnect-1"
+      ]
     },
     {
       "name": "Strait of Malacca",
-      "lat": 3.0, "lng": 100.5, "country": "MY",
+      "lat": 3.0,
+      "lng": 100.5,
+      "country": "MY",
       "type": "maritime_strait",
-      "cables": ["APCN2", "SEA-ME-WE 5", "SMW-3"]
+      "cables": [
+        "APCN2",
+        "SEA-ME-WE 5",
+        "SMW-3"
+      ]
     },
     {
       "name": "Suez Canal",
-      "lat": 30.0, "lng": 32.55, "country": "EG",
+      "lat": 30.0,
+      "lng": 32.55,
+      "country": "EG",
       "type": "maritime_strait",
-      "cables": ["SEA-ME-WE 5", "FLAG", "SMW-3", "PEACE"]
+      "cables": [
+        "SEA-ME-WE 5",
+        "FLAG",
+        "SMW-3",
+        "PEACE"
+      ]
     },
     {
       "name": "Taiwan Strait",
-      "lat": 24.5, "lng": 119.8, "country": "TW",
+      "lat": 24.5,
+      "lng": 119.8,
+      "country": "TW",
       "type": "maritime_strait",
       "cables": []
     },
     {
       "name": "Panama Canal",
-      "lat": 9.1, "lng": -79.7, "country": "PA",
+      "lat": 9.1,
+      "lng": -79.7,
+      "country": "PA",
       "type": "maritime_strait",
       "cables": []
     },
     {
       "name": "GIUK Gap (NATO ASW Barrier)",
-      "lat": 63.0, "lng": -17.0, "country": "IS",
+      "lat": 63.0,
+      "lng": -17.0,
+      "country": "IS",
       "type": "nato_corridor",
       "cables": []
     }
@@ -971,149 +1621,424 @@
     {
       "name": "APCN2 / Asia Ring",
       "description": "Asia-Pacific Cable Network 2 — Singapore to Japan via Taiwan",
-      "connects": ["Tuas Cable Landing Station", "Fangshan Cable Landing Station", "Tanshui Cable Landing Station", "Toucheng Cable Landing Station", "Shima Cable Landing Station", "Chikura Cable Landing Station"],
+      "connects": [
+        "Tuas Cable Landing Station",
+        "Fangshan Cable Landing Station",
+        "Tanshui Cable Landing Station",
+        "Toucheng Cable Landing Station",
+        "Shima Cable Landing Station",
+        "Chikura Cable Landing Station"
+      ],
       "waypoints": [
-        {"lat": 1.319,  "lng": 103.636},
-        {"lat": 5.0,   "lng": 107.0},
-        {"lat": 10.0,  "lng": 112.0},
-        {"lat": 16.0,  "lng": 118.5},
-        {"lat": 20.5,  "lng": 121.5},
-        {"lat": 22.261,"lng": 120.655},
-        {"lat": 23.5,  "lng": 121.0},
-        {"lat": 25.176,"lng": 121.439},
-        {"lat": 24.857,"lng": 121.823},
-        {"lat": 24.7,  "lng": 125.3},
-        {"lat": 28.0,  "lng": 131.0},
-        {"lat": 34.298,"lng": 136.824},
-        {"lat": 34.968,"lng": 139.963}
+        {
+          "lat": 1.319,
+          "lng": 103.636
+        },
+        {
+          "lat": 5.0,
+          "lng": 107.0
+        },
+        {
+          "lat": 10.0,
+          "lng": 112.0
+        },
+        {
+          "lat": 16.0,
+          "lng": 118.5
+        },
+        {
+          "lat": 20.5,
+          "lng": 121.5
+        },
+        {
+          "lat": 22.261,
+          "lng": 120.655
+        },
+        {
+          "lat": 23.5,
+          "lng": 121.0
+        },
+        {
+          "lat": 25.176,
+          "lng": 121.439
+        },
+        {
+          "lat": 24.857,
+          "lng": 121.823
+        },
+        {
+          "lat": 24.7,
+          "lng": 125.3
+        },
+        {
+          "lat": 28.0,
+          "lng": 131.0
+        },
+        {
+          "lat": 34.298,
+          "lng": 136.824
+        },
+        {
+          "lat": 34.968,
+          "lng": 139.963
+        }
       ]
     },
     {
       "name": "Trans-Pacific Express (TPE / NCP)",
       "description": "Taiwan to US West Coast via Guam — southern trans-Pacific route",
-      "connects": ["Toucheng Cable Landing Station", "Guam Cable Landing Station (US MIL)", "Bandon Cable Landing Station"],
+      "connects": [
+        "Toucheng Cable Landing Station",
+        "Guam Cable Landing Station (US MIL)",
+        "Bandon Cable Landing Station"
+      ],
       "waypoints": [
-        {"lat": 24.857,"lng": 121.823},
-        {"lat": 22.0,  "lng": 132.0},
-        {"lat": 18.0,  "lng": 140.0},
-        {"lat": 13.444,"lng": 144.793},
-        {"lat": 16.0,  "lng": 160.0},
-        {"lat": 20.0,  "lng": -175.0},
-        {"lat": 30.0,  "lng": -155.0},
-        {"lat": 38.0,  "lng": -135.0},
-        {"lat": 43.118,"lng": -124.408}
+        {
+          "lat": 24.857,
+          "lng": 121.823
+        },
+        {
+          "lat": 22.0,
+          "lng": 132.0
+        },
+        {
+          "lat": 18.0,
+          "lng": 140.0
+        },
+        {
+          "lat": 13.444,
+          "lng": 144.793
+        },
+        {
+          "lat": 16.0,
+          "lng": 160.0
+        },
+        {
+          "lat": 20.0,
+          "lng": -175.0
+        },
+        {
+          "lat": 30.0,
+          "lng": -155.0
+        },
+        {
+          "lat": 38.0,
+          "lng": -135.0
+        },
+        {
+          "lat": 43.118,
+          "lng": -124.408
+        }
       ]
     },
     {
       "name": "Trans-Pacific North (FASTER / PC-1)",
       "description": "Japan to US West Coast — northern great-circle route",
-      "connects": ["Chikura Cable Landing Station", "Bandon Cable Landing Station"],
+      "connects": [
+        "Chikura Cable Landing Station",
+        "Bandon Cable Landing Station"
+      ],
       "waypoints": [
-        {"lat": 34.968,"lng": 139.963},
-        {"lat": 38.0,  "lng": 148.0},
-        {"lat": 42.0,  "lng": 160.0},
-        {"lat": 46.0,  "lng": 175.0},
-        {"lat": 48.0,  "lng": -165.0},
-        {"lat": 48.0,  "lng": -148.0},
-        {"lat": 46.0,  "lng": -135.0},
-        {"lat": 43.118,"lng": -124.408}
+        {
+          "lat": 34.968,
+          "lng": 139.963
+        },
+        {
+          "lat": 38.0,
+          "lng": 148.0
+        },
+        {
+          "lat": 42.0,
+          "lng": 160.0
+        },
+        {
+          "lat": 46.0,
+          "lng": 175.0
+        },
+        {
+          "lat": 48.0,
+          "lng": -165.0
+        },
+        {
+          "lat": 48.0,
+          "lng": -148.0
+        },
+        {
+          "lat": 46.0,
+          "lng": -135.0
+        },
+        {
+          "lat": 43.118,
+          "lng": -124.408
+        }
       ]
     },
     {
       "name": "SEA-ME-WE 5",
       "description": "South-East Asia – Middle East – Western Europe 5 — Singapore through Malacca, Indian Ocean, Suez to Marseille",
-      "connects": ["Tuas Cable Landing Station", "Strait of Malacca", "Bab-el-Mandeb Strait", "Suez Canal", "Marseille Cable Landing Hub"],
+      "connects": [
+        "Tuas Cable Landing Station",
+        "Strait of Malacca",
+        "Bab-el-Mandeb Strait",
+        "Suez Canal",
+        "Marseille Cable Landing Hub"
+      ],
       "waypoints": [
-        {"lat": 1.319, "lng": 103.636},
-        {"lat": 3.0,   "lng": 100.5},
-        {"lat": 6.0,   "lng": 90.0},
-        {"lat": 7.0,   "lng": 73.0},
-        {"lat": 10.0,  "lng": 50.0},
-        {"lat": 12.6,  "lng": 43.4},
-        {"lat": 20.0,  "lng": 38.5},
-        {"lat": 27.0,  "lng": 34.0},
-        {"lat": 30.0,  "lng": 32.55},
-        {"lat": 32.5,  "lng": 32.3},
-        {"lat": 38.0,  "lng": 13.0},
-        {"lat": 43.296,"lng": 5.369}
+        {
+          "lat": 1.319,
+          "lng": 103.636
+        },
+        {
+          "lat": 3.0,
+          "lng": 100.5
+        },
+        {
+          "lat": 6.0,
+          "lng": 90.0
+        },
+        {
+          "lat": 7.0,
+          "lng": 73.0
+        },
+        {
+          "lat": 10.0,
+          "lng": 50.0
+        },
+        {
+          "lat": 12.6,
+          "lng": 43.4
+        },
+        {
+          "lat": 20.0,
+          "lng": 38.5
+        },
+        {
+          "lat": 27.0,
+          "lng": 34.0
+        },
+        {
+          "lat": 30.0,
+          "lng": 32.55
+        },
+        {
+          "lat": 32.5,
+          "lng": 32.3
+        },
+        {
+          "lat": 38.0,
+          "lng": 13.0
+        },
+        {
+          "lat": 43.296,
+          "lng": 5.369
+        }
       ]
     },
     {
       "name": "Trans-Atlantic (FLAG / TAT-14)",
       "description": "US East Coast to Western Europe — Atlantic backbone connecting Americas to Europe and Middle East",
-      "connects": ["Virginia Beach Cable Landing Station", "Bude Cable Landing Station", "Marseille Cable Landing Hub"],
+      "connects": [
+        "Virginia Beach Cable Landing Station",
+        "Bude Cable Landing Station",
+        "Marseille Cable Landing Hub"
+      ],
       "waypoints": [
-        {"lat": 36.823, "lng": -76.025},
-        {"lat": 40.0,   "lng": -55.0},
-        {"lat": 45.0,   "lng": -30.0},
-        {"lat": 48.0,   "lng": -15.0},
-        {"lat": 50.825, "lng": -4.551},
-        {"lat": 46.0,   "lng": -2.0},
-        {"lat": 44.0,   "lng": 0.0},
-        {"lat": 43.296, "lng": 5.369}
+        {
+          "lat": 36.823,
+          "lng": -76.025
+        },
+        {
+          "lat": 40.0,
+          "lng": -55.0
+        },
+        {
+          "lat": 45.0,
+          "lng": -30.0
+        },
+        {
+          "lat": 48.0,
+          "lng": -15.0
+        },
+        {
+          "lat": 50.825,
+          "lng": -4.551
+        },
+        {
+          "lat": 46.0,
+          "lng": -2.0
+        },
+        {
+          "lat": 44.0,
+          "lng": 0.0
+        },
+        {
+          "lat": 43.296,
+          "lng": 5.369
+        }
       ]
     },
     {
       "name": "Guam-Japan Military Link",
       "description": "US military undersea cable — Guam to Japan (strategic communications)",
-      "connects": ["Guam Cable Landing Station (US MIL)", "Chikura Cable Landing Station"],
+      "connects": [
+        "Guam Cable Landing Station (US MIL)",
+        "Chikura Cable Landing Station"
+      ],
       "waypoints": [
-        {"lat": 13.444,"lng": 144.793},
-        {"lat": 20.0,  "lng": 142.0},
-        {"lat": 26.0,  "lng": 140.0},
-        {"lat": 30.0,  "lng": 139.0},
-        {"lat": 34.968,"lng": 139.963}
+        {
+          "lat": 13.444,
+          "lng": 144.793
+        },
+        {
+          "lat": 20.0,
+          "lng": 142.0
+        },
+        {
+          "lat": 26.0,
+          "lng": 140.0
+        },
+        {
+          "lat": 30.0,
+          "lng": 139.0
+        },
+        {
+          "lat": 34.968,
+          "lng": 139.963
+        }
       ]
     },
     {
       "name": "APG / SJC (Luzon-Taiwan Link)",
       "description": "Asia Pacific Gateway / SJC — Philippines to Taiwan direct connection",
-      "connects": ["Luzon Strait Chokepoint", "Fangshan Cable Landing Station", "Tanshui Cable Landing Station"],
+      "connects": [
+        "Luzon Strait Chokepoint",
+        "Fangshan Cable Landing Station",
+        "Tanshui Cable Landing Station"
+      ],
       "waypoints": [
-        {"lat": 20.5,  "lng": 121.5},
-        {"lat": 21.5,  "lng": 121.0},
-        {"lat": 22.261,"lng": 120.655},
-        {"lat": 23.5,  "lng": 121.1},
-        {"lat": 25.176,"lng": 121.439}
+        {
+          "lat": 20.5,
+          "lng": 121.5
+        },
+        {
+          "lat": 21.5,
+          "lng": 121.0
+        },
+        {
+          "lat": 22.261,
+          "lng": 120.655
+        },
+        {
+          "lat": 23.5,
+          "lng": 121.1
+        },
+        {
+          "lat": 25.176,
+          "lng": 121.439
+        }
       ]
     },
     {
       "name": "KJCN / SJC-Korea (Korea-Japan Cable)",
       "description": "Korea-Japan Cable Network — Korea Strait to Japan via Tsushima",
-      "connects": ["Tsushima Strait", "Chikura Cable Landing Station"],
+      "connects": [
+        "Tsushima Strait",
+        "Chikura Cable Landing Station"
+      ],
       "waypoints": [
-        {"lat": 34.5,  "lng": 129.5},
-        {"lat": 34.5,  "lng": 132.0},
-        {"lat": 34.7,  "lng": 136.0},
-        {"lat": 34.968,"lng": 139.963}
+        {
+          "lat": 34.5,
+          "lng": 129.5
+        },
+        {
+          "lat": 34.5,
+          "lng": 132.0
+        },
+        {
+          "lat": 34.7,
+          "lng": 136.0
+        },
+        {
+          "lat": 34.968,
+          "lng": 139.963
+        }
       ]
     },
     {
       "name": "IMEWE / SMW-4 (Arabian Sea)",
       "description": "India-Middle East-Western Europe — Persian Gulf to Singapore via Indian Ocean and Malacca Strait",
-      "connects": ["Strait of Hormuz Chokepoint", "Strait of Malacca", "Tuas Cable Landing Station"],
+      "connects": [
+        "Strait of Hormuz Chokepoint",
+        "Strait of Malacca",
+        "Tuas Cable Landing Station"
+      ],
       "waypoints": [
-        {"lat": 26.6,  "lng": 56.3},
-        {"lat": 22.0,  "lng": 60.0},
-        {"lat": 15.0,  "lng": 65.0},
-        {"lat": 8.0,   "lng": 73.0},
-        {"lat": 4.0,   "lng": 83.0},
-        {"lat": 3.0,   "lng": 100.5},
-        {"lat": 1.319, "lng": 103.636}
+        {
+          "lat": 26.6,
+          "lng": 56.3
+        },
+        {
+          "lat": 22.0,
+          "lng": 60.0
+        },
+        {
+          "lat": 15.0,
+          "lng": 65.0
+        },
+        {
+          "lat": 8.0,
+          "lng": 73.0
+        },
+        {
+          "lat": 4.0,
+          "lng": 83.0
+        },
+        {
+          "lat": 3.0,
+          "lng": 100.5
+        },
+        {
+          "lat": 1.319,
+          "lng": 103.636
+        }
       ]
     },
     {
       "name": "SMW-3 / PEACE (Mediterranean East)",
       "description": "Sub-Marine West 3 / PEACE Cable — Bosphorus to Marseille via Mediterranean",
-      "connects": ["Black Sea Bosphorus Entry", "Marseille Cable Landing Hub"],
+      "connects": [
+        "Black Sea Bosphorus Entry",
+        "Marseille Cable Landing Hub"
+      ],
       "waypoints": [
-        {"lat": 41.1,  "lng": 29.0},
-        {"lat": 38.5,  "lng": 26.0},
-        {"lat": 36.0,  "lng": 22.0},
-        {"lat": 36.5,  "lng": 16.0},
-        {"lat": 38.0,  "lng": 11.0},
-        {"lat": 40.5,  "lng": 8.0},
-        {"lat": 43.296,"lng": 5.369}
+        {
+          "lat": 41.1,
+          "lng": 29.0
+        },
+        {
+          "lat": 38.5,
+          "lng": 26.0
+        },
+        {
+          "lat": 36.0,
+          "lng": 22.0
+        },
+        {
+          "lat": 36.5,
+          "lng": 16.0
+        },
+        {
+          "lat": 38.0,
+          "lng": 11.0
+        },
+        {
+          "lat": 40.5,
+          "lng": 8.0
+        },
+        {
+          "lat": 43.296,
+          "lng": 5.369
+        }
       ]
     }
   ],
@@ -1187,25 +2112,470 @@
       "lng": 144.793,
       "theater": "US",
       "radius_km": 200
+    },
+    {
+      "name": "Yellow Sea PLA Naval Exercise Zone",
+      "lat": 36.0,
+      "lng": 122.5,
+      "theater": "CN",
+      "radius_km": 200
+    },
+    {
+      "name": "Bohai Gulf Missile Test Range",
+      "lat": 39.5,
+      "lng": 121.0,
+      "theater": "CN",
+      "radius_km": 200
+    },
+    {
+      "name": "South China Sea PLAN Patrol Zone",
+      "lat": 15.0,
+      "lng": 115.0,
+      "theater": "CN",
+      "radius_km": 200
+    },
+    {
+      "name": "Kola Peninsula Russian Arctic Base",
+      "lat": 69.0,
+      "lng": 33.0,
+      "theater": "RU",
+      "radius_km": 200
+    },
+    {
+      "name": "Barents Sea Russian Naval Patrol",
+      "lat": 73.0,
+      "lng": 25.0,
+      "theater": "RU",
+      "radius_km": 200
+    },
+    {
+      "name": "Baltic Sea Russian Naval Corridor",
+      "lat": 58.0,
+      "lng": 21.0,
+      "theater": "RU",
+      "radius_km": 200
+    },
+    {
+      "name": "DPRK Missile Test Eastern Range",
+      "lat": 40.5,
+      "lng": 129.5,
+      "theater": "KP",
+      "radius_km": 200
+    },
+    {
+      "name": "DPRK Western Submarine Base",
+      "lat": 38.8,
+      "lng": 125.0,
+      "theater": "KP",
+      "radius_km": 200
+    },
+    {
+      "name": "NW Australia JORN ISR Corridor",
+      "lat": -23.0,
+      "lng": 115.0,
+      "theater": "AU",
+      "radius_km": 200
+    },
+    {
+      "name": "Coral Sea Patrol Zone",
+      "lat": -18.0,
+      "lng": 148.0,
+      "theater": "AU",
+      "radius_km": 200
+    },
+    {
+      "name": "Ladakh LAC ISR Zone",
+      "lat": 34.0,
+      "lng": 79.0,
+      "theater": "IN",
+      "radius_km": 200
+    },
+    {
+      "name": "Andaman ISR Corridor (IOR)",
+      "lat": 11.7,
+      "lng": 92.7,
+      "theater": "IN",
+      "radius_km": 200
+    },
+    {
+      "name": "Natuna Islands EEZ Patrol",
+      "lat": 4.0,
+      "lng": 108.0,
+      "theater": "ID",
+      "radius_km": 200
+    },
+    {
+      "name": "Strait of Malacca ISR Corridor",
+      "lat": 2.5,
+      "lng": 103.0,
+      "theater": "SG",
+      "radius_km": 200
+    },
+    {
+      "name": "Paracels ISR Zone (South China Sea)",
+      "lat": 16.5,
+      "lng": 112.0,
+      "theater": "VN",
+      "radius_km": 200
+    },
+    {
+      "name": "Suwalki Gap Monitoring Zone",
+      "lat": 54.4,
+      "lng": 22.9,
+      "theater": "LT",
+      "radius_km": 200
+    },
+    {
+      "name": "Arctic NATO Patrol (GIUK Gap)",
+      "lat": 64.0,
+      "lng": -15.0,
+      "theater": "IS",
+      "radius_km": 200
+    },
+    {
+      "name": "Black Sea Romanian Naval Zone",
+      "lat": 44.0,
+      "lng": 29.5,
+      "theater": "RO",
+      "radius_km": 200
+    },
+    {
+      "name": "Aegean Air Defense Zone",
+      "lat": 38.5,
+      "lng": 26.0,
+      "theater": "GR",
+      "radius_km": 200
+    },
+    {
+      "name": "Taiwan Strait North Patrol (Japan-backed)",
+      "lat": 26.0,
+      "lng": 122.0,
+      "theater": "JP",
+      "radius_km": 200
     }
   ],
   "THREAT_ACTOR_MAPPING": {
-    "UA": ["noname05716", "killnet_mirror", "from_russia", "cyber_army_of_russia_reborn"],
-    "PL": ["noname05716", "killnet_mirror", "hacktivist_poland"],
-    "LT": ["noname05716", "killnet_mirror"],
-    "LV": ["noname05716", "killnet_mirror"],
-    "EE": ["noname05716", "killnet_mirror"],
-    "FI": ["noname05716"],
-    "DE": ["noname05716", "killnet_mirror"],
-    "FR": ["noname05716", "killnet_mirror"],
-    "GB": ["noname05716", "killnet_mirror"],
-    "US": ["noname05716", "killnet_mirror", "anonymous_sudan_channel"],
-    "IL": ["anonymous_official", "anonymous_for_justice", "ghosts_of_palestine_channel"],
-    "TW": ["dragonforce_malaysia_channel", "anonymous_official"],
-    "JP": ["killnet_mirror", "noname05716"],
-    "KR": ["anonymous_official"],
-    "IN": ["dragonforce_malaysia_channel", "anonymous_official"],
-    "PH": ["dragonforce_malaysia_channel"]
+    "UA": [
+      "noname05716",
+      "killnet_mirror",
+      "from_russia",
+      "cyber_army_of_russia_reborn"
+    ],
+    "PL": [
+      "noname05716",
+      "killnet_mirror",
+      "hacktivist_poland"
+    ],
+    "LT": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "LV": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "EE": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "FI": [
+      "noname05716"
+    ],
+    "DE": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "FR": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "GB": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "US": [
+      "noname05716",
+      "killnet_mirror",
+      "anonymous_sudan_channel"
+    ],
+    "IL": [
+      "anonymous_official",
+      "anonymous_for_justice",
+      "ghosts_of_palestine_channel"
+    ],
+    "TW": [
+      "dragonforce_malaysia_channel",
+      "anonymous_official"
+    ],
+    "JP": [
+      "killnet_mirror",
+      "noname05716"
+    ],
+    "KR": [
+      "anonymous_official"
+    ],
+    "IN": [
+      "dragonforce_malaysia_channel",
+      "anonymous_official"
+    ],
+    "PH": [
+      "dragonforce_malaysia_channel"
+    ],
+    "AU": [
+      "anonymous_official",
+      "hacktivistib"
+    ],
+    "CA": [
+      "noname05716",
+      "killnet_mirror",
+      "anonymous_official"
+    ],
+    "IT": [
+      "noname05716",
+      "killnet_mirror",
+      "cyber_army_of_russia_reborn"
+    ],
+    "ES": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "NL": [
+      "noname05716",
+      "killnet_mirror",
+      "anonymous_official"
+    ],
+    "BE": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "NO": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "SE": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "DK": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "AT": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "CZ": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "HU": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "RO": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "SK": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "BG": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "HR": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "RS": [
+      "noname05716",
+      "anonymous_official"
+    ],
+    "GR": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "PT": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "CH": [
+      "noname05716",
+      "anonymous_official"
+    ],
+    "IS": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "IE": [
+      "anonymous_official"
+    ],
+    "CY": [
+      "noname05716"
+    ],
+    "MT": [
+      "noname05716"
+    ],
+    "LU": [
+      "noname05716"
+    ],
+    "SI": [
+      "noname05716",
+      "killnet_mirror"
+    ],
+    "MK": [
+      "noname05716"
+    ],
+    "ME": [
+      "noname05716"
+    ],
+    "AL": [
+      "noname05716"
+    ],
+    "BA": [
+      "noname05716"
+    ],
+    "RU": [
+      "itarmyofukraine2022",
+      "cyber_resistance_ua",
+      "hacknet_ua"
+    ],
+    "BY": [
+      "itarmyofukraine2022",
+      "cyber_resistance_ua"
+    ],
+    "CN": [
+      "anonymous_official",
+      "hacktivistib"
+    ],
+    "KP": [
+      "anonymous_official"
+    ],
+    "IR": [
+      "anonymous_official"
+    ],
+    "SG": [
+      "mysterious_team_bangladesh",
+      "anonymous_official"
+    ],
+    "MY": [
+      "mysterious_team_bangladesh",
+      "anonymous_official"
+    ],
+    "ID": [
+      "mysterious_team_bangladesh",
+      "anonymous_official"
+    ],
+    "TH": [
+      "mysterious_team_bangladesh",
+      "anonymous_official"
+    ],
+    "VN": [
+      "mysterious_team_bangladesh",
+      "anonymous_official"
+    ],
+    "BD": [
+      "anonymous_official"
+    ],
+    "PK": [
+      "anonymous_official",
+      "hacktivistib"
+    ],
+    "SA": [
+      "mysterious_team_bangladesh",
+      "anonymous_collective"
+    ],
+    "AE": [
+      "mysterious_team_bangladesh",
+      "anonymous_official"
+    ],
+    "JO": [
+      "anonymous_collective"
+    ],
+    "EG": [
+      "anonymous_official"
+    ],
+    "IQ": [
+      "anonymous_collective"
+    ],
+    "KW": [
+      "anonymous_official"
+    ],
+    "QA": [
+      "anonymous_official"
+    ],
+    "BH": [
+      "anonymous_official"
+    ],
+    "OM": [
+      "anonymous_official"
+    ],
+    "TR": [
+      "noname05716",
+      "anonymous_official"
+    ],
+    "BR": [
+      "anonymous_official"
+    ],
+    "MX": [
+      "anonymous_official"
+    ],
+    "CO": [
+      "anonymous_official"
+    ],
+    "AR": [
+      "anonymous_official"
+    ],
+    "ZA": [
+      "anonymous_official"
+    ],
+    "NG": [
+      "anonymous_official"
+    ],
+    "KE": [
+      "anonymous_official"
+    ],
+    "ET": [
+      "anonymous_official"
+    ],
+    "HK": [
+      "anonymous_official"
+    ],
+    "MN": [
+      "anonymous_official"
+    ],
+    "NZ": [
+      "anonymous_official",
+      "hacktivistib"
+    ],
+    "VE": [
+      "anonymous_official"
+    ],
+    "KZ": [
+      "anonymous_official"
+    ],
+    "AZ": [
+      "anonymous_official"
+    ],
+    "GE": [
+      "anonymous_official"
+    ],
+    "AM": [
+      "anonymous_official"
+    ],
+    "GH": [
+      "anonymous_official"
+    ],
+    "TN": [
+      "anonymous_official"
+    ],
+    "MA": [
+      "anonymous_official"
+    ],
+    "DZ": [
+      "anonymous_official"
+    ]
   },
   "INFRASTRUCTURE_URLS": {
     "UA": [
@@ -1297,6 +2667,581 @@
       "https://www.india.gov.in",
       "https://www.rbi.org.in",
       "https://www.powergridindia.com"
+    ],
+    "AU": [
+      "https://www.aph.gov.au",
+      "https://www.defence.gov.au",
+      "https://www.rba.gov.au",
+      "https://www.aemo.com.au"
+    ],
+    "CA": [
+      "https://www.canada.ca",
+      "https://www.parl.ca",
+      "https://www.bankofcanada.ca",
+      "https://www.forces.gc.ca"
+    ],
+    "CN": [
+      "https://www.gov.cn",
+      "https://www.npc.gov.cn",
+      "https://www.pbc.gov.cn",
+      "https://www.mod.gov.cn"
+    ],
+    "RU": [
+      "https://kremlin.ru",
+      "https://government.ru",
+      "https://duma.gov.ru",
+      "https://cbr.ru"
+    ],
+    "KP": [
+      "https://www.rodong.rep.kp"
+    ],
+    "SG": [
+      "https://www.gov.sg",
+      "https://www.parliament.gov.sg",
+      "https://www.mas.gov.sg",
+      "https://www.mindef.gov.sg"
+    ],
+    "VN": [
+      "https://www.chinhphu.vn",
+      "https://www.quochoi.vn",
+      "https://www.sbv.gov.vn"
+    ],
+    "ID": [
+      "https://www.indonesia.go.id",
+      "https://www.dpr.go.id",
+      "https://www.bi.go.id",
+      "https://www.kemhan.go.id"
+    ],
+    "MY": [
+      "https://www.pmo.gov.my",
+      "https://www.parlimen.gov.my",
+      "https://www.bnm.gov.my"
+    ],
+    "TH": [
+      "https://www.thaigov.go.th",
+      "https://www.parliament.go.th",
+      "https://www.bot.or.th"
+    ],
+    "IR": [
+      "https://president.ir",
+      "https://www.majlis.ir",
+      "https://www.cbi.ir"
+    ],
+    "SA": [
+      "https://www.spa.gov.sa",
+      "https://www.shura.gov.sa",
+      "https://www.sama.gov.sa"
+    ],
+    "AE": [
+      "https://www.uaecabinet.ae",
+      "https://www.mofa.gov.ae",
+      "https://www.centralbank.ae"
+    ],
+    "TR": [
+      "https://www.cbiko.gov.tr",
+      "https://www.tbmm.gov.tr",
+      "https://www.tcmb.gov.tr"
+    ],
+    "EG": [
+      "https://www.presidency.eg",
+      "https://www.parlamento.eg",
+      "https://www.cbe.org.eg"
+    ],
+    "ZA": [
+      "https://www.gov.za",
+      "https://www.parliament.gov.za",
+      "https://www.reservebank.co.za"
+    ],
+    "NG": [
+      "https://www.nigeria.gov.ng",
+      "https://www.nass.gov.ng",
+      "https://www.cbn.gov.ng"
+    ],
+    "BR": [
+      "https://www.gov.br",
+      "https://www.camara.leg.br",
+      "https://www.bcb.gov.br"
+    ],
+    "MX": [
+      "https://www.gob.mx",
+      "https://www.diputados.gob.mx",
+      "https://www.banxico.org.mx"
+    ],
+    "AR": [
+      "https://www.argentina.gob.ar",
+      "https://www.hcdn.gob.ar",
+      "https://www.bcra.gob.ar"
+    ],
+    "IT": [
+      "https://www.governo.it",
+      "https://www.camera.it",
+      "https://www.bancaditalia.it"
+    ],
+    "ES": [
+      "https://www.lamoncloa.gob.es",
+      "https://www.congreso.es",
+      "https://www.bde.es"
+    ],
+    "NL": [
+      "https://www.rijksoverheid.nl",
+      "https://www.tweedekamer.nl",
+      "https://www.dnb.nl"
+    ],
+    "BE": [
+      "https://www.belgium.be",
+      "https://www.lachambre.be",
+      "https://www.nbb.be"
+    ],
+    "NO": [
+      "https://www.regjeringen.no",
+      "https://www.stortinget.no",
+      "https://www.norges-bank.no"
+    ],
+    "SE": [
+      "https://www.government.se",
+      "https://www.riksdagen.se",
+      "https://www.riksbank.se"
+    ],
+    "DK": [
+      "https://www.stm.dk",
+      "https://www.ft.dk",
+      "https://www.nationalbanken.dk"
+    ],
+    "AT": [
+      "https://www.bundeskanzleramt.gv.at",
+      "https://www.parlament.gv.at",
+      "https://www.oenb.at"
+    ],
+    "CH": [
+      "https://www.admin.ch",
+      "https://www.parlament.ch",
+      "https://www.snb.ch"
+    ],
+    "GR": [
+      "https://www.primeminister.gr",
+      "https://www.hellenicparliament.gr",
+      "https://www.bankofgreece.gr"
+    ],
+    "PT": [
+      "https://www.portugal.gov.pt",
+      "https://www.parlamento.pt",
+      "https://www.bportugal.pt"
+    ],
+    "CZ": [
+      "https://www.vlada.cz",
+      "https://www.psp.cz",
+      "https://www.cnb.cz"
+    ],
+    "HU": [
+      "https://kormany.hu",
+      "https://www.parlament.hu",
+      "https://www.mnb.hu"
+    ],
+    "RO": [
+      "https://www.gov.ro",
+      "https://www.cdep.ro",
+      "https://www.bnr.ro"
+    ],
+    "SK": [
+      "https://www.vlada.gov.sk",
+      "https://www.nrsr.sk",
+      "https://www.nbs.sk"
+    ],
+    "BG": [
+      "https://www.government.bg",
+      "https://www.parliament.bg",
+      "https://www.bnb.bg"
+    ],
+    "HR": [
+      "https://vlada.gov.hr",
+      "https://www.sabor.hr",
+      "https://www.hnb.hr"
+    ],
+    "RS": [
+      "https://www.srbija.gov.rs",
+      "https://www.parlament.gov.rs",
+      "https://www.nbs.rs"
+    ],
+    "MD": [
+      "https://www.gov.md",
+      "https://www.parlament.md",
+      "https://www.bnm.md"
+    ],
+    "HK": [
+      "https://www.gov.hk",
+      "https://www.legco.gov.hk",
+      "https://www.hkma.gov.hk"
+    ],
+    "MN": [
+      "https://www.zasag.mn",
+      "https://www.parliament.mn",
+      "https://www.mongolbank.mn"
+    ],
+    "AZ": [
+      "https://president.az",
+      "https://www.milli-meclis.gov.az",
+      "https://www.cbar.az"
+    ],
+    "GE": [
+      "https://government.gov.ge",
+      "https://parliament.ge",
+      "https://www.nbg.gov.ge"
+    ],
+    "AM": [
+      "https://www.gov.am",
+      "https://www.parliament.am",
+      "https://www.cba.am"
+    ],
+    "PK": [
+      "https://www.pakistan.gov.pk",
+      "https://www.na.gov.pk",
+      "https://www.sbp.org.pk"
+    ],
+    "BD": [
+      "https://www.bangladesh.gov.bd",
+      "https://www.parliament.gov.bd",
+      "https://www.bb.org.bd"
+    ],
+    "LK": [
+      "https://www.gov.lk",
+      "https://www.parliament.lk",
+      "https://www.cbsl.gov.lk"
+    ],
+    "NP": [
+      "https://www.opmcm.gov.np",
+      "https://www.parliament.gov.np",
+      "https://www.nrb.org.np"
+    ],
+    "KH": [
+      "https://www.pressocm.gov.kh",
+      "https://www.nab.gov.kh",
+      "https://www.nbc.org.kh"
+    ],
+    "MM": [
+      "https://www.mopfi.gov.mm",
+      "https://www.cbm.gov.mm"
+    ],
+    "LA": [
+      "https://www.na.gov.la",
+      "https://www.bol.gov.la"
+    ],
+    "KZ": [
+      "https://www.akorda.kz",
+      "https://www.parlam.kz",
+      "https://nationalbank.kz"
+    ],
+    "UZ": [
+      "https://www.gov.uz",
+      "https://parliament.gov.uz",
+      "https://cbu.uz"
+    ],
+    "KG": [
+      "https://www.gov.kg",
+      "https://kenesh.kg",
+      "https://www.nbkr.kg"
+    ],
+    "TJ": [
+      "https://www.president.tj",
+      "https://majlisi-namoyandagon.tj",
+      "https://www.nbt.tj"
+    ],
+    "TM": [
+      "https://www.turkmenistan.gov.tm"
+    ],
+    "IQ": [
+      "https://pmo.iq",
+      "https://parliament.iq",
+      "https://www.cbi.iq"
+    ],
+    "JO": [
+      "https://www.pm.gov.jo",
+      "https://parliament.jo",
+      "https://www.cbj.gov.jo"
+    ],
+    "LB": [
+      "https://www.presidency.gov.lb",
+      "https://www.parlement.gov.lb",
+      "https://www.bdl.gov.lb"
+    ],
+    "SY": [
+      "https://www.parliament.gov.sy",
+      "https://www.banquecentrale.gov.sy"
+    ],
+    "YE": [
+      "https://almotamar.net"
+    ],
+    "OM": [
+      "https://www.majlisalawqaf.gov.om",
+      "https://www.majlis.om",
+      "https://www.cbo.gov.om"
+    ],
+    "KW": [
+      "https://www.da.gov.kw",
+      "https://www.majlesalkuwait.gov.kw",
+      "https://www.cbk.gov.kw"
+    ],
+    "QA": [
+      "https://www.gov.qa",
+      "https://www.majles.qatar.qa",
+      "https://www.qcb.gov.qa"
+    ],
+    "BH": [
+      "https://www.bahrain.bh",
+      "https://www.nuwwab.bh",
+      "https://www.cbb.gov.bh"
+    ],
+    "MA": [
+      "https://www.pm.gov.ma",
+      "https://www.chambredesrepresentants.ma",
+      "https://www.bkam.ma"
+    ],
+    "DZ": [
+      "https://www.premier-ministre.gov.dz",
+      "https://www.apn.dz",
+      "https://www.bank-of-algeria.dz"
+    ],
+    "TN": [
+      "https://www.pm.gov.tn",
+      "https://www.assemblee.tn",
+      "https://www.bct.gov.tn"
+    ],
+    "LY": [
+      "https://www.pm.gov.ly",
+      "https://www.hnc.org.ly",
+      "https://cbl.gov.ly"
+    ],
+    "SD": [
+      "https://www.pmc.gov.sd",
+      "https://cbos.gov.sd"
+    ],
+    "ET": [
+      "https://www.pmo.gov.et",
+      "https://www.nbe.gov.et"
+    ],
+    "KE": [
+      "https://www.president.go.ke",
+      "https://www.parliament.go.ke",
+      "https://www.centralbank.go.ke"
+    ],
+    "TZ": [
+      "https://www.ikulu.go.tz",
+      "https://www.bunge.go.tz",
+      "https://www.bot.go.tz"
+    ],
+    "GH": [
+      "https://www.presidency.gov.gh",
+      "https://www.parliament.gh",
+      "https://www.bog.gov.gh"
+    ],
+    "SN": [
+      "https://www.presidence.sn",
+      "https://www.assembleenationale.sn",
+      "https://www.bceao.int"
+    ],
+    "RW": [
+      "https://www.gov.rw",
+      "https://www.parliament.gov.rw",
+      "https://www.bnr.rw"
+    ],
+    "CU": [
+      "https://www.presidencia.gob.cu",
+      "https://www.parlamentocubano.gob.cu",
+      "https://www.bc.gob.cu"
+    ],
+    "VE": [
+      "https://www.presidencia.gob.ve",
+      "https://www.asambleanacional.gob.ve",
+      "https://www.bcv.org.ve"
+    ],
+    "CO": [
+      "https://www.presidencia.gov.co",
+      "https://www.congreso.gov.co",
+      "https://www.banrep.gov.co"
+    ],
+    "PE": [
+      "https://www.presidencia.gob.pe",
+      "https://www.congreso.gob.pe",
+      "https://www.bcrp.gob.pe"
+    ],
+    "CL": [
+      "https://www.gob.cl",
+      "https://www.camara.cl",
+      "https://www.bcentral.cl"
+    ],
+    "EC": [
+      "https://www.presidencia.gob.ec",
+      "https://www.asambleanacional.gob.ec",
+      "https://www.bce.fin.ec"
+    ],
+    "BO": [
+      "https://www.comunicacion.gob.bo",
+      "https://www.bancentralbolivia.bo"
+    ],
+    "PY": [
+      "https://www.presidencia.gov.py",
+      "https://www.congreso.gov.py",
+      "https://www.bcp.gov.py"
+    ],
+    "UY": [
+      "https://www.presidencia.gub.uy",
+      "https://www.parlamento.gub.uy",
+      "https://www.bcu.gub.uy"
+    ],
+    "IS": [
+      "https://www.government.is",
+      "https://www.althingi.is",
+      "https://www.cb.is"
+    ],
+    "IE": [
+      "https://www.gov.ie",
+      "https://www.oireachtas.ie",
+      "https://www.centralbank.ie"
+    ],
+    "LU": [
+      "https://gouvernement.lu",
+      "https://www.chd.lu",
+      "https://www.bcl.lu"
+    ],
+    "MT": [
+      "https://www.gov.mt",
+      "https://www.parliament.mt",
+      "https://www.centralbankmalta.org"
+    ],
+    "CY": [
+      "https://www.presidency.gov.cy",
+      "https://www.parliament.cy",
+      "https://www.centralbank.cy"
+    ],
+    "SI": [
+      "https://www.gov.si",
+      "https://www.dz-rs.si",
+      "https://www.bsi.si"
+    ],
+    "MK": [
+      "https://vlada.mk",
+      "https://sobranie.mk",
+      "https://www.nbrm.mk"
+    ],
+    "ME": [
+      "https://www.gov.me",
+      "https://www.skupstina.me",
+      "https://www.cbcg.me"
+    ],
+    "AL": [
+      "https://www.keshilliministrave.al",
+      "https://www.parlament.al",
+      "https://www.bankofalbania.org"
+    ],
+    "BA": [
+      "https://www.fbihvlada.gov.ba",
+      "https://www.parlamentfbih.gov.ba",
+      "https://www.cbbh.ba"
+    ],
+    "GT": [
+      "https://www.guatemala.gob.gt",
+      "https://www.congreso.gob.gt",
+      "https://www.banguat.gob.gt"
+    ],
+    "HN": [
+      "https://www.presidencia.gob.hn",
+      "https://www.congresonacional.hn",
+      "https://www.bch.hn"
+    ],
+    "SV": [
+      "https://www.presidencia.gob.sv",
+      "https://www.asamblea.gob.sv",
+      "https://www.bcr.gob.sv"
+    ],
+    "NI": [
+      "https://www.presidencia.gob.ni",
+      "https://www.asamblea.gob.ni",
+      "https://www.bcn.gob.ni"
+    ],
+    "CR": [
+      "https://www.presidencia.go.cr",
+      "https://www.asamblea.go.cr",
+      "https://www.bccr.fi.cr"
+    ],
+    "PA": [
+      "https://www.presidencia.gob.pa",
+      "https://www.asamblea.gob.pa",
+      "https://www.superbancos.gob.pa"
+    ],
+    "DO": [
+      "https://www.presidencia.gob.do",
+      "https://www.senado.gob.do",
+      "https://www.bancentral.gov.do"
+    ],
+    "PR": [
+      "https://www.estado.pr.gov"
+    ],
+    "MV": [
+      "https://www.president.gov.mv",
+      "https://www.majlis.gov.mv",
+      "https://www.mma.gov.mv"
+    ],
+    "BT": [
+      "https://www.mfa.gov.bt",
+      "https://www.rcsc.gov.bt"
+    ],
+    "MO": [
+      "https://www.gov.mo",
+      "https://www.al.gov.mo",
+      "https://www.amcm.gov.mo"
+    ],
+    "MU": [
+      "https://govmu.org",
+      "https://www.govmu.org",
+      "https://www.bom.mu"
+    ],
+    "FJ": [
+      "https://www.fiji.gov.fj",
+      "https://www.rbf.gov.fj"
+    ],
+    "NZ": [
+      "https://www.beehive.govt.nz",
+      "https://www.parliament.nz",
+      "https://www.rbnz.govt.nz"
+    ],
+    "PG": [
+      "https://www.pm.gov.pg",
+      "https://www.parliament.gov.pg",
+      "https://www.bankpng.gov.pg"
+    ],
+    "BN": [
+      "https://www.pmo.gov.bn",
+      "https://www.adb.gov.bn"
+    ],
+    "TL": [
+      "https://presidencia.tl",
+      "https://www.parlamento.tl",
+      "https://www.bctl.tl"
+    ],
+    "BY": [
+      "https://president.gov.by",
+      "https://house.gov.by",
+      "https://www.nbrb.by"
+    ],
+    "AF": [
+      "https://mfa.gov.af"
+    ],
+    "AO": [
+      "https://www.governo.gov.ao"
+    ],
+    "JM": [
+      "https://jis.gov.jm"
+    ],
+    "UG": [
+      "https://www.statehouse.go.ug"
+    ],
+    "ZM": [
+      "https://www.statehouse.gov.zm"
+    ],
+    "ZW": [
+      "https://www.zim.gov.zw"
+    ],
+    "AD": [
+      "https://www.govern.ad"
     ]
   },
   "NARRATIVE_SOURCES": {
@@ -1378,6 +3323,555 @@
       "escalation",
       "ultimatum",
       "preemptive"
+    ],
+    "CN": [
+      "military exercise",
+      "hypersonic missile",
+      "carrier battle group",
+      "first island chain",
+      "reunification by force",
+      "PLA amphibious",
+      "Taiwan blockade",
+      "ADIZ violation",
+      "live fire drill",
+      "cross-strait"
+    ],
+    "RU": [
+      "nuclear escalation",
+      "Zelensky",
+      "NATO expansion",
+      "Wagner group",
+      "mobilization decree",
+      "Ukraine offensive",
+      "ATACMS strike",
+      "Zalensky",
+      "nuclear doctrine",
+      "tactical nuclear"
+    ],
+    "KP": [
+      "ICBM launch",
+      "nuclear test",
+      "Hwasong missile",
+      "DPRK provocation",
+      "submarine SLBM",
+      "Kim Jong-un",
+      "denuclearization rejected",
+      "sanctions violation"
+    ],
+    "AU": [
+      "AUKUS submarine",
+      "Indo-Pacific strategy",
+      "China threat",
+      "Pacific power projection",
+      "Five Eyes",
+      "Talisman Sabre",
+      "South Pacific sovereignty"
+    ],
+    "SG": [
+      "Strait of Malacca",
+      "South China Sea dispute",
+      "ASEAN neutrality",
+      "cyber sovereignty",
+      "critical infrastructure"
+    ],
+    "VN": [
+      "South China Sea",
+      "Spratly Islands",
+      "Paracel Islands",
+      "China Coast Guard",
+      "EEZ violation",
+      "fishing vessel seizure"
+    ],
+    "ID": [
+      "Natuna Islands",
+      "South China Sea EEZ",
+      "ASEAN",
+      "China fishermen",
+      "maritime sovereignty"
+    ],
+    "MY": [
+      "South China Sea",
+      "Strait of Malacca",
+      "ASEAN",
+      "China presence",
+      "maritime dispute"
+    ],
+    "TH": [
+      "military coup",
+      "political crisis",
+      "ASEAN",
+      "border conflict",
+      "insurgency"
+    ],
+    "IN": [
+      "LOC firing",
+      "Ladakh standoff",
+      "China border clash",
+      "Pakistan airstrike",
+      "nuclear doctrine",
+      "Balakot",
+      "Doklam",
+      "surgical strike"
+    ],
+    "CA": [
+      "Arctic sovereignty",
+      "NORAD alert",
+      "Russian bomber",
+      "submarine intrusion",
+      "NATO article 5",
+      "Five Eyes"
+    ],
+    "JP": [
+      "GSDF readiness",
+      "East China Sea",
+      "Senkaku Islands",
+      "North Korea missile",
+      "PLA incursion",
+      "JSDF alert",
+      "hypersonic defense"
+    ],
+    "DE": [
+      "NATO eastern flank",
+      "arms supply Ukraine",
+      "Russian energy",
+      "hybrid warfare",
+      "Bundeswehr"
+    ],
+    "FR": [
+      "strategic autonomy",
+      "NATO",
+      "Africa operations",
+      "nuclear deterrence",
+      "cyberattack"
+    ],
+    "GB": [
+      "GCHQ warning",
+      "Russia cyber",
+      "Arctic patrol",
+      "NATO article 5",
+      "Ukraine support",
+      "critical infrastructure"
+    ],
+    "IT": [
+      "NATO southern flank",
+      "Mediterranean crisis",
+      "Libya",
+      "hybrid warfare",
+      "energy security"
+    ],
+    "ES": [
+      "NATO southern flank",
+      "terrorism alert",
+      "Sahel operations",
+      "cyber espionage",
+      "critical infrastructure"
+    ],
+    "NL": [
+      "NATO headquarters",
+      "hybrid warfare",
+      "sanctions",
+      "critical infrastructure",
+      "energy crisis"
+    ],
+    "BE": [
+      "NATO HQ Brussels",
+      "hybrid warfare",
+      "espionage",
+      "critical infrastructure"
+    ],
+    "NO": [
+      "Arctic sovereignty",
+      "GIUK gap",
+      "Russian submarine",
+      "Svalbard",
+      "oil platform attack",
+      "Norwegian defense"
+    ],
+    "SE": [
+      "NATO membership",
+      "Gotland Island",
+      "Baltic defense",
+      "Russian submarine",
+      "hybrid warfare"
+    ],
+    "DK": [
+      "Greenland sovereignty",
+      "Arctic",
+      "NATO Baltic",
+      "Russian threat",
+      "GIUK gap"
+    ],
+    "AT": [
+      "neutrality",
+      "Russian energy dependence",
+      "sanctions circumvention",
+      "Vienna IAEA"
+    ],
+    "CH": [
+      "neutrality",
+      "sanctions",
+      "financial warfare",
+      "Russian assets"
+    ],
+    "GR": [
+      "Turkish aggression",
+      "Aegean dispute",
+      "NATO eastern flank",
+      "migration weaponization"
+    ],
+    "TR": [
+      "Erdogan",
+      "Kurdish PKK",
+      "NATO membership tensions",
+      "Aegean airspace",
+      "S-400",
+      "Syria operations"
+    ],
+    "CZ": [
+      "NATO eastern flank",
+      "arms Ukraine",
+      "energy crisis",
+      "Russian espionage"
+    ],
+    "HU": [
+      "Orban",
+      "NATO tensions",
+      "Russia energy dependency",
+      "sanctions opposition"
+    ],
+    "RO": [
+      "NATO Black Sea",
+      "Moldova protection",
+      "Russian forces",
+      "Danube corridor"
+    ],
+    "SK": [
+      "NATO eastern flank",
+      "arms supply Ukraine",
+      "Russian sabotage"
+    ],
+    "BG": [
+      "NATO Black Sea",
+      "Russian influence",
+      "hybrid operations"
+    ],
+    "HR": [
+      "NATO Adriatic",
+      "Balkan stability",
+      "Russian influence"
+    ],
+    "RS": [
+      "Kosovo",
+      "NATO tensions",
+      "Russian ally",
+      "hybrid warfare",
+      "Vucic"
+    ],
+    "PT": [
+      "NATO Atlantic",
+      "GIUK gap",
+      "Russian submarine",
+      "critical infrastructure"
+    ],
+    "IE": [
+      "neutrality",
+      "critical infrastructure",
+      "cyber attack",
+      "undersea cables"
+    ],
+    "EE": [
+      "NATO eastern flank",
+      "Russian cyber",
+      "Narva crisis",
+      "hybrid warfare",
+      "information operations"
+    ],
+    "LV": [
+      "NATO eastern flank",
+      "Russian minority",
+      "Baltic defense",
+      "hybrid operations"
+    ],
+    "LT": [
+      "Suwalki corridor",
+      "Kaliningrad blockade",
+      "NATO article 5",
+      "Russian threat"
+    ],
+    "BY": [
+      "Lukashenko",
+      "Wagner deployment",
+      "Belarus military",
+      "Ukraine border",
+      "Russian pressure"
+    ],
+    "MD": [
+      "Transnistria",
+      "Russian troops",
+      "NATO proximity",
+      "energy dependence"
+    ],
+    "SA": [
+      "Houthi missile",
+      "drone swarm attack",
+      "ARAMCO strike",
+      "oil fields attack",
+      "Yemen war",
+      "Iran proxy"
+    ],
+    "AE": [
+      "Houthi drone",
+      "Abraham Accords",
+      "Iran threat",
+      "critical infrastructure"
+    ],
+    "IQ": [
+      "PMF militia",
+      "US forces withdrawal",
+      "Iran influence",
+      "militia attack",
+      "sovereignty"
+    ],
+    "SY": [
+      "Assad regime",
+      "Russian base",
+      "Turkish operation",
+      "ceasefire violation",
+      "chemical weapons"
+    ],
+    "LB": [
+      "Hezbollah",
+      "financial collapse",
+      "sovereignty crisis",
+      "Israel strike"
+    ],
+    "YE": [
+      "Houthi attack",
+      "Red Sea blockade",
+      "Saudi airstrike",
+      "US strike",
+      "Iran arms"
+    ],
+    "EG": [
+      "Suez Canal threat",
+      "Houthi Red Sea",
+      "military readiness",
+      "border security"
+    ],
+    "ZA": [
+      "BRICS",
+      "Russia ties",
+      "arms trade",
+      "hybrid influence"
+    ],
+    "NG": [
+      "Boko Haram",
+      "ISWAP",
+      "oil pipeline attack",
+      "military response"
+    ],
+    "KE": [
+      "Al-Shabaab",
+      "military operations",
+      "border crisis"
+    ],
+    "ET": [
+      "TPLF conflict",
+      "Tigray",
+      "military offensive",
+      "humanitarian crisis"
+    ],
+    "HK": [
+      "national security",
+      "PLA garrison",
+      "protest",
+      "autonomy erosion"
+    ],
+    "MO": [
+      "casino economy",
+      "PRC integration",
+      "military presence"
+    ],
+    "MM": [
+      "military junta",
+      "civil war",
+      "ethnic conflict",
+      "China influence"
+    ],
+    "MN": [
+      "China Russia transit",
+      "strategic minerals",
+      "sovereignty buffer"
+    ],
+    "KZ": [
+      "CSTO intervention",
+      "Russia influence",
+      "protests",
+      "energy transit"
+    ],
+    "AZ": [
+      "Nagorno-Karabakh",
+      "Armenia conflict",
+      "drone warfare",
+      "energy corridor"
+    ],
+    "GE": [
+      "South Ossetia",
+      "Russia occupation",
+      "NATO aspiration",
+      "hybrid warfare"
+    ],
+    "AM": [
+      "Nagorno-Karabakh",
+      "Azerbaijan conflict",
+      "CSTO protection",
+      "Russia ally"
+    ],
+    "PK": [
+      "LOC firing",
+      "India tension",
+      "nuclear doctrine",
+      "terrorism",
+      "Kashmir",
+      "F-16 procurement"
+    ],
+    "BD": [
+      "India tensions",
+      "Rohingya crisis",
+      "China relations",
+      "political instability"
+    ],
+    "LK": [
+      "economic crisis",
+      "Chinese debt",
+      "port sovereignty",
+      "Hambantota"
+    ],
+    "IS": [
+      "GIUK gap",
+      "Arctic",
+      "submarine patrol",
+      "defense alert"
+    ],
+    "CY": [
+      "Turkish occupation",
+      "NATO tensions",
+      "energy dispute",
+      "Russian assets"
+    ],
+    "MT": [
+      "Mediterranean crossing",
+      "NATO southern",
+      "hybrid operations"
+    ],
+    "KW": [
+      "Iran threat",
+      "oil infrastructure",
+      "US base"
+    ],
+    "QA": [
+      "Al Udeid base",
+      "Hamas",
+      "Iran relations",
+      "LNG supply"
+    ],
+    "BH": [
+      "Iran threat",
+      "Shia uprising",
+      "US Fifth Fleet",
+      "sectarian"
+    ],
+    "JO": [
+      "Palestinian crisis",
+      "Iran threat",
+      "Israel relations",
+      "US base"
+    ],
+    "OM": [
+      "Strait of Hormuz",
+      "Iran threat",
+      "neutrality policy"
+    ],
+    "BR": [
+      "Amazon operations",
+      "cyber sovereignty",
+      "BRICS",
+      "US tensions"
+    ],
+    "MX": [
+      "cartel cyberattack",
+      "US-Mexico border",
+      "narco infrastructure"
+    ],
+    "CO": [
+      "FARC remnants",
+      "Venezuela border",
+      "cyber attack"
+    ],
+    "AR": [
+      "Falklands",
+      "Malvinas",
+      "economic crisis",
+      "military readiness"
+    ],
+    "VE": [
+      "Maduro",
+      "Guyana border",
+      "US sanctions",
+      "Russia ally"
+    ],
+    "CU": [
+      "US sanctions",
+      "cyber sovereignty",
+      "Russia ally"
+    ],
+    "NZ": [
+      "AUKUS observer",
+      "Five Eyes",
+      "Pacific sovereignty",
+      "China relations"
+    ],
+    "FJ": [
+      "Pacific sovereignty",
+      "China influence",
+      "US competition"
+    ],
+    "PG": [
+      "Pacific sovereignty",
+      "China base",
+      "resource extraction"
+    ],
+    "TL": [
+      "Timor Sea",
+      "China relations",
+      "independence"
+    ],
+    "BN": [
+      "Brunei Shell",
+      "South China Sea",
+      "ASEAN"
+    ],
+    "LA": [
+      "China influence",
+      "Mekong dam",
+      "strategic corridor"
+    ],
+    "KH": [
+      "China ally",
+      "South China Sea",
+      "US sanctions"
+    ],
+    "US": [
+      "China aggression",
+      "Taiwan conflict",
+      "DEFCON",
+      "nuclear alert",
+      "CISA critical infrastructure",
+      "cyber attack homeland",
+      "military mobilization",
+      "strategic deterrence",
+      "China military buildup",
+      "Pacific Command alert"
     ]
   },
   "HISTORICAL_EVENTS": [
