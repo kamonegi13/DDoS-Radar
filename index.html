@@ -131,6 +131,7 @@
             font-size: 13px; color: #fff; text-transform: uppercase; letter-spacing: 1px; font-weight: bold;
             border-bottom: 1px solid #555;
         }
+        .panel-header-unified > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         .draggable-panel { display: flex; flex-direction: column; box-sizing: border-box; }
         .drag-handle { cursor: grab; user-select: none; }
@@ -386,7 +387,8 @@
         body.atm-high     { animation: ambientHigh   5s ease-in-out infinite alternate; }
 
         /* ── Intuition UI: Pulse Display panel ── */
-        #pulse-panel .panel-content { background: rgba(8,10,12,0.88); padding: 0; position: relative; width: 220px; }
+        #pulse-panel .panel-content { background: rgba(8,10,12,0.88); padding: 0; position: relative; width: 100%; }
+        #pulse-panel canvas { width: 100% !important; }
         #pulse-panel canvas { display: block; }
         .pulse-meta { display: flex; justify-content: space-between; align-items: center; padding: 3px 7px 1px; }
         .pulse-meta-lbl { font-size: 8px; color: #446688; font-family: 'Courier New', monospace; letter-spacing: 1px; text-transform: uppercase; }
@@ -413,7 +415,7 @@
         .wb-domain-cyber    { color: #00cccc; }
         .wb-domain-physical { color: #cc8800; }
         .wb-domain-info     { color: #aa55cc; }
-        .wb-condition { font-size: 11px; font-weight: bold; white-space: nowrap; }
+        .wb-condition { font-size: 11px; font-weight: bold; white-space: normal; overflow-wrap: break-word; }
         .wb-desc { font-size: 9px; color: #9a9a9a; line-height: 1.4; }
         .wb-summary { margin-top: 8px; padding-top: 6px; border-top: 1px solid #1a2a3a; font-size: 9px; color: #aaa; line-height: 1.5; font-style: italic; }
 
@@ -480,7 +482,7 @@
         #weather-brief-panel.floating { background: rgba(8,10,16,0.97) !important; border-color: #1a2a3a !important; }
         #salute-panel.floating        { background: rgba(8,10,12,0.97) !important; border-color: #2a1800 !important; }
         #hist-analog-panel.floating   { background: rgba(8,10,12,0.97) !important; border-color: #2a1a00 !important; }
-        #pulse-panel.floating         { background: rgba(8,10,12,0.88) !important; border-color: #1a1a1a !important; padding: 0 !important; }
+        #pulse-panel.floating         { background: rgba(8,10,12,0.88) !important; border-color: #1a1a1a !important; }
 
         /* ── Left Sidebar ── */
         #left-sidebar { width: 280px; flex-shrink: 0; background: #121212; border-right: 1px solid #444; display: none; flex-direction: column; z-index: 10; box-shadow: 5px 0 20px rgba(0,0,0,0.5); overflow-y: auto; }
@@ -507,6 +509,61 @@
         .rs-dot-live  { background: #00ff88; box-shadow: 0 0 5px #00ff88; animation: rsPulse 2.5s ease-in-out infinite; }
         .rs-dot-quiet { background: #ff8800; animation: blink 1.5s step-end infinite; }
         @keyframes rsPulse { 0%,100%{opacity:1;box-shadow:0 0 5px #00ff88;} 50%{opacity:0.3;box-shadow:none;} }
+
+        /* ── GreyNoise Investigator Panel ── */
+        #gn-panel.floating      { background: rgba(6,8,18,0.97) !important; border-color: #1a1a3a !important; }
+        .gn-tier-badge { display:inline-block; padding:2px 8px; border-radius:3px; font-size:9px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; }
+        .gn-tier-enterprise     { background:rgba(0,255,136,0.12); color:#00ff88; border:1px solid #00ff8844; }
+        .gn-tier-community      { background:rgba(255,170,0,0.10); color:#ffaa00; border:1px solid #ffaa0044; }
+        .gn-tier-none           { background:rgba(80,80,80,0.10);  color:#555;    border:1px solid #33333344; }
+        .gn-theater-row { display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px solid #111; font-size:10px; }
+        .gn-theater-row:last-child { border-bottom:none; }
+        .gn-noise-TARGETED       { color:#00ff88; }
+        .gn-noise-MIXED          { color:#ffaa00; }
+        .gn-noise-NOISE_DOMINANT { color:#ff2200; }
+        .gn-noise-UNKNOWN        { color:#555; }
+        .gn-log-entry { padding:4px 0; border-bottom:1px solid #111; font-size:9px; font-family:'Courier New',monospace; line-height:1.5; }
+        .gn-log-entry:last-child { border-bottom:none; }
+        .gn-log-noise  { color:#ff2200; }
+        .gn-log-targeted { color:#00ff88; }
+        .gn-log-unknown  { color:#888; }
+        .gn-result-noise      { color:#ff2200; }
+        .gn-result-targeted   { color:#00ff88; }
+        .gn-result-riot       { color:#00aaff; }
+        .gn-result-unknown    { color:#888; }
+
+        /* ── Analyst Notebook Panel ── */
+        #notebook-panel.floating { background: rgba(8,6,0,0.97) !important; border-color: #2a2000 !important; }
+        .nb-dot { cursor:pointer; font-size:11px; transition:color 0.15s; user-select:none; }
+        .nb-dot-on  { color:#ffaa00; }
+        .nb-dot-off { color:#333; }
+        .nb-log-entry { padding:5px 0; border-bottom:1px solid #1a1a00; font-size:10px; line-height:1.5; }
+        .nb-log-entry:last-child { border-bottom:none; }
+        .nb-ts    { color:#555; font-size:9px; font-family:'Courier New',monospace; }
+        .nb-type-ANALYST { color:#ffcc44; }
+        .nb-type-DEFCON  { color:#ff6644; }
+        .nb-type-IP_CHECK { color:#44aaff; font-family:'Courier New',monospace; }
+        .nb-type-MUTE    { color:#888; font-style:italic; }
+        .nb-type-UNMUTE  { color:#888; font-style:italic; }
+        .nb-assessment-badge { display:inline-block; font-size:8px; font-weight:bold; letter-spacing:1px; padding:1px 5px; border-radius:2px; vertical-align:middle; margin-left:4px; }
+        .nb-assess-NOMINAL  { background:rgba(0,255,136,0.1);  color:#00ff88; }
+        .nb-assess-WATCHFUL { background:rgba(255,255,0,0.08); color:#ffff44; }
+        .nb-assess-CONCERNED{ background:rgba(255,170,0,0.1);  color:#ffaa00; }
+        .nb-assess-CRITICAL { background:rgba(255,42,42,0.12); color:#ff4444; }
+        .nb-assess-HOSTILE  { background:rgba(255,0,0,0.2);    color:#ff0000; font-weight:bold; }
+
+        /* ── CheckHost URL grid (in chain panel) ── */
+        .ch-url-row { display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px solid #0d0d0d; font-size:9px; }
+        .ch-url-row:last-child { border-bottom:none; }
+        .ch-url-label { color:#666; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .ch-status-OK      { color:#00ff88; font-weight:bold; }
+        .ch-status-PARTIAL { color:#ffaa00; font-weight:bold; }
+        .ch-status-BLACKOUT{ color:#ff2200; font-weight:bold; }
+        .ch-status-UNKNOWN { color:#555; }
+
+        /* ── Telegram channel detail (in chain panel) ── */
+        .tg-ch-badge { display:inline-block; background:rgba(255,102,204,0.1); border:1px solid #ff66cc44; color:#ff66cc; font-size:9px; padding:1px 6px; border-radius:3px; margin:2px 2px; font-family:'Courier New',monospace; }
+        .tg-url-item { font-size:9px; color:#ffaa00; font-family:'Courier New',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:2px 0; }
     </style>
 </head>
 <body>
@@ -570,6 +627,17 @@
                     <span class="tools-menu-label">Ops Clock</span>
                     <span class="tools-menu-dot" id="tm-dot-clk"></span>
                 </div>
+                <div class="tools-menu-sep"></div>
+                <div class="tools-menu-item" id="tm-item-gn"  onclick="handleToolToggle('gn-panel',       toggleGnPanel,   'tm-dot-gn',  'tm-item-gn')">
+                    <span class="tools-menu-icon">🔍</span>
+                    <span class="tools-menu-label">GreyNoise</span>
+                    <span class="tools-menu-dot" id="tm-dot-gn"></span>
+                </div>
+                <div class="tools-menu-item" id="tm-item-nb"  onclick="handleToolToggle('notebook-panel', toggleNotebook,  'tm-dot-nb',  'tm-item-nb')">
+                    <span class="tools-menu-icon">📝</span>
+                    <span class="tools-menu-label">Analyst Notebook</span>
+                    <span class="tools-menu-dot" id="tm-dot-nb"></span>
+                </div>
             </div>
         </div>
         <button class="btn-tactical btn-action" onclick="openSitrep()">SITREP</button>
@@ -599,6 +667,17 @@
             <span id="hud-blockade" class="hud-value">—</span>
             <span id="hud-blockade-bar" style="display:inline-block;width:40px;height:8px;background:#333;border-radius:3px;margin-left:4px;vertical-align:middle;"><span id="hud-blockade-fill" style="display:block;height:100%;width:0%;background:#ff6600;border-radius:3px;transition:width 0.5s;"></span></span>
         </div>
+        <!-- v9: Survival HUD — Check-Host インフラ生存状態 -->
+        <div class="hud-item" data-tooltip="SURVIVAL: Check-Host.net による主要インフラの実死活確認。OK=全ノード疎通 / PARTIAL=一部障害 / BLACKOUT=全ノード到達不可">
+            <span class="hud-label">SURVIVAL:</span>
+            <span id="hud-survival" class="hud-value" style="font-weight:700;letter-spacing:1px;">—</span>
+            <span id="hud-survival-icon" style="margin-left:4px;font-size:12px;"></span>
+        </div>
+        <!-- v9: Temporal Coherence — C2 同期 -->
+        <div class="hud-item" data-tooltip="C2 SYNC: 複数シアターへの攻撃開始が60秒以内に収束 → 国家レベル指揮統制の証拠">
+            <span class="hud-label">C2-SYNC:</span>
+            <span id="hud-c2sync" class="hud-value" style="font-size:10px;">—</span>
+        </div>
         <!-- Sequence Chain -->
         <div class="hud-item" data-tooltip="Escalation Sequence Chain: Evidence chain of Narrative→ISR→DDoS→Kinetic within 24h window.">
             <span class="hud-label">CHAIN:</span>
@@ -626,6 +705,8 @@
         <div id="lsb-ph-sal"></div>
         <div id="lsb-ph-ha"></div>
         <div id="lsb-ph-clk"></div>
+        <div id="lsb-ph-gn"></div>
+        <div id="lsb-ph-nb"></div>
     </div>
 
     <div id="map-wrapper">
@@ -871,7 +952,7 @@
             <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
         </div>
     </div>
-    <div class="panel-content" style="background:#080a0c; padding:0; width:220px;">
+    <div class="panel-content" style="background:#080a0c; padding:0;">
         <div class="pulse-meta">
             <span class="pulse-meta-lbl">Threat Lv <span id="pulse-threat-lv">—</span></span>
             <span id="pulse-bpm">— /h</span>
@@ -906,6 +987,28 @@
                 <span style="color:#44aaff;font-size:10px;">AIS Dark Gaps</span>
                 <span id="ev-ais-gaps" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
             </div>
+            <!-- v9 metrics -->
+            <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1a1a1a;">
+                <div style="color:#444;font-size:9px;margin-bottom:4px;">── v9 INTELLIGENCE ──</div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="color:#ff66cc;font-size:10px;">Telegram Mirror</span>
+                    <span id="ev-telegram-intent" style="color:#555;font-size:11px;font-weight:bold;">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                    <span style="color:#00ff88;font-size:10px;">Infra Survival</span>
+                    <span id="ev-checkhost-status" style="color:#555;font-size:11px;font-weight:bold;">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                    <span style="color:#ffffff;font-size:10px;">C2 Sync</span>
+                    <span id="ev-c2sync-detail" style="color:#555;font-size:11px;font-weight:bold;">—</span>
+                </div>
+            </div>
+            <!-- v9: CheckHost URL detail -->
+            <div id="chain-checkhost-detail" style="display:none;margin-top:8px;padding:6px 8px;background:#060a06;border:1px solid #00ff8822;border-radius:3px;"></div>
+            <!-- v9: Telegram channel detail -->
+            <div id="chain-telegram-detail" style="display:none;margin-top:6px;padding:6px 8px;background:#0a0614;border:1px solid #ff66cc22;border-radius:3px;"></div>
+            <!-- Maskirovka alert -->
+            <div id="chain-maskirovka" style="display:none;margin-top:8px;padding:6px 8px;background:#1a0800;border:1px solid #ff8800;border-radius:3px;font-size:10px;"></div>
         </div>
     </div>
 </div>
@@ -946,7 +1049,7 @@
 
         <p>This platform is an <b>MDO C4ISR Strategic OSINT Radar</b> designed to detect precursor indicators of kinetic operations by correlating signals across three domains: Cyber, Physical, and Information. All data is sourced exclusively from open-source intelligence (OSINT). Sensors run on independent background schedules, and the convergence score is recalculated every <span class="code-block">SCORE_REFRESH_SEC=60</span> seconds from the latest cached data. The <span class="code-block">SYNC</span> button forces an immediate fetch and score update across all active sensors.</p>
 
-        <h4>1. Multi-Domain Sensor Architecture (12 Sensors)</h4>
+        <h4>1. Multi-Domain Sensor Architecture (15 Sensors)</h4>
 
         <p><b>Cyber Domain (weight 0.50)</b> — Highest-weighted domain. State-directed cyber operations typically precede kinetic action by 24–72 hours.</p>
         <ul>
@@ -956,6 +1059,7 @@
             <li><i>ThreatFox (abuse.ch) API</i> [poll: 1 hr]: Queries IoCs (Indicators of Compromise) with APT tags published in the past 24 hours. Matches against APT tag or target country name. A hit indicates known APT infrastructure is active in association with the monitored theater. Requires <span class="code-block">THREATFOX_API_KEY</span> (Auth-Key header).</li>
             <li><i>RIPE Stat BGP Routing</i> [poll: 30 min]: Monitors BGP prefix announcement count for the core theater via RIPE NCC. Triggers on prefix reduction &gt;15% from the previous cycle — a known precursor to internet isolation operations (route withdrawal).</li>
             <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>DDoS Acceleration Engine</i> [no external poll — computed internally]: Calculates first-order (velocity) and second-order (acceleration) derivatives of the core theater threat score time series via linear regression over a <span class="code-block">DERIVATIVE_WINDOW=5</span>-point rolling window. Declares an <b>Ambush Pattern</b> when acceleration Z-score (relative to its own rolling history) exceeds <span class="code-block">AMBUSH_ZSCORE_THRESHOLD=2.0</span> and both velocity and acceleration are positive — the mathematical signature of exponential escalation. Adds +2 to Cyber domain. Current rate of change is displayed in the VELOCITY meter.</li>
+            <li style="border-left:2px solid #00ffaa; padding-left:8px;"><i>GreyNoise Sensor</i> [poll: 30 min] <b>[v9 — Noise Suppressor]</b>: Queries the GreyNoise GNQL Stats API to classify ongoing traffic toward the core theater as <b>TARGETED</b>, <b>MIXED</b>, or <b>NOISE_DOMINANT</b> (internet background scanners). When noise ratio exceeds 70%, all Cyber domain sensor scores are suppressed — preventing mass-scanner events from inflating threat levels during non-adversarial traffic surges. Operates passively (UNKNOWN) when no API key is configured. Requires <span class="code-block">GREYNOISE_API_KEY</span> (Enterprise GNQL).</li>
         </ul>
 
         <p><b>Physical/Logistics Domain (weight 0.30)</b> — Covers infrastructure, airspace, maritime, and kinetic pre-strike indicators.</p>
@@ -968,18 +1072,21 @@
             <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>ISR Hotspot Sensor (OpenSky Military ISR)</i> [poll: 30 min]: Monitors 10 ISR_HOTSPOT zones within a 200 km radius — Taiwan Strait, East China Sea ADIZ, Spratly Islands, Korean Peninsula DMZ, Black Sea, Baltic Sea, and others. Aircraft are flagged as ISR patterns if they meet any of: (1) altitude &gt;9,000 m and speed &lt;160 m/s (high-altitude low-speed orbit), (2) squawk 7777 (government/military transponder), or (3) known ISR callsign prefixes (FORTE/JAKE/MYSTIC/RICO/TROLL, etc.). Detection of ≥3 aircraft simultaneously in the same hotspot triggers an <b>ISR Surge</b>, adding +2 to the Physical domain. Operates independently from the civil airspace sensor (targets straits and patrol corridors, not airports).</li>
             <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>AIS Maritime Sensor (AISHub)</i> [poll: 30 min]: Monitors vessels near 23 chokepoints — Taiwan Strait, Luzon Strait, Malacca Strait, Hormuz, Bab-el-Mandeb, Baltic Sea, Bosphorus, Suez, and others — using AISHub public position data. Detects two anomaly types: (1) <b>AIS Dark Gap</b> — a previously tracked vessel ceases AIS transmission for ≥<span class="code-block">AIS_DARK_GAP_THRESHOLD=3600</span> seconds (1 hour) near a chokepoint, consistent with intentional radio silence, submarine positioning, or covert survey vessels; (2) <b>Stationary Anomaly</b> — a non-commercial, non-fishing vessel (AIS type outside 60–89) drifting at &lt;0.5 knots within 50 km of a chokepoint. Adds +1 to Physical domain. Dark Gap vessels appear on the map as red-halo anchor icons.
                 <br><span style="color:#888; font-size:11px;">A 2-second delay is inserted between each chokepoint request to comply with AISHub guest API rate limits.</span></li>
+            <li style="border-left:2px solid #00ffaa; padding-left:8px;"><i>Check-Host Survival Sensor</i> [poll: 10 min] <b>[v9]</b>: Uses the check-host.net API to verify live reachability of critical national infrastructure URLs (government, parliament, central bank, energy grid) for each monitored theater from 5 geographically distributed global nodes (JP/US/DE/NL/FR). Two-phase API: POST check request → GET result (5 s delay). <b>Status levels:</b> OK (≥80% node success) / PARTIAL (30–79%) → +2 / BLACKOUT (&lt;30%) → +3. High-latency responses above <span class="code-block">CHECKHOST_TIMEOUT_MS=3000 ms</span> are penalized by 50%. Displayed as the <b>SURVIVAL</b> HUD indicator. Configure node list via <span class="code-block">CHECKHOST_NODES</span> in config.env.</li>
         </ul>
 
         <p><b>Information Domain (weight 0.20)</b> — Propaganda and diplomatic tone analysis. The earliest leading indicator; typically shifts 48–96 hours before an operation.</p>
         <ul>
-            <li><i>GDELT TimelineTone API</i> [poll: 30 min]: Retrieves media tone for the core theater from the Global Database of Events, Language, and Tone. Triggers an alert (+1) when the tone score falls below <b>–12.0</b> relative to the 28-day rolling average. Reference values: Russia→Ukraine pre-conflict period was –12 to –15; day of invasion was –18 to –25. –12.0 is the threshold for early military-tension rhetoric. Auto-suppressed during severe weather.</li>
+            <li><i>GDELT TimelineTone API</i> [poll: 30 min]: Retrieves media tone for the core theater from the Global Database of Events, Language, and Tone. Triggers an alert (+1) when the tone score falls below <b>–15.0</b> relative to the 28-day rolling average. Reference values: Russia→Ukraine pre-conflict period was –12 to –15; day of invasion was –18 to –25. –15.0 is the threshold for active military-tension rhetoric. Auto-suppressed during severe weather.</li>
             <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>RSS Narrative Burst Sensor</i> [poll: 30 min]: Simultaneously scans 5 state-aligned RSS feeds — TASS (RU), Xinhua (CN), Mehr News (IR), RT, KCNA Watch (KP). Matches theater-specific <b>tactical keywords</b> (e.g., for Taiwan: "military measures", "ultimatum", "median line crossing", "live-fire drills") against article titles and descriptions. Z-score analysis is applied to normalized frequency (hit count ÷ total articles) rather than raw counts, using a 30-day rolling baseline. <b>Alert thresholds:</b> Z &gt; <span class="code-block">NARRATIVE_ZSCORE_ALERT=2.0</span> → BURST (+1); Z &gt; <span class="code-block">NARRATIVE_ZSCORE_CRITICAL=3.0</span> → CRITICAL_BURST (+2). Deduplication via normalized 60-character title key (O(N)). Baseline activates after ≥7 days of data accumulation (cold-start guard). Ignores steady-state propaganda; detects only statistically anomalous surges correlated with operational preparation cycles.</li>
+            <li style="border-left:2px solid #00ffaa; padding-left:8px;"><i>Telegram Mirror Sensor</i> [poll: 15 min] <b>[v9]</b>: Scrapes public Telegram channel mirror pages (tgstat.com / telemetr.io fallback) for channels registered in <span class="code-block">THREAT_ACTOR_MAPPING</span> (hacktivist groups mapped to theaters). No login or API token required. Extracts <b>attack intent keywords</b> (target, ddos, http flood, under attack, op, etc.) and <b>target URLs</b> (.gov / .mil / bank / energy domains). Detection levels: INTENT_DETECTED (+2) / TARGETS_FOUND (+1) / CLEAR. Detected channels and target URLs are displayed in the CHAIN panel. When intent is confirmed, a NARRATIVE_BURST event is registered in the escalation chain log. Configure keywords via <span class="code-block">TELEGRAM_ATTACK_KEYWORDS</span>.</li>
         </ul>
 
         <p><b>Noise Reduction &amp; Human-in-the-Loop (HITL) Control</b></p>
         <ul>
             <li><i>OpenWeatherMap (Weather Noise Filter)</i> [poll: 30 min]: When a significant weather event (thunderstorm, blizzard, hurricane, etc.) is detected at the core theater, Physical domain alerts (IODA BGP failure, OpenSky airspace anomaly) and the Information domain alert (GDELT tone) are automatically marked <b>SUPPRESSED</b> and excluded from scoring. This prevents weather events from triggering false escalations.</li>
-            <li><i>Analyst MUTE (HITL Override)</i>: Each sensor in the Evidence Panel has a <b>[ MUTE ]</b> button. Clicking it immediately excludes that sensor's score contribution and recalculates the convergence score. MUTE state is persisted to browser localStorage across sessions. Use this to suppress known false positives while preserving the underlying sensor record. When multiple sensors are muted, domain weights are correctly recalculated using only the remaining active sensors. All 12 sensors support MUTE.</li>
+            <li><i>GreyNoise (Automatic Noise Suppressor)</i> [v9]: When <span class="code-block">GREYNOISE_API_KEY</span> is configured and the GNQL Stats API classifies &gt;70% of traffic toward the theater as internet background noise (scanners, crawlers, opportunistic probes), the <span class="code-block">suppress_confidence</span> flag is raised. This automatically suppresses all Cyber domain sensor contributions, preventing scanner waves from being misread as targeted attack operations. Operates silently as UNKNOWN when no API key is set.</li>
+            <li><i>Analyst MUTE (HITL Override)</i>: Each sensor in the Evidence Panel has a <b>[ MUTE ]</b> button. Clicking it immediately excludes that sensor's score contribution and recalculates the convergence score. MUTE state is persisted to browser localStorage across sessions. Use this to suppress known false positives while preserving the underlying sensor record. When multiple sensors are muted, domain weights are correctly recalculated using only the remaining active sensors. All 15 sensors support MUTE.</li>
         </ul>
 
         <h4>2. Map Symbols &amp; Overlay Layers</h4>
@@ -1053,9 +1160,15 @@
             <li>[Physical] nasa_firms:          NASA EONET wildfire within ±10° of theater center → +3</li>
             <li>[Physical] isr_hotspot:         ISR Surge ≥3 aircraft (strategic hotspot) → +2</li>
             <li>[Physical] ais_maritime:        AIS Dark Gap or Stationary anomaly → +1</li>
-            <li>[Info]     gdelt:               GDELT media tone &lt; -12.0 (28-day rolling avg) → +1</li>
+            <li style="color:#66ffcc;">[Physical] check_host:         Infrastructure PARTIAL (30–79% node success) → +2 [v9]</li>
+            <li style="color:#66ffcc;">[Physical] check_host:         Infrastructure BLACKOUT (&lt;30% node success) → +3 [v9]</li>
+            <li>[Info]     gdelt:               GDELT media tone &lt; -15.0 (28-day rolling avg) → +1</li>
             <li>[Info]     rss_narrative:       Narrative Burst Z &gt; 2.0 → +1; Critical Burst Z &gt; 3.0 → +2</li>
+            <li style="color:#66ffcc;">[Info]     telegram_mirror:    Target URLs found in hacktivist Telegram channels → +1 [v9]</li>
+            <li style="color:#66ffcc;">[Info]     telegram_mirror:    Attack intent intercepted (keyword match) → +2 [v9]</li>
+            <li style="color:#66ffcc;">[Info]     maskirovka_flag:    Physical outage confirmed but all narrative channels silent → +1 [v9]</li>
         </ul>
+        <p style="font-size:11px; color:#888;"><span style="color:#66ffcc;">■</span> = v9 additions. greynoise sensor contributes score 0 (suppressor only — when NOISE_DOMINANT, all Cyber entries are excluded from the raw score total).</p>
 
         <p><b>Domain Convergence Bonus</b> — Added when anomalies appear simultaneously across multiple domains (evidence of coordinated MDO activity rather than an isolated incident):</p>
         <ul>
@@ -1067,7 +1180,7 @@
         <p><b>Sequence Bonus</b> — Applied on top of the convergence bonus when a logical escalation chain is confirmed within a 24-hour window. Acts as an anti-confirmation-bias mechanism (does not fire on dramatic signals in a single domain):</p>
         <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #ff8844; line-height: 1.8;">
             <li>Chain definition (loose ordering — presence within 24 hr window, strict chronological order not required):
-                <br>  [1] NARRATIVE_BURST  — Tactical keyword Z-score spike in state media
+                <br>  [1] NARRATIVE_BURST  — Tactical keyword Z-score spike in state media or Telegram intent detection
                 <br>  [2] ISR_SURGE        — Reconnaissance aircraft detected at strategic hotspot
                 <br>  [3] SYNC_DDOS        — Coordinated DDoS from ≥2 theaters (high botnet overlap)
                 <br>  [4] FIRMS_ANOMALY    — Thermal/kinetic event from NASA EONET</li>
@@ -1076,13 +1189,21 @@
             <li>&lt;3 events → No bonus (insufficient pattern)</li>
         </ul>
 
+        <p><b>Temporal Coherence Bonus</b> <span style="color:#66ffcc;">[v9]</span> — Applied when first trigger events (SYNC_DDOS or NARRATIVE_BURST) across multiple theaters are temporally synchronized, indicating a single C2 node:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #00ffaa; line-height: 1.8;">
+            <li>C2_SYNC_CONFIRMED  — ≥2 theaters trigger within 60 seconds of each other → +2 pt</li>
+            <li>C2_SYNC_PARTIAL    — ≥2 theaters trigger within 5 minutes of each other → +1 pt</li>
+            <li>Displayed in the HUD as <b>C2-SYNC</b>. Distinguishes nation-state coordinated operations (tight synchronization) from independent hacktivist campaigns (loose timing).</li>
+        </ul>
+
         <p><b>Blockade Index (HUD display)</b> — A gauge to quantitatively distinguish "political signaling" DDoS from actual infrastructure neutralization:</p>
         <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #ff8844; line-height: 1.6;">
-            <li>Formula: Blockade Index = min(DDoS_spike_core, 10) ÷ (0.1 if BGP failure confirmed, else 1.0)</li>
+            <li>Formula (v9): Blockade Index = min(DDoS_spike, 10) × (1 + RIPE_drop_pct/100) ÷ max(CheckHost_success_rate, 0.05)</li>
+            <li style="color:#888; font-size:10px;">Previous formula used a fixed IODA flag divisor; v9 replaces it with live RIPE BGP drop ratio and Check-Host success rate for continuous granularity. RIPE at 0% drop → no amplification; at 100% → 2× amplification. Check-Host at 0% success → maximum denominator pressure (÷0.05 cap).</li>
             <li>NORMAL                        — Index &lt; 1.5: DDoS present but infrastructure reachable. Typical signaling operation.</li>
             <li>POLITICAL_NOISE               — 1.5–3.9: Significant cyber activity, infrastructure impact unconfirmed.</li>
-            <li>SEVERE_DISRUPTION             — 4.0–6.9: High DDoS and partial BGP degradation occurring simultaneously.</li>
-            <li>INFRASTRUCTURE_NEUTRALIZATION — ≥ 7.0: Large-scale DDoS + confirmed BGP failure. Signature of a pre-invasion blackout.</li>
+            <li>SEVERE_DISRUPTION             — 4.0–6.9: High DDoS + RIPE prefix reduction + partial Check-Host failure simultaneously.</li>
+            <li>INFRASTRUCTURE_NEUTRALIZATION — ≥ 7.0: Large-scale DDoS + BGP withdrawal + infrastructure blackout. Signature of a pre-invasion communications cutoff.</li>
         </ul>
 
         <h4>4. Threat Levels</h4>
@@ -1112,9 +1233,12 @@
             <li><b>Use SITREP for commander reporting.</b> The <span class="code-block">SITREP</span> button generates a structured situation report including domain breakdown, sensor evidence, and trend indicators.</li>
             <li><b>Verify baseline sufficiency.</b> Spike ratios for Cloudflare activate after the 7-day rolling baseline is satisfied (conservative suppression on startup). RSS Narrative similarly requires ≥7 days of data. Check per-sensor baseline status in the Data Status panel.</li>
             <li><b>Read the VELOCITY / AMBUSH meters.</b> VELOCITY is the current rate of change of the threat score (pts per polling cycle ≈ 900 s). Positive (red ↑) = actively deteriorating. Negative (green ↓) = improving. <span style="color:#ff2200;font-weight:bold;">⚡ AMBUSH</span> (red blink) = the rate of change itself is accelerating — a second-derivative spike. This is the most time-critical signal: it indicates a rapidly compressing attack window.</li>
-            <li><b>Read the escalation narrative in the CHAIN panel.</b> The <span class="code-block">CHAIN</span> button (HUD top-right) opens the evidence chain timeline. Displays timestamped [NARRATIVE_BURST → ISR_SURGE → SYNC_DDOS → FIRMS_ANOMALY] escalation events within the past 24 hours. FULL CHAIN (+3 pt) means all 4 event types appeared within 24 hours — a strong indicator of coordinated multi-domain preparation.</li>
-            <li><b>Interpreting GDELT tone.</b> –12.0 = threshold for early military-tension rhetoric. –15 to –18 = active crisis framing. Below –18 = historically corresponds to kinetic action imminent or in progress. A 3–5 point drop within a single 30-minute polling cycle is more significant than a gradual decline to the same value.</li>
-            <li><b>Interpreting the Blockade Index.</b> High-volume DDoS that does not degrade BGP reachability is a signaling operation (Index &lt; 1.5). INFRASTRUCTURE_NEUTRALIZATION (Index ≥ 7.0) means an actual internet blackout is being achieved — the pattern observed 30–90 minutes before the Russian ground invasion in February 2022.</li>
+            <li><b>Read the escalation narrative in the CHAIN panel.</b> The <span class="code-block">CHAIN</span> button (HUD top-right) opens the evidence chain timeline. Displays timestamped [NARRATIVE_BURST → ISR_SURGE → SYNC_DDOS → FIRMS_ANOMALY] escalation events within the past 24 hours. FULL CHAIN (+3 pt) means all 4 event types appeared within 24 hours — a strong indicator of coordinated multi-domain preparation. v9 also registers TELEGRAM_INTENT, MASKIROVKA, C2_SYNC, and INFRA_BLACKOUT in the chain log.</li>
+            <li><b>Interpreting GDELT tone.</b> –15.0 = threshold for active military-tension rhetoric (v9 calibration). –18 = active crisis framing. Below –20 = historically corresponds to kinetic action imminent or in progress. A 3–5 point drop within a single 30-minute polling cycle is more significant than a gradual decline to the same value.</li>
+            <li><b>Interpreting the Blockade Index (v9).</b> High-volume DDoS that does not degrade BGP reachability or Check-Host availability is a signaling operation (Index &lt; 1.5). INFRASTRUCTURE_NEUTRALIZATION (Index ≥ 7.0) requires simultaneous DDoS surge, BGP prefix withdrawal, AND live infrastructure confirmation from global nodes — the pattern observed 30–90 minutes before the Russian ground invasion in February 2022.</li>
+            <li><b>Interpreting the SURVIVAL HUD (v9).</b> Shows real-time reachability of critical national infrastructure (government, central bank, energy grid) from global nodes. <span style="color:#66ff66;font-weight:bold;">OK</span> = infrastructure reachable. <span style="color:#ffaa00;font-weight:bold;">PARTIAL</span> = some nodes report failure — possible DDoS effect or localized disruption. <span style="color:#ff2a2a;font-weight:bold;">BLACKOUT</span> = critical infrastructure unreachable from multiple global vantage points simultaneously. BLACKOUT + high Blockade Index = likely pre-invasion blackout scenario.</li>
+            <li><b>Interpreting C2-SYNC (v9).</b> Displays whether attacks across multiple theaters started within 60 seconds (C2 SYNC CONFIRMED) or 5 minutes (PARTIAL). Tight temporal synchronization across geographically separated theaters is the hallmark of nation-state integrated C2 (command and control) rather than loosely coordinated hacktivist activity.</li>
+            <li><b>Maskirovka detection (v9).</b> If physical outage is confirmed (IODA or Check-Host BLACKOUT/PARTIAL) while all narrative channels are simultaneously silent (no RSS burst, no Telegram intent), the system flags a potential <b>Maskirovka</b> (Russian military deception doctrine). Physical disruption without accompanying narrative amplification may indicate a genuine kinetic operation rather than a hacktivist campaign — hacktivist groups typically announce targets loudly before and during attacks.</li>
         </ul>
 
         <h4>7. Config &amp; Monitoring Management</h4>
@@ -1123,7 +1247,7 @@
             <li><b>Strategy Scope</b>: <b>Epicenter (Core)</b> is the primary focus theater (single selection). Nearly all sensors and the convergence score are computed relative to Core. <b>Correlate (Link)</b> selects allied nations monitored for coordinated attacks from the same botnet. The monitored universe covers ~127 countries retrieved via Cloudflare.</li>
             <li><b>Threat Actors</b>: Select adversary nations to monitor for direct strike attribution. When a designated nation's ASN is used for high-volume traffic, a state-attribution badge is displayed.</li>
             <li><b>Quick Pins</b>: Select countries to appear as quick-toggle buttons in the "Target Visibility" panel on the main screen.</li>
-            <li><b>Sensors</b>: Enable or disable individual sensors. A disabled sensor contributes zero to the score (graceful degradation).</li>
+            <li><b>Sensors</b>: Enable or disable individual sensors. A disabled sensor contributes zero to the score (graceful degradation). v9 adds 3 sensors: <i>telegram_mirror</i> (Info), <i>check_host</i> (Physical), <i>greynoise</i> (Cyber — suppressor).</li>
             <li><b>Fetch Log</b>: Displays the last fetch result for each sensor (success/failure/cache age). Cache older than 3× the polling interval is flagged as STALE.</li>
         </ul>
         <p style="color:#888; font-size:11px;"><b>Region Filter (Region Pills):</b> The Strategy Scope, Threat Actors, and Quick Pins tabs each include region filter pills (East Asia / SE Asia / Middle East, etc., across 16 regions). Clicking a pill zooms the Region Preview mini-map on the right to that region and displays currently selected countries as dot markers color-coded by role: Core (cyan) / Link (amber) / Adversary (red) / Pin (green). Pill selection persists across tab switches.</p>
@@ -1133,7 +1257,7 @@
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">How to access</div>
-            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of 4 panels: Weather Brief / SALUTE Board / Historical Analog / Ops Clock (cyan = active). Close each panel individually with ✕. Always-on components (Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain) operate automatically without any interaction.</p>
+            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of 6 panels: Weather Brief / SALUTE Board / Historical Analog / Ops Clock / GreyNoise / Analyst Notebook (cyan = active). Close each panel individually with ✕. Always-on components (Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain) operate automatically without any interaction.</p>
         </div>
 
         <p><b>A. Ambient Atmosphere</b></p>
@@ -1193,22 +1317,141 @@
             <li><b>Map layer control (top-right) → Threat Terrain.</b> Renders semi-transparent choropleth-style circles over monitored countries scaled to DDoS spike intensity (avg_spike). BGP-confirmed failure = red; spike ≥4× = orange; lower = yellow. Radius proportional to spike intensity (max ~620 km). Allows threat pressure distribution to be perceived geographically at a glance. Countries at or below normal spike levels are not rendered, minimizing noise.</li>
         </ul>
 
+        <p><b>I. GreyNoise Investigator</b> <span style="color:#66ffcc;">[v9]</span> — <span class="code-block">TOOLS ▾</span> → GreyNoise</p>
+        <ul>
+            <li><b>Theater Noise Classification</b>: Shows per-theater GreyNoise classification — <span style="color:#00ff88;font-weight:bold;">TARGETED</span> (traffic is directed, not background scanners), <span style="color:#ffaa00;font-weight:bold;">MIXED</span>, or <span style="color:#ff2200;font-weight:bold;">NOISE_DOMINANT</span> (≥70% internet background scan traffic, Cyber domain suppressed). Requires <span class="code-block">GREYNOISE_API_KEY</span> (Enterprise GNQL). Without an Enterprise key, classification shows UNKNOWN.</li>
+            <li><b>IP Investigator (Community API)</b>: Manual on-demand lookup of any IPv4 address via the GreyNoise Community API. Returns: noise flag (true = internet-wide scanner), riot flag (known benign infrastructure), classification, entity name, and last-seen date. Results are cached 24 hours per IP. Rate limit: 50 req/day (Community plan). Requires <span class="code-block">GREYNOISE_API_KEY</span>. Each lookup is automatically logged to the Analyst Notebook.</li>
+            <li><b>Investigation Log</b>: Maintains a session history of the last 20 IP lookups, persisted to browser localStorage. Use this panel to triage suspicious source IPs surfaced in the Live Threat Telemetry panel.</li>
+        </ul>
+
+        <p><b>J. Analyst Notebook</b> <span style="color:#66ffcc;">[v9]</span> — <span class="code-block">TOOLS ▾</span> → Analyst Notebook</p>
+        <ul>
+            <li><b>Analyst Assessment</b>: Dropdown (NOMINAL / WATCHFUL / CONCERNED / CRITICAL / HOSTILE) and 5-dot confidence scale (1 = LOW … 5 = HIGH). Records the analyst's current situational assessment independent of the automated threat score. Persisted across sessions.</li>
+            <li><b>Manual Notes</b>: Free-text entry for recording observations, hypotheses, and reasoning. Press <span class="code-block">Ctrl+Enter</span> or click LOG to append to the shift log. Each entry is timestamped (UTC).</li>
+            <li><b>Auto-logging</b>: Three event types are logged automatically without analyst action:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span style="color:#ff6644;">DEFCON</span> — Any threat level change (e.g., "Threat Level ▲ 4 → 3 (score: 6)") is recorded immediately.</li>
+                    <li><span style="color:#44aaff;">IP_CHECK</span> — Each GreyNoise IP lookup result (IP, noise flag, classification) is logged automatically.</li>
+                    <li><span style="color:#888;">MUTE / UNMUTE</span> — Sensor mute/unmute actions are logged with the analyst-provided reason (optional prompt dialog).</li>
+                </ul>
+            </li>
+            <li><b>Watch Handoff</b>: The "WATCH FOR" field at the bottom persists a handoff note for the next analyst shift. Use EXPORT to copy the full shift log to clipboard for shift turnover or incident reporting.</li>
+        </ul>
+
         <h4>9. API Reference (Analyst / Integration Endpoints)</h4>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
-            <li><span class="code-block">GET /api/data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data, threat score, domain breakdown, and deep analytics block.</li>
+            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data, threat score, domain breakdown, and deep analytics block (including v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise).</li>
             <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — Threat level history (up to 24 hrs / 288 cycles). Each cycle includes velocity, ambush flag, and blockade index.</li>
             <li><span class="code-block">GET /api/sitrep</span> — Machine-readable SITREP including trend, domain activity, and convergence state.</li>
-            <li><span class="code-block">GET /api/data_status</span> — Sensor health, polling intervals, last fetch time, and error logs.</li>
+            <li><span class="code-block">GET /api/data_status</span> — Sensor health, polling intervals, last fetch time, and error logs. Shows all 15 sensors including v9 additions.</li>
             <li><span class="code-block">GET /api/sensor_config</span> — List of all sensors with enabled/domain/health status.</li>
-            <li><span class="code-block">POST /api/sensor_config</span> — Enable/disable a sensor. Body example: <span class="code-block">{"name":"rss_narrative","enabled":false}</span></li>
-            <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> — Returns escalation chain events within the 24-hour window for the specified theater (timestamps, event types, chain bonus state).</li>
-            <li><span class="code-block">GET /api/phase8_analytics?theater=TW</span> — Deep analytics diagnostic dump: velocity series, acceleration, ambush Z-score, narrative Z-score, ISR aircraft count, AIS dark gaps, and blockade index with interpretation label.</li>
+            <li><span class="code-block">POST /api/sensor_config</span> — Enable/disable a sensor. Body example: <span class="code-block">{"name":"telegram_mirror","enabled":false}</span></li>
+            <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> — Returns escalation chain events within the 24-hour window for the specified theater. v9 event types: TELEGRAM_INTENT, MASKIROVKA, C2_SYNC, INFRA_BLACKOUT (in addition to NARRATIVE_BURST, ISR_SURGE, SYNC_DDOS, FIRMS_ANOMALY, AIS_DARK_GAP).</li>
+            <li><span class="code-block">GET /api/deep_analytics?theater=TW</span> — Deep analytics diagnostic dump: velocity series, acceleration, ambush Z-score, narrative Z-score, ISR aircraft count, AIS dark gaps, and Blockade Index (v9 formula) with interpretation label.</li>
+            <li><span class="code-block">GET /api/ip_check?ip=1.2.3.4</span> — GreyNoise Community API IP lookup. Returns noise/riot/classification/name/last_seen. Results cached 24h per IP. Rate limit: 50 req/day (Community plan). Available via GreyNoise Investigator panel in TOOLS menu.</li>
             <li><span class="code-block">GET /api/salute_report</span> — Generates a SALUTE-format contact report from current threat state. Used by the SALUTE Board panel.</li>
             <li><span class="code-block">GET /api/weather_brief</span> — Maps sensor values to weather metaphors. Returns per-domain state, color, icon, and summary text. Used by the Weather Brief panel.</li>
             <li><span class="code-block">GET /api/historical_events</span> — Returns the historical case pattern library from geo_data.json (5 reference fingerprints). Used by the Historical Analog panel.</li>
             <li><span class="code-block">GET /api/app_config</span> — Returns default settings and the global monitored country list (with code, name, region, and coordinates). Used for UI initialization on startup.</li>
         </ul>
 
+    </div>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     GreyNoise Investigator Panel (floating, dockable)
+     ───────────────────────────────────────────────────────────────────────── -->
+<div id="gn-panel" class="draggable-panel floating" style="display:none; left:480px; top:130px;">
+    <div class="drag-handle panel-header-unified">
+        <span>GreyNoise Investigator</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+        </div>
+    </div>
+    <div class="panel-content">
+        <!-- tier + suppress status -->
+        <div id="gn-tier-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span id="gn-tier-badge" class="gn-tier-badge gn-tier-none">NONE</span>
+            <span id="gn-suppress-badge" style="font-size:9px;color:#555;"></span>
+        </div>
+        <!-- per-theater noise class list -->
+        <div id="gn-theater-list" style="margin-bottom:4px;"></div>
+        <!-- IP check section -->
+        <div style="margin-top:10px;border-top:1px solid #1a1a1a;padding-top:10px;">
+            <div style="font-size:9px;color:#555;letter-spacing:1px;margin-bottom:5px;">IP INVESTIGATOR — Community API (50 req/day)</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <input type="text" id="gn-ip-input" placeholder="x.x.x.x"
+                    style="flex:1;background:#111;border:1px solid #333;color:#ccc;padding:5px 8px;border-radius:3px;font-size:11px;font-family:'Courier New',monospace;"
+                    onkeydown="if(event.key==='Enter')doIpCheck()">
+                <button class="btn-tactical btn-action" onclick="doIpCheck()" style="padding:5px 10px;font-size:10px;">CHECK</button>
+            </div>
+            <div id="gn-daily-rem" style="font-size:9px;color:#555;margin-top:4px;text-align:right;"></div>
+            <div id="gn-result-card" style="display:none;margin-top:8px;padding:8px;background:#0a0a14;border:1px solid #2a2a4a;border-radius:4px;font-size:10px;line-height:1.9;font-family:'Courier New',monospace;"></div>
+        </div>
+        <!-- investigation log -->
+        <div style="margin-top:10px;border-top:1px solid #1a1a1a;padding-top:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                <span style="font-size:9px;color:#555;letter-spacing:1px;">INVESTIGATION LOG</span>
+                <button onclick="clearGnLog()" style="background:none;border:none;color:#333;font-size:9px;cursor:pointer;letter-spacing:1px;padding:0;">CLEAR</button>
+            </div>
+            <div id="gn-log" style="max-height:110px;overflow-y:auto;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     Analyst Notebook Panel (floating, dockable)
+     ───────────────────────────────────────────────────────────────────────── -->
+<div id="notebook-panel" class="draggable-panel floating" style="display:none; left:500px; top:150px;">
+    <div class="drag-handle panel-header-unified">
+        <span>Analyst Notebook</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+        </div>
+    </div>
+    <div class="panel-content">
+        <!-- Assessment + Confidence -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <select id="nb-assessment"
+                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 6px;border-radius:3px;font-size:10px;flex:1;cursor:pointer;"
+                onchange="saveNbState()">
+                <option value="NOMINAL">NOMINAL</option>
+                <option value="WATCHFUL">WATCHFUL</option>
+                <option value="CONCERNED">CONCERNED</option>
+                <option value="CRITICAL">CRITICAL</option>
+                <option value="HOSTILE">HOSTILE</option>
+            </select>
+            <div id="nb-confidence-row" style="display:flex;gap:4px;" data-tooltip="Click dots to set confidence level (1=LOW … 5=HIGH)">
+                <span class="nb-dot nb-dot-on"  onclick="setNbConfidence(1)">●</span>
+                <span class="nb-dot nb-dot-on"  onclick="setNbConfidence(2)">●</span>
+                <span class="nb-dot nb-dot-on"  onclick="setNbConfidence(3)">●</span>
+                <span class="nb-dot nb-dot-off" onclick="setNbConfidence(4)">●</span>
+                <span class="nb-dot nb-dot-off" onclick="setNbConfidence(5)">●</span>
+            </div>
+        </div>
+        <!-- Note input -->
+        <textarea id="nb-text" placeholder="Record your assessment and reasoning here..."
+            style="width:100%;box-sizing:border-box;background:#0a0a0a;border:1px solid #2a2000;color:#ddd;padding:7px;border-radius:3px;font-size:11px;font-family:'Segoe UI',sans-serif;resize:vertical;min-height:60px;line-height:1.5;"
+            onkeydown="if(event.ctrlKey&&event.key==='Enter')addManualNote()"></textarea>
+        <div style="display:flex;gap:6px;margin-top:5px;align-items:center;">
+            <button class="btn-tactical btn-action" onclick="addManualNote()" style="font-size:10px;padding:4px 12px;" data-tooltip="Ctrl+Enter to log">LOG</button>
+            <button class="btn-tactical" onclick="exportNotebook()" style="font-size:10px;padding:4px 10px;color:#ffaa00;border-color:#ffaa0066;">EXPORT</button>
+            <button onclick="clearNotebook()" style="background:none;border:none;color:#333;font-size:9px;cursor:pointer;margin-left:auto;letter-spacing:1px;padding:0;">CLEAR ALL</button>
+        </div>
+        <!-- Handoff field -->
+        <div style="margin-top:8px;">
+            <div style="font-size:9px;color:#664400;letter-spacing:1px;margin-bottom:3px;">WATCH FOR — HANDOFF NOTE:</div>
+            <input type="text" id="nb-handoff" placeholder="Next shift: watch for..."
+                style="width:100%;box-sizing:border-box;background:#0c0800;border:1px solid #2a1800;color:#cc9966;padding:5px 8px;border-radius:3px;font-size:10px;"
+                oninput="saveNbState()">
+        </div>
+        <!-- Log -->
+        <div style="margin-top:10px;border-top:1px solid #1a1400;padding-top:6px;">
+            <div style="font-size:9px;color:#554400;letter-spacing:1px;margin-bottom:4px;">SHIFT LOG — NEWEST FIRST</div>
+            <div id="nb-log-container" style="max-height:200px;overflow-y:auto;"></div>
+        </div>
     </div>
 </div>
 
@@ -1228,12 +1471,256 @@
     window.toggleMute = function(sensorName) {
         if (mutedSensors.has(sensorName)) {
             mutedSensors.delete(sensorName);
+            addNotebookEntry('UNMUTE', `Sensor unmuted: ${sensorName}`);
         } else {
+            // 理由入力ダイアログ（省略可能）
+            const reason = prompt(`Muting sensor: ${sensorName}\nReason (optional — recorded in Analyst Notebook):`, '') ?? '';
             mutedSensors.add(sensorName);
+            addNotebookEntry('MUTE', `Sensor muted: ${sensorName}${reason ? ' — ' + reason : ''}`);
         }
         localStorage.setItem('mutedSensors', JSON.stringify([...mutedSensors]));
         forceDataSync(); // Trigger immediate recalculation
     };
+
+    // ── GreyNoise Investigator ─────────────────────────────────────────────────
+    let _gnLog = JSON.parse(localStorage.getItem('gnLookupLog') || '[]');
+
+    function toggleGnPanel() {
+        const panel = document.getElementById('gn-panel');
+        if (!panel) return;
+        const show = !panel.style.display || panel.style.display === 'none';
+        if (show && !panel.classList.contains('docked')) {
+            if (panel.parentElement !== document.body) document.body.appendChild(panel);
+            panel.classList.add('floating', 'active');
+            const rawLeft = parseInt(panel.style.left) || (window.innerWidth - 320);
+            const rawTop  = parseInt(panel.style.top)  || 130;
+            panel.style.left = Math.max(10, Math.min(rawLeft, window.innerWidth  - 200)) + 'px';
+            panel.style.top  = Math.max(10, Math.min(rawTop,  window.innerHeight - 100)) + 'px';
+        }
+        panel.style.display = show ? 'flex' : 'none';
+        if (show) renderGnLog();
+        updateSidebarVisibility();
+    }
+
+    function updateGreyNoisePanel(analytics) {
+        const gn = analytics.greynoise || {};
+        // Tier badge
+        const tierEl = document.getElementById('gn-tier-badge');
+        if (tierEl) {
+            const tier = gn.gnql_tier || 'none';
+            tierEl.className = 'gn-tier-badge ' + (
+                tier === 'enterprise'        ? 'gn-tier-enterprise' :
+                tier === 'community_limited' ? 'gn-tier-community' : 'gn-tier-none'
+            );
+            tierEl.textContent = tier === 'enterprise' ? 'ENTERPRISE' :
+                                 tier === 'community_limited' ? 'COMMUNITY' : 'NO KEY';
+        }
+        const suppEl = document.getElementById('gn-suppress-badge');
+        if (suppEl) {
+            if (gn.suppressing) {
+                suppEl.textContent = '⚡ SUPPRESSING CYBER SCORE';
+                suppEl.style.color = '#ff6600';
+            } else {
+                suppEl.textContent = gn.noise_class ? gn.noise_class : '—';
+                suppEl.style.color = gn.noise_class === 'TARGETED' ? '#00ff88' :
+                                     gn.noise_class === 'MIXED' ? '#ffaa00' :
+                                     gn.noise_class === 'NOISE_DOMINANT' ? '#ff2200' : '#555';
+            }
+        }
+        // Per-theater list
+        const listEl = document.getElementById('gn-theater-list');
+        if (listEl && gn.theater_data) {
+            listEl.innerHTML = Object.entries(gn.theater_data).map(([cc, d]) => {
+                const nc = d.noise_class || 'UNKNOWN';
+                const nr = d.noise_ratio !== null && d.noise_ratio !== undefined ? ` (${Math.round(d.noise_ratio * 100)}%)` : '';
+                return `<div class="gn-theater-row">
+                    <span style="color:#888;font-size:10px;">${cc}</span>
+                    <span class="gn-noise-${nc}" style="font-size:10px;font-weight:bold;">${nc}${nr}</span>
+                </div>`;
+            }).join('') || '<div style="color:#444;font-size:9px;">No theater data</div>';
+        }
+    }
+
+    function doIpCheck() {
+        const input = document.getElementById('gn-ip-input');
+        const ip = input ? input.value.trim() : '';
+        if (!ip) return;
+        const resultEl = document.getElementById('gn-result-card');
+        const remEl    = document.getElementById('gn-daily-rem');
+        if (resultEl) { resultEl.style.display = 'block'; resultEl.innerHTML = '<span style="color:#555;">Querying GreyNoise...</span>'; }
+        fetch(`/api/ip_check?ip=${encodeURIComponent(ip)}`)
+            .then(r => r.json())
+            .then(d => {
+                if (remEl) remEl.textContent = d.daily_remaining !== undefined ? `Remaining today: ${d.daily_remaining}/50` : '';
+                if (d.error) {
+                    if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Error: ${d.error}</span>`;
+                    return;
+                }
+                const noiseStr  = d.noise ? '<span class="gn-result-noise">■ NOISE</span>' : '<span class="gn-result-targeted">■ TARGETED</span>';
+                const riotStr   = d.riot  ? '<span class="gn-result-riot">■ RIOT (benign infra)</span>' : '';
+                const classStr  = d.classification || 'unknown';
+                const nameStr   = d.name || '—';
+                const lastSeen  = d.last_seen || '—';
+                const cached    = d.cached ? ' <span style="color:#555;">[cached]</span>' : '';
+                if (resultEl) resultEl.innerHTML =
+                    `<div>${noiseStr} ${riotStr}${cached}</div>` +
+                    `<div style="color:#888;">Class: <span style="color:#ccc;">${classStr}</span></div>` +
+                    `<div style="color:#888;">Name:  <span style="color:#ccc;">${nameStr}</span></div>` +
+                    `<div style="color:#888;">Seen:  <span style="color:#ccc;">${lastSeen}</span></div>`;
+                // Auto-log to investigation log and notebook
+                const logEntry = { ts: Date.now(), ip: d.ip, noise: d.noise, riot: d.riot, classification: classStr, name: nameStr, cached: d.cached };
+                _gnLog.unshift(logEntry);
+                if (_gnLog.length > 20) _gnLog = _gnLog.slice(0, 20);
+                localStorage.setItem('gnLookupLog', JSON.stringify(_gnLog));
+                renderGnLog();
+                // Notebook auto-entry
+                addNotebookEntry('IP_CHECK',
+                    `IP ${d.ip}: ${d.noise ? 'NOISE' : 'TARGETED'} | ${classStr} | ${nameStr}`);
+            })
+            .catch(e => {
+                if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Network error: ${e.message}</span>`;
+            });
+    }
+
+    function renderGnLog() {
+        const el = document.getElementById('gn-log');
+        if (!el) return;
+        if (!_gnLog.length) { el.innerHTML = '<div style="color:#333;font-size:9px;">No lookups yet.</div>'; return; }
+        el.innerHTML = _gnLog.map(e => {
+            const t  = new Date(e.ts).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'});
+            const cls = e.noise ? 'gn-log-noise' : e.classification === 'unknown' ? 'gn-log-unknown' : 'gn-log-targeted';
+            return `<div class="gn-log-entry"><span style="color:#444;">${t}</span> <span style="color:#888;">${e.ip}</span> → <span class="${cls}">${e.noise?'NOISE':'TARGETED'}</span> <span style="color:#666;">${e.name||''}</span></div>`;
+        }).join('');
+    }
+
+    function clearGnLog() {
+        _gnLog = [];
+        localStorage.setItem('gnLookupLog', '[]');
+        renderGnLog();
+        const rc = document.getElementById('gn-result-card');
+        if (rc) { rc.style.display='none'; rc.innerHTML=''; }
+    }
+
+    // ── Analyst Notebook ───────────────────────────────────────────────────────
+    let _nbLog        = JSON.parse(localStorage.getItem('nbLog')        || '[]');
+    let _nbConfidence = parseInt(localStorage.getItem('nbConfidence')   || '3');
+    let _nbAssessment = localStorage.getItem('nbAssessment')            || 'NOMINAL';
+    let _lastDefconLevel = null;   // DEFCON自動ログ用
+
+    function toggleNotebook() {
+        const panel = document.getElementById('notebook-panel');
+        if (!panel) return;
+        const show = !panel.style.display || panel.style.display === 'none';
+        if (show && !panel.classList.contains('docked')) {
+            if (panel.parentElement !== document.body) document.body.appendChild(panel);
+            panel.classList.add('floating', 'active');
+            const rawLeft = parseInt(panel.style.left) || (window.innerWidth - 340);
+            const rawTop  = parseInt(panel.style.top)  || 150;
+            panel.style.left = Math.max(10, Math.min(rawLeft, window.innerWidth  - 200)) + 'px';
+            panel.style.top  = Math.max(10, Math.min(rawTop,  window.innerHeight - 100)) + 'px';
+        }
+        panel.style.display = show ? 'flex' : 'none';
+        if (show) { restoreNbState(); renderNbLog(); }
+        updateSidebarVisibility();
+    }
+
+    function restoreNbState() {
+        const sel = document.getElementById('nb-assessment');
+        if (sel) sel.value = _nbAssessment;
+        const hf = document.getElementById('nb-handoff');
+        if (hf) hf.value = localStorage.getItem('nbHandoff') || '';
+        renderNbConfidence();
+    }
+
+    function saveNbState() {
+        const sel = document.getElementById('nb-assessment');
+        if (sel) { _nbAssessment = sel.value; localStorage.setItem('nbAssessment', _nbAssessment); }
+        const hf = document.getElementById('nb-handoff');
+        if (hf) localStorage.setItem('nbHandoff', hf.value);
+    }
+
+    function setNbConfidence(level) {
+        _nbConfidence = level;
+        localStorage.setItem('nbConfidence', String(level));
+        renderNbConfidence();
+    }
+
+    function renderNbConfidence() {
+        const row = document.getElementById('nb-confidence-row');
+        if (!row) return;
+        row.querySelectorAll('.nb-dot').forEach((dot, i) => {
+            dot.className = 'nb-dot ' + (i < _nbConfidence ? 'nb-dot-on' : 'nb-dot-off');
+        });
+    }
+
+    function addNotebookEntry(type, content) {
+        const sel = document.getElementById('nb-assessment');
+        const assessment = sel ? sel.value : _nbAssessment;
+        const entry = {
+            ts:         Date.now(),
+            type:       type,
+            content:    content,
+            assessment: assessment,
+            confidence: _nbConfidence,
+        };
+        _nbLog.unshift(entry);
+        if (_nbLog.length > 200) _nbLog = _nbLog.slice(0, 200);
+        localStorage.setItem('nbLog', JSON.stringify(_nbLog));
+        renderNbLog();
+    }
+
+    function addManualNote() {
+        const ta = document.getElementById('nb-text');
+        const text = ta ? ta.value.trim() : '';
+        if (!text) return;
+        saveNbState();
+        addNotebookEntry('ANALYST', text);
+        if (ta) ta.value = '';
+    }
+
+    function renderNbLog() {
+        const container = document.getElementById('nb-log-container');
+        if (!container) return;
+        if (!_nbLog.length) { container.innerHTML = '<div style="color:#333;font-size:9px;text-align:center;">No entries yet.<br>Your assessments, IP lookups, and sensor mutes are recorded here automatically.</div>'; return; }
+        container.innerHTML = _nbLog.map(e => {
+            const t = new Date(e.ts).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+            const typeClass = `nb-type-${e.type}`;
+            const assessBadge = e.assessment && e.type === 'ANALYST'
+                ? `<span class="nb-assessment-badge nb-assess-${e.assessment}">${e.assessment}</span>`
+                : '';
+            const confStr = e.type === 'ANALYST' && e.confidence
+                ? `<span style="color:#554400;font-size:9px;"> conf:${'●'.repeat(e.confidence)}${'○'.repeat(5-e.confidence)}</span>`
+                : '';
+            return `<div class="nb-log-entry">
+                <div class="nb-ts">${t} <span class="${typeClass}">[${e.type}]</span>${assessBadge}${confStr}</div>
+                <div style="color:#aaa;font-size:10px;margin-top:1px;">${e.content}</div>
+            </div>`;
+        }).join('');
+    }
+
+    function exportNotebook() {
+        const handoff = (document.getElementById('nb-handoff') || {}).value || '';
+        let text = `=== ANALYST NOTEBOOK EXPORT ===\n`;
+        text += `Generated: ${new Date().toISOString()}\n`;
+        text += `Assessment: ${_nbAssessment} | Confidence: ${'●'.repeat(_nbConfidence)}${'○'.repeat(5-_nbConfidence)}\n`;
+        if (handoff) text += `WATCH FOR: ${handoff}\n`;
+        text += `\n--- SHIFT LOG ---\n`;
+        _nbLog.forEach(e => {
+            const t = new Date(e.ts).toISOString().replace('T',' ').slice(0,19) + 'Z';
+            text += `[${t}] [${e.type}] ${e.content}\n`;
+        });
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.querySelector('#notebook-panel button[onclick="exportNotebook()"]');
+            if (btn) { const orig = btn.textContent; btn.textContent = 'COPIED!'; setTimeout(() => btn.textContent = orig, 1500); }
+        }).catch(() => { prompt('Copy the notebook export:', text); });
+    }
+
+    function clearNotebook() {
+        if (!confirm('Clear all notebook entries? This cannot be undone.')) return;
+        _nbLog = [];
+        localStorage.setItem('nbLog', '[]');
+        renderNbLog();
+    }
 
     // ── Custom Tooltip Logic ──
     const tooltip = document.getElementById('custom-tooltip');
@@ -1325,6 +1812,8 @@
         { panelId: 'salute-panel',         dotId: 'tm-dot-sal',   itemId: 'tm-item-sal'   },
         { panelId: 'hist-analog-panel',    dotId: 'tm-dot-ha',    itemId: 'tm-item-ha'    },
         { panelId: 'op-clock-panel',       dotId: 'tm-dot-clk',   itemId: 'tm-item-clk'  },
+        { panelId: 'gn-panel',            dotId: 'tm-dot-gn',    itemId: 'tm-item-gn'    },
+        { panelId: 'notebook-panel',       dotId: 'tm-dot-nb',    itemId: 'tm-item-nb'    },
     ];
 
     function toggleToolsMenu() {
@@ -1390,6 +1879,11 @@
         SYNC_DDOS:       'Sync DDoS',
         FIRMS_ANOMALY:   'Kinetic Anomaly',
         AIS_DARK_GAP:    'AIS Dark Gap',
+        // v9
+        TELEGRAM_INTENT: 'Telegram: Attack Intent',
+        MASKIROVKA:      'Maskirovka (Deception)',
+        C2_SYNC:         'C2 Temporal Sync',
+        INFRA_BLACKOUT:  'Infra Blackout',
     };
     const EVENT_COLORS = {
         NARRATIVE_BURST: '#cc66ff',
@@ -1397,6 +1891,11 @@
         SYNC_DDOS:       '#00ffff',
         FIRMS_ANOMALY:   '#ff4444',
         AIS_DARK_GAP:    '#44aaff',
+        // v9
+        TELEGRAM_INTENT: '#ff66cc',
+        MASKIROVKA:      '#ff8800',
+        C2_SYNC:         '#ffffff',
+        INFRA_BLACKOUT:  '#ff2200',
     };
 
     function updateChainPanel(strat) {
@@ -1413,13 +1912,134 @@
                 sc.includes('PARTIAL')    ? 'chain-seq-PARTIAL' : 'chain-seq-NONE'
             );
         }
-        // Quick metrics
+        // Quick metrics (v8)
         const nEl = document.getElementById('ev-narrative-z');
         const iEl = document.getElementById('ev-isr-count');
         const aEl = document.getElementById('ev-ais-gaps');
         if (nEl) nEl.textContent = p8.narrative ? (p8.narrative.z_score || 0).toFixed(2) + ' σ' : '—';
         if (iEl) iEl.textContent = p8.isr ? (p8.isr.count || 0) + ' ac' : '—';
         if (aEl) aEl.textContent = p8.ais ? (p8.ais.dark_gaps || 0) + ' vessels' : '—';
+
+        // ── v9: Survival HUD (Check-Host) ──────────────────────────────────────
+        const survEl   = document.getElementById('hud-survival');
+        const survIcon = document.getElementById('hud-survival-icon');
+        const ch = p8.check_host || {};
+        const tg = p8.telegram_mirror || {};   // ここで定義 — 後方の詳細コードより先に宣言
+        const chStatus = ch.status || 'UNKNOWN';
+        const chRate   = ch.theater_success_rate;
+        if (survEl) {
+            const COLOR_MAP = { OK: '#00ff88', PARTIAL: '#ffaa00', BLACKOUT: '#ff2200', UNKNOWN: '#555' };
+            survEl.textContent  = chStatus + (chRate !== null && chRate !== undefined ? ` (${Math.round(chRate * 100)}%)` : '');
+            survEl.style.color  = COLOR_MAP[chStatus] || '#aaa';
+        }
+        if (survIcon) {
+            survIcon.textContent = chStatus === 'OK' ? '●' : chStatus === 'PARTIAL' ? '◐' : chStatus === 'BLACKOUT' ? '○' : '?';
+            survIcon.style.color  = chStatus === 'OK' ? '#00ff88' : chStatus === 'PARTIAL' ? '#ffaa00' : '#ff2200';
+        }
+
+        // ── v9: C2 Temporal Coherence ──────────────────────────────────────────
+        const c2El = document.getElementById('hud-c2sync');
+        const tc = p8.temporal_coherence || {};
+        if (c2El) {
+            if (tc.is_c2_sync) {
+                c2El.textContent = `DETECTED (+${tc.bonus}pt)`;
+                c2El.style.color = '#ff2200';
+            } else if (tc.coherence_score > 0) {
+                c2El.textContent = `PARTIAL (${(tc.coherence_score * 100).toFixed(0)}%)`;
+                c2El.style.color = '#ffaa00';
+            } else {
+                c2El.textContent = 'NO SYNC';
+                c2El.style.color = '#555';
+            }
+        }
+
+        // ── v9: CheckHost URL detail in chain panel ────────────────────────────
+        const chDetailEl = document.getElementById('chain-checkhost-detail');
+        if (chDetailEl) {
+            const urlResults = ch.url_results || {};
+            const entries = Object.entries(urlResults);
+            if (entries.length > 0 && chStatus !== 'UNKNOWN') {
+                chDetailEl.style.display = 'block';
+                chDetailEl.innerHTML = `<div style="font-size:9px;color:#336633;letter-spacing:1px;margin-bottom:4px;">INFRA CHECK — NODES: ${(ch.nodes||[]).length}</div>` +
+                    entries.map(([url, r]) => {
+                        const label = url.replace(/^https?:\/\//, '').split('/')[0];
+                        const st    = r.status || 'UNKNOWN';
+                        const lat   = r.avg_latency_ms ? `${r.avg_latency_ms}ms` : '';
+                        const ok    = r.ok_nodes !== undefined ? `${r.ok_nodes}/${r.total_nodes}` : '';
+                        return `<div class="ch-url-row">
+                            <span class="ch-url-label" data-tooltip="${url}">${label}</span>
+                            <span style="color:#555;font-size:9px;">${ok} ${lat}</span>
+                            <span class="ch-status-${st}">${st}</span>
+                        </div>`;
+                    }).join('');
+            } else {
+                chDetailEl.style.display = 'none';
+            }
+        }
+
+        // ── v9: Telegram channel detail in chain panel ─────────────────────────
+        const tgDetailEl = document.getElementById('chain-telegram-detail');
+        if (tgDetailEl) {
+            const monitored    = tg.channels_monitored || [];
+            const active       = tg.active_channels    || [];
+            const targetUrls   = tg.target_urls        || [];
+            if (monitored.length > 0) {
+                tgDetailEl.style.display = 'block';
+                const chBadges = monitored.map(ch => {
+                    const isActive = active.includes(ch);
+                    return `<span class="tg-ch-badge" style="${isActive ? 'background:rgba(255,102,204,0.2);color:#ff66cc;border-color:#ff66cc88;' : 'opacity:0.4;'}">${ch}</span>`;
+                }).join('');
+                const urlList = targetUrls.slice(0,3).map(u =>
+                    `<div class="tg-url-item" data-tooltip="${u}">${u.replace(/^https?:\/\//,'').slice(0,40)}</div>`
+                ).join('');
+                tgDetailEl.innerHTML =
+                    `<div style="font-size:9px;color:#663366;letter-spacing:1px;margin-bottom:4px;">TELEGRAM MONITOR — ${monitored.length} channels</div>` +
+                    `<div style="margin-bottom:${targetUrls.length?'6px':'0'};">${chBadges}</div>` +
+                    (targetUrls.length ? `<div style="font-size:9px;color:#663300;letter-spacing:1px;margin-bottom:3px;">TARGET URLs:</div>${urlList}` : '');
+            } else {
+                tgDetailEl.style.display = 'none';
+            }
+        }
+
+        // ── v9: Maskirovka flag in Chain panel ─────────────────────────────────
+        const msk = p8.maskirovka || {};
+        const mskEl = document.getElementById('chain-maskirovka');
+        if (mskEl) {
+            if (msk.detected) {
+                mskEl.style.display = 'block';
+                mskEl.innerHTML = `<span style="color:#ff8800;font-weight:700;">⚠ MASKIROVKA DETECTED</span>
+                    <div style="color:#aaa;font-size:10px;margin-top:2px;">${msk.reason || ''}</div>`;
+            } else {
+                mskEl.style.display = 'none';
+            }
+        }
+
+        // ── v9: Telegram Mirror quick stat ────────────────────────────────────
+        const tgEl = document.getElementById('ev-telegram-intent');
+        if (tgEl) {
+            if (tg.has_intent) {
+                tgEl.textContent = `INTENT (${(tg.active_channels || []).length} ch)`;
+                tgEl.style.color = '#ff66cc';
+            } else if (tg.status === 'TARGETS_FOUND') {
+                tgEl.textContent = 'TARGETS FOUND';
+                tgEl.style.color = '#ffaa00';
+            } else {
+                tgEl.textContent = 'CLEAR';
+                tgEl.style.color = '#555';
+            }
+        }
+        // ev-checkhost-status (chain panel sub-metric)
+        const chsEl = document.getElementById('ev-checkhost-status');
+        if (chsEl) {
+            chsEl.textContent = chStatus + (chRate !== null && chRate !== undefined ? ` ${Math.round(chRate*100)}%` : '');
+            chsEl.style.color = chStatus === 'OK' ? '#00ff88' : chStatus === 'PARTIAL' ? '#ffaa00' : chStatus === 'BLACKOUT' ? '#ff2200' : '#555';
+        }
+        // ev-c2sync-detail (chain panel sub-metric)
+        const c2dEl = document.getElementById('ev-c2sync-detail');
+        if (c2dEl) {
+            c2dEl.textContent = tc.is_c2_sync ? `SYNC +${tc.bonus}pt` : tc.coherence_score > 0 ? `PARTIAL` : 'NO SYNC';
+            c2dEl.style.color  = tc.is_c2_sync ? '#ff2200' : tc.coherence_score > 0 ? '#ffaa00' : '#555';
+        }
 
         // Async: シーケンスイベント一覧をフェッチして描画
         const theater = strat.core_theater || '';
@@ -1483,12 +2103,14 @@
         { id: 'salute-panel',         ph: 'lsb-ph-sal'            },
         { id: 'hist-analog-panel',    ph: 'lsb-ph-ha'             },
         { id: 'op-clock-panel',       ph: 'lsb-ph-clk'            },
+        { id: 'gn-panel',            ph: 'lsb-ph-gn'             },
+        { id: 'notebook-panel',       ph: 'lsb-ph-nb'             },
     ];
 
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
     let _sidebarOrder = {
         'sidebar':      ['target-panel', 'dashboard-panel', 'chain-panel'],
-        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel']
+        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel']
     };
 
     // Re-order placeholder divs within a sidebar to match _sidebarOrder
@@ -1595,6 +2217,11 @@
                 }
                 saveLocalState();
             };
+        }
+
+        // 初期フローティング状態にも defaultWidth を適用（dock→undock 後と同じサイズにする）
+        if (panel.classList.contains('floating') && !panel.classList.contains('docked')) {
+            if (!panel.style.width) panel.style.width = defaultWidth + 'px';
         }
 
         // Which sidebar currently contains this panel's placeholder?
@@ -1797,14 +2424,17 @@
         panel.addEventListener('mouseup', function(e) { saveLocalState(); });
     }
 
-    setupDockablePanel('target-panel',        'target-placeholder',    280);
+    // defaultWidth: タイトルはwhite-space:nowrapで折り返し禁止。幅は内容優先で設定
+    setupDockablePanel('target-panel',        'target-placeholder',    340);
     setupDockablePanel('dashboard-panel',     'dashboard-placeholder', 400);
-    setupDockablePanel('chain-panel',          'chain-placeholder',     260);
-    setupDockablePanel('pulse-panel',         'lsb-ph-pulse',          220);
-    setupDockablePanel('weather-brief-panel', 'lsb-ph-wx',             215);
-    setupDockablePanel('salute-panel',        'lsb-ph-sal',            235);
-    setupDockablePanel('hist-analog-panel',   'lsb-ph-ha',             265);
-    setupDockablePanel('op-clock-panel',      'lsb-ph-clk',            195);
+    setupDockablePanel('chain-panel',         'chain-placeholder',     300);
+    setupDockablePanel('pulse-panel',         'lsb-ph-pulse',          260);
+    setupDockablePanel('weather-brief-panel', 'lsb-ph-wx',             420);
+    setupDockablePanel('salute-panel',        'lsb-ph-sal',            380);
+    setupDockablePanel('hist-analog-panel',   'lsb-ph-ha',             340);
+    setupDockablePanel('op-clock-panel',      'lsb-ph-clk',            340);
+    setupDockablePanel('gn-panel',            'lsb-ph-gn',             400);
+    setupDockablePanel('notebook-panel',      'lsb-ph-nb',             340);
     updateSidebarVisibility();
 
     const map = L.map('map', {
@@ -2368,6 +2998,18 @@
             // Evidence Chain Panel の更新
             updateChainPanel(strat);
 
+            // ── v9 新センサーパネル更新 ───────────────────────────────
+            if (document.getElementById('gn-panel')?.style.display !== 'none') {
+                updateGreyNoisePanel(p8);
+            }
+            // DEFCON 変化を Analyst Notebook に自動ログ
+            const newLevel = strat.threat_level;
+            if (_lastDefconLevel !== null && _lastDefconLevel !== newLevel) {
+                addNotebookEntry('DEFCON',
+                    `Threat Level ${_lastDefconLevel > newLevel ? '▼' : '▲'} ${_lastDefconLevel} → ${newLevel} (score: ${strat.threat_score || '?'})`);
+            }
+            _lastDefconLevel = newLevel;
+
             // ── Intuition UI 統合呼び出し ──────────────────────────────
             applyAmbientAtmosphere(strat.threat_level);
             updateRadioSilence(p8, strat);
@@ -2919,7 +3561,7 @@
         syncToolsMenuState();
     }
 
-    const LAYOUT_VERSION = 3; // bump when layout structure changes to auto-clear stale state
+    const LAYOUT_VERSION = 9; // bump when layout structure changes to auto-clear stale state
 
     function loadTargetState(defaults) {
         // THEATERS を app_config の全世界リストで初期化してからUIを構築
@@ -3943,5 +4585,6 @@
         }
     }
 </script>
+
 </body>
 </html>
