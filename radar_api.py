@@ -1,4 +1,5 @@
 # radar_api.py — MDO C4ISR Dashboard — Predictive Deep Pattern Analysis
+from __future__ import annotations
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
@@ -115,6 +116,8 @@ NARRATIVE_SOURCES: dict = {}
 TACTICAL_KEYWORDS: dict = {}
 HISTORICAL_EVENTS: list = []
 CABLE_ROUTES: list = []
+THREAT_ACTOR_MAPPING: dict = {}
+INFRASTRUCTURE_URLS:  dict = {}
 try:
     with open("geo_data.json", "r", encoding="utf-8") as f:
         geo_data = json.load(f)
@@ -127,6 +130,8 @@ try:
         TACTICAL_KEYWORDS   = geo_data.get("TACTICAL_KEYWORDS", {})
         HISTORICAL_EVENTS   = geo_data.get("HISTORICAL_EVENTS", [])
         CABLE_ROUTES        = geo_data.get("CABLE_ROUTES", [])
+        THREAT_ACTOR_MAPPING = geo_data.get("THREAT_ACTOR_MAPPING", {})
+        INFRASTRUCTURE_URLS  = geo_data.get("INFRASTRUCTURE_URLS", {})
         print("[Config] Loaded static data from geo_data.json")
 except Exception as e:
     print(f"[Warning] Failed to load geo_data.json: {e}")
@@ -676,11 +681,17 @@ class ThreatFoxSensor(BaseSensor):
         if HTTP_PROXY:
             headers["Connection"] = "Keep-Alive"
 
+        # API キー未設定時はリクエストをスキップ（401 で ERROR 状態になるのを防ぐ）
+        if not tf_api_key:
+            self.log_fetch(True, 0, 0, 0, "")
+            result = {"hits": hits}; self.set_cache(result)
+            return result
+
         t0 = time.time()
         try:
             res = requests.post(url, json=payload, headers=headers, timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
             duration = round((time.time() - t0) * 1000)
-            
+
             if res.status_code == 200:
                 data = res.json()
                 if data.get("query_status") in ["ok", "no_result"]:
@@ -695,6 +706,10 @@ class ThreatFoxSensor(BaseSensor):
                     err_msg = data.get("query_status", "Unknown error")
                     self.log_fetch(False, duration, res.status_code, 0, f"API Error: {err_msg}")
                     self.set_error(f"API Error: {err_msg}")
+            elif res.status_code == 401:
+                # APIキー認証失敗: キー設定を促すが ERROR 扱いにしない
+                print(f"[ThreatFox] HTTP 401 — Auth-Key が無効か期限切れです。THREATFOX_API_KEY を確認してください。")
+                self.log_fetch(False, duration, res.status_code, 0, "HTTP 401 Unauthorized")
             else:
                 self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
                 self.set_error(f"HTTP {res.status_code}")
@@ -1091,6 +1106,489 @@ class AisMaritimeSensor(BaseSensor):
         return result
 
 # ─────────────────────────────────────────────────────────────────────────────
+# v9 New Sensors: TelegramMirrorSensor / CheckHostSensor / GreyNoiseSensor
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── 設定読み込み (センサー定義より前に配置) ────────────────────────────────────
+GREYNOISE_API_KEY        = os.getenv("GREYNOISE_API_KEY", "")
+CHECKHOST_NODES_STR      = os.getenv("CHECKHOST_NODES",
+    "jp1.node.check-host.net,us1.node.check-host.net,"
+    "de1.node.check-host.net,nl1.node.check-host.net,fr1.node.check-host.net")
+CHECKHOST_NODES          = [n.strip() for n in CHECKHOST_NODES_STR.split(",") if n.strip()]
+CHECKHOST_POLL_INTERVAL  = int(os.getenv("CHECKHOST_POLL_INTERVAL", "600"))
+CHECKHOST_TIMEOUT_MS     = int(os.getenv("CHECKHOST_TIMEOUT_MS", "3000"))
+TELEGRAM_MIRROR_POLL     = int(os.getenv("TELEGRAM_MIRROR_POLL_INTERVAL", "900"))
+TELEGRAM_ATTACK_KW_RAW   = os.getenv(
+    "TELEGRAM_ATTACK_KEYWORDS",
+    "target,attack,ddos,http flood,under attack,down,offline,op,#target"
+)
+TELEGRAM_ATTACK_KEYWORDS = [k.strip().lower() for k in TELEGRAM_ATTACK_KW_RAW.split(",") if k.strip()]
+
+class TelegramMirrorSensor(BaseSensor):
+    """
+    Info Domain センサー: tgstat.com / telemetr.io の公開ミラーページを
+    スクレイピングし、THREAT_ACTOR_MAPPING に基づくチャンネルの最新投稿を監視する。
+    電話番号・ログイン不要。投稿から「ターゲットURL」「攻撃開始宣言」をパースし
+    register_sequence_event へ自動登録する。
+    """
+    TGSTAT_URL   = "https://tgstat.com/channel/@{channel}/stat"
+    TELEMETR_URL = "https://telemetr.io/@{channel}"
+    # URL抽出パターン (https?://example.com 形式)
+    _URL_RE = __import__("re").compile(
+        r'https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(?:/[^\s<"\']*)?'
+    )
+
+    def __init__(self):
+        super().__init__("telegram_mirror", "info", TELEGRAM_MIRROR_POLL)
+
+    def _scrape_channel(self, channel: str) -> str:
+        """tgstat.com の公開チャンネルページを取得してテキストを返す。
+        失敗時は telemetr.io にフォールバック。"""
+        for url_tpl in (self.TGSTAT_URL, self.TELEMETR_URL):
+            url = url_tpl.format(channel=channel)
+            try:
+                res = requests.get(
+                    url, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+                    headers={"User-Agent": "Mozilla/5.0 (OSINT-Radar/9.0; +https://github.com)"}
+                )
+                if res.status_code == 200 and len(res.text) > 200:
+                    return res.text
+            except Exception:
+                pass
+        return ""
+
+    @staticmethod
+    def _extract_text(html: str) -> str:
+        """HTML からスクリプト・スタイルを除去して平文テキストを返す（BeautifulSoup不要）。"""
+        import re
+        text = re.sub(r'<script[^>]*>.*?</script>', ' ', html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<style[^>]*>.*?</style>',  ' ', text,  flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<[^>]+>', ' ', text)
+        text = re.sub(r'&[a-zA-Z0-9#]+;', ' ', text)
+        return text.lower()
+
+    def _parse_posts(self, text: str, keywords: list) -> tuple:
+        """テキストからターゲットURLと攻撃宣言を抽出する。
+        Returns: (targets: list[str], has_attack_intent: bool)"""
+        targets = self._URL_RE.findall(text)
+        # 政府・重要インフラドメインに絞る（.gov .mil 等）
+        gov_targets = [u for u in targets if any(
+            pat in u for pat in (".gov", ".mil", ".parliament", ".bundestag",
+                                  ".elysee", ".president", "bank", "energy", "telecom")
+        )]
+        has_intent = any(kw in text for kw in keywords)
+        return gov_targets[:10], has_intent
+
+    def fetch(self, context: dict) -> dict:
+        theaters = context.get("strategic_theaters", [])
+        results: dict = {}
+        t0 = time.time()
+        total_hits = 0
+        any_success = False
+
+        for theater in theaters:
+            channels = THREAT_ACTOR_MAPPING.get(theater, [])
+            if not channels:
+                continue
+
+            theater_targets: list = []
+            theater_intent   = False
+            active_channels: list = []
+
+            for channel in channels:
+                html = self._scrape_channel(channel)
+                if not html:
+                    continue
+                any_success = True
+                text = self._extract_text(html)
+                targets, has_intent = self._parse_posts(text, TELEGRAM_ATTACK_KEYWORDS)
+                if has_intent or targets:
+                    theater_targets.extend(targets)
+                    if has_intent:
+                        theater_intent = True
+                    active_channels.append(channel)
+                    total_hits += 1
+
+            results[theater] = {
+                "channels_monitored": channels,
+                "active_channels":    active_channels,
+                "target_urls":        list(set(theater_targets)),
+                "has_attack_intent":  theater_intent,
+                "status":             "INTENT_DETECTED" if theater_intent else
+                                      "TARGETS_FOUND" if theater_targets else "CLEAR",
+            }
+
+            # シーケンスイベント登録
+            if theater_intent:
+                register_sequence_event(theater, "NARRATIVE_BURST", {
+                    "source": "telegram_mirror",
+                    "channels": active_channels,
+                    "targets": list(set(theater_targets))[:5],
+                })
+
+        self.log_fetch(any_success or len(theaters) == 0,
+                       round((time.time() - t0) * 1000), 200, total_hits)
+        result = {"telegram": results}
+        self.set_cache(result)
+        return result
+
+
+class CheckHostSensor(BaseSensor):
+    """
+    Infra Domain センサー: check-host.net API を使用して INFRASTRUCTURE_URLS に
+    対し複数グローバルノードから死活確認を行い、Success Rate（応答成功率）を算出する。
+    DDoS 加速度スパイク検知時にも呼び出される（from WeightedConvergenceEngine）。
+    """
+    CHECK_HOST_API = "https://check-host.net/check-http"
+    RESULT_API     = "https://check-host.net/check-result/{request_id}"
+
+    def __init__(self):
+        super().__init__("check_host", "physical", CHECKHOST_POLL_INTERVAL)
+
+    def check_url(self, url: str, nodes: list) -> dict:
+        """単一URLを複数ノードから確認し {success_rate, results} を返す。"""
+        try:
+            # requests に list of tuples を渡すことで同一キーの繰り返しを実現
+            params = [("host", url), ("max_nodes", min(len(nodes), 5))]
+            params += [("node[]", n) for n in nodes[:5]]
+            res = requests.get(
+                self.CHECK_HOST_API,
+                params=params,
+                headers={"Accept": "application/json",
+                         "User-Agent": "OSINT-Radar/9.0"},
+                timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
+            )
+            if res.status_code != 200:
+                return {"success_rate": None, "error": f"HTTP {res.status_code}"}
+
+            data = res.json()
+            request_id = data.get("request_id", "")
+            if not request_id:
+                return {"success_rate": None, "error": "no request_id"}
+
+            # 結果取得まで最大 10 秒待機
+            time.sleep(5)
+            r2 = requests.get(
+                self.RESULT_API.format(request_id=request_id),
+                headers={"Accept": "application/json",
+                         "User-Agent": "OSINT-Radar/9.0"},
+                timeout=12, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
+            )
+            if r2.status_code != 200:
+                return {"success_rate": None, "error": f"result HTTP {r2.status_code}"}
+
+            node_results = r2.json()
+            ok_count  = 0
+            all_count = 0
+            latencies: list = []
+            for _, checks in node_results.items():
+                if not isinstance(checks, list):
+                    continue
+                for chk in checks:
+                    if chk is None:
+                        all_count += 1   # ノード到達失敗として計上
+                        continue
+                    if not isinstance(chk, list) or len(chk) < 1:
+                        continue
+                    all_count += 1
+                    time_ms = chk[0] if isinstance(chk[0], (int, float)) else None
+                    # check-host.net HTTP結果: chk[1] は {"status":200,...} または int
+                    raw_status = chk[1] if len(chk) > 1 else None
+                    if isinstance(raw_status, dict):
+                        status_code = raw_status.get("status") or raw_status.get("status_code")
+                    elif isinstance(raw_status, int):
+                        status_code = raw_status
+                    else:
+                        status_code = None
+                    if isinstance(status_code, int) and 200 <= status_code < 400:
+                        ok_count += 1
+                    if isinstance(time_ms, (int, float)) and time_ms > 0:
+                        latencies.append(time_ms * 1000)  # 秒→ms
+
+            success_rate = round(ok_count / all_count, 3) if all_count > 0 else None
+            avg_latency  = round(sum(latencies) / len(latencies)) if latencies else None
+
+            # タイムアウト閾値を超えるノードは実質失敗とみなす
+            if avg_latency and avg_latency > CHECKHOST_TIMEOUT_MS:
+                success_rate = round(success_rate * 0.5, 3) if success_rate else 0.0
+
+            return {
+                "success_rate": success_rate,
+                "ok_nodes":     ok_count,
+                "total_nodes":  all_count,
+                "avg_latency_ms": avg_latency,
+                "status": ("OK"      if success_rate and success_rate >= 0.8 else
+                           "PARTIAL" if success_rate and success_rate >= 0.3 else
+                           "BLACKOUT"),
+            }
+        except Exception as e:
+            return {"success_rate": None, "error": str(e)}
+
+    def fetch(self, context: dict) -> dict:
+        theaters = context.get("strategic_theaters", [])
+        results: dict = {}
+        t0 = time.time()
+        total_checked = 0
+        any_success   = False
+
+        for theater in theaters:
+            urls = INFRASTRUCTURE_URLS.get(theater, [])
+            if not urls:
+                continue
+
+            url_results: dict = {}
+            ok_count = 0
+            url_count = len(urls[:3])  # レート制限対策: 最大3 URL/シアター
+
+            for url in urls[:3]:
+                chk = self.check_url(url, CHECKHOST_NODES)
+                url_results[url] = chk
+                if chk.get("success_rate") is not None:
+                    any_success = True
+                    total_checked += 1
+                    if chk["success_rate"] >= 0.8:
+                        ok_count += 1
+
+            # シアター全体の成功率
+            theater_success_rate = ok_count / url_count if url_count else None
+            overall_status = ("OK"      if theater_success_rate and theater_success_rate >= 0.8 else
+                              "PARTIAL" if theater_success_rate and theater_success_rate >= 0.3 else
+                              "BLACKOUT")
+
+            results[theater] = {
+                "urls":                url_results,
+                "theater_success_rate": theater_success_rate,
+                "status":              overall_status,
+            }
+
+        self.log_fetch(any_success, round((time.time() - t0) * 1000), 200, total_checked)
+        result = {"check_host": results}
+        self.set_cache(result)
+        return result
+
+
+class GreyNoiseSensor(BaseSensor):
+    """
+    Cyber Domain センサー: GreyNoise API を使用してトラフィックが
+    「無差別インターネットノイズ（スキャナ等）」か「意図的攻撃」かを判別する。
+    ノイズ割合が高い場合、脅威確信度を減衰させる suppression フラグを返す。
+
+    - Community API (無料): IP単位チェック（ThreatFox の IoC と組み合わせ）
+    - Enterprise GNQL (有償): 国・タグ別のノイズ統計を取得
+    API キーがない場合はパッシブ（常時NORMAL）で動作。
+    """
+    GNQL_STATS_URL  = "https://api.greynoise.io/v2/experimental/gnql/stats"
+    COMMUNITY_URL   = "https://api.greynoise.io/v3/community/{ip}"
+    RIOT_URL        = "https://api.greynoise.io/v2/riot/{ip}"
+
+    # Community API: 1日あたりのリクエスト上限（無料プラン）
+    COMMUNITY_DAILY_LIMIT = 50
+    # IP照会キャッシュの有効期限（秒）: GreyNoise は1日単位で更新
+    IP_CACHE_TTL = 86400
+
+    def __init__(self):
+        super().__init__("greynoise", "cyber", 1800)
+        self._gnql_unavailable: bool = False  # Community キー確認後は True に固定（再試行しない）
+        # オンデマンドIP照会用: キャッシュ + 日次レート制限
+        self._ip_cache: dict[str, dict] = {}          # ip → {result, fetched_at}
+        self._daily_count: int   = 0                   # 本日の照会回数
+        self._daily_date:  str   = ""                  # カウンターリセット用の日付文字列 (YYYY-MM-DD)
+        self._ip_lock = threading.Lock()
+
+    def _get_headers(self) -> dict:
+        h = {"Accept": "application/json", "User-Agent": "OSINT-Radar/9.0"}
+        if GREYNOISE_API_KEY:
+            h["key"] = GREYNOISE_API_KEY
+        return h
+
+    def lookup_community_ip(self, ip: str) -> dict:
+        """Community API で単一IPのノイズ/分類情報を照会する。
+        - キャッシュヒット (24h以内): API呼び出しなしで返す
+        - 日次上限 (50 req/day) 到達: error を返す
+        - API キーなし: error を返す
+        戻り値: {"ip", "noise", "riot", "classification", "name", "last_seen",
+                 "message", "cached", "fetched_at", "daily_remaining", "error"}
+        """
+        import re
+        # 基本的なIPv4バリデーション
+        if not re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", ip):
+            return {"ip": ip, "error": "Invalid IPv4 address", "cached": False}
+
+        if not GREYNOISE_API_KEY:
+            return {"ip": ip, "error": "GREYNOISE_API_KEY が設定されていません", "cached": False}
+
+        now = time.time()
+        today = datetime.date.today().isoformat()
+
+        with self._ip_lock:
+            # 日付が変わっていたらカウンターをリセット
+            if self._daily_date != today:
+                self._daily_count = 0
+                self._daily_date  = today
+
+            # キャッシュチェック
+            cached = self._ip_cache.get(ip)
+            if cached and (now - cached["fetched_at"]) < self.IP_CACHE_TTL:
+                result = dict(cached["result"])
+                result["cached"]          = True
+                result["daily_remaining"] = max(0, self.COMMUNITY_DAILY_LIMIT - self._daily_count)
+                return result
+
+            # レート制限チェック
+            if self._daily_count >= self.COMMUNITY_DAILY_LIMIT:
+                return {
+                    "ip": ip, "cached": False,
+                    "daily_remaining": 0,
+                    "error": f"日次上限 ({self.COMMUNITY_DAILY_LIMIT} req/day) に達しました。明日 UTC 0:00 にリセットされます。"
+                }
+
+            # API 呼び出し
+            self._daily_count += 1
+            remaining = self.COMMUNITY_DAILY_LIMIT - self._daily_count
+
+        # ロック外で HTTP 呼び出し
+        try:
+            url = self.COMMUNITY_URL.format(ip=ip)
+            res = requests.get(url, headers=self._get_headers(),
+                               timeout=8, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            if res.status_code == 404:
+                # GreyNoise が観測したことのない IP
+                result = {
+                    "ip": ip, "noise": False, "riot": False,
+                    "classification": "unknown", "name": None,
+                    "last_seen": None, "message": "This IP has not been observed by GreyNoise.",
+                    "cached": False, "fetched_at": now, "daily_remaining": remaining, "error": None
+                }
+            elif res.status_code != 200:
+                with self._ip_lock:
+                    self._daily_count = max(0, self._daily_count - 1)  # 失敗分を戻す
+                    actual_remaining = max(0, self.COMMUNITY_DAILY_LIMIT - self._daily_count)
+                return {"ip": ip, "cached": False, "daily_remaining": actual_remaining,
+                        "error": f"HTTP {res.status_code}"}
+            else:
+                d = res.json()
+                result = {
+                    "ip":             d.get("ip", ip),
+                    "noise":          d.get("noise", False),
+                    "riot":           d.get("riot", False),
+                    "classification": d.get("classification", "unknown"),
+                    "name":           d.get("name"),
+                    "last_seen":      d.get("last_seen"),
+                    "message":        d.get("message"),
+                    "cached":         False,
+                    "fetched_at":     now,
+                    "daily_remaining": remaining,
+                    "error":          None
+                }
+
+            # キャッシュに保存
+            with self._ip_lock:
+                self._ip_cache[ip] = {"result": result, "fetched_at": now}
+            return result
+
+        except Exception as e:
+            with self._ip_lock:
+                self._daily_count = max(0, self._daily_count - 1)
+                actual_remaining = max(0, self.COMMUNITY_DAILY_LIMIT - self._daily_count)
+            return {"ip": ip, "cached": False, "daily_remaining": actual_remaining, "error": str(e)}
+
+    def _query_gnql_stats(self, country_code: str) -> dict:
+        """GNQL stats で指定国向けトラフィックのノイズ割合を取得する。
+        Enterprise API キーが必要。"""
+        if not GREYNOISE_API_KEY:
+            return {}
+        try:
+            # classification:malicious でフィルタすると benign 分類が結果に入らず
+            # noise_ratio が常に 0 になるため、フィルタなしで全トラフィックを取得する
+            query = f"metadata.destination_country:{country_code}"
+            res = requests.get(
+                self.GNQL_STATS_URL,
+                params={"query": query, "count": 500},
+                headers=self._get_headers(),
+                timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
+            )
+            if res.status_code == 401:
+                # Community API キーは GNQL Stats (Enterprise) にアクセス不可
+                # 初回のみ警告を出し、以降はスキップ（ポーリングごとに繰り返さない）
+                if not self._gnql_unavailable:
+                    print(f"[GreyNoise] HTTP 401 — GNQL Stats は Enterprise API キーが必要です。"
+                          f"Community キーでは UNKNOWN (抑制なし) で動作します。（以降このメッセージは抑制）")
+                    self._gnql_unavailable = True
+                return {"gnql_unavailable": True}
+            if res.status_code != 200:
+                return {}
+            data = res.json()
+            # classification 分布を取得
+            classifications = data.get("stats", {}).get("classifications", [])
+            total  = sum(c.get("count", 0) for c in classifications)
+            noise  = sum(c.get("count", 0) for c in classifications
+                         if c.get("classification") == "benign")
+            malicious = total - noise
+            noise_ratio = round(noise / total, 3) if total > 0 else 0.0
+            return {
+                "total_ips":    total,
+                "noise_ips":    noise,
+                "malicious_ips": malicious,
+                "noise_ratio":  noise_ratio,
+            }
+        except Exception:
+            return {}
+
+    def fetch(self, context: dict) -> dict:
+        theaters = context.get("strategic_theaters", [])
+        results: dict = {}
+        t0 = time.time()
+        any_success = False
+
+        gnql_unavailable = self._gnql_unavailable  # 初回 401 以降は永続的に True
+
+        for theater in theaters:
+            if GREYNOISE_API_KEY and not gnql_unavailable:
+                # Enterprise GNQL で国別ノイズ統計を取得
+                stats = self._query_gnql_stats(theater)
+                if stats.get("gnql_unavailable"):
+                    gnql_unavailable = True
+                    self._gnql_unavailable = True
+                    stats = {}
+            else:
+                # API キーなし、または Community キー（GNQL 不可）: UNKNOWN として扱う
+                stats = {}
+
+            noise_ratio = stats.get("noise_ratio", None)
+
+            if noise_ratio is not None:
+                any_success = True
+                # ノイズ割合 > 70% → "NOISE_DOMINANT" → 脅威確信度を減衰
+                noise_class = ("NOISE_DOMINANT"  if noise_ratio > 0.70 else
+                               "MIXED"           if noise_ratio > 0.40 else
+                               "TARGETED")
+                suppress_confidence = (noise_class == "NOISE_DOMINANT")
+            else:
+                noise_class = "UNKNOWN"
+                suppress_confidence = False
+
+            results[theater] = {
+                "noise_ratio":          noise_ratio,
+                "noise_class":          noise_class,
+                "suppress_confidence":  suppress_confidence,
+                "total_ips":            stats.get("total_ips"),
+                "malicious_ips":        stats.get("malicious_ips"),
+                "api_key_configured":   bool(GREYNOISE_API_KEY),
+                "gnql_tier":            "community_limited" if gnql_unavailable else ("enterprise" if GREYNOISE_API_KEY else "none"),
+                "status":               noise_class,
+            }
+
+        # GNQL 未対応 (Community キー) または API キーなし → UNKNOWN は正常動作なので success=True
+        # ネットワークエラー等で全シアターが空の場合のみ False
+        log_success = any_success or gnql_unavailable or not GREYNOISE_API_KEY or not theaters
+        self.log_fetch(log_success, round((time.time() - t0) * 1000), 200, len(results))
+        result = {"greynoise": results}
+        self.set_cache(result)
+        return result
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SensorRegistry & Engine
 # ─────────────────────────────────────────────────────────────────────────────
 class SensorRegistry:
@@ -1226,6 +1724,90 @@ class WeightedConvergenceEngine:
                     sync_pairs += 1
         return round(sync_pairs / pair_count, 3) if pair_count > 0 else 0.0
 
+    # ── v9: Temporal Coherence / Maskirovka / Blockade Index ─────────────────
+
+    @staticmethod
+    def compute_temporal_coherence(sequence_events: dict, theaters: list,
+                                   window_sec: float = 60.0) -> tuple:
+        """
+        複数劇場への攻撃開始タイミングが window_sec 秒以内に収束しているかを検証する。
+        高度な同期性（1分以内）は国家レベルの統合C2（指揮統制）の証拠と判定する。
+
+        sequence_events: {theater: [{"ts": float, "type": str, ...}, ...]}
+        theaters: 評価対象のシアターリスト
+        Returns: (is_synchronized: bool, coherence_score: float, bonus: int, detail: str)
+        """
+        # 各シアターの最初の SYNC_DDOS または NARRATIVE_BURST イベントのタイムスタンプを収集
+        first_events: dict = {}
+        for theater in theaters:
+            events = sequence_events.get(theater, [])
+            trigger_events = [
+                e["ts"] for e in events
+                if e.get("type") in ("SYNC_DDOS", "NARRATIVE_BURST")
+            ]
+            if trigger_events:
+                first_events[theater] = min(trigger_events)
+
+        if len(first_events) < 2:
+            return False, 0.0, 0, "insufficient_events"
+
+        ts_list = list(first_events.values())
+        spread_sec = max(ts_list) - min(ts_list)
+
+        if spread_sec <= window_sec:
+            # 1分以内の同期 → 国家C2ボーナス +2
+            coherence_score = round(1.0 - spread_sec / window_sec, 3)
+            detail = f"C2_SYNC_CONFIRMED: {len(first_events)} theaters within {spread_sec:.1f}s"
+            return True, coherence_score, 2, detail
+        elif spread_sec <= window_sec * 5:
+            # 5分以内の緩い同期 → 部分ボーナス +1
+            coherence_score = round(max(0.0, 1.0 - spread_sec / (window_sec * 5)), 3)
+            detail = f"C2_SYNC_PARTIAL: {len(first_events)} theaters within {spread_sec:.1f}s"
+            return False, coherence_score, 1, detail
+
+        return False, 0.0, 0, f"no_sync: spread={spread_sec:.1f}s"
+
+    @staticmethod
+    def detect_maskirovka(core_degraded: bool, narrative_burst: bool,
+                          check_host_status: Optional[str],
+                          telegram_intent: bool) -> tuple:
+        """
+        欺瞞作戦（Maskirovka）検知:
+        物理的障害（Check-Host/IODA が BLACKOUT/PARTIAL）があるのに
+        ナラティブ（Telegram ミラー / RSS）が沈黙している場合にフラグを立てる。
+
+        Returns: (is_maskirovka: bool, confidence: str, reason: str)
+        """
+        has_physical_outage = core_degraded or check_host_status in ("BLACKOUT", "PARTIAL")
+        has_narrative_silence = not narrative_burst and not telegram_intent
+
+        if has_physical_outage and has_narrative_silence:
+            return True, "MEDIUM", (
+                "Physical outage confirmed but all narrative channels silent — "
+                "possible deception operation (Maskirovka)"
+            )
+        return False, "NONE", ""
+
+    @staticmethod
+    def compute_blockade_index(ddos_intensity: float, ripe_drop_pct: float,
+                               checkhost_success_rate: Optional[float]) -> float:
+        """
+        実効性 Blockade Index: (DDoS強度 × RIPE遅延) / Check-Host応答成功率
+        物理的な「通信途絶」の成功度を 0〜10 でスコア化する。
+
+        ddos_intensity:        CF spike factor（平均スパイク倍率）
+        ripe_drop_pct:         RIPE BGP prefix 減少率（0〜100）
+        checkhost_success_rate: Check-Host 成功率（0.0〜1.0、None = 未計測）
+        """
+        # RIPE 遅延を 0〜1 に正規化（drop_pct 100% = 1.0）
+        ripe_factor = min(ripe_drop_pct / 100.0, 1.0)
+        # DDoS 強度を上限 10 でキャップ
+        intensity = min(ddos_intensity, 10.0)
+        numerator = intensity * (1.0 + ripe_factor)   # RIPE 0% なら強度のみ、100% なら 2×
+        # Check-Host 未計測時は IODA fallback として degraded フラグを使用
+        denominator = max(checkhost_success_rate if checkhost_success_rate is not None else 1.0, 0.05)
+        return round(min(numerator / denominator, 10.0), 2)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Global instances
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1233,8 +1815,10 @@ registry = SensorRegistry()
 for s in [
     CloudflareSensor(), IodaSensor(), OpenSkySensor(), OpenWeatherSensor(),
     GDELTSensor(), PeeringDbSensor(), BgpRoutingSensor(), NasaFirmsSensor(), ThreatFoxSensor(),
-    # 追加センサー
+    # 追加センサー (v8)
     RssNarrativeSensor(), IsrHotspotSensor(), AisMaritimeSensor(),
+    # 追加センサー (v9)
+    TelegramMirrorSensor(), CheckHostSensor(), GreyNoiseSensor(),
 ]:
     registry.register(s)
 engine = WeightedConvergenceEngine()
@@ -1318,7 +1902,8 @@ ALERT_TIMELINE_MAX = 288  # deque の maxlen と一致させること
 # シーケンス・スコアラー用イベントログ
 # {theater: [{"ts": float, "type": str, "meta": dict}, ...]}
 sequence_event_log: dict = {}
-SEQUENCE_EVENT_TYPES = ["NARRATIVE_BURST", "ISR_SURGE", "SYNC_DDOS", "FIRMS_ANOMALY", "AIS_DARK_GAP"]
+SEQUENCE_EVENT_TYPES = ["NARRATIVE_BURST", "ISR_SURGE", "SYNC_DDOS", "FIRMS_ANOMALY", "AIS_DARK_GAP",
+                        "TELEGRAM_INTENT", "MASKIROVKA", "C2_SYNC", "INFRA_BLACKOUT"]  # v9
 
 # CF scoring-loop result cache（センサーfetchとは独立したスコアリング用短期キャッシュ）
 # キー: (url, frozenset(params.items())) → {"time": float, "data": list}
@@ -1536,7 +2121,7 @@ def get_threat_data():
         nasa_firms_data = nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else []
         threatfox_sensor = registry.get("threatfox")
         threatfox_data = threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {}
-        # 追加センサーデータ取得
+        # 追加センサーデータ取得 (v8)
         rss_narrative_sensor = registry.get("rss_narrative")
         narrative_data = rss_narrative_sensor.get_cache().get("narratives", {}) if rss_narrative_sensor else {}
         isr_hotspot_sensor = registry.get("isr_hotspot")
@@ -1545,6 +2130,13 @@ def get_threat_data():
         ais_dark_gaps        = ais_maritime_sensor.get_cache().get("dark_gaps", []) if ais_maritime_sensor else []
         ais_stationary       = ais_maritime_sensor.get_cache().get("stationary_anomalies", []) if ais_maritime_sensor else []
         ais_has_anomaly      = ais_maritime_sensor.get_cache().get("has_anomaly", False) if ais_maritime_sensor else False
+        # 追加センサーデータ取得 (v9)
+        telegram_mirror_sensor = registry.get("telegram_mirror")
+        telegram_data          = telegram_mirror_sensor.get_cache().get("telegram", {}) if telegram_mirror_sensor else {}
+        check_host_sensor      = registry.get("check_host")
+        checkhost_data         = check_host_sensor.get_cache().get("check_host", {}) if check_host_sensor else {}
+        greynoise_sensor       = registry.get("greynoise")
+        greynoise_data         = greynoise_sensor.get_cache().get("greynoise", {}) if greynoise_sensor else {}
 
         airspace_anomalies, noise_filters_applied = [], []
         for code, ainfo in airspace_data.items():
@@ -1827,6 +2419,70 @@ def get_threat_data():
                                     {"coordinated_theaters": elevated_theaters,
                                      "max_overlap": max(correlations.values(), default=0.0)})
 
+        # ── v9 センサー rationale ────────────────────────────────────────────────
+
+        # Telegram Mirror (Info Domain)
+        core_telegram       = telegram_data.get(core_theater, {})
+        telegram_intent     = core_telegram.get("has_attack_intent", False)
+        telegram_status     = core_telegram.get("status", "CLEAR")
+        telegram_active_ch  = core_telegram.get("active_channels", [])
+        if telegram_mirror_sensor and telegram_mirror_sensor.enabled:
+            tg_score = 2 if telegram_intent else (1 if telegram_status == "TARGETS_FOUND" else 0)
+            add_rat("telegram_mirror", "info",
+                    "FIRED" if (telegram_intent or telegram_status == "TARGETS_FOUND") else "OK",
+                    f"{telegram_status} ch={telegram_active_ch[:3]}",
+                    tg_score,
+                    f"Attack intent intercepted on Telegram: {telegram_active_ch}" if telegram_intent else
+                    "Target URLs found in Telegram channels" if telegram_status == "TARGETS_FOUND" else None)
+            if telegram_intent:
+                register_sequence_event(core_theater, "NARRATIVE_BURST", {
+                    "source": "telegram_mirror", "channels": telegram_active_ch,
+                    "targets": core_telegram.get("target_urls", [])[:5],
+                })
+
+        # Check-Host (Physical Domain)
+        core_checkhost   = checkhost_data.get(core_theater, {})
+        ch_status        = core_checkhost.get("status", "UNKNOWN")
+        ch_success_rate  = core_checkhost.get("theater_success_rate")
+        if check_host_sensor and check_host_sensor.enabled:
+            ch_score = (3 if ch_status == "BLACKOUT" else 2 if ch_status == "PARTIAL" else 0)
+            ch_fired = ch_status in ("BLACKOUT", "PARTIAL")
+            add_rat("check_host", "physical",
+                    "FIRED" if ch_fired else ("OK" if ch_status == "OK" else "NO_DATA"),
+                    f"{ch_status} success={ch_success_rate:.0%}" if ch_success_rate is not None else ch_status,
+                    ch_score,
+                    f"Infrastructure availability: {ch_status} (success_rate={ch_success_rate:.0%})" if ch_fired and ch_success_rate is not None else None)
+
+        # GreyNoise (Cyber Domain — noise suppressor)
+        core_greynoise     = greynoise_data.get(core_theater, {})
+        gn_noise_class     = core_greynoise.get("noise_class", "UNKNOWN")
+        gn_suppress        = core_greynoise.get("suppress_confidence", False)
+        gn_noise_ratio     = core_greynoise.get("noise_ratio")
+        if greynoise_sensor and greynoise_sensor.enabled:
+            add_rat("greynoise", "cyber",
+                    "SUPPRESSED" if gn_suppress else "OK",
+                    f"{gn_noise_class} noise={gn_noise_ratio:.0%}" if gn_noise_ratio is not None else gn_noise_class,
+                    0,   # GreyNoise はボーナスではなく抑制のみ
+                    None,
+                    is_suppressed=gn_suppress,
+                    suppress_reason=f"GreyNoise: {gn_noise_class} — traffic classified as internet background noise" if gn_suppress else None)
+
+        # ── v9 Temporal Coherence 解析 ───────────────────────────────────────────
+        is_c2_sync, coherence_score, temporal_bonus, temporal_detail = \
+            engine.compute_temporal_coherence(sequence_event_log, list(strategic_theaters_set))
+
+        # ── v9 Maskirovka 検知 ───────────────────────────────────────────────────
+        is_maskirovka, maskirovka_conf, maskirovka_reason = engine.detect_maskirovka(
+            core_degraded=core_degraded,
+            narrative_burst=narrative_burst or telegram_intent,
+            check_host_status=ch_status,
+            telegram_intent=telegram_intent,
+        )
+        if is_maskirovka:
+            add_rat("maskirovka_flag", "info",
+                    "FIRED", f"conf={maskirovka_conf}",
+                    1, maskirovka_reason)
+
         # ── 微分計算 (Velocity / Acceleration / Ambush) ───────────────────────────
         ts_series_core = time_series_ts_db.get(core_theater, [])
         is_ambush, ambush_z, velocity_val, acceleration_val = engine.detect_ambush_pattern(ts_series_core)
@@ -1842,8 +2498,8 @@ def get_threat_data():
         total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
         convergence_score = engine.compute_convergence_score(domain_scores)
         score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
-        # Sequence Bonus を最終スコアに加算
-        score_with_bonus += seq_bonus
+        # Sequence Bonus / Temporal Coherence Bonus を最終スコアに加算
+        score_with_bonus += seq_bonus + temporal_bonus
         tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard)
         threat_level, tl_held = engine.apply_hysteresis(tl_raw, threat_history)
         threat_history.append((current_time, threat_level))
@@ -1874,18 +2530,57 @@ def get_threat_data():
                 "stationary":  len(ais_stationary),
                 "has_anomaly": ais_has_anomaly,
             },
-            # Blockade Index: DDoS強度 / ネットワーク到達可能性 (0〜10)
-            # IODA BGP 正常 = 1.0, OUTAGE = 0.1（到達不可）
-            "blockade_index": round(
-                min(core_spike, 10.0) / max(0.1 if core_degraded else 1.0, 0.1), 2
+            # Blockade Index v9: (DDoS強度 × RIPE遅延) / Check-Host応答成功率
+            "blockade_index": engine.compute_blockade_index(
+                ddos_intensity=core_spike,
+                ripe_drop_pct=bgp_routing_data.get(core_theater, {}).get("drop_pct", 0.0),
+                checkhost_success_rate=ch_success_rate,
             ),
+            # Temporal Coherence (v9 C2 同期解析)
+            "temporal_coherence": {
+                "is_c2_sync":     is_c2_sync,
+                "coherence_score": coherence_score,
+                "bonus":          temporal_bonus,
+                "detail":         temporal_detail,
+            },
+            # Maskirovka 欺瞞検知 (v9)
+            "maskirovka": {
+                "detected":    is_maskirovka,
+                "confidence":  maskirovka_conf,
+                "reason":      maskirovka_reason,
+            },
+            # Check-Host Survival (v9) — 詳細データを含む
+            "check_host": {
+                "theater_success_rate": ch_success_rate,
+                "status":              ch_status,
+                "url_results":         core_checkhost.get("urls", {}),
+                "nodes":               CHECKHOST_NODES,
+            },
+            # Telegram Mirror (v9) — チャンネル/URLディテールを含む
+            "telegram_mirror": {
+                "has_intent":          telegram_intent,
+                "status":              telegram_status,
+                "active_channels":     telegram_active_ch,
+                "channels_monitored":  core_telegram.get("channels_monitored", []),
+                "target_urls":         core_telegram.get("target_urls", []),
+            },
+            # GreyNoise (v9) — tier情報を含む
+            "greynoise": {
+                "noise_class":   gn_noise_class,
+                "noise_ratio":   gn_noise_ratio,
+                "suppressing":   gn_suppress,
+                "gnql_tier":     core_greynoise.get("gnql_tier", "none"),
+                "theater_data":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},
+            },
         }
 
         score_breakdown = {
             "core_spike_val": round(core_spike, 2), "core_spike_2x": core_spike > 2.0, "core_spike_4x": core_spike > 4.0, "core_spike_6x": core_spike > 6.0,
             "high_correlation": high_correlation, "core_shifted": core_shifted, "major_adversary": major_adversary, "core_degraded": core_degraded,
             "is_coordinated": is_coordinated, "tl1_hard": tl1_hard, "total_score": total_score,
-            "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "score_with_bonus": score_with_bonus, "threat_raw": tl_raw, "threat_held": tl_held,
+            "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "temporal_bonus": temporal_bonus,
+            "score_with_bonus": score_with_bonus, "threat_raw": tl_raw, "threat_held": tl_held,
+            "is_c2_sync": is_c2_sync, "is_maskirovka": is_maskirovka,
         }
 
         # ioda_overlays: IODA キャッシュ全体から BGP_OUTAGE 国を抽出（全世界表示）
@@ -2164,11 +2859,20 @@ def api_deep_analytics():
     ais_gaps         = ais_sensor.get_cache().get("dark_gaps", []) if ais_sensor else []
     ais_stat         = ais_sensor.get_cache().get("stationary_anomalies", []) if ais_sensor else []
 
-    # Blockade Index: core DDoS spike / IODA degradation factor
-    strategic = global_cache.get("strategic", {})
+    # Blockade Index v9: (DDoS強度 × RIPE遅延) / Check-Host応答成功率
+    strategic    = global_cache.get("strategic", {})
+    analytics_v9 = strategic.get("analytics", {})
     core_spike_v = strategic.get("threat_breakdown", {}).get("core_spike_val", 0.0)
     is_degraded  = theater_param in strategic.get("degraded_theaters", [])
-    blockade_idx = round(min(core_spike_v, 10.0) / max(0.1 if is_degraded else 1.0, 0.1), 2)
+    # キャッシュに v9 blockade_index があればそれを使用、なければ compute_blockade_index で再計算
+    if "blockade_index" in analytics_v9:
+        blockade_idx = analytics_v9["blockade_index"]
+    else:
+        bgp_s   = registry.get("ripe_bgp")
+        ch_s    = registry.get("check_host")
+        ripe_drop = bgp_s.get_cache().get("routing_stats", {}).get(theater_param, {}).get("drop_pct", 0.0) if bgp_s else 0.0
+        ch_rate   = ch_s.get_cache().get("check_host", {}).get(theater_param, {}).get("theater_success_rate") if ch_s else None
+        blockade_idx = engine.compute_blockade_index(core_spike_v, ripe_drop, ch_rate)
 
     # 速度トレンド（時系列を整形して返す）
     velocity_series = []
@@ -2435,6 +3139,47 @@ def api_historical_events():
     return jsonify({"events": HISTORICAL_EVENTS})
 
 
+@app.route("/api/ip_check", methods=["GET"])
+def api_ip_check():
+    """GreyNoise Community API でIPアドレスのノイズ/分類情報を照会する。
+
+    Query params:
+        ip (str, required): 調査対象のIPv4アドレス
+
+    Response:
+        {
+          "ip":             "1.2.3.4",
+          "noise":          false,         // true = インターネット背景ノイズ（大規模スキャナ等）
+          "riot":           false,         // true = 正規インフラ (Google, Cloudflare 等)
+          "classification": "malicious",   // malicious / benign / unknown
+          "name":           "Mirai Botnet",
+          "last_seen":      "2026-03-13",
+          "message":        "...",
+          "cached":         false,         // true = キャッシュヒット（API未消費）
+          "fetched_at":     1234567890.0,
+          "daily_remaining": 47,           // 本日の残りリクエスト数
+          "error":          null
+        }
+
+    Note:
+        Community API は 50 req/day。同一IPは 24h キャッシュされ消費しない。
+        Enterprise キーがある場合でも Community エンドポイントを使用（GNQL Stats とは別）。
+    """
+    ip = request.args.get("ip", "").strip()
+    if not ip:
+        return jsonify({"error": "ip パラメータが必要です。例: /api/ip_check?ip=1.2.3.4"}), 400
+
+    gn_sensor = registry.get("greynoise")
+    if not gn_sensor:
+        return jsonify({"error": "GreyNoiseSensor が初期化されていません"}), 503
+
+    result = gn_sensor.lookup_community_ip(ip)
+
+    if result.get("error") and "上限" not in result["error"] and "Invalid" not in result["error"]:
+        return jsonify(result), 502
+    return jsonify(result)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # バックグラウンドクリーンアップスレッド
 # 1時間ごとに各グローバルキャッシュの古いエントリを削除し、長期稼働時のメモリリークを防ぐ。
@@ -2466,6 +3211,15 @@ def _cache_cleanup_worker():
             for k in [k for k, v in list(_asn_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
                 _asn_cache.pop(k, None)
 
+            # greynoise _ip_cache: 24h 超のエントリを削除
+            gn = registry.get("greynoise")
+            if gn:
+                with gn._ip_lock:
+                    stale_ips = [k for k, v in list(gn._ip_cache.items())
+                                 if now - v["fetched_at"] > gn.IP_CACHE_TTL]
+                    for k in stale_ips:
+                        gn._ip_cache.pop(k, None)
+
             print(f"[Cleanup] baseline_cache={len(baseline_cache)} seqlog={len(sequence_event_log)} "
                   f"cf_cache={len(_cf_scoring_cache)} asn_cache={len(_asn_cache)}")
         except Exception as e:
@@ -2475,4 +3229,9 @@ _cleanup_thread = threading.Thread(target=_cache_cleanup_worker, daemon=True, na
 _cleanup_thread.start()
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000, debug=True)
+    # use_reloader=False: Flask の stat リローダーは親プロセス（ファイル監視）と
+    # 子プロセス（実ワーカー）の2プロセスを起動し、モジュールレベルの初期化コード
+    # （センサースレッド起動・OAuth2トークン取得等）が2回実行されてしまう。
+    # use_reloader=False でシングルプロセス動作にし、重複ログを防ぐ。
+    # デバッグ機能（詳細エラー表示・コードリロード）は引き続き有効。
+    app.run(host="127.0.0.1", port=8000, debug=True, use_reloader=False)

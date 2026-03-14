@@ -1189,6 +1189,116 @@
       "radius_km": 200
     }
   ],
+  "THREAT_ACTOR_MAPPING": {
+    "UA": ["noname05716", "killnet_mirror", "from_russia", "cyber_army_of_russia_reborn"],
+    "PL": ["noname05716", "killnet_mirror", "hacktivist_poland"],
+    "LT": ["noname05716", "killnet_mirror"],
+    "LV": ["noname05716", "killnet_mirror"],
+    "EE": ["noname05716", "killnet_mirror"],
+    "FI": ["noname05716"],
+    "DE": ["noname05716", "killnet_mirror"],
+    "FR": ["noname05716", "killnet_mirror"],
+    "GB": ["noname05716", "killnet_mirror"],
+    "US": ["noname05716", "killnet_mirror", "anonymous_sudan_channel"],
+    "IL": ["anonymous_official", "anonymous_for_justice", "ghosts_of_palestine_channel"],
+    "TW": ["dragonforce_malaysia_channel", "anonymous_official"],
+    "JP": ["killnet_mirror", "noname05716"],
+    "KR": ["anonymous_official"],
+    "IN": ["dragonforce_malaysia_channel", "anonymous_official"],
+    "PH": ["dragonforce_malaysia_channel"]
+  },
+  "INFRASTRUCTURE_URLS": {
+    "UA": [
+      "https://www.president.gov.ua",
+      "https://www.kmu.gov.ua",
+      "https://www.mil.gov.ua",
+      "https://privatbank.ua",
+      "https://www.oschadbank.ua"
+    ],
+    "PL": [
+      "https://www.gov.pl",
+      "https://www.sejm.gov.pl",
+      "https://www.pse.pl",
+      "https://www.pkobp.pl"
+    ],
+    "LT": [
+      "https://www.lrs.lt",
+      "https://www.lb.lt",
+      "https://www.energija.lt"
+    ],
+    "LV": [
+      "https://www.saeima.lv",
+      "https://www.latvenergo.lv"
+    ],
+    "EE": [
+      "https://www.riigikogu.ee",
+      "https://www.seb.ee"
+    ],
+    "FI": [
+      "https://www.government.fi",
+      "https://www.fingrid.fi",
+      "https://www.op.fi"
+    ],
+    "DE": [
+      "https://www.bundesregierung.de",
+      "https://www.bundestag.de",
+      "https://www.bundesbank.de",
+      "https://www.deutsche-bahn.com"
+    ],
+    "FR": [
+      "https://www.elysee.fr",
+      "https://www.assemblee-nationale.fr",
+      "https://www.banque-france.fr",
+      "https://www.edf.fr"
+    ],
+    "GB": [
+      "https://www.gov.uk",
+      "https://www.parliament.uk",
+      "https://www.bankofengland.co.uk",
+      "https://www.nationalgrid.com"
+    ],
+    "US": [
+      "https://www.whitehouse.gov",
+      "https://www.congress.gov",
+      "https://www.federalreserve.gov",
+      "https://www.eia.gov"
+    ],
+    "IL": [
+      "https://www.gov.il",
+      "https://www.knesset.gov.il",
+      "https://www.bankisrael.org.il",
+      "https://www.idf.il"
+    ],
+    "TW": [
+      "https://www.president.gov.tw",
+      "https://www.ly.gov.tw",
+      "https://www.cbc.gov.tw",
+      "https://www.taipower.com.tw",
+      "https://www.mofa.gov.tw"
+    ],
+    "JP": [
+      "https://www.kantei.go.jp",
+      "https://www.shugiin.go.jp",
+      "https://www.boj.or.jp",
+      "https://www.tepco.co.jp"
+    ],
+    "KR": [
+      "https://www.president.go.kr",
+      "https://www.assembly.go.kr",
+      "https://www.bok.or.kr",
+      "https://www.kepco.co.kr"
+    ],
+    "PH": [
+      "https://www.officialgazette.gov.ph",
+      "https://www.congress.gov.ph",
+      "https://www.bsp.gov.ph"
+    ],
+    "IN": [
+      "https://www.india.gov.in",
+      "https://www.rbi.org.in",
+      "https://www.powergridindia.com"
+    ]
+  },
   "NARRATIVE_SOURCES": {
     "tass": "https://tass.com/rss/v2.xml",
     "xinhua": "https://www.xinhuanet.com/english/rss/worldrss.xml",
