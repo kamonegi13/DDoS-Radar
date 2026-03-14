@@ -634,6 +634,91 @@
       "lat": -19.0154,
       "lng": 29.1549,
       "name": "Zimbabwe"
+    },
+    "BN": {
+      "lat": 4.5353,
+      "lng": 114.7277,
+      "name": "Brunei"
+    },
+    "CD": {
+      "lat": -4.0383,
+      "lng": 21.7587,
+      "name": "DR Congo"
+    },
+    "CI": {
+      "lat": 7.54,
+      "lng": -5.5471,
+      "name": "Côte d'Ivoire"
+    },
+    "CM": {
+      "lat": 3.848,
+      "lng": 11.5021,
+      "name": "Cameroon"
+    },
+    "FJ": {
+      "lat": -17.7134,
+      "lng": 178.065,
+      "name": "Fiji"
+    },
+    "GY": {
+      "lat": 4.8604,
+      "lng": -58.9302,
+      "name": "Guyana"
+    },
+    "LA": {
+      "lat": 19.8563,
+      "lng": 102.4955,
+      "name": "Laos"
+    },
+    "MG": {
+      "lat": -18.7669,
+      "lng": 46.8691,
+      "name": "Madagascar"
+    },
+    "ML": {
+      "lat": 17.5707,
+      "lng": -3.9962,
+      "name": "Mali"
+    },
+    "NE": {
+      "lat": 17.6078,
+      "lng": 8.0817,
+      "name": "Niger"
+    },
+    "NI": {
+      "lat": 12.8654,
+      "lng": -85.2072,
+      "name": "Nicaragua"
+    },
+    "PG": {
+      "lat": -6.315,
+      "lng": 143.9555,
+      "name": "Papua New Guinea"
+    },
+    "SR": {
+      "lat": 3.9193,
+      "lng": -56.0278,
+      "name": "Suriname"
+    },
+    "TJ": {
+      "lat": 38.861,
+      "lng": 71.2761,
+      "name": "Tajikistan"
+    },
+    "TL": {
+      "lat": -8.8742,
+      "lng": 125.7275,
+      "name": "Timor-Leste"
+    },
+    "TM": {
+      "lat": 38.9697,
+      "lng": 59.5563,
+      "name": "Turkmenistan"
+    },
+    "XK": {
+      "lat": 42.6026,
+      "lng": 20.903,
+      "name": "Kosovo"
     }
   },
   "STATE_ASNS": {
@@ -2258,13 +2343,11 @@
     "UA": [
       "noname05716",
       "killnet_mirror",
-      "from_russia",
-      "cyber_army_of_russia_reborn"
+      "itarmyofukraine2022"
     ],
     "PL": [
       "noname05716",
-      "killnet_mirror",
-      "hacktivist_poland"
+      "killnet_mirror"
     ],
     "LT": [
       "noname05716",
@@ -2279,7 +2362,8 @@
       "killnet_mirror"
     ],
     "FI": [
-      "noname05716"
+      "noname05716",
+      "killnet_mirror"
     ],
     "DE": [
       "noname05716",
@@ -2295,45 +2379,36 @@
     ],
     "US": [
       "noname05716",
-      "killnet_mirror",
-      "anonymous_sudan_channel"
+      "killnet_mirror"
     ],
     "IL": [
-      "anonymous_official",
-      "anonymous_for_justice",
-      "ghosts_of_palestine_channel"
+      "AnonCollective",
+      "dragonforceio"
     ],
     "TW": [
-      "dragonforce_malaysia_channel",
-      "anonymous_official"
-    ],
-    "JP": [
-      "killnet_mirror",
+      "dragonforceio",
+      "MysteriousTeam0",
       "noname05716"
     ],
-    "KR": [
-      "anonymous_official"
+    "JP": [
+      "noname05716",
+      "killnet_mirror"
     ],
     "IN": [
-      "dragonforce_malaysia_channel",
-      "anonymous_official"
+      "MysteriousTeam0",
+      "TEAM_INSANE_PAKISTAN2"
     ],
     "PH": [
-      "dragonforce_malaysia_channel"
-    ],
-    "AU": [
-      "anonymous_official",
-      "hacktivistib"
+      "MysteriousTeam0",
+      "dragonforceio"
     ],
     "CA": [
       "noname05716",
-      "killnet_mirror",
-      "anonymous_official"
+      "killnet_mirror"
     ],
     "IT": [
       "noname05716",
-      "killnet_mirror",
-      "cyber_army_of_russia_reborn"
+      "killnet_mirror"
     ],
     "ES": [
       "noname05716",
@@ -2341,8 +2416,7 @@
     ],
     "NL": [
       "noname05716",
-      "killnet_mirror",
-      "anonymous_official"
+      "killnet_mirror"
     ],
     "BE": [
       "noname05716",
@@ -2390,7 +2464,7 @@
     ],
     "RS": [
       "noname05716",
-      "anonymous_official"
+      "killnet_mirror"
     ],
     "GR": [
       "noname05716",
@@ -2402,179 +2476,161 @@
     ],
     "CH": [
       "noname05716",
-      "anonymous_official"
+      "killnet_mirror"
     ],
     "IS": [
       "noname05716",
       "killnet_mirror"
     ],
-    "IE": [
-      "anonymous_official"
-    ],
     "CY": [
-      "noname05716"
+      "noname05716",
+      "killnet_mirror"
     ],
     "MT": [
-      "noname05716"
+      "noname05716",
+      "killnet_mirror"
     ],
     "LU": [
-      "noname05716"
+      "noname05716",
+      "killnet_mirror"
     ],
     "SI": [
       "noname05716",
       "killnet_mirror"
     ],
     "MK": [
-      "noname05716"
+      "noname05716",
+      "killnet_mirror"
     ],
     "ME": [
-      "noname05716"
+      "noname05716",
+      "killnet_mirror"
     ],
     "AL": [
-      "noname05716"
+      "noname05716",
+      "killnet_mirror"
     ],
     "BA": [
-      "noname05716"
+      "noname05716",
+      "killnet_mirror"
     ],
     "RU": [
       "itarmyofukraine2022",
-      "cyber_resistance_ua",
-      "hacknet_ua"
+      "cyber_resistance_ua"
     ],
     "BY": [
       "itarmyofukraine2022",
       "cyber_resistance_ua"
     ],
-    "CN": [
-      "anonymous_official",
-      "hacktivistib"
-    ],
-    "KP": [
-      "anonymous_official"
-    ],
-    "IR": [
-      "anonymous_official"
-    ],
     "SG": [
-      "mysterious_team_bangladesh",
-      "anonymous_official"
+      "MysteriousTeam0"
     ],
     "MY": [
-      "mysterious_team_bangladesh",
-      "anonymous_official"
+      "MysteriousTeam0"
     ],
     "ID": [
-      "mysterious_team_bangladesh",
-      "anonymous_official"
+      "MysteriousTeam0"
     ],
     "TH": [
-      "mysterious_team_bangladesh",
-      "anonymous_official"
+      "MysteriousTeam0"
     ],
     "VN": [
-      "mysterious_team_bangladesh",
-      "anonymous_official"
-    ],
-    "BD": [
-      "anonymous_official"
-    ],
-    "PK": [
-      "anonymous_official",
-      "hacktivistib"
+      "MysteriousTeam0"
     ],
     "SA": [
-      "mysterious_team_bangladesh",
-      "anonymous_collective"
+      "AnonCollective",
+      "MysteriousTeam0"
     ],
     "AE": [
-      "mysterious_team_bangladesh",
-      "anonymous_official"
+      "AnonCollective"
     ],
     "JO": [
-      "anonymous_collective"
-    ],
-    "EG": [
-      "anonymous_official"
+      "AnonCollective"
     ],
     "IQ": [
-      "anonymous_collective"
-    ],
-    "KW": [
-      "anonymous_official"
-    ],
-    "QA": [
-      "anonymous_official"
-    ],
-    "BH": [
-      "anonymous_official"
-    ],
-    "OM": [
-      "anonymous_official"
+      "AnonCollective"
     ],
     "TR": [
+      "noname05716"
+    ],
+    "PK": [
+      "MysteriousTeam0"
+    ],
+    "BD": [
+      "TEAM_INSANE_PAKISTAN2"
+    ],
+    "EG": [
+      "AnonCollective"
+    ],
+    "KW": [
+      "AnonCollective"
+    ],
+    "QA": [
+      "AnonCollective"
+    ],
+    "BH": [
+      "AnonCollective"
+    ],
+    "CN": [
+      "dragonforceio"
+    ],
+    "AU": [
       "noname05716",
-      "anonymous_official"
+      "killnet_mirror"
     ],
-    "BR": [
-      "anonymous_official"
-    ],
-    "MX": [
-      "anonymous_official"
-    ],
-    "CO": [
-      "anonymous_official"
-    ],
-    "AR": [
-      "anonymous_official"
-    ],
-    "ZA": [
-      "anonymous_official"
-    ],
-    "NG": [
-      "anonymous_official"
-    ],
-    "KE": [
-      "anonymous_official"
-    ],
-    "ET": [
-      "anonymous_official"
-    ],
-    "HK": [
-      "anonymous_official"
-    ],
-    "MN": [
-      "anonymous_official"
+    "IE": [
+      "noname05716",
+      "killnet_mirror"
     ],
     "NZ": [
-      "anonymous_official",
-      "hacktivistib"
+      "noname05716",
+      "killnet_mirror"
     ],
-    "VE": [
-      "anonymous_official"
+    "KR": [
+      "noname05716",
+      "killnet_mirror",
+      "MysteriousTeam0"
     ],
-    "KZ": [
-      "anonymous_official"
+    "MD": [
+      "noname05716",
+      "killnet_mirror"
     ],
-    "AZ": [
-      "anonymous_official"
+    "MM": [
+      "AnonCollective"
     ],
-    "GE": [
-      "anonymous_official"
+    "SY": [
+      "AnonCollective"
     ],
-    "AM": [
-      "anonymous_official"
+    "ZW": [
+      "AnonCollective"
+    ],
+    "NG": [
+      "AnonCollective"
+    ],
+    "ZA": [
+      "AnonCollective"
+    ],
+    "KE": [
+      "AnonCollective"
+    ],
+    "ET": [
+      "AnonCollective"
     ],
     "GH": [
-      "anonymous_official"
+      "AnonCollective"
     ],
-    "TN": [
-      "anonymous_official"
+    "HK": [
+      "dragonforceio",
+      "AnonCollective"
+    ],
+    "IR": [
+      "AnonCollective"
     ],
     "MA": [
-      "anonymous_official"
+      "AnonCollective"
     ],
-    "DZ": [
-      "anonymous_official"
+    "TN": [
+      "AnonCollective"
     ]
   },
   "INFRASTRUCTURE_URLS": {
@@ -3242,6 +3298,33 @@
     ],
     "AD": [
       "https://www.govern.ad"
+    ],
+    "CD": [
+      "https://www.presidence.cd"
+    ],
+    "CI": [
+      "https://www.gouvernement.gouv.ci"
+    ],
+    "CM": [
+      "https://www.spm.gov.cm"
+    ],
+    "GY": [
+      "https://www.op.gov.gy"
+    ],
+    "MG": [
+      "https://www.presidence.gov.mg"
+    ],
+    "ML": [
+      "https://www.primature.gov.ml"
+    ],
+    "NE": [
+      "https://www.presidence.ne"
+    ],
+    "SR": [
+      "https://gov.sr"
+    ],
+    "XK": [
+      "https://www.kryeministri-ks.net"
     ]
   },
   "NARRATIVE_SOURCES": {
@@ -3344,7 +3427,7 @@
       "mobilization decree",
       "Ukraine offensive",
       "ATACMS strike",
-      "Zalensky",
+      "Zelensky",
       "nuclear doctrine",
       "tactical nuclear"
     ],
@@ -3872,6 +3955,103 @@
       "strategic deterrence",
       "China military buildup",
       "Pacific Command alert"
+    ],
+    "FI": [
+      "NATO membership Russia border",
+      "Suomi defence",
+      "Finnish army",
+      "Russian threat Finland",
+      "Arctic Finland",
+      "Lapland operations",
+      "Helsinki critical infrastructure"
+    ],
+    "GH": [
+      "military coup",
+      "West Africa stability",
+      "economic crisis",
+      "ECOWAS"
+    ],
+    "DZ": [
+      "Sahel instability",
+      "military Algeria",
+      "gas pipeline",
+      "terrorist attack"
+    ],
+    "MA": [
+      "Sahara conflict",
+      "Morocco military",
+      "Spanish enclave",
+      "Ceuta Melilla"
+    ],
+    "TN": [
+      "political crisis Tunisia",
+      "border Libya",
+      "military mobilization"
+    ],
+    "AL": [
+      "NATO membership",
+      "Albanian cyber",
+      "Iran APT attack Albania",
+      "OSCE"
+    ],
+    "BA": [
+      "Republika Srpska",
+      "NATO Bosnia",
+      "Dayton agreement crisis",
+      "Russia influence"
+    ],
+    "ME": [
+      "NATO Montenegro",
+      "Serbia pressure",
+      "Russian influence",
+      "Euro-Atlantic"
+    ],
+    "MK": [
+      "NATO North Macedonia",
+      "Serbia tensions",
+      "Russian hybrid"
+    ],
+    "SI": [
+      "NATO Slovenia",
+      "Balkans stability",
+      "critical infrastructure"
+    ],
+    "LU": [
+      "NATO HQ",
+      "EU institutions",
+      "cyber espionage",
+      "financial sector"
+    ],
+    "SD": [
+      "Sudan civil war",
+      "RSF conflict",
+      "humanitarian crisis Sudan"
+    ],
+    "LY": [
+      "Libya civil war",
+      "Turkey Wagner",
+      "oil field conflict"
+    ],
+    "UZ": [
+      "SCO Uzbekistan",
+      "Russia influence",
+      "energy corridor",
+      "CSTO"
+    ],
+    "KG": [
+      "Kyrgyzstan instability",
+      "Manas airbase",
+      "Russia CSTO"
+    ],
+    "TJ": [
+      "Tajikistan border Afghanistan",
+      "CSTO",
+      "Russia base Tajikistan"
+    ],
+    "TM": [
+      "Caspian Sea",
+      "natural gas Turkmenistan",
+      "neutral policy"
     ]
   },
   "HISTORICAL_EVENTS": [
