@@ -564,6 +564,22 @@
         /* ── Telegram channel detail (in chain panel) ── */
         .tg-ch-badge { display:inline-block; background:rgba(255,102,204,0.1); border:1px solid #ff66cc44; color:#ff66cc; font-size:9px; padding:1px 6px; border-radius:3px; margin:2px 2px; font-family:'Courier New',monospace; }
         .tg-url-item { font-size:9px; color:#ffaa00; font-family:'Courier New',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:2px 0; }
+
+        /* ── Telegram SIGINT Panel ─────────────────────────────────────────────── */
+        .tgsig-entry { margin-bottom:8px; padding-left:8px; border-left:2px solid #2a2a2a; }
+        .tgsig-entry.intent { border-color:#ff66cc; }
+        .tgsig-entry.target { border-color:#ffaa00; }
+        .tgsig-entry-hdr { font-size:10px; color:#555; margin-bottom:2px; display:flex; justify-content:space-between; align-items:baseline; }
+        .tgsig-entry-class { font-size:10px; font-weight:bold; }
+        .tgsig-entry-kw { font-size:9px; color:#555; font-weight:normal; }
+        .tgsig-entry-urls { font-size:9px; color:#cc8800; margin-top:2px; font-family:'Courier New',monospace; }
+        .tgsig-snippet { font-family:'Courier New',monospace; font-size:9px; color:#6a7a8a; background:#080b0f; border:1px solid #1a2230; border-radius:2px; padding:4px 6px; margin-top:3px; white-space:pre-wrap; word-break:break-all; max-height:40px; overflow:hidden; }
+        .tgsig-theater-btn { font-size:9px; padding:2px 7px; border-radius:2px; border:1px solid transparent; cursor:pointer; font-family:'Courier New',monospace; transition:opacity 0.2s; }
+        .tgsig-theater-btn:hover { opacity:0.8; }
+        .tgsig-roster-badge { display:inline-block; font-size:9px; padding:2px 5px; border-radius:2px; border:1px solid #1e1e1e; color:#444; margin:2px; cursor:pointer; font-family:'Courier New',monospace; }
+        .tgsig-roster-badge.active { color:#ff66cc; border-color:#ff66cc44; background:rgba(255,102,204,0.08); }
+        .tgsig-src-link { font-size:9px; color:#334455; text-decoration:none; }
+        .tgsig-src-link:hover { color:#6699aa; }
     </style>
 </head>
 <body>
@@ -707,6 +723,7 @@
         <div id="lsb-ph-clk"></div>
         <div id="lsb-ph-gn"></div>
         <div id="lsb-ph-nb"></div>
+        <div id="lsb-ph-tg"></div>
     </div>
 
     <div id="map-wrapper">
@@ -992,7 +1009,10 @@
                 <div style="color:#444;font-size:9px;margin-bottom:4px;">── v9 INTELLIGENCE ──</div>
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <span style="color:#ff66cc;font-size:10px;">Telegram Mirror</span>
-                    <span id="ev-telegram-intent" style="color:#555;font-size:11px;font-weight:bold;">—</span>
+                    <span style="display:flex;align-items:center;gap:6px;">
+                        <span id="ev-telegram-intent" style="color:#555;font-size:11px;font-weight:bold;">—</span>
+                        <span class="icon-btn" onclick="openTgSigint()" data-tooltip="Open SIGINT Panel" style="font-size:9px;color:#ff66cc66;padding:1px 5px;border-color:#ff66cc33;">SIGINT↗</span>
+                    </span>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
                     <span style="color:#00ff88;font-size:10px;">Infra Survival</span>
@@ -1455,6 +1475,41 @@
     </div>
 </div>
 
+<!-- ── Telegram SIGINT Panel (v10) ───────────────────────────────────────── -->
+<div id="tg-sigint-panel" class="draggable-panel floating" style="display:none; left:540px; top:190px;">
+    <div class="drag-handle panel-header-unified">
+        <span>Telegram SIGINT</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+        </div>
+    </div>
+    <div class="panel-content">
+        <!-- Status bar -->
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0 8px;border-bottom:1px solid #1a1a1a;margin-bottom:8px;">
+            <div id="tgsig-status-badge" style="font-size:10px;font-weight:bold;letter-spacing:1px;padding:2px 8px;border-radius:2px;color:#555;background:#0a0a0a;">——</div>
+            <div id="tgsig-poll-info" style="font-size:9px;color:#444;margin-left:auto;font-family:'Courier New',monospace;"></div>
+        </div>
+        <!-- Theater grid -->
+        <div style="font-size:9px;color:#555;letter-spacing:1px;margin-bottom:5px;">THEATER STATUS</div>
+        <div id="tgsig-theater-grid" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #1a1a1a;"></div>
+        <!-- Intercept log -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+            <span style="font-size:9px;color:#555;letter-spacing:1px;">INTERCEPT LOG</span>
+            <span id="tgsig-filter-label" style="display:none;font-size:9px;color:#ff66cc;">
+                <span id="tgsig-filter-text"></span>
+                <span onclick="tgClearFilter()" style="cursor:pointer;color:#555;margin-left:4px;" data-tooltip="Clear filter">✕</span>
+            </span>
+        </div>
+        <div id="tgsig-intercept-log" style="max-height:220px;overflow-y:auto;margin-bottom:8px;"></div>
+        <!-- Channel roster -->
+        <div style="border-top:1px solid #1a1a1a;padding-top:6px;">
+            <div style="font-size:9px;color:#555;letter-spacing:1px;margin-bottom:4px;">MONITORED CHANNELS</div>
+            <div id="tgsig-roster" style="max-height:60px;overflow-y:auto;"></div>
+        </div>
+    </div>
+</div>
+
 <script>
     let latestData = null;
     let currentVector = 'all';
@@ -1592,6 +1647,150 @@
             return `<div class="gn-log-entry"><span style="color:#444;">${t}</span> <span style="color:#888;">${e.ip}</span> → <span class="${cls}">${e.noise?'NOISE':'TARGETED'}</span> <span style="color:#666;">${e.name||''}</span></div>`;
         }).join('');
     }
+
+    // ── Telegram SIGINT Panel (v10) ──────────────────────────────────────────
+    let _tgFilter   = null;
+    let _tgLastData = {};
+
+    function openTgSigint() {
+        const p = document.getElementById('tg-sigint-panel');
+        if (!p) return;
+        p.style.display = '';
+        p.classList.add('active');
+        setTimeout(() => p.classList.remove('active'), 1000);
+    }
+
+    function tgSetFilter(type, value) {
+        _tgFilter = { type, value };
+        const lbl  = document.getElementById('tgsig-filter-label');
+        const txt  = document.getElementById('tgsig-filter-text');
+        if (lbl) lbl.style.display = '';
+        if (txt) txt.textContent = value;
+        _renderTgLog(_tgLastData);
+    }
+
+    function tgClearFilter() {
+        _tgFilter = null;
+        const lbl = document.getElementById('tgsig-filter-label');
+        if (lbl) lbl.style.display = 'none';
+        _renderTgLog(_tgLastData);
+    }
+
+    function _tgEsc(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function renderTgSigintPanel(tg) {
+        _tgLastData = tg;
+
+        // Status badge
+        const badge = document.getElementById('tgsig-status-badge');
+        if (badge) {
+            if (tg.has_intent) {
+                badge.textContent = '██ INTENT DETECTED';
+                badge.style.color = '#ff66cc';
+                badge.style.background = 'rgba(255,102,204,0.1)';
+            } else if (tg.status === 'TARGETS_FOUND') {
+                badge.textContent = '◆ TARGETS FOUND';
+                badge.style.color = '#ffaa00';
+                badge.style.background = 'rgba(255,170,0,0.1)';
+            } else {
+                badge.textContent = '── ALL CLEAR';
+                badge.style.color = '#555';
+                badge.style.background = '#0a0a0a';
+            }
+        }
+
+        // Poll info
+        const pollInfo = document.getElementById('tgsig-poll-info');
+        if (pollInfo) {
+            const active    = (tg.active_channels || []).length;
+            const monitored = (tg.channels_monitored || []).length;
+            const ts        = tg.last_poll_ts ? tg.last_poll_ts.substring(11,16) + ' UTC' : '—';
+            const ok        = tg.last_poll_ok !== false;
+            pollInfo.innerHTML =
+                `${active}/${monitored} active &nbsp;<span style="color:${ok?'#00cc66':'#cc4444'};">${ok?'●':'✕'}</span>&nbsp; ${ts}`;
+        }
+
+        // Theater grid
+        const grid = document.getElementById('tgsig-theater-grid');
+        if (grid) {
+            const breakdown = tg.theater_breakdown || {};
+            const entries   = Object.entries(breakdown);
+            if (entries.length === 0) {
+                grid.innerHTML = '<span style="font-size:9px;color:#333;">No theaters configured</span>';
+            } else {
+                grid.innerHTML = entries.map(([theater, data]) => {
+                    const st    = data.status || 'CLEAR';
+                    const color = st === 'INTENT_DETECTED' ? '#ff66cc' : st === 'TARGETS_FOUND' ? '#ffaa00' : '#3a3a3a';
+                    const bg    = st === 'INTENT_DETECTED' ? 'rgba(255,102,204,0.1)' : st === 'TARGETS_FOUND' ? 'rgba(255,170,0,0.1)' : 'transparent';
+                    const label = st === 'INTENT_DETECTED' ? '██' : st === 'TARGETS_FOUND' ? '◆' : '──';
+                    return `<span class="tgsig-theater-btn" style="color:${color};background:${bg};border-color:${color}55;"
+                        onclick="tgSetFilter('theater','${_tgEsc(theater)}')" data-tooltip="${theater}: ${st}">
+                        ${_tgEsc(theater)}[${label}]</span>`;
+                }).join('');
+            }
+        }
+
+        _renderTgLog(tg);
+
+        // Channel roster
+        const roster    = document.getElementById('tgsig-roster');
+        const monitored = tg.channels_monitored || [];
+        const active    = tg.active_channels    || [];
+        if (roster) {
+            if (monitored.length === 0) {
+                roster.innerHTML = '<span style="font-size:9px;color:#333;">No channels in THREAT_ACTOR_MAPPING</span>';
+            } else {
+                roster.innerHTML = monitored.map(ch => {
+                    const isActive = active.includes(ch);
+                    return `<span class="tgsig-roster-badge${isActive?' active':''}"
+                        onclick="tgSetFilter('channel','${_tgEsc(ch)}')">${_tgEsc(ch)}</span>`;
+                }).join('');
+            }
+        }
+    }
+
+    function _renderTgLog(tg) {
+        const logEl = document.getElementById('tgsig-intercept-log');
+        if (!logEl) return;
+        const hits = tg.recent_hits || [];
+        const filtered = _tgFilter ? hits.filter(h =>
+            (_tgFilter.type === 'theater' && h.theater === _tgFilter.value) ||
+            (_tgFilter.type === 'channel' && h.channel === _tgFilter.value)
+        ) : hits;
+
+        if (filtered.length === 0) {
+            logEl.innerHTML = `<div style="color:#2a2a2a;font-size:10px;text-align:center;padding:14px 0;font-family:'Courier New',monospace;">NO INTERCEPTS RECORDED</div>`;
+            return;
+        }
+
+        logEl.innerHTML = filtered.map(h => {
+            const ts       = h.ts ? h.ts.substring(11,16) + ' UTC' : '';
+            const isIntent = h.status === 'INTENT_DETECTED';
+            const color    = isIntent ? '#ff66cc' : '#ffaa00';
+            const cls      = isIntent ? 'intent' : 'target';
+            const kwStr    = (h.keywords_matched || []).join(' · ') || '—';
+            const urlStr   = (h.target_urls || []).map(u => u.replace(/^https?:\/\//,'')).join(' · ');
+            const snippet  = h.snippet
+                ? `<div class="tgsig-snippet">${_tgEsc(h.snippet)}</div>` : '';
+            const srcLink  = h.channel_url
+                ? `<a href="${_tgEsc(h.channel_url)}" target="_blank" class="tgsig-src-link">↗SRC</a>` : '';
+            return `<div class="tgsig-entry ${cls}">
+                <div class="tgsig-entry-hdr">
+                    <span><span style="color:#aaa;">${_tgEsc(h.channel||'?')}</span>&nbsp;·&nbsp;${ts}&nbsp;·&nbsp;${_tgEsc(h.theater||'')}</span>
+                    ${srcLink}
+                </div>
+                <div class="tgsig-entry-class" style="color:${color};">
+                    ${isIntent?'INTENT':'TARGET'}
+                    <span class="tgsig-entry-kw">&nbsp;${_tgEsc(kwStr)}</span>
+                </div>
+                ${urlStr ? `<div class="tgsig-entry-urls">${_tgEsc(urlStr)}</div>` : ''}
+                ${snippet}
+            </div>`;
+        }).join('');
+    }
+    // ── End Telegram SIGINT Panel ────────────────────────────────────────────
 
     function clearGnLog() {
         _gnLog = [];
@@ -2028,6 +2227,8 @@
                 tgEl.style.color = '#555';
             }
         }
+        // ── v10: Telegram SIGINT Panel ────────────────────────────────────────
+        renderTgSigintPanel(tg);
         // ev-checkhost-status (chain panel sub-metric)
         const chsEl = document.getElementById('ev-checkhost-status');
         if (chsEl) {
@@ -2435,6 +2636,7 @@
     setupDockablePanel('op-clock-panel',      'lsb-ph-clk',            340);
     setupDockablePanel('gn-panel',            'lsb-ph-gn',             400);
     setupDockablePanel('notebook-panel',      'lsb-ph-nb',             340);
+    setupDockablePanel('tg-sigint-panel',     'lsb-ph-tg',             460);
     updateSidebarVisibility();
 
     const map = L.map('map', {
@@ -3561,7 +3763,7 @@
         syncToolsMenuState();
     }
 
-    const LAYOUT_VERSION = 9; // bump when layout structure changes to auto-clear stale state
+    const LAYOUT_VERSION = 10; // bump when layout structure changes to auto-clear stale state
 
     function loadTargetState(defaults) {
         // THEATERS を app_config の全世界リストで初期化してからUIを構築

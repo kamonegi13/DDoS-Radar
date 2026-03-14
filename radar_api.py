@@ -1137,6 +1137,10 @@ class TelegramMirrorSensor(BaseSensor):
     _URL_RE = __import__("re").compile(
         r'https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(?:/[^\s<"\']*)?'
     )
+    _intercept_log: list = []   # class-level ring buffer (shared across instances)
+    _MAX_LOG        = 50
+    _last_poll_ts: str  = ""
+    _last_poll_ok: bool = False
 
     def __init__(self):
         super().__init__("telegram_mirror", "info", TELEGRAM_MIRROR_POLL)
@@ -1169,15 +1173,46 @@ class TelegramMirrorSensor(BaseSensor):
 
     def _parse_posts(self, text: str, keywords: list) -> tuple:
         """テキストからターゲットURLと攻撃宣言を抽出する。
-        Returns: (targets: list[str], has_attack_intent: bool)"""
+        Returns: (targets: list[str], has_attack_intent: bool, matched_keywords: list[str])"""
         targets = self._URL_RE.findall(text)
-        # 政府・重要インフラドメインに絞る（.gov .mil 等）
         gov_targets = [u for u in targets if any(
             pat in u for pat in (".gov", ".mil", ".parliament", ".bundestag",
                                   ".elysee", ".president", "bank", "energy", "telecom")
         )]
-        has_intent = any(kw in text for kw in keywords)
-        return gov_targets[:10], has_intent
+        matched_kws = [kw for kw in keywords if kw in text]
+        has_intent  = len(matched_kws) > 0
+        return gov_targets[:10], has_intent, matched_kws
+
+    def _extract_snippet(self, text: str, keywords: list, context: int = 100) -> str:
+        """キーワード周辺のテキストを最大200文字抽出してスニペットを返す。"""
+        import re as _re
+        for kw in keywords:
+            idx = text.find(kw)
+            if idx >= 0:
+                start = max(0, idx - 60)
+                end   = min(len(text), idx + len(kw) + context)
+                raw   = text[start:end].strip()
+                raw   = _re.sub(r'\s+', ' ', raw)
+                return f"...{raw}..."
+        return ""
+
+    @classmethod
+    def _log_detection(cls, theater: str, channel: str, channel_url: str,
+                       status: str, keywords: list, targets: list, snippet: str) -> None:
+        """インターセプトログにエントリを追加する（CLEARは記録しない）。"""
+        entry = {
+            "ts":              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "theater":         theater,
+            "channel":         channel,
+            "channel_url":     channel_url,
+            "status":          status,
+            "keywords_matched": keywords,
+            "target_urls":     targets[:5],
+            "snippet":         snippet,
+        }
+        cls._intercept_log.insert(0, entry)
+        if len(cls._intercept_log) > cls._MAX_LOG:
+            cls._intercept_log.pop()
 
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", [])
@@ -1201,13 +1236,17 @@ class TelegramMirrorSensor(BaseSensor):
                     continue
                 any_success = True
                 text = self._extract_text(html)
-                targets, has_intent = self._parse_posts(text, TELEGRAM_ATTACK_KEYWORDS)
+                targets, has_intent, matched_kws = self._parse_posts(text, TELEGRAM_ATTACK_KEYWORDS)
                 if has_intent or targets:
                     theater_targets.extend(targets)
                     if has_intent:
                         theater_intent = True
                     active_channels.append(channel)
                     total_hits += 1
+                    snippet    = self._extract_snippet(text, matched_kws or TELEGRAM_ATTACK_KEYWORDS)
+                    ch_url     = self.TGSTAT_URL.format(channel=channel)
+                    det_status = "INTENT_DETECTED" if has_intent else "TARGETS_FOUND"
+                    self._log_detection(theater, channel, ch_url, det_status, matched_kws, targets, snippet)
 
             results[theater] = {
                 "channels_monitored": channels,
@@ -1226,6 +1265,8 @@ class TelegramMirrorSensor(BaseSensor):
                     "targets": list(set(theater_targets))[:5],
                 })
 
+        TelegramMirrorSensor._last_poll_ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        TelegramMirrorSensor._last_poll_ok = any_success or len(theaters) == 0
         self.log_fetch(any_success or len(theaters) == 0,
                        round((time.time() - t0) * 1000), 200, total_hits)
         result = {"telegram": results}
@@ -2563,6 +2604,10 @@ def get_threat_data():
                 "active_channels":     telegram_active_ch,
                 "channels_monitored":  core_telegram.get("channels_monitored", []),
                 "target_urls":         core_telegram.get("target_urls", []),
+                "theater_breakdown":   telegram_data,
+                "recent_hits":         TelegramMirrorSensor._intercept_log[:10],
+                "last_poll_ts":        TelegramMirrorSensor._last_poll_ts,
+                "last_poll_ok":        TelegramMirrorSensor._last_poll_ok,
             },
             # GreyNoise (v9) — tier情報を含む
             "greynoise": {
