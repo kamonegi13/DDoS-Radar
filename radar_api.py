@@ -1124,6 +1124,15 @@ TELEGRAM_ATTACK_KW_RAW   = os.getenv(
 )
 TELEGRAM_ATTACK_KEYWORDS = [k.strip().lower() for k in TELEGRAM_ATTACK_KW_RAW.split(",") if k.strip()]
 
+# Scraper User-Agent pool — rotated per request to reduce fingerprinting
+_SCRAPER_UA_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+]
+
 class TelegramMirrorSensor(BaseSensor):
     """
     Info Domain sensor: scrapes public mirror pages on tgstat.com / telemetr.io
@@ -1147,18 +1156,29 @@ class TelegramMirrorSensor(BaseSensor):
 
     def _scrape_channel(self, channel: str) -> str:
         """Fetch public channel page from tgstat.com and return text.
-        Falls back to telemetr.io on failure."""
+        Falls back to telemetr.io on failure.
+        Applies UA rotation and exponential backoff on 403/429."""
+        import random as _rnd
         for url_tpl in (self.TGSTAT_URL, self.TELEMETR_URL):
             url = url_tpl.format(channel=channel)
-            try:
-                res = requests.get(
-                    url, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
-                    headers={"User-Agent": "Mozilla/5.0 (OSINT-Radar/9.0; +https://github.com)"}
-                )
-                if res.status_code == 200 and len(res.text) > 200:
-                    return res.text
-            except Exception:
-                pass
+            delay = 2.0  # initial backoff base (seconds)
+            for attempt in range(3):
+                try:
+                    ua = _rnd.choice(_SCRAPER_UA_POOL)
+                    res = requests.get(
+                        url, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+                        headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"}
+                    )
+                    if res.status_code == 200 and len(res.text) > 200:
+                        return res.text
+                    if res.status_code in (403, 429):
+                        # Exponential backoff: 2s → 4s → 8s with ±20% jitter
+                        sleep_time = delay * (2 ** attempt) * _rnd.uniform(0.8, 1.2)
+                        time.sleep(min(sleep_time, 30.0))
+                        continue
+                    break  # non-retryable error (404, 5xx) — try next source
+                except Exception:
+                    break
         return ""
 
     @staticmethod
@@ -1252,7 +1272,11 @@ class TelegramMirrorSensor(BaseSensor):
             theater_intent   = False
             active_channels: list = []
 
-            for channel in channels:
+            for i, channel in enumerate(channels):
+                if i > 0:
+                    # Inter-channel jitter: 1.5–4.0 s to reduce rate-limit fingerprinting
+                    import random as _rnd2
+                    time.sleep(_rnd2.uniform(1.5, 4.0))
                 html = self._scrape_channel(channel)
                 if not html:
                     continue
@@ -1304,12 +1328,18 @@ class CheckHostSensor(BaseSensor):
     """
     CHECK_HOST_API = "https://check-host.net/check-http"
     RESULT_API     = "https://check-host.net/check-result/{request_id}"
+    # Per-URL cooldown: only re-check a URL if ≥ 5 min has elapsed since last poll
+    _URL_COOLDOWN_SEC = 300
+    _url_last_poll: dict = {}   # url → unix timestamp of last successful check
+    # Rolling latency history: last 12 readings per URL (≈1 h at 5-min poll interval)
+    _url_latency_history: dict = {}  # url → deque of latency_ms floats
 
     def __init__(self):
         super().__init__("check_host", "physical", CHECKHOST_POLL_INTERVAL)
 
     def check_url(self, url: str, nodes: list) -> dict:
-        """Check a single URL from multiple nodes and return {success_rate, results}."""
+        """Check a single URL from multiple nodes and return {success_rate, node_ok, results}.
+        Detects CDN-masked asphyxiation: success_rate==1.0 but latency > 3× 1-hour rolling avg."""
         try:
             # Pass list of tuples to requests to allow repeated same key
             params = [("host", url), ("max_nodes", min(len(nodes), 5))]
@@ -1344,8 +1374,14 @@ class CheckHostSensor(BaseSensor):
             ok_count  = 0
             all_count = 0
             latencies: list = []
-            for _, checks in node_results.items():
+            # Per-node result map: short label (e.g. "JP", "US") → "OK"/"FAIL"/"TIMEOUT"
+            node_ok: dict = {}
+            for node_id, checks in node_results.items():
+                # Derive short display label from hostname prefix (e.g. "jp1" → "JP")
+                node_label = node_id.split(".")[0][:3].upper()
                 if not isinstance(checks, list):
+                    node_ok[node_label] = "FAIL"
+                    all_count += 1
                     continue
                 for chk in checks:
                     # check-host.net HTTP result format:
@@ -1356,6 +1392,7 @@ class CheckHostSensor(BaseSensor):
                     # pending node: null → entire checks list is None
                     if chk is None:
                         all_count += 1   # pending / node unreachable
+                        node_ok[node_label] = "FAIL"
                         continue
                     if not isinstance(chk, list) or len(chk) < 2:
                         continue
@@ -1372,7 +1409,14 @@ class CheckHostSensor(BaseSensor):
                     if is_ok:
                         ok_count += 1
                     if time_s is not None and time_s > 0:
-                        latencies.append(time_s * 1000)  # seconds → ms
+                        lat_ms = time_s * 1000  # seconds → ms
+                        latencies.append(lat_ms)
+                        if lat_ms > CHECKHOST_TIMEOUT_MS:
+                            node_ok[node_label] = "TIMEOUT"
+                        else:
+                            node_ok[node_label] = "OK" if is_ok else "FAIL"
+                    else:
+                        node_ok[node_label] = "OK" if is_ok else "FAIL"
 
             success_rate = round(ok_count / all_count, 3) if all_count > 0 else None
             avg_latency  = round(sum(latencies) / len(latencies)) if latencies else None
@@ -1381,11 +1425,29 @@ class CheckHostSensor(BaseSensor):
             if avg_latency and avg_latency > CHECKHOST_TIMEOUT_MS:
                 success_rate = round(success_rate * 0.5, 3) if success_rate else 0.0
 
+            # ── Asphyxiation detection (CDN masking) ─────────────────────────────
+            # Update rolling latency history for this URL (12-sample ≈ 1 h at 5 min polling)
+            if url not in CheckHostSensor._url_latency_history:
+                CheckHostSensor._url_latency_history[url] = deque(maxlen=12)
+            if avg_latency is not None:
+                CheckHostSensor._url_latency_history[url].append(avg_latency)
+            lat_history = list(CheckHostSensor._url_latency_history[url])
+            rolling_avg = sum(lat_history) / len(lat_history) if len(lat_history) >= 3 else None
+            # Asphyxiation: success looks 100% but latency has tripled vs rolling baseline
+            asphyxiation = (
+                success_rate is not None and success_rate >= 0.99
+                and avg_latency is not None and rolling_avg is not None
+                and avg_latency > rolling_avg * 3.0
+            )
+
             return {
-                "success_rate": success_rate,
-                "ok_nodes":     ok_count,
-                "total_nodes":  all_count,
+                "success_rate":   success_rate,
+                "ok_nodes":       ok_count,
+                "total_nodes":    all_count,
                 "avg_latency_ms": avg_latency,
+                "node_ok":        node_ok,
+                "asphyxiation":   asphyxiation,
+                "rolling_avg_latency_ms": round(rolling_avg) if rolling_avg else None,
                 "status": ("OK"      if success_rate and success_rate >= 0.8 else
                            "PARTIAL" if success_rate and success_rate >= 0.3 else
                            "BLACKOUT"),
@@ -1399,6 +1461,7 @@ class CheckHostSensor(BaseSensor):
         t0 = time.time()
         total_checked = 0
         any_success   = False
+        now = time.time()
 
         for theater in theaters:
             urls = INFRASTRUCTURE_URLS.get(theater, [])
@@ -1406,17 +1469,37 @@ class CheckHostSensor(BaseSensor):
                 continue
 
             url_results: dict = {}
-            ok_count = 0
-            url_count = len(urls[:3])  # Rate limit mitigation: max 3 URLs per theater
+            ok_count   = 0
+            asphyx_any = False
+            url_count  = 0
 
-            for url in urls[:3]:
+            for url in urls[:3]:  # Rate limit mitigation: max 3 URLs per theater
+                # Per-URL cooldown: skip if polled within the last 5 minutes
+                last_poll = CheckHostSensor._url_last_poll.get(url, 0)
+                if now - last_poll < CheckHostSensor._URL_COOLDOWN_SEC:
+                    # Reuse cached result from previous fetch if available
+                    cached_ch = self.get_cache().get("check_host", {})
+                    prev = cached_ch.get(theater, {}).get("urls", {}).get(url)
+                    if prev:
+                        url_results[url] = prev
+                        url_count += 1
+                        if prev.get("success_rate", 0) >= 0.8:
+                            ok_count += 1
+                        if prev.get("asphyxiation"):
+                            asphyx_any = True
+                    continue
+
                 chk = self.check_url(url, CHECKHOST_NODES)
                 url_results[url] = chk
+                url_count += 1
                 if chk.get("success_rate") is not None:
                     any_success = True
                     total_checked += 1
+                    CheckHostSensor._url_last_poll[url] = now
                     if chk["success_rate"] >= 0.8:
                         ok_count += 1
+                if chk.get("asphyxiation"):
+                    asphyx_any = True
 
             # Overall success rate for the theater
             theater_success_rate = ok_count / url_count if url_count else None
@@ -1425,9 +1508,10 @@ class CheckHostSensor(BaseSensor):
                               "BLACKOUT")
 
             results[theater] = {
-                "urls":                url_results,
+                "urls":                 url_results,
                 "theater_success_rate": theater_success_rate,
-                "status":              overall_status,
+                "status":               overall_status,
+                "asphyxiation":         asphyx_any,
             }
 
         self.log_fetch(any_success, round((time.time() - t0) * 1000), 200, total_checked)
@@ -1839,27 +1923,40 @@ class WeightedConvergenceEngine:
     @staticmethod
     def detect_maskirovka(core_degraded: bool, narrative_burst: bool,
                           check_host_status: Optional[str],
-                          telegram_intent: bool) -> tuple:
+                          telegram_intent: bool,
+                          other_sensors_alive: bool = True) -> tuple:
         """
         Maskirovka (deception operation) detection:
         Flags when physical disruption (Check-Host/IODA at BLACKOUT/PARTIAL) is present
         but the narrative (Telegram mirror / RSS) is silent.
 
+        other_sensors_alive: True when ≥1 adjacent theater's sensors are responding normally.
+            Distinguishes deliberate regional suppression from a global API outage.
+            When True, confidence is upgraded MEDIUM → HIGH (+1 score bonus via rationale).
+
         Returns: (is_maskirovka: bool, confidence: str, reason: str)
         """
-        has_physical_outage = core_degraded or check_host_status in ("BLACKOUT", "PARTIAL")
+        has_physical_outage   = core_degraded or check_host_status in ("BLACKOUT", "PARTIAL")
         has_narrative_silence = not narrative_burst and not telegram_intent
 
         if has_physical_outage and has_narrative_silence:
+            if other_sensors_alive:
+                return True, "HIGH", (
+                    "Physical outage confirmed, all narrative channels silent, "
+                    "and adjacent theater sensors are live — "
+                    "deliberate regional suppression confirmed (Maskirovka HIGH)"
+                )
             return True, "MEDIUM", (
                 "Physical outage confirmed but all narrative channels silent — "
-                "possible deception operation (Maskirovka)"
+                "possible deception operation (Maskirovka); "
+                "cross-theater sensor liveness unconfirmed"
             )
         return False, "NONE", ""
 
     @staticmethod
     def compute_blockade_index(ddos_intensity: float, ripe_drop_pct: float,
-                               checkhost_success_rate: Optional[float]) -> float:
+                               checkhost_success_rate: Optional[float],
+                               asphyxiation: bool = False) -> float:
         """
         Effective Blockade Index: (DDoS intensity × RIPE delay) / Check-Host success rate
         Scores the effectiveness of "communications blackout" from 0 to 10.
@@ -1867,6 +1964,9 @@ class WeightedConvergenceEngine:
         ddos_intensity:         CF spike factor (average spike multiplier)
         ripe_drop_pct:          RIPE BGP prefix drop rate (0–100)
         checkhost_success_rate: Check-Host success rate (0.0–1.0, None = not measured)
+        asphyxiation:           CDN-masking detected — success_rate==100% but latency ≥ 3× baseline.
+                                Apply 1.5× weight penalty: the CDN is absorbing the attack but
+                                infrastructure is being choked (latency stress, not packet drop).
         """
         # Normalize RIPE delay to 0–1 (drop_pct 100% = 1.0)
         ripe_factor = min(ripe_drop_pct / 100.0, 1.0)
@@ -1875,7 +1975,11 @@ class WeightedConvergenceEngine:
         numerator = intensity * (1.0 + ripe_factor)   # RIPE 0% = intensity only, 100% = 2×
         # When Check-Host has not yet polled, use IODA fallback degraded flag
         denominator = max(checkhost_success_rate if checkhost_success_rate is not None else 1.0, 0.05)
-        return round(min(numerator / denominator, 10.0), 2)
+        raw = numerator / denominator
+        # Asphyxiation multiplier: CDN masks packet loss but latency tripling reveals infrastructure strain
+        if asphyxiation:
+            raw *= 1.5
+        return round(min(raw, 10.0), 2)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Global instances
@@ -2540,17 +2644,39 @@ def get_threat_data():
         is_c2_sync, coherence_score, temporal_bonus, temporal_detail = \
             engine.compute_temporal_coherence(sequence_event_log, list(strategic_theaters_set))
 
+        # ── Asphyxiation flag from Check-Host (CDN masking detection) ───────────
+        ch_asphyxiation = core_checkhost.get("asphyxiation", False)
+
+        # ── Cross-theater sensor liveness for Maskirovka confidence upgrade ─────
+        # Other sensors are considered "alive" if ≥1 non-core theater's Check-Host
+        # or IODA sensor returned a valid (non-error) result recently.
+        other_theater_live = False
+        for _t in strategic_theaters_set:
+            if _t == core_theater:
+                continue
+            _other_ch = checkhost_data.get(_t, {})
+            if _other_ch.get("theater_success_rate") is not None:
+                other_theater_live = True
+                break
+            if ioda_data.get(_t) in ("NORMAL", "BGP_OUTAGE"):
+                other_theater_live = True
+                break
+
         # ── v9 Maskirovka detection ─────────────────────────────────────────────
         is_maskirovka, maskirovka_conf, maskirovka_reason = engine.detect_maskirovka(
             core_degraded=core_degraded,
             narrative_burst=narrative_burst or telegram_intent,
             check_host_status=ch_status,
             telegram_intent=telegram_intent,
+            other_sensors_alive=other_theater_live,
         )
         if is_maskirovka:
+            # HIGH confidence = +2 score (cross-theater confirmed suppression),
+            # MEDIUM confidence = +1 score (no corroborating cross-theater data)
+            msk_score = 2 if maskirovka_conf == "HIGH" else 1
             add_rat("maskirovka_flag", "info",
                     "FIRED", f"conf={maskirovka_conf}",
-                    1, maskirovka_reason)
+                    msk_score, maskirovka_reason)
 
         # ── Derivative computation (Velocity / Acceleration / Ambush) ───────────────
         ts_series_core = time_series_ts_db.get(core_theater, [])
@@ -2600,10 +2726,12 @@ def get_threat_data():
                 "has_anomaly": ais_has_anomaly,
             },
             # Blockade Index v9: (DDoS intensity × RIPE delay) / Check-Host success rate
+            # asphyxiation=True applies 1.5× weight when CDN masks packet loss but latency triples
             "blockade_index": engine.compute_blockade_index(
                 ddos_intensity=core_spike,
                 ripe_drop_pct=bgp_routing_data.get(core_theater, {}).get("drop_pct", 0.0),
                 checkhost_success_rate=ch_success_rate,
+                asphyxiation=ch_asphyxiation,
             ),
             # Temporal Coherence (v9 C2 synchrony analysis)
             "temporal_coherence": {
@@ -2618,12 +2746,34 @@ def get_threat_data():
                 "confidence":  maskirovka_conf,
                 "reason":      maskirovka_reason,
             },
-            # Check-Host Survival (v9) — includes detailed data
+            # Check-Host Survival (v9) — includes detailed data + asphyxiation flag
             "check_host": {
                 "theater_success_rate": ch_success_rate,
                 "status":              ch_status,
                 "url_results":         core_checkhost.get("urls", {}),
                 "nodes":               CHECKHOST_NODES,
+                "asphyxiation":        ch_asphyxiation,
+                # Aggregate per-node OK/FAIL across all checked URLs
+                "node_ok": {
+                    node: (
+                        "OK" if all(
+                            url_r.get("node_ok", {}).get(node) == "OK"
+                            for url_r in core_checkhost.get("urls", {}).values()
+                            if isinstance(url_r, dict) and node in url_r.get("node_ok", {})
+                        ) and any(
+                            node in url_r.get("node_ok", {})
+                            for url_r in core_checkhost.get("urls", {}).values()
+                            if isinstance(url_r, dict)
+                        )
+                        else "FAIL"
+                    )
+                    for node in set(
+                        n
+                        for url_r in core_checkhost.get("urls", {}).values()
+                        if isinstance(url_r, dict)
+                        for n in url_r.get("node_ok", {}).keys()
+                    )
+                },
             },
             # Telegram Mirror (v9) — includes channel/URL details
             "telegram_mirror": {
