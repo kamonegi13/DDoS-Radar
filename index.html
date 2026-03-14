@@ -83,11 +83,14 @@
         #hud-discrepancy-alert { display:none; width:100%; padding:3px 10px; background:rgba(255,0,0,0.12); border-top:1px solid #ff2200; font-size:10px; font-weight:bold; letter-spacing:1.5px; color:#ff2a2a; text-align:center; animation:blink 0.8s step-end infinite; will-change:opacity; }
         .hud-discrepancy-border { outline:2px solid #ff2200 !important; box-shadow:0 0 12px rgba(255,34,0,0.5) !important; animation:hud-border-blink 0.8s step-end infinite !important; }
         @keyframes hud-border-blink { 0%,100%{box-shadow:0 0 12px rgba(255,34,0,0.6);outline-color:#ff2200;} 50%{box-shadow:none;outline-color:transparent;} }
-        /* Per-node color chips */
-        .node-chip { display:inline-block; font-size:8px; font-weight:bold; padding:1px 4px; border-radius:2px; margin-left:2px; letter-spacing:0.5px; }
-        .node-chip-ok      { background:rgba(0,255,136,0.15); color:#00ff88; border:1px solid #00ff8866; }
-        .node-chip-fail    { background:rgba(255,34,0,0.2);   color:#ff2200; border:1px solid #ff220066; }
-        .node-chip-timeout { background:rgba(255,170,0,0.2);  color:#ffaa00; border:1px solid #ffaa0066; }
+        /* Node status dots — 8px colored squares, compact replacement for text chips */
+        .node-dot { display:inline-block; width:8px; height:8px; border-radius:1px; margin-left:3px; vertical-align:middle; cursor:default; flex-shrink:0; }
+        .node-dot-ok      { background:#00ff88; box-shadow:0 0 4px #00ff8855; }
+        .node-dot-fail    { background:#ff2200; box-shadow:0 0 4px #ff220055; }
+        .node-dot-timeout { background:#ffaa00; box-shadow:0 0 4px #ffaa0055; }
+        .node-dot-unknown { background:#444; }
+        @keyframes asp-pulse { 0%,100%{opacity:1;box-shadow:0 0 6px #ff880088;} 50%{opacity:0.35;box-shadow:none;} }
+        .node-dots-asphyx .node-dot { animation:asp-pulse 1.0s step-end infinite; }
         
         .threat-hud { padding: 4px 12px; border-radius: 3px; font-weight: bold; font-size: 13px; letter-spacing: 1px; margin-right: 20px; text-transform: uppercase; white-space: nowrap; cursor: pointer; transition: 0.2s;}
         .threat-hud:hover { filter: brightness(1.2); }
@@ -715,11 +718,11 @@
             <span id="hud-blockade-bar" style="display:inline-block;width:40px;height:8px;background:#333;border-radius:3px;margin-left:4px;vertical-align:middle;"><span id="hud-blockade-fill" style="display:block;height:100%;width:0%;background:#ff6600;border-radius:3px;transition:width 0.5s;"></span></span>
         </div>
         <!-- v9: Survival HUD — Check-Host infrastructure liveness status -->
-        <div class="hud-item" data-tooltip="SURVIVAL: Check-Host.net real liveness check for key infrastructure. OK=all nodes reachable / PARTIAL=partial outage / BLACKOUT=all nodes unreachable">
+        <div class="hud-item" id="hud-survival-item" data-tooltip="SURVIVAL: Check-Host.net real liveness check for key infrastructure. OK=all nodes reachable / PARTIAL=partial outage / BLACKOUT=all nodes unreachable">
             <span class="hud-label">SURVIVAL:</span>
             <span id="hud-survival" class="hud-value" style="font-weight:700;letter-spacing:1px;">—</span>
             <span id="hud-survival-icon" style="margin-left:4px;font-size:12px;"></span>
-            <span id="hud-survival-nodes" style="margin-left:6px;font-size:9px;letter-spacing:0.5px;"></span>
+            <span id="hud-survival-nodes" style="margin-left:4px;display:inline-flex;align-items:center;"></span>
         </div>
         <!-- v9: Temporal Coherence — C2 sync -->
         <div class="hud-item" data-tooltip="C2 SYNC: Multiple theater attack onsets converge within 60 s → evidence of nation-state command and control">
@@ -2267,14 +2270,37 @@
             survIcon.textContent = chStatus === 'OK' ? '●' : chStatus === 'PARTIAL' ? '◐' : chStatus === 'BLACKOUT' ? '○' : '?';
             survIcon.style.color  = chStatus === 'OK' ? '#00ff88' : chStatus === 'PARTIAL' ? '#ffaa00' : '#ff2200';
         }
-        // Per-node color chips: [JP1:OK] [US1:FAIL] …
+        // Per-node status dots (8px squares) — compact replacement for text chips
         if (survNodes) {
-            const nodeOk = ch.node_ok || {};
-            const chips = Object.entries(nodeOk).map(([node, st]) => {
-                const cls = st === 'OK' ? 'node-chip-ok' : st === 'TIMEOUT' ? 'node-chip-timeout' : 'node-chip-fail';
-                return `<span class="node-chip ${cls}">${node}:${st}</span>`;
+            const nodeOk   = ch.node_ok || {};
+            const entries  = Object.entries(nodeOk);
+            const wrapCls  = ch.asphyxiation ? 'node-dots-asphyx' : '';
+            const dots = entries.map(([node, st]) => {
+                const dotCls = st === 'OK' ? 'node-dot-ok'
+                             : st === 'TIMEOUT' ? 'node-dot-timeout'
+                             : st === 'FAIL'    ? 'node-dot-fail'
+                             :                    'node-dot-unknown';
+                return `<span class="node-dot ${dotCls}"></span>`;
             }).join('');
-            survNodes.innerHTML = chips;
+            survNodes.innerHTML = dots ? `<span class="${wrapCls}" style="display:inline-flex;align-items:center;">${dots}</span>` : '';
+
+            // Update parent hud-item tooltip with full node breakdown (shown on hover)
+            const survItem = document.getElementById('hud-survival-item');
+            if (survItem) {
+                if (entries.length > 0) {
+                    const nodeLines = entries.map(([n, s]) => `  ${n.padEnd(5)}: ${s}`).join('\n');
+                    const aspNote   = ch.asphyxiation
+                        ? '\n\n⚠ ASPHYXIATION DETECTED\n  Success=100% but latency ≥3× baseline\n  CDN is masking packet loss — infra under strain'
+                        : '';
+                    survItem.dataset.tooltip =
+                        `INFRA LIVENESS  [${chStatus}${chRate != null ? '  ' + Math.round(chRate*100) + '%' : ''}]\n` +
+                        `─────────────────────────\n` +
+                        nodeLines + aspNote;
+                } else {
+                    survItem.dataset.tooltip =
+                        'SURVIVAL: Check-Host.net real liveness check for key infrastructure.\nOK=all nodes reachable / PARTIAL=partial outage / BLACKOUT=all nodes unreachable';
+                }
+            }
         }
 
         // ── DISCREPANCY / Maskirovka HUD alert ─────────────────────────────────
