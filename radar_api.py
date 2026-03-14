@@ -1272,11 +1272,11 @@ class TelegramMirrorSensor(BaseSensor):
             theater_intent   = False
             active_channels: list = []
 
+            import random as _rnd_jitter
             for i, channel in enumerate(channels):
                 if i > 0:
                     # Inter-channel jitter: 1.5–4.0 s to reduce rate-limit fingerprinting
-                    import random as _rnd2
-                    time.sleep(_rnd2.uniform(1.5, 4.0))
+                    time.sleep(_rnd_jitter.uniform(1.5, 4.0))
                 html = self._scrape_channel(channel)
                 if not html:
                     continue
@@ -1426,11 +1426,10 @@ class CheckHostSensor(BaseSensor):
                 success_rate = round(success_rate * 0.5, 3) if success_rate else 0.0
 
             # ── Asphyxiation detection (CDN masking) ─────────────────────────────
-            # Update rolling latency history for this URL (12-sample ≈ 1 h at 5 min polling)
+            # Compute rolling baseline BEFORE appending current sample so the spike
+            # does not contaminate the baseline it is being compared against.
             if url not in CheckHostSensor._url_latency_history:
                 CheckHostSensor._url_latency_history[url] = deque(maxlen=12)
-            if avg_latency is not None:
-                CheckHostSensor._url_latency_history[url].append(avg_latency)
             lat_history = list(CheckHostSensor._url_latency_history[url])
             rolling_avg = sum(lat_history) / len(lat_history) if len(lat_history) >= 3 else None
             # Asphyxiation: success looks 100% but latency has tripled vs rolling baseline
@@ -1439,6 +1438,9 @@ class CheckHostSensor(BaseSensor):
                 and avg_latency is not None and rolling_avg is not None
                 and avg_latency > rolling_avg * 3.0
             )
+            # Append current sample after comparison (update history for next cycle)
+            if avg_latency is not None:
+                CheckHostSensor._url_latency_history[url].append(avg_latency)
 
             return {
                 "success_rate":   success_rate,
