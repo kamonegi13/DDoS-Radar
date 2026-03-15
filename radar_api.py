@@ -1377,11 +1377,12 @@ class CheckHostSensor(BaseSensor):
             # Per-node result map: short label (e.g. "JP", "US") → "OK"/"FAIL"/"TIMEOUT"
             node_ok: dict = {}
             for node_id, checks in node_results.items():
-                # Derive short display label from hostname prefix (e.g. "jp1" → "JP")
+                # Derive short display label from hostname prefix (e.g. "jp1" → "JP1")
                 node_label = node_id.split(".")[0][:3].upper()
                 if not isinstance(checks, list):
-                    node_ok[node_label] = "FAIL"
-                    all_count += 1
+                    # Node returned null: still pending (5s wait insufficient) or unreachable.
+                    # Do NOT count in all_count — pending nodes must not dilute success_rate.
+                    node_ok[node_label] = "PENDING"
                     continue
                 for chk in checks:
                     # check-host.net HTTP result format:
@@ -1389,10 +1390,11 @@ class CheckHostSensor(BaseSensor):
                     # ok_flag: 1=success, 0=failure
                     # e.g. [1, 0.634, "Found", "302", "1.2.3.4"]
                     # error:  [0, 0.0, "Connection refused", "", ""]
-                    # pending node: null → entire checks list is None
+                    # individual null entry: single check still pending
                     if chk is None:
-                        all_count += 1   # pending / node unreachable
-                        node_ok[node_label] = "FAIL"
+                        # Count as failure — list is present so node was reached
+                        all_count += 1
+                        node_ok[node_label] = "PENDING"
                         continue
                     if not isinstance(chk, list) or len(chk) < 2:
                         continue
@@ -1421,9 +1423,11 @@ class CheckHostSensor(BaseSensor):
             success_rate = round(ok_count / all_count, 3) if all_count > 0 else None
             avg_latency  = round(sum(latencies) / len(latencies)) if latencies else None
 
-            # Nodes exceeding timeout threshold are treated as failures
-            if avg_latency and avg_latency > CHECKHOST_TIMEOUT_MS:
-                success_rate = round(success_rate * 0.5, 3) if success_rate else 0.0
+            # NOTE: Latency-based success_rate penalty removed.
+            # Cross-continental checks (e.g. EU nodes → TW/UA gov sites) legitimately
+            # exceed 3000ms without indicating failure. HTTP ok_flag already captures
+            # true failures. High latency is surfaced via node_ok TIMEOUT labels and
+            # the asphyxiation detector below — it must not corrupt success_rate.
 
             # ── Asphyxiation detection (CDN masking) ─────────────────────────────
             # Compute rolling baseline BEFORE appending current sample so the spike

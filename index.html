@@ -88,7 +88,8 @@
         .node-dot-ok      { background:#00ff88; box-shadow:0 0 4px #00ff8855; }
         .node-dot-fail    { background:#ff2200; box-shadow:0 0 4px #ff220055; }
         .node-dot-timeout { background:#ffaa00; box-shadow:0 0 4px #ffaa0055; }
-        .node-dot-unknown { background:#444; }
+        .node-dot-pending { background:#555; border:1px dashed #888; }
+        .node-dot-unknown { background:#333; }
         @keyframes asp-pulse { 0%,100%{opacity:1;box-shadow:0 0 6px #ff880088;} 50%{opacity:0.35;box-shadow:none;} }
         .node-dots-asphyx .node-dot { animation:asp-pulse 1.0s step-end infinite; }
         
@@ -2276,9 +2277,10 @@
             const entries  = Object.entries(nodeOk);
             const wrapCls  = ch.asphyxiation ? 'node-dots-asphyx' : '';
             const dots = entries.map(([node, st]) => {
-                const dotCls = st === 'OK' ? 'node-dot-ok'
+                const dotCls = st === 'OK'      ? 'node-dot-ok'
                              : st === 'TIMEOUT' ? 'node-dot-timeout'
                              : st === 'FAIL'    ? 'node-dot-fail'
+                             : st === 'PENDING' ? 'node-dot-pending'
                              :                    'node-dot-unknown';
                 return `<span class="node-dot ${dotCls}"></span>`;
             }).join('');
