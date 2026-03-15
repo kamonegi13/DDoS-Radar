@@ -850,10 +850,9 @@
             </div>
             <div id="tab-actors" class="tab-content">
                 <div class="help-text">
-                    <b style="color:#ff2a2a">Adversary:</b> Select nation-states to monitor for "Direct Strikes." Alerts trigger when attackers abandon stealth and use their domestic infrastructure for massive operations.
+                    <b style="color:#ff2a2a">Adversary State:</b> Nation-states conducting systematic cyber operations. Alerts trigger when adversary domestic infrastructure is used directly for attacks.<br>
+                    <span style="color:#888;font-size:10px;">Narrative sources are automatically selected to match the adversary bloc.</span>
                 </div>
-                <div class="region-pills" id="pills-actors"></div>
-                <input type="text" class="search-country" id="search-actors" placeholder="Filter countries...">
                 <div class="grid-scroll"><div class="modal-grid" id="actors-grid"></div></div>
             </div>
             <div id="tab-pins" class="tab-content">
@@ -1583,6 +1582,8 @@
     let isFirstLoad = true;
     let loaderLogInterval;
     let _nodeOkRetryTimer = null; // One-shot retry when CheckHost hasn't initialized yet
+    let STRATEGIC_BLOCS_DATA = {};  // { RUSSIA: {label, color, adversary, theaters[]}, ... }
+    let ADVERSARY_OPTIONS    = [];  // [ {code, bloc, label, color}, ... ]
 
     // HITL Analyst Mute State
     let mutedSensors = new Set(JSON.parse(localStorage.getItem('mutedSensors') || '[]'));
@@ -2994,6 +2995,15 @@
         "Russia","N. America","L. America","Caribbean","Oceania","Other"
     ];
 
+    // Bloc bounds for minimap fly-to on bloc pill click
+    const BLOC_BOUNDS = {
+        'RUSSIA': [[35, -15], [72,  50]],
+        'CHINA':  [[-12, 90], [48, 150]],
+        'IRAN':   [[ 10, 28], [42,  72]],
+        'DPRK':   [[ 33,120], [45, 135]],
+    };
+    let _activeBloc = '';  // independent filter state for strategy tab
+
     function buildTheaterUI() {
         const strategyTbody = document.getElementById('strategy-tbody');
         const actorsGrid    = document.getElementById('actors-grid');
@@ -3002,29 +3012,96 @@
         actorsGrid.innerHTML    = '';
         pinsGrid.innerHTML      = '';
 
+        // ── Strategy table: group by strategic bloc ─────────────────────────
+        const countryToBloc = {};
+        Object.entries(STRATEGIC_BLOCS_DATA).forEach(([blocKey, info]) => {
+            (info.theaters || []).forEach(code => { countryToBloc[code] = blocKey; });
+        });
+
+        // Bucket THEATERS into blocs (name-sorted within each bucket by loadTargetState sort)
+        const grouped = {};
+        const otherTheaters = [];
         THEATERS.forEach(t => {
-            const region = t.region || 'Other';
+            const bloc = countryToBloc[t.code];
+            if (bloc) { if (!grouped[bloc]) grouped[bloc] = []; grouped[bloc].push(t); }
+            else otherTheaters.push(t);
+        });
 
-            const tr = document.createElement('tr');
-            tr.dataset.name   = t.name.toLowerCase();
-            tr.dataset.region = region;
-            tr.innerHTML = `<td class="center"><input type="radio" name="core_theater" value="${t.code}" class="radio-core"></td><td class="center"><input type="checkbox" class="check-correlate" value="${t.code}"></td><td><label>${t.name} <span style="color:#555;font-size:10px;">${t.code}</span></label></td>`;
-            strategyTbody.appendChild(tr);
+        // Emit bloc header + country rows in STRATEGIC_BLOCS order
+        Object.entries(STRATEGIC_BLOCS_DATA).forEach(([blocKey, blocInfo]) => {
+            if (!grouped[blocKey] || !grouped[blocKey].length) return;
+            const hdr = document.createElement('tr');
+            hdr.className = 'bloc-header';
+            hdr.dataset.bloc = blocKey;
+            hdr.innerHTML = `<td colspan="3" style="padding:4px 6px;background:${blocInfo.color}18;border-top:1px solid ${blocInfo.color}44;border-bottom:1px solid ${blocInfo.color}22;">` +
+                `<span style="color:${blocInfo.color};font-size:10px;font-weight:bold;letter-spacing:1px;">▲ ${blocInfo.label.toUpperCase()}</span></td>`;
+            strategyTbody.appendChild(hdr);
 
-            const advLabel = document.createElement('label');
-            advLabel.dataset.name   = t.name.toLowerCase();
-            advLabel.dataset.region = region;
-            advLabel.innerHTML = `<input type="checkbox" class="check-adversary" value="${t.code}"> ${t.name}`;
-            actorsGrid.appendChild(advLabel);
+            grouped[blocKey].forEach(t => {
+                const tr = document.createElement('tr');
+                tr.dataset.name = t.name.toLowerCase();
+                tr.dataset.bloc = blocKey;
+                tr.innerHTML = `<td class="center"><input type="radio" name="core_theater" value="${t.code}" class="radio-core"></td>` +
+                    `<td class="center"><input type="checkbox" class="check-correlate" value="${t.code}"></td>` +
+                    `<td><label>${t.name} <span style="color:#555;font-size:10px;">${t.code}</span></label></td>`;
+                strategyTbody.appendChild(tr);
+            });
+        });
 
+        // OTHER bucket (countries not in any bloc)
+        if (otherTheaters.length) {
+            const hdr = document.createElement('tr');
+            hdr.className = 'bloc-header';
+            hdr.dataset.bloc = 'OTHER';
+            hdr.innerHTML = `<td colspan="3" style="padding:4px 6px;background:#33333318;border-top:1px solid #44444444;border-bottom:1px solid #33333322;">` +
+                `<span style="color:#888;font-size:10px;font-weight:bold;letter-spacing:1px;">▲ OTHER</span></td>`;
+            strategyTbody.appendChild(hdr);
+            otherTheaters.forEach(t => {
+                const tr = document.createElement('tr');
+                tr.dataset.name = t.name.toLowerCase();
+                tr.dataset.bloc = 'OTHER';
+                tr.innerHTML = `<td class="center"><input type="radio" name="core_theater" value="${t.code}" class="radio-core"></td>` +
+                    `<td class="center"><input type="checkbox" class="check-correlate" value="${t.code}"></td>` +
+                    `<td><label>${t.name} <span style="color:#555;font-size:10px;">${t.code}</span></label></td>`;
+                strategyTbody.appendChild(tr);
+            });
+        }
+
+        // ── Actors grid: adversary states only ──────────────────────────────
+        const advopts = ADVERSARY_OPTIONS.length ? ADVERSARY_OPTIONS
+            : Object.entries(STRATEGIC_BLOCS_DATA).map(([k, v]) => ({code: v.adversary, bloc: k, label: v.label, color: v.color}));
+        advopts.forEach(opt => {
+            const lbl = document.createElement('label');
+            lbl.style.cssText = `display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid ${opt.color}44;border-radius:3px;cursor:pointer;`;
+            lbl.innerHTML = `<input type="checkbox" class="check-adversary" value="${opt.code}">` +
+                `<span style="color:${opt.color};font-weight:bold;min-width:26px;">${opt.code}</span>` +
+                `<span style="color:#aaa;font-size:11px;">${opt.label}</span>`;
+            actorsGrid.appendChild(lbl);
+        });
+
+        // ── Pins grid: all countries (region-grouped) ───────────────────────
+        THEATERS.forEach(t => {
             const pinLabel = document.createElement('label');
             pinLabel.dataset.name   = t.name.toLowerCase();
-            pinLabel.dataset.region = region;
+            pinLabel.dataset.region = t.region || 'Other';
             pinLabel.innerHTML = `<input type="checkbox" class="check-pin" value="${t.code}"> ${t.name}`;
             pinsGrid.appendChild(pinLabel);
         });
 
-        // List of active regions (sorted by display order)
+        // ── Strategy: bloc pills ─────────────────────────────────────────────
+        function buildBlocPills(containerId) {
+            const c = document.getElementById(containerId);
+            if (!c) return c;
+            const allBlocs = Object.entries(STRATEGIC_BLOCS_DATA).filter(([k]) => grouped[k] && grouped[k].length);
+            c.innerHTML = `<button class="region-pill${_activeBloc === '' ? ' active' : ''}" data-bloc="">ALL</button>` +
+                allBlocs.map(([k, v]) =>
+                    `<button class="region-pill${k === _activeBloc ? ' active' : ''}" data-bloc="${k}" style="border-color:${v.color}55;color:${_activeBloc===k?'#111':v.color}">${v.label}</button>`
+                ).join('') +
+                (otherTheaters.length ? `<button class="region-pill${_activeBloc==='OTHER'?' active':''}" data-bloc="OTHER" style="border-color:#44444455;color:#888">Other</button>` : '');
+            return c;
+        }
+
+        // ── Pins: region pills (unchanged) ───────────────────────────────────
         const allRegions = [...new Set(THEATERS.map(t => t.region || 'Other'))];
         allRegions.sort((a, b) => {
             const ia = REGION_ORDER.indexOf(a), ib = REGION_ORDER.indexOf(b);
@@ -3032,9 +3109,7 @@
             if (ia < 0) return 1; if (ib < 0) return -1;
             return ia - ib;
         });
-
-        // Initialize pill containers (display current _activeRegion as active)
-        function buildPills(containerId) {
+        function buildRegionPills(containerId) {
             const c = document.getElementById(containerId);
             if (!c) return c;
             c.innerHTML = `<button class="region-pill${_activeRegion === '' ? ' active' : ''}" data-region="">ALL</button>` +
@@ -3042,25 +3117,65 @@
             return c;
         }
 
-        // Sync active state of all pill containers to _activeRegion
+        // Sync visual active state independently for each tab type
         _syncPillsVisual = () => {
-            ['pills-strategy', 'pills-actors', 'pills-pins'].forEach(id => {
+            const sc = document.getElementById('pills-strategy');
+            if (sc) sc.querySelectorAll('.region-pill').forEach(p => {
+                p.classList.toggle('active', (p.dataset.bloc || '') === _activeBloc);
+                if (p.dataset.bloc && STRATEGIC_BLOCS_DATA[p.dataset.bloc]) {
+                    p.style.color = p.classList.contains('active') ? '#111' : STRATEGIC_BLOCS_DATA[p.dataset.bloc].color;
+                }
+            });
+            ['pills-pins'].forEach(id => {
                 const c = document.getElementById(id);
                 if (!c) return;
                 c.querySelectorAll('.region-pill').forEach(p => {
-                    p.classList.toggle('active', p.dataset.region === _activeRegion);
+                    p.classList.toggle('active', (p.dataset.region || '') === _activeRegion);
                 });
             });
         };
 
-        // Combined region filter × text search (sharing _activeRegion)
-        function makeFilter(pillContainer, searchInputId, getRows) {
+        // Strategy bloc filter
+        function makeBlocFilter(pillContainer, searchInputId, getRows) {
+            if (!pillContainer) return () => {};
+            let searchText = '';
+            function apply() {
+                getRows().forEach(r => {
+                    if (r.classList.contains('bloc-header')) {
+                        r.style.display = (!_activeBloc || r.dataset.bloc === _activeBloc) ? '' : 'none';
+                        return;
+                    }
+                    const bm = !_activeBloc || r.dataset.bloc === _activeBloc;
+                    const nm = !searchText || (r.dataset.name || '').includes(searchText);
+                    r.style.display = (bm && nm) ? '' : 'none';
+                });
+            }
+            pillContainer.addEventListener('click', e => {
+                if (!e.target.classList.contains('region-pill')) return;
+                _activeBloc = e.target.dataset.bloc || '';
+                _syncPillsVisual();
+                _reapplyFilters();
+                // Fly minimap to bloc bounds
+                if (!_activeBloc) {
+                    _minimapFlyTo('');
+                } else {
+                    const b = BLOC_BOUNDS[_activeBloc];
+                    if (_minimap && b) _minimap.flyToBounds(b, {padding:[8,8], maxZoom:5, animate:true, duration:0.4});
+                }
+            });
+            const el = document.getElementById(searchInputId);
+            if (el) el.addEventListener('input', () => { searchText = el.value.toLowerCase(); apply(); });
+            return apply;
+        }
+
+        // Region filter (pins)
+        function makeRegionFilter(pillContainer, searchInputId, getRows) {
             if (!pillContainer) return () => {};
             let searchText = '';
             function apply() {
                 getRows().forEach(r => {
                     const rm = !_activeRegion || r.dataset.region === _activeRegion;
-                    const nm = !searchText || r.dataset.name.includes(searchText);
+                    const nm = !searchText || (r.dataset.name || '').includes(searchText);
                     r.style.display = (rm && nm) ? '' : 'none';
                 });
             }
@@ -3076,15 +3191,12 @@
             return apply;
         }
 
-        const applyS = makeFilter(buildPills('pills-strategy'), 'search-strategy', () => strategyTbody.querySelectorAll('tr'));
-        const applyA = makeFilter(buildPills('pills-actors'),   'search-actors',   () => actorsGrid.querySelectorAll('label'));
-        const applyP = makeFilter(buildPills('pills-pins'),     'search-pins',     () => pinsGrid.querySelectorAll('label'));
-        _reapplyFilters = () => { applyS(); applyA(); applyP(); };
+        const applyS = makeBlocFilter(buildBlocPills('pills-strategy'),  'search-strategy', () => strategyTbody.querySelectorAll('tr'));
+        const applyP = makeRegionFilter(buildRegionPills('pills-pins'),  'search-pins',     () => pinsGrid.querySelectorAll('label'));
+        _reapplyFilters = () => { applyS(); applyP(); };
 
-        // Initial application (reflect any retained region)
         _reapplyFilters();
 
-        // Update minimap when checkboxes/radios change
         [strategyTbody, actorsGrid, pinsGrid].forEach(container => {
             container.addEventListener('change', () => _updateMinimap());
         });
@@ -3964,6 +4076,8 @@
         if (defaults.available_countries && defaults.available_countries.length) {
             THEATERS = defaults.available_countries.map(c => ({ code: c.code, name: c.name, region: c.region || 'Other', lat: c.lat, lng: c.lng }));
         }
+        if (defaults.strategic_blocs)  STRATEGIC_BLOCS_DATA = defaults.strategic_blocs;
+        if (defaults.adversary_options) ADVERSARY_OPTIONS   = defaults.adversary_options;
         buildTheaterUI();
 
         const savedState = localStorage.getItem('ctiIntelAlerts');

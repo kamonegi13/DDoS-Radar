@@ -112,7 +112,8 @@ COUNTRY_REGIONS: dict[str, str] = {
     "PG": "Oceania",
 }
 ISR_HOTSPOTS: list = []
-NARRATIVE_SOURCES: dict = {}
+ADVERSARY_NARRATIVE_SOURCES: dict = {}   # keyed by adversary country code (RU/CN/IR/KP/BY)
+STRATEGIC_BLOCS: dict = {}               # bloc definitions for UI grouping
 TACTICAL_KEYWORDS: dict = {}
 HISTORICAL_EVENTS: list = []
 CABLE_ROUTES: list = []
@@ -126,7 +127,8 @@ try:
         AIRPORT_BOXES       = geo_data.get("AIRPORT_BOXES", {})
         CHOKEPOINTS         = geo_data.get("CHOKEPOINTS", [])
         ISR_HOTSPOTS        = geo_data.get("ISR_HOTSPOTS", [])
-        NARRATIVE_SOURCES   = geo_data.get("NARRATIVE_SOURCES", {})
+        ADVERSARY_NARRATIVE_SOURCES = geo_data.get("ADVERSARY_NARRATIVE_SOURCES", {})
+        STRATEGIC_BLOCS     = geo_data.get("STRATEGIC_BLOCS", {})
         TACTICAL_KEYWORDS   = geo_data.get("TACTICAL_KEYWORDS", {})
         HISTORICAL_EVENTS   = geo_data.get("HISTORICAL_EVENTS", [])
         CABLE_ROUTES        = geo_data.get("CABLE_ROUTES", [])
@@ -817,10 +819,21 @@ class RssNarrativeSensor(BaseSensor):
             bl["last_updated"] = time.time()
 
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_theaters", [])
+        theaters        = context.get("strategic_theaters", [])
+        adversary_states = context.get("adversary_states", [])
         results: dict = {}
         t0 = time.time()
         total_hits = 0
+
+        # Select sources from configured adversary blocs.
+        # Merging by dict-key deduplicates overlapping sources (e.g. BY reuses TASS).
+        sources: dict = {}
+        for actor in adversary_states:
+            sources.update(ADVERSARY_NARRATIVE_SOURCES.get(actor, {}))
+        # Fallback: if no adversary configured, use all known sources
+        if not sources:
+            for bloc_sources in ADVERSARY_NARRATIVE_SOURCES.values():
+                sources.update(bloc_sources)
 
         for theater in theaters:
             keywords = TACTICAL_KEYWORDS.get(theater, TACTICAL_KEYWORDS.get("DEFAULT", []))
@@ -828,7 +841,7 @@ class RssNarrativeSensor(BaseSensor):
                 continue
 
             combined_hits, combined_articles = 0, 0
-            for source_name, rss_url in NARRATIVE_SOURCES.items():
+            for source_name, rss_url in sources.items():
                 xml_text = self._fetch_rss_text(rss_url)
                 hits, articles = self._count_keywords_in_rss(xml_text, keywords)
                 combined_hits    += hits
@@ -2020,6 +2033,7 @@ def _build_default_context() -> dict:
     return {
         "all_targets":         sorted(set([DEFAULT_CORE] + DEFAULT_CORRELATES + DEFAULT_PINS)),
         "strategic_theaters":  sorted(set([DEFAULT_CORE] + DEFAULT_CORRELATES)),
+        "adversary_states":    DEFAULT_ADVERSARIES,
         "cf_headers":          CF_HEADERS,
         "owm_api_key":         OWM_API_KEY,
         "weather_conditions":  {},
@@ -2239,6 +2253,13 @@ def app_config():
         "default_correlates": DEFAULT_CORRELATES,
         "default_adversaries": DEFAULT_ADVERSARIES,
         "default_pins": DEFAULT_PINS,
+        "strategic_blocs": STRATEGIC_BLOCS,
+        # Adversary options: only nation-states that conduct systematic cyber operations
+        "adversary_options": [
+            {"code": bloc["adversary"], "bloc": bloc_key, "label": bloc["label"], "color": bloc["color"]}
+            for bloc_key, bloc in STRATEGIC_BLOCS.items()
+            if "adversary" in bloc
+        ] + [{"code": "BY", "bloc": "RUSSIA", "label": "Belarus (RU proxy)", "color": "#ff4444"}],
         "available_countries": [
             {"code": code, "name": info["name"], "region": COUNTRY_REGIONS.get(code, "Other"),
              "lat": info["lat"], "lng": info["lng"]}
@@ -2266,10 +2287,11 @@ def get_threat_data():
     strategic_theaters_set = set([core_theater] + correlate_targets)
     
     sensor_context = {
-        "all_targets": list(required_keys), 
+        "all_targets": list(required_keys),
         "strategic_theaters": list(strategic_theaters_set),
-        "cf_headers": CF_HEADERS, "owm_api_key": OWM_API_KEY, 
-        "weather_conditions": {}, "gdelt_tone_threshold": GDELT_TONE_ALERT_THRESHOLD, 
+        "adversary_states": adversary_states,
+        "cf_headers": CF_HEADERS, "owm_api_key": OWM_API_KEY,
+        "weather_conditions": {}, "gdelt_tone_threshold": GDELT_TONE_ALERT_THRESHOLD,
         "gdelt_history_window": GDELT_HISTORY_WINDOW
     }
 
