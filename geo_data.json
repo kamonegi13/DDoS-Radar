@@ -3327,12 +3327,51 @@
       "https://www.kryeministri-ks.net"
     ]
   },
-  "NARRATIVE_SOURCES": {
-    "tass": "https://tass.com/rss/v2.xml",
-    "xinhua": "https://www.xinhuanet.com/english/rss/worldrss.xml",
-    "mehr": "https://en.mehrnews.com/rss",
-    "rt": "https://www.rt.com/rss/",
-    "kcna": "https://kcnawatch.org/newstream/rss/"
+  "ADVERSARY_NARRATIVE_SOURCES": {
+    "RU": {
+      "tass": "https://tass.com/rss/v2.xml",
+      "ria":  "https://ria.ru/export/rss2/archive/index.xml"
+    },
+    "CN": {
+      "xinhua":      "https://www.xinhuanet.com/english/rss/worldrss.xml",
+      "globaltimes": "https://www.globaltimes.cn/rss/outbrain.xml"
+    },
+    "IR": {
+      "mehr":   "https://en.mehrnews.com/rss",
+      "tasnim": "https://www.tasnimnews.com/en/rss"
+    },
+    "KP": {
+      "kcna": "https://kcnawatch.org/newstream/rss/"
+    },
+    "BY": {
+      "tass": "https://tass.com/rss/v2.xml"
+    }
+  },
+  "STRATEGIC_BLOCS": {
+    "RUSSIA": {
+      "label": "Russia / CSTO",
+      "color": "#ff4444",
+      "adversary": "RU",
+      "theaters": ["UA","BY","MD","GE","AM","PL","LT","LV","EE","FI","NO","SE","DK","DE","FR","GB","BE","NL","IT","ES","PT","CZ","SK","HU","RO","AT","CH","BG","HR","RS","GR","SI","MK","ME","AL","BA","TR","IS","CY","MT","LU","XK","US","CA"]
+    },
+    "CHINA": {
+      "label": "China / PRC",
+      "color": "#ff8800",
+      "adversary": "CN",
+      "theaters": ["TW","JP","PH","VN","MY","SG","ID","TH","AU","IN","BD","PK","KZ"]
+    },
+    "IRAN": {
+      "label": "Iran / Resistance Axis",
+      "color": "#aa44ff",
+      "adversary": "IR",
+      "theaters": ["IL","IR","SA","AE","JO","IQ","SY","LB","YE"]
+    },
+    "DPRK": {
+      "label": "DPRK",
+      "color": "#44aaff",
+      "adversary": "KP",
+      "theaters": ["KR"]
+    }
   },
   "TACTICAL_KEYWORDS": {
     "TW": [
