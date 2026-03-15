@@ -114,6 +114,7 @@ COUNTRY_REGIONS: dict[str, str] = {
 ISR_HOTSPOTS: list = []
 ADVERSARY_NARRATIVE_SOURCES: dict = {}   # keyed by adversary country code (RU/CN/IR/KP/BY)
 STRATEGIC_BLOCS: dict = {}               # bloc definitions for UI grouping
+COUNTRY_BLOC_TAGS: dict = {}             # country -> list of blocs (multi-threat countries)
 TACTICAL_KEYWORDS: dict = {}
 HISTORICAL_EVENTS: list = []
 CABLE_ROUTES: list = []
@@ -129,6 +130,7 @@ try:
         ISR_HOTSPOTS        = geo_data.get("ISR_HOTSPOTS", [])
         ADVERSARY_NARRATIVE_SOURCES = geo_data.get("ADVERSARY_NARRATIVE_SOURCES", {})
         STRATEGIC_BLOCS     = geo_data.get("STRATEGIC_BLOCS", {})
+        COUNTRY_BLOC_TAGS   = geo_data.get("COUNTRY_BLOC_TAGS", {})
         TACTICAL_KEYWORDS   = geo_data.get("TACTICAL_KEYWORDS", {})
         HISTORICAL_EVENTS   = geo_data.get("HISTORICAL_EVENTS", [])
         CABLE_ROUTES        = geo_data.get("CABLE_ROUTES", [])
@@ -2254,6 +2256,7 @@ def app_config():
         "default_adversaries": DEFAULT_ADVERSARIES,
         "default_pins": DEFAULT_PINS,
         "strategic_blocs": STRATEGIC_BLOCS,
+        "country_bloc_tags": COUNTRY_BLOC_TAGS,
         # Adversary options: only nation-states that conduct systematic cyber operations
         "adversary_options": [
             {"code": bloc["adversary"], "bloc": bloc_key, "label": bloc["label"], "color": bloc["color"]}

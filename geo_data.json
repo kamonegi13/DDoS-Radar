@@ -3352,26 +3352,72 @@
       "label": "Russia / CSTO",
       "color": "#ff4444",
       "adversary": "RU",
-      "theaters": ["UA","BY","MD","GE","AM","PL","LT","LV","EE","FI","NO","SE","DK","DE","FR","GB","BE","NL","IT","ES","PT","CZ","SK","HU","RO","AT","CH","BG","HR","RS","GR","SI","MK","ME","AL","BA","TR","IS","CY","MT","LU","XK","US","CA"]
+      "categories": [
+        {"key": "eastern_front",  "label": "Eastern Front",         "theaters": ["UA","MD"]},
+        {"key": "csto",           "label": "CSTO / Post-Soviet",    "theaters": ["BY","GE","AM","AZ","KZ","KG","TJ","UZ"]},
+        {"key": "nato_east",      "label": "NATO Eastern Flank",    "theaters": ["PL","LT","LV","EE","FI","NO","SE","DK"]},
+        {"key": "western_eu",     "label": "Western Europe / EU",   "theaters": ["DE","FR","GB","BE","NL","IT","ES","PT","CZ","SK","HU","RO","AT","CH","BG","HR","RS","GR","SI","MK","ME","AL","BA","IS","CY","MT","LU","XK","IE","TR"]},
+        {"key": "north_america",  "label": "North America",         "theaters": ["US","CA"]},
+        {"key": "africa_wagner",  "label": "Africa (Wagner)",       "theaters": ["LY","ML","SD"]}
+      ]
     },
     "CHINA": {
       "label": "China / PRC",
       "color": "#ff8800",
       "adversary": "CN",
-      "theaters": ["TW","JP","PH","VN","MY","SG","ID","TH","AU","IN","BD","PK","KZ"]
+      "categories": [
+        {"key": "taiwan_strait",   "label": "Taiwan Strait / 1st Island Chain", "theaters": ["TW","JP","PH","US","AU","KR"]},
+        {"key": "south_china_sea", "label": "South China Sea",                  "theaters": ["VN","MY","SG","ID"]},
+        {"key": "indo_pacific",    "label": "Indo-Pacific / QUAD",              "theaters": ["IN","NZ"]},
+        {"key": "bri",             "label": "BRI / Continental",                "theaters": ["PK","BD","KH","LA","MM","MN","AF","HK","TH"]}
+      ]
     },
     "IRAN": {
       "label": "Iran / Resistance Axis",
       "color": "#aa44ff",
       "adversary": "IR",
-      "theaters": ["IL","IR","SA","AE","JO","IQ","SY","LB","YE"]
+      "categories": [
+        {"key": "levant", "label": "Levant / Resistance Axis", "theaters": ["IL","LB","SY","JO"]},
+        {"key": "gulf",   "label": "Gulf",                     "theaters": ["SA","AE","BH","QA","OM","YE","IQ","IR","US"]}
+      ]
     },
     "DPRK": {
       "label": "DPRK",
       "color": "#44aaff",
       "adversary": "KP",
-      "theaters": ["KR"]
+      "categories": [
+        {"key": "korean_peninsula", "label": "Korean Peninsula", "theaters": ["KR","US","JP"]}
+      ]
     }
+  },
+  "COUNTRY_BLOC_TAGS": {
+    "US": ["RUSSIA","CHINA","IRAN","DPRK"],
+    "JP": ["CHINA","DPRK"],
+    "KR": ["DPRK","CHINA"],
+    "GB": ["RUSSIA","CHINA","IRAN"],
+    "DE": ["RUSSIA","CHINA"],
+    "FR": ["RUSSIA","CHINA","IRAN"],
+    "AU": ["CHINA","RUSSIA"],
+    "CA": ["RUSSIA","CHINA","DPRK"],
+    "NZ": ["CHINA","RUSSIA"],
+    "IL": ["IRAN","RUSSIA","CHINA"],
+    "SA": ["IRAN","CHINA"],
+    "AE": ["IRAN","CHINA"],
+    "AL": ["RUSSIA","IRAN"],
+    "AZ": ["RUSSIA","IRAN"],
+    "IN": ["CHINA","RUSSIA"],
+    "PK": ["CHINA","RUSSIA"],
+    "MN": ["CHINA","RUSSIA"],
+    "KZ": ["RUSSIA","CHINA"],
+    "BY": ["RUSSIA","CHINA"],
+    "TR": ["RUSSIA","IRAN"],
+    "IQ": ["IRAN","RUSSIA"],
+    "PL": ["RUSSIA","CHINA"],
+    "NO": ["RUSSIA","CHINA"],
+    "SE": ["RUSSIA","CHINA"],
+    "FI": ["RUSSIA","CHINA"],
+    "IE": ["RUSSIA","CHINA"],
+    "AF": ["CHINA","RUSSIA"]
   },
   "TACTICAL_KEYWORDS": {
     "TW": [
