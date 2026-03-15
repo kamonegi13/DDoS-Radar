@@ -103,10 +103,13 @@
         .threat-1-hud { background: rgba(255,0,0,0.4); color: #fff; border: 2px solid #ff0000; animation: flashCrit 0.5s infinite; text-shadow: 0 0 5px #fff; will-change: opacity, background; }
         
         /* Buttons Uniformity (SYNC CSS FIx) */
-        .btn-tactical { background: transparent; border: 1px solid #555; padding: 5px 12px; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 11px; color: #ccc; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+        .btn-tactical { background: transparent; border: 1px solid #555; padding: 5px 12px; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 11px; line-height: 1.2; color: #ccc; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; box-sizing: border-box; }
         .btn-tactical:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: #888; }
         .btn-action { color: #00ffff; border-color: #00ffff66; margin-left: 8px; }
         .btn-action:hover { background: rgba(0, 255, 255, 0.15); border-color: #00ffff; color: #00ffff; }
+        .btn-lang { color: #445; padding: 5px 8px; }
+        .btn-lang:hover { color: #aaa; background: rgba(255,255,255,0.05); }
+        .btn-lang.lang-active { color: #00ffff; background: rgba(0,255,255,0.1); }
         
         .btn-sync { color: #66ff66; border-color: #66ff6666; margin-left: 8px; }
         .btn-sync:hover { background: rgba(102, 255, 102, 0.15); border-color: #66ff66; color: #66ff66; }
@@ -180,7 +183,7 @@
         .modal-header { padding-bottom: 12px; font-size: 15px; }
         
         .tabs { display: flex; border-bottom: 1px solid #444; margin: 15px 0; }
-        .tab { padding: 10px 20px; cursor: pointer; font-size: 13px; color: #888; border-bottom: 2px solid transparent; transition: 0.2s; flex-grow: 1; text-align: center; text-transform: uppercase; letter-spacing: 1px; }
+        .tab { padding: 10px 20px; cursor: pointer; font-size: 13px; line-height: 1.2; color: #888; border-bottom: 2px solid transparent; transition: 0.2s; flex-grow: 1; text-align: center; text-transform: uppercase; letter-spacing: 1px; }
         .tab:hover { color: #ccc; background: rgba(255,255,255,0.05); }
         .tab.active { color: #00ffff; border-bottom: 2px solid #00ffff; font-weight: bold; background: rgba(0,255,255,0.05); }
         .tab-content { display: none; flex-grow: 1; overflow-y: auto; padding-right: 10px; }
@@ -243,25 +246,53 @@
         .guide-chapter.active { display:block; overflow-y:auto; border-top:1px solid #1a2a2a; padding-top:10px; }
         .code-block { display: inline-block; background: #222; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', Courier, monospace; color: #00ffff; font-size: 12px; border: 1px solid #444; margin: 2px 0;}
         /* System Config tab ─────────────────────────── */
-        #sysconfig-scroll { max-width:720px; }
-        .env-section-title { font-size:10px; text-transform:uppercase; letter-spacing:1.5px; color:#00ffff; border-bottom:1px solid #1a3a3a; padding-bottom:4px; margin:14px 0 8px; }
+        #sysconfig-scroll { width:100%; box-sizing:border-box; }
+        .env-section-title { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:#00ffff; border-bottom:1px solid #1a3a3a; padding-bottom:5px; margin:18px 0 10px; }
         .env-section-title:first-child { margin-top:0; }
-        .env-field { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
-        .env-field label { font-size:10px; color:#888; width:220px; flex-shrink:0; }
+        .env-field { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+        .env-field label { font-size:13px; color:#999; width:220px; flex-shrink:0; }
         .env-field label span.req { color:#ff6644; margin-left:3px; }
-        .env-field label span.opt { color:#556; margin-left:3px; }
-        .env-input { flex:1; background:#0d1a0d; border:1px solid #1a3a2a; color:#ccc; font-family:'Courier New',monospace; font-size:11px; padding:3px 7px; border-radius:2px; min-width:0; box-sizing:border-box; }
-        .env-input:focus { outline:none; border-color:#00ffff44; background:#0f1f10; }
+        .env-field label span.opt { color:#556; margin-left:3px; font-size:11px; }
+        .env-input { flex:1; background:#0c1418; border:1px solid #1a303a; color:#ddd; font-family:'Courier New',monospace; font-size:13px; padding:5px 9px; border-radius:2px; min-width:0; box-sizing:border-box; }
+        .env-input:focus { outline:none; border-color:#00ffff44; background:#0f1820; }
         .env-input.wide { width:100%; box-sizing:border-box; }
-        .env-adv-toggle { background:transparent; border:1px solid #1a3a3a; color:#556; font-size:10px; padding:4px 10px; cursor:pointer; font-family:inherit; letter-spacing:0.5px; margin:10px 0 4px; transition:color 0.15s,border-color 0.15s; }
+        .env-adv-toggle { background:transparent; border:1px solid #1a3a3a; color:#666; font-size:12px; padding:6px 12px; cursor:pointer; font-family:inherit; letter-spacing:0.5px; margin:12px 0 4px; transition:color 0.15s,border-color 0.15s; }
         .env-adv-toggle:hover { color:#00ffff; border-color:#00ffff44; }
         .env-adv-section { display:none; }
         .env-adv-section.open { display:block; }
-        .env-save-row { display:flex; align-items:center; gap:12px; margin-top:14px; border-top:1px solid #1a2a1a; padding-top:10px; }
-        .env-status { font-size:11px; }
+        .env-save-row { display:flex; align-items:center; gap:12px; margin-top:16px; border-top:1px solid #1a2a32; padding-top:12px; }
+        .env-status { font-size:13px; }
         .env-status.ok { color:#00cc66; }
         .env-status.err { color:#ff4444; }
-        .env-restart-note { font-size:10px; color:#556; margin-top:6px; }
+        .env-restart-note { font-size:12px; color:#556; margin-top:8px; }
+        /* Adversary bloc toggle buttons */
+        .adv-bloc-picker { display:flex; flex-wrap:wrap; gap:8px; }
+        .adv-bloc-btn { background:#0c1418; border:2px solid #1a2a32; color:#777; padding:8px 18px; cursor:pointer; font-family:inherit; border-radius:3px; display:flex; flex-direction:column; align-items:center; gap:2px; min-width:80px; transition:all 0.15s; }
+        .adv-bloc-btn:hover { border-color:#334455; color:#bbb; background:#0f1820; }
+        .adv-bloc-btn.active { border-color:#ff6644; color:#ff8866; background:rgba(255,100,68,0.1); }
+        .adv-bloc-code { font-size:15px; font-weight:bold; letter-spacing:1px; font-family:'Courier New',monospace; }
+        .adv-bloc-name { font-size:10px; color:inherit; opacity:0.75; white-space:nowrap; }
+        /* Country tag picker */
+        .scope-label { font-size:13px; color:#999; margin-bottom:6px; }
+        .scope-label small { font-size:11px; color:#445; margin-left:4px; }
+        .scope-tags { display:flex; flex-wrap:wrap; gap:5px; min-height:30px; padding:5px 6px; border:1px solid #1a3a3a; border-radius:3px; margin-bottom:6px; align-items:center; background:#080d0e; }
+        .scope-tags-empty { font-size:11px; color:#333; font-style:italic; }
+        .scope-tag { background:#0a1f22; border:1px solid #1a4a55; color:#00ccdd; font-size:12px; padding:2px 4px 2px 8px; border-radius:2px; display:inline-flex; align-items:center; gap:3px; font-family:'Courier New',monospace; }
+        .scope-tag-remove { background:transparent; border:none; color:#00ccdd; cursor:pointer; font-size:15px; line-height:1; padding:0 3px; opacity:0.5; font-family:inherit; }
+        .scope-tag-remove:hover { opacity:1; }
+        .scope-search { width:100%; box-sizing:border-box; background:#0d1a1d; border:1px solid #1a3a3a; color:#ccc; padding:6px 10px; font-size:13px; border-radius:3px; outline:none; margin-bottom:4px; }
+        .scope-search:focus { border-color:#00ffff44; }
+        .scope-search::placeholder { color:#333; }
+        .scope-list { height:160px; overflow-y:auto; border:1px solid #111; border-radius:3px; background:#06090c; }
+        .scope-list-item { display:flex; align-items:center; padding:5px 10px; cursor:pointer; border-bottom:1px solid #0c1014; transition:background 0.1s; gap:10px; }
+        .scope-list-item:last-child { border-bottom:none; }
+        .scope-list-item:hover { background:#0d1a1f; }
+        .scope-list-item.selected { background:rgba(0,200,220,0.06); }
+        .scope-item-code { color:#667; font-family:'Courier New',monospace; font-size:12px; font-weight:bold; width:34px; flex-shrink:0; }
+        .scope-item-name { color:#556; flex:1; font-size:12px; }
+        .scope-list-item.selected .scope-item-code { color:#00ffff; }
+        .scope-list-item.selected .scope-item-name { color:#aaa; }
+        .scope-item-check { color:#00ffff; font-size:12px; flex-shrink:0; }
         .hl-red { color: #ff2a2a; font-weight: bold; }
         .hl-green { color: #66ff66; font-weight: bold; }
         .hl-orange { color: #ffaa00; font-weight: bold; }
@@ -275,8 +306,8 @@
         .target-share { color: #fff; font-size: 11px; flex-shrink: 0; }
 
         .target-title-right { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
-        .status-badge { border: 1px solid currentColor; padding: 1px 4px; border-radius: 3px; font-size: 10px; flex-shrink: 0; white-space: nowrap; cursor: help; }
-        .shift-badge { background: #ffaa00; color: #000; padding: 1px 4px; border-radius: 3px; font-size: 10px; flex-shrink: 0; white-space: nowrap; font-weight: bold; cursor: help;}
+        .status-badge { border: 1px solid currentColor; padding: 1px 4px; border-radius: 3px; font-size: 10px; line-height: 1.2; flex-shrink: 0; white-space: nowrap; cursor: help; }
+        .shift-badge { background: #ffaa00; color: #000; padding: 1px 4px; border-radius: 3px; font-size: 10px; line-height: 1.2; flex-shrink: 0; white-space: nowrap; font-weight: bold; cursor: help; }
 
         /* P7-Opt: sparkline rendered on Canvas — no div-class references needed (backward compat) */
         .sparkline-canvas { display: inline-block; vertical-align: middle; cursor: help; image-rendering: pixelated; flex-shrink: 0; }
@@ -728,9 +759,12 @@
             </div>
         </div>
         <button class="btn-tactical btn-action" onclick="openSitrep()" data-i18n="hud.btn.sitrep">SITREP</button>
-        <button class="btn-tactical btn-action" onclick="openModal('help-modal')" data-i18n="hud.btn.intel_guide">Intel Guide</button>
-        <button class="btn-tactical btn-action" onclick="openModal('settings-modal')" data-i18n="hud.btn.config">Config</button>
-        <button id="lang-toggle-btn" class="btn-tactical btn-action" onclick="setLang(_currentLang === 'en' ? 'ja' : 'en')" style="border-color:#00ffff55; color:#00ffff; letter-spacing:1px;" data-tooltip="Switch language / 言語切替">JA</button>
+        <button class="btn-tactical btn-action" onclick="openModal('help-modal')" data-i18n="hud.btn.intel_guide" style="min-width:86px;text-align:center;">Intel Guide</button>
+        <button class="btn-tactical btn-action" onclick="openModal('settings-modal')" data-i18n="hud.btn.config" style="min-width:56px;text-align:center;">Config</button>
+        <span style="display:inline-flex;margin-left:8px;border:1px solid #00ffff33;border-radius:3px;overflow:hidden;">
+            <button id="lang-btn-en" class="btn-tactical btn-lang" onclick="setLang('en')" data-tooltip="Switch to English" style="margin-left:0;border:none;border-radius:0;border-right:1px solid #00ffff22;min-width:32px;">EN</button>
+            <button id="lang-btn-ja" class="btn-tactical btn-lang" onclick="setLang('ja')" data-tooltip="日本語に切替" style="margin-left:0;border:none;border-radius:0;min-width:32px;">JP</button>
+        </span>
     </div>
     
     <div class="hud-bottom-row">
@@ -864,7 +898,7 @@
         <div class="tab" onclick="switchTab('pins')" data-i18n="modal.settings.tab.pins">Quick Pins</div>
         <div class="tab" onclick="switchTab('sensors'); loadSensorConfig()" data-i18n="modal.settings.tab.sensors">Sensors</div>
         <div class="tab" onclick="switchTab('fetchlog'); loadFetchLog()" data-i18n="modal.settings.tab.fetchlog">Fetch Log</div>
-        <div class="tab" onclick="switchTab('sysconfig'); loadEnvConfig()">System</div>
+        <div class="tab" onclick="switchTab('sysconfig'); loadEnvConfig()" data-i18n="modal.settings.tab.sysconfig">System</div>
     </div>
     <div class="modal-main-area">
         <div class="modal-content-panel">
@@ -926,12 +960,12 @@
             </div>
             <div id="tab-sysconfig" class="tab-content">
                 <!-- ── General Settings ─────────────────────────────── -->
-                <div style="flex:1;min-height:0;overflow-y:auto;" id="sysconfig-scroll">
-                <div class="help-text" style="margin-bottom:8px;">
+                <div style="flex:1;min-height:0;overflow-y:auto;padding-right:4px;" id="sysconfig-scroll">
+                <div class="help-text" style="margin-bottom:10px;font-size:13px;" data-i18n-html="sysconfig.help">
                     Edit <span class="code-block">config.env</span> settings. Changes are written to disk and take effect after server restart.
                 </div>
 
-                <div class="env-section-title">API Keys</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.api_keys">API Keys</div>
 
                 <div class="env-field">
                     <label>Cloudflare Radar Token<span class="req">*</span></label>
@@ -962,41 +996,47 @@
                     <input class="env-input" id="ec-OPENSKY_CLIENT_SECRET" type="password" autocomplete="off">
                 </div>
 
-                <div class="env-section-title">Default Scope</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.scope">Default Scope</div>
+                <div style="font-size:12px;color:#556;margin-bottom:14px;" data-i18n="sysconfig.scope.desc">Startup defaults for the STRATEGY SCOPE and THREAT ACTORS panels. These can always be changed at runtime from the main UI.</div>
 
+                <!-- Core Theater -->
                 <div class="env-field">
-                    <label>Core Theater</label>
-                    <input class="env-input" id="ec-DEFAULT_CORE" type="text" style="max-width:80px;" placeholder="e.g. TW">
-                </div>
-                <div class="env-field">
-                    <label>Correlates</label>
-                    <input class="env-input" id="ec-DEFAULT_CORRELATES" type="text" placeholder="e.g. JP,US">
-                </div>
-                <div class="env-field">
-                    <label>Adversaries</label>
-                    <input class="env-input" id="ec-DEFAULT_ADVERSARIES" type="text" placeholder="e.g. CN,RU,KP">
-                </div>
-                <div class="env-field">
-                    <label>Quick Pins</label>
-                    <input class="env-input" id="ec-DEFAULT_PINS" type="text" placeholder="e.g. TW,JP,US,AU">
+                    <label data-i18n="sysconfig.field.core">Core Theater</label>
+                    <select class="env-input" id="ec-DEFAULT_CORE" style="max-width:280px;">
+                        <option value="">— none —</option>
+                    </select>
                 </div>
 
-                <div class="env-section-title">Infrastructure Monitoring</div>
-
-                <div class="env-field" style="flex-direction:column;align-items:flex-start;">
-                    <label style="margin-bottom:3px;">Check-Host Nodes</label>
-                    <input class="env-input wide" id="ec-CHECKHOST_NODES" type="text" placeholder="jp1.node.check-host.net,us1.node.check-host.net,...">
+                <!-- Adversaries: toggle cards -->
+                <div style="margin-bottom:14px;">
+                    <div class="scope-label" data-i18n="sysconfig.scope.adversaries">Adversaries</div>
+                    <div class="adv-bloc-picker" id="ec-DEFAULT_ADVERSARIES-picker"></div>
+                    <input type="hidden" id="ec-DEFAULT_ADVERSARIES">
                 </div>
-                <div class="env-field" style="flex-direction:column;align-items:flex-start;">
-                    <label style="margin-bottom:3px;">Telegram Attack Keywords</label>
-                    <input class="env-input wide" id="ec-TELEGRAM_ATTACK_KEYWORDS" type="text" placeholder="target,attack,ddos,...">
+
+                <!-- Correlates + Quick Pins: two-column tag pickers -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                    <div>
+                        <div class="scope-label" data-i18n-html="sysconfig.scope.correlates_label">Correlates <small>(allied nations to monitor)</small></div>
+                        <div class="scope-tags" id="ec-correlates-tags"><span class="scope-tags-empty" data-i18n="sysconfig.scope.none_selected">None selected</span></div>
+                        <input type="hidden" id="ec-DEFAULT_CORRELATES">
+                        <input type="text" class="scope-search" id="ec-search-correlates" placeholder="Search countries…" data-i18n-ph="sysconfig.scope.search">
+                        <div class="scope-list" id="ec-correlates-list"></div>
+                    </div>
+                    <div>
+                        <div class="scope-label" data-i18n-html="sysconfig.scope.pins_label">Quick Pins <small>(target visibility panel)</small></div>
+                        <div class="scope-tags" id="ec-pins-tags"><span class="scope-tags-empty" data-i18n="sysconfig.scope.none_selected">None selected</span></div>
+                        <input type="hidden" id="ec-DEFAULT_PINS">
+                        <input type="text" class="scope-search" id="ec-search-pins" placeholder="Search countries…" data-i18n-ph="sysconfig.scope.search">
+                        <div class="scope-list" id="ec-pins-list"></div>
+                    </div>
                 </div>
 
                 <!-- ── Advanced Settings (collapsed) ────────────────── -->
-                <button class="env-adv-toggle" id="env-adv-btn" onclick="toggleEnvAdvanced()">▶ Advanced Settings</button>
+                <button class="env-adv-toggle" id="env-adv-btn" onclick="toggleEnvAdvanced()" data-i18n="sysconfig.adv_toggle">▶ Advanced Settings</button>
                 <div class="env-adv-section" id="env-adv-section">
 
-                <div class="env-section-title">Network / SSL</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.network">Network / SSL</div>
                 <div class="env-field">
                     <label>HTTP Proxy</label>
                     <input class="env-input" id="ec-HTTP_PROXY" type="text" placeholder="http://proxy:8080">
@@ -1008,132 +1048,140 @@
                 <div class="env-field">
                     <label>SSL Verification</label>
                     <select class="env-input" id="ec-SSL_VERIFY" style="max-width:100px;">
-                        <option value="true">Enabled</option>
-                        <option value="false">Disabled</option>
+                        <option value="true" data-i18n="sysconfig.field.ssl_enabled">Enabled</option>
+                        <option value="false" data-i18n="sysconfig.field.ssl_disabled">Disabled</option>
                     </select>
                 </div>
 
-                <div class="env-section-title">Cache &amp; Polling</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.cache">Cache &amp; Polling</div>
                 <div class="env-field">
-                    <label>Cache Expiry (seconds)</label>
+                    <label data-i18n="sysconfig.field.cache_expiry">Cache Expiry (seconds)</label>
                     <input class="env-input" id="ec-CACHE_EXPIRY" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>OpenSky Min Interval (seconds)</label>
+                    <label data-i18n="sysconfig.field.opensky_int">OpenSky Min Interval (seconds)</label>
                     <input class="env-input" id="ec-OPENSKY_MIN_INTERVAL" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Narrative Poll Interval (seconds)</label>
+                    <label data-i18n="sysconfig.field.narrative_int">Narrative Poll Interval (seconds)</label>
                     <input class="env-input" id="ec-NARRATIVE_POLL_INTERVAL" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Telegram Poll Interval (seconds)</label>
+                    <label data-i18n="sysconfig.field.telegram_int">Telegram Poll Interval (seconds)</label>
                     <input class="env-input" id="ec-TELEGRAM_MIRROR_POLL_INTERVAL" type="number" style="max-width:90px;">
                 </div>
+                <div class="env-field" style="flex-direction:column;align-items:flex-start;">
+                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.telegram_kw">Telegram Attack Keywords</label>
+                    <input class="env-input wide" id="ec-TELEGRAM_ATTACK_KEYWORDS" type="text" placeholder="target,attack,ddos,...">
+                </div>
                 <div class="env-field">
-                    <label>Check-Host Poll Interval (seconds)</label>
+                    <label data-i18n="sysconfig.field.checkhost_int">Check-Host Poll Interval (seconds)</label>
                     <input class="env-input" id="ec-CHECKHOST_POLL_INTERVAL" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Check-Host Timeout (ms)</label>
+                    <label data-i18n="sysconfig.field.checkhost_to">Check-Host Timeout (ms)</label>
                     <input class="env-input" id="ec-CHECKHOST_TIMEOUT_MS" type="number" style="max-width:90px;">
                 </div>
+                <div class="env-field" style="flex-direction:column;align-items:flex-start;">
+                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.checkhost_nodes">Check-Host Nodes</label>
+                    <input class="env-input wide" id="ec-CHECKHOST_NODES" type="text" placeholder="jp1.node.check-host.net,us1.node.check-host.net,...">
+                </div>
 
-                <div class="env-section-title">Threat Scoring</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.threat">Threat Scoring</div>
                 <div class="env-field">
-                    <label>Airspace Anomaly Threshold (ratio)</label>
+                    <label data-i18n="sysconfig.field.air_anomaly">Airspace Anomaly Threshold (ratio)</label>
                     <input class="env-input" id="ec-AIRSPACE_ANOMALY_THRESHOLD" type="number" step="0.01" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Airspace Closure Threshold (ratio)</label>
+                    <label data-i18n="sysconfig.field.air_closure">Airspace Closure Threshold (ratio)</label>
                     <input class="env-input" id="ec-AIRSPACE_CLOSURE_THRESHOLD" type="number" step="0.01" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Airspace Baseline Window (cycles)</label>
+                    <label data-i18n="sysconfig.field.air_window">Airspace Baseline Window (cycles)</label>
                     <input class="env-input" id="ec-AIRSPACE_WINDOW" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>GDELT Tone Alert Threshold</label>
+                    <label data-i18n="sysconfig.field.gdelt_tone">GDELT Tone Alert Threshold</label>
                     <input class="env-input" id="ec-GDELT_TONE_ALERT_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>GDELT History Window (days)</label>
+                    <label data-i18n="sysconfig.field.gdelt_history">GDELT History Window (days)</label>
                     <input class="env-input" id="ec-GDELT_HISTORY_WINDOW" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Dual Convergence Bonus</label>
+                    <label data-i18n="sysconfig.field.conv_dual">Dual Convergence Bonus</label>
                     <input class="env-input" id="ec-CONVERGENCE_DUAL_BONUS" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Full Convergence Bonus</label>
+                    <label data-i18n="sysconfig.field.conv_full">Full Convergence Bonus</label>
                     <input class="env-input" id="ec-CONVERGENCE_FULL_BONUS" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Threat Level Hysteresis Cycles</label>
+                    <label data-i18n="sysconfig.field.hysteresis">Threat Level Hysteresis Cycles</label>
                     <input class="env-input" id="ec-DEFCON_HYSTERESIS_CYCLES" type="number" style="max-width:90px;">
                 </div>
 
-                <div class="env-section-title">DDoS Acceleration Engine</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.ddos">DDoS Acceleration Engine</div>
                 <div class="env-field">
-                    <label>Ambush Z-Score Threshold</label>
+                    <label data-i18n="sysconfig.field.ambush_z">Ambush Z-Score Threshold</label>
                     <input class="env-input" id="ec-AMBUSH_ZSCORE_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Velocity Derivative Window (cycles)</label>
+                    <label data-i18n="sysconfig.field.deriv_window">Velocity Derivative Window (cycles)</label>
                     <input class="env-input" id="ec-DERIVATIVE_WINDOW" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>C2 Sync Delta (ms)</label>
+                    <label data-i18n="sysconfig.field.sync_delta">C2 Sync Delta (ms)</label>
                     <input class="env-input" id="ec-SYNC_DELTA_MS" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>C2 Sync Score Threshold (0–1)</label>
+                    <label data-i18n="sysconfig.field.sync_threshold">C2 Sync Score Threshold (0–1)</label>
                     <input class="env-input" id="ec-SYNC_C2_THRESHOLD" type="number" step="0.01" style="max-width:90px;">
                 </div>
 
-                <div class="env-section-title">Narrative Burst Detector</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.narrative">Narrative Burst Detector</div>
                 <div class="env-field">
-                    <label>Narrative Alert Z-Score</label>
+                    <label data-i18n="sysconfig.field.narr_alert_z">Narrative Alert Z-Score</label>
                     <input class="env-input" id="ec-NARRATIVE_ZSCORE_ALERT" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Narrative Critical Z-Score</label>
+                    <label data-i18n="sysconfig.field.narr_crit_z">Narrative Critical Z-Score</label>
                     <input class="env-input" id="ec-NARRATIVE_ZSCORE_CRITICAL" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Narrative Baseline Days</label>
+                    <label data-i18n="sysconfig.field.narr_baseline">Narrative Baseline Days</label>
                     <input class="env-input" id="ec-NARRATIVE_BASELINE_DAYS" type="number" style="max-width:90px;">
                 </div>
 
-                <div class="env-section-title">Sequence Chain</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.chain">Sequence Chain</div>
                 <div class="env-field">
-                    <label>Chain Window (seconds)</label>
+                    <label data-i18n="sysconfig.field.chain_window">Chain Window (seconds)</label>
                     <input class="env-input" id="ec-SEQUENCE_WINDOW" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Full Chain Bonus Points</label>
+                    <label data-i18n="sysconfig.field.chain_full">Full Chain Bonus Points</label>
                     <input class="env-input" id="ec-SEQUENCE_FULL_BONUS" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>Partial Chain Bonus Points</label>
+                    <label data-i18n="sysconfig.field.chain_partial">Partial Chain Bonus Points</label>
                     <input class="env-input" id="ec-SEQUENCE_PARTIAL_BONUS" type="number" style="max-width:90px;">
                 </div>
 
-                <div class="env-section-title">Maritime / ISR Sensors</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.maritime">Maritime / ISR Sensors</div>
                 <div class="env-field">
-                    <label>AIS Dark Gap Threshold (seconds)</label>
+                    <label data-i18n="sysconfig.field.ais_dark_gap">AIS Dark Gap Threshold (seconds)</label>
                     <input class="env-input" id="ec-AIS_DARK_GAP_THRESHOLD" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>AIS Anchor Detection Radius (km)</label>
+                    <label data-i18n="sysconfig.field.ais_anchor">AIS Anchor Detection Radius (km)</label>
                     <input class="env-input" id="ec-AIS_ANCHOR_RADIUS_KM" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label>ISR Surge Threshold (aircraft)</label>
+                    <label data-i18n="sysconfig.field.isr_surge">ISR Surge Threshold (aircraft)</label>
                     <input class="env-input" id="ec-ISR_SURGE_THRESHOLD" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field" style="flex-direction:column;align-items:flex-start;">
-                    <label style="margin-bottom:3px;">ISR ICAO Type Codes</label>
+                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.isr_icao">ISR ICAO Type Codes</label>
                     <input class="env-input wide" id="ec-ISR_ICAO_TYPES" type="text" placeholder="RC135,RC-135,E3,...">
                 </div>
 
@@ -1141,10 +1189,10 @@
 
                 <!-- ── Save row ──────────────────────────────────────── -->
                 <div class="env-save-row">
-                    <button onclick="saveEnvConfig()" class="btn-tactical" style="border-color:#00ffff55;color:#00ffff;">Save to config.env</button>
+                    <button onclick="saveEnvConfig()" class="btn-tactical" style="border-color:#00ffff55;color:#00ffff;" data-i18n="sysconfig.save_btn">Save to config.env</button>
                     <span id="env-status" class="env-status"></span>
                 </div>
-                <div class="env-restart-note">⚠ Changes take effect after server restart (<span class="code-block">python radar_api.py</span>)</div>
+                <div class="env-restart-note" data-i18n="sysconfig.restart_note">⚠ Changes take effect after server restart (<span class="code-block">python radar_api.py</span>)</div>
 
                 </div><!-- /sysconfig-scroll -->
             </div><!-- /tab-sysconfig -->
@@ -5869,13 +5917,16 @@
             const res = await fetch('http://127.0.0.1:8000/api/env_config');
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const cfg = await res.json();
-            // Populate all inputs
+            // Populate plain inputs (skip picker-managed hidden inputs)
+            const pickerKeys = new Set(['DEFAULT_CORE','DEFAULT_ADVERSARIES','DEFAULT_CORRELATES','DEFAULT_PINS']);
             document.querySelectorAll('[id^="ec-"]').forEach(el => {
                 const key = el.id.replace('ec-', '');
-                if (cfg[key] !== undefined) {
+                if (!pickerKeys.has(key) && cfg[key] !== undefined) {
                     el.value = cfg[key];
                 }
             });
+            // Populate scope pickers
+            await populateEnvScopePickers(cfg);
             const st = document.getElementById('env-status');
             if (st) { st.textContent = ''; }
         } catch(e) {
@@ -5884,9 +5935,136 @@
         }
     }
 
+    // Scope picker state
+    const _envScope = { adversaries: new Set(), correlates: new Set(), pins: new Set() };
+
+    async function populateEnvScopePickers(cfg) {
+        // Init state from config values
+        _envScope.adversaries = new Set((cfg.DEFAULT_ADVERSARIES || '').split(',').map(s => s.trim()).filter(Boolean));
+        _envScope.correlates  = new Set((cfg.DEFAULT_CORRELATES  || '').split(',').map(s => s.trim()).filter(Boolean));
+        _envScope.pins        = new Set((cfg.DEFAULT_PINS        || '').split(',').map(s => s.trim()).filter(Boolean));
+
+        let appCfg;
+        try {
+            const r = await fetch('http://127.0.0.1:8000/api/app_config');
+            if (!r.ok) return;
+            appCfg = await r.json();
+        } catch(e) { return; }
+
+        const countries   = appCfg.available_countries || [];
+        const adversaries = appCfg.adversary_options   || [];
+
+        // Core Theater: <select>
+        const coreSelect = document.getElementById('ec-DEFAULT_CORE');
+        if (coreSelect) {
+            coreSelect.innerHTML = '<option value="">— none —</option>';
+            countries.forEach(c => {
+                const opt = new Option(`${c.code}  –  ${c.name}`, c.code);
+                coreSelect.appendChild(opt);
+            });
+            coreSelect.value = cfg.DEFAULT_CORE || '';
+        }
+
+        // Adversaries: toggle cards
+        const advPicker = document.getElementById('ec-DEFAULT_ADVERSARIES-picker');
+        if (advPicker) {
+            advPicker.innerHTML = '';
+            adversaries.forEach(a => {
+                const code = typeof a === 'object' ? a.code : a;
+                const name = typeof a === 'object' ? (a.name || a.code) : a;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'adv-bloc-btn' + (_envScope.adversaries.has(code) ? ' active' : '');
+                btn.innerHTML = `<span class="adv-bloc-code">${code}</span><span class="adv-bloc-name">${name}</span>`;
+                btn.onclick = () => {
+                    if (_envScope.adversaries.has(code)) {
+                        _envScope.adversaries.delete(code);
+                        btn.classList.remove('active');
+                    } else {
+                        _envScope.adversaries.add(code);
+                        btn.classList.add('active');
+                    }
+                };
+                advPicker.appendChild(btn);
+            });
+        }
+
+        // Correlates + Pins: tag pickers
+        _buildTagPicker('ec-correlates-list', 'ec-correlates-tags', 'ec-search-correlates', _envScope.correlates, countries);
+        _buildTagPicker('ec-pins-list',       'ec-pins-tags',       'ec-search-pins',       _envScope.pins,       countries);
+    }
+
+    function _buildTagPicker(listId, tagsId, searchId, selectedSet, countries) {
+        const listEl   = document.getElementById(listId);
+        const tagsEl   = document.getElementById(tagsId);
+        const searchEl = document.getElementById(searchId);
+        if (!listEl || !tagsEl) return;
+
+        function renderTags() {
+            tagsEl.innerHTML = '';
+            const codes = [...selectedSet].sort();
+            if (codes.length === 0) {
+                tagsEl.innerHTML = `<span class="scope-tags-empty">${_t('sysconfig.scope.none_selected')}</span>`;
+                return;
+            }
+            codes.forEach(code => {
+                const tag = document.createElement('span');
+                tag.className = 'scope-tag';
+                const rm = document.createElement('button');
+                rm.type = 'button';
+                rm.className = 'scope-tag-remove';
+                rm.textContent = '×';
+                rm.title = 'Remove';
+                rm.onclick = () => {
+                    selectedSet.delete(code);
+                    renderTags();
+                    renderList(searchEl ? searchEl.value : '');
+                };
+                tag.appendChild(document.createTextNode(code + ' '));
+                tag.appendChild(rm);
+                tagsEl.appendChild(tag);
+            });
+        }
+
+        function renderList(filter) {
+            listEl.innerHTML = '';
+            const f = (filter || '').toLowerCase().trim();
+            countries
+                .filter(c => !f || c.code.toLowerCase().includes(f) || c.name.toLowerCase().includes(f))
+                .forEach(c => {
+                    const item = document.createElement('div');
+                    const sel  = selectedSet.has(c.code);
+                    item.className = 'scope-list-item' + (sel ? ' selected' : '');
+                    item.innerHTML = `<span class="scope-item-code">${c.code}</span><span class="scope-item-name">${c.name}</span>${sel ? '<span class="scope-item-check">✓</span>' : ''}`;
+                    item.onclick = () => {
+                        if (selectedSet.has(c.code)) selectedSet.delete(c.code);
+                        else selectedSet.add(c.code);
+                        renderTags();
+                        renderList(searchEl ? searchEl.value : '');
+                    };
+                    listEl.appendChild(item);
+                });
+        }
+
+        renderTags();
+        renderList('');
+        if (searchEl) searchEl.oninput = () => renderList(searchEl.value);
+    }
+
+    function syncEnvScopePickersToInputs() {
+        const a = document.getElementById('ec-DEFAULT_ADVERSARIES');
+        if (a) a.value = [..._envScope.adversaries].join(',');
+        const c = document.getElementById('ec-DEFAULT_CORRELATES');
+        if (c) c.value = [..._envScope.correlates].join(',');
+        const p = document.getElementById('ec-DEFAULT_PINS');
+        if (p) p.value = [..._envScope.pins].join(',');
+    }
+
     async function saveEnvConfig() {
+        syncEnvScopePickersToInputs();
         const updates = {};
         document.querySelectorAll('[id^="ec-"]').forEach(el => {
+            if (el.type === 'hidden' && el.value === '') return; // skip empty hidden
             const key = el.id.replace('ec-', '');
             if (el.value !== '') updates[key] = el.value;
         });
@@ -5918,7 +6096,7 @@
         const btn = document.getElementById('env-adv-btn');
         if (!sec || !btn) return;
         const open = sec.classList.toggle('open');
-        btn.textContent = (open ? '▼' : '▶') + ' Advanced Settings';
+        btn.textContent = _t(open ? 'sysconfig.adv_toggle_open' : 'sysconfig.adv_toggle');
     }
 </script>
 
