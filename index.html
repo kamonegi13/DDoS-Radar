@@ -225,6 +225,9 @@
         /* INTEL GUIDE — grid layout: left nav sidebar + right content */
         .manual-content { display:grid; grid-template-columns:96px 1fr; grid-template-rows:auto 1fr; gap:0 10px; overflow:hidden; flex-grow:1; padding-right:15px; line-height:1.6; font-size:13px; color:#ddd; margin-top:15px; }
         .manual-content > p:first-child { grid-column:1 / -1; }
+        /* i18n lang-toggle wrappers at intro level span full width */
+        .manual-content > .guide-lang-en,
+        .manual-content > .guide-lang-ja { grid-column:1 / -1; }
         .manual-content h4 { color:#00ffff; border-bottom:1px dashed #555; padding-bottom:5px; margin-top:16px; margin-bottom:10px; font-size:14px; text-transform:uppercase; letter-spacing:1px; }
         .manual-content h4:first-child { margin-top:0; }
         .manual-content p { margin-bottom:10px; }
