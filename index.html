@@ -1647,12 +1647,12 @@
     window.toggleMute = function(sensorName) {
         if (mutedSensors.has(sensorName)) {
             mutedSensors.delete(sensorName);
-            addNotebookEntry('UNMUTE', `Sensor unmuted: ${sensorName}`);
+            addNotebookEntry('UNMUTE', `センサーミュート解除: ${sensorName}`);
         } else {
             // Reason input dialog (optional)
-            const reason = prompt(`Muting sensor: ${sensorName}\nReason (optional — recorded in Analyst Notebook):`, '') ?? '';
+            const reason = prompt(`センサーをミュート: ${sensorName}\n理由（任意 — アナリストノートブックに記録されます）:`, '') ?? '';
             mutedSensors.add(sensorName);
-            addNotebookEntry('MUTE', `Sensor muted: ${sensorName}${reason ? ' — ' + reason : ''}`);
+            addNotebookEntry('MUTE', `センサーミュート: ${sensorName}${reason ? ' — ' + reason : ''}`);
         }
         localStorage.setItem('mutedSensors', JSON.stringify([...mutedSensors]));
         forceDataSync(); // Trigger immediate recalculation
@@ -1694,7 +1694,7 @@
         const suppEl = document.getElementById('gn-suppress-badge');
         if (suppEl) {
             if (gn.suppressing) {
-                suppEl.textContent = '⚡ SUPPRESSING CYBER SCORE';
+                suppEl.textContent = '⚡ サイバースコア抑制中';
                 suppEl.style.color = '#ff6600';
             } else {
                 suppEl.textContent = gn.noise_class ? gn.noise_class : '—';
@@ -1723,7 +1723,7 @@
         if (!ip) return;
         const resultEl = document.getElementById('gn-result-card');
         const remEl    = document.getElementById('gn-daily-rem');
-        if (resultEl) { resultEl.style.display = 'block'; resultEl.innerHTML = '<span style="color:#555;">Querying GreyNoise...</span>'; }
+        if (resultEl) { resultEl.style.display = 'block'; resultEl.innerHTML = '<span style="color:#555;">GreyNoise に照会中...</span>'; }
         fetch(`/api/ip_check?ip=${encodeURIComponent(ip)}`)
             .then(r => r.json())
             .then(d => {
@@ -1751,7 +1751,7 @@
                 renderGnLog();
                 // Notebook auto-entry
                 addNotebookEntry('IP_CHECK',
-                    `IP ${d.ip}: ${d.noise ? 'NOISE' : 'TARGETED'} | ${classStr} | ${nameStr}`);
+                    `IP ${d.ip}: ${d.noise ? 'ノイズ' : '標的'} | ${classStr} | ${nameStr}`);
             })
             .catch(e => {
                 if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Network error: ${e.message}</span>`;
@@ -1761,11 +1761,11 @@
     function renderGnLog() {
         const el = document.getElementById('gn-log');
         if (!el) return;
-        if (!_gnLog.length) { el.innerHTML = '<div style="color:#333;font-size:9px;">No lookups yet.</div>'; return; }
+        if (!_gnLog.length) { el.innerHTML = '<div style="color:#333;font-size:9px;">ルックアップ履歴なし。</div>'; return; }
         el.innerHTML = _gnLog.map(e => {
             const t  = new Date(e.ts).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'});
             const cls = e.noise ? 'gn-log-noise' : e.classification === 'unknown' ? 'gn-log-unknown' : 'gn-log-targeted';
-            return `<div class="gn-log-entry"><span style="color:#444;">${t}</span> <span style="color:#888;">${e.ip}</span> → <span class="${cls}">${e.noise?'NOISE':'TARGETED'}</span> <span style="color:#666;">${e.name||''}</span></div>`;
+            return `<div class="gn-log-entry"><span style="color:#444;">${t}</span> <span style="color:#888;">${e.ip}</span> → <span class="${cls}">${e.noise?'ノイズ':'標的'}</span> <span style="color:#666;">${e.name||''}</span></div>`;
         }).join('');
     }
 
@@ -1845,7 +1845,7 @@
     }
 
     function tgClearLog() {
-        if (!confirm('Clear intercept log on server?')) return;
+        if (!confirm('サーバー上の傍受ログを消去しますか？')) return;
         fetch('http://127.0.0.1:8000/api/telegram_log/clear', { method: 'POST' })
             .then(() => {
                 _tgLastData = Object.assign({}, _tgLastData, { recent_hits: [] });
@@ -1865,15 +1865,15 @@
         const badge = document.getElementById('tgsig-status-badge');
         if (badge) {
             if (tg.has_intent) {
-                badge.textContent = '██ INTENT DETECTED';
+                badge.textContent = '██ 意図検知';
                 badge.style.color = '#ff66cc';
                 badge.style.background = 'rgba(255,102,204,0.1)';
             } else if (tg.status === 'TARGETS_FOUND') {
-                badge.textContent = '◆ TARGETS FOUND';
+                badge.textContent = '◆ 標的確認';
                 badge.style.color = '#ffaa00';
                 badge.style.background = 'rgba(255,170,0,0.1)';
             } else {
-                badge.textContent = '── ALL CLEAR';
+                badge.textContent = '── 異常なし';
                 badge.style.color = '#555';
                 badge.style.background = '#0a0a0a';
             }
@@ -1887,7 +1887,7 @@
             const ts        = tg.last_poll_ts ? tg.last_poll_ts.substring(11,16) + ' UTC' : '—';
             const ok        = tg.last_poll_ok !== false;
             pollInfo.innerHTML =
-                `${active}/${monitored} active &nbsp;<span style="color:${ok?'#00cc66':'#cc4444'};">${ok?'●':'✕'}</span>&nbsp; ${ts}`;
+                `${active}/${monitored} 活動中 &nbsp;<span style="color:${ok?'#00cc66':'#cc4444'};">${ok?'●':'✕'}</span>&nbsp; ${ts}`;
         }
 
         // Theater grid
@@ -1898,9 +1898,9 @@
             if (entries.length === 0) {
                 const hasHistory = (tg.recent_hits || []).length > 0;
                 const polled     = !!tg.last_poll_ts;
-                const gridMsg    = !polled          ? 'Sensor not yet polled'
-                                 : hasHistory       ? 'No active channels this cycle — see log below'
-                                 : 'No channel activity detected';
+                const gridMsg    = !polled          ? 'センサー未ポーリング'
+                                 : hasHistory       ? '今サイクルは活動なし — 下のログを参照'
+                                 : 'チャンネル活動を検出せず';
                 grid.innerHTML = `<span style="font-size:9px;color:#333;">${gridMsg}</span>`;
             } else {
                 grid.innerHTML = entries.map(([theater, data]) => {
@@ -1923,7 +1923,7 @@
         const active    = tg.active_channels    || [];
         if (roster) {
             if (monitored.length === 0) {
-                roster.innerHTML = '<span style="font-size:9px;color:#333;">No channels in THREAT_ACTOR_MAPPING</span>';
+                roster.innerHTML = '<span style="font-size:9px;color:#333;">THREAT_ACTOR_MAPPINGにチャンネルがありません</span>';
             } else {
                 roster.innerHTML = monitored.map(ch => {
                     const isActive = active.includes(ch);
@@ -1944,7 +1944,7 @@
         ) : hits;
 
         if (filtered.length === 0) {
-            logEl.innerHTML = `<div style="color:#2a2a2a;font-size:10px;text-align:center;padding:14px 0;font-family:'Courier New',monospace;">NO INTERCEPTS RECORDED</div>`;
+            logEl.innerHTML = `<div style="color:#2a2a2a;font-size:10px;text-align:center;padding:14px 0;font-family:'Courier New',monospace;">傍受記録なし</div>`;
             return;
         }
 
@@ -1965,7 +1965,7 @@
                     ${srcLink}
                 </div>
                 <div class="tgsig-entry-class" style="color:${color};">
-                    ${isIntent?'INTENT':'TARGET'}
+                    ${isIntent?'意図検知':'標的'}
                     <span class="tgsig-entry-kw">&nbsp;${_tgEsc(kwStr)}</span>
                 </div>
                 ${urlStr ? `<div class="tgsig-entry-urls">${_tgEsc(urlStr)}</div>` : ''}
@@ -2063,7 +2063,7 @@
     function renderNbLog() {
         const container = document.getElementById('nb-log-container');
         if (!container) return;
-        if (!_nbLog.length) { container.innerHTML = '<div style="color:#333;font-size:9px;text-align:center;">No entries yet.<br>Your assessments, IP lookups, and sensor mutes are recorded here automatically.</div>'; return; }
+        if (!_nbLog.length) { container.innerHTML = '<div style="color:#333;font-size:9px;text-align:center;">エントリなし。<br>アセスメント、IPルックアップ、センサーミュートは自動記録されます。</div>'; return; }
         container.innerHTML = _nbLog.map(e => {
             const t = new Date(e.ts).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
             const typeClass = `nb-type-${e.type}`;
@@ -2082,23 +2082,23 @@
 
     function exportNotebook() {
         const handoff = (document.getElementById('nb-handoff') || {}).value || '';
-        let text = `=== ANALYST NOTEBOOK EXPORT ===\n`;
-        text += `Generated: ${new Date().toISOString()}\n`;
-        text += `Assessment: ${_nbAssessment} | Confidence: ${'●'.repeat(_nbConfidence)}${'○'.repeat(5-_nbConfidence)}\n`;
-        if (handoff) text += `WATCH FOR: ${handoff}\n`;
-        text += `\n--- SHIFT LOG ---\n`;
+        let text = `=== アナリストノートブック エクスポート ===\n`;
+        text += `生成日時: ${new Date().toISOString()}\n`;
+        text += `アセスメント: ${_nbAssessment} | 確信度: ${'●'.repeat(_nbConfidence)}${'○'.repeat(5-_nbConfidence)}\n`;
+        if (handoff) text += `監視対象: ${handoff}\n`;
+        text += `\n--- シフトログ ---\n`;
         _nbLog.forEach(e => {
             const t = new Date(e.ts).toISOString().replace('T',' ').slice(0,19) + 'Z';
             text += `[${t}] [${e.type}] ${e.content}\n`;
         });
         navigator.clipboard.writeText(text).then(() => {
             const btn = document.querySelector('#notebook-panel button[onclick="exportNotebook()"]');
-            if (btn) { const orig = btn.textContent; btn.textContent = 'COPIED!'; setTimeout(() => btn.textContent = orig, 1500); }
+            if (btn) { const orig = btn.textContent; btn.textContent = 'コピー済み'; setTimeout(() => btn.textContent = orig, 1500); }
         }).catch(() => { prompt('Copy the notebook export:', text); });
     }
 
     function clearNotebook() {
-        if (!confirm('Clear all notebook entries? This cannot be undone.')) return;
+        if (!confirm('ノートブックの全エントリを消去しますか？この操作は取り消せません。')) return;
         _nbLog = [];
         localStorage.setItem('nbLog', '[]');
         renderNbLog();
@@ -2270,16 +2270,16 @@
     }
 
     const EVENT_LABELS = {
-        NARRATIVE_BURST: 'Narrative Burst',
-        ISR_SURGE:       'ISR Surge',
-        SYNC_DDOS:       'Sync DDoS',
-        FIRMS_ANOMALY:   'Kinetic Anomaly',
-        AIS_DARK_GAP:    'AIS Dark Gap',
+        NARRATIVE_BURST: 'ナラティブバースト',
+        ISR_SURGE:       'ISRサージ',
+        SYNC_DDOS:       '同期DDoS',
+        FIRMS_ANOMALY:   '動態異常',
+        AIS_DARK_GAP:    'AISダークギャップ',
         // v9
-        TELEGRAM_INTENT: 'Telegram: Attack Intent',
-        MASKIROVKA:      'Maskirovka (Deception)',
-        C2_SYNC:         'C2 Temporal Sync',
-        INFRA_BLACKOUT:  'Infra Blackout',
+        TELEGRAM_INTENT: 'テレグラム: 攻撃意図',
+        MASKIROVKA:      'マスキロフカ（欺瞞）',
+        C2_SYNC:         'C2時間的同期',
+        INFRA_BLACKOUT:  'インフラブラックアウト',
     };
     const EVENT_COLORS = {
         NARRATIVE_BURST: '#cc66ff',
@@ -2300,9 +2300,9 @@
         const badge = document.getElementById('chain-seq-badge');
         if (badge) {
             const sc = p8.sequence_status || '';
-            badge.textContent = sc.includes('FULL_CHAIN') ? '✔ FULL CHAIN CONFIRMED'
-                              : sc.includes('PARTIAL')    ? '≈ PARTIAL CHAIN'
-                              : 'NO ACTIVE CHAIN';
+            badge.textContent = sc.includes('FULL_CHAIN') ? '✔ チェーン完全確認'
+                              : sc.includes('PARTIAL')    ? '≈ チェーン部分確認'
+                              : 'チェーンなし';
             badge.className = 'chain-seq-badge ' + (
                 sc.includes('FULL_CHAIN') ? 'chain-seq-FULL_CHAIN' :
                 sc.includes('PARTIAL')    ? 'chain-seq-PARTIAL' : 'chain-seq-NONE'
@@ -2385,13 +2385,13 @@
         const tc = p8.temporal_coherence || {};
         if (c2El) {
             if (tc.is_c2_sync) {
-                c2El.textContent = `DETECTED (+${tc.bonus}pt)`;
+                c2El.textContent = `検知 (+${tc.bonus}pt)`;
                 c2El.style.color = '#ff2200';
             } else if (tc.coherence_score > 0) {
-                c2El.textContent = `PARTIAL (${(tc.coherence_score * 100).toFixed(0)}%)`;
+                c2El.textContent = `部分同期 (${(tc.coherence_score * 100).toFixed(0)}%)`;
                 c2El.style.color = '#ffaa00';
             } else {
-                c2El.textContent = 'NO SYNC';
+                c2El.textContent = '未同期';
                 c2El.style.color = '#555';
             }
         }
@@ -2403,7 +2403,7 @@
             const entries = Object.entries(urlResults);
             if (entries.length > 0 && chStatus !== 'UNKNOWN') {
                 chDetailEl.style.display = 'block';
-                chDetailEl.innerHTML = `<div style="font-size:9px;color:#336633;letter-spacing:1px;margin-bottom:4px;">INFRA CHECK — NODES: ${(ch.nodes||[]).length}</div>` +
+                chDetailEl.innerHTML = `<div style="font-size:9px;color:#336633;letter-spacing:1px;margin-bottom:4px;">インフラ確認 — ノード: ${(ch.nodes||[]).length}</div>` +
                     entries.map(([url, r]) => {
                         const label = url.replace(/^https?:\/\//, '').split('/')[0];
                         const st    = r.status || 'UNKNOWN';
@@ -2436,9 +2436,9 @@
                     `<div class="tg-url-item" data-tooltip="${u}">${u.replace(/^https?:\/\//,'').slice(0,40)}</div>`
                 ).join('');
                 tgDetailEl.innerHTML =
-                    `<div style="font-size:9px;color:#663366;letter-spacing:1px;margin-bottom:4px;">TELEGRAM MONITOR — ${monitored.length} channels</div>` +
+                    `<div style="font-size:9px;color:#663366;letter-spacing:1px;margin-bottom:4px;">Telegram監視 — ${monitored.length}チャンネル</div>` +
                     `<div style="margin-bottom:${targetUrls.length?'6px':'0'};">${chBadges}</div>` +
-                    (targetUrls.length ? `<div style="font-size:9px;color:#663300;letter-spacing:1px;margin-bottom:3px;">TARGET URLs:</div>${urlList}` : '');
+                    (targetUrls.length ? `<div style="font-size:9px;color:#663300;letter-spacing:1px;margin-bottom:3px;">標的URL:</div>${urlList}` : '');
             } else {
                 tgDetailEl.style.display = 'none';
             }
@@ -2450,7 +2450,7 @@
         if (mskEl) {
             if (msk.detected) {
                 mskEl.style.display = 'block';
-                mskEl.innerHTML = `<span style="color:#ff8800;font-weight:700;">⚠ MASKIROVKA DETECTED</span>
+                mskEl.innerHTML = `<span style="color:#ff8800;font-weight:700;">⚠ 欺瞞工作 (MASKIROVKA) 検知</span>
                     <div style="color:#aaa;font-size:10px;margin-top:2px;">${msk.reason || ''}</div>`;
             } else {
                 mskEl.style.display = 'none';
@@ -2461,13 +2461,13 @@
         const tgEl = document.getElementById('ev-telegram-intent');
         if (tgEl) {
             if (tg.has_intent) {
-                tgEl.textContent = `INTENT (${(tg.active_channels || []).length} ch)`;
+                tgEl.textContent = `意図検知 (${(tg.active_channels || []).length}ch)`;
                 tgEl.style.color = '#ff66cc';
             } else if (tg.status === 'TARGETS_FOUND') {
-                tgEl.textContent = 'TARGETS FOUND';
+                tgEl.textContent = '標的確認';
                 tgEl.style.color = '#ffaa00';
             } else {
-                tgEl.textContent = 'CLEAR';
+                tgEl.textContent = '平穏';
                 tgEl.style.color = '#555';
             }
         }
@@ -2482,7 +2482,7 @@
         // ev-c2sync-detail (chain panel sub-metric)
         const c2dEl = document.getElementById('ev-c2sync-detail');
         if (c2dEl) {
-            c2dEl.textContent = tc.is_c2_sync ? `SYNC +${tc.bonus}pt` : tc.coherence_score > 0 ? `PARTIAL` : 'NO SYNC';
+            c2dEl.textContent = tc.is_c2_sync ? `同期 +${tc.bonus}pt` : tc.coherence_score > 0 ? `部分同期` : '未同期';
             c2dEl.style.color  = tc.is_c2_sync ? '#ff2200' : tc.coherence_score > 0 ? '#ffaa00' : '#555';
         }
 
@@ -2497,7 +2497,7 @@
                 const container = document.getElementById('chain-events');
                 if (!container) return;
                 if (!events.length) {
-                    container.innerHTML = '<div style="color:#555;font-size:10px;text-align:center;">No events in 24h window</div>';
+                    container.innerHTML = '<div style="color:#555;font-size:10px;text-align:center;">24時間ウィンドウ内にイベントなし</div>';
                     return;
                 }
                 let html = '';
@@ -3403,7 +3403,7 @@
         const updateTimeEl = document.getElementById('update-time');
 
         if (needsApiSync) {
-            updateTimeEl.innerHTML = `<span style="color:#ffaa00;">Changes pending. Press SYNC.</span>`;
+            updateTimeEl.innerHTML = `<span style="color:#ffaa00;">変更あり。SYNCを実行してください。</span>`;
             syncBtnTop.classList.add("pending");
             syncBtnSide.classList.add("pending");
         } else {
@@ -3434,8 +3434,8 @@
         const syncBtnSide = document.getElementById('btn-sync-side');
 
         if (force) {
-            syncBtnTop.innerText = "SYNCING..."; syncBtnTop.classList.add("syncing");
-            syncBtnSide.innerText = "SYNCING..."; syncBtnSide.classList.add("syncing");
+            syncBtnTop.innerText = "同期中..."; syncBtnTop.classList.add("syncing");
+            syncBtnSide.innerText = "同期中..."; syncBtnSide.classList.add("syncing");
         }
 
         try {
@@ -3444,7 +3444,7 @@
             const response = await fetch(apiUrl);
             latestData = await response.json(); 
             
-            lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()} (Next in 15 min)`;
+            lastSyncedTimeText = `同期完了: ${new Date().toLocaleTimeString()}（次回15分後）`;
             document.getElementById('update-time').innerText = lastSyncedTimeText;
             lastSyncedConfig = getCurrentConfig();
             
@@ -3507,34 +3507,34 @@
 
         if (data.strategic_alert) {
             const strat = data.strategic_alert;
-            const threatLabels = { 5: "THREAT Lv 5: NORMAL", 4: "THREAT Lv 4: ELEVATED", 3: "THREAT Lv 3: HIGH", 2: "THREAT Lv 2: SEVERE", 1: "THREAT Lv 1: CRITICAL" };
+            const threatLabels = { 5: "脅威 Lv 5: 平常", 4: "脅威 Lv 4: 上昇", 3: "脅威 Lv 3: 高", 2: "脅威 Lv 2: 深刻", 1: "脅威 Lv 1: 危機的" };
             threatEl.className = `threat-hud threat-${strat.threat_level}-hud`;
             if (strat.threat_breakdown) {
                 const b = strat.threat_breakdown;
                 const lines = [
-                    `Threat Score: ${b.total_score}`,
-                    `Core Spike: ${b.core_spike_val}x  (>2x:${b.core_spike_2x?'✔':'✗'} >4x:${b.core_spike_4x?'✔':'✗'} >6x:${b.core_spike_6x?'✔':'✗'})`,
-                    `High Correlation(>45%): ${b.high_correlation?'✔':'✗'}`,
-                    `L7 Shift: ${b.core_shifted?'✔':'✗'}`,
-                    `Adversary Strike: ${b.major_adversary?'✔':'✗'}`,
-                    `BGP Degraded: ${b.core_degraded?'✔':'✗'}`,
-                    `Multi-Front(>3x): ${b.is_coordinated?'✔':'✗'}`,
-                    `Lv1 Hard Req: ${b.tl1_hard?'✔':'✗'}`,
-                    `\nClick to view full Rationale Matrix.`
+                    `脅威スコア: ${b.total_score}`,
+                    `コアスパイク: ${b.core_spike_val}x  (>2x:${b.core_spike_2x?'✔':'✗'} >4x:${b.core_spike_4x?'✔':'✗'} >6x:${b.core_spike_6x?'✔':'✗'})`,
+                    `高相関(>45%): ${b.high_correlation?'✔':'✗'}`,
+                    `L7シフト: ${b.core_shifted?'✔':'✗'}`,
+                    `敵対国攻撃: ${b.major_adversary?'✔':'✗'}`,
+                    `BGP劣化: ${b.core_degraded?'✔':'✗'}`,
+                    `多正面(>3x): ${b.is_coordinated?'✔':'✗'}`,
+                    `Lv1必須条件: ${b.tl1_hard?'✔':'✗'}`,
+                    `\nクリックして分析根拠マトリクスを表示。`
                 ];
                 threatEl.setAttribute('data-tooltip', lines.join('\n'));
             }
             threatEl.innerText = threatLabels[strat.threat_level];
-            epicenterEl.innerText = strat.core_theater || 'None';
+            epicenterEl.innerText = strat.core_theater || 'なし';
 
-            let overlapText = "None";
+            let overlapText = "なし";
             if (strat.correlations && Object.keys(strat.correlations).length > 0) {
                 let arr = [];
                 for (const [pair, overlap] of Object.entries(strat.correlations)) {
                     const color = overlap > 40 ? "#ff2a2a" : (overlap > 20 ? "#ffaa00" : "#fff");
                     const l3v = strat.correlations_l3 ? (strat.correlations_l3[pair] || 0).toFixed(1) : '-';
                     const l7v = strat.correlations_l7 ? (strat.correlations_l7[pair] || 0).toFixed(1) : '-';
-                    arr.push(`<span style="color:${color}" data-tooltip="L3 overlap: ${l3v}%\nL7 overlap: ${l7v}%">${pair}: ${overlap}%</span>`);
+                    arr.push(`<span style="color:${color}" data-tooltip="L3重複: ${l3v}%\nL7重複: ${l7v}%">${pair}: ${overlap}%</span>`);
                 }
                 overlapText = arr.join(' | ');
             }
@@ -3543,10 +3543,10 @@
             if (strat.vector_shifts && strat.vector_shifts.length > 0) {
                 shiftEl.innerHTML = `<span class="alert-text">${strat.vector_shifts.join(', ')}</span>`;
             } else {
-                shiftEl.innerText = "None";
+                shiftEl.innerText = "なし";
             }
-            
-            let strikesText = "None";
+
+            let strikesText = "なし";
             if (strat.adversary_strikes && strat.adversary_strikes.length > 0) {
                 let arr = [];
                 strat.adversary_strikes.forEach(strike => { arr.push(`<span class="warn-text">${strike.actor}➔${strike.target} (x${strike.spike})</span>`); });
@@ -3554,14 +3554,14 @@
             }
             strikesEl.innerHTML = strikesText;
 
-            const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? strat.degraded_theaters.join(', ') : "None";
-            outagesEl.innerHTML = `<span class="${degraded !== 'None' ? 'warn-text' : ''}">${degraded}</span>`;
+            const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? strat.degraded_theaters.join(', ') : "なし";
+            outagesEl.innerHTML = `<span class="${degraded !== 'なし' ? 'warn-text' : ''}">${degraded}</span>`;
 
             if (coordinatedEl) {
                 if (strat.coordinated_theaters && strat.coordinated_theaters.length >= 2) {
-                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${strat.coordinated_theaters.join(', ')}]</span>`;
+                    coordinatedEl.innerHTML = `<span class="alert-text">活動中 [${strat.coordinated_theaters.join(', ')}]</span>`;
                 } else {
-                    coordinatedEl.innerText = "None";
+                    coordinatedEl.innerText = "なし";
                 }
             }
 
@@ -3582,17 +3582,17 @@
             if (convEl && strat.convergence_level) {
                 const lvl = strat.convergence_level;
                 const labels = {
-                    FULL_CONVERGENCE: '⚡ FULL CONVERGENCE',
-                    DUAL_DOMAIN:      '⚠ DUAL DOMAIN',
-                    SINGLE_DOMAIN:    '◉ SINGLE DOMAIN',
-                    NONE:             'CONVERGENCE: —',
+                    FULL_CONVERGENCE: '⚡ 完全収束',
+                    DUAL_DOMAIN:      '⚠ 2ドメイン収束',
+                    SINGLE_DOMAIN:    '◉ 単一ドメイン',
+                    NONE:             '収束: —',
                 };
                 convEl.textContent = labels[lvl] || lvl;
                 convEl.className = `conv-${lvl}`;
                 const b = strat.threat_breakdown || {};
                 const bonus = b.convergence_bonus || 0;
                 const held  = b.threat_held ? ' [HOLD]' : '';
-                convEl.setAttribute('data-tooltip', `Score: ${b.total_score} + Bonus: ${bonus} = ${b.score_with_bonus} → Threat Lv ${b.threat_raw}${held}`);
+                convEl.setAttribute('data-tooltip', `スコア: ${b.total_score} + ボーナス: ${bonus} = ${b.score_with_bonus} → 脅威 Lv ${b.threat_raw}${held}`);
             }
 
             if (data.threat_history) {
@@ -3611,7 +3611,7 @@
                 const v = p8.velocity;
                 const absV = Math.abs(v);
                 // Scale: 0.001 pt/s ≈ 0.9 pt/cycle (900 s) for typical variation
-                const dispV = absV < 0.0001 ? 'STABLE' : (absV * 900).toFixed(2) + '/cycle';
+                const dispV = absV < 0.0001 ? '安定' : (absV * 900).toFixed(2) + '/サイクル';
                 velEl.textContent = dispV;
                 if (v > 0.0001)       { velEl.style.color='#ff6644'; arrowEl.textContent='↑'; arrowEl.style.color='#ff6644'; }
                 else if (v < -0.0001) { velEl.style.color='#66ffaa'; arrowEl.textContent='↓'; arrowEl.style.color='#66ffaa'; }
@@ -3638,7 +3638,7 @@
             const chainEl = document.getElementById('hud-chain');
             if (chainEl && p8.sequence_status) {
                 const sc = p8.sequence_status;
-                chainEl.textContent = sc.includes('FULL_CHAIN') ? '✔ FULL' : sc.includes('PARTIAL') ? '≈ PARTIAL' : '—';
+                chainEl.textContent = sc.includes('FULL_CHAIN') ? '✔ 完全' : sc.includes('PARTIAL') ? '≈ 部分' : '—';
                 chainEl.style.color = sc.includes('FULL_CHAIN') ? '#ff4444' : sc.includes('PARTIAL') ? '#ffaa00' : '#555';
             }
             // Update Evidence Chain Panel
@@ -3652,7 +3652,7 @@
             const newLevel = strat.threat_level;
             if (_lastDefconLevel !== null && _lastDefconLevel !== newLevel) {
                 addNotebookEntry('DEFCON',
-                    `Threat Level ${_lastDefconLevel > newLevel ? '▼' : '▲'} ${_lastDefconLevel} → ${newLevel} (score: ${strat.threat_score || '?'})`);
+                    `脅威レベル ${_lastDefconLevel > newLevel ? '▼' : '▲'} ${_lastDefconLevel} → ${newLevel} (スコア: ${strat.threat_score || '?'})`);
             }
             _lastDefconLevel = newLevel;
 
@@ -3748,7 +3748,7 @@
 
                 let targetLngShifted = shiftLng(t.lng);
                 
-                const netStatusTextTip = isOutage ? (isEffOutage ? "🔴 BGP/OUTAGE" : "🟠 BGP/OUTAGE (Weather Muted)") : "🟢 NORMAL";
+                const netStatusTextTip = isOutage ? (isEffOutage ? "🔴 BGP障害" : "🟠 BGP障害（気象ノイズ除外）") : "🟢 正常";
 
                 L.marker([t.lat, targetLngShifted], { icon: dynamicIcon })
                  .bindTooltip(`<b>${t.info}</b> — ${netStatusTextTip}`, { direction: 'top', sticky: false })
@@ -3768,19 +3768,19 @@
                 const targetShare = parseFloat(t[vecShareKey] || 0).toFixed(2);
                 const vecLabel = currentVector === 'l3' ? 'L3' : currentVector === 'l7' ? 'L7' : 'GL';
                 
-                const netStatusText = isOutage ? (isEffOutage ? "OUTAGE" : "OUTAGE(Wx)") : "NORMAL";
+                const netStatusText = isOutage ? (isEffOutage ? "障害" : "障害(気象)") : "正常";
                 const statusColor = isOutage ? (isEffOutage ? "#ff2a2a" : "#ffaa00") : "#66ff66";
-                const statusBadge = `<span class="status-badge" style="color: ${statusColor}; border-color: ${statusColor};" data-tooltip="Network Status: ${netStatusTextTip}">Net: ${netStatusText}</span>`;
+                const statusBadge = `<span class="status-badge" style="color: ${statusColor}; border-color: ${statusColor};" data-tooltip="ネット状態: ${netStatusTextTip}">Net: ${netStatusText}</span>`;
                 
                 const shiftActorStr = (t.shift_actors && t.shift_actors.length > 0) ? ` [${t.shift_actors.join(',')}]` : '';
-                const shiftBadge = t.is_vector_shift ? `<span class="shift-badge" data-tooltip="Per-origin L7 shift detected from:${shiftActorStr}">L7 SHIFT${shiftActorStr}</span>` : "";
+                const shiftBadge = t.is_vector_shift ? `<span class="shift-badge" data-tooltip="発信元別 L7 シフト検知:${shiftActorStr}">L7シフト${shiftActorStr}</span>` : "";
 
                 const safeId = t.code.toLowerCase(); const listId = `list-${safeId}`; const arrowId = `arrow-${safeId}`;
                 const displayStyle = collapsedTargets.has(listId) ? 'none' : 'block';
                 const arrowTxt = collapsedTargets.has(listId) ? '▶' : '▼';
 
                 originHtml += `
-                    <div class="target-group-title" onclick="toggleTargetList('${listId}', '${arrowId}')" data-tooltip="${t.info} | Global: ${targetShare}% | Net: ${netStatusTextTip}">
+                    <div class="target-group-title" onclick="toggleTargetList('${listId}', '${arrowId}')" data-tooltip="${t.info} | グローバル: ${targetShare}% | ネット: ${netStatusTextTip}">
                         <div class="target-title-left">
                             <span id="${arrowId}" class="toggle-arrow">${arrowTxt}</span>
                             <span class="target-name">[ ${t.info} ]</span>
@@ -3804,15 +3804,15 @@
                         .sort((a, b) => getW(b) - getW(a));
 
                     if (sortedSources.length === 0) {
-                        originHtml += `<li style="color:grey;">No significant threats in this vector.</li>`;
+                        originHtml += `<li style="color:grey;">このベクターで重大な脅威なし。</li>`;
                     } else {
                     sortedSources.forEach(s => {
                         const w = getW(s); const spike = getSpike(s);
                         let lineColor, lineOpacity, speedClass, glowClass, spikeHtml = "";
                         const severity = spike * w;
 
-                        if (spike >= 1.5 && severity >= 0.5) { lineColor = '#ff2a2a'; lineOpacity = 0.9; speedClass = 'flow-fast'; glowClass = 'glow-high'; spikeHtml = `<span class="spike-alert">SEVERE SPIKE (x${spike})</span>`;
-                        } else if (spike >= 1.5 && w > 0.05) { lineColor = '#ffaa00'; lineOpacity = 0.7; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">Minor Spike (x${spike})</span>`;
+                        if (spike >= 1.5 && severity >= 0.5) { lineColor = '#ff2a2a'; lineOpacity = 0.9; speedClass = 'flow-fast'; glowClass = 'glow-high'; spikeHtml = `<span class="spike-alert">大規模スパイク (x${spike})</span>`;
+                        } else if (spike >= 1.5 && w > 0.05) { lineColor = '#ffaa00'; lineOpacity = 0.7; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">軽微スパイク (x${spike})</span>`;
                         } else if (w >= 1.0) { lineColor = '#ffaa00'; lineOpacity = 0.4; speedClass = 'flow-medium'; glowClass = 'glow-none';
                         } else { lineColor = '#00d8ff'; lineOpacity = 0.4; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
 
@@ -3827,9 +3827,9 @@
                         const originShiftBadge = s.is_l7_shift ? `<span style="color:#ffaa00; font-size:10px; font-weight:bold; margin-left:5px; border:1px solid #ffaa00; padding:1px 3px; border-radius:2px;">L7&uarr;</span>` : "";
                         const confClass = s.confidence === 'HIGH' ? 'conf-high' : s.confidence === 'MEDIUM' ? 'conf-medium' : 'conf-low';
                         const confBadge = s.confidence ? `<span class="conf-badge ${confClass}">${s.confidence}</span>` : "";
-                        const newActorBadge = s.is_new_actor ? `<span class="new-actor-badge" data-tooltip="No 7-day baseline: new infrastructure">NEW</span>` : "";
+                        const newActorBadge = s.is_new_actor ? `<span class="new-actor-badge" data-tooltip="7日ベースラインなし: 新規インフラ">新規</span>` : "";
                         const asnLabel = s.state_asns && s.state_asns.length > 0 ? s.state_asns.join(',') : '';
-                        const stateAsnBadge = s.is_state_asn ? `<span class="state-asn-badge" data-tooltip="State-attributed ASN detected:\n${asnLabel}">STATE-ASN</span>` : "";
+                        const stateAsnBadge = s.is_state_asn ? `<span class="state-asn-badge" data-tooltip="国家帰属ASN検知:\n${asnLabel}">国家系ASN</span>` : "";
                         originHtml += `<li class="origin-item"><span style="color:${lineColor}; font-size:14px;">■</span> <b>${s.name}</b> <span style="color:#fff;">[${totalPct}%]</span> ${spikeHtml}${originShiftBadge}${stateAsnBadge}${newActorBadge}${confBadge} ${vecDetail}</li>`;
 
                         let sourceLngShifted = shiftLng(s.lng);
@@ -3846,7 +3846,7 @@
                         L.polyline(curvePoints, { className: `attack-curve ${speedClass}`, color: lineColor, weight: dynamicLineWidth, opacity: lineOpacity }).addTo(lineLayer);
                     });
                     }
-                } else { originHtml += `<li style="color:grey;">No significant threats detected.</li>`; }
+                } else { originHtml += `<li style="color:grey;">重大な脅威を検出せず。</li>`; }
                 originHtml += `</ul>`;
             });
         }
@@ -3868,7 +3868,7 @@
                     iconSize: [18, 18], iconAnchor: [9, 18],
                 });
                 L.marker([o.lat, lngS], { icon })
-                 .bindPopup(`<b>${o.name}</b><br><span style="color:#ff2a2a;">BGP/OUTAGE DETECTED</span>`)
+                 .bindPopup(`<b>${o.name}</b><br><span style="color:#ff2a2a;">BGP障害検知</span>`)
                  .on('click', () => openCountryDetail(o.code))
                  .addTo(iodaLayer);
             });
@@ -3880,15 +3880,15 @@
                 const glow = isClosure ? 'drop-shadow(0 0 8px #ff2a2a)' : 'drop-shadow(0 0 5px #ffaa00)';
                 const icon = L.divIcon({
                     className: '',
-                    html: `<div style="font-size:18px;line-height:1;filter:${glow}; cursor:help;" data-tooltip="${a.airport}: ${a.drop_pct}% drop (${a.count}/${a.baseline} ac)">✈</div>`,
+                    html: `<div style="font-size:18px;line-height:1;filter:${glow}; cursor:help;" data-tooltip="${a.airport}: ${a.drop_pct}%減少 (${a.count}/${a.baseline}機)">✈</div>`,
                     iconSize: [20, 20], iconAnchor: [10, 10],
                 });
                 L.marker([a.lat, lngS], { icon })
                  .bindPopup(
                     `<b>${a.airport} (${a.code})</b><br>` +
                     `<span style="color:${col};font-weight:bold;">${a.severity}</span><br>` +
-                    `Aircraft: ${a.count} (baseline: ${a.baseline})<br>` +
-                    `Drop: <b>${a.drop_pct}%</b>`
+                    `航空機数: ${a.count} (ベースライン: ${a.baseline})<br>` +
+                    `減少率: <b>${a.drop_pct}%</b>`
                  )
                  .addTo(airspaceLayer);
             });
@@ -3900,15 +3900,15 @@
                 const emoji = isSevere ? '⛈' : '🌧';
                 const icon  = L.divIcon({
                     className: '',
-                    html: `<div style="font-size:16px;line-height:1;filter:drop-shadow(0 0 4px ${col}); cursor:help;" data-tooltip="${w.description} — wind ${w.wind_speed}m/s">${emoji}</div>`,
+                    html: `<div style="font-size:16px;line-height:1;filter:drop-shadow(0 0 4px ${col}); cursor:help;" data-tooltip="${w.description} — 風速 ${w.wind_speed}m/s">${emoji}</div>`,
                     iconSize: [18, 18], iconAnchor: [-16, 34],
                 });
                 L.marker([w.lat, lngS], { icon })
                  .bindPopup(
-                    `<b>Weather: ${w.code}</b><br>` +
+                    `<b>気象: ${w.code}</b><br>` +
                     `<span style="color:${col};">${w.description}</span><br>` +
-                    `Severity: ${w.severity} | Wind: ${w.wind_speed} m/s` +
-                    (isSevere ? '<br><i style="color:#ffaa00;">Noise filter active: suppresses BGP/Airspace alerts</i>' : '')
+                    `深刻度: ${w.severity} | 風速: ${w.wind_speed} m/s` +
+                    (isSevere ? '<br><i style="color:#ffaa00;">ノイズフィルター有効: BGP/空域アラートを抑制中</i>' : '')
                  )
                  .addTo(weatherLayer);
             });
@@ -3918,22 +3918,22 @@
                 const isAlert = g.is_alert;
                 const col    = isAlert ? '#cc44ff' : '#8855aa';
                 const glow   = isAlert ? 'drop-shadow(0 0 8px #cc44ff)' : 'drop-shadow(0 0 4px #8855aa)';
-                const deltaStr = g.delta != null ? `Δ${g.delta > 0 ? '+' : ''}${g.delta.toFixed(1)}` : 'Δ N/A';
+                const deltaStr = g.delta != null ? `Δ${g.delta > 0 ? '+' : ''}${g.delta.toFixed(1)}` : 'Δ データなし';
                 const icon = L.divIcon({
                     className: '',
                     html: `<div style="width:22px;height:22px;border-radius:50%;border:3px solid ${col};background:${col}33;filter:${glow};box-sizing:border-box;"></div>`,
                     iconSize: [22, 22], iconAnchor: [36, 36],
                 });
-                const baseStr = g.tone_baseline != null ? g.tone_baseline.toFixed(1) : 'N/A';
+                const baseStr = g.tone_baseline != null ? g.tone_baseline.toFixed(1) : 'データなし';
                 L.marker([g.lat, lngS], { icon })
                  .bindPopup(
-                    `<b>${g.name} — Media Tone</b><br>` +
+                    `<b>${g.name} — メディアトーン</b><br>` +
                     `<span style="color:${col};">` +
-                    (g.tone_current != null ? `Tone: <b>${g.tone_current.toFixed(1)}</b>` : 'Tone: N/A') +
+                    (g.tone_current != null ? `トーン: <b>${g.tone_current.toFixed(1)}</b>` : 'トーン: データなし') +
                     `</span><br>` +
-                    `Baseline (28d): ${baseStr} | ${deltaStr}<br>` +
-                    `Status: <b>${g.status}</b>` +
-                    (g.status === 'WEATHER_NOISE' ? '<br><i style="color:#ffaa00;">Noise filter: severe weather active</i>' : '')
+                    `ベースライン (28日): ${baseStr} | ${deltaStr}<br>` +
+                    `状態: <b>${g.status}</b>` +
+                    (g.status === 'WEATHER_NOISE' ? '<br><i style="color:#ffaa00;">ノイズフィルター: 悪天候により有効</i>' : '')
                  )
                  .addTo(gdeltLayer);
             });
@@ -3953,7 +3953,7 @@
                     html: `<div style="position:relative;width:10px;height:10px;transform:rotate(45deg);background:${col}33;border:2px solid ${col};filter:drop-shadow(0 0 3px ${col});box-sizing:border-box;"></div>`,
                     iconSize: [10, 10], iconAnchor: [5, 5],
                 });
-                const nameList = info.ixps.slice(0, 5).join('<br>') + (count > 5 ? `<br>…and ${count-5} more` : '');
+                const nameList = info.ixps.slice(0, 5).join('<br>') + (count > 5 ? `<br>…他${count-5}件` : '');
                 L.marker([info.lat, lngS], { icon })
                  .bindPopup(`<b style="color:${col};">IXP [${country}]</b> × ${count}<br><span style="font-size:11px;color:#aaa;">${nameList}</span>`)
                  .on('click', () => openCountryDetail(country))
@@ -3964,12 +3964,12 @@
             (overlays.firms_anomalies || []).forEach(f => {
                 const lngS = shiftLng(f.lng);
                 const icon = L.divIcon({ 
-                    html: `<div style="font-size:20px; filter:drop-shadow(0 0 10px #ff2a2a); cursor:help;" data-tooltip="Thermal Anomaly (FIRMS)">🔥</div>`, 
+                    html: `<div style="font-size:20px; filter:drop-shadow(0 0 10px #ff2a2a); cursor:help;" data-tooltip="熱異常 (FIRMS)">🔥</div>`,
                     className: '', 
                     iconSize: [20,20] 
                 });
                 L.marker([f.lat, lngS], {icon})
-                 .bindPopup(`<b>Thermal Anomaly (FIRMS)</b><br>Code: ${f.code}<br><span style="color:#ff2a2a; font-weight:bold;">Kinetic Strike Precursor</span>`)
+                 .bindPopup(`<b>熱異常 (FIRMS)</b><br>コード: ${f.code}<br><span style="color:#ff2a2a; font-weight:bold;">運動作戦前兆</span>`)
                  .addTo(firmsLayer);
             });
 
@@ -4017,9 +4017,9 @@
                 const popupHtml = `
                     <div style="min-width:220px;padding:10px 12px 8px;">
                         <div style="color:#5ab8cc;font-weight:bold;font-size:12px;letter-spacing:0.5px;margin-bottom:2px;">▬ ${route.name}</div>
-                        <div style="color:#335566;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">SUBMARINE CABLE ROUTE</div>
+                        <div style="color:#335566;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">海底ケーブルルート</div>
                         <div style="color:#889;font-size:10px;margin-bottom:6px;">${route.description || ''}</div>
-                        ${route.connects && route.connects.length ? `<div style="color:#446677;font-size:9px;border-top:1px solid #1a2e3a;padding-top:5px;line-height:1.7;">CONNECTS:<br><span style="color:#667;">${route.connects.join(' → ')}</span></div>` : ''}
+                        ${route.connects && route.connects.length ? `<div style="color:#446677;font-size:9px;border-top:1px solid #1a2e3a;padding-top:5px;line-height:1.7;">接続先:<br><span style="color:#667;">${route.connects.join(' → ')}</span></div>` : ''}
                     </div>
                 `;
                 segs.forEach(pts => {
@@ -4079,17 +4079,17 @@
 
                 // Rich popup
                 const TYPE_LABEL = {
-                    cable_landing:   'Cable Landing Station',
-                    maritime_strait: 'Maritime Chokepoint',
-                    nato_corridor:   'NATO Cable Corridor',
+                    cable_landing:   'ケーブル陸揚局',
+                    maritime_strait: '海上チョークポイント',
+                    nato_corridor:   'NATOケーブル回廊',
                 };
                 const STATUS_BADGE = {
-                    dark_gap:   `<span style="color:#ff3300;font-weight:bold;">⚠ AIS DARK GAP DETECTED</span>`,
-                    stationary: `<span style="color:#ff9900;font-weight:bold;">⚓ STATIONARY ANOMALY</span>`,
-                    normal:     `<span style="color:#00cc66;">● NORMAL</span>`,
+                    dark_gap:   `<span style="color:#ff3300;font-weight:bold;">⚠ AIS消灯区間検知</span>`,
+                    stationary: `<span style="color:#ff9900;font-weight:bold;">⚓ 停留異常</span>`,
+                    normal:     `<span style="color:#00cc66;">● 正常</span>`,
                 };
                 const cablesHtml = (c.cables && c.cables.length)
-                    ? `<div style="margin-top:5px;color:#aaa;font-size:9px;">CABLES: ${c.cables.join(', ')}</div>`
+                    ? `<div style="margin-top:5px;color:#aaa;font-size:9px;">ケーブル: ${c.cables.join(', ')}</div>`
                     : '';
 
                 L.marker([c.lat, lngS], {icon})
@@ -4099,7 +4099,7 @@
                         <div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">${TYPE_LABEL[cpType]||cpType} &nbsp;·&nbsp; ${c.country}</div>
                         <div style="margin-bottom:6px;">${STATUS_BADGE[status]||STATUS_BADGE.normal}</div>
                         ${cablesHtml}
-                        <div style="margin-top:7px;color:#334455;font-size:9px;letter-spacing:0.5px;">AIS MONITOR RADIUS: 55 km</div>
+                        <div style="margin-top:7px;color:#334455;font-size:9px;letter-spacing:0.5px;">AIS監視半径: 55 km</div>
                     </div>
                  `, { maxWidth: 280 })
                  .addTo(chokepointsLayer);
@@ -4328,26 +4328,26 @@
         const strat   = latestData.strategic_alert || {};
         const intel   = (strat.country_intel || {})[code] || {};
         const tgtData = (latestData.targets || []).find(t => t.code === code) || {};
-        const coordName = (strat.core_theater === code ? '★ Core' : '◎ Link');
+        const coordName = (strat.core_theater === code ? '★ 中核' : '◎ 連携');
 
-        document.getElementById('country-modal-title').textContent = `Country Intel — ${tgtData.info || code} (${code})`;
+        document.getElementById('country-modal-title').textContent = `国家インテル — ${tgtData.info || code} (${code})`;
 
         const spike    = tgtData.avg_spike   != null ? `${tgtData.avg_spike.toFixed(2)}x` : '—';
         const shareL3  = tgtData.global_share_l3 != null ? `${tgtData.global_share_l3.toFixed(2)}%` : '—';
         const shareL7  = tgtData.global_share_l7 != null ? `${tgtData.global_share_l7.toFixed(2)}%` : '—';
-        const shift    = tgtData.is_vector_shift ? '<span class="cip-warn">L7 SHIFT</span>' : '<span style="color:#555">None</span>';
+        const shift    = tgtData.is_vector_shift ? '<span class="cip-warn">L7 シフト</span>' : '<span style="color:#555">なし</span>';
         
         const iodaSt   = intel.ioda_status || 'NORMAL';
         const isEffDeg = intel.is_bgp_degraded;
         let iodaCol = 'cip-ok';
-        let iodaTxt = `🟢 NORMAL`;
+        let iodaTxt = `🟢 正常`;
         if (iodaSt === "BGP_OUTAGE") {
             if (isEffDeg) {
                 iodaCol = 'cip-alert';
-                iodaTxt = `🔴 OUTAGE`;
+                iodaTxt = `🔴 障害`;
             } else {
                 iodaCol = 'cip-warn';
-                iodaTxt = `🟠 OUTAGE (Weather Muted)`;
+                iodaTxt = `🟠 障害（気象ノイズ除外）`;
             }
         }
 
@@ -4355,14 +4355,14 @@
             .sort((a, b) => b.spike_factor - a.spike_factor)).slice(0, 5);
         const srcHtml = sortedSrc.length
             ? `<ul class="cip-sources-list">${sortedSrc.map(s =>
-                `<li><span>${s.name} [${s.code}]${s.is_state_asn ? ' <b style="color:#ff4444">STATE-ASN</b>' : ''}</span>
-                <span style="color:#ffaa00">spike ${s.spike_factor}x</span></li>`
+                `<li><span>${s.name} [${s.code}]${s.is_state_asn ? ' <b style="color:#ff4444">国家系ASN</b>' : ''}</span>
+                <span style="color:#ffaa00">スパイク ${s.spike_factor}x</span></li>`
               ).join('')}</ul>`
-            : '<span style="color:#555;font-size:12px;">No significant sources</span>';
+            : '<span style="color:#555;font-size:12px;">主要攻撃元なし</span>';
 
         const wx     = intel.weather || {};
         const wxTxt  = wx.condition
-            ? `${wx.condition} — ${wx.description || ''} (wind ${wx.wind_speed || 0}m/s)`
+            ? `${wx.condition} — ${wx.description || ''} (風速 ${wx.wind_speed || 0}m/s)`
             : '—';
         const wxSev  = wx.severity || 'NORMAL';
         const wxCol  = wxSev === 'SEVERE' ? 'cip-alert' : wxSev === 'MODERATE' ? 'cip-warn' : 'cip-ok';
@@ -4397,52 +4397,52 @@
             <div class="cip-flag">🌐</div>
             <div>
                 <div class="cip-title">${tgtData.info || code}</div>
-                <div class="cip-code">${code} &nbsp;|&nbsp; ${coordName} &nbsp;|&nbsp; Global share L3: ${shareL3} / L7: ${shareL7}</div>
+                <div class="cip-code">${code} &nbsp;|&nbsp; ${coordName} &nbsp;|&nbsp; グローバルシェア L3: ${shareL3} / L7: ${shareL7}</div>
             </div>
         </div>
 
         <div class="cip-section">
-            <div class="cip-section-title">🔵 Cyber Domain — DDoS Telemetry</div>
+            <div class="cip-section-title">🔵 サイバードメイン — DDoSテレメトリ</div>
             <div class="cip-grid">
                 <div class="cip-card">
-                    <div class="cip-card-label">Avg Spike</div>
+                    <div class="cip-card-label">平均スパイク</div>
                     <div class="cip-card-value">${spike}</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">L7 Vector Shift</div>
+                    <div class="cip-card-label">L7ベクターシフト</div>
                     <div class="cip-card-value">${shift}</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">Infra Outage (IODA)</div>
+                    <div class="cip-card-label">インフラ障害 (IODA)</div>
                     <div class="cip-card-value ${iodaCol}">${iodaTxt}</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">Prefix Routing (RIPE)</div>
+                    <div class="cip-card-label">BGPルーティング (RIPE)</div>
                     <div class="cip-card-value ${bgpCol}">${bgpTxt}</div>
                     <div class="cip-card-sub">${bgpLbl}</div>
                 </div>
             </div>
             <div class="cip-card" style="margin-top:6px;">
-                <div class="cip-card-label">Top Attack Sources (by spike)</div>
+                <div class="cip-card-label">主要攻撃元（スパイク順）</div>
                 ${srcHtml}
             </div>
         </div>
 
         <div class="cip-section">
-            <div class="cip-section-title">🟠 Physical Domain — Infrastructure</div>
+            <div class="cip-section-title">🟠 物理ドメイン — インフラ</div>
             <div class="cip-grid">
                 <div class="cip-card">
-                    <div class="cip-card-label">Weather</div>
+                    <div class="cip-card-label">気象</div>
                     <div class="cip-card-value ${wxCol}" style="font-size:12px;">${wxTxt}</div>
                     <div class="cip-card-sub">${wxSev}</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">Airspace (${air.airport || '?'})</div>
+                    <div class="cip-card-label">空域 (${air.airport || '?'})</div>
                     <div class="cip-card-value ${airCol}" style="font-size:12px;">${airTxt}</div>
                     <div class="cip-card-sub">${airLbl}${air.drop_pct != null ? ' — drop ' + air.drop_pct + '%' : ''}</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">IXP Nodes</div>
+                    <div class="cip-card-label">IXPノード</div>
                     <div class="cip-card-value">${ixpCnt}</div>
                     <div class="cip-card-sub" style="font-size:10px;">${ixpNames}</div>
                 </div>
@@ -4450,17 +4450,17 @@
         </div>
 
         <div class="cip-section">
-            <div class="cip-section-title">🟣 Info Domain — Media Tone (GDELT)</div>
+            <div class="cip-section-title">🟣 情報ドメイン — メディアトーン (GDELT)</div>
             <div class="cip-grid">
                 <div class="cip-card">
-                    <div class="cip-card-label">Current Tone</div>
+                    <div class="cip-card-label">現在のトーン</div>
                     <div class="cip-card-value ${gdCol}">${gdTone}</div>
-                    <div class="cip-card-sub">Baseline (28d): ${gdBase} &nbsp; Δ ${gdDelta}</div>
+                    <div class="cip-card-sub">ベースライン (28日): ${gdBase} &nbsp; Δ ${gdDelta}</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">Alert Status</div>
+                    <div class="cip-card-label">アラート状態</div>
                     <div class="cip-card-value ${gdCol}">${gdLbl}</div>
-                    <div class="cip-card-sub">Threshold: ${-15.0}</div>
+                    <div class="cip-card-sub">しきい値: ${-15.0}</div>
                 </div>
             </div>
         </div>
@@ -4483,47 +4483,47 @@
             const isrTxt = isrCnt !== null ? isrCnt + ' ac' : '—';
             const isrCol = isrCnt >= 3 ? 'cip-warn' : 'cip-ok';
             const aisCnt = p8.ais ? (p8.ais.dark_gaps || 0) : null;
-            const aisTxt = aisCnt !== null ? aisCnt + ' vessels' : '—';
+            const aisTxt = aisCnt !== null ? aisCnt + ' 隻' : '—';
             const aisCol = aisCnt >= 1 ? 'cip-warn' : 'cip-ok';
             const seqSt  = p8.sequence_status || '';
-            const seqTxt = seqSt.includes('FULL_CHAIN') ? 'FULL CHAIN'
-                         : seqSt.includes('PARTIAL')    ? 'PARTIAL' : 'NO CHAIN';
+            const seqTxt = seqSt.includes('FULL_CHAIN') ? 'チェーン完全'
+                         : seqSt.includes('PARTIAL')    ? '部分確認' : 'チェーンなし';
             const seqCol = seqSt.includes('FULL_CHAIN') ? 'cip-alert'
                          : seqSt.includes('PARTIAL')    ? 'cip-warn' : 'cip-ok';
             const ambushBadge = p8.is_ambush
-                ? '<div style="margin-top:6px; padding:4px 8px; background:rgba(255,34,0,0.1); border-left:3px solid #ff2200; border-radius:0 4px 4px 0; font-size:10px; color:#ff4444; font-weight:bold;">⚡ AMBUSH PATTERN ACTIVE</div>' : '';
+                ? '<div style="margin-top:6px; padding:4px 8px; background:rgba(255,34,0,0.1); border-left:3px solid #ff2200; border-radius:0 4px 4px 0; font-size:10px; color:#ff4444; font-weight:bold;">⚡ 待伏パターン検知</div>' : '';
             return `<div class="cip-section">
-            <div class="cip-section-title">⚡ Predictive Indicators <span style="color:#555;font-size:9px;font-weight:normal;">(theater: ${p8Theater})</span></div>
+            <div class="cip-section-title">⚡ 予測インジケータ <span style="color:#555;font-size:9px;font-weight:normal;">(担当正面: ${p8Theater})</span></div>
             <div class="cip-grid">
                 <div class="cip-card">
-                    <div class="cip-card-label">Escalation Velocity</div>
+                    <div class="cip-card-label">エスカレーション速度</div>
                     <div class="cip-card-value">${velTxt}</div>
-                    <div class="cip-card-sub">1st derivative / cycle</div>
+                    <div class="cip-card-sub">1次微分 / サイクル</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">Blockade Index</div>
+                    <div class="cip-card-label">封鎖指数</div>
                     <div class="cip-card-value ${biCol}">${biTxt}</div>
-                    <div class="cip-card-sub">DDoS / net reachability</div>
+                    <div class="cip-card-sub">DDoS / ネット到達性</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">Narrative Z-Score</div>
+                    <div class="cip-card-label">ナラティブ Zスコア</div>
                     <div class="cip-card-value ${nzCol}">${nzTxt}</div>
-                    <div class="cip-card-sub">30d baseline</div>
+                    <div class="cip-card-sub">30日ベースライン</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">ISR Aircraft</div>
+                    <div class="cip-card-label">ISR 航空機</div>
                     <div class="cip-card-value ${isrCol}">${isrTxt}</div>
-                    <div class="cip-card-sub">High-alt recon</div>
+                    <div class="cip-card-sub">高高度偵察</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">AIS Dark Gaps</div>
+                    <div class="cip-card-label">AIS 消灯区間</div>
                     <div class="cip-card-value ${aisCol}">${aisTxt}</div>
-                    <div class="cip-card-sub">Transponder blackouts</div>
+                    <div class="cip-card-sub">トランスポンダ途絶</div>
                 </div>
                 <div class="cip-card">
-                    <div class="cip-card-label">Sequence Chain</div>
+                    <div class="cip-card-label">シーケンスチェーン</div>
                     <div class="cip-card-value ${seqCol}">${seqTxt}</div>
-                    <div class="cip-card-sub">24h window</div>
+                    <div class="cip-card-sub">24時間ウィンドウ</div>
                 </div>
             </div>${ambushBadge}
         </div>`;
@@ -4559,12 +4559,12 @@
                     ? `<span class="rat-score-pos">+${e.score}</span>`
                     : `<span class="rat-score-zero">0</span>`;
                 const reasonText = e.suppressed
-                    ? `<span style="color:#ffaa00">SUPPRESSED: ${e.suppress_reason || ''}</span>`
+                    ? `<span style="color:#ffaa00">抑制中: ${e.suppress_reason || ''}</span>`
                     : (e.fired_reason || '<span style="color:#444">—</span>');
-                
+
                 // Inject MUTE / UNMUTE button
                 const isMuted = mutedSensors.has(e.sensor);
-                const muteBtnTxt = isMuted ? 'UNMUTE' : 'MUTE';
+                const muteBtnTxt = isMuted ? 'ミュート解除' : 'ミュート';
                 const muteBtnStyle = isMuted ? 'color:#ffaa00; border-color:#ffaa00;' : 'color:#555; border-color:#555;';
                 const muteBtn = `<button onclick="toggleMute('${e.sensor}')" style="background:transparent; border:1px solid; border-radius:3px; font-size:9px; cursor:pointer; margin-left:8px; transition:0.2s; ${muteBtnStyle}">${muteBtnTxt}</button>`;
 
@@ -4578,7 +4578,7 @@
                 </tr>`;
             }).join('');
         } else {
-            tbody.innerHTML = '<tr><td colspan="6" style="color:#555; text-align:center;">No rationale data available.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="color:#555; text-align:center;">根拠データなし。</td></tr>';
         }
 
         openModal('evidence-modal');
@@ -4592,7 +4592,7 @@
             const sensors = data.sensors || [];
 
             if (sensors.length === 0) {
-                container.innerHTML = '<div style="color:#555;">No sensors registered.</div>';
+                container.innerHTML = '<div style="color:#555;">登録済みセンサーなし。</div>';
                 return;
             }
 
@@ -4600,7 +4600,7 @@
                 const phaseNote = '';
                 const healthCls = `sensor-health-${s.health}`;
                 const toggleCls = s.enabled ? 'active' : '';
-                const toggleTxt = s.enabled ? 'Enabled' : 'Disabled';
+                const toggleTxt = s.enabled ? '有効' : '無効';
                 const pollMin   = Math.round(s.poll_interval_sec / 60);
                 return `<div class="sensor-row">
                     <span class="sensor-name">${s.name}</span>
@@ -4615,7 +4615,7 @@
                 </div>`;
             }).join('');
         } catch (e) {
-            container.innerHTML = `<div style="color:#ff2a2a;">Failed to load sensor config: ${e.message}</div>`;
+            container.innerHTML = `<div style="color:#ff2a2a;">センサー設定の読み込みに失敗: ${e.message}</div>`;
         }
     }
 
@@ -4628,7 +4628,7 @@
             });
             const data = await res.json();
             if (data.ok) {
-                btn.textContent = data.enabled ? 'Enabled' : 'Disabled';
+                btn.textContent = data.enabled ? '有効' : '無効';
                 btn.className = 'sensor-toggle' + (data.enabled ? ' active' : '');
             }
         } catch (e) {
@@ -4638,7 +4638,7 @@
 
     async function openSitrep() {
         openModal('sitrep-modal');
-        document.getElementById('sitrep-text').textContent = 'Loading…';
+        document.getElementById('sitrep-text').textContent = '読み込み中…';
         document.getElementById('sitrep-summary').innerHTML = '';
         try {
             const [sitrepRes, timelineRes] = await Promise.all([
@@ -4652,10 +4652,10 @@
             const threatColor = d => ['','#ff0000','#ff2a2a','#ffaa00','#ffff00','#66ff66'][d] || '#888';
             const trendIcon   = t => t === 'ESCALATING' ? '▲' : t === 'DE-ESCALATING' ? '▼' : '—';
             const cards = [
-                { label: 'THREAT NOW', value: `Lv ${s.threat_current || '—'}`, sub: `Trend: ${trendIcon(s.threat_trend)} ${s.threat_trend || '—'}`, color: threatColor(s.threat_current) },
-                { label: 'THREAT 1h RANGE', value: `Lv ${s.threat_min_1h || '—'}–${s.threat_max_1h || '—'}`, sub: `Avg: ${s.threat_avg_1h || '—'}`, color: '#aaa' },
-                { label: 'CONVERGENCE', value: (s.convergence || 'NONE').replace(/_/g,' '), sub: `Domains: ${(s.active_domains || []).join(', ') || 'None'}`, color: s.convergence === 'FULL_CONVERGENCE' ? '#ff2a2a' : s.convergence === 'DUAL_DOMAIN' ? '#ffaa00' : '#888' },
-                { label: 'HISTORY', value: `${s.cycle_count || 0} cycles`, sub: `${Math.round((s.span_minutes || 0) / 60 * 10) / 10}h window`, color: '#555' },
+                { label: '現在の脅威', value: `Lv ${s.threat_current || '—'}`, sub: `推移: ${trendIcon(s.threat_trend)} ${s.threat_trend || '—'}`, color: threatColor(s.threat_current) },
+                { label: '直近1時間の脅威範囲', value: `Lv ${s.threat_min_1h || '—'}–${s.threat_max_1h || '—'}`, sub: `平均: ${s.threat_avg_1h || '—'}`, color: '#aaa' },
+                { label: '収束状態', value: (s.convergence || 'NONE').replace(/_/g,' '), sub: `ドメイン: ${(s.active_domains || []).join(', ') || 'なし'}`, color: s.convergence === 'FULL_CONVERGENCE' ? '#ff2a2a' : s.convergence === 'DUAL_DOMAIN' ? '#ffaa00' : '#888' },
+                { label: '履歴', value: `${s.cycle_count || 0} サイクル`, sub: `${Math.round((s.span_minutes || 0) / 60 * 10) / 10}時間ウィンドウ`, color: '#555' },
             ];
             document.getElementById('sitrep-summary').innerHTML = cards.map(c =>
                 `<div class="sitrep-card">
@@ -4665,14 +4665,14 @@
                 </div>`
             ).join('');
 
-            document.getElementById('sitrep-text').textContent = sitrep.text || 'No data.';
+            document.getElementById('sitrep-text').textContent = sitrep.text || 'データなし。';
 
             const entries = timeline.timeline || [];
             const canvas  = document.getElementById('sitrep-timeline-canvas');
             drawThreatTimeline(canvas, entries);
 
         } catch(e) {
-            document.getElementById('sitrep-text').textContent = `Error: ${e.message}`;
+            document.getElementById('sitrep-text').textContent = `エラー: ${e.message}`;
         }
     }
 
@@ -4880,7 +4880,7 @@
         const pad  = n => String(n).padStart(2, '0');
         const zulu = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())}Z`;
         zEl.textContent = zulu;
-        if (lEl) lEl.textContent = 'LOCAL: ' + now.toLocaleTimeString();
+        if (lEl) lEl.textContent = '現地時刻: ' + now.toLocaleTimeString();
         if (dEl) {
             const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
             dEl.textContent = `${now.getUTCDate()} ${months[now.getUTCMonth()]} ${now.getUTCFullYear()} UTC`;
@@ -4889,7 +4889,7 @@
             const ms   = Date.now() - _lastEventTs;
             const mins = Math.floor(ms / 60000);
             const secs = Math.floor((ms % 60000) / 1000);
-            sEl.textContent = `LAST EVENT: ${mins}m ${secs}s ago`;
+            sEl.textContent = `最終イベント: ${mins}分${secs}秒前`;
         }
     }
 
@@ -4933,16 +4933,16 @@
                 maritime: 'wb-domain-physical', infra: 'wb-domain-physical', air: ''
             };
             const STATE_COLOR = {
-                'CLEAR':'#00cc66','CLEAR PASSAGE':'#00cc66','CLEAR SKIES':'#00cc66',
-                'STEADY STATE':'#00cc66','NOMINAL':'#00cc66',
-                'ELEVATED SWELL':'#cccc00','OBSERVED — ROUTINE ISR PATTERN':'#cccc00',
-                'ELEVATED — POLITICAL NOISE LEVEL':'#cccc00','RESTRICTED WATERS — OBSTACLE':'#cccc00',
-                'ACTIVE STORM FRONT':'#cc8800','REDUCED VISIBILITY — PATCHY FOG':'#cc8800',
-                'ELEVATED PRESSURE — BUILDING STORM':'#cc8800','SEVERE — SUSTAINED PRESSURE':'#cc8800',
-                'MAJOR STORM':'#cc4400','ZERO VISIBILITY — DENSE FOG':'#cc4400',
-                'ACTIVE — FULL ISR DEPLOYMENT':'#cc4400',
-                'RAPID INTENSIFICATION':'#ff2200','INFORMATION STORM — HURRICANE FORCE':'#ff2200',
-                'CATASTROPHIC — INFRASTRUCTURE COLLAPSE':'#ff2200',
+                '平穏 — 異常なし':'#00cc66','通過良好 — 異常なし':'#00cc66','晴天 — ISR集中なし':'#00cc66',
+                '定常状態 — 通常範囲内':'#00cc66','正常 — 安定':'#00cc66',
+                'うねり上昇中':'#cccc00','観測 — 通常ISRパターン':'#cccc00',
+                '上昇 — 政治的ノイズレベル':'#cccc00','制限水域 — 障害物検出':'#cccc00',
+                '嵐の前線活発化':'#cc8800','視界低下 — 断続的霧':'#cc8800',
+                '上昇気圧 — 嵐発達中':'#cc8800','深刻 — 持続的圧力':'#cc8800',
+                '大規模サイバー嵐':'#cc4400','視界ゼロ — 濃霧':'#cc4400',
+                '活発 — ISR全面展開':'#cc4400',
+                '急速強化中 — 指数的上昇':'#ff2200','情報嵐 — ハリケーン級':'#ff2200',
+                '壊滅的 — インフラ崩壊':'#ff2200',
             };
             bodyEl.innerHTML = Object.entries(brief).map(([key, v]) => {
                 const icon  = DOMAIN_ICON[key] || '●';
@@ -4959,7 +4959,7 @@
             }).join('');
             if (sumEl) sumEl.textContent = wb.summary || '';
         } catch(e) {
-            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API unavailable</div>';
+            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API 利用不可</div>';
         }
     }
 
@@ -4995,12 +4995,12 @@
             const res = await fetch('http://127.0.0.1:8000/api/salute_report');
             const sal = (await res.json()).report || {};
             const fields = [
-                { k:'S', l:'SIZE',     v: sal.size      || '—' },
-                { k:'A', l:'ACTIVITY', v: sal.activity  || '—' },
-                { k:'L', l:'LOCATION', v: sal.location  || '—' },
-                { k:'U', l:'UNIT',     v: sal.unit       || '—' },
-                { k:'T', l:'TIME',     v: sal.time       || '—' },
-                { k:'E', l:'EQUIP',    v: sal.equipment  || '—' },
+                { k:'S', l:'規模',   v: sal.size      || '—' },
+                { k:'A', l:'活動',   v: sal.activity  || '—' },
+                { k:'L', l:'位置',   v: sal.location  || '—' },
+                { k:'U', l:'部隊',   v: sal.unit       || '—' },
+                { k:'T', l:'時刻',   v: sal.time       || '—' },
+                { k:'E', l:'装備',   v: sal.equipment  || '—' },
             ];
             bodyEl.innerHTML = fields.map(f =>
                 `<div class="s-row">
@@ -5011,7 +5011,7 @@
             ).join('') + (sal.assessment
                 ? `<div class="s-assess">${sal.assessment}</div>` : '');
         } catch(e) {
-            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API unavailable</div>';
+            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API 利用不可</div>';
         }
     }
 
@@ -5046,7 +5046,7 @@
         }
 
         if (!_histEvents.length || !latestData || !(latestData.threat_history || []).length) {
-            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">Accumulating data...</div>';
+            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">データ蓄積中...</div>';
             return;
         }
 
@@ -5086,7 +5086,7 @@
                 <div class="ha-bar"><div class="ha-bar-fill" style="width:${pct}%; background:${col};"></div></div>
                 <canvas id="${cid}" class="ha-canvas" width="241" height="32"></canvas>
             </div>`;
-        }).join('') + '<div class="ha-note">PEARSON R — LAST 20 CYCLES vs KNOWN EVENTS</div>';
+        }).join('') + '<div class="ha-note">ピアソン相関係数 — 直近20サイクル vs 既知イベント</div>';
 
         // Draw mini-graph for each card (current=cyan, historical=dim color)
         requestAnimationFrame(() => {
@@ -5141,16 +5141,16 @@
         wrap.classList.add('active');
         if (isQuiet) {
             dot.className = 'rs-dot rs-dot-quiet';
-            txt.textContent  = 'QUIET';
+            txt.textContent  = '静寂';
             txt.style.color  = '#ff8800';
             wrap.setAttribute('data-tooltip',
-                'RADIO SILENCE: Score ≥3 but velocity=0.\nPossible sensor suppression or pre-op comms blackout.\nHITL verification recommended.');
+                '無線封鎖: スコア≥3だが速度=0。\nセンサー抑制または作戦前通信封鎖の可能性あり。\nアナリストによる確認を推奨。');
         } else {
             dot.className = 'rs-dot rs-dot-live';
-            txt.textContent  = 'LIVE';
+            txt.textContent  = 'ライブ';
             txt.style.color  = '#00ff88';
             wrap.setAttribute('data-tooltip',
-                'COMMS LIVE: All sensors reporting normally. No abnormal silence detected.');
+                '通信活発: 全センサー正常報告中。異常な静寂なし。');
         }
     }
 
@@ -5187,7 +5187,7 @@
         try {
             const res  = await fetch('http://127.0.0.1:8000/api/data_status');
             const data = await res.json();
-            tsEl.textContent = `Last refreshed: ${new Date(data.ts).toLocaleTimeString()}`;
+            tsEl.textContent = `最終更新: ${new Date(data.ts).toLocaleTimeString()}`;
 
             const domainColor = { cyber: '#00ffff', physical: '#ffaa00', info: '#cc66ff' };
 
@@ -5206,7 +5206,7 @@
                 const errMsg   = last && last.error ? `<div style="color:#ff4444;font-size:10px;margin-bottom:4px;">${last.error}</div>` : '';
 
                 const histBar = (s.fetch_log || []).map(e =>
-                    `<span style="display:inline-block;width:8px;height:16px;margin:0 1px;vertical-align:middle;border-radius:2px;background:${e.success ? '#66ff66' : '#ff4444'}44;border:1px solid ${e.success ? '#66ff66' : '#ff4444'};" data-tooltip="${new Date(e.ts).toLocaleTimeString()}\nStatus: ${e.success ? 'OK' : 'ERROR'}\n${e.error || ''}"></span>`
+                    `<span style="display:inline-block;width:8px;height:16px;margin:0 1px;vertical-align:middle;border-radius:2px;background:${e.success ? '#66ff66' : '#ff4444'}44;border:1px solid ${e.success ? '#66ff66' : '#ff4444'};" data-tooltip="${new Date(e.ts).toLocaleTimeString()}\nステータス: ${e.success ? 'OK' : 'エラー'}\n${e.error || ''}"></span>`
                 ).join('');
 
                 return `
@@ -5218,19 +5218,19 @@
                         <span style="margin-left:auto;font-size:11px;color:#555;">poll: ${Math.round(s.poll_interval_sec/60)}min</span>
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px;color:#888;margin-bottom:6px;">
-                        <div>Last fetch<br><b style="color:#ccc;">${successIcon} ${lastTs}</b></div>
-                        <div>Duration<br><b style="color:#ccc;">${duration}</b></div>
-                        <div>HTTP Status<br><b style="color:#ccc;">${httpSt}</b></div>
-                        <div>Cache Age<br><b style="color:#ccc;">${cacheAge}</b></div>
+                        <div>最終取得<br><b style="color:#ccc;">${successIcon} ${lastTs}</b></div>
+                        <div>所要時間<br><b style="color:#ccc;">${duration}</b></div>
+                        <div>HTTPステータス<br><b style="color:#ccc;">${httpSt}</b></div>
+                        <div>キャッシュ経過<br><b style="color:#ccc;">${cacheAge}</b></div>
                     </div>
                     ${errMsg}
                     <div style="font-size:10px;color:#555;margin-top:4px;">
-                        History (newest →): ${histBar || '<span style="color:#333;">no data yet</span>'}
+                        履歴（新しい順→）: ${histBar || '<span style="color:#333;">データなし</span>'}
                     </div>
                 </div>`;
             }).join('');
         } catch (e) {
-            container.innerHTML = `<div style="color:#ff2a2a;">Failed to load fetch log: ${e.message}</div>`;
+            container.innerHTML = `<div style="color:#ff2a2a;">フェッチログの読み込みに失敗: ${e.message}</div>`;
         }
     }
 </script>
