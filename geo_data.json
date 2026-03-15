@@ -3352,6 +3352,9 @@
       "label": "Russia / CSTO",
       "color": "#ff4444",
       "adversary": "RU",
+      "proxy_adversaries": [
+        {"code": "BY", "label": "Belarus (RU proxy)", "color": "#ff4444"}
+      ],
       "categories": [
         {"key": "eastern_front",  "label": "Eastern Front",         "theaters": ["UA","MD"]},
         {"key": "csto",           "label": "CSTO / Post-Soviet",    "theaters": ["BY","GE","AM","AZ","KZ","KG","TJ","UZ"]},

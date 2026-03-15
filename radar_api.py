@@ -2257,12 +2257,19 @@ def app_config():
         "default_pins": DEFAULT_PINS,
         "strategic_blocs": STRATEGIC_BLOCS,
         "country_bloc_tags": COUNTRY_BLOC_TAGS,
-        # Adversary options: only nation-states that conduct systematic cyber operations
+        # Adversary options: primary nation-state actors + proxy adversaries defined per bloc.
+        # Proxy adversaries (e.g. Belarus/BY under RUSSIA) have independent cyber operation
+        # capability but are not top-level blocs — they are declared in geo_data.json under
+        # their parent bloc's "proxy_adversaries" field to keep schema and code in sync.
         "adversary_options": [
             {"code": bloc["adversary"], "bloc": bloc_key, "label": bloc["label"], "color": bloc["color"]}
             for bloc_key, bloc in STRATEGIC_BLOCS.items()
             if "adversary" in bloc
-        ] + [{"code": "BY", "bloc": "RUSSIA", "label": "Belarus (RU proxy)", "color": "#ff4444"}],
+        ] + [
+            {"code": p["code"], "bloc": bloc_key, "label": p["label"], "color": p["color"]}
+            for bloc_key, bloc in STRATEGIC_BLOCS.items()
+            for p in bloc.get("proxy_adversaries", [])
+        ],
         "available_countries": [
             {"code": code, "name": info["name"], "region": COUNTRY_REGIONS.get(code, "Other"),
              "lat": info["lat"], "lng": info["lng"]}
