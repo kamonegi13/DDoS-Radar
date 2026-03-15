@@ -3358,6 +3358,7 @@
         {"key": "nato_east",      "label": "NATO Eastern Flank",    "theaters": ["PL","LT","LV","EE","FI","NO","SE","DK"]},
         {"key": "western_eu",     "label": "Western Europe / EU",   "theaters": ["DE","FR","GB","BE","NL","IT","ES","PT","CZ","SK","HU","RO","AT","CH","BG","HR","RS","GR","SI","MK","ME","AL","BA","IS","CY","MT","LU","XK","IE","TR"]},
         {"key": "north_america",  "label": "North America",         "theaters": ["US","CA"]},
+        {"key": "far_east",       "label": "Far East / Pacific",    "theaters": ["JP","KR"]},
         {"key": "africa_wagner",  "label": "Africa (Wagner)",       "theaters": ["LY","ML","SD"]}
       ]
     },
