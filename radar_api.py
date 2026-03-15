@@ -2257,9 +2257,12 @@ def app_config():
         "default_pins": DEFAULT_PINS,
         "strategic_blocs": STRATEGIC_BLOCS,
         "country_bloc_tags": COUNTRY_BLOC_TAGS,
-        # Adversary options: primary nation-state actors + proxy adversaries defined per bloc.
-        # Proxy adversaries (e.g. Belarus/BY under RUSSIA) have independent cyber operation
-        # capability but are not top-level blocs — they are declared in geo_data.json under
+        # Adversary options: hostile state actors monitored from a Western/allied-nation perspective.
+        # Scope is intentionally limited to states formally designated as threats by US/EU/Japan/Five Eyes:
+        # RU (Russia), CN (China), IR (Iran), KP (North Korea), BY (Belarus/RU proxy).
+        # States with offensive cyber capability that are allies or partners (US, UK, IL, AU, etc.)
+        # are excluded by design — this system monitors threats TO the allied network, not FROM it.
+        # Proxy adversaries (e.g. BY under RUSSIA) are declared in geo_data.json under
         # their parent bloc's "proxy_adversaries" field to keep schema and code in sync.
         "adversary_options": [
             {"code": bloc["adversary"], "bloc": bloc_key, "label": bloc["label"], "color": bloc["color"]}
