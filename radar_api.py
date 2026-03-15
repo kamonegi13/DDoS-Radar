@@ -2971,6 +2971,61 @@ def get_threat_data():
         "threat_history":  list(threat_history),
     })
 
+@app.route("/api/env_config", methods=["GET"])
+def api_env_config_get():
+    """Read config.env and return all key=value pairs as JSON (excluding comments)."""
+    config = {}
+    try:
+        with open("config.env", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                config[key] = val
+    except FileNotFoundError:
+        return jsonify({"error": "config.env not found"}), 404
+    return jsonify(config)
+
+
+@app.route("/api/env_config", methods=["POST"])
+def api_env_config_post():
+    """Write updated key=value pairs to config.env, preserving comments and structure."""
+    updates = request.json or {}
+    if not updates:
+        return jsonify({"error": "No data provided"}), 400
+    try:
+        with open("config.env", encoding="utf-8") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        return jsonify({"error": "config.env not found"}), 404
+
+    updated_keys = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key, _, _ = stripped.partition("=")
+            key = key.strip()
+            if key in updates:
+                # Preserve any inline comment on the same line
+                original_val_part = line.split("=", 1)[1]
+                inline_comment = ""
+                if "  #" in original_val_part:
+                    inline_comment = "  " + original_val_part.split("  #", 1)[1].rstrip("\n")
+                new_lines.append(f"{key}={updates[key]}{inline_comment}\n")
+                updated_keys.add(key)
+                continue
+        new_lines.append(line)
+
+    with open("config.env", "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
+
+    return jsonify({"ok": True, "updated": sorted(updated_keys)})
+
+
 @app.route("/api/sensor_config", methods=["GET", "POST"])
 def sensor_config():
     if request.method == "GET": return jsonify({"sensors": registry.config_list(), "domain_weights": engine.DOMAIN_WEIGHTS})
