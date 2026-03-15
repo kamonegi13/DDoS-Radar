@@ -242,6 +242,25 @@
         .guide-chapter { display:none; grid-column:2; grid-row:2; }
         .guide-chapter.active { display:block; overflow-y:auto; border-top:1px solid #1a2a2a; padding-top:10px; }
         .code-block { display: inline-block; background: #222; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', Courier, monospace; color: #00ffff; font-size: 12px; border: 1px solid #444; margin: 2px 0;}
+        /* System Config tab ─────────────────────────── */
+        .env-section-title { font-size:10px; text-transform:uppercase; letter-spacing:1.5px; color:#00ffff; border-bottom:1px solid #1a3a3a; padding-bottom:4px; margin:14px 0 8px; }
+        .env-section-title:first-child { margin-top:0; }
+        .env-field { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+        .env-field label { font-size:10px; color:#888; min-width:220px; flex-shrink:0; }
+        .env-field label span.req { color:#ff6644; margin-left:3px; }
+        .env-field label span.opt { color:#556; margin-left:3px; }
+        .env-input { flex:1; background:#0d1a0d; border:1px solid #1a3a2a; color:#ccc; font-family:'Courier New',monospace; font-size:11px; padding:3px 7px; border-radius:2px; min-width:0; }
+        .env-input:focus { outline:none; border-color:#00ffff44; background:#0f1f10; }
+        .env-input.wide { width:100%; }
+        .env-adv-toggle { background:transparent; border:1px solid #1a3a3a; color:#556; font-size:10px; padding:4px 10px; cursor:pointer; font-family:inherit; letter-spacing:0.5px; margin:10px 0 4px; transition:color 0.15s,border-color 0.15s; }
+        .env-adv-toggle:hover { color:#00ffff; border-color:#00ffff44; }
+        .env-adv-section { display:none; }
+        .env-adv-section.open { display:block; }
+        .env-save-row { display:flex; align-items:center; gap:12px; margin-top:14px; border-top:1px solid #1a2a1a; padding-top:10px; }
+        .env-status { font-size:11px; }
+        .env-status.ok { color:#00cc66; }
+        .env-status.err { color:#ff4444; }
+        .env-restart-note { font-size:10px; color:#556; margin-top:6px; }
         .hl-red { color: #ff2a2a; font-weight: bold; }
         .hl-green { color: #66ff66; font-weight: bold; }
         .hl-orange { color: #ffaa00; font-weight: bold; }
@@ -844,6 +863,7 @@
         <div class="tab" onclick="switchTab('pins')" data-i18n="modal.settings.tab.pins">Quick Pins</div>
         <div class="tab" onclick="switchTab('sensors'); loadSensorConfig()" data-i18n="modal.settings.tab.sensors">Sensors</div>
         <div class="tab" onclick="switchTab('fetchlog'); loadFetchLog()" data-i18n="modal.settings.tab.fetchlog">Fetch Log</div>
+        <div class="tab" onclick="switchTab('sysconfig'); loadEnvConfig()">System</div>
     </div>
     <div class="modal-main-area">
         <div class="modal-content-panel">
@@ -904,6 +924,231 @@
                 </div>
             </div>
         </div>
+            <div id="tab-sysconfig" class="tab-content">
+                <div class="help-text" style="margin-bottom:8px;">
+                    Edit <span class="code-block">config.env</span> settings. Changes are written to disk and take effect after server restart.
+                </div>
+
+                <!-- ── General Settings ─────────────────────────────── -->
+                <div style="flex:1;min-height:0;overflow-y:auto;" id="sysconfig-scroll">
+
+                <div class="env-section-title">API Keys</div>
+
+                <div class="env-field">
+                    <label>Cloudflare Radar Token<span class="req">*</span></label>
+                    <input class="env-input" id="ec-CF_API_TOKEN" type="text" autocomplete="off">
+                </div>
+                <div class="env-field">
+                    <label>OpenWeatherMap API Key<span class="req">*</span></label>
+                    <input class="env-input" id="ec-OWM_API_KEY" type="text" autocomplete="off">
+                </div>
+                <div class="env-field">
+                    <label>NASA FIRMS API Key<span class="req">*</span></label>
+                    <input class="env-input" id="ec-NASA_FIRMS_API_KEY" type="text" autocomplete="off">
+                </div>
+                <div class="env-field">
+                    <label>GreyNoise API Key<span class="opt">(optional)</span></label>
+                    <input class="env-input" id="ec-GREYNOISE_API_KEY" type="text" autocomplete="off">
+                </div>
+                <div class="env-field">
+                    <label>ThreatFox API Key<span class="opt">(optional)</span></label>
+                    <input class="env-input" id="ec-THREATFOX_API_KEY" type="text" autocomplete="off">
+                </div>
+                <div class="env-field">
+                    <label>OpenSky Client ID<span class="opt">(optional)</span></label>
+                    <input class="env-input" id="ec-OPENSKY_CLIENT_ID" type="text" autocomplete="off">
+                </div>
+                <div class="env-field">
+                    <label>OpenSky Client Secret<span class="opt">(optional)</span></label>
+                    <input class="env-input" id="ec-OPENSKY_CLIENT_SECRET" type="password" autocomplete="off">
+                </div>
+
+                <div class="env-section-title">Default Scope</div>
+
+                <div class="env-field">
+                    <label>Core Theater</label>
+                    <input class="env-input" id="ec-DEFAULT_CORE" type="text" style="max-width:80px;" placeholder="e.g. TW">
+                </div>
+                <div class="env-field">
+                    <label>Correlates</label>
+                    <input class="env-input" id="ec-DEFAULT_CORRELATES" type="text" placeholder="e.g. JP,US">
+                </div>
+                <div class="env-field">
+                    <label>Adversaries</label>
+                    <input class="env-input" id="ec-DEFAULT_ADVERSARIES" type="text" placeholder="e.g. CN,RU,KP">
+                </div>
+                <div class="env-field">
+                    <label>Quick Pins</label>
+                    <input class="env-input" id="ec-DEFAULT_PINS" type="text" placeholder="e.g. TW,JP,US,AU">
+                </div>
+
+                <div class="env-section-title">Infrastructure Monitoring</div>
+
+                <div class="env-field" style="flex-direction:column;align-items:flex-start;">
+                    <label style="margin-bottom:3px;">Check-Host Nodes</label>
+                    <input class="env-input wide" id="ec-CHECKHOST_NODES" type="text" placeholder="jp1.node.check-host.net,us1.node.check-host.net,...">
+                </div>
+                <div class="env-field" style="flex-direction:column;align-items:flex-start;">
+                    <label style="margin-bottom:3px;">Telegram Attack Keywords</label>
+                    <input class="env-input wide" id="ec-TELEGRAM_ATTACK_KEYWORDS" type="text" placeholder="target,attack,ddos,...">
+                </div>
+
+                <!-- ── Advanced Settings (collapsed) ────────────────── -->
+                <button class="env-adv-toggle" id="env-adv-btn" onclick="toggleEnvAdvanced()">▶ Advanced Settings</button>
+                <div class="env-adv-section" id="env-adv-section">
+
+                <div class="env-section-title">Network / SSL</div>
+                <div class="env-field">
+                    <label>HTTP Proxy</label>
+                    <input class="env-input" id="ec-HTTP_PROXY" type="text" placeholder="http://proxy:8080">
+                </div>
+                <div class="env-field">
+                    <label>HTTPS Proxy</label>
+                    <input class="env-input" id="ec-HTTPS_PROXY" type="text" placeholder="http://proxy:8080">
+                </div>
+                <div class="env-field">
+                    <label>SSL Verification</label>
+                    <select class="env-input" id="ec-SSL_VERIFY" style="max-width:100px;">
+                        <option value="true">Enabled</option>
+                        <option value="false">Disabled</option>
+                    </select>
+                </div>
+
+                <div class="env-section-title">Cache &amp; Polling</div>
+                <div class="env-field">
+                    <label>Cache Expiry (seconds)</label>
+                    <input class="env-input" id="ec-CACHE_EXPIRY" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>OpenSky Min Interval (seconds)</label>
+                    <input class="env-input" id="ec-OPENSKY_MIN_INTERVAL" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Narrative Poll Interval (seconds)</label>
+                    <input class="env-input" id="ec-NARRATIVE_POLL_INTERVAL" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Telegram Poll Interval (seconds)</label>
+                    <input class="env-input" id="ec-TELEGRAM_MIRROR_POLL_INTERVAL" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Check-Host Poll Interval (seconds)</label>
+                    <input class="env-input" id="ec-CHECKHOST_POLL_INTERVAL" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Check-Host Timeout (ms)</label>
+                    <input class="env-input" id="ec-CHECKHOST_TIMEOUT_MS" type="number" style="max-width:90px;">
+                </div>
+
+                <div class="env-section-title">Threat Scoring</div>
+                <div class="env-field">
+                    <label>Airspace Anomaly Threshold (ratio)</label>
+                    <input class="env-input" id="ec-AIRSPACE_ANOMALY_THRESHOLD" type="number" step="0.01" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Airspace Closure Threshold (ratio)</label>
+                    <input class="env-input" id="ec-AIRSPACE_CLOSURE_THRESHOLD" type="number" step="0.01" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Airspace Baseline Window (cycles)</label>
+                    <input class="env-input" id="ec-AIRSPACE_WINDOW" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>GDELT Tone Alert Threshold</label>
+                    <input class="env-input" id="ec-GDELT_TONE_ALERT_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>GDELT History Window (days)</label>
+                    <input class="env-input" id="ec-GDELT_HISTORY_WINDOW" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Dual Convergence Bonus</label>
+                    <input class="env-input" id="ec-CONVERGENCE_DUAL_BONUS" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Full Convergence Bonus</label>
+                    <input class="env-input" id="ec-CONVERGENCE_FULL_BONUS" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Threat Level Hysteresis Cycles</label>
+                    <input class="env-input" id="ec-DEFCON_HYSTERESIS_CYCLES" type="number" style="max-width:90px;">
+                </div>
+
+                <div class="env-section-title">DDoS Acceleration Engine</div>
+                <div class="env-field">
+                    <label>Ambush Z-Score Threshold</label>
+                    <input class="env-input" id="ec-AMBUSH_ZSCORE_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Velocity Derivative Window (cycles)</label>
+                    <input class="env-input" id="ec-DERIVATIVE_WINDOW" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>C2 Sync Delta (ms)</label>
+                    <input class="env-input" id="ec-SYNC_DELTA_MS" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>C2 Sync Score Threshold (0–1)</label>
+                    <input class="env-input" id="ec-SYNC_C2_THRESHOLD" type="number" step="0.01" style="max-width:90px;">
+                </div>
+
+                <div class="env-section-title">Narrative Burst Detector</div>
+                <div class="env-field">
+                    <label>Narrative Alert Z-Score</label>
+                    <input class="env-input" id="ec-NARRATIVE_ZSCORE_ALERT" type="number" step="0.1" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Narrative Critical Z-Score</label>
+                    <input class="env-input" id="ec-NARRATIVE_ZSCORE_CRITICAL" type="number" step="0.1" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Narrative Baseline Days</label>
+                    <input class="env-input" id="ec-NARRATIVE_BASELINE_DAYS" type="number" style="max-width:90px;">
+                </div>
+
+                <div class="env-section-title">Sequence Chain</div>
+                <div class="env-field">
+                    <label>Chain Window (seconds)</label>
+                    <input class="env-input" id="ec-SEQUENCE_WINDOW" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Full Chain Bonus Points</label>
+                    <input class="env-input" id="ec-SEQUENCE_FULL_BONUS" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>Partial Chain Bonus Points</label>
+                    <input class="env-input" id="ec-SEQUENCE_PARTIAL_BONUS" type="number" style="max-width:90px;">
+                </div>
+
+                <div class="env-section-title">Maritime / ISR Sensors</div>
+                <div class="env-field">
+                    <label>AIS Dark Gap Threshold (seconds)</label>
+                    <input class="env-input" id="ec-AIS_DARK_GAP_THRESHOLD" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>AIS Anchor Detection Radius (km)</label>
+                    <input class="env-input" id="ec-AIS_ANCHOR_RADIUS_KM" type="number" step="0.1" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label>ISR Surge Threshold (aircraft)</label>
+                    <input class="env-input" id="ec-ISR_SURGE_THRESHOLD" type="number" style="max-width:90px;">
+                </div>
+                <div class="env-field" style="flex-direction:column;align-items:flex-start;">
+                    <label style="margin-bottom:3px;">ISR ICAO Type Codes</label>
+                    <input class="env-input wide" id="ec-ISR_ICAO_TYPES" type="text" placeholder="RC135,RC-135,E3,...">
+                </div>
+
+                </div><!-- /env-adv-section -->
+
+                <!-- ── Save row ──────────────────────────────────────── -->
+                <div class="env-save-row">
+                    <button onclick="saveEnvConfig()" class="btn-tactical" style="border-color:#00ffff55;color:#00ffff;">Save to config.env</button>
+                    <span id="env-status" class="env-status"></span>
+                </div>
+                <div class="env-restart-note">⚠ Changes take effect after server restart (<span class="code-block">python radar_api.py</span>)</div>
+
+                </div><!-- /sysconfig-scroll -->
+            </div>
         <!-- Region Preview mini-map (hidden for Sensors/Fetchlog tabs) -->
         <div id="modal-map-panel">
             <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px;" data-i18n="modal.minimap.region_preview">Region Preview</div>
@@ -2901,7 +3146,7 @@
         event.target.classList.add('active');
         document.getElementById(`tab-${tabId}`).classList.add('active');
         const mapPanel = document.getElementById('modal-map-panel');
-        const showMap  = ['strategy', 'actors', 'pins'].includes(tabId);
+        const showMap  = ['strategy', 'actors', 'pins'].includes(tabId) && tabId !== 'sysconfig';
         if (mapPanel) mapPanel.style.display = showMap ? 'flex' : 'none';
         if (showMap) {
             _initMinimap();
@@ -5616,6 +5861,64 @@
         } catch (e) {
             container.innerHTML = `<div style="color:#ff2a2a;">${_t('fetchlog.load_error', {msg: e.message})}</div>`;
         }
+    }
+
+    // ── System Config (env_config) ────────────────────────────────────────────
+    async function loadEnvConfig() {
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/env_config');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const cfg = await res.json();
+            // Populate all inputs
+            document.querySelectorAll('[id^="ec-"]').forEach(el => {
+                const key = el.id.replace('ec-', '');
+                if (cfg[key] !== undefined) {
+                    el.value = cfg[key];
+                }
+            });
+            const st = document.getElementById('env-status');
+            if (st) { st.textContent = ''; }
+        } catch(e) {
+            const st = document.getElementById('env-status');
+            if (st) { st.textContent = 'Failed to load: ' + e.message; st.className = 'env-status err'; }
+        }
+    }
+
+    async function saveEnvConfig() {
+        const updates = {};
+        document.querySelectorAll('[id^="ec-"]').forEach(el => {
+            const key = el.id.replace('ec-', '');
+            if (el.value !== '') updates[key] = el.value;
+        });
+        const st = document.getElementById('env-status');
+        if (st) { st.textContent = 'Saving...'; st.className = 'env-status'; }
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/env_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates)
+            });
+            const data = await res.json();
+            if (data.ok) {
+                if (st) {
+                    st.textContent = `✓ Saved (${data.updated.length} keys updated)`;
+                    st.className = 'env-status ok';
+                    setTimeout(() => { if (st) st.textContent = ''; }, 4000);
+                }
+            } else {
+                throw new Error(data.error || 'Unknown error');
+            }
+        } catch(e) {
+            if (st) { st.textContent = '✗ Error: ' + e.message; st.className = 'env-status err'; }
+        }
+    }
+
+    function toggleEnvAdvanced() {
+        const sec = document.getElementById('env-adv-section');
+        const btn = document.getElementById('env-adv-btn');
+        if (!sec || !btn) return;
+        const open = sec.classList.toggle('open');
+        btn.textContent = (open ? '▼' : '▶') + ' Advanced Settings';
     }
 </script>
 
