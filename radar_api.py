@@ -1392,8 +1392,9 @@ class CheckHostSensor(BaseSensor):
                     # error:  [0, 0.0, "Connection refused", "", ""]
                     # individual null entry: single check still pending
                     if chk is None:
-                        # Count as failure — list is present so node was reached
-                        all_count += 1
+                        # Individual check still pending — do NOT count in all_count.
+                        # Treating as failure would dilute success_rate identically to
+                        # the top-level null case fixed above.
                         node_ok[node_label] = "PENDING"
                         continue
                     if not isinstance(chk, list) or len(chk) < 2:
@@ -1958,6 +1959,15 @@ class WeightedConvergenceEngine:
                 "cross-theater sensor liveness unconfirmed"
             )
         return False, "NONE", ""
+
+    @staticmethod
+    def _agg_node_status(statuses: list) -> str:
+        """Worst-case node status aggregation across multiple URL checks.
+        Priority: FAIL > TIMEOUT > OK > PENDING (unknown last)."""
+        if "FAIL"    in statuses: return "FAIL"
+        if "TIMEOUT" in statuses: return "TIMEOUT"
+        if "OK"      in statuses: return "OK"
+        return "PENDING"
 
     @staticmethod
     def compute_blockade_index(ddos_intensity: float, ripe_drop_pct: float,
@@ -2760,19 +2770,15 @@ def get_threat_data():
                 "nodes":               CHECKHOST_NODES,
                 "asphyxiation":        ch_asphyxiation,
                 # Aggregate per-node OK/FAIL across all checked URLs
+                # Aggregate per-node status across all checked URLs.
+                # Uses worst-case: FAIL > TIMEOUT > OK > PENDING
+                # (preserves TIMEOUT/PENDING so the frontend renders correct dot colors)
                 "node_ok": {
-                    node: (
-                        "OK" if all(
-                            url_r.get("node_ok", {}).get(node) == "OK"
-                            for url_r in core_checkhost.get("urls", {}).values()
-                            if isinstance(url_r, dict) and node in url_r.get("node_ok", {})
-                        ) and any(
-                            node in url_r.get("node_ok", {})
-                            for url_r in core_checkhost.get("urls", {}).values()
-                            if isinstance(url_r, dict)
-                        )
-                        else "FAIL"
-                    )
+                    node: WeightedConvergenceEngine._agg_node_status([
+                        url_r["node_ok"][node]
+                        for url_r in core_checkhost.get("urls", {}).values()
+                        if isinstance(url_r, dict) and node in url_r.get("node_ok", {})
+                    ])
                     for node in set(
                         n
                         for url_r in core_checkhost.get("urls", {}).values()
