@@ -24,7 +24,6 @@ const LANG = {
     'hud.btn.sitrep':                 'SITREP',
     'hud.btn.intel_guide':            'Intel Guide',
     'hud.btn.config':                 'Config',
-    'hud.btn.lang':                   'JA',
 
     'hud.tooltip.chain':              'Evidence Chain Timeline — Escalation Sequence Viewer',
     'hud.tooltip.tools':              'Intuition Tools — RPD Analysis Panels',
@@ -142,6 +141,66 @@ const LANG = {
     'modal.settings.tab.pins':        'Quick Pins',
     'modal.settings.tab.sensors':     'Sensors',
     'modal.settings.tab.fetchlog':    'Fetch Log',
+    'modal.settings.tab.sysconfig':   'System',
+
+    // ── System Config tab ──────────────────────────────────────────────
+    'sysconfig.help':                 'Edit <span class="code-block">config.env</span> settings. Changes are written to disk and take effect after server restart.',
+    'sysconfig.section.api_keys':     'API Keys',
+    'sysconfig.section.scope':        'Default Scope',
+    'sysconfig.scope.desc':           'Startup defaults for the STRATEGY SCOPE and THREAT ACTORS panels. These can always be changed at runtime from the main UI.',
+    'sysconfig.field.core':           'Core Theater',
+    'sysconfig.scope.adversaries':    'Adversaries',
+    'sysconfig.scope.correlates':     'Correlates',
+    'sysconfig.scope.correlates_desc':'allied nations to monitor',
+    'sysconfig.scope.correlates_label':'Correlates <small>(allied nations to monitor)</small>',
+    'sysconfig.scope.pins':           'Quick Pins',
+    'sysconfig.scope.pins_desc':      'target visibility panel',
+    'sysconfig.scope.pins_label':     'Quick Pins <small>(target visibility panel)</small>',
+    'sysconfig.scope.none_selected':  'None selected',
+    'sysconfig.scope.search':         'Search countries\u2026',
+    'sysconfig.adv_toggle':           '\u25b6 Advanced Settings',
+    'sysconfig.adv_toggle_open':      '\u25bc Advanced Settings',
+    'sysconfig.section.network':      'Network / SSL',
+    'sysconfig.field.ssl_enabled':    'Enabled',
+    'sysconfig.field.ssl_disabled':   'Disabled',
+    'sysconfig.section.cache':        'Cache &amp; Polling',
+    'sysconfig.field.cache_expiry':   'Cache Expiry (seconds)',
+    'sysconfig.field.opensky_int':    'OpenSky Min Interval (seconds)',
+    'sysconfig.field.narrative_int':  'Narrative Poll Interval (seconds)',
+    'sysconfig.field.telegram_int':   'Telegram Poll Interval (seconds)',
+    'sysconfig.field.telegram_kw':    'Telegram Attack Keywords',
+    'sysconfig.field.checkhost_int':  'Check-Host Poll Interval (seconds)',
+    'sysconfig.field.checkhost_to':   'Check-Host Timeout (ms)',
+    'sysconfig.field.checkhost_nodes':'Check-Host Nodes',
+    'sysconfig.section.threat':       'Threat Scoring',
+    'sysconfig.field.air_anomaly':    'Airspace Anomaly Threshold (ratio)',
+    'sysconfig.field.air_closure':    'Airspace Closure Threshold (ratio)',
+    'sysconfig.field.air_window':     'Airspace Baseline Window (cycles)',
+    'sysconfig.field.gdelt_tone':     'GDELT Tone Alert Threshold',
+    'sysconfig.field.gdelt_history':  'GDELT History Window (days)',
+    'sysconfig.field.conv_dual':      'Dual Convergence Bonus',
+    'sysconfig.field.conv_full':      'Full Convergence Bonus',
+    'sysconfig.field.hysteresis':     'Threat Level Hysteresis Cycles',
+    'sysconfig.section.ddos':         'DDoS Acceleration Engine',
+    'sysconfig.field.ambush_z':       'Ambush Z-Score Threshold',
+    'sysconfig.field.deriv_window':   'Velocity Derivative Window (cycles)',
+    'sysconfig.field.sync_delta':     'C2 Sync Delta (ms)',
+    'sysconfig.field.sync_threshold': 'C2 Sync Score Threshold (0\u20131)',
+    'sysconfig.section.narrative':    'Narrative Burst Detector',
+    'sysconfig.field.narr_alert_z':   'Narrative Alert Z-Score',
+    'sysconfig.field.narr_crit_z':    'Narrative Critical Z-Score',
+    'sysconfig.field.narr_baseline':  'Narrative Baseline Days',
+    'sysconfig.section.chain':        'Sequence Chain',
+    'sysconfig.field.chain_window':   'Chain Window (seconds)',
+    'sysconfig.field.chain_full':     'Full Chain Bonus Points',
+    'sysconfig.field.chain_partial':  'Partial Chain Bonus Points',
+    'sysconfig.section.maritime':     'Maritime / ISR Sensors',
+    'sysconfig.field.ais_dark_gap':   'AIS Dark Gap Threshold (seconds)',
+    'sysconfig.field.ais_anchor':     'AIS Anchor Detection Radius (km)',
+    'sysconfig.field.isr_surge':      'ISR Surge Threshold (aircraft)',
+    'sysconfig.field.isr_icao':       'ISR ICAO Type Codes',
+    'sysconfig.save_btn':             'Save to config.env',
+    'sysconfig.restart_note':         '\u26a0 Changes take effect after server restart',
 
     'modal.strategy.help_core':       '<b>Epicenter (Core):</b> The primary focal point of a contingency scenario.',
     'modal.strategy.help_link':       '<b>Correlate (Link):</b> Allied nations to monitor for coordinated attacks originating from the same botnets.',
@@ -535,7 +594,6 @@ const LANG = {
     'hud.btn.sitrep':                 'SITREP',
     'hud.btn.intel_guide':            'インテルガイド',
     'hud.btn.config':                 '設定',
-    'hud.btn.lang':                   'EN',
 
     'hud.tooltip.chain':              '証拠チェーンタイムライン — エスカレーション順序ビューア',
     'hud.tooltip.tools':              '直感ツール — RPD分析パネル',
@@ -646,6 +704,66 @@ const LANG = {
     'modal.settings.tab.pins':        'クイックピン',
     'modal.settings.tab.sensors':     'センサー',
     'modal.settings.tab.fetchlog':    'フェッチログ',
+    'modal.settings.tab.sysconfig':   'システム',
+
+    // ── System Config tab ──────────────────────────────────────────────
+    'sysconfig.help':                 '<span class="code-block">config.env</span> の設定を編集します。変更はディスクに書き込まれ、サーバー再起動後に反映されます。',
+    'sysconfig.section.api_keys':     'API キー',
+    'sysconfig.section.scope':        'デフォルトスコープ',
+    'sysconfig.scope.desc':           'STRATEGY SCOPE・THREAT ACTORS パネルの起動時デフォルト設定。メインUIからいつでも変更できます。',
+    'sysconfig.field.core':           'コアシアター',
+    'sysconfig.scope.adversaries':    '脅威アクター',
+    'sysconfig.scope.correlates':     '連携国',
+    'sysconfig.scope.correlates_desc':'監視対象の同盟国',
+    'sysconfig.scope.correlates_label':'連携国 <small>（監視対象の同盟国）</small>',
+    'sysconfig.scope.pins':           'クイックピン',
+    'sysconfig.scope.pins_desc':      'ターゲット可視化パネル',
+    'sysconfig.scope.pins_label':     'クイックピン <small>（ターゲット可視化パネル）</small>',
+    'sysconfig.scope.none_selected':  '未選択',
+    'sysconfig.scope.search':         '国を検索\u2026',
+    'sysconfig.adv_toggle':           '\u25b6 詳細設定',
+    'sysconfig.adv_toggle_open':      '\u25bc 詳細設定',
+    'sysconfig.section.network':      'ネットワーク / SSL',
+    'sysconfig.field.ssl_enabled':    '有効',
+    'sysconfig.field.ssl_disabled':   '無効',
+    'sysconfig.section.cache':        'キャッシュ &amp; ポーリング',
+    'sysconfig.field.cache_expiry':   'キャッシュ有効期限（秒）',
+    'sysconfig.field.opensky_int':    'OpenSky 最小間隔（秒）',
+    'sysconfig.field.narrative_int':  'ナラティブ ポーリング間隔（秒）',
+    'sysconfig.field.telegram_int':   'Telegram ポーリング間隔（秒）',
+    'sysconfig.field.telegram_kw':    'Telegram 攻撃キーワード',
+    'sysconfig.field.checkhost_int':  'Check-Host ポーリング間隔（秒）',
+    'sysconfig.field.checkhost_to':   'Check-Host タイムアウト（ms）',
+    'sysconfig.field.checkhost_nodes':'Check-Host ノード',
+    'sysconfig.section.threat':       '脅威スコアリング',
+    'sysconfig.field.air_anomaly':    '空域異常閾値（比率）',
+    'sysconfig.field.air_closure':    '空域閉鎖閾値（比率）',
+    'sysconfig.field.air_window':     '空域ベースライン ウィンドウ（サイクル）',
+    'sysconfig.field.gdelt_tone':     'GDELT トーン警告閾値',
+    'sysconfig.field.gdelt_history':  'GDELT 履歴ウィンドウ（日）',
+    'sysconfig.field.conv_dual':      '二重収束ボーナス',
+    'sysconfig.field.conv_full':      '完全収束ボーナス',
+    'sysconfig.field.hysteresis':     '脅威レベル ヒステリシスサイクル',
+    'sysconfig.section.ddos':         'DDoS 加速エンジン',
+    'sysconfig.field.ambush_z':       '伏撃 Z スコア閾値',
+    'sysconfig.field.deriv_window':   '速度微分 ウィンドウ（サイクル）',
+    'sysconfig.field.sync_delta':     'C2 同期デルタ（ms）',
+    'sysconfig.field.sync_threshold': 'C2 同期スコア閾値（0〜1）',
+    'sysconfig.section.narrative':    'ナラティブ バースト検出',
+    'sysconfig.field.narr_alert_z':   'ナラティブ 警告 Z スコア',
+    'sysconfig.field.narr_crit_z':    'ナラティブ 重大 Z スコア',
+    'sysconfig.field.narr_baseline':  'ナラティブ ベースライン日数',
+    'sysconfig.section.chain':        'シーケンスチェーン',
+    'sysconfig.field.chain_window':   'チェーン ウィンドウ（秒）',
+    'sysconfig.field.chain_full':     'フルチェーン ボーナスポイント',
+    'sysconfig.field.chain_partial':  'パーシャルチェーン ボーナスポイント',
+    'sysconfig.section.maritime':     '海上 / ISR センサー',
+    'sysconfig.field.ais_dark_gap':   'AIS ダークギャップ閾値（秒）',
+    'sysconfig.field.ais_anchor':     'AIS 投錨検出半径（km）',
+    'sysconfig.field.isr_surge':      'ISR サージ閾値（機）',
+    'sysconfig.field.isr_icao':       'ISR ICAO 機種コード',
+    'sysconfig.save_btn':             'config.env に保存',
+    'sysconfig.restart_note':         '\u26a0 変更はサーバー再起動後に反映されます',
 
     'modal.strategy.help_core':       '<b>震源地（コア）:</b> シナリオの主要焦点国。',
     'modal.strategy.help_link':       '<b>連携（リンク）:</b> 同一ボットネットからの協調攻撃を監視する同盟国。',
@@ -1078,9 +1196,11 @@ function setLang(lang) {
   _currentLang = lang;
   localStorage.setItem('ddos_radar_lang', lang);
 
-  // Update lang-toggle button label
-  const btn = document.getElementById('lang-toggle-btn');
-  if (btn) btn.textContent = _t('hud.btn.lang');
+  // Update EN/JP lang selector buttons
+  const btnEn = document.getElementById('lang-btn-en');
+  const btnJa = document.getElementById('lang-btn-ja');
+  if (btnEn) btnEn.classList.toggle('lang-active', lang === 'en');
+  if (btnJa) btnJa.classList.toggle('lang-active', lang === 'ja');
 
   // Re-apply static translations
   _applyStaticTranslations();
@@ -1108,7 +1228,20 @@ function setLang(lang) {
   if (typeof renderSaluteBoard === 'function') renderSaluteBoard();
   if (typeof renderNbLog === 'function') renderNbLog();
   if (typeof renderGnLog === 'function') renderGnLog();
+  // Re-render scope tag pickers (translates "None selected" text)
+  if (typeof _buildTagPicker === 'function' && typeof _envScope !== 'undefined') {
+    const corEl = document.getElementById('ec-correlates-tags');
+    const pinEl = document.getElementById('ec-pins-tags');
+    if (corEl) corEl.querySelectorAll('.scope-tags-empty').forEach(el => { el.textContent = _t('sysconfig.scope.none_selected'); });
+    if (pinEl) pinEl.querySelectorAll('.scope-tags-empty').forEach(el => { el.textContent = _t('sysconfig.scope.none_selected'); });
+  }
 }
 
-// Apply static translations on first load (after DOM ready)
-document.addEventListener('DOMContentLoaded', _applyStaticTranslations);
+// Apply static translations and init lang buttons on first load
+document.addEventListener('DOMContentLoaded', () => {
+  _applyStaticTranslations();
+  const btnEn = document.getElementById('lang-btn-en');
+  const btnJa = document.getElementById('lang-btn-ja');
+  if (btnEn) btnEn.classList.toggle('lang-active', _currentLang === 'en');
+  if (btnJa) btnJa.classList.toggle('lang-active', _currentLang === 'ja');
+});
