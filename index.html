@@ -1582,6 +1582,7 @@
     let lastSyncedTimeText = "System Initializing...";
     let isFirstLoad = true;
     let loaderLogInterval;
+    let _nodeOkRetryTimer = null; // One-shot retry when CheckHost hasn't initialized yet
 
     // HITL Analyst Mute State
     let mutedSensors = new Set(JSON.parse(localStorage.getItem('mutedSensors') || '[]'));
@@ -3197,9 +3198,23 @@
             document.getElementById('update-time').innerText = lastSyncedTimeText;
             lastSyncedConfig = getCurrentConfig();
             
-            renderTelemetry(latestData); 
+            renderTelemetry(latestData);
 
-        } catch (error) { 
+            // If node_ok is empty (CheckHost sensor still initializing at startup),
+            // schedule a one-shot retry after 60s instead of waiting the full 15 min poll.
+            const _chNodeOk = ((latestData.strategic_alert || {}).analytics || {}).check_host;
+            const _nodeOkEmpty = !_chNodeOk || Object.keys(_chNodeOk.node_ok || {}).length === 0;
+            if (_nodeOkEmpty && !_nodeOkRetryTimer) {
+                _nodeOkRetryTimer = setTimeout(() => {
+                    _nodeOkRetryTimer = null;
+                    fetchDDoSData(false);
+                }, 60000);
+            } else if (!_nodeOkEmpty && _nodeOkRetryTimer) {
+                clearTimeout(_nodeOkRetryTimer);
+                _nodeOkRetryTimer = null;
+            }
+
+        } catch (error) {
             console.error("API Error:", error); 
         } finally {
             syncBtnTop.innerText = "SYNC"; syncBtnTop.classList.remove("syncing");
