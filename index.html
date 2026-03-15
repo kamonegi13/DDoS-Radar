@@ -220,11 +220,18 @@
         .minimap-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: #666; line-height: 1.6; }
         .minimap-tooltip.leaflet-tooltip { background: rgba(0,0,0,0.88); border: 1px solid #2a3a3a; color: #bbb; font-size: 11px; padding: 2px 7px; border-radius: 3px; box-shadow: none; white-space: nowrap; }
 
-        .manual-content { overflow-y: auto; flex-grow: 1; padding-right: 15px; line-height: 1.6; font-size: 13px; color: #ddd; margin-top: 15px; }
+        .manual-content { display:flex; flex-direction:column; overflow: hidden; flex-grow: 1; padding-right: 15px; line-height: 1.6; font-size: 13px; color: #ddd; margin-top: 15px; }
+        .guide-chapter.active { display:flex; flex-direction:column; flex:1; min-height:0; overflow-y:auto; }
         .manual-content h4 { color: #00ffff; border-bottom: 1px dashed #555; padding-bottom: 5px; margin-top: 20px; margin-bottom: 10px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
         .manual-content p { margin-bottom: 10px; }
         .manual-content ul { padding-left: 20px; margin-bottom: 10px; }
         .manual-content li { margin-bottom: 8px; }
+        .guide-ch-nav { display:flex; flex-wrap:wrap; gap:4px; margin:12px 0; padding:10px 0; border-top:1px solid #1a2a2a; border-bottom:1px solid #1a2a2a; flex-shrink:0; }
+        .guide-ch-btn { background:transparent; border:1px solid #2a3a3a; color:#555; font-size:10px; padding:3px 10px; border-radius:2px; cursor:pointer; font-family:inherit; letter-spacing:0.5px; text-transform:uppercase; transition:color 0.15s, border-color 0.15s; white-space:nowrap; }
+        .guide-ch-btn:hover { border-color:#00ffff44; color:#aaa; }
+        .guide-ch-btn.active { background:#00ffff12; border-color:#00ffff55; color:#00ffff; }
+        .guide-chapter { display:none; }
+        .guide-chapter.active { display:block; overflow-y:auto; }
         .code-block { display: inline-block; background: #222; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', Courier, monospace; color: #00ffff; font-size: 12px; border: 1px solid #444; margin: 2px 0;}
         .hl-red { color: #ff2a2a; font-weight: bold; }
         .hl-green { color: #66ff66; font-weight: bold; }
@@ -1114,6 +1121,19 @@
 
         <p>This platform is an <b>MDO C4ISR Strategic OSINT Radar</b> designed to detect precursor indicators of kinetic operations by correlating signals across three domains: Cyber, Physical, and Information. All data is sourced exclusively from open-source intelligence (OSINT). Sensors run on independent background schedules, and the convergence score is recalculated every <span class="code-block">SCORE_REFRESH_SEC=60</span> seconds from the latest cached data. The <span class="code-block">SYNC</span> button forces an immediate fetch and score update across all active sensors.</p>
 
+        <div class="guide-ch-nav">
+            <button class="guide-ch-btn active" data-ch="1" onclick="switchGuideChapter(1)">1. Sensors</button>
+            <button class="guide-ch-btn" data-ch="2" onclick="switchGuideChapter(2)">2. Map</button>
+            <button class="guide-ch-btn" data-ch="3" onclick="switchGuideChapter(3)">3. Scoring</button>
+            <button class="guide-ch-btn" data-ch="4" onclick="switchGuideChapter(4)">4. Threat Levels</button>
+            <button class="guide-ch-btn" data-ch="5" onclick="switchGuideChapter(5)">5. Calibration</button>
+            <button class="guide-ch-btn" data-ch="6" onclick="switchGuideChapter(6)">6. Workflow</button>
+            <button class="guide-ch-btn" data-ch="7" onclick="switchGuideChapter(7)">7. Config</button>
+            <button class="guide-ch-btn" data-ch="8" onclick="switchGuideChapter(8)">8. Intuition UI</button>
+            <button class="guide-ch-btn" data-ch="9" onclick="switchGuideChapter(9)">9. API Ref</button>
+        </div>
+
+        <div class="guide-chapter active" id="guide-ch-1">
         <h4>1. Multi-Domain Sensor Architecture (15 Sensors)</h4>
 
         <p><b>Cyber Domain (weight 0.50)</b> — Highest-weighted domain. State-directed cyber operations typically precede kinetic action by 24–72 hours.</p>
@@ -1154,6 +1174,8 @@
             <li><i>Analyst MUTE (HITL Override)</i>: Each sensor in the Evidence Panel has a <b>[ MUTE ]</b> button. Clicking it immediately excludes that sensor's score contribution and recalculates the convergence score. MUTE state is persisted to browser localStorage across sessions. Use this to suppress known false positives while preserving the underlying sensor record. When multiple sensors are muted, domain weights are correctly recalculated using only the remaining active sensors. All 15 sensors support MUTE.</li>
         </ul>
 
+        </div><!-- /guide-ch-1 -->
+        <div class="guide-chapter" id="guide-ch-2">
         <h4>2. Map Symbols &amp; Overlay Layers</h4>
         <ul>
             <li><b>Target Nodes (Defensive Infrastructure)</b>
@@ -1206,6 +1228,8 @@
             </li>
         </ul>
 
+        </div><!-- /guide-ch-2 -->
+        <div class="guide-chapter" id="guide-ch-3">
         <h4>3. Scoring Engine &amp; Convergence Algorithm</h4>
         <p>The <b>WeightedConvergenceEngine</b> computes a <b>raw threat score</b> from all active, non-suppressed sensor signals, then adds domain convergence bonuses and a sequence bonus. The theoretical maximum score exceeds 22 points.</p>
 
@@ -1271,6 +1295,8 @@
             <li>INFRASTRUCTURE_NEUTRALIZATION — ≥ 7.0: Large-scale DDoS + BGP withdrawal + infrastructure blackout. Signature of a pre-invasion communications cutoff.</li>
         </ul>
 
+        </div><!-- /guide-ch-3 -->
+        <div class="guide-chapter" id="guide-ch-4">
         <h4>4. Threat Levels</h4>
         <p><b>Final Score = Raw Score + Convergence Bonus + Sequence Bonus.</b> A 1-cycle hysteresis delay is applied on downgrade only (prevents threshold oscillation). Upgrades are immediate.</p>
         <ul>
@@ -1281,6 +1307,8 @@
             <li><span style="color:#66ff66;font-weight:bold;">Level 5 — NORMAL</span>: Score &lt; 2. Background noise level. No significant anomalies across monitored domains.</li>
         </ul>
 
+        </div><!-- /guide-ch-4 -->
+        <div class="guide-chapter" id="guide-ch-5">
         <h4>5. Threshold Calibration Reference</h4>
         <p style="color:#888; font-size:11px;">System thresholds are calibrated against the following confirmed historical cases:</p>
         <ul style="font-size:11px; color:#aaa;">
@@ -1291,6 +1319,8 @@
             <li><b>Georgia-Russia (Aug 2008)</b>: 5-day cyber campaign preceding the ground invasion. GDELT tone dropped from –10 to –14 in the lead-up, then fell below –18 coinciding with the ground assault.</li>
         </ul>
 
+        </div><!-- /guide-ch-5 -->
+        <div class="guide-chapter" id="guide-ch-6">
         <h4>6. Analyst Workflow &amp; Best Practices</h4>
         <ul>
             <li><b>Prioritize cross-domain corroboration.</b> Do not escalate on single-domain indicators alone. Civilian botnets regularly produce 3–5× DDoS spikes without any military significance. The minimum standard for recommending a Level 2 escalation is FULL CONVERGENCE (Cyber + Physical + Info).</li>
@@ -1306,6 +1336,8 @@
             <li><b>Maskirovka detection (v9).</b> If physical outage is confirmed (IODA or Check-Host BLACKOUT/PARTIAL) while all narrative channels are simultaneously silent (no RSS burst, no Telegram intent), the system flags a potential <b>Maskirovka</b> (Russian military deception doctrine). Physical disruption without accompanying narrative amplification may indicate a genuine kinetic operation rather than a hacktivist campaign — hacktivist groups typically announce targets loudly before and during attacks.</li>
         </ul>
 
+        </div><!-- /guide-ch-6 -->
+        <div class="guide-chapter" id="guide-ch-7">
         <h4>7. Config &amp; Monitoring Management</h4>
         <p>Open the master settings modal via the <span class="code-block">Config</span> button in the toolbar. It consists of five tabs.</p>
         <ul>
@@ -1330,6 +1362,8 @@
         </ul>
         <p style="color:#888; font-size:11px;"><b>Bloc Filter (Strategy tab):</b> Filter pills at the top of the Strategy Scope tab filter by strategic bloc. Selecting a bloc zooms the Region Preview mini-map to the bloc's geographic bounds and shows all theaters relevant to that adversary's campaign — including cross-bloc countries that wouldn't appear in the ALL view. <b>Region Filter (Quick Pins tab):</b> Filters by geographic region (East Asia / SE Asia / Middle East, etc., across 16 regions). Both filters display current selections as color-coded dot markers on the mini-map: Core (cyan) / Link (amber) / Adversary (red) / Pin (green).</p>
 
+        </div><!-- /guide-ch-7 -->
+        <div class="guide-chapter" id="guide-ch-8">
         <h4>8. Intuition UI — Recognition-Primed Decision (RPD) Components</h4>
         <p>Eight visual components designed to engage analyst intuition and pattern-recognition (Recognition-Primed Decision) in parallel with numerical computation. Based on Naturalistic Decision Making (NDM) theory; intended for immediate situational awareness formation.</p>
 
@@ -1426,6 +1460,8 @@
             <li><b>False-Positive Suppression:</b> The sensor applies word-boundary regex matching (<span class="code-block">\b</span>) to avoid substring collisions (e.g., "target" matching "targeting"). Keywords ≤ 2 characters are skipped entirely. Multi-word keywords and hashtags use exact substring matching.</li>
         </ul>
 
+        </div><!-- /guide-ch-8 -->
+        <div class="guide-chapter" id="guide-ch-9">
         <h4>9. API Reference (Analyst / Integration Endpoints)</h4>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
             <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data, threat score, domain breakdown, and deep analytics block (including v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise).</li>
@@ -1443,6 +1479,7 @@
             <li><span class="code-block">GET /api/app_config</span> — Returns default settings, global monitored country list, and strategic bloc architecture. Includes: <span class="code-block">strategic_blocs</span> (4 blocs with sub-categories and theater lists), <span class="code-block">country_bloc_tags</span> (multi-threat country → blocs mapping), <span class="code-block">adversary_options</span> (5 adversary states: RU/CN/IR/KP/BY). Used for UI initialization on startup.</li>
             <li><span class="code-block">POST /api/telegram_log/clear</span> — Clears the in-memory Telegram SIGINT intercept log ring buffer. Used by the [CLEAR] button in the Telegram SIGINT panel.</li>
         </ul>
+        </div><!-- /guide-ch-9 -->
 
     </div>
 </div>
@@ -2139,6 +2176,13 @@
         if (modalId === 'settings-modal') {
             requestAnimationFrame(() => { _initMinimap(); _minimapFlyTo(_activeRegion); _updateMinimap(); });
         }
+    }
+    function switchGuideChapter(n) {
+        document.querySelectorAll('.guide-chapter').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.guide-ch-btn').forEach(el => el.classList.remove('active'));
+        const ch = document.getElementById('guide-ch-' + n);
+        if (ch) ch.classList.add('active');
+        document.querySelector(`.guide-ch-btn[data-ch="${n}"]`)?.classList.add('active');
     }
     function closeAllModals() {
         document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
