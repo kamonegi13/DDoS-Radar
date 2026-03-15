@@ -635,7 +635,7 @@ class NasaFirmsSensor(BaseSensor):
                     for ev in events:
                         for geo in (ev.get("geometry") or []):
                             coords = geo.get("coordinates")
-                            if not coords: continue
+                            if not coords or len(coords) < 2: continue
                             # EONET coordinates are in [lng, lat] order
                             elng, elat = coords[0], coords[1]
                             if (abs(elat - tlat) <= self.GEO_RADIUS_DEG and
@@ -1041,11 +1041,14 @@ class AisMaritimeSensor(BaseSensor):
                 if not isinstance(vessel, dict):
                     continue
                 mmsi      = str(vessel.get("MMSI", ""))
-                ship_type = int(vessel.get("SHIPTYPE", 0) or 0)
-                speed     = float(vessel.get("SOG", 0) or 0)    # Speed Over Ground (knots)
-                lat       = float(vessel.get("LATITUDE", 0) or 0)
-                lng       = float(vessel.get("LONGITUDE", 0) or 0)
-                last_ts   = float(vessel.get("TIME", now) or now)
+                try:
+                    ship_type = int(vessel.get("SHIPTYPE", 0) or 0)
+                    speed     = float(vessel.get("SOG", 0) or 0)    # Speed Over Ground (knots)
+                    lat       = float(vessel.get("LATITUDE", 0) or 0)
+                    lng       = float(vessel.get("LONGITUDE", 0) or 0)
+                    last_ts   = float(vessel.get("TIME", now) or now)
+                except (ValueError, TypeError):
+                    continue  # Malformed vessel record — skip
                 name      = vessel.get("NAME", "UNKNOWN")
 
                 dist_km = self._haversine_km(cp_lat, cp_lng, lat, lng)
