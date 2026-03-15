@@ -243,15 +243,16 @@
         .guide-chapter.active { display:block; overflow-y:auto; border-top:1px solid #1a2a2a; padding-top:10px; }
         .code-block { display: inline-block; background: #222; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', Courier, monospace; color: #00ffff; font-size: 12px; border: 1px solid #444; margin: 2px 0;}
         /* System Config tab ─────────────────────────── */
+        #sysconfig-scroll { max-width:720px; }
         .env-section-title { font-size:10px; text-transform:uppercase; letter-spacing:1.5px; color:#00ffff; border-bottom:1px solid #1a3a3a; padding-bottom:4px; margin:14px 0 8px; }
         .env-section-title:first-child { margin-top:0; }
         .env-field { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
-        .env-field label { font-size:10px; color:#888; min-width:220px; flex-shrink:0; }
+        .env-field label { font-size:10px; color:#888; width:220px; flex-shrink:0; }
         .env-field label span.req { color:#ff6644; margin-left:3px; }
         .env-field label span.opt { color:#556; margin-left:3px; }
-        .env-input { flex:1; background:#0d1a0d; border:1px solid #1a3a2a; color:#ccc; font-family:'Courier New',monospace; font-size:11px; padding:3px 7px; border-radius:2px; min-width:0; }
+        .env-input { flex:1; background:#0d1a0d; border:1px solid #1a3a2a; color:#ccc; font-family:'Courier New',monospace; font-size:11px; padding:3px 7px; border-radius:2px; min-width:0; box-sizing:border-box; }
         .env-input:focus { outline:none; border-color:#00ffff44; background:#0f1f10; }
-        .env-input.wide { width:100%; }
+        .env-input.wide { width:100%; box-sizing:border-box; }
         .env-adv-toggle { background:transparent; border:1px solid #1a3a3a; color:#556; font-size:10px; padding:4px 10px; cursor:pointer; font-family:inherit; letter-spacing:0.5px; margin:10px 0 4px; transition:color 0.15s,border-color 0.15s; }
         .env-adv-toggle:hover { color:#00ffff; border-color:#00ffff44; }
         .env-adv-section { display:none; }
@@ -925,12 +926,11 @@
             </div>
         </div>
             <div id="tab-sysconfig" class="tab-content">
+                <!-- ── General Settings ─────────────────────────────── -->
+                <div style="flex:1;min-height:0;overflow-y:auto;" id="sysconfig-scroll">
                 <div class="help-text" style="margin-bottom:8px;">
                     Edit <span class="code-block">config.env</span> settings. Changes are written to disk and take effect after server restart.
                 </div>
-
-                <!-- ── General Settings ─────────────────────────────── -->
-                <div style="flex:1;min-height:0;overflow-y:auto;" id="sysconfig-scroll">
 
                 <div class="env-section-title">API Keys</div>
 
