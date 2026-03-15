@@ -3393,8 +3393,8 @@
   },
   "COUNTRY_BLOC_TAGS": {
     "US": ["RUSSIA","CHINA","IRAN","DPRK"],
-    "JP": ["CHINA","DPRK"],
-    "KR": ["DPRK","CHINA"],
+    "JP": ["CHINA","DPRK","RUSSIA"],
+    "KR": ["DPRK","CHINA","RUSSIA"],
     "GB": ["RUSSIA","CHINA","IRAN"],
     "DE": ["RUSSIA","CHINA"],
     "FR": ["RUSSIA","CHINA","IRAN"],
