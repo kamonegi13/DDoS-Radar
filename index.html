@@ -1075,6 +1075,10 @@
                     <input class="env-input wide" id="ec-TELEGRAM_ATTACK_KEYWORDS" type="text" placeholder="target,attack,ddos,...">
                 </div>
                 <div class="env-field">
+                    <label data-i18n="sysconfig.field.telegram_conf_thresh">Telegram Claim Confidence Threshold</label>
+                    <input class="env-input" id="ec-TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD" type="number" step="0.05" min="0" max="1" style="max-width:90px;">
+                </div>
+                <div class="env-field">
                     <label data-i18n="sysconfig.field.checkhost_int">Check-Host Poll Interval (seconds)</label>
                     <input class="env-input" id="ec-CHECKHOST_POLL_INTERVAL" type="number" style="max-width:90px;">
                 </div>
@@ -1118,7 +1122,7 @@
                 </div>
                 <div class="env-field">
                     <label data-i18n="sysconfig.field.hysteresis">Threat Level Hysteresis Cycles</label>
-                    <input class="env-input" id="ec-DEFCON_HYSTERESIS_CYCLES" type="number" style="max-width:90px;">
+                    <input class="env-input" id="ec-THREAT_LEVEL_HYSTERESIS_CYCLES" type="number" style="max-width:90px;">
                 </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.ddos">DDoS Acceleration Engine</div>
@@ -1473,7 +1477,7 @@
         <ul>
             <li><i>GDELT TimelineTone API</i> [poll: 30 min]: Retrieves media tone for the core theater from the Global Database of Events, Language, and Tone. Triggers an alert (+1) when the tone score falls below <b>–15.0</b> relative to the 28-day rolling average. Reference values: Russia→Ukraine pre-conflict period was –12 to –15; day of invasion was –18 to –25. –15.0 is the threshold for active military-tension rhetoric. Auto-suppressed during severe weather.</li>
             <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>RSS Narrative Burst Sensor</i> [poll: 30 min]: Scans adversary state-aligned RSS feeds selected dynamically by the active <b>Threat Actor</b> configuration (<span class="code-block">ADVERSARY_NARRATIVE_SOURCES</span>). Sources are bloc-specific: <b>RU</b> → TASS + RIA Novosti; <b>CN</b> → Xinhua + Global Times; <b>IR</b> → Mehr News + Tasnim; <b>KP</b> → KCNA Watch; <b>BY</b> → TASS (RU proxy). Only sources relevant to the configured adversary bloc are polled — eliminating cross-bloc noise. Falls back to all sources when no adversary is configured. Matches theater-specific <b>tactical keywords</b> (e.g., for Taiwan: "military measures", "ultimatum", "median line crossing", "live-fire drills") against article titles and descriptions. Z-score analysis applied to normalized frequency (hit count ÷ total articles) using a 30-day rolling baseline. <b>Alert thresholds:</b> Z &gt; <span class="code-block">NARRATIVE_ZSCORE_ALERT=2.0</span> → BURST (+1); Z &gt; <span class="code-block">NARRATIVE_ZSCORE_CRITICAL=3.0</span> → CRITICAL_BURST (+2). Deduplication via normalized 60-character title key. Baseline activates after ≥7 days of data accumulation (cold-start guard).</li>
-            <li style="border-left:2px solid #00ffaa; padding-left:8px;"><i>Telegram Mirror Sensor</i> [poll: 15 min] <b>[v9]</b>: Scrapes public Telegram channel mirror pages (tgstat.com / telemetr.io fallback) for channels registered in <span class="code-block">THREAT_ACTOR_MAPPING</span> (hacktivist groups mapped to theaters). No login or API token required. Extracts <b>attack intent keywords</b> (target, ddos, http flood, under attack, op, etc.) and <b>target URLs</b> (.gov / .mil / bank / energy domains). Detection levels: INTENT_DETECTED (+2) / TARGETS_FOUND (+1) / CLEAR. Detected channels and target URLs are displayed in the CHAIN panel. When intent is confirmed, a NARRATIVE_BURST event is registered in the escalation chain log. Configure keywords via <span class="code-block">TELEGRAM_ATTACK_KEYWORDS</span>.</li>
+            <li style="border-left:2px solid #00ffaa; padding-left:8px;"><i>Telegram Mirror Sensor</i> [poll: 15 min] <b>[v9]</b>: Scrapes public Telegram channel mirror pages (tgstat.com / telemetr.io fallback) for channels registered in <span class="code-block">THREAT_ACTOR_MAPPING</span> (hacktivist groups mapped to theaters). No login or API token required. Extracts <b>attack intent keywords</b> (target, ddos, http flood, under attack, op, etc.) and <b>target URLs</b> (.gov / .mil / bank / energy domains). Z-score analysis is applied to keyword frequency (hits per channel scraped) against a 30-day rolling baseline — the same thresholds as the RSS Narrative sensor. <b>Detection levels:</b> CRITICAL_BURST (Z ≥ 3.0, +2) / BURST (Z ≥ 2.0, +1) / INTENT_DETECTED (keyword match, +1) / TARGETS_FOUND (+1) / CLEAR. Baseline activates after ≥7 days of data. <b>Confidence weighting:</b> each channel has a <span class="code-block">confidence_weight</span> (0.40–0.75) defined in <span class="code-block">TELEGRAM_CHANNEL_META</span> in geo_data.json; when the mean channel confidence is below <span class="code-block">TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD=0.5</span>, the score is reduced by 1 to suppress unverified hacktivist claims. Detected channels and target URLs are displayed in the CHAIN panel. A NARRATIVE_BURST event is registered in the escalation chain on burst or intent detection. Configure keywords via <span class="code-block">TELEGRAM_ATTACK_KEYWORDS</span>.</li>
         </ul>
 
         <p><b>Noise Reduction &amp; Human-in-the-Loop (HITL) Control</b></p>
@@ -1515,7 +1519,7 @@
         <ul>
             <li><i>GDELT TimelineTone API</i> [poll: 30 min]: GDELT（グローバルイベント・言語・トーンデータベース）からコアシアターのメディアトーンを取得。28日間ローリング平均に対してトーンスコアが<b>–15.0</b>を下回るとアラート(+1)を発動。参考値: ロシア→ウクライナ侵攻前は–12〜–15；侵攻当日は–18〜–25。–15.0 は活発な軍事緊張レトリックのしきい値。悪天候時は自動抑制。</li>
             <li style="border-left:2px solid #ff8844; padding-left:8px;"><i>RSS Narrative Burst Sensor</i> [poll: 30 min]: アクティブな<b>脅威アクター</b>設定（<span class="code-block">ADVERSARY_NARRATIVE_SOURCES</span>）によって動的に選択された、敵対的国家整合型 RSS フィードをスキャン。ソースはブロック固有: <b>RU</b> → TASS + RIA Novosti; <b>CN</b> → Xinhua + Global Times; <b>IR</b> → Mehr News + Tasnim; <b>KP</b> → KCNA Watch; <b>BY</b> → TASS（RUプロキシ）。設定された敵対ブロックに関連するソースのみポーリング — クロスブロックノイズを排除。敵対者未設定時はすべてのソースにフォールバック。シアター固有の<b>戦術キーワード</b>（例：台湾の場合 "military measures"、"ultimatum"、"median line crossing"、"live-fire drills"）を記事タイトルおよび説明文と照合。30日間ローリングベースラインを使用して正規化頻度（ヒット数÷総記事数）にZスコア分析を適用。<b>アラートしきい値:</b> Z &gt; <span class="code-block">NARRATIVE_ZSCORE_ALERT=2.0</span> → BURST (+1); Z &gt; <span class="code-block">NARRATIVE_ZSCORE_CRITICAL=3.0</span> → CRITICAL_BURST (+2)。正規化60文字タイトルキーによる重複排除。ベースラインはデータ蓄積≥7日後に有効化（コールドスタートガード）。</li>
-            <li style="border-left:2px solid #00ffaa; padding-left:8px;"><i>Telegram Mirror Sensor</i> [poll: 15 min] <b>[v9]</b>: <span class="code-block">THREAT_ACTOR_MAPPING</span>に登録されたチャンネル（シアターにマッピングされたハクティビストグループ）の公開 Telegram チャンネルミラーページ（tgstat.com / telemetr.io フォールバック）をスクレイプ。ログイン・API トークン不要。<b>攻撃意図キーワード</b>（target, ddos, http flood, under attack, op など）および<b>ターゲット URL</b>（.gov / .mil / bank / energy ドメイン）を抽出。検出レベル: INTENT_DETECTED (+2) / TARGETS_FOUND (+1) / CLEAR。検出されたチャンネルとターゲット URL は CHAIN パネルに表示。意図が確認された場合、NARRATIVE_BURST イベントがエスカレーションチェーンログに登録される。<span class="code-block">TELEGRAM_ATTACK_KEYWORDS</span>でキーワードを設定。</li>
+            <li style="border-left:2px solid #00ffaa; padding-left:8px;"><i>Telegram Mirror Sensor</i> [poll: 15 min] <b>[v9]</b>: <span class="code-block">THREAT_ACTOR_MAPPING</span>に登録されたチャンネル（シアターにマッピングされたハクティビストグループ）の公開 Telegram チャンネルミラーページ（tgstat.com / telemetr.io フォールバック）をスクレイプ。ログイン・API トークン不要。<b>攻撃意図キーワード</b>（target, ddos, http flood, under attack, op など）および<b>ターゲット URL</b>（.gov / .mil / bank / energy ドメイン）を抽出。キーワード頻度（チャンネルあたりのヒット数）に対して30日間ローリングベースラインを用いたZスコア分析を適用（RSS Narrative センサーと同一しきい値）。<b>検出レベル:</b> CRITICAL_BURST（Z ≥ 3.0, +2）/ BURST（Z ≥ 2.0, +1）/ INTENT_DETECTED（キーワード一致, +1）/ TARGETS_FOUND (+1) / CLEAR。ベースラインは≥7日間のデータ蓄積後に有効化。<b>信頼度重み付け:</b> 各チャンネルには geo_data.json の <span class="code-block">TELEGRAM_CHANNEL_META</span> で定義された <span class="code-block">confidence_weight</span>（0.40〜0.75）が割り当てられ、平均チャンネル信頼度が <span class="code-block">TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD=0.5</span> を下回る場合、未検証ハクティビスト主張を抑制するためスコアを1減算。検出されたチャンネルとターゲット URL は CHAIN パネルに表示。バーストまたは意図検出時に NARRATIVE_BURST イベントがエスカレーションチェーンログに登録される。<span class="code-block">TELEGRAM_ATTACK_KEYWORDS</span>でキーワードを設定。</li>
         </ul>
 
         <p><b>ノイズリダクション &amp; ヒューマン・イン・ザ・ループ（HITL）制御</b></p>
@@ -1662,8 +1666,8 @@
             <li style="color:#66ffcc;">[Physical] check_host:         Infrastructure BLACKOUT (&lt;30% node success) → +3 [v9]</li>
             <li>[Info]     gdelt:               GDELT media tone &lt; -15.0 (28-day rolling avg) → +1</li>
             <li>[Info]     rss_narrative:       Narrative Burst Z &gt; 2.0 → +1; Critical Burst Z &gt; 3.0 → +2</li>
-            <li style="color:#66ffcc;">[Info]     telegram_mirror:    Target URLs found in hacktivist Telegram channels → +1 [v9]</li>
-            <li style="color:#66ffcc;">[Info]     telegram_mirror:    Attack intent intercepted (keyword match) → +2 [v9]</li>
+            <li style="color:#66ffcc;">[Info]     telegram_mirror:    TARGETS_FOUND / BURST (Z ≥ 2.0) / INTENT_DETECTED → +1 [v9]</li>
+            <li style="color:#66ffcc;">[Info]     telegram_mirror:    CRITICAL_BURST (Z ≥ 3.0) → +2; mean channel confidence &lt; 0.5 → score −1 suppression [v9]</li>
             <li style="color:#66ffcc;">[Info]     maskirovka_flag:    Physical outage confirmed but all narrative channels silent → +1 [v9]</li>
         </ul>
         <p style="font-size:11px; color:#888;"><span style="color:#66ffcc;">■</span> = v9 additions. greynoise sensor contributes score 0 (suppressor only — when NOISE_DOMINANT, all Cyber entries are excluded from the raw score total).</p>
@@ -1729,8 +1733,8 @@
             <li style="color:#66ffcc;">[Physical] check_host:         インフラ BLACKOUT（ノード成功率&lt;30%）→ +3 [v9]</li>
             <li>[Info]     gdelt:               GDELT メディアトーン &lt; -15.0（28日間ローリング平均）→ +1</li>
             <li>[Info]     rss_narrative:       ナラティブバースト Z &gt; 2.0 → +1; クリティカルバースト Z &gt; 3.0 → +2</li>
-            <li style="color:#66ffcc;">[Info]     telegram_mirror:    ハクティビスト Telegram チャンネルでターゲット URL 発見 → +1 [v9]</li>
-            <li style="color:#66ffcc;">[Info]     telegram_mirror:    攻撃意図を傍受（キーワード一致）→ +2 [v9]</li>
+            <li style="color:#66ffcc;">[Info]     telegram_mirror:    TARGETS_FOUND / BURST（Z ≥ 2.0）/ INTENT_DETECTED → +1 [v9]</li>
+            <li style="color:#66ffcc;">[Info]     telegram_mirror:    CRITICAL_BURST（Z ≥ 3.0）→ +2; 平均チャンネル信頼度 &lt; 0.5 → スコア −1 抑制 [v9]</li>
             <li style="color:#66ffcc;">[Info]     maskirovka_flag:    物理的障害確認済みだがすべてのナラティブチャンネルが沈黙 → +1 [v9]</li>
         </ul>
         <p style="font-size:11px; color:#888;"><span style="color:#66ffcc;">■</span> = v9 追加項目。greynoise センサーのスコア貢献は0（抑制専用 — NOISE_DOMINANT 時、すべての Cyber エントリが生スコア合計から除外される）。</p>
