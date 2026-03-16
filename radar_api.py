@@ -1594,8 +1594,9 @@ class CheckHostSensor(BaseSensor):
 
                 chk = self.check_url(url, CHECKHOST_NODES)
                 url_results[url] = chk
-                url_count += 1
                 if chk.get("success_rate") is not None:
+                    # Only count URLs that returned a valid result (not API errors/timeouts)
+                    url_count += 1
                     any_success = True
                     total_checked += 1
                     CheckHostSensor._url_last_poll[url] = now
@@ -1605,9 +1606,11 @@ class CheckHostSensor(BaseSensor):
                     asphyx_any = True
 
             # Overall success rate for the theater
+            # theater_success_rate is None when all API calls failed (API unreachable, not target down)
             theater_success_rate = ok_count / url_count if url_count else None
-            overall_status = ("OK"      if theater_success_rate and theater_success_rate >= 0.8 else
-                              "PARTIAL" if theater_success_rate and theater_success_rate >= 0.3 else
+            overall_status = ("UNKNOWN"  if theater_success_rate is None else
+                              "OK"       if theater_success_rate >= 0.8 else
+                              "PARTIAL"  if theater_success_rate >= 0.3 else
                               "BLACKOUT")
 
             results[theater] = {
