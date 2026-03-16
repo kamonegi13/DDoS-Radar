@@ -383,15 +383,16 @@ class IodaSensor(BaseSensor):
                     results[code] = "BGP_OUTAGE" if code in affected else "NORMAL"
                 total_anomalies = len(anomalies); any_success = True
             else:
-                for code in all_codes:
-                    results[code] = "NORMAL"
+                last_error = f"HTTP {last_status}"
         except Exception as e:
-            for code in all_codes:
-                results[code] = "NORMAL"
             last_error = str(e)
         self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_anomalies, last_error)
-        result = {"statuses": results}; self.set_cache(result)
-        return result
+        if any_success:
+            result = {"statuses": results}
+            self.set_cache(result)
+            return result
+        # On error: preserve previous cache so existing BGP_OUTAGE detections are not wiped
+        return self.get_cache() or {"statuses": {code: "NORMAL" for code in all_codes}}
 
 class CloudflareSensor(BaseSensor):
     def __init__(self): super().__init__("cloudflare_radar", "cyber", 900)
@@ -655,15 +656,21 @@ class NasaFirmsSensor(BaseSensor):
             else:
                 self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
                 self.set_error(f"HTTP {res.status_code}")
+                return self.get_cache() or {"anomalies": []}
 
         except requests.exceptions.Timeout:
             self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, "Timeout (EONET)")
             self.set_error("Timeout connecting to NASA EONET")
+            return self.get_cache() or {"anomalies": []}
         except Exception as e:
             self.log_fetch(False, round((time.time() - t0) * 1000), 0, 0, str(e))
             self.set_error(str(e))
+            return self.get_cache() or {"anomalies": []}
 
-        result = {"anomalies": anomalies}; self.set_cache(result)
+        result = {"anomalies": anomalies}
+        if anomalies or res.status_code == 200:
+            # Only update cache on successful fetch (preserve previous fire events on error)
+            self.set_cache(result)
         return result
 
 class ThreatFoxSensor(BaseSensor):
@@ -1517,7 +1524,9 @@ class CheckHostSensor(BaseSensor):
                     else:
                         node_ok[node_label] = "OK" if is_ok else "FAIL"
 
-            success_rate = round(ok_count / all_count, 3) if all_count > 0 else None
+            # Require at least 2 nodes to respond before trusting success_rate.
+            # A single responding node (others still pending) is not sufficient evidence.
+            success_rate = round(ok_count / all_count, 3) if all_count >= 2 else None
             avg_latency  = round(sum(latencies) / len(latencies)) if latencies else None
 
             # NOTE: Latency-based success_rate penalty removed.
