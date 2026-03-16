@@ -442,8 +442,8 @@
             cursor: pointer; border-radius: 3px; transition: background 0.12s;
         }
         .dd-sensor-row:hover { background: rgba(255,255,255,0.07); }
-        .dd-sensor-row.not-fired  { opacity: 0.4; }
-        .dd-sensor-row.suppressed { opacity: 0.3; text-decoration: line-through; }
+        .dd-sensor-row.not-fired  { opacity: 1.0; }
+        .dd-sensor-row.suppressed { opacity: 0.4; text-decoration: line-through; }
         .dd-label  { font-size: 11px; font-family: 'Courier New', monospace; min-width: 40px; font-weight: bold; }
         .dd-bar-wrap { flex: 1; height: 4px; background: #222; border-radius: 2px; }
         .dd-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s; }
@@ -6416,9 +6416,9 @@
                     : '';
 
                 return `<div class="dd-sensor-row ${rowClass}" onclick="focusSensorOnMap('${e.sensor}')">` +
-                    `<span class="dd-label" style="color:${isFired ? color : '#444'}">${label}</span>` +
-                    `<div class="dd-bar-wrap"><div class="dd-bar-fill" style="width:${pct}%;background:${isFired ? color : '#2a2a2a'};"></div></div>` +
-                    `<span class="dd-score" style="color:${isFired ? color : '#444'}">${e.score > 0 ? '+'+e.score : '—'}</span>` +
+                    `<span class="dd-label" style="color:${isFired ? color : '#777'}">${label}</span>` +
+                    `<div class="dd-bar-wrap"><div class="dd-bar-fill" style="width:${pct}%;background:${isFired ? color : '#333'};"></div></div>` +
+                    `<span class="dd-score" style="color:${isFired ? color : '#666'}">${e.score > 0 ? '+'+e.score : '—'}</span>` +
                     `<span class="dd-detail">${detail}</span>` +
                     mapBtn +
                     `</div>`;
