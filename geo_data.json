@@ -2633,6 +2633,19 @@
       "AnonCollective"
     ]
   },
+  "TELEGRAM_CHANNEL_META": {
+    "noname05716":           {"bloc": "RU", "lang": "ru", "confidence_weight": 0.70},
+    "killnet_mirror":        {"bloc": "RU", "lang": "ru", "confidence_weight": 0.60},
+    "CyberArmyofRussia_Reborn": {"bloc": "RU", "lang": "ru", "confidence_weight": 0.75},
+    "itarmyofukraine2022":   {"bloc": "UA", "lang": "uk", "confidence_weight": 0.65},
+    "cyber_resistance_ua":   {"bloc": "UA", "lang": "uk", "confidence_weight": 0.65},
+    "AnonCollective":        {"bloc": "IR", "lang": "en", "confidence_weight": 0.50},
+    "dragonforceio":         {"bloc": "MY", "lang": "en", "confidence_weight": 0.55},
+    "MysteriousTeam0":       {"bloc": "BD", "lang": "en", "confidence_weight": 0.45},
+    "TEAM_INSANE_PAKISTAN2": {"bloc": "PK", "lang": "en", "confidence_weight": 0.40},
+    "anonymous_sudan":       {"bloc": "SD", "lang": "ar", "confidence_weight": 0.45},
+    "GhostClan_op":          {"bloc": "XX", "lang": "en", "confidence_weight": 0.40}
+  },
   "INFRASTRUCTURE_URLS": {
     "UA": [
       "https://www.president.gov.ua",

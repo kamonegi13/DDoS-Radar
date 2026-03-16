@@ -118,8 +118,9 @@ COUNTRY_BLOC_TAGS: dict = {}             # country -> list of blocs (multi-threa
 TACTICAL_KEYWORDS: dict = {}
 HISTORICAL_EVENTS: list = []
 CABLE_ROUTES: list = []
-THREAT_ACTOR_MAPPING: dict = {}
-INFRASTRUCTURE_URLS:  dict = {}
+THREAT_ACTOR_MAPPING:  dict = {}
+INFRASTRUCTURE_URLS:   dict = {}
+TELEGRAM_CHANNEL_META: dict = {}
 try:
     with open("geo_data.json", "r", encoding="utf-8") as f:
         geo_data = json.load(f)
@@ -134,8 +135,9 @@ try:
         TACTICAL_KEYWORDS   = geo_data.get("TACTICAL_KEYWORDS", {})
         HISTORICAL_EVENTS   = geo_data.get("HISTORICAL_EVENTS", [])
         CABLE_ROUTES        = geo_data.get("CABLE_ROUTES", [])
-        THREAT_ACTOR_MAPPING = geo_data.get("THREAT_ACTOR_MAPPING", {})
-        INFRASTRUCTURE_URLS  = geo_data.get("INFRASTRUCTURE_URLS", {})
+        THREAT_ACTOR_MAPPING   = geo_data.get("THREAT_ACTOR_MAPPING", {})
+        INFRASTRUCTURE_URLS    = geo_data.get("INFRASTRUCTURE_URLS", {})
+        TELEGRAM_CHANNEL_META  = geo_data.get("TELEGRAM_CHANNEL_META", {})
         print("[Config] Loaded static data from geo_data.json")
 except Exception as e:
     print(f"[Warning] Failed to load geo_data.json: {e}")
@@ -1141,6 +1143,7 @@ TELEGRAM_ATTACK_KW_RAW   = os.getenv(
     "target,attack,ddos,http flood,under attack,down,offline,op,#target"
 )
 TELEGRAM_ATTACK_KEYWORDS = [k.strip().lower() for k in TELEGRAM_ATTACK_KW_RAW.split(",") if k.strip()]
+TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD = float(os.getenv("TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD", "0.5"))
 
 # Scraper User-Agent pool — rotated per request to reduce fingerprinting
 _SCRAPER_UA_POOL = [
@@ -1168,6 +1171,7 @@ class TelegramMirrorSensor(BaseSensor):
     _MAX_LOG        = 50
     _last_poll_ts: str  = ""
     _last_poll_ok: bool = False
+    _baseline_tg: dict  = {}    # theater → {"daily_counts": [], "last_updated": 0.0}
 
     def __init__(self):
         super().__init__("telegram_mirror", "info", TELEGRAM_MIRROR_POLL)
@@ -1274,6 +1278,45 @@ class TelegramMirrorSensor(BaseSensor):
         if len(cls._intercept_log) > cls._MAX_LOG:
             cls._intercept_log.pop()
 
+    @classmethod
+    def _compute_zscore_tg(cls, theater: str, today_normalized: float) -> tuple:
+        """Compute Z-score against rolling baseline (same logic as RssNarrativeSensor).
+        Returns: (z_score, mean, std). Returns (0,0,0) until ≥7 days of data."""
+        bl    = cls._baseline_tg.get(theater, {})
+        daily = bl.get("daily_counts", [])
+        if len(daily) < 7:
+            return 0.0, 0.0, 0.0
+        n        = len(daily)
+        mean     = sum(daily) / n
+        variance = sum((x - mean) ** 2 for x in daily) / n
+        std      = math.sqrt(variance) if variance > 0 else 0.0
+        z        = (today_normalized - mean) / std if std > 0 else 0.0
+        return round(z, 3), round(mean, 4), round(std, 4)
+
+    @classmethod
+    def _update_baseline_tg(cls, theater: str, today_normalized: float):
+        """Append today's normalized frequency to rolling baseline (capped at NARRATIVE_BASELINE_DAYS)."""
+        if theater not in cls._baseline_tg:
+            cls._baseline_tg[theater] = {"daily_counts": [], "last_updated": 0.0}
+        bl = cls._baseline_tg[theater]
+        bl["daily_counts"].append(today_normalized)
+        bl["daily_counts"] = bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]
+        bl["last_updated"] = time.time()
+
+    @staticmethod
+    def _count_keyword_hits(text: str, keywords: list) -> int:
+        """Count total keyword occurrences in text using the same matching rules as _parse_posts."""
+        import re as _re
+        total = 0
+        for kw in keywords:
+            if len(kw) <= 2:
+                continue
+            if ' ' in kw or kw.startswith('#'):
+                total += text.count(kw)
+            else:
+                total += len(_re.findall(r'\b' + _re.escape(kw) + r'\b', text))
+        return total
+
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", [])
         results: dict = {}
@@ -1289,6 +1332,15 @@ class TelegramMirrorSensor(BaseSensor):
             theater_targets: list = []
             theater_intent   = False
             active_channels: list = []
+            total_kw_hits    = 0
+            channels_scraped = 0
+
+            # Compute mean confidence_weight for this theater's channel set
+            ch_confidences = [
+                TELEGRAM_CHANNEL_META.get(ch, {}).get("confidence_weight", 0.5)
+                for ch in channels
+            ]
+            mean_confidence = sum(ch_confidences) / len(ch_confidences) if ch_confidences else 0.5
 
             import random as _rnd_jitter
             for i, channel in enumerate(channels):
@@ -1299,8 +1351,11 @@ class TelegramMirrorSensor(BaseSensor):
                 if not html:
                     continue
                 any_success = True
+                channels_scraped += 1
                 text = self._extract_text(html)
                 targets, has_intent, matched_kws = self._parse_posts(text, TELEGRAM_ATTACK_KEYWORDS)
+                kw_hits = self._count_keyword_hits(text, TELEGRAM_ATTACK_KEYWORDS)
+                total_kw_hits += kw_hits
                 if has_intent or targets:
                     theater_targets.extend(targets)
                     if has_intent:
@@ -1312,21 +1367,44 @@ class TelegramMirrorSensor(BaseSensor):
                     det_status = "INTENT_DETECTED" if has_intent else "TARGETS_FOUND"
                     self._log_detection(theater, channel, ch_url, det_status, matched_kws, targets, snippet)
 
+            # Z-score analysis: normalize hits per channel scraped
+            normalized = total_kw_hits / max(channels_scraped, 1)
+            z_score = self._compute_zscore_tg(theater, normalized)[0]
+            self._update_baseline_tg(theater, normalized)
+
+            is_burst = False
+            if z_score >= NARRATIVE_ZSCORE_CRITICAL:
+                tg_status = "CRITICAL_BURST"
+                is_burst  = True
+            elif z_score >= NARRATIVE_ZSCORE_ALERT:
+                tg_status = "BURST"
+                is_burst  = True
+            elif theater_intent:
+                tg_status = "INTENT_DETECTED"
+            elif theater_targets:
+                tg_status = "TARGETS_FOUND"
+            else:
+                tg_status = "CLEAR"
+
             results[theater] = {
                 "channels_monitored": channels,
                 "active_channels":    active_channels,
                 "target_urls":        list(set(theater_targets)),
                 "has_attack_intent":  theater_intent,
-                "status":             "INTENT_DETECTED" if theater_intent else
-                                      "TARGETS_FOUND" if theater_targets else "CLEAR",
+                "status":             tg_status,
+                "z_score":            z_score,
+                "is_burst":           is_burst,
+                "claim_confidence":   round(mean_confidence, 3),
+                "normalized_freq":    round(normalized, 5),
             }
 
-            # Register sequence event
-            if theater_intent:
+            # Register sequence event on intent or Z-score burst
+            if theater_intent or is_burst:
                 register_sequence_event(theater, "NARRATIVE_BURST", {
-                    "source": "telegram_mirror",
+                    "source":   "telegram_mirror",
                     "channels": active_channels,
-                    "targets": list(set(theater_targets))[:5],
+                    "targets":  list(set(theater_targets))[:5],
+                    "z_score":  z_score,
                 })
 
         TelegramMirrorSensor._last_poll_ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -2649,22 +2727,43 @@ def get_threat_data():
         # ── v9 sensor rationale ────────────────────────────────────────────────
 
         # Telegram Mirror (Info Domain)
-        core_telegram       = telegram_data.get(core_theater, {})
-        telegram_intent     = core_telegram.get("has_attack_intent", False)
-        telegram_status     = core_telegram.get("status", "CLEAR")
-        telegram_active_ch  = core_telegram.get("active_channels", [])
+        core_telegram        = telegram_data.get(core_theater, {})
+        telegram_intent      = core_telegram.get("has_attack_intent", False)
+        telegram_status      = core_telegram.get("status", "CLEAR")
+        telegram_active_ch   = core_telegram.get("active_channels", [])
+        telegram_z           = core_telegram.get("z_score", 0.0)
+        telegram_burst       = core_telegram.get("is_burst", False)
+        telegram_confidence  = core_telegram.get("claim_confidence", 1.0)
         if telegram_mirror_sensor and telegram_mirror_sensor.enabled:
-            tg_score = 2 if telegram_intent else (1 if telegram_status == "TARGETS_FOUND" else 0)
+            if telegram_status == "CRITICAL_BURST":
+                tg_score = 2
+            elif telegram_burst or telegram_intent:
+                tg_score = 1
+            elif telegram_status == "TARGETS_FOUND":
+                tg_score = 1
+            else:
+                tg_score = 0
+            # Confidence suppression: low-credibility channels reduce score by 1
+            suppressed_by_confidence = False
+            if tg_score > 0 and telegram_confidence < TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD:
+                tg_score = max(0, tg_score - 1)
+                suppressed_by_confidence = True
+            fired = tg_score > 0
+            detail = f"Z={telegram_z:.2f} [{telegram_status}] conf={telegram_confidence:.2f} ch={telegram_active_ch[:3]}"
+            if suppressed_by_confidence:
+                detail += " (confidence-suppressed)"
             add_rat("telegram_mirror", "info",
-                    "FIRED" if (telegram_intent or telegram_status == "TARGETS_FOUND") else "OK",
-                    f"{telegram_status} ch={telegram_active_ch[:3]}",
+                    "FIRED" if fired else "OK",
+                    detail,
                     tg_score,
+                    f"Telegram Burst Z={telegram_z:.2f} (conf={telegram_confidence:.2f})" if telegram_burst else
                     f"Attack intent intercepted on Telegram: {telegram_active_ch}" if telegram_intent else
                     "Target URLs found in Telegram channels" if telegram_status == "TARGETS_FOUND" else None)
-            if telegram_intent:
+            if telegram_burst or telegram_intent:
                 register_sequence_event(core_theater, "NARRATIVE_BURST", {
                     "source": "telegram_mirror", "channels": telegram_active_ch,
                     "targets": core_telegram.get("target_urls", [])[:5],
+                    "z_score": telegram_z,
                 })
 
         # Check-Host (Physical Domain)
