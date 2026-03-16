@@ -2667,7 +2667,14 @@ def get_threat_data():
         # NASA FIRMS (Physical)
         if nasa_firms_sensor and nasa_firms_sensor.enabled:
             has_firms = any(f["code"] == core_theater for f in nasa_firms_data)
-            add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", f"Thermal Anomalies", 3 if has_firms else 0, "Kinetic Strike Precursor")
+            _firms_global_codes = sorted({f["code"] for f in nasa_firms_data})
+            if has_firms:
+                _firms_val = f"Thermal Anomaly [{core_theater}]"
+            elif _firms_global_codes:
+                _firms_val = f"Global only [{','.join(_firms_global_codes[:4])}]"
+            else:
+                _firms_val = "No Anomalies"
+            add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", _firms_val, 3 if has_firms else 0, "Kinetic Strike Precursor")
 
         # ThreatFox (Cyber)
         if threatfox_sensor and threatfox_sensor.enabled:

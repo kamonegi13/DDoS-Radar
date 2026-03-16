@@ -413,45 +413,45 @@
 
         /* ── Domain Drilldown Panel ── */
         #domain-drilldown-panel {
-            display: none; width: 100%; background: rgba(8,8,8,0.97);
-            border-bottom: 1px solid #2a2a2a; z-index: 3900;
-            padding: 8px 16px 10px; box-sizing: border-box; position: relative;
+            display: none; width: 100%; background: rgba(12,12,12,0.98);
+            border-bottom: 1px solid #333; z-index: 3900;
+            padding: 10px 18px 12px; box-sizing: border-box; position: relative;
             flex-shrink: 0;
         }
         #dd-close-btn {
-            position: absolute; top: 7px; right: 14px; cursor: pointer;
-            color: #444; font-size: 13px; line-height: 1; transition: color 0.15s;
+            position: absolute; top: 8px; right: 14px; cursor: pointer;
+            color: #666; font-size: 14px; line-height: 1; transition: color 0.15s;
         }
         #dd-close-btn:hover { color: #fff; }
-        .dd-inner { display: flex; gap: 16px; align-items: flex-start; }
-        .dd-domain-col { flex: 1; min-width: 160px; }
+        .dd-inner { display: flex; gap: 20px; align-items: flex-start; }
+        .dd-domain-col { flex: 1; min-width: 170px; }
         .dd-domain-header {
             display: flex; align-items: baseline; gap: 8px;
-            border-bottom: 1px solid #1e1e1e; padding-bottom: 4px; margin-bottom: 5px;
+            border-bottom: 1px solid #2a2a2a; padding-bottom: 5px; margin-bottom: 6px;
         }
         .dd-domain-title {
-            font-size: 9px; letter-spacing: 1.5px; font-weight: bold;
+            font-size: 11px; letter-spacing: 1.5px; font-weight: bold;
             text-transform: uppercase; font-family: 'Courier New', monospace;
         }
         .dd-domain-title.cyber    { color: #00ffff; }
         .dd-domain-title.physical { color: #ffaa00; }
         .dd-domain-title.info     { color: #cc66ff; }
-        .dd-domain-score { font-size: 11px; font-weight: bold; font-family: 'Courier New', monospace; }
+        .dd-domain-score { font-size: 13px; font-weight: bold; font-family: 'Courier New', monospace; }
         .dd-sensor-row {
-            display: flex; align-items: center; gap: 5px; padding: 2px 3px;
-            cursor: pointer; border-radius: 2px; transition: background 0.12s;
+            display: flex; align-items: center; gap: 6px; padding: 3px 4px;
+            cursor: pointer; border-radius: 3px; transition: background 0.12s;
         }
-        .dd-sensor-row:hover { background: rgba(255,255,255,0.05); }
-        .dd-sensor-row.not-fired  { opacity: 0.35; }
-        .dd-sensor-row.suppressed { opacity: 0.25; text-decoration: line-through; }
-        .dd-label  { font-size: 9px; font-family: 'Courier New', monospace; min-width: 38px; font-weight: bold; }
-        .dd-bar-wrap { flex: 1; height: 3px; background: #1a1a1a; border-radius: 2px; }
+        .dd-sensor-row:hover { background: rgba(255,255,255,0.07); }
+        .dd-sensor-row.not-fired  { opacity: 0.4; }
+        .dd-sensor-row.suppressed { opacity: 0.3; text-decoration: line-through; }
+        .dd-label  { font-size: 11px; font-family: 'Courier New', monospace; min-width: 40px; font-weight: bold; }
+        .dd-bar-wrap { flex: 1; height: 4px; background: #222; border-radius: 2px; }
         .dd-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s; }
-        .dd-score  { font-size: 9px; font-family: 'Courier New', monospace; min-width: 24px; text-align: right; }
-        .dd-detail { font-size: 9px; color: #555; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .dd-map-btn { font-size: 10px; color: #00ffff33; cursor: pointer; transition: color 0.15s; flex-shrink: 0; }
+        .dd-score  { font-size: 11px; font-family: 'Courier New', monospace; min-width: 28px; text-align: right; font-weight: bold; }
+        .dd-detail { font-size: 10px; color: #888; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dd-map-btn { font-size: 11px; color: #00ffff55; cursor: pointer; transition: color 0.15s; flex-shrink: 0; }
         .dd-map-btn:hover { color: #00ffff; }
-        .dd-hint { font-size: 9px; color: #333; font-family: 'Courier New', monospace; text-align: center; margin-top: 6px; }
+        .dd-hint { font-size: 10px; color: #555; font-family: 'Courier New', monospace; text-align: center; margin-top: 8px; }
 
         #evidence-modal { border-color: #00ffff80; }
         .rationale-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 8px; }
