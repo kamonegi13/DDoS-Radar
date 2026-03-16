@@ -72,6 +72,9 @@ const LANG = {
     'hud.tooltip.domain_physical':    'Physical domain score',
     'hud.domain.info':                'Info',
     'hud.tooltip.domain_info':        'Info domain score',
+    'hud.tooltip.domain_expand':      'Click to expand per-sensor score breakdown',
+    'dd.hint':                        'Click sensor row → focus on map  ·  ⊙ = zoom to sensor position',
+    'dd.btn.focus_map':               'Zoom to sensor on map',
     'hud.discrepancy_alert':          '! DISCREPANCY DETECTED: POSSIBLE MASKIROVKA',
 
     // ── C2 sync (JS-generated) ────────────────────────────────────
@@ -639,6 +642,9 @@ const LANG = {
     'hud.tooltip.domain_physical':    '物理ドメインスコア',
     'hud.domain.info':                '情報',
     'hud.tooltip.domain_info':        '情報ドメインスコア',
+    'hud.tooltip.domain_expand':      'クリックでセンサー別スコア内訳を展開',
+    'dd.hint':                        'センサー行クリック → 地図フォーカス  ·  ⊙ = センサー位置にズーム',
+    'dd.btn.focus_map':               '地図上のセンサーにズーム',
     'hud.discrepancy_alert':          '! 乖離検出: マスキロフカの可能性',
 
     'hud.c2sync.detected':            '検知 (+{n}pt)',

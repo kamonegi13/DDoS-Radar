@@ -3716,6 +3716,57 @@ def _cache_cleanup_worker():
 _cleanup_thread = threading.Thread(target=_cache_cleanup_worker, daemon=True, name="cache-cleanup")
 _cleanup_thread.start()
 
+
+@app.route("/api/score_breakdown", methods=["GET"])
+def api_score_breakdown():
+    """
+    Per-sensor score breakdown for the current threat assessment.
+    Restructures rationale_matrix from the global cache by domain,
+    sorted by score descending within each domain.
+    """
+    with _global_cache_lock:
+        cache = dict(global_cache) if global_cache else None
+    if not cache or not cache.get("strategic"):
+        return jsonify({"error": "No data available"}), 503
+
+    strat = cache["strategic"]
+    rationale = strat.get("rationale_matrix", [])
+    domains_data = strat.get("domains", {})
+
+    breakdown: dict = {"cyber": [], "physical": [], "info": []}
+    for entry in rationale:
+        d = entry.get("domain")
+        if d not in breakdown:
+            continue
+        breakdown[d].append({
+            "sensor":         entry.get("sensor"),
+            "status":         entry.get("status"),
+            "score":          entry.get("score", 0),
+            "value":          entry.get("value", ""),
+            "fired_reason":   entry.get("fired_reason"),
+            "suppressed":     entry.get("suppressed", False),
+            "suppress_reason": entry.get("suppress_reason"),
+        })
+
+    # Sort contributors by score descending within each domain
+    for d in breakdown:
+        breakdown[d].sort(key=lambda x: -(x.get("score") or 0))
+
+    return jsonify({
+        "ts":           datetime.datetime.now().isoformat(),
+        "theater":      strat.get("core_theater"),
+        "threat_level": strat.get("threat_level", 5),
+        "domains": {
+            d: {
+                "score":        domains_data.get(d, {}).get("score", 0),
+                "status":       domains_data.get(d, {}).get("status", "NORMAL"),
+                "contributors": breakdown.get(d, []),
+            }
+            for d in ("cyber", "physical", "info")
+        },
+    })
+
+
 if __name__ == "__main__":
     # use_reloader=False: Flask's stat reloader spawns two processes (file watcher + actual worker),
     # causing module-level initialization code (sensor thread startup, OAuth2 token fetch etc.)

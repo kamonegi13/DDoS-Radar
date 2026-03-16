@@ -367,6 +367,91 @@
         .domain-status.ELEVATED { color: #ffaa00; }
         .domain-status.WATCH    { color: #ffff00; }
         .domain-status.NORMAL   { color: #777; }
+        .domain-bar-row { cursor: pointer; }
+
+        /* ── Theater Halo (SVG circle animation) ── */
+        @keyframes halo-pulse {
+            0%, 100% { stroke-opacity: 0.85; }
+            50%       { stroke-opacity: 0.1; }
+        }
+        @keyframes halo-pulse-fast {
+            0%, 100% { stroke-opacity: 0.9; }
+            50%       { stroke-opacity: 0.05; }
+        }
+        .theater-halo-ring  { stroke-dasharray: 8 5; }
+        .theater-halo-pulse { animation: halo-pulse 2s ease-in-out infinite; }
+        .theater-halo-pulse.tl1 { animation: halo-pulse-fast 0.8s ease-in-out infinite; }
+        .theater-halo-pulse.tl2 { animation: halo-pulse-fast 1.2s ease-in-out infinite; }
+        .theater-halo-pulse.tl3 { animation: halo-pulse 1.8s ease-in-out infinite; }
+        .theater-halo-pulse.tl4 { animation: halo-pulse 2.5s ease-in-out infinite; }
+
+        /* ── Sensor Status Icons on map ── */
+        .sensor-icon-div { display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+        .sensor-icon-div.suppressed { opacity: 0.3; filter: grayscale(0.8); }
+        .sensor-icon-badge {
+            font-size: 9px; font-weight: bold; letter-spacing: 0.5px;
+            padding: 2px 5px; border-radius: 3px; border: 1px solid;
+            font-family: 'Courier New', monospace; white-space: nowrap;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .sensor-icon-badge:hover { transform: scale(1.25); box-shadow: 0 0 8px currentColor; }
+        .sensor-icon-badge.domain-cyber    { color: #00ffff; border-color: rgba(0,255,255,0.5);  background: rgba(0,255,255,0.12); }
+        .sensor-icon-badge.domain-physical { color: #ffaa00; border-color: rgba(255,170,0,0.5);  background: rgba(255,170,0,0.12); }
+        .sensor-icon-badge.domain-info     { color: #cc66ff; border-color: rgba(204,102,255,0.5); background: rgba(204,102,255,0.12); }
+        .sensor-icon-score { font-size: 8px; color: #fff; margin-top: 1px; font-family: 'Courier New', monospace; }
+
+        /* ── Theater Halo TL label ── */
+        .halo-tl-label {
+            font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold;
+            letter-spacing: 1px; padding: 1px 6px; border-radius: 2px; white-space: nowrap;
+            text-shadow: 0 0 6px currentColor;
+        }
+        .halo-tl-label.tl1 { color: #cc0000; border: 1px solid #cc000099; background: rgba(204,0,0,0.15); }
+        .halo-tl-label.tl2 { color: #ff4400; border: 1px solid #ff440099; background: rgba(255,68,0,0.15); }
+        .halo-tl-label.tl3 { color: #ff8800; border: 1px solid #ff880099; background: rgba(255,136,0,0.15); }
+        .halo-tl-label.tl4 { color: #ffcc00; border: 1px solid #ffcc0099; background: rgba(255,204,0,0.15); }
+
+        /* ── Domain Drilldown Panel ── */
+        #domain-drilldown-panel {
+            display: none; width: 100%; background: rgba(8,8,8,0.97);
+            border-bottom: 1px solid #2a2a2a; z-index: 3900;
+            padding: 8px 16px 10px; box-sizing: border-box; position: relative;
+            flex-shrink: 0;
+        }
+        #dd-close-btn {
+            position: absolute; top: 7px; right: 14px; cursor: pointer;
+            color: #444; font-size: 13px; line-height: 1; transition: color 0.15s;
+        }
+        #dd-close-btn:hover { color: #fff; }
+        .dd-inner { display: flex; gap: 16px; align-items: flex-start; }
+        .dd-domain-col { flex: 1; min-width: 160px; }
+        .dd-domain-header {
+            display: flex; align-items: baseline; gap: 8px;
+            border-bottom: 1px solid #1e1e1e; padding-bottom: 4px; margin-bottom: 5px;
+        }
+        .dd-domain-title {
+            font-size: 9px; letter-spacing: 1.5px; font-weight: bold;
+            text-transform: uppercase; font-family: 'Courier New', monospace;
+        }
+        .dd-domain-title.cyber    { color: #00ffff; }
+        .dd-domain-title.physical { color: #ffaa00; }
+        .dd-domain-title.info     { color: #cc66ff; }
+        .dd-domain-score { font-size: 11px; font-weight: bold; font-family: 'Courier New', monospace; }
+        .dd-sensor-row {
+            display: flex; align-items: center; gap: 5px; padding: 2px 3px;
+            cursor: pointer; border-radius: 2px; transition: background 0.12s;
+        }
+        .dd-sensor-row:hover { background: rgba(255,255,255,0.05); }
+        .dd-sensor-row.not-fired  { opacity: 0.35; }
+        .dd-sensor-row.suppressed { opacity: 0.25; text-decoration: line-through; }
+        .dd-label  { font-size: 9px; font-family: 'Courier New', monospace; min-width: 38px; font-weight: bold; }
+        .dd-bar-wrap { flex: 1; height: 3px; background: #1a1a1a; border-radius: 2px; }
+        .dd-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s; }
+        .dd-score  { font-size: 9px; font-family: 'Courier New', monospace; min-width: 24px; text-align: right; }
+        .dd-detail { font-size: 9px; color: #555; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dd-map-btn { font-size: 10px; color: #00ffff33; cursor: pointer; transition: color 0.15s; flex-shrink: 0; }
+        .dd-map-btn:hover { color: #00ffff; }
+        .dd-hint { font-size: 9px; color: #333; font-family: 'Courier New', monospace; text-align: center; margin-top: 6px; }
 
         #evidence-modal { border-color: #00ffff80; }
         .rationale-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 8px; }
@@ -812,14 +897,44 @@
             <span class="hud-label" style="margin-left:4px;" data-i18n="hud.label.comms">COMMS:</span>
             <span id="hud-rs-text" class="hud-value" style="font-size:10px; color:#00ff88;">LIVE</span>
         </div>
-        <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap">
-            <div id="hud-domain-cyber"    class="domain-bar-row" data-tooltip="Cyber domain score" data-i18n-tip="hud.tooltip.domain_cyber"><span class="domain-label" data-i18n="hud.domain.cyber">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
-            <div id="hud-domain-physical" class="domain-bar-row" data-tooltip="Physical domain score" data-i18n-tip="hud.tooltip.domain_physical"><span class="domain-label" data-i18n="hud.domain.physical">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
-            <div id="hud-domain-info"     class="domain-bar-row" data-tooltip="Info domain score" data-i18n-tip="hud.tooltip.domain_info"><span class="domain-label" data-i18n="hud.domain.info">Info</span><div id="bar-info"     class="domain-bar domain-info"     style="width:0px;"></div><span id="status-info"     class="domain-status NORMAL">-</span></div>
+        <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap" onclick="toggleDrilldown()" data-tooltip="Click to expand sensor score breakdown" data-i18n-tip="hud.tooltip.domain_expand">
+            <div id="hud-domain-cyber"    class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_cyber"><span class="domain-label" data-i18n="hud.domain.cyber">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
+            <div id="hud-domain-physical" class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_physical"><span class="domain-label" data-i18n="hud.domain.physical">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
+            <div id="hud-domain-info"     class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_info"><span class="domain-label" data-i18n="hud.domain.info">Info</span><div id="bar-info"     class="domain-bar domain-info"     style="width:0px;"></div><span id="status-info"     class="domain-status NORMAL">-</span></div>
+            <span id="dd-toggle-hint" style="font-size:8px; color:#333; font-family:'Courier New',monospace; align-self:flex-end; line-height:1;">▾</span>
         </div>
     </div>
     <!-- Discrepancy / Maskirovka full-width alert bar -->
     <div id="hud-discrepancy-alert">! DISCREPANCY DETECTED: POSSIBLE MASKIROVKA</div>
+</div>
+
+<!-- ── Domain Drilldown Panel ─────────────────────────────────────────── -->
+<div id="domain-drilldown-panel">
+    <span id="dd-close-btn" onclick="toggleDrilldown()" title="Close">✕</span>
+    <div class="dd-inner">
+        <div class="dd-domain-col">
+            <div class="dd-domain-header">
+                <span class="dd-domain-title cyber" data-i18n="hud.domain.cyber">Cyber</span>
+                <span class="dd-domain-score" id="dd-score-cyber">—</span>
+            </div>
+            <div id="dd-sensors-cyber"></div>
+        </div>
+        <div class="dd-domain-col">
+            <div class="dd-domain-header">
+                <span class="dd-domain-title physical" data-i18n="hud.domain.physical">Physical</span>
+                <span class="dd-domain-score" id="dd-score-physical">—</span>
+            </div>
+            <div id="dd-sensors-physical"></div>
+        </div>
+        <div class="dd-domain-col">
+            <div class="dd-domain-header">
+                <span class="dd-domain-title info" data-i18n="hud.domain.info">Info</span>
+                <span class="dd-domain-score" id="dd-score-info">—</span>
+            </div>
+            <div id="dd-sensors-info"></div>
+        </div>
+    </div>
+    <div class="dd-hint" data-i18n="dd.hint">Click sensor row → focus on map  ·  ⊙ = zoom to sensor position</div>
 </div>
 
 <div id="main-container">
@@ -3597,6 +3712,10 @@
     // [Intuition UI] Threat Terrain — threat-density heatmap-style circle overlay
     const threatTerrainLayer = L.layerGroup(); // hidden by default
 
+    // Threat Situation Map layers
+    const haloLayer         = L.layerGroup().addTo(map);
+    const sensorMarkerLayer = L.layerGroup().addTo(map);
+
     const overlayLayers = {
         "Target Nodes":     targetLayer,
         "Cyber Strikes":    lineLayer,
@@ -3608,7 +3727,9 @@
         "FIRMS Anomalies":  firmsLayer,
         "Cable Routes":     cableRoutesLayer,
         "Cable Chokepoints":chokepointsLayer,
-        "Threat Terrain":   threatTerrainLayer
+        "Threat Terrain":   threatTerrainLayer,
+        "Threat Halos":     haloLayer,
+        "Sensor Status":    sensorMarkerLayer,
     };
     L.control.layers(null, overlayLayers, { position: 'topright', collapsed: true }).addTo(map);
 
@@ -4332,6 +4453,14 @@
             updateRadioSilence(p8, strat);
             recordSignificantEvent(strat.threat_level);
 
+            // ── Threat Situation Map (TSM) ──────────────────────────────
+            const coreCode  = strat.core_theater;
+            const coreTgt   = (data.targets || []).find(t => t.code === coreCode);
+            const coreCoord = coreTgt ? {lat: coreTgt.lat, lng: coreTgt.lng} : null;
+            updateThreatHalo(strat, coreCoord);
+            updateSensorMarkers(strat, coreCoord);
+            updateDrilldown(strat);
+
             // Refresh open panels only (suppress unnecessary API calls)
             const wbPanel = document.getElementById('weather-brief-panel');
             if (wbPanel && wbPanel.style.display !== 'none') renderWeatherBrief();
@@ -4480,10 +4609,8 @@
                     sortedSources.forEach(s => {
                         const w = getW(s); const spike = getSpike(s);
                         let lineColor, lineOpacity, speedClass, glowClass, spikeHtml = "";
-                        const severity = spike * w;
-
-                        if (spike >= 1.5 && severity >= 0.5) { lineColor = '#ff2a2a'; lineOpacity = 0.9; speedClass = 'flow-fast'; glowClass = 'glow-high'; spikeHtml = `<span class="spike-alert">SEVERE SPIKE (x${spike})</span>`;
-                        } else if (spike >= 1.5 && w > 0.05) { lineColor = '#ffaa00'; lineOpacity = 0.7; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">Minor Spike (x${spike})</span>`;
+                        if (spike >= 6.0) { lineColor = '#ff2a2a'; lineOpacity = 0.9; speedClass = 'flow-fast'; glowClass = 'glow-high'; spikeHtml = `<span class="spike-alert">SEVERE (x${spike})</span>`;
+                        } else if (spike >= 2.0) { lineColor = '#ffaa00'; lineOpacity = 0.7; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">Elevated (x${spike})</span>`;
                         } else if (w >= 1.0) { lineColor = '#ffaa00'; lineOpacity = 0.4; speedClass = 'flow-medium'; glowClass = 'glow-none';
                         } else { lineColor = '#00d8ff'; lineOpacity = 0.4; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
 
@@ -6102,6 +6229,215 @@
         const open = sec.classList.toggle('open');
         btn.textContent = _t(open ? 'sysconfig.adv_toggle_open' : 'sysconfig.adv_toggle');
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Threat Situation Map (TSM) — Theater Halo + Sensor Status Icons
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Per-sensor config: angle (degrees from north, CW), short label, domain
+    const SENSOR_ICON_CFG = {
+        'cloudflare_radar': {angle:   0, label: 'CF',   domain: 'cyber'},
+        'ripe_bgp':         {angle: 330, label: 'BGP',  domain: 'cyber'},
+        'check_host':       {angle:  30, label: 'CH',   domain: 'cyber'},
+        'threatfox':        {angle: 305, label: 'TFX',  domain: 'cyber'},
+        'greynoise':        {angle:  55, label: 'GN',   domain: 'cyber'},
+        'ioda_bgp':         {angle: 280, label: 'IODA', domain: 'cyber'},
+        'opensky':          {angle:  75, label: 'AIR',  domain: 'physical'},
+        'peeringdb_ixp':    {angle:  95, label: 'IXP',  domain: 'physical'},
+        'isr_hotspot':      {angle: 118, label: 'ISR',  domain: 'physical'},
+        'nasa_firms':       {angle: 143, label: 'FIRE', domain: 'physical'},
+        'ais_maritime':     {angle: 167, label: 'AIS',  domain: 'physical'},
+        'openweather':      {angle: 192, label: 'WX',   domain: 'physical'},
+        'telegram_mirror':  {angle: 215, label: 'TG',   domain: 'info'},
+        'gdelt':            {angle: 243, label: 'GDT',  domain: 'info'},
+        'rss_narrative':    {angle: 268, label: 'RSS',  domain: 'info'},
+    };
+
+    const HALO_CFG = {
+        1: {color: '#cc0000', radius: 550000},
+        2: {color: '#ff4400', radius: 450000},
+        3: {color: '#ff8800', radius: 350000},
+        4: {color: '#ffcc00', radius: 250000},
+    };
+
+    // Convert angle (deg from north, CW) + distance (km) to [lat,lng] offset from base
+    function _sensorCoord(baseLat, baseLng, angleDeg, distKm) {
+        const rad  = angleDeg * Math.PI / 180;
+        const dLat = (distKm / 111.0) * Math.cos(rad);
+        const dLng = (distKm / (111.0 * Math.cos(baseLat * Math.PI / 180))) * Math.sin(rad);
+        return [baseLat + dLat, baseLng + dLng];
+    }
+
+    // Cache core theater coord for this render cycle
+    let _coreCoord = null;
+
+    function updateThreatHalo(strat, coreCoord) {
+        haloLayer.clearLayers();
+        _coreCoord = coreCoord;
+        const tl  = strat.threat_level;
+        const cfg = HALO_CFG[tl];
+        if (!cfg || !coreCoord) return;
+
+        const lat = coreCoord.lat;
+        const lng = shiftLng(coreCoord.lng);
+
+        // Solid dashed ring
+        L.circle([lat, lng], {
+            radius: cfg.radius,
+            color: cfg.color, weight: 1.5,
+            opacity: 0.6, fillOpacity: 0.03,
+            className: 'theater-halo-ring',
+            interactive: false,
+        }).addTo(haloLayer);
+
+        // Pulsing outer ring
+        L.circle([lat, lng], {
+            radius: cfg.radius * 1.18,
+            color: cfg.color, weight: 1,
+            opacity: 0, fillOpacity: 0,
+            className: `theater-halo-pulse tl${tl}`,
+            interactive: false,
+        }).addTo(haloLayer);
+
+        // TL label — positioned just above the halo top edge
+        const labelOffsetKm = cfg.radius / 1000 + 60;
+        const [lblLat] = _sensorCoord(lat, lng, 0, labelOffsetKm);
+        L.marker([lblLat, lng], {
+            icon: L.divIcon({
+                className: '',
+                html: `<div class="halo-tl-label tl${tl}">TL-${tl}</div>`,
+                iconSize: [48, 18], iconAnchor: [24, 18],
+            }),
+            interactive: false,
+        }).addTo(haloLayer);
+    }
+
+    function updateSensorMarkers(strat, coreCoord) {
+        sensorMarkerLayer.clearLayers();
+        const tl = strat.threat_level;
+        if (tl > 4 || !coreCoord) return;
+
+        const baseLat = coreCoord.lat;
+        const baseLng = shiftLng(coreCoord.lng);
+        // Ring distance scales with TL severity
+        const distKm  = 500 + (5 - tl) * 40; // TL4=540, TL3=580, TL2=620, TL1=660
+
+        const rationale = strat.rationale_matrix || [];
+        const entryMap  = {};
+        rationale.forEach(e => { entryMap[e.sensor] = e; });
+
+        Object.entries(SENSOR_ICON_CFG).forEach(([sensor, cfg]) => {
+            const entry = entryMap[sensor];
+            if (!entry) return;
+
+            const isFired     = entry.status === 'FIRED' && !entry.suppressed;
+            const isSuppressed = entry.suppressed;
+            if (!isFired && !isSuppressed) return; // hide inactive sensors
+
+            const [iconLat, iconLng] = _sensorCoord(baseLat, baseLng, cfg.angle, distKm);
+            const score     = entry.score || 0;
+            const scoreStr  = score > 0 ? `+${score}` : '';
+            const divClass  = isSuppressed ? 'suppressed' : 'fired';
+
+            const icon = L.divIcon({
+                className: '',
+                html: `<div class="sensor-icon-div ${divClass}">` +
+                      `<div class="sensor-icon-badge domain-${cfg.domain}">${cfg.label}</div>` +
+                      (scoreStr ? `<div class="sensor-icon-score">${scoreStr}</div>` : '') +
+                      `</div>`,
+                iconSize: [40, 28], iconAnchor: [20, 14],
+            });
+
+            const domainColor = cfg.domain === 'cyber' ? '#00ffff' : cfg.domain === 'physical' ? '#ffaa00' : '#cc66ff';
+            const popup = `<div style="font-family:'Courier New',monospace;font-size:11px;min-width:150px;">` +
+                `<b style="color:${domainColor}">${sensor}</b><br>` +
+                `Status: <b>${entry.status}</b>${isSuppressed ? ' <span style="color:#888">[MUTED]</span>' : ''}<br>` +
+                `Score: <b>+${score}pt</b><br>` +
+                (entry.value        ? `Value: ${entry.value}<br>` : '') +
+                (entry.fired_reason ? `Reason: ${entry.fired_reason}` : '') +
+                (isSuppressed && entry.suppress_reason ? `<br><span style="color:#666">Suppressed: ${entry.suppress_reason}</span>` : '') +
+                `</div>`;
+
+            L.marker([iconLat, iconLng], {icon})
+             .bindPopup(popup)
+             .addTo(sensorMarkerLayer);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Domain Drilldown Panel
+    // ═══════════════════════════════════════════════════════════════════
+
+    let _drilldownOpen   = false;
+    let _drilldownStrat  = null;
+
+    window.toggleDrilldown = function() {
+        _drilldownOpen = !_drilldownOpen;
+        const panel   = document.getElementById('domain-drilldown-panel');
+        const hint    = document.getElementById('dd-toggle-hint');
+        if (panel) panel.style.display = _drilldownOpen ? 'block' : 'none';
+        if (hint)  hint.textContent = _drilldownOpen ? '▴' : '▾';
+        if (_drilldownOpen && _drilldownStrat) _updateDrilldownContent(_drilldownStrat);
+    };
+
+    function updateDrilldown(strat) {
+        _drilldownStrat = strat;
+        if (_drilldownOpen) _updateDrilldownContent(strat);
+    }
+
+    function _updateDrilldownContent(strat) {
+        const domainColors  = {cyber: '#00ffff', physical: '#ffaa00', info: '#cc66ff'};
+        const rationale     = strat.rationale_matrix || [];
+        const domainData    = strat.domains || {};
+
+        ['cyber', 'physical', 'info'].forEach(domain => {
+            const col   = document.getElementById(`dd-sensors-${domain}`);
+            const scoreEl = document.getElementById(`dd-score-${domain}`);
+            if (!col) return;
+
+            const color   = domainColors[domain];
+            const dScore  = (domainData[domain] || {}).score || 0;
+            if (scoreEl) { scoreEl.textContent = `${dScore}pt`; scoreEl.style.color = color; }
+
+            const entries = rationale
+                .filter(e => e.domain === domain)
+                .sort((a, b) => (b.score || 0) - (a.score || 0));
+
+            col.innerHTML = entries.map(e => {
+                const isFired     = e.status === 'FIRED' && !e.suppressed;
+                const isSuppressed = e.suppressed;
+                const rowClass    = isSuppressed ? 'suppressed' : isFired ? 'fired' : 'not-fired';
+                const pct         = Math.min(((e.score || 0) / 3) * 100, 100);
+                const cfg         = SENSOR_ICON_CFG[e.sensor];
+                const label       = cfg ? cfg.label : (e.sensor || '').substring(0, 6).toUpperCase();
+                const detail      = (e.value || e.fired_reason || '').substring(0, 28);
+                const mapBtn      = cfg
+                    ? `<span class="dd-map-btn" onclick="event.stopPropagation();focusSensorOnMap('${e.sensor}')" title="${_t('dd.btn.focus_map')}">⊙</span>`
+                    : '';
+
+                return `<div class="dd-sensor-row ${rowClass}" onclick="focusSensorOnMap('${e.sensor}')">` +
+                    `<span class="dd-label" style="color:${isFired ? color : '#444'}">${label}</span>` +
+                    `<div class="dd-bar-wrap"><div class="dd-bar-fill" style="width:${pct}%;background:${isFired ? color : '#2a2a2a'};"></div></div>` +
+                    `<span class="dd-score" style="color:${isFired ? color : '#444'}">${e.score > 0 ? '+'+e.score : '—'}</span>` +
+                    `<span class="dd-detail">${detail}</span>` +
+                    mapBtn +
+                    `</div>`;
+            }).join('');
+        });
+    }
+
+    window.focusSensorOnMap = function(sensorName) {
+        if (!_drilldownStrat || !_coreCoord) return;
+        const cfg = SENSOR_ICON_CFG[sensorName];
+        if (!cfg) {
+            map.flyTo([_coreCoord.lat, shiftLng(_coreCoord.lng)], 5, {animate: true, duration: 0.8});
+            return;
+        }
+        const tl     = _drilldownStrat.threat_level;
+        const distKm = 500 + (5 - tl) * 40;
+        const [lat, lng] = _sensorCoord(_coreCoord.lat, shiftLng(_coreCoord.lng), cfg.angle, distKm);
+        map.flyTo([lat, lng], 6, {animate: true, duration: 0.8});
+    };
 </script>
 
 </body>
