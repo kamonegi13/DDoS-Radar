@@ -2082,25 +2082,36 @@ class WeightedConvergenceEngine:
                                checkhost_success_rate: Optional[float],
                                asphyxiation: bool = False) -> float:
         """
-        Effective Blockade Index: (DDoS intensity × RIPE delay) / Check-Host success rate
+        Effective Blockade Index: attack_weight × (noise_floor + infra_degradation)
         Scores the effectiveness of "communications blackout" from 0 to 10.
 
         ddos_intensity:         CF spike factor (average spike multiplier)
         ripe_drop_pct:          RIPE BGP prefix drop rate (0–100)
-        checkhost_success_rate: Check-Host success rate (0.0–1.0, None = not measured)
+        checkhost_success_rate: Check-Host success rate (0.0–1.0, None = unknown → treat as OK)
         asphyxiation:           CDN-masking detected — success_rate==100% but latency ≥ 3× baseline.
-                                Apply 1.5× weight penalty: the CDN is absorbing the attack but
-                                infrastructure is being choked (latency stress, not packet drop).
+
+        Formula: attack_weight × (0.10 + 0.90 × infra_degradation)
+          - infra_degradation = 1.0 − ch_success_rate (0 when OK, 1 when BLACKOUT)
+          - 10% noise floor: DDoS visible even when infrastructure is healthy
+          - 90% infra-weighted: real BLOCKADE requires actual connectivity loss
+          - When ch_success_rate is None (API unreachable), treat as OK (conservative)
+        Examples:
+          spike×10 + RIPE 0% + CH OK  (1.0) → 10 × 0.10 = 1.0  (noise only)
+          spike×10 + RIPE 0% + CH PARTIAL (0.5) → 10 × 0.55 = 5.5
+          spike×10 + RIPE 0% + CH BLACKOUT(0.0) → 10 × 1.00 = 10.0
         """
-        # Normalize RIPE delay to 0–1 (drop_pct 100% = 1.0)
-        ripe_factor = min(ripe_drop_pct / 100.0, 1.0)
-        # Cap DDoS intensity at 10
-        intensity = min(ddos_intensity, 10.0)
-        numerator = intensity * (1.0 + ripe_factor)   # RIPE 0% = intensity only, 100% = 2×
-        # When Check-Host has not yet polled, use IODA fallback degraded flag
-        denominator = max(checkhost_success_rate if checkhost_success_rate is not None else 1.0, 0.05)
-        raw = numerator / denominator
-        # Asphyxiation multiplier: CDN masks packet loss but latency tripling reveals infrastructure strain
+        ripe_factor    = min(ripe_drop_pct / 100.0, 1.0)
+        intensity      = min(ddos_intensity, 10.0)
+        attack_weight  = intensity * (1.0 + ripe_factor)   # max 20 when RIPE 100%
+
+        # Infrastructure degradation: 0.0 = fully reachable, 1.0 = fully unreachable
+        # None (API unreachable) → treat conservatively as OK
+        ch_rate        = checkhost_success_rate if checkhost_success_rate is not None else 1.0
+        infra_deg      = max(0.0, 1.0 - ch_rate)
+
+        raw = attack_weight * (0.10 + 0.90 * infra_deg)
+
+        # Asphyxiation: CDN masks packet loss but latency tripling reveals infrastructure strain
         if asphyxiation:
             raw *= 1.5
         return round(min(raw, 10.0), 2)
