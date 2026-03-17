@@ -10,6 +10,7 @@ import hashlib
 import os
 import json
 import math
+import atexit
 import xml.etree.ElementTree as ET
 import urllib3
 from collections import deque
@@ -214,6 +215,11 @@ ISR_SURGE_THRESHOLD      = int(os.getenv("ISR_SURGE_THRESHOLD", "3"))
 OPENSKY_CLIENT_ID     = os.getenv("OPENSKY_CLIENT_ID", "")
 OPENSKY_CLIENT_SECRET = os.getenv("OPENSKY_CLIENT_SECRET", "")
 OPENSKY_TOKEN_URL     = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
+
+# ── State Persistence ──────────────────────────────────────────────────────────
+PERSISTENCE_DIR           = os.path.join(os.path.dirname(os.path.abspath(__file__)), "persistence")
+PERSISTENCE_STATE_FILE    = os.path.join(PERSISTENCE_DIR, "state.json")
+PERSISTENCE_SAVE_INTERVAL = int(os.getenv("PERSISTENCE_SAVE_INTERVAL", "300"))  # seconds (default: 5 min)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OpenSky OAuth2 token cache
@@ -2219,6 +2225,167 @@ SEQUENCE_EVENT_TYPES = ["NARRATIVE_BURST", "ISR_SURGE", "SYNC_DDOS", "FIRMS_ANOM
 _cf_scoring_cache: dict = {}
 
 # ─────────────────────────────────────────────────────────────────────────────
+# State Persistence — periodic JSON snapshot save / restore on restart
+# ─────────────────────────────────────────────────────────────────────────────
+_persist_lock = threading.Lock()
+
+
+def save_state() -> None:
+    """Atomically snapshot critical in-memory state to persistence/state.json.
+
+    Called every PERSISTENCE_SAVE_INTERVAL seconds by background thread,
+    and once on clean shutdown via atexit.  Uses .tmp → os.replace() to avoid
+    partial writes on crash.
+    """
+    with _persist_lock:
+        try:
+            os.makedirs(PERSISTENCE_DIR, exist_ok=True)
+
+            # Collect per-sensor last-fetch caches
+            sensor_caches: dict = {}
+            for name, sensor in registry._sensors.items():
+                cache = sensor.get_cache()
+                if cache:
+                    sensor_caches[name] = {
+                        "cache":      cache,
+                        "cache_time": sensor._cache_time,
+                    }
+
+            state = {
+                "version":   2,
+                "saved_at":  time.time(),
+                # ── Accumulated / long-lived (no expiry on restore) ──
+                "baseline_cache":     dict(baseline_cache),
+                "airspace_baseline":  dict(airspace_baseline),
+                # ── Time-series: scored history for velocity/ambush ──
+                "time_series_ts_db":  {k: list(v) for k, v in time_series_ts_db.items()},
+                "time_series_db":     {k: list(v) for k, v in time_series_db.items()},
+                "time_series_l3_db":  {k: list(v) for k, v in time_series_l3_db.items()},
+                "time_series_l7_db":  {k: list(v) for k, v in time_series_l7_db.items()},
+                # ── Alert / event history ──
+                "alert_timeline":     list(alert_timeline),
+                "sequence_event_log": {k: list(v) for k, v in sequence_event_log.items()},
+                # ── Sensor last-fetch snapshots ──
+                "sensor_caches":      sensor_caches,
+            }
+
+            tmp = PERSISTENCE_STATE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(state, f, default=str, ensure_ascii=False)
+            os.replace(tmp, PERSISTENCE_STATE_FILE)   # atomic on POSIX; near-atomic on Windows
+
+            print(f"[Persist] Saved — baseline={len(baseline_cache)}, "
+                  f"timeline={len(alert_timeline)}, sensors={len(sensor_caches)}")
+        except Exception as exc:
+            print(f"[Persist] Save error: {exc}")
+
+
+def restore_state() -> None:
+    """Restore state from persistence/state.json at startup.
+
+    Restore policy per data type:
+      baseline_cache    — always (no expiry; weeks to rebuild)
+      airspace_baseline — always (no expiry; rolling average)
+      time_series_*     — entries within 25 h (SEQUENCE_WINDOW + 1 h margin)
+      alert_timeline    — all entries (deque maxlen evicts extras automatically)
+      sequence_event_log— events within SEQUENCE_WINDOW (24 h)
+      sensor._cache     — within 3 × poll_interval (snapshot only, not accumulated)
+    """
+    if not os.path.exists(PERSISTENCE_STATE_FILE):
+        print("[Persist] No state file — starting fresh.")
+        return
+
+    with _persist_lock:
+        try:
+            with open(PERSISTENCE_STATE_FILE, "r", encoding="utf-8") as f:
+                state = json.load(f)
+
+            saved_at = float(state.get("saved_at", 0))
+            age_h    = (time.time() - saved_at) / 3600
+            print(f"[Persist] Restoring state from {age_h:.1f} h ago "
+                  f"(version={state.get('version', 1)}) ...")
+
+            # ── baseline_cache: no expiry ─────────────────────────────
+            loaded = state.get("baseline_cache", {})
+            baseline_cache.update(loaded)
+            print(f"[Persist]   baseline_cache    : {len(loaded)} entries")
+
+            # ── airspace_baseline: no expiry ──────────────────────────
+            loaded = state.get("airspace_baseline", {})
+            airspace_baseline.update(loaded)
+            print(f"[Persist]   airspace_baseline : {len(loaded)} airports")
+
+            # ── time_series_ts_db: prune entries older than 25 h ──────
+            ts_cutoff = time.time() - (SEQUENCE_WINDOW + 3600)
+            total_pts  = 0
+            for theater, entries in state.get("time_series_ts_db", {}).items():
+                valid = [(float(ts), float(v)) for ts, v in entries if float(ts) >= ts_cutoff]
+                if valid:
+                    time_series_ts_db[theater] = valid
+                    total_pts += len(valid)
+            print(f"[Persist]   time_series_ts_db : {total_pts} points")
+
+            # ── plain time_series (value-only): bounded lists, restore as-is
+            for db_name, db_obj in [
+                ("time_series_db",    time_series_db),
+                ("time_series_l3_db", time_series_l3_db),
+                ("time_series_l7_db", time_series_l7_db),
+            ]:
+                for theater, entries in state.get(db_name, {}).items():
+                    db_obj[theater] = list(entries)
+
+            # ── alert_timeline: restore all; deque maxlen handles overflow
+            saved_tl = state.get("alert_timeline", [])
+            for entry in saved_tl:
+                alert_timeline.append(entry)
+            print(f"[Persist]   alert_timeline    : {len(saved_tl)} records")
+
+            # ── sequence_event_log: only events within SEQUENCE_WINDOW ─
+            seq_cutoff  = time.time() - SEQUENCE_WINDOW
+            seq_total   = 0
+            for theater, events in state.get("sequence_event_log", {}).items():
+                valid = [e for e in events if float(e.get("ts", 0)) >= seq_cutoff]
+                if valid:
+                    sequence_event_log[theater] = valid
+                    seq_total += len(valid)
+            print(f"[Persist]   sequence_event_log: {seq_total} events")
+
+            # ── sensor caches: within 3 × poll_interval ───────────────
+            # Sensor._cache = last API snapshot (NOT accumulated).
+            # If expired, let the sensor's next scheduled fetch refresh it.
+            sc_ok = sc_skip = 0
+            for sname, data in state.get("sensor_caches", {}).items():
+                sensor = registry.get(sname)
+                if sensor is None:
+                    continue
+                cache_age = time.time() - float(data.get("cache_time", 0))
+                max_age   = sensor.poll_interval * 3
+                if cache_age <= max_age and data.get("cache"):
+                    sensor._cache      = data["cache"]
+                    sensor._cache_time = float(data["cache_time"])
+                    sc_ok += 1
+                else:
+                    sc_skip += 1
+            print(f"[Persist]   sensor_caches     : {sc_ok} restored, {sc_skip} expired")
+
+            print("[Persist] Restore complete.")
+        except Exception as exc:
+            print(f"[Persist] Restore error: {exc} — continuing with empty state")
+
+
+def _persistence_worker() -> None:
+    """Background thread: auto-save every PERSISTENCE_SAVE_INTERVAL seconds."""
+    while True:
+        time.sleep(PERSISTENCE_SAVE_INTERVAL)
+        save_state()
+
+
+atexit.register(save_state)  # save on clean shutdown (Ctrl+C, SIGTERM)
+_persistence_thread = threading.Thread(target=_persistence_worker, daemon=True, name="persistence")
+_persistence_thread.start()
+restore_state()              # restore before first scoring cycle
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helper Functions
 # ─────────────────────────────────────────────────────────────────────────────
 # ── Sequence Scorer ───────────────────────────────────────────────────────────
@@ -3684,6 +3851,22 @@ def api_ip_check():
     if result.get("error") and "limit" not in result["error"] and "Invalid" not in result["error"]:
         return jsonify(result), 502
     return jsonify(result)
+
+
+@app.route("/api/persist_save", methods=["POST"])
+def api_persist_save():
+    """Manually trigger an immediate state save.  POST /api/persist_save"""
+    try:
+        save_state()
+        stat = os.stat(PERSISTENCE_STATE_FILE)
+        return jsonify({
+            "ok":        True,
+            "file":      PERSISTENCE_STATE_FILE,
+            "size_kb":   round(stat.st_size / 1024, 1),
+            "saved_at":  datetime.datetime.now().isoformat(),
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 # ─────────────────────────────────────────────────────────────────────────────
