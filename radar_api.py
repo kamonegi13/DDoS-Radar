@@ -179,6 +179,9 @@ GDELT_HISTORY_WINDOW        = int(os.getenv("GDELT_HISTORY_WINDOW", "28"))
 CONVERGENCE_DUAL_BONUS      = int(os.getenv("CONVERGENCE_DUAL_BONUS", "1"))
 CONVERGENCE_FULL_BONUS      = int(os.getenv("CONVERGENCE_FULL_BONUS", "2"))
 THREAT_LEVEL_HYSTERESIS_CYCLES = int(os.getenv("THREAT_LEVEL_HYSTERESIS_CYCLES", "1"))
+HOD_BASELINE_DAYS  = 28  # Days of same-hour history to retain across all HOD sensors
+HOD_MIN_SAME_HOUR  = 7   # Minimum same-hour samples before HOD Z-score is valid
+HOD_MAX_ENTRIES    = HOD_BASELINE_DAYS * 24  # 672 hourly entries per theater
 
 SEVERE_WEATHER_IDS = (
     set(range(200, 233)) | {500, 502, 503, 504} | {521, 522, 531} |
@@ -536,8 +539,8 @@ class PeeringDbSensor(BaseSensor):
 
 class BgpRoutingSensor(BaseSensor):
     BGP_DROP_THRESHOLD = 0.15
-    BGP_HOD_MIN        = 7    # Same-hour samples required before HOD Z-score is valid
-    BGP_HOD_MAX        = 28 * 24  # cap per theater (28 days × 24 hours = 672)
+    BGP_HOD_MIN        = HOD_MIN_SAME_HOUR
+    BGP_HOD_MAX        = HOD_MAX_ENTRIES
     def __init__(self):
         super().__init__("ripe_bgp", "cyber", 1800); self._baseline: dict = {}
     def fetch(self, context: dict) -> dict:
@@ -2308,9 +2311,6 @@ airspace_baseline: dict = {}
 # eliminating the diurnal bias where daytime attack patterns inflate spike ratios
 # when compared against a flat day+night average baseline.
 hod_baseline_db:   dict = {}
-HOD_BASELINE_DAYS     = 28   # Days of same-hour history to retain
-HOD_MIN_SAME_HOUR     = 7    # Minimum same-hour samples required before HOD Z-score is valid
-HOD_MAX_ENTRIES       = HOD_BASELINE_DAYS * 24  # 672 hourly entries per theater
 # Check-Host HOD: {theater: [(hour_bucket_ts, success_rate), ...]}
 checkhost_hod_db:  dict = {}
 # RIPE BGP HOD: {theater: {hod_h: [prefix_count, ...]}}, max HOD_MIN_SAME_HOUR*4 per slot
