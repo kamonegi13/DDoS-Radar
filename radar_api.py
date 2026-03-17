@@ -2409,17 +2409,7 @@ atexit.register(save_state)  # save on clean shutdown (Ctrl+C, SIGTERM)
 _persistence_thread = threading.Thread(target=_persistence_worker, daemon=True, name="persistence")
 _persistence_thread.start()
 restore_state()              # restore before first scoring cycle
-
-# HOD prefill: fetch past 28 days of hourly CF data to immediately activate
-# HOD Z-score normalization without waiting 28 days for live accumulation.
-# Runs in a background daemon thread; waits up to 5 min for baseline_cache.
-_hod_prefill_theaters = sorted(set([DEFAULT_CORE] + DEFAULT_PINS + DEFAULT_CORRELATES))
-_hod_prefill_thread   = threading.Thread(
-    target=prefill_hod_baseline_bg,
-    args=(_hod_prefill_theaters, DEFAULT_ADVERSARIES),
-    daemon=True, name="hod-prefill"
-)
-_hod_prefill_thread.start()
+# HOD prefill thread is launched after helper functions are defined (below).
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper Functions
@@ -2646,6 +2636,16 @@ def compute_hod_zscore(theater: str, current_spike: float, current_ts: float) ->
     # Use a minimum std floor of 0.15 to keep the Z-score meaningful.
     std = max(std, 0.15)
     return (current_spike - mean) / std, True, n
+
+
+# HOD prefill: launched here so prefill_hod_baseline_bg is already defined.
+_hod_prefill_theaters = sorted(set([DEFAULT_CORE] + DEFAULT_PINS + DEFAULT_CORRELATES))
+_hod_prefill_thread   = threading.Thread(
+    target=prefill_hod_baseline_bg,
+    args=(_hod_prefill_theaters, DEFAULT_ADVERSARIES),
+    daemon=True, name="hod-prefill"
+)
+_hod_prefill_thread.start()
 
 
 def get_fallback_coord(code: str) -> dict:
