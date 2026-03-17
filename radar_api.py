@@ -626,7 +626,7 @@ class GDELTSensor(BaseSensor):
         tones: dict = {}
         t0 = time.time()
         _now_ts = time.time()
-        _cur_weekday = int(__import__("datetime").datetime.utcfromtimestamp(_now_ts).weekday())  # 0=Mon … 6=Sun
+        _cur_weekday = int(__import__("datetime").datetime.fromtimestamp(_now_ts, tz=__import__("datetime").timezone.utc).weekday())  # 0=Mon … 6=Sun
         _cur_day_bucket = int(_now_ts // 86400) * 86400  # UTC day bucket
         for code in theaters:
             query = self.QUERY_TEMPLATES.get(code)
@@ -2613,21 +2613,14 @@ _HOD_PREFILL_TS_URL  = "https://api.cloudflare.com/client/v4/radar/attacks/layer
 def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
     """Fetch hourly L7 attack timeseries for a theater over the past N days.
 
-    Returns {unix_hour_bucket: normalized_value} for each hourly slot.
-    Uses the CF Radar timeseries endpoint which reliably returns data for every
-    hour (unlike top/locations/origin which is sparse for narrow windows).
-    Falls back to an empty dict on error — caller should handle gracefully."""
-    from datetime import datetime, timezone as _tz
-    try:
-        res = requests.get(
-            _HOD_PREFILL_TS_URL,
-            headers=CF_HEADERS,
-            params={"dateRange": f"{days}d", "aggInterval": "1h",
-                    "location": theater, "format": "json"},
-            timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
-        )
+    Tries theater-specific timeseries first (location= param).
+    Falls back to global timeseries if location param is unsupported or returns
+    empty — global diurnal patterns are a valid HOD scaling proxy.
+    Returns {unix_hour_bucket: normalized_value}, empty dict on total failure."""
+    from datetime import datetime
+
+    def _parse_ts_response(res) -> dict:
         if res.status_code != 200:
-            print(f"[HOD TS] {theater}: HTTP {res.status_code}")
             return {}
         result     = res.json().get("result", {})
         timestamps = result.get("timestamps", [])
@@ -2643,6 +2636,22 @@ def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
             except (ValueError, TypeError):
                 pass
         return out
+
+    base_params = {"dateRange": f"{days}d", "aggInterval": "1h", "format": "json"}
+    try:
+        # Attempt 1: theater-specific timeseries
+        res = requests.get(_HOD_PREFILL_TS_URL, headers=CF_HEADERS,
+                           params={**base_params, "location": theater},
+                           timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+        out = _parse_ts_response(res)
+        if out:
+            return out
+        # Attempt 2: global timeseries (no location filter) — always has data
+        print(f"[HOD TS] {theater}: location-specific empty, falling back to global TS")
+        res = requests.get(_HOD_PREFILL_TS_URL, headers=CF_HEADERS,
+                           params=base_params,
+                           timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+        return _parse_ts_response(res)
     except Exception as e:
         print(f"[HOD TS] {theater}: fetch error — {e}")
         return {}
@@ -4445,7 +4454,7 @@ def api_debug_hod():
         "same_hour_n":   len(same_hour),
         "hod_min":       HOD_MIN_SAME_HOUR,
         "same_hour_samples": [
-            {"ts": ts, "utc": _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M"),
+            {"ts": ts, "utc": _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).strftime("%Y-%m-%d %H:%M"),
              "spike": round(v, 3)}
             for (ts, v) in sorted(same_hour)
         ],
