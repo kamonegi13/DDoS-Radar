@@ -4451,35 +4451,6 @@ def api_score_breakdown():
     })
 
 
-@app.route("/api/debug_hod", methods=["GET"])
-def api_debug_hod():
-    """Temporary debug endpoint: show HOD baseline state per theater."""
-    import datetime as _dt
-    theater = request.args.get("theater", DEFAULT_CORE).strip().upper()
-    now_ts  = time.time()
-    cur_bucket = int(now_ts // 3600) * 3600
-    cur_hod    = (cur_bucket // 3600) % 24
-    entries = hod_baseline_db.get(theater, [])
-    same_hour = [(ts, v) for (ts, v) in entries
-                 if (ts // 3600) % 24 == cur_hod and ts < cur_bucket]
-    return jsonify({
-        "theater":       theater,
-        "current_hod":   cur_hod,
-        "cur_bucket":    cur_bucket,
-        "total_entries": len(entries),
-        "same_hour_n":   len(same_hour),
-        "hod_min":       HOD_MIN_SAME_HOUR,
-        "same_hour_samples": [
-            {"ts": ts, "utc": _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).strftime("%Y-%m-%d %H:%M"),
-             "spike": round(v, 3)}
-            for (ts, v) in sorted(same_hour)
-        ],
-        "last_5_entries": [
-            {"ts": ts, "hod": (ts//3600)%24, "spike": round(v, 3)}
-            for (ts, v) in entries[-5:]
-        ],
-    })
-
 
 if __name__ == "__main__":
     # use_reloader=False: Flask's stat reloader spawns two processes (file watcher + actual worker),
