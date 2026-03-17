@@ -2650,18 +2650,20 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
     Rate-limited to ~4 req-pairs/s (0.25 s sleep) to stay within CF Radar free tier."""
     from datetime import datetime, timezone
 
-    # Wait until baseline_cache is populated (CF sensor first fetch).
-    # Baseline is needed to compute avg_spike for historical hours.
-    deadline = time.time() + 300   # max 5 min wait
-    while time.time() < deadline:
-        ready = all(baseline_cache.get(t, {}).get("l3") or baseline_cache.get(t, {}).get("l7")
-                    for t in theaters)
-        if ready:
-            break
-        time.sleep(5)
-    else:
-        print("[HOD Prefill] Baseline not available after 5 min — aborting prefill.")
-        return
+    # Ensure baseline_cache is populated for each theater.
+    # Do NOT wait for the scoring loop — fetch directly from CF API if needed.
+    _BL_L3_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin"
+    _BL_L7_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin"
+    for t in theaters:
+        if baseline_cache.get(t, {}).get("l3") or baseline_cache.get(t, {}).get("l7"):
+            continue  # already populated (restored from state or prior scoring cycle)
+        print(f"[HOD Prefill] Fetching 28d baseline for {t} ...")
+        _bl3 = parse_origins(fetch_cf_data(_BL_L3_URL, {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}))
+        _bl7 = parse_origins(fetch_cf_data(_BL_L7_URL, {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}))
+        if _bl3 or _bl7:
+            baseline_cache[t] = {"time": time.time(), "l3": _bl3, "l7": _bl7}
+        else:
+            print(f"[HOD Prefill] {t}: baseline fetch failed, skipping theater.")
 
     now_h       = int(time.time() // 3600) * 3600
     current_hod = (now_h // 3600) % 24
