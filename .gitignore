@@ -1,3 +1,5 @@
 config.env
 .claude/
 .DS_Store
+persistence/
+__pycache__/
