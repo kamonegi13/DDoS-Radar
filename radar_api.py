@@ -2638,13 +2638,16 @@ def compute_avg_spike_raw(o_l3: dict, o_l7: dict, b_data: dict, adversary_codes:
 
 
 def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
-    """Background thread: immediately populate the HOD baseline by fetching past
-    HOD_BASELINE_DAYS × 24 hours of Cloudflare data via dateStart/dateEnd params.
+    """Background thread: immediately populate the HOD baseline for the current UTC
+    hour using past HOD_BASELINE_DAYS daily (24h) windows from the CF Radar API.
 
-    Priority order to minimise time-to-activation:
-      Phase 1 — current UTC hour × past HOD_BASELINE_DAYS days  (enables HOD right now)
-      Phase 2 — remaining 23 hours × past 7 days                (full 24h coverage, min baseline)
-      Phase 3 — remaining hours × days 8–HOD_BASELINE_DAYS      (full depth)
+    Why 24h windows instead of 1h:
+      The CF top/locations/origin endpoint returns sparse or empty results for
+      narrow 1-hour historical windows when attack traffic is low. A 24-hour
+      window always contains sufficient data. The daily average spike value is
+      stored with a synthetic timestamp at (past_date + current_hod * 3600),
+      so HOD Z-score correctly identifies them as same-hour samples. This gives
+      28 reliable same-hour samples within ~15 seconds of startup.
 
     Slots that already have ≥ HOD_MIN_SAME_HOUR samples are skipped.
     Rate-limited to ~4 req-pairs/s (0.25 s sleep) to stay within CF Radar free tier."""
@@ -2668,43 +2671,38 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
     now_h       = int(time.time() // 3600) * 3600
     current_hod = (now_h // 3600) % 24
 
-    phase1 = [(current_hod, d) for d in range(1, HOD_BASELINE_DAYS + 1)]
-    phase2 = [(h, d) for h in range(24) for d in range(1, 8)              if h != current_hod]
-    phase3 = [(h, d) for h in range(24) for d in range(8, HOD_BASELINE_DAYS + 1)
-              if h != current_hod]
-    work   = phase1 + phase2 + phase3
-
     filled = skipped = errors = 0
-    print(f"[HOD Prefill] Starting — theaters={theaters}, slots={len(work)} per theater")
+    print(f"[HOD Prefill] Starting — theaters={theaters}, "
+          f"days={HOD_BASELINE_DAYS}, current_hod={current_hod:02d}:00 UTC")
 
     for theater in theaters:
         b_data = baseline_cache.get(theater, {})
         if not (b_data.get("l3") or b_data.get("l7")):
-            print(f"[HOD Prefill] {theater}: no baseline, skipping.")
+            print(f"[HOD Prefill] {theater}: no baseline available, skipping.")
             continue
 
-        for (hour_of_day, day_offset) in work:
-            # Compute UTC hour bucket for this (hour_of_day, day_offset)
-            today_midnight  = (now_h // 86400) * 86400
-            target_bucket   = today_midnight - (day_offset - 1) * 86400 - \
-                              (current_hod - hour_of_day) * 3600 - 86400
-            # Simpler and correct: go back day_offset full days then set hour
-            target_bucket   = (int(time.time() // 86400) - day_offset) * 86400 \
-                              + hour_of_day * 3600
+        # Check if this HOD slot already has enough samples
+        entries  = hod_baseline_db.get(theater, [])
+        n_existing = sum(1 for ts, _ in entries if (ts // 3600) % 24 == current_hod)
+        if n_existing >= HOD_MIN_SAME_HOUR:
+            print(f"[HOD Prefill] {theater}: HOD slot {current_hod:02d}h already has "
+                  f"{n_existing} samples — skipping.")
+            skipped += n_existing
+            continue
+
+        for day_offset in range(1, HOD_BASELINE_DAYS + 1):
+            # Synthetic HOD timestamp: past day at the current UTC hour
+            target_day_start = (int(time.time() // 86400) - day_offset) * 86400
+            target_hod_ts    = target_day_start + current_hod * 3600
 
             # Skip if this exact bucket is already recorded
-            entries = hod_baseline_db.get(theater, [])
-            if any(ts == target_bucket for ts, _ in entries):
-                skipped += 1
-                continue
-            # Skip if this HOD slot already has enough samples
-            n_slot = sum(1 for ts, _ in entries if (ts // 3600) % 24 == hour_of_day)
-            if n_slot >= HOD_MIN_SAME_HOUR:
+            if any(ts == target_hod_ts for ts, _ in hod_baseline_db.get(theater, [])):
                 skipped += 1
                 continue
 
-            date_start = datetime.fromtimestamp(target_bucket,       tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            date_end   = datetime.fromtimestamp(target_bucket + 3600, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            # Fetch the FULL 24h window for this day (always has data unlike 1h windows)
+            date_start = datetime.fromtimestamp(target_day_start,         tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            date_end   = datetime.fromtimestamp(target_day_start + 86400, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             params     = {"location": theater, "dateStart": date_start, "dateEnd": date_end, "format": "json"}
 
             o_l3 = parse_origins(fetch_cf_data(_HOD_PREFILL_L3_URL, params))
@@ -2716,9 +2714,14 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
                 continue
 
             avg_spike = compute_avg_spike_raw(o_l3, o_l7, b_data, adversary_codes)
-            record_hod_sample(theater, target_bucket + 1800, avg_spike)  # mid-hour timestamp
+            # Store at mid-point of the target HOD bucket
+            record_hod_sample(theater, target_hod_ts + 1800, avg_spike)
             filled += 1
             time.sleep(0.25)   # ~4 req-pairs/s
+
+        n_after = sum(1 for ts, _ in hod_baseline_db.get(theater, [])
+                      if (ts // 3600) % 24 == current_hod)
+        print(f"[HOD Prefill] {theater}: HOD slot {current_hod:02d}h now has {n_after} samples")
 
     total_pts = sum(len(v) for v in hod_baseline_db.values())
     print(f"[HOD Prefill] Complete — filled={filled}, skipped={skipped}, "
