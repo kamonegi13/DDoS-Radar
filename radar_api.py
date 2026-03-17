@@ -536,11 +536,16 @@ class PeeringDbSensor(BaseSensor):
 
 class BgpRoutingSensor(BaseSensor):
     BGP_DROP_THRESHOLD = 0.15
+    BGP_HOD_MIN        = 7    # Same-hour samples required before HOD Z-score is valid
+    BGP_HOD_MAX        = HOD_BASELINE_DAYS * 24  # cap per theater
     def __init__(self):
         super().__init__("ripe_bgp", "cyber", 1800); self._baseline: dict = {}
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); results: dict = {}
         t0 = time.time(); total_prefixes = 0; any_success = False; last_status = 0; last_error = ""
+        _now = time.time()
+        _bgp_hour_bucket = int(_now // 3600) * 3600
+        _bgp_cur_hod     = (_bgp_hour_bucket // 3600) % 24
         for code in theaters:
             try:
                 res = requests.get("https://stat.ripe.net/data/country-routing-stats/data.json", params={"resource": code, "sourceapp": "osint-radar"}, timeout=12, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
@@ -550,13 +555,37 @@ class BgpRoutingSensor(BaseSensor):
                     if stats:
                         latest = stats[-1]; pfx_now = latest.get("announced_prefixes", 0); ases_now = latest.get("seen_ases", 0)
                         bl = self._baseline.get(code, {})
-                        if not bl: self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": time.time()}; bl = self._baseline[code]
+                        if not bl: self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": _now}; bl = self._baseline[code]
                         pfx_base = bl.get("prefixes", pfx_now) or pfx_now
                         drop_ratio = max(0.0, (pfx_base - pfx_now) / pfx_base) if pfx_base else 0.0
-                        is_anomaly = drop_ratio > self.BGP_DROP_THRESHOLD
-                        results[code] = {"announced_prefixes": pfx_now, "baseline_prefixes": pfx_base, "seen_ases": ases_now, "drop_pct": round(drop_ratio * 100, 1), "is_anomaly": is_anomaly, "status": "ANOMALY" if is_anomaly else "NORMAL"}
-                        if time.time() - bl.get("ts", 0) > 3600: self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": time.time()}
+                        if _now - bl.get("ts", 0) > 3600: self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": _now}
                         total_prefixes += pfx_now; any_success = True
+
+                        # HOD Z-score: record one entry per UTC hour bucket
+                        _bgp_entries = bgp_hod_db.setdefault(code, [])
+                        if not _bgp_entries or _bgp_entries[-1][0] != _bgp_hour_bucket:
+                            _bgp_entries.append((_bgp_hour_bucket, pfx_now))
+                            bgp_hod_db[code] = _bgp_entries[-self.BGP_HOD_MAX:]
+                        _bgp_same_hour = [p for (ts, p) in bgp_hod_db[code]
+                                          if (ts // 3600) % 24 == _bgp_cur_hod and ts < _bgp_hour_bucket]
+                        _n_bgp_hod = len(_bgp_same_hour)
+                        if _n_bgp_hod >= self.BGP_HOD_MIN:
+                            _bm = sum(_bgp_same_hour) / _n_bgp_hod
+                            _bs = max((sum((x - _bm)**2 for x in _bgp_same_hour) / _n_bgp_hod) ** 0.5, 1.0)
+                            _bz = (pfx_now - _bm) / _bs
+                            is_anomaly = _bz < -2.0
+                            hod_info   = {"hod_z": round(_bz, 2), "hod_n": _n_bgp_hod}
+                        else:
+                            is_anomaly = drop_ratio > self.BGP_DROP_THRESHOLD
+                            hod_info   = {"hod_z": None, "hod_n": _n_bgp_hod}
+
+                        results[code] = {
+                            "announced_prefixes": pfx_now, "baseline_prefixes": pfx_base,
+                            "seen_ases": ases_now, "drop_pct": round(drop_ratio * 100, 1),
+                            "is_anomaly": is_anomaly,
+                            "status": "ANOMALY" if is_anomaly else "NORMAL",
+                            **hod_info,
+                        }
                     else:
                         results[code] = {"status": "NO_DATA", "is_anomaly": False}
                         any_success = True
@@ -576,6 +605,8 @@ class GDELTSensor(BaseSensor):
         "UA": '"Ukraine" (war OR military OR Russia OR offensive)', "IL": '"Israel" (military OR attack OR Gaza OR Iran)',
         "US": '"United States" (military OR China OR Taiwan OR Russia)', "AU": '"Australia" (military OR China OR defense OR Pacific)'
     }
+    DOW_MIN_SAMPLES = 3    # Minimum same-weekday samples before DoW Z-score is valid
+    DOW_MAX_PER_DAY = 20   # Max stored tones per weekday (≈20 weeks)
     def __init__(self): super().__init__("gdelt", "info", 1800)
     def _fetch_tone(self, query: str, timespan: str) -> Optional[float]:
         try:
@@ -591,6 +622,9 @@ class GDELTSensor(BaseSensor):
         alert_threshold = context.get("gdelt_tone_threshold", GDELT_TONE_ALERT_THRESHOLD); history_window = context.get("gdelt_history_window", GDELT_HISTORY_WINDOW)
         tones: dict = {}
         t0 = time.time()
+        _now_ts = time.time()
+        _cur_weekday = int(__import__("datetime").datetime.utcfromtimestamp(_now_ts).weekday())  # 0=Mon … 6=Sun
+        _cur_day_bucket = int(_now_ts // 86400) * 86400  # UTC day bucket
         for code in theaters:
             query = self.QUERY_TEMPLATES.get(code)
             if not query:
@@ -602,8 +636,36 @@ class GDELTSensor(BaseSensor):
                 continue
             delta = (tone_current - tone_baseline) if tone_baseline is not None else None
             is_severe_wx = weather_conds.get(code, {}).get("is_severe", False)
-            is_alert = (not is_severe_wx and tone_current < alert_threshold)
-            tones[code] = {"tone_current": tone_current, "tone_baseline": tone_baseline, "delta": round(delta, 3) if delta is not None else None, "is_alert": is_alert, "weather_suppressed": is_severe_wx, "status": ("WEATHER_NOISE" if is_severe_wx and tone_current < alert_threshold else "ALERT" if is_alert else "NORMAL")}
+
+            # DoW normalization: store today's tone in gdelt_dow_db and compute Z-score
+            _dow_entries = gdelt_dow_db.setdefault(code, [])
+            # Append once per day bucket to avoid duplicates within the same day
+            if not _dow_entries or _dow_entries[-1][0] != _cur_day_bucket:
+                _dow_entries.append((_cur_day_bucket, _cur_weekday, tone_current))
+                gdelt_dow_db[code] = _dow_entries[-(self.DOW_MAX_PER_DAY * 7):]
+            # Collect same-weekday tones from previous days (exclude today)
+            _same_dow = [t for (d, w, t) in _dow_entries
+                         if w == _cur_weekday and d < _cur_day_bucket]
+            _n_dow = len(_same_dow)
+            if _n_dow >= self.DOW_MIN_SAMPLES:
+                _dow_mean = sum(_same_dow) / _n_dow
+                _dow_std  = max((sum((x - _dow_mean)**2 for x in _same_dow) / _n_dow) ** 0.5, 0.5)
+                _dow_z    = (tone_current - _dow_mean) / _dow_std
+                # Negative tone = more hostile sentiment; large negative Z = anomalous hostility
+                is_alert  = (not is_severe_wx) and (_dow_z < -2.0 or tone_current < alert_threshold)
+                dow_info  = {"dow_z": round(_dow_z, 2), "dow_n": _n_dow, "dow_mean": round(_dow_mean, 3)}
+            else:
+                is_alert = (not is_severe_wx and tone_current < alert_threshold)
+                dow_info = {"dow_z": None, "dow_n": _n_dow, "dow_mean": None}
+
+            tones[code] = {
+                "tone_current": tone_current, "tone_baseline": tone_baseline,
+                "delta": round(delta, 3) if delta is not None else None,
+                "is_alert": is_alert, "weather_suppressed": is_severe_wx,
+                "status": ("WEATHER_NOISE" if is_severe_wx and tone_current < alert_threshold
+                           else "ALERT" if is_alert else "NORMAL"),
+                **dow_info,
+            }
         self.log_fetch(True, round((time.time() - t0) * 1000), 200, len(tones))
         result = {"gdelt_tones": tones}; self.set_cache(result)
         return result
@@ -1624,10 +1686,36 @@ class CheckHostSensor(BaseSensor):
             # Overall success rate for the theater
             # theater_success_rate is None when all API calls failed (API unreachable, not target down)
             theater_success_rate = ok_count / url_count if url_count else None
-            overall_status = ("UNKNOWN"  if theater_success_rate is None else
-                              "OK"       if theater_success_rate >= 0.8 else
-                              "PARTIAL"  if theater_success_rate >= 0.3 else
-                              "BLACKOUT")
+
+            # HOD-normalized status: compare against same-hour historical distribution.
+            # Eliminates false PARTIAL from routine maintenance windows (e.g., deep-night UTC).
+            # Falls back to fixed thresholds during warmup (< HOD_MIN_SAME_HOUR same-hour samples).
+            if theater_success_rate is None:
+                overall_status = "UNKNOWN"
+            else:
+                _hour_bucket = int(now // 3600) * 3600
+                _hod_entries = checkhost_hod_db.setdefault(theater, [])
+                if not _hod_entries or _hod_entries[-1][0] != _hour_bucket:
+                    _hod_entries.append((_hour_bucket, theater_success_rate))
+                    checkhost_hod_db[theater] = _hod_entries[-HOD_MAX_ENTRIES:]
+                _cur_hod   = (_hour_bucket // 3600) % 24
+                _same_hour = [r for (ts, r) in _hod_entries
+                              if (ts // 3600) % 24 == _cur_hod and ts < _hour_bucket]
+                if len(_same_hour) >= HOD_MIN_SAME_HOUR:
+                    _hm = sum(_same_hour) / len(_same_hour)
+                    _hs = max((sum((x - _hm)**2 for x in _same_hour) / len(_same_hour))**0.5, 0.05)
+                    _hz = (theater_success_rate - _hm) / _hs
+                    if _hz < -3.0 and theater_success_rate < 0.3:
+                        overall_status = "BLACKOUT"
+                    elif _hz < -2.0 and theater_success_rate < 0.8:
+                        overall_status = "PARTIAL"
+                    else:
+                        overall_status = "OK"
+                else:
+                    # Warmup: fixed thresholds
+                    overall_status = ("OK"       if theater_success_rate >= 0.8 else
+                                      "PARTIAL"  if theater_success_rate >= 0.3 else
+                                      "BLACKOUT")
 
             results[theater] = {
                 "urls":                 url_results,
@@ -2223,6 +2311,12 @@ hod_baseline_db:   dict = {}
 HOD_BASELINE_DAYS     = 28   # Days of same-hour history to retain
 HOD_MIN_SAME_HOUR     = 7    # Minimum same-hour samples required before HOD Z-score is valid
 HOD_MAX_ENTRIES       = HOD_BASELINE_DAYS * 24  # 672 hourly entries per theater
+# Check-Host HOD: {theater: [(hour_bucket_ts, success_rate), ...]}
+checkhost_hod_db:  dict = {}
+# RIPE BGP HOD: {theater: {hod_h: [prefix_count, ...]}}, max HOD_MIN_SAME_HOUR*4 per slot
+bgp_hod_db:        dict = {}
+# GDELT DoW: {theater: {weekday(0-6): {"tone": float, "ts": float}}}
+gdelt_dow_db:      dict = {}
 threat_history:    deque = deque(maxlen=20)
 alert_timeline:    deque = deque(maxlen=288)
 ALERT_TIMELINE_MAX = 288  # Must match deque maxlen
@@ -2265,12 +2359,15 @@ def save_state() -> None:
                     }
 
             state = {
-                "version":   3,
+                "version":   4,
                 "saved_at":  time.time(),
                 # ── Accumulated / long-lived (no expiry on restore) ──
                 "baseline_cache":     dict(baseline_cache),
                 "airspace_baseline":  dict(airspace_baseline),
                 "hod_baseline_db":    {k: list(v)[-HOD_MAX_ENTRIES:] for k, v in hod_baseline_db.items()},
+                "checkhost_hod_db":   {k: list(v)[-HOD_MAX_ENTRIES:] for k, v in checkhost_hod_db.items()},
+                "bgp_hod_db":         {k: list(v)[-(HOD_BASELINE_DAYS * 24):] for k, v in bgp_hod_db.items()},
+                "gdelt_dow_db":       {k: list(v)[-(20 * 7):] for k, v in gdelt_dow_db.items()},
                 # ── Time-series: scored history for velocity/ambush ──
                 # Trim to last 15 entries to cap file size (scoring only needs recent history)
                 "time_series_ts_db":  {k: list(v)[-15:] for k, v in time_series_ts_db.items()},
@@ -2289,9 +2386,13 @@ def save_state() -> None:
                 json.dump(state, f, default=str, ensure_ascii=False)
             os.replace(tmp, PERSISTENCE_STATE_FILE)   # atomic on POSIX; near-atomic on Windows
 
-            hod_total = sum(len(v) for v in hod_baseline_db.values())
+            hod_total  = sum(len(v) for v in hod_baseline_db.values())
+            ch_total   = sum(len(v) for v in checkhost_hod_db.values())
+            bgp_total  = sum(len(v) for v in bgp_hod_db.values())
+            dow_total  = sum(len(v) for v in gdelt_dow_db.values())
             print(f"[Persist] Saved — baseline={len(baseline_cache)}, "
-                  f"hod={hod_total}pts, timeline={len(alert_timeline)}, sensors={len(sensor_caches)}")
+                  f"hod={hod_total}pts, ch_hod={ch_total}pts, bgp_hod={bgp_total}pts, "
+                  f"dow={dow_total}pts, timeline={len(alert_timeline)}, sensors={len(sensor_caches)}")
         except Exception as exc:
             print(f"[Persist] Save error: {exc}")
 
@@ -2339,6 +2440,33 @@ def restore_state() -> None:
                     hod_baseline_db[theater] = valid
                     hod_total += len(valid)
             print(f"[Persist]   hod_baseline_db   : {hod_total} hourly points")
+
+            # ── checkhost_hod_db: no expiry ───────────────────────────
+            ch_total = 0
+            for theater, entries in state.get("checkhost_hod_db", {}).items():
+                valid = [(float(ts), float(v)) for ts, v in entries][-HOD_MAX_ENTRIES:]
+                if valid:
+                    checkhost_hod_db[theater] = valid
+                    ch_total += len(valid)
+            print(f"[Persist]   checkhost_hod_db  : {ch_total} hourly points")
+
+            # ── bgp_hod_db: no expiry ─────────────────────────────────
+            bgp_total = 0
+            for theater, entries in state.get("bgp_hod_db", {}).items():
+                valid = [(float(ts), float(v)) for ts, v in entries][-(HOD_BASELINE_DAYS * 24):]
+                if valid:
+                    bgp_hod_db[theater] = valid
+                    bgp_total += len(valid)
+            print(f"[Persist]   bgp_hod_db        : {bgp_total} hourly points")
+
+            # ── gdelt_dow_db: no expiry ───────────────────────────────
+            dow_total = 0
+            for theater, entries in state.get("gdelt_dow_db", {}).items():
+                valid = [(float(d), int(w), float(t)) for d, w, t in entries][-(20 * 7):]
+                if valid:
+                    gdelt_dow_db[theater] = valid
+                    dow_total += len(valid)
+            print(f"[Persist]   gdelt_dow_db      : {dow_total} day-of-week points")
 
             # ── time_series_ts_db: prune entries older than 25 h ──────
             ts_cutoff = time.time() - (SEQUENCE_WINDOW + 3600)
@@ -2853,13 +2981,36 @@ def get_threat_data():
             bl["avg"] = sum(bl["readings"]) / n if n > 0 else 0.0
             ainfo["baseline_avg"] = round(bl["avg"], 1); ainfo["baseline_n"] = n
 
+            # HOD tracking: record one entry per UTC hour bucket per airport
+            _as_hour_bucket = int(current_time // 3600) * 3600
+            if "hod" not in bl: bl["hod"] = []
+            _as_hod_entries = bl["hod"]
+            if not _as_hod_entries or _as_hod_entries[-1][0] != _as_hour_bucket:
+                _as_hod_entries.append((_as_hour_bucket, count))
+                bl["hod"] = _as_hod_entries[-(HOD_BASELINE_DAYS * 24):]
+            _cur_as_hod = (_as_hour_bucket // 3600) % 24
+            _as_same_hour = [c for (ts, c) in bl["hod"]
+                             if (ts // 3600) % 24 == _cur_as_hod and ts < _as_hour_bucket]
+
             if n < 3 or bl["avg"] < 1:
                 ainfo["status"] = "BASELINE_BUILDING"; ainfo["drop_pct"] = 0.0; continue
 
             drop_ratio = max(0.0, (bl["avg"] - count) / bl["avg"]); ainfo["drop_pct"] = round(drop_ratio * 100, 1)
             weather_suppressed = weather_conditions.get(code, {}).get("is_severe", False)
 
-            severity = "CLOSURE" if drop_ratio >= (1.0 - AIRSPACE_CLOSURE_THRESHOLD) else "ANOMALY" if drop_ratio >= (1.0 - AIRSPACE_ANOMALY_THRESHOLD) else "NORMAL"
+            # HOD Z-score severity when enough same-hour samples exist
+            _n_as_hod = len(_as_same_hour)
+            if _n_as_hod >= HOD_MIN_SAME_HOUR:
+                _ah_mean = sum(_as_same_hour) / _n_as_hod
+                _ah_std  = max((sum((x - _ah_mean)**2 for x in _as_same_hour) / _n_as_hod) ** 0.5, 0.5)
+                _ah_z    = (count - _ah_mean) / _ah_std
+                ainfo["hod_z"] = round(_ah_z, 2); ainfo["hod_n"] = _n_as_hod
+                severity = "CLOSURE" if _ah_z < -3.0 else "ANOMALY" if _ah_z < -2.0 else "NORMAL"
+            else:
+                ainfo["hod_z"] = None; ainfo["hod_n"] = _n_as_hod
+                severity = "CLOSURE" if drop_ratio >= (1.0 - AIRSPACE_CLOSURE_THRESHOLD) else \
+                           "ANOMALY" if drop_ratio >= (1.0 - AIRSPACE_ANOMALY_THRESHOLD) else "NORMAL"
+
             if severity in ("CLOSURE", "ANOMALY"):
                 if weather_suppressed:
                     ainfo["status"] = "WEATHER_NOISE"; noise_filters_applied.append(f"weather_noise@{code}: airspace {severity.lower()} suppressed")
