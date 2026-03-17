@@ -2605,8 +2605,47 @@ def compute_sequence_bonus(theater: str) -> tuple:
     else:
         return 0, f"INSUFFICIENT_CHAIN ({found_count}/4)", found_in_chain
 
-_HOD_PREFILL_L3_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin"
-_HOD_PREFILL_L7_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin"
+_HOD_PREFILL_L3_URL  = "https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin"
+_HOD_PREFILL_L7_URL  = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin"
+_HOD_PREFILL_TS_URL  = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/timeseries"
+
+
+def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
+    """Fetch hourly L7 attack timeseries for a theater over the past N days.
+
+    Returns {unix_hour_bucket: normalized_value} for each hourly slot.
+    Uses the CF Radar timeseries endpoint which reliably returns data for every
+    hour (unlike top/locations/origin which is sparse for narrow windows).
+    Falls back to an empty dict on error — caller should handle gracefully."""
+    from datetime import datetime, timezone as _tz
+    try:
+        res = requests.get(
+            _HOD_PREFILL_TS_URL,
+            headers=CF_HEADERS,
+            params={"dateRange": f"{days}d", "aggInterval": "1h",
+                    "location": theater, "format": "json"},
+            timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+        )
+        if res.status_code != 200:
+            print(f"[HOD TS] {theater}: HTTP {res.status_code}")
+            return {}
+        result     = res.json().get("result", {})
+        timestamps = result.get("timestamps", [])
+        values     = result.get("values", [])
+        if not timestamps or not values:
+            return {}
+        out: dict = {}
+        for ts_str, v_str in zip(timestamps, values):
+            try:
+                dt  = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                bkt = int(dt.timestamp() // 3600) * 3600
+                out[bkt] = float(v_str)
+            except (ValueError, TypeError):
+                pass
+        return out
+    except Exception as e:
+        print(f"[HOD TS] {theater}: fetch error — {e}")
+        return {}
 
 
 def compute_avg_spike_raw(o_l3: dict, o_l7: dict, b_data: dict, adversary_codes: list) -> float:
@@ -2683,10 +2722,21 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
         filled = day_errors = 0
         now_day = int(time.time() // 86400)
 
+        # ── Step 1: fetch hourly timeseries for the full 28d window (1 API call) ──
+        # Provides per-hour attack intensity — used to scale the daily avg_spike
+        # so each of the 24 HOD slots gets a realistic hourly estimate rather than
+        # the flat daily average.
+        ts_by_bucket = _fetch_cf_timeseries_hourly(theater, HOD_BASELINE_DAYS)
+        has_ts = bool(ts_by_bucket)
+        if has_ts:
+            print(f"[HOD Prefill] {theater}: timeseries OK ({len(ts_by_bucket)} hourly pts)")
+        else:
+            print(f"[HOD Prefill] {theater}: timeseries unavailable — using flat daily avg")
+
+        # ── Step 2: for each past day, fetch the daily origin distribution ──
         for day_offset in range(1, HOD_BASELINE_DAYS + 1):
             target_day_start = (now_day - day_offset) * 86400
 
-            # Check if all 24 HOD slots for this day are already recorded
             existing_buckets = {ts for ts, _ in hod_baseline_db.get(theater, [])}
             slots_needed = [h for h in range(24)
                             if (target_day_start + h * 3600) not in existing_buckets]
@@ -2694,7 +2744,7 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
                 total_skipped += 24
                 continue
 
-            # Fetch ONE 24h window for this day (covers all hours)
+            # Fetch ONE 24h window for this day to get the origin distribution
             date_start = datetime.fromtimestamp(target_day_start,         tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             date_end   = datetime.fromtimestamp(target_day_start + 86400, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             params     = {"location": theater, "dateStart": date_start, "dateEnd": date_end, "format": "json"}
@@ -2707,11 +2757,31 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
                 time.sleep(0.25)
                 continue
 
-            avg_spike = compute_avg_spike_raw(o_l3, o_l7, b_data, adversary_codes)
+            daily_avg_spike = compute_avg_spike_raw(o_l3, o_l7, b_data, adversary_codes)
 
-            # Record this daily avg_spike for all 24 HOD slots of this day
+            # Compute this day's average timeseries value (for scaling)
+            if has_ts:
+                day_ts_vals = [ts_by_bucket[target_day_start + h * 3600]
+                               for h in range(24)
+                               if (target_day_start + h * 3600) in ts_by_bucket]
+                day_ts_avg = sum(day_ts_vals) / len(day_ts_vals) if day_ts_vals else None
+            else:
+                day_ts_avg = None
+
+            # Record per-hour estimates for each needed slot
             for hour in slots_needed:
-                record_hod_sample(theater, target_day_start + hour * 3600 + 1800, avg_spike)
+                hour_bkt = target_day_start + hour * 3600
+                if has_ts and day_ts_avg and day_ts_avg > 0:
+                    hour_val = ts_by_bucket.get(hour_bkt)
+                    if hour_val is not None:
+                        # Scale: daily_avg_spike × (this_hour / day_avg)
+                        hour_spike = daily_avg_spike * (hour_val / day_ts_avg)
+                    else:
+                        hour_spike = daily_avg_spike  # no TS data for this slot
+                else:
+                    hour_spike = daily_avg_spike      # fallback: flat daily avg
+
+                record_hod_sample(theater, hour_bkt + 1800, max(0.0, hour_spike))
                 filled += 1
 
             time.sleep(0.25)   # ~4 req-pairs/s
