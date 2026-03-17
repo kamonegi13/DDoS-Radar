@@ -2622,9 +2622,17 @@ def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
     def _parse_ts_response(res) -> dict:
         if res.status_code != 200:
             return {}
-        result     = res.json().get("result", {})
-        timestamps = result.get("timestamps", [])
-        values     = result.get("values", [])
+        result = res.json().get("result", {})
+        # CF Radar timeseries may store data directly in result OR nested under
+        # "serie_0", "serie_1" etc. Try both layouts.
+        if "timestamps" in result:
+            timestamps = result["timestamps"]
+            values     = result.get("values", [])
+        else:
+            serie = next((v for k, v in result.items()
+                          if k.startswith("serie_") and isinstance(v, dict)), {})
+            timestamps = serie.get("timestamps", [])
+            values     = serie.get("values", [])
         if not timestamps or not values:
             return {}
         out: dict = {}
@@ -2651,7 +2659,15 @@ def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
         res = requests.get(_HOD_PREFILL_TS_URL, headers=CF_HEADERS,
                            params=base_params,
                            timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-        return _parse_ts_response(res)
+        out = _parse_ts_response(res)
+        if not out:
+            # Log raw response keys to diagnose unexpected API structure
+            try:
+                raw_keys = list(res.json().get("result", {}).keys())
+                print(f"[HOD TS] {theater}: global TS also empty — result keys={raw_keys}")
+            except Exception:
+                print(f"[HOD TS] {theater}: global TS also empty — HTTP {res.status_code}")
+        return out
     except Exception as e:
         print(f"[HOD TS] {theater}: fetch error — {e}")
         return {}
