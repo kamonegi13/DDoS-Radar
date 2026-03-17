@@ -537,7 +537,7 @@ class PeeringDbSensor(BaseSensor):
 class BgpRoutingSensor(BaseSensor):
     BGP_DROP_THRESHOLD = 0.15
     BGP_HOD_MIN        = 7    # Same-hour samples required before HOD Z-score is valid
-    BGP_HOD_MAX        = HOD_BASELINE_DAYS * 24  # cap per theater
+    BGP_HOD_MAX        = 28 * 24  # cap per theater (28 days × 24 hours = 672)
     def __init__(self):
         super().__init__("ripe_bgp", "cyber", 1800); self._baseline: dict = {}
     def fetch(self, context: dict) -> dict:
