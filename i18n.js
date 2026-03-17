@@ -1252,4 +1252,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnJa = document.getElementById('lang-btn-ja');
   if (btnEn) btnEn.classList.toggle('lang-active', _currentLang === 'en');
   if (btnJa) btnJa.classList.toggle('lang-active', _currentLang === 'ja');
+
+  // Apply guide language visibility for persisted language (e.g. Japanese saved from last session)
+  // Without this, guide-lang-ja divs remain display:none from HTML even when Japanese is selected
+  const guide = document.getElementById('help-modal');
+  if (guide) {
+    guide.querySelectorAll('.guide-lang-en').forEach(el => {
+      el.style.display = _currentLang === 'en' ? '' : 'none';
+    });
+    guide.querySelectorAll('.guide-lang-ja').forEach(el => {
+      el.style.display = _currentLang === 'ja' ? '' : 'none';
+    });
+  }
 });

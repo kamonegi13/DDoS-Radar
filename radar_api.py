@@ -160,7 +160,7 @@ if not SSL_VERIFY:
 CF_API_TOKEN               = os.getenv("CF_API_TOKEN", "")
 OWM_API_KEY                = os.getenv("OWM_API_KEY", "")
 CURRENT_DATE_RANGE         = os.getenv("CURRENT_DATE_RANGE",  "1d")
-BASELINE_DATE_RANGE        = os.getenv("BASELINE_DATE_RANGE", "7d")
+BASELINE_DATE_RANGE        = os.getenv("BASELINE_DATE_RANGE", "28d")
 CACHE_EXPIRY               = int(os.getenv("CACHE_EXPIRY", "900"))
 SCORE_REFRESH_SEC          = int(os.getenv("SCORE_REFRESH_SEC", "60"))   # Minimum scoring recalculation interval (seconds)
 
@@ -726,9 +726,10 @@ class ThreatFoxSensor(BaseSensor):
                     self.log_fetch(False, duration, res.status_code, 0, f"API Error: {err_msg}")
                     self.set_error(f"API Error: {err_msg}")
             elif res.status_code == 401:
-                # API key auth failure: prompt to configure key but do not treat as ERROR
+                # API key auth failure: preserve existing cache to avoid wiping valid data
                 print(f"[ThreatFox] HTTP 401 — Auth-Key is invalid or expired. Check THREATFOX_API_KEY.")
                 self.log_fetch(False, duration, res.status_code, 0, "HTTP 401 Unauthorized")
+                return self.get_cache() or {"hits": {}}
             else:
                 self.log_fetch(False, duration, res.status_code, 0, f"HTTP {res.status_code}")
                 self.set_error(f"HTTP {res.status_code}")
@@ -1893,9 +1894,12 @@ class WeightedConvergenceEngine:
         level = self.compute_convergence_level(domain_scores)
         bonus = CONVERGENCE_FULL_BONUS if level == "FULL_CONVERGENCE" else CONVERGENCE_DUAL_BONUS if level == "DUAL_DOMAIN" else 0
         return score + bonus, bonus, level
-    def compute_threat_level(self, score: int, tl1_hard: bool) -> int:
+    def compute_threat_level(self, score: int, tl1_hard: bool, active_domains: int = 0) -> int:
         if score >= 9 and tl1_hard: return 1
-        if score >= 6: return 2
+        # TL2 requires DUAL_DOMAIN convergence (≥2 active domains) to prevent
+        # single-domain (Cyber-only) escalation from triggering Heightened status.
+        # TL1 is already gated by core_degraded (Physical) via tl1_hard.
+        if score >= 6 and active_domains >= 2: return 2
         if score >= 4: return 3
         if score >= 2: return 4
         return 5
@@ -2057,7 +2061,7 @@ class WeightedConvergenceEngine:
 
         Returns: (is_maskirovka: bool, confidence: str, reason: str)
         """
-        has_physical_outage   = core_degraded or check_host_status in ("BLACKOUT", "PARTIAL")
+        has_physical_outage   = core_degraded or check_host_status == "BLACKOUT"
         has_narrative_silence = not narrative_burst and not telegram_intent
 
         if has_physical_outage and has_narrative_silence:
@@ -2210,6 +2214,15 @@ time_series_ts_db: dict = {}   # {theater: [(ts, val),...]} ← with timestamps
 time_series_l3_db: dict = {}
 time_series_l7_db: dict = {}
 airspace_baseline: dict = {}
+# HOD (Hour-of-Day) baseline: {theater: [(hour_bucket_ts, avg_spike), ...]}
+# Stores one entry per UTC hour per theater for up to 28 days (672 entries).
+# Used to normalize CF spike scores against same-hour historical distribution,
+# eliminating the diurnal bias where daytime attack patterns inflate spike ratios
+# when compared against a flat day+night average baseline.
+hod_baseline_db:   dict = {}
+HOD_BASELINE_DAYS     = 28   # Days of same-hour history to retain
+HOD_MIN_SAME_HOUR     = 7    # Minimum same-hour samples required before HOD Z-score is valid
+HOD_MAX_ENTRIES       = HOD_BASELINE_DAYS * 24  # 672 hourly entries per theater
 threat_history:    deque = deque(maxlen=20)
 alert_timeline:    deque = deque(maxlen=288)
 ALERT_TIMELINE_MAX = 288  # Must match deque maxlen
@@ -2252,16 +2265,18 @@ def save_state() -> None:
                     }
 
             state = {
-                "version":   2,
+                "version":   3,
                 "saved_at":  time.time(),
                 # ── Accumulated / long-lived (no expiry on restore) ──
                 "baseline_cache":     dict(baseline_cache),
                 "airspace_baseline":  dict(airspace_baseline),
+                "hod_baseline_db":    {k: list(v)[-HOD_MAX_ENTRIES:] for k, v in hod_baseline_db.items()},
                 # ── Time-series: scored history for velocity/ambush ──
-                "time_series_ts_db":  {k: list(v) for k, v in time_series_ts_db.items()},
-                "time_series_db":     {k: list(v) for k, v in time_series_db.items()},
-                "time_series_l3_db":  {k: list(v) for k, v in time_series_l3_db.items()},
-                "time_series_l7_db":  {k: list(v) for k, v in time_series_l7_db.items()},
+                # Trim to last 15 entries to cap file size (scoring only needs recent history)
+                "time_series_ts_db":  {k: list(v)[-15:] for k, v in time_series_ts_db.items()},
+                "time_series_db":     {k: list(v)[-15:] for k, v in time_series_db.items()},
+                "time_series_l3_db":  {k: list(v)[-15:] for k, v in time_series_l3_db.items()},
+                "time_series_l7_db":  {k: list(v)[-15:] for k, v in time_series_l7_db.items()},
                 # ── Alert / event history ──
                 "alert_timeline":     list(alert_timeline),
                 "sequence_event_log": {k: list(v) for k, v in sequence_event_log.items()},
@@ -2274,8 +2289,9 @@ def save_state() -> None:
                 json.dump(state, f, default=str, ensure_ascii=False)
             os.replace(tmp, PERSISTENCE_STATE_FILE)   # atomic on POSIX; near-atomic on Windows
 
+            hod_total = sum(len(v) for v in hod_baseline_db.values())
             print(f"[Persist] Saved — baseline={len(baseline_cache)}, "
-                  f"timeline={len(alert_timeline)}, sensors={len(sensor_caches)}")
+                  f"hod={hod_total}pts, timeline={len(alert_timeline)}, sensors={len(sensor_caches)}")
         except Exception as exc:
             print(f"[Persist] Save error: {exc}")
 
@@ -2315,6 +2331,15 @@ def restore_state() -> None:
             airspace_baseline.update(loaded)
             print(f"[Persist]   airspace_baseline : {len(loaded)} airports")
 
+            # ── hod_baseline_db: no expiry (weeks to rebuild) ─────────
+            hod_total = 0
+            for theater, entries in state.get("hod_baseline_db", {}).items():
+                valid = [(float(ts), float(v)) for ts, v in entries][-HOD_MAX_ENTRIES:]
+                if valid:
+                    hod_baseline_db[theater] = valid
+                    hod_total += len(valid)
+            print(f"[Persist]   hod_baseline_db   : {hod_total} hourly points")
+
             # ── time_series_ts_db: prune entries older than 25 h ──────
             ts_cutoff = time.time() - (SEQUENCE_WINDOW + 3600)
             total_pts  = 0
@@ -2325,14 +2350,14 @@ def restore_state() -> None:
                     total_pts += len(valid)
             print(f"[Persist]   time_series_ts_db : {total_pts} points")
 
-            # ── plain time_series (value-only): bounded lists, restore as-is
+            # ── plain time_series (value-only): bounded lists, restore trimmed to 15
             for db_name, db_obj in [
                 ("time_series_db",    time_series_db),
                 ("time_series_l3_db", time_series_l3_db),
                 ("time_series_l7_db", time_series_l7_db),
             ]:
                 for theater, entries in state.get(db_name, {}).items():
-                    db_obj[theater] = list(entries)
+                    db_obj[theater] = list(entries)[-15:]
 
             # ── alert_timeline: restore all; deque maxlen handles overflow
             saved_tl = state.get("alert_timeline", [])
@@ -2385,22 +2410,45 @@ _persistence_thread = threading.Thread(target=_persistence_worker, daemon=True, 
 _persistence_thread.start()
 restore_state()              # restore before first scoring cycle
 
+# HOD prefill: fetch past 28 days of hourly CF data to immediately activate
+# HOD Z-score normalization without waiting 28 days for live accumulation.
+# Runs in a background daemon thread; waits up to 5 min for baseline_cache.
+_hod_prefill_theaters = sorted(set([DEFAULT_CORE] + DEFAULT_PINS + DEFAULT_CORRELATES))
+_hod_prefill_thread   = threading.Thread(
+    target=prefill_hod_baseline_bg,
+    args=(_hod_prefill_theaters, DEFAULT_ADVERSARIES),
+    daemon=True, name="hod-prefill"
+)
+_hod_prefill_thread.start()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper Functions
 # ─────────────────────────────────────────────────────────────────────────────
 # ── Sequence Scorer ───────────────────────────────────────────────────────────
-def register_sequence_event(theater: str, event_type: str, meta: dict = None):
-    """Register an event in the escalation chain log."""
+def register_sequence_event(theater: str, event_type: str, meta: dict = None,
+                            dedup_window: int = 300):
+    """Register an event in the escalation chain log.
+
+    dedup_window: seconds within which duplicate event_type entries are suppressed
+        (default 300 s = 5 min).  Prevents double-counting when multiple sensors
+        (e.g. RSS + Telegram) fire the same event type in the same scoring cycle.
+    """
     global sequence_event_log
     if theater not in sequence_event_log:
         sequence_event_log[theater] = []
+    now = time.time()
+    # Dedup: skip if the same event type was registered within the dedup window
+    dedup_cutoff = now - dedup_window
+    if any(e["type"] == event_type and e["ts"] >= dedup_cutoff
+           for e in sequence_event_log[theater]):
+        return
     sequence_event_log[theater].append({
-        "ts":   time.time(),
+        "ts":   now,
         "type": event_type,
         "meta": meta or {},
     })
     # Remove entries older than 24h to conserve memory
-    cutoff = time.time() - SEQUENCE_WINDOW
+    cutoff = now - SEQUENCE_WINDOW
     sequence_event_log[theater] = [
         e for e in sequence_event_log[theater] if e["ts"] >= cutoff
     ]
@@ -2438,6 +2486,167 @@ def compute_sequence_bonus(theater: str) -> tuple:
         return SEQUENCE_PARTIAL_BONUS, f"PARTIAL_CHAIN ({found_count}/4): {found_in_chain}", found_in_chain
     else:
         return 0, f"INSUFFICIENT_CHAIN ({found_count}/4)", found_in_chain
+
+_HOD_PREFILL_L3_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin"
+_HOD_PREFILL_L7_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin"
+
+
+def compute_avg_spike_raw(o_l3: dict, o_l7: dict, b_data: dict, adversary_codes: list) -> float:
+    """Compute avg_spike from pre-fetched origin distribution dicts.
+    Mirrors the spike computation in the main scoring loop, without map/display side-effects."""
+    _bl3 = b_data.get("l3", {})
+    _bl7 = b_data.get("l7", {})
+    if not (_bl3 or _bl7):
+        return 0.0
+    target_weighted_spike = 0.0
+    total_local_pct = 0.0
+    for code in set(o_l3) | set(o_l7):
+        local_l3_pct   = o_l3.get(code, 0.0)
+        local_l7_pct   = o_l7.get(code, 0.0)
+        current_local_pct = max(local_l3_pct, local_l7_pct)
+        if current_local_pct < 1.0:
+            continue
+        is_adv       = code in adversary_codes
+        _floor_new   = 0.5 if is_adv else 3.0
+        _floor_exist = 0.5 if is_adv else 2.0
+        base_l3 = max(_bl3.get(code, _floor_new), _floor_new if code not in _bl3 else _floor_exist)
+        base_l7 = max(_bl7.get(code, _floor_new), _floor_new if code not in _bl7 else _floor_exist)
+        l3_spike     = (local_l3_pct / base_l3) if local_l3_pct > 0 else 0.0
+        l7_spike     = (local_l7_pct / base_l7) if local_l7_pct > 0 else 0.0
+        spike_factor = min(max(l3_spike, l7_spike), 25.0)
+        target_weighted_spike += spike_factor * current_local_pct
+        total_local_pct       += current_local_pct
+    return round(target_weighted_spike / max(total_local_pct, 5.0), 2)
+
+
+def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
+    """Background thread: immediately populate the HOD baseline by fetching past
+    HOD_BASELINE_DAYS × 24 hours of Cloudflare data via dateStart/dateEnd params.
+
+    Priority order to minimise time-to-activation:
+      Phase 1 — current UTC hour × past HOD_BASELINE_DAYS days  (enables HOD right now)
+      Phase 2 — remaining 23 hours × past 7 days                (full 24h coverage, min baseline)
+      Phase 3 — remaining hours × days 8–HOD_BASELINE_DAYS      (full depth)
+
+    Slots that already have ≥ HOD_MIN_SAME_HOUR samples are skipped.
+    Rate-limited to ~4 req-pairs/s (0.25 s sleep) to stay within CF Radar free tier."""
+    from datetime import datetime, timezone
+
+    # Wait until baseline_cache is populated (CF sensor first fetch).
+    # Baseline is needed to compute avg_spike for historical hours.
+    deadline = time.time() + 300   # max 5 min wait
+    while time.time() < deadline:
+        ready = all(baseline_cache.get(t, {}).get("l3") or baseline_cache.get(t, {}).get("l7")
+                    for t in theaters)
+        if ready:
+            break
+        time.sleep(5)
+    else:
+        print("[HOD Prefill] Baseline not available after 5 min — aborting prefill.")
+        return
+
+    now_h       = int(time.time() // 3600) * 3600
+    current_hod = (now_h // 3600) % 24
+
+    phase1 = [(current_hod, d) for d in range(1, HOD_BASELINE_DAYS + 1)]
+    phase2 = [(h, d) for h in range(24) for d in range(1, 8)              if h != current_hod]
+    phase3 = [(h, d) for h in range(24) for d in range(8, HOD_BASELINE_DAYS + 1)
+              if h != current_hod]
+    work   = phase1 + phase2 + phase3
+
+    filled = skipped = errors = 0
+    print(f"[HOD Prefill] Starting — theaters={theaters}, slots={len(work)} per theater")
+
+    for theater in theaters:
+        b_data = baseline_cache.get(theater, {})
+        if not (b_data.get("l3") or b_data.get("l7")):
+            print(f"[HOD Prefill] {theater}: no baseline, skipping.")
+            continue
+
+        for (hour_of_day, day_offset) in work:
+            # Compute UTC hour bucket for this (hour_of_day, day_offset)
+            today_midnight  = (now_h // 86400) * 86400
+            target_bucket   = today_midnight - (day_offset - 1) * 86400 - \
+                              (current_hod - hour_of_day) * 3600 - 86400
+            # Simpler and correct: go back day_offset full days then set hour
+            target_bucket   = (int(time.time() // 86400) - day_offset) * 86400 \
+                              + hour_of_day * 3600
+
+            # Skip if this exact bucket is already recorded
+            entries = hod_baseline_db.get(theater, [])
+            if any(ts == target_bucket for ts, _ in entries):
+                skipped += 1
+                continue
+            # Skip if this HOD slot already has enough samples
+            n_slot = sum(1 for ts, _ in entries if (ts // 3600) % 24 == hour_of_day)
+            if n_slot >= HOD_MIN_SAME_HOUR:
+                skipped += 1
+                continue
+
+            date_start = datetime.fromtimestamp(target_bucket,       tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            date_end   = datetime.fromtimestamp(target_bucket + 3600, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            params     = {"location": theater, "dateStart": date_start, "dateEnd": date_end, "format": "json"}
+
+            o_l3 = parse_origins(fetch_cf_data(_HOD_PREFILL_L3_URL, params))
+            o_l7 = parse_origins(fetch_cf_data(_HOD_PREFILL_L7_URL, params))
+
+            if not o_l3 and not o_l7:
+                errors += 1
+                time.sleep(0.25)
+                continue
+
+            avg_spike = compute_avg_spike_raw(o_l3, o_l7, b_data, adversary_codes)
+            record_hod_sample(theater, target_bucket + 1800, avg_spike)  # mid-hour timestamp
+            filled += 1
+            time.sleep(0.25)   # ~4 req-pairs/s
+
+    total_pts = sum(len(v) for v in hod_baseline_db.values())
+    print(f"[HOD Prefill] Complete — filled={filled}, skipped={skipped}, "
+          f"errors={errors}, total_hod_pts={total_pts}")
+
+
+def record_hod_sample(theater: str, ts: float, avg_spike: float) -> None:
+    """Record one HOD (Hour-of-Day) sample per UTC hour per theater.
+    Deduplicates by hour bucket so multiple scoring cycles within the same
+    UTC hour do not create redundant entries."""
+    hour_bucket = int(ts // 3600) * 3600   # floor to UTC hour boundary
+    entries = hod_baseline_db.setdefault(theater, [])
+    # Only append if this hour bucket is new (avoid per-minute duplicates)
+    if not entries or entries[-1][0] != hour_bucket:
+        entries.append((hour_bucket, avg_spike))
+        # Trim to HOD_MAX_ENTRIES (672 = 28 days × 24 h)
+        hod_baseline_db[theater] = entries[-HOD_MAX_ENTRIES:]
+
+
+def compute_hod_zscore(theater: str, current_spike: float, current_ts: float) -> tuple:
+    """Compute Z-score of current_spike against same-UTC-hour historical distribution.
+
+    Returns:
+        (z_score: float, is_valid: bool, same_hour_n: int)
+    is_valid=False when fewer than HOD_MIN_SAME_HOUR same-hour samples exist;
+    caller should fall back to raw-ratio spike scoring during warmup.
+    """
+    current_hour_bucket = int(current_ts // 3600) * 3600
+    current_hod         = (current_hour_bucket // 3600) % 24   # 0–23 UTC
+
+    entries = hod_baseline_db.get(theater, [])
+    same_hour_spikes = [
+        spike for (ts, spike) in entries
+        if (ts // 3600) % 24 == current_hod and ts < current_hour_bucket
+    ]
+    n = len(same_hour_spikes)
+    if n < HOD_MIN_SAME_HOUR:
+        return 0.0, False, n
+
+    mean = sum(same_hour_spikes) / n
+    variance = sum((x - mean) ** 2 for x in same_hour_spikes) / n
+    std = variance ** 0.5
+
+    # Guard against near-zero std (extremely stable baseline at this hour).
+    # Use a minimum std floor of 0.15 to keep the Z-score meaningful.
+    std = max(std, 0.15)
+    return (current_spike - mean) / std, True, n
+
 
 def get_fallback_coord(code: str) -> dict:
     h = int(hashlib.md5((code or "Unknown").encode()).hexdigest(), 16)
@@ -2708,15 +2917,17 @@ def get_threat_data():
                 local_l3_pct, local_l7_pct = o_l3.get(code, 0.0), o_l7.get(code, 0.0)
                 current_local_pct = max(local_l3_pct, local_l7_pct)
 
-                is_new_actor = (code not in b_data["l3"]) and (code not in b_data["l7"])
+                _bl3 = b_data.get("l3", {})
+                _bl7 = b_data.get("l7", {})
+                is_new_actor = (code not in _bl3) and (code not in _bl7)
                 # Adversary states (CN/RU/KP etc.) use a lower baseline floor to detect even small attacks.
                 # Non-adversary states use a higher floor (3%) to suppress noise.
                 # Example: KP at baseline 0.1% → current 2% correctly detected as a 4× spike.
                 is_adversary_origin = code in adversary_states
                 _floor_new   = 0.5 if is_adversary_origin else 3.0  # new actor (not in baseline)
                 _floor_exist = 0.5 if is_adversary_origin else 2.0  # existing actor
-                base_l3 = max(b_data["l3"].get(code, _floor_new), _floor_new if code not in b_data["l3"] else _floor_exist)
-                base_l7 = max(b_data["l7"].get(code, _floor_new), _floor_new if code not in b_data["l7"] else _floor_exist)
+                base_l3 = max(_bl3.get(code, _floor_new), _floor_new if code not in _bl3 else _floor_exist)
+                base_l7 = max(_bl7.get(code, _floor_new), _floor_new if code not in _bl7 else _floor_exist)
                 l3_spike = (local_l3_pct / base_l3) if local_l3_pct > 0 else 0.0
                 l7_spike = (local_l7_pct / base_l7) if local_l7_pct > 0 else 0.0
                 # Cap spike multiplier at 25× (prevent extreme amplification from statistical noise)
@@ -2762,6 +2973,9 @@ def get_threat_data():
             if t not in time_series_ts_db: time_series_ts_db[t] = []
             time_series_ts_db[t].append((current_time, avg_spike_record))
             time_series_ts_db[t] = time_series_ts_db[t][-30:]  # Retain more points for derivative computation
+            # Record HOD (Hour-of-Day) sample for strategic theaters only
+            if t in strategic_theaters_set:
+                record_hod_sample(t, current_time, avg_spike_record)
 
             target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values())}
 
@@ -2795,8 +3009,22 @@ def get_threat_data():
         if not (cf_sensor and cf_sensor.enabled):
             add_rat("cloudflare_radar", "cyber", "DISABLED", "sensor off", 0, None)
         else:
-            spike_score = (1 if core_spike > 2.0 else 0) + (1 if core_spike > 4.0 else 0) + (1 if core_spike > 6.0 else 0)
-            add_rat("cf_spike_core", "cyber", "FIRED" if core_spike > 2.0 else "OK", f"{core_spike:.2f}x", spike_score, f"Core theater spike exceeds 2x baseline" if spike_score else None)
+            # HOD-normalized Z-score spike detection.
+            # During warmup (<7 same-hour samples) fall back to raw ratio thresholds.
+            hod_z, hod_valid, hod_n = compute_hod_zscore(core_theater, core_spike, current_time)
+            if hod_valid:
+                # Z-score thresholds: 1.5σ / 2.5σ / 3.5σ  → +1 / +2 / +3
+                spike_score = (1 if hod_z > 1.5 else 0) + (1 if hod_z > 2.5 else 0) + (1 if hod_z > 3.5 else 0)
+                spike_fired = hod_z > 1.5
+                spike_value = f"HOD Z={hod_z:.2f} ({core_spike:.2f}x, n={hod_n})"
+                spike_reason = f"HOD Z-score={hod_z:.2f} — spike anomalous vs same-hour 28d baseline" if spike_fired else None
+            else:
+                # Warmup fallback: raw ratio thresholds (2x / 4x / 6x)
+                spike_score = (1 if core_spike > 2.0 else 0) + (1 if core_spike > 4.0 else 0) + (1 if core_spike > 6.0 else 0)
+                spike_fired = core_spike > 2.0
+                spike_value = f"{core_spike:.2f}x (HOD warmup {hod_n}/{HOD_MIN_SAME_HOUR})"
+                spike_reason = f"Core theater spike exceeds 2x baseline (HOD warmup)" if spike_fired else None
+            add_rat("cf_spike_core", "cyber", "FIRED" if spike_fired else "OK", spike_value, spike_score, spike_reason)
             max_overlap = max(correlations.values(), default=0.0)
             add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None)
             add_rat("cf_vector_shift", "cyber", "FIRED" if core_shifted else "OK", f"theaters={vector_shifts}", 1 if core_shifted else 0, "L7 application-layer escalation detected" if core_shifted else None)
@@ -2968,7 +3196,9 @@ def get_threat_data():
         ch_status        = core_checkhost.get("status", "UNKNOWN")
         ch_success_rate  = core_checkhost.get("theater_success_rate")
         if check_host_sensor and check_host_sensor.enabled:
-            ch_score = (3 if ch_status == "BLACKOUT" else 2 if ch_status == "PARTIAL" else 0)
+            # PARTIAL = 1〜2ノードの到達失敗。Maskirovkaポリシーと一貫性を保つため+1に抑制。
+            # BLACKOUT = 全ノード到達不能 = 重大なインフラ劣化として+3を維持。
+            ch_score = (3 if ch_status == "BLACKOUT" else 1 if ch_status == "PARTIAL" else 0)
             ch_fired = ch_status in ("BLACKOUT", "PARTIAL")
             add_rat("check_host", "physical",
                     "FIRED" if ch_fired else ("OK" if ch_status == "OK" else "NO_DATA"),
@@ -3045,7 +3275,10 @@ def get_threat_data():
         score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
         # Add Sequence Bonus and Temporal Coherence Bonus to final score
         score_with_bonus += seq_bonus + temporal_bonus
-        tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard)
+        # Cap final score to prevent bonus stacking from inflating beyond TL1 threshold ceiling
+        score_with_bonus = min(score_with_bonus, 15)
+        active_domains = sum(1 for s in domain_scores.values() if s > 0)
+        tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard, active_domains)
         threat_level, tl_held = engine.apply_hysteresis(tl_raw, threat_history)
         threat_history.append((current_time, threat_level))
         # deque(maxlen=20) automatically evicts old entries
