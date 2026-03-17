@@ -2638,28 +2638,30 @@ def compute_avg_spike_raw(o_l3: dict, o_l7: dict, b_data: dict, adversary_codes:
 
 
 def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
-    """Background thread: immediately populate the HOD baseline for the current UTC
-    hour using past HOD_BASELINE_DAYS daily (24h) windows from the CF Radar API.
+    """Background thread: populate HOD baseline for ALL 24 UTC hour slots using
+    past HOD_BASELINE_DAYS daily (24h) windows from the CF Radar API.
 
-    Why 24h windows instead of 1h:
-      The CF top/locations/origin endpoint returns sparse or empty results for
-      narrow 1-hour historical windows when attack traffic is low. A 24-hour
-      window always contains sufficient data. The daily average spike value is
-      stored with a synthetic timestamp at (past_date + current_hod * 3600),
-      so HOD Z-score correctly identifies them as same-hour samples. This gives
-      28 reliable same-hour samples within ~15 seconds of startup.
+    Strategy: fetch ONE 24h API call per past day per theater, then record the
+    resulting avg_spike for ALL 24 HOD slots of that day. This means:
+      - API calls: 28 days × 2 (L3+L7) per theater  (~7 s per theater)
+      - Coverage: all 24 HOD slots filled immediately at startup
+      - No warmup regardless of which UTC hour the server starts or restarts in
+
+    Trade-off: all hours of the same day share the same daily avg_spike value
+    (no intra-day resolution), but inter-day trend changes are fully captured.
+    True per-hour resolution accumulates naturally as the server runs (one real
+    sample per UTC hour per scoring cycle).
 
     Slots that already have ≥ HOD_MIN_SAME_HOUR samples are skipped.
     Rate-limited to ~4 req-pairs/s (0.25 s sleep) to stay within CF Radar free tier."""
     from datetime import datetime, timezone
 
     # Ensure baseline_cache is populated for each theater.
-    # Do NOT wait for the scoring loop — fetch directly from CF API if needed.
     _BL_L3_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin"
     _BL_L7_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin"
     for t in theaters:
         if baseline_cache.get(t, {}).get("l3") or baseline_cache.get(t, {}).get("l7"):
-            continue  # already populated (restored from state or prior scoring cycle)
+            continue
         print(f"[HOD Prefill] Fetching 28d baseline for {t} ...")
         _bl3 = parse_origins(fetch_cf_data(_BL_L3_URL, {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}))
         _bl7 = parse_origins(fetch_cf_data(_BL_L7_URL, {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}))
@@ -2668,12 +2670,9 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
         else:
             print(f"[HOD Prefill] {t}: baseline fetch failed, skipping theater.")
 
-    now_h       = int(time.time() // 3600) * 3600
-    current_hod = (now_h // 3600) % 24
+    print(f"[HOD Prefill] Starting — theaters={theaters}, days={HOD_BASELINE_DAYS}, all 24h slots")
 
-    filled = skipped = errors = 0
-    print(f"[HOD Prefill] Starting — theaters={theaters}, "
-          f"days={HOD_BASELINE_DAYS}, current_hod={current_hod:02d}:00 UTC")
+    total_filled = total_skipped = total_errors = 0
 
     for theater in theaters:
         b_data = baseline_cache.get(theater, {})
@@ -2681,26 +2680,21 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
             print(f"[HOD Prefill] {theater}: no baseline available, skipping.")
             continue
 
-        # Check if this HOD slot already has enough samples
-        entries  = hod_baseline_db.get(theater, [])
-        n_existing = sum(1 for ts, _ in entries if (ts // 3600) % 24 == current_hod)
-        if n_existing >= HOD_MIN_SAME_HOUR:
-            print(f"[HOD Prefill] {theater}: HOD slot {current_hod:02d}h already has "
-                  f"{n_existing} samples — skipping.")
-            skipped += n_existing
-            continue
+        filled = day_errors = 0
+        now_day = int(time.time() // 86400)
 
         for day_offset in range(1, HOD_BASELINE_DAYS + 1):
-            # Synthetic HOD timestamp: past day at the current UTC hour
-            target_day_start = (int(time.time() // 86400) - day_offset) * 86400
-            target_hod_ts    = target_day_start + current_hod * 3600
+            target_day_start = (now_day - day_offset) * 86400
 
-            # Skip if this exact bucket is already recorded
-            if any(ts == target_hod_ts for ts, _ in hod_baseline_db.get(theater, [])):
-                skipped += 1
+            # Check if all 24 HOD slots for this day are already recorded
+            existing_buckets = {ts for ts, _ in hod_baseline_db.get(theater, [])}
+            slots_needed = [h for h in range(24)
+                            if (target_day_start + h * 3600) not in existing_buckets]
+            if not slots_needed:
+                total_skipped += 24
                 continue
 
-            # Fetch the FULL 24h window for this day (always has data unlike 1h windows)
+            # Fetch ONE 24h window for this day (covers all hours)
             date_start = datetime.fromtimestamp(target_day_start,         tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             date_end   = datetime.fromtimestamp(target_day_start + 86400, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             params     = {"location": theater, "dateStart": date_start, "dateEnd": date_end, "format": "json"}
@@ -2709,23 +2703,28 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
             o_l7 = parse_origins(fetch_cf_data(_HOD_PREFILL_L7_URL, params))
 
             if not o_l3 and not o_l7:
-                errors += 1
+                day_errors += 1
                 time.sleep(0.25)
                 continue
 
             avg_spike = compute_avg_spike_raw(o_l3, o_l7, b_data, adversary_codes)
-            # Store at mid-point of the target HOD bucket
-            record_hod_sample(theater, target_hod_ts + 1800, avg_spike)
-            filled += 1
+
+            # Record this daily avg_spike for all 24 HOD slots of this day
+            for hour in slots_needed:
+                record_hod_sample(theater, target_day_start + hour * 3600 + 1800, avg_spike)
+                filled += 1
+
             time.sleep(0.25)   # ~4 req-pairs/s
 
-        n_after = sum(1 for ts, _ in hod_baseline_db.get(theater, [])
-                      if (ts // 3600) % 24 == current_hod)
-        print(f"[HOD Prefill] {theater}: HOD slot {current_hod:02d}h now has {n_after} samples")
+        slots_covered = len({(ts // 3600) % 24 for ts, _ in hod_baseline_db.get(theater, [])})
+        print(f"[HOD Prefill] {theater}: filled={filled}, day_errors={day_errors}, "
+              f"hod_slots_covered={slots_covered}/24")
+        total_filled  += filled
+        total_errors  += day_errors
 
     total_pts = sum(len(v) for v in hod_baseline_db.values())
-    print(f"[HOD Prefill] Complete — filled={filled}, skipped={skipped}, "
-          f"errors={errors}, total_hod_pts={total_pts}")
+    print(f"[HOD Prefill] Complete — filled={total_filled}, skipped={total_skipped}, "
+          f"errors={total_errors}, total_hod_pts={total_pts}")
 
 
 def record_hod_sample(theater: str, ts: float, avg_spike: float) -> None:
@@ -4354,6 +4353,36 @@ def api_score_breakdown():
             }
             for d in ("cyber", "physical", "info")
         },
+    })
+
+
+@app.route("/api/debug_hod", methods=["GET"])
+def api_debug_hod():
+    """Temporary debug endpoint: show HOD baseline state per theater."""
+    import datetime as _dt
+    theater = request.args.get("theater", DEFAULT_CORE).strip().upper()
+    now_ts  = time.time()
+    cur_bucket = int(now_ts // 3600) * 3600
+    cur_hod    = (cur_bucket // 3600) % 24
+    entries = hod_baseline_db.get(theater, [])
+    same_hour = [(ts, v) for (ts, v) in entries
+                 if (ts // 3600) % 24 == cur_hod and ts < cur_bucket]
+    return jsonify({
+        "theater":       theater,
+        "current_hod":   cur_hod,
+        "cur_bucket":    cur_bucket,
+        "total_entries": len(entries),
+        "same_hour_n":   len(same_hour),
+        "hod_min":       HOD_MIN_SAME_HOUR,
+        "same_hour_samples": [
+            {"ts": ts, "utc": _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M"),
+             "spike": round(v, 3)}
+            for (ts, v) in sorted(same_hour)
+        ],
+        "last_5_entries": [
+            {"ts": ts, "hod": (ts//3600)%24, "spike": round(v, 3)}
+            for (ts, v) in entries[-5:]
+        ],
     })
 
 
