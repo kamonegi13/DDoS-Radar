@@ -1665,7 +1665,7 @@
                     <li>All lines use a two-layer composition: a wider semi-transparent base track (the "rail") with firefly dots moving on top. Dot speed encodes severity at a glance.</li>
                     <li><span class="hl-red">Red — SEVERE (&gt;6×)</span>: Fast dots (3 s/cycle). High opacity. Immediate visual priority.</li>
                     <li><span class="hl-orange">Amber — ELEVATED (2–6×)</span>: Medium-speed dots (7 s/cycle). Solid, readable.</li>
-                    <li><span style="color:#00d8ff;font-weight:bold;">Cyan — NOISE (&lt;2×)</span>: Very slow dots (16 s/cycle), low opacity. Background context only.</li>
+                    <li><span style="color:#4d7fa8;font-weight:bold;">Steel Blue — NOISE (&lt;2×)</span>: Very slow dots (16 s/cycle), low opacity. Background context only. Distinct from submarine cable routes (teal).</li>
                     <li>State ASN-attributed sources display a badge. The <span class="code-block">ALL / L3 / L7</span> filter buttons separate volumetric vs. application-layer traffic.</li>
                 </ul>
             </li>
@@ -1736,7 +1736,7 @@
                     <li>全線が2層構成：幅広の半透明ベーストラック（レール）の上にFireflyドットが流れる。ドット速度で重大度を直感的に識別できる。</li>
                     <li><span class="hl-red">赤 — SEVERE（&gt;6×）</span>: 高速ドット（3秒/周回）。高輝度。最高優先度。</li>
                     <li><span class="hl-orange">琥珀 — ELEVATED（2〜6×）</span>: 中速ドット（7秒/周回）。明瞭で読みやすい。</li>
-                    <li><span style="color:#00d8ff;font-weight:bold;">シアン — NOISE（&lt;2×）</span>: 超低速ドット（16秒/周回）、低輝度。背景コンテキストとして参照用。</li>
+                    <li><span style="color:#4d7fa8;font-weight:bold;">スティールブルー — NOISE（&lt;2×）</span>: 超低速ドット（16秒/周回）、低輝度。背景コンテキストとして参照用。海底ケーブルルート（ティール）と明確に区別できる色。</li>
                     <li>国家 ASN 帰属の送信元にはバッジを表示。<span class="code-block">ALL / L3 / L7</span> フィルターでボリューメトリックとアプリケーション層を分離可能。</li>
                 </ul>
             </li>
@@ -4665,7 +4665,7 @@
                         if (spike >= 6.0) { lineColor = '#ff2a2a'; lineOpacity = 0.9; speedClass = 'flow-fast'; glowClass = 'glow-high'; spikeHtml = `<span class="spike-alert">SEVERE (x${spike})</span>`;
                         } else if (spike >= 2.0) { lineColor = '#ffaa00'; lineOpacity = 0.75; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">Elevated (x${spike})</span>`;
                         } else if (w >= 1.0) { lineColor = '#ffaa00'; lineOpacity = 0.25; speedClass = 'flow-medium'; glowClass = 'glow-none';
-                        } else { lineColor = '#00d8ff'; lineOpacity = 0.15; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
+                        } else { lineColor = '#4d7fa8'; lineOpacity = 0.18; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
 
                         const totalPct = parseFloat(w).toFixed(2);
                         const l3Pct = parseFloat(s.l3_weight).toFixed(2); const l7Pct = parseFloat(s.l7_weight).toFixed(2);
