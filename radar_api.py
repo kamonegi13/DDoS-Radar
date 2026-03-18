@@ -11,6 +11,7 @@ import os
 import json
 import math
 import atexit
+import re
 import xml.etree.ElementTree as ET
 import urllib3
 from collections import deque
@@ -626,7 +627,7 @@ class GDELTSensor(BaseSensor):
         tones: dict = {}
         t0 = time.time()
         _now_ts = time.time()
-        _cur_weekday = int(__import__("datetime").datetime.fromtimestamp(_now_ts, tz=__import__("datetime").timezone.utc).weekday())  # 0=Mon … 6=Sun
+        _cur_weekday = datetime.datetime.fromtimestamp(_now_ts, tz=datetime.timezone.utc).weekday()  # 0=Mon … 6=Sun
         _cur_day_bucket = int(_now_ts // 86400) * 86400  # UTC day bucket
         for code in theaters:
             query = self.QUERY_TEMPLATES.get(code)
@@ -1243,7 +1244,7 @@ class TelegramMirrorSensor(BaseSensor):
     TGSTAT_URL   = "https://tgstat.com/channel/@{channel}/stat"
     TELEMETR_URL = "https://telemetr.io/@{channel}"
     # URL extraction pattern (https?://example.com format)
-    _URL_RE = __import__("re").compile(
+    _URL_RE = re.compile(
         r'https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(?:/[^\s<"\']*)?'
     )
     _intercept_log: list = []   # class-level ring buffer (shared across instances)
@@ -2434,38 +2435,50 @@ def restore_state() -> None:
 
             # ── hod_baseline_db: no expiry (weeks to rebuild) ─────────
             hod_total = 0
-            for theater, entries in state.get("hod_baseline_db", {}).items():
-                valid = [(float(ts), float(v)) for ts, v in entries][-HOD_MAX_ENTRIES:]
-                if valid:
-                    hod_baseline_db[theater] = valid
-                    hod_total += len(valid)
+            try:
+                for theater, entries in state.get("hod_baseline_db", {}).items():
+                    valid = [(float(ts), float(v)) for ts, v in entries][-HOD_MAX_ENTRIES:]
+                    if valid:
+                        hod_baseline_db[theater] = valid
+                        hod_total += len(valid)
+            except Exception as exc:
+                print(f"[Persist]   hod_baseline_db   : restore error — {exc}")
             print(f"[Persist]   hod_baseline_db   : {hod_total} hourly points")
 
             # ── checkhost_hod_db: no expiry ───────────────────────────
             ch_total = 0
-            for theater, entries in state.get("checkhost_hod_db", {}).items():
-                valid = [(float(ts), float(v)) for ts, v in entries][-HOD_MAX_ENTRIES:]
-                if valid:
-                    checkhost_hod_db[theater] = valid
-                    ch_total += len(valid)
+            try:
+                for theater, entries in state.get("checkhost_hod_db", {}).items():
+                    valid = [(float(ts), float(v)) for ts, v in entries][-HOD_MAX_ENTRIES:]
+                    if valid:
+                        checkhost_hod_db[theater] = valid
+                        ch_total += len(valid)
+            except Exception as exc:
+                print(f"[Persist]   checkhost_hod_db  : restore error — {exc}")
             print(f"[Persist]   checkhost_hod_db  : {ch_total} hourly points")
 
             # ── bgp_hod_db: no expiry ─────────────────────────────────
             bgp_total = 0
-            for theater, entries in state.get("bgp_hod_db", {}).items():
-                valid = [(float(ts), float(v)) for ts, v in entries][-(HOD_BASELINE_DAYS * 24):]
-                if valid:
-                    bgp_hod_db[theater] = valid
-                    bgp_total += len(valid)
+            try:
+                for theater, entries in state.get("bgp_hod_db", {}).items():
+                    valid = [(float(ts), float(v)) for ts, v in entries][-(HOD_BASELINE_DAYS * 24):]
+                    if valid:
+                        bgp_hod_db[theater] = valid
+                        bgp_total += len(valid)
+            except Exception as exc:
+                print(f"[Persist]   bgp_hod_db        : restore error — {exc}")
             print(f"[Persist]   bgp_hod_db        : {bgp_total} hourly points")
 
             # ── gdelt_dow_db: no expiry ───────────────────────────────
             dow_total = 0
-            for theater, entries in state.get("gdelt_dow_db", {}).items():
-                valid = [(float(d), int(w), float(t)) for d, w, t in entries][-(20 * 7):]
-                if valid:
-                    gdelt_dow_db[theater] = valid
-                    dow_total += len(valid)
+            try:
+                for theater, entries in state.get("gdelt_dow_db", {}).items():
+                    valid = [(float(d), int(w), float(t)) for d, w, t in entries][-(20 * 7):]
+                    if valid:
+                        gdelt_dow_db[theater] = valid
+                        dow_total += len(valid)
+            except Exception as exc:
+                print(f"[Persist]   gdelt_dow_db      : restore error — {exc}")
             print(f"[Persist]   gdelt_dow_db      : {dow_total} day-of-week points")
 
             # ── time_series_ts_db: prune entries older than 25 h ──────
