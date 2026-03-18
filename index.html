@@ -1665,7 +1665,7 @@
                     <li>All lines represent <b>real detected attack traffic</b> (Cloudflare Radar). Two-layer composition: wider semi-transparent base track with firefly dots on top. Dot speed encodes severity.</li>
                     <li><span class="hl-red">Red — SEVERE (&gt;6×)</span>: Fast dots (3 s/cycle). Confirmed high-volume attack. Immediate action priority.</li>
                     <li><span class="hl-orange">Amber — ELEVATED (2–6×)</span>: Medium-speed dots (7 s/cycle). Elevated attack traffic requiring monitoring.</li>
-                    <li><span style="color:#4d7fa8;font-weight:bold;">Steel Blue — NOISE (&lt;2×)</span>: Slow dots (16 s/cycle). Low-confidence attack signal — real traffic detected but below anomaly threshold. Not background: still active sensor data.</li>
+                    <li><span style="color:#8855cc;font-weight:bold;">Purple — NOISE (&lt;2×)</span>: Slow dots. Low-confidence attack signal — real traffic below anomaly threshold. Active sensor data. Dot speed is fixed in px/s (consistent regardless of arc length).</li>
                     <li><i>Note: Submarine cable routes (teal lines) are static geographic reference infrastructure, not sensor data.</i></li>
                     <li>State ASN-attributed sources display a badge. The <span class="code-block">ALL / L3 / L7</span> filter buttons separate volumetric vs. application-layer traffic.</li>
                 </ul>
@@ -1737,7 +1737,7 @@
                     <li>全線は<b>実際に検出された攻撃トラフィック</b>（Cloudflare Radar）を表す。2層構成：幅広の半透明ベーストラックの上にFireflyドットが流れる。ドット速度で重大度を識別。</li>
                     <li><span class="hl-red">赤 — SEVERE（&gt;6×）</span>: 高速ドット（3秒/周回）。大規模攻撃確認済み。即時対応優先度。</li>
                     <li><span class="hl-orange">琥珀 — ELEVATED（2〜6×）</span>: 中速ドット（7秒/周回）。異常閾値を超えた攻撃トラフィック。継続監視が必要。</li>
-                    <li><span style="color:#4d7fa8;font-weight:bold;">スティールブルー — NOISE（&lt;2×）</span>: 低速ドット（16秒/周回）。低確信度の攻撃シグナル。異常閾値未満だが実際に検出された攻撃トラフィック。「背景情報」ではなくアクティブなセンサーデータ。</li>
+                    <li><span style="color:#8855cc;font-weight:bold;">パープル — NOISE（&lt;2×）</span>: 低速ドット。低確信度の攻撃シグナル。異常閾値未満だが実際に検出された攻撃トラフィック。ドット速度はpx/秒固定（弧の長さによらず一定）。</li>
                     <li><i>注: 海底ケーブルルート（ティール色の線）は静的な地理インフラの参照情報であり、センサーデータではない。</i></li>
                     <li>国家 ASN 帰属の送信元にはバッジを表示。<span class="code-block">ALL / L3 / L7</span> フィルターでボリューメトリックとアプリケーション層を分離可能。</li>
                 </ul>
@@ -4667,7 +4667,7 @@
                         if (spike >= 6.0) { lineColor = '#ff2a2a'; lineOpacity = 0.9; speedClass = 'flow-fast'; glowClass = 'glow-high'; spikeHtml = `<span class="spike-alert">SEVERE (x${spike})</span>`;
                         } else if (spike >= 2.0) { lineColor = '#ffaa00'; lineOpacity = 0.75; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">Elevated (x${spike})</span>`;
                         } else if (w >= 1.0) { lineColor = '#ffaa00'; lineOpacity = 0.25; speedClass = 'flow-medium'; glowClass = 'glow-none';
-                        } else { lineColor = '#4d7fa8'; lineOpacity = 0.30; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
+                        } else { lineColor = '#8855cc'; lineOpacity = 0.30; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
 
                         const totalPct = parseFloat(w).toFixed(2);
                         const l3Pct = parseFloat(s.l3_weight).toFixed(2); const l7Pct = parseFloat(s.l7_weight).toFixed(2);
@@ -4697,12 +4697,19 @@
                         const baseWidth = Math.max(1.5, Math.min(5, w * 3));
                         const dynamicLineWidth = glowClass === 'glow-high' ? Math.min(7, baseWidth + 1.5) : baseWidth;
                         // Base opacity per severity: wider base line sits behind firefly dots
-                        const trackOpacity = { 'flow-fast': 0.30, 'flow-medium': 0.22, 'flow-slow': 0.10 }[speedClass] || 0.15;
-                        // Layer 1: static base track — 1.5px wider than dots layer for visible "rail" effect
-                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 1.5, opacity: trackOpacity, interactive: false }).addTo(lineLayer);
-                        // Layer 2: firefly dots on top — pathLength=100 normalises arc for consistent dash %
+                        const trackOpacity = { 'flow-fast': 0.30, 'flow-medium': 0.22, 'flow-slow': 0.12 }[speedClass] || 0.15;
+                        // Layer 1: static base track — 2.5px wider than dots layer for clear "rail" effect
+                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 2.5, opacity: trackOpacity, interactive: false }).addTo(lineLayer);
+                        // Layer 2: firefly dots on top — speed fixed in px/s so short and long arcs look consistent
                         const pl = L.polyline(curvePoints, { className: `attack-curve ${speedClass}`, color: lineColor, weight: dynamicLineWidth, opacity: lineOpacity, interactive: false }).addTo(lineLayer);
-                        const el = pl.getElement(); if (el) el.setAttribute('pathLength', '100');
+                        const el = pl.getElement();
+                        if (el) {
+                            el.setAttribute('pathLength', '100');
+                            // Compute duration from actual SVG pixel length so dot speed is constant regardless of arc length
+                            const pxLen = el.getTotalLength();
+                            const pxPerSec = { 'flow-fast': 80, 'flow-medium': 35, 'flow-slow': 12 }[speedClass] || 30;
+                            el.style.animationDuration = `${Math.max(1, pxLen / pxPerSec).toFixed(2)}s`;
+                        }
                     });
                     }
                 } else { originHtml += `<li style="color:grey;">${_t('map.no_threats')}</li>`; }
