@@ -1669,9 +1669,29 @@
                 <ul>
                     <li><span style="color:#ff4400;font-size:15px;">🔥</span> <b>Wildfire / Thermal Anomaly (NASA EONET)</b>: Active wildfire events within ±10° of theater center. High-confidence indicator when co-located with military infrastructure.</li>
                     <li><span style="color:#ff8800;font-size:14px;">▼</span> <b>BGP Failure (IODA)</b>: Country-level internet infrastructure failure confirmed by CAIDA IODA.</li>
-                    <li><span style="color:#ffaa00;font-size:14px;">✈</span> <b>ISR Hotspot (IsrHotspotSensor)</b>: Strategic ISR patrol zone. Turns red when the ISR Surge threshold (≥3 aircraft) is exceeded. Zones include: Taiwan Strait, Miyako Strait, East China Sea ADIZ, Spratly Islands, DMZ, Baltic Air Patrol Zone, Black Sea NATO Patrol Zone, and others.</li>
-                    <li><span style="color:#44aaff;font-size:14px;">⚓</span> <b>AIS Dark Gap / Stationary Anomaly (AisMaritimeSensor)</b>: AIS transmission loss (≥1 hr) or non-commercial vessel stationary anomaly within 50 km of a chokepoint. Consistent with covert survey operations, submarine positioning, or pre-sabotage staging. Color-coded: Dark Gap (red halo) / Stationary (amber).</li>
                     <li><span style="color:#888;font-size:14px;">◆</span> <b>IXP Critical Node (PeeringDB)</b>: Key Internet Exchange Point within the monitored theater. Used as geographic context for BGP anomaly interpretation.</li>
+                </ul>
+            </li>
+            <li><b>ISR Zones layer</b>
+                <ul>
+                    <li>Radius circles marking strategic ISR patrol zones (default radius 200 km). <span style="color:#ff6600;">Orange dashed</span> = normal; <span style="color:#ff2a2a;">Red solid</span> = ISR Surge (≥3 qualifying aircraft detected). Zones include Taiwan Strait, Miyako Strait, East China Sea ADIZ, Spratly Islands, DMZ, Baltic Air Patrol Zone, Black Sea NATO Patrol Zone, and others.</li>
+                </ul>
+            </li>
+            <li><b>ISR Aircraft layer</b>
+                <ul>
+                    <li><span style="color:#ffaa00;font-size:14px;">▲</span> Individual ISR aircraft detected within hotspot zones. Icon rotated by heading. <span style="color:#ff2a2a;">Red</span> = squawk 7777 (emergency/intercept); <span style="color:#ffaa00;">Orange</span> = ISR pattern (alt &gt;9 km, speed &lt;160 m/s, or known callsign prefix). Popup shows ICAO24, callsign, altitude (m), speed (m/s), and squawk code.</li>
+                </ul>
+            </li>
+            <li><b>AIS Vessels layer</b>
+                <ul>
+                    <li><span style="color:#ff2a2a;font-size:14px;">⚓</span> <b>Dark Gap</b> (red, pulsing): Vessel with AIS transmission loss ≥1 hr near a chokepoint. Consistent with AIS spoofing or transponder shutdown before an operation.</li>
+                    <li><span style="color:#ffaa00;font-size:14px;">⚓</span> <b>Stationary Anomaly</b> (amber): Non-commercial vessel stationary (&lt;0.5 kt) within 50 km of a chokepoint. Consistent with covert survey, submarine positioning, or pre-sabotage staging.</li>
+                    <li>Popup shows vessel MMSI, name, speed, and time of last AIS report.</li>
+                </ul>
+            </li>
+            <li><b>Airspace Aircraft layer</b>
+                <ul>
+                    <li><span style="color:#88ccff;font-size:14px;">▲</span> Individual airborne aircraft near monitored airport zones (OpenSkySensor). Light blue small icon rotated by heading. Popup shows ICAO24, callsign, altitude (m), and speed (m/s). Up to 20 aircraft displayed per zone. Provides situational awareness of airspace density around strategic airports during an event.</li>
                 </ul>
             </li>
             <li><b>Submarine Cable Routes (Cable Routes layer)</b>
@@ -1723,9 +1743,29 @@
                 <ul>
                     <li><span style="color:#ff4400;font-size:15px;">🔥</span> <b>山火事 / 熱異常（NASA EONET）</b>: シアター中心の±10°以内のアクティブな山火事イベント。軍事インフラと同一地点の場合、高信頼度の指標。</li>
                     <li><span style="color:#ff8800;font-size:14px;">▼</span> <b>BGP障害（IODA）</b>: CAIDA IODA により確認された国家レベルのインターネットインフラ障害。</li>
-                    <li><span style="color:#ffaa00;font-size:14px;">✈</span> <b>ISR ホットスポット（IsrHotspotSensor）</b>: 戦略的 ISR 哨戒ゾーン。ISR サージしきい値（3機以上）を超えると赤に変化。ゾーンには台湾海峡、宮古海峡、東シナ海ADIZ、南沙諸島、DMZ、バルト空中哨戒ゾーン、黒海NATO哨戒ゾーンなどを含む。</li>
-                    <li><span style="color:#44aaff;font-size:14px;">⚓</span> <b>AIS ダークギャップ / 静止異常（AisMaritimeSensor）</b>: チョークポイント50km以内での AIS 送信消失（1時間以上）または非商業船舶の静止異常。秘密調査作戦、潜水艦配置、または破壊工作前の展開と整合。色分け: ダークギャップ（赤ハロー）/ 静止（琥珀）。</li>
                     <li><span style="color:#888;font-size:14px;">◆</span> <b>IXP 重要ノード（PeeringDB）</b>: 監視シアター内の主要インターネット交換ポイント。BGP 異常解釈の地理的コンテキストとして使用。</li>
+                </ul>
+            </li>
+            <li><b>ISR Zones レイヤー</b>
+                <ul>
+                    <li>戦略的 ISR 哨戒ゾーンを半径円で表示（デフォルト半径200km）。<span style="color:#ff6600;">オレンジ破線</span> = 通常；<span style="color:#ff2a2a;">赤実線</span> = ISR サージ（適格航空機3機以上検出）。ゾーンには台湾海峡、宮古海峡、東シナ海ADIZ、南沙諸島、DMZ、バルト空中哨戒ゾーン、黒海NATO哨戒ゾーンなどを含む。</li>
+                </ul>
+            </li>
+            <li><b>ISR Aircraft レイヤー</b>
+                <ul>
+                    <li><span style="color:#ffaa00;font-size:14px;">▲</span> ホットスポットゾーン内で検出された個別 ISR 航空機。アイコンは進行方向に回転。<span style="color:#ff2a2a;">赤</span> = スコーク7777（緊急/インターセプト）；<span style="color:#ffaa00;">オレンジ</span> = ISR パターン（高度9km超・速度160m/s未満、または既知コールサインプレフィックス）。ポップアップに ICAO24、コールサイン、高度（m）、速度（m/s）、スコークコードを表示。</li>
+                </ul>
+            </li>
+            <li><b>AIS Vessels レイヤー</b>
+                <ul>
+                    <li><span style="color:#ff2a2a;font-size:14px;">⚓</span> <b>ダークギャップ</b>（赤・点滅）: チョークポイント付近でAIS送信が1時間以上消失した船舶。AISスプーフィングまたは作戦前のトランスポンダー停止と整合。</li>
+                    <li><span style="color:#ffaa00;font-size:14px;">⚓</span> <b>静止異常</b>（琥珀）: チョークポイント50km以内で静止（0.5ノット未満）している非商業船舶。秘密調査、潜水艦配置、または破壊工作前の展開と整合。</li>
+                    <li>ポップアップには船舶MMSI、名称、速度、最終AISレポート時刻を表示。</li>
+                </ul>
+            </li>
+            <li><b>Airspace Aircraft レイヤー</b>
+                <ul>
+                    <li><span style="color:#88ccff;font-size:14px;">▲</span> 監視空港ゾーン付近の個別飛行中航空機（OpenSkySensor）。水色の小アイコンが進行方向に回転。ポップアップに ICAO24、コールサイン、高度（m）、速度（m/s）を表示。ゾーンごとに最大20機を表示。イベント発生時の戦略空港周辺の空域密度状況把握に使用。</li>
                 </ul>
             </li>
             <li><b>海底ケーブルルート（Cable Routes レイヤー）</b>
@@ -3721,24 +3761,34 @@
     // [Intuition UI] Threat Terrain — threat-density heatmap-style circle overlay
     const threatTerrainLayer = L.layerGroup(); // hidden by default
 
+    // Physical position layers (new)
+    const isrZoneLayer          = L.layerGroup().addTo(map);
+    const isrAircraftLayer      = L.layerGroup().addTo(map);
+    const aisVesselLayer        = L.layerGroup().addTo(map);
+    const airspaceAircraftLayer = L.layerGroup().addTo(map);
+
     // Threat Situation Map layers
     const haloLayer         = L.layerGroup().addTo(map);
     const sensorMarkerLayer = L.layerGroup().addTo(map);
 
     const overlayLayers = {
-        "Target Nodes":     targetLayer,
-        "Cyber Strikes":    lineLayer,
-        "Attack Origins":   sourceLayer,
-        "BGP Outages":      iodaLayer,
-        "Airspace Anomaly": airspaceLayer,
-        "Weather Events":   weatherLayer,
-        "Media Tone Alert": gdeltLayer,
-        "FIRMS Anomalies":  firmsLayer,
-        "Cable Routes":     cableRoutesLayer,
-        "Cable Chokepoints":chokepointsLayer,
-        "Threat Terrain":   threatTerrainLayer,
-        "Threat Halos":     haloLayer,
-        "Sensor Status":    sensorMarkerLayer,
+        "Target Nodes":      targetLayer,
+        "Cyber Strikes":     lineLayer,
+        "Attack Origins":    sourceLayer,
+        "BGP Outages":       iodaLayer,
+        "Airspace Anomaly":  airspaceLayer,
+        "Airspace Aircraft": airspaceAircraftLayer,
+        "ISR Zones":         isrZoneLayer,
+        "ISR Aircraft":      isrAircraftLayer,
+        "AIS Vessels":       aisVesselLayer,
+        "Weather Events":    weatherLayer,
+        "Media Tone Alert":  gdeltLayer,
+        "FIRMS Anomalies":   firmsLayer,
+        "Cable Routes":      cableRoutesLayer,
+        "Cable Chokepoints": chokepointsLayer,
+        "Threat Terrain":    threatTerrainLayer,
+        "Threat Halos":      haloLayer,
+        "Sensor Status":     sensorMarkerLayer,
     };
     L.control.layers(null, overlayLayers, { position: 'topright', collapsed: true }).addTo(map);
 
@@ -4663,6 +4713,8 @@
         
         // Clear layers
         firmsLayer.clearLayers(); cableRoutesLayer.clearLayers(); chokepointsLayer.clearLayers();
+        isrZoneLayer.clearLayers(); isrAircraftLayer.clearLayers();
+        aisVesselLayer.clearLayers(); airspaceAircraftLayer.clearLayers();
 
         const overlays = data.strategic_alert && data.strategic_alert.map_overlays;
         if (overlays) {
@@ -4910,6 +4962,130 @@
                     </div>
                  `, { maxWidth: 280 })
                  .addTo(chokepointsLayer);
+            });
+            // ── ISR Hotspot Zones ─────────────────────────────────────────
+            (overlays.isr_hotspots || []).forEach(hs => {
+                const lngS   = shiftLng(hs.lng);
+                const isSurge = hs.is_surge;
+                const col    = isSurge ? '#ff4400' : '#ffaa00';
+                // Monitoring radius circle
+                L.circle([hs.lat, lngS], {
+                    radius:      (hs.radius_km || 200) * 1000,
+                    color:       col,
+                    weight:      isSurge ? 1.5 : 0.8,
+                    opacity:     isSurge ? 0.65 : 0.25,
+                    fillColor:   col,
+                    fillOpacity: isSurge ? 0.10 : 0.03,
+                    interactive: false,
+                    dashArray:   isSurge ? null : '6 10',
+                }).addTo(isrZoneLayer);
+                // Center marker
+                const icon = L.divIcon({
+                    html: `<div style="color:${col};font-size:12px;filter:drop-shadow(0 0 5px ${col});${isSurge ? 'animation:cp-pulse 1s infinite;' : ''}">✦</div>`,
+                    className: '', iconSize: [12, 12], iconAnchor: [6, 6],
+                });
+                L.marker([hs.lat, lngS], { icon })
+                 .bindPopup(
+                    `<div style="min-width:200px;padding:8px 10px 6px;">` +
+                    `<div style="color:${col};font-weight:bold;font-size:12px;">✦ ${hs.name}</div>` +
+                    `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">ISR HOTSPOT ZONE · ${hs.theater}</div>` +
+                    `<div>ISR Aircraft: <b style="color:${col};">${hs.isr_count}</b></div>` +
+                    `<div>Status: <b style="color:${col};">${isSurge ? '⚡ SURGE' : '● NORMAL'}</b></div>` +
+                    `<div style="color:#555;font-size:9px;margin-top:4px;">Radius: ${hs.radius_km || 200} km</div>` +
+                    `</div>`
+                 )
+                 .addTo(isrZoneLayer);
+            });
+
+            // ── ISR Aircraft (individual tracks) ─────────────────────────
+            (overlays.isr_hotspots || []).forEach(hs => {
+                (hs.tracks || []).forEach(ac => {
+                    if (ac.lat == null || ac.lon == null) return;
+                    const lngS  = shiftLng(ac.lon);
+                    const hdg   = ac.heading || 0;
+                    const isMil = ac.squawk === '7777';
+                    const col   = isMil ? '#ff2200' : '#ffaa00';
+                    const altKm = (ac.alt_m / 1000).toFixed(1);
+                    const velKt = Math.round((ac.vel_ms || 0) * 1.944);
+                    const icon  = L.divIcon({
+                        html: `<div style="color:${col};font-size:14px;line-height:1;transform:rotate(${hdg}deg);filter:drop-shadow(0 0 6px ${col});">▲</div>`,
+                        className: '', iconSize: [14, 14], iconAnchor: [7, 7],
+                    });
+                    L.marker([ac.lat, lngS], { icon })
+                     .bindPopup(
+                        `<div style="min-width:180px;padding:8px 10px 6px;">` +
+                        `<div style="color:${col};font-weight:bold;font-size:12px;">▲ ISR TRACK</div>` +
+                        `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">${hs.name}</div>` +
+                        `<div>Callsign: <b>${ac.callsign || ac.icao24 || '—'}</b></div>` +
+                        `<div>Alt: <b>${altKm} km</b> &nbsp;|&nbsp; Speed: <b>${velKt} kt</b></div>` +
+                        (ac.squawk ? `<div>Squawk: <b style="color:${col};">${ac.squawk}</b></div>` : '') +
+                        `</div>`
+                     )
+                     .addTo(isrAircraftLayer);
+                });
+            });
+
+            // ── AIS Vessels (dark gaps + stationary anomalies) ────────────
+            (overlays.ais_dark_gaps || []).forEach(v => {
+                if (v.lat == null || v.lng == null) return;
+                const lngS = shiftLng(v.lng);
+                const icon = L.divIcon({
+                    html: `<div style="color:#ff3300;font-size:18px;line-height:1;filter:drop-shadow(0 0 7px #ff3300);animation:cp-pulse 1s infinite;">⚓</div>`,
+                    className: '', iconSize: [18, 18], iconAnchor: [9, 9],
+                });
+                L.marker([v.lat, lngS], { icon })
+                 .bindPopup(
+                    `<div style="min-width:200px;padding:8px 10px 6px;">` +
+                    `<div style="color:#ff3300;font-weight:bold;font-size:12px;">⚓ AIS DARK GAP</div>` +
+                    `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">EMCON / TRANSPONDER SILENT</div>` +
+                    `<div>Vessel: <b>${esc(v.name || v.mmsi)}</b></div>` +
+                    `<div>Silent: <b style="color:#ff3300;">${v.gap_hours} h</b></div>` +
+                    `<div>Chokepoint: ${esc(v.chokepoint)}</div>` +
+                    `<div>Distance: ${v.dist_km} km</div>` +
+                    `</div>`
+                 )
+                 .addTo(aisVesselLayer);
+            });
+            (overlays.ais_stationary || []).forEach(v => {
+                if (v.lat == null || v.lng == null) return;
+                const lngS = shiftLng(v.lng);
+                const icon = L.divIcon({
+                    html: `<div style="color:#ff9900;font-size:18px;line-height:1;filter:drop-shadow(0 0 5px #ff9900);">⚓</div>`,
+                    className: '', iconSize: [18, 18], iconAnchor: [9, 9],
+                });
+                L.marker([v.lat, lngS], { icon })
+                 .bindPopup(
+                    `<div style="min-width:200px;padding:8px 10px 6px;">` +
+                    `<div style="color:#ff9900;font-weight:bold;font-size:12px;">⚓ STATIONARY ANOMALY</div>` +
+                    `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">NON-COMMERCIAL VESSEL ANCHORED</div>` +
+                    `<div>Vessel: <b>${esc(v.name || v.mmsi)}</b></div>` +
+                    `<div>Chokepoint: ${esc(v.chokepoint)}</div>` +
+                    `<div>Distance: ${v.dist_km} km</div>` +
+                    `</div>`
+                 )
+                 .addTo(aisVesselLayer);
+            });
+
+            // ── Airspace Aircraft (civilian, OpenSky) ─────────────────────
+            (overlays.airspace_aircraft || []).forEach(ac => {
+                if (ac.lat == null || ac.lon == null) return;
+                const lngS  = shiftLng(ac.lon);
+                const hdg   = ac.heading || 0;
+                const altKm = ((ac.alt_m || 0) / 1000).toFixed(1);
+                const velKt = Math.round((ac.vel_ms || 0) * 1.944);
+                const icon  = L.divIcon({
+                    html: `<div style="color:#88ccff;font-size:11px;line-height:1;transform:rotate(${hdg}deg);filter:drop-shadow(0 0 3px #88ccff);opacity:0.85;">▲</div>`,
+                    className: '', iconSize: [11, 11], iconAnchor: [5, 5],
+                });
+                L.marker([ac.lat, lngS], { icon })
+                 .bindPopup(
+                    `<div style="min-width:180px;padding:8px 10px 6px;">` +
+                    `<div style="color:#88ccff;font-weight:bold;font-size:12px;">▲ ${esc(ac.callsign || ac.icao24 || '—')}</div>` +
+                    `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">CIVILIAN AIRSPACE · ${ac.airport} (${ac.theater})</div>` +
+                    `<div>Alt: <b>${altKm} km</b> &nbsp;|&nbsp; Speed: <b>${velKt} kt</b></div>` +
+                    `</div>`
+                 )
+                 .addTo(airspaceAircraftLayer);
             });
         }
 
