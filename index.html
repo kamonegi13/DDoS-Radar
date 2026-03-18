@@ -349,9 +349,12 @@
         @keyframes flashCrit { 0%, 100% { opacity: 1; background: #ff0000; } 50% { opacity: 0.5; background: #330000; } }
 
         .attack-curve { stroke-linecap: round; fill: none; }
-        .flow-fast { stroke-dasharray: 15, 20; animation: flowFast 0.6s linear infinite; } @keyframes flowFast { from { stroke-dashoffset: 35; } to { stroke-dashoffset: 0; } }
-        .flow-medium { stroke-dasharray: 10, 20; animation: flowMedium 1.5s linear infinite; } @keyframes flowMedium { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
-        .flow-slow { stroke-dasharray: 5, 15; animation: flowSlow 3.0s linear infinite; } @keyframes flowSlow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+        /* SEVERE: slow breathing pulse — draws attention without flickering */
+        .flow-fast { animation: severeBreath 2.5s ease-in-out infinite; }
+        @keyframes severeBreath { 0%, 100% { opacity: 0.95; } 50% { opacity: 0.30; } }
+        /* ELEVATED / NOISE: static lines, no animation */
+        .flow-medium { }
+        .flow-slow   { }
         /* P8-Opt: glow-high SVG filter removed (GPU load reduction). JS compensates with line-weight+1.5px. */
         
         .country-label { background: transparent; border: none; box-shadow: none; color: #eeeeee; font-weight: bold; font-size: 11px; text-shadow: 0 0 5px #000, 0 0 2px #000; text-transform: uppercase; letter-spacing: 1px; }
@@ -1659,10 +1662,11 @@
             </li>
             <li><b>Attack Source Curves</b>
                 <ul>
-                    <li>Arc lines from source country to target theater, weighted by global traffic share.</li>
-                    <li><span class="hl-red">Red (SEVERE)</span>: Spike &gt;6×. <span class="hl-orange">Amber (ELEVATED)</span>: 2–6×. <span style="color:#00d8ff;font-weight:bold;">Cyan (NOISE)</span>: &lt;2×.</li>
-                    <li>Line weight is proportional to traffic share. State ASN-attributed sources display a badge.</li>
-                    <li>The <span class="code-block">ALL / L3 / L7</span> filter buttons allow separation of volumetric vs. application-layer traffic.</li>
+                    <li>Arc lines from source country to target theater, weighted by global traffic share. Line weight is proportional to traffic share.</li>
+                    <li><span class="hl-red">Red — SEVERE (&gt;6×)</span>: Slow breathing pulse animation. Draws attention without flickering. Highest priority.</li>
+                    <li><span class="hl-orange">Amber — ELEVATED (2–6×)</span>: Static solid line. Clear, readable.</li>
+                    <li><span style="color:#00d8ff;font-weight:bold;">Cyan — NOISE (&lt;2×)</span>: Static faint line (low opacity). Background context only.</li>
+                    <li>State ASN-attributed sources display a badge. The <span class="code-block">ALL / L3 / L7</span> filter buttons separate volumetric vs. application-layer traffic.</li>
                 </ul>
             </li>
             <li><b>Overlay Markers</b>
@@ -1728,10 +1732,11 @@
             </li>
             <li><b>攻撃元カーブ</b>
                 <ul>
-                    <li>送信元国から標的シアターへの弧線。グローバルトラフィックシェアで重み付け。</li>
-                    <li><span class="hl-red">赤（SEVERE）</span>: スパイク &gt;6×。<span class="hl-orange">琥珀（ELEVATED）</span>: 2〜6×。<span style="color:#00d8ff;font-weight:bold;">シアン（NOISE）</span>: &lt;2×。</li>
-                    <li>線の太さはトラフィックシェアに比例。国家 ASN 帰属の送信元にはバッジを表示。</li>
-                    <li><span class="code-block">ALL / L3 / L7</span> フィルターボタンでボリューメトリックとアプリケーション層トラフィックを分離可能。</li>
+                    <li>送信元国から標的シアターへの弧線。線の太さはグローバルトラフィックシェアに比例。</li>
+                    <li><span class="hl-red">赤 — SEVERE（&gt;6×）</span>: ゆっくりした呼吸パルスアニメーション。点滅せず、確実に注意を引く最高優先度表示。</li>
+                    <li><span class="hl-orange">琥珀 — ELEVATED（2〜6×）</span>: 静止した実線。明瞭で読みやすい。</li>
+                    <li><span style="color:#00d8ff;font-weight:bold;">シアン — NOISE（&lt;2×）</span>: 静止した薄い線（低透明度）。背景コンテキストとして参照用。</li>
+                    <li>国家 ASN 帰属の送信元にはバッジを表示。<span class="code-block">ALL / L3 / L7</span> フィルターでボリューメトリックとアプリケーション層を分離可能。</li>
                 </ul>
             </li>
             <li><b>オーバーレイマーカー</b>
@@ -4657,9 +4662,9 @@
                         const w = getW(s); const spike = getSpike(s);
                         let lineColor, lineOpacity, speedClass, glowClass, spikeHtml = "";
                         if (spike >= 6.0) { lineColor = '#ff2a2a'; lineOpacity = 0.9; speedClass = 'flow-fast'; glowClass = 'glow-high'; spikeHtml = `<span class="spike-alert">SEVERE (x${spike})</span>`;
-                        } else if (spike >= 2.0) { lineColor = '#ffaa00'; lineOpacity = 0.7; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">Elevated (x${spike})</span>`;
-                        } else if (w >= 1.0) { lineColor = '#ffaa00'; lineOpacity = 0.4; speedClass = 'flow-medium'; glowClass = 'glow-none';
-                        } else { lineColor = '#00d8ff'; lineOpacity = 0.4; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
+                        } else if (spike >= 2.0) { lineColor = '#ffaa00'; lineOpacity = 0.75; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">Elevated (x${spike})</span>`;
+                        } else if (w >= 1.0) { lineColor = '#ffaa00'; lineOpacity = 0.25; speedClass = 'flow-medium'; glowClass = 'glow-none';
+                        } else { lineColor = '#00d8ff'; lineOpacity = 0.15; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
 
                         const totalPct = parseFloat(w).toFixed(2);
                         const l3Pct = parseFloat(s.l3_weight).toFixed(2); const l7Pct = parseFloat(s.l7_weight).toFixed(2);
