@@ -2419,6 +2419,9 @@
 </div>
 
 <script>
+    // HTML escape utility — prevents XSS when inserting external API strings into innerHTML
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
     let latestData = null;
     let currentVector = 'all';
     let mapCenterMode = 'atlantic';
@@ -2433,7 +2436,9 @@
     let COUNTRY_BLOC_TAGS    = {};  // { "US": ["RUSSIA","CHINA","IRAN","DPRK"], ... }
 
     // HITL Analyst Mute State
-    let mutedSensors = new Set(JSON.parse(localStorage.getItem('mutedSensors') || '[]'));
+    let mutedSensors;
+    try { mutedSensors = new Set(JSON.parse(localStorage.getItem('mutedSensors') || '[]')); }
+    catch (e) { console.warn('[MUTE] localStorage parse error — reset to empty:', e); mutedSensors = new Set(); }
 
     window.toggleMute = function(sensorName) {
         if (mutedSensors.has(sensorName)) {
@@ -2520,7 +2525,7 @@
             .then(d => {
                 if (remEl) remEl.textContent = d.daily_remaining !== undefined ? _t('gn.remaining', {n: d.daily_remaining}) : '';
                 if (d.error) {
-                    if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Error: ${d.error}</span>`;
+                    if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Error: ${esc(d.error)}</span>`;
                     return;
                 }
                 const noiseStr  = d.noise ? `<span class="gn-result-noise">${_t('gn.result.noise')}</span>` : `<span class="gn-result-targeted">${_t('gn.result.targeted')}</span>`;
@@ -2531,9 +2536,9 @@
                 const cached    = d.cached ? ` <span style="color:#555;">${_t('gn.result.cached')}</span>` : '';
                 if (resultEl) resultEl.innerHTML =
                     `<div>${noiseStr} ${riotStr}${cached}</div>` +
-                    `<div style="color:#888;">Class: <span style="color:#ccc;">${classStr}</span></div>` +
-                    `<div style="color:#888;">Name:  <span style="color:#ccc;">${nameStr}</span></div>` +
-                    `<div style="color:#888;">Seen:  <span style="color:#ccc;">${lastSeen}</span></div>`;
+                    `<div style="color:#888;">Class: <span style="color:#ccc;">${esc(classStr)}</span></div>` +
+                    `<div style="color:#888;">Name:  <span style="color:#ccc;">${esc(nameStr)}</span></div>` +
+                    `<div style="color:#888;">Seen:  <span style="color:#ccc;">${esc(lastSeen)}</span></div>`;
                 // Auto-log to investigation log and notebook
                 const logEntry = { ts: Date.now(), ip: d.ip, noise: d.noise, riot: d.riot, classification: classStr, name: nameStr, cached: d.cached };
                 _gnLog.unshift(logEntry);
@@ -2545,7 +2550,7 @@
                     `IP ${d.ip}: ${d.noise ? _t('notebook.entry.ip_noise') : _t('notebook.entry.ip_targeted')} | ${classStr} | ${nameStr}`);
             })
             .catch(e => {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Network error: ${e.message}</span>`;
+                if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Network error: ${esc(e.message)}</span>`;
             });
     }
 

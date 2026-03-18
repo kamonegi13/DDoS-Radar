@@ -560,9 +560,12 @@ class BgpRoutingSensor(BaseSensor):
                         latest = stats[-1]; pfx_now = latest.get("announced_prefixes", 0); ases_now = latest.get("seen_ases", 0)
                         bl = self._baseline.get(code, {})
                         if not bl: self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": _now}; bl = self._baseline[code]
+                        # Refresh baseline BEFORE computing drop_ratio so the first reading
+                        # after an hourly reset uses the new baseline, not the stale one.
+                        if _now - bl.get("ts", 0) > 3600:
+                            self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": _now}; bl = self._baseline[code]
                         pfx_base = bl.get("prefixes", pfx_now) or pfx_now
                         drop_ratio = max(0.0, (pfx_base - pfx_now) / pfx_base) if pfx_base else 0.0
-                        if _now - bl.get("ts", 0) > 3600: self._baseline[code] = {"prefixes": pfx_now, "ases": ases_now, "ts": _now}
                         total_prefixes += pfx_now; any_success = True
 
                         # HOD Z-score: record one entry per UTC hour bucket
@@ -2484,21 +2487,27 @@ def restore_state() -> None:
             # ── time_series_ts_db: prune entries older than 25 h ──────
             ts_cutoff = time.time() - (SEQUENCE_WINDOW + 3600)
             total_pts  = 0
-            for theater, entries in state.get("time_series_ts_db", {}).items():
-                valid = [(float(ts), float(v)) for ts, v in entries if float(ts) >= ts_cutoff]
-                if valid:
-                    time_series_ts_db[theater] = valid
-                    total_pts += len(valid)
+            try:
+                for theater, entries in state.get("time_series_ts_db", {}).items():
+                    valid = [(float(ts), float(v)) for ts, v in entries if float(ts) >= ts_cutoff]
+                    if valid:
+                        time_series_ts_db[theater] = valid
+                        total_pts += len(valid)
+            except Exception as exc:
+                print(f"[Persist]   time_series_ts_db : restore error — {exc}")
             print(f"[Persist]   time_series_ts_db : {total_pts} points")
 
             # ── plain time_series (value-only): bounded lists, restore trimmed to 15
-            for db_name, db_obj in [
-                ("time_series_db",    time_series_db),
-                ("time_series_l3_db", time_series_l3_db),
-                ("time_series_l7_db", time_series_l7_db),
-            ]:
-                for theater, entries in state.get(db_name, {}).items():
-                    db_obj[theater] = list(entries)[-15:]
+            try:
+                for db_name, db_obj in [
+                    ("time_series_db",    time_series_db),
+                    ("time_series_l3_db", time_series_l3_db),
+                    ("time_series_l7_db", time_series_l7_db),
+                ]:
+                    for theater, entries in state.get(db_name, {}).items():
+                        db_obj[theater] = list(entries)[-15:]
+            except Exception as exc:
+                print(f"[Persist]   time_series_db    : restore error — {exc}")
 
             # ── alert_timeline: restore all; deque maxlen handles overflow
             saved_tl = state.get("alert_timeline", [])
