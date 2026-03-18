@@ -1080,6 +1080,18 @@
                     Edit <span class="code-block">config.env</span> settings. Changes are written to disk and take effect after server restart.
                 </div>
 
+<div class="env-section-title">Server</div>
+                <div style="font-size:10px;color:#556;margin-bottom:8px;">変更後はサーバーを再起動してください。</div>
+                <div class="env-field">
+                    <label>Listen Host (SERVER_HOST)</label>
+                    <input class="env-input" id="ec-SERVER_HOST" type="text" placeholder="127.0.0.1">
+                    <div style="font-size:10px;color:#556;margin-top:2px;">外部からアクセスする場合は 0.0.0.0 に設定</div>
+                </div>
+                <div class="env-field">
+                    <label>Listen Port (SERVER_PORT)</label>
+                    <input class="env-input" id="ec-SERVER_PORT" type="number" min="1024" max="65535" placeholder="8000">
+                </div>
+
                 <div class="env-section-title" data-i18n="sysconfig.section.api_keys">API Keys</div>
 
                 <div class="env-field">
@@ -2458,6 +2470,8 @@
     // HTML escape utility — prevents XSS when inserting external API strings into innerHTML
     const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
+
+
     let latestData = null;
     let currentVector = 'all';
     let mapCenterMode = 'atlantic';
@@ -2678,7 +2692,7 @@
 
     function tgClearLog() {
         if (!confirm(_t('tg.confirm.clear_log'))) return;
-        fetch('http://127.0.0.1:8000/api/telegram_log/clear', { method: 'POST' })
+        fetch(`/api/telegram_log/clear`, { method: 'POST' })
             .then(() => {
                 _tgLastData = Object.assign({}, _tgLastData, { recent_hits: [] });
                 _renderTgLog(_tgLastData);
@@ -3324,7 +3338,12 @@
             .then(r => r.json())
             .then(data => {
                 const chain = (data.chains || {})[theater] || {};
-                const events = chain.events || [];
+                // Deduplicate: keep only the latest occurrence of each event type
+                const _seen = new Set();
+                const events = (chain.events || []).slice().reverse().filter(ev => {
+                    if (_seen.has(ev.type)) return false;
+                    _seen.add(ev.type); return true;
+                }).reverse();
                 const container = document.getElementById('chain-events');
                 if (!container) return;
                 if (!events.length) {
@@ -4285,7 +4304,7 @@
 
         try {
             // Append &muted=${mutedList}
-            const apiUrl = `http://127.0.0.1:8000/api/threat_data?targets=${fetchTargets}&core=${coreTheater}&correlates=${selectedCorrelates}&adversaries=${selectedAdversaries}&muted=${mutedList}&force=${force}`;
+            const apiUrl = `/api/threat_data?targets=${fetchTargets}&core=${coreTheater}&correlates=${selectedCorrelates}&adversaries=${selectedAdversaries}&muted=${mutedList}&force=${force}`;
             const response = await fetch(apiUrl);
             latestData = await response.json(); 
             
@@ -5281,7 +5300,7 @@
             default_pins: ["TW", "JP", "US"]
         };
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/app_config');
+            const res = await fetch(`/api/app_config`);
             if (res.ok) {
                 defaults = await res.json();
             }
@@ -5562,7 +5581,7 @@
     async function loadSensorConfig() {
         const container = document.getElementById('sensor-list-container');
         try {
-            const res  = await fetch('http://127.0.0.1:8000/api/sensor_config');
+            const res  = await fetch(`/api/sensor_config`);
             const data = await res.json();
             const sensors = data.sensors || [];
 
@@ -5596,7 +5615,7 @@
 
     async function toggleSensor(name, enable, btn) {
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/sensor_config', {
+            const res = await fetch(`/api/sensor_config`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, enabled: enable }),
@@ -5617,8 +5636,8 @@
         document.getElementById('sitrep-summary').innerHTML = '';
         try {
             const [sitrepRes, timelineRes] = await Promise.all([
-                fetch('http://127.0.0.1:8000/api/sitrep'),
-                fetch('http://127.0.0.1:8000/api/alert_timeline?limit=288'),
+                fetch(`/api/sitrep`),
+                fetch(`/api/alert_timeline?limit=288`),
             ]);
             const sitrep   = await sitrepRes.json();
             const timeline = await timelineRes.json();
@@ -5899,7 +5918,7 @@
         };
 
         try {
-            const res = await fetch(`http://127.0.0.1:8000/api/weather_brief?lang=${_currentLang}`);
+            const res = await fetch(`/api/weather_brief?lang=${_currentLang}`);
             const wb  = await res.json();
             const brief = wb.brief || {};
             const DOMAIN_ICON = { cyber:'⛈', maritime:'🌫', info:'📡', air:'🔭', infra:'🏗' };
@@ -5979,7 +5998,7 @@
         }
 
         try {
-            const res = await fetch(`http://127.0.0.1:8000/api/salute_report?lang=${_currentLang}`);
+            const res = await fetch(`/api/salute_report?lang=${_currentLang}`);
             const sal = (await res.json()).report || {};
             const fields = [
                 { k:'S', l:'SIZE',     v: sal.size      || '—' },
@@ -6026,7 +6045,7 @@
         // Cache historical patterns (API fetch on first call only)
         if (!_histEvents.length) {
             try {
-                const res = await fetch('http://127.0.0.1:8000/api/historical_events');
+                const res = await fetch(`/api/historical_events`);
                 const d   = await res.json();
                 _histEvents = (d.events || []).filter(e => e.id !== 'normal_baseline');
             } catch(e) {}
@@ -6170,7 +6189,7 @@
         const container = document.getElementById('fetchlog-container');
         const tsEl      = document.getElementById('fetchlog-ts');
         try {
-            const res  = await fetch('http://127.0.0.1:8000/api/data_status');
+            const res  = await fetch(`/api/data_status`);
             const data = await res.json();
             tsEl.textContent = _t('fetchlog.last_refreshed', {time: new Date(data.ts).toLocaleTimeString()});
 
@@ -6222,7 +6241,7 @@
     // ── System Config (env_config) ────────────────────────────────────────────
     async function loadEnvConfig() {
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/env_config');
+            const res = await fetch(`/api/env_config`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const cfg = await res.json();
             // Populate plain inputs (skip picker-managed hidden inputs)
@@ -6254,7 +6273,7 @@
 
         let appCfg;
         try {
-            const r = await fetch('http://127.0.0.1:8000/api/app_config');
+            const r = await fetch(`/api/app_config`);
             if (!r.ok) return;
             appCfg = await r.json();
         } catch(e) { return; }
@@ -6379,7 +6398,7 @@
         const st = document.getElementById('env-status');
         if (st) { st.textContent = 'Saving...'; st.className = 'env-status'; }
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/env_config', {
+            const res = await fetch(`/api/env_config`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates)

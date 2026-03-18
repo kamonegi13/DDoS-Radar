@@ -1,6 +1,6 @@
 # radar_api.py — MDO C4ISR Dashboard — Predictive Deep Pattern Analysis
 from __future__ import annotations
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import requests
 import datetime
@@ -164,6 +164,8 @@ CURRENT_DATE_RANGE         = os.getenv("CURRENT_DATE_RANGE",  "1d")
 BASELINE_DATE_RANGE        = os.getenv("BASELINE_DATE_RANGE", "28d")
 CACHE_EXPIRY               = int(os.getenv("CACHE_EXPIRY", "900"))
 SCORE_REFRESH_SEC          = int(os.getenv("SCORE_REFRESH_SEC", "60"))   # Minimum scoring recalculation interval (seconds)
+SERVER_HOST                = os.getenv("SERVER_HOST", "127.0.0.1")
+SERVER_PORT                = int(os.getenv("SERVER_PORT", "8000"))
 
 DEFAULT_CORE        = os.getenv("DEFAULT_CORE", "TW")
 DEFAULT_CORRELATES  = [x.strip() for x in os.getenv("DEFAULT_CORRELATES", "JP,US").split(",") if x.strip()]
@@ -2977,6 +2979,19 @@ def compute_confidence(spike_factor: float, code: str, is_new_actor: bool, is_st
     return "LOW"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Static file serving (index.html + assets)
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route("/", methods=["GET"])
+def index():
+    return send_from_directory(".", "index.html")
+
+@app.route("/<path:filename>", methods=["GET"])
+def static_files(filename):
+    if not filename.startswith("api/"):
+        return send_from_directory(".", filename)
+    return ("Not Found", 404)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main API Route
 # ─────────────────────────────────────────────────────────────────────────────
 @app.route("/api/app_config", methods=["GET"])
@@ -4495,4 +4510,4 @@ if __name__ == "__main__":
     # to run twice.
     # use_reloader=False forces single-process mode and prevents duplicate logs.
     # Debug features (detailed error display, code reload) remain active.
-    app.run(host="127.0.0.1", port=8000, debug=True, use_reloader=False)
+    app.run(host=SERVER_HOST, port=SERVER_PORT, debug=True, use_reloader=False)
