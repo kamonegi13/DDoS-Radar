@@ -4697,9 +4697,9 @@
                         const baseWidth = Math.max(1.5, Math.min(5, w * 3));
                         const dynamicLineWidth = glowClass === 'glow-high' ? Math.min(7, baseWidth + 1.5) : baseWidth;
                         // Base opacity per severity: wider base line sits behind firefly dots
-                        const trackOpacity = { 'flow-fast': 0.30, 'flow-medium': 0.22, 'flow-slow': 0.12 }[speedClass] || 0.15;
-                        // Layer 1: static base track — 2.5px wider than dots layer for clear "rail" effect
-                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 2.5, opacity: trackOpacity, interactive: false }).addTo(lineLayer);
+                        const trackOpacity = { 'flow-fast': 0.55, 'flow-medium': 0.40, 'flow-slow': 0.25 }[speedClass] || 0.30;
+                        // Layer 1: static base track — 6px wider than dots layer for clearly visible rail
+                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 6, opacity: trackOpacity, interactive: false }).addTo(lineLayer);
                         // Layer 2: firefly dots on top — speed fixed in px/s so short and long arcs look consistent
                         const pl = L.polyline(curvePoints, { className: `attack-curve ${speedClass}`, color: lineColor, weight: dynamicLineWidth, opacity: lineOpacity, interactive: false }).addTo(lineLayer);
                         const el = pl.getElement();
