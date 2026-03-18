@@ -2130,15 +2130,15 @@
   "ISR_HOTSPOTS": [
     {
       "name": "Taiwan Strait Median Line",
-      "lat": 24.0,
-      "lng": 119.5,
+      "lat": 24.5,
+      "lng": 120.5,
       "theater": "TW",
       "radius_km": 200
     },
     {
-      "name": "East China Sea ADIZ Overlap",
-      "lat": 27.0,
-      "lng": 125.0,
+      "name": "Senkaku / East China Sea ADIZ Overlap",
+      "lat": 25.8,
+      "lng": 123.5,
       "theater": "TW",
       "radius_km": 200
     },
@@ -2175,21 +2175,21 @@
       "lat": 26.6,
       "lng": 56.3,
       "theater": "IR",
-      "radius_km": 200
+      "radius_km": 150
     },
     {
       "name": "Baltic Air Policing Zone",
       "lat": 57.5,
       "lng": 23.0,
       "theater": "LV",
-      "radius_km": 200
+      "radius_km": 350
     },
     {
       "name": "Miyako Strait Patrol Corridor",
       "lat": 24.7,
       "lng": 125.3,
       "theater": "JP",
-      "radius_km": 200
+      "radius_km": 150
     },
     {
       "name": "Guam Strategic Defense Perimeter",
@@ -2228,10 +2228,10 @@
     },
     {
       "name": "Barents Sea Russian Naval Patrol",
-      "lat": 73.0,
-      "lng": 25.0,
+      "lat": 74.5,
+      "lng": 28.0,
       "theater": "RU",
-      "radius_km": 200
+      "radius_km": 350
     },
     {
       "name": "Baltic Sea Russian Naval Corridor",
@@ -2255,16 +2255,16 @@
       "radius_km": 200
     },
     {
-      "name": "NW Australia JORN ISR Corridor",
-      "lat": -23.0,
-      "lng": 115.0,
+      "name": "Timor Sea ISR Corridor (JORN)",
+      "lat": -13.0,
+      "lng": 130.0,
       "theater": "AU",
       "radius_km": 200
     },
     {
-      "name": "Coral Sea Patrol Zone",
-      "lat": -18.0,
-      "lng": 148.0,
+      "name": "Coral Sea – Solomon Islands Approach",
+      "lat": -12.0,
+      "lng": 157.0,
       "theater": "AU",
       "radius_km": 200
     },
@@ -2308,14 +2308,14 @@
       "lat": 54.4,
       "lng": 22.9,
       "theater": "LT",
-      "radius_km": 200
+      "radius_km": 100
     },
     {
       "name": "Arctic NATO Patrol (GIUK Gap)",
       "lat": 64.0,
       "lng": -15.0,
       "theater": "IS",
-      "radius_km": 200
+      "radius_km": 400
     },
     {
       "name": "Black Sea Romanian Naval Zone",
@@ -2332,7 +2332,7 @@
       "radius_km": 200
     },
     {
-      "name": "Taiwan Strait North Patrol (Japan-backed)",
+      "name": "Okinawa-Taiwan ISR Corridor",
       "lat": 26.0,
       "lng": 122.0,
       "theater": "JP",
