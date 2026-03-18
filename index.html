@@ -4703,11 +4703,14 @@
                         const el = pl.getElement();
                         if (el) {
                             const pxLen = el.getTotalLength();
-                            // Scale dot size to always render as ~8px regardless of arc length
                             el.setAttribute('pathLength', '100');
-                            const dotUnits = Math.min(8, 8 * 100 / pxLen); // 8px in pathLength-normalised units
-                            const gapUnits = (100 - dotUnits * 2) / 2;
-                            el.style.strokeDasharray = `${dotUnits.toFixed(3)} ${gapUnits.toFixed(3)} ${dotUnits.toFixed(3)} ${gapUnits.toFixed(3)}`;
+                            // Dot count scales with arc length (1–4 dots)
+                            const numDots = pxLen < 150 ? 1 : pxLen < 300 ? 2 : pxLen < 500 ? 3 : 4;
+                            // Fixed 8px dot in pathLength-normalised units, capped so dots always fit
+                            const dotUnits = Math.min(8 * 100 / pxLen, 100 / (numDots * 2));
+                            const gapUnits = (100 - numDots * dotUnits) / numDots;
+                            const dash = `${dotUnits.toFixed(3)} ${gapUnits.toFixed(3)}`;
+                            el.style.strokeDasharray = Array(numDots).fill(dash).join(' ');
                             const pxPerSec = { 'flow-fast': 80, 'flow-medium': 35, 'flow-slow': 12 }[speedClass] || 30;
                             el.style.animationDuration = `${Math.max(1, pxLen / pxPerSec).toFixed(2)}s`;
                         }
