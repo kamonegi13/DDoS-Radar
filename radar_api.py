@@ -451,27 +451,11 @@ class OpenSkySensor(BaseSensor):
                 if res.status_code == 200:
                     states = res.json().get("states") or []
                     count = len(states)
-                    aircraft = []
-                    for s in states:
-                        if len(s) < 11: continue
-                        if s[8]: continue                          # on_ground
-                        s_lat = s[6]; s_lon = s[5]
-                        if s_lat is None or s_lon is None: continue
-                        aircraft.append({
-                            "icao24":   s[0] or "",
-                            "callsign": (s[1] or "").strip(),
-                            "lat":      s_lat,
-                            "lon":      s_lon,
-                            "alt_m":    s[7]  if s[7]  is not None else 0,
-                            "vel_ms":   s[9]  if s[9]  is not None else 0,
-                            "heading":  s[10] if s[10] is not None else 0,
-                        })
-                    results[code] = {"airport": box["airport"], "count": count, "lat": lat, "lng": lng,
-                                     "aircraft": aircraft[:20], "error": None}
+                    results[code] = {"airport": box["airport"], "count": count, "lat": lat, "lng": lng, "error": None}
                     total_states += count; any_success = True
                 else:
                     results[code] = {"airport": box["airport"], "count": -1, "lat": lat, "lng": lng,
-                                     "aircraft": [], "error": f"http_{res.status_code}"}
+                                     "error": f"http_{res.status_code}"}
                     last_error = f"HTTP {res.status_code}"
             except Exception as e:
                 results[code] = {"airport": box.get("airport", code), "count": -1, "lat": lat, "lng": lng, "error": str(e)}
@@ -3750,12 +3734,6 @@ def get_threat_data():
                     ],
                     "ais_dark_gaps":  ais_dark_gaps[:10],
                     "ais_stationary": ais_stationary[:10],
-                    "airspace_aircraft": [
-                        {**ac, "airport": ainfo.get("airport", code), "theater": code}
-                        for code, ainfo in airspace_data.items()
-                        for ac in ainfo.get("aircraft", [])
-                        if code in strategic_theaters_set
-                    ],
                 },
                 # Deep analysis block
                 "analytics": deep_analytics,
