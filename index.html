@@ -1091,6 +1091,10 @@
                     <label>Listen Port (SERVER_PORT)</label>
                     <input class="env-input" id="ec-SERVER_PORT" type="number" min="1024" max="65535" placeholder="8000">
                 </div>
+                <div class="env-field">
+                    <label>Admin Token<span class="opt">(session)</span></label>
+                    <input class="env-input" id="ec-admin-token" type="password" autocomplete="off" placeholder="Required when ADMIN_TOKEN is set in config.env">
+                </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.api_keys">API Keys</div>
 
@@ -6234,10 +6238,18 @@
         }
     }
 
+    // ── Admin token helper ─────────────────────────────────────────────────────
+    function _adminHeaders(extra = {}) {
+        const token = (document.getElementById('ec-admin-token') || {}).value || '';
+        const h = { ...extra };
+        if (token) h['X-Admin-Token'] = token;
+        return h;
+    }
+
     // ── System Config (env_config) ────────────────────────────────────────────
     async function loadEnvConfig() {
         try {
-            const res = await fetch(`/api/env_config`);
+            const res = await fetch(`/api/env_config`, { headers: _adminHeaders() });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const cfg = await res.json();
             // Populate plain inputs (skip picker-managed hidden inputs)
@@ -6396,7 +6408,7 @@
         try {
             const res = await fetch(`/api/env_config`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: _adminHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(updates)
             });
             const data = await res.json();

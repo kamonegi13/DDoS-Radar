@@ -12,6 +12,7 @@ import json
 import math
 import atexit
 import re
+import logging
 import xml.etree.ElementTree as ET
 import urllib3
 from collections import deque
@@ -20,8 +21,16 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
+# ── Logging Configuration ──
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("radar")
+
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # ─────────────────────────────────────────────────────────────────────────────
 # External Config & Geo Data Loader
@@ -30,7 +39,7 @@ def _load_env(path: str = "config.env") -> None:
     try:
         from dotenv import load_dotenv
         load_dotenv(path)
-        print(f"[Config] Loaded via python-dotenv: {path}")
+        log.info(f"[Config] Loaded via python-dotenv: {path}")
         return
     except ImportError:
         pass
@@ -45,9 +54,9 @@ def _load_env(path: str = "config.env") -> None:
                 val = val.strip().strip('"').strip("'")
                 if key and key not in os.environ:
                     os.environ[key] = val
-        print(f"[Config] Loaded manually: {path}")
+        log.info(f"[Config] Loaded manually: {path}")
     except FileNotFoundError:
-        print(f"[Config] {path} not found — using defaults")
+        log.info(f"[Config] {path} not found — using defaults")
 
 _load_env()
 
@@ -140,9 +149,9 @@ try:
         THREAT_ACTOR_MAPPING   = geo_data.get("THREAT_ACTOR_MAPPING", {})
         INFRASTRUCTURE_URLS    = geo_data.get("INFRASTRUCTURE_URLS", {})
         TELEGRAM_CHANNEL_META  = geo_data.get("TELEGRAM_CHANNEL_META", {})
-        print("[Config] Loaded static data from geo_data.json")
+        log.info("[Config] Loaded static data from geo_data.json")
 except Exception as e:
-    print(f"[Warning] Failed to load geo_data.json: {e}")
+    log.warning(f"Failed to load geo_data.json: {e}")
 
 # ── Proxy & SSL Configuration ──
 HTTP_PROXY  = os.getenv("HTTP_PROXY", "")
@@ -156,7 +165,7 @@ SSL_VERIFY = False if SSL_VERIFY_ENV in ("false", "0", "no") else True
 
 if not SSL_VERIFY:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    print("[Warning] SSL Verification is DISABLED via config.env")
+    log.warning("SSL Verification is DISABLED via config.env")
 
 CF_API_TOKEN               = os.getenv("CF_API_TOKEN", "")
 OWM_API_KEY                = os.getenv("OWM_API_KEY", "")
@@ -166,6 +175,13 @@ CACHE_EXPIRY               = int(os.getenv("CACHE_EXPIRY", "900"))
 SCORE_REFRESH_SEC          = int(os.getenv("SCORE_REFRESH_SEC", "60"))   # Minimum scoring recalculation interval (seconds)
 SERVER_HOST                = os.getenv("SERVER_HOST", "127.0.0.1")
 SERVER_PORT                = int(os.getenv("SERVER_PORT", "8000"))
+FLASK_DEBUG                = os.getenv("FLASK_DEBUG", "false").lower() in ("true", "1", "yes")
+
+# ── Admin API Authentication ──
+# When ADMIN_TOKEN is set, POST endpoints (env_config, persist_save, telegram_log/clear)
+# and GET /api/env_config require X-Admin-Token header to match.
+# When empty (default), admin endpoints are accessible only from loopback (127.0.0.1/::1).
+ADMIN_TOKEN                = os.getenv("ADMIN_TOKEN", "")
 
 DEFAULT_CORE        = os.getenv("DEFAULT_CORE", "TW")
 DEFAULT_CORRELATES  = [x.strip() for x in os.getenv("DEFAULT_CORRELATES", "JP,US").split(",") if x.strip()]
@@ -233,7 +249,7 @@ PERSISTENCE_SAVE_INTERVAL = int(os.getenv("PERSISTENCE_SAVE_INTERVAL", "300"))  
 _opensky_oauth_token: dict = {"access_token": "", "expires_at": 0.0}
 _opensky_oauth_lock         = threading.Lock()
 if not OPENSKY_CLIENT_ID:
-    print("[OpenSky] WARNING: OPENSKY_CLIENT_ID not set — running in anonymous mode (400 req/day limit)")
+    log.warning("[OpenSky] OPENSKY_CLIENT_ID not set — running in anonymous mode (400 req/day limit)")
 
 def _get_opensky_bearer() -> str:
     """Fetch and cache Bearer token via OAuth2 Client Credentials flow.
@@ -256,11 +272,11 @@ def _get_opensky_bearer() -> str:
                 td = res.json()
                 _opensky_oauth_token["access_token"] = td.get("access_token", "")
                 _opensky_oauth_token["expires_at"]   = time.time() + td.get("expires_in", 1800)
-                print(f"[OpenSky OAuth2] Token acquired, expires_in={td.get('expires_in')}s")
+                log.info(f"[OpenSky OAuth2] Token acquired, expires_in={td.get('expires_in')}s")
                 return _opensky_oauth_token["access_token"]
-            print(f"[OpenSky OAuth2] Token fetch failed: HTTP {res.status_code} — {res.text[:200]}")
+            log.warning(f"[OpenSky OAuth2] Token fetch failed: HTTP {res.status_code} — {res.text[:200]}")
         except Exception as e:
-            print(f"[OpenSky OAuth2] Token fetch error: {e}")
+            log.error(f"[OpenSky OAuth2] Token fetch error: {e}")
         return ""
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,7 +314,7 @@ def _opensky_get(params: dict, timeout: int = 12) -> requests.Response:
     if res.status_code == 429:
         retry_after = int(res.headers.get("X-Rate-Limit-Retry-After-Seconds", 60))
         auth_status = 'yes' if _opensky_oauth_token.get('access_token') else 'no'
-        print(f"[OpenSky] 429 rate-limited, Retry-After={retry_after}s (auth={auth_status})")
+        log.warning(f"[OpenSky] 429 rate-limited, Retry-After={retry_after}s (auth={auth_status})")
         if retry_after <= 120:
             # Only retry short waits. Return 429 as-is for long waits (anonymous quota exceeded)
             time.sleep(retry_after)
@@ -800,7 +816,7 @@ class ThreatFoxSensor(BaseSensor):
                     self.set_error(f"API Error: {err_msg}")
             elif res.status_code == 401:
                 # API key auth failure: preserve existing cache to avoid wiping valid data
-                print(f"[ThreatFox] HTTP 401 — Auth-Key is invalid or expired. Check THREATFOX_API_KEY.")
+                log.warning(f"[ThreatFox] HTTP 401 — Auth-Key is invalid or expired. Check THREATFOX_API_KEY.")
                 self.log_fetch(False, duration, res.status_code, 0, "HTTP 401 Unauthorized")
                 return self.get_cache() or {"hits": {}}
             else:
@@ -1888,7 +1904,7 @@ class GreyNoiseSensor(BaseSensor):
                 # Community API key cannot access GNQL Stats (Enterprise only)
                 # Warn once, then skip (do not repeat every poll)
                 if not self._gnql_unavailable:
-                    print(f"[GreyNoise] HTTP 401 — GNQL Stats requires an Enterprise API key. "
+                    log.warning(f"[GreyNoise] HTTP 401 — GNQL Stats requires an Enterprise API key. "
                           f"Operating as UNKNOWN (no suppression) with Community key. (Suppressing further messages)")
                     self._gnql_unavailable = True
                 return {"gnql_unavailable": True}
@@ -2278,7 +2294,7 @@ def _sensor_scheduler_worker(sensor: BaseSensor):
     try:
         success = _do_fetch()
     except Exception as e:
-        print(f"[Sensor/{sensor.name}] Initial fetch error: {e}")
+        log.error(f"[Sensor/{sensor.name}] Initial fetch error: {e}")
         success = False
 
     while True:
@@ -2289,10 +2305,10 @@ def _sensor_scheduler_worker(sensor: BaseSensor):
                 try:
                     success = _do_fetch()
                     if success:
-                        print(f"[Sensor/{sensor.name}] Retry succeeded after {delay}s")
+                        log.info(f"[Sensor/{sensor.name}] Retry succeeded after {delay}s")
                         break
                 except Exception as e:
-                    print(f"[Sensor/{sensor.name}] Retry error (delay={delay}s): {e}")
+                    log.warning(f"[Sensor/{sensor.name}] Retry error (delay={delay}s): {e}")
             # After retries complete, resume normal poll_interval wait
         else:
             time.sleep(sensor.poll_interval)
@@ -2300,7 +2316,7 @@ def _sensor_scheduler_worker(sensor: BaseSensor):
         try:
             success = _do_fetch()
         except Exception as e:
-            print(f"[Sensor/{sensor.name}] Scheduled fetch error: {e}")
+            log.error(f"[Sensor/{sensor.name}] Scheduled fetch error: {e}")
             success = False
 
 # Start background sensor schedulers
@@ -2401,11 +2417,11 @@ def save_state() -> None:
             ch_total   = sum(len(v) for v in checkhost_hod_db.values())
             bgp_total  = sum(len(v) for v in bgp_hod_db.values())
             dow_total  = sum(len(v) for v in gdelt_dow_db.values())
-            print(f"[Persist] Saved — baseline={len(baseline_cache)}, "
+            log.info(f"[Persist] Saved — baseline={len(baseline_cache)}, "
                   f"hod={hod_total}pts, ch_hod={ch_total}pts, bgp_hod={bgp_total}pts, "
                   f"dow={dow_total}pts, timeline={len(alert_timeline)}, sensors={len(sensor_caches)}")
         except Exception as exc:
-            print(f"[Persist] Save error: {exc}")
+            log.error(f"[Persist] Save error: {exc}")
 
 
 def restore_state() -> None:
@@ -2420,7 +2436,7 @@ def restore_state() -> None:
       sensor._cache     — within 3 × poll_interval (snapshot only, not accumulated)
     """
     if not os.path.exists(PERSISTENCE_STATE_FILE):
-        print("[Persist] No state file — starting fresh.")
+        log.info("[Persist] No state file — starting fresh.")
         return
 
     with _persist_lock:
@@ -2430,18 +2446,18 @@ def restore_state() -> None:
 
             saved_at = float(state.get("saved_at", 0))
             age_h    = (time.time() - saved_at) / 3600
-            print(f"[Persist] Restoring state from {age_h:.1f} h ago "
+            log.info(f"[Persist] Restoring state from {age_h:.1f} h ago "
                   f"(version={state.get('version', 1)}) ...")
 
             # ── baseline_cache: no expiry ─────────────────────────────
             loaded = state.get("baseline_cache", {})
             baseline_cache.update(loaded)
-            print(f"[Persist]   baseline_cache    : {len(loaded)} entries")
+            log.info(f"[Persist]   baseline_cache    : {len(loaded)} entries")
 
             # ── airspace_baseline: no expiry ──────────────────────────
             loaded = state.get("airspace_baseline", {})
             airspace_baseline.update(loaded)
-            print(f"[Persist]   airspace_baseline : {len(loaded)} airports")
+            log.info(f"[Persist]   airspace_baseline : {len(loaded)} airports")
 
             # ── hod_baseline_db: no expiry (weeks to rebuild) ─────────
             hod_total = 0
@@ -2452,8 +2468,8 @@ def restore_state() -> None:
                         hod_baseline_db[theater] = valid
                         hod_total += len(valid)
             except Exception as exc:
-                print(f"[Persist]   hod_baseline_db   : restore error — {exc}")
-            print(f"[Persist]   hod_baseline_db   : {hod_total} hourly points")
+                log.warning(f"[Persist] hod_baseline_db: restore error — {exc}")
+            log.info(f"[Persist]   hod_baseline_db   : {hod_total} hourly points")
 
             # ── checkhost_hod_db: no expiry ───────────────────────────
             ch_total = 0
@@ -2464,8 +2480,8 @@ def restore_state() -> None:
                         checkhost_hod_db[theater] = valid
                         ch_total += len(valid)
             except Exception as exc:
-                print(f"[Persist]   checkhost_hod_db  : restore error — {exc}")
-            print(f"[Persist]   checkhost_hod_db  : {ch_total} hourly points")
+                log.warning(f"[Persist] checkhost_hod_db: restore error — {exc}")
+            log.info(f"[Persist]   checkhost_hod_db  : {ch_total} hourly points")
 
             # ── bgp_hod_db: no expiry ─────────────────────────────────
             bgp_total = 0
@@ -2476,8 +2492,8 @@ def restore_state() -> None:
                         bgp_hod_db[theater] = valid
                         bgp_total += len(valid)
             except Exception as exc:
-                print(f"[Persist]   bgp_hod_db        : restore error — {exc}")
-            print(f"[Persist]   bgp_hod_db        : {bgp_total} hourly points")
+                log.warning(f"[Persist] bgp_hod_db: restore error — {exc}")
+            log.info(f"[Persist]   bgp_hod_db        : {bgp_total} hourly points")
 
             # ── gdelt_dow_db: no expiry ───────────────────────────────
             dow_total = 0
@@ -2488,8 +2504,8 @@ def restore_state() -> None:
                         gdelt_dow_db[theater] = valid
                         dow_total += len(valid)
             except Exception as exc:
-                print(f"[Persist]   gdelt_dow_db      : restore error — {exc}")
-            print(f"[Persist]   gdelt_dow_db      : {dow_total} day-of-week points")
+                log.warning(f"[Persist] gdelt_dow_db: restore error — {exc}")
+            log.info(f"[Persist]   gdelt_dow_db      : {dow_total} day-of-week points")
 
             # ── time_series_ts_db: prune entries older than 25 h ──────
             ts_cutoff = time.time() - (SEQUENCE_WINDOW + 3600)
@@ -2501,8 +2517,8 @@ def restore_state() -> None:
                         time_series_ts_db[theater] = valid
                         total_pts += len(valid)
             except Exception as exc:
-                print(f"[Persist]   time_series_ts_db : restore error — {exc}")
-            print(f"[Persist]   time_series_ts_db : {total_pts} points")
+                log.warning(f"[Persist] time_series_ts_db: restore error — {exc}")
+            log.info(f"[Persist]   time_series_ts_db : {total_pts} points")
 
             # ── plain time_series (value-only): bounded lists, restore trimmed to 15
             try:
@@ -2514,13 +2530,13 @@ def restore_state() -> None:
                     for theater, entries in state.get(db_name, {}).items():
                         db_obj[theater] = list(entries)[-15:]
             except Exception as exc:
-                print(f"[Persist]   time_series_db    : restore error — {exc}")
+                log.warning(f"[Persist] time_series_db: restore error — {exc}")
 
             # ── alert_timeline: restore all; deque maxlen handles overflow
             saved_tl = state.get("alert_timeline", [])
             for entry in saved_tl:
                 alert_timeline.append(entry)
-            print(f"[Persist]   alert_timeline    : {len(saved_tl)} records")
+            log.info(f"[Persist]   alert_timeline    : {len(saved_tl)} records")
 
             # ── sequence_event_log: only events within SEQUENCE_WINDOW ─
             seq_cutoff  = time.time() - SEQUENCE_WINDOW
@@ -2530,7 +2546,7 @@ def restore_state() -> None:
                 if valid:
                     sequence_event_log[theater] = valid
                     seq_total += len(valid)
-            print(f"[Persist]   sequence_event_log: {seq_total} events")
+            log.info(f"[Persist]   sequence_event_log: {seq_total} events")
 
             # ── sensor caches: within 3 × poll_interval ───────────────
             # Sensor._cache = last API snapshot (NOT accumulated).
@@ -2548,11 +2564,11 @@ def restore_state() -> None:
                     sc_ok += 1
                 else:
                     sc_skip += 1
-            print(f"[Persist]   sensor_caches     : {sc_ok} restored, {sc_skip} expired")
+            log.info(f"[Persist]   sensor_caches     : {sc_ok} restored, {sc_skip} expired")
 
-            print("[Persist] Restore complete.")
+            log.info("[Persist] Restore complete.")
         except Exception as exc:
-            print(f"[Persist] Restore error: {exc} — continuing with empty state")
+            log.error(f"[Persist] Restore error: {exc} — continuing with empty state")
 
 
 def _persistence_worker() -> None:
@@ -2684,7 +2700,7 @@ def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
         if out:
             return out
         # Attempt 2: global timeseries (no location filter) — always has data
-        print(f"[HOD TS] {theater}: location-specific empty, falling back to global TS")
+        log.warning(f"[HOD TS] {theater}: location-specific empty, falling back to global TS")
         res = requests.get(_HOD_PREFILL_TS_URL, headers=CF_HEADERS,
                            params=base_params,
                            timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
@@ -2693,12 +2709,12 @@ def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
             # Log raw response keys to diagnose unexpected API structure
             try:
                 raw_keys = list(res.json().get("result", {}).keys())
-                print(f"[HOD TS] {theater}: global TS also empty — result keys={raw_keys}")
+                log.warning(f"[HOD TS] {theater}: global TS also empty — result keys={raw_keys}")
             except Exception:
-                print(f"[HOD TS] {theater}: global TS also empty — HTTP {res.status_code}")
+                log.warning(f"[HOD TS] {theater}: global TS also empty — HTTP {res.status_code}")
         return out
     except Exception as e:
-        print(f"[HOD TS] {theater}: fetch error — {e}")
+        log.warning(f"[HOD TS] {theater}: fetch error — {e}")
         return {}
 
 
@@ -2755,22 +2771,22 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
     for t in theaters:
         if baseline_cache.get(t, {}).get("l3") or baseline_cache.get(t, {}).get("l7"):
             continue
-        print(f"[HOD Prefill] Fetching 28d baseline for {t} ...")
+        log.info(f"[HOD Prefill] Fetching 28d baseline for {t} ...")
         _bl3 = parse_origins(fetch_cf_data(_BL_L3_URL, {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}))
         _bl7 = parse_origins(fetch_cf_data(_BL_L7_URL, {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}))
         if _bl3 or _bl7:
             baseline_cache[t] = {"time": time.time(), "l3": _bl3, "l7": _bl7}
         else:
-            print(f"[HOD Prefill] {t}: baseline fetch failed, skipping theater.")
+            log.warning(f"[HOD Prefill] {t}: baseline fetch failed, skipping theater.")
 
-    print(f"[HOD Prefill] Starting — theaters={theaters}, days={HOD_BASELINE_DAYS}, all 24h slots")
+    log.info(f"[HOD Prefill] Starting — theaters={theaters}, days={HOD_BASELINE_DAYS}, all 24h slots")
 
     total_filled = total_skipped = total_errors = 0
 
     for theater in theaters:
         b_data = baseline_cache.get(theater, {})
         if not (b_data.get("l3") or b_data.get("l7")):
-            print(f"[HOD Prefill] {theater}: no baseline available, skipping.")
+            log.warning(f"[HOD Prefill] {theater}: no baseline available, skipping.")
             continue
 
         filled = day_errors = 0
@@ -2783,9 +2799,9 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
         ts_by_bucket = _fetch_cf_timeseries_hourly(theater, HOD_BASELINE_DAYS)
         has_ts = bool(ts_by_bucket)
         if has_ts:
-            print(f"[HOD Prefill] {theater}: timeseries OK ({len(ts_by_bucket)} hourly pts)")
+            log.info(f"[HOD Prefill] {theater}: timeseries OK ({len(ts_by_bucket)} hourly pts)")
         else:
-            print(f"[HOD Prefill] {theater}: timeseries unavailable — using flat daily avg")
+            log.info(f"[HOD Prefill] {theater}: timeseries unavailable — using flat daily avg")
 
         # ── Step 2: for each past day, fetch the daily origin distribution ──
         for day_offset in range(1, HOD_BASELINE_DAYS + 1):
@@ -2841,13 +2857,13 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
             time.sleep(0.25)   # ~4 req-pairs/s
 
         slots_covered = len({(ts // 3600) % 24 for ts, _ in hod_baseline_db.get(theater, [])})
-        print(f"[HOD Prefill] {theater}: filled={filled}, day_errors={day_errors}, "
+        log.info(f"[HOD Prefill] {theater}: filled={filled}, day_errors={day_errors}, "
               f"hod_slots_covered={slots_covered}/24")
         total_filled  += filled
         total_errors  += day_errors
 
     total_pts = sum(len(v) for v in hod_baseline_db.values())
-    print(f"[HOD Prefill] Complete — filled={total_filled}, skipped={total_skipped}, "
+    log.info(f"[HOD Prefill] Complete — filled={total_filled}, skipped={total_skipped}, "
           f"errors={total_errors}, total_hod_pts={total_pts}")
 
 
@@ -2979,17 +2995,51 @@ def compute_confidence(spike_factor: float, code: str, is_new_actor: bool, is_st
     return "LOW"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Static file serving (index.html + assets)
+# Admin endpoint guard — token auth or loopback-only
 # ─────────────────────────────────────────────────────────────────────────────
+def _require_admin():
+    """Check admin authorization. Returns None if authorized, or a Flask response tuple on failure.
+    When ADMIN_TOKEN is set: requires X-Admin-Token header to match.
+    When ADMIN_TOKEN is empty: restricts to loopback addresses (127.0.0.1 / ::1)."""
+    if ADMIN_TOKEN:
+        token = request.headers.get("X-Admin-Token", "")
+        if token != ADMIN_TOKEN:
+            return jsonify({"error": "Unauthorized — X-Admin-Token header required"}), 401
+        return None
+    # No token configured: restrict to loopback
+    remote = request.remote_addr or ""
+    if remote not in ("127.0.0.1", "::1"):
+        return jsonify({"error": "Admin endpoints are restricted to localhost. Set ADMIN_TOKEN in config.env to enable remote access."}), 403
+    return None
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Static file serving (index.html + assets) — whitelisted extensions only
+# ─────────────────────────────────────────────────────────────────────────────
+# Prevent serving sensitive files (config.env, .gitignore, state.json, etc.)
+# by restricting to known safe extensions.
+_STATIC_ALLOWED_EXT = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg",
+                       ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map"}
+
 @app.route("/", methods=["GET"])
 def index():
     return send_from_directory(".", "index.html")
 
 @app.route("/<path:filename>", methods=["GET"])
 def static_files(filename):
-    if not filename.startswith("api/"):
-        return send_from_directory(".", filename)
-    return ("Not Found", 404)
+    if filename.startswith("api/"):
+        return ("Not Found", 404)
+    # Block path traversal and hidden/sensitive files
+    normalized = filename.replace("\\", "/")
+    if ".." in normalized or normalized.startswith("."):
+        return ("Forbidden", 403)
+    # Block persistence directory
+    if normalized.startswith("persistence/") or normalized.startswith("persistence\\"):
+        return ("Forbidden", 403)
+    # Check file extension against whitelist
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _STATIC_ALLOWED_EXT:
+        return ("Forbidden", 403)
+    return send_from_directory(".", filename)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main API Route
@@ -3805,6 +3855,8 @@ def get_threat_data():
 @app.route("/api/env_config", methods=["GET"])
 def api_env_config_get():
     """Read config.env and return all key=value pairs as JSON (excluding comments)."""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
     config = {}
     try:
         with open("config.env", encoding="utf-8") as f:
@@ -3824,6 +3876,8 @@ def api_env_config_get():
 @app.route("/api/env_config", methods=["POST"])
 def api_env_config_post():
     """Write updated key=value pairs to config.env, preserving comments and structure."""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
     updates = request.json or {}
     if not updates:
         return jsonify({"error": "No data provided"}), 400
@@ -3887,6 +3941,8 @@ def api_alert_timeline():
 @app.route("/api/telegram_log/clear", methods=["POST"])
 def api_telegram_log_clear():
     """Clear the Telegram SIGINT intercept log."""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
     TelegramMirrorSensor._intercept_log.clear()
     return jsonify({"ok": True, "ts": datetime.datetime.now(datetime.timezone.utc).isoformat()})
 
@@ -4391,6 +4447,8 @@ def api_ip_check():
 @app.route("/api/persist_save", methods=["POST"])
 def api_persist_save():
     """Manually trigger an immediate state save.  POST /api/persist_save"""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
     try:
         save_state()
         stat = os.stat(PERSISTENCE_STATE_FILE)
@@ -4444,10 +4502,10 @@ def _cache_cleanup_worker():
                     for k in stale_ips:
                         gn._ip_cache.pop(k, None)
 
-            print(f"[Cleanup] baseline_cache={len(baseline_cache)} seqlog={len(sequence_event_log)} "
+            log.info(f"[Cleanup] baseline_cache={len(baseline_cache)} seqlog={len(sequence_event_log)} "
                   f"cf_cache={len(_cf_scoring_cache)} asn_cache={len(_asn_cache)}")
         except Exception as e:
-            print(f"[Cleanup] Error: {e}")
+            log.error(f"[Cleanup] Error: {e}")
 
 _cleanup_thread = threading.Thread(target=_cache_cleanup_worker, daemon=True, name="cache-cleanup")
 _cleanup_thread.start()
@@ -4509,5 +4567,5 @@ if __name__ == "__main__":
     # causing module-level initialization code (sensor thread startup, OAuth2 token fetch etc.)
     # to run twice.
     # use_reloader=False forces single-process mode and prevents duplicate logs.
-    # Debug features (detailed error display, code reload) remain active.
-    app.run(host=SERVER_HOST, port=SERVER_PORT, debug=True, use_reloader=False)
+    # FLASK_DEBUG=true enables detailed error display (defaults to false for security).
+    app.run(host=SERVER_HOST, port=SERVER_PORT, debug=FLASK_DEBUG, use_reloader=False)
