@@ -4691,13 +4691,13 @@
                         drawCountryLabel(s.lat, sourceLngShifted, s.name, s.code);
 
                         const curvePoints = getCurvePoints(s.lat, sourceLngShifted, t.lat, targetLngShifted);
-                        // P1-Opt: instead of drop-shadow, compensate by thickening high-risk lines
-                        const baseWidth = Math.max(1.5, Math.min(5, w * 3));
-                        const dynamicLineWidth = glowClass === 'glow-high' ? Math.min(7, baseWidth + 1.5) : baseWidth;
+                        // Line weight: L2 max 2.5px (SEVERE), L1 = L2+2px for rail halo
+                        const baseWidth = Math.max(0.8, Math.min(2.5, w * 1.8));
+                        const dynamicLineWidth = glowClass === 'glow-high' ? Math.min(3.0, baseWidth + 0.6) : baseWidth;
                         // Base opacity per severity
                         const trackOpacity = { 'flow-fast': 0.38, 'flow-medium': 0.26, 'flow-slow': 0.15 }[speedClass] || 0.20;
-                        // Layer 1: base track — 3px wider than dot layer for subtle rail effect
-                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 3, opacity: trackOpacity, interactive: false }).addTo(lineLayer);
+                        // Layer 1: base track — 2px wider than dot layer for visible rail
+                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 2, opacity: trackOpacity, interactive: false }).addTo(lineLayer);
                         // Layer 2: firefly dots — fixed 8px dot size and constant px/s speed regardless of arc length
                         const pl = L.polyline(curvePoints, { className: `attack-curve ${speedClass}`, color: lineColor, weight: dynamicLineWidth, opacity: lineOpacity, interactive: false }).addTo(lineLayer);
                         const el = pl.getElement();
