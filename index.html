@@ -1663,7 +1663,7 @@
                     <li>All lines represent <b>real detected attack traffic</b> (Cloudflare Radar). Two-layer composition: wider semi-transparent base track with firefly dots on top. Dot speed encodes severity.</li>
                     <li><span class="hl-red">Red — SEVERE (&gt;6×)</span>: Fast dots (3 s/cycle). Confirmed high-volume attack. Immediate action priority.</li>
                     <li><span class="hl-orange">Amber — ELEVATED (2–6×)</span>: Medium-speed dots (7 s/cycle). Elevated attack traffic requiring monitoring.</li>
-                    <li><span style="color:#aa66ff;font-weight:bold;">Purple — NOISE (&lt;2×)</span>: Slow dots. Low-confidence attack signal — real traffic below anomaly threshold. Active sensor data. Dot speed is fixed in px/s (consistent regardless of arc length).</li>
+                    <li><span style="color:#cc88ff;font-weight:bold;">Purple — NOISE (&lt;2×)</span>: Slow dots. Low-confidence attack signal — real traffic below anomaly threshold. Active sensor data. Dot speed is fixed in px/s (consistent regardless of arc length).</li>
                     <li><i>Note: Submarine cable routes (teal lines) are static geographic reference infrastructure, not sensor data.</i></li>
                     <li>State ASN-attributed sources display a badge. The <span class="code-block">ALL / L3 / L7</span> filter buttons separate volumetric vs. application-layer traffic.</li>
                 </ul>
@@ -1735,7 +1735,7 @@
                     <li>全線は<b>実際に検出された攻撃トラフィック</b>（Cloudflare Radar）を表す。2層構成：幅広の半透明ベーストラックの上にFireflyドットが流れる。ドット速度で重大度を識別。</li>
                     <li><span class="hl-red">赤 — SEVERE（&gt;6×）</span>: 高速ドット（3秒/周回）。大規模攻撃確認済み。即時対応優先度。</li>
                     <li><span class="hl-orange">琥珀 — ELEVATED（2〜6×）</span>: 中速ドット（7秒/周回）。異常閾値を超えた攻撃トラフィック。継続監視が必要。</li>
-                    <li><span style="color:#aa66ff;font-weight:bold;">パープル — NOISE（&lt;2×）</span>: 低速ドット。低確信度の攻撃シグナル。異常閾値未満だが実際に検出された攻撃トラフィック。ドット速度はpx/秒固定（弧の長さによらず一定）。</li>
+                    <li><span style="color:#cc88ff;font-weight:bold;">パープル — NOISE（&lt;2×）</span>: 低速ドット。低確信度の攻撃シグナル。異常閾値未満だが実際に検出された攻撃トラフィック。ドット速度はpx/秒固定（弧の長さによらず一定）。</li>
                     <li><i>注: 海底ケーブルルート（ティール色の線）は静的な地理インフラの参照情報であり、センサーデータではない。</i></li>
                     <li>国家 ASN 帰属の送信元にはバッジを表示。<span class="code-block">ALL / L3 / L7</span> フィルターでボリューメトリックとアプリケーション層を分離可能。</li>
                 </ul>
@@ -4665,7 +4665,7 @@
                         if (spike >= 6.0) { lineColor = '#ff2a2a'; lineOpacity = 0.9; speedClass = 'flow-fast'; glowClass = 'glow-high'; spikeHtml = `<span class="spike-alert">SEVERE (x${spike})</span>`;
                         } else if (spike >= 2.0) { lineColor = '#ffaa00'; lineOpacity = 0.75; speedClass = 'flow-medium'; glowClass = 'glow-none'; spikeHtml = `<span style="color:#ffaa00; font-size:11px; margin-left:5px;">Elevated (x${spike})</span>`;
                         } else if (w >= 1.0) { lineColor = '#ffaa00'; lineOpacity = 0.25; speedClass = 'flow-medium'; glowClass = 'glow-none';
-                        } else { lineColor = '#aa66ff'; lineOpacity = 0.40; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
+                        } else { lineColor = '#cc88ff'; lineOpacity = 0.60; speedClass = 'flow-slow'; glowClass = 'glow-none'; }
 
                         const totalPct = parseFloat(w).toFixed(2);
                         const l3Pct = parseFloat(s.l3_weight).toFixed(2); const l7Pct = parseFloat(s.l7_weight).toFixed(2);
