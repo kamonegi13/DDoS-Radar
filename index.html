@@ -349,10 +349,8 @@
         @keyframes flashCrit { 0%, 100% { opacity: 1; background: #ff0000; } 50% { opacity: 0.5; background: #330000; } }
 
         .attack-curve { stroke-linecap: round; fill: none; }
-        /* Firefly dots: two capsules traverse arc source→target. Speed encodes severity. */
-        .flow-fast   { stroke-dasharray: 5 45 5 45; animation: fireflyMove  3s linear infinite; }  /* SEVERE   — fast  */
-        .flow-medium { stroke-dasharray: 5 45 5 45; animation: fireflyMove  7s linear infinite; }  /* ELEVATED — medium */
-        .flow-slow   { stroke-dasharray: 5 45 5 45; animation: fireflyMove 16s linear infinite; }  /* NOISE    — slow  */
+        /* Firefly dots: animation-name + keyframe only. dasharray/duration set by JS for pixel-accurate sizing. */
+        .flow-fast, .flow-medium, .flow-slow { animation-name: fireflyMove; animation-timing-function: linear; animation-iteration-count: infinite; }
         @keyframes fireflyMove { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
         /* P8-Opt: glow-high SVG filter removed (GPU load reduction). JS compensates with line-weight+1.5px. */
         
@@ -4696,17 +4694,20 @@
                         // P1-Opt: instead of drop-shadow, compensate by thickening high-risk lines
                         const baseWidth = Math.max(1.5, Math.min(5, w * 3));
                         const dynamicLineWidth = glowClass === 'glow-high' ? Math.min(7, baseWidth + 1.5) : baseWidth;
-                        // Base opacity per severity: wider base line sits behind firefly dots
-                        const trackOpacity = { 'flow-fast': 0.55, 'flow-medium': 0.40, 'flow-slow': 0.25 }[speedClass] || 0.30;
-                        // Layer 1: static base track — 6px wider than dots layer for clearly visible rail
-                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 6, opacity: trackOpacity, interactive: false }).addTo(lineLayer);
-                        // Layer 2: firefly dots on top — speed fixed in px/s so short and long arcs look consistent
+                        // Base opacity per severity
+                        const trackOpacity = { 'flow-fast': 0.38, 'flow-medium': 0.26, 'flow-slow': 0.15 }[speedClass] || 0.20;
+                        // Layer 1: base track — 3px wider than dot layer for subtle rail effect
+                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 3, opacity: trackOpacity, interactive: false }).addTo(lineLayer);
+                        // Layer 2: firefly dots — fixed 8px dot size and constant px/s speed regardless of arc length
                         const pl = L.polyline(curvePoints, { className: `attack-curve ${speedClass}`, color: lineColor, weight: dynamicLineWidth, opacity: lineOpacity, interactive: false }).addTo(lineLayer);
                         const el = pl.getElement();
                         if (el) {
-                            el.setAttribute('pathLength', '100');
-                            // Compute duration from actual SVG pixel length so dot speed is constant regardless of arc length
                             const pxLen = el.getTotalLength();
+                            // Scale dot size to always render as ~8px regardless of arc length
+                            el.setAttribute('pathLength', '100');
+                            const dotUnits = Math.min(8, 8 * 100 / pxLen); // 8px in pathLength-normalised units
+                            const gapUnits = (100 - dotUnits * 2) / 2;
+                            el.style.strokeDasharray = `${dotUnits.toFixed(3)} ${gapUnits.toFixed(3)} ${dotUnits.toFixed(3)} ${gapUnits.toFixed(3)}`;
                             const pxPerSec = { 'flow-fast': 80, 'flow-medium': 35, 'flow-slow': 12 }[speedClass] || 30;
                             el.style.animationDuration = `${Math.max(1, pxLen / pxPerSec).toFixed(2)}s`;
                         }
