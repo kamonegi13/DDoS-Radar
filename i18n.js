@@ -280,6 +280,7 @@ const LANG = {
     'modal.help.ch7':                 '7. Config',
     'modal.help.ch8':                 '8. Intuition UI',
     'modal.help.ch9':                 '9. API Reference',
+    'modal.help.ch10':                '10. Admin',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Operational Clock
@@ -582,6 +583,95 @@ const LANG = {
     'survival.tooltip.header':        'INFRA LIVENESS  [{status}  {pct}%]',
     'survival.asphyx_note':           '⚠ ASPHYXIATION DETECTED\n  Success=100% but latency ≥3× baseline\n  CDN is masking packet loss — infra under strain',
 
+    // ══════════════════════════════════════════════════════════════
+    // Tools menu — additional entries
+    // ══════════════════════════════════════════════════════════════
+    'tools.history_analysis':         'History Analysis',
+    'tools.user_management':          'User Management',
+
+    // ══════════════════════════════════════════════════════════════
+    // User Management panel
+    // ══════════════════════════════════════════════════════════════
+    'panel.usermgr.title':            'User Management',
+    'panel.usermgr.authenticate':     'AUTHENTICATE',
+    'panel.usermgr.ph.username':      'Username',
+    'panel.usermgr.ph.password':      'Password',
+    'panel.usermgr.btn.login':        'LOGIN',
+    'panel.usermgr.btn.logout':       'LOGOUT',
+    'panel.usermgr.add_header':       'ADD USER',
+    'panel.usermgr.registered':       'REGISTERED USERS',
+    'panel.usermgr.reset_header':     'RESET PASSWORD:',
+    'panel.usermgr.ph.new_password':  'New password (6+ chars)',
+    'panel.usermgr.btn.reset':        'RESET',
+    'panel.usermgr.btn.cancel':       'CANCEL',
+    'panel.usermgr.btn.add':          'ADD',
+    'panel.usermgr.msg.enter_creds':  'Enter credentials',
+    'panel.usermgr.msg.login_failed': 'Login failed',
+    'panel.usermgr.msg.conn_error':   'Connection error',
+    'panel.usermgr.msg.logged_in':    'Logged in as: {username} ({role})',
+    'panel.usermgr.msg.admin_req':    '— admin required for management',
+    'panel.usermgr.err.admin_priv':   'Admin privileges required to view users.',
+    'panel.usermgr.err.load_users':   'Failed to load users.',
+    'panel.usermgr.err.load_error':   'Error loading users.',
+    'panel.usermgr.tbl.username':     'Username',
+    'panel.usermgr.tbl.role':         'Role',
+    'panel.usermgr.tbl.created':      'Created',
+    'panel.usermgr.tbl.last_login':   'Last Login',
+    'panel.usermgr.tbl.actions':      'Actions',
+    'panel.usermgr.tbl.never':        'Never',
+    'panel.usermgr.btn.pw':           'PW',
+    'panel.usermgr.tip.reset_pw':     'Reset password',
+    'panel.usermgr.btn.del':          'DEL',
+    'panel.usermgr.tip.delete':       'Delete user',
+    'panel.usermgr.val.user_pass_req':'Username and password required',
+    'panel.usermgr.val.pass_min6':    'Password must be at least 6 characters',
+    'panel.usermgr.err.add_user':     'Failed to add user',
+    'panel.usermgr.err.update_role':  'Failed to update role',
+    'panel.usermgr.err.delete_user':  'Failed to delete user',
+    'panel.usermgr.err.reset_pw':     'Failed to reset password',
+    'panel.usermgr.confirm.delete':   'Delete user "{username}"? This cannot be undone.',
+    'panel.usermgr.confirm.pw_reset': 'Password reset for {username}',
+
+    // ══════════════════════════════════════════════════════════════
+    // History Analysis panel
+    // ══════════════════════════════════════════════════════════════
+    'panel.history.title':            'History Analysis',
+    'panel.history.theater':          'Theater:',
+    'panel.history.range':            'Range:',
+    'panel.history.range_24h':        '24h',
+    'panel.history.range_3d':         '3 days',
+    'panel.history.range_7d':         '7 days',
+    'panel.history.range_14d':        '14 days',
+    'panel.history.range_28d':        '28 days',
+    'panel.history.btn.refresh':      'Refresh',
+    'panel.history.btn.export':       'Export',
+    'panel.history.hdr.threat_trend': 'Threat Score Trend',
+    'panel.history.hdr.hod_baseline': 'Hour-of-Day Baseline (CF Spike Avg)',
+    'panel.history.hdr.seq_events':   'Sequence Events',
+    'panel.history.hdr.alerts':       'Recent Alerts',
+    'panel.history.no_data':          'Insufficient data',
+    'panel.history.no_hod':           'No HOD data',
+    'panel.history.no_events':        'No events in range',
+    'panel.history.no_alerts':        'No alerts',
+
+    // ══════════════════════════════════════════════════════════════
+    // System Config — additional fields
+    // ══════════════════════════════════════════════════════════════
+    'sysconfig.section.server':       'Server',
+    'sysconfig.help.host_external':   'Set to 0.0.0.0 to allow external access',
+    'sysconfig.section.auth':         'Authentication (JWT)',
+    'sysconfig.help.default_admin_pw':'Admin password on first startup (change via API after deployment)',
+    'sysconfig.help.jwt_secret':      'If blank, randomly generated on each startup (tokens invalidated on restart)',
+    'sysconfig.section.notifications':'Alert Notifications',
+    'sysconfig.help.notifications':   'Sends external notifications on Threat Level changes and Ambush detection. Configure a Webhook URL to enable.',
+    'sysconfig.section.plugins':      'Plugin Sensors',
+    'sysconfig.help.server_restart':  'Restart the server after changes.',
+    'sysconfig.help.auth_desc':       'User authentication and session management. A default admin user is created on first startup.',
+    'sysconfig.help.debounce':        'Interval to suppress repeated alerts of the same type',
+    'sysconfig.help.plugins_desc':    'Dynamically loads BaseSensor subclasses from the plugins/ directory.',
+    'sysconfig.help.plugin_enabled':  'Comma-separated filenames (without extension), or * for all plugins',
+    'sysconfig.help.plugin_disabled': 'Plugin names to explicitly disable (comma-separated)',
+
   },
 
   // ============================================================
@@ -847,6 +937,7 @@ const LANG = {
     'modal.help.ch7':                 '7. 設定',
     'modal.help.ch8':                 '8. 直感UI',
     'modal.help.ch9':                 '9. API参照',
+    'modal.help.ch10':                '10. 管理',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Operational Clock
@@ -1142,6 +1233,95 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     'survival.tooltip.header':        'INFRA LIVENESS  [{status}  {pct}%]',
     'survival.asphyx_note':           '⚠ アスフィキシエーション検知\n  成功率=100%だが遅延が3×ベースライン以上\n  CDNがパケットロスを隠蔽中 — インフラ圧迫',
+
+    // ══════════════════════════════════════════════════════════════
+    // Tools menu — 追加項目
+    // ══════════════════════════════════════════════════════════════
+    'tools.history_analysis':         '履歴分析',
+    'tools.user_management':          'ユーザー管理',
+
+    // ══════════════════════════════════════════════════════════════
+    // ユーザー管理パネル
+    // ══════════════════════════════════════════════════════════════
+    'panel.usermgr.title':            'ユーザー管理',
+    'panel.usermgr.authenticate':     '認証',
+    'panel.usermgr.ph.username':      'ユーザー名',
+    'panel.usermgr.ph.password':      'パスワード',
+    'panel.usermgr.btn.login':        'ログイン',
+    'panel.usermgr.btn.logout':       'ログアウト',
+    'panel.usermgr.add_header':       'ユーザー追加',
+    'panel.usermgr.registered':       '登録ユーザー一覧',
+    'panel.usermgr.reset_header':     'パスワードリセット：',
+    'panel.usermgr.ph.new_password':  '新しいパスワード（6文字以上）',
+    'panel.usermgr.btn.reset':        'リセット',
+    'panel.usermgr.btn.cancel':       'キャンセル',
+    'panel.usermgr.btn.add':          '追加',
+    'panel.usermgr.msg.enter_creds':  '認証情報を入力してください',
+    'panel.usermgr.msg.login_failed': 'ログイン失敗',
+    'panel.usermgr.msg.conn_error':   '接続エラー',
+    'panel.usermgr.msg.logged_in':    'ログイン中: {username}（{role}）',
+    'panel.usermgr.msg.admin_req':    '— 管理には admin 権限が必要です',
+    'panel.usermgr.err.admin_priv':   'ユーザー一覧の表示には admin 権限が必要です。',
+    'panel.usermgr.err.load_users':   'ユーザーの読み込みに失敗しました。',
+    'panel.usermgr.err.load_error':   'ユーザー読み込みエラー。',
+    'panel.usermgr.tbl.username':     'ユーザー名',
+    'panel.usermgr.tbl.role':         'ロール',
+    'panel.usermgr.tbl.created':      '作成日',
+    'panel.usermgr.tbl.last_login':   '最終ログイン',
+    'panel.usermgr.tbl.actions':      '操作',
+    'panel.usermgr.tbl.never':        '未ログイン',
+    'panel.usermgr.btn.pw':           'PW',
+    'panel.usermgr.tip.reset_pw':     'パスワードリセット',
+    'panel.usermgr.btn.del':          '削除',
+    'panel.usermgr.tip.delete':       'ユーザーを削除',
+    'panel.usermgr.val.user_pass_req':'ユーザー名とパスワードを入力してください',
+    'panel.usermgr.val.pass_min6':    'パスワードは6文字以上にしてください',
+    'panel.usermgr.err.add_user':     'ユーザーの追加に失敗しました',
+    'panel.usermgr.err.update_role':  'ロールの変更に失敗しました',
+    'panel.usermgr.err.delete_user':  'ユーザーの削除に失敗しました',
+    'panel.usermgr.err.reset_pw':     'パスワードのリセットに失敗しました',
+    'panel.usermgr.confirm.delete':   'ユーザー「{username}」を削除しますか？この操作は元に戻せません。',
+    'panel.usermgr.confirm.pw_reset': '{username} のパスワードをリセットしました',
+
+    // ══════════════════════════════════════════════════════════════
+    // 履歴分析パネル
+    // ══════════════════════════════════════════════════════════════
+    'panel.history.title':            '履歴分析',
+    'panel.history.theater':          'シアター：',
+    'panel.history.range':            '範囲：',
+    'panel.history.range_24h':        '24時間',
+    'panel.history.range_3d':         '3日間',
+    'panel.history.range_7d':         '7日間',
+    'panel.history.range_14d':        '14日間',
+    'panel.history.range_28d':        '28日間',
+    'panel.history.btn.refresh':      '更新',
+    'panel.history.btn.export':       'エクスポート',
+    'panel.history.hdr.threat_trend': '脅威スコア推移',
+    'panel.history.hdr.hod_baseline': '時間帯別ベースライン（CF スパイク平均）',
+    'panel.history.hdr.seq_events':   'シーケンスイベント',
+    'panel.history.hdr.alerts':       '最近のアラート',
+    'panel.history.no_data':          'データ不足',
+    'panel.history.no_hod':           'HOD データなし',
+    'panel.history.no_events':        '該当期間のイベントなし',
+    'panel.history.no_alerts':        'アラートなし',
+
+    // ══════════════════════════════════════════════════════════════
+    // システム設定 — 追加フィールド
+    // ══════════════════════════════════════════════════════════════
+    'sysconfig.section.server':       'サーバー',
+    'sysconfig.help.host_external':   '外部からアクセスする場合は 0.0.0.0 に設定',
+    'sysconfig.section.auth':         '認証（JWT）',
+    'sysconfig.help.default_admin_pw':'初回起動時の admin パスワード（運用後はAPIで変更）',
+    'sysconfig.help.jwt_secret':      '空欄の場合は起動毎にランダム生成（再起動でトークン無効化）',
+    'sysconfig.section.notifications':'アラート通知',
+    'sysconfig.help.notifications':   'Threat Level変化・Ambush検出時に外部通知を送信。Webhook URLを設定すると有効になります。',
+    'sysconfig.section.plugins':      'プラグインセンサー',
+    'sysconfig.help.server_restart':  '変更後はサーバーを再起動してください。',
+    'sysconfig.help.auth_desc':       'ユーザー認証とセッション管理。初回起動時にデフォルト admin ユーザーが作成されます。',
+    'sysconfig.help.debounce':        '同一アラートの連続通知を抑制する間隔',
+    'sysconfig.help.plugins_desc':    'plugins/ ディレクトリからBaseSensorサブクラスを動的にロードします。',
+    'sysconfig.help.plugin_enabled':  'カンマ区切りのファイル名（拡張子なし）、または * で全プラグイン',
+    'sysconfig.help.plugin_disabled': '明示的に無効にするプラグイン名（カンマ区切り）',
 
   },
 };

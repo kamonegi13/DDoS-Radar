@@ -100,7 +100,7 @@
                 </div>
                 <div class="tools-menu-item" id="tm-item-hist" onclick="handleToolToggle('history-panel', toggleHistoryPanel, 'tm-dot-hist', 'tm-item-hist')">
                     <span class="tools-menu-icon">📊</span>
-                    <span class="tools-menu-label">History Analysis</span>
+                    <span class="tools-menu-label" data-i18n="tools.history_analysis">History Analysis</span>
                     <span class="tools-menu-dot" id="tm-dot-hist"></span>
                 </div>
                 <div class="tools-menu-item" id="tm-item-nb"  onclick="handleToolToggle('notebook-panel', toggleNotebook,  'tm-dot-nb',  'tm-item-nb')">
@@ -111,7 +111,7 @@
                 <div class="tools-menu-sep"></div>
                 <div class="tools-menu-item" id="tm-item-usrmgr" onclick="handleToolToggle('usrmgr-panel', toggleUserMgr, 'tm-dot-usrmgr', 'tm-item-usrmgr')">
                     <span class="tools-menu-icon">👤</span>
-                    <span class="tools-menu-label">User Management</span>
+                    <span class="tools-menu-label" data-i18n="tools.user_management">User Management</span>
                     <span class="tools-menu-dot" id="tm-dot-usrmgr"></span>
                 </div>
             </div>
@@ -353,12 +353,12 @@
                     Edit <span class="code-block">config.env</span> settings. Changes are written to disk and take effect after server restart.
                 </div>
 
-<div class="env-section-title">Server</div>
-                <div style="font-size:10px;color:#556;margin-bottom:8px;">変更後はサーバーを再起動してください。</div>
+<div class="env-section-title" data-i18n="sysconfig.section.server">Server</div>
+                <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.server_restart">Restart the server after changes.</div>
                 <div class="env-field">
                     <label>Listen Host (SERVER_HOST)</label>
                     <input class="env-input" id="ec-SERVER_HOST" type="text" placeholder="127.0.0.1">
-                    <div style="font-size:10px;color:#556;margin-top:2px;">外部からアクセスする場合は 0.0.0.0 に設定</div>
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.host_external">Set to 0.0.0.0 to allow external access</div>
                 </div>
                 <div class="env-field">
                     <label>Listen Port (SERVER_PORT)</label>
@@ -589,17 +589,17 @@
                     <input class="env-input wide" id="ec-ISR_ICAO_TYPES" type="text" placeholder="RC135,RC-135,E3,...">
                 </div>
 
-                <div class="env-section-title">Authentication (JWT)</div>
-                <div style="font-size:10px;color:#556;margin-bottom:8px;">ユーザー認証とセッション管理。初回起動時にデフォルト admin ユーザーが作成されます。</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.auth">Authentication (JWT)</div>
+                <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.auth_desc">User authentication and session management. A default admin user is created on first startup.</div>
                 <div class="env-field">
                     <label>Default Admin Password</label>
                     <input class="env-input" id="ec-DEFAULT_ADMIN_PASSWORD" type="password" autocomplete="off" placeholder="admin">
-                    <div style="font-size:10px;color:#556;margin-top:2px;">初回起動時の admin パスワード（運用後はAPIで変更）</div>
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.default_admin_pw">Admin password on first startup (change via API after deployment)</div>
                 </div>
                 <div class="env-field">
                     <label>JWT Secret Key<span class="opt">(auto-generated if empty)</span></label>
                     <input class="env-input" id="ec-JWT_SECRET_KEY" type="password" autocomplete="off" placeholder="Auto-generated">
-                    <div style="font-size:10px;color:#556;margin-top:2px;">空欄の場合は起動毎にランダム生成（再起動でトークン無効化）</div>
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.jwt_secret">If blank, randomly generated on each startup (tokens invalidated on restart)</div>
                 </div>
                 <div class="env-field">
                     <label>Access Token Expiry (seconds)</label>
@@ -610,8 +610,8 @@
                     <input class="env-input" id="ec-JWT_REFRESH_EXPIRES" type="number" style="max-width:90px;" placeholder="86400">
                 </div>
 
-                <div class="env-section-title">Alert Notifications</div>
-                <div style="font-size:10px;color:#556;margin-bottom:8px;">Threat Level変化・Ambush検出時に外部通知を送信。Webhook URLを設定すると有効になります。</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.notifications">Alert Notifications</div>
+                <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.notifications">Sends external notifications on Threat Level changes and Ambush detection. Configure a Webhook URL to enable.</div>
                 <div class="env-field">
                     <label>Notifications Enabled</label>
                     <select class="env-input" id="ec-NOTIFY_ENABLED" style="max-width:100px;">
@@ -634,11 +634,11 @@
                 <div class="env-field">
                     <label>Debounce Interval (seconds)</label>
                     <input class="env-input" id="ec-NOTIFY_DEBOUNCE_SEC" type="number" style="max-width:90px;" placeholder="300">
-                    <div style="font-size:10px;color:#556;margin-top:2px;">同一アラートの連続通知を抑制する間隔</div>
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.debounce">Interval to suppress repeated alerts of the same type</div>
                 </div>
 
-                <div class="env-section-title">Plugin Sensors</div>
-                <div style="font-size:10px;color:#556;margin-bottom:8px;">plugins/ ディレクトリからBaseSensorサブクラスを動的にロードします。</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.plugins">Plugin Sensors</div>
+                <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.plugins_desc">Dynamically loads BaseSensor subclasses from the plugins/ directory.</div>
                 <div class="env-field">
                     <label>Plugin Directory</label>
                     <input class="env-input" id="ec-PLUGIN_DIR" type="text" placeholder="plugins">
@@ -646,12 +646,12 @@
                 <div class="env-field">
                     <label>Enabled Plugins<span class="opt">(* = all)</span></label>
                     <input class="env-input wide" id="ec-PLUGIN_ENABLED" type="text" placeholder="*">
-                    <div style="font-size:10px;color:#556;margin-top:2px;">カンマ区切りのファイル名（拡張子なし）、または * で全プラグイン</div>
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.plugin_enabled">Comma-separated filenames (without extension), or * for all plugins</div>
                 </div>
                 <div class="env-field">
                     <label>Disabled Plugins</label>
                     <input class="env-input wide" id="ec-PLUGIN_DISABLED" type="text" placeholder="">
-                    <div style="font-size:10px;color:#556;margin-top:2px;">明示的に無効にするプラグイン名（カンマ区切り）</div>
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.plugin_disabled">Plugin names to explicitly disable (comma-separated)</div>
                 </div>
 
                 </div><!-- /env-adv-section -->
@@ -908,6 +908,7 @@
             <button class="guide-ch-btn" data-ch="7" onclick="switchGuideChapter(7)" data-i18n="modal.help.ch7">7. Config</button>
             <button class="guide-ch-btn" data-ch="8" onclick="switchGuideChapter(8)" data-i18n="modal.help.ch8">8. Intuition UI</button>
             <button class="guide-ch-btn" data-ch="9" onclick="switchGuideChapter(9)" data-i18n="modal.help.ch9">9. API Ref</button>
+            <button class="guide-ch-btn" data-ch="10" onclick="switchGuideChapter(10)" data-i18n="modal.help.ch10">10. Admin</button>
         </div>
 
         <div class="guide-chapter active" id="guide-ch-1">
@@ -1640,6 +1641,14 @@
             <li><span class="code-block">GET /api/historical_events</span> — Returns the historical case pattern library from geo_data.json (5 reference fingerprints). Used by the Historical Analog panel.</li>
             <li><span class="code-block">GET /api/app_config</span> — Returns default settings, global monitored country list, and strategic bloc architecture. Includes: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span> (startup defaults), <span class="code-block">strategic_blocs</span> (4 blocs with sub-categories and theater lists), <span class="code-block">country_bloc_tags</span> (multi-threat country → blocs mapping), <span class="code-block">adversary_options</span> (5 adversary states: RU/CN/IR/KP/BY), <span class="code-block">available_countries</span> (full country list with code/name/region/lat/lng). Used for UI initialization on startup.</li>
             <li><span class="code-block">POST /api/telegram_log/clear</span> — Clears the in-memory Telegram SIGINT intercept log ring buffer. Used by the [CLEAR] button in the Telegram SIGINT panel.</li>
+            <li><span class="code-block">POST /api/auth/login</span> — Authenticate with username/password. Returns access_token, refresh_token, username, role.</li>
+            <li><span class="code-block">POST /api/auth/register</span> — Create a new user (admin only). Body: {username, password, role}.</li>
+            <li><span class="code-block">GET /api/auth/users</span> — List all users (admin only). Returns username, role, created_at, last_login.</li>
+            <li><span class="code-block">PUT /api/auth/users/{username}/role</span> — Change a user's role (admin only). Body: {role}.</li>
+            <li><span class="code-block">DELETE /api/auth/users/{username}</span> — Delete a user (admin only).</li>
+            <li><span class="code-block">POST /api/auth/users/{username}/reset-password</span> — Reset a user's password (admin only). Body: {new_password}.</li>
+            <li><span class="code-block">GET /api/history/timeseries?theater=TW&amp;hours=168</span> — Historical time-series data for the specified theater and time range.</li>
+            <li><span class="code-block">GET /api/history/export?theater=TW</span> — Export all historical data as JSON download.</li>
         </ul>
         </div>
         <div class="guide-lang-ja" style="display:none;">
@@ -1659,9 +1668,107 @@
             <li><span class="code-block">GET /api/historical_events</span> — geo_data.json から歴史的事例パターンライブラリを返す（5つの参照フィンガープリント）。Historical Analog パネルで使用。</li>
             <li><span class="code-block">GET /api/app_config</span> — デフォルト設定、グローバル監視国リスト、戦略ブロックアーキテクチャを返す。含まれる内容: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span>（起動時デフォルト）、<span class="code-block">strategic_blocs</span>（サブカテゴリとシアターリスト付き4ブロック）、<span class="code-block">country_bloc_tags</span>（複数脅威国 → ブロックマッピング）、<span class="code-block">adversary_options</span>（5つの敵対国家: RU/CN/IR/KP/BY）、<span class="code-block">available_countries</span>（コード/名称/地域/緯度/経度付きの全国リスト）。起動時の UI 初期化に使用。</li>
             <li><span class="code-block">POST /api/telegram_log/clear</span> — インメモリ Telegram SIGINT 傍受ログリングバッファをクリア。Telegram SIGINT パネルの [CLEAR] ボタンで使用。</li>
+            <li><span class="code-block">POST /api/auth/login</span> — ユーザー名/パスワードで認証。access_token, refresh_token, username, role を返す。</li>
+            <li><span class="code-block">POST /api/auth/register</span> — 新規ユーザー作成（admin のみ）。ボディ: {username, password, role}。</li>
+            <li><span class="code-block">GET /api/auth/users</span> — 全ユーザー一覧（admin のみ）。username, role, created_at, last_login を返す。</li>
+            <li><span class="code-block">PUT /api/auth/users/{username}/role</span> — ユーザーのロール変更（admin のみ）。ボディ: {role}。</li>
+            <li><span class="code-block">DELETE /api/auth/users/{username}</span> — ユーザー削除（admin のみ）。</li>
+            <li><span class="code-block">POST /api/auth/users/{username}/reset-password</span> — ユーザーのパスワードリセット（admin のみ）。ボディ: {new_password}。</li>
+            <li><span class="code-block">GET /api/history/timeseries?theater=TW&amp;hours=168</span> — 指定シアターと時間範囲の履歴時系列データ。</li>
+            <li><span class="code-block">GET /api/history/export?theater=TW</span> — 全履歴データを JSON としてエクスポート・ダウンロード。</li>
         </ul>
         </div>
         </div><!-- /guide-ch-9 -->
+        <div class="guide-chapter" id="guide-ch-10">
+        <div class="guide-lang-en">
+        <h4>10. Administration &amp; Extended Features</h4>
+        <p>Features added for production deployment: user authentication, alert notifications, plugin sensors, and historical analysis.</p>
+
+        <p><b>A. User Management</b> — <span class="code-block">TOOLS ▾</span> → User Management</p>
+        <ul>
+            <li><b>Authentication</b>: JWT-based login with access tokens (default: 1h expiry) and refresh tokens (24h). On first startup, a default <span class="code-block">admin</span> user is created with the password set in <span class="code-block">DEFAULT_ADMIN_PASSWORD</span> (default: "admin"). Change this immediately in production.</li>
+            <li><b>Roles</b>: Three roles control access — <b>admin</b> (full access, user management), <b>analyst</b> (operational access), <b>viewer</b> (read-only). Only admins can add/delete users and change roles.</li>
+            <li><b>User Management Panel</b>: Login with admin credentials → view all users with role/created/last-login. Inline role selector for instant role changes. PW button to reset passwords. DEL button to delete users (with confirmation). Self-deletion and self-role-change are blocked for safety.</li>
+            <li><b>Per-User Settings</b>: Each user stores their own theater configuration (core, pins, correlates, adversaries, muted sensors, language) via <span class="code-block">PUT /api/auth/settings</span>.</li>
+        </ul>
+
+        <p><b>B. Alert Notifications</b></p>
+        <ul>
+            <li><b>Channels</b>: Slack (Incoming Webhook), Microsoft Teams (MessageCard), and generic HTTP POST webhook. Configure URLs in Config → Advanced Settings → Alert Notifications.</li>
+            <li><b>Events</b>: Threat Level changes (escalation/de-escalation), Ambush pattern detection, Sequence chain completion (FULL_CHAIN/PARTIAL), and persistent sensor failure.</li>
+            <li><b>Debounce</b>: Same-type alerts are suppressed for <span class="code-block">NOTIFY_DEBOUNCE_SEC</span> seconds (default: 300) to prevent notification storms.</li>
+            <li><b>Safety</b>: All dispatches run in background daemon threads. Set <span class="code-block">NOTIFY_ENABLED=false</span> to disable all notifications globally.</li>
+        </ul>
+
+        <p><b>C. Plugin Sensors</b></p>
+        <ul>
+            <li><b>Dynamic Loading</b>: Place a Python file containing a <span class="code-block">BaseSensor</span> subclass in the <span class="code-block">plugins/</span> directory. The plugin loader automatically discovers, imports, and registers it at startup.</li>
+            <li><b>Configuration</b>: <span class="code-block">PLUGIN_DIR</span> (directory path), <span class="code-block">PLUGIN_ENABLED</span> (* for all, or comma-separated filenames), <span class="code-block">PLUGIN_DISABLED</span> (explicit exclusion list).</li>
+            <li><b>Duplicate Protection</b>: If a plugin sensor name conflicts with a built-in sensor, the plugin is skipped with a warning.</li>
+        </ul>
+
+        <p><b>D. History Analysis</b> — <span class="code-block">TOOLS ▾</span> → History Analysis</p>
+        <ul>
+            <li><b>Threat Score Trend</b>: Canvas line chart showing score over time for the selected theater and range (24h to 28 days).</li>
+            <li><b>Hour-of-Day Baseline</b>: Bar chart of CF Spike averages by hour (0–23), colored by intensity. Useful for identifying temporal attack patterns.</li>
+            <li><b>Sequence Events</b>: Chronological list of escalation chain events (NARRATIVE_BURST, ISR_SURGE, SYNC_DDOS, etc.) within the selected range.</li>
+            <li><b>Recent Alerts</b>: Threat level change history with timestamps and scores.</li>
+            <li><b>Export</b>: Download all historical data as JSON via the Export button or <span class="code-block">GET /api/history/export?theater=TW</span>.</li>
+        </ul>
+
+        <p><b>E. Database Backend (SQLite)</b></p>
+        <ul>
+            <li>All persistent state is stored in SQLite with WAL mode for concurrent read/write performance. The database file is at <span class="code-block">persistence/radar.db</span>.</li>
+            <li>On first startup after migration, existing <span class="code-block">state.json</span> data is automatically migrated to SQLite and the JSON file is renamed to <span class="code-block">state.json.migrated</span> as backup.</li>
+            <li>Per-sensor caches remain in memory for performance; all other state (baselines, HOD data, sequence events, alerts, threat levels) is persisted to SQLite.</li>
+        </ul>
+
+        </div>
+        <div class="guide-lang-ja" style="display:none;">
+        <h4>10. 管理機能 &amp; 拡張機能</h4>
+        <p>本番運用向けに追加された機能: ユーザー認証、アラート通知、プラグインセンサー、履歴分析。</p>
+
+        <p><b>A. ユーザー管理</b> — <span class="code-block">TOOLS ▾</span> → User Management</p>
+        <ul>
+            <li><b>認証</b>: JWT ベースのログイン。アクセストークン（デフォルト: 1時間有効）とリフレッシュトークン（24時間）を使用。初回起動時に <span class="code-block">DEFAULT_ADMIN_PASSWORD</span>（デフォルト: "admin"）で admin ユーザーが自動作成される。本番環境では即時変更すること。</li>
+            <li><b>ロール</b>: 3つのロールでアクセスを制御 — <b>admin</b>（全権限、ユーザー管理可）、<b>analyst</b>（運用アクセス）、<b>viewer</b>（読み取り専用）。ユーザーの追加・削除・ロール変更は admin のみ可能。</li>
+            <li><b>ユーザー管理パネル</b>: admin 認証情報でログイン → 全ユーザーのロール/作成日/最終ログインを表示。インラインのロール選択で即時変更。PW ボタンでパスワードリセット。DEL ボタンでユーザー削除（確認ダイアログ付き）。安全のため自分自身の削除とロール変更はブロック。</li>
+            <li><b>ユーザー別設定</b>: 各ユーザーは独自のシアター設定（コア、ピン、相関国、敵対者、ミュートセンサー、言語）を <span class="code-block">PUT /api/auth/settings</span> で保存可能。</li>
+        </ul>
+
+        <p><b>B. アラート通知</b></p>
+        <ul>
+            <li><b>チャネル</b>: Slack（Incoming Webhook）、Microsoft Teams（MessageCard）、汎用 HTTP POST Webhook。URL は Config → 詳細設定 → アラート通知で設定。</li>
+            <li><b>イベント</b>: 脅威レベル変化（エスカレーション/デエスカレーション）、アンブッシュパターン検出、シーケンスチェーン完了（FULL_CHAIN/PARTIAL）、センサーの持続的障害。</li>
+            <li><b>デバウンス</b>: 同一タイプのアラートは <span class="code-block">NOTIFY_DEBOUNCE_SEC</span> 秒間（デフォルト: 300）抑制され、通知の嵐を防止。</li>
+            <li><b>安全性</b>: すべてのディスパッチはバックグラウンドのデーモンスレッドで実行。<span class="code-block">NOTIFY_ENABLED=false</span> で全通知をグローバルに無効化可能。</li>
+        </ul>
+
+        <p><b>C. プラグインセンサー</b></p>
+        <ul>
+            <li><b>動的ロード</b>: <span class="code-block">BaseSensor</span> サブクラスを含む Python ファイルを <span class="code-block">plugins/</span> ディレクトリに配置。プラグインローダーが起動時に自動的に検出、インポート、登録。</li>
+            <li><b>設定</b>: <span class="code-block">PLUGIN_DIR</span>（ディレクトリパス）、<span class="code-block">PLUGIN_ENABLED</span>（* で全プラグイン、またはカンマ区切りのファイル名）、<span class="code-block">PLUGIN_DISABLED</span>（明示的除外リスト）。</li>
+            <li><b>重複保護</b>: プラグインセンサー名が組み込みセンサーと競合する場合、警告とともにスキップ。</li>
+        </ul>
+
+        <p><b>D. 履歴分析</b> — <span class="code-block">TOOLS ▾</span> → History Analysis</p>
+        <ul>
+            <li><b>脅威スコア推移</b>: 選択したシアターと範囲（24時間〜28日間）のスコアを示す Canvas 折れ線グラフ。</li>
+            <li><b>時間帯別ベースライン</b>: CF スパイク平均を時間帯（0〜23時）ごとに棒グラフで表示、強度で色分け。時間的な攻撃パターンの特定に有用。</li>
+            <li><b>シーケンスイベント</b>: 選択範囲内のエスカレーションチェーンイベント（NARRATIVE_BURST、ISR_SURGE、SYNC_DDOS 等）の時系列リスト。</li>
+            <li><b>最近のアラート</b>: タイムスタンプとスコア付きの脅威レベル変化履歴。</li>
+            <li><b>エクスポート</b>: Export ボタンまたは <span class="code-block">GET /api/history/export?theater=TW</span> で全履歴データを JSON としてダウンロード。</li>
+        </ul>
+
+        <p><b>E. データベースバックエンド（SQLite）</b></p>
+        <ul>
+            <li>すべての永続状態は WAL モードの SQLite に保存され、並行読み書き性能を確保。データベースファイルは <span class="code-block">persistence/radar.db</span> に配置。</li>
+            <li>マイグレーション後の初回起動時に、既存の <span class="code-block">state.json</span> データが自動的に SQLite にマイグレーションされ、JSON ファイルはバックアップとして <span class="code-block">state.json.migrated</span> にリネーム。</li>
+            <li>センサーごとのキャッシュはパフォーマンスのためメモリに保持。その他すべての状態（ベースライン、HOD データ、シーケンスイベント、アラート、脅威レベル）は SQLite に永続化。</li>
+        </ul>
+
+        </div>
+        </div><!-- /guide-ch-10 -->
 
     </div>
 </div>
@@ -1715,48 +1822,48 @@
 <!-- ── History Analysis Panel ── -->
 <div id="history-panel" class="draggable-panel floating" style="display:none; left:350px; top:120px; width:620px;">
     <div class="drag-handle panel-header-unified">
-        <span>History Analysis</span>
+        <span data-i18n="panel.history.title">History Analysis</span>
         <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
-            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
-            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('history-panel')" style="color:#ff444488;">✕</span>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('history-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
     </div>
     <div class="panel-content" style="max-height:500px; overflow-y:auto;">
         <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
-            <label style="font-size:10px;color:#888;">Theater:</label>
+            <label style="font-size:10px;color:#888;" data-i18n="panel.history.theater">Theater:</label>
             <select id="hist-theater" style="background:#111;border:1px solid #333;color:#0ff;padding:3px 6px;border-radius:3px;font-size:10px;" onchange="loadHistoryData()">
                 <option value="TW">TW</option>
             </select>
-            <label style="font-size:10px;color:#888;">Range:</label>
+            <label style="font-size:10px;color:#888;" data-i18n="panel.history.range">Range:</label>
             <select id="hist-range" style="background:#111;border:1px solid #333;color:#0ff;padding:3px 6px;border-radius:3px;font-size:10px;" onchange="loadHistoryData()">
-                <option value="24">24h</option>
-                <option value="72">3 days</option>
-                <option value="168" selected>7 days</option>
-                <option value="336">14 days</option>
-                <option value="672">28 days</option>
+                <option value="24" data-i18n="panel.history.range_24h">24h</option>
+                <option value="72" data-i18n="panel.history.range_3d">3 days</option>
+                <option value="168" selected data-i18n="panel.history.range_7d">7 days</option>
+                <option value="336" data-i18n="panel.history.range_14d">14 days</option>
+                <option value="672" data-i18n="panel.history.range_28d">28 days</option>
             </select>
-            <button class="btn-tactical" style="font-size:9px;padding:2px 8px;" onclick="loadHistoryData()">Refresh</button>
-            <button class="btn-tactical" style="font-size:9px;padding:2px 8px;" onclick="exportHistoryData()">Export</button>
+            <button class="btn-tactical" style="font-size:9px;padding:2px 8px;" onclick="loadHistoryData()" data-i18n="panel.history.btn.refresh">Refresh</button>
+            <button class="btn-tactical" style="font-size:9px;padding:2px 8px;" onclick="exportHistoryData()" data-i18n="panel.history.btn.export">Export</button>
         </div>
         <!-- Threat Score Trend -->
         <div style="margin-bottom:10px;">
-            <div style="font-size:10px;color:#0ff;margin-bottom:4px;">Threat Score Trend</div>
+            <div style="font-size:10px;color:#0ff;margin-bottom:4px;" data-i18n="panel.history.hdr.threat_trend">Threat Score Trend</div>
             <canvas id="hist-score-chart" width="580" height="100" style="width:100%;background:#0a0a0a;border:1px solid #222;border-radius:3px;"></canvas>
         </div>
         <!-- HOD Heatmap -->
         <div style="margin-bottom:10px;">
-            <div style="font-size:10px;color:#0ff;margin-bottom:4px;">Hour-of-Day Baseline (CF Spike Avg)</div>
+            <div style="font-size:10px;color:#0ff;margin-bottom:4px;" data-i18n="panel.history.hdr.hod_baseline">Hour-of-Day Baseline (CF Spike Avg)</div>
             <canvas id="hist-hod-chart" width="580" height="80" style="width:100%;background:#0a0a0a;border:1px solid #222;border-radius:3px;"></canvas>
         </div>
         <!-- Sequence Events -->
         <div style="margin-bottom:10px;">
-            <div style="font-size:10px;color:#0ff;margin-bottom:4px;">Sequence Events</div>
+            <div style="font-size:10px;color:#0ff;margin-bottom:4px;" data-i18n="panel.history.hdr.seq_events">Sequence Events</div>
             <div id="hist-seq-events" style="font-size:9px;color:#ccc;max-height:120px;overflow-y:auto;"></div>
         </div>
         <!-- Alert Timeline -->
         <div>
-            <div style="font-size:10px;color:#0ff;margin-bottom:4px;">Recent Alerts</div>
+            <div style="font-size:10px;color:#0ff;margin-bottom:4px;" data-i18n="panel.history.hdr.alerts">Recent Alerts</div>
             <div id="hist-alerts" style="font-size:9px;color:#ccc;max-height:120px;overflow-y:auto;"></div>
         </div>
     </div>
@@ -1818,24 +1925,24 @@
 <!-- ── User Management Panel ────────────────────────────────────────────── -->
 <div id="usrmgr-panel" class="draggable-panel floating" style="display:none; left:380px; top:100px; width:520px;">
     <div class="drag-handle panel-header-unified">
-        <span>User Management</span>
+        <span data-i18n="panel.usermgr.title">User Management</span>
         <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
-            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
-            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('usrmgr-panel')" style="color:#ff444488;">✕</span>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('usrmgr-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
     </div>
     <div class="panel-content">
         <!-- Login Section (shown when not authenticated) -->
         <div id="usrmgr-login" style="margin-bottom:10px;">
-            <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;">AUTHENTICATE</div>
+            <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.authenticate">AUTHENTICATE</div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                <input type="text" id="usrmgr-username" placeholder="Username"
+                <input type="text" id="usrmgr-username" placeholder="Username" data-i18n-ph="panel.usermgr.ph.username"
                     style="background:#0a0a0a;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:120px;">
-                <input type="password" id="usrmgr-password" placeholder="Password"
+                <input type="password" id="usrmgr-password" placeholder="Password" data-i18n-ph="panel.usermgr.ph.password"
                     style="background:#0a0a0a;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:120px;"
                     onkeydown="if(event.key==='Enter')umgrLogin()">
-                <button class="btn-tactical btn-action" onclick="umgrLogin()" style="font-size:10px;padding:4px 12px;">LOGIN</button>
+                <button class="btn-tactical btn-action" onclick="umgrLogin()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.login">LOGIN</button>
                 <span id="usrmgr-status" style="font-size:10px;color:#666;"></span>
             </div>
         </div>
@@ -1843,15 +1950,15 @@
         <div id="usrmgr-authed" style="display:none;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                 <span id="usrmgr-who" style="font-size:10px;color:#66ccff;"></span>
-                <button class="btn-tactical" onclick="umgrLogout()" style="font-size:9px;padding:2px 8px;color:#ff6666;border-color:#ff666644;">LOGOUT</button>
+                <button class="btn-tactical" onclick="umgrLogout()" style="font-size:9px;padding:2px 8px;color:#ff6666;border-color:#ff666644;" data-i18n="panel.usermgr.btn.logout">LOGOUT</button>
             </div>
             <!-- Add User Form -->
             <div style="border:1px solid #222;border-radius:4px;padding:8px;margin-bottom:10px;background:#0a0a0a;">
-                <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;">ADD USER</div>
+                <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.add_header">ADD USER</div>
                 <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                    <input type="text" id="usrmgr-new-user" placeholder="Username"
+                    <input type="text" id="usrmgr-new-user" placeholder="Username" data-i18n-ph="panel.usermgr.ph.username"
                         style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:110px;">
-                    <input type="password" id="usrmgr-new-pass" placeholder="Password"
+                    <input type="password" id="usrmgr-new-pass" placeholder="Password" data-i18n-ph="panel.usermgr.ph.password"
                         style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:110px;">
                     <select id="usrmgr-new-role"
                         style="background:#111;border:1px solid #333;color:#ccc;padding:4px 6px;border-radius:3px;font-size:10px;cursor:pointer;">
@@ -1859,20 +1966,20 @@
                         <option value="analyst">analyst</option>
                         <option value="admin">admin</option>
                     </select>
-                    <button class="btn-tactical btn-action" onclick="umgrAddUser()" style="font-size:10px;padding:4px 12px;">ADD</button>
+                    <button class="btn-tactical btn-action" onclick="umgrAddUser()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.add">ADD</button>
                 </div>
             </div>
             <!-- User List -->
-            <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;">REGISTERED USERS</div>
+            <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.registered">REGISTERED USERS</div>
             <div id="usrmgr-list" style="max-height:300px;overflow-y:auto;"></div>
             <!-- Password Reset -->
             <div id="usrmgr-reset-section" style="display:none;border:1px solid #332200;border-radius:4px;padding:8px;margin-top:10px;background:#0c0800;">
-                <div style="font-size:9px;color:#664400;letter-spacing:1px;margin-bottom:6px;">RESET PASSWORD: <span id="usrmgr-reset-target" style="color:#ffaa00;"></span></div>
+                <div style="font-size:9px;color:#664400;letter-spacing:1px;margin-bottom:6px;"><span data-i18n="panel.usermgr.reset_header">RESET PASSWORD:</span> <span id="usrmgr-reset-target" style="color:#ffaa00;"></span></div>
                 <div style="display:flex;gap:6px;align-items:center;">
-                    <input type="password" id="usrmgr-reset-pw" placeholder="New password (6+ chars)"
+                    <input type="password" id="usrmgr-reset-pw" placeholder="New password (6+ chars)" data-i18n-ph="panel.usermgr.ph.new_password"
                         style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;flex:1;">
-                    <button class="btn-tactical btn-action" onclick="umgrResetPw()" style="font-size:10px;padding:4px 12px;">RESET</button>
-                    <button class="btn-tactical" onclick="document.getElementById('usrmgr-reset-section').style.display='none'" style="font-size:9px;padding:2px 8px;color:#666;">CANCEL</button>
+                    <button class="btn-tactical btn-action" onclick="umgrResetPw()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.reset">RESET</button>
+                    <button class="btn-tactical" onclick="document.getElementById('usrmgr-reset-section').style.display='none'" style="font-size:9px;padding:2px 8px;color:#666;" data-i18n="panel.usermgr.btn.cancel">CANCEL</button>
                 </div>
             </div>
         </div>

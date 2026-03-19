@@ -4230,7 +4230,7 @@
         const user = document.getElementById('usrmgr-username').value.trim();
         const pass = document.getElementById('usrmgr-password').value;
         const status = document.getElementById('usrmgr-status');
-        if (!user || !pass) { status.textContent = 'Enter credentials'; status.style.color = '#ff6666'; return; }
+        if (!user || !pass) { status.textContent = _t('panel.usermgr.msg.enter_creds'); status.style.color = '#ff6666'; return; }
         try {
             const res = await fetch('/api/auth/login', {
                 method: 'POST',
@@ -4238,17 +4238,17 @@
                 body: JSON.stringify({ username: user, password: pass })
             });
             const data = await res.json();
-            if (!res.ok) { status.textContent = data.error || 'Login failed'; status.style.color = '#ff6666'; return; }
+            if (!res.ok) { status.textContent = data.error || _t('panel.usermgr.msg.login_failed'); status.style.color = '#ff6666'; return; }
             _umgrToken = data.access_token;
             _umgrUser = data.username;
             document.getElementById('usrmgr-login').style.display = 'none';
             document.getElementById('usrmgr-authed').style.display = '';
-            document.getElementById('usrmgr-who').textContent = `Logged in as: ${data.username} (${data.role})`;
+            document.getElementById('usrmgr-who').textContent = _t('panel.usermgr.msg.logged_in', {username: data.username, role: data.role});
             if (data.role !== 'admin') {
-                document.getElementById('usrmgr-who').textContent += ' — admin required for management';
+                document.getElementById('usrmgr-who').textContent += ' ' + _t('panel.usermgr.msg.admin_req');
             }
             umgrLoadUsers();
-        } catch (e) { status.textContent = 'Connection error'; status.style.color = '#ff6666'; }
+        } catch (e) { status.textContent = _t('panel.usermgr.msg.conn_error'); status.style.color = '#ff6666'; }
     };
 
     window.umgrLogout = function() {
@@ -4269,8 +4269,8 @@
         if (!container || !_umgrToken) return;
         try {
             const res = await fetch('/api/auth/users', { headers: _umgrHeaders() });
-            if (res.status === 403) { container.innerHTML = '<div style="color:#ff6666;font-size:10px;">Admin privileges required to view users.</div>'; return; }
-            if (!res.ok) { container.innerHTML = '<div style="color:#ff6666;font-size:10px;">Failed to load users.</div>'; return; }
+            if (res.status === 403) { container.innerHTML = `<div style="color:#ff6666;font-size:10px;">${_t('panel.usermgr.err.admin_priv')}</div>`; return; }
+            if (!res.ok) { container.innerHTML = `<div style="color:#ff6666;font-size:10px;">${_t('panel.usermgr.err.load_users')}</div>`; return; }
             const users = await res.json();
             container.innerHTML = '';
             const table = document.createElement('table');
@@ -4278,7 +4278,7 @@
             // Header
             const thead = table.createTHead();
             const hr = thead.insertRow();
-            ['Username', 'Role', 'Created', 'Last Login', 'Actions'].forEach(h => {
+            [_t('panel.usermgr.tbl.username'), _t('panel.usermgr.tbl.role'), _t('panel.usermgr.tbl.created'), _t('panel.usermgr.tbl.last_login'), _t('panel.usermgr.tbl.actions')].forEach(h => {
                 const th = document.createElement('th');
                 th.textContent = h;
                 th.style.cssText = 'text-align:left;padding:3px 6px;color:#888;border-bottom:1px solid #333;font-weight:normal;letter-spacing:1px;font-size:9px;';
@@ -4317,15 +4317,15 @@
                 tdCreated.style.cssText = 'padding:4px 6px;color:#666;';
                 // Last Login
                 const tdLogin = tr.insertCell();
-                tdLogin.textContent = u.last_login ? new Date(u.last_login * 1000).toLocaleString() : 'Never';
+                tdLogin.textContent = u.last_login ? new Date(u.last_login * 1000).toLocaleString() : _t('panel.usermgr.tbl.never');
                 tdLogin.style.cssText = 'padding:4px 6px;color:#666;';
                 // Actions
                 const tdAct = tr.insertCell();
                 tdAct.style.cssText = 'padding:4px 6px;';
                 if (u.username !== _umgrUser) {
                     const btnReset = document.createElement('button');
-                    btnReset.textContent = 'PW';
-                    btnReset.title = 'Reset password';
+                    btnReset.textContent = _t('panel.usermgr.btn.pw');
+                    btnReset.title = _t('panel.usermgr.tip.reset_pw');
                     btnReset.style.cssText = 'background:none;border:1px solid #444;color:#ffaa00;font-size:9px;padding:1px 6px;border-radius:2px;cursor:pointer;margin-right:4px;';
                     btnReset.onclick = () => {
                         document.getElementById('usrmgr-reset-section').style.display = '';
@@ -4336,8 +4336,8 @@
                     tdAct.appendChild(btnReset);
 
                     const btnDel = document.createElement('button');
-                    btnDel.textContent = 'DEL';
-                    btnDel.title = 'Delete user';
+                    btnDel.textContent = _t('panel.usermgr.btn.del');
+                    btnDel.title = _t('panel.usermgr.tip.delete');
                     btnDel.style.cssText = 'background:none;border:1px solid #442222;color:#ff4444;font-size:9px;padding:1px 6px;border-radius:2px;cursor:pointer;';
                     btnDel.onclick = () => umgrDeleteUser(u.username);
                     tdAct.appendChild(btnDel);
@@ -4346,26 +4346,26 @@
                 }
             });
             container.appendChild(table);
-        } catch (e) { container.innerHTML = '<div style="color:#ff6666;font-size:10px;">Error loading users.</div>'; }
+        } catch (e) { container.innerHTML = `<div style="color:#ff6666;font-size:10px;">${_t('panel.usermgr.err.load_error')}</div>`; }
     };
 
     window.umgrAddUser = async function() {
         const user = document.getElementById('usrmgr-new-user').value.trim();
         const pass = document.getElementById('usrmgr-new-pass').value;
         const role = document.getElementById('usrmgr-new-role').value;
-        if (!user || !pass) return alert('Username and password required');
-        if (pass.length < 6) return alert('Password must be at least 6 characters');
+        if (!user || !pass) return alert(_t('panel.usermgr.val.user_pass_req'));
+        if (pass.length < 6) return alert(_t('panel.usermgr.val.pass_min6'));
         try {
             const res = await fetch('/api/auth/register', {
                 method: 'POST', headers: _umgrHeaders(),
                 body: JSON.stringify({ username: user, password: pass, role })
             });
             const data = await res.json();
-            if (!res.ok) return alert(data.error || 'Failed to add user');
+            if (!res.ok) return alert(data.error || _t('panel.usermgr.err.add_user'));
             document.getElementById('usrmgr-new-user').value = '';
             document.getElementById('usrmgr-new-pass').value = '';
             umgrLoadUsers();
-        } catch (e) { alert('Connection error'); }
+        } catch (e) { alert(_t('panel.usermgr.msg.conn_error')); }
     };
 
     window.umgrChangeRole = async function(username, newRole) {
@@ -4375,36 +4375,36 @@
                 body: JSON.stringify({ role: newRole })
             });
             const data = await res.json();
-            if (!res.ok) { alert(data.error || 'Failed to update role'); umgrLoadUsers(); }
-        } catch (e) { alert('Connection error'); }
+            if (!res.ok) { alert(data.error || _t('panel.usermgr.err.update_role')); umgrLoadUsers(); }
+        } catch (e) { alert(_t('panel.usermgr.msg.conn_error')); }
     };
 
     window.umgrDeleteUser = async function(username) {
-        if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+        if (!confirm(_t('panel.usermgr.confirm.delete', {username}))) return;
         try {
             const res = await fetch(`/api/auth/users/${encodeURIComponent(username)}`, {
                 method: 'DELETE', headers: _umgrHeaders()
             });
             const data = await res.json();
-            if (!res.ok) return alert(data.error || 'Failed to delete user');
+            if (!res.ok) return alert(data.error || _t('panel.usermgr.err.delete_user'));
             umgrLoadUsers();
-        } catch (e) { alert('Connection error'); }
+        } catch (e) { alert(_t('panel.usermgr.msg.conn_error')); }
     };
 
     window.umgrResetPw = async function() {
         const target = document.getElementById('usrmgr-reset-pw').dataset.target;
         const newPw = document.getElementById('usrmgr-reset-pw').value;
-        if (!newPw || newPw.length < 6) return alert('Password must be at least 6 characters');
+        if (!newPw || newPw.length < 6) return alert(_t('panel.usermgr.val.pass_min6'));
         try {
             const res = await fetch(`/api/auth/users/${encodeURIComponent(target)}/reset-password`, {
                 method: 'POST', headers: _umgrHeaders(),
                 body: JSON.stringify({ new_password: newPw })
             });
             const data = await res.json();
-            if (!res.ok) return alert(data.error || 'Failed to reset password');
+            if (!res.ok) return alert(data.error || _t('panel.usermgr.err.reset_pw'));
             document.getElementById('usrmgr-reset-section').style.display = 'none';
-            alert(`Password reset for ${target}`);
-        } catch (e) { alert('Connection error'); }
+            alert(_t('panel.usermgr.confirm.pw_reset', {username: target}));
+        } catch (e) { alert(_t('panel.usermgr.msg.conn_error')); }
     };
 
     // ── History Analysis Panel ─────────────────────────────────────────────
@@ -4469,7 +4469,7 @@
         const scored = data.series?.scored || [];
         if (scored.length < 2) {
             ctx.fillStyle = '#555'; ctx.font = '10px monospace';
-            ctx.fillText('Insufficient data', 10, h/2);
+            ctx.fillText(_t('panel.history.no_data'), 10, h/2);
             return;
         }
 
@@ -4521,7 +4521,7 @@
         const means = stats.map(s => s.mean).filter(v => v !== null);
         if (!means.length) {
             ctx.fillStyle = '#555'; ctx.font = '10px monospace';
-            ctx.fillText('No HOD data', 10, h/2);
+            ctx.fillText(_t('panel.history.no_hod'), 10, h/2);
             return;
         }
         const mx = Math.max(...means, 0.01);
@@ -4553,7 +4553,7 @@
         if (!el) return;
         const events = data.events || [];
         if (!events.length) {
-            el.innerHTML = '<span style="color:#555">No events in range</span>';
+            el.innerHTML = `<span style="color:#555">${_t('panel.history.no_events')}</span>`;
             return;
         }
         el.innerHTML = events.slice(-30).map(e => {
@@ -4573,7 +4573,7 @@
         if (!el) return;
         const alerts = data.alerts || [];
         if (!alerts.length) {
-            el.innerHTML = '<span style="color:#555">No alerts</span>';
+            el.innerHTML = `<span style="color:#555">${_t('panel.history.no_alerts')}</span>`;
             return;
         }
         el.innerHTML = alerts.slice(-20).map(a => {
