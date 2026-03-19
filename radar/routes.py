@@ -1,0 +1,1583 @@
+"""radar.routes -- All Flask API route handlers."""
+from __future__ import annotations
+import os
+import time
+import json
+import math
+import hashlib
+import logging
+import datetime
+import threading
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from flask import Blueprint, jsonify, request, send_from_directory
+from radar.config import *  # noqa: F403 — all config constants used across routes
+from radar.models import RationaleEntry
+from radar.engine import SensorRegistry, WeightedConvergenceEngine
+from radar import state as st
+from radar.state import (  # noqa: F401 — mutable globals used by route handlers
+    global_cache, _global_cache_lock, baseline_cache, airspace_baseline,
+    time_series_db, time_series_ts_db, time_series_l3_db, time_series_l7_db,
+    hod_baseline_db, checkhost_hod_db, bgp_hod_db, gdelt_dow_db,
+    threat_history, alert_timeline, ALERT_TIMELINE_MAX,
+    sequence_event_log, SEQUENCE_EVENT_TYPES, _cf_scoring_cache,
+)
+from radar.scoring import (
+    register_sequence_event, compute_sequence_bonus,
+    compute_hod_zscore, record_hod_sample,
+    get_fallback_coord, fetch_cf_data, fetch_cf_data_cached,
+    parse_origins, calculate_overlap, fetch_asn_origins,
+    compute_confidence, compute_avg_spike_raw,
+    prefill_hod_baseline_bg,
+)
+from radar.persistence import save_state
+
+log = logging.getLogger("radar")
+
+bp = Blueprint('api', __name__)
+
+# These will be set by radar.__init__ after app creation
+registry: SensorRegistry = None  # type: ignore
+engine: WeightedConvergenceEngine = None  # type: ignore
+
+def init_routes(reg: SensorRegistry, eng: WeightedConvergenceEngine):
+    """Called by radar.__init__ to inject singleton instances."""
+    global registry, engine
+    registry = reg
+    engine = eng
+
+# ── Replace @app.route with @bp.route in extracted code ──
+# The raw code below still uses global names like global_cache, baseline_cache, etc.
+# These are now accessed via 'st' (radar.state) module.
+# However, for this initial split we keep a local-alias approach:
+
+def _get_state_refs():
+    """Return references to mutable state objects."""
+    return (
+        st.global_cache, st._global_cache_lock, st.baseline_cache,
+        st.time_series_db, st.time_series_ts_db,
+        st.time_series_l3_db, st.time_series_l7_db,
+        st.airspace_baseline, st.hod_baseline_db,
+        st.checkhost_hod_db, st.bgp_hod_db, st.gdelt_dow_db,
+        st.threat_history, st.alert_timeline,
+        st.sequence_event_log, st._cf_scoring_cache,
+    )
+
+def _require_admin():
+    """Check admin authorization. Returns None if authorized, or a Flask response tuple on failure.
+    When ADMIN_TOKEN is set: requires X-Admin-Token header to match.
+    When ADMIN_TOKEN is empty: restricts to loopback addresses (127.0.0.1 / ::1)."""
+    if ADMIN_TOKEN:
+        token = request.headers.get("X-Admin-Token", "")
+        if token != ADMIN_TOKEN:
+            return jsonify({"error": "Unauthorized — X-Admin-Token header required"}), 401
+        return None
+    # No token configured: restrict to loopback
+    remote = request.remote_addr or ""
+    if remote not in ("127.0.0.1", "::1"):
+        return jsonify({"error": "Admin endpoints are restricted to localhost. Set ADMIN_TOKEN in config.env to enable remote access."}), 403
+    return None
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Static file serving (index.html + assets) — whitelisted extensions only
+# ─────────────────────────────────────────────────────────────────────────────
+# Prevent serving sensitive files (config.env, .gitignore, state.json, etc.)
+# by restricting to known safe extensions.
+_STATIC_ALLOWED_EXT = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg",
+                       ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map"}
+
+@bp.route("/", methods=["GET"])
+def index():
+    return send_from_directory(".", "index.html")
+
+@bp.route("/<path:filename>", methods=["GET"])
+def static_files(filename):
+    if filename.startswith("api/"):
+        return ("Not Found", 404)
+    # Block path traversal and hidden/sensitive files
+    normalized = filename.replace("\\", "/")
+    if ".." in normalized or normalized.startswith("."):
+        return ("Forbidden", 403)
+    # Block persistence directory
+    if normalized.startswith("persistence/") or normalized.startswith("persistence\\"):
+        return ("Forbidden", 403)
+    # Check file extension against whitelist
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _STATIC_ALLOWED_EXT:
+        return ("Forbidden", 403)
+    return send_from_directory(".", filename)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main API Route
+# ─────────────────────────────────────────────────────────────────────────────
+@bp.route("/api/app_config", methods=["GET"])
+def app_config():
+    return jsonify({
+        "default_core": DEFAULT_CORE,
+        "default_correlates": DEFAULT_CORRELATES,
+        "default_adversaries": DEFAULT_ADVERSARIES,
+        "default_pins": DEFAULT_PINS,
+        "strategic_blocs": STRATEGIC_BLOCS,
+        "country_bloc_tags": COUNTRY_BLOC_TAGS,
+        # Adversary options: hostile state actors monitored from a Western/allied-nation perspective.
+        # Scope is intentionally limited to states formally designated as threats by US/EU/Japan/Five Eyes:
+        # RU (Russia), CN (China), IR (Iran), KP (North Korea), BY (Belarus/RU proxy).
+        # States with offensive cyber capability that are allies or partners (US, UK, IL, AU, etc.)
+        # are excluded by design — this system monitors threats TO the allied network, not FROM it.
+        # Proxy adversaries (e.g. BY under RUSSIA) are declared in geo_data.json under
+        # their parent bloc's "proxy_adversaries" field to keep schema and code in sync.
+        "adversary_options": [
+            {"code": bloc["adversary"], "bloc": bloc_key, "label": bloc["label"], "color": bloc["color"]}
+            for bloc_key, bloc in STRATEGIC_BLOCS.items()
+            if "adversary" in bloc
+        ] + [
+            {"code": p["code"], "bloc": bloc_key, "label": p["label"], "color": p["color"]}
+            for bloc_key, bloc in STRATEGIC_BLOCS.items()
+            for p in bloc.get("proxy_adversaries", [])
+        ],
+        "available_countries": [
+            {"code": code, "name": info["name"], "region": COUNTRY_REGIONS.get(code, "Other"),
+             "lat": info["lat"], "lng": info["lng"]}
+            for code, info in sorted(COUNTRY_COORDS.items(), key=lambda x: x[1]["name"])
+        ],
+    })
+
+@bp.route("/api/threat_data", methods=["GET"])
+def get_threat_data():
+    global global_cache, baseline_cache, time_series_db, time_series_l3_db, time_series_l7_db
+
+    current_time = time.time()
+    targets_param  = request.args.get("targets", ",".join(DEFAULT_PINS)); requested_targets = [t.strip().upper() for t in targets_param.split(",") if t.strip()]
+    correlates_param = request.args.get("correlates", ",".join(DEFAULT_CORRELATES)); correlate_targets = [t.strip().upper() for t in correlates_param.split(",") if t.strip()]
+    adv_param = request.args.get("adversaries", ",".join(DEFAULT_ADVERSARIES)); adversary_states = [a.strip().upper() for a in adv_param.split(",") if a.strip()]
+    core_theater = request.args.get("core", DEFAULT_CORE).strip().upper()
+    force_sync   = request.args.get("force", "false").lower() == "true"
+    
+    # HITL Analyst MUTE parameters
+    muted_sensors = [s.strip() for s in request.args.get("muted", "").split(",") if s.strip()]
+
+    required_keys = set(requested_targets + correlate_targets)
+    if core_theater: required_keys.add(core_theater)
+
+    strategic_theaters_set = set([core_theater] + correlate_targets)
+    
+    sensor_context = {
+        "all_targets": list(required_keys),
+        "strategic_theaters": list(strategic_theaters_set),
+        "adversary_states": adversary_states,
+        "cf_headers": CF_HEADERS, "owm_api_key": OWM_API_KEY,
+        "weather_conditions": {}, "gdelt_tone_threshold": GDELT_TONE_ALERT_THRESHOLD,
+        "gdelt_history_window": GDELT_HISTORY_WINDOW
+    }
+
+    # Sensors are individually scheduled in the background.
+    # Immediate fetch only on force_sync (SYNC button). Do not wait on missing_data.
+    # (At startup, background threads are fetching in parallel; waiting for sync would
+    #  block for minutes on slow sensors like PeeringDB/AIS).
+    if force_sync:
+        executor = ThreadPoolExecutor(max_workers=10)
+        futures = [executor.submit(sensor.fetch, sensor_context)
+                   for sensor in registry._sensors.values() if sensor.enabled]
+        try:
+            for future in as_completed(futures, timeout=60):
+                try:
+                    future.result()
+                except Exception:
+                    pass
+        except TimeoutError:
+            # Use cached data for timed-out sensors.
+            # Let them complete in the background and update the cache.
+            pass
+        finally:
+            executor.shutdown(wait=False, cancel_futures=False)
+
+    if (current_time - global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync:
+        # Extract required states from caches
+        cf_sensor = registry.get("cloudflare_radar")
+        ioda_sensor = registry.get("ioda_bgp")
+        ioda_data = ioda_sensor.get_cache().get("statuses", {}) if ioda_sensor else {}
+        owm_sensor = registry.get("openweather")
+        weather_conditions = owm_sensor.get_cache().get("conditions", {}) if owm_sensor else {}
+        opensky_sensor = registry.get("opensky")
+        airspace_data = opensky_sensor.get_cache().get("airports", {}) if opensky_sensor else {}
+        gdelt_sensor = registry.get("gdelt")
+        gdelt_tones = gdelt_sensor.get_cache().get("gdelt_tones", {}) if gdelt_sensor else {}
+        peeringdb_sensor = registry.get("peeringdb_ixp")
+        ixp_data = peeringdb_sensor.get_cache().get("ixp_data", {}) if peeringdb_sensor else {}
+        bgp_routing_sensor = registry.get("ripe_bgp")
+        bgp_routing_data = bgp_routing_sensor.get_cache().get("routing_stats", {}) if bgp_routing_sensor else {}
+        nasa_firms_sensor = registry.get("nasa_firms")
+        nasa_firms_data = nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else []
+        threatfox_sensor = registry.get("threatfox")
+        threatfox_data = threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {}
+        # Fetch additional sensor data (v8)
+        rss_narrative_sensor = registry.get("rss_narrative")
+        narrative_data = rss_narrative_sensor.get_cache().get("narratives", {}) if rss_narrative_sensor else {}
+        isr_hotspot_sensor = registry.get("isr_hotspot")
+        isr_data = isr_hotspot_sensor.get_cache().get("isr_data", {}) if isr_hotspot_sensor else {}
+        ais_maritime_sensor = registry.get("ais_maritime")
+        ais_dark_gaps        = ais_maritime_sensor.get_cache().get("dark_gaps", []) if ais_maritime_sensor else []
+        ais_stationary       = ais_maritime_sensor.get_cache().get("stationary_anomalies", []) if ais_maritime_sensor else []
+        ais_has_anomaly      = ais_maritime_sensor.get_cache().get("has_anomaly", False) if ais_maritime_sensor else False
+        # Fetch additional sensor data (v9)
+        telegram_mirror_sensor = registry.get("telegram_mirror")
+        telegram_data          = telegram_mirror_sensor.get_cache().get("telegram", {}) if telegram_mirror_sensor else {}
+        check_host_sensor      = registry.get("check_host")
+        checkhost_data         = check_host_sensor.get_cache().get("check_host", {}) if check_host_sensor else {}
+        greynoise_sensor       = registry.get("greynoise")
+        greynoise_data         = greynoise_sensor.get_cache().get("greynoise", {}) if greynoise_sensor else {}
+
+        airspace_anomalies, noise_filters_applied = [], []
+        for code, ainfo in airspace_data.items():
+            count = ainfo.get("count", -1)
+            if count < 0: ainfo["status"] = "ERROR"; continue
+            if code not in airspace_baseline: airspace_baseline[code] = {"readings": [], "avg": 0.0}
+            bl = airspace_baseline[code]
+            bl["readings"].append(count); bl["readings"] = bl["readings"][-AIRSPACE_WINDOW:]
+            n = len(bl["readings"])
+            bl["avg"] = sum(bl["readings"]) / n if n > 0 else 0.0
+            ainfo["baseline_avg"] = round(bl["avg"], 1); ainfo["baseline_n"] = n
+
+            # HOD tracking: record one entry per UTC hour bucket per airport
+            _as_hour_bucket = int(current_time // 3600) * 3600
+            if "hod" not in bl: bl["hod"] = []
+            _as_hod_entries = bl["hod"]
+            if not _as_hod_entries or _as_hod_entries[-1][0] != _as_hour_bucket:
+                _as_hod_entries.append((_as_hour_bucket, count))
+                bl["hod"] = _as_hod_entries[-(HOD_BASELINE_DAYS * 24):]
+            _cur_as_hod = (_as_hour_bucket // 3600) % 24
+            _as_same_hour = [c for (ts, c) in bl["hod"]
+                             if (ts // 3600) % 24 == _cur_as_hod and ts < _as_hour_bucket]
+
+            if n < 3 or bl["avg"] < 1:
+                ainfo["status"] = "BASELINE_BUILDING"; ainfo["drop_pct"] = 0.0; continue
+
+            drop_ratio = max(0.0, (bl["avg"] - count) / bl["avg"]); ainfo["drop_pct"] = round(drop_ratio * 100, 1)
+            weather_suppressed = weather_conditions.get(code, {}).get("is_severe", False)
+
+            # HOD Z-score severity when enough same-hour samples exist
+            _n_as_hod = len(_as_same_hour)
+            if _n_as_hod >= HOD_MIN_SAME_HOUR:
+                _ah_mean = sum(_as_same_hour) / _n_as_hod
+                _ah_std  = max((sum((x - _ah_mean)**2 for x in _as_same_hour) / _n_as_hod) ** 0.5, 0.5)
+                _ah_z    = (count - _ah_mean) / _ah_std
+                ainfo["hod_z"] = round(_ah_z, 2); ainfo["hod_n"] = _n_as_hod
+                severity = "CLOSURE" if _ah_z < -3.0 else "ANOMALY" if _ah_z < -2.0 else "NORMAL"
+            else:
+                ainfo["hod_z"] = None; ainfo["hod_n"] = _n_as_hod
+                severity = "CLOSURE" if drop_ratio >= (1.0 - AIRSPACE_CLOSURE_THRESHOLD) else \
+                           "ANOMALY" if drop_ratio >= (1.0 - AIRSPACE_ANOMALY_THRESHOLD) else "NORMAL"
+
+            if severity in ("CLOSURE", "ANOMALY"):
+                if weather_suppressed:
+                    ainfo["status"] = "WEATHER_NOISE"; noise_filters_applied.append(f"weather_noise@{code}: airspace {severity.lower()} suppressed")
+                else:
+                    ainfo["status"] = severity
+                    airspace_anomalies.append({"code": code, "airport": ainfo.get("airport", code), "count": count, "baseline": ainfo["baseline_avg"], "drop_pct": ainfo["drop_pct"], "severity": severity, "lat": ainfo.get("lat"), "lng": ainfo.get("lng")})
+            else: ainfo["status"] = "NORMAL"
+
+        degraded_targets_raw, degraded_targets_effective = [], []
+        g_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/target", {"dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+        g_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/target", {"dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+
+        target_details, origin_distributions, origin_distributions_l3, origin_distributions_l7 = {}, {}, {}, {}
+        adversary_strikes, vector_shifts = [], []
+
+        for t in list(required_keys):
+            if ioda_data.get(t, "NORMAL") == "BGP_OUTAGE":
+                degraded_targets_raw.append(t)
+                if weather_conditions.get(t, {}).get("is_severe", False): noise_filters_applied.append(f"weather_noise@{t}: BGP outage suppressed")
+                else: degraded_targets_effective.append(t)
+
+        for t in required_keys:
+            if t not in time_series_db: time_series_db[t] = []
+            if t not in time_series_l3_db: time_series_l3_db[t] = []
+            if t not in time_series_l7_db: time_series_l7_db[t] = []
+
+            if t not in baseline_cache or (current_time - baseline_cache[t]["time"] > 86400):
+                b_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
+                b_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
+                baseline_cache[t] = {"time": current_time, "l3": b_l3, "l7": b_l7}
+
+            b_data = baseline_cache[t]
+            g_l3_share_display, g_l7_share_display = g_l3.get(t, 0.0), g_l7.get(t, 0.0)
+            g_l3_share, g_l7_share = max(g_l3_share_display, 0.1), max(g_l7_share_display, 0.1)
+            global_target_share = (g_l3_share_display + g_l7_share_display) / 2.0
+
+            o_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin", {"location": t, "dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+            o_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": CURRENT_DATE_RANGE, "format": "json"}))
+
+            state_asn_hits = {}
+            if t in strategic_theaters_set:
+                for asn_key in fetch_asn_origins(t):
+                    if asn_key in STATE_ASNS: state_asn_hits.setdefault(STATE_ASNS[asn_key], []).append(asn_key)
+
+            combined_sources, normalized_dist, normalized_dist_l3, normalized_dist_l7 = {}, {}, {}, {}
+            target_weighted_spike, total_local_pct, target_l3_spike_sum, target_l7_spike_sum = 0.0, 0.0, 0.0, 0.0
+            all_origin_codes = set(o_l3) | set(o_l7)
+
+            # ── Spike anti-inflation guard ──
+            # Skip spike computation when baseline data is empty (at startup or CF API error).
+            # Computing with an empty baseline sets all origins to the 0.5% minimum, causing 90×+ false positives.
+            has_baseline = bool(b_data.get("l3") or b_data.get("l7"))
+
+            for code in all_origin_codes:
+                local_l3_pct, local_l7_pct = o_l3.get(code, 0.0), o_l7.get(code, 0.0)
+                current_local_pct = max(local_l3_pct, local_l7_pct)
+
+                _bl3 = b_data.get("l3", {})
+                _bl7 = b_data.get("l7", {})
+                is_new_actor = (code not in _bl3) and (code not in _bl7)
+                # Adversary states (CN/RU/KP etc.) use a lower baseline floor to detect even small attacks.
+                # Non-adversary states use a higher floor (3%) to suppress noise.
+                # Example: KP at baseline 0.1% → current 2% correctly detected as a 4× spike.
+                is_adversary_origin = code in adversary_states
+                _floor_new   = 0.5 if is_adversary_origin else 3.0  # new actor (not in baseline)
+                _floor_exist = 0.5 if is_adversary_origin else 2.0  # existing actor
+                base_l3 = max(_bl3.get(code, _floor_new), _floor_new if code not in _bl3 else _floor_exist)
+                base_l7 = max(_bl7.get(code, _floor_new), _floor_new if code not in _bl7 else _floor_exist)
+                l3_spike = (local_l3_pct / base_l3) if local_l3_pct > 0 else 0.0
+                l7_spike = (local_l7_pct / base_l7) if local_l7_pct > 0 else 0.0
+                # Cap spike multiplier at 25× (prevent extreme amplification from statistical noise)
+                spike_factor = min(max(l3_spike, l7_spike), 25.0)
+
+                normalized_dist_l3[code], normalized_dist_l7[code], normalized_dist[code] = local_l3_pct, local_l7_pct, current_local_pct
+
+                # Include in spike aggregation only when baseline exists and absolute value is significant (≥1%)
+                if has_baseline and current_local_pct >= 1.0:
+                    target_weighted_spike += spike_factor * current_local_pct
+                    target_l3_spike_sum += l3_spike * current_local_pct
+                    target_l7_spike_sum += l7_spike * current_local_pct
+                    total_local_pct += current_local_pct
+
+                global_l3_weight = g_l3_share * (local_l3_pct / 100.0); global_l7_weight = g_l7_share * (local_l7_pct / 100.0)
+                total_global_weight = global_l3_weight + global_l7_weight
+
+                is_direct_strike = False
+                if code in adversary_states and t in strategic_theaters_set and spike_factor >= 4.0 and current_local_pct > 3.0:
+                    adversary_strikes.append({"actor": code, "target": t, "spike": round(spike_factor, 1), "pct": round(current_local_pct, 1)})
+                    is_direct_strike = True
+
+                per_origin_l7_shift = (l7_spike >= 2.5 and l7_spike > l3_spike * 1.5 and local_l7_pct > 1.5)
+                is_state_asn = code in state_asn_hits
+                confidence = compute_confidence(spike_factor, code, is_new_actor, is_state_asn)
+
+                if total_global_weight > 0.01 or is_direct_strike:
+                    coord = COUNTRY_COORDS.get(code) or get_fallback_coord(code)
+                    combined_sources[code] = {"lat": coord["lat"], "lng": coord["lng"], "name": coord["name"], "code": code, "weight": total_global_weight, "l3_weight": global_l3_weight, "l7_weight": global_l7_weight, "spike_factor": round(spike_factor, 2), "l3_spike": round(l3_spike, 2), "l7_spike": round(l7_spike, 2), "is_l7_shift": per_origin_l7_shift, "is_new_actor": is_new_actor, "is_state_asn": is_state_asn, "state_asns": state_asn_hits.get(code, []), "confidence": confidence}
+
+            origin_distributions[t], origin_distributions_l3[t], origin_distributions_l7[t] = normalized_dist, normalized_dist_l3, normalized_dist_l7
+            # Floor normalization denominator at 5% (prevents avg_spike overestimation at low traffic)
+            avg_l3_spike = target_l3_spike_sum / max(total_local_pct, 5.0); avg_l7_spike = target_l7_spike_sum / max(total_local_pct, 5.0)
+            shift_actors = [s["code"] for s in combined_sources.values() if s.get("is_l7_shift")]
+            is_vector_shift = ((avg_l7_spike >= 2.5 and avg_l7_spike > avg_l3_spike * 1.5) or len(shift_actors) > 0)
+            if is_vector_shift and t in strategic_theaters_set: vector_shifts.append(t)
+
+            avg_spike_record = round(target_weighted_spike / max(total_local_pct, 5.0), 2)
+            time_series_db[t].append(avg_spike_record); time_series_db[t] = time_series_db[t][-15:]
+            time_series_l3_db[t].append(round(avg_l3_spike, 2)); time_series_l3_db[t] = time_series_l3_db[t][-15:]
+            time_series_l7_db[t].append(round(avg_l7_spike, 2)); time_series_l7_db[t] = time_series_l7_db[t][-15:]
+            # Update timestamped time series (for derivative computation)
+            if t not in time_series_ts_db: time_series_ts_db[t] = []
+            time_series_ts_db[t].append((current_time, avg_spike_record))
+            time_series_ts_db[t] = time_series_ts_db[t][-30:]  # Retain more points for derivative computation
+            # Record HOD (Hour-of-Day) sample for strategic theaters only
+            if t in strategic_theaters_set:
+                record_hod_sample(t, current_time, avg_spike_record)
+
+            target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values())}
+
+        correlations, correlations_l3, correlations_l7 = {}, {}, {}
+        if core_theater in origin_distributions:
+            for t in correlate_targets:
+                if t != core_theater and t in origin_distributions:
+                    key = f"{core_theater}-{t}"
+                    correlations[key]    = calculate_overlap(origin_distributions[core_theater], origin_distributions[t])
+                    correlations_l3[key] = calculate_overlap(origin_distributions_l3.get(core_theater, {}), origin_distributions_l3.get(t, {}))
+                    correlations_l7[key] = calculate_overlap(origin_distributions_l7.get(core_theater, {}), origin_distributions_l7.get(t, {}))
+
+        elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
+        is_coordinated = len(elevated_theaters) >= 2
+
+        core_spike     = target_details.get(core_theater, {}).get("avg_spike", 0)
+        core_degraded  = core_theater in degraded_targets_effective
+        core_shifted   = core_theater in vector_shifts
+        # State-directed coordinated ops typically show 20–35% overlap. 45%+ indicates large civilian botnet.
+        high_correlation = any(v > 30.0 for v in correlations.values())
+        major_adversary  = len(adversary_strikes) > 0
+        tl1_hard = core_spike > 5.0 and core_degraded
+
+        rationale: list[RationaleEntry] = []
+
+        def add_rat(sensor, domain, status, value, score, fired_reason, is_suppressed=False, suppress_reason=None):
+            _is_muted = (sensor in muted_sensors) or is_suppressed
+            _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
+            rationale.append(RationaleEntry(sensor=sensor, domain=domain, status=status, value=value, score=score, fired_reason=fired_reason, suppressed=_is_muted, suppress_reason=_s_reason))
+
+        if not (cf_sensor and cf_sensor.enabled):
+            add_rat("cloudflare_radar", "cyber", "DISABLED", "sensor off", 0, None)
+        else:
+            # HOD-normalized Z-score spike detection.
+            # During warmup (<7 same-hour samples) fall back to raw ratio thresholds.
+            hod_z, hod_valid, hod_n = compute_hod_zscore(core_theater, core_spike, current_time)
+            if hod_valid:
+                # Z-score thresholds: 1.5σ / 2.5σ / 3.5σ  → +1 / +2 / +3
+                spike_score = (1 if hod_z > 1.5 else 0) + (1 if hod_z > 2.5 else 0) + (1 if hod_z > 3.5 else 0)
+                spike_fired = hod_z > 1.5
+                spike_value = f"HOD Z={hod_z:.2f} ({core_spike:.2f}x, n={hod_n})"
+                spike_reason = f"HOD Z-score={hod_z:.2f} — spike anomalous vs same-hour 28d baseline" if spike_fired else None
+            else:
+                # Warmup fallback: raw ratio thresholds (2x / 4x / 6x)
+                spike_score = (1 if core_spike > 2.0 else 0) + (1 if core_spike > 4.0 else 0) + (1 if core_spike > 6.0 else 0)
+                spike_fired = core_spike > 2.0
+                spike_value = f"{core_spike:.2f}x (HOD warmup {hod_n}/{HOD_MIN_SAME_HOUR})"
+                spike_reason = f"Core theater spike exceeds 2x baseline (HOD warmup)" if spike_fired else None
+            add_rat("cf_spike_core", "cyber", "FIRED" if spike_fired else "OK", spike_value, spike_score, spike_reason)
+            max_overlap = max(correlations.values(), default=0.0)
+            add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None)
+            add_rat("cf_vector_shift", "cyber", "FIRED" if core_shifted else "OK", f"theaters={vector_shifts}", 1 if core_shifted else 0, "L7 application-layer escalation detected" if core_shifted else None)
+            add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{len(adversary_strikes)} strike(s)", 2 if major_adversary else 0, f"Adversary state direct strike" if major_adversary else None)
+            add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None)
+
+        if not (ioda_sensor and ioda_sensor.enabled):
+            add_rat("ioda_bgp", "physical", "DISABLED", "sensor off", 0, None)
+        else:
+            weather_suppressed_bgp = [t for t in degraded_targets_raw if t not in degraded_targets_effective]
+            bgp_value = f"bgp={'OUTAGE' if core_degraded else 'NORMAL'}"
+            if weather_suppressed_bgp: bgp_value += f" weather_muted={weather_suppressed_bgp}"
+            _wx_suppressed = (core_theater in weather_suppressed_bgp)
+            add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, f"BGP anomaly confirmed" if core_degraded else None, is_suppressed=_wx_suppressed, suppress_reason=f"Weather-muted: {weather_suppressed_bgp}" if weather_suppressed_bgp else None)
+
+        if not (opensky_sensor and opensky_sensor.enabled):
+            add_rat("opensky", "physical", "DISABLED", "sensor off", 0, None)
+        else:
+            core_airspace = airspace_data.get(core_theater, {})
+            airspace_status = core_airspace.get("status", "NO_DATA")
+            airspace_score, airspace_fired, airspace_reason = 0, False, None
+            if airspace_status == "CLOSURE": airspace_score, airspace_fired, airspace_reason = 3, True, f"Airport near-total closure"
+            elif airspace_status == "ANOMALY": airspace_score, airspace_fired, airspace_reason = 2, True, f"Airspace anomaly"
+            airspace_value = f"{core_airspace.get('airport','N/A')}: {core_airspace.get('count','?')} ac" if core_airspace else "No airport data"
+            add_rat("opensky", "physical", "FIRED" if airspace_fired else ("SUPPRESSED" if airspace_status == "WEATHER_NOISE" else "OK"), airspace_value, airspace_score, airspace_reason, is_suppressed=(airspace_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if airspace_status == "WEATHER_NOISE" else None)
+
+        if not (owm_sensor and owm_sensor.enabled):
+            add_rat("openweather", "physical", "DISABLED", "sensor off", 0, None)
+        else:
+            core_weather = weather_conditions.get(core_theater, {})
+            add_rat("openweather", "physical", "OK", f"{core_theater}: {core_weather.get('severity', 'NORMAL')}", 0, None, suppress_reason=f"Active noise filter" if core_weather.get("is_severe") else None)
+
+        if not (gdelt_sensor and gdelt_sensor.enabled):
+            add_rat("gdelt", "info", "DISABLED", "sensor off", 0, None)
+        else:
+            core_tone = gdelt_tones.get(core_theater, {})
+            tone_status, gdelt_alert = core_tone.get("status", "NO_DATA"), core_tone.get("status") == "ALERT"
+            add_rat("gdelt", "info", "SUPPRESSED" if tone_status == "WEATHER_NOISE" else "FIRED" if gdelt_alert else "OK", tone_status, 1 if gdelt_alert else 0, "Media tone collapse" if gdelt_alert else None, is_suppressed=(tone_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if tone_status == "WEATHER_NOISE" else None)
+
+        if not (bgp_routing_sensor and bgp_routing_sensor.enabled):
+            add_rat("ripe_bgp", "cyber", "DISABLED", "sensor off", 0, None)
+        else:
+            core_bgp, bgp_anomaly = bgp_routing_data.get(core_theater, {}), bgp_routing_data.get(core_theater, {}).get("is_anomaly", False)
+            add_rat("ripe_bgp", "cyber", "FIRED" if bgp_anomaly else "OK", "ANOMALY" if bgp_anomaly else "NORMAL", 1 if bgp_anomaly else 0, "BGP prefix withdrawal" if bgp_anomaly else None)
+
+        # NASA FIRMS (Physical)
+        if nasa_firms_sensor and nasa_firms_sensor.enabled:
+            has_firms = any(f["code"] == core_theater for f in nasa_firms_data)
+            _firms_global_codes = sorted({f["code"] for f in nasa_firms_data})
+            if has_firms:
+                _firms_val = f"Thermal Anomaly [{core_theater}]"
+            elif _firms_global_codes:
+                _firms_val = f"Global only [{','.join(_firms_global_codes[:4])}]"
+            else:
+                _firms_val = "No Anomalies"
+            add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", _firms_val, 3 if has_firms else 0, "Kinetic Strike Precursor")
+
+        # ThreatFox (Cyber)
+        if threatfox_sensor and threatfox_sensor.enabled:
+            has_tf = core_theater in threatfox_data
+            add_rat("threatfox", "cyber", "FIRED" if has_tf else "OK", "APT C2 Hit", 1 if has_tf else 0, "Known APT infra matched")
+
+        if peeringdb_sensor and peeringdb_sensor.enabled:
+            add_rat("peeringdb_ixp", "physical", "OK", f"IXP(s) registered", 0, None)
+
+        # ── Additional sensor rationale + Sequence Event registration ──────────────────────
+
+        # RSS narrative burst
+        core_narrative = narrative_data.get(core_theater, {})
+        narrative_burst = core_narrative.get("is_burst", False)
+        narrative_z     = core_narrative.get("z_score", 0.0)
+        narrative_status = core_narrative.get("status", "NORMAL")
+        if rss_narrative_sensor and rss_narrative_sensor.enabled:
+            n_score = 2 if narrative_status == "CRITICAL_BURST" else 1 if narrative_burst else 0
+            add_rat("rss_narrative", "info",
+                    "FIRED" if narrative_burst else "OK",
+                    f"Z={narrative_z:.2f} [{narrative_status}]",
+                    n_score,
+                    f"Narrative Burst Z={narrative_z:.2f}" if narrative_burst else None)
+            if narrative_burst:
+                register_sequence_event(core_theater, "NARRATIVE_BURST",
+                                        {"z_score": narrative_z, "status": narrative_status})
+
+        # ISR hotspot surge
+        core_isr = isr_data.get(core_theater, {})
+        isr_surge = core_isr.get("is_surge", False)
+        isr_count = core_isr.get("count", 0)
+        if isr_hotspot_sensor and isr_hotspot_sensor.enabled:
+            add_rat("isr_hotspot", "physical",
+                    "FIRED" if isr_surge else "OK",
+                    f"{isr_count} ISR ac in hotspot",
+                    2 if isr_surge else 0,
+                    f"ISR surge: {isr_count} aircraft" if isr_surge else None)
+            if isr_surge:
+                register_sequence_event(core_theater, "ISR_SURGE",
+                                        {"count": isr_count, "hotspots": core_isr.get("hotspots", [])})
+
+        # AIS maritime anomaly
+        if ais_maritime_sensor and ais_maritime_sensor.enabled:
+            core_gaps = [g for g in ais_dark_gaps if any(
+                cp["country"] == core_theater for cp in CHOKEPOINTS if cp["name"] == g.get("chokepoint")
+            )]
+            ais_fired = ais_has_anomaly or len(core_gaps) > 0
+            add_rat("ais_maritime", "physical",
+                    "FIRED" if ais_fired else "OK",
+                    f"dark_gaps={len(ais_dark_gaps)} stationary={len(ais_stationary)}",
+                    1 if ais_fired else 0,
+                    "AIS Dark Gap / Stationary Anomaly at chokepoint" if ais_fired else None)
+            if ais_fired:
+                register_sequence_event(core_theater, "AIS_DARK_GAP",
+                                        {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)})
+
+        # FIRMS → register Sequence Event (reuse existing sensor result)
+        has_firms_core = any(f.get("code") == core_theater for f in nasa_firms_data)
+        if has_firms_core:
+            register_sequence_event(core_theater, "FIRMS_ANOMALY",
+                                    {"hotspots": [f for f in nasa_firms_data if f.get("code") == core_theater]})
+
+        # Sync DDoS detection → register Sequence Event (only at high sync + high score)
+        if is_coordinated and high_correlation:
+            register_sequence_event(core_theater, "SYNC_DDOS",
+                                    {"coordinated_theaters": elevated_theaters,
+                                     "max_overlap": max(correlations.values(), default=0.0)})
+
+        # ── v9 sensor rationale ────────────────────────────────────────────────
+
+        # Telegram Mirror (Info Domain)
+        core_telegram        = telegram_data.get(core_theater, {})
+        telegram_intent      = core_telegram.get("has_attack_intent", False)
+        telegram_status      = core_telegram.get("status", "CLEAR")
+        telegram_active_ch   = core_telegram.get("active_channels", [])
+        telegram_z           = core_telegram.get("z_score", 0.0)
+        telegram_burst       = core_telegram.get("is_burst", False)
+        telegram_confidence  = core_telegram.get("claim_confidence", 1.0)
+        if telegram_mirror_sensor and telegram_mirror_sensor.enabled:
+            if telegram_status == "CRITICAL_BURST":
+                tg_score = 2
+            elif telegram_burst or telegram_intent:
+                tg_score = 1
+            elif telegram_status == "TARGETS_FOUND":
+                tg_score = 1
+            else:
+                tg_score = 0
+            # Confidence suppression: low-credibility channels reduce score by 1
+            suppressed_by_confidence = False
+            if tg_score > 0 and telegram_confidence < TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD:
+                tg_score = max(0, tg_score - 1)
+                suppressed_by_confidence = True
+            fired = tg_score > 0
+            detail = f"Z={telegram_z:.2f} [{telegram_status}] conf={telegram_confidence:.2f} ch={telegram_active_ch[:3]}"
+            if suppressed_by_confidence:
+                detail += " (confidence-suppressed)"
+            add_rat("telegram_mirror", "info",
+                    "FIRED" if fired else "OK",
+                    detail,
+                    tg_score,
+                    f"Telegram Burst Z={telegram_z:.2f} (conf={telegram_confidence:.2f})" if telegram_burst else
+                    f"Attack intent intercepted on Telegram: {telegram_active_ch}" if telegram_intent else
+                    "Target URLs found in Telegram channels" if telegram_status == "TARGETS_FOUND" else None)
+            if telegram_burst or telegram_intent:
+                register_sequence_event(core_theater, "NARRATIVE_BURST", {
+                    "source": "telegram_mirror", "channels": telegram_active_ch,
+                    "targets": core_telegram.get("target_urls", [])[:5],
+                    "z_score": telegram_z,
+                })
+
+        # Check-Host (Physical Domain)
+        core_checkhost   = checkhost_data.get(core_theater, {})
+        ch_status        = core_checkhost.get("status", "UNKNOWN")
+        ch_success_rate  = core_checkhost.get("theater_success_rate")
+        if check_host_sensor and check_host_sensor.enabled:
+            # PARTIAL = 1〜2ノードの到達失敗。Maskirovkaポリシーと一貫性を保つため+1に抑制。
+            # BLACKOUT = 全ノード到達不能 = 重大なインフラ劣化として+3を維持。
+            ch_score = (3 if ch_status == "BLACKOUT" else 1 if ch_status == "PARTIAL" else 0)
+            ch_fired = ch_status in ("BLACKOUT", "PARTIAL")
+            add_rat("check_host", "physical",
+                    "FIRED" if ch_fired else ("OK" if ch_status == "OK" else "NO_DATA"),
+                    f"{ch_status} success={ch_success_rate:.0%}" if ch_success_rate is not None else ch_status,
+                    ch_score,
+                    f"Infrastructure availability: {ch_status} (success_rate={ch_success_rate:.0%})" if ch_fired and ch_success_rate is not None else None)
+
+        # GreyNoise (Cyber Domain — noise suppressor)
+        core_greynoise     = greynoise_data.get(core_theater, {})
+        gn_noise_class     = core_greynoise.get("noise_class", "UNKNOWN")
+        gn_suppress        = core_greynoise.get("suppress_confidence", False)
+        gn_noise_ratio     = core_greynoise.get("noise_ratio")
+        if greynoise_sensor and greynoise_sensor.enabled:
+            add_rat("greynoise", "cyber",
+                    "SUPPRESSED" if gn_suppress else "OK",
+                    f"{gn_noise_class} noise={gn_noise_ratio:.0%}" if gn_noise_ratio is not None else gn_noise_class,
+                    0,   # GreyNoise provides suppression only, not a bonus
+                    None,
+                    is_suppressed=gn_suppress,
+                    suppress_reason=f"GreyNoise: {gn_noise_class} — traffic classified as internet background noise" if gn_suppress else None)
+
+        # ── v9 Temporal Coherence analysis ─────────────────────────────────────
+        is_c2_sync, coherence_score, temporal_bonus, temporal_detail = \
+            engine.compute_temporal_coherence(sequence_event_log, list(strategic_theaters_set))
+
+        # ── Asphyxiation flag from Check-Host (CDN masking detection) ───────────
+        ch_asphyxiation = core_checkhost.get("asphyxiation", False)
+
+        # ── Cross-theater sensor liveness for Maskirovka confidence upgrade ─────
+        # Other sensors are considered "alive" if ≥1 non-core theater's Check-Host
+        # or IODA sensor returned a valid (non-error) result recently.
+        other_theater_live = False
+        for _t in strategic_theaters_set:
+            if _t == core_theater:
+                continue
+            _other_ch = checkhost_data.get(_t, {})
+            if _other_ch.get("theater_success_rate") is not None:
+                other_theater_live = True
+                break
+            if ioda_data.get(_t) in ("NORMAL", "BGP_OUTAGE"):
+                other_theater_live = True
+                break
+
+        # ── v9 Maskirovka detection ─────────────────────────────────────────────
+        is_maskirovka, maskirovka_conf, maskirovka_reason = engine.detect_maskirovka(
+            core_degraded=core_degraded,
+            narrative_burst=narrative_burst or telegram_intent,
+            check_host_status=ch_status,
+            telegram_intent=telegram_intent,
+            other_sensors_alive=other_theater_live,
+        )
+        if is_maskirovka:
+            # HIGH confidence = +2 score (cross-theater confirmed suppression),
+            # MEDIUM confidence = +1 score (no corroborating cross-theater data)
+            msk_score = 2 if maskirovka_conf == "HIGH" else 1
+            add_rat("maskirovka_flag", "info",
+                    "FIRED", f"conf={maskirovka_conf}",
+                    msk_score, maskirovka_reason)
+
+        # ── Derivative computation (Velocity / Acceleration / Ambush) ───────────────
+        ts_series_core = time_series_ts_db.get(core_theater, [])
+        is_ambush, ambush_z, velocity_val, acceleration_val = engine.detect_ambush_pattern(ts_series_core)
+        if is_ambush:
+            add_rat("ddos_acceleration", "cyber",
+                    "FIRED", f"Ambush Z={ambush_z:.2f} v={velocity_val:.4f}",
+                    2, f"Exponential escalation detected (2nd derivative Z={ambush_z:.2f})")
+
+        # ── Sequence Bonus computation ──────────────────────────────────────────
+        seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
+
+        domain_scores = engine.compute_domain_scores(rationale)
+        total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
+        convergence_score = engine.compute_convergence_score(domain_scores)
+        score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
+        # Add Sequence Bonus and Temporal Coherence Bonus to final score
+        score_with_bonus += seq_bonus + temporal_bonus
+        # Cap final score to prevent bonus stacking from inflating beyond TL1 threshold ceiling
+        score_with_bonus = min(score_with_bonus, 15)
+        active_domains = sum(1 for s in domain_scores.values() if s > 0)
+        tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard, active_domains)
+        threat_level, tl_held = engine.apply_hysteresis(tl_raw, threat_history)
+        threat_history.append((current_time, threat_level))
+        # deque(maxlen=20) automatically evicts old entries
+
+        system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
+
+        # Deep analysis result summary
+        deep_analytics = {
+            "velocity":        round(velocity_val, 6),
+            "acceleration":    round(acceleration_val, 8),
+            "is_ambush":       is_ambush,
+            "ambush_z_score":  ambush_z,
+            "sequence_bonus":  seq_bonus,
+            "sequence_status": seq_status,
+            "sequence_chain":  seq_chain,
+            "narrative": {
+                "z_score": narrative_z,
+                "status":  narrative_status,
+                "is_burst": narrative_burst,
+            },
+            "isr": {
+                "count":    isr_count,
+                "is_surge": isr_surge,
+            },
+            "ais": {
+                "dark_gaps":   len(ais_dark_gaps),
+                "stationary":  len(ais_stationary),
+                "has_anomaly": ais_has_anomaly,
+            },
+            # Blockade Index v9: (DDoS intensity × RIPE delay) / Check-Host success rate
+            # asphyxiation=True applies 1.5× weight when CDN masks packet loss but latency triples
+            "blockade_index": engine.compute_blockade_index(
+                ddos_intensity=core_spike,
+                ripe_drop_pct=bgp_routing_data.get(core_theater, {}).get("drop_pct", 0.0),
+                checkhost_success_rate=ch_success_rate,
+                asphyxiation=ch_asphyxiation,
+            ),
+            # Temporal Coherence (v9 C2 synchrony analysis)
+            "temporal_coherence": {
+                "is_c2_sync":     is_c2_sync,
+                "coherence_score": coherence_score,
+                "bonus":          temporal_bonus,
+                "detail":         temporal_detail,
+            },
+            # Maskirovka deception detection (v9)
+            "maskirovka": {
+                "detected":    is_maskirovka,
+                "confidence":  maskirovka_conf,
+                "reason":      maskirovka_reason,
+            },
+            # Check-Host Survival (v9) — includes detailed data + asphyxiation flag
+            "check_host": {
+                "theater_success_rate": ch_success_rate,
+                "status":              ch_status,
+                "url_results":         core_checkhost.get("urls", {}),
+                "nodes":               CHECKHOST_NODES,
+                "asphyxiation":        ch_asphyxiation,
+                # Aggregate per-node OK/FAIL across all checked URLs
+                # Aggregate per-node status across all checked URLs.
+                # Uses worst-case: FAIL > TIMEOUT > OK > PENDING
+                # (preserves TIMEOUT/PENDING so the frontend renders correct dot colors)
+                "node_ok": {
+                    node: WeightedConvergenceEngine._agg_node_status([
+                        url_r["node_ok"][node]
+                        for url_r in core_checkhost.get("urls", {}).values()
+                        if isinstance(url_r, dict) and node in url_r.get("node_ok", {})
+                    ])
+                    for node in set(
+                        n
+                        for url_r in core_checkhost.get("urls", {}).values()
+                        if isinstance(url_r, dict)
+                        for n in url_r.get("node_ok", {}).keys()
+                    )
+                },
+            },
+            # Telegram Mirror (v9) — includes channel/URL details
+            "telegram_mirror": {
+                "has_intent":          telegram_intent,
+                "status":              telegram_status,
+                "active_channels":     telegram_active_ch,
+                "channels_monitored":  core_telegram.get("channels_monitored", []),
+                "target_urls":         core_telegram.get("target_urls", []),
+                "theater_breakdown":   telegram_data,
+                "recent_hits":         TelegramMirrorSensor._intercept_log[:10],
+                "last_poll_ts":        TelegramMirrorSensor._last_poll_ts,
+                "last_poll_ok":        TelegramMirrorSensor._last_poll_ok,
+            },
+            # GreyNoise (v9) — includes tier info
+            "greynoise": {
+                "noise_class":   gn_noise_class,
+                "noise_ratio":   gn_noise_ratio,
+                "suppressing":   gn_suppress,
+                "gnql_tier":     core_greynoise.get("gnql_tier", "none"),
+                "theater_data":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},
+            },
+        }
+
+        score_breakdown = {
+            "core_spike_val": round(core_spike, 2), "core_spike_2x": core_spike > 2.0, "core_spike_4x": core_spike > 4.0, "core_spike_6x": core_spike > 6.0,
+            "high_correlation": high_correlation, "core_shifted": core_shifted, "major_adversary": major_adversary, "core_degraded": core_degraded,
+            "is_coordinated": is_coordinated, "tl1_hard": tl1_hard, "total_score": total_score,
+            "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "temporal_bonus": temporal_bonus,
+            "score_with_bonus": score_with_bonus, "threat_raw": tl_raw, "threat_held": tl_held,
+            "is_c2_sync": is_c2_sync, "is_maskirovka": is_maskirovka,
+        }
+
+        # ioda_overlays: extract BGP_OUTAGE countries from full IODA cache (global display)
+        ioda_overlays = [
+            {"code": code, "lat": COUNTRY_COORDS[code]["lat"], "lng": COUNTRY_COORDS[code]["lng"],
+             "name": COUNTRY_COORDS[code]["name"], "status": "BGP_OUTAGE"}
+            for code, status in ioda_data.items()
+            if status == "BGP_OUTAGE" and code in COUNTRY_COORDS
+        ]
+
+        _new_cache = {
+            "time": current_time,
+            "data": target_details,
+            "strategic": {
+                "core_theater": core_theater, "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
+                "correlations": correlations, "correlations_l3": correlations_l3, "correlations_l7": correlations_l7,
+                "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
+                "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+                "degraded_theaters_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
+                "coordinated_theaters": elevated_theaters if is_coordinated else [],
+                "domains": {
+                    d: {"score": domain_scores.get(d, 0), "weight": engine.DOMAIN_WEIGHTS.get(d, 0), "weighted": round(min(domain_scores.get(d, 0), 10) * engine.DOMAIN_WEIGHTS.get(d, 0), 2), "status": "CRITICAL" if domain_scores.get(d, 0) >= 6 else "ELEVATED" if domain_scores.get(d, 0) >= 3 else "WATCH" if domain_scores.get(d, 0) >= 1 else "NORMAL"} for d in ("cyber", "physical", "info")
+                },
+                "convergence_score": round(convergence_score, 2), "convergence_level": convergence_level,
+                "rationale_matrix": [e.to_dict() for e in rationale], "noise_filters_applied": noise_filters_applied, "system_note": system_note,
+                "country_intel": {
+                    code: {
+                        "weather": weather_conditions.get(code), "airspace": airspace_data.get(code), "gdelt": gdelt_tones.get(code),
+                        "bgp_routing": bgp_routing_data.get(code), "ixp_count": ixp_data.get(code, {}).get("count", 0),
+                        "ixp_names": [ix["name"] for ix in ixp_data.get(code, {}).get("ixps", [])], "ioda_status": ioda_data.get(code, "NORMAL"),
+                        "is_bgp_degraded": code in degraded_targets_effective,
+                    } for code in strategic_theaters_set if code in COUNTRY_COORDS
+                },
+                "map_overlays": {
+                    "ioda_outages": ioda_overlays, "airspace_anomaly": airspace_anomalies,
+                    "weather_events": [{"code": c, "lat": info.get("lat"), "lng": info.get("lng"), "condition": info.get("condition", ""), "description": info.get("description", ""), "severity": info.get("severity", "NORMAL"), "wind_speed": info.get("wind_speed", 0), "is_severe": info.get("is_severe", False)} for c, info in weather_conditions.items() if info.get("severity") in ("SEVERE", "MODERATE")],
+                    "gdelt_events": [{"code": c, "lat": COUNTRY_COORDS[c]["lat"], "lng": COUNTRY_COORDS[c]["lng"], "name": COUNTRY_COORDS[c]["name"], "tone_current": info.get("tone_current"), "tone_baseline": info.get("tone_baseline"), "delta": info.get("delta"), "status": info.get("status", "NORMAL"), "is_alert": info.get("is_alert", False)} for c, info in gdelt_tones.items() if c in COUNTRY_COORDS and info.get("status") in ("ALERT", "WEATHER_NOISE")],
+                    "critical_nodes": [{"type": "IXP", "id": ix["id"], "name": ix["name"], "aka": ix.get("aka", ""), "city": ix["city"], "country": c, "lat": ix["lat"], "lng": ix["lng"], "status": ix.get("status", "ok")} for c, cdata in ixp_data.items() for ix in cdata.get("ixps", []) if ix.get("lat") and ix.get("lng")],
+                    "firms_anomalies": nasa_firms_data,
+                    "chokepoints": (lambda dg_names={g["chokepoint"] for g in ais_dark_gaps}, st_names={s["chokepoint"] for s in ais_stationary}: [
+                        {
+                            "name":    c["name"],
+                            "lat":     c["lat"],
+                            "lng":     c["lng"],
+                            "country": c["country"],
+                            "type":    c.get("type", "cable_landing"),
+                            "cables":  c.get("cables", []),
+                            "status":  ("dark_gap"   if c["name"] in dg_names else
+                                        "stationary" if c["name"] in st_names else
+                                        "normal"),
+                        }
+                        for c in CHOKEPOINTS  # Display all chokepoints (no country filter)
+                    ])(),
+                    "cable_routes": CABLE_ROUTES,
+                    # Additional overlays
+                    "isr_hotspots": [
+                        {
+                            "name":      hs["name"],
+                            "lat":       hs["lat"],
+                            "lng":       hs["lng"],
+                            "radius_km": hs.get("radius_km", 200),
+                            "theater":   hs["theater"],
+                            "isr_count": isr_data.get(hs["theater"], {}).get("count", 0),
+                            "is_surge":  isr_data.get(hs["theater"], {}).get("is_surge", False),
+                            "tracks":    next(
+                                (h["tracks"] for h in isr_data.get(hs["theater"], {}).get("hotspots", [])
+                                 if h["name"] == hs["name"]),
+                                []
+                            ),
+                        }
+                        for hs in ISR_HOTSPOTS if hs["theater"] in strategic_theaters_set
+                    ],
+                    "ais_dark_gaps":  ais_dark_gaps[:10],
+                    "ais_stationary": ais_stationary[:10],
+                },
+                # Deep analysis block
+                "analytics": deep_analytics,
+            },
+        }
+        with _global_cache_lock:
+            global_cache = _new_cache
+
+        alert_timeline.append({
+            "ts": current_time, "threat_level": threat_level, "threat_raw": tl_raw, "threat_held": tl_held, "score": total_score, "score_with_bonus": score_with_bonus,
+            "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
+            "sequence_bonus": seq_bonus, "sequence_status": seq_status,
+            "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
+            "core_theater": core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+            "is_coordinated": is_coordinated, "system_note": system_note,
+            "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
+            "blockade_index": deep_analytics["blockade_index"],
+        })
+        # deque(maxlen=ALERT_TIMELINE_MAX) automatically evicts old entries
+
+    results = []
+    for t in requested_targets:
+        t_info = COUNTRY_COORDS.get(t, {"lat": 0, "lng": 0, "name": t})
+        data = global_cache["data"].get(t, {"global_share": 0, "global_share_l3": 0, "global_share_l7": 0, "is_vector_shift": False, "shift_actors": [], "sources": []})
+        
+        degraded_raw = global_cache["strategic"].get("degraded_theaters_raw", [])
+        degraded_eff = global_cache["strategic"].get("degraded_theaters", [])
+        
+        # Compute velocity and acceleration per target
+        ts_series_t = time_series_ts_db.get(t, [])
+        t_vel = engine.compute_velocity(ts_series_t)
+        t_ambush, t_ambush_z, _, _ = engine.detect_ambush_pattern(ts_series_t)
+        results.append({
+            "lat": t_info["lat"], "lng": t_info["lng"], "info": t_info["name"], "code": t,
+            "global_share": data.get("global_share", 0.0), "global_share_l3": data.get("global_share_l3", 0.0), "global_share_l7": data.get("global_share_l7", 0.0),
+            "is_bgp_outage": t in degraded_raw,
+            "is_bgp_effective": t in degraded_eff,
+            "is_vector_shift": data.get("is_vector_shift", False), "shift_actors": data.get("shift_actors", []),
+            "trend_history": time_series_db.get(t, []), "trend_history_l3": time_series_l3_db.get(t, []), "trend_history_l7": time_series_l7_db.get(t, []),
+            "sources": data.get("sources", []),
+            "velocity": round(t_vel, 5),
+            "is_ambush": t_ambush,
+            "ambush_z":  t_ambush_z,
+        })
+
+    return jsonify({
+        "timestamp":       datetime.datetime.now().isoformat(),
+        "sensor_health":   registry.health_report(),
+        "strategic_alert": global_cache["strategic"],
+        "targets":         results,
+        "threat_history":  list(threat_history),
+    })
+
+@bp.route("/api/env_config", methods=["GET"])
+def api_env_config_get():
+    """Read config.env and return all key=value pairs as JSON (excluding comments)."""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    config = {}
+    try:
+        with open("config.env", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                config[key] = val
+    except FileNotFoundError:
+        return jsonify({"error": "config.env not found"}), 404
+    return jsonify(config)
+
+
+@bp.route("/api/env_config", methods=["POST"])
+def api_env_config_post():
+    """Write updated key=value pairs to config.env, preserving comments and structure."""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    updates = request.json or {}
+    if not updates:
+        return jsonify({"error": "No data provided"}), 400
+    try:
+        with open("config.env", encoding="utf-8") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        return jsonify({"error": "config.env not found"}), 404
+
+    updated_keys = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key, _, _ = stripped.partition("=")
+            key = key.strip()
+            if key in updates:
+                # Preserve any inline comment on the same line
+                original_val_part = line.split("=", 1)[1]
+                inline_comment = ""
+                if "  #" in original_val_part:
+                    inline_comment = "  " + original_val_part.split("  #", 1)[1].rstrip("\n")
+                new_lines.append(f"{key}={updates[key]}{inline_comment}\n")
+                updated_keys.add(key)
+                continue
+        new_lines.append(line)
+
+    with open("config.env", "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
+
+    return jsonify({"ok": True, "updated": sorted(updated_keys)})
+
+
+@bp.route("/api/sensor_config", methods=["GET", "POST"])
+def sensor_config():
+    if request.method == "GET": return jsonify({"sensors": registry.config_list(), "domain_weights": engine.DOMAIN_WEIGHTS})
+    body = request.get_json(silent=True) or {}
+    name, enabled = body.get("name", ""), body.get("enabled")
+    if not name or enabled is None: return jsonify({"error": "name and enabled are required"}), 400
+    if registry.get(name) is None: return jsonify({"error": f"Unknown sensor: {name}"}), 404
+    registry.set_enabled(name, bool(enabled))
+    return jsonify({"ok": True, "sensor": name, "enabled": registry.get(name).enabled})
+
+@bp.route("/api/data_status", methods=["GET"])
+def data_status():
+    now = time.time(); sensors_status = []
+    for s in registry._sensors.values():
+        log = s.get_fetch_log()
+        sensors_status.append({
+            "sensor": s.name, "domain": s.domain, "enabled": s.enabled, "health": s.health,
+            "poll_interval_sec": s.poll_interval, "cache_age_sec": round(now - s._cache_time) if s._cache_time else None,
+            "cache_size_chars": len(str(s._cache)), "last_error": s._last_error, "last_fetch": log[-1] if log else None, "fetch_log": log,
+        })
+    return jsonify({"ts": datetime.datetime.now().isoformat(), "sensors": sensors_status})
+
+@bp.route("/api/alert_timeline", methods=["GET"])
+def api_alert_timeline():
+    limit = min(int(request.args.get("limit", 288)), 288)
+    return jsonify({"ts": datetime.datetime.now().isoformat(), "count": len(alert_timeline), "timeline": list(alert_timeline)[-limit:]})
+
+@bp.route("/api/telegram_log/clear", methods=["POST"])
+def api_telegram_log_clear():
+    """Clear the Telegram SIGINT intercept log."""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    TelegramMirrorSensor._intercept_log.clear()
+    return jsonify({"ok": True, "ts": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+
+@bp.route("/api/sitrep", methods=["GET"])
+def api_sitrep():
+    now_ts = datetime.datetime.now(datetime.timezone.utc)
+    if not alert_timeline: 
+        return jsonify({"ts": now_ts.isoformat(), "text": "No data available yet.", "summary": {}})
+    
+    _tl = list(alert_timeline)
+    recent, latest, oldest = _tl[-12:], _tl[-1], _tl[0]
+    span_min = round((latest["ts"] - oldest["ts"]) / 60) if len(alert_timeline) > 1 else 0
+    levels = [e["threat_level"] for e in recent]
+    min_d, max_d, avg_d = min(levels), max(levels), round(sum(levels) / len(levels), 1)
+    
+    conv_counts = {}
+    for e in recent:
+        lv = e.get("convergence_level", "NONE")
+        conv_counts[lv] = conv_counts.get(lv, 0) + 1
+    dominant_conv = max(conv_counts, key=lambda k: conv_counts[k])
+    
+    active_domains = []
+    if latest.get("domain_cyber", 0) > 0: active_domains.append("CYBER")
+    if latest.get("domain_physical", 0) > 0: active_domains.append("PHYSICAL")
+    if latest.get("domain_info", 0) > 0: active_domains.append("INFO")
+    
+    trend = "INSUFFICIENT DATA"
+    if len(levels) >= 3:
+        trend_val = latest["threat_level"] - levels[0]
+        trend = "ESCALATING" if trend_val < 0 else "DE-ESCALATING" if trend_val > 0 else "STABLE"
+
+    core = latest.get("core_theater") or "UNKNOWN"
+    note = latest.get("system_note", "")
+    
+    text_lines = [
+        "UNCLASSIFIED // FOR OFFICIAL USE ONLY",
+        "TACTICAL SITUATION REPORT (SITREP)",
+        f"DTG: {now_ts.strftime('%d%H%MZ %b %Y').upper()}",
+        "--------------------------------------------------",
+        "1. OVERALL ASSESSMENT",
+        f"   CURRENT THREAT LEVEL : LEVEL {latest['threat_level']} [{trend}]",
+        f"   PRIMARY THEATER      : {core}",
+        f"   CONVERGENCE STATE    : {dominant_conv.replace('_', ' ')}",
+        f"   OBSERVATION WINDOW   : {span_min} MIN / {len(alert_timeline)} CYCLES",
+        "",
+        "2. DOMAIN ACTIVITY (LAST 1H)",
+        f"   THREAT RANGE         : LV {min_d} - LV {max_d} (AVG: {avg_d})",
+        f"   ACTIVE DOMAINS       : {', '.join(active_domains) if active_domains else 'NONE'}",
+    ]
+    
+    degraded = latest.get("degraded_theaters", [])
+    if degraded: 
+        text_lines += [f"   CRITICAL OUTAGES     : {', '.join(degraded)}"]
+    
+    if latest.get("is_coordinated"): 
+        text_lines += ["   WARNING              : COORDINATED MULTI-FRONT ACTIVITY DETECTED"]
+
+    text_lines += [
+        "",
+        "3. SYSTEM RATIONALE & ANALYST NOTE",
+        f"   {note}" if note else "   NO ADDITIONAL RATIONALE PROVIDED.",
+        "",
+        "4. RECOMMENDATION",
+        "   System assessment is probabilistic. Human-in-the-loop (HITL) verification required.",
+        "--------------------------------------------------"
+    ]
+
+    return jsonify({
+        "ts": now_ts.isoformat(), 
+        "text": "\n".join(text_lines),
+        "summary": {
+            "threat_current": latest["threat_level"],
+            "threat_trend": trend, 
+            "threat_min_1h": min_d,
+            "threat_max_1h": max_d,
+            "threat_avg_1h": avg_d, 
+            "convergence": dominant_conv, 
+            "active_domains": active_domains, 
+            "core_theater": core, 
+            "span_minutes": span_min, 
+            "cycle_count": len(alert_timeline)
+        },
+    })
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ── Advanced Analytics Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/api/sequence_chain", methods=["GET"])
+def api_sequence_chain():
+    """
+    Return escalation chain status for all theaters.
+    Query parameter: ?theater=TW (omit for all theaters)
+    """
+    theater_param = request.args.get("theater", "").upper()
+    now = time.time()
+    result = {}
+    theaters = [theater_param] if theater_param else list(sequence_event_log.keys())
+    for th in theaters:
+        bonus, status, chain = compute_sequence_bonus(th)
+        cutoff = now - SEQUENCE_WINDOW
+        events = [e for e in sequence_event_log.get(th, []) if e["ts"] >= cutoff]
+        result[th] = {
+            "sequence_bonus":  bonus,
+            "chain_status":    status,
+            "chain_found":     chain,
+            "events":          [
+                {"ts": e["ts"], "dt": datetime.datetime.fromtimestamp(e["ts"]).isoformat(),
+                 "type": e["type"], "meta": e["meta"]}
+                for e in sorted(events, key=lambda x: x["ts"])
+            ],
+            "window_hours": SEQUENCE_WINDOW // 3600,
+        }
+    return jsonify({"ts": datetime.datetime.now().isoformat(), "chains": result})
+
+
+@bp.route("/api/deep_analytics", methods=["GET"])
+def api_deep_analytics():
+    """
+    Detailed endpoint for deep analysis results.
+    Returns velocity/acceleration/ambush/narrative/ISR/AIS/blockade_index.
+    """
+    theater_param = request.args.get("theater", DEFAULT_CORE).upper()
+    ts_series = time_series_ts_db.get(theater_param, [])
+    velocity   = engine.compute_velocity(ts_series)
+    acc        = engine.compute_acceleration(ts_series)
+    is_ambush, ambush_z, _, _ = engine.detect_ambush_pattern(ts_series)
+    seq_bonus, seq_status, seq_chain = compute_sequence_bonus(theater_param)
+
+    narrative_sensor = registry.get("rss_narrative")
+    narrative_info   = narrative_sensor.get_cache().get("narratives", {}).get(theater_param, {}) if narrative_sensor else {}
+    isr_sensor       = registry.get("isr_hotspot")
+    isr_info         = isr_sensor.get_cache().get("isr_data", {}).get(theater_param, {}) if isr_sensor else {}
+    ais_sensor       = registry.get("ais_maritime")
+    ais_gaps         = ais_sensor.get_cache().get("dark_gaps", []) if ais_sensor else []
+    ais_stat         = ais_sensor.get_cache().get("stationary_anomalies", []) if ais_sensor else []
+
+    # Blockade Index v9: (DDoS intensity × RIPE delay) / Check-Host success rate
+    strategic    = global_cache.get("strategic", {})
+    analytics_v9 = strategic.get("analytics", {})
+    core_spike_v = strategic.get("threat_breakdown", {}).get("core_spike_val", 0.0)
+    is_degraded  = theater_param in strategic.get("degraded_theaters", [])
+    # Use v9 blockade_index from cache if available, otherwise recompute with compute_blockade_index
+    if "blockade_index" in analytics_v9:
+        blockade_idx = analytics_v9["blockade_index"]
+    else:
+        bgp_s   = registry.get("ripe_bgp")
+        ch_s    = registry.get("check_host")
+        ripe_drop = bgp_s.get_cache().get("routing_stats", {}).get(theater_param, {}).get("drop_pct", 0.0) if bgp_s else 0.0
+        ch_rate   = ch_s.get_cache().get("check_host", {}).get(theater_param, {}).get("theater_success_rate") if ch_s else None
+        blockade_idx = engine.compute_blockade_index(core_spike_v, ripe_drop, ch_rate)
+
+    # Velocity trend (format time series for response)
+    velocity_series = []
+    for i in range(1, len(ts_series)):
+        dt = ts_series[i][0] - ts_series[i-1][0]
+        if dt > 0:
+            v = (ts_series[i][1] - ts_series[i-1][1]) / dt
+            velocity_series.append({
+                "ts": ts_series[i][0],
+                "dt": datetime.datetime.fromtimestamp(ts_series[i][0]).isoformat(),
+                "velocity": round(v, 6),
+                "spike_val": ts_series[i][1],
+            })
+
+    return jsonify({
+        "ts": datetime.datetime.now().isoformat(),
+        "theater": theater_param,
+        "acceleration_engine": {
+            "velocity":      round(velocity, 6),
+            "acceleration":  round(acc, 8),
+            "is_ambush":     is_ambush,
+            "ambush_z_score": ambush_z,
+            "velocity_series": velocity_series[-20:],
+        },
+        "sequence_scorer": {
+            "bonus":  seq_bonus,
+            "status": seq_status,
+            "chain":  seq_chain,
+            "events": [
+                {"ts": e["ts"], "dt": datetime.datetime.fromtimestamp(e["ts"]).isoformat(),
+                 "type": e["type"]}
+                for e in sorted(sequence_event_log.get(theater_param, []), key=lambda x: x["ts"])
+            ],
+        },
+        "narrative_burst": {
+            "z_score":         narrative_info.get("z_score", 0.0),
+            "status":          narrative_info.get("status", "NO_DATA"),
+            "is_burst":        narrative_info.get("is_burst", False),
+            "normalized_freq": narrative_info.get("normalized_freq", 0.0),
+            "baseline_mean":   narrative_info.get("baseline_mean", 0.0),
+            "baseline_std":    narrative_info.get("baseline_std", 0.0),
+            "keyword_hits":    narrative_info.get("keyword_hits", 0),
+            "article_count":   narrative_info.get("article_count", 0),
+        },
+        "isr_hotspot": {
+            "count":    isr_info.get("count", 0),
+            "is_surge": isr_info.get("is_surge", False),
+            "hotspots": isr_info.get("hotspots", []),
+        },
+        "ais_maritime": {
+            "dark_gaps":   ais_gaps[:5],
+            "stationary":  ais_stat[:5],
+            "has_anomaly": bool(ais_gaps or ais_stat),
+        },
+        "blockade_index": {
+            "value":       blockade_idx,
+            "ddos_spike":  core_spike_v,
+            "is_degraded": is_degraded,
+            "interpretation": (
+                "INFRASTRUCTURE_NEUTRALIZATION" if blockade_idx >= 7.0 else
+                "SEVERE_DISRUPTION"             if blockade_idx >= 4.0 else
+                "POLITICAL_NOISE"               if blockade_idx >= 1.5 else
+                "NORMAL"
+            ),
+        },
+    })
+
+
+@bp.route("/api/salute_report", methods=["GET"])
+def api_salute_report():
+    """
+    Generate the current threat situation as a SALUTE format (Size/Activity/Location/Unit/Time/Equipment)
+    contact report. Activates the analyst's trained cognitive mode.
+    Supports ?lang=en (default) or ?lang=ja.
+    """
+    lang = request.args.get('lang', 'en')
+    ja   = (lang == 'ja')
+
+    strat = global_cache.get("strategic", {})
+    p8    = strat.get("analytics", {})
+    now_ts = datetime.datetime.now(datetime.timezone.utc)
+    dtg = now_ts.strftime("%d%H%MZ %b %Y").upper()
+    threat_level = strat.get("threat_level", 5)
+    core   = strat.get("core_theater", "UNKNOWN")
+    bd     = strat.get("threat_breakdown", {})
+    adv_raw = strat.get("adversary_strikes", [])
+    adv     = list(dict.fromkeys(a.get("actor", str(a)) if isinstance(a, dict) else str(a) for a in adv_raw))
+    corr   = strat.get("correlations", {})
+    isr    = p8.get("isr", {})
+    ais    = p8.get("ais", {})
+    narr   = p8.get("narrative", {})
+    bi     = p8.get("blockade_index", 0.0)
+    seq    = p8.get("sequence_status", "NO_EVENTS")
+
+    # SIZE: actors and scale involved
+    size_parts = []
+    if adv:
+        size_parts.append(f"{'敵対国家' if ja else 'ADVERSARY STATES'}: {', '.join(adv)}")
+    if corr:
+        size_parts.append(f"{'連携シアター' if ja else 'CORRELATED THEATERS'}: {len(corr)}{'か国' if ja else ''}")
+    if isr.get("count", 0):
+        size_parts.append(f"{'ISR機' if ja else 'ISR AIRCRAFT'}: {isr['count']}{'機' if ja else ''}")
+    size = "; ".join(size_parts) if size_parts else ("不明 — 評価進行中" if ja else "UNKNOWN — ASSESSMENT IN PROGRESS")
+
+    # ACTIVITY: observed activity
+    acts = []
+    if bd.get("core_spike_val", 0) > 2:
+        layer = ("L7アプリケーション層" if ja else "L7 APPLICATION") if bd.get("core_shifted") else ("L3ボリューメトリック" if ja else "L3 VOLUMETRIC")
+        acts.append(f"DDoS {bd['core_spike_val']:.1f}{'×スパイク（' if ja else 'x SPIKE ('}{layer}{'）' if ja else ')'}")
+    if bd.get("is_coordinated"):
+        acts.append("協調型多正面活動" if ja else "COORDINATED MULTI-FRONT ACTIVITY")
+    if isr.get("is_surge"):
+        acts.append("ISRサージ確認" if ja else "ISR SURGE CONFIRMED")
+    if ais.get("dark_gaps", 0):
+        acts.append(f"{'チョークポイントでAISダークギャップ×' if ja else 'AIS DARK GAP x'}{ais['dark_gaps']}{'件' if ja else ' AT CHOKEPOINTS'}")
+    if narr.get("is_burst"):
+        acts.append(f"{'ナラティブバースト Z=' if ja else 'NARRATIVE BURST Z='}{narr.get('z_score',0):.1f}")
+    if p8.get("is_ambush"):
+        acts.append(f"{'待伏パターン（Z=' if ja else 'AMBUSH PATTERN (Z='}{p8.get('ambush_z_score',0):.1f}{'）' if ja else ')'}")
+    activity = "; ".join(acts) if acts else ("通常 — 特記すべき活動なし" if ja else "ROUTINE — NO SIGNIFICANT ACTIVITY")
+
+    # LOCATION: primary threat location
+    degraded = strat.get("degraded_theaters", [])
+    loc_parts = [f"{'主要' if ja else 'PRIMARY'}: {core}"]
+    if degraded:
+        loc_parts.append(f"{'劣化中' if ja else 'DEGRADED'}: {', '.join(degraded)}")
+    location = " / ".join(loc_parts)
+
+    # UNIT: attribution assessment
+    if adv and bd.get("major_adversary"):
+        unit = f"{'国家帰属確認 — ' if ja else 'STATE-ATTRIBUTED — '}{', '.join(adv)} {'国家ASN一致' if ja else 'STATE ASN CONFIRMED'}"
+    elif bd.get("is_coordinated"):
+        unit = "協調的 — 国家C2の可能性（帰属不明）" if ja else "COORDINATED — PROBABLE STATE C2 (UNKNOWN ATTRIBUTION)"
+    else:
+        unit = "不明 — 帰属評価中" if ja else "UNKNOWN — ATTRIBUTION ASSESSMENT PENDING"
+
+    # EQUIPMENT: attack vectors and tools used
+    equip_parts = []
+    if bd.get("core_shifted"):
+        equip_parts.append("L7 HTTPフラッド（意思決定麻痺型）" if ja else "L7 HTTP FLOOD (DECISION-PARALYSIS TYPE)")
+    elif bd.get("core_spike_val", 0) > 2:
+        equip_parts.append("L3帯域幅枯渇（盲目化型）" if ja else "L3 BANDWIDTH EXHAUSTION (BLINDING TYPE)")
+    if bd.get("tl1_hard"):
+        equip_parts.append("インフラ無力化能力" if ja else "INFRASTRUCTURE NEUTRALIZATION CAPABILITY")
+    if isr.get("is_surge"):
+        equip_parts.append("ISRプラットフォーム展開" if ja else "ISR PLATFORM DEPLOYMENT")
+    if ais.get("dark_gaps", 0):
+        equip_parts.append("秘密海上要素" if ja else "COVERT MARITIME ELEMENT")
+    equip = "; ".join(equip_parts) if equip_parts else ("標準的サイバーツール" if ja else "STANDARD CYBER TOOLS")
+
+    # ASSESSMENT
+    sig_map = (
+        {1: "危機的", 2: "高度", 3: "重大", 4: "中程度", 5: "通常"} if ja else
+        {1: "CRITICAL", 2: "HIGH", 3: "SIGNIFICANT", 4: "MODERATE", 5: "ROUTINE"}
+    )
+    significance = sig_map.get(threat_level, "不明" if ja else "UNKNOWN")
+
+    bi_interp = (
+        "INFRASTRUCTURE_NEUTRALIZATION" if bi >= 7.0 else
+        "SEVERE_DISRUPTION"             if bi >= 4.0 else
+        "POLITICAL_NOISE"               if bi >= 1.5 else "NORMAL"
+    )
+
+    no_chain_text = "活動中のシーケンスチェーンなし" if ja else "NO ACTIVE SEQUENCE CHAIN"
+    report = {
+        "dtg":          dtg,
+        "size":         size,
+        "activity":     activity,
+        "location":     location,
+        "unit":         unit,
+        "time":         dtg,
+        "equipment":    equip,
+        "assessment":   significance,
+        "threat_level": threat_level,
+        "blockade_interpretation": bi_interp,
+        "blockade_index": bi,
+        "sequence_status": seq,
+        "cross_ref": (
+            f"{'シーケンスチェーン' if ja else 'SEQ CHAIN'}: {seq}"
+            if seq not in ("NO_EVENTS", "INSUFFICIENT_CHAIN (0/4)") else no_chain_text
+        ),
+    }
+    return jsonify({"ts": now_ts.isoformat(), "report": report})
+
+
+@bp.route("/api/weather_brief", methods=["GET"])
+def api_weather_brief():
+    """
+    Convert current sensor data to an "Operational Weather Brief" format and return it.
+    Uses meteorological terminology to intuitively represent the threat environment.
+    Supports ?lang=en (default) or ?lang=ja.
+    """
+    lang = request.args.get('lang', 'en')
+    ja   = (lang == 'ja')
+
+    strat = global_cache.get("strategic", {})
+    p8    = strat.get("analytics", {})
+    bd    = strat.get("threat_breakdown", {})
+    isr   = p8.get("isr", {})
+    ais   = p8.get("ais", {})
+    narr  = p8.get("narrative", {})
+    bi    = p8.get("blockade_index", 0.0)
+    vel   = p8.get("velocity", 0.0)
+    is_ambush = p8.get("is_ambush", False)
+
+    # CYBER ATMOSPHERE
+    spike = bd.get("core_spike_val", 0.0)
+    if is_ambush:
+        cyber_state = "急速強化中 — 指数的上昇" if ja else "RAPID INTENSIFICATION"
+        cyber_desc  = (f"指数的エスカレーションを検出。眼壁形成中。気圧降下速度 {vel*900:.2f}pt/サイクル。" if ja else
+                       f"Exponential escalation detected. Eye-wall forming. Barometric pressure dropping at {vel*900:.2f}pt/cycle.")
+    elif spike > 6:
+        cyber_state = "大規模サイバー嵐" if ja else "MAJOR STORM"
+        cyber_desc  = (f"カテゴリ{min(int(spike/2),5)}サイバー嵐。{spike:.1f}×ベースライン。主ベクター: L{'7' if bd.get('core_shifted') else '3'}。" if ja else
+                       f"Category {min(int(spike/2),5)} cyber storm. {spike:.1f}x baseline. L{'7' if bd.get('core_shifted') else '3'} dominant vector.")
+    elif spike > 3:
+        cyber_state = "嵐の前線活発化" if ja else "ACTIVE STORM FRONT"
+        cyber_desc  = (f"重大な擾乱を検出。{spike:.1f}×ベースライン。状況悪化が予測される。" if ja else
+                       f"Significant disturbance. {spike:.1f}x baseline. Deepening conditions expected.")
+    elif spike > 1:
+        cyber_state = "うねり上昇中" if ja else "ELEVATED SWELL"
+        cyber_desc  = (f"海面不穏。{spike:.1f}×ベースライン。前線発達の可能性あり、要監視。" if ja else
+                       f"Choppy seas. {spike:.1f}x baseline. Monitor for front development.")
+    else:
+        cyber_state = "平穏 — 異常なし" if ja else "CLEAR"
+        cyber_desc  = "穏やかな状況。バックグラウンドノイズのみ。視界良好。" if ja else "Calm conditions. Background noise only. Visibility good."
+
+    # MARITIME ENVIRONMENT (AIS)
+    if ais.get("dark_gaps", 0) > 2:
+        mar_state = "視界ゼロ — 濃霧" if ja else "ZERO VISIBILITY — DENSE FOG"
+        mar_desc  = (f"{ais['dark_gaps']}隻が重要チョークポイント付近で消息不明。電波沈黙は秘密作戦態勢を示す。" if ja else
+                     f"{ais['dark_gaps']} vessels gone dark near critical chokepoints. Radio silence indicates covert posture.")
+    elif ais.get("dark_gaps", 0) > 0:
+        mar_state = "視界低下 — 断続的霧" if ja else "REDUCED VISIBILITY — PATCHY FOG"
+        mar_desc  = (f"AISダークギャップ {ais['dark_gaps']}件を検出。継続的な監視を推奨。" if ja else
+                     f"{ais['dark_gaps']} AIS Dark Gap(s) detected. Recommend continuous monitoring.")
+    elif ais.get("stationary", 0) > 0:
+        mar_state = "制限水域 — 障害物検出" if ja else "RESTRICTED WATERS — OBSTACLE"
+        mar_desc  = (f"非商業船舶 {ais['stationary']}隻がチョークポイント付近に停泊中。異常な挙動。" if ja else
+                     f"{ais['stationary']} non-commercial vessel(s) anchored near chokepoint. Anomalous.")
+    else:
+        mar_state = "通過良好 — 異常なし" if ja else "CLEAR PASSAGE"
+        mar_desc  = "通常の海上交通。AIS異常なし。" if ja else "Normal maritime traffic. No AIS anomalies detected."
+
+    # INFORMATION ENVIRONMENT (Narrative)
+    nz = narr.get("z_score", 0.0)
+    ns = narr.get("status", "NORMAL")
+    if ns == "CRITICAL_BURST":
+        info_state = "情報嵐 — ハリケーン級" if ja else "INFORMATION STORM — HURRICANE FORCE"
+        info_desc  = (f"Z={nz:.1f}。戦術キーワードが飽和状態。プロパガンダ機構が過活動。作戦前情報準備を検出。" if ja else
+                      f"Z={nz:.1f}. Tactical keyword saturation. Propaganda machine in overdrive. Pre-operation information preparation detected.")
+    elif ns == "BURST":
+        info_state = "上昇気圧 — 嵐発達中" if ja else "ELEVATED PRESSURE — BUILDING STORM"
+        info_desc  = (f"Z={nz:.1f}。国営メディアで異常なキーワード急増。嵐の前線接近中。" if ja else
+                      f"Z={nz:.1f}. Unusual keyword spike in state media. Storm front approaching.")
+    else:
+        info_state = "定常状態 — 通常範囲内" if ja else "STEADY STATE"
+        info_desc  = (f"Z={nz:.1f}。バックグラウンドプロパガンダは正常範囲内。重大な前線なし。" if ja else
+                      f"Z={nz:.1f}. Background propaganda within normal parameters. No significant front detected.")
+
+    # AIR PICTURE (ISR)
+    if isr.get("is_surge"):
+        air_state = "活発 — ISR全面展開" if ja else "ACTIVE — FULL ISR DEPLOYMENT"
+        air_desc  = (f"戦略的ホットスポットでISR機 {isr.get('count',0)}機を確認。打撃前偵察態勢。" if ja else
+                     f"{isr.get('count',0)} ISR aircraft confirmed at strategic hotspot(s). Pre-strike reconnaissance posture.")
+    elif isr.get("count", 0) > 0:
+        air_state = "観測 — 通常ISRパターン" if ja else "OBSERVED — ROUTINE ISR PATTERN"
+        air_desc  = (f"ISR機 {isr.get('count',0)}機を観測。通常の哨戒頻度。" if ja else
+                     f"{isr.get('count',0)} ISR aircraft observed. Normal patrol frequency.")
+    else:
+        air_state = "晴天 — ISR集中なし" if ja else "CLEAR SKIES"
+        air_desc  = "監視ホットスポットでISR集中を検出せず。" if ja else "No ISR concentration detected at monitored hotspots."
+
+    # BLOCKADE (Infrastructure pressure)
+    if bi >= 7:
+        infra_state = "壊滅的 — インフラ崩壊" if ja else "CATASTROPHIC — INFRASTRUCTURE COLLAPSE"
+        infra_desc  = (f"指数 {bi:.1f}。DDoSとBGP撤退の複合。ブラックアウト状態。侵攻前兆シグネチャ。" if ja else
+                       f"Index {bi:.1f}. Combined DDoS and BGP withdrawal. Blackout conditions. Invasion precursor signature.")
+    elif bi >= 4:
+        infra_state = "深刻 — 持続的圧力" if ja else "SEVERE — SUSTAINED PRESSURE"
+        infra_desc  = (f"指数 {bi:.1f}。サイバー活動に並行した重大なインフラ劣化。" if ja else
+                       f"Index {bi:.1f}. Significant infrastructure degradation concurrent with cyber activity.")
+    elif bi >= 1.5:
+        infra_state = "上昇 — 政治的ノイズレベル" if ja else "ELEVATED — POLITICAL NOISE LEVEL"
+        infra_desc  = (f"指数 {bi:.1f}。インフラへの確認済み影響なし。シグナリング作戦の可能性あり。" if ja else
+                       f"Index {bi:.1f}. Cyber activity without confirmed infrastructure impact. Signaling operation likely.")
+    else:
+        infra_state = "正常 — 安定" if ja else "NOMINAL"
+        infra_desc  = (f"指数 {bi:.1f}。インフラ安定。障害なし。" if ja else
+                       f"Index {bi:.1f}. Infrastructure stable. No disruption confirmed.")
+
+    return jsonify({
+        "ts": datetime.datetime.now().isoformat(),
+        "brief": {
+            "cyber":    {"state": cyber_state,  "detail": cyber_desc},
+            "maritime": {"state": mar_state,    "detail": mar_desc},
+            "info":     {"state": info_state,   "detail": info_desc},
+            "air":      {"state": air_state,    "detail": air_desc},
+            "infra":    {"state": infra_state,  "detail": infra_desc},
+        }
+    })
+
+
+@bp.route("/api/historical_events", methods=["GET"])
+def api_historical_events():
+    """Return the HISTORICAL_EVENTS pattern library."""
+    return jsonify({"events": HISTORICAL_EVENTS})
+
+
+@bp.route("/api/ip_check", methods=["GET"])
+def api_ip_check():
+    """Look up IP address noise/classification info via GreyNoise Community API.
+
+    Query params:
+        ip (str, required): IPv4 address to investigate
+
+    Response:
+        {
+          "ip":             "1.2.3.4",
+          "noise":          false,         // true = internet background noise (mass scanners etc.)
+          "riot":           false,         // true = legitimate infrastructure (Google, Cloudflare etc.)
+          "classification": "malicious",   // malicious / benign / unknown
+          "name":           "Mirai Botnet",
+          "last_seen":      "2026-03-13",
+          "message":        "...",
+          "cached":         false,         // true = cache hit (no API quota consumed)
+          "fetched_at":     1234567890.0,
+          "daily_remaining": 47,           // remaining requests today
+          "error":          null
+        }
+
+    Note:
+        Community API: 50 req/day. Same IP cached for 24h without consuming quota.
+        Uses Community endpoint even with Enterprise key (separate from GNQL Stats).
+    """
+    ip = request.args.get("ip", "").strip()
+    if not ip:
+        return jsonify({"error": "ip parameter required. Example: /api/ip_check?ip=1.2.3.4"}), 400
+
+    gn_sensor = registry.get("greynoise")
+    if not gn_sensor:
+        return jsonify({"error": "GreyNoiseSensor is not initialized"}), 503
+
+    result = gn_sensor.lookup_community_ip(ip)
+
+    if result.get("error") and "limit" not in result["error"] and "Invalid" not in result["error"]:
+        return jsonify(result), 502
+    return jsonify(result)
+
+
+@bp.route("/api/persist_save", methods=["POST"])
+def api_persist_save():
+    """Manually trigger an immediate state save.  POST /api/persist_save"""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    try:
+        save_state()
+        stat = os.stat(PERSISTENCE_STATE_FILE)
+        return jsonify({
+            "ok":        True,
+            "file":      PERSISTENCE_STATE_FILE,
+            "size_kb":   round(stat.st_size / 1024, 1),
+            "saved_at":  datetime.datetime.now().isoformat(),
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Background cleanup thread
+# Removes old entries from global caches every hour to prevent memory leaks in long-running processes.
+
+@bp.route("/api/score_breakdown", methods=["GET"])
+def api_score_breakdown():
+    """
+    Per-sensor score breakdown for the current threat assessment.
+    Restructures rationale_matrix from the global cache by domain,
+    sorted by score descending within each domain.
+    """
+    with _global_cache_lock:
+        cache = dict(global_cache) if global_cache else None
+    if not cache or not cache.get("strategic"):
+        return jsonify({"error": "No data available"}), 503
+
+    strat = cache["strategic"]
+    rationale = strat.get("rationale_matrix", [])
+    domains_data = strat.get("domains", {})
+
+    breakdown: dict = {"cyber": [], "physical": [], "info": []}
+    for entry in rationale:
+        d = entry.get("domain")
+        if d not in breakdown:
+            continue
+        breakdown[d].append({
+            "sensor":         entry.get("sensor"),
+            "status":         entry.get("status"),
+            "score":          entry.get("score", 0),
+            "value":          entry.get("value", ""),
+            "fired_reason":   entry.get("fired_reason"),
+            "suppressed":     entry.get("suppressed", False),
+            "suppress_reason": entry.get("suppress_reason"),
+        })
+
+    # Sort contributors by score descending within each domain
+    for d in breakdown:
+        breakdown[d].sort(key=lambda x: -(x.get("score") or 0))
+
+    return jsonify({
+        "ts":           datetime.datetime.now().isoformat(),
+        "theater":      strat.get("core_theater"),
+        "threat_level": strat.get("threat_level", 5),
+        "domains": {
+            d: {
+                "score":        domains_data.get(d, {}).get("score", 0),
+                "status":       domains_data.get(d, {}).get("status", "NORMAL"),
+                "contributors": breakdown.get(d, []),
+            }
+            for d in ("cyber", "physical", "info")
+        },
+    })
+
