@@ -4210,3 +4210,188 @@
         const [lat, lng] = _sensorCoord(_coreCoord.lat, shiftLng(_coreCoord.lng), cfg.angle, distKm);
         map.flyTo([lat, lng], 6, {animate: true, duration: 0.8});
     };
+
+    // ── History Analysis Panel ─────────────────────────────────────────────
+    window.toggleHistoryPanel = function() {
+        const p = document.getElementById('history-panel');
+        if (!p) return;
+        const vis = p.style.display !== 'none';
+        p.style.display = vis ? 'none' : '';
+        if (!vis) {
+            // Populate theater selector from config
+            const sel = document.getElementById('hist-theater');
+            if (sel && window._appConfig) {
+                const theaters = new Set([window._appConfig.core, ...(window._appConfig.pins||[]), ...(window._appConfig.correlates||[])]);
+                sel.innerHTML = '';
+                theaters.forEach(t => {
+                    const o = document.createElement('option');
+                    o.value = t; o.textContent = t;
+                    if (t === window._appConfig.core) o.selected = true;
+                    sel.appendChild(o);
+                });
+            }
+            loadHistoryData();
+        }
+    };
+
+    window.loadHistoryData = function() {
+        const theater = document.getElementById('hist-theater')?.value || 'TW';
+        const hours = parseInt(document.getElementById('hist-range')?.value || '168');
+
+        // Fetch timeseries
+        fetch(`/api/history/timeseries?theater=${theater}&hours=${hours}&series=combined,l3,l7`)
+            .then(r => r.json())
+            .then(data => _drawScoreChart(data))
+            .catch(e => console.error('[History] timeseries error:', e));
+
+        // Fetch HOD baseline
+        fetch(`/api/history/hod_baseline?theater=${theater}&type=hod_baseline`)
+            .then(r => r.json())
+            .then(data => _drawHodChart(data))
+            .catch(e => console.error('[History] hod error:', e));
+
+        // Fetch sequence events
+        fetch(`/api/history/sequence_events?theater=${theater}&hours=${hours}`)
+            .then(r => r.json())
+            .then(data => _renderSeqEvents(data))
+            .catch(e => console.error('[History] seq error:', e));
+
+        // Fetch alerts
+        fetch(`/api/history/alerts?limit=50`)
+            .then(r => r.json())
+            .then(data => _renderAlerts(data))
+            .catch(e => console.error('[History] alerts error:', e));
+    };
+
+    function _drawScoreChart(data) {
+        const canvas = document.getElementById('hist-score-chart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        const scored = data.series?.scored || [];
+        if (scored.length < 2) {
+            ctx.fillStyle = '#555'; ctx.font = '10px monospace';
+            ctx.fillText('Insufficient data', 10, h/2);
+            return;
+        }
+
+        const vals = scored.map(p => p.value);
+        const mn = Math.min(...vals), mx = Math.max(...vals, 1);
+        const range = mx - mn || 1;
+
+        // Grid lines
+        ctx.strokeStyle = '#222'; ctx.lineWidth = 0.5;
+        for (let i = 0; i <= 4; i++) {
+            const y = h - (i/4) * h;
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        }
+
+        // Score line
+        ctx.strokeStyle = '#0ff'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        scored.forEach((p, i) => {
+            const x = (i / (scored.length - 1)) * w;
+            const y = h - ((p.value - mn) / range) * (h - 10) - 5;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        // Labels
+        ctx.fillStyle = '#888'; ctx.font = '8px monospace';
+        ctx.fillText(mx.toFixed(1), 2, 10);
+        ctx.fillText(mn.toFixed(1), 2, h - 2);
+        if (scored.length > 0) {
+            const first = new Date(scored[0].ts * 1000).toLocaleDateString();
+            const last = new Date(scored[scored.length-1].ts * 1000).toLocaleDateString();
+            ctx.fillText(first, 30, h - 2);
+            ctx.textAlign = 'right';
+            ctx.fillText(last, w - 2, h - 2);
+            ctx.textAlign = 'left';
+        }
+    }
+
+    function _drawHodChart(data) {
+        const canvas = document.getElementById('hist-hod-chart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        const stats = data.hod_stats || [];
+        if (!stats.length) return;
+
+        const means = stats.map(s => s.mean).filter(v => v !== null);
+        if (!means.length) {
+            ctx.fillStyle = '#555'; ctx.font = '10px monospace';
+            ctx.fillText('No HOD data', 10, h/2);
+            return;
+        }
+        const mx = Math.max(...means, 0.01);
+        const barW = (w - 20) / 24;
+
+        stats.forEach((s, i) => {
+            if (s.mean === null) return;
+            const barH = (s.mean / mx) * (h - 20);
+            const x = 10 + i * barW;
+            const y = h - 10 - barH;
+
+            // Color by intensity
+            const intensity = s.mean / mx;
+            const r = Math.floor(intensity * 255);
+            const g = Math.floor((1 - intensity) * 200);
+            ctx.fillStyle = `rgb(${r},${g},50)`;
+            ctx.fillRect(x, y, barW - 1, barH);
+
+            // Hour label
+            ctx.fillStyle = '#666'; ctx.font = '7px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(String(i).padStart(2, '0'), x + barW/2, h - 1);
+        });
+        ctx.textAlign = 'left';
+    }
+
+    function _renderSeqEvents(data) {
+        const el = document.getElementById('hist-seq-events');
+        if (!el) return;
+        const events = data.events || [];
+        if (!events.length) {
+            el.innerHTML = '<span style="color:#555">No events in range</span>';
+            return;
+        }
+        el.innerHTML = events.slice(-30).map(e => {
+            const dt = new Date(e.ts * 1000).toLocaleString();
+            const color = e.type.includes('BURST') ? '#f80' :
+                          e.type.includes('SURGE') ? '#ff0' :
+                          e.type.includes('DDOS')  ? '#f00' : '#0ff';
+            return `<div style="border-left:2px solid ${color};padding-left:6px;margin-bottom:2px;">` +
+                   `<span style="color:#666">${dt}</span> ` +
+                   `<span style="color:${color};font-weight:bold">${e.type}</span>` +
+                   `</div>`;
+        }).join('');
+    }
+
+    function _renderAlerts(data) {
+        const el = document.getElementById('hist-alerts');
+        if (!el) return;
+        const alerts = data.alerts || [];
+        if (!alerts.length) {
+            el.innerHTML = '<span style="color:#555">No alerts</span>';
+            return;
+        }
+        el.innerHTML = alerts.slice(-20).map(a => {
+            const dt = new Date((a.ts||0) * 1000).toLocaleString();
+            const tl = a.threat_level || '?';
+            return `<div style="margin-bottom:2px;">` +
+                   `<span style="color:#666">${dt}</span> ` +
+                   `<span style="color:#0ff">TL${tl}</span> ` +
+                   `<span style="color:#aaa">${a.core || ''} score=${(a.score||0).toFixed(1)}</span>` +
+                   `</div>`;
+        }).join('');
+    }
+
+    window.exportHistoryData = function() {
+        const theater = document.getElementById('hist-theater')?.value || 'TW';
+        window.open(`/api/history/export?theater=${theater}`, '_blank');
+    };

@@ -7,6 +7,7 @@ from radar.config import (
     COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY, GDELT_TONE_ALERT_THRESHOLD, GDELT_HISTORY_WINDOW,
 )
 from radar.sensors.base import BaseSensor
+from radar.database import db as _db
 
 class GDELTSensor(BaseSensor):
     QUERY_TEMPLATES = {
@@ -47,15 +48,13 @@ class GDELTSensor(BaseSensor):
             delta = (tone_current - tone_baseline) if tone_baseline is not None else None
             is_severe_wx = weather_conds.get(code, {}).get("is_severe", False)
 
-            # DoW normalization: store today's tone in gdelt_dow_db and compute Z-score
-            _dow_entries = gdelt_dow_db.setdefault(code, [])
-            # Append once per day bucket to avoid duplicates within the same day
-            if not _dow_entries or _dow_entries[-1][0] != _cur_day_bucket:
-                _dow_entries.append((_cur_day_bucket, _cur_weekday, tone_current))
-                gdelt_dow_db[code] = _dow_entries[-(self.DOW_MAX_PER_DAY * 7):]
+            # DoW normalization: store today's tone in SQLite and compute Z-score
+            _last_dow_bucket = _db.gdelt_dow_last_bucket(code)
+            if _last_dow_bucket != _cur_day_bucket:
+                _db.gdelt_dow_record(code, _cur_day_bucket, _cur_weekday,
+                                     tone_current, max_entries=self.DOW_MAX_PER_DAY * 7)
             # Collect same-weekday tones from previous days (exclude today)
-            _same_dow = [t for (d, w, t) in _dow_entries
-                         if w == _cur_weekday and d < _cur_day_bucket]
+            _same_dow = _db.gdelt_dow_same_weekday(code, _cur_weekday, _cur_day_bucket)
             _n_dow = len(_same_dow)
             if _n_dow >= self.DOW_MIN_SAMPLES:
                 _dow_mean = sum(_same_dow) / _n_dow

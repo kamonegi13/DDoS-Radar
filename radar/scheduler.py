@@ -10,9 +10,8 @@ from radar.config import (
     CACHE_EXPIRY, SEQUENCE_WINDOW,
 )
 from radar.sensors.base import BaseSensor
-from radar.state import (
-    baseline_cache, sequence_event_log, _cf_scoring_cache,
-)
+from radar.state import _cf_scoring_cache
+from radar.database import db as _db
 from radar.scoring import _asn_cache
 
 log = logging.getLogger("radar")
@@ -35,8 +34,6 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
     - Normal: periodic fetch every poll_interval
     - On failure: retry up to 3 times at shorter intervals [5min, 10min, 30min]
     """
-    # Use only retry intervals shorter than poll_interval
-    # (Short-cycle sensors like IODA=5min need no retry → results in empty list)
     _RETRY_DELAYS = [d for d in [300, 600, 1800] if d < sensor.poll_interval]
 
     def _do_fetch() -> bool:
@@ -48,7 +45,6 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
         log = sensor.get_fetch_log()
         return bool(log and log[-1].get("success"))
 
-    # Fetch immediately at startup
     try:
         success = _do_fetch()
     except Exception as e:
@@ -57,7 +53,6 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
 
     while True:
         if not success and _RETRY_DELAYS:
-            # On failure: retry at shorter intervals
             for delay in _RETRY_DELAYS:
                 time.sleep(delay)
                 try:
@@ -67,7 +62,6 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
                         break
                 except Exception as e:
                     log.warning(f"[Sensor/{sensor.name}] Retry error (delay={delay}s): {e}")
-            # After retries complete, resume normal poll_interval wait
         else:
             time.sleep(sensor.poll_interval)
 
@@ -82,31 +76,22 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
 def _cache_cleanup_worker(registry=None):
     """Daemon thread: removes expired cache entries from all caches every hour."""
     CLEANUP_INTERVAL = 3600  # 1 hour
-    BASELINE_MAX_AGE = 86400 * 7   # baseline expires after 7 days
     SEQ_LOG_WINDOW   = SEQUENCE_WINDOW  # 24h
     while True:
         time.sleep(CLEANUP_INTERVAL)
         try:
             now = time.time()
-            # baseline_cache: remove theaters not updated for 7+ days
-            stale = [k for k, v in list(baseline_cache.items()) if now - v.get("time", 0) > BASELINE_MAX_AGE]
-            for k in stale:
-                baseline_cache.pop(k, None)
 
-            # sequence_event_log: re-trim entries older than 24h per theater and remove empty theaters
-            cutoff = now - SEQ_LOG_WINDOW
-            for th in list(sequence_event_log.keys()):
-                sequence_event_log[th] = [e for e in sequence_event_log[th] if e["ts"] >= cutoff]
-                if not sequence_event_log[th]:
-                    del sequence_event_log[th]
+            # sequence_event_log: prune old events in SQLite
+            _db.seq_cleanup(now - SEQ_LOG_WINDOW)
 
-            # _cf_scoring_cache / _asn_cache: sweep all expired entries as a precaution
+            # _cf_scoring_cache / _asn_cache: sweep expired in-memory entries
             for k in [k for k, v in list(_cf_scoring_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
                 _cf_scoring_cache.pop(k, None)
             for k in [k for k, v in list(_asn_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
                 _asn_cache.pop(k, None)
 
-            # greynoise _ip_cache: remove entries older than 24h
+            # greynoise _ip_cache: remove entries older than TTL
             gn = registry.get("greynoise")
             if gn:
                 with gn._ip_lock:
@@ -115,9 +100,7 @@ def _cache_cleanup_worker(registry=None):
                     for k in stale_ips:
                         gn._ip_cache.pop(k, None)
 
-            log.info(f"[Cleanup] baseline_cache={len(baseline_cache)} seqlog={len(sequence_event_log)} "
+            log.info(f"[Cleanup] baseline={_db.baseline_len()} seqlog={_db.seq_total()} "
                   f"cf_cache={len(_cf_scoring_cache)} asn_cache={len(_asn_cache)}")
         except Exception as e:
             log.error(f"[Cleanup] Error: {e}")
-
-

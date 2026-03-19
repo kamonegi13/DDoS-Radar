@@ -16,12 +16,10 @@ from radar.models import RationaleEntry
 from radar.engine import SensorRegistry, WeightedConvergenceEngine
 from radar import state as st
 from radar.state import (  # noqa: F401 — mutable globals used by route handlers
-    global_cache, _global_cache_lock, baseline_cache, airspace_baseline,
-    time_series_db, time_series_ts_db, time_series_l3_db, time_series_l7_db,
-    hod_baseline_db, checkhost_hod_db, bgp_hod_db, gdelt_dow_db,
-    threat_history, alert_timeline, ALERT_TIMELINE_MAX,
-    sequence_event_log, SEQUENCE_EVENT_TYPES, _cf_scoring_cache,
+    global_cache, _global_cache_lock,
+    ALERT_TIMELINE_MAX, SEQUENCE_EVENT_TYPES, _cf_scoring_cache,
 )
+from radar.database import db as _db
 from radar.scoring import (
     register_sequence_event, compute_sequence_bonus,
     compute_hod_zscore, record_hod_sample,
@@ -31,8 +29,14 @@ from radar.scoring import (
     prefill_hod_baseline_bg,
 )
 from radar.persistence import save_state
+from radar.sensors.checkhost import CHECKHOST_NODES
+from radar.sensors.telegram import TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD, TelegramMirrorSensor
+from radar.sensors.greynoise import GreyNoiseSensor
 
 log = logging.getLogger("radar")
+
+# Project root is one level up from this file's directory (radar/)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 bp = Blueprint('api', __name__)
 
@@ -47,20 +51,13 @@ def init_routes(reg: SensorRegistry, eng: WeightedConvergenceEngine):
     engine = eng
 
 # ── Replace @app.route with @bp.route in extracted code ──
-# The raw code below still uses global names like global_cache, baseline_cache, etc.
-# These are now accessed via 'st' (radar.state) module.
-# However, for this initial split we keep a local-alias approach:
+# In-memory state (global_cache, _cf_scoring_cache) accessed via 'st' module.
+# Persistent state (baselines, time series, alerts, etc.) accessed via _db (SQLite).
 
 def _get_state_refs():
-    """Return references to mutable state objects."""
+    """Return references to mutable state objects (in-memory only)."""
     return (
-        st.global_cache, st._global_cache_lock, st.baseline_cache,
-        st.time_series_db, st.time_series_ts_db,
-        st.time_series_l3_db, st.time_series_l7_db,
-        st.airspace_baseline, st.hod_baseline_db,
-        st.checkhost_hod_db, st.bgp_hod_db, st.gdelt_dow_db,
-        st.threat_history, st.alert_timeline,
-        st.sequence_event_log, st._cf_scoring_cache,
+        st.global_cache, st._global_cache_lock, st._cf_scoring_cache,
     )
 
 def _require_admin():
@@ -88,7 +85,7 @@ _STATIC_ALLOWED_EXT = {".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg",
 
 @bp.route("/", methods=["GET"])
 def index():
-    return send_from_directory(".", "index.html")
+    return send_from_directory(_PROJECT_ROOT, "index.html")
 
 @bp.route("/<path:filename>", methods=["GET"])
 def static_files(filename):
@@ -105,7 +102,7 @@ def static_files(filename):
     ext = os.path.splitext(filename)[1].lower()
     if ext not in _STATIC_ALLOWED_EXT:
         return ("Forbidden", 403)
-    return send_from_directory(".", filename)
+    return send_from_directory(_PROJECT_ROOT, filename)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main API Route
@@ -144,7 +141,7 @@ def app_config():
 
 @bp.route("/api/threat_data", methods=["GET"])
 def get_threat_data():
-    global global_cache, baseline_cache, time_series_db, time_series_l3_db, time_series_l7_db
+    global global_cache
 
     current_time = time.time()
     targets_param  = request.args.get("targets", ",".join(DEFAULT_PINS)); requested_targets = [t.strip().upper() for t in targets_param.split(",") if t.strip()]
@@ -231,8 +228,9 @@ def get_threat_data():
         for code, ainfo in airspace_data.items():
             count = ainfo.get("count", -1)
             if count < 0: ainfo["status"] = "ERROR"; continue
-            if code not in airspace_baseline: airspace_baseline[code] = {"readings": [], "avg": 0.0}
-            bl = airspace_baseline[code]
+            bl = _db.airspace_get(code)
+            if not bl: bl = {"readings": [], "avg": 0.0}
+            bl["readings"] = bl.get("readings", [])
             bl["readings"].append(count); bl["readings"] = bl["readings"][-AIRSPACE_WINDOW:]
             n = len(bl["readings"])
             bl["avg"] = sum(bl["readings"]) / n if n > 0 else 0.0
@@ -248,6 +246,7 @@ def get_threat_data():
             _cur_as_hod = (_as_hour_bucket // 3600) % 24
             _as_same_hour = [c for (ts, c) in bl["hod"]
                              if (ts // 3600) % 24 == _cur_as_hod and ts < _as_hour_bucket]
+            _db.airspace_set(code, bl)
 
             if n < 3 or bl["avg"] < 1:
                 ainfo["status"] = "BASELINE_BUILDING"; ainfo["drop_pct"] = 0.0; continue
@@ -290,16 +289,12 @@ def get_threat_data():
                 else: degraded_targets_effective.append(t)
 
         for t in required_keys:
-            if t not in time_series_db: time_series_db[t] = []
-            if t not in time_series_l3_db: time_series_l3_db[t] = []
-            if t not in time_series_l7_db: time_series_l7_db[t] = []
-
-            if t not in baseline_cache or (current_time - baseline_cache[t]["time"] > 86400):
+            b_data = _db.baseline_get(t)
+            if not b_data or (current_time - b_data.get("time", 0) > 86400):
                 b_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
                 b_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}, ttl=86400))
-                baseline_cache[t] = {"time": current_time, "l3": b_l3, "l7": b_l7}
-
-            b_data = baseline_cache[t]
+                _db.baseline_set(t, {"l3": b_l3, "l7": b_l7}, current_time)
+                b_data = _db.baseline_get(t)
             g_l3_share_display, g_l7_share_display = g_l3.get(t, 0.0), g_l7.get(t, 0.0)
             g_l3_share, g_l7_share = max(g_l3_share_display, 0.1), max(g_l7_share_display, 0.1)
             global_target_share = (g_l3_share_display + g_l7_share_display) / 2.0
@@ -374,13 +369,11 @@ def get_threat_data():
             if is_vector_shift and t in strategic_theaters_set: vector_shifts.append(t)
 
             avg_spike_record = round(target_weighted_spike / max(total_local_pct, 5.0), 2)
-            time_series_db[t].append(avg_spike_record); time_series_db[t] = time_series_db[t][-15:]
-            time_series_l3_db[t].append(round(avg_l3_spike, 2)); time_series_l3_db[t] = time_series_l3_db[t][-15:]
-            time_series_l7_db[t].append(round(avg_l7_spike, 2)); time_series_l7_db[t] = time_series_l7_db[t][-15:]
+            _db.series_append(t, "combined", avg_spike_record)
+            _db.series_append(t, "l3", round(avg_l3_spike, 2))
+            _db.series_append(t, "l7", round(avg_l7_spike, 2))
             # Update timestamped time series (for derivative computation)
-            if t not in time_series_ts_db: time_series_ts_db[t] = []
-            time_series_ts_db[t].append((current_time, avg_spike_record))
-            time_series_ts_db[t] = time_series_ts_db[t][-30:]  # Retain more points for derivative computation
+            _db.ts_append(t, current_time, avg_spike_record)
             # Record HOD (Hour-of-Day) sample for strategic theaters only
             if t in strategic_theaters_set:
                 record_hod_sample(t, current_time, avg_spike_record)
@@ -629,8 +622,10 @@ def get_threat_data():
                     suppress_reason=f"GreyNoise: {gn_noise_class} — traffic classified as internet background noise" if gn_suppress else None)
 
         # ── v9 Temporal Coherence analysis ─────────────────────────────────────
+        # Build sequence_event_log dict for temporal coherence analysis
+        _seq_events_dict = {th: _db.seq_all_events(th) for th in strategic_theaters_set}
         is_c2_sync, coherence_score, temporal_bonus, temporal_detail = \
-            engine.compute_temporal_coherence(sequence_event_log, list(strategic_theaters_set))
+            engine.compute_temporal_coherence(_seq_events_dict, list(strategic_theaters_set))
 
         # ── Asphyxiation flag from Check-Host (CDN masking detection) ───────────
         ch_asphyxiation = core_checkhost.get("asphyxiation", False)
@@ -667,7 +662,7 @@ def get_threat_data():
                     msk_score, maskirovka_reason)
 
         # ── Derivative computation (Velocity / Acceleration / Ambush) ───────────────
-        ts_series_core = time_series_ts_db.get(core_theater, [])
+        ts_series_core = _db.ts_get(core_theater)
         is_ambush, ambush_z, velocity_val, acceleration_val = engine.detect_ambush_pattern(ts_series_core)
         if is_ambush:
             add_rat("ddos_acceleration", "cyber",
@@ -687,9 +682,8 @@ def get_threat_data():
         score_with_bonus = min(score_with_bonus, 15)
         active_domains = sum(1 for s in domain_scores.values() if s > 0)
         tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard, active_domains)
-        threat_level, tl_held = engine.apply_hysteresis(tl_raw, threat_history)
-        threat_history.append((current_time, threat_level))
-        # deque(maxlen=20) automatically evicts old entries
+        threat_level, tl_held = engine.apply_hysteresis(tl_raw, _db.threat_list())
+        _db.threat_append(current_time, threat_level)
 
         system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
 
@@ -873,7 +867,7 @@ def get_threat_data():
         with _global_cache_lock:
             global_cache = _new_cache
 
-        alert_timeline.append({
+        _db.alert_append({
             "ts": current_time, "threat_level": threat_level, "threat_raw": tl_raw, "threat_held": tl_held, "score": total_score, "score_with_bonus": score_with_bonus,
             "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
             "sequence_bonus": seq_bonus, "sequence_status": seq_status,
@@ -883,7 +877,6 @@ def get_threat_data():
             "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
             "blockade_index": deep_analytics["blockade_index"],
         })
-        # deque(maxlen=ALERT_TIMELINE_MAX) automatically evicts old entries
 
     results = []
     for t in requested_targets:
@@ -894,7 +887,7 @@ def get_threat_data():
         degraded_eff = global_cache["strategic"].get("degraded_theaters", [])
         
         # Compute velocity and acceleration per target
-        ts_series_t = time_series_ts_db.get(t, [])
+        ts_series_t = _db.ts_get(t)
         t_vel = engine.compute_velocity(ts_series_t)
         t_ambush, t_ambush_z, _, _ = engine.detect_ambush_pattern(ts_series_t)
         results.append({
@@ -903,7 +896,7 @@ def get_threat_data():
             "is_bgp_outage": t in degraded_raw,
             "is_bgp_effective": t in degraded_eff,
             "is_vector_shift": data.get("is_vector_shift", False), "shift_actors": data.get("shift_actors", []),
-            "trend_history": time_series_db.get(t, []), "trend_history_l3": time_series_l3_db.get(t, []), "trend_history_l7": time_series_l7_db.get(t, []),
+            "trend_history": _db.series_get(t, "combined"), "trend_history_l3": _db.series_get(t, "l3"), "trend_history_l7": _db.series_get(t, "l7"),
             "sources": data.get("sources", []),
             "velocity": round(t_vel, 5),
             "is_ambush": t_ambush,
@@ -915,7 +908,7 @@ def get_threat_data():
         "sensor_health":   registry.health_report(),
         "strategic_alert": global_cache["strategic"],
         "targets":         results,
-        "threat_history":  list(threat_history),
+        "threat_history":  _db.threat_list(),
     })
 
 @bp.route("/api/env_config", methods=["GET"])
@@ -971,6 +964,16 @@ def api_env_config_post():
                 continue
         new_lines.append(line)
 
+    # Append new keys that were not found in the file
+    new_keys = set(updates.keys()) - updated_keys
+    # Skip session-only keys (like admin-token)
+    new_keys.discard("admin-token")
+    if new_keys:
+        new_lines.append("\n")
+        for key in sorted(new_keys):
+            new_lines.append(f"{key}={updates[key]}\n")
+            updated_keys.add(key)
+
     with open("config.env", "w", encoding="utf-8") as f:
         f.writelines(new_lines)
 
@@ -1002,7 +1005,7 @@ def data_status():
 @bp.route("/api/alert_timeline", methods=["GET"])
 def api_alert_timeline():
     limit = min(int(request.args.get("limit", 288)), 288)
-    return jsonify({"ts": datetime.datetime.now().isoformat(), "count": len(alert_timeline), "timeline": list(alert_timeline)[-limit:]})
+    return jsonify({"ts": datetime.datetime.now().isoformat(), "count": _db.alert_count(), "timeline": _db.alert_list(limit)})
 
 @bp.route("/api/telegram_log/clear", methods=["POST"])
 def api_telegram_log_clear():
@@ -1015,12 +1018,12 @@ def api_telegram_log_clear():
 @bp.route("/api/sitrep", methods=["GET"])
 def api_sitrep():
     now_ts = datetime.datetime.now(datetime.timezone.utc)
-    if not alert_timeline: 
+    _tl = _db.alert_list()
+    if not _tl:
         return jsonify({"ts": now_ts.isoformat(), "text": "No data available yet.", "summary": {}})
-    
-    _tl = list(alert_timeline)
+
     recent, latest, oldest = _tl[-12:], _tl[-1], _tl[0]
-    span_min = round((latest["ts"] - oldest["ts"]) / 60) if len(alert_timeline) > 1 else 0
+    span_min = round((latest["ts"] - oldest["ts"]) / 60) if len(_tl) > 1 else 0
     levels = [e["threat_level"] for e in recent]
     min_d, max_d, avg_d = min(levels), max(levels), round(sum(levels) / len(levels), 1)
     
@@ -1052,7 +1055,7 @@ def api_sitrep():
         f"   CURRENT THREAT LEVEL : LEVEL {latest['threat_level']} [{trend}]",
         f"   PRIMARY THEATER      : {core}",
         f"   CONVERGENCE STATE    : {dominant_conv.replace('_', ' ')}",
-        f"   OBSERVATION WINDOW   : {span_min} MIN / {len(alert_timeline)} CYCLES",
+        f"   OBSERVATION WINDOW   : {span_min} MIN / {len(_tl)} CYCLES",
         "",
         "2. DOMAIN ACTIVITY (LAST 1H)",
         f"   THREAT RANGE         : LV {min_d} - LV {max_d} (AVG: {avg_d})",
@@ -1089,7 +1092,7 @@ def api_sitrep():
             "active_domains": active_domains, 
             "core_theater": core, 
             "span_minutes": span_min, 
-            "cycle_count": len(alert_timeline)
+            "cycle_count": len(_tl)
         },
     })
 
@@ -1106,11 +1109,11 @@ def api_sequence_chain():
     theater_param = request.args.get("theater", "").upper()
     now = time.time()
     result = {}
-    theaters = [theater_param] if theater_param else list(sequence_event_log.keys())
+    theaters = [theater_param] if theater_param else _db.seq_distinct_theaters()
     for th in theaters:
         bonus, status, chain = compute_sequence_bonus(th)
         cutoff = now - SEQUENCE_WINDOW
-        events = [e for e in sequence_event_log.get(th, []) if e["ts"] >= cutoff]
+        events = _db.seq_events_since(th, cutoff)
         result[th] = {
             "sequence_bonus":  bonus,
             "chain_status":    status,
@@ -1132,7 +1135,7 @@ def api_deep_analytics():
     Returns velocity/acceleration/ambush/narrative/ISR/AIS/blockade_index.
     """
     theater_param = request.args.get("theater", DEFAULT_CORE).upper()
-    ts_series = time_series_ts_db.get(theater_param, [])
+    ts_series = _db.ts_get(theater_param)
     velocity   = engine.compute_velocity(ts_series)
     acc        = engine.compute_acceleration(ts_series)
     is_ambush, ambush_z, _, _ = engine.detect_ambush_pattern(ts_series)
@@ -1191,7 +1194,7 @@ def api_deep_analytics():
             "events": [
                 {"ts": e["ts"], "dt": datetime.datetime.fromtimestamp(e["ts"]).isoformat(),
                  "type": e["type"]}
-                for e in sorted(sequence_event_log.get(theater_param, []), key=lambda x: x["ts"])
+                for e in sorted(_db.seq_all_events(theater_param), key=lambda x: x["ts"])
             ],
         },
         "narrative_burst": {
@@ -1580,4 +1583,166 @@ def api_score_breakdown():
             for d in ("cyber", "physical", "info")
         },
     })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Historical Analysis API
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/api/history/timeseries", methods=["GET"])
+def api_history_timeseries():
+    """Return time-series data for a theater.
+    GET /api/history/timeseries?theater=TW&hours=168&series=combined,l3,l7
+    """
+    theater = request.args.get("theater", "TW").upper()
+    hours = min(int(request.args.get("hours", "168")), 720)  # max 30 days
+    series_types = request.args.get("series", "combined").split(",")
+
+    import time as _t
+    cutoff = _t.time() - hours * 3600
+
+    result = {"theater": theater, "hours": hours, "series": {}}
+
+    # Timestamped series (ts_db)
+    ts_data = _db.ts_get_since(theater, cutoff)
+    result["series"]["scored"] = [{"ts": t, "value": v} for t, v in ts_data]
+
+    # Value-only series
+    for st in series_types:
+        st = st.strip()
+        if st in ("combined", "l3", "l7"):
+            values = _db.series_get(theater, st)
+            result["series"][st] = values
+
+    return jsonify(result)
+
+
+@bp.route("/api/history/hod_baseline", methods=["GET"])
+def api_history_hod_baseline():
+    """Return HOD baseline data for a theater.
+    GET /api/history/hod_baseline?theater=TW&type=hod_baseline
+    """
+    theater = request.args.get("theater", "TW").upper()
+    table = request.args.get("type", "hod_baseline")
+    if table not in ("hod_baseline", "checkhost_hod", "bgp_hod"):
+        return jsonify({"error": "Invalid type"}), 400
+
+    entries = _db.hod_all_entries(table, theater)
+    # Group by hour-of-day for analysis
+    by_hod = {}
+    for bucket, value in entries:
+        hod = (bucket // 3600) % 24
+        by_hod.setdefault(hod, []).append(value)
+
+    # Compute stats per hour-of-day
+    hod_stats = []
+    for h in range(24):
+        vals = by_hod.get(h, [])
+        if vals:
+            mean = sum(vals) / len(vals)
+            std = (sum((x - mean) ** 2 for x in vals) / len(vals)) ** 0.5
+            hod_stats.append({
+                "hour": h, "mean": round(mean, 4), "std": round(std, 4),
+                "min": round(min(vals), 4), "max": round(max(vals), 4),
+                "n": len(vals),
+            })
+        else:
+            hod_stats.append({"hour": h, "mean": None, "std": None,
+                              "min": None, "max": None, "n": 0})
+
+    return jsonify({
+        "theater": theater, "type": table,
+        "total_points": len(entries),
+        "hod_stats": hod_stats,
+        "raw": [{"ts": ts, "value": v} for ts, v in entries[-200:]],
+    })
+
+
+@bp.route("/api/history/alerts", methods=["GET"])
+def api_history_alerts():
+    """Return alert timeline with optional filtering.
+    GET /api/history/alerts?limit=100&since=1710000000
+    """
+    limit = min(int(request.args.get("limit", "100")), 500)
+    since = float(request.args.get("since", "0"))
+
+    alerts = _db.alert_list(limit=ALERT_TIMELINE_MAX)
+    if since > 0:
+        alerts = [a for a in alerts if a.get("ts", 0) >= since]
+    alerts = alerts[-limit:]
+
+    return jsonify({
+        "total": _db.alert_count(),
+        "returned": len(alerts),
+        "alerts": alerts,
+    })
+
+
+@bp.route("/api/history/sequence_events", methods=["GET"])
+def api_history_sequence_events():
+    """Return sequence events with optional theater filter.
+    GET /api/history/sequence_events?theater=TW&hours=48
+    """
+    theater = request.args.get("theater", "").upper()
+    hours = min(int(request.args.get("hours", "24")), 168)
+
+    import time as _t
+    cutoff = _t.time() - hours * 3600
+
+    if theater:
+        events = _db.seq_events_since(theater, cutoff)
+        return jsonify({"theater": theater, "hours": hours, "events": events})
+    else:
+        # All theaters
+        theaters = _db.seq_distinct_theaters()
+        result = {}
+        for th in theaters:
+            result[th] = _db.seq_events_since(th, cutoff)
+        return jsonify({"hours": hours, "theaters": result})
+
+
+@bp.route("/api/history/threat_levels", methods=["GET"])
+def api_history_threat_levels():
+    """Return threat level history.
+    GET /api/history/threat_levels
+    """
+    history = _db.threat_list()
+    return jsonify({
+        "count": len(history),
+        "history": [{"ts": ts, "level": lvl} for ts, lvl in history],
+    })
+
+
+@bp.route("/api/history/export", methods=["GET"])
+def api_history_export():
+    """Export historical data as JSON for offline analysis.
+    GET /api/history/export?theater=TW&format=json
+    """
+    auth_err = _require_admin()
+    if auth_err:
+        return auth_err
+
+    theater = request.args.get("theater", "TW").upper()
+
+    export = {
+        "theater": theater,
+        "exported_at": datetime.datetime.now().isoformat(),
+        "timeseries_scored": [{"ts": t, "value": v} for t, v in _db.ts_get(theater)],
+        "timeseries_combined": _db.series_get(theater, "combined"),
+        "timeseries_l3": _db.series_get(theater, "l3"),
+        "timeseries_l7": _db.series_get(theater, "l7"),
+        "hod_baseline": [{"ts": ts, "value": v}
+                         for ts, v in _db.hod_all_entries("hod_baseline", theater)],
+        "checkhost_hod": [{"ts": ts, "value": v}
+                          for ts, v in _db.hod_all_entries("checkhost_hod", theater)],
+        "sequence_events": _db.seq_all_events(theater),
+        "threat_history": [{"ts": ts, "level": lvl} for ts, lvl in _db.threat_list()],
+    }
+
+    from flask import Response
+    return Response(
+        json.dumps(export, indent=2, default=str, ensure_ascii=False),
+        mimetype="application/json",
+        headers={"Content-Disposition": f"attachment; filename=radar_export_{theater}.json"},
+    )
 

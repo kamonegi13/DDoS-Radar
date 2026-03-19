@@ -11,10 +11,8 @@ from radar.config import (
     HOD_BASELINE_DAYS, HOD_MIN_SAME_HOUR, HOD_MAX_ENTRIES,
     DEFAULT_CORE, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES, DEFAULT_PINS,
 )
-from radar.state import (
-    sequence_event_log, hod_baseline_db, baseline_cache,
-    _cf_scoring_cache,
-)
+from radar.state import _cf_scoring_cache
+from radar.database import db as _db
 
 log = logging.getLogger("radar")
 
@@ -26,25 +24,15 @@ def register_sequence_event(theater: str, event_type: str, meta: dict = None,
         (default 300 s = 5 min).  Prevents double-counting when multiple sensors
         (e.g. RSS + Telegram) fire the same event type in the same scoring cycle.
     """
-    global sequence_event_log
-    if theater not in sequence_event_log:
-        sequence_event_log[theater] = []
     now = time.time()
     # Dedup: skip if the same event type was registered within the dedup window
     dedup_cutoff = now - dedup_window
-    if any(e["type"] == event_type and e["ts"] >= dedup_cutoff
-           for e in sequence_event_log[theater]):
+    if _db.seq_exists_since(theater, event_type, dedup_cutoff):
         return
-    sequence_event_log[theater].append({
-        "ts":   now,
-        "type": event_type,
-        "meta": meta or {},
-    })
-    # Remove entries older than 24h to conserve memory
+    _db.seq_append(theater, now, event_type, meta or {})
+    # Remove entries older than 24h
     cutoff = now - SEQUENCE_WINDOW
-    sequence_event_log[theater] = [
-        e for e in sequence_event_log[theater] if e["ts"] >= cutoff
-    ]
+    _db.seq_cleanup(cutoff)
 
 def compute_sequence_bonus(theater: str) -> tuple:
     """
@@ -55,7 +43,7 @@ def compute_sequence_bonus(theater: str) -> tuple:
     """
     now = time.time()
     cutoff = now - SEQUENCE_WINDOW
-    events = [e for e in sequence_event_log.get(theater, []) if e["ts"] >= cutoff]
+    events = _db.seq_events_since(theater, cutoff)
     if not events:
         return 0, "NO_EVENTS", []
 
@@ -199,13 +187,14 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
     _BL_L3_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin"
     _BL_L7_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin"
     for t in theaters:
-        if baseline_cache.get(t, {}).get("l3") or baseline_cache.get(t, {}).get("l7"):
+        _bc = _db.baseline_get(t)
+        if _bc.get("l3") or _bc.get("l7"):
             continue
         log.info(f"[HOD Prefill] Fetching 28d baseline for {t} ...")
         _bl3 = parse_origins(fetch_cf_data(_BL_L3_URL, {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}))
         _bl7 = parse_origins(fetch_cf_data(_BL_L7_URL, {"location": t, "dateRange": BASELINE_DATE_RANGE, "format": "json"}))
         if _bl3 or _bl7:
-            baseline_cache[t] = {"time": time.time(), "l3": _bl3, "l7": _bl7}
+            _db.baseline_set(t, {"l3": _bl3, "l7": _bl7}, time.time())
         else:
             log.warning(f"[HOD Prefill] {t}: baseline fetch failed, skipping theater.")
 
@@ -214,7 +203,7 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
     total_filled = total_skipped = total_errors = 0
 
     for theater in theaters:
-        b_data = baseline_cache.get(theater, {})
+        b_data = _db.baseline_get(theater)
         if not (b_data.get("l3") or b_data.get("l7")):
             log.warning(f"[HOD Prefill] {theater}: no baseline available, skipping.")
             continue
@@ -237,7 +226,7 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
         for day_offset in range(1, HOD_BASELINE_DAYS + 1):
             target_day_start = (now_day - day_offset) * 86400
 
-            existing_buckets = {ts for ts, _ in hod_baseline_db.get(theater, [])}
+            existing_buckets = _db.hod_existing_buckets("hod_baseline", theater)
             slots_needed = [h for h in range(24)
                             if (target_day_start + h * 3600) not in existing_buckets]
             if not slots_needed:
@@ -286,13 +275,13 @@ def prefill_hod_baseline_bg(theaters: list, adversary_codes: list) -> None:
 
             time.sleep(0.25)   # ~4 req-pairs/s
 
-        slots_covered = len({(ts // 3600) % 24 for ts, _ in hod_baseline_db.get(theater, [])})
+        slots_covered = _db.hod_distinct_hours("hod_baseline", theater)
         log.info(f"[HOD Prefill] {theater}: filled={filled}, day_errors={day_errors}, "
               f"hod_slots_covered={slots_covered}/24")
         total_filled  += filled
         total_errors  += day_errors
 
-    total_pts = sum(len(v) for v in hod_baseline_db.values())
+    total_pts = _db.hod_total_points("hod_baseline")
     log.info(f"[HOD Prefill] Complete — filled={total_filled}, skipped={total_skipped}, "
           f"errors={total_errors}, total_hod_pts={total_pts}")
 
@@ -302,12 +291,10 @@ def record_hod_sample(theater: str, ts: float, avg_spike: float) -> None:
     Deduplicates by hour bucket so multiple scoring cycles within the same
     UTC hour do not create redundant entries."""
     hour_bucket = int(ts // 3600) * 3600   # floor to UTC hour boundary
-    entries = hod_baseline_db.setdefault(theater, [])
-    # Only append if this hour bucket is new (avoid per-minute duplicates)
-    if not entries or entries[-1][0] != hour_bucket:
-        entries.append((hour_bucket, avg_spike))
-        # Trim to HOD_MAX_ENTRIES (672 = 28 days × 24 h)
-        hod_baseline_db[theater] = entries[-HOD_MAX_ENTRIES:]
+    _last = _db.hod_last_bucket("hod_baseline", theater)
+    if _last != hour_bucket:
+        _db.hod_record("hod_baseline", theater, hour_bucket, avg_spike,
+                        max_entries=HOD_MAX_ENTRIES)
 
 
 def compute_hod_zscore(theater: str, current_spike: float, current_ts: float) -> tuple:
@@ -321,11 +308,8 @@ def compute_hod_zscore(theater: str, current_spike: float, current_ts: float) ->
     current_hour_bucket = int(current_ts // 3600) * 3600
     current_hod         = (current_hour_bucket // 3600) % 24   # 0–23 UTC
 
-    entries = hod_baseline_db.get(theater, [])
-    same_hour_spikes = [
-        spike for (ts, spike) in entries
-        if (ts // 3600) % 24 == current_hod and ts < current_hour_bucket
-    ]
+    same_hour_spikes = _db.hod_same_hour("hod_baseline", theater,
+                                         current_hod, current_hour_bucket)
     n = len(same_hour_spikes)
     if n < HOD_MIN_SAME_HOUR:
         return 0.0, False, n

@@ -7,6 +7,7 @@ from radar.config import (
     INFRASTRUCTURE_URLS, GLOBAL_PROXIES, SSL_VERIFY, HOD_MIN_SAME_HOUR, HOD_MAX_ENTRIES,
 )
 from radar.sensors.base import BaseSensor
+from radar.database import db as _db
 import os
 
 CHECKHOST_NODES_STR = os.getenv("CHECKHOST_NODES",
@@ -218,13 +219,13 @@ class CheckHostSensor(BaseSensor):
                 overall_status = "UNKNOWN"
             else:
                 _hour_bucket = int(now // 3600) * 3600
-                _hod_entries = checkhost_hod_db.setdefault(theater, [])
-                if not _hod_entries or _hod_entries[-1][0] != _hour_bucket:
-                    _hod_entries.append((_hour_bucket, theater_success_rate))
-                    checkhost_hod_db[theater] = _hod_entries[-HOD_MAX_ENTRIES:]
+                _last_bucket = _db.hod_last_bucket("checkhost_hod", theater)
+                if _last_bucket != _hour_bucket:
+                    _db.hod_record("checkhost_hod", theater, _hour_bucket,
+                                   theater_success_rate, max_entries=HOD_MAX_ENTRIES)
                 _cur_hod   = (_hour_bucket // 3600) % 24
-                _same_hour = [r for (ts, r) in _hod_entries
-                              if (ts // 3600) % 24 == _cur_hod and ts < _hour_bucket]
+                _same_hour = _db.hod_same_hour("checkhost_hod", theater,
+                                               _cur_hod, _hour_bucket)
                 if len(_same_hour) >= HOD_MIN_SAME_HOUR:
                     _hm = sum(_same_hour) / len(_same_hour)
                     _hs = max((sum((x - _hm)**2 for x in _same_hour) / len(_same_hour))**0.5, 0.05)

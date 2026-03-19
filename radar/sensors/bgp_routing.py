@@ -6,6 +6,7 @@ from radar.config import (
     GLOBAL_PROXIES, SSL_VERIFY, HOD_MIN_SAME_HOUR, HOD_MAX_ENTRIES,
 )
 from radar.sensors.base import BaseSensor
+from radar.database import db as _db
 
 class BgpRoutingSensor(BaseSensor):
     BGP_DROP_THRESHOLD = 0.15
@@ -38,12 +39,12 @@ class BgpRoutingSensor(BaseSensor):
                         total_prefixes += pfx_now; any_success = True
 
                         # HOD Z-score: record one entry per UTC hour bucket
-                        _bgp_entries = bgp_hod_db.setdefault(code, [])
-                        if not _bgp_entries or _bgp_entries[-1][0] != _bgp_hour_bucket:
-                            _bgp_entries.append((_bgp_hour_bucket, pfx_now))
-                            bgp_hod_db[code] = _bgp_entries[-self.BGP_HOD_MAX:]
-                        _bgp_same_hour = [p for (ts, p) in bgp_hod_db[code]
-                                          if (ts // 3600) % 24 == _bgp_cur_hod and ts < _bgp_hour_bucket]
+                        _last_bucket = _db.hod_last_bucket("bgp_hod", code)
+                        if _last_bucket != _bgp_hour_bucket:
+                            _db.hod_record("bgp_hod", code, _bgp_hour_bucket,
+                                           pfx_now, max_entries=self.BGP_HOD_MAX)
+                        _bgp_same_hour = _db.hod_same_hour("bgp_hod", code,
+                                                           _bgp_cur_hod, _bgp_hour_bucket)
                         _n_bgp_hod = len(_bgp_same_hour)
                         if _n_bgp_hod >= self.BGP_HOD_MIN:
                             _bm = sum(_bgp_same_hour) / _n_bgp_hod

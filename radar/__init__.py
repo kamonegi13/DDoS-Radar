@@ -50,12 +50,21 @@ for _s in [
 ]:
     registry.register(_s)
 
+# ── Plugin Sensors (dynamic loading from plugins/ directory) ──
+from radar.plugin_loader import load_and_register_plugins  # noqa: E402
+load_and_register_plugins(registry)
+
 # ── Scoring (must come after state) ──
 from radar.scoring import (  # noqa: E402,F401
     register_sequence_event, compute_sequence_bonus,
     compute_hod_zscore, record_hod_sample,
     calculate_overlap, compute_confidence,
 )
+
+# ── Auth (JWT + user management) ──
+from radar.auth import init_auth, bp as _auth_bp  # noqa: E402
+init_auth(app)
+app.register_blueprint(_auth_bp)
 
 # ── Routes ──
 from radar import routes as _routes_mod  # noqa: E402

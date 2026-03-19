@@ -98,6 +98,11 @@
                     <span class="tools-menu-label" data-i18n="tools.greynoise">GreyNoise</span>
                     <span class="tools-menu-dot" id="tm-dot-gn"></span>
                 </div>
+                <div class="tools-menu-item" id="tm-item-hist" onclick="handleToolToggle('history-panel', toggleHistoryPanel, 'tm-dot-hist', 'tm-item-hist')">
+                    <span class="tools-menu-icon">📊</span>
+                    <span class="tools-menu-label">History Analysis</span>
+                    <span class="tools-menu-dot" id="tm-dot-hist"></span>
+                </div>
                 <div class="tools-menu-item" id="tm-item-nb"  onclick="handleToolToggle('notebook-panel', toggleNotebook,  'tm-dot-nb',  'tm-item-nb')">
                     <span class="tools-menu-icon">📝</span>
                     <span class="tools-menu-label" data-i18n="tools.analyst_notebook">Analyst Notebook</span>
@@ -576,6 +581,71 @@
                 <div class="env-field" style="flex-direction:column;align-items:flex-start;">
                     <label style="margin-bottom:3px;" data-i18n="sysconfig.field.isr_icao">ISR ICAO Type Codes</label>
                     <input class="env-input wide" id="ec-ISR_ICAO_TYPES" type="text" placeholder="RC135,RC-135,E3,...">
+                </div>
+
+                <div class="env-section-title">Authentication (JWT)</div>
+                <div style="font-size:10px;color:#556;margin-bottom:8px;">ユーザー認証とセッション管理。初回起動時にデフォルト admin ユーザーが作成されます。</div>
+                <div class="env-field">
+                    <label>Default Admin Password</label>
+                    <input class="env-input" id="ec-DEFAULT_ADMIN_PASSWORD" type="password" autocomplete="off" placeholder="admin">
+                    <div style="font-size:10px;color:#556;margin-top:2px;">初回起動時の admin パスワード（運用後はAPIで変更）</div>
+                </div>
+                <div class="env-field">
+                    <label>JWT Secret Key<span class="opt">(auto-generated if empty)</span></label>
+                    <input class="env-input" id="ec-JWT_SECRET_KEY" type="password" autocomplete="off" placeholder="Auto-generated">
+                    <div style="font-size:10px;color:#556;margin-top:2px;">空欄の場合は起動毎にランダム生成（再起動でトークン無効化）</div>
+                </div>
+                <div class="env-field">
+                    <label>Access Token Expiry (seconds)</label>
+                    <input class="env-input" id="ec-JWT_ACCESS_EXPIRES" type="number" style="max-width:90px;" placeholder="3600">
+                </div>
+                <div class="env-field">
+                    <label>Refresh Token Expiry (seconds)</label>
+                    <input class="env-input" id="ec-JWT_REFRESH_EXPIRES" type="number" style="max-width:90px;" placeholder="86400">
+                </div>
+
+                <div class="env-section-title">Alert Notifications</div>
+                <div style="font-size:10px;color:#556;margin-bottom:8px;">Threat Level変化・Ambush検出時に外部通知を送信。Webhook URLを設定すると有効になります。</div>
+                <div class="env-field">
+                    <label>Notifications Enabled</label>
+                    <select class="env-input" id="ec-NOTIFY_ENABLED" style="max-width:100px;">
+                        <option value="true">Enabled</option>
+                        <option value="false">Disabled</option>
+                    </select>
+                </div>
+                <div class="env-field">
+                    <label>Slack Webhook URL<span class="opt">(optional)</span></label>
+                    <input class="env-input wide" id="ec-NOTIFY_SLACK_WEBHOOK" type="text" placeholder="https://hooks.slack.com/services/...">
+                </div>
+                <div class="env-field">
+                    <label>Teams Webhook URL<span class="opt">(optional)</span></label>
+                    <input class="env-input wide" id="ec-NOTIFY_TEAMS_WEBHOOK" type="text" placeholder="https://outlook.office.com/webhook/...">
+                </div>
+                <div class="env-field">
+                    <label>Generic Webhook URL<span class="opt">(optional)</span></label>
+                    <input class="env-input wide" id="ec-NOTIFY_WEBHOOK_URL" type="text" placeholder="https://your-server.com/webhook">
+                </div>
+                <div class="env-field">
+                    <label>Debounce Interval (seconds)</label>
+                    <input class="env-input" id="ec-NOTIFY_DEBOUNCE_SEC" type="number" style="max-width:90px;" placeholder="300">
+                    <div style="font-size:10px;color:#556;margin-top:2px;">同一アラートの連続通知を抑制する間隔</div>
+                </div>
+
+                <div class="env-section-title">Plugin Sensors</div>
+                <div style="font-size:10px;color:#556;margin-bottom:8px;">plugins/ ディレクトリからBaseSensorサブクラスを動的にロードします。</div>
+                <div class="env-field">
+                    <label>Plugin Directory</label>
+                    <input class="env-input" id="ec-PLUGIN_DIR" type="text" placeholder="plugins">
+                </div>
+                <div class="env-field">
+                    <label>Enabled Plugins<span class="opt">(* = all)</span></label>
+                    <input class="env-input wide" id="ec-PLUGIN_ENABLED" type="text" placeholder="*">
+                    <div style="font-size:10px;color:#556;margin-top:2px;">カンマ区切りのファイル名（拡張子なし）、または * で全プラグイン</div>
+                </div>
+                <div class="env-field">
+                    <label>Disabled Plugins</label>
+                    <input class="env-input wide" id="ec-PLUGIN_DISABLED" type="text" placeholder="">
+                    <div style="font-size:10px;color:#556;margin-top:2px;">明示的に無効にするプラグイン名（カンマ区切り）</div>
                 </div>
 
                 </div><!-- /env-adv-section -->
@@ -1636,6 +1706,56 @@
 <!-- ─────────────────────────────────────────────────────────────────────────
      Analyst Notebook Panel (floating, dockable)
      ───────────────────────────────────────────────────────────────────────── -->
+<!-- ── History Analysis Panel ── -->
+<div id="history-panel" class="draggable-panel floating" style="display:none; left:350px; top:120px; width:620px;">
+    <div class="drag-handle panel-header-unified">
+        <span>History Analysis</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('history-panel')" style="color:#ff444488;">✕</span>
+        </div>
+    </div>
+    <div class="panel-content" style="max-height:500px; overflow-y:auto;">
+        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+            <label style="font-size:10px;color:#888;">Theater:</label>
+            <select id="hist-theater" style="background:#111;border:1px solid #333;color:#0ff;padding:3px 6px;border-radius:3px;font-size:10px;" onchange="loadHistoryData()">
+                <option value="TW">TW</option>
+            </select>
+            <label style="font-size:10px;color:#888;">Range:</label>
+            <select id="hist-range" style="background:#111;border:1px solid #333;color:#0ff;padding:3px 6px;border-radius:3px;font-size:10px;" onchange="loadHistoryData()">
+                <option value="24">24h</option>
+                <option value="72">3 days</option>
+                <option value="168" selected>7 days</option>
+                <option value="336">14 days</option>
+                <option value="672">28 days</option>
+            </select>
+            <button class="btn-tactical" style="font-size:9px;padding:2px 8px;" onclick="loadHistoryData()">Refresh</button>
+            <button class="btn-tactical" style="font-size:9px;padding:2px 8px;" onclick="exportHistoryData()">Export</button>
+        </div>
+        <!-- Threat Score Trend -->
+        <div style="margin-bottom:10px;">
+            <div style="font-size:10px;color:#0ff;margin-bottom:4px;">Threat Score Trend</div>
+            <canvas id="hist-score-chart" width="580" height="100" style="width:100%;background:#0a0a0a;border:1px solid #222;border-radius:3px;"></canvas>
+        </div>
+        <!-- HOD Heatmap -->
+        <div style="margin-bottom:10px;">
+            <div style="font-size:10px;color:#0ff;margin-bottom:4px;">Hour-of-Day Baseline (CF Spike Avg)</div>
+            <canvas id="hist-hod-chart" width="580" height="80" style="width:100%;background:#0a0a0a;border:1px solid #222;border-radius:3px;"></canvas>
+        </div>
+        <!-- Sequence Events -->
+        <div style="margin-bottom:10px;">
+            <div style="font-size:10px;color:#0ff;margin-bottom:4px;">Sequence Events</div>
+            <div id="hist-seq-events" style="font-size:9px;color:#ccc;max-height:120px;overflow-y:auto;"></div>
+        </div>
+        <!-- Alert Timeline -->
+        <div>
+            <div style="font-size:10px;color:#0ff;margin-bottom:4px;">Recent Alerts</div>
+            <div id="hist-alerts" style="font-size:9px;color:#ccc;max-height:120px;overflow-y:auto;"></div>
+        </div>
+    </div>
+</div>
+
 <div id="notebook-panel" class="draggable-panel floating" style="display:none; left:500px; top:150px;">
     <div class="drag-handle panel-header-unified">
         <span>Analyst Notebook</span>

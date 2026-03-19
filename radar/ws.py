@@ -64,10 +64,13 @@ def emit_threat_update(theater: str, strategic_data: dict) -> None:
 
 
 def emit_ambush_alert(theater: str, alert_data: dict) -> None:
-    """Push ambush pattern detection alert."""
+    """Push ambush pattern detection alert + external notification."""
     if socketio is None:
         return
     socketio.emit("ambush_alert", alert_data, room=f"theater:{theater}")
+    # External notification
+    from radar.notifications import notify_ambush_alert
+    notify_ambush_alert(theater, alert_data)
 
 
 def emit_sequence_event(theater: str, event_data: dict) -> None:

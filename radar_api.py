@@ -16,13 +16,43 @@ from radar.scoring import (  # noqa: F401
     calculate_overlap, compute_confidence,
 )
 from radar.config import SEQUENCE_WINDOW  # noqa: F401
+from radar.database import db as _db  # noqa: F401
 
-# Re-export mutable state globals for test_engine.py compatibility.
-# These are the SAME dict/deque objects used by the radar package internals,
-# so .clear() and mutation from tests will propagate correctly.
-from radar.state import (  # noqa: F401
-    sequence_event_log, hod_baseline_db,
-)
+
+# ── Test-compatibility wrappers ──
+# These objects mimic dict-like .clear() / .get() / [] so that test_engine.py
+# can continue to work without modification.
+class _SeqLogProxy:
+    """Proxy for sequence_event_log that delegates to SQLite."""
+    def clear(self):
+        _db.seq_clear()
+    def get(self, theater, default=None):
+        events = _db.seq_all_events(theater)
+        return events if events else (default if default is not None else [])
+    def __setitem__(self, theater, events):
+        # Used by tests to inject expired events
+        # Clear existing and insert new
+        from radar.database import db
+        conn = db._get_conn()
+        conn.execute("DELETE FROM sequence_events WHERE theater=?", (theater,))
+        for e in events:
+            conn.execute(
+                "INSERT INTO sequence_events (theater, ts, event_type, meta_json) "
+                "VALUES (?, ?, ?, ?)",
+                (theater, e["ts"], e["type"], __import__("json").dumps(e.get("meta", {}))),
+            )
+        conn.commit()
+
+class _HodDbProxy:
+    """Proxy for hod_baseline_db that delegates to SQLite."""
+    def clear(self):
+        conn = _db._get_conn()
+        conn.execute("DELETE FROM hod_baseline")
+        conn.commit()
+
+sequence_event_log = _SeqLogProxy()
+hod_baseline_db = _HodDbProxy()
+
 
 if __name__ == "__main__":
     # Use socketio.run() instead of app.run() for WebSocket support

@@ -1,0 +1,593 @@
+"""radar.database -- SQLite persistence layer.
+
+Thread-safe SQLite backend replacing dict/deque state.
+One connection per thread via threading.local(), WAL mode for concurrency.
+
+Usage:
+    from radar.database import db
+    db.hod_record("hod_baseline", "TW", hour_bucket, avg_spike)
+    same_hour = db.hod_same_hour("hod_baseline", "TW", target_hod, before_bucket)
+"""
+from __future__ import annotations
+import json
+import logging
+import os
+import sqlite3
+import threading
+from typing import Optional
+
+log = logging.getLogger("radar")
+
+# ── Schema SQL ────────────────────────────────────────────────────────────────
+_SCHEMA_SQL = """
+PRAGMA journal_mode = WAL;
+PRAGMA busy_timeout = 5000;
+PRAGMA synchronous = NORMAL;
+PRAGMA wal_autocheckpoint = 1000;
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version     INTEGER NOT NULL,
+    migrated_at REAL NOT NULL
+);
+
+-- baseline_cache: {theater: {l3: {...}, l7: {...}}}
+CREATE TABLE IF NOT EXISTS baseline_cache (
+    theater    TEXT PRIMARY KEY,
+    updated_at REAL NOT NULL,
+    data_json  TEXT NOT NULL
+);
+
+-- airspace_baseline: {airport_code: {readings: [...], avg: float}}
+CREATE TABLE IF NOT EXISTS airspace_baseline (
+    airport_code TEXT PRIMARY KEY,
+    data_json    TEXT NOT NULL
+);
+
+-- HOD baselines (CF spike, CheckHost, BGP) — identical structure
+CREATE TABLE IF NOT EXISTS hod_baseline (
+    theater     TEXT NOT NULL,
+    hour_bucket INTEGER NOT NULL,
+    avg_spike   REAL NOT NULL,
+    PRIMARY KEY (theater, hour_bucket)
+);
+
+CREATE TABLE IF NOT EXISTS checkhost_hod (
+    theater      TEXT NOT NULL,
+    hour_bucket  INTEGER NOT NULL,
+    success_rate REAL NOT NULL,
+    PRIMARY KEY (theater, hour_bucket)
+);
+
+CREATE TABLE IF NOT EXISTS bgp_hod (
+    theater      TEXT NOT NULL,
+    hour_bucket  INTEGER NOT NULL,
+    prefix_count REAL NOT NULL,
+    PRIMARY KEY (theater, hour_bucket)
+);
+
+-- GDELT day-of-week tones
+CREATE TABLE IF NOT EXISTS gdelt_dow (
+    theater    TEXT NOT NULL,
+    day_bucket INTEGER NOT NULL,
+    weekday    INTEGER NOT NULL,
+    tone       REAL NOT NULL,
+    PRIMARY KEY (theater, day_bucket)
+);
+CREATE INDEX IF NOT EXISTS idx_gdelt_dow_weekday
+    ON gdelt_dow (theater, weekday);
+
+-- time_series_ts: timestamped scored history
+CREATE TABLE IF NOT EXISTS time_series_ts (
+    theater TEXT NOT NULL,
+    ts      REAL NOT NULL,
+    value   REAL NOT NULL,
+    PRIMARY KEY (theater, ts)
+);
+
+-- time_series value-only (combined/l3/l7)
+CREATE TABLE IF NOT EXISTS time_series (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    theater     TEXT NOT NULL,
+    series_type TEXT NOT NULL,
+    value       REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_time_series_theater
+    ON time_series (theater, series_type, id);
+
+-- alert_timeline (ring buffer, max 288)
+CREATE TABLE IF NOT EXISTS alert_timeline (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts        REAL NOT NULL,
+    data_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alert_timeline_ts
+    ON alert_timeline (ts);
+
+-- sequence_event_log
+CREATE TABLE IF NOT EXISTS sequence_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    theater    TEXT NOT NULL,
+    ts         REAL NOT NULL,
+    event_type TEXT NOT NULL,
+    meta_json  TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_seq_events_theater_ts
+    ON sequence_events (theater, ts);
+
+-- threat_history (ring buffer, max 20)
+CREATE TABLE IF NOT EXISTS threat_history (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts           REAL NOT NULL,
+    threat_level INTEGER NOT NULL
+);
+
+-- sensor_caches: per-sensor last-fetch snapshot
+CREATE TABLE IF NOT EXISTS sensor_caches (
+    sensor_name TEXT PRIMARY KEY,
+    cache_time  REAL NOT NULL,
+    cache_json  TEXT NOT NULL
+);
+"""
+
+# Column name mapping for parameterized HOD methods
+_VALUE_COL = {
+    "hod_baseline":  "avg_spike",
+    "checkhost_hod": "success_rate",
+    "bgp_hod":       "prefix_count",
+}
+
+_HOD_TABLES = set(_VALUE_COL.keys())
+
+
+class RadarDB:
+    """Thread-safe SQLite state store. One connection per thread."""
+
+    def __init__(self, db_path: str):
+        self._db_path = db_path
+        self._local = threading.local()
+        self._init_lock = threading.Lock()
+        self._ensure_schema()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
+            conn = sqlite3.connect(self._db_path, timeout=10)
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA busy_timeout = 5000")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.row_factory = sqlite3.Row
+            self._local.conn = conn
+        return conn
+
+    def _ensure_schema(self):
+        with self._init_lock:
+            conn = self._get_conn()
+            conn.executescript(_SCHEMA_SQL)
+            conn.commit()
+
+    def schema_version(self) -> int:
+        try:
+            row = self._get_conn().execute(
+                "SELECT MAX(version) FROM schema_version"
+            ).fetchone()
+            return row[0] if row and row[0] is not None else 0
+        except sqlite3.OperationalError:
+            return 0
+
+    def set_schema_version(self, ver: int):
+        import time
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO schema_version (version, migrated_at) VALUES (?, ?)",
+            (ver, time.time()),
+        )
+        conn.commit()
+
+    # ── baseline_cache ──────────────────────────────────────────────────────
+    def baseline_get(self, theater: str) -> dict:
+        row = self._get_conn().execute(
+            "SELECT updated_at, data_json FROM baseline_cache WHERE theater=?",
+            (theater,),
+        ).fetchone()
+        if not row:
+            return {}
+        data = json.loads(row["data_json"])
+        data["time"] = row["updated_at"]
+        return data
+
+    def baseline_set(self, theater: str, data: dict, ts: float):
+        self._get_conn().execute(
+            "INSERT OR REPLACE INTO baseline_cache (theater, updated_at, data_json) "
+            "VALUES (?, ?, ?)",
+            (theater, ts, json.dumps(data, default=str)),
+        )
+        self._get_conn().commit()
+
+    def baseline_all(self) -> dict:
+        rows = self._get_conn().execute(
+            "SELECT theater, updated_at, data_json FROM baseline_cache"
+        ).fetchall()
+        result = {}
+        for r in rows:
+            d = json.loads(r["data_json"])
+            d["time"] = r["updated_at"]
+            result[r["theater"]] = d
+        return result
+
+    def baseline_len(self) -> int:
+        row = self._get_conn().execute("SELECT COUNT(*) FROM baseline_cache").fetchone()
+        return row[0] if row else 0
+
+    # ── airspace_baseline ───────────────────────────────────────────────────
+    def airspace_get(self, code: str) -> dict:
+        row = self._get_conn().execute(
+            "SELECT data_json FROM airspace_baseline WHERE airport_code=?",
+            (code,),
+        ).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def airspace_set(self, code: str, data: dict):
+        self._get_conn().execute(
+            "INSERT OR REPLACE INTO airspace_baseline (airport_code, data_json) "
+            "VALUES (?, ?)",
+            (code, json.dumps(data, default=str)),
+        )
+        self._get_conn().commit()
+
+    def airspace_all(self) -> dict:
+        rows = self._get_conn().execute(
+            "SELECT airport_code, data_json FROM airspace_baseline"
+        ).fetchall()
+        return {r[0]: json.loads(r[1]) for r in rows}
+
+    def airspace_len(self) -> int:
+        row = self._get_conn().execute("SELECT COUNT(*) FROM airspace_baseline").fetchone()
+        return row[0] if row else 0
+
+    # ── HOD baselines (parameterized by table name) ─────────────────────────
+    def hod_record(self, table: str, theater: str, hour_bucket: int, value: float,
+                   max_entries: int = 672):
+        assert table in _HOD_TABLES, f"Invalid HOD table: {table}"
+        col = _VALUE_COL[table]
+        conn = self._get_conn()
+        conn.execute(
+            f"INSERT OR REPLACE INTO {table} (theater, hour_bucket, {col}) "
+            f"VALUES (?, ?, ?)",
+            (theater, hour_bucket, value),
+        )
+        # Prune oldest beyond limit
+        conn.execute(
+            f"DELETE FROM {table} WHERE theater=? AND hour_bucket NOT IN "
+            f"(SELECT hour_bucket FROM {table} WHERE theater=? "
+            f"ORDER BY hour_bucket DESC LIMIT ?)",
+            (theater, theater, max_entries),
+        )
+        conn.commit()
+
+    def hod_record_many(self, table: str, theater: str,
+                        entries: list[tuple[int, float]], max_entries: int = 672):
+        """Bulk insert for migration. entries = [(hour_bucket, value), ...]"""
+        assert table in _HOD_TABLES
+        col = _VALUE_COL[table]
+        conn = self._get_conn()
+        conn.executemany(
+            f"INSERT OR REPLACE INTO {table} (theater, hour_bucket, {col}) "
+            f"VALUES (?, ?, ?)",
+            [(theater, hb, v) for hb, v in entries],
+        )
+        conn.execute(
+            f"DELETE FROM {table} WHERE theater=? AND hour_bucket NOT IN "
+            f"(SELECT hour_bucket FROM {table} WHERE theater=? "
+            f"ORDER BY hour_bucket DESC LIMIT ?)",
+            (theater, theater, max_entries),
+        )
+        conn.commit()
+
+    def hod_same_hour(self, table: str, theater: str,
+                      target_hod: int, before_bucket: int) -> list[float]:
+        """Values where hour-of-day matches and bucket < before_bucket."""
+        assert table in _HOD_TABLES
+        col = _VALUE_COL[table]
+        rows = self._get_conn().execute(
+            f"SELECT {col} FROM {table} "
+            f"WHERE theater=? AND (hour_bucket/3600)%24=? AND hour_bucket<?",
+            (theater, target_hod, before_bucket),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def hod_last_bucket(self, table: str, theater: str) -> Optional[int]:
+        assert table in _HOD_TABLES
+        row = self._get_conn().execute(
+            f"SELECT MAX(hour_bucket) FROM {table} WHERE theater=?",
+            (theater,),
+        ).fetchone()
+        return row[0] if row and row[0] is not None else None
+
+    def hod_all_entries(self, table: str, theater: str) -> list[tuple[int, float]]:
+        """Return [(hour_bucket, value), ...] ordered by hour_bucket."""
+        assert table in _HOD_TABLES
+        col = _VALUE_COL[table]
+        rows = self._get_conn().execute(
+            f"SELECT hour_bucket, {col} FROM {table} "
+            f"WHERE theater=? ORDER BY hour_bucket",
+            (theater,),
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+    def hod_existing_buckets(self, table: str, theater: str) -> set[int]:
+        assert table in _HOD_TABLES
+        rows = self._get_conn().execute(
+            f"SELECT hour_bucket FROM {table} WHERE theater=?",
+            (theater,),
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    def hod_distinct_hours(self, table: str, theater: str) -> int:
+        assert table in _HOD_TABLES
+        row = self._get_conn().execute(
+            f"SELECT COUNT(DISTINCT (hour_bucket/3600)%24) FROM {table} WHERE theater=?",
+            (theater,),
+        ).fetchone()
+        return row[0] if row else 0
+
+    def hod_total_points(self, table: str) -> int:
+        assert table in _HOD_TABLES
+        row = self._get_conn().execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        return row[0] if row else 0
+
+    def hod_total_points_theater(self, table: str, theater: str) -> int:
+        assert table in _HOD_TABLES
+        row = self._get_conn().execute(
+            f"SELECT COUNT(*) FROM {table} WHERE theater=?", (theater,)
+        ).fetchone()
+        return row[0] if row else 0
+
+    # ── GDELT DoW ───────────────────────────────────────────────────────────
+    def gdelt_dow_record(self, theater: str, day_bucket: int,
+                         weekday: int, tone: float, max_entries: int = 140):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO gdelt_dow (theater, day_bucket, weekday, tone) "
+            "VALUES (?, ?, ?, ?)",
+            (theater, day_bucket, weekday, tone),
+        )
+        conn.execute(
+            "DELETE FROM gdelt_dow WHERE theater=? AND day_bucket NOT IN "
+            "(SELECT day_bucket FROM gdelt_dow WHERE theater=? "
+            "ORDER BY day_bucket DESC LIMIT ?)",
+            (theater, theater, max_entries),
+        )
+        conn.commit()
+
+    def gdelt_dow_last_bucket(self, theater: str) -> Optional[int]:
+        row = self._get_conn().execute(
+            "SELECT MAX(day_bucket) FROM gdelt_dow WHERE theater=?",
+            (theater,),
+        ).fetchone()
+        return row[0] if row and row[0] is not None else None
+
+    def gdelt_dow_same_weekday(self, theater: str, weekday: int,
+                               before_bucket: int) -> list[float]:
+        rows = self._get_conn().execute(
+            "SELECT tone FROM gdelt_dow WHERE theater=? AND weekday=? "
+            "AND day_bucket<? ORDER BY day_bucket",
+            (theater, weekday, before_bucket),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def gdelt_dow_total_points(self) -> int:
+        row = self._get_conn().execute("SELECT COUNT(*) FROM gdelt_dow").fetchone()
+        return row[0] if row else 0
+
+    # ── time_series_ts (timestamped) ────────────────────────────────────────
+    def ts_append(self, theater: str, ts: float, value: float, max_entries: int = 30):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO time_series_ts (theater, ts, value) VALUES (?, ?, ?)",
+            (theater, ts, value),
+        )
+        conn.execute(
+            "DELETE FROM time_series_ts WHERE theater=? AND ts NOT IN "
+            "(SELECT ts FROM time_series_ts WHERE theater=? "
+            "ORDER BY ts DESC LIMIT ?)",
+            (theater, theater, max_entries),
+        )
+        conn.commit()
+
+    def ts_get(self, theater: str) -> list[tuple[float, float]]:
+        rows = self._get_conn().execute(
+            "SELECT ts, value FROM time_series_ts WHERE theater=? ORDER BY ts",
+            (theater,),
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+    def ts_get_since(self, theater: str, cutoff: float) -> list[tuple[float, float]]:
+        rows = self._get_conn().execute(
+            "SELECT ts, value FROM time_series_ts WHERE theater=? AND ts>=? ORDER BY ts",
+            (theater, cutoff),
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+    def ts_total_points(self) -> int:
+        row = self._get_conn().execute("SELECT COUNT(*) FROM time_series_ts").fetchone()
+        return row[0] if row else 0
+
+    # ── time_series value-only (combined/l3/l7) ─────────────────────────────
+    def series_append(self, theater: str, series_type: str,
+                      value: float, max_entries: int = 15):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO time_series (theater, series_type, value) VALUES (?, ?, ?)",
+            (theater, series_type, value),
+        )
+        conn.execute(
+            "DELETE FROM time_series WHERE theater=? AND series_type=? AND id NOT IN "
+            "(SELECT id FROM time_series WHERE theater=? AND series_type=? "
+            "ORDER BY id DESC LIMIT ?)",
+            (theater, series_type, theater, series_type, max_entries),
+        )
+        conn.commit()
+
+    def series_get(self, theater: str, series_type: str) -> list[float]:
+        rows = self._get_conn().execute(
+            "SELECT value FROM time_series WHERE theater=? AND series_type=? ORDER BY id",
+            (theater, series_type),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    # ── alert_timeline ──────────────────────────────────────────────────────
+    def alert_append(self, alert_dict: dict, max_entries: int = 288):
+        conn = self._get_conn()
+        ts = alert_dict.get("ts", 0)
+        conn.execute(
+            "INSERT INTO alert_timeline (ts, data_json) VALUES (?, ?)",
+            (ts, json.dumps(alert_dict, default=str)),
+        )
+        conn.execute(
+            "DELETE FROM alert_timeline WHERE id NOT IN "
+            "(SELECT id FROM alert_timeline ORDER BY id DESC LIMIT ?)",
+            (max_entries,),
+        )
+        conn.commit()
+
+    def alert_list(self, limit: int = 288) -> list[dict]:
+        rows = self._get_conn().execute(
+            "SELECT data_json FROM alert_timeline ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [json.loads(r[0]) for r in reversed(rows)]
+
+    def alert_count(self) -> int:
+        row = self._get_conn().execute("SELECT COUNT(*) FROM alert_timeline").fetchone()
+        return row[0] if row else 0
+
+    def alert_clear(self):
+        self._get_conn().execute("DELETE FROM alert_timeline")
+        self._get_conn().commit()
+
+    # ── sequence_event_log ──────────────────────────────────────────────────
+    def seq_append(self, theater: str, ts: float, event_type: str, meta: dict):
+        self._get_conn().execute(
+            "INSERT INTO sequence_events (theater, ts, event_type, meta_json) "
+            "VALUES (?, ?, ?, ?)",
+            (theater, ts, event_type, json.dumps(meta, default=str)),
+        )
+        self._get_conn().commit()
+
+    def seq_exists_since(self, theater: str, event_type: str, since: float) -> bool:
+        row = self._get_conn().execute(
+            "SELECT 1 FROM sequence_events "
+            "WHERE theater=? AND event_type=? AND ts>=? LIMIT 1",
+            (theater, event_type, since),
+        ).fetchone()
+        return row is not None
+
+    def seq_events_since(self, theater: str, cutoff: float) -> list[dict]:
+        rows = self._get_conn().execute(
+            "SELECT ts, event_type, meta_json FROM sequence_events "
+            "WHERE theater=? AND ts>=? ORDER BY ts",
+            (theater, cutoff),
+        ).fetchall()
+        return [{"ts": r[0], "type": r[1], "meta": json.loads(r[2])} for r in rows]
+
+    def seq_all_events(self, theater: str) -> list[dict]:
+        rows = self._get_conn().execute(
+            "SELECT ts, event_type, meta_json FROM sequence_events "
+            "WHERE theater=? ORDER BY ts",
+            (theater,),
+        ).fetchall()
+        return [{"ts": r[0], "type": r[1], "meta": json.loads(r[2])} for r in rows]
+
+    def seq_cleanup(self, cutoff: float):
+        self._get_conn().execute("DELETE FROM sequence_events WHERE ts<?", (cutoff,))
+        self._get_conn().commit()
+
+    def seq_total(self) -> int:
+        row = self._get_conn().execute("SELECT COUNT(*) FROM sequence_events").fetchone()
+        return row[0] if row else 0
+
+    def seq_distinct_theaters(self) -> list[str]:
+        rows = self._get_conn().execute(
+            "SELECT DISTINCT theater FROM sequence_events"
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def seq_clear(self):
+        self._get_conn().execute("DELETE FROM sequence_events")
+        self._get_conn().commit()
+
+    # ── threat_history ──────────────────────────────────────────────────────
+    def threat_append(self, ts: float, level: int, max_entries: int = 20):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO threat_history (ts, threat_level) VALUES (?, ?)",
+            (ts, level),
+        )
+        conn.execute(
+            "DELETE FROM threat_history WHERE id NOT IN "
+            "(SELECT id FROM threat_history ORDER BY id DESC LIMIT ?)",
+            (max_entries,),
+        )
+        conn.commit()
+
+    def threat_list(self) -> list[tuple[float, int]]:
+        rows = self._get_conn().execute(
+            "SELECT ts, threat_level FROM threat_history ORDER BY id"
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+    def threat_last(self) -> Optional[tuple[float, int]]:
+        row = self._get_conn().execute(
+            "SELECT ts, threat_level FROM threat_history ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return (row[0], row[1]) if row else None
+
+    def threat_clear(self):
+        self._get_conn().execute("DELETE FROM threat_history")
+        self._get_conn().commit()
+
+    # ── sensor_caches ───────────────────────────────────────────────────────
+    def sensor_cache_set(self, sensor_name: str, cache_time: float, cache_data: dict):
+        self._get_conn().execute(
+            "INSERT OR REPLACE INTO sensor_caches (sensor_name, cache_time, cache_json) "
+            "VALUES (?, ?, ?)",
+            (sensor_name, cache_time, json.dumps(cache_data, default=str)),
+        )
+        self._get_conn().commit()
+
+    def sensor_cache_get(self, sensor_name: str) -> Optional[dict]:
+        row = self._get_conn().execute(
+            "SELECT cache_time, cache_json FROM sensor_caches WHERE sensor_name=?",
+            (sensor_name,),
+        ).fetchone()
+        if not row:
+            return None
+        return {"cache_time": row[0], "cache": json.loads(row[1])}
+
+    def sensor_cache_all(self) -> dict:
+        rows = self._get_conn().execute(
+            "SELECT sensor_name, cache_time, cache_json FROM sensor_caches"
+        ).fetchall()
+        return {
+            r[0]: {"cache_time": r[1], "cache": json.loads(r[2])}
+            for r in rows
+        }
+
+    def sensor_cache_count(self) -> int:
+        row = self._get_conn().execute("SELECT COUNT(*) FROM sensor_caches").fetchone()
+        return row[0] if row else 0
+
+    # ── Utility ─────────────────────────────────────────────────────────────
+    def close(self):
+        conn = getattr(self._local, "conn", None)
+        if conn:
+            conn.close()
+            self._local.conn = None
+
+
+# ── Module-level singleton ──────────────────────────────────────────────────
+from radar.config import PERSISTENCE_DIR  # noqa: E402
+
+_DB_PATH = os.path.join(PERSISTENCE_DIR, "radar.db")
+db = RadarDB(_DB_PATH)
