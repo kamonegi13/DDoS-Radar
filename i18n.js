@@ -65,6 +65,8 @@ const LANG = {
     'hud.label.chain':                'CHAIN:',
     'hud.tooltip.chain_hud':          'Escalation Sequence Chain: Evidence chain of Narrative→ISR→DDoS→Kinetic within 24h window.',
     'hud.label.comms':                'COMMS:',
+    'hud.label.sensors':              'SENSORS',
+    'hud.tooltip.sensor_health':      'Sensor fleet status: green=OK, orange=STALE, red=ERROR, grey=DISABLED',
     'hud.tooltip.comms':              'COMMS: GREEN=All sensors live / ORANGE=Abnormal silence detected — possible sensor suppression or pre-op comms blackout',
     'hud.domain.cyber':               'Cyber',
     'hud.tooltip.domain_cyber':       'Cyber domain score',
@@ -668,6 +670,11 @@ const LANG = {
     'panel.history.no_hod':           'No HOD data',
     'panel.history.no_events':        'No events in range',
     'panel.history.no_alerts':        'No alerts',
+    'panel.history.stat.points':      'DATA PTS',
+    'panel.history.stat.peak':        'PEAK',
+    'panel.history.stat.avg':         'AVG',
+    'panel.history.stat.events':      'EVENTS',
+    'panel.history.stat.alerts':      'ALERTS',
 
     // ══════════════════════════════════════════════════════════════
     // System Config — additional fields
@@ -740,6 +747,8 @@ const LANG = {
     'hud.label.chain':                'チェーン:',
     'hud.tooltip.chain_hud':          'エスカレーション順序チェーン: 24時間窓内の情報→ISR→DDoS→動態の証拠連鎖。',
     'hud.label.comms':                '通信:',
+    'hud.label.sensors':              'センサー',
+    'hud.tooltip.sensor_health':      'センサー状態: 緑=正常, 橙=古い, 赤=エラー, 灰=無効',
     'hud.tooltip.comms':              '通信: 緑=全センサー稼働中 / 橙=異常な沈黙を検出 — センサー妨害または作戦前通信封止の可能性',
     'hud.domain.cyber':               'サイバー',
     'hud.tooltip.domain_cyber':       'サイバードメインスコア',
@@ -1334,6 +1343,11 @@ const LANG = {
     'panel.history.no_hod':           'HOD データなし',
     'panel.history.no_events':        '該当期間のイベントなし',
     'panel.history.no_alerts':        'アラートなし',
+    'panel.history.stat.points':      'データ数',
+    'panel.history.stat.peak':        'ピーク',
+    'panel.history.stat.avg':         '平均',
+    'panel.history.stat.events':      'イベント',
+    'panel.history.stat.alerts':      'アラート',
 
     // ══════════════════════════════════════════════════════════════
     // システム設定 — 追加フィールド

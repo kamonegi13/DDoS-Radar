@@ -61,17 +61,26 @@ def _hash_password(password: str, salt: str) -> str:
 
 
 def _get_or_create_jwt_secret() -> str:
-    """Return JWT secret from env, or generate once and persist to config.env."""
+    """Return JWT secret from env, or generate and persist to config.env on first run.
+    Logs a critical warning if the secret had to be generated."""
     env_key = os.getenv("JWT_SECRET_KEY", "")
     if env_key:
         return env_key
+    # Auto-generate on first run and persist
     generated = secrets.token_hex(32)
+    persisted = False
     try:
         with open("config.env", "a", encoding="utf-8") as f:
             f.write(f"\nJWT_SECRET_KEY={generated}\n")
-        log.info("[Auth] Generated and persisted JWT_SECRET_KEY to config.env")
+        persisted = True
     except OSError as e:
-        log.warning("[Auth] Could not persist JWT_SECRET_KEY to config.env: %s", e)
+        log.error("[Auth] CRITICAL: Could not persist JWT_SECRET_KEY to config.env: %s", e)
+    if persisted:
+        log.warning("[Auth] JWT_SECRET_KEY was not set. Generated and saved to config.env. "
+                     "For production, set JWT_SECRET_KEY as an environment variable.")
+    else:
+        log.error("[Auth] JWT_SECRET_KEY is ephemeral (not persisted). "
+                   "Tokens will be invalidated on restart. Set JWT_SECRET_KEY in environment.")
     return generated
 
 
@@ -110,7 +119,11 @@ def _create_default_admin(conn):
     default_pw = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
     if not default_pw:
         default_pw = secrets.token_urlsafe(16)
-        log.warning("[Auth] No DEFAULT_ADMIN_PASSWORD set. Generated temporary password: %s", default_pw)
+        log.warning("=" * 60)
+        log.warning("[Auth] No DEFAULT_ADMIN_PASSWORD set.")
+        log.warning("[Auth] Generated temporary admin password: %s", default_pw)
+        log.warning("[Auth] Change this password immediately after first login.")
+        log.warning("=" * 60)
     salt = secrets.token_hex(16)
     pw_hash = _hash_password(default_pw, salt)
     now = time.time()

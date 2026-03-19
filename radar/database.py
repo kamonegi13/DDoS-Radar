@@ -467,13 +467,22 @@ class RadarDB:
         self._get_conn().commit()
 
     # ── sequence_event_log ──────────────────────────────────────────────────
+    _SEQ_MAX = 500  # max sequence events per theater
+
     def seq_append(self, theater: str, ts: float, event_type: str, meta: dict):
-        self._get_conn().execute(
+        conn = self._get_conn()
+        conn.execute(
             "INSERT INTO sequence_events (theater, ts, event_type, meta_json) "
             "VALUES (?, ?, ?, ?)",
             (theater, ts, event_type, json.dumps(meta, default=str)),
         )
-        self._get_conn().commit()
+        # Auto-prune oldest entries beyond limit
+        conn.execute(
+            "DELETE FROM sequence_events WHERE theater=? AND id NOT IN "
+            "(SELECT id FROM sequence_events WHERE theater=? ORDER BY id DESC LIMIT ?)",
+            (theater, theater, self._SEQ_MAX),
+        )
+        conn.commit()
 
     def seq_exists_since(self, theater: str, event_type: str, since: float) -> bool:
         row = self._get_conn().execute(
@@ -577,6 +586,20 @@ class RadarDB:
     def sensor_cache_count(self) -> int:
         row = self._get_conn().execute("SELECT COUNT(*) FROM sensor_caches").fetchone()
         return row[0] if row else 0
+
+    # ── Startup Cleanup ────────────────────────────────────────────────────
+    def startup_cleanup(self):
+        """Prune stale data on startup. Called once during app init."""
+        import time as _time
+        conn = self._get_conn()
+        cutoff_30d = _time.time() - 30 * 86400
+        # Prune old sequence events (keep last 30 days)
+        conn.execute("DELETE FROM sequence_events WHERE ts < ?", (cutoff_30d,))
+        # Prune old revoked tokens (expired tokens older than 7 days)
+        cutoff_7d = _time.time() - 7 * 86400
+        conn.execute("DELETE FROM revoked_tokens WHERE revoked_at < ?", (cutoff_7d,))
+        conn.commit()
+        log.info("[DB] Startup cleanup complete")
 
     # ── Utility ─────────────────────────────────────────────────────────────
     def close(self):

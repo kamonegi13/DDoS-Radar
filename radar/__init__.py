@@ -108,6 +108,10 @@ atexit.register(save_state)
 threading.Thread(target=_persistence_worker, daemon=True, name='persistence').start()
 restore_state()
 
+# ── Startup DB cleanup ──
+from radar.database import db as _db  # noqa: E402
+_db.startup_cleanup()
+
 # ── Scheduler (background sensor fetch) ──
 from radar.scheduler import _sensor_scheduler_worker, _cache_cleanup_worker  # noqa: E402
 for _s in registry._sensors.values():

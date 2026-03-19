@@ -81,22 +81,7 @@
     // ── GreyNoise Investigator ─────────────────────────────────────────────────
     let _gnLog = JSON.parse(localStorage.getItem('gnLookupLog') || '[]');
 
-    function toggleGnPanel() {
-        const panel = document.getElementById('gn-panel');
-        if (!panel) return;
-        const show = !panel.style.display || panel.style.display === 'none';
-        if (show && !panel.classList.contains('docked')) {
-            if (panel.parentElement !== document.body) document.body.appendChild(panel);
-            panel.classList.add('floating', 'active');
-            const rawLeft = parseInt(panel.style.left) || (window.innerWidth - 320);
-            const rawTop  = parseInt(panel.style.top)  || 130;
-            panel.style.left = Math.max(10, Math.min(rawLeft, window.innerWidth  - 200)) + 'px';
-            panel.style.top  = Math.max(10, Math.min(rawTop,  window.innerHeight - 100)) + 'px';
-        }
-        panel.style.display = show ? 'flex' : 'none';
-        if (show) renderGnLog();
-        updateSidebarVisibility();
-    }
+    const toggleGnPanel = _createPanelToggle('gn-panel', { onShow: () => renderGnLog() });
 
     function updateGreyNoisePanel(analytics) {
         const gn = analytics.greynoise || {};
@@ -193,39 +178,61 @@
     let _tgFilter   = null;
     let _tgLastData = {};
 
-    // ── Generic panel close (all panels) ─────────────────────────────────────
+    // ── Unified Panel Toggle System ────────────────────────────────────────────
+    // _panelCallbacks stores per-panel onShow/onHide hooks keyed by panelId.
+    const _panelCallbacks = {};
+
+    /**
+     * Factory: create a toggle function for a floating/docked panel.
+     * @param {string} panelId  - DOM id of the panel element
+     * @param {Object} opts
+     * @param {boolean}  opts.floating     - true to auto-float when not docked (default true)
+     * @param {number}   opts.defaultLeft  - initial left offset (default: innerWidth - 320)
+     * @param {number}   opts.defaultTop   - initial top offset (default: 130)
+     * @param {boolean}  opts.clampPos     - clamp stored position to viewport (default: true for floating)
+     * @param {Function} opts.onShow       - called after panel is shown
+     * @param {Function} opts.onHide       - called after panel is hidden
+     */
+    function _createPanelToggle(panelId, opts = {}) {
+        const { floating = true, defaultLeft, defaultTop = 130, clampPos = true, onShow, onHide } = opts;
+        if (onShow || onHide) _panelCallbacks[panelId] = { onShow, onHide };
+        return function() {
+            const panel = document.getElementById(panelId);
+            if (!panel) return;
+            const show = !panel.style.display || panel.style.display === 'none';
+            if (show && floating && !panel.classList.contains('docked')) {
+                if (panel.parentElement !== document.body) document.body.appendChild(panel);
+                panel.classList.add('floating', 'active');
+                if (clampPos) {
+                    const rawLeft = parseInt(panel.style.left) || defaultLeft || (window.innerWidth - 320);
+                    const rawTop  = parseInt(panel.style.top)  || defaultTop;
+                    panel.style.left = Math.max(10, Math.min(rawLeft, window.innerWidth  - 200)) + 'px';
+                    panel.style.top  = Math.max(10, Math.min(rawTop,  window.innerHeight - 100)) + 'px';
+                }
+            }
+            panel.style.display = show ? 'flex' : 'none';
+            if (show && onShow) onShow();
+            if (!show && onHide) onHide();
+            updateSidebarVisibility();
+            syncToolsMenuState();
+            saveLocalState();
+        };
+    }
+
     function _panelClose(panelId) {
         const p = document.getElementById(panelId);
         if (!p) return;
         p.style.display = 'none';
-        // Stop clock interval when closing op-clock
-        if (panelId === 'op-clock-panel' && _clockInterval) {
-            clearInterval(_clockInterval); _clockInterval = null;
-        }
+        const cb = _panelCallbacks[panelId];
+        if (cb && cb.onHide) cb.onHide();
         updateSidebarVisibility();
         if (typeof syncToolsMenuState === 'function') syncToolsMenuState();
         saveLocalState();
     }
 
-    function toggleTargetPanel() {
-        const p = document.getElementById('target-panel');
-        if (!p) return;
-        const hidden = !p.style.display || p.style.display === 'none';
-        p.style.display = hidden ? 'flex' : 'none';
-        updateSidebarVisibility();
-        syncToolsMenuState();
-        saveLocalState();
-    }
-
-    function toggleDashboardPanel() {
-        const p = document.getElementById('dashboard-panel');
-        if (!p) return;
-        const hidden = !p.style.display || p.style.display === 'none';
-        p.style.display = hidden ? 'flex' : 'none';
-        updateSidebarVisibility();
-        syncToolsMenuState();
-        saveLocalState();
-    }
+    const toggleTargetPanel    = _createPanelToggle('target-panel',    { floating: false });
+    const toggleDashboardPanel = _createPanelToggle('dashboard-panel', { floating: false });
+    const toggleTgSigint       = _createPanelToggle('tg-sigint-panel', { floating: true });
 
     function openTgSigint() {
         const p = document.getElementById('tg-sigint-panel');
@@ -238,14 +245,6 @@
         updateSidebarVisibility();
         syncToolsMenuState();
         saveLocalState();
-    }
-
-    // toggle wrapper used by TOOLS menu handleToolToggle
-    function toggleTgSigint() {
-        const p = document.getElementById('tg-sigint-panel');
-        if (!p) return;
-        const hidden = !p.style.display || p.style.display === 'none';
-        if (hidden) openTgSigint(); else _panelClose('tg-sigint-panel');
     }
 
     function tgSetFilter(type, value) {
@@ -409,22 +408,10 @@
     let _nbAssessment = localStorage.getItem('nbAssessment')            || 'NOMINAL';
     let _lastDefconLevel = null;   // for DEFCON auto-log
 
-    function toggleNotebook() {
-        const panel = document.getElementById('notebook-panel');
-        if (!panel) return;
-        const show = !panel.style.display || panel.style.display === 'none';
-        if (show && !panel.classList.contains('docked')) {
-            if (panel.parentElement !== document.body) document.body.appendChild(panel);
-            panel.classList.add('floating', 'active');
-            const rawLeft = parseInt(panel.style.left) || (window.innerWidth - 340);
-            const rawTop  = parseInt(panel.style.top)  || 150;
-            panel.style.left = Math.max(10, Math.min(rawLeft, window.innerWidth  - 200)) + 'px';
-            panel.style.top  = Math.max(10, Math.min(rawTop,  window.innerHeight - 100)) + 'px';
-        }
-        panel.style.display = show ? 'flex' : 'none';
-        if (show) { restoreNbState(); renderNbLog(); }
-        updateSidebarVisibility();
-    }
+    const toggleNotebook = _createPanelToggle('notebook-panel', {
+        defaultLeft: window.innerWidth - 340, defaultTop: 150,
+        onShow: () => { restoreNbState(); renderNbLog(); },
+    });
 
     function restoreNbState() {
         const sel = document.getElementById('nb-assessment');
@@ -691,22 +678,9 @@
     }
 
     // ── Evidence Chain Panel ──────────────────────────────────────────────────
-    function toggleChainPanel() {
-        const panel = document.getElementById('chain-panel');
-        if (!panel) return;
-        const show = !panel.style.display || panel.style.display === 'none';
-        if (show && !panel.classList.contains('docked')) {
-            if (panel.parentElement !== document.body) document.body.appendChild(panel);
-            panel.classList.add('floating', 'active');
-            // Clamp stored position to viewport so panel is always reachable
-            const rawLeft = parseInt(panel.style.left) || (window.innerWidth - 700);
-            const rawTop  = parseInt(panel.style.top)  || 120;
-            panel.style.left = Math.max(10, Math.min(rawLeft, window.innerWidth  - 200)) + 'px';
-            panel.style.top  = Math.max(10, Math.min(rawTop,  window.innerHeight - 100)) + 'px';
-        }
-        panel.style.display = show ? 'flex' : 'none';
-        updateSidebarVisibility();
-    }
+    const toggleChainPanel = _createPanelToggle('chain-panel', {
+        defaultLeft: window.innerWidth - 700, defaultTop: 120,
+    });
 
     const EVENT_LABELS = {
         NARRATIVE_BURST: _t('chain.event.narrative_burst'),
@@ -2148,6 +2122,9 @@
             if (haPanel && haPanel.style.display !== 'none') renderHistoricalAnalog();
         }
 
+        // ── Sensor Fleet Health HUD ──
+        _updateSensorHealthHUD(data.sensor_health);
+
         const originContainer = document.getElementById('origin-list-container');
         targetLayer.clearLayers(); sourceLayer.clearLayers(); lineLayer.clearLayers(); iodaLayer.clearLayers();
         let originHtml = "";
@@ -2969,8 +2946,25 @@
                     const badge = document.getElementById('chain-seq-badge');
                     if (badge) badge.textContent = data.status || '';
                 });
+                _wsSocket.on('notification_result', (data) => {
+                    const ok = data.success;
+                    const msg = `[${data.channel}] ${data.title}${ok ? '' : ' — FAILED: ' + data.detail}`;
+                    console.info('[WS] Notification:', msg);
+                    // Brief HUD flash for notification delivery
+                    const el = document.getElementById('update-time');
+                    if (el) {
+                        const prev = el.textContent;
+                        el.textContent = ok ? `✓ ${data.channel} notified` : `✗ ${data.channel} failed`;
+                        el.style.color = ok ? '#00ff88' : '#ff4444';
+                        setTimeout(() => { el.textContent = prev; el.style.color = ''; }, 4000);
+                    }
+                });
                 _wsSocket.on('sensor_status', (data) => {
                     console.info('[WS] Sensor status:', data.sensor, data.status);
+                    if (data.sensor && data.status) {
+                        _sensorHealthCache[data.sensor] = data.status;
+                        _updateSensorHealthHUD(_sensorHealthCache);
+                    }
                 });
             } catch (e) {
                 console.warn('[WS] Socket.IO init failed, using polling fallback:', e);
@@ -3501,35 +3495,12 @@
 
     // ── C. Operational Clock ──────────────────────────────────────────
     // Real-time Zulu time + elapsed time since last significant event
-    function togglePulseDisplay() {
-        const panel = document.getElementById('pulse-panel');
-        if (!panel) return;
-        const show = !panel.style.display || panel.style.display === 'none';
-        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
-            document.body.appendChild(panel);
-            panel.classList.add('floating', 'active');
-        }
-        panel.style.display = show ? 'flex' : 'none';
-        updateSidebarVisibility();
-    }
+    const togglePulseDisplay = _createPanelToggle('pulse-panel');
 
-    function toggleOpClock() {
-        const panel = document.getElementById('op-clock-panel');
-        if (!panel) return;
-        const show = !panel.style.display || panel.style.display === 'none';
-        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
-            document.body.appendChild(panel);
-            panel.classList.add('floating', 'active');
-        }
-        panel.style.display = show ? 'flex' : 'none';
-        if (show) {
-            tickClock();
-            if (!_clockInterval) _clockInterval = setInterval(tickClock, 1000);
-        } else {
-            if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
-        }
-        updateSidebarVisibility();
-    }
+    const toggleOpClock = _createPanelToggle('op-clock-panel', {
+        onShow: () => { tickClock(); if (!_clockInterval) _clockInterval = setInterval(tickClock, 1000); },
+        onHide: () => { if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; } },
+    });
 
     function tickClock() {
         const zEl = document.getElementById('clock-zulu');
@@ -3557,18 +3528,7 @@
 
     // ── D. Operational Weather Brief ──────────────────────────────────
     // Intuitive weather-metaphor representation of the threat environment — fetched from /api/weather_brief
-    function toggleWeatherBrief() {
-        const panel = document.getElementById('weather-brief-panel');
-        if (!panel) return;
-        const show = !panel.style.display || panel.style.display === 'none';
-        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
-            document.body.appendChild(panel);
-            panel.classList.add('floating', 'active');
-        }
-        panel.style.display = show ? 'flex' : 'none';
-        if (show) renderWeatherBrief();
-        updateSidebarVisibility();
-    }
+    const toggleWeatherBrief = _createPanelToggle('weather-brief-panel', { onShow: renderWeatherBrief });
 
     async function renderWeatherBrief() {
         const panel = document.getElementById('weather-brief-panel');
@@ -3639,18 +3599,7 @@
 
     // ── E. SALUTE Board ───────────────────────────────────────────────
     // Size/Activity/Location/Unit/Time/Equipment — military contact report format
-    function toggleSaluteBoard() {
-        const panel = document.getElementById('salute-panel');
-        if (!panel) return;
-        const show = !panel.style.display || panel.style.display === 'none';
-        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
-            document.body.appendChild(panel);
-            panel.classList.add('floating', 'active');
-        }
-        panel.style.display = show ? 'flex' : 'none';
-        if (show) renderSaluteBoard();
-        updateSidebarVisibility();
-    }
+    const toggleSaluteBoard = _createPanelToggle('salute-panel', { onShow: renderSaluteBoard });
 
     async function renderSaluteBoard() {
         const panel = document.getElementById('salute-panel');
@@ -3691,18 +3640,7 @@
 
     // ── F. Historical Pattern Analog ──────────────────────────────────
     // Match current pattern against past confirmed cases using Pearson correlation
-    function toggleHistAnalog() {
-        const panel = document.getElementById('hist-analog-panel');
-        if (!panel) return;
-        const show = !panel.style.display || panel.style.display === 'none';
-        if (show && !panel.classList.contains('docked') && panel.parentElement !== document.body) {
-            document.body.appendChild(panel);
-            panel.classList.add('floating', 'active');
-        }
-        panel.style.display = show ? 'flex' : 'none';
-        if (show) renderHistoricalAnalog();
-        updateSidebarVisibility();
-    }
+    const toggleHistAnalog = _createPanelToggle('hist-analog-panel', { onShow: renderHistoricalAnalog });
 
     async function renderHistoricalAnalog() {
         const panel = document.getElementById('hist-analog-panel');
@@ -4513,6 +4451,37 @@
         } catch (e) { statusEl.textContent = _t('panel.usermgr.msg.conn_error'); statusEl.style.color = '#ff6666'; }
     };
 
+    // ── Sensor Fleet Health HUD ─────────────────────────────────────────────
+    const _SENSOR_STATUS_COLOR = { OK: '#00ff88', STALE: '#ffaa00', ERROR: '#ff2222', DISABLED: '#444', INITIALIZING: '#666' };
+    let _sensorHealthCache = {};
+    function _updateSensorHealthHUD(healthMap) {
+        if (!healthMap) return;
+        _sensorHealthCache = healthMap;
+        const dotsEl = document.getElementById('hud-sensor-dots');
+        const summaryEl = document.getElementById('hud-sensor-summary');
+        if (!dotsEl) return;
+        const entries = Object.entries(healthMap);
+        let ok = 0, stale = 0, err = 0, disabled = 0;
+        entries.forEach(([, st]) => {
+            if (st === 'OK') ok++;
+            else if (st === 'STALE') stale++;
+            else if (st === 'ERROR') err++;
+            else disabled++;
+        });
+        const total = entries.length;
+        // Dots
+        dotsEl.innerHTML = entries.map(([name, st]) => {
+            const color = _SENSOR_STATUS_COLOR[st] || '#444';
+            return `<span style="width:6px;height:6px;border-radius:50%;background:${color};display:inline-block;" title="${name}: ${st}"></span>`;
+        }).join('');
+        // Summary text
+        if (summaryEl) {
+            if (err > 0) { summaryEl.textContent = `${ok}/${total}`; summaryEl.style.color = '#ff2222'; }
+            else if (stale > 0) { summaryEl.textContent = `${ok}/${total}`; summaryEl.style.color = '#ffaa00'; }
+            else { summaryEl.textContent = `${ok}/${total}`; summaryEl.style.color = '#00ff88'; }
+        }
+    }
+
     // ── History Analysis Panel ─────────────────────────────────────────────
     window.toggleHistoryPanel = function() {
         const p = document.getElementById('history-panel');
@@ -4536,30 +4505,31 @@
         }
     };
 
+    // TL color mapping used across history panel
+    const _TL_COLORS = ['#ff2222','#ff4444','#ffaa00','#ffff00','#66ff66'];
+    function _tlColor(tl) { return _TL_COLORS[Math.max(0,Math.min(4,(tl||1)-1))]; }
+
     window.loadHistoryData = function() {
         const theater = document.getElementById('hist-theater')?.value || 'TW';
         const hours = parseInt(document.getElementById('hist-range')?.value || '168');
 
-        // Fetch timeseries
         fetch(`/api/history/timeseries?theater=${theater}&hours=${hours}&series=combined,l3,l7`)
             .then(r => r.json())
             .then(data => _drawScoreChart(data))
             .catch(e => console.error('[History] timeseries error:', e));
 
-        // Fetch HOD baseline
         fetch(`/api/history/hod_baseline?theater=${theater}&type=hod_baseline`)
             .then(r => r.json())
             .then(data => _drawHodChart(data))
             .catch(e => console.error('[History] hod error:', e));
 
-        // Fetch sequence events
         fetch(`/api/history/sequence_events?theater=${theater}&hours=${hours}`)
             .then(r => r.json())
             .then(data => _renderSeqEvents(data))
             .catch(e => console.error('[History] seq error:', e));
 
-        // Fetch alerts
-        fetch(`/api/history/alerts?limit=50`)
+        const sinceTs = Math.floor(Date.now()/1000) - hours * 3600;
+        fetch(`/api/history/alerts?limit=200&since=${sinceTs}`)
             .then(r => r.json())
             .then(data => _renderAlerts(data))
             .catch(e => console.error('[History] alerts error:', e));
@@ -4570,48 +4540,90 @@
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         const w = canvas.width, h = canvas.height;
+        const pad = { top: 8, right: 8, bottom: 18, left: 36 };
+        const cw = w - pad.left - pad.right, ch = h - pad.top - pad.bottom;
         ctx.clearRect(0, 0, w, h);
 
         const scored = data.series?.scored || [];
         if (scored.length < 2) {
             ctx.fillStyle = '#555'; ctx.font = '10px monospace';
-            ctx.fillText(_t('panel.history.no_data'), 10, h/2);
+            ctx.fillText(_t('panel.history.no_data'), w/2 - 30, h/2);
             return;
         }
 
+        // Update summary stats
         const vals = scored.map(p => p.value);
+        const peak = Math.max(...vals);
+        const avg = vals.reduce((a,b) => a+b, 0) / vals.length;
+        const elPts = document.getElementById('hist-stat-points');
+        const elPeak = document.getElementById('hist-stat-peak');
+        const elAvg = document.getElementById('hist-stat-avg');
+        if (elPts) elPts.textContent = scored.length;
+        if (elPeak) { elPeak.textContent = peak.toFixed(1); elPeak.style.color = peak >= 80 ? '#ff2222' : peak >= 50 ? '#ffaa00' : '#0ff'; }
+        if (elAvg) elAvg.textContent = avg.toFixed(1);
+
         const mn = Math.min(...vals), mx = Math.max(...vals, 1);
         const range = mx - mn || 1;
 
-        // Grid lines
-        ctx.strokeStyle = '#222'; ctx.lineWidth = 0.5;
-        for (let i = 0; i <= 4; i++) {
-            const y = h - (i/4) * h;
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        // TL zone backgrounds (5 zones evenly divided across score range)
+        const zoneColors = ['rgba(34,170,68,0.06)','rgba(102,204,0,0.06)','rgba(255,170,0,0.06)','rgba(255,102,0,0.08)','rgba(255,34,34,0.10)'];
+        for (let z = 0; z < 5; z++) {
+            const zTop = pad.top + ch - ((z+1)/5) * ch;
+            const zH = ch / 5;
+            ctx.fillStyle = zoneColors[z];
+            ctx.fillRect(pad.left, zTop, cw, zH);
         }
+
+        // Grid lines + Y labels
+        ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 0.5;
+        ctx.fillStyle = '#555'; ctx.font = '8px monospace'; ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) {
+            const yVal = mn + (i/4) * range;
+            const y = pad.top + ch - (i/4) * ch;
+            ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+            ctx.fillText(yVal.toFixed(0), pad.left - 4, y + 3);
+        }
+        ctx.textAlign = 'left';
+
+        // X helper
+        const toX = i => pad.left + (i / (scored.length - 1)) * cw;
+        const toY = v => pad.top + ch - ((v - mn) / range) * ch;
+
+        // Area fill with gradient
+        const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + ch);
+        grad.addColorStop(0, 'rgba(0,255,255,0.25)');
+        grad.addColorStop(1, 'rgba(0,255,255,0.02)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(toX(0), pad.top + ch);
+        scored.forEach((p, i) => ctx.lineTo(toX(i), toY(p.value)));
+        ctx.lineTo(toX(scored.length - 1), pad.top + ch);
+        ctx.closePath(); ctx.fill();
 
         // Score line
         ctx.strokeStyle = '#0ff'; ctx.lineWidth = 1.5;
         ctx.beginPath();
-        scored.forEach((p, i) => {
-            const x = (i / (scored.length - 1)) * w;
-            const y = h - ((p.value - mn) / range) * (h - 10) - 5;
-            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        });
+        scored.forEach((p, i) => { i === 0 ? ctx.moveTo(toX(i), toY(p.value)) : ctx.lineTo(toX(i), toY(p.value)); });
         ctx.stroke();
 
-        // Labels
-        ctx.fillStyle = '#888'; ctx.font = '8px monospace';
-        ctx.fillText(mx.toFixed(1), 2, 10);
-        ctx.fillText(mn.toFixed(1), 2, h - 2);
-        if (scored.length > 0) {
-            const first = new Date(scored[0].ts * 1000).toLocaleDateString();
-            const last = new Date(scored[scored.length-1].ts * 1000).toLocaleDateString();
-            ctx.fillText(first, 30, h - 2);
-            ctx.textAlign = 'right';
-            ctx.fillText(last, w - 2, h - 2);
-            ctx.textAlign = 'left';
+        // Data point dots (sample to avoid clutter)
+        const step = Math.max(1, Math.floor(scored.length / 40));
+        ctx.fillStyle = '#0ff';
+        for (let i = 0; i < scored.length; i += step) {
+            ctx.beginPath(); ctx.arc(toX(i), toY(scored[i].value), 1.5, 0, Math.PI * 2); ctx.fill();
         }
+
+        // X-axis date labels
+        ctx.fillStyle = '#555'; ctx.font = '8px monospace';
+        const labelCount = Math.min(5, scored.length);
+        for (let i = 0; i < labelCount; i++) {
+            const idx = Math.floor(i / (labelCount - 1) * (scored.length - 1));
+            const dt = new Date(scored[idx].ts * 1000);
+            const label = `${(dt.getMonth()+1)}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:00`;
+            ctx.textAlign = i === labelCount - 1 ? 'right' : i === 0 ? 'left' : 'center';
+            ctx.fillText(label, toX(idx), h - 2);
+        }
+        ctx.textAlign = 'left';
     }
 
     function _drawHodChart(data) {
@@ -4619,6 +4631,8 @@
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         const w = canvas.width, h = canvas.height;
+        const pad = { top: 6, right: 8, bottom: 16, left: 30 };
+        const cw = w - pad.left - pad.right, ch = h - pad.top - pad.bottom;
         ctx.clearRect(0, 0, w, h);
 
         const stats = data.hod_stats || [];
@@ -4627,30 +4641,91 @@
         const means = stats.map(s => s.mean).filter(v => v !== null);
         if (!means.length) {
             ctx.fillStyle = '#555'; ctx.font = '10px monospace';
-            ctx.fillText(_t('panel.history.no_hod'), 10, h/2);
+            ctx.fillText(_t('panel.history.no_hod'), w/2 - 30, h/2);
             return;
         }
         const mx = Math.max(...means, 0.01);
-        const barW = (w - 20) / 24;
+        // Include std dev in max for proper scaling
+        const mxWithStd = Math.max(...stats.map(s => s.mean !== null ? s.mean + (s.std || 0) : 0), 0.01);
+        const barW = cw / 24;
+        const now = new Date().getHours();
+
+        // Overall average line
+        const overallAvg = means.reduce((a,b) => a + b, 0) / means.length;
+        const avgY = pad.top + ch - (overallAvg / mxWithStd) * ch;
+
+        // Y-axis grid
+        ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 0.5;
+        ctx.fillStyle = '#444'; ctx.font = '7px monospace'; ctx.textAlign = 'right';
+        for (let i = 0; i <= 3; i++) {
+            const yVal = (i/3) * mxWithStd;
+            const y = pad.top + ch - (i/3) * ch;
+            ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+            ctx.fillText(yVal.toFixed(1), pad.left - 3, y + 3);
+        }
+        ctx.textAlign = 'left';
 
         stats.forEach((s, i) => {
             if (s.mean === null) return;
-            const barH = (s.mean / mx) * (h - 20);
-            const x = 10 + i * barW;
-            const y = h - 10 - barH;
+            const x = pad.left + i * barW;
+            const barH = (s.mean / mxWithStd) * ch;
+            const y = pad.top + ch - barH;
 
-            // Color by intensity
+            // Std dev whisker (background range)
+            if (s.std) {
+                const stdTop = pad.top + ch - (Math.min(s.mean + s.std, mxWithStd) / mxWithStd) * ch;
+                const stdBot = pad.top + ch - (Math.max(s.mean - s.std, 0) / mxWithStd) * ch;
+                ctx.fillStyle = 'rgba(255,255,255,0.04)';
+                ctx.fillRect(x + 1, stdTop, barW - 2, stdBot - stdTop);
+            }
+
+            // Bar color by intensity
             const intensity = s.mean / mx;
             const r = Math.floor(intensity * 255);
             const g = Math.floor((1 - intensity) * 200);
             ctx.fillStyle = `rgb(${r},${g},50)`;
-            ctx.fillRect(x, y, barW - 1, barH);
+
+            // Current hour highlight
+            if (i === now) {
+                ctx.fillStyle = `rgba(${r},${g},50,0.9)`;
+                ctx.shadowColor = `rgb(${r},${g},50)`;
+                ctx.shadowBlur = 6;
+            }
+            ctx.fillRect(x + 1, y, barW - 2, barH);
+            ctx.shadowBlur = 0;
+
+            // Current hour marker
+            if (i === now) {
+                ctx.strokeStyle = '#0ff'; ctx.lineWidth = 1;
+                ctx.strokeRect(x, y - 1, barW, barH + 2);
+            }
+
+            // Std dev whisker line
+            if (s.std) {
+                const wTop = pad.top + ch - (Math.min(s.mean + s.std, mxWithStd) / mxWithStd) * ch;
+                const wBot = pad.top + ch - (Math.max(s.mean - s.std, 0) / mxWithStd) * ch;
+                ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+                const cx = x + barW / 2;
+                ctx.beginPath(); ctx.moveTo(cx, wTop); ctx.lineTo(cx, wBot); ctx.stroke();
+                // Caps
+                ctx.beginPath(); ctx.moveTo(cx - 2, wTop); ctx.lineTo(cx + 2, wTop); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(cx - 2, wBot); ctx.lineTo(cx + 2, wBot); ctx.stroke();
+            }
 
             // Hour label
-            ctx.fillStyle = '#666'; ctx.font = '7px monospace';
+            ctx.fillStyle = i === now ? '#0ff' : '#555';
+            ctx.font = i === now ? 'bold 7px monospace' : '7px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText(String(i).padStart(2, '0'), x + barW/2, h - 1);
+            ctx.fillText(String(i).padStart(2, '0'), x + barW/2, h - 2);
         });
+
+        // Average reference line
+        ctx.strokeStyle = '#ffaa0066'; ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(pad.left, avgY); ctx.lineTo(w - pad.right, avgY); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#ffaa00'; ctx.font = '7px monospace'; ctx.textAlign = 'left';
+        ctx.fillText('avg', w - pad.right + 2, avgY + 3);
         ctx.textAlign = 'left';
     }
 
@@ -4658,39 +4733,155 @@
         const el = document.getElementById('hist-seq-events');
         if (!el) return;
         const events = data.events || [];
+        // Update summary stat
+        const elEv = document.getElementById('hist-stat-events');
+        if (elEv) { elEv.textContent = events.length; elEv.style.color = events.length > 10 ? '#ff6600' : '#0ff'; }
+
         if (!events.length) {
             el.innerHTML = `<span style="color:#555">${_t('panel.history.no_events')}</span>`;
             return;
         }
-        el.innerHTML = events.slice(-30).map(e => {
-            const dt = new Date(e.ts * 1000).toLocaleString();
-            const color = e.type.includes('BURST') ? '#f80' :
-                          e.type.includes('SURGE') ? '#ff0' :
-                          e.type.includes('DDOS')  ? '#f00' : '#0ff';
-            return `<div style="border-left:2px solid ${color};padding-left:6px;margin-bottom:2px;">` +
-                   `<span style="color:#666">${dt}</span> ` +
-                   `<span style="color:${color};font-weight:bold">${e.type}</span>` +
+        const colorMap = { BURST: '#ff8800', SURGE: '#ffee00', DDOS: '#ff2222', CHAIN: '#ff44ff', SYNC: '#ff2222' };
+        const iconMap = { BURST: '◆', SURGE: '▲', DDOS: '●', CHAIN: '◈', SYNC: '●' };
+        el.innerHTML = '<div class="hist-seq-line">' + events.slice(-30).map(e => {
+            const dt = new Date(e.ts * 1000);
+            const timeStr = `${(dt.getMonth()+1)}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+            const key = Object.keys(colorMap).find(k => e.type.includes(k)) || '';
+            const color = colorMap[key] || '#0ff';
+            const icon = iconMap[key] || '◇';
+            const meta = e.meta ? `<span style="color:#444;margin-left:4px;">${typeof e.meta === 'string' ? e.meta : JSON.stringify(e.meta).slice(0,60)}</span>` : '';
+            return `<div class="hist-seq-item">` +
+                   `<span style="color:${color};font-size:10px;">${icon}</span>` +
+                   `<div><span style="color:#555;font-size:8px;">${timeStr}</span> ` +
+                   `<span style="color:${color};font-weight:bold;font-size:9px;">${e.type}</span>${meta}</div>` +
                    `</div>`;
-        }).join('');
+        }).join('') + '</div>';
     }
 
     function _renderAlerts(data) {
         const el = document.getElementById('hist-alerts');
-        if (!el) return;
+        const stripCanvas = document.getElementById('hist-tl-strip');
+        const distEl = document.getElementById('hist-tl-dist');
         const alerts = data.alerts || [];
+
+        // Update summary stat
+        const elAl = document.getElementById('hist-stat-alerts');
+        if (elAl) { elAl.textContent = alerts.length; elAl.style.color = alerts.length > 20 ? '#ff2222' : '#0ff'; }
+
         if (!alerts.length) {
-            el.innerHTML = `<span style="color:#555">${_t('panel.history.no_alerts')}</span>`;
+            if (el) el.innerHTML = `<span style="color:#555">${_t('panel.history.no_alerts')}</span>`;
+            if (distEl) distEl.innerHTML = '';
+            if (stripCanvas) { const ctx = stripCanvas.getContext('2d'); ctx.clearRect(0, 0, stripCanvas.width, stripCanvas.height); }
             return;
         }
-        el.innerHTML = alerts.slice(-20).map(a => {
-            const dt = new Date((a.ts||0) * 1000).toLocaleString();
-            const tl = a.threat_level || '?';
-            return `<div style="margin-bottom:2px;">` +
-                   `<span style="color:#666">${dt}</span> ` +
-                   `<span style="color:#0ff">TL${tl}</span> ` +
-                   `<span style="color:#aaa">${a.core || ''} score=${(a.score||0).toFixed(1)}</span>` +
-                   `</div>`;
-        }).join('');
+
+        // ── TL Timeline Strip (colored horizontal bar) ──
+        if (stripCanvas && alerts.length >= 2) {
+            const ctx = stripCanvas.getContext('2d');
+            const sw = stripCanvas.width, sh = stripCanvas.height;
+            ctx.clearRect(0, 0, sw, sh);
+            const tMin = alerts[0].ts, tMax = alerts[alerts.length-1].ts;
+            const tRange = tMax - tMin || 1;
+            // Draw segments between consecutive alerts
+            for (let i = 0; i < alerts.length; i++) {
+                const a = alerts[i];
+                const next = alerts[i+1];
+                const x1 = ((a.ts - tMin) / tRange) * sw;
+                const x2 = next ? ((next.ts - tMin) / tRange) * sw : sw;
+                const color = _tlColor(a.threat_level || 1);
+                ctx.fillStyle = color;
+                ctx.fillRect(x1, 4, Math.max(x2 - x1, 1), sh - 8);
+            }
+            // Time labels
+            ctx.fillStyle = '#555'; ctx.font = '7px monospace';
+            const dtMin = new Date(tMin * 1000), dtMax = new Date(tMax * 1000);
+            const fmtDate = d => `${d.getMonth()+1}/${d.getDate()}`;
+            ctx.textAlign = 'left'; ctx.fillText(fmtDate(dtMin), 2, sh - 1);
+            ctx.textAlign = 'right'; ctx.fillText(fmtDate(dtMax), sw - 2, sh - 1);
+            ctx.textAlign = 'left';
+            // TL scale legend at top
+            ctx.font = '7px monospace';
+            for (let tl = 1; tl <= 5; tl++) {
+                const lx = sw - 80 + (tl-1) * 16;
+                ctx.fillStyle = _tlColor(tl);
+                ctx.fillRect(lx, 0, 10, 3);
+                ctx.fillText(tl, lx + 2, 10);
+            }
+        }
+
+        // ── TL Distribution Bar ──
+        if (distEl) {
+            // Calculate time spent at each TL
+            const tlTime = [0,0,0,0,0]; // TL1-5
+            for (let i = 0; i < alerts.length; i++) {
+                const tl = Math.max(1, Math.min(5, alerts[i].threat_level || 1));
+                const duration = (i < alerts.length - 1) ? (alerts[i+1].ts - alerts[i].ts) : 0;
+                tlTime[tl - 1] += duration;
+            }
+            const total = tlTime.reduce((a,b) => a+b, 0) || 1;
+            distEl.innerHTML = tlTime.map((t, i) => {
+                const pct = (t / total * 100);
+                if (pct < 0.5) return '';
+                const color = _TL_COLORS[i];
+                return `<div style="flex:${Math.max(pct,3)};background:${color}33;border:1px solid ${color}44;border-radius:2px;padding:2px 4px;text-align:center;">` +
+                       `<span style="color:${color};font-weight:bold;">TL${i+1}</span> ` +
+                       `<span style="color:#888;">${pct.toFixed(0)}%</span></div>`;
+            }).join('');
+        }
+
+        // ── Alert Details (grouped by day) ──
+        if (el) {
+            // Group by date
+            const groups = {};
+            alerts.forEach(a => {
+                const d = new Date((a.ts||0) * 1000);
+                const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(a);
+            });
+
+            let html = '';
+            const sortedDays = Object.keys(groups).sort().reverse(); // newest first
+            sortedDays.forEach(day => {
+                const dayAlerts = groups[day];
+                // Day header with summary
+                const tlCounts = {};
+                dayAlerts.forEach(a => { const tl = a.threat_level||1; tlCounts[tl] = (tlCounts[tl]||0) + 1; });
+                const maxTl = Math.max(...dayAlerts.map(a => a.threat_level||1));
+                const tlBadges = Object.entries(tlCounts).sort((a,b) => b[0]-a[0]).map(([tl,cnt]) => {
+                    const c = _tlColor(+tl);
+                    return `<span style="color:${c};font-size:8px;">TL${tl}×${cnt}</span>`;
+                }).join(' ');
+
+                html += `<div style="margin-bottom:6px;">`;
+                html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;border-bottom:1px solid #1a1a1a;margin-bottom:2px;">`;
+                html += `<span style="color:#888;font-size:9px;font-weight:bold;">${day}</span>`;
+                html += `<span style="color:#555;font-size:8px;">(${dayAlerts.length})</span>`;
+                html += `<span>${tlBadges}</span>`;
+                html += `</div>`;
+
+                // Individual alerts within day
+                dayAlerts.forEach((a, idx) => {
+                    const dt = new Date((a.ts||0) * 1000);
+                    const timeStr = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+                    const tl = a.threat_level || 1;
+                    const color = _tlColor(tl);
+                    const prevTl = idx > 0 ? (dayAlerts[idx-1].threat_level || 1) : tl;
+                    const arrow = tl > prevTl ? `<span class="hist-alert-arrow" style="color:#ff2222;">▲</span>`
+                                : tl < prevTl ? `<span class="hist-alert-arrow" style="color:#22aa44;">▼</span>`
+                                : `<span class="hist-alert-arrow" style="color:#333;">─</span>`;
+                    html += `<div class="hist-alert-row">` +
+                           `<span style="color:#444;font-size:8px;min-width:36px;">${timeStr}</span>` +
+                           `${arrow}` +
+                           `<span class="hist-tl-badge" style="background:${color}22;color:${color};border:1px solid ${color}44;">TL${tl}</span>` +
+                           `<span style="color:#888;font-size:9px;">${a.core || ''}</span>` +
+                           `<span style="color:#555;font-size:9px;">score <b style="color:#aaa">${(a.score||0).toFixed(1)}</b></span>` +
+                           `</div>`;
+                });
+                html += `</div>`;
+            });
+            el.innerHTML = html;
+        }
     }
 
     window.exportHistoryData = function() {

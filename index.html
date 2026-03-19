@@ -232,6 +232,12 @@
             <span class="hud-label" style="margin-left:4px;" data-i18n="hud.label.comms">COMMS:</span>
             <span id="hud-rs-text" class="hud-value" style="font-size:10px; color:#00ff88;">LIVE</span>
         </div>
+        <!-- Sensor Fleet Health -->
+        <div class="hud-item" id="hud-sensor-health" data-tooltip="Sensor fleet health: green=OK, orange=STALE, red=ERROR, grey=DISABLED" data-i18n-tip="hud.tooltip.sensor_health">
+            <span class="hud-label" data-i18n="hud.label.sensors">SENSORS</span>
+            <span id="hud-sensor-dots" style="display:inline-flex;gap:2px;margin-left:4px;"></span>
+            <span id="hud-sensor-summary" class="hud-value" style="font-size:9px;margin-left:3px;">—</span>
+        </div>
         <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap" onclick="toggleDrilldown()" data-tooltip="Click to expand sensor score breakdown" data-i18n-tip="hud.tooltip.domain_expand">
             <div id="hud-domain-cyber"    class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_cyber"><span class="domain-label" data-i18n="hud.domain.cyber">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
             <div id="hud-domain-physical" class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_physical"><span class="domain-label" data-i18n="hud.domain.physical">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
@@ -1952,7 +1958,7 @@
             <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('history-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
     </div>
-    <div class="panel-content" style="max-height:500px; overflow-y:auto;">
+    <div class="panel-content" style="max-height:600px; overflow-y:auto;">
         <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
             <label style="font-size:10px;color:#888;" data-i18n="panel.history.theater">Theater:</label>
             <select id="hist-theater" style="background:#111;border:1px solid #333;color:#0ff;padding:3px 6px;border-radius:3px;font-size:10px;" onchange="loadHistoryData()">
@@ -1969,25 +1975,38 @@
             <button class="btn-tactical" style="font-size:9px;padding:2px 8px;" onclick="loadHistoryData()" data-i18n="panel.history.btn.refresh">Refresh</button>
             <button class="btn-tactical" style="font-size:9px;padding:2px 8px;" onclick="exportHistoryData()" data-i18n="panel.history.btn.export">Export</button>
         </div>
+        <!-- Summary Stats Bar -->
+        <div id="hist-summary" class="hist-summary-bar">
+            <div class="hist-stat"><span class="hist-stat-label" data-i18n="panel.history.stat.points">DATA PTS</span><span class="hist-stat-value" id="hist-stat-points">—</span></div>
+            <div class="hist-stat"><span class="hist-stat-label" data-i18n="panel.history.stat.peak">PEAK</span><span class="hist-stat-value" id="hist-stat-peak">—</span></div>
+            <div class="hist-stat"><span class="hist-stat-label" data-i18n="panel.history.stat.avg">AVG</span><span class="hist-stat-value" id="hist-stat-avg">—</span></div>
+            <div class="hist-stat"><span class="hist-stat-label" data-i18n="panel.history.stat.events">EVENTS</span><span class="hist-stat-value" id="hist-stat-events">—</span></div>
+            <div class="hist-stat"><span class="hist-stat-label" data-i18n="panel.history.stat.alerts">ALERTS</span><span class="hist-stat-value" id="hist-stat-alerts">—</span></div>
+        </div>
         <!-- Threat Score Trend -->
         <div style="margin-bottom:10px;">
             <div style="font-size:10px;color:#0ff;margin-bottom:4px;" data-i18n="panel.history.hdr.threat_trend">Threat Score Trend</div>
-            <canvas id="hist-score-chart" width="580" height="100" style="width:100%;background:#0a0a0a;border:1px solid #222;border-radius:3px;"></canvas>
+            <canvas id="hist-score-chart" width="580" height="160" style="width:100%;background:#0a0a0a;border:1px solid #222;border-radius:3px;"></canvas>
         </div>
         <!-- HOD Heatmap -->
         <div style="margin-bottom:10px;">
             <div style="font-size:10px;color:#0ff;margin-bottom:4px;" data-i18n="panel.history.hdr.hod_baseline">Hour-of-Day Baseline (CF Spike Avg)</div>
-            <canvas id="hist-hod-chart" width="580" height="80" style="width:100%;background:#0a0a0a;border:1px solid #222;border-radius:3px;"></canvas>
+            <canvas id="hist-hod-chart" width="580" height="110" style="width:100%;background:#0a0a0a;border:1px solid #222;border-radius:3px;"></canvas>
         </div>
         <!-- Sequence Events -->
         <div style="margin-bottom:10px;">
             <div style="font-size:10px;color:#0ff;margin-bottom:4px;" data-i18n="panel.history.hdr.seq_events">Sequence Events</div>
-            <div id="hist-seq-events" style="font-size:9px;color:#ccc;max-height:120px;overflow-y:auto;"></div>
+            <div id="hist-seq-events" style="font-size:9px;color:#ccc;max-height:150px;overflow-y:auto;"></div>
         </div>
         <!-- Alert Timeline -->
         <div>
             <div style="font-size:10px;color:#0ff;margin-bottom:4px;" data-i18n="panel.history.hdr.alerts">Recent Alerts</div>
-            <div id="hist-alerts" style="font-size:9px;color:#ccc;max-height:120px;overflow-y:auto;"></div>
+            <!-- TL Timeline Strip -->
+            <canvas id="hist-tl-strip" width="580" height="28" style="width:100%;background:#0a0a0a;border:1px solid #222;border-radius:3px;margin-bottom:6px;"></canvas>
+            <!-- TL Distribution -->
+            <div id="hist-tl-dist" style="display:flex;gap:3px;margin-bottom:8px;font-size:8px;"></div>
+            <!-- Alert details grouped by day -->
+            <div id="hist-alerts" style="font-size:9px;color:#ccc;max-height:180px;overflow-y:auto;"></div>
         </div>
     </div>
 </div>

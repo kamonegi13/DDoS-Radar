@@ -46,62 +46,80 @@ def _should_send(alert_key: str) -> bool:
 
 
 def _send_slack(text: str, color: str = "#ff0000"):
-    """Send alert to Slack via Incoming Webhook."""
+    """Send alert to Slack via Incoming Webhook. Raises on failure."""
     if not SLACK_WEBHOOK:
         return
-    try:
-        payload = {
-            "attachments": [{
-                "color": color,
-                "text": text,
-                "ts": int(time.time()),
-            }]
-        }
-        resp = requests.post(SLACK_WEBHOOK, json=payload, timeout=10)
-        if resp.status_code != 200:
-            log.warning(f"[Notify/Slack] HTTP {resp.status_code}: {resp.text[:100]}")
-    except Exception as e:
-        log.error(f"[Notify/Slack] Error: {e}")
+    payload = {
+        "attachments": [{
+            "color": color,
+            "text": text,
+            "ts": int(time.time()),
+        }]
+    }
+    resp = requests.post(SLACK_WEBHOOK, json=payload, timeout=10)
+    if resp.status_code != 200:
+        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:100]}")
 
 
 def _send_teams(title: str, text: str, color: str = "FF0000"):
-    """Send alert to Microsoft Teams via Incoming Webhook."""
+    """Send alert to Microsoft Teams via Incoming Webhook. Raises on failure."""
     if not TEAMS_WEBHOOK:
         return
-    try:
-        payload = {
-            "@type": "MessageCard",
-            "@context": "http://schema.org/extensions",
-            "themeColor": color,
-            "summary": title,
-            "sections": [{
-                "activityTitle": title,
-                "text": text,
-                "markdown": True,
-            }]
-        }
-        resp = requests.post(TEAMS_WEBHOOK, json=payload, timeout=10)
-        if resp.status_code != 200:
-            log.warning(f"[Notify/Teams] HTTP {resp.status_code}: {resp.text[:100]}")
-    except Exception as e:
-        log.error(f"[Notify/Teams] Error: {e}")
+    payload = {
+        "@type": "MessageCard",
+        "@context": "http://schema.org/extensions",
+        "themeColor": color,
+        "summary": title,
+        "sections": [{
+            "activityTitle": title,
+            "text": text,
+            "markdown": True,
+        }]
+    }
+    resp = requests.post(TEAMS_WEBHOOK, json=payload, timeout=10)
+    if resp.status_code != 200:
+        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:100]}")
 
 
 def _send_generic(event_type: str, data: dict):
-    """Send alert to generic webhook as JSON POST."""
+    """Send alert to generic webhook as JSON POST. Raises on failure."""
     if not GENERIC_WEBHOOK:
         return
+    payload = {
+        "event": event_type,
+        "timestamp": time.time(),
+        "data": data,
+    }
+    resp = requests.post(GENERIC_WEBHOOK, json=payload, timeout=10)
+    if resp.status_code not in (200, 201, 202, 204):
+        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:100]}")
+
+
+# ── Notification log (ring buffer for UI feedback) ───────────────────────────
+_notification_log: list[dict] = []
+_NOTIFY_LOG_MAX = 50
+
+def get_notification_log() -> list[dict]:
+    """Return recent notification delivery log for UI display."""
+    with _lock:
+        return list(_notification_log)
+
+def _log_delivery(channel: str, event_type: str, title: str, success: bool, detail: str = ""):
+    """Record a notification delivery attempt."""
+    entry = {
+        "ts": time.time(), "channel": channel, "event": event_type,
+        "title": title, "success": success, "detail": detail,
+    }
+    with _lock:
+        _notification_log.append(entry)
+        if len(_notification_log) > _NOTIFY_LOG_MAX:
+            _notification_log.pop(0)
+    # Emit to connected clients via WS
     try:
-        payload = {
-            "event": event_type,
-            "timestamp": time.time(),
-            "data": data,
-        }
-        resp = requests.post(GENERIC_WEBHOOK, json=payload, timeout=10)
-        if resp.status_code not in (200, 201, 202, 204):
-            log.warning(f"[Notify/Webhook] HTTP {resp.status_code}: {resp.text[:100]}")
-    except Exception as e:
-        log.error(f"[Notify/Webhook] Error: {e}")
+        from radar.ws import emit_notification_result
+        emit_notification_result(entry)
+    except Exception:
+        pass
 
 
 def _dispatch(event_type: str, title: str, text: str, data: dict,
@@ -109,15 +127,34 @@ def _dispatch(event_type: str, title: str, text: str, data: dict,
     """Dispatch to all configured channels in background threads."""
     if not ENABLED:
         return
+
+    def _slack_with_log():
+        try:
+            _send_slack(f"*{title}*\n{text}", color_slack)
+            _log_delivery("slack", event_type, title, True)
+        except Exception as e:
+            _log_delivery("slack", event_type, title, False, str(e))
+
+    def _teams_with_log():
+        try:
+            _send_teams(title, text, color_teams)
+            _log_delivery("teams", event_type, title, True)
+        except Exception as e:
+            _log_delivery("teams", event_type, title, False, str(e))
+
+    def _generic_with_log():
+        try:
+            _send_generic(event_type, data)
+            _log_delivery("webhook", event_type, title, True)
+        except Exception as e:
+            _log_delivery("webhook", event_type, title, False, str(e))
+
     if SLACK_WEBHOOK:
-        threading.Thread(target=_send_slack, args=(f"*{title}*\n{text}", color_slack),
-                         daemon=True).start()
+        threading.Thread(target=_slack_with_log, daemon=True).start()
     if TEAMS_WEBHOOK:
-        threading.Thread(target=_send_teams, args=(title, text, color_teams),
-                         daemon=True).start()
+        threading.Thread(target=_teams_with_log, daemon=True).start()
     if GENERIC_WEBHOOK:
-        threading.Thread(target=_send_generic, args=(event_type, data),
-                         daemon=True).start()
+        threading.Thread(target=_generic_with_log, daemon=True).start()
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

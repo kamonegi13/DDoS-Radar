@@ -33,8 +33,12 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
     """Dedicated background fetch thread for a sensor.
     - Normal: periodic fetch every poll_interval
     - On failure: retry up to 3 times at shorter intervals [5min, 10min, 30min]
+    - Emits sensor_status via WS on health changes
     """
+    from radar.ws import emit_sensor_status
+
     _RETRY_DELAYS = [d for d in [300, 600, 1800] if d < sensor.poll_interval]
+    _last_health = sensor.health
 
     def _do_fetch() -> bool:
         ctx = _build_default_context()
@@ -42,14 +46,23 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
             owm = registry.get("openweather")
             if owm: ctx["weather_conditions"] = owm.get_cache().get("conditions", {})
         sensor.fetch(ctx)
-        log = sensor.get_fetch_log()
-        return bool(log and log[-1].get("success"))
+        log_entries = sensor.get_fetch_log()
+        return bool(log_entries and log_entries[-1].get("success"))
+
+    def _check_health_change():
+        nonlocal _last_health
+        new_health = sensor.health
+        if new_health != _last_health:
+            log.info(f"[Sensor/{sensor.name}] Health: {_last_health} → {new_health}")
+            emit_sensor_status(sensor.name, new_health)
+            _last_health = new_health
 
     try:
         success = _do_fetch()
     except Exception as e:
         log.error(f"[Sensor/{sensor.name}] Initial fetch error: {e}")
         success = False
+    _check_health_change()
 
     while True:
         if not success and _RETRY_DELAYS:
@@ -57,11 +70,13 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
                 time.sleep(delay)
                 try:
                     success = _do_fetch()
+                    _check_health_change()
                     if success:
                         log.info(f"[Sensor/{sensor.name}] Retry succeeded after {delay}s")
                         break
                 except Exception as e:
                     log.warning(f"[Sensor/{sensor.name}] Retry error (delay={delay}s): {e}")
+                    _check_health_change()
         else:
             time.sleep(sensor.poll_interval)
 
@@ -70,6 +85,7 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
         except Exception as e:
             log.error(f"[Sensor/{sensor.name}] Scheduled fetch error: {e}")
             success = False
+        _check_health_change()
 
 
 # ── Cache cleanup worker ──

@@ -85,3 +85,10 @@ def emit_sensor_status(sensor_name: str, status: str) -> None:
     if socketio is None:
         return
     socketio.emit("sensor_status", {"sensor": sensor_name, "status": status})
+
+
+def emit_notification_result(entry: dict) -> None:
+    """Broadcast notification delivery result to all connected clients."""
+    if socketio is None:
+        return
+    socketio.emit("notification_result", entry)
