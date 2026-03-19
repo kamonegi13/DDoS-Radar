@@ -60,11 +60,24 @@ def _hash_password(password: str, salt: str) -> str:
     ).hex()
 
 
+def _get_or_create_jwt_secret() -> str:
+    """Return JWT secret from env, or generate once and persist to config.env."""
+    env_key = os.getenv("JWT_SECRET_KEY", "")
+    if env_key:
+        return env_key
+    generated = secrets.token_hex(32)
+    try:
+        with open("config.env", "a", encoding="utf-8") as f:
+            f.write(f"\nJWT_SECRET_KEY={generated}\n")
+        log.info("[Auth] Generated and persisted JWT_SECRET_KEY to config.env")
+    except OSError as e:
+        log.warning("[Auth] Could not persist JWT_SECRET_KEY to config.env: %s", e)
+    return generated
+
+
 def init_auth(app):
     """Initialize JWT and create user tables."""
-    app.config["JWT_SECRET_KEY"] = os.getenv(
-        "JWT_SECRET_KEY", secrets.token_hex(32)
-    )
+    app.config["JWT_SECRET_KEY"] = _get_or_create_jwt_secret()
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = int(os.getenv("JWT_ACCESS_EXPIRES", "3600"))
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = int(os.getenv("JWT_REFRESH_EXPIRES", "86400"))
 
@@ -94,7 +107,10 @@ def init_auth(app):
 
 def _create_default_admin(conn):
     """Create a default admin user on first run."""
-    default_pw = os.getenv("DEFAULT_ADMIN_PASSWORD", "admin")
+    default_pw = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
+    if not default_pw:
+        default_pw = secrets.token_urlsafe(16)
+        log.warning("[Auth] No DEFAULT_ADMIN_PASSWORD set. Generated temporary password: %s", default_pw)
     salt = secrets.token_hex(16)
     pw_hash = _hash_password(default_pw, salt)
     now = time.time()

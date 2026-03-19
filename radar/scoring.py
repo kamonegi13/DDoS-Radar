@@ -332,8 +332,12 @@ def get_fallback_coord(code: str) -> dict:
 def fetch_cf_data(url: str, params: dict) -> list:
     try:
         res = requests.get(url, headers=CF_HEADERS, params=params, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-        if res.status_code == 200: return res.json().get("result", {}).get("top_0", [])
-    except Exception: pass
+        if res.status_code == 200:
+            return res.json().get("result", {}).get("top_0", [])
+        else:
+            log.warning("[CF fetch] HTTP %d for %s params=%s", res.status_code, url, params)
+    except Exception as e:
+        log.warning("[CF fetch] Exception for %s: %s", url, e)
     return []
 
 def fetch_cf_data_cached(url: str, params: dict, ttl: float = None) -> list:

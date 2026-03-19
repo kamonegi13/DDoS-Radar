@@ -145,6 +145,7 @@ const LANG = {
     'modal.settings.tab.sensors':     'Sensors',
     'modal.settings.tab.fetchlog':    'Fetch Log',
     'modal.settings.tab.sysconfig':   'System',
+    'modal.settings.tab.users':       'Users',
 
     // ── System Config tab ──────────────────────────────────────────────
     'sysconfig.help':                 'Edit <span class="code-block">config.env</span> settings. Changes are written to disk and take effect after server restart.',
@@ -163,6 +164,7 @@ const LANG = {
     'sysconfig.scope.search':         'Search countries\u2026',
     'sysconfig.adv_toggle':           '\u25b6 Advanced Settings',
     'sysconfig.adv_toggle_open':      '\u25bc Advanced Settings',
+    'sysconfig.adv_warning':          '\u26a0 Incorrect values may cause system malfunction. Change only if you understand the impact.',
     'sysconfig.section.network':      'Network / SSL',
     'sysconfig.field.ssl_enabled':    'Enabled',
     'sysconfig.field.ssl_disabled':   'Disabled',
@@ -631,6 +633,19 @@ const LANG = {
     'panel.usermgr.err.reset_pw':     'Failed to reset password',
     'panel.usermgr.confirm.delete':   'Delete user "{username}"? This cannot be undone.',
     'panel.usermgr.confirm.pw_reset': 'Password reset for {username}',
+    'panel.usermgr.change_pw_header': 'CHANGE PASSWORD',
+    'panel.usermgr.ph.old_password':  'Current password',
+    'panel.usermgr.ph.new_password':  'New password (6+ chars)',
+    'panel.usermgr.btn.change_pw':    'CHANGE',
+    'panel.usermgr.err.old_pw_req':   'Current password is required',
+    'panel.usermgr.err.change_pw':    'Failed to change password',
+    'panel.usermgr.msg.pw_changed':   'Password changed successfully',
+    'panel.usermgr.ph.select_user':   '-- Select user --',
+    'panel.usermgr.err.select_user':  'Select a user first',
+    'panel.usermgr.roles_header':     'ROLES',
+    'panel.usermgr.role_desc.admin':  'Full system access. User management, system configuration, strategy settings, and all operational features.',
+    'panel.usermgr.role_desc.analyst':'Operational access. Strategy scope, threat actors, quick pins, sensor configuration, and monitoring features.',
+    'panel.usermgr.role_desc.viewer': 'Read-only access. View dashboards, fetch logs, and change own password only.',
 
     // ══════════════════════════════════════════════════════════════
     // History Analysis panel
@@ -802,6 +817,7 @@ const LANG = {
     'modal.settings.tab.sensors':     'センサー',
     'modal.settings.tab.fetchlog':    'フェッチログ',
     'modal.settings.tab.sysconfig':   'システム',
+    'modal.settings.tab.users':       'ユーザー管理',
 
     // ── System Config tab ──────────────────────────────────────────────
     'sysconfig.help':                 '<span class="code-block">config.env</span> の設定を編集します。変更はディスクに書き込まれ、サーバー再起動後に反映されます。',
@@ -820,6 +836,7 @@ const LANG = {
     'sysconfig.scope.search':         '国を検索\u2026',
     'sysconfig.adv_toggle':           '\u25b6 詳細設定',
     'sysconfig.adv_toggle_open':      '\u25bc 詳細設定',
+    'sysconfig.adv_warning':          '\u26a0 不適切な値を設定するとシステムが正常に動作しなくなる可能性があります。影響を理解した上で変更してください。',
     'sysconfig.section.network':      'ネットワーク / SSL',
     'sysconfig.field.ssl_enabled':    '有効',
     'sysconfig.field.ssl_disabled':   '無効',
@@ -1282,6 +1299,19 @@ const LANG = {
     'panel.usermgr.err.reset_pw':     'パスワードのリセットに失敗しました',
     'panel.usermgr.confirm.delete':   'ユーザー「{username}」を削除しますか？この操作は元に戻せません。',
     'panel.usermgr.confirm.pw_reset': '{username} のパスワードをリセットしました',
+    'panel.usermgr.change_pw_header': 'パスワード変更',
+    'panel.usermgr.ph.old_password':  '現在のパスワード',
+    'panel.usermgr.ph.new_password':  '新しいパスワード（6文字以上）',
+    'panel.usermgr.btn.change_pw':    '変更',
+    'panel.usermgr.err.old_pw_req':   '現在のパスワードを入力してください',
+    'panel.usermgr.err.change_pw':    'パスワードの変更に失敗しました',
+    'panel.usermgr.msg.pw_changed':   'パスワードを変更しました',
+    'panel.usermgr.ph.select_user':   '-- ユーザーを選択 --',
+    'panel.usermgr.err.select_user':  'ユーザーを選択してください',
+    'panel.usermgr.roles_header':     'ロール一覧',
+    'panel.usermgr.role_desc.admin':  'フルアクセス。ユーザー管理、システム設定、戦略設定、全ての運用機能を利用可能。',
+    'panel.usermgr.role_desc.analyst':'運用アクセス。戦略スコープ、脅威アクター、クイックピン、センサー設定、監視機能を利用可能。',
+    'panel.usermgr.role_desc.viewer': '閲覧専用。ダッシュボード閲覧、フェッチログ確認、自身のパスワード変更のみ。',
 
     // ══════════════════════════════════════════════════════════════
     // 履歴分析パネル

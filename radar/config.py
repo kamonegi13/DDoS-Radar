@@ -150,11 +150,6 @@ SERVER_HOST                = os.getenv("SERVER_HOST", "127.0.0.1")
 SERVER_PORT                = int(os.getenv("SERVER_PORT", "8000"))
 FLASK_DEBUG                = os.getenv("FLASK_DEBUG", "false").lower() in ("true", "1", "yes")
 
-# ── Admin API Authentication ──
-# When ADMIN_TOKEN is set, POST endpoints (env_config, persist_save, telegram_log/clear)
-# and GET /api/env_config require X-Admin-Token header to match.
-# When empty (default), admin endpoints are accessible only from loopback (127.0.0.1/::1).
-ADMIN_TOKEN                = os.getenv("ADMIN_TOKEN", "")
 
 DEFAULT_CORE        = os.getenv("DEFAULT_CORE", "TW")
 DEFAULT_CORRELATES  = [x.strip() for x in os.getenv("DEFAULT_CORRELATES", "JP,US").split(",") if x.strip()]

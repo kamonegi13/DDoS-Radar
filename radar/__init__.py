@@ -66,6 +66,36 @@ from radar.auth import init_auth, bp as _auth_bp  # noqa: E402
 init_auth(app)
 app.register_blueprint(_auth_bp)
 
+# ── Global JWT enforcement on /api/* routes ──
+from flask import request as _req, jsonify as _jsonify  # noqa: E402
+from flask_jwt_extended import verify_jwt_in_request  # noqa: E402
+from flask_jwt_extended.exceptions import NoAuthorizationError  # noqa: E402
+from jwt.exceptions import PyJWTError  # noqa: E402
+
+# Public routes that do NOT require authentication
+_AUTH_PUBLIC_ENDPOINTS = frozenset({
+    "auth.login",       # login endpoint
+    "auth.refresh",     # token refresh (has its own @jwt_required(refresh=True))
+    "api.index",        # serve index.html
+    "api.static_files", # serve static assets
+    "api.app_config",   # initial config needed before login
+    "static",           # Flask default static
+})
+
+@app.before_request
+def _enforce_jwt():
+    """Require valid JWT for all /api/ routes except public whitelist."""
+    endpoint = _req.endpoint
+    if endpoint in _AUTH_PUBLIC_ENDPOINTS or endpoint is None:
+        return None
+    # Only enforce on /api/ paths
+    if not _req.path.startswith("/api/"):
+        return None
+    try:
+        verify_jwt_in_request()
+    except (NoAuthorizationError, PyJWTError, Exception):
+        return _jsonify({"error": "Authentication required"}), 401
+
 # ── Routes ──
 from radar import routes as _routes_mod  # noqa: E402
 _routes_mod.init_routes(registry, engine)

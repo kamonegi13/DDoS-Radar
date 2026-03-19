@@ -12,6 +12,65 @@
 </head>
 <body>
 
+<!-- ── Login Gate ── -->
+<div id="login-gate" style="position:fixed;inset:0;z-index:99999;background:#0a0e14;display:flex;align-items:center;justify-content:center;">
+  <div style="background:#111820;border:1px solid #1e3a50;border-radius:8px;padding:32px 36px;width:340px;box-shadow:0 0 40px rgba(0,100,200,0.15);">
+    <div style="text-align:center;margin-bottom:20px;">
+      <div style="font-size:14px;color:#00ccff;font-weight:bold;letter-spacing:2px;">STRATEGIC MDO RADAR</div>
+      <div style="font-size:10px;color:#556;margin-top:4px;">C4ISR AUTHENTICATION REQUIRED</div>
+    </div>
+    <input id="login-user" type="text" placeholder="Username" autocomplete="username"
+      style="width:100%;padding:8px 10px;margin-bottom:10px;background:#0a0e14;border:1px solid #1e3a50;color:#cde;border-radius:4px;font-size:13px;box-sizing:border-box;" />
+    <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password"
+      style="width:100%;padding:8px 10px;margin-bottom:14px;background:#0a0e14;border:1px solid #1e3a50;color:#cde;border-radius:4px;font-size:13px;box-sizing:border-box;" />
+    <button id="login-btn" onclick="window._doLogin()"
+      style="width:100%;padding:9px;background:#0066aa;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;letter-spacing:1px;">LOGIN</button>
+    <div id="login-error" style="color:#ff4444;font-size:11px;margin-top:10px;text-align:center;display:none;"></div>
+  </div>
+</div>
+<script>
+(function(){
+  // Check for existing valid token
+  const token = localStorage.getItem('radar_access_token');
+  if (token) {
+    // Validate token by calling a protected endpoint
+    fetch('/api/data_status', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(r => { if (r.ok) { document.getElementById('login-gate').style.display = 'none'; } })
+      .catch(() => {});
+  }
+  window._doLogin = async function() {
+    const user = document.getElementById('login-user').value.trim();
+    const pass = document.getElementById('login-pass').value;
+    const errEl = document.getElementById('login-error');
+    errEl.style.display = 'none';
+    if (!user || !pass) { errEl.textContent = 'Username and password required'; errEl.style.display = ''; return; }
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass })
+      });
+      const data = await res.json();
+      if (!res.ok) { errEl.textContent = data.error || 'Login failed'; errEl.style.display = ''; return; }
+      localStorage.setItem('radar_access_token', data.access_token);
+      localStorage.setItem('radar_refresh_token', data.refresh_token);
+      localStorage.setItem('radar_username', data.username);
+      localStorage.setItem('radar_role', data.role);
+      // Reload page — initApp will run with valid token in localStorage
+      location.reload();
+    } catch (e) {
+      errEl.textContent = 'Connection error'; errEl.style.display = '';
+    }
+  };
+  // Allow Enter key to submit
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && document.getElementById('login-gate').style.display !== 'none') {
+      window._doLogin();
+    }
+  });
+})();
+</script>
+
 <div id="custom-tooltip"></div>
 
 <div id="global-loader">
@@ -109,10 +168,9 @@
                     <span class="tools-menu-dot" id="tm-dot-nb"></span>
                 </div>
                 <div class="tools-menu-sep"></div>
-                <div class="tools-menu-item" id="tm-item-usrmgr" onclick="handleToolToggle('usrmgr-panel', toggleUserMgr, 'tm-dot-usrmgr', 'tm-item-usrmgr')">
+                <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();">
                     <span class="tools-menu-icon">👤</span>
                     <span class="tools-menu-label" data-i18n="tools.user_management">User Management</span>
-                    <span class="tools-menu-dot" id="tm-dot-usrmgr"></span>
                 </div>
             </div>
         </div>
@@ -122,6 +180,10 @@
         <span style="display:inline-flex;margin-left:8px;border:1px solid #00ffff33;border-radius:3px;overflow:hidden;">
             <button id="lang-btn-en" class="btn-tactical btn-lang" onclick="setLang('en')" data-tooltip="Switch to English" style="margin-left:0;border:none;border-radius:0;border-right:1px solid #00ffff22;min-width:32px;">EN</button>
             <button id="lang-btn-ja" class="btn-tactical btn-lang" onclick="setLang('ja')" data-tooltip="日本語に切替" style="margin-left:0;border:none;border-radius:0;min-width:32px;">JP</button>
+        </span>
+        <span id="hud-user-info" style="display:inline-flex;align-items:center;margin-left:8px;font-size:10px;color:#66ccff;">
+            <span id="hud-username" style="margin-right:6px;letter-spacing:0.5px;"></span>
+            <button class="btn-tactical" onclick="umgrLogout()" style="color:#ff6666;border-color:#ff666644;" data-i18n="panel.usermgr.btn.logout">LOGOUT</button>
         </span>
     </div>
     
@@ -221,6 +283,7 @@
         <div id="lsb-ph-gn"></div>
         <div id="lsb-ph-nb"></div>
         <div id="lsb-ph-tg"></div>
+        <div id="lsb-ph-hist"></div>
     </div>
 
     <div id="map-wrapper">
@@ -281,12 +344,13 @@
         <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()" data-i18n="modal.settings.close">[ X ] Close</button>
     </div>
     <div class="tabs">
-        <div class="tab active" onclick="switchTab('strategy')" data-i18n="modal.settings.tab.strategy">Strategy Scope</div>
-        <div class="tab" onclick="switchTab('actors')" data-i18n="modal.settings.tab.actors">Threat Actors</div>
-        <div class="tab" onclick="switchTab('pins')" data-i18n="modal.settings.tab.pins">Quick Pins</div>
-        <div class="tab" onclick="switchTab('sensors'); loadSensorConfig()" data-i18n="modal.settings.tab.sensors">Sensors</div>
+        <div class="tab active" onclick="switchTab('strategy')" data-i18n="modal.settings.tab.strategy" data-role-min="analyst">Strategy Scope</div>
+        <div class="tab" onclick="switchTab('actors')" data-i18n="modal.settings.tab.actors" data-role-min="analyst">Threat Actors</div>
+        <div class="tab" onclick="switchTab('pins')" data-i18n="modal.settings.tab.pins" data-role-min="analyst">Quick Pins</div>
+        <div class="tab" onclick="switchTab('sensors'); loadSensorConfig()" data-i18n="modal.settings.tab.sensors" data-role-min="analyst">Sensors</div>
         <div class="tab" onclick="switchTab('fetchlog'); loadFetchLog()" data-i18n="modal.settings.tab.fetchlog">Fetch Log</div>
-        <div class="tab" onclick="switchTab('sysconfig'); loadEnvConfig()" data-i18n="modal.settings.tab.sysconfig">System</div>
+        <div class="tab" onclick="switchTab('sysconfig'); loadEnvConfig()" data-i18n="modal.settings.tab.sysconfig" data-role-min="admin">System</div>
+        <div class="tab" onclick="switchTab('users'); umgrLoadUsers()" data-i18n="modal.settings.tab.users">Users</div>
     </div>
     <div class="modal-main-area">
         <div class="modal-content-panel">
@@ -364,10 +428,6 @@
                     <label>Listen Port (SERVER_PORT)</label>
                     <input class="env-input" id="ec-SERVER_PORT" type="number" min="1024" max="65535" placeholder="8000">
                 </div>
-                <div class="env-field">
-                    <label>Admin Token<span class="opt">(session)</span></label>
-                    <input class="env-input" id="ec-admin-token" type="password" autocomplete="off" placeholder="Required when ADMIN_TOKEN is set in config.env">
-                </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.api_keys">API Keys</div>
 
@@ -393,7 +453,7 @@
                 </div>
                 <div class="env-field">
                     <label>OpenSky Client Secret<span class="opt">(optional)</span></label>
-                    <input class="env-input" id="ec-OPENSKY_CLIENT_SECRET" type="password" autocomplete="off">
+                    <input class="env-input secret-field" id="ec-OPENSKY_CLIENT_SECRET" type="text" autocomplete="off" data-1p-ignore>
                 </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.scope">Default Scope</div>
@@ -433,7 +493,9 @@
                 </div>
 
                 <!-- ── Advanced Settings (collapsed) ────────────────── -->
-                <button class="env-adv-toggle" id="env-adv-btn" onclick="toggleEnvAdvanced()" data-i18n="sysconfig.adv_toggle">▶ Advanced Settings</button>
+                <hr style="border:none;border-top:1px solid #ff660033;margin:16px 0 8px;">
+                <button class="env-adv-toggle" id="env-adv-btn" onclick="toggleEnvAdvanced()" style="color:#ff8800;border-color:#ff880044;" data-i18n="sysconfig.adv_toggle">▶ Advanced Settings</button>
+                <div style="font-size:9px;color:#996633;margin:3px 0 4px 2px;letter-spacing:0.3px;" data-i18n="sysconfig.adv_warning">⚠ Incorrect values may cause system malfunction. Change only if you understand the impact.</div>
                 <div class="env-adv-section" id="env-adv-section">
 
                 <div class="env-section-title" data-i18n="sysconfig.section.network">Network / SSL</div>
@@ -593,12 +655,12 @@
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.auth_desc">User authentication and session management. A default admin user is created on first startup.</div>
                 <div class="env-field">
                     <label>Default Admin Password</label>
-                    <input class="env-input" id="ec-DEFAULT_ADMIN_PASSWORD" type="password" autocomplete="off" placeholder="admin">
+                    <input class="env-input secret-field" id="ec-DEFAULT_ADMIN_PASSWORD" type="text" autocomplete="off" data-1p-ignore placeholder="admin">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.default_admin_pw">Admin password on first startup (change via API after deployment)</div>
                 </div>
                 <div class="env-field">
                     <label>JWT Secret Key<span class="opt">(auto-generated if empty)</span></label>
-                    <input class="env-input" id="ec-JWT_SECRET_KEY" type="password" autocomplete="off" placeholder="Auto-generated">
+                    <input class="env-input secret-field" id="ec-JWT_SECRET_KEY" type="text" autocomplete="off" data-1p-ignore placeholder="Auto-generated">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.jwt_secret">If blank, randomly generated on each startup (tokens invalidated on restart)</div>
                 </div>
                 <div class="env-field">
@@ -656,15 +718,76 @@
 
                 </div><!-- /env-adv-section -->
 
-                <!-- ── Save row ──────────────────────────────────────── -->
-                <div class="env-save-row">
-                    <button onclick="saveEnvConfig()" class="btn-tactical" style="border-color:#00ffff55;color:#00ffff;" data-i18n="sysconfig.save_btn">Save to config.env</button>
-                    <span id="env-status" class="env-status"></span>
-                </div>
-                <div class="env-restart-note" data-i18n="sysconfig.restart_note">⚠ Changes take effect after server restart (<span class="code-block">python radar_api.py</span>)</div>
-
                 </div><!-- /sysconfig-scroll -->
+                <!-- ── Save row (sticky outside scroll) ────────────── -->
+                <div class="env-save-row" style="position:sticky;bottom:0;background:#0d0d0d;border-top:1px solid #333;padding:8px 0 4px;z-index:2;">
+                    <button onclick="saveEnvConfig()" class="btn-tactical" style="border-color:#ff660066;color:#ff6600;font-weight:bold;" data-i18n="sysconfig.save_btn">Save to config.env</button>
+                    <span id="env-status" class="env-status"></span>
+                    <div class="env-restart-note" style="margin-top:4px;" data-i18n="sysconfig.restart_note">⚠ Changes take effect after server restart (<span class="code-block">python radar_api.py</span>)</div>
+                </div>
             </div><!-- /tab-sysconfig -->
+
+            <div id="tab-users" class="tab-content">
+                <div style="flex:1;min-height:0;overflow-y:auto;padding-right:4px;">
+                    <!-- Role Descriptions -->
+                    <div style="border:1px solid #222;border-radius:4px;padding:10px;margin-bottom:12px;background:#0a0a0a;">
+                        <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:8px;" data-i18n="panel.usermgr.roles_header">ROLES</div>
+                        <div style="font-size:10px;line-height:1.6;color:#999;">
+                            <div style="margin-bottom:4px;"><span style="color:#ff2a2a;font-weight:bold;">admin</span> — <span data-i18n="panel.usermgr.role_desc.admin">Full system access. User management, system configuration, strategy settings, and all operational features.</span></div>
+                            <div style="margin-bottom:4px;"><span style="color:#ffaa00;font-weight:bold;">analyst</span> — <span data-i18n="panel.usermgr.role_desc.analyst">Operational access. Strategy scope, threat actors, quick pins, sensor configuration, and monitoring features.</span></div>
+                            <div><span style="color:#66ccff;font-weight:bold;">viewer</span> — <span data-i18n="panel.usermgr.role_desc.viewer">Read-only access. View dashboards, fetch logs, and change own password only.</span></div>
+                        </div>
+                    </div>
+                    <!-- Add User Form (admin only) -->
+                    <div id="usrmgr-add-section" data-role-min="admin" style="border:1px solid #222;border-radius:4px;padding:10px;margin-bottom:12px;background:#0a0a0a;">
+                        <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.add_header">ADD USER</div>
+                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                            <input type="text" id="usrmgr-new-user" placeholder="Username" data-i18n-ph="panel.usermgr.ph.username"
+                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:140px;">
+                            <input type="text" class="secret-field" id="usrmgr-new-pass" placeholder="Password" data-i18n-ph="panel.usermgr.ph.password" autocomplete="off" data-1p-ignore
+                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:140px;">
+                            <select id="usrmgr-new-role"
+                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 6px;border-radius:3px;font-size:10px;cursor:pointer;">
+                                <option value="viewer">viewer</option>
+                                <option value="analyst">analyst</option>
+                                <option value="admin">admin</option>
+                            </select>
+                            <button class="btn-tactical btn-action" onclick="umgrAddUser()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.add">ADD</button>
+                        </div>
+                    </div>
+                    <!-- Change Own Password -->
+                    <div style="border:1px solid #222;border-radius:4px;padding:10px;margin-bottom:12px;background:#0a0a0a;">
+                        <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.change_pw_header">CHANGE PASSWORD</div>
+                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                            <input type="text" class="secret-field" id="usrmgr-old-pw" placeholder="Current password" data-i18n-ph="panel.usermgr.ph.old_password" autocomplete="off" data-1p-ignore
+                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:140px;">
+                            <input type="text" class="secret-field" id="usrmgr-change-pw" placeholder="New password (6+ chars)" data-i18n-ph="panel.usermgr.ph.new_password" autocomplete="off" data-1p-ignore
+                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:140px;">
+                            <button class="btn-tactical btn-action" onclick="umgrChangePw()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.change_pw">CHANGE</button>
+                            <span id="usrmgr-changepw-status" style="font-size:10px;"></span>
+                        </div>
+                    </div>
+                    <!-- User List (admin only) -->
+                    <div id="usrmgr-list-section" data-role-min="admin">
+                        <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.registered">REGISTERED USERS</div>
+                        <div id="usrmgr-list" style="max-height:400px;overflow-y:auto;"></div>
+                    </div>
+                    <!-- Password Reset (admin only) -->
+                    <div id="usrmgr-reset-section" data-role-min="admin" style="border:1px solid #332200;border-radius:4px;padding:10px;margin-top:10px;background:#0c0800;">
+                        <div style="font-size:9px;color:#664400;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.reset_header">RESET PASSWORD</div>
+                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                            <select id="usrmgr-reset-target-select"
+                                style="background:#111;border:1px solid #333;color:#ffaa00;padding:4px 6px;border-radius:3px;font-size:10px;cursor:pointer;min-width:120px;">
+                                <option value="" data-i18n="panel.usermgr.ph.select_user">-- Select user --</option>
+                            </select>
+                            <input type="text" class="secret-field" id="usrmgr-reset-pw" placeholder="New password (6+ chars)" data-i18n-ph="panel.usermgr.ph.new_password" autocomplete="off" data-1p-ignore
+                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:160px;">
+                            <button class="btn-tactical btn-action" onclick="umgrResetPw()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.reset">RESET</button>
+                            <span id="usrmgr-reset-status" style="font-size:10px;"></span>
+                        </div>
+                    </div>
+                </div>
+            </div><!-- /tab-users -->
         </div><!-- /modal-content-panel -->
         <!-- Region Preview mini-map (hidden for Sensors/Fetchlog tabs) -->
         <div id="modal-map-panel">
@@ -1923,69 +2046,6 @@
 </div>
 
 <!-- ── User Management Panel ────────────────────────────────────────────── -->
-<div id="usrmgr-panel" class="draggable-panel floating" style="display:none; left:380px; top:100px; width:520px;">
-    <div class="drag-handle panel-header-unified">
-        <span data-i18n="panel.usermgr.title">User Management</span>
-        <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
-            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
-            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('usrmgr-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
-        </div>
-    </div>
-    <div class="panel-content">
-        <!-- Login Section (shown when not authenticated) -->
-        <div id="usrmgr-login" style="margin-bottom:10px;">
-            <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.authenticate">AUTHENTICATE</div>
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                <input type="text" id="usrmgr-username" placeholder="Username" data-i18n-ph="panel.usermgr.ph.username"
-                    style="background:#0a0a0a;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:120px;">
-                <input type="password" id="usrmgr-password" placeholder="Password" data-i18n-ph="panel.usermgr.ph.password"
-                    style="background:#0a0a0a;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:120px;"
-                    onkeydown="if(event.key==='Enter')umgrLogin()">
-                <button class="btn-tactical btn-action" onclick="umgrLogin()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.login">LOGIN</button>
-                <span id="usrmgr-status" style="font-size:10px;color:#666;"></span>
-            </div>
-        </div>
-        <!-- Authenticated Section (hidden until login) -->
-        <div id="usrmgr-authed" style="display:none;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                <span id="usrmgr-who" style="font-size:10px;color:#66ccff;"></span>
-                <button class="btn-tactical" onclick="umgrLogout()" style="font-size:9px;padding:2px 8px;color:#ff6666;border-color:#ff666644;" data-i18n="panel.usermgr.btn.logout">LOGOUT</button>
-            </div>
-            <!-- Add User Form -->
-            <div style="border:1px solid #222;border-radius:4px;padding:8px;margin-bottom:10px;background:#0a0a0a;">
-                <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.add_header">ADD USER</div>
-                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                    <input type="text" id="usrmgr-new-user" placeholder="Username" data-i18n-ph="panel.usermgr.ph.username"
-                        style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:110px;">
-                    <input type="password" id="usrmgr-new-pass" placeholder="Password" data-i18n-ph="panel.usermgr.ph.password"
-                        style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:110px;">
-                    <select id="usrmgr-new-role"
-                        style="background:#111;border:1px solid #333;color:#ccc;padding:4px 6px;border-radius:3px;font-size:10px;cursor:pointer;">
-                        <option value="viewer">viewer</option>
-                        <option value="analyst">analyst</option>
-                        <option value="admin">admin</option>
-                    </select>
-                    <button class="btn-tactical btn-action" onclick="umgrAddUser()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.add">ADD</button>
-                </div>
-            </div>
-            <!-- User List -->
-            <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.registered">REGISTERED USERS</div>
-            <div id="usrmgr-list" style="max-height:300px;overflow-y:auto;"></div>
-            <!-- Password Reset -->
-            <div id="usrmgr-reset-section" style="display:none;border:1px solid #332200;border-radius:4px;padding:8px;margin-top:10px;background:#0c0800;">
-                <div style="font-size:9px;color:#664400;letter-spacing:1px;margin-bottom:6px;"><span data-i18n="panel.usermgr.reset_header">RESET PASSWORD:</span> <span id="usrmgr-reset-target" style="color:#ffaa00;"></span></div>
-                <div style="display:flex;gap:6px;align-items:center;">
-                    <input type="password" id="usrmgr-reset-pw" placeholder="New password (6+ chars)" data-i18n-ph="panel.usermgr.ph.new_password"
-                        style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;flex:1;">
-                    <button class="btn-tactical btn-action" onclick="umgrResetPw()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.reset">RESET</button>
-                    <button class="btn-tactical" onclick="document.getElementById('usrmgr-reset-section').style.display='none'" style="font-size:9px;padding:2px 8px;color:#666;" data-i18n="panel.usermgr.btn.cancel">CANCEL</button>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- ── Telegram SIGINT Panel (v10) ───────────────────────────────────────── -->
 <div id="tg-sigint-panel" class="draggable-panel floating" style="display:none; left:540px; top:190px;">
     <div class="drag-handle panel-header-unified">

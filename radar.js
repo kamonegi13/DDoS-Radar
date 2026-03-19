@@ -1,6 +1,49 @@
     // HTML escape utility — prevents XSS when inserting external API strings into innerHTML
     const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
+    // ── Auth: wrap fetch to include JWT and handle 401 ──
+    const _origFetch = window.fetch.bind(window);
+    window.fetch = function(url, opts = {}) {
+        const token = localStorage.getItem('radar_access_token');
+        if (token && typeof url === 'string' && url.startsWith('/api/')) {
+            opts.headers = opts.headers || {};
+            if (!opts.headers['Authorization']) {
+                opts.headers['Authorization'] = 'Bearer ' + token;
+            }
+        }
+        return _origFetch(url, opts).then(res => {
+            if (res.status === 401 && typeof url === 'string' && url.startsWith('/api/')
+                && !url.includes('/api/auth/login')) {
+                // Try token refresh once
+                const refreshToken = localStorage.getItem('radar_refresh_token');
+                if (refreshToken) {
+                    return _origFetch('/api/auth/refresh', {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + refreshToken }
+                    }).then(rr => {
+                        if (rr.ok) {
+                            return rr.json().then(d => {
+                                localStorage.setItem('radar_access_token', d.access_token);
+                                opts.headers = opts.headers || {};
+                                opts.headers['Authorization'] = 'Bearer ' + d.access_token;
+                                return _origFetch(url, opts);
+                            });
+                        }
+                        // Refresh failed — show login gate
+                        localStorage.removeItem('radar_access_token');
+                        localStorage.removeItem('radar_refresh_token');
+                        document.getElementById('login-gate').style.display = 'flex';
+                        return res;
+                    });
+                }
+                // No refresh token — show login gate
+                localStorage.removeItem('radar_access_token');
+                document.getElementById('login-gate').style.display = 'flex';
+            }
+            return res;
+        });
+    };
+
 
 
     let latestData = null;
@@ -550,12 +593,30 @@
         if (content.classList.contains('content-collapsed')) { content.classList.remove('content-collapsed'); btn.innerText = '−'; } 
         else { content.classList.add('content-collapsed'); btn.innerText = '＋'; }
     }
+    const _ROLE_LEVEL = { viewer: 0, analyst: 1, admin: 2 };
+    function _applyRoleVisibility(container) {
+        const role = localStorage.getItem('radar_role') || 'viewer';
+        const level = _ROLE_LEVEL[role] ?? 0;
+        container.querySelectorAll('[data-role-min]').forEach(el => {
+            const req = _ROLE_LEVEL[el.dataset.roleMin] ?? 0;
+            el.style.display = level >= req ? '' : 'none';
+        });
+        // If active tab is hidden, switch to first visible tab
+        const tabs = container.querySelectorAll('.tabs .tab');
+        const activeTab = container.querySelector('.tabs .tab.active');
+        if (activeTab && activeTab.style.display === 'none') {
+            const firstVisible = Array.from(tabs).find(t => t.style.display !== 'none');
+            if (firstVisible) firstVisible.click();
+        }
+    }
     function openModal(modalId) {
         document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
-        document.getElementById(modalId).style.display = 'flex';
+        const modal = document.getElementById(modalId);
+        modal.style.display = 'flex';
         document.getElementById('settings-backdrop').style.display = 'block';
         if (modalId === 'settings-modal') {
+            _applyRoleVisibility(modal);
             requestAnimationFrame(() => { _initMinimap(); _minimapFlyTo(_activeRegion); _updateMinimap(); });
         }
     }
@@ -585,7 +646,6 @@
         { panelId: 'gn-panel',             dotId: 'tm-dot-gn',    itemId: 'tm-item-gn'    },
         { panelId: 'notebook-panel',       dotId: 'tm-dot-nb',    itemId: 'tm-item-nb'    },
         { panelId: 'history-panel',        dotId: 'tm-dot-hist',  itemId: 'tm-item-hist'  },
-        { panelId: 'usrmgr-panel',         dotId: 'tm-dot-usrmgr',itemId: 'tm-item-usrmgr'},
     ];
 
     function toggleToolsMenu() {
@@ -907,7 +967,8 @@
     function switchTab(tabId) {
         document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        event.target.classList.add('active');
+        const tabBtn = document.querySelector(`.tab[onclick*="'${tabId}'"]`);
+        if (tabBtn) tabBtn.classList.add('active');
         document.getElementById(`tab-${tabId}`).classList.add('active');
         const mapPanel = document.getElementById('modal-map-panel');
         const showMap  = ['strategy', 'actors', 'pins'].includes(tabId) && tabId !== 'sysconfig';
@@ -933,12 +994,14 @@
         { id: 'op-clock-panel',       ph: 'lsb-ph-clk'            },
         { id: 'gn-panel',            ph: 'lsb-ph-gn'             },
         { id: 'notebook-panel',       ph: 'lsb-ph-nb'             },
+        { id: 'tg-sigint-panel',      ph: 'lsb-ph-tg'             },
+        { id: 'history-panel',        ph: 'lsb-ph-hist'           },
     ];
 
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
     let _sidebarOrder = {
         'sidebar':      ['target-panel', 'dashboard-panel', 'chain-panel'],
-        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel']
+        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel']
     };
 
     // Re-order placeholder divs within a sidebar to match _sidebarOrder
@@ -1264,6 +1327,7 @@
     setupDockablePanel('gn-panel',            'lsb-ph-gn',             400);
     setupDockablePanel('notebook-panel',      'lsb-ph-nb',             340);
     setupDockablePanel('tg-sigint-panel',     'lsb-ph-tg',             460);
+    setupDockablePanel('history-panel',        'lsb-ph-hist',           620);
     updateSidebarVisibility();
 
     const map = L.map('map', {
@@ -1813,6 +1877,7 @@
     }
 
     function forceDataSync() { fetchDDoSData(true); }
+    window.forceDataSync = forceDataSync;
 
     async function fetchDDoSData(force = false) {
         const curr = getCurrentConfig();
@@ -1844,7 +1909,15 @@
             lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()} (Next in 15 min)`;
             document.getElementById('update-time').innerText = lastSyncedTimeText;
             lastSyncedConfig = getCurrentConfig();
-            
+
+            // Re-subscribe WS room if core theater changed
+            if (_wsSocket && _wsConnected && coreTheater && coreTheater !== _wsSubscribedTheater) {
+                if (_wsSubscribedTheater) _wsSocket.emit('unsubscribe_theater', _wsSubscribedTheater);
+                _wsSocket.emit('subscribe_theater', coreTheater);
+                _wsSubscribedTheater = coreTheater;
+                console.log('[WS] Re-subscribed to', coreTheater);
+            }
+
             renderTelemetry(latestData);
 
             // If node_ok is empty (CheckHost sensor still initializing at startup),
@@ -2826,6 +2899,14 @@
     });
 
     async function initApp() {
+        // Display logged-in username in HUD
+        const _storedUser = localStorage.getItem('radar_username');
+        const _storedRole = localStorage.getItem('radar_role');
+        if (_storedUser) {
+            const el = document.getElementById('hud-username');
+            if (el) el.textContent = `${_storedUser} (${_storedRole || 'viewer'})`;
+        }
+
         let defaults = {
             default_core: "TW",
             default_correlates: ["JP", "US"],
@@ -2843,36 +2924,53 @@
         
         loadTargetState(defaults);
         lastSyncedConfig = getCurrentConfig();
-        fetchDDoSData(false);
+
+        // Only fetch data if user is authenticated; otherwise wait for login
+        if (localStorage.getItem('radar_access_token')) {
+            fetchDDoSData(false);
+        } else {
+            // Hide loader since we're waiting for login
+            const loader = document.getElementById('global-loader');
+            if (loader) { loader.style.opacity = '0'; setTimeout(() => { loader.style.display = 'none'; }, 300); }
+        }
 
         // ── WebSocket: real-time push (polling fallback at 15-min interval) ──
         let _wsConnected = false;
+        let _wsSocket = null;
+        let _wsSubscribedTheater = '';
         if (typeof io !== 'undefined') {
             try {
-                const socket = io({ transports: ['websocket', 'polling'] });
-                socket.on('connect', () => {
+                _wsSocket = io({ transports: ['websocket', 'polling'] });
+                _wsSocket.on('connect', () => {
                     _wsConnected = true;
-                    const core = (document.getElementById('core-select') || {}).value || 'TW';
-                    socket.emit('subscribe_theater', core);
+                    const core = getCurrentConfig().core || 'TW';
+                    _wsSubscribedTheater = core;
+                    _wsSocket.emit('subscribe_theater', core);
                     console.log('[WS] Connected, subscribed to', core);
                 });
-                socket.on('disconnect', () => {
+                _wsSocket.on('disconnect', () => {
                     _wsConnected = false;
+                    _wsSubscribedTheater = '';
                     console.log('[WS] Disconnected — polling fallback active');
                 });
-                socket.on('threat_update', (data) => {
+                _wsSocket.on('threat_update', (data) => {
                     latestData = data;
                     lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()} (WS Live)`;
                     document.getElementById('update-time').innerText = lastSyncedTimeText;
                     renderTelemetry(latestData);
                 });
-                socket.on('ambush_alert', (data) => {
+                _wsSocket.on('ambush_alert', (data) => {
                     console.warn('[WS] AMBUSH ALERT:', data);
-                    // Ambush UI is already updated via threat_update; this is for future
-                    // immediate notification (e.g., audio alert, toast)
+                    const wrap = document.getElementById('hud-ambush-wrap');
+                    if (wrap) { wrap.style.display = 'flex'; wrap.classList.add('atm-critical'); }
                 });
-                socket.on('sequence_event', (data) => {
-                    console.info('[WS] Sequence event:', data);
+                _wsSocket.on('sequence_event', (data) => {
+                    console.info('[WS] Sequence event:', data.status, data);
+                    const badge = document.getElementById('chain-seq-badge');
+                    if (badge) badge.textContent = data.status || '';
+                });
+                _wsSocket.on('sensor_status', (data) => {
+                    console.info('[WS] Sensor status:', data.sensor, data.status);
                 });
             } catch (e) {
                 console.warn('[WS] Socket.IO init failed, using polling fallback:', e);
@@ -3808,12 +3906,9 @@
         }
     }
 
-    // ── Admin token helper ─────────────────────────────────────────────────────
+    // ── Admin headers helper ─────────────────────────────────────────────────────
     function _adminHeaders(extra = {}) {
-        const token = (document.getElementById('ec-admin-token') || {}).value || '';
-        const h = { ...extra };
-        if (token) h['X-Admin-Token'] = token;
-        return h;
+        return { ...extra };
     }
 
     // ── System Config (env_config) ────────────────────────────────────────────
@@ -4214,54 +4309,31 @@
     };
 
     // ── User Management Panel ──────────────────────────────────────────────
-    let _umgrToken = null;
-    let _umgrUser = null;
+    // Sync with global auth tokens from localStorage
+    let _umgrToken = localStorage.getItem('radar_access_token');
+    let _umgrUser = localStorage.getItem('radar_username');
 
     window.toggleUserMgr = function() {
-        const p = document.getElementById('usrmgr-panel');
-        if (!p) return;
-        const vis = p.style.display !== 'none';
-        p.style.display = vis ? 'none' : 'flex';
-        if (!vis && _umgrToken) umgrLoadUsers();
-        saveLocalState();
-    };
-
-    window.umgrLogin = async function() {
-        const user = document.getElementById('usrmgr-username').value.trim();
-        const pass = document.getElementById('usrmgr-password').value;
-        const status = document.getElementById('usrmgr-status');
-        if (!user || !pass) { status.textContent = _t('panel.usermgr.msg.enter_creds'); status.style.color = '#ff6666'; return; }
-        try {
-            const res = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: user, password: pass })
-            });
-            const data = await res.json();
-            if (!res.ok) { status.textContent = data.error || _t('panel.usermgr.msg.login_failed'); status.style.color = '#ff6666'; return; }
-            _umgrToken = data.access_token;
-            _umgrUser = data.username;
-            document.getElementById('usrmgr-login').style.display = 'none';
-            document.getElementById('usrmgr-authed').style.display = '';
-            document.getElementById('usrmgr-who').textContent = _t('panel.usermgr.msg.logged_in', {username: data.username, role: data.role});
-            if (data.role !== 'admin') {
-                document.getElementById('usrmgr-who').textContent += ' ' + _t('panel.usermgr.msg.admin_req');
-            }
-            umgrLoadUsers();
-        } catch (e) { status.textContent = _t('panel.usermgr.msg.conn_error'); status.style.color = '#ff6666'; }
+        openModal('settings-modal');
+        switchTab('users');
+        umgrLoadUsers();
     };
 
     window.umgrLogout = function() {
         _umgrToken = null;
         _umgrUser = null;
-        document.getElementById('usrmgr-login').style.display = '';
-        document.getElementById('usrmgr-authed').style.display = 'none';
-        document.getElementById('usrmgr-password').value = '';
-        document.getElementById('usrmgr-status').textContent = '';
+        localStorage.removeItem('radar_access_token');
+        localStorage.removeItem('radar_refresh_token');
+        localStorage.removeItem('radar_username');
+        localStorage.removeItem('radar_role');
+        // Show login gate
+        document.getElementById('login-gate').style.display = 'flex';
+        closeAllModals();
     };
 
     function _umgrHeaders() {
-        return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_umgrToken}` };
+        const token = localStorage.getItem('radar_access_token') || _umgrToken;
+        return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
     }
 
     window.umgrLoadUsers = async function() {
@@ -4328,10 +4400,10 @@
                     btnReset.title = _t('panel.usermgr.tip.reset_pw');
                     btnReset.style.cssText = 'background:none;border:1px solid #444;color:#ffaa00;font-size:9px;padding:1px 6px;border-radius:2px;cursor:pointer;margin-right:4px;';
                     btnReset.onclick = () => {
-                        document.getElementById('usrmgr-reset-section').style.display = '';
-                        document.getElementById('usrmgr-reset-target').textContent = u.username;
+                        const sel = document.getElementById('usrmgr-reset-target-select');
+                        if (sel) sel.value = u.username;
                         document.getElementById('usrmgr-reset-pw').value = '';
-                        document.getElementById('usrmgr-reset-pw').dataset.target = u.username;
+                        document.getElementById('usrmgr-reset-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     };
                     tdAct.appendChild(btnReset);
 
@@ -4346,6 +4418,18 @@
                 }
             });
             container.appendChild(table);
+            // Populate reset dropdown
+            const resetSel = document.getElementById('usrmgr-reset-target-select');
+            if (resetSel) {
+                const prev = resetSel.value;
+                resetSel.innerHTML = `<option value="">${_t('panel.usermgr.ph.select_user')}</option>`;
+                users.filter(u => u.username !== _umgrUser).forEach(u => {
+                    const opt = document.createElement('option');
+                    opt.value = u.username; opt.textContent = u.username;
+                    resetSel.appendChild(opt);
+                });
+                if (prev) resetSel.value = prev;
+            }
         } catch (e) { container.innerHTML = `<div style="color:#ff6666;font-size:10px;">${_t('panel.usermgr.err.load_error')}</div>`; }
     };
 
@@ -4392,19 +4476,41 @@
     };
 
     window.umgrResetPw = async function() {
-        const target = document.getElementById('usrmgr-reset-pw').dataset.target;
+        const sel = document.getElementById('usrmgr-reset-target-select');
+        const target = sel ? sel.value : '';
+        const statusEl = document.getElementById('usrmgr-reset-status');
+        if (!target) { if (statusEl) { statusEl.textContent = _t('panel.usermgr.err.select_user'); statusEl.style.color = '#ff6666'; } return; }
         const newPw = document.getElementById('usrmgr-reset-pw').value;
-        if (!newPw || newPw.length < 6) return alert(_t('panel.usermgr.val.pass_min6'));
+        if (!newPw || newPw.length < 6) { if (statusEl) { statusEl.textContent = _t('panel.usermgr.val.pass_min6'); statusEl.style.color = '#ff6666'; } return; }
         try {
             const res = await fetch(`/api/auth/users/${encodeURIComponent(target)}/reset-password`, {
                 method: 'POST', headers: _umgrHeaders(),
                 body: JSON.stringify({ new_password: newPw })
             });
             const data = await res.json();
-            if (!res.ok) return alert(data.error || _t('panel.usermgr.err.reset_pw'));
-            document.getElementById('usrmgr-reset-section').style.display = 'none';
-            alert(_t('panel.usermgr.confirm.pw_reset', {username: target}));
-        } catch (e) { alert(_t('panel.usermgr.msg.conn_error')); }
+            if (!res.ok) { if (statusEl) { statusEl.textContent = data.error || _t('panel.usermgr.err.reset_pw'); statusEl.style.color = '#ff6666'; } return; }
+            document.getElementById('usrmgr-reset-pw').value = '';
+            if (statusEl) { statusEl.textContent = _t('panel.usermgr.confirm.pw_reset', {username: target}); statusEl.style.color = '#66ff66'; }
+        } catch (e) { if (statusEl) { statusEl.textContent = _t('panel.usermgr.msg.conn_error'); statusEl.style.color = '#ff6666'; } }
+    };
+
+    window.umgrChangePw = async function() {
+        const oldPw = document.getElementById('usrmgr-old-pw').value;
+        const newPw = document.getElementById('usrmgr-change-pw').value;
+        const statusEl = document.getElementById('usrmgr-changepw-status');
+        if (!oldPw) { statusEl.textContent = _t('panel.usermgr.err.old_pw_req'); statusEl.style.color = '#ff6666'; return; }
+        if (!newPw || newPw.length < 6) { statusEl.textContent = _t('panel.usermgr.val.pass_min6'); statusEl.style.color = '#ff6666'; return; }
+        try {
+            const res = await fetch('/api/auth/password', {
+                method: 'PUT', headers: _umgrHeaders(),
+                body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+            });
+            const data = await res.json();
+            if (!res.ok) { statusEl.textContent = data.error || _t('panel.usermgr.err.change_pw'); statusEl.style.color = '#ff6666'; return; }
+            statusEl.textContent = _t('panel.usermgr.msg.pw_changed'); statusEl.style.color = '#66ff66';
+            document.getElementById('usrmgr-old-pw').value = '';
+            document.getElementById('usrmgr-change-pw').value = '';
+        } catch (e) { statusEl.textContent = _t('panel.usermgr.msg.conn_error'); statusEl.style.color = '#ff6666'; }
     };
 
     // ── History Analysis Panel ─────────────────────────────────────────────

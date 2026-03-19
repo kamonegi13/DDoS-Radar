@@ -16,7 +16,7 @@ from radar.models import RationaleEntry
 from radar.engine import SensorRegistry, WeightedConvergenceEngine
 from radar import state as st
 from radar.state import (  # noqa: F401 — mutable globals used by route handlers
-    global_cache, _global_cache_lock,
+    _global_cache_lock,
     ALERT_TIMELINE_MAX, SEQUENCE_EVENT_TYPES, _cf_scoring_cache,
 )
 from radar.database import db as _db
@@ -29,6 +29,8 @@ from radar.scoring import (
     prefill_hod_baseline_bg,
 )
 from radar.persistence import save_state
+from radar.ws import emit_threat_update, emit_ambush_alert, emit_sequence_event
+from radar.notifications import notify_threat_level_change, notify_sequence_complete
 from radar.sensors.checkhost import CHECKHOST_NODES
 from radar.sensors.telegram import TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD, TelegramMirrorSensor
 from radar.sensors.greynoise import GreyNoiseSensor
@@ -51,29 +53,25 @@ def init_routes(reg: SensorRegistry, eng: WeightedConvergenceEngine):
     engine = eng
 
 # ── Replace @app.route with @bp.route in extracted code ──
-# In-memory state (global_cache, _cf_scoring_cache) accessed via 'st' module.
+# In-memory state (st.global_cache, _cf_scoring_cache) accessed via 'st' module.
 # Persistent state (baselines, time series, alerts, etc.) accessed via _db (SQLite).
 
 def _get_state_refs():
     """Return references to mutable state objects (in-memory only)."""
     return (
-        st.global_cache, st._global_cache_lock, st._cf_scoring_cache,
+        st.global_cache, _global_cache_lock, _cf_scoring_cache,
     )
 
 def _require_admin():
-    """Check admin authorization. Returns None if authorized, or a Flask response tuple on failure.
-    When ADMIN_TOKEN is set: requires X-Admin-Token header to match.
-    When ADMIN_TOKEN is empty: restricts to loopback addresses (127.0.0.1 / ::1)."""
-    if ADMIN_TOKEN:
-        token = request.headers.get("X-Admin-Token", "")
-        if token != ADMIN_TOKEN:
-            return jsonify({"error": "Unauthorized — X-Admin-Token header required"}), 401
-        return None
-    # No token configured: restrict to loopback
-    remote = request.remote_addr or ""
-    if remote not in ("127.0.0.1", "::1"):
-        return jsonify({"error": "Admin endpoints are restricted to localhost. Set ADMIN_TOKEN in config.env to enable remote access."}), 403
-    return None
+    """Check admin authorization via JWT role. Returns None if authorized, or a Flask response tuple on failure."""
+    from flask_jwt_extended import get_jwt
+    try:
+        claims = get_jwt()
+        if claims.get("role") == "admin":
+            return None
+        return jsonify({"error": "Admin privileges required"}), 403
+    except Exception:
+        return jsonify({"error": "Authentication required"}), 401
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Static file serving (index.html + assets) — whitelisted extensions only
@@ -141,8 +139,6 @@ def app_config():
 
 @bp.route("/api/threat_data", methods=["GET"])
 def get_threat_data():
-    global global_cache
-
     current_time = time.time()
     targets_param  = request.args.get("targets", ",".join(DEFAULT_PINS)); requested_targets = [t.strip().upper() for t in targets_param.split(",") if t.strip()]
     correlates_param = request.args.get("correlates", ",".join(DEFAULT_CORRELATES)); correlate_targets = [t.strip().upper() for t in correlates_param.split(",") if t.strip()]
@@ -188,7 +184,7 @@ def get_threat_data():
         finally:
             executor.shutdown(wait=False, cancel_futures=False)
 
-    if (current_time - global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync:
+    if (current_time - st.global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync:
         # Extract required states from caches
         cf_sensor = registry.get("cloudflare_radar")
         ioda_sensor = registry.get("ioda_bgp")
@@ -682,6 +678,8 @@ def get_threat_data():
         score_with_bonus = min(score_with_bonus, 15)
         active_domains = sum(1 for s in domain_scores.values() if s > 0)
         tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard, active_domains)
+        prev_threat = _db.threat_last()
+        prev_threat_level = prev_threat[1] if prev_threat else 5
         threat_level, tl_held = engine.apply_hysteresis(tl_raw, _db.threat_list())
         _db.threat_append(current_time, threat_level)
 
@@ -865,7 +863,7 @@ def get_threat_data():
             },
         }
         with _global_cache_lock:
-            global_cache = _new_cache
+            st.global_cache = _new_cache
 
         _db.alert_append({
             "ts": current_time, "threat_level": threat_level, "threat_raw": tl_raw, "threat_held": tl_held, "score": total_score, "score_with_bonus": score_with_bonus,
@@ -878,13 +876,28 @@ def get_threat_data():
             "blockade_index": deep_analytics["blockade_index"],
         })
 
+        # ── WebSocket push + external notifications ──────────────────────────
+        emit_threat_update(core_theater, _new_cache["strategic"])
+        if threat_level != prev_threat_level:
+            notify_threat_level_change(core_theater, prev_threat_level, threat_level, score_with_bonus)
+        if is_ambush:
+            emit_ambush_alert(core_theater, {
+                "z_score": ambush_z, "acceleration": acceleration_val,
+                "velocity": velocity_val, "score": score_with_bonus,
+            })
+        if seq_status in ("FULL_CHAIN", "PARTIAL"):
+            emit_sequence_event(core_theater, {
+                "status": seq_status, "chain": seq_chain, "bonus": seq_bonus,
+            })
+            notify_sequence_complete(core_theater, seq_status, seq_chain)
+
     results = []
     for t in requested_targets:
         t_info = COUNTRY_COORDS.get(t, {"lat": 0, "lng": 0, "name": t})
-        data = global_cache["data"].get(t, {"global_share": 0, "global_share_l3": 0, "global_share_l7": 0, "is_vector_shift": False, "shift_actors": [], "sources": []})
+        data = st.global_cache["data"].get(t, {"global_share": 0, "global_share_l3": 0, "global_share_l7": 0, "is_vector_shift": False, "shift_actors": [], "sources": []})
         
-        degraded_raw = global_cache["strategic"].get("degraded_theaters_raw", [])
-        degraded_eff = global_cache["strategic"].get("degraded_theaters", [])
+        degraded_raw = st.global_cache["strategic"].get("degraded_theaters_raw", [])
+        degraded_eff = st.global_cache["strategic"].get("degraded_theaters", [])
         
         # Compute velocity and acceleration per target
         ts_series_t = _db.ts_get(t)
@@ -906,7 +919,7 @@ def get_threat_data():
     return jsonify({
         "timestamp":       datetime.datetime.now().isoformat(),
         "sensor_health":   registry.health_report(),
-        "strategic_alert": global_cache["strategic"],
+        "strategic_alert": st.global_cache["strategic"],
         "targets":         results,
         "threat_history":  _db.threat_list(),
     })
@@ -966,7 +979,7 @@ def api_env_config_post():
 
     # Append new keys that were not found in the file
     new_keys = set(updates.keys()) - updated_keys
-    # Skip session-only keys (like admin-token)
+    # Skip non-config keys
     new_keys.discard("admin-token")
     if new_keys:
         new_lines.append("\n")
@@ -1150,7 +1163,7 @@ def api_deep_analytics():
     ais_stat         = ais_sensor.get_cache().get("stationary_anomalies", []) if ais_sensor else []
 
     # Blockade Index v9: (DDoS intensity × RIPE delay) / Check-Host success rate
-    strategic    = global_cache.get("strategic", {})
+    strategic    = st.global_cache.get("strategic", {})
     analytics_v9 = strategic.get("analytics", {})
     core_spike_v = strategic.get("threat_breakdown", {}).get("core_spike_val", 0.0)
     is_degraded  = theater_param in strategic.get("degraded_theaters", [])
@@ -1241,7 +1254,7 @@ def api_salute_report():
     lang = request.args.get('lang', 'en')
     ja   = (lang == 'ja')
 
-    strat = global_cache.get("strategic", {})
+    strat = st.global_cache.get("strategic", {})
     p8    = strat.get("analytics", {})
     now_ts = datetime.datetime.now(datetime.timezone.utc)
     dtg = now_ts.strftime("%d%H%MZ %b %Y").upper()
@@ -1358,7 +1371,7 @@ def api_weather_brief():
     lang = request.args.get('lang', 'en')
     ja   = (lang == 'ja')
 
-    strat = global_cache.get("strategic", {})
+    strat = st.global_cache.get("strategic", {})
     p8    = strat.get("analytics", {})
     bd    = strat.get("threat_breakdown", {})
     isr   = p8.get("isr", {})
@@ -1543,7 +1556,7 @@ def api_score_breakdown():
     sorted by score descending within each domain.
     """
     with _global_cache_lock:
-        cache = dict(global_cache) if global_cache else None
+        cache = dict(st.global_cache) if st.global_cache else None
     if not cache or not cache.get("strategic"):
         return jsonify({"error": "No data available"}), 503
 

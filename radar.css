@@ -1,3 +1,7 @@
+        /* ── Secret field mask (avoids password manager popups) ── */
+        .secret-field { -webkit-text-security: disc; }
+        .secret-field:focus { -webkit-text-security: none; }
+
         /* ── Base & Scrollbars ── */
         body { margin: 0; padding: 0; background-color: #0f0f0f; color: #ffffff; font-family: 'Segoe UI', Tahoma, sans-serif; overflow: hidden; display: flex; flex-direction: column; height: 100vh; line-height: 1.2; }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
