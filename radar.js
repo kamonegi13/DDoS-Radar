@@ -584,6 +584,8 @@
         { panelId: 'op-clock-panel',       dotId: 'tm-dot-clk',   itemId: 'tm-item-clk'  },
         { panelId: 'gn-panel',             dotId: 'tm-dot-gn',    itemId: 'tm-item-gn'    },
         { panelId: 'notebook-panel',       dotId: 'tm-dot-nb',    itemId: 'tm-item-nb'    },
+        { panelId: 'history-panel',        dotId: 'tm-dot-hist',  itemId: 'tm-item-hist'  },
+        { panelId: 'usrmgr-panel',         dotId: 'tm-dot-usrmgr',itemId: 'tm-item-usrmgr'},
     ];
 
     function toggleToolsMenu() {
@@ -4209,6 +4211,200 @@
         const distKm = 500 + (5 - tl) * 40;
         const [lat, lng] = _sensorCoord(_coreCoord.lat, shiftLng(_coreCoord.lng), cfg.angle, distKm);
         map.flyTo([lat, lng], 6, {animate: true, duration: 0.8});
+    };
+
+    // ── User Management Panel ──────────────────────────────────────────────
+    let _umgrToken = null;
+    let _umgrUser = null;
+
+    window.toggleUserMgr = function() {
+        const p = document.getElementById('usrmgr-panel');
+        if (!p) return;
+        const vis = p.style.display !== 'none';
+        p.style.display = vis ? 'none' : 'flex';
+        if (!vis && _umgrToken) umgrLoadUsers();
+        saveLocalState();
+    };
+
+    window.umgrLogin = async function() {
+        const user = document.getElementById('usrmgr-username').value.trim();
+        const pass = document.getElementById('usrmgr-password').value;
+        const status = document.getElementById('usrmgr-status');
+        if (!user || !pass) { status.textContent = 'Enter credentials'; status.style.color = '#ff6666'; return; }
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: user, password: pass })
+            });
+            const data = await res.json();
+            if (!res.ok) { status.textContent = data.error || 'Login failed'; status.style.color = '#ff6666'; return; }
+            _umgrToken = data.access_token;
+            _umgrUser = data.username;
+            document.getElementById('usrmgr-login').style.display = 'none';
+            document.getElementById('usrmgr-authed').style.display = '';
+            document.getElementById('usrmgr-who').textContent = `Logged in as: ${data.username} (${data.role})`;
+            if (data.role !== 'admin') {
+                document.getElementById('usrmgr-who').textContent += ' — admin required for management';
+            }
+            umgrLoadUsers();
+        } catch (e) { status.textContent = 'Connection error'; status.style.color = '#ff6666'; }
+    };
+
+    window.umgrLogout = function() {
+        _umgrToken = null;
+        _umgrUser = null;
+        document.getElementById('usrmgr-login').style.display = '';
+        document.getElementById('usrmgr-authed').style.display = 'none';
+        document.getElementById('usrmgr-password').value = '';
+        document.getElementById('usrmgr-status').textContent = '';
+    };
+
+    function _umgrHeaders() {
+        return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_umgrToken}` };
+    }
+
+    window.umgrLoadUsers = async function() {
+        const container = document.getElementById('usrmgr-list');
+        if (!container || !_umgrToken) return;
+        try {
+            const res = await fetch('/api/auth/users', { headers: _umgrHeaders() });
+            if (res.status === 403) { container.innerHTML = '<div style="color:#ff6666;font-size:10px;">Admin privileges required to view users.</div>'; return; }
+            if (!res.ok) { container.innerHTML = '<div style="color:#ff6666;font-size:10px;">Failed to load users.</div>'; return; }
+            const users = await res.json();
+            container.innerHTML = '';
+            const table = document.createElement('table');
+            table.style.cssText = 'width:100%;border-collapse:collapse;font-size:10px;';
+            // Header
+            const thead = table.createTHead();
+            const hr = thead.insertRow();
+            ['Username', 'Role', 'Created', 'Last Login', 'Actions'].forEach(h => {
+                const th = document.createElement('th');
+                th.textContent = h;
+                th.style.cssText = 'text-align:left;padding:3px 6px;color:#888;border-bottom:1px solid #333;font-weight:normal;letter-spacing:1px;font-size:9px;';
+                hr.appendChild(th);
+            });
+            // Rows
+            const tbody = table.createTBody();
+            users.forEach(u => {
+                const tr = tbody.insertRow();
+                tr.style.borderBottom = '1px solid #1a1a1a';
+                // Username
+                const tdName = tr.insertCell();
+                tdName.textContent = u.username;
+                tdName.style.cssText = 'padding:4px 6px;color:#ccc;';
+                // Role (editable select)
+                const tdRole = tr.insertCell();
+                tdRole.style.cssText = 'padding:4px 6px;';
+                if (u.username === _umgrUser) {
+                    tdRole.textContent = u.role;
+                    tdRole.style.color = '#66ccff';
+                } else {
+                    const sel = document.createElement('select');
+                    sel.style.cssText = 'background:#111;border:1px solid #333;color:#ccc;padding:2px 4px;border-radius:3px;font-size:10px;cursor:pointer;';
+                    ['admin', 'analyst', 'viewer'].forEach(r => {
+                        const opt = document.createElement('option');
+                        opt.value = r; opt.textContent = r;
+                        if (r === u.role) opt.selected = true;
+                        sel.appendChild(opt);
+                    });
+                    sel.onchange = () => umgrChangeRole(u.username, sel.value);
+                    tdRole.appendChild(sel);
+                }
+                // Created
+                const tdCreated = tr.insertCell();
+                tdCreated.textContent = u.created_at ? new Date(u.created_at * 1000).toLocaleDateString() : '—';
+                tdCreated.style.cssText = 'padding:4px 6px;color:#666;';
+                // Last Login
+                const tdLogin = tr.insertCell();
+                tdLogin.textContent = u.last_login ? new Date(u.last_login * 1000).toLocaleString() : 'Never';
+                tdLogin.style.cssText = 'padding:4px 6px;color:#666;';
+                // Actions
+                const tdAct = tr.insertCell();
+                tdAct.style.cssText = 'padding:4px 6px;';
+                if (u.username !== _umgrUser) {
+                    const btnReset = document.createElement('button');
+                    btnReset.textContent = 'PW';
+                    btnReset.title = 'Reset password';
+                    btnReset.style.cssText = 'background:none;border:1px solid #444;color:#ffaa00;font-size:9px;padding:1px 6px;border-radius:2px;cursor:pointer;margin-right:4px;';
+                    btnReset.onclick = () => {
+                        document.getElementById('usrmgr-reset-section').style.display = '';
+                        document.getElementById('usrmgr-reset-target').textContent = u.username;
+                        document.getElementById('usrmgr-reset-pw').value = '';
+                        document.getElementById('usrmgr-reset-pw').dataset.target = u.username;
+                    };
+                    tdAct.appendChild(btnReset);
+
+                    const btnDel = document.createElement('button');
+                    btnDel.textContent = 'DEL';
+                    btnDel.title = 'Delete user';
+                    btnDel.style.cssText = 'background:none;border:1px solid #442222;color:#ff4444;font-size:9px;padding:1px 6px;border-radius:2px;cursor:pointer;';
+                    btnDel.onclick = () => umgrDeleteUser(u.username);
+                    tdAct.appendChild(btnDel);
+                } else {
+                    tdAct.innerHTML = '<span style="color:#444;font-size:9px;">—</span>';
+                }
+            });
+            container.appendChild(table);
+        } catch (e) { container.innerHTML = '<div style="color:#ff6666;font-size:10px;">Error loading users.</div>'; }
+    };
+
+    window.umgrAddUser = async function() {
+        const user = document.getElementById('usrmgr-new-user').value.trim();
+        const pass = document.getElementById('usrmgr-new-pass').value;
+        const role = document.getElementById('usrmgr-new-role').value;
+        if (!user || !pass) return alert('Username and password required');
+        if (pass.length < 6) return alert('Password must be at least 6 characters');
+        try {
+            const res = await fetch('/api/auth/register', {
+                method: 'POST', headers: _umgrHeaders(),
+                body: JSON.stringify({ username: user, password: pass, role })
+            });
+            const data = await res.json();
+            if (!res.ok) return alert(data.error || 'Failed to add user');
+            document.getElementById('usrmgr-new-user').value = '';
+            document.getElementById('usrmgr-new-pass').value = '';
+            umgrLoadUsers();
+        } catch (e) { alert('Connection error'); }
+    };
+
+    window.umgrChangeRole = async function(username, newRole) {
+        try {
+            const res = await fetch(`/api/auth/users/${encodeURIComponent(username)}/role`, {
+                method: 'PUT', headers: _umgrHeaders(),
+                body: JSON.stringify({ role: newRole })
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.error || 'Failed to update role'); umgrLoadUsers(); }
+        } catch (e) { alert('Connection error'); }
+    };
+
+    window.umgrDeleteUser = async function(username) {
+        if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+        try {
+            const res = await fetch(`/api/auth/users/${encodeURIComponent(username)}`, {
+                method: 'DELETE', headers: _umgrHeaders()
+            });
+            const data = await res.json();
+            if (!res.ok) return alert(data.error || 'Failed to delete user');
+            umgrLoadUsers();
+        } catch (e) { alert('Connection error'); }
+    };
+
+    window.umgrResetPw = async function() {
+        const target = document.getElementById('usrmgr-reset-pw').dataset.target;
+        const newPw = document.getElementById('usrmgr-reset-pw').value;
+        if (!newPw || newPw.length < 6) return alert('Password must be at least 6 characters');
+        try {
+            const res = await fetch(`/api/auth/users/${encodeURIComponent(target)}/reset-password`, {
+                method: 'POST', headers: _umgrHeaders(),
+                body: JSON.stringify({ new_password: newPw })
+            });
+            const data = await res.json();
+            if (!res.ok) return alert(data.error || 'Failed to reset password');
+            document.getElementById('usrmgr-reset-section').style.display = 'none';
+            alert(`Password reset for ${target}`);
+        } catch (e) { alert('Connection error'); }
     };
 
     // ── History Analysis Panel ─────────────────────────────────────────────

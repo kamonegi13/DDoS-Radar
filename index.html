@@ -108,6 +108,12 @@
                     <span class="tools-menu-label" data-i18n="tools.analyst_notebook">Analyst Notebook</span>
                     <span class="tools-menu-dot" id="tm-dot-nb"></span>
                 </div>
+                <div class="tools-menu-sep"></div>
+                <div class="tools-menu-item" id="tm-item-usrmgr" onclick="handleToolToggle('usrmgr-panel', toggleUserMgr, 'tm-dot-usrmgr', 'tm-item-usrmgr')">
+                    <span class="tools-menu-icon">👤</span>
+                    <span class="tools-menu-label">User Management</span>
+                    <span class="tools-menu-dot" id="tm-dot-usrmgr"></span>
+                </div>
             </div>
         </div>
         <button class="btn-tactical btn-action" onclick="openSitrep()" data-i18n="hud.btn.sitrep">SITREP</button>
@@ -1805,6 +1811,70 @@
         <div style="margin-top:10px;border-top:1px solid #1a1400;padding-top:6px;">
             <div style="font-size:9px;color:#554400;letter-spacing:1px;margin-bottom:4px;">SHIFT LOG — NEWEST FIRST</div>
             <div id="nb-log-container" style="max-height:200px;overflow-y:auto;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ── User Management Panel ────────────────────────────────────────────── -->
+<div id="usrmgr-panel" class="draggable-panel floating" style="display:none; left:380px; top:100px; width:520px;">
+    <div class="drag-handle panel-header-unified">
+        <span>User Management</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('usrmgr-panel')" style="color:#ff444488;">✕</span>
+        </div>
+    </div>
+    <div class="panel-content">
+        <!-- Login Section (shown when not authenticated) -->
+        <div id="usrmgr-login" style="margin-bottom:10px;">
+            <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;">AUTHENTICATE</div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                <input type="text" id="usrmgr-username" placeholder="Username"
+                    style="background:#0a0a0a;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:120px;">
+                <input type="password" id="usrmgr-password" placeholder="Password"
+                    style="background:#0a0a0a;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:120px;"
+                    onkeydown="if(event.key==='Enter')umgrLogin()">
+                <button class="btn-tactical btn-action" onclick="umgrLogin()" style="font-size:10px;padding:4px 12px;">LOGIN</button>
+                <span id="usrmgr-status" style="font-size:10px;color:#666;"></span>
+            </div>
+        </div>
+        <!-- Authenticated Section (hidden until login) -->
+        <div id="usrmgr-authed" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span id="usrmgr-who" style="font-size:10px;color:#66ccff;"></span>
+                <button class="btn-tactical" onclick="umgrLogout()" style="font-size:9px;padding:2px 8px;color:#ff6666;border-color:#ff666644;">LOGOUT</button>
+            </div>
+            <!-- Add User Form -->
+            <div style="border:1px solid #222;border-radius:4px;padding:8px;margin-bottom:10px;background:#0a0a0a;">
+                <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;">ADD USER</div>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                    <input type="text" id="usrmgr-new-user" placeholder="Username"
+                        style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:110px;">
+                    <input type="password" id="usrmgr-new-pass" placeholder="Password"
+                        style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:110px;">
+                    <select id="usrmgr-new-role"
+                        style="background:#111;border:1px solid #333;color:#ccc;padding:4px 6px;border-radius:3px;font-size:10px;cursor:pointer;">
+                        <option value="viewer">viewer</option>
+                        <option value="analyst">analyst</option>
+                        <option value="admin">admin</option>
+                    </select>
+                    <button class="btn-tactical btn-action" onclick="umgrAddUser()" style="font-size:10px;padding:4px 12px;">ADD</button>
+                </div>
+            </div>
+            <!-- User List -->
+            <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;">REGISTERED USERS</div>
+            <div id="usrmgr-list" style="max-height:300px;overflow-y:auto;"></div>
+            <!-- Password Reset -->
+            <div id="usrmgr-reset-section" style="display:none;border:1px solid #332200;border-radius:4px;padding:8px;margin-top:10px;background:#0c0800;">
+                <div style="font-size:9px;color:#664400;letter-spacing:1px;margin-bottom:6px;">RESET PASSWORD: <span id="usrmgr-reset-target" style="color:#ffaa00;"></span></div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <input type="password" id="usrmgr-reset-pw" placeholder="New password (6+ chars)"
+                        style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;flex:1;">
+                    <button class="btn-tactical btn-action" onclick="umgrResetPw()" style="font-size:10px;padding:4px 12px;">RESET</button>
+                    <button class="btn-tactical" onclick="document.getElementById('usrmgr-reset-section').style.display='none'" style="font-size:9px;padding:2px 8px;color:#666;">CANCEL</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>

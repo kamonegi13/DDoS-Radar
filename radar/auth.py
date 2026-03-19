@@ -334,6 +334,97 @@ def list_users():
     ])
 
 
+@bp.route("/users/<username>/role", methods=["PUT"])
+@jwt_required()
+def update_user_role(username):
+    """Update a user's role (admin only)."""
+    caller = get_jwt_identity()
+    from radar.database import db
+    conn = db._get_conn()
+    caller_row = conn.execute(
+        "SELECT role FROM users WHERE username=?", (caller,)
+    ).fetchone()
+    if not caller_row or caller_row[0] != "admin":
+        return jsonify({"error": "Admin only"}), 403
+
+    if username == caller:
+        return jsonify({"error": "Cannot change own role"}), 400
+
+    data = request.get_json(silent=True) or {}
+    new_role = data.get("role", "")
+    if new_role not in ("admin", "analyst", "viewer"):
+        return jsonify({"error": "Invalid role"}), 400
+
+    row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if not row:
+        return jsonify({"error": "User not found"}), 404
+
+    conn.execute("UPDATE users SET role=? WHERE id=?", (new_role, row["id"]))
+    conn.commit()
+    log.info(f"[Auth] Role updated: {username} → {new_role} (by {caller})")
+    return jsonify({"status": "ok", "username": username, "role": new_role})
+
+
+@bp.route("/users/<username>", methods=["DELETE"])
+@jwt_required()
+def delete_user(username):
+    """Delete a user (admin only)."""
+    caller = get_jwt_identity()
+    from radar.database import db
+    conn = db._get_conn()
+    caller_row = conn.execute(
+        "SELECT role FROM users WHERE username=?", (caller,)
+    ).fetchone()
+    if not caller_row or caller_row[0] != "admin":
+        return jsonify({"error": "Admin only"}), 403
+
+    if username == caller:
+        return jsonify({"error": "Cannot delete own account"}), 400
+
+    row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if not row:
+        return jsonify({"error": "User not found"}), 404
+
+    conn.execute("DELETE FROM user_settings WHERE user_id=?", (row["id"],))
+    conn.execute("DELETE FROM users WHERE id=?", (row["id"],))
+    conn.commit()
+    log.info(f"[Auth] User deleted: {username} (by {caller})")
+    return jsonify({"status": "ok"})
+
+
+@bp.route("/users/<username>/reset-password", methods=["POST"])
+@jwt_required()
+def admin_reset_password(username):
+    """Reset a user's password (admin only)."""
+    caller = get_jwt_identity()
+    from radar.database import db
+    conn = db._get_conn()
+    caller_row = conn.execute(
+        "SELECT role FROM users WHERE username=?", (caller,)
+    ).fetchone()
+    if not caller_row or caller_row[0] != "admin":
+        return jsonify({"error": "Admin only"}), 403
+
+    data = request.get_json(silent=True) or {}
+    new_pw = data.get("new_password", "")
+    if not new_pw or len(new_pw) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
+
+    row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if not row:
+        return jsonify({"error": "User not found"}), 404
+
+    new_salt = secrets.token_hex(16)
+    new_hash = _hash_password(new_pw, new_salt)
+    conn.execute(
+        "UPDATE users SET password_hash=?, salt=? WHERE id=?",
+        (new_hash, new_salt, row["id"]),
+    )
+    conn.commit()
+    log.info(f"[Auth] Password reset: {username} (by {caller})")
+    return jsonify({"status": "ok"})
+
+
 @bp.route("/password", methods=["PUT"])
 @jwt_required()
 def change_password():
