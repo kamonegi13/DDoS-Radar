@@ -7,6 +7,9 @@ from radar.config import (
     CONVERGENCE_DUAL_BONUS, CONVERGENCE_FULL_BONUS,
     AMBUSH_ZSCORE_THRESHOLD, DERIVATIVE_WINDOW,
     SYNC_DELTA_MS, SYNC_C2_THRESHOLD,
+    FEINT_DISTRACTION_MAX_SCORE, FEINT_PRIMARY_MIN_SCORE,
+    FEINT_MIN_DISTRACTION_DOMAINS,
+    ESCALATION_TL_THRESHOLDS,
 )
 from radar.models import RationaleEntry
 from radar.sensors.base import BaseSensor
@@ -270,3 +273,178 @@ class WeightedConvergenceEngine:
         if asphyxiation:
             raw *= 1.5
         return round(min(raw, 10.0), 2)
+
+    # ── Phase 2: Feint Detection ──────────────────────────────────────────────
+
+    @staticmethod
+    def detect_feint_pattern(domain_scores: dict, rationale: list) -> tuple:
+        """
+        Detect diversionary attack pattern: low-mid activity across multiple domains
+        masking a concentrated attack in one primary domain.
+
+        Returns: (is_feint, primary_domain, distraction_domains, confidence, detail)
+        """
+        distractions = []
+        primaries = []
+        for d, s in domain_scores.items():
+            if s >= FEINT_PRIMARY_MIN_SCORE:
+                primaries.append(d)
+            elif 1 <= s <= FEINT_DISTRACTION_MAX_SCORE:
+                distractions.append(d)
+
+        if len(primaries) != 1 or len(distractions) < FEINT_MIN_DISTRACTION_DOMAINS:
+            return False, None, [], "NONE", ""
+
+        primary = primaries[0]
+        primary_score = domain_scores[primary]
+        confidence = "HIGH" if primary_score >= 7 else "MEDIUM"
+
+        # Identify which sensors are involved in the primary domain attack
+        primary_sensors = [
+            e.sensor for e in rationale
+            if isinstance(e, RationaleEntry) and e.domain == primary
+            and e.status == "FIRED" and not e.suppressed
+        ]
+        detail = (
+            f"Feint pattern: {', '.join(distractions)} domains show low activity "
+            f"(distraction), {primary.upper()} domain at {primary_score}pt "
+            f"(primary target via {', '.join(primary_sensors[:3])})"
+        )
+        return True, primary, distractions, confidence, detail
+
+    # ── Phase 2: Escalation Progress Tracking ─────────────────────────────────
+
+    @staticmethod
+    def compute_escalation_progress(threat_history: list,
+                                     alert_timeline: list) -> dict:
+        """
+        Analyze TL escalation patterns and predict time to next TL.
+
+        threat_history: [(ts, tl), ...]
+        alert_timeline: [{"ts": float, "threat_level": int, "score_with_bonus": int, ...}, ...]
+
+        Returns dict with current_tl, tl_duration, velocity, score_trend,
+        predicted_next_tl, predicted_time_sec, tl_transitions, pattern.
+        """
+        if not threat_history:
+            return {
+                "current_tl": 5, "tl_duration_sec": 0,
+                "escalation_velocity": 0.0, "score_trend": 0.0,
+                "predicted_next_tl": None, "predicted_time_sec": None,
+                "tl_transitions": [], "pattern": "NO_DATA",
+            }
+
+        current_tl = threat_history[-1][1]
+        current_ts = threat_history[-1][0]
+
+        # Find how long we've been at the current TL
+        tl_start_ts = current_ts
+        for i in range(len(threat_history) - 2, -1, -1):
+            if threat_history[i][1] == current_tl:
+                tl_start_ts = threat_history[i][0]
+            else:
+                break
+        tl_duration_sec = current_ts - tl_start_ts
+
+        # Extract TL transitions (consecutive entries where TL changed)
+        transitions = []
+        for i in range(1, len(threat_history)):
+            prev_tl = threat_history[i - 1][1]
+            curr_tl = threat_history[i][1]
+            if curr_tl != prev_tl:
+                transitions.append({
+                    "ts": threat_history[i][0],
+                    "from_tl": prev_tl,
+                    "to_tl": curr_tl,
+                    "direction": "ESCALATE" if curr_tl < prev_tl else "DE-ESCALATE",
+                })
+
+        # Escalation velocity: TL changes per hour over observed window
+        if len(threat_history) >= 2:
+            time_span_h = (threat_history[-1][0] - threat_history[0][0]) / 3600
+            if time_span_h > 0:
+                # Negative = escalating (TL decreasing), positive = de-escalating
+                tl_delta = threat_history[-1][1] - threat_history[0][1]
+                esc_velocity = round(tl_delta / time_span_h, 4)
+            else:
+                esc_velocity = 0.0
+        else:
+            esc_velocity = 0.0
+
+        # Score trend from alert_timeline (pts/hour via linear regression)
+        score_trend = 0.0
+        if len(alert_timeline) >= 3:
+            recent = alert_timeline[-20:]
+            ts_vals = [(a.get("ts", 0), a.get("score_with_bonus", 0)) for a in recent
+                       if a.get("ts") and a.get("score_with_bonus") is not None]
+            if len(ts_vals) >= 2:
+                t0 = ts_vals[0][0]
+                xs = [(t - t0) / 3600 for t, _ in ts_vals]  # hours
+                ys = [s for _, s in ts_vals]
+                n = len(xs)
+                sx = sum(xs)
+                sy = sum(ys)
+                sxy = sum(x * y for x, y in zip(xs, ys))
+                sxx = sum(x * x for x in xs)
+                denom = n * sxx - sx * sx
+                if denom != 0:
+                    score_trend = round((n * sxy - sx * sy) / denom, 4)
+
+        # Pattern detection from recent transitions
+        if len(transitions) >= 3:
+            dirs = [t["direction"] for t in transitions[-5:]]
+            esc_count = dirs.count("ESCALATE")
+            de_count = dirs.count("DE-ESCALATE")
+            if esc_count >= 2 and de_count >= 2:
+                pattern = "OSCILLATING"
+            elif esc_count >= 2:
+                pattern = "ESCALATING"
+            elif de_count >= 2:
+                pattern = "DE-ESCALATING"
+            else:
+                pattern = "STABLE"
+        elif len(transitions) >= 1:
+            last_dir = transitions[-1]["direction"]
+            pattern = "ESCALATING" if last_dir == "ESCALATE" else "DE-ESCALATING"
+        else:
+            pattern = "STABLE"
+
+        # Predict next TL and time-to-transition using score trend
+        predicted_next_tl = None
+        predicted_time_sec = None
+        if score_trend != 0 and alert_timeline:
+            current_score = alert_timeline[-1].get("score_with_bonus", 0)
+            # Find the next TL boundary to cross
+            if score_trend > 0:
+                # Score increasing → escalating (lower TL number)
+                for tl in sorted(ESCALATION_TL_THRESHOLDS.keys()):
+                    threshold = ESCALATION_TL_THRESHOLDS[tl]
+                    if threshold > current_score and tl < current_tl:
+                        pts_needed = threshold - current_score
+                        hours = pts_needed / score_trend
+                        predicted_next_tl = tl
+                        predicted_time_sec = round(hours * 3600)
+                        break
+            else:
+                # Score decreasing → de-escalating (higher TL number)
+                for tl in sorted(ESCALATION_TL_THRESHOLDS.keys(), reverse=True):
+                    threshold = ESCALATION_TL_THRESHOLDS[tl]
+                    if threshold <= current_score and tl >= current_tl:
+                        continue
+                    if threshold < current_score:
+                        pts_drop = current_score - threshold
+                        hours = pts_drop / abs(score_trend)
+                        predicted_next_tl = tl + 1 if tl < 5 else 5
+                        predicted_time_sec = round(hours * 3600)
+                        break
+
+        return {
+            "current_tl": current_tl,
+            "tl_duration_sec": round(tl_duration_sec),
+            "escalation_velocity": esc_velocity,
+            "score_trend": score_trend,
+            "predicted_next_tl": predicted_next_tl,
+            "predicted_time_sec": predicted_time_sec,
+            "tl_transitions": transitions[-10:],
+            "pattern": pattern,
+        }

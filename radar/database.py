@@ -127,6 +127,17 @@ CREATE TABLE IF NOT EXISTS sensor_caches (
     cache_time  REAL NOT NULL,
     cache_json  TEXT NOT NULL
 );
+
+-- Phase 2: Adaptive Z-score per-sensor running statistics (Welford's algorithm)
+CREATE TABLE IF NOT EXISTS sensor_zscore_stats (
+    sensor_name  TEXT NOT NULL,
+    theater      TEXT NOT NULL,
+    sample_count INTEGER NOT NULL DEFAULT 0,
+    mean         REAL NOT NULL DEFAULT 0.0,
+    m2           REAL NOT NULL DEFAULT 0.0,
+    last_updated REAL NOT NULL,
+    PRIMARY KEY (sensor_name, theater)
+);
 """
 
 # Column name mapping for parameterized HOD methods
@@ -533,7 +544,7 @@ class RadarDB:
         self._get_conn().commit()
 
     # ── threat_history ──────────────────────────────────────────────────────
-    def threat_append(self, ts: float, level: int, max_entries: int = 20):
+    def threat_append(self, ts: float, level: int, max_entries: int = 100):
         conn = self._get_conn()
         conn.execute(
             "INSERT INTO threat_history (ts, threat_level) VALUES (?, ?)",
@@ -561,6 +572,67 @@ class RadarDB:
     def threat_clear(self):
         self._get_conn().execute("DELETE FROM threat_history")
         self._get_conn().commit()
+
+    # ── sensor_zscore_stats (Welford's online algorithm) ────────────────────
+    def zscore_stats_get(self, sensor: str, theater: str) -> Optional[dict]:
+        row = self._get_conn().execute(
+            "SELECT sample_count, mean, m2, last_updated "
+            "FROM sensor_zscore_stats WHERE sensor_name=? AND theater=?",
+            (sensor, theater),
+        ).fetchone()
+        if not row:
+            return None
+        n = row[0]
+        return {
+            "sample_count": n,
+            "mean": row[1],
+            "m2": row[2],
+            "variance": row[2] / n if n > 1 else 0.0,
+            "std": (row[2] / n) ** 0.5 if n > 1 and row[2] > 0 else 0.0,
+            "last_updated": row[3],
+        }
+
+    def zscore_stats_update(self, sensor: str, theater: str, new_value: float):
+        """Incrementally update running mean/variance using Welford's algorithm."""
+        import time as _time
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT sample_count, mean, m2 "
+            "FROM sensor_zscore_stats WHERE sensor_name=? AND theater=?",
+            (sensor, theater),
+        ).fetchone()
+        if row:
+            n, mean, m2 = row[0], row[1], row[2]
+        else:
+            n, mean, m2 = 0, 0.0, 0.0
+        n += 1
+        delta = new_value - mean
+        mean += delta / n
+        delta2 = new_value - mean
+        m2 += delta * delta2
+        conn.execute(
+            "INSERT OR REPLACE INTO sensor_zscore_stats "
+            "(sensor_name, theater, sample_count, mean, m2, last_updated) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (sensor, theater, n, mean, m2, _time.time()),
+        )
+        conn.commit()
+
+    def zscore_stats_all(self) -> list:
+        rows = self._get_conn().execute(
+            "SELECT sensor_name, theater, sample_count, mean, m2, last_updated "
+            "FROM sensor_zscore_stats ORDER BY sensor_name, theater"
+        ).fetchall()
+        result = []
+        for r in rows:
+            n = r[2]
+            result.append({
+                "sensor": r[0], "theater": r[1], "sample_count": n,
+                "mean": r[3], "variance": r[4] / n if n > 1 else 0.0,
+                "std": (r[4] / n) ** 0.5 if n > 1 and r[4] > 0 else 0.0,
+                "last_updated": r[5],
+            })
+        return result
 
     # ── sensor_caches ───────────────────────────────────────────────────────
     def sensor_cache_set(self, sensor_name: str, cache_time: float, cache_data: dict):

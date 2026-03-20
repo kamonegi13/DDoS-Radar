@@ -14,7 +14,7 @@ from radar.scoring import (
     compute_hod_zscore, record_hod_sample,
     get_fallback_coord, fetch_cf_data_cached,
     parse_origins, calculate_overlap, fetch_asn_origins,
-    compute_confidence,
+    compute_confidence, compute_adaptive_zscore,
 )
 from radar.ws import emit_threat_update, emit_ambush_alert, emit_sequence_event
 from radar.notifications import notify_threat_level_change, notify_sequence_complete
@@ -138,6 +138,10 @@ def get_threat_data():
         checkhost_data         = check_host_sensor.get_cache().get("check_host", {}) if check_host_sensor else {}
         greynoise_sensor       = _routes.registry.get("greynoise")
         greynoise_data         = greynoise_sensor.get_cache().get("greynoise", {}) if greynoise_sensor else {}
+        # Phase 2: Space Weather sensor
+        space_weather_sensor   = _routes.registry.get("space_weather")
+        space_weather_data     = space_weather_sensor.get_cache().get("space_weather", {}) if space_weather_sensor else {}
+        sw_suppress            = space_weather_data.get("suppress_physical", False)
 
         airspace_anomalies, noise_filters_applied = [], []
         for code, ainfo in airspace_data.items():
@@ -340,6 +344,11 @@ def get_threat_data():
                 spike_fired = core_spike > 2.0
                 spike_value = f"{core_spike:.2f}x (HOD warmup {hod_n}/{HOD_MIN_SAME_HOUR})"
                 spike_reason = f"Core theater spike exceeds 2x baseline (HOD warmup)" if spike_fired else None
+            # Phase 2: Adaptive Z-score tracking (update running statistics)
+            az_score, az_adaptive, az_threshold, az_n = compute_adaptive_zscore(
+                "cf_spike_core", core_theater, core_spike, fallback_threshold=2.0)
+            if az_adaptive and spike_value:
+                spike_value += f" [AZ={az_score:.2f} n={az_n}]"
             add_rat("cf_spike_core", "cyber", "FIRED" if spike_fired else "OK", spike_value, spike_score, spike_reason)
             max_overlap = max(correlations.values(), default=0.0)
             add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None)
@@ -354,7 +363,11 @@ def get_threat_data():
             bgp_value = f"bgp={'OUTAGE' if core_degraded else 'NORMAL'}"
             if weather_suppressed_bgp: bgp_value += f" weather_muted={weather_suppressed_bgp}"
             _wx_suppressed = (core_theater in weather_suppressed_bgp)
-            add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, f"BGP anomaly confirmed" if core_degraded else None, is_suppressed=_wx_suppressed, suppress_reason=f"Weather-muted: {weather_suppressed_bgp}" if weather_suppressed_bgp else None)
+            _sw_bgp_suppressed = sw_suppress and core_degraded and not _wx_suppressed
+            _bgp_suppress = _wx_suppressed or _sw_bgp_suppressed
+            _bgp_suppress_reason = (f"Weather-muted: {weather_suppressed_bgp}" if _wx_suppressed
+                                    else space_weather_data.get("suppress_reason") if _sw_bgp_suppressed else None)
+            add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, f"BGP anomaly confirmed" if core_degraded else None, is_suppressed=_bgp_suppress, suppress_reason=_bgp_suppress_reason)
 
         if not (opensky_sensor and opensky_sensor.enabled):
             add_rat("opensky", "physical", "DISABLED", "sensor off", 0, None)
@@ -365,7 +378,12 @@ def get_threat_data():
             if airspace_status == "CLOSURE": airspace_score, airspace_fired, airspace_reason = 3, True, f"Airport near-total closure"
             elif airspace_status == "ANOMALY": airspace_score, airspace_fired, airspace_reason = 2, True, f"Airspace anomaly"
             airspace_value = f"{core_airspace.get('airport','N/A')}: {core_airspace.get('count','?')} ac" if core_airspace else "No airport data"
-            add_rat("opensky", "physical", "FIRED" if airspace_fired else ("SUPPRESSED" if airspace_status == "WEATHER_NOISE" else "OK"), airspace_value, airspace_score, airspace_reason, is_suppressed=(airspace_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if airspace_status == "WEATHER_NOISE" else None)
+            _as_wx_suppress = (airspace_status == "WEATHER_NOISE")
+            _as_sw_suppress = sw_suppress and airspace_fired and not _as_wx_suppress
+            _as_suppress = _as_wx_suppress or _as_sw_suppress
+            _as_suppress_reason = ("Severe weather detected" if _as_wx_suppress
+                                   else space_weather_data.get("suppress_reason") if _as_sw_suppress else None)
+            add_rat("opensky", "physical", "FIRED" if airspace_fired else ("SUPPRESSED" if _as_suppress else "OK"), airspace_value, airspace_score, airspace_reason, is_suppressed=_as_suppress, suppress_reason=_as_suppress_reason)
 
         if not (owm_sensor and owm_sensor.enabled):
             add_rat("openweather", "physical", "DISABLED", "sensor off", 0, None)
@@ -516,11 +534,14 @@ def get_threat_data():
             # BLACKOUT = all nodes unreachable = severe infra degradation; keep +3.
             ch_score = (3 if ch_status == "BLACKOUT" else 1 if ch_status == "PARTIAL" else 0)
             ch_fired = ch_status in ("BLACKOUT", "PARTIAL")
+            _ch_sw_suppress = sw_suppress and ch_fired
             add_rat("check_host", "physical",
                     "FIRED" if ch_fired else ("OK" if ch_status == "OK" else "NO_DATA"),
                     f"{ch_status} success={ch_success_rate:.0%}" if ch_success_rate is not None else ch_status,
                     ch_score,
-                    f"Infrastructure availability: {ch_status} (success_rate={ch_success_rate:.0%})" if ch_fired and ch_success_rate is not None else None)
+                    f"Infrastructure availability: {ch_status} (success_rate={ch_success_rate:.0%})" if ch_fired and ch_success_rate is not None else None,
+                    is_suppressed=_ch_sw_suppress,
+                    suppress_reason=space_weather_data.get("suppress_reason") if _ch_sw_suppress else None)
 
         # GreyNoise (Cyber Domain — noise suppressor)
         core_greynoise     = greynoise_data.get(core_theater, {})
@@ -535,6 +556,22 @@ def get_threat_data():
                     None,
                     is_suppressed=gn_suppress,
                     suppress_reason=f"GreyNoise: {gn_noise_class} — traffic classified as internet background noise" if gn_suppress else None)
+
+        # ── Phase 2: Space Weather noise suppressor ────────────────────────────
+        if space_weather_sensor and space_weather_sensor.enabled:
+            sw_storm = space_weather_data.get("storm_level", "NONE")
+            sw_kp = space_weather_data.get("kp_index", 0)
+            sw_xray = space_weather_data.get("xray_class", "A")
+            add_rat("space_weather", "physical",
+                    "SUPPRESSED" if sw_suppress else "OK",
+                    f"Kp={sw_kp:.1f} xray={sw_xray} [{sw_storm}]",
+                    0,  # Suppressor only, no bonus score
+                    None,
+                    is_suppressed=sw_suppress,
+                    suppress_reason=space_weather_data.get("suppress_reason") if sw_suppress else None)
+            if sw_suppress:
+                noise_filters_applied.append(
+                    f"space_weather: {space_weather_data.get('suppress_reason', 'geomagnetic storm')}")
 
         # ── v9 Temporal Coherence analysis ─────────────────────────────────────
         # Build sequence_event_log dict for temporal coherence analysis
@@ -588,6 +625,14 @@ def get_threat_data():
         seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
 
         domain_scores = _routes.engine.compute_domain_scores(rationale)
+
+        # ── Phase 2: Feint Detection ─────────────────────────────────────────
+        is_feint, feint_primary, feint_distractions, feint_conf, feint_detail = \
+            _routes.engine.detect_feint_pattern(domain_scores, rationale)
+        if is_feint:
+            add_rat("feint_detector", feint_primary, "FIRED", f"conf={feint_conf}",
+                    0, feint_detail)
+
         total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
         convergence_score = _routes.engine.compute_convergence_score(domain_scores)
         score_with_bonus, conv_bonus, convergence_level = _routes.engine.apply_convergence_bonus(total_score, domain_scores)
@@ -693,6 +738,34 @@ def get_threat_data():
                 "gnql_tier":     core_greynoise.get("gnql_tier", "none"),
                 "theater_data":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},
             },
+            # Phase 2: Space Weather noise suppressor
+            "space_weather": {
+                "kp_index":           space_weather_data.get("kp_index", 0),
+                "kp_forecast_24h":    space_weather_data.get("kp_forecast_24h", 0),
+                "xray_class":         space_weather_data.get("xray_class", "A"),
+                "storm_level":        space_weather_data.get("storm_level", "NONE"),
+                "suppressing":        sw_suppress,
+                "suppress_reason":    space_weather_data.get("suppress_reason", ""),
+            },
+            # Phase 2: Adaptive Z-score status
+            "adaptive_zscore": {
+                "z_score":    az_score,
+                "is_adaptive": az_adaptive,
+                "threshold":  az_threshold,
+                "samples":    az_n,
+                "mode":       "adaptive" if az_adaptive else "warmup",
+            },
+            # Phase 2: Feint Detection
+            "feint": {
+                "detected":              is_feint,
+                "primary_domain":        feint_primary,
+                "distraction_domains":   feint_distractions,
+                "confidence":            feint_conf,
+                "detail":                feint_detail,
+            },
+            # Phase 2: Escalation Progress (computed from threat history)
+            "escalation": _routes.engine.compute_escalation_progress(
+                _db.threat_list(), _db.alert_list(limit=100)),
         }
 
         score_breakdown = {

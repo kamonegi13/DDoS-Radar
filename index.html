@@ -183,6 +183,11 @@
                     <span class="tools-menu-label" data-i18n="tools.action_plan">Action Plan</span>
                     <span class="tools-menu-dot" id="tm-dot-ap"></span>
                 </div>
+                <div class="tools-menu-item" id="tm-item-esc" onclick="handleToolToggle('escalation-panel', toggleEscalationPanel, 'tm-dot-esc', 'tm-item-esc')">
+                    <span class="tools-menu-icon">📈</span>
+                    <span class="tools-menu-label" data-i18n="tools.escalation_tracker">Escalation Tracker</span>
+                    <span class="tools-menu-dot" id="tm-dot-esc"></span>
+                </div>
                 <div class="tools-menu-sep"></div>
                 <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();">
                     <span class="tools-menu-icon">👤</span>
@@ -968,6 +973,22 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
+     Phase 2: Escalation Tracker (draggable)
+═══════════════════════════════════════════════════════ -->
+<div id="escalation-panel" class="draggable-panel floating" style="display:none; left:780px; top:140px; width:320px;">
+    <div class="drag-handle panel-header-unified">
+        <span data-i18n="panel.esc.title">ESCALATION TRACKER</span>
+        <div>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('escalation-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
+        </div>
+    </div>
+    <div class="panel-content escalation-body" style="max-height:520px; overflow-y:auto;">
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="panel.esc.loading">Loading escalation data...</div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
      Intuition UI: Pulse Display (draggable)
 ═══════════════════════════════════════════════════════ -->
 <div id="pulse-panel" class="draggable-panel floating" style="display:none; left:10px; top:140px;">
@@ -1733,6 +1754,20 @@
             <li><b>Content:</b> TL5 (routine monitoring) → TL4 (increased watch) → TL3 (CDN hardening, SOC alert) → TL2 (failover prep, leadership escalation, geo-blocking) → TL1 (IR activation, CERT reporting, network isolation, evidence preservation).</li>
         </ul>
 
+        <p><b>O. Escalation Tracker</b> <span style="color:#66ffcc;">[Phase 2]</span> — <span class="code-block">TOOLS ▾</span> → Escalation Tracker</p>
+        <ul>
+            <li><b>Purpose:</b> Tracks and predicts threat level escalation patterns. Shows current TL duration, escalation velocity, score trend, and pattern classification (STABLE / ESCALATING / DE-ESCALATING / OSCILLATING).</li>
+            <li><b>Prediction:</b> Uses linear regression on recent score trends to predict the next TL transition and estimated time of arrival. Requires sufficient data points for prediction.</li>
+            <li><b>Transition History:</b> Displays the last 10 TL transitions with timestamps, showing directional changes (e.g., TL5 → TL4).</li>
+        </ul>
+
+        <p><b>P. Phase 2 Enhancements</b> <span style="color:#66ffcc;">[Phase 2]</span> — Integrated into Deep Analytics</p>
+        <ul>
+            <li><b>Adaptive Z-Score:</b> Per-sensor/per-theater dynamic thresholds using Welford's online algorithm. Replaces fixed thresholds after sufficient baseline samples (default: 50). Status visible in <span class="code-block">/api/adaptive_zscore_status</span>.</li>
+            <li><b>Space Weather Filter:</b> NOAA SWPC sensor (Kp index + GOES X-ray flux) automatically suppresses physical domain false positives during geomagnetic storms (Kp ≥ 6 or X-ray ≥ M-class).</li>
+            <li><b>Feint Detection:</b> Identifies diversionary attack patterns — one domain at high alert level with two or more domains at low-medium alert, suggesting coordinated misdirection.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>8. 直感 UI — 識別先行意思決定（RPD）コンポーネント</h4>
@@ -1854,6 +1889,20 @@
             <li><b>内容:</b> TL5（通常監視）→ TL4（監視強化）→ TL3（CDN強化、SOCアラート）→ TL2（フェイルオーバー準備、幹部エスカレーション、ジオブロッキング）→ TL1（IR発動、CERT報告、ネットワーク隔離、証拠保全）。</li>
         </ul>
 
+        <p><b>O. エスカレーショントラッカー</b> <span style="color:#66ffcc;">[Phase 2]</span> — <span class="code-block">TOOLS ▾</span> → Escalation Tracker</p>
+        <ul>
+            <li><b>目的:</b> 脅威レベルのエスカレーションパターンを追跡・予測。現在のTL持続時間、エスカレーション速度、スコアトレンド、パターン分類（安定 / エスカレーション中 / デエスカレーション中 / 振動）を表示。</li>
+            <li><b>予測:</b> 直近のスコアトレンドに線形回帰を適用し、次のTL遷移と予想到達時間を予測。予測には十分なデータポイントが必要。</li>
+            <li><b>遷移履歴:</b> 直近10件のTL遷移をタイムスタンプ付きで表示。方向性の変化（例: TL5 → TL4）を確認可能。</li>
+        </ul>
+
+        <p><b>P. Phase 2 強化機能</b> <span style="color:#66ffcc;">[Phase 2]</span> — Deep Analyticsに統合</p>
+        <ul>
+            <li><b>適応型Zスコア:</b> Welfordのオンラインアルゴリズムによるセンサー/シアター別の動的閾値。十分なベースラインサンプル（デフォルト: 50）収集後に固定閾値を置換。ステータスは <span class="code-block">/api/adaptive_zscore_status</span> で確認可能。</li>
+            <li><b>宇宙天気フィルター:</b> NOAA SPWCセンサー（Kp指数 + GOES X線フラックス）が地磁気嵐時（Kp ≥ 6 または X線 ≥ Mクラス）に物理ドメインの誤検知を自動抑制。</li>
+            <li><b>陽動攻撃検出:</b> 1つのドメインが高警戒レベル、2つ以上のドメインが低〜中警戒レベルという、組織的な欺瞞を示唆する陽動攻撃パターンを特定。</li>
+        </ul>
+
         </div>
         </div><!-- /guide-ch-8 -->
         <div class="guide-chapter" id="guide-ch-9">
@@ -1892,6 +1941,8 @@
             <li><span class="code-block">GET /api/whatif/catalog</span> — Returns the sensor catalog for What-If simulation (sensor name, domain, label, max score, suppressor flag).</li>
             <li><span class="code-block">POST /api/whatif/simulate</span> — Run a What-If simulation. Body: <span class="code-block">{"events":[{"sensor":"cf_spike_core","score":3}], "tl1_hard":false, "sequence_bonus":0, "temporal_bonus":0}</span>. Returns simulated threat level, domain scores, convergence, and system note.</li>
             <li><span class="code-block">GET /api/spof_analysis</span> — Compute SPOF analysis for the current threat state. Returns per-sensor impact assessment, domain health summary, and criticality ranking.</li>
+            <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns escalation analysis: current TL, duration, velocity, score trend, pattern classification (STABLE/ESCALATING/DE-ESCALATING/OSCILLATING), predicted next TL, and transition history.</li>
+            <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns per-sensor/per-theater adaptive Z-score statistics: sample count, running mean, standard deviation, and whether adaptive mode is active.</li>
         </ul>
         </div>
         <div class="guide-lang-ja" style="display:none;">
@@ -1929,6 +1980,8 @@
             <li><span class="code-block">GET /api/whatif/catalog</span> — What-Ifシミュレーション用のセンサーカタログを返す（センサー名、ドメイン、ラベル、最大スコア、抑制フラグ）。</li>
             <li><span class="code-block">POST /api/whatif/simulate</span> — What-Ifシミュレーションを実行。ボディ: <span class="code-block">{"events":[{"sensor":"cf_spike_core","score":3}], "tl1_hard":false, "sequence_bonus":0, "temporal_bonus":0}</span>。シミュレーションされた脅威レベル、ドメインスコア、収斂レベル、システムノートを返す。</li>
             <li><span class="code-block">GET /api/spof_analysis</span> — 現在の脅威状態のSPOF分析を計算。センサーごとの影響評価、ドメイン健全性サマリー、重要度ランキングを返す。</li>
+            <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> エスカレーション分析を返す: 現在のTL、持続時間、速度、スコアトレンド、パターン分類（STABLE/ESCALATING/DE-ESCALATING/OSCILLATING）、予測次TL、遷移履歴。</li>
+            <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> センサー/シアター別の適応型Zスコア統計を返す: サンプル数、移動平均、標準偏差、適応モードのアクティブ状態。</li>
         </ul>
         </div>
         </div><!-- /guide-ch-9 -->

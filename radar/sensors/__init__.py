@@ -15,6 +15,7 @@ from radar.sensors.ais_maritime import AisMaritimeSensor
 from radar.sensors.telegram import TelegramMirrorSensor
 from radar.sensors.checkhost import CheckHostSensor
 from radar.sensors.greynoise import GreyNoiseSensor
+from radar.sensors.space_weather import SpaceWeatherSensor
 
 __all__ = [
     "BaseSensor",
@@ -33,4 +34,5 @@ __all__ = [
     "TelegramMirrorSensor",
     "CheckHostSensor",
     "GreyNoiseSensor",
+    "SpaceWeatherSensor",
 ]

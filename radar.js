@@ -636,6 +636,7 @@
         { panelId: 'whatif-panel',         dotId: 'tm-dot-wif',   itemId: 'tm-item-wif'   },
         { panelId: 'spof-panel',           dotId: 'tm-dot-spof',  itemId: 'tm-item-spof'  },
         { panelId: 'actionplan-panel',     dotId: 'tm-dot-ap',    itemId: 'tm-item-ap'    },
+        { panelId: 'escalation-panel',    dotId: 'tm-dot-esc',  itemId: 'tm-item-esc'   },
     ];
 
     function toggleToolsMenu() {
@@ -1356,6 +1357,7 @@
     setupFloatingOnlyPanel('whatif-panel');
     setupFloatingOnlyPanel('spof-panel');
     setupFloatingOnlyPanel('actionplan-panel');
+    setupFloatingOnlyPanel('escalation-panel');
     updateSidebarVisibility();
 
     const map = L.map('map', {
@@ -5349,4 +5351,108 @@
         }
 
         body.innerHTML = html;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 2: Escalation Tracker panel
+    // ═══════════════════════════════════════════════════════════════
+    const toggleEscalationPanel = _createPanelToggle('escalation-panel', { onShow: renderEscalationPanel });
+
+    async function renderEscalationPanel() {
+        const panel = document.getElementById('escalation-panel');
+        if (!panel || panel.style.display === 'none') return;
+        const body = panel.querySelector('.escalation-body');
+        if (!body) return;
+
+        body.innerHTML = `<div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.esc.loading')}</div>`;
+
+        try {
+            const resp = await fetch('/api/escalation_progress');
+            if (!resp.ok) throw new Error('API error');
+            const data = await resp.json();
+
+            const tlColors = { 1: '#ff2222', 2: '#ff8800', 3: '#ffcc00', 4: '#88aa22', 5: '#44aa44' };
+            const tlColor = tlColors[data.current_tl] || '#666';
+
+            // Pattern label and color
+            const patternRaw = (data.pattern || 'STABLE').replace('-', '_');
+            const patternKey = 'panel.esc.pattern.' + patternRaw;
+            const patternColors = { ESCALATING: '#ff4444', 'DE-ESCALATING': '#44aa44', STABLE: '#666', OSCILLATING: '#ffaa00' };
+            const patternColor = patternColors[data.pattern] || '#666';
+
+            // Format duration
+            const durSec = data.tl_duration_sec || 0;
+            const durMin = Math.floor(durSec / 60);
+            const durH = Math.floor(durMin / 60);
+            const durStr = durH > 0 ? `${durH}h ${durMin % 60}m` : `${durMin}m`;
+
+            // Velocity indicator
+            const vel = data.escalation_velocity || 0;
+            const velSign = vel > 0 ? '+' : '';
+            const velColor = vel > 0.5 ? '#ff4444' : vel < -0.5 ? '#44aa44' : '#888';
+
+            // Score trend
+            const trend = data.score_trend || 0;
+            const trendSign = trend > 0 ? '▲' : trend < 0 ? '▼' : '—';
+            const trendColor = trend > 0 ? '#ff4444' : trend < 0 ? '#44aa44' : '#888';
+
+            let html = '';
+
+            // Current status block
+            html += `<div class="esc-status-grid">`;
+            html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.current_tl')}</div><div class="esc-stat-value" style="color:${tlColor}; font-size:22px;">TL${data.current_tl}</div></div>`;
+            html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.duration')}</div><div class="esc-stat-value">${durStr}</div></div>`;
+            html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.velocity')}</div><div class="esc-stat-value" style="color:${velColor}">${velSign}${vel.toFixed(2)}/cyc</div></div>`;
+            html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.trend')}</div><div class="esc-stat-value" style="color:${trendColor}">${trendSign} ${Math.abs(trend).toFixed(2)}</div></div>`;
+            html += `</div>`;
+
+            // Pattern
+            html += `<div class="esc-pattern-bar" style="border-color:${patternColor}33">`;
+            html += `<span class="esc-pattern-label">${_t('panel.esc.pattern')}</span>`;
+            html += `<span class="esc-pattern-value" style="color:${patternColor}">${_t(patternKey)}</span>`;
+            html += `</div>`;
+
+            // Prediction
+            html += `<div class="esc-prediction-block">`;
+            html += `<div class="esc-section-title">${_t('panel.esc.prediction')}</div>`;
+            if (data.predicted_next_tl) {
+                const predColor = tlColors[data.predicted_next_tl] || '#666';
+                const predSec = data.predicted_time_sec || 0;
+                const predMin = Math.floor(predSec / 60);
+                const predH = Math.floor(predMin / 60);
+                const predStr = predH > 0 ? `${predH}h ${predMin % 60}m` : `${predMin}m`;
+                html += `<div class="esc-pred-row"><span style="color:${predColor}">${_t('panel.esc.predicted_tl', { tl: data.predicted_next_tl })}</span></div>`;
+                html += `<div class="esc-pred-row">${_t('panel.esc.predicted_time', { time: predStr })}</div>`;
+            } else {
+                html += `<div class="esc-pred-row" style="color:#666">${_t('panel.esc.no_prediction')}</div>`;
+            }
+            html += `</div>`;
+
+            // Transition history
+            html += `<div class="esc-transitions-block">`;
+            html += `<div class="esc-section-title">${_t('panel.esc.transitions')}</div>`;
+            const transitions = data.tl_transitions || [];
+            if (transitions.length === 0) {
+                html += `<div style="color:#555; font-size:9px; text-align:center; padding:4px;">${_t('panel.esc.no_transitions')}</div>`;
+            } else {
+                const recent = transitions.slice(-10).reverse();
+                recent.forEach(t => {
+                    const fromColor = tlColors[t.from] || '#666';
+                    const toColor = tlColors[t.to] || '#666';
+                    const ts = new Date(t.ts * 1000);
+                    const timeStr = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    html += `<div class="esc-transition-row">`;
+                    html += `<span class="esc-trans-time">${timeStr}</span>`;
+                    html += `<span style="color:${fromColor}">TL${t.from}</span>`;
+                    html += `<span class="esc-trans-arrow">→</span>`;
+                    html += `<span style="color:${toColor}">TL${t.to}</span>`;
+                    html += `</div>`;
+                });
+            }
+            html += `</div>`;
+
+            body.innerHTML = html;
+        } catch (e) {
+            body.innerHTML = `<div style="color:#ff4444; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.esc.api_error')}</div>`;
+        }
     }

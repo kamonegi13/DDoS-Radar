@@ -814,3 +814,19 @@
 .ap-icon { font-size:10px; min-width:16px; text-align:center; }
 .ap-text { font-size:9px; color:#999; line-height:1.4; }
 .ap-note { font-size:9px; color:#44aa44; text-align:center; padding:8px; background:#44aa4408; border:1px solid #44aa4422; border-radius:3px; margin-top:6px; }
+
+/* ── Escalation Tracker Panel ─────────────────────────────── */
+.esc-status-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-bottom:6px; }
+.esc-stat-card { background:#060606; border:1px solid #1a1a1a; border-radius:3px; padding:6px 8px; text-align:center; }
+.esc-stat-label { font-size:8px; color:#666; letter-spacing:1px; text-transform:uppercase; margin-bottom:2px; }
+.esc-stat-value { font-size:13px; font-weight:bold; color:#ccc; font-family:monospace; }
+.esc-pattern-bar { background:#060606; border:1px solid #1a1a1a; border-radius:3px; padding:6px 10px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
+.esc-pattern-label { font-size:8px; color:#666; letter-spacing:1px; text-transform:uppercase; }
+.esc-pattern-value { font-size:11px; font-weight:bold; letter-spacing:0.5px; }
+.esc-prediction-block { background:#060606; border:1px solid #1a1a1a; border-radius:3px; padding:6px 10px; margin-bottom:6px; }
+.esc-section-title { font-size:8px; color:#666; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; border-bottom:1px solid #111; padding-bottom:3px; }
+.esc-pred-row { font-size:10px; color:#aaa; padding:2px 0; }
+.esc-transitions-block { background:#060606; border:1px solid #1a1a1a; border-radius:3px; padding:6px 10px; }
+.esc-transition-row { display:flex; align-items:center; gap:6px; padding:2px 0; font-size:10px; font-family:monospace; }
+.esc-trans-time { color:#555; min-width:42px; font-size:9px; }
+.esc-trans-arrow { color:#444; }

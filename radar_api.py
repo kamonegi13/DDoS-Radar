@@ -14,6 +14,7 @@ from radar.scoring import (  # noqa: F401
     register_sequence_event, compute_sequence_bonus,
     compute_hod_zscore, record_hod_sample,
     calculate_overlap, compute_confidence,
+    compute_adaptive_zscore,
 )
 from radar.config import SEQUENCE_WINDOW  # noqa: F401
 from radar.database import db as _db  # noqa: F401

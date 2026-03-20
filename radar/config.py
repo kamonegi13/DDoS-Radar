@@ -198,6 +198,25 @@ ISR_ICAO_TYPES           = [t.strip().upper() for t in os.getenv(
 ).split(",") if t.strip()]
 ISR_SURGE_THRESHOLD      = int(os.getenv("ISR_SURGE_THRESHOLD", "3"))
 
+# ── Phase 2: Adaptive Z-score Config ─────────────────────────────────────────
+ADAPTIVE_ZSCORE_ENABLED       = os.getenv("ADAPTIVE_ZSCORE_ENABLED", "true").lower() in ("true", "1", "yes")
+ADAPTIVE_ZSCORE_MIN_SAMPLES   = int(os.getenv("ADAPTIVE_ZSCORE_MIN_SAMPLES", "50"))
+ADAPTIVE_ZSCORE_SENSITIVITY   = float(os.getenv("ADAPTIVE_ZSCORE_SENSITIVITY", "1.5"))
+
+# ── Phase 2: Space Weather Noise Filter Config ───────────────────────────────
+SPACE_WEATHER_KP_SUPPRESS_THRESHOLD = int(os.getenv("SPACE_WEATHER_KP_SUPPRESS_THRESHOLD", "6"))
+SPACE_WEATHER_XRAY_SUPPRESS_CLASS   = os.getenv("SPACE_WEATHER_XRAY_SUPPRESS_CLASS", "M")
+
+# ── Phase 2: Feint Detection Config ──────────────────────────────────────────
+FEINT_DISTRACTION_MAX_SCORE   = int(os.getenv("FEINT_DISTRACTION_MAX_SCORE", "3"))
+FEINT_PRIMARY_MIN_SCORE       = int(os.getenv("FEINT_PRIMARY_MIN_SCORE", "5"))
+FEINT_MIN_DISTRACTION_DOMAINS = int(os.getenv("FEINT_MIN_DISTRACTION_DOMAINS", "2"))
+
+# ── Phase 2: Escalation Progress Config ──────────────────────────────────────
+ESCALATION_HISTORY_MAX        = int(os.getenv("ESCALATION_HISTORY_MAX", "100"))
+# TL thresholds (score_with_bonus boundaries): TL4=2, TL3=4, TL2=6, TL1=9
+ESCALATION_TL_THRESHOLDS      = {4: 2, 3: 4, 2: 6, 1: 9}
+
 # OpenSky Network authentication
 # Basic auth deprecated after 2026-03-18 → migrated to OAuth2 Bearer token
 # Set OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET in config.env

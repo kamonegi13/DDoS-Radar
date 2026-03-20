@@ -358,3 +358,128 @@ class TestHelpers:
 
     def test_compute_confidence_low(self):
         assert compute_confidence(1.5, "BR", False, False) == "LOW"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2: Feint Detection
+# ─────────────────────────────────────────────────────────────────────────────
+class TestFeintDetection:
+    def setup_method(self):
+        self.engine = WeightedConvergenceEngine()
+
+    def test_feint_detected(self):
+        """Cyber high + physical low + info low → feint detected."""
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "6x", 3),
+            RationaleEntry("cf_adversary_strike", "cyber", "FIRED", "1 strike", 2),
+            RationaleEntry("ioda_bgp", "physical", "FIRED", "OUTAGE", 1),
+            RationaleEntry("gdelt", "info", "FIRED", "ALERT", 1),
+        ]
+        domain_scores = {"cyber": 5, "physical": 1, "info": 1}
+        is_feint, primary, distractions, conf, detail = self.engine.detect_feint_pattern(
+            domain_scores, rationale)
+        assert is_feint is True
+        assert primary == "cyber"
+        assert set(distractions) == {"physical", "info"}
+        assert conf in ("HIGH", "MEDIUM")
+
+    def test_feint_not_detected_balanced(self):
+        """All domains similar score → no feint."""
+        domain_scores = {"cyber": 3, "physical": 3, "info": 3}
+        is_feint, _, _, _, _ = self.engine.detect_feint_pattern(domain_scores, [])
+        assert is_feint is False
+
+    def test_feint_not_detected_single_domain(self):
+        """Only one domain active → no feint (need distraction domains)."""
+        domain_scores = {"cyber": 7, "physical": 0, "info": 0}
+        is_feint, _, _, _, _ = self.engine.detect_feint_pattern(domain_scores, [])
+        assert is_feint is False
+
+    def test_feint_not_detected_all_high(self):
+        """All domains high → genuine full convergence, not feint."""
+        domain_scores = {"cyber": 6, "physical": 5, "info": 5}
+        is_feint, _, _, _, _ = self.engine.detect_feint_pattern(domain_scores, [])
+        assert is_feint is False
+
+    def test_feint_high_confidence_at_7plus(self):
+        """Primary domain score ≥ 7 → HIGH confidence."""
+        domain_scores = {"cyber": 7, "physical": 2, "info": 1}
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "10x", 3),
+            RationaleEntry("cf_adversary_strike", "cyber", "FIRED", "2 strikes", 2),
+            RationaleEntry("cf_coordinated", "cyber", "FIRED", "multi", 2),
+        ]
+        is_feint, _, _, conf, _ = self.engine.detect_feint_pattern(domain_scores, rationale)
+        assert is_feint is True
+        assert conf == "HIGH"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2: Escalation Progress Tracking
+# ─────────────────────────────────────────────────────────────────────────────
+class TestEscalationProgress:
+    def setup_method(self):
+        self.engine = WeightedConvergenceEngine()
+
+    def test_no_data(self):
+        result = self.engine.compute_escalation_progress([], [])
+        assert result["pattern"] == "NO_DATA"
+        assert result["current_tl"] == 5
+
+    def test_stable(self):
+        """Constant TL5 history → STABLE pattern."""
+        now = time.time()
+        history = [(now - i * 60, 5) for i in range(10, 0, -1)]
+        result = self.engine.compute_escalation_progress(history, [])
+        assert result["current_tl"] == 5
+        assert result["pattern"] == "STABLE"
+        assert len(result["tl_transitions"]) == 0
+
+    def test_escalating(self):
+        """TL5→4→3 history → ESCALATING pattern."""
+        now = time.time()
+        history = [
+            (now - 600, 5), (now - 540, 5), (now - 480, 5),
+            (now - 420, 4), (now - 360, 4), (now - 300, 4),
+            (now - 240, 3), (now - 180, 3), (now - 120, 3),
+        ]
+        result = self.engine.compute_escalation_progress(history, [])
+        assert result["current_tl"] == 3
+        assert result["pattern"] == "ESCALATING"
+        assert len(result["tl_transitions"]) == 2
+        assert result["tl_transitions"][0]["direction"] == "ESCALATE"
+
+    def test_deescalating(self):
+        """TL2→3→4 history → DE-ESCALATING pattern."""
+        now = time.time()
+        history = [
+            (now - 600, 2), (now - 540, 2),
+            (now - 420, 3), (now - 360, 3),
+            (now - 240, 4), (now - 180, 4),
+        ]
+        result = self.engine.compute_escalation_progress(history, [])
+        assert result["current_tl"] == 4
+        assert result["pattern"] == "DE-ESCALATING"
+
+    def test_oscillating(self):
+        """TL3→4→3→4→3 → OSCILLATING pattern."""
+        now = time.time()
+        history = [
+            (now - 600, 3), (now - 480, 4), (now - 360, 3),
+            (now - 240, 4), (now - 120, 3),
+        ]
+        result = self.engine.compute_escalation_progress(history, [])
+        assert result["pattern"] == "OSCILLATING"
+
+    def test_score_trend_prediction(self):
+        """Verify score trend calculation with linearly increasing scores."""
+        now = time.time()
+        history = [(now - 300, 4), (now - 240, 4), (now - 120, 3), (now, 3)]
+        timeline = [
+            {"ts": now - 300, "score_with_bonus": 2, "threat_level": 4},
+            {"ts": now - 200, "score_with_bonus": 3, "threat_level": 4},
+            {"ts": now - 100, "score_with_bonus": 4, "threat_level": 3},
+        ]
+        result = self.engine.compute_escalation_progress(history, timeline)
+        # Score is increasing → positive trend
+        assert result["score_trend"] > 0

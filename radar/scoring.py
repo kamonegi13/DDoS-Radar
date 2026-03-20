@@ -10,6 +10,7 @@ from radar.config import (
     BASELINE_DATE_RANGE, CACHE_EXPIRY,
     HOD_BASELINE_DAYS, HOD_MIN_SAME_HOUR, HOD_MAX_ENTRIES,
     DEFAULT_CORE, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES, DEFAULT_PINS,
+    ADAPTIVE_ZSCORE_ENABLED, ADAPTIVE_ZSCORE_MIN_SAMPLES, ADAPTIVE_ZSCORE_SENSITIVITY,
 )
 from radar.state import _cf_scoring_cache
 from radar.database import db as _db
@@ -323,6 +324,33 @@ def compute_hod_zscore(theater: str, current_spike: float, current_ts: float) ->
     std = max(std, 0.15)
     return (current_spike - mean) / std, True, n
 
+
+
+def compute_adaptive_zscore(sensor_name: str, theater: str,
+                            current_value: float,
+                            fallback_threshold: float = 2.0) -> tuple:
+    """Compute Z-score using per-sensor/per-theater running statistics (Welford).
+
+    Returns: (z_score, is_adaptive, threshold, sample_count)
+    - is_adaptive=True: enough samples for adaptive threshold
+    - is_adaptive=False: using fallback_threshold (warmup period)
+    """
+    if not ADAPTIVE_ZSCORE_ENABLED:
+        return 0.0, False, fallback_threshold, 0
+
+    stats = _db.zscore_stats_get(sensor_name, theater)
+    # Always update running stats with the new value
+    _db.zscore_stats_update(sensor_name, theater, current_value)
+
+    if not stats or stats["sample_count"] < ADAPTIVE_ZSCORE_MIN_SAMPLES:
+        n = stats["sample_count"] if stats else 0
+        return 0.0, False, fallback_threshold, n
+
+    mean = stats["mean"]
+    std = max(stats["std"], 0.15)  # floor to prevent division by near-zero
+    z_score = (current_value - mean) / std
+    adaptive_threshold = ADAPTIVE_ZSCORE_SENSITIVITY * std + mean
+    return round(z_score, 3), True, round(adaptive_threshold, 3), stats["sample_count"]
 
 
 def get_fallback_coord(code: str) -> dict:

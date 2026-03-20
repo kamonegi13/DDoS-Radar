@@ -660,6 +660,47 @@ const LANG = {
     'panel.ap.tl1.null_route':        'Deploy null-route / blackhole for attack traffic',
 
     // ══════════════════════════════════════════════════════════════
+    // Escalation Tracker panel (Phase 2)
+    // ══════════════════════════════════════════════════════════════
+    'tools.escalation_tracker':       'Escalation Tracker',
+    'panel.esc.title':                'ESCALATION TRACKER',
+    'panel.esc.loading':              'Loading escalation data...',
+    'panel.esc.api_error':            'No threat data available yet.',
+    'panel.esc.current_tl':           'Current TL',
+    'panel.esc.duration':             'Duration',
+    'panel.esc.velocity':             'Velocity',
+    'panel.esc.trend':                'Score Trend',
+    'panel.esc.pattern':              'Pattern',
+    'panel.esc.pattern.STABLE':       'STABLE',
+    'panel.esc.pattern.ESCALATING':   'ESCALATING',
+    'panel.esc.pattern.DE_ESCALATING':'DE-ESCALATING',
+    'panel.esc.pattern.OSCILLATING':  'OSCILLATING',
+    'panel.esc.prediction':           'Prediction',
+    'panel.esc.predicted_tl':         'Next TL → {tl}',
+    'panel.esc.predicted_time':       'ETA: {time}',
+    'panel.esc.no_prediction':        'Insufficient data for prediction',
+    'panel.esc.transitions':          'TL Transitions',
+    'panel.esc.no_transitions':       'No transitions recorded',
+
+    // ══════════════════════════════════════════════════════════════
+    // Phase 2 badges (HUD / Deep Analytics)
+    // ══════════════════════════════════════════════════════════════
+    'badge.space_weather':            'Space Wx',
+    'badge.space_weather.none':       'Quiet',
+    'badge.space_weather.minor':      'Minor',
+    'badge.space_weather.moderate':   'Moderate',
+    'badge.space_weather.strong':     'Strong',
+    'badge.space_weather.severe':     'Severe',
+    'badge.space_weather.extreme':    'Extreme',
+    'badge.space_weather.suppressing':'Suppressing physical sensors',
+    'badge.feint_detected':           'FEINT DETECTED',
+    'badge.feint_primary':            'Primary: {domain}',
+    'badge.feint_distractors':        'Distractors: {domains}',
+    'badge.adaptive_zscore':          'Adaptive Z-Score',
+    'badge.adaptive_zscore.active':   'Active ({n} sensors)',
+    'badge.adaptive_zscore.learning': 'Learning ({n}/{min} samples)',
+
+    // ══════════════════════════════════════════════════════════════
     // User Management panel
     // ══════════════════════════════════════════════════════════════
     'panel.usermgr.title':            'User Management',
@@ -1452,6 +1493,47 @@ const LANG = {
     'panel.ap.tl1.evidence':          'フォレンジック証拠保全を開始',
     'panel.ap.tl1.full_staff':        'SOC全員召集 — 総員配置',
     'panel.ap.tl1.null_route':        '攻撃トラフィックのnull-route/ブラックホール展開',
+
+    // ══════════════════════════════════════════════════════════════
+    // Escalation Tracker panel (Phase 2)
+    // ══════════════════════════════════════════════════════════════
+    'tools.escalation_tracker':       'エスカレーショントラッカー',
+    'panel.esc.title':                'エスカレーショントラッカー',
+    'panel.esc.loading':              'エスカレーションデータを読み込み中...',
+    'panel.esc.api_error':            '脅威データがまだありません。',
+    'panel.esc.current_tl':           '現在のTL',
+    'panel.esc.duration':             '持続時間',
+    'panel.esc.velocity':             '速度',
+    'panel.esc.trend':                'スコアトレンド',
+    'panel.esc.pattern':              'パターン',
+    'panel.esc.pattern.STABLE':       '安定',
+    'panel.esc.pattern.ESCALATING':   'エスカレーション中',
+    'panel.esc.pattern.DE_ESCALATING':'デエスカレーション中',
+    'panel.esc.pattern.OSCILLATING':  '振動',
+    'panel.esc.prediction':           '予測',
+    'panel.esc.predicted_tl':         '次のTL → {tl}',
+    'panel.esc.predicted_time':       '予想到達: {time}',
+    'panel.esc.no_prediction':        '予測に必要なデータが不足',
+    'panel.esc.transitions':          'TL遷移履歴',
+    'panel.esc.no_transitions':       '遷移記録なし',
+
+    // ══════════════════════════════════════════════════════════════
+    // Phase 2 badges (HUD / Deep Analytics)
+    // ══════════════════════════════════════════════════════════════
+    'badge.space_weather':            '宇宙天気',
+    'badge.space_weather.none':       '静穏',
+    'badge.space_weather.minor':      '小規模',
+    'badge.space_weather.moderate':   '中規模',
+    'badge.space_weather.strong':     '強い',
+    'badge.space_weather.severe':     '深刻',
+    'badge.space_weather.extreme':    '極端',
+    'badge.space_weather.suppressing':'物理センサーを抑制中',
+    'badge.feint_detected':           '陽動攻撃検出',
+    'badge.feint_primary':            '主攻: {domain}',
+    'badge.feint_distractors':        '陽動: {domains}',
+    'badge.adaptive_zscore':          '適応型Zスコア',
+    'badge.adaptive_zscore.active':   'アクティブ ({n}センサー)',
+    'badge.adaptive_zscore.learning': '学習中 ({n}/{min}サンプル)',
 
     // ══════════════════════════════════════════════════════════════
     // User Management panel
