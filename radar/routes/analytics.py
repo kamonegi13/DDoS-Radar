@@ -7,6 +7,7 @@ from radar.config import *  # noqa: F403
 from radar import state as st
 from radar.state import _global_cache_lock, ALERT_TIMELINE_MAX
 from radar.database import db as _db
+from radar.models import RationaleEntry
 from radar.scoring import compute_sequence_bonus
 import radar.routes as _routes
 from radar.routes import bp
@@ -579,6 +580,274 @@ def api_score_breakdown():
             }
             for d in ("cyber", "physical", "info")
         },
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ── What-If Simulation Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Known sensors with their domain, display label, and max score
+WHATIF_SENSOR_CATALOG = [
+    {"sensor": "cf_spike_core",      "domain": "cyber",    "label": "Cloudflare DDoS Spike",        "max_score": 3},
+    {"sensor": "cf_botnet_overlap",  "domain": "cyber",    "label": "Botnet Overlap >30%",          "max_score": 1},
+    {"sensor": "cf_vector_shift",    "domain": "cyber",    "label": "L7 Vector Shift",              "max_score": 1},
+    {"sensor": "cf_adversary_strike","domain": "cyber",    "label": "Adversary State Strike",       "max_score": 2},
+    {"sensor": "cf_coordinated",     "domain": "cyber",    "label": "Coordinated Multi-Theater",    "max_score": 1},
+    {"sensor": "ripe_bgp",           "domain": "cyber",    "label": "RIPE BGP Anomaly",             "max_score": 1},
+    {"sensor": "threatfox",          "domain": "cyber",    "label": "ThreatFox APT IoC",            "max_score": 1},
+    {"sensor": "ddos_acceleration",  "domain": "cyber",    "label": "DDoS Ambush Pattern",          "max_score": 2},
+    {"sensor": "greynoise",          "domain": "cyber",    "label": "GreyNoise Noise Suppressor",   "max_score": 0, "is_suppressor": True},
+    {"sensor": "ioda_bgp",           "domain": "physical", "label": "IODA BGP Outage",              "max_score": 1},
+    {"sensor": "opensky",            "domain": "physical", "label": "Airspace Anomaly/Closure",     "max_score": 3},
+    {"sensor": "nasa_firms",         "domain": "physical", "label": "NASA FIRMS Thermal Anomaly",   "max_score": 3},
+    {"sensor": "isr_hotspot",        "domain": "physical", "label": "ISR Surge",                    "max_score": 2},
+    {"sensor": "ais_maritime",       "domain": "physical", "label": "AIS Dark Gap / Stationary",    "max_score": 1},
+    {"sensor": "check_host",         "domain": "physical", "label": "Check-Host Infra Survival",    "max_score": 3},
+    {"sensor": "openweather",        "domain": "physical", "label": "Weather (Noise Filter)",       "max_score": 0, "is_suppressor": True},
+    {"sensor": "gdelt",              "domain": "info",     "label": "GDELT Media Tone",             "max_score": 1},
+    {"sensor": "rss_narrative",      "domain": "info",     "label": "RSS Narrative Burst",          "max_score": 2},
+    {"sensor": "telegram_mirror",    "domain": "info",     "label": "Telegram Mirror SIGINT",       "max_score": 2},
+    {"sensor": "maskirovka_flag",    "domain": "info",     "label": "Maskirovka Detection",         "max_score": 2},
+]
+
+
+@bp.route("/api/whatif/catalog", methods=["GET"])
+def whatif_catalog():
+    """Return the sensor catalog for the What-If simulation UI."""
+    return jsonify({"sensors": WHATIF_SENSOR_CATALOG})
+
+
+@bp.route("/api/whatif/simulate", methods=["POST"])
+def whatif_simulate():
+    """
+    Run a What-If simulation with user-injected virtual sensor events.
+
+    Request body (JSON):
+    {
+      "events": [
+        {"sensor": "cf_spike_core", "score": 3, "suppressed": false},
+        {"sensor": "ioda_bgp",      "score": 1, "suppressed": false},
+        {"sensor": "rss_narrative",  "score": 2, "suppressed": false}
+      ],
+      "tl1_hard": false,        // optional: override core_degraded flag
+      "sequence_bonus": 0,      // optional: inject sequence bonus
+      "temporal_bonus": 0       // optional: inject temporal coherence bonus
+    }
+
+    Returns: simulated threat level, domain scores, convergence, and full breakdown.
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    events = body.get("events", [])
+    tl1_hard_override = body.get("tl1_hard", False)
+    seq_bonus = int(body.get("sequence_bonus", 0))
+    temporal_bonus = int(body.get("temporal_bonus", 0))
+
+    # Build a sensor lookup from the catalog
+    catalog_map = {s["sensor"]: s for s in WHATIF_SENSOR_CATALOG}
+
+    # Build rationale entries from the injected events
+    rationale: list[RationaleEntry] = []
+    for evt in events:
+        sensor_name = evt.get("sensor", "")
+        cat = catalog_map.get(sensor_name)
+        if not cat:
+            continue
+        score = min(int(evt.get("score", 0)), cat["max_score"])
+        is_suppressed = bool(evt.get("suppressed", False))
+        is_suppressor = cat.get("is_suppressor", False)
+        fired = score > 0 and not is_suppressed
+
+        rationale.append(RationaleEntry(
+            sensor=sensor_name,
+            domain=cat["domain"],
+            status="FIRED" if fired else ("SUPPRESSED" if is_suppressed else "OK"),
+            value=f"[What-If] score={score}",
+            score=score if not is_suppressed else 0,
+            fired_reason=f"What-If injection: {cat['label']}" if fired else None,
+            suppressed=is_suppressed or is_suppressor,
+            suppress_reason="What-If: manually suppressed" if is_suppressed else (
+                "Noise suppressor sensor" if is_suppressor else None),
+        ))
+
+    engine = _routes.engine
+    domain_scores = engine.compute_domain_scores(rationale)
+    total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
+    convergence_score = engine.compute_convergence_score(domain_scores)
+    score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
+    score_with_bonus += seq_bonus + temporal_bonus
+    score_with_bonus = min(score_with_bonus, 15)
+    active_domains = sum(1 for s in domain_scores.values() if s > 0)
+    threat_level = engine.compute_threat_level(score_with_bonus, tl1_hard_override, active_domains)
+
+    system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, [])
+
+    return jsonify({
+        "ts": datetime.datetime.now().isoformat(),
+        "simulation": True,
+        "threat_level": threat_level,
+        "total_score": total_score,
+        "score_with_bonus": score_with_bonus,
+        "convergence_score": round(convergence_score, 2),
+        "convergence_level": convergence_level,
+        "convergence_bonus": conv_bonus,
+        "sequence_bonus": seq_bonus,
+        "temporal_bonus": temporal_bonus,
+        "tl1_hard": tl1_hard_override,
+        "active_domains": active_domains,
+        "domain_scores": {
+            d: {
+                "score": domain_scores.get(d, 0),
+                "weight": engine.DOMAIN_WEIGHTS.get(d, 0),
+                "weighted": round(min(domain_scores.get(d, 0), 10) * engine.DOMAIN_WEIGHTS.get(d, 0), 2),
+                "status": (
+                    "CRITICAL" if domain_scores.get(d, 0) >= 6 else
+                    "ELEVATED" if domain_scores.get(d, 0) >= 3 else
+                    "WATCH"    if domain_scores.get(d, 0) >= 1 else "NORMAL"
+                ),
+            }
+            for d in ("cyber", "physical", "info")
+        },
+        "rationale": [e.to_dict() for e in rationale],
+        "system_note": system_note,
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ── SPOF (Single Point of Failure) Analysis Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/api/spof_analysis", methods=["GET"])
+def spof_analysis():
+    """
+    Compute sensor SPOF (single point of failure) analysis.
+    For each active sensor, estimates the confidence degradation
+    if that sensor were to go offline.
+
+    Returns per-sensor impact data and overall domain health.
+    """
+    with _global_cache_lock:
+        cache = dict(st.global_cache) if st.global_cache else None
+    if not cache or not cache.get("strategic"):
+        return jsonify({"error": "No data available"}), 503
+
+    strat = cache["strategic"]
+    rationale = strat.get("rationale_matrix", [])
+    domains_data = strat.get("domains", {})
+    current_tl = strat.get("threat_level", 5)
+
+    engine = _routes.engine
+
+    # Compute baseline domain scores from current rationale
+    baseline_entries = [
+        RationaleEntry(**{k: e[k] for k in
+                          ("sensor", "domain", "status", "value", "score",
+                           "fired_reason", "suppressed", "suppress_reason")})
+        for e in rationale
+    ]
+    baseline_domain_scores = engine.compute_domain_scores(baseline_entries)
+    baseline_total = sum(
+        e.score for e in baseline_entries
+        if e.status == "FIRED" and not e.suppressed
+    )
+
+    # Collect sensor health info
+    sensor_health = {}
+    for s in _routes.registry._sensors.values():
+        sensor_health[s.name] = {
+            "enabled": s.enabled,
+            "health": s.health,
+            "domain": s.domain,
+            "last_error": s._last_error,
+            "cache_age_sec": round(time.time() - s._cache_time) if s._cache_time else None,
+        }
+
+    # For each fired sensor, compute what happens if it goes offline
+    spof_entries = []
+    fired_sensors = [
+        e for e in rationale
+        if e.get("status") == "FIRED" and not e.get("suppressed", False) and e.get("score", 0) > 0
+    ]
+
+    for entry in fired_sensors:
+        sensor_name = entry["sensor"]
+        sensor_domain = entry["domain"]
+        sensor_score = entry.get("score", 0)
+
+        # Simulate removal: build rationale without this sensor
+        sim_entries = [
+            RationaleEntry(**{k: e[k] for k in
+                              ("sensor", "domain", "status", "value", "score",
+                               "fired_reason", "suppressed", "suppress_reason")})
+            for e in rationale if e["sensor"] != sensor_name
+        ]
+        sim_domain_scores = engine.compute_domain_scores(sim_entries)
+        sim_total = sum(
+            e.score for e in sim_entries
+            if e.status == "FIRED" and not e.suppressed
+        )
+        sim_score_with_bonus, sim_conv_bonus, sim_conv_level = engine.apply_convergence_bonus(sim_total, sim_domain_scores)
+        sim_active = sum(1 for s in sim_domain_scores.values() if s > 0)
+
+        # Check if removing this sensor causes domain deactivation
+        domain_lost = (
+            baseline_domain_scores.get(sensor_domain, 0) > 0 and
+            sim_domain_scores.get(sensor_domain, 0) == 0
+        )
+        # Check if convergence level drops
+        baseline_conv = engine.compute_convergence_level(baseline_domain_scores)
+        sim_conv = engine.compute_convergence_level(sim_domain_scores)
+        convergence_downgrade = baseline_conv != sim_conv
+
+        score_impact = baseline_total - sim_total
+        health_info = sensor_health.get(sensor_name, {})
+
+        spof_entries.append({
+            "sensor": sensor_name,
+            "domain": sensor_domain,
+            "current_score": sensor_score,
+            "score_impact": score_impact,
+            "domain_lost": domain_lost,
+            "convergence_downgrade": convergence_downgrade,
+            "convergence_from": baseline_conv,
+            "convergence_to": sim_conv,
+            "health": health_info.get("health", "unknown"),
+            "enabled": health_info.get("enabled", True),
+            "last_error": health_info.get("last_error"),
+            "cache_age_sec": health_info.get("cache_age_sec"),
+            "has_fallback": False,
+            "criticality": (
+                "CRITICAL" if domain_lost or convergence_downgrade else
+                "HIGH"     if score_impact >= 3 else
+                "MEDIUM"   if score_impact >= 2 else
+                "LOW"
+            ),
+        })
+
+    # Sort by criticality: CRITICAL > HIGH > MEDIUM > LOW
+    crit_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    spof_entries.sort(key=lambda x: (crit_order.get(x["criticality"], 9), -x["score_impact"]))
+
+    # Domain health summary
+    domain_summary = {}
+    for d in ("cyber", "physical", "info"):
+        d_sensors = [s for s in spof_entries if s["domain"] == d]
+        d_score = baseline_domain_scores.get(d, 0)
+        domain_summary[d] = {
+            "score": d_score,
+            "sensor_count": len([e for e in rationale if e.get("domain") == d and e.get("status") != "DISABLED"]),
+            "fired_count": len([e for e in rationale if e.get("domain") == d and e.get("status") == "FIRED" and not e.get("suppressed")]),
+            "critical_spofs": len([s for s in d_sensors if s["criticality"] == "CRITICAL"]),
+            "has_redundancy": len([e for e in rationale if e.get("domain") == d and e.get("status") == "FIRED" and not e.get("suppressed")]) >= 2,
+        }
+
+    return jsonify({
+        "ts": datetime.datetime.now().isoformat(),
+        "current_threat_level": current_tl,
+        "baseline_total_score": baseline_total,
+        "baseline_convergence": engine.compute_convergence_level(baseline_domain_scores),
+        "spof_entries": spof_entries,
+        "domain_summary": domain_summary,
     })
 
 

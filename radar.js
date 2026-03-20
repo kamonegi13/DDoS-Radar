@@ -633,6 +633,9 @@
         { panelId: 'gn-panel',             dotId: 'tm-dot-gn',    itemId: 'tm-item-gn'    },
         { panelId: 'notebook-panel',       dotId: 'tm-dot-nb',    itemId: 'tm-item-nb'    },
         { panelId: 'history-panel',        dotId: 'tm-dot-hist',  itemId: 'tm-item-hist'  },
+        { panelId: 'whatif-panel',         dotId: 'tm-dot-wif',   itemId: 'tm-item-wif'   },
+        { panelId: 'spof-panel',           dotId: 'tm-dot-spof',  itemId: 'tm-item-spof'  },
+        { panelId: 'actionplan-panel',     dotId: 'tm-dot-ap',    itemId: 'tm-item-ap'    },
     ];
 
     function toggleToolsMenu() {
@@ -1062,6 +1065,52 @@
         }
     }
 
+    // Lightweight floating-only panel: drag + minimize + close, no dock/sidebar support
+    function setupFloatingOnlyPanel(panelId) {
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+        const handle = panel.querySelector('.drag-handle');
+        const toggleBtn = panel.querySelector('.toggle-btn');
+        const content = panel.querySelector('.panel-content');
+
+        if (toggleBtn && content) {
+            toggleBtn.onmousedown = function(e) {
+                e.stopPropagation();
+                if (content.style.display === 'none') {
+                    content.style.display = 'flex'; toggleBtn.innerText = '−'; toggleBtn.classList.remove('active-btn');
+                } else {
+                    content.style.display = 'none'; toggleBtn.innerText = '＋'; toggleBtn.classList.add('active-btn');
+                }
+                saveLocalState();
+            };
+        }
+
+        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+
+        panel.onmousedown = function() {
+            if (panel.classList.contains('floating')) {
+                document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
+                panel.classList.add('active');
+            }
+        };
+
+        if (handle) {
+            handle.onmousedown = function(e) {
+                if (e.target.closest('.icon-btn')) return;
+                e.preventDefault();
+                document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
+                panel.classList.add('active');
+                pos3 = e.clientX; pos4 = e.clientY;
+                document.onmouseup = function() { document.onmouseup = null; document.onmousemove = null; saveLocalState(); };
+                document.onmousemove = function(me) {
+                    me.preventDefault();
+                    pos1 = pos3 - me.clientX; pos2 = pos4 - me.clientY; pos3 = me.clientX; pos4 = me.clientY;
+                    panel.style.top = (panel.offsetTop - pos2) + 'px'; panel.style.left = (panel.offsetLeft - pos1) + 'px';
+                };
+            };
+        }
+    }
+
     function setupDockablePanel(panelId, placeholderId, defaultWidth) {
         const panel = document.getElementById(panelId);
         const placeholder = document.getElementById(placeholderId);
@@ -1290,18 +1339,23 @@
     }
 
     // defaultWidth: title uses white-space:nowrap (no wrapping); width is content-first
+    // Dockable panels (constant monitoring / always-visible)
     setupDockablePanel('target-panel',        'target-placeholder',    340);
     setupDockablePanel('dashboard-panel',     'dashboard-placeholder', 400);
     setupDockablePanel('chain-panel',         'chain-placeholder',     300);
     setupDockablePanel('pulse-panel',         'lsb-ph-pulse',          260);
     setupDockablePanel('weather-brief-panel', 'lsb-ph-wx',             420);
     setupDockablePanel('salute-panel',        'lsb-ph-sal',            380);
-    setupDockablePanel('hist-analog-panel',   'lsb-ph-ha',             340);
     setupDockablePanel('op-clock-panel',      'lsb-ph-clk',            340);
-    setupDockablePanel('gn-panel',            'lsb-ph-gn',             400);
-    setupDockablePanel('notebook-panel',      'lsb-ph-nb',             340);
-    setupDockablePanel('tg-sigint-panel',     'lsb-ph-tg',             460);
-    setupDockablePanel('history-panel',        'lsb-ph-hist',           620);
+    // Floating-only panels (on-demand tools)
+    setupFloatingOnlyPanel('hist-analog-panel');
+    setupFloatingOnlyPanel('gn-panel');
+    setupFloatingOnlyPanel('notebook-panel');
+    setupFloatingOnlyPanel('tg-sigint-panel');
+    setupFloatingOnlyPanel('history-panel');
+    setupFloatingOnlyPanel('whatif-panel');
+    setupFloatingOnlyPanel('spof-panel');
+    setupFloatingOnlyPanel('actionplan-panel');
     updateSidebarVisibility();
 
     const map = L.map('map', {
@@ -4953,3 +5007,346 @@
         const theater = document.getElementById('hist-theater')?.value || 'TW';
         window.open(`/api/history/export?theater=${theater}`, '_blank');
     };
+
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── Phase 1: What-If Simulation / SPOF Analysis / Action Plan ──────────
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── G. What-If Simulation Panel ──────────────────────────────────────────
+    const toggleWhatIfPanel = _createPanelToggle('whatif-panel', { onShow: initWhatIfPanel });
+
+    let _whatifCatalog = null;
+
+    async function initWhatIfPanel() {
+        const panel = document.getElementById('whatif-panel');
+        if (!panel || panel.style.display === 'none') return;
+        const body = panel.querySelector('.whatif-body');
+        if (!body) return;
+
+        // Load catalog once
+        if (!_whatifCatalog) {
+            try {
+                const res = await fetch('/api/whatif/catalog');
+                const data = await res.json();
+                _whatifCatalog = data.sensors || [];
+            } catch(e) {
+                body.innerHTML = `<div style="color:#666;text-align:center;font-size:10px;">${_t('panel.whatif.api_error')}</div>`;
+                return;
+            }
+        }
+
+        renderWhatIfForm(body);
+    }
+
+    function renderWhatIfForm(body) {
+        const domains = { cyber: [], physical: [], info: [] };
+        _whatifCatalog.forEach(s => {
+            if (domains[s.domain]) domains[s.domain].push(s);
+        });
+
+        const domainLabels = {
+            cyber:    { label: 'CYBER',    color: '#00ccff' },
+            physical: { label: 'PHYSICAL', color: '#ff8800' },
+            info:     { label: 'INFO',     color: '#aa44ff' },
+        };
+
+        let html = `<div class="whatif-form">`;
+
+        for (const [d, sensors] of Object.entries(domains)) {
+            const dl = domainLabels[d];
+            html += `<div class="whatif-domain-group">`;
+            html += `<div class="whatif-domain-header" style="color:${dl.color}">${dl.label}</div>`;
+            sensors.forEach(s => {
+                const isSuppressor = s.is_suppressor;
+                html += `<div class="whatif-sensor-row" data-sensor="${s.sensor}">`;
+                html += `<label class="whatif-sensor-label" title="${s.sensor}">`;
+                html += `<input type="checkbox" class="whatif-cb" data-sensor="${s.sensor}" ${isSuppressor ? 'data-suppressor="1"' : ''}>`;
+                html += ` ${s.label}</label>`;
+                if (!isSuppressor) {
+                    html += `<input type="number" class="whatif-score" data-sensor="${s.sensor}" min="0" max="${s.max_score}" value="${s.max_score}" style="width:32px;">`;
+                }
+                html += `</div>`;
+            });
+            html += `</div>`;
+        }
+
+        // Bonus controls
+        html += `<div class="whatif-bonus-group">`;
+        html += `<div class="whatif-domain-header" style="color:#ffcc00">${_t('panel.whatif.bonus_header')}</div>`;
+        html += `<div class="whatif-sensor-row">`;
+        html += `<label class="whatif-sensor-label"><input type="checkbox" id="whatif-tl1hard"> ${_t('panel.whatif.tl1_hard')}</label>`;
+        html += `</div>`;
+        html += `<div class="whatif-sensor-row">`;
+        html += `<label class="whatif-sensor-label">${_t('panel.whatif.seq_bonus')}</label>`;
+        html += `<select id="whatif-seq-bonus" style="width:80px;"><option value="0">0</option><option value="1">+1 (PARTIAL)</option><option value="3">+3 (FULL)</option></select>`;
+        html += `</div>`;
+        html += `<div class="whatif-sensor-row">`;
+        html += `<label class="whatif-sensor-label">${_t('panel.whatif.temporal_bonus')}</label>`;
+        html += `<select id="whatif-temporal-bonus" style="width:80px;"><option value="0">0</option><option value="1">+1 (PARTIAL)</option><option value="2">+2 (C2 SYNC)</option></select>`;
+        html += `</div>`;
+        html += `</div>`;
+
+        html += `<button class="whatif-run-btn" onclick="runWhatIfSimulation()">${_t('panel.whatif.run_btn')}</button>`;
+        html += `</div>`;
+        html += `<div class="whatif-result" id="whatif-result"></div>`;
+
+        body.innerHTML = html;
+    }
+
+    window.runWhatIfSimulation = async function() {
+        const events = [];
+        document.querySelectorAll('.whatif-cb:checked').forEach(cb => {
+            const sensor = cb.dataset.sensor;
+            const isSuppressor = cb.dataset.suppressor === '1';
+            const scoreEl = document.querySelector(`.whatif-score[data-sensor="${sensor}"]`);
+            events.push({
+                sensor,
+                score: isSuppressor ? 0 : parseInt(scoreEl?.value || 0),
+                suppressed: isSuppressor,
+            });
+        });
+
+        const tl1Hard = document.getElementById('whatif-tl1hard')?.checked || false;
+        const seqBonus = parseInt(document.getElementById('whatif-seq-bonus')?.value || 0);
+        const temporalBonus = parseInt(document.getElementById('whatif-temporal-bonus')?.value || 0);
+
+        const resultEl = document.getElementById('whatif-result');
+        if (!resultEl) return;
+
+        if (events.length === 0) {
+            resultEl.innerHTML = `<div style="color:#666;text-align:center;font-size:10px;padding:8px;">${_t('panel.whatif.no_events')}</div>`;
+            return;
+        }
+
+        resultEl.innerHTML = `<div style="color:#555;text-align:center;font-size:10px;padding:8px;">${_t('panel.whatif.computing')}</div>`;
+
+        try {
+            const res = await fetch('/api/whatif/simulate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ events, tl1_hard: tl1Hard, sequence_bonus: seqBonus, temporal_bonus: temporalBonus }),
+            });
+            const data = await res.json();
+            renderWhatIfResult(resultEl, data);
+        } catch(e) {
+            resultEl.innerHTML = `<div style="color:#ff4444;text-align:center;font-size:10px;padding:8px;">${_t('panel.whatif.api_error')}</div>`;
+        }
+    };
+
+    function renderWhatIfResult(el, data) {
+        const tlColor = _tlColor(data.threat_level);
+        const convColors = { FULL_CONVERGENCE: '#ff2222', DUAL_DOMAIN: '#ff8800', SINGLE_DOMAIN: '#ffcc00', NONE: '#444' };
+        const convColor = convColors[data.convergence_level] || '#444';
+
+        let html = `<div class="whatif-result-header">`;
+        html += `<div class="whatif-tl-badge" style="background:${tlColor}22;color:${tlColor};border:1px solid ${tlColor}55;">`;
+        html += `TL${data.threat_level}</div>`;
+        html += `<div class="whatif-score-display">`;
+        html += `<span style="color:#aaa;font-size:10px;">${_t('panel.whatif.total_score')}: <b style="color:#eee">${data.score_with_bonus}</b></span>`;
+        html += `<span style="color:${convColor};font-size:9px;">${data.convergence_level.replace('_', ' ')}</span>`;
+        html += `</div></div>`;
+
+        // Domain breakdown
+        html += `<div class="whatif-domain-bars">`;
+        const dColors = { cyber: '#00ccff', physical: '#ff8800', info: '#aa44ff' };
+        for (const [d, info] of Object.entries(data.domain_scores || {})) {
+            const pct = Math.min((info.score / 10) * 100, 100);
+            html += `<div class="whatif-domain-bar">`;
+            html += `<span style="color:${dColors[d]};font-size:9px;min-width:55px;">${d.toUpperCase()} ${info.score}pt</span>`;
+            html += `<div class="whatif-bar-track"><div class="whatif-bar-fill" style="width:${pct}%;background:${dColors[d]}"></div></div>`;
+            html += `<span style="color:#666;font-size:8px;">${info.status}</span>`;
+            html += `</div>`;
+        }
+        html += `</div>`;
+
+        // Bonus summary
+        if (data.convergence_bonus || data.sequence_bonus || data.temporal_bonus) {
+            html += `<div class="whatif-bonus-summary">`;
+            if (data.convergence_bonus) html += `<span class="whatif-bonus-tag">${_t('panel.whatif.conv_bonus')}: +${data.convergence_bonus}</span>`;
+            if (data.sequence_bonus) html += `<span class="whatif-bonus-tag">${_t('panel.whatif.seq_bonus_label')}: +${data.sequence_bonus}</span>`;
+            if (data.temporal_bonus) html += `<span class="whatif-bonus-tag">${_t('panel.whatif.temporal_bonus_label')}: +${data.temporal_bonus}</span>`;
+            if (data.tl1_hard) html += `<span class="whatif-bonus-tag" style="color:#ff2222;">TL1 HARD ✓</span>`;
+            html += `</div>`;
+        }
+
+        // System note
+        html += `<div class="whatif-note">${data.system_note || ''}</div>`;
+
+        el.innerHTML = html;
+    }
+
+
+    // ── H. SPOF Analysis Panel ───────────────────────────────────────────────
+    const toggleSpofPanel = _createPanelToggle('spof-panel', { onShow: renderSpofPanel });
+
+    async function renderSpofPanel() {
+        const panel = document.getElementById('spof-panel');
+        if (!panel || panel.style.display === 'none') return;
+        const body = panel.querySelector('.spof-body');
+        if (!body) return;
+
+        body.innerHTML = `<div style="color:#555;text-align:center;font-size:10px;padding:12px;">${_t('panel.spof.loading')}</div>`;
+
+        try {
+            const res = await fetch('/api/spof_analysis');
+            if (!res.ok) throw new Error('API error');
+            const data = await res.json();
+            renderSpofContent(body, data);
+        } catch(e) {
+            body.innerHTML = `<div style="color:#666;text-align:center;font-size:10px;padding:12px;">${_t('panel.spof.api_error')}</div>`;
+        }
+    }
+
+    function renderSpofContent(body, data) {
+        const critColors = { CRITICAL: '#ff2222', HIGH: '#ff8800', MEDIUM: '#ffcc00', LOW: '#44aa44' };
+        let html = '';
+
+        // Domain health summary
+        html += `<div class="spof-domain-summary">`;
+        const dColors = { cyber: '#00ccff', physical: '#ff8800', info: '#aa44ff' };
+        for (const [d, info] of Object.entries(data.domain_summary || {})) {
+            const redundancy = info.has_redundancy;
+            html += `<div class="spof-domain-card" style="border-color:${dColors[d]}33">`;
+            html += `<div style="color:${dColors[d]};font-size:9px;font-weight:bold;">${d.toUpperCase()}</div>`;
+            html += `<div style="color:#888;font-size:8px;">${_t('panel.spof.sensors_active')}: ${info.fired_count}/${info.sensor_count}</div>`;
+            html += redundancy
+                ? `<div style="color:#44aa44;font-size:8px;">✓ ${_t('panel.spof.redundant')}</div>`
+                : `<div style="color:#ff8800;font-size:8px;">⚠ ${_t('panel.spof.no_redundancy')}</div>`;
+            if (info.critical_spofs > 0) {
+                html += `<div style="color:#ff2222;font-size:8px;">⛔ ${info.critical_spofs} CRITICAL SPOF</div>`;
+            }
+            html += `</div>`;
+        }
+        html += `</div>`;
+
+        // SPOF entries
+        if (data.spof_entries && data.spof_entries.length > 0) {
+            html += `<div class="spof-list-header">${_t('panel.spof.impact_header')}</div>`;
+            data.spof_entries.forEach(entry => {
+                const color = critColors[entry.criticality] || '#666';
+                html += `<div class="spof-entry" style="border-left:2px solid ${color}">`;
+                html += `<div class="spof-entry-top">`;
+                html += `<span class="spof-crit-badge" style="color:${color}">${entry.criticality}</span>`;
+                html += `<span style="color:#ccc;font-size:9px;">${entry.sensor}</span>`;
+                html += `<span style="color:${dColors[entry.domain] || '#888'};font-size:8px;">${entry.domain}</span>`;
+                html += `</div>`;
+                html += `<div class="spof-entry-detail">`;
+                html += `<span style="color:#888;font-size:8px;">${_t('panel.spof.score_impact')}: -${entry.score_impact}pt</span>`;
+                if (entry.domain_lost) html += `<span style="color:#ff4444;font-size:8px;">⚠ ${_t('panel.spof.domain_lost')}</span>`;
+                if (entry.convergence_downgrade) html += `<span style="color:#ff8800;font-size:8px;">↓ ${entry.convergence_from} → ${entry.convergence_to}</span>`;
+                html += `</div>`;
+                // Sensor health indicator
+                const healthColor = entry.health === 'ok' ? '#44aa44' : entry.health === 'stale' ? '#ffcc00' : '#ff4444';
+                html += `<div class="spof-entry-health">`;
+                html += `<span style="color:${healthColor};font-size:8px;">● ${entry.health}</span>`;
+                if (entry.cache_age_sec != null) html += `<span style="color:#555;font-size:8px;">${Math.round(entry.cache_age_sec/60)}m ago</span>`;
+                if (entry.last_error) html += `<span style="color:#ff444488;font-size:7px;" title="${entry.last_error}">err</span>`;
+                html += `</div>`;
+                html += `</div>`;
+            });
+        } else {
+            html += `<div style="color:#44aa44;text-align:center;font-size:10px;padding:12px;">${_t('panel.spof.no_spof')}</div>`;
+        }
+
+        body.innerHTML = html;
+    }
+
+
+    // ── I. Action Plan Panel ─────────────────────────────────────────────────
+    // Static TL-level runbook — no API call needed
+    const toggleActionPlanPanel = _createPanelToggle('actionplan-panel', { onShow: renderActionPlan });
+
+    function renderActionPlan() {
+        const panel = document.getElementById('actionplan-panel');
+        if (!panel || panel.style.display === 'none') return;
+        const body = panel.querySelector('.actionplan-body');
+        if (!body) return;
+
+        // Determine current TL from the HUD
+        const tlEl = document.querySelector('.threat-badge');
+        const currentTl = tlEl ? parseInt(tlEl.textContent.replace(/\D/g, '')) || 5 : 5;
+
+        const plans = {
+            5: {
+                label: 'TL5 — NORMAL',
+                color: '#44aa44',
+                items: [
+                    { icon: '📡', text: _t('panel.ap.tl5.monitor') },
+                    { icon: '🔄', text: _t('panel.ap.tl5.baseline') },
+                    { icon: '📋', text: _t('panel.ap.tl5.review') },
+                ],
+            },
+            4: {
+                label: 'TL4 — GUARDED',
+                color: '#88aa22',
+                items: [
+                    { icon: '👁', text: _t('panel.ap.tl4.watch') },
+                    { icon: '📊', text: _t('panel.ap.tl4.analytics') },
+                    { icon: '🔔', text: _t('panel.ap.tl4.notify') },
+                    { icon: '📝', text: _t('panel.ap.tl4.log') },
+                ],
+            },
+            3: {
+                label: 'TL3 — ELEVATED',
+                color: '#ffcc00',
+                items: [
+                    { icon: '🛡', text: _t('panel.ap.tl3.rate_limit') },
+                    { icon: '🌐', text: _t('panel.ap.tl3.cdn') },
+                    { icon: '📡', text: _t('panel.ap.tl3.increase_polling') },
+                    { icon: '👥', text: _t('panel.ap.tl3.soc_alert') },
+                    { icon: '🔄', text: _t('panel.ap.tl3.backup_dns') },
+                ],
+            },
+            2: {
+                label: 'TL2 — HEIGHTENED',
+                color: '#ff8800',
+                items: [
+                    { icon: '⚡', text: _t('panel.ap.tl2.failover') },
+                    { icon: '🚨', text: _t('panel.ap.tl2.escalate') },
+                    { icon: '🔒', text: _t('panel.ap.tl2.lockdown') },
+                    { icon: '📞', text: _t('panel.ap.tl2.coordinate') },
+                    { icon: '📋', text: _t('panel.ap.tl2.ir_prep') },
+                    { icon: '🌍', text: _t('panel.ap.tl2.geo_block') },
+                ],
+            },
+            1: {
+                label: 'TL1 — CRITICAL',
+                color: '#ff2222',
+                items: [
+                    { icon: '🚨', text: _t('panel.ap.tl1.ir_activate') },
+                    { icon: '📞', text: _t('panel.ap.tl1.report') },
+                    { icon: '🔌', text: _t('panel.ap.tl1.isolate') },
+                    { icon: '📡', text: _t('panel.ap.tl1.backup_comm') },
+                    { icon: '📋', text: _t('panel.ap.tl1.evidence') },
+                    { icon: '👥', text: _t('panel.ap.tl1.full_staff') },
+                    { icon: '🛡', text: _t('panel.ap.tl1.null_route') },
+                ],
+            },
+        };
+
+        let html = '';
+        // Show from current TL upward (more severe)
+        for (let tl = currentTl; tl >= 1; tl--) {
+            const plan = plans[tl];
+            if (!plan) continue;
+            const isCurrent = tl === currentTl;
+            html += `<div class="ap-level-block ${isCurrent ? 'ap-current' : ''}" style="border-color:${plan.color}33">`;
+            html += `<div class="ap-level-header" style="color:${plan.color}">`;
+            html += `${plan.label}`;
+            if (isCurrent) html += ` <span class="ap-current-tag">${_t('panel.ap.current')}</span>`;
+            html += `</div>`;
+            html += `<div class="ap-items">`;
+            plan.items.forEach(item => {
+                html += `<div class="ap-item"><span class="ap-icon">${item.icon}</span><span class="ap-text">${item.text}</span></div>`;
+            });
+            html += `</div></div>`;
+        }
+
+        // If current TL is 5 (normal), also show lower levels collapsed
+        if (currentTl === 5) {
+            html += `<div class="ap-note">${_t('panel.ap.all_clear')}</div>`;
+        }
+
+        body.innerHTML = html;
+    }

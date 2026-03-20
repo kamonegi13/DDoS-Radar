@@ -168,6 +168,22 @@
                     <span class="tools-menu-dot" id="tm-dot-nb"></span>
                 </div>
                 <div class="tools-menu-sep"></div>
+                <div class="tools-menu-item" id="tm-item-wif" onclick="handleToolToggle('whatif-panel', toggleWhatIfPanel, 'tm-dot-wif', 'tm-item-wif')">
+                    <span class="tools-menu-icon">🧪</span>
+                    <span class="tools-menu-label" data-i18n="tools.whatif_sim">What-If Sim</span>
+                    <span class="tools-menu-dot" id="tm-dot-wif"></span>
+                </div>
+                <div class="tools-menu-item" id="tm-item-spof" onclick="handleToolToggle('spof-panel', toggleSpofPanel, 'tm-dot-spof', 'tm-item-spof')">
+                    <span class="tools-menu-icon">🔗</span>
+                    <span class="tools-menu-label" data-i18n="tools.spof_analysis">SPOF Analysis</span>
+                    <span class="tools-menu-dot" id="tm-dot-spof"></span>
+                </div>
+                <div class="tools-menu-item" id="tm-item-ap" onclick="handleToolToggle('actionplan-panel', toggleActionPlanPanel, 'tm-dot-ap', 'tm-item-ap')">
+                    <span class="tools-menu-icon">📑</span>
+                    <span class="tools-menu-label" data-i18n="tools.action_plan">Action Plan</span>
+                    <span class="tools-menu-dot" id="tm-dot-ap"></span>
+                </div>
+                <div class="tools-menu-sep"></div>
                 <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();">
                     <span class="tools-menu-icon">👤</span>
                     <span class="tools-menu-label" data-i18n="tools.user_management">User Management</span>
@@ -284,12 +300,7 @@
         <div id="lsb-ph-pulse"></div>
         <div id="lsb-ph-wx"></div>
         <div id="lsb-ph-sal"></div>
-        <div id="lsb-ph-ha"></div>
         <div id="lsb-ph-clk"></div>
-        <div id="lsb-ph-gn"></div>
-        <div id="lsb-ph-nb"></div>
-        <div id="lsb-ph-tg"></div>
-        <div id="lsb-ph-hist"></div>
     </div>
 
     <div id="map-wrapper">
@@ -899,13 +910,60 @@
     <div class="drag-handle panel-header-unified">
         <span data-i18n="panel.ha.title">HISTORICAL ANALOG</span>
         <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
             <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('hist-analog-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
     </div>
     <div class="panel-content ha-body">
         <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Phase 1: What-If Simulation (draggable)
+═══════════════════════════════════════════════════════ -->
+<div id="whatif-panel" class="draggable-panel floating" style="display:none; left:60px; top:120px; width:340px;">
+    <div class="drag-handle panel-header-unified">
+        <span data-i18n="panel.whatif.title">WHAT-IF SIMULATION</span>
+        <div>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('whatif-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
+        </div>
+    </div>
+    <div class="panel-content whatif-body" style="max-height:520px; overflow-y:auto;">
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">Loading...</div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Phase 1: SPOF Analysis (draggable)
+═══════════════════════════════════════════════════════ -->
+<div id="spof-panel" class="draggable-panel floating" style="display:none; left:420px; top:120px; width:320px;">
+    <div class="drag-handle panel-header-unified">
+        <span data-i18n="panel.spof.title">SPOF ANALYSIS</span>
+        <div>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('spof-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
+        </div>
+    </div>
+    <div class="panel-content spof-body" style="max-height:420px; overflow-y:auto;">
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">Loading...</div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Phase 1: Action Plan / Runbook (draggable)
+═══════════════════════════════════════════════════════ -->
+<div id="actionplan-panel" class="draggable-panel floating" style="display:none; left:760px; top:120px; width:300px;">
+    <div class="drag-handle panel-header-unified">
+        <span data-i18n="panel.ap.title">ACTION PLAN</span>
+        <div>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('actionplan-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
+        </div>
+    </div>
+    <div class="panel-content actionplan-body" style="max-height:480px; overflow-y:auto;">
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">Loading...</div>
     </div>
 </div>
 
@@ -1557,11 +1615,11 @@
         <div class="guide-chapter" id="guide-ch-8">
         <div class="guide-lang-en">
         <h4>8. Intuition UI — Recognition-Primed Decision (RPD) Components</h4>
-        <p>Eleven visual components designed to engage analyst intuition and pattern-recognition (Recognition-Primed Decision) in parallel with numerical computation. Based on Naturalistic Decision Making (NDM) theory; intended for immediate situational awareness formation.</p>
+        <p>Fourteen visual components designed to engage analyst intuition and pattern-recognition (Recognition-Primed Decision) in parallel with numerical computation. Based on Naturalistic Decision Making (NDM) theory; intended for immediate situational awareness formation.</p>
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">How to access</div>
-            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of 6 panels: Weather Brief / SALUTE Board / Historical Analog / Ops Clock / GreyNoise / Analyst Notebook (cyan = active). Close each panel individually with ✕. Always-on components (Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain) operate automatically without any interaction. The <b>Telegram SIGINT</b> panel is opened via the <b>SIGINT↗</b> button on the Telegram Mirror row in the CHAIN panel.</p>
+            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of 9 panels: Weather Brief / SALUTE Board / Historical Analog / Ops Clock / GreyNoise / Analyst Notebook / What-If Sim / SPOF Analysis / Action Plan (cyan = active). Close each panel individually with ✕. Always-on components (Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain) operate automatically without any interaction. The <b>Telegram SIGINT</b> panel is opened via the <b>SIGINT↗</b> button on the Telegram Mirror row in the CHAIN panel.</p>
         </div>
 
         <p><b>A. Ambient Atmosphere</b></p>
@@ -1652,10 +1710,33 @@
             <li><b>False-Positive Suppression:</b> The sensor applies word-boundary regex matching (<span class="code-block">\b</span>) to avoid substring collisions (e.g., "target" matching "targeting"). Keywords ≤ 2 characters are skipped entirely. Multi-word keywords and hashtags use exact substring matching.</li>
         </ul>
 
+        <p><b>L. What-If Simulation</b> <span style="color:#66ffcc;">[Phase 1]</span> — <span class="code-block">TOOLS ▾</span> → What-If Sim</p>
+        <ul>
+            <li><b>Purpose:</b> Sandbox mode for analysts to inject virtual sensor events and preview how the convergence engine responds — without affecting live threat assessment. Enables training, exercise scenarios, and regression verification of engine changes.</li>
+            <li><b>Sensor Selector:</b> Lists all 18+ sensors grouped by domain (Cyber / Physical / Info). Check a sensor to activate it; set its score contribution (0 to max). Suppressor sensors (GreyNoise, Weather) can be toggled to simulate noise suppression.</li>
+            <li><b>Bonus Controls:</b> Override TL1 hard gate (core_degraded), inject Sequence Bonus (+1 PARTIAL / +3 FULL CHAIN), and Temporal Coherence Bonus (+1 PARTIAL / +2 C2 SYNC).</li>
+            <li><b>Simulation Output:</b> Displays computed Threat Level badge, total score with bonus breakdown, domain score bars, convergence level, and the full system note — identical to the live engine output. All computation runs server-side using the same <span class="code-block">WeightedConvergenceEngine</span> instance.</li>
+        </ul>
+
+        <p><b>M. SPOF Analysis</b> <span style="color:#66ffcc;">[Phase 1]</span> — <span class="code-block">TOOLS ▾</span> → SPOF Analysis</p>
+        <ul>
+            <li><b>Purpose:</b> Identifies single points of failure in the current sensor constellation. Shows what happens to threat assessment if any active sensor goes offline.</li>
+            <li><b>Domain Health Cards:</b> One card per domain (Cyber / Physical / Info) showing active/total sensor count, redundancy status, and count of critical SPOFs.</li>
+            <li><b>Impact Table:</b> For each currently-firing sensor, computes the score impact of its removal, whether it would deactivate a domain, and whether convergence level would downgrade. Entries sorted by criticality: CRITICAL (domain lost / convergence downgrade) → HIGH (≥3pt impact) → MEDIUM → LOW.</li>
+            <li><b>Sensor Health:</b> Shows real-time health status, cache age, and last error for each sensor in the SPOF list.</li>
+        </ul>
+
+        <p><b>N. Action Plan</b> <span style="color:#66ffcc;">[Phase 1]</span> — <span class="code-block">TOOLS ▾</span> → Action Plan</p>
+        <ul>
+            <li><b>Purpose:</b> TL-level-specific runbook displayed as a checklist. Shows recommended defensive actions for the current threat level and all higher (more severe) levels.</li>
+            <li><b>Current Level Highlight:</b> The active TL block is visually emphasized with a thicker border and "CURRENT" tag. Scrolling upward reveals escalation procedures for higher threat levels.</li>
+            <li><b>Content:</b> TL5 (routine monitoring) → TL4 (increased watch) → TL3 (CDN hardening, SOC alert) → TL2 (failover prep, leadership escalation, geo-blocking) → TL1 (IR activation, CERT reporting, network isolation, evidence preservation).</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>8. 直感 UI — 識別先行意思決定（RPD）コンポーネント</h4>
-        <p>数値計算と並行してアナリストの直感とパターン認識（識別先行意思決定）を活性化するために設計された11のビジュアルコンポーネント。自然主義的意思決定（NDM）理論に基づく；即時の状況認識形成を目的とする。</p>
+        <p>数値計算と並行してアナリストの直感とパターン認識（識別先行意思決定）を活性化するために設計された14のビジュアルコンポーネント。自然主義的意思決定（NDM）理論に基づく；即時の状況認識形成を目的とする。</p>
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">アクセス方法</div>
@@ -1750,6 +1831,29 @@
             <li><b>誤検知抑制:</b> センサーは部分文字列衝突を避けるため、単語境界正規表現マッチング（<span class="code-block">\b</span>）を適用（例: "target" が "targeting" に一致しないよう）。2文字以下のキーワードは完全にスキップ。複数単語キーワードとハッシュタグは完全部分文字列マッチングを使用。</li>
         </ul>
 
+        <p><b>L. What-Ifシミュレーション</b> <span style="color:#66ffcc;">[Phase 1]</span> — <span class="code-block">TOOLS ▾</span> → What-If Sim</p>
+        <ul>
+            <li><b>目的:</b> アナリストが仮想センサーイベントを注入し、収斂エンジンの応答をプレビューするサンドボックスモード — ライブ脅威評価に影響を与えません。訓練、演習シナリオ、エンジン変更の回帰検証に使用。</li>
+            <li><b>センサーセレクター:</b> 全18+センサーをドメイン別（Cyber / Physical / Info）にグループ化して表示。チェックボックスでセンサーを有効化、スコア寄与度（0〜最大値）を設定。抑制センサー（GreyNoise、Weather）はノイズ抑制シミュレーション用にトグル可能。</li>
+            <li><b>ボーナス制御:</b> TL1ハードゲート（core_degraded）のオーバーライド、シーケンスボーナス（+1 PARTIAL / +3 FULL CHAIN）、時間的整合性ボーナス（+1 PARTIAL / +2 C2 SYNC）を注入可能。</li>
+            <li><b>シミュレーション出力:</b> 脅威レベルバッジ、ボーナス内訳付き合計スコア、ドメインスコアバー、収斂レベル、システムノートを表示 — ライブエンジン出力と同一。全計算はサーバーサイドで同一の <span class="code-block">WeightedConvergenceEngine</span> インスタンスを使用。</li>
+        </ul>
+
+        <p><b>M. SPOF分析</b> <span style="color:#66ffcc;">[Phase 1]</span> — <span class="code-block">TOOLS ▾</span> → SPOF Analysis</p>
+        <ul>
+            <li><b>目的:</b> 現在のセンサー構成における単一障害点（SPOF）を特定。アクティブセンサーがオフラインになった場合の脅威評価への影響を表示。</li>
+            <li><b>ドメイン健全性カード:</b> ドメインごと（Cyber / Physical / Info）に1枚のカード。アクティブ/合計センサー数、冗長性ステータス、重大SPOFの数を表示。</li>
+            <li><b>影響テーブル:</b> 現在発火中の各センサーについて、その除去時のスコア影響、ドメインの無効化有無、収斂レベルの格下げ有無を計算。重要度順にソート: CRITICAL（ドメイン喪失/収斂格下げ）→ HIGH（3pt以上影響）→ MEDIUM → LOW。</li>
+            <li><b>センサー健全性:</b> SPOFリスト内の各センサーのリアルタイム健全性ステータス、キャッシュ経過時間、最終エラーを表示。</li>
+        </ul>
+
+        <p><b>N. アクションプラン</b> <span style="color:#66ffcc;">[Phase 1]</span> — <span class="code-block">TOOLS ▾</span> → Action Plan</p>
+        <ul>
+            <li><b>目的:</b> TLレベル別の防御行動チェックリスト（Runbook）。現在の脅威レベルおよび全上位（より深刻な）レベルの推奨アクションを表示。</li>
+            <li><b>現在レベルのハイライト:</b> アクティブなTLブロックは太枠と「現在」タグで視覚的に強調。上にスクロールすると上位脅威レベルのエスカレーション手順を閲覧可能。</li>
+            <li><b>内容:</b> TL5（通常監視）→ TL4（監視強化）→ TL3（CDN強化、SOCアラート）→ TL2（フェイルオーバー準備、幹部エスカレーション、ジオブロッキング）→ TL1（IR発動、CERT報告、ネットワーク隔離、証拠保全）。</li>
+        </ul>
+
         </div>
         </div><!-- /guide-ch-8 -->
         <div class="guide-chapter" id="guide-ch-9">
@@ -1785,6 +1889,9 @@
             <li><span class="code-block">GET /api/history/export?theater=TW</span> — Export all historical data as JSON download (admin only). Includes all series, HOD baselines, sequence events, and threat history.</li>
             <li><span class="code-block">POST /api/auth/change-password</span> — Change own password. Body: {old_password, new_password}.</li>
             <li><span class="code-block">PUT /api/auth/settings</span> — Save per-user settings (theater config, language, muted sensors). Body: {settings object}.</li>
+            <li><span class="code-block">GET /api/whatif/catalog</span> — Returns the sensor catalog for What-If simulation (sensor name, domain, label, max score, suppressor flag).</li>
+            <li><span class="code-block">POST /api/whatif/simulate</span> — Run a What-If simulation. Body: <span class="code-block">{"events":[{"sensor":"cf_spike_core","score":3}], "tl1_hard":false, "sequence_bonus":0, "temporal_bonus":0}</span>. Returns simulated threat level, domain scores, convergence, and system note.</li>
+            <li><span class="code-block">GET /api/spof_analysis</span> — Compute SPOF analysis for the current threat state. Returns per-sensor impact assessment, domain health summary, and criticality ranking.</li>
         </ul>
         </div>
         <div class="guide-lang-ja" style="display:none;">
@@ -1819,6 +1926,9 @@
             <li><span class="code-block">GET /api/history/export?theater=TW</span> — 全履歴データを JSON としてエクスポート・ダウンロード（admin のみ）。全シリーズ、HOD ベースライン、シーケンスイベント、脅威履歴を含む。</li>
             <li><span class="code-block">POST /api/auth/change-password</span> — 自身のパスワード変更。ボディ: {old_password, new_password}。</li>
             <li><span class="code-block">PUT /api/auth/settings</span> — ユーザー別設定の保存（シアター設定、言語、ミュートセンサー）。ボディ: {settings オブジェクト}。</li>
+            <li><span class="code-block">GET /api/whatif/catalog</span> — What-Ifシミュレーション用のセンサーカタログを返す（センサー名、ドメイン、ラベル、最大スコア、抑制フラグ）。</li>
+            <li><span class="code-block">POST /api/whatif/simulate</span> — What-Ifシミュレーションを実行。ボディ: <span class="code-block">{"events":[{"sensor":"cf_spike_core","score":3}], "tl1_hard":false, "sequence_bonus":0, "temporal_bonus":0}</span>。シミュレーションされた脅威レベル、ドメインスコア、収斂レベル、システムノートを返す。</li>
+            <li><span class="code-block">GET /api/spof_analysis</span> — 現在の脅威状態のSPOF分析を計算。センサーごとの影響評価、ドメイン健全性サマリー、重要度ランキングを返す。</li>
         </ul>
         </div>
         </div><!-- /guide-ch-9 -->
@@ -1927,7 +2037,6 @@
     <div class="drag-handle panel-header-unified">
         <span>GreyNoise Investigator</span>
         <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
             <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('gn-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
@@ -1971,7 +2080,6 @@
     <div class="drag-handle panel-header-unified">
         <span data-i18n="panel.history.title">History Analysis</span>
         <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
             <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('history-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
@@ -2033,7 +2141,6 @@
     <div class="drag-handle panel-header-unified">
         <span>Analyst Notebook</span>
         <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
             <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('notebook-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
@@ -2088,7 +2195,6 @@
     <div class="drag-handle panel-header-unified">
         <span>Telegram SIGINT</span>
         <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
             <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('tg-sigint-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>

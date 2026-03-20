@@ -592,6 +592,72 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     'tools.history_analysis':         'History Analysis',
     'tools.user_management':          'User Management',
+    'tools.whatif_sim':               'What-If Sim',
+    'tools.spof_analysis':            'SPOF Analysis',
+    'tools.action_plan':              'Action Plan',
+
+    // ══════════════════════════════════════════════════════════════
+    // What-If Simulation panel
+    // ══════════════════════════════════════════════════════════════
+    'panel.whatif.title':             'WHAT-IF SIMULATION',
+    'panel.whatif.bonus_header':      'BONUSES & FLAGS',
+    'panel.whatif.tl1_hard':          'Core Degraded (TL1 Hard Gate)',
+    'panel.whatif.seq_bonus':         'Sequence Bonus',
+    'panel.whatif.temporal_bonus':    'Temporal Coherence',
+    'panel.whatif.run_btn':           'RUN SIMULATION',
+    'panel.whatif.no_events':         'Select at least one sensor event to simulate.',
+    'panel.whatif.computing':         'Computing...',
+    'panel.whatif.api_error':         'API unavailable',
+    'panel.whatif.total_score':       'Total Score',
+    'panel.whatif.conv_bonus':        'Convergence',
+    'panel.whatif.seq_bonus_label':   'Sequence',
+    'panel.whatif.temporal_bonus_label': 'Temporal',
+
+    // ══════════════════════════════════════════════════════════════
+    // SPOF Analysis panel
+    // ══════════════════════════════════════════════════════════════
+    'panel.spof.title':               'SPOF ANALYSIS',
+    'panel.spof.loading':             'Analyzing sensor dependencies...',
+    'panel.spof.api_error':           'No threat data available yet. Wait for first polling cycle.',
+    'panel.spof.sensors_active':      'Active',
+    'panel.spof.redundant':           'Redundant',
+    'panel.spof.no_redundancy':       'Single sensor',
+    'panel.spof.impact_header':       'SENSOR FAILURE IMPACT',
+    'panel.spof.score_impact':        'Score impact',
+    'panel.spof.domain_lost':         'Domain deactivated',
+    'panel.spof.no_spof':             'All sensors nominal — no critical dependencies.',
+
+    // ══════════════════════════════════════════════════════════════
+    // Action Plan panel
+    // ══════════════════════════════════════════════════════════════
+    'panel.ap.title':                 'ACTION PLAN',
+    'panel.ap.current':               'CURRENT',
+    'panel.ap.all_clear':             'All clear — review escalation procedures below for readiness.',
+    'panel.ap.tl5.monitor':           'Maintain routine OSINT monitoring cycle',
+    'panel.ap.tl5.baseline':          'Verify HOD baseline data collection is active',
+    'panel.ap.tl5.review':            'Review sensor health dashboard weekly',
+    'panel.ap.tl4.watch':             'Increase monitoring frequency to 15-min intervals',
+    'panel.ap.tl4.analytics':         'Review Deep Analytics for anomaly confirmation',
+    'panel.ap.tl4.notify':            'Notify on-duty analyst of elevated status',
+    'panel.ap.tl4.log':               'Begin logging observations in Analyst Notebook',
+    'panel.ap.tl3.rate_limit':        'Enforce CDN rate limiting on critical endpoints',
+    'panel.ap.tl3.cdn':               'Verify CDN/WAF rules are up to date',
+    'panel.ap.tl3.increase_polling':  'Switch to 5-min polling (SYNC mode)',
+    'panel.ap.tl3.soc_alert':         'Alert SOC team and begin active monitoring',
+    'panel.ap.tl3.backup_dns':        'Activate backup DNS configuration',
+    'panel.ap.tl2.failover':          'Prepare infrastructure failover (standby activation)',
+    'panel.ap.tl2.escalate':          'Escalate to senior leadership / duty officer',
+    'panel.ap.tl2.lockdown':          'Enable enhanced access controls on critical systems',
+    'panel.ap.tl2.coordinate':        'Coordinate with ISP / upstream providers',
+    'panel.ap.tl2.ir_prep':           'Stage incident response team and playbook',
+    'panel.ap.tl2.geo_block':         'Consider geo-blocking adversary origin ASNs',
+    'panel.ap.tl1.ir_activate':       'ACTIVATE incident response procedure',
+    'panel.ap.tl1.report':            'Report to CERT / relevant authorities',
+    'panel.ap.tl1.isolate':           'Isolate compromised network segments',
+    'panel.ap.tl1.backup_comm':       'Switch to backup communication channels',
+    'panel.ap.tl1.evidence':          'Begin forensic evidence preservation',
+    'panel.ap.tl1.full_staff':        'Full SOC staffing — all hands on deck',
+    'panel.ap.tl1.null_route':        'Deploy null-route / blackhole for attack traffic',
 
     // ══════════════════════════════════════════════════════════════
     // User Management panel
@@ -1320,6 +1386,72 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     'tools.history_analysis':         '履歴分析',
     'tools.user_management':          'ユーザー管理',
+    'tools.whatif_sim':               'What-Ifシミュレーション',
+    'tools.spof_analysis':            'SPOF分析',
+    'tools.action_plan':              'アクションプラン',
+
+    // ══════════════════════════════════════════════════════════════
+    // What-If Simulation panel
+    // ══════════════════════════════════════════════════════════════
+    'panel.whatif.title':             'WHAT-IFシミュレーション',
+    'panel.whatif.bonus_header':      'ボーナス＆フラグ',
+    'panel.whatif.tl1_hard':          'コア劣化 (TL1ハードゲート)',
+    'panel.whatif.seq_bonus':         'シーケンスボーナス',
+    'panel.whatif.temporal_bonus':    '時間的整合性',
+    'panel.whatif.run_btn':           'シミュレーション実行',
+    'panel.whatif.no_events':         'シミュレーションするセンサーイベントを1つ以上選択してください。',
+    'panel.whatif.computing':         '計算中...',
+    'panel.whatif.api_error':         'API接続エラー',
+    'panel.whatif.total_score':       '合計スコア',
+    'panel.whatif.conv_bonus':        '収斂',
+    'panel.whatif.seq_bonus_label':   'シーケンス',
+    'panel.whatif.temporal_bonus_label': '時間的整合',
+
+    // ══════════════════════════════════════════════════════════════
+    // SPOF Analysis panel
+    // ══════════════════════════════════════════════════════════════
+    'panel.spof.title':               'SPOF分析',
+    'panel.spof.loading':             'センサー依存関係を分析中...',
+    'panel.spof.api_error':           '脅威データがまだありません。最初のポーリングサイクルを待ってください。',
+    'panel.spof.sensors_active':      'アクティブ',
+    'panel.spof.redundant':           '冗長性あり',
+    'panel.spof.no_redundancy':       'センサー単一',
+    'panel.spof.impact_header':       'センサー障害影響分析',
+    'panel.spof.score_impact':        'スコア影響',
+    'panel.spof.domain_lost':         'ドメイン無効化',
+    'panel.spof.no_spof':             '全センサー正常 — 重大な依存関係なし。',
+
+    // ══════════════════════════════════════════════════════════════
+    // Action Plan panel
+    // ══════════════════════════════════════════════════════════════
+    'panel.ap.title':                 'アクションプラン',
+    'panel.ap.current':               '現在',
+    'panel.ap.all_clear':             '異常なし — 以下のエスカレーション手順を確認してください。',
+    'panel.ap.tl5.monitor':           '通常のOSINT監視サイクルを維持',
+    'panel.ap.tl5.baseline':          'HODベースラインデータ収集が有効か確認',
+    'panel.ap.tl5.review':            '週次でセンサー健全性ダッシュボードをレビュー',
+    'panel.ap.tl4.watch':             '監視頻度を15分間隔に増加',
+    'panel.ap.tl4.analytics':         'Deep Analyticsで異常を確認',
+    'panel.ap.tl4.notify':            '当直アナリストに状態変化を通知',
+    'panel.ap.tl4.log':               'アナリストノートブックに観察記録を開始',
+    'panel.ap.tl3.rate_limit':        '重要エンドポイントにCDNレート制限を適用',
+    'panel.ap.tl3.cdn':               'CDN/WAFルールが最新か確認',
+    'panel.ap.tl3.increase_polling':  '5分間隔ポーリングに切替（SYNCモード）',
+    'panel.ap.tl3.soc_alert':         'SOCチームに警戒態勢を通知',
+    'panel.ap.tl3.backup_dns':        'バックアップDNS設定を有効化',
+    'panel.ap.tl2.failover':          'インフラのフェイルオーバー準備（スタンバイ起動）',
+    'panel.ap.tl2.escalate':          '上級幹部/当直責任者にエスカレーション',
+    'panel.ap.tl2.lockdown':          '重要システムのアクセス制御を強化',
+    'panel.ap.tl2.coordinate':        'ISP/上流プロバイダと連携',
+    'panel.ap.tl2.ir_prep':           'インシデントレスポンスチームとプレイブックを待機',
+    'panel.ap.tl2.geo_block':         '敵対国ASNのジオブロッキングを検討',
+    'panel.ap.tl1.ir_activate':       'インシデントレスポンス手順を発動',
+    'panel.ap.tl1.report':            'CERT/関係当局に報告',
+    'panel.ap.tl1.isolate':           '侵害されたネットワークセグメントを隔離',
+    'panel.ap.tl1.backup_comm':       'バックアップ通信チャネルに切替',
+    'panel.ap.tl1.evidence':          'フォレンジック証拠保全を開始',
+    'panel.ap.tl1.full_staff':        'SOC全員召集 — 総員配置',
+    'panel.ap.tl1.null_route':        '攻撃トラフィックのnull-route/ブラックホール展開',
 
     // ══════════════════════════════════════════════════════════════
     // User Management panel
