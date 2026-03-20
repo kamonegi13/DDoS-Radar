@@ -1316,13 +1316,13 @@ const LANG = {
     'survival.asphyx_note':           '⚠ アスフィキシエーション検知\n  成功率=100%だが遅延が3×ベースライン以上\n  CDNがパケットロスを隠蔽中 — インフラ圧迫',
 
     // ══════════════════════════════════════════════════════════════
-    // Tools menu — 追加項目
+    // Tools menu — additional items
     // ══════════════════════════════════════════════════════════════
     'tools.history_analysis':         '履歴分析',
     'tools.user_management':          'ユーザー管理',
 
     // ══════════════════════════════════════════════════════════════
-    // ユーザー管理パネル
+    // User Management panel
     // ══════════════════════════════════════════════════════════════
     'panel.usermgr.title':            'ユーザー管理',
     'panel.usermgr.authenticate':     '認証',
@@ -1378,7 +1378,7 @@ const LANG = {
     'panel.usermgr.role_desc.viewer': '閲覧専用。ダッシュボード閲覧、フェッチログ確認、自身のパスワード変更のみ。',
 
     // ══════════════════════════════════════════════════════════════
-    // 履歴分析パネル
+    // History Analysis panel
     // ══════════════════════════════════════════════════════════════
     'panel.history.title':            '履歴分析',
     'panel.history.theater':          'シアター：',
@@ -1408,23 +1408,23 @@ const LANG = {
     'panel.history.label.transitions':'{n} 遷移',
     'panel.history.label.peak':       'ピーク',
 
-    // ── 脅威レベルラベル（HUD） ─────────────────────────────────
+    // ── Threat level labels (HUD) ──────────────────────────────
     'threat_lv.5':                    '脅威 Lv 5: 正常',
     'threat_lv.4':                    '脅威 Lv 4: 警戒',
     'threat_lv.3':                    '脅威 Lv 3: 高',
     'threat_lv.2':                    '脅威 Lv 2: 深刻',
     'threat_lv.1':                    '脅威 Lv 1: 危機的',
 
-    // ── Telegram SIGINT ステータス ──────────────────────────────
+    // ── Telegram SIGINT status ────────────────────────────────
     'tg.hud.intent':                  '意図検知 ({n} ch)',
     'tg.hud.targets_found':           '標的確認',
     'tg.hud.clear':                   '異常なし',
 
-    // ── 単位ラベル ──────────────────────────────────────────────
+    // ── Unit labels ───────────────────────────────────────────
     'unit.aircraft':                  '{n} 機',
     'unit.vessels':                   '{n} 隻',
 
-    // ── テレメトリバッジ / ツールチップ ─────────────────────────
+    // ── Telemetry badges / tooltips ────────────────────────────
     'badge.bgp_outage':               'BGP⚠',
     'badge.bgp_wx':                   'BGP(天候)',
     'badge.media_alert':              'M⚠',
@@ -1444,23 +1444,23 @@ const LANG = {
     'tooltip.cdn_asphyxiation':       'CDN窒息: 成功率は正常だがレイテンシがベースラインの3倍以上',
     'tooltip.thermal_anomaly':        '熱異常 (FIRMS)',
 
-    // ── ISR / マップポップアップ ────────────────────────────────
+    // ── ISR / map popups ─────────────────────────────────────
     'map.popup.isr_track':            '▲ ISR 追跡',
     'map.popup.isr_callsign':         'コールサイン: {cs}',
     'map.popup.isr_alt_speed':        '高度: {alt} km  |  速度: {spd} kt',
     'map.popup.isr_squawk':           'スコーク: {sq}',
 
-    // ── CIP パネル追加ラベル ────────────────────────────────────
+    // ── CIP panel extra labels ────────────────────────────────
     'cip.label.baseline_28d':         'ベースライン(28日): {base}  Δ {delta}',
 
-    // ── 設定保存ステータス ──────────────────────────────────────
+    // ── Config save status ────────────────────────────────────
     'config.status.saving':           '保存中...',
     'config.status.saved':            '✓ 保存完了（{n} 件更新）',
     'config.status.error':            '✗ エラー: {msg}',
     'config.status.load_error':       '読み込み失敗: {msg}',
 
     // ══════════════════════════════════════════════════════════════
-    // システム設定 — 追加フィールド
+    // System Config — additional fields
     // ══════════════════════════════════════════════════════════════
     'sysconfig.section.server':       'サーバー',
     'sysconfig.help.host_external':   '外部からアクセスする場合は 0.0.0.0 に設定',

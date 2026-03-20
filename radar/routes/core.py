@@ -512,8 +512,8 @@ def get_threat_data():
         ch_status        = core_checkhost.get("status", "UNKNOWN")
         ch_success_rate  = core_checkhost.get("theater_success_rate")
         if check_host_sensor and check_host_sensor.enabled:
-            # PARTIAL = 1〜2ノードの到達失敗。Maskirovkaポリシーと一貫性を保つため+1に抑制。
-            # BLACKOUT = 全ノード到達不能 = 重大なインフラ劣化として+3を維持。
+            # PARTIAL = 1-2 node failures; capped at +1 for consistency with maskirovka policy.
+            # BLACKOUT = all nodes unreachable = severe infra degradation; keep +3.
             ch_score = (3 if ch_status == "BLACKOUT" else 1 if ch_status == "PARTIAL" else 0)
             ch_fired = ch_status in ("BLACKOUT", "PARTIAL")
             add_rat("check_host", "physical",
