@@ -20,7 +20,9 @@ from radar.ws import emit_threat_update, emit_ambush_alert, emit_sequence_event
 from radar.notifications import notify_threat_level_change, notify_sequence_complete
 from radar.sensors.checkhost import CHECKHOST_NODES
 from radar.sensors.telegram import TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD, TelegramMirrorSensor
-from radar.routes import bp, registry, engine
+import radar.routes as _routes
+from radar.routes import bp
+from radar.engine import WeightedConvergenceEngine
 
 @bp.route("/api/app_config", methods=["GET"])
 def app_config():
@@ -87,7 +89,7 @@ def get_threat_data():
     if force_sync:
         executor = ThreadPoolExecutor(max_workers=10)
         futures = [executor.submit(sensor.fetch, sensor_context)
-                   for sensor in registry._sensors.values() if sensor.enabled]
+                   for sensor in _routes.registry._sensors.values() if sensor.enabled]
         try:
             for future in as_completed(futures, timeout=60):
                 try:
@@ -103,38 +105,38 @@ def get_threat_data():
 
     if (current_time - st.global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync:
         # Extract required states from caches
-        cf_sensor = registry.get("cloudflare_radar")
-        ioda_sensor = registry.get("ioda_bgp")
+        cf_sensor = _routes.registry.get("cloudflare_radar")
+        ioda_sensor = _routes.registry.get("ioda_bgp")
         ioda_data = ioda_sensor.get_cache().get("statuses", {}) if ioda_sensor else {}
-        owm_sensor = registry.get("openweather")
+        owm_sensor = _routes.registry.get("openweather")
         weather_conditions = owm_sensor.get_cache().get("conditions", {}) if owm_sensor else {}
-        opensky_sensor = registry.get("opensky")
+        opensky_sensor = _routes.registry.get("opensky")
         airspace_data = opensky_sensor.get_cache().get("airports", {}) if opensky_sensor else {}
-        gdelt_sensor = registry.get("gdelt")
+        gdelt_sensor = _routes.registry.get("gdelt")
         gdelt_tones = gdelt_sensor.get_cache().get("gdelt_tones", {}) if gdelt_sensor else {}
-        peeringdb_sensor = registry.get("peeringdb_ixp")
+        peeringdb_sensor = _routes.registry.get("peeringdb_ixp")
         ixp_data = peeringdb_sensor.get_cache().get("ixp_data", {}) if peeringdb_sensor else {}
-        bgp_routing_sensor = registry.get("ripe_bgp")
+        bgp_routing_sensor = _routes.registry.get("ripe_bgp")
         bgp_routing_data = bgp_routing_sensor.get_cache().get("routing_stats", {}) if bgp_routing_sensor else {}
-        nasa_firms_sensor = registry.get("nasa_firms")
+        nasa_firms_sensor = _routes.registry.get("nasa_firms")
         nasa_firms_data = nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else []
-        threatfox_sensor = registry.get("threatfox")
+        threatfox_sensor = _routes.registry.get("threatfox")
         threatfox_data = threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {}
         # Fetch additional sensor data (v8)
-        rss_narrative_sensor = registry.get("rss_narrative")
+        rss_narrative_sensor = _routes.registry.get("rss_narrative")
         narrative_data = rss_narrative_sensor.get_cache().get("narratives", {}) if rss_narrative_sensor else {}
-        isr_hotspot_sensor = registry.get("isr_hotspot")
+        isr_hotspot_sensor = _routes.registry.get("isr_hotspot")
         isr_data = isr_hotspot_sensor.get_cache().get("isr_data", {}) if isr_hotspot_sensor else {}
-        ais_maritime_sensor = registry.get("ais_maritime")
+        ais_maritime_sensor = _routes.registry.get("ais_maritime")
         ais_dark_gaps        = ais_maritime_sensor.get_cache().get("dark_gaps", []) if ais_maritime_sensor else []
         ais_stationary       = ais_maritime_sensor.get_cache().get("stationary_anomalies", []) if ais_maritime_sensor else []
         ais_has_anomaly      = ais_maritime_sensor.get_cache().get("has_anomaly", False) if ais_maritime_sensor else False
         # Fetch additional sensor data (v9)
-        telegram_mirror_sensor = registry.get("telegram_mirror")
+        telegram_mirror_sensor = _routes.registry.get("telegram_mirror")
         telegram_data          = telegram_mirror_sensor.get_cache().get("telegram", {}) if telegram_mirror_sensor else {}
-        check_host_sensor      = registry.get("check_host")
+        check_host_sensor      = _routes.registry.get("check_host")
         checkhost_data         = check_host_sensor.get_cache().get("check_host", {}) if check_host_sensor else {}
-        greynoise_sensor       = registry.get("greynoise")
+        greynoise_sensor       = _routes.registry.get("greynoise")
         greynoise_data         = greynoise_sensor.get_cache().get("greynoise", {}) if greynoise_sensor else {}
 
         airspace_anomalies, noise_filters_applied = [], []
@@ -538,7 +540,7 @@ def get_threat_data():
         # Build sequence_event_log dict for temporal coherence analysis
         _seq_events_dict = {th: _db.seq_all_events(th) for th in strategic_theaters_set}
         is_c2_sync, coherence_score, temporal_bonus, temporal_detail = \
-            engine.compute_temporal_coherence(_seq_events_dict, list(strategic_theaters_set))
+            _routes.engine.compute_temporal_coherence(_seq_events_dict, list(strategic_theaters_set))
 
         # ── Asphyxiation flag from Check-Host (CDN masking detection) ───────────
         ch_asphyxiation = core_checkhost.get("asphyxiation", False)
@@ -559,7 +561,7 @@ def get_threat_data():
                 break
 
         # ── v9 Maskirovka detection ─────────────────────────────────────────────
-        is_maskirovka, maskirovka_conf, maskirovka_reason = engine.detect_maskirovka(
+        is_maskirovka, maskirovka_conf, maskirovka_reason = _routes.engine.detect_maskirovka(
             core_degraded=core_degraded,
             narrative_burst=narrative_burst or telegram_intent,
             check_host_status=ch_status,
@@ -576,7 +578,7 @@ def get_threat_data():
 
         # ── Derivative computation (Velocity / Acceleration / Ambush) ───────────────
         ts_series_core = _db.ts_get(core_theater)
-        is_ambush, ambush_z, velocity_val, acceleration_val = engine.detect_ambush_pattern(ts_series_core)
+        is_ambush, ambush_z, velocity_val, acceleration_val = _routes.engine.detect_ambush_pattern(ts_series_core)
         if is_ambush:
             add_rat("ddos_acceleration", "cyber",
                     "FIRED", f"Ambush Z={ambush_z:.2f} v={velocity_val:.4f}",
@@ -585,22 +587,22 @@ def get_threat_data():
         # ── Sequence Bonus computation ──────────────────────────────────────────
         seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
 
-        domain_scores = engine.compute_domain_scores(rationale)
+        domain_scores = _routes.engine.compute_domain_scores(rationale)
         total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
-        convergence_score = engine.compute_convergence_score(domain_scores)
-        score_with_bonus, conv_bonus, convergence_level = engine.apply_convergence_bonus(total_score, domain_scores)
+        convergence_score = _routes.engine.compute_convergence_score(domain_scores)
+        score_with_bonus, conv_bonus, convergence_level = _routes.engine.apply_convergence_bonus(total_score, domain_scores)
         # Add Sequence Bonus and Temporal Coherence Bonus to final score
         score_with_bonus += seq_bonus + temporal_bonus
         # Cap final score to prevent bonus stacking from inflating beyond TL1 threshold ceiling
         score_with_bonus = min(score_with_bonus, 15)
         active_domains = sum(1 for s in domain_scores.values() if s > 0)
-        tl_raw = engine.compute_threat_level(score_with_bonus, tl1_hard, active_domains)
+        tl_raw = _routes.engine.compute_threat_level(score_with_bonus, tl1_hard, active_domains)
         prev_threat = _db.threat_last()
         prev_threat_level = prev_threat[1] if prev_threat else 5
-        threat_level, tl_held = engine.apply_hysteresis(tl_raw, _db.threat_list())
+        threat_level, tl_held = _routes.engine.apply_hysteresis(tl_raw, _db.threat_list())
         _db.threat_append(current_time, threat_level)
 
-        system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
+        system_note = _routes.engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
 
         # Deep analysis result summary
         deep_analytics = {
@@ -627,7 +629,7 @@ def get_threat_data():
             },
             # Blockade Index v9: (DDoS intensity × RIPE delay) / Check-Host success rate
             # asphyxiation=True applies 1.5× weight when CDN masks packet loss but latency triples
-            "blockade_index": engine.compute_blockade_index(
+            "blockade_index": _routes.engine.compute_blockade_index(
                 ddos_intensity=core_spike,
                 ripe_drop_pct=bgp_routing_data.get(core_theater, {}).get("drop_pct", 0.0),
                 checkhost_success_rate=ch_success_rate,
@@ -721,7 +723,7 @@ def get_threat_data():
                 "degraded_theaters_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
                 "coordinated_theaters": elevated_theaters if is_coordinated else [],
                 "domains": {
-                    d: {"score": domain_scores.get(d, 0), "weight": engine.DOMAIN_WEIGHTS.get(d, 0), "weighted": round(min(domain_scores.get(d, 0), 10) * engine.DOMAIN_WEIGHTS.get(d, 0), 2), "status": "CRITICAL" if domain_scores.get(d, 0) >= 6 else "ELEVATED" if domain_scores.get(d, 0) >= 3 else "WATCH" if domain_scores.get(d, 0) >= 1 else "NORMAL"} for d in ("cyber", "physical", "info")
+                    d: {"score": domain_scores.get(d, 0), "weight": _routes.engine.DOMAIN_WEIGHTS.get(d, 0), "weighted": round(min(domain_scores.get(d, 0), 10) * _routes.engine.DOMAIN_WEIGHTS.get(d, 0), 2), "status": "CRITICAL" if domain_scores.get(d, 0) >= 6 else "ELEVATED" if domain_scores.get(d, 0) >= 3 else "WATCH" if domain_scores.get(d, 0) >= 1 else "NORMAL"} for d in ("cyber", "physical", "info")
                 },
                 "convergence_score": round(convergence_score, 2), "convergence_level": convergence_level,
                 "rationale_matrix": [e.to_dict() for e in rationale], "noise_filters_applied": noise_filters_applied, "system_note": system_note,
@@ -818,8 +820,8 @@ def get_threat_data():
         
         # Compute velocity and acceleration per target
         ts_series_t = _db.ts_get(t)
-        t_vel = engine.compute_velocity(ts_series_t)
-        t_ambush, t_ambush_z, _, _ = engine.detect_ambush_pattern(ts_series_t)
+        t_vel = _routes.engine.compute_velocity(ts_series_t)
+        t_ambush, t_ambush_z, _, _ = _routes.engine.detect_ambush_pattern(ts_series_t)
         results.append({
             "lat": t_info["lat"], "lng": t_info["lng"], "info": t_info["name"], "code": t,
             "global_share": data.get("global_share", 0.0), "global_share_l3": data.get("global_share_l3", 0.0), "global_share_l7": data.get("global_share_l7", 0.0),
@@ -835,7 +837,7 @@ def get_threat_data():
 
     return jsonify({
         "timestamp":       datetime.datetime.now().isoformat(),
-        "sensor_health":   registry.health_report(),
+        "sensor_health":   _routes.registry.health_report(),
         "strategic_alert": st.global_cache["strategic"],
         "targets":         results,
         "threat_history":  _db.threat_list(),

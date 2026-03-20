@@ -55,6 +55,7 @@
     let isFirstLoad = true;
     let loaderLogInterval;
     let _nodeOkRetryTimer = null; // One-shot retry when CheckHost hasn't initialized yet
+    const _panelCallbacks = {}; // per-panel onShow/onHide hooks keyed by panelId
     let STRATEGIC_BLOCS_DATA = {};  // { RUSSIA: {label, color, adversary, theaters[]}, ... }
     let ADVERSARY_OPTIONS    = [];  // [ {code, bloc, label, color}, ... ]
     let COUNTRY_BLOC_TAGS    = {};  // { "US": ["RUSSIA","CHINA","IRAN","DPRK"], ... }
@@ -179,8 +180,6 @@
     let _tgLastData = {};
 
     // ── Unified Panel Toggle System ────────────────────────────────────────────
-    // _panelCallbacks stores per-panel onShow/onHide hooks keyed by panelId.
-    const _panelCallbacks = {};
 
     /**
      * Factory: create a toggle function for a floating/docked panel.

@@ -8,7 +8,8 @@ from flask import jsonify, request
 from radar.config import PERSISTENCE_STATE_FILE
 from radar.persistence import save_state
 from radar.sensors.telegram import TelegramMirrorSensor
-from radar.routes import bp, _require_admin, registry, engine
+import radar.routes as _routes
+from radar.routes import bp, _require_admin
 
 @bp.route("/api/env_config", methods=["GET"])
 def api_env_config_get():
@@ -81,13 +82,13 @@ def api_env_config_post():
 
 @bp.route("/api/sensor_config", methods=["GET", "POST"])
 def sensor_config():
-    if request.method == "GET": return jsonify({"sensors": registry.config_list(), "domain_weights": engine.DOMAIN_WEIGHTS})
+    if request.method == "GET": return jsonify({"sensors": _routes.registry.config_list(), "domain_weights": _routes.engine.DOMAIN_WEIGHTS})
     body = request.get_json(silent=True) or {}
     name, enabled = body.get("name", ""), body.get("enabled")
     if not name or enabled is None: return jsonify({"error": "name and enabled are required"}), 400
-    if registry.get(name) is None: return jsonify({"error": f"Unknown sensor: {name}"}), 404
-    registry.set_enabled(name, bool(enabled))
-    return jsonify({"ok": True, "sensor": name, "enabled": registry.get(name).enabled})
+    if _routes.registry.get(name) is None: return jsonify({"error": f"Unknown sensor: {name}"}), 404
+    _routes.registry.set_enabled(name, bool(enabled))
+    return jsonify({"ok": True, "sensor": name, "enabled": _routes.registry.get(name).enabled})
 
 
 @bp.route("/api/telegram_log/clear", methods=["POST"])

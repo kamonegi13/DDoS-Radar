@@ -8,12 +8,13 @@ from radar import state as st
 from radar.state import _global_cache_lock, ALERT_TIMELINE_MAX
 from radar.database import db as _db
 from radar.scoring import compute_sequence_bonus
-from radar.routes import bp, registry, engine
+import radar.routes as _routes
+from radar.routes import bp
 
 @bp.route("/api/data_status", methods=["GET"])
 def data_status():
     now = time.time(); sensors_status = []
-    for s in registry._sensors.values():
+    for s in _routes.registry._sensors.values():
         log = s.get_fetch_log()
         sensors_status.append({
             "sensor": s.name, "domain": s.domain, "enabled": s.enabled, "health": s.health,
@@ -149,16 +150,16 @@ def api_deep_analytics():
     """
     theater_param = request.args.get("theater", DEFAULT_CORE).upper()
     ts_series = _db.ts_get(theater_param)
-    velocity   = engine.compute_velocity(ts_series)
-    acc        = engine.compute_acceleration(ts_series)
-    is_ambush, ambush_z, _, _ = engine.detect_ambush_pattern(ts_series)
+    velocity   = _routes.engine.compute_velocity(ts_series)
+    acc        = _routes.engine.compute_acceleration(ts_series)
+    is_ambush, ambush_z, _, _ = _routes.engine.detect_ambush_pattern(ts_series)
     seq_bonus, seq_status, seq_chain = compute_sequence_bonus(theater_param)
 
-    narrative_sensor = registry.get("rss_narrative")
+    narrative_sensor = _routes.registry.get("rss_narrative")
     narrative_info   = narrative_sensor.get_cache().get("narratives", {}).get(theater_param, {}) if narrative_sensor else {}
-    isr_sensor       = registry.get("isr_hotspot")
+    isr_sensor       = _routes.registry.get("isr_hotspot")
     isr_info         = isr_sensor.get_cache().get("isr_data", {}).get(theater_param, {}) if isr_sensor else {}
-    ais_sensor       = registry.get("ais_maritime")
+    ais_sensor       = _routes.registry.get("ais_maritime")
     ais_gaps         = ais_sensor.get_cache().get("dark_gaps", []) if ais_sensor else []
     ais_stat         = ais_sensor.get_cache().get("stationary_anomalies", []) if ais_sensor else []
 
@@ -171,11 +172,11 @@ def api_deep_analytics():
     if "blockade_index" in analytics_v9:
         blockade_idx = analytics_v9["blockade_index"]
     else:
-        bgp_s   = registry.get("ripe_bgp")
-        ch_s    = registry.get("check_host")
+        bgp_s   = _routes.registry.get("ripe_bgp")
+        ch_s    = _routes.registry.get("check_host")
         ripe_drop = bgp_s.get_cache().get("routing_stats", {}).get(theater_param, {}).get("drop_pct", 0.0) if bgp_s else 0.0
         ch_rate   = ch_s.get_cache().get("check_host", {}).get(theater_param, {}).get("theater_success_rate") if ch_s else None
-        blockade_idx = engine.compute_blockade_index(core_spike_v, ripe_drop, ch_rate)
+        blockade_idx = _routes.engine.compute_blockade_index(core_spike_v, ripe_drop, ch_rate)
 
     # Velocity trend (format time series for response)
     velocity_series = []
@@ -515,7 +516,7 @@ def api_ip_check():
     if not ip:
         return jsonify({"error": "ip parameter required. Example: /api/ip_check?ip=1.2.3.4"}), 400
 
-    gn_sensor = registry.get("greynoise")
+    gn_sensor = _routes.registry.get("greynoise")
     if not gn_sensor:
         return jsonify({"error": "GreyNoiseSensor is not initialized"}), 503
 
