@@ -974,12 +974,13 @@
         { id: 'notebook-panel',       ph: 'lsb-ph-nb'             },
         { id: 'tg-sigint-panel',      ph: 'lsb-ph-tg'             },
         { id: 'history-panel',        ph: 'lsb-ph-hist'           },
+        { id: 'escalation-panel',    ph: 'lsb-ph-esc'            },
     ];
 
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
     let _sidebarOrder = {
         'sidebar':      ['target-panel', 'dashboard-panel', 'chain-panel'],
-        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel']
+        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'escalation-panel']
     };
 
     // Re-order placeholder divs within a sidebar to match _sidebarOrder
@@ -1357,7 +1358,7 @@
     setupFloatingOnlyPanel('whatif-panel');
     setupFloatingOnlyPanel('spof-panel');
     setupFloatingOnlyPanel('actionplan-panel');
-    setupFloatingOnlyPanel('escalation-panel');
+    setupDockablePanel('escalation-panel',   'lsb-ph-esc',            320);
     updateSidebarVisibility();
 
     const map = L.map('map', {
@@ -1905,6 +1906,11 @@
             if (latestData) renderTelemetry(latestData);
         }
     }
+
+    // WS state — declared before fetchDDoSData so it can reference them
+    let _wsConnected = false;
+    let _wsSocket = null;
+    let _wsSubscribedTheater = '';
 
     function forceDataSync() { fetchDDoSData(true); }
     window.forceDataSync = forceDataSync;
@@ -2968,9 +2974,6 @@
         }
 
         // ── WebSocket: real-time push (polling fallback at 15-min interval) ──
-        let _wsConnected = false;
-        let _wsSocket = null;
-        let _wsSubscribedTheater = '';
         if (typeof io !== 'undefined') {
             try {
                 _wsSocket = io({ transports: ['websocket', 'polling'] });
@@ -5356,7 +5359,7 @@
     // ═══════════════════════════════════════════════════════════════
     // Phase 2: Escalation Tracker panel
     // ═══════════════════════════════════════════════════════════════
-    const toggleEscalationPanel = _createPanelToggle('escalation-panel', { onShow: renderEscalationPanel });
+    const toggleEscalationPanel = _createPanelToggle('escalation-panel', { floating: false, onShow: renderEscalationPanel });
 
     async function renderEscalationPanel() {
         const panel = document.getElementById('escalation-panel');
