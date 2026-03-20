@@ -21,8 +21,7 @@ def api_history_timeseries():
     hours = min(int(request.args.get("hours", "168")), 720)  # max 30 days
     series_types = request.args.get("series", "combined").split(",")
 
-    import time as _t
-    cutoff = _t.time() - hours * 3600
+    cutoff = time.time() - hours * 3600
 
     result = {"theater": theater, "hours": hours, "series": {}}
 
@@ -109,8 +108,7 @@ def api_history_sequence_events():
     theater = request.args.get("theater", "").upper()
     hours = min(int(request.args.get("hours", "24")), 168)
 
-    import time as _t
-    cutoff = _t.time() - hours * 3600
+    cutoff = time.time() - hours * 3600
 
     if theater:
         events = _db.seq_events_since(theater, cutoff)
@@ -162,7 +160,6 @@ def api_history_export():
         "threat_history": [{"ts": ts, "level": lvl} for ts, lvl in _db.threat_list()],
     }
 
-    from flask import Response
     return Response(
         json.dumps(export, indent=2, default=str, ensure_ascii=False),
         mimetype="application/json",

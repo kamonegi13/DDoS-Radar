@@ -8,8 +8,7 @@ from radar import state as st
 from radar.state import _global_cache_lock, ALERT_TIMELINE_MAX
 from radar.database import db as _db
 from radar.scoring import compute_sequence_bonus
-from radar.sensors.greynoise import GreyNoiseSensor
-from radar.routes import bp, _require_admin, registry, engine
+from radar.routes import bp, registry, engine
 
 @bp.route("/api/data_status", methods=["GET"])
 def data_status():

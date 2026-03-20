@@ -194,7 +194,7 @@
      * @param {Function} opts.onHide       - called after panel is hidden
      */
     function _createPanelToggle(panelId, opts = {}) {
-        const { floating = true, defaultLeft, defaultTop = 130, clampPos = true, onShow, onHide } = opts;
+        const { floating = true, defaultLeft, defaultLeftFn, defaultTop = 130, clampPos = true, onShow, onHide } = opts;
         if (onShow || onHide) _panelCallbacks[panelId] = { onShow, onHide };
         return function() {
             const panel = document.getElementById(panelId);
@@ -204,7 +204,8 @@
                 if (panel.parentElement !== document.body) document.body.appendChild(panel);
                 panel.classList.add('floating', 'active');
                 if (clampPos) {
-                    const rawLeft = parseInt(panel.style.left) || defaultLeft || (window.innerWidth - 320);
+                    const defLeft = defaultLeftFn ? defaultLeftFn() : (defaultLeft || (window.innerWidth - 320));
+                    const rawLeft = parseInt(panel.style.left) || defLeft;
                     const rawTop  = parseInt(panel.style.top)  || defaultTop;
                     panel.style.left = Math.max(10, Math.min(rawLeft, window.innerWidth  - 200)) + 'px';
                     panel.style.top  = Math.max(10, Math.min(rawTop,  window.innerHeight - 100)) + 'px';
@@ -409,7 +410,7 @@
     let _lastDefconLevel = null;   // for DEFCON auto-log
 
     const toggleNotebook = _createPanelToggle('notebook-panel', {
-        defaultLeft: window.innerWidth - 340, defaultTop: 150,
+        defaultLeftFn: () => window.innerWidth - 340, defaultTop: 150,
         onShow: () => { restoreNbState(); renderNbLog(); },
     });
 
@@ -679,7 +680,7 @@
 
     // ── Evidence Chain Panel ──────────────────────────────────────────────────
     const toggleChainPanel = _createPanelToggle('chain-panel', {
-        defaultLeft: window.innerWidth - 700, defaultTop: 120,
+        defaultLeftFn: () => window.innerWidth - 700, defaultTop: 120,
     });
 
     const EVENT_LABELS = {

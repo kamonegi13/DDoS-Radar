@@ -1,23 +1,20 @@
 """radar.routes.core -- Main API endpoints: app_config and threat_data scoring loop."""
 from __future__ import annotations
 import time
-import math
 import datetime
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import jsonify, request
 from radar.config import *  # noqa: F403
 from radar.models import RationaleEntry
 from radar import state as st
-from radar.state import _global_cache_lock, ALERT_TIMELINE_MAX, SEQUENCE_EVENT_TYPES, _cf_scoring_cache
+from radar.state import _global_cache_lock
 from radar.database import db as _db
 from radar.scoring import (
     register_sequence_event, compute_sequence_bonus,
     compute_hod_zscore, record_hod_sample,
-    get_fallback_coord, fetch_cf_data, fetch_cf_data_cached,
+    get_fallback_coord, fetch_cf_data_cached,
     parse_origins, calculate_overlap, fetch_asn_origins,
-    compute_confidence, compute_avg_spike_raw,
-    prefill_hod_baseline_bg,
+    compute_confidence,
 )
 from radar.ws import emit_threat_update, emit_ambush_alert, emit_sequence_event
 from radar.notifications import notify_threat_level_change, notify_sequence_complete
