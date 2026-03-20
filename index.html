@@ -1776,8 +1776,15 @@
             <li><span class="code-block">PUT /api/auth/users/{username}/role</span> — Change a user's role (admin only). Body: {role}.</li>
             <li><span class="code-block">DELETE /api/auth/users/{username}</span> — Delete a user (admin only).</li>
             <li><span class="code-block">POST /api/auth/users/{username}/reset-password</span> — Reset a user's password (admin only). Body: {new_password}.</li>
-            <li><span class="code-block">GET /api/history/timeseries?theater=TW&amp;hours=168</span> — Historical time-series data for the specified theater and time range.</li>
-            <li><span class="code-block">GET /api/history/export?theater=TW</span> — Export all historical data as JSON download.</li>
+            <li><span class="code-block">GET /api/history/theaters</span> — List all theaters with historical data or configured in settings. Used to populate the History panel theater selector.</li>
+            <li><span class="code-block">GET /api/history/timeseries?theater=TW&amp;hours=168&amp;series=combined,l3,l7</span> — Historical time-series data for the specified theater and time range (max 720h / 30 days). Returns scored (timestamped) and value-only series.</li>
+            <li><span class="code-block">GET /api/history/hod_baseline?theater=TW&amp;type=hod_baseline</span> — Hour-of-day baseline statistics. Type: hod_baseline | checkhost_hod | bgp_hod. Returns per-hour mean/std/min/max/n.</li>
+            <li><span class="code-block">GET /api/history/alerts?limit=100&amp;since=1710000000</span> — Alert timeline with optional filtering by timestamp and limit (max 500).</li>
+            <li><span class="code-block">GET /api/history/sequence_events?theater=TW&amp;hours=48</span> — Sequence events with optional theater filter and time range (max 168h).</li>
+            <li><span class="code-block">GET /api/history/threat_levels</span> — Full threat level change history with timestamps.</li>
+            <li><span class="code-block">GET /api/history/export?theater=TW</span> — Export all historical data as JSON download (admin only). Includes all series, HOD baselines, sequence events, and threat history.</li>
+            <li><span class="code-block">POST /api/auth/change-password</span> — Change own password. Body: {old_password, new_password}.</li>
+            <li><span class="code-block">PUT /api/auth/settings</span> — Save per-user settings (theater config, language, muted sensors). Body: {settings object}.</li>
         </ul>
         </div>
         <div class="guide-lang-ja" style="display:none;">
@@ -1803,8 +1810,15 @@
             <li><span class="code-block">PUT /api/auth/users/{username}/role</span> — ユーザーのロール変更（admin のみ）。ボディ: {role}。</li>
             <li><span class="code-block">DELETE /api/auth/users/{username}</span> — ユーザー削除（admin のみ）。</li>
             <li><span class="code-block">POST /api/auth/users/{username}/reset-password</span> — ユーザーのパスワードリセット（admin のみ）。ボディ: {new_password}。</li>
-            <li><span class="code-block">GET /api/history/timeseries?theater=TW&amp;hours=168</span> — 指定シアターと時間範囲の履歴時系列データ。</li>
-            <li><span class="code-block">GET /api/history/export?theater=TW</span> — 全履歴データを JSON としてエクスポート・ダウンロード。</li>
+            <li><span class="code-block">GET /api/history/theaters</span> — 履歴データがあるシアターまたは設定で構成されたシアターの一覧を返す。History パネルのシアターセレクターで使用。</li>
+            <li><span class="code-block">GET /api/history/timeseries?theater=TW&amp;hours=168&amp;series=combined,l3,l7</span> — 指定シアターと時間範囲の履歴時系列データ（最大720h / 30日）。スコア付き（タイムスタンプ）と値のみのシリーズを返す。</li>
+            <li><span class="code-block">GET /api/history/hod_baseline?theater=TW&amp;type=hod_baseline</span> — 時間帯別ベースライン統計。タイプ: hod_baseline | checkhost_hod | bgp_hod。時間帯ごとの mean/std/min/max/n を返す。</li>
+            <li><span class="code-block">GET /api/history/alerts?limit=100&amp;since=1710000000</span> — タイムスタンプとリミットによるオプションフィルタリング付きアラートタイムライン（最大500件）。</li>
+            <li><span class="code-block">GET /api/history/sequence_events?theater=TW&amp;hours=48</span> — オプションのシアターフィルターと時間範囲付きシーケンスイベント（最大168h）。</li>
+            <li><span class="code-block">GET /api/history/threat_levels</span> — タイムスタンプ付きの脅威レベル変更履歴全体。</li>
+            <li><span class="code-block">GET /api/history/export?theater=TW</span> — 全履歴データを JSON としてエクスポート・ダウンロード（admin のみ）。全シリーズ、HOD ベースライン、シーケンスイベント、脅威履歴を含む。</li>
+            <li><span class="code-block">POST /api/auth/change-password</span> — 自身のパスワード変更。ボディ: {old_password, new_password}。</li>
+            <li><span class="code-block">PUT /api/auth/settings</span> — ユーザー別設定の保存（シアター設定、言語、ミュートセンサー）。ボディ: {settings オブジェクト}。</li>
         </ul>
         </div>
         </div><!-- /guide-ch-9 -->
@@ -1838,11 +1852,13 @@
 
         <p><b>D. History Analysis</b> — <span class="code-block">TOOLS ▾</span> → History Analysis</p>
         <ul>
-            <li><b>Threat Score Trend</b>: Canvas line chart showing score over time for the selected theater and range (24h to 28 days).</li>
+            <li><b>Theater Selector</b>: Dynamically populated from all configured theaters (pins + correlates + core) and any theaters with recorded data. Fetched via <span class="code-block">/api/history/theaters</span>.</li>
+            <li><b>Time Range</b>: 24h / 3 days / 7 days / 14 days / 28 days. Data is retained up to 28 days (8064 data points at 5-minute intervals).</li>
+            <li><b>Threat Score Trend</b>: Canvas line chart with a fixed Y-axis (0–25) and severity zone backgrounds: Normal (0–2, green), Elevated (2–5), Warning (5–10, amber), Severe (10–18, orange), Critical (18–25, red). This fixed scale ensures that a score of 7 is always visually contextualized as "Warning zone" regardless of the current data range.</li>
             <li><b>Hour-of-Day Baseline</b>: Bar chart of CF Spike averages by hour (0–23), colored by intensity. Useful for identifying temporal attack patterns.</li>
-            <li><b>Sequence Events</b>: Chronological list of escalation chain events (NARRATIVE_BURST, ISR_SURGE, SYNC_DDOS, etc.) within the selected range.</li>
-            <li><b>Recent Alerts</b>: Threat level change history with timestamps and scores.</li>
-            <li><b>Export</b>: Download all historical data as JSON via the Export button or <span class="code-block">GET /api/history/export?theater=TW</span>.</li>
+            <li><b>Sequence Events</b>: Escalation chain events grouped by date with type summary badges (e.g., BURST×3 SURGE×1). Event types: NARRATIVE_BURST, ISR_SURGE, SYNC_DDOS, FIRMS_ANOMALY, AIS_DARK_GAP, etc.</li>
+            <li><b>Recent Alerts</b>: Displays threat level <i>transitions</i> instead of raw alert entries. Each row shows: time → TL badge → duration at that level → peak score. Consecutive same-TL alerts are collapsed into a single transition entry, making it easy to see how long each threat level persisted. Grouped by date.</li>
+            <li><b>Export</b>: Download all historical data as JSON via the Export button or <span class="code-block">GET /api/history/export?theater=TW</span> (admin only).</li>
         </ul>
 
         <p><b>E. Database Backend (SQLite)</b></p>
@@ -1882,11 +1898,13 @@
 
         <p><b>D. 履歴分析</b> — <span class="code-block">TOOLS ▾</span> → History Analysis</p>
         <ul>
-            <li><b>脅威スコア推移</b>: 選択したシアターと範囲（24時間〜28日間）のスコアを示す Canvas 折れ線グラフ。</li>
+            <li><b>シアターセレクター</b>: 設定済みの全シアター（ピン + 相関国 + コア）およびデータ記録のあるシアターから動的に生成。<span class="code-block">/api/history/theaters</span> から取得。</li>
+            <li><b>時間範囲</b>: 24時間 / 3日間 / 7日間 / 14日間 / 28日間。データは最大28日間保持（5分間隔で8064データポイント）。</li>
+            <li><b>脅威スコア推移</b>: 固定Y軸（0〜25）と重要度ゾーン背景色を持つ Canvas 折れ線グラフ: 正常（0〜2, 緑）、警戒（2〜5）、警告（5〜10, 琥珀）、深刻（10〜18, オレンジ）、危機的（18〜25, 赤）。この固定スケールにより、例えばスコア7は現在のデータ範囲に関係なく常に「警告ゾーン」として視覚的に文脈化される。</li>
             <li><b>時間帯別ベースライン</b>: CF スパイク平均を時間帯（0〜23時）ごとに棒グラフで表示、強度で色分け。時間的な攻撃パターンの特定に有用。</li>
-            <li><b>シーケンスイベント</b>: 選択範囲内のエスカレーションチェーンイベント（NARRATIVE_BURST、ISR_SURGE、SYNC_DDOS 等）の時系列リスト。</li>
-            <li><b>最近のアラート</b>: タイムスタンプとスコア付きの脅威レベル変化履歴。</li>
-            <li><b>エクスポート</b>: Export ボタンまたは <span class="code-block">GET /api/history/export?theater=TW</span> で全履歴データを JSON としてダウンロード。</li>
+            <li><b>シーケンスイベント</b>: 日付別にグループ化されたエスカレーションチェーンイベント。タイプ別サマリーバッジ付き（例: BURST×3 SURGE×1）。イベントタイプ: NARRATIVE_BURST、ISR_SURGE、SYNC_DDOS、FIRMS_ANOMALY、AIS_DARK_GAP 等。</li>
+            <li><b>最近のアラート</b>: 生のアラートエントリではなく、脅威レベルの<i>遷移</i>を表示。各行: 時刻 → TLバッジ → そのレベルでの滞在時間 → ピークスコア。連続する同一TLアラートは1つの遷移エントリに圧縮され、各脅威レベルの持続時間が一目で把握可能。日付別グループ化。</li>
+            <li><b>エクスポート</b>: Export ボタンまたは <span class="code-block">GET /api/history/export?theater=TW</span> で全履歴データを JSON としてダウンロード（admin のみ）。</li>
         </ul>
 
         <p><b>E. データベースバックエンド（SQLite）</b></p>

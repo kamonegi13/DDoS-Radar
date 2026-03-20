@@ -675,6 +675,61 @@ const LANG = {
     'panel.history.stat.avg':         'AVG',
     'panel.history.stat.events':      'EVENTS',
     'panel.history.stat.alerts':      'ALERTS',
+    'panel.history.dur.ongoing':      'ongoing',
+    'panel.history.label.transition': '{n} transition',
+    'panel.history.label.transitions':'{n} transitions',
+    'panel.history.label.peak':       'peak',
+
+    // ── threat level labels (HUD) ───────────────────────────────
+    'threat_lv.5':                    'THREAT Lv 5: NORMAL',
+    'threat_lv.4':                    'THREAT Lv 4: ELEVATED',
+    'threat_lv.3':                    'THREAT Lv 3: HIGH',
+    'threat_lv.2':                    'THREAT Lv 2: SEVERE',
+    'threat_lv.1':                    'THREAT Lv 1: CRITICAL',
+
+    // ── telegram SIGINT status ──────────────────────────────────
+    'tg.hud.intent':                  'INTENT ({n} ch)',
+    'tg.hud.targets_found':           'TARGETS FOUND',
+    'tg.hud.clear':                   'CLEAR',
+
+    // ── unit labels ─────────────────────────────────────────────
+    'unit.aircraft':                  '{n} ac',
+    'unit.vessels':                   '{n} vessels',
+
+    // ── telemetry badges / tooltips ─────────────────────────────
+    'badge.bgp_outage':               'BGP⚠',
+    'badge.bgp_wx':                   'BGP(Wx)',
+    'badge.media_alert':              'M⚠',
+    'badge.media_wx':                 'M(Wx)',
+    'badge.airspace_wx':              '✈(Wx)',
+    'badge.l7_shift':                 'L7 SHIFT',
+    'badge.new_actor':                'NEW',
+    'badge.state_asn':                'STATE-ASN',
+    'tooltip.bgp_outage':             'BGP/Outage Detected',
+    'tooltip.bgp_wx':                 'Outage (Weather Muted)',
+    'tooltip.media_alert':            'Media Tone Drop',
+    'tooltip.media_wx':               'Media Tone (Weather Muted)',
+    'tooltip.airspace_wx':            'Airspace Anomaly (Weather Muted)',
+    'tooltip.l7_shift':               'Per-origin L7 shift detected from:{actors}',
+    'tooltip.new_actor':              'No 28-day baseline: new infrastructure',
+    'tooltip.state_asn':              'State-attributed ASN detected:\n{asns}',
+    'tooltip.cdn_asphyxiation':       'CDN Asphyxiation: success rate appears normal but latency ≥3× baseline',
+    'tooltip.thermal_anomaly':        'Thermal Anomaly (FIRMS)',
+
+    // ── ISR / map popups ────────────────────────────────────────
+    'map.popup.isr_track':            '▲ ISR TRACK',
+    'map.popup.isr_callsign':         'Callsign: {cs}',
+    'map.popup.isr_alt_speed':        'Alt: {alt} km  |  Speed: {spd} kt',
+    'map.popup.isr_squawk':           'Squawk: {sq}',
+
+    // ── CIP panel extra labels ──────────────────────────────────
+    'cip.label.baseline_28d':         'Baseline (28d): {base}  Δ {delta}',
+
+    // ── config save status ──────────────────────────────────────
+    'config.status.saving':           'Saving...',
+    'config.status.saved':            '✓ Saved ({n} keys updated)',
+    'config.status.error':            '✗ Error: {msg}',
+    'config.status.load_error':       'Failed to load: {msg}',
 
     // ══════════════════════════════════════════════════════════════
     // System Config — additional fields
@@ -1348,6 +1403,61 @@ const LANG = {
     'panel.history.stat.avg':         '平均',
     'panel.history.stat.events':      'イベント',
     'panel.history.stat.alerts':      'アラート',
+    'panel.history.dur.ongoing':      '継続中',
+    'panel.history.label.transition': '{n} 遷移',
+    'panel.history.label.transitions':'{n} 遷移',
+    'panel.history.label.peak':       'ピーク',
+
+    // ── 脅威レベルラベル（HUD） ─────────────────────────────────
+    'threat_lv.5':                    '脅威 Lv 5: 正常',
+    'threat_lv.4':                    '脅威 Lv 4: 警戒',
+    'threat_lv.3':                    '脅威 Lv 3: 高',
+    'threat_lv.2':                    '脅威 Lv 2: 深刻',
+    'threat_lv.1':                    '脅威 Lv 1: 危機的',
+
+    // ── Telegram SIGINT ステータス ──────────────────────────────
+    'tg.hud.intent':                  '意図検知 ({n} ch)',
+    'tg.hud.targets_found':           '標的確認',
+    'tg.hud.clear':                   '異常なし',
+
+    // ── 単位ラベル ──────────────────────────────────────────────
+    'unit.aircraft':                  '{n} 機',
+    'unit.vessels':                   '{n} 隻',
+
+    // ── テレメトリバッジ / ツールチップ ─────────────────────────
+    'badge.bgp_outage':               'BGP⚠',
+    'badge.bgp_wx':                   'BGP(天候)',
+    'badge.media_alert':              'M⚠',
+    'badge.media_wx':                 'M(天候)',
+    'badge.airspace_wx':              '✈(天候)',
+    'badge.l7_shift':                 'L7 シフト',
+    'badge.new_actor':                '新規',
+    'badge.state_asn':                '国家ASN',
+    'tooltip.bgp_outage':             'BGP/障害検出',
+    'tooltip.bgp_wx':                 '障害（天候によるミュート）',
+    'tooltip.media_alert':            'メディアトーン低下',
+    'tooltip.media_wx':               'メディアトーン（天候によるミュート）',
+    'tooltip.airspace_wx':            '空域異常（天候によるミュート）',
+    'tooltip.l7_shift':               'オリジン別L7シフト検出元:{actors}',
+    'tooltip.new_actor':              '28日間のベースラインなし: 新規インフラ',
+    'tooltip.state_asn':              '国家帰属ASN検出:\n{asns}',
+    'tooltip.cdn_asphyxiation':       'CDN窒息: 成功率は正常だがレイテンシがベースラインの3倍以上',
+    'tooltip.thermal_anomaly':        '熱異常 (FIRMS)',
+
+    // ── ISR / マップポップアップ ────────────────────────────────
+    'map.popup.isr_track':            '▲ ISR 追跡',
+    'map.popup.isr_callsign':         'コールサイン: {cs}',
+    'map.popup.isr_alt_speed':        '高度: {alt} km  |  速度: {spd} kt',
+    'map.popup.isr_squawk':           'スコーク: {sq}',
+
+    // ── CIP パネル追加ラベル ────────────────────────────────────
+    'cip.label.baseline_28d':         'ベースライン(28日): {base}  Δ {delta}',
+
+    // ── 設定保存ステータス ──────────────────────────────────────
+    'config.status.saving':           '保存中...',
+    'config.status.saved':            '✓ 保存完了（{n} 件更新）',
+    'config.status.error':            '✗ エラー: {msg}',
+    'config.status.load_error':       '読み込み失敗: {msg}',
 
     // ══════════════════════════════════════════════════════════════
     // システム設定 — 追加フィールド

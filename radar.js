@@ -726,8 +726,8 @@
         const iEl = document.getElementById('ev-isr-count');
         const aEl = document.getElementById('ev-ais-gaps');
         if (nEl) nEl.textContent = p8.narrative ? (p8.narrative.z_score || 0).toFixed(2) + ' σ' : '—';
-        if (iEl) iEl.textContent = p8.isr ? (p8.isr.count || 0) + ' ac' : '—';
-        if (aEl) aEl.textContent = p8.ais ? (p8.ais.dark_gaps || 0) + ' vessels' : '—';
+        if (iEl) iEl.textContent = p8.isr ? _t('unit.aircraft', {n: p8.isr.count || 0}) : '—';
+        if (aEl) aEl.textContent = p8.ais ? _t('unit.vessels', {n: p8.ais.dark_gaps || 0}) : '—';
 
         // ── v9: Survival HUD (Check-Host) ──────────────────────────────────────
         const survEl    = document.getElementById('hud-survival');
@@ -743,7 +743,7 @@
             if (ch.asphyxiation) survLabel += ' ⚠ASP';
             survEl.textContent  = survLabel;
             survEl.style.color  = ch.asphyxiation ? '#ff8800' : (COLOR_MAP[chStatus] || '#aaa');
-            survEl.title        = ch.asphyxiation ? 'CDN Asphyxiation: success rate appears normal but latency ≥3× baseline' : '';
+            survEl.title        = ch.asphyxiation ? _t('tooltip.cdn_asphyxiation') : '';
         }
         if (survIcon) {
             survIcon.textContent = chStatus === 'OK' ? '●' : chStatus === 'PARTIAL' ? '◐' : chStatus === 'BLACKOUT' ? '○' : '?';
@@ -873,13 +873,13 @@
         const tgEl = document.getElementById('ev-telegram-intent');
         if (tgEl) {
             if (tg.has_intent) {
-                tgEl.textContent = `INTENT (${(tg.active_channels || []).length} ch)`;
+                tgEl.textContent = _t('tg.hud.intent', {n: (tg.active_channels || []).length});
                 tgEl.style.color = '#ff66cc';
             } else if (tg.status === 'TARGETS_FOUND') {
-                tgEl.textContent = 'TARGETS FOUND';
+                tgEl.textContent = _t('tg.hud.targets_found');
                 tgEl.style.color = '#ffaa00';
             } else {
-                tgEl.textContent = 'CLEAR';
+                tgEl.textContent = _t('tg.hud.clear');
                 tgEl.style.color = '#555';
             }
         }
@@ -1951,7 +1951,7 @@
 
         if (data.strategic_alert) {
             const strat = data.strategic_alert;
-            const threatLabels = { 5: "THREAT Lv 5: NORMAL", 4: "THREAT Lv 4: ELEVATED", 3: "THREAT Lv 3: HIGH", 2: "THREAT Lv 2: SEVERE", 1: "THREAT Lv 1: CRITICAL" };
+            const threatLabels = { 5: _t('threat_lv.5'), 4: _t('threat_lv.4'), 3: _t('threat_lv.3'), 2: _t('threat_lv.2'), 1: _t('threat_lv.1') };
             threatEl.className = `threat-hud threat-${strat.threat_level}-hud`;
             if (strat.threat_breakdown) {
                 const b = strat.threat_breakdown;
@@ -2168,28 +2168,28 @@
                 let badges = '';
                 if (isOutage) {
                     if (isEffOutage) {
-                        badges += `<span class="tm-badge tm-badge-bgp" data-tooltip="BGP/Outage Detected">BGP⚠</span>`;
+                        badges += `<span class="tm-badge tm-badge-bgp" data-tooltip="${_t('tooltip.bgp_outage')}">${_t('badge.bgp_outage')}</span>`;
                     } else {
-                        badges += `<span class="tm-badge" style="border:1px solid #ffaa00; color:#ffaa00; background:rgba(255,170,0,0.18);" data-tooltip="Outage (Weather Muted)">BGP(Wx)</span>`;
+                        badges += `<span class="tm-badge" style="border:1px solid #ffaa00; color:#ffaa00; background:rgba(255,170,0,0.18);" data-tooltip="${_t('tooltip.bgp_wx')}">${_t('badge.bgp_wx')}</span>`;
                     }
                 } else if (iodaSt === "BGP_OUTAGE") {
-                    badges += `<span class="tm-badge" style="border:1px solid #ffaa00; color:#ffaa00; background:rgba(255,170,0,0.18);" data-tooltip="Outage (Weather Muted)">BGP(Wx)</span>`;
+                    badges += `<span class="tm-badge" style="border:1px solid #ffaa00; color:#ffaa00; background:rgba(255,170,0,0.18);" data-tooltip="${_t('tooltip.bgp_wx')}">${_t('badge.bgp_wx')}</span>`;
                 }
 
                 if (ixpCnt > 0)
                     badges += `<span class="tm-badge tm-badge-ixp">IXP×${ixpCnt}</span>`;
-                
+
                 if (gdeltD) {
                     if (gdeltD.status === "ALERT") {
-                        badges += `<span class="tm-badge tm-badge-gdelt" data-tooltip="Media Tone Drop">M⚠</span>`;
+                        badges += `<span class="tm-badge tm-badge-gdelt" data-tooltip="${_t('tooltip.media_alert')}">${_t('badge.media_alert')}</span>`;
                     } else if (gdeltD.status === "WEATHER_NOISE") {
-                        badges += `<span class="tm-badge" style="border:1px solid #aaa; color:#aaa; background:rgba(170,170,170,0.15);" data-tooltip="Media Tone (Weather Muted)">M(Wx)</span>`;
+                        badges += `<span class="tm-badge" style="border:1px solid #aaa; color:#aaa; background:rgba(170,170,170,0.15);" data-tooltip="${_t('tooltip.media_wx')}">${_t('badge.media_wx')}</span>`;
                     }
                 }
-                
+
                 if (airspD && airspD.severity && airspD.severity !== "NORMAL") {
                     if (airspD.status === "WEATHER_NOISE") {
-                        badges += `<span class="tm-badge" style="border:1px solid #aaa; color:#aaa; background:rgba(170,170,170,0.15);" data-tooltip="Airspace Anomaly (Weather Muted)">✈(Wx)</span>`;
+                        badges += `<span class="tm-badge" style="border:1px solid #aaa; color:#aaa; background:rgba(170,170,170,0.15);" data-tooltip="${_t('tooltip.airspace_wx')}">${_t('badge.airspace_wx')}</span>`;
                     } else {
                         badges += `<span class="tm-badge tm-badge-air" data-tooltip="Airspace Anomaly">✈</span>`;
                     }
@@ -2228,7 +2228,7 @@
                 const statusBadge = `<span class="status-badge" style="color: ${statusColor}; border-color: ${statusColor};" data-tooltip="${_t('map.net.tooltip_prefix')}${netStatusTextTip}">${_t('map.net.status_prefix')}${netStatusText}</span>`;
                 
                 const shiftActorStr = (t.shift_actors && t.shift_actors.length > 0) ? ` [${t.shift_actors.join(',')}]` : '';
-                const shiftBadge = t.is_vector_shift ? `<span class="shift-badge" data-tooltip="Per-origin L7 shift detected from:${shiftActorStr}">L7 SHIFT${shiftActorStr}</span>` : "";
+                const shiftBadge = t.is_vector_shift ? `<span class="shift-badge" data-tooltip="${_t('tooltip.l7_shift', {actors: shiftActorStr})}">${_t('badge.l7_shift')}${shiftActorStr}</span>` : "";
 
                 const safeId = t.code.toLowerCase(); const listId = `list-${safeId}`; const arrowId = `arrow-${safeId}`;
                 const displayStyle = collapsedTargets.has(listId) ? 'none' : 'block';
@@ -2280,9 +2280,9 @@
                         const originShiftBadge = s.is_l7_shift ? `<span style="color:#ffaa00; font-size:10px; font-weight:bold; margin-left:5px; border:1px solid #ffaa00; padding:1px 3px; border-radius:2px;">L7&uarr;</span>` : "";
                         const confClass = s.confidence === 'HIGH' ? 'conf-high' : s.confidence === 'MEDIUM' ? 'conf-medium' : 'conf-low';
                         const confBadge = s.confidence ? `<span class="conf-badge ${confClass}">${s.confidence}</span>` : "";
-                        const newActorBadge = s.is_new_actor ? `<span class="new-actor-badge" data-tooltip="No 28-day baseline: new infrastructure">NEW</span>` : "";
+                        const newActorBadge = s.is_new_actor ? `<span class="new-actor-badge" data-tooltip="${_t('tooltip.new_actor')}">${_t('badge.new_actor')}</span>` : "";
                         const asnLabel = s.state_asns && s.state_asns.length > 0 ? s.state_asns.join(',') : '';
-                        const stateAsnBadge = s.is_state_asn ? `<span class="state-asn-badge" data-tooltip="State-attributed ASN detected:\n${asnLabel}">STATE-ASN</span>` : "";
+                        const stateAsnBadge = s.is_state_asn ? `<span class="state-asn-badge" data-tooltip="${_t('tooltip.state_asn', {asns: asnLabel})}">${_t('badge.state_asn')}</span>` : "";
                         originHtml += `<li class="origin-item"><span style="color:${lineColor}; font-size:14px;">■</span> <b>${s.name}</b> <span style="color:#fff;">[${totalPct}%]</span> ${spikeHtml}${originShiftBadge}${stateAsnBadge}${newActorBadge}${confBadge} ${vecDetail}</li>`;
 
                         let sourceLngShifted = shiftLng(s.lng);
@@ -2354,15 +2354,15 @@
                 const glow = isClosure ? 'drop-shadow(0 0 8px #ff2a2a)' : 'drop-shadow(0 0 5px #ffaa00)';
                 const icon = L.divIcon({
                     className: '',
-                    html: `<div style="font-size:18px;line-height:1;filter:${glow}; cursor:help;" data-tooltip="${a.airport}: ${a.drop_pct}% drop (${a.count}/${a.baseline} ac)">✈</div>`,
+                    html: `<div style="font-size:18px;line-height:1;filter:${glow}; cursor:help;" data-tooltip="${_t('map.tooltip.airspace', {airport: a.airport, pct: a.drop_pct, count: a.count, base: a.baseline})}">✈</div>`,
                     iconSize: [20, 20], iconAnchor: [10, 10],
                 });
                 L.marker([a.lat, lngS], { icon })
                  .bindPopup(
                     `<b>${a.airport} (${a.code})</b><br>` +
                     `<span style="color:${col};font-weight:bold;">${a.severity}</span><br>` +
-                    `Aircraft: ${a.count} (baseline: ${a.baseline})<br>` +
-                    `Drop: <b>${a.drop_pct}%</b>`
+                    `${_t('map.popup.airspace_aircraft', {count: a.count, base: a.baseline})}<br>` +
+                    `${_t('map.popup.airspace_drop', {pct: a.drop_pct})}`
                  )
                  .addTo(airspaceLayer);
             });
@@ -2401,13 +2401,13 @@
                 const baseStr = g.tone_baseline != null ? g.tone_baseline.toFixed(1) : 'N/A';
                 L.marker([g.lat, lngS], { icon })
                  .bindPopup(
-                    `<b>${g.name} — Media Tone</b><br>` +
+                    `<b>${_t('map.popup.gdelt_title', {name: g.name})}</b><br>` +
                     `<span style="color:${col};">` +
-                    (g.tone_current != null ? `Tone: <b>${g.tone_current.toFixed(1)}</b>` : 'Tone: N/A') +
+                    (g.tone_current != null ? _t('map.popup.gdelt_tone', {val: g.tone_current.toFixed(1)}) : _t('map.popup.gdelt_tone_na')) +
                     `</span><br>` +
-                    `Baseline (28d): ${baseStr} | ${deltaStr}<br>` +
-                    `Status: <b>${g.status}</b>` +
-                    (g.status === 'WEATHER_NOISE' ? '<br><i style="color:#ffaa00;">Noise filter: severe weather active</i>' : '')
+                    `${_t('map.popup.gdelt_baseline', {base: baseStr, delta: deltaStr})}<br>` +
+                    `${_t('map.popup.gdelt_status', {status: g.status})}` +
+                    (g.status === 'WEATHER_NOISE' ? `<br><i style="color:#ffaa00;">${_t('map.popup.gdelt_noise_note')}</i>` : '')
                  )
                  .addTo(gdeltLayer);
             });
@@ -2438,12 +2438,12 @@
             (overlays.firms_anomalies || []).forEach(f => {
                 const lngS = shiftLng(f.lng);
                 const icon = L.divIcon({ 
-                    html: `<div style="font-size:20px; filter:drop-shadow(0 0 10px #ff2a2a); cursor:help;" data-tooltip="Thermal Anomaly (FIRMS)">🔥</div>`, 
-                    className: '', 
-                    iconSize: [20,20] 
+                    html: `<div style="font-size:20px; filter:drop-shadow(0 0 10px #ff2a2a); cursor:help;" data-tooltip="${_t('tooltip.thermal_anomaly')}">🔥</div>`,
+                    className: '',
+                    iconSize: [20,20]
                 });
                 L.marker([f.lat, lngS], {icon})
-                 .bindPopup(`<b>Thermal Anomaly (FIRMS)</b><br>Code: ${f.code}<br><span style="color:#ff2a2a; font-weight:bold;">Kinetic Strike Precursor</span>`)
+                 .bindPopup(`<b>${_t('map.popup.firms_title')}</b><br>${_t('map.popup.firms_code', {code: f.code})}<br><span style="color:#ff2a2a; font-weight:bold;">${_t('map.popup.firms_sub')}</span>`)
                  .addTo(firmsLayer);
             });
 
@@ -2629,11 +2629,11 @@
                     L.marker([ac.lat, lngS], { icon })
                      .bindPopup(
                         `<div style="min-width:180px;padding:8px 10px 6px;">` +
-                        `<div style="color:${col};font-weight:bold;font-size:12px;">▲ ISR TRACK</div>` +
+                        `<div style="color:${col};font-weight:bold;font-size:12px;">${_t('map.popup.isr_track')}</div>` +
                         `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">${hs.name}</div>` +
-                        `<div>Callsign: <b>${ac.callsign || ac.icao24 || '—'}</b></div>` +
-                        `<div>Alt: <b>${altKm} km</b> &nbsp;|&nbsp; Speed: <b>${velKt} kt</b></div>` +
-                        (ac.squawk ? `<div>Squawk: <b style="color:${col};">${ac.squawk}</b></div>` : '') +
+                        `<div>${_t('map.popup.isr_callsign', {cs: ac.callsign || ac.icao24 || '—'})}</div>` +
+                        `<div>${_t('map.popup.isr_alt_speed', {alt: altKm, spd: velKt})}</div>` +
+                        (ac.squawk ? `<div>${_t('map.popup.isr_squawk', {sq: `<b style="color:${col};">${ac.squawk}</b>`})}</div>` : '') +
                         `</div>`
                      )
                      .addTo(isrAircraftLayer);
@@ -3025,7 +3025,7 @@
 
         const air    = intel.airspace || {};
         const airTxt = air.status
-            ? `${air.airport || '?'}: ${air.count != null ? air.count : '?'} ac (base ${air.baseline_avg != null ? air.baseline_avg : '?'})`
+            ? `${air.airport || '?'}: ${_t('unit.aircraft', {n: air.count != null ? air.count : '?'})} (base ${air.baseline_avg != null ? air.baseline_avg : '?'})`
             : '—';
         const airCol = (air.status === 'CLOSURE' || air.status === 'ANOMALY') ? 'cip-alert'
                      : air.status === 'WEATHER_NOISE' ? 'cip-warn' : 'cip-ok';
@@ -3111,7 +3111,7 @@
                 <div class="cip-card">
                     <div class="cip-card-label">${_t('cip.label.current_tone')}</div>
                     <div class="cip-card-value ${gdCol}">${gdTone}</div>
-                    <div class="cip-card-sub">Baseline (28d): ${gdBase} &nbsp; Δ ${gdDelta}</div>
+                    <div class="cip-card-sub">${_t('cip.label.baseline_28d', {base: gdBase, delta: gdDelta})}</div>
                 </div>
                 <div class="cip-card">
                     <div class="cip-card-label">${_t('cip.label.alert_status')}</div>
@@ -3136,10 +3136,10 @@
             const nzTxt  = nzRaw !== null ? nzRaw.toFixed(2) + ' σ' : '—';
             const nzCol  = nzRaw >= 3 ? 'cip-alert' : nzRaw >= 2 ? 'cip-warn' : 'cip-ok';
             const isrCnt = p8.isr ? (p8.isr.count || 0) : null;
-            const isrTxt = isrCnt !== null ? isrCnt + ' ac' : '—';
+            const isrTxt = isrCnt !== null ? _t('unit.aircraft', {n: isrCnt}) : '—';
             const isrCol = isrCnt >= 3 ? 'cip-warn' : 'cip-ok';
             const aisCnt = p8.ais ? (p8.ais.dark_gaps || 0) : null;
-            const aisTxt = aisCnt !== null ? aisCnt + ' vessels' : '—';
+            const aisTxt = aisCnt !== null ? _t('unit.vessels', {n: aisCnt}) : '—';
             const aisCol = aisCnt >= 1 ? 'cip-warn' : 'cip-ok';
             const seqSt  = p8.sequence_status || '';
             const seqTxt = seqSt.includes('FULL_CHAIN') ? _t('cip.chain.full')
@@ -3869,7 +3869,7 @@
             if (st) { st.textContent = ''; }
         } catch(e) {
             const st = document.getElementById('env-status');
-            if (st) { st.textContent = 'Failed to load: ' + e.message; st.className = 'env-status err'; }
+            if (st) { st.textContent = _t('config.status.load_error', {msg: e.message}); st.className = 'env-status err'; }
         }
     }
 
@@ -4007,7 +4007,7 @@
             if (el.value !== '') updates[key] = el.value;
         });
         const st = document.getElementById('env-status');
-        if (st) { st.textContent = 'Saving...'; st.className = 'env-status'; }
+        if (st) { st.textContent = _t('config.status.saving'); st.className = 'env-status'; }
         try {
             const res = await fetch(`/api/env_config`, {
                 method: 'POST',
@@ -4017,7 +4017,7 @@
             const data = await res.json();
             if (data.ok) {
                 if (st) {
-                    st.textContent = `✓ Saved (${data.updated.length} keys updated)`;
+                    st.textContent = _t('config.status.saved', {n: data.updated.length});
                     st.className = 'env-status ok';
                     setTimeout(() => { if (st) st.textContent = ''; }, 4000);
                 }
@@ -4025,7 +4025,7 @@
                 throw new Error(data.error || 'Unknown error');
             }
         } catch(e) {
-            if (st) { st.textContent = '✗ Error: ' + e.message; st.className = 'env-status err'; }
+            if (st) { st.textContent = _t('config.status.error', {msg: e.message}); st.className = 'env-status err'; }
         }
     }
 
@@ -4904,7 +4904,7 @@
             });
 
             const _fmtDur = sec => {
-                if (!sec || sec <= 0) return 'ongoing';
+                if (!sec || sec <= 0) return _t('panel.history.dur.ongoing');
                 if (sec < 60) return `${Math.round(sec)}s`;
                 if (sec < 3600) return `${Math.round(sec/60)}m`;
                 const h = Math.floor(sec/3600), m = Math.round((sec%3600)/60);
@@ -4922,14 +4922,14 @@
                 html += `<div style="margin-bottom:8px;">`;
                 html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;border-bottom:1px solid #1a1a1a;margin-bottom:3px;">`;
                 html += `<span style="color:#888;font-size:9px;font-weight:bold;">${day}</span>`;
-                html += `<span style="color:#555;font-size:8px;">${changes} transition${changes !== 1 ? 's' : ''}</span>`;
+                html += `<span style="color:#555;font-size:8px;">${changes !== 1 ? _t('panel.history.label.transitions', {n: changes}) : _t('panel.history.label.transition', {n: changes})}</span>`;
                 html += `</div>`;
 
                 dayTrans.forEach((t, idx) => {
                     const dt = new Date(t.startTs * 1000);
                     const timeStr = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
                     const color = _tlColor(t.tl);
-                    const dur = t.endTs ? _fmtDur(t.endTs - t.startTs) : 'ongoing';
+                    const dur = t.endTs ? _fmtDur(t.endTs - t.startTs) : _t('panel.history.dur.ongoing');
                     const prevTl = idx > 0 ? dayTrans[idx-1].tl : t.tl;
                     const arrow = t.tl < prevTl ? `<span style="color:#ff2222;font-size:9px;">▲</span>`
                                 : t.tl > prevTl ? `<span style="color:#22aa44;font-size:9px;">▼</span>`
@@ -4940,7 +4940,7 @@
                            `${arrow}` +
                            `<span class="hist-tl-badge" style="background:${color}22;color:${color};border:1px solid ${color}44;">TL${t.tl}</span>` +
                            `<span style="color:#666;font-size:8px;min-width:40px;">${dur}</span>` +
-                           `<span style="color:#555;font-size:8px;">peak <b style="color:#aaa">${t.peakScore.toFixed(1)}</b></span>` +
+                           `<span style="color:#555;font-size:8px;">${_t('panel.history.label.peak')} <b style="color:#aaa">${t.peakScore.toFixed(1)}</b></span>` +
                            `</div>`;
                 });
                 html += `</div>`;
