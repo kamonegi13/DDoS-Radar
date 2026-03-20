@@ -1949,7 +1949,7 @@
      Analyst Notebook Panel (floating, dockable)
      ───────────────────────────────────────────────────────────────────────── -->
 <!-- ── History Analysis Panel ── -->
-<div id="history-panel" class="draggable-panel floating" style="display:none; left:350px; top:120px; width:620px;">
+<div id="history-panel" class="draggable-panel floating" style="display:none; left:350px; top:60px; width:640px;">
     <div class="drag-handle panel-header-unified">
         <span data-i18n="panel.history.title">History Analysis</span>
         <div>
@@ -1958,7 +1958,7 @@
             <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('history-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
     </div>
-    <div class="panel-content" style="max-height:600px; overflow-y:auto;">
+    <div class="panel-content" style="display:flex;flex-direction:column;max-height:780px;">
         <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
             <label style="font-size:10px;color:#888;" data-i18n="panel.history.theater">Theater:</label>
             <select id="hist-theater" style="background:#111;border:1px solid #333;color:#0ff;padding:3px 6px;border-radius:3px;font-size:10px;" onchange="loadHistoryData()">
@@ -2006,7 +2006,7 @@
             <!-- TL Distribution -->
             <div id="hist-tl-dist" style="display:flex;gap:3px;margin-bottom:8px;font-size:8px;"></div>
             <!-- Alert details grouped by day -->
-            <div id="hist-alerts" style="font-size:9px;color:#ccc;max-height:180px;overflow-y:auto;"></div>
+            <div id="hist-alerts" style="font-size:9px;color:#ccc;min-height:80px;max-height:320px;overflow-y:auto;"></div>
         </div>
     </div>
 </div>

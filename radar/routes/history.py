@@ -5,12 +5,23 @@ import json
 import datetime
 from flask import jsonify, request, Response
 from radar.state import ALERT_TIMELINE_MAX
+from radar.config import DEFAULT_CORE, DEFAULT_CORRELATES, DEFAULT_PINS
 from radar.database import db as _db
 from radar.routes import bp, _require_admin
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Historical Analysis API
 # ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/api/history/theaters", methods=["GET"])
+def api_history_theaters():
+    """Return all configured + historically recorded theaters."""
+    db_theaters = set(_db.ts_distinct_theaters())
+    cfg_theaters = set(DEFAULT_PINS) | set(DEFAULT_CORRELATES)
+    if DEFAULT_CORE:
+        cfg_theaters.add(DEFAULT_CORE)
+    return jsonify({"theaters": sorted(db_theaters | cfg_theaters)})
+
 
 @bp.route("/api/history/timeseries", methods=["GET"])
 def api_history_timeseries():

@@ -381,7 +381,7 @@ class RadarDB:
         return row[0] if row else 0
 
     # ── time_series_ts (timestamped) ────────────────────────────────────────
-    def ts_append(self, theater: str, ts: float, value: float, max_entries: int = 30):
+    def ts_append(self, theater: str, ts: float, value: float, max_entries: int = 8064):
         conn = self._get_conn()
         conn.execute(
             "INSERT OR REPLACE INTO time_series_ts (theater, ts, value) VALUES (?, ?, ?)",
@@ -409,13 +409,19 @@ class RadarDB:
         ).fetchall()
         return [(r[0], r[1]) for r in rows]
 
+    def ts_distinct_theaters(self) -> list[str]:
+        rows = self._get_conn().execute(
+            "SELECT DISTINCT theater FROM time_series_ts ORDER BY theater"
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def ts_total_points(self) -> int:
         row = self._get_conn().execute("SELECT COUNT(*) FROM time_series_ts").fetchone()
         return row[0] if row else 0
 
     # ── time_series value-only (combined/l3/l7) ─────────────────────────────
     def series_append(self, theater: str, series_type: str,
-                      value: float, max_entries: int = 15):
+                      value: float, max_entries: int = 8064):
         conn = self._get_conn()
         conn.execute(
             "INSERT INTO time_series (theater, series_type, value) VALUES (?, ?, ?)",

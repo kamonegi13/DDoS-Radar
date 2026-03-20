@@ -4489,19 +4489,30 @@
         const vis = p.style.display !== 'none';
         p.style.display = vis ? 'none' : '';
         if (!vis) {
-            // Populate theater selector from config
+            // Populate theater selector from DB (all theaters with recorded data)
             const sel = document.getElementById('hist-theater');
-            if (sel && window._appConfig) {
-                const theaters = new Set([window._appConfig.core, ...(window._appConfig.pins||[]), ...(window._appConfig.correlates||[])]);
-                sel.innerHTML = '';
-                theaters.forEach(t => {
-                    const o = document.createElement('option');
-                    o.value = t; o.textContent = t;
-                    if (t === window._appConfig.core) o.selected = true;
-                    sel.appendChild(o);
-                });
+            if (sel) {
+                const prev = sel.value;
+                fetch('/api/history/theaters').then(r => {
+                    if (!r.ok) throw new Error(r.status);
+                    return r.json();
+                }).then(data => {
+                    const theaters = data.theaters || [];
+                    if (!theaters.length) return;
+                    sel.innerHTML = '';
+                    theaters.forEach(t => {
+                        const o = document.createElement('option');
+                        o.value = t; o.textContent = t;
+                        sel.appendChild(o);
+                    });
+                    // Keep previous selection, or default to core theater
+                    const core = getCurrentConfig().core;
+                    sel.value = prev && theaters.includes(prev) ? prev : theaters.includes(core) ? core : theaters[0];
+                    loadHistoryData();
+                }).catch(() => loadHistoryData());
+            } else {
+                loadHistoryData();
             }
-            loadHistoryData();
         }
     };
 
@@ -4559,35 +4570,41 @@
         const elPeak = document.getElementById('hist-stat-peak');
         const elAvg = document.getElementById('hist-stat-avg');
         if (elPts) elPts.textContent = scored.length;
-        if (elPeak) { elPeak.textContent = peak.toFixed(1); elPeak.style.color = peak >= 80 ? '#ff2222' : peak >= 50 ? '#ffaa00' : '#0ff'; }
+        if (elPeak) { elPeak.textContent = peak.toFixed(1); elPeak.style.color = peak >= 10 ? '#ff2222' : peak >= 5 ? '#ffaa00' : '#0ff'; }
         if (elAvg) elAvg.textContent = avg.toFixed(1);
 
-        const mn = Math.min(...vals), mx = Math.max(...vals, 1);
-        const range = mx - mn || 1;
+        // Fixed Y-axis: 0–25 (spike factor cap) so severity is always visually apparent
+        const mn = 0, mx = 25;
+        const range = mx;
 
-        // TL zone backgrounds (5 zones evenly divided across score range)
-        const zoneColors = ['rgba(34,170,68,0.06)','rgba(102,204,0,0.06)','rgba(255,170,0,0.06)','rgba(255,102,0,0.08)','rgba(255,34,34,0.10)'];
-        for (let z = 0; z < 5; z++) {
-            const zTop = pad.top + ch - ((z+1)/5) * ch;
-            const zH = ch / 5;
-            ctx.fillStyle = zoneColors[z];
-            ctx.fillRect(pad.left, zTop, cw, zH);
-        }
+        // TL zone backgrounds — severity bands
+        const zones = [
+            { from: 0,  to: 2,  color: 'rgba(34,170,68,0.06)' },   // Normal
+            { from: 2,  to: 5,  color: 'rgba(102,204,0,0.06)' },   // Elevated
+            { from: 5,  to: 10, color: 'rgba(255,170,0,0.06)' },   // Warning
+            { from: 10, to: 18, color: 'rgba(255,102,0,0.08)' },   // Severe
+            { from: 18, to: 25, color: 'rgba(255,34,34,0.10)' },   // Critical
+        ];
+        zones.forEach(z => {
+            const yBot = pad.top + ch - (z.from / mx) * ch;
+            const yTop = pad.top + ch - (z.to / mx) * ch;
+            ctx.fillStyle = z.color;
+            ctx.fillRect(pad.left, yTop, cw, yBot - yTop);
+        });
 
-        // Grid lines + Y labels
+        // Grid lines + Y labels (0, 5, 10, 15, 20, 25)
         ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 0.5;
         ctx.fillStyle = '#555'; ctx.font = '8px monospace'; ctx.textAlign = 'right';
-        for (let i = 0; i <= 4; i++) {
-            const yVal = mn + (i/4) * range;
-            const y = pad.top + ch - (i/4) * ch;
+        for (let yVal = 0; yVal <= 25; yVal += 5) {
+            const y = pad.top + ch - (yVal / mx) * ch;
             ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
-            ctx.fillText(yVal.toFixed(0), pad.left - 4, y + 3);
+            ctx.fillText(yVal, pad.left - 4, y + 3);
         }
         ctx.textAlign = 'left';
 
         // X helper
         const toX = i => pad.left + (i / (scored.length - 1)) * cw;
-        const toY = v => pad.top + ch - ((v - mn) / range) * ch;
+        const toY = v => pad.top + ch - (Math.min(v, mx) / range) * ch;
 
         // Area fill with gradient
         const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + ch);
@@ -4743,19 +4760,49 @@
         }
         const colorMap = { BURST: '#ff8800', SURGE: '#ffee00', DDOS: '#ff2222', CHAIN: '#ff44ff', SYNC: '#ff2222' };
         const iconMap = { BURST: '◆', SURGE: '▲', DDOS: '●', CHAIN: '◈', SYNC: '●' };
-        el.innerHTML = '<div class="hist-seq-line">' + events.slice(-30).map(e => {
-            const dt = new Date(e.ts * 1000);
-            const timeStr = `${(dt.getMonth()+1)}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
-            const key = Object.keys(colorMap).find(k => e.type.includes(k)) || '';
-            const color = colorMap[key] || '#0ff';
-            const icon = iconMap[key] || '◇';
-            const meta = e.meta ? `<span style="color:#444;margin-left:4px;">${typeof e.meta === 'string' ? e.meta : JSON.stringify(e.meta).slice(0,60)}</span>` : '';
-            return `<div class="hist-seq-item">` +
-                   `<span style="color:${color};font-size:10px;">${icon}</span>` +
-                   `<div><span style="color:#555;font-size:8px;">${timeStr}</span> ` +
-                   `<span style="color:${color};font-weight:bold;font-size:9px;">${e.type}</span>${meta}</div>` +
-                   `</div>`;
-        }).join('') + '</div>';
+        // Group events by date
+        const groups = {};
+        events.slice(-50).forEach(e => {
+            const d = new Date(e.ts * 1000);
+            const day = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            if (!groups[day]) groups[day] = [];
+            groups[day].push(e);
+        });
+        let html = '';
+        Object.keys(groups).sort().reverse().forEach(day => {
+            const dayEvents = groups[day];
+            // Count types for day summary
+            const typeCounts = {};
+            dayEvents.forEach(e => {
+                const k = Object.keys(colorMap).find(k => e.type.includes(k)) || 'OTHER';
+                typeCounts[k] = (typeCounts[k]||0) + 1;
+            });
+            const typeBadges = Object.entries(typeCounts).map(([k,n]) => {
+                const c = colorMap[k] || '#0ff';
+                return `<span style="color:${c};font-size:8px;">${k}×${n}</span>`;
+            }).join(' ');
+
+            html += `<div style="margin-bottom:6px;">`;
+            html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;border-bottom:1px solid #1a1a1a;margin-bottom:2px;">`;
+            html += `<span style="color:#888;font-size:9px;font-weight:bold;">${day}</span>`;
+            html += `<span>${typeBadges}</span>`;
+            html += `</div>`;
+            dayEvents.forEach(e => {
+                const dt = new Date(e.ts * 1000);
+                const timeStr = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+                const key = Object.keys(colorMap).find(k => e.type.includes(k)) || '';
+                const color = colorMap[key] || '#0ff';
+                const icon = iconMap[key] || '◇';
+                const meta = e.meta ? `<span style="color:#444;margin-left:4px;">${typeof e.meta === 'string' ? e.meta : JSON.stringify(e.meta).slice(0,60)}</span>` : '';
+                html += `<div class="hist-seq-item">` +
+                       `<span style="color:${color};font-size:10px;">${icon}</span>` +
+                       `<div><span style="color:#555;font-size:8px;">${timeStr}</span> ` +
+                       `<span style="color:${color};font-weight:bold;font-size:9px;">${e.type}</span>${meta}</div>` +
+                       `</div>`;
+            });
+            html += `</div>`;
+        });
+        el.innerHTML = html;
     }
 
     function _renderAlerts(data) {
@@ -4829,58 +4876,76 @@
             }).join('');
         }
 
-        // ── Alert Details (grouped by day) ──
+        // ── Alert Details: show only TL transitions with duration ──
         if (el) {
-            // Group by date
+            // Collapse consecutive same-TL alerts into transitions
+            const transitions = [];
+            for (let i = 0; i < alerts.length; i++) {
+                const a = alerts[i];
+                const tl = a.threat_level || 1;
+                const prev = transitions[transitions.length - 1];
+                if (!prev || prev.tl !== tl) {
+                    // New TL level — close previous and start new
+                    if (prev) prev.endTs = a.ts;
+                    transitions.push({ tl, startTs: a.ts, endTs: null, core: a.core || '', score: a.score || 0, peakScore: a.score || 0 });
+                } else {
+                    // Same TL — update peak score
+                    if ((a.score || 0) > prev.peakScore) prev.peakScore = a.score || 0;
+                }
+            }
+
+            // Group transitions by date
             const groups = {};
-            alerts.forEach(a => {
-                const d = new Date((a.ts||0) * 1000);
+            transitions.forEach(t => {
+                const d = new Date(t.startTs * 1000);
                 const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                 if (!groups[key]) groups[key] = [];
-                groups[key].push(a);
+                groups[key].push(t);
             });
 
-            let html = '';
-            const sortedDays = Object.keys(groups).sort().reverse(); // newest first
-            sortedDays.forEach(day => {
-                const dayAlerts = groups[day];
-                // Day header with summary
-                const tlCounts = {};
-                dayAlerts.forEach(a => { const tl = a.threat_level||1; tlCounts[tl] = (tlCounts[tl]||0) + 1; });
-                const maxTl = Math.max(...dayAlerts.map(a => a.threat_level||1));
-                const tlBadges = Object.entries(tlCounts).sort((a,b) => b[0]-a[0]).map(([tl,cnt]) => {
-                    const c = _tlColor(+tl);
-                    return `<span style="color:${c};font-size:8px;">TL${tl}×${cnt}</span>`;
-                }).join(' ');
+            const _fmtDur = sec => {
+                if (!sec || sec <= 0) return 'ongoing';
+                if (sec < 60) return `${Math.round(sec)}s`;
+                if (sec < 3600) return `${Math.round(sec/60)}m`;
+                const h = Math.floor(sec/3600), m = Math.round((sec%3600)/60);
+                return m > 0 ? `${h}h${m}m` : `${h}h`;
+            };
 
-                html += `<div style="margin-bottom:6px;">`;
-                html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;border-bottom:1px solid #1a1a1a;margin-bottom:2px;">`;
+            let html = '';
+            const sortedDays = Object.keys(groups).sort().reverse();
+            sortedDays.forEach(day => {
+                const dayTrans = groups[day];
+                const maxTl = Math.min(...dayTrans.map(t => t.tl));
+                const dayColor = _tlColor(maxTl);
+                const changes = dayTrans.length;
+
+                html += `<div style="margin-bottom:8px;">`;
+                html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;border-bottom:1px solid #1a1a1a;margin-bottom:3px;">`;
                 html += `<span style="color:#888;font-size:9px;font-weight:bold;">${day}</span>`;
-                html += `<span style="color:#555;font-size:8px;">(${dayAlerts.length})</span>`;
-                html += `<span>${tlBadges}</span>`;
+                html += `<span style="color:#555;font-size:8px;">${changes} transition${changes !== 1 ? 's' : ''}</span>`;
                 html += `</div>`;
 
-                // Individual alerts within day
-                dayAlerts.forEach((a, idx) => {
-                    const dt = new Date((a.ts||0) * 1000);
+                dayTrans.forEach((t, idx) => {
+                    const dt = new Date(t.startTs * 1000);
                     const timeStr = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
-                    const tl = a.threat_level || 1;
-                    const color = _tlColor(tl);
-                    const prevTl = idx > 0 ? (dayAlerts[idx-1].threat_level || 1) : tl;
-                    const arrow = tl > prevTl ? `<span class="hist-alert-arrow" style="color:#ff2222;">▲</span>`
-                                : tl < prevTl ? `<span class="hist-alert-arrow" style="color:#22aa44;">▼</span>`
-                                : `<span class="hist-alert-arrow" style="color:#333;">─</span>`;
-                    html += `<div class="hist-alert-row">` +
-                           `<span style="color:#444;font-size:8px;min-width:36px;">${timeStr}</span>` +
+                    const color = _tlColor(t.tl);
+                    const dur = t.endTs ? _fmtDur(t.endTs - t.startTs) : 'ongoing';
+                    const prevTl = idx > 0 ? dayTrans[idx-1].tl : t.tl;
+                    const arrow = t.tl < prevTl ? `<span style="color:#ff2222;font-size:9px;">▲</span>`
+                                : t.tl > prevTl ? `<span style="color:#22aa44;font-size:9px;">▼</span>`
+                                : `<span style="color:#333;font-size:9px;">→</span>`;
+
+                    html += `<div class="hist-alert-row" style="padding:2px 0;">` +
+                           `<span style="color:#555;font-size:8px;min-width:36px;">${timeStr}</span>` +
                            `${arrow}` +
-                           `<span class="hist-tl-badge" style="background:${color}22;color:${color};border:1px solid ${color}44;">TL${tl}</span>` +
-                           `<span style="color:#888;font-size:9px;">${a.core || ''}</span>` +
-                           `<span style="color:#555;font-size:9px;">score <b style="color:#aaa">${(a.score||0).toFixed(1)}</b></span>` +
+                           `<span class="hist-tl-badge" style="background:${color}22;color:${color};border:1px solid ${color}44;">TL${t.tl}</span>` +
+                           `<span style="color:#666;font-size:8px;min-width:40px;">${dur}</span>` +
+                           `<span style="color:#555;font-size:8px;">peak <b style="color:#aaa">${t.peakScore.toFixed(1)}</b></span>` +
                            `</div>`;
                 });
                 html += `</div>`;
             });
-            el.innerHTML = html;
+            el.innerHTML = html || `<span style="color:#555">${_t('panel.history.no_alerts')}</span>`;
         }
     }
 
