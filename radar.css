@@ -893,10 +893,16 @@
 .corr-cell-diag { background:rgba(255,255,255,0.015) !important; color:#333; border-color:transparent; }
 .corr-legend { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:8px; font-size:9px; color:#777; }
 /* Compact mode when docked in narrow sidebar */
+.corr-grid-compact { gap:1px !important; }
 .corr-grid-compact .corr-col-label,
-.corr-grid-compact .corr-row-label { font-size:8px; }
+.corr-grid-compact .corr-row-label { font-size:8px; min-height:0; padding:1px 0; }
 .corr-grid-compact .corr-row-label { padding-right:3px; }
-.corr-grid-compact .corr-cell { font-size:7px; min-height:16px; padding:2px 1px; }
+.corr-grid-compact .corr-cell { font-size:8px; min-height:0; padding:2px 1px; line-height:1.1; }
+.corr-grid-compact .corr-corner { padding:0; }
+/* Shrink surrounding elements when docked */
+.corr-heatmap-body:has(.corr-grid-compact) .corr-toggle-group { margin-bottom:3px; }
+.corr-heatmap-body:has(.corr-grid-compact) .corr-toggle-btn { font-size:9px; padding:2px 5px; }
+.corr-heatmap-body:has(.corr-grid-compact) .corr-legend { margin-top:3px; font-size:8px; gap:6px; }
 /* ── Coordination Index: Constellation Pattern ───────────── */
 /* Constellation glow track (wide, dim, breathing) */
 .coord-glow { pointer-events: none; outline: none; animation: coordGlowBreathe 5s ease-in-out infinite; }
