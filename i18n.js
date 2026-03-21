@@ -39,6 +39,7 @@ const LANG = {
     'hud.convergence.none':           'CONVERGENCE: —',
     'hud.label.threat_24h':           'THREAT 24h:',
     'hud.tooltip.threat_24h':         'Threat Level History (last 24 hours / 288 cycles)',
+    'hud.label.tl_proximity':         'ESCALATION:',
     'hud.label.epicenter':            'Epicenter:',
 
     // ── vector buttons ────────────────────────────────────────────
@@ -941,6 +942,7 @@ const LANG = {
     'hud.convergence.none':           '収束: —',
     'hud.label.threat_24h':           '脅威 24h:',
     'hud.tooltip.threat_24h':         '脅威レベル履歴（直近24時間 / 288サイクル）',
+    'hud.label.tl_proximity':         'エスカレーション:',
     'hud.label.epicenter':            '震源地:',
 
     'hud.vec.all':                    '全ベクター',

@@ -977,6 +977,10 @@
         { id: 'history-panel',        ph: 'lsb-ph-hist'           },
         { id: 'escalation-panel',    ph: 'lsb-ph-esc'            },
         { id: 'corr-heatmap-panel',  ph: 'lsb-ph-corr'           },
+        // Floating-only panels (no sidebar placeholder)
+        { id: 'whatif-panel',        ph: null                     },
+        { id: 'spof-panel',         ph: null                     },
+        { id: 'actionplan-panel',   ph: null                     },
     ];
 
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
@@ -2038,25 +2042,30 @@
             }
             threatEl.innerText = threatLabels[strat.threat_level];
 
-            // TL Proximity badge
+            // TL Proximity indicator (hud-item style)
             const proxEl = document.getElementById('hud-tl-proximity');
-            if (proxEl) {
+            const proxWrap = document.getElementById('hud-tl-proximity-wrap');
+            if (proxEl && proxWrap) {
                 const tlp = (strat.analytics || {}).tl_proximity;
                 if (tlp) {
                     const lbl = tlp.proximity_label;
-                    proxEl.className = 'tl-prox-badge ' + (lbl === 'NEAR_ESCALATION' ? 'tl-prox-up' : lbl === 'NEAR_DE_ESCALATION' ? 'tl-prox-down' : 'tl-prox-stable');
                     if (lbl === 'NEAR_ESCALATION') {
+                        proxEl.className = 'hud-value tl-prox-up';
                         proxEl.textContent = '▲ ' + _t('tl_prox.near_esc', {pts: tlp.distance_up, tl: tlp.next_tl_up});
                         proxEl.setAttribute('data-tooltip', _t('tl_prox.tooltip_up', {pts: tlp.distance_up, tl: tlp.next_tl_up}));
+                        proxWrap.style.display = '';
                     } else if (lbl === 'NEAR_DE_ESCALATION') {
+                        proxEl.className = 'hud-value tl-prox-down';
                         proxEl.textContent = '▼ ' + _t('tl_prox.near_deesc', {pts: tlp.distance_down, tl: tlp.next_tl_down});
                         proxEl.setAttribute('data-tooltip', _t('tl_prox.tooltip_down', {pts: tlp.distance_down, tl: tlp.next_tl_down}));
+                        proxWrap.style.display = '';
                     } else {
+                        proxWrap.style.display = 'none';
                         proxEl.textContent = '';
                     }
                 } else {
+                    proxWrap.style.display = 'none';
                     proxEl.textContent = '';
-                    proxEl.className = 'tl-prox-badge tl-prox-stable';
                 }
             }
 
@@ -2879,7 +2888,7 @@
         syncToolsMenuState();
     }
 
-    const LAYOUT_VERSION = 10; // bump when layout structure changes to auto-clear stale state
+    const LAYOUT_VERSION = 11; // bump when layout structure changes to auto-clear stale state
 
     function loadTargetState(defaults) {
         // Initialize THEATERS from app_config global list before building UI
@@ -3092,6 +3101,7 @@
         
         const iodaSt   = intel.ioda_status || 'NORMAL';
         const isEffDeg = intel.is_bgp_degraded;
+        const iodaDetail = intel.ioda_detail || null;
         let iodaCol = 'cip-ok';
         let iodaTxt = _t('cip.ioda.normal');
         if (iodaSt === "BGP_OUTAGE") {
@@ -3102,6 +3112,22 @@
                 iodaCol = 'cip-warn';
                 iodaTxt = _t('cip.ioda.outage_wx');
             }
+        }
+        // Build IODA datasource detail sub-text
+        let iodaSubHtml = '';
+        if (iodaDetail && iodaDetail.sources) {
+            const srcEntries = Object.entries(iodaDetail.sources);
+            if (srcEntries.length) {
+                iodaSubHtml = srcEntries.map(([ds, info]) => {
+                    const lvl = info.level || 'normal';
+                    const col = lvl === 'critical' ? '#ff4444' : lvl === 'warning' ? '#ffaa00' : '#555';
+                    return `<span style="color:${col};font-size:10px;">${ds}: ${lvl}</span>`;
+                }).join(' · ');
+            }
+        }
+        if (intel.ioda_source) {
+            const srcLabel = intel.ioda_source === 'ioda_proper' ? 'IODA' : intel.ioda_source === 'cf_fallback' ? 'CF Radar' : intel.ioda_source;
+            iodaSubHtml = (iodaSubHtml ? iodaSubHtml + '<br>' : '') + `<span style="color:#888;font-size:10px;">src: ${srcLabel}</span>`;
         }
 
         const sortedSrc = ((tgtData.sources || []).filter(s => s.weight > 0)
@@ -3133,7 +3159,12 @@
             ? `${bgpR.announced_prefixes} pfx / ${bgpR.seen_ases || '?'} ASes`
             : '—';
         const bgpCol = bgpR.is_anomaly ? 'cip-alert' : 'cip-ok';
-        const bgpLbl = bgpR.is_anomaly ? `⚠ DROP ${bgpR.drop_pct}%` : (bgpR.status || '—');
+        let bgpLbl = bgpR.is_anomaly ? `⚠ DROP ${bgpR.drop_pct}%` : (bgpR.status || '—');
+        if (bgpR.prefix_trend) {
+            const trendCol = bgpR.prefix_trend === 'WITHDRAWING' ? '#ff4444' : bgpR.prefix_trend === 'GROWING' ? '#00ff88' : '#888';
+            const trendPct = bgpR.prefix_trend_pct != null ? ` (${bgpR.prefix_trend_pct > 0 ? '+' : ''}${bgpR.prefix_trend_pct.toFixed(1)}%)` : '';
+            bgpLbl += ` <span style="color:${trendCol};font-size:10px;">${bgpR.prefix_trend}${trendPct}</span>`;
+        }
 
         const gdelt  = intel.gdelt || {};
         const gdTone = gdelt.tone_current != null ? gdelt.tone_current.toFixed(1) : '—';
@@ -3168,6 +3199,7 @@
                 <div class="cip-card">
                     <div class="cip-card-label">${_t('cip.label.ioda')}</div>
                     <div class="cip-card-value ${iodaCol}">${iodaTxt}</div>
+                    ${iodaSubHtml ? `<div class="cip-card-sub">${iodaSubHtml}</div>` : ''}
                 </div>
                 <div class="cip-card">
                     <div class="cip-card-label">${_t('cip.label.bgp_routing')}</div>
@@ -3488,16 +3520,23 @@
         const ctx = canvas.getContext('2d');
         const W = canvas.width, H = canvas.height;
         ctx.clearRect(0, 0, W, H);
+
+
         const n    = threatHistory.length;
-        const barW = Math.max(1, Math.floor(W / n));
+        const barW = Math.floor(W / n);
+        const gap  = Math.max(1, Math.round(barW * 0.3));
+        const bw   = barW - gap;
+        const offset = Math.floor((W - barW * n) / 2); // center bars
         const threatColors = { 1: '#ff0000', 2: '#ff2a2a', 3: '#ffaa00', 4: '#ffff00', 5: '#66ff66' };
 
+        // severity = 6-d so that Lv1 CRITICAL=5 (tallest), Lv5 NORMAL=1 (shortest)
+        // Minimum bar height is 3px so NORMAL state is always visible
         threatHistory.forEach(([, d], i) => {
-            const x   = Math.floor(i * (W / n));
-            const y   = Math.round(((d - 1) / 4) * (H - 2)) + 1;
-            const col = threatColors[d] || '#444';
-            ctx.fillStyle = col;
-            ctx.fillRect(x, y, barW - 1, H - y);
+            const x   = offset + i * barW;
+            const severity = 6 - d;  // 1→5, 2→4, 3→3, 4→2, 5→1
+            const barH = Math.max(3, Math.round((severity / 5) * H));
+            ctx.fillStyle = threatColors[d] || '#444';
+            ctx.fillRect(x, H - barH, bw, barH);
         });
     }
 

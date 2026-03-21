@@ -940,7 +940,7 @@ def get_threat_data():
                         "ioda_detail": ioda_details.get(code),
                         "ioda_source": ioda_source,
                         "is_bgp_degraded": code in degraded_targets_effective,
-                    } for code in strategic_theaters_set if code in COUNTRY_COORDS
+                    } for code in (strategic_theaters_set | {c for c, s in ioda_data.items() if s == "BGP_OUTAGE"}) if code in COUNTRY_COORDS
                 },
                 "map_overlays": {
                     "ioda_outages": ioda_overlays, "airspace_anomaly": airspace_anomalies,

@@ -97,10 +97,10 @@
 
         /* ── HUD Layout ── */
         #top-hud { width: 100vw; background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #444; z-index: 4000; display: flex; flex-direction: column; padding: 6px 15px 4px; box-sizing: border-box; box-shadow: 0 2px 15px rgba(0,0,0,0.8); flex-shrink: 0; }
-        .hud-top-row { display: flex; width: 100%; align-items: center; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px dashed #333; }
+        .hud-top-row { display: flex; width: 100%; align-items: center; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px dashed #333; flex-wrap: wrap; row-gap: 3px; }
         .hud-bottom-row { display: flex; width: 100%; align-items: center; flex-wrap: wrap; row-gap: 4px; }
         
-        .hud-item { display: flex; align-items: center; margin-right: 12px; font-size: 12px; border-right: 1px solid #333; padding-right: 12px; white-space: nowrap; }
+        .hud-item { display: flex; align-items: center; margin-right: 12px; font-size: 12px; border-right: 1px solid #333; padding-right: 12px; white-space: nowrap; flex-shrink: 0; }
         .hud-item:last-of-type { border-right: none; }
         .hud-label { color: var(--color-muted); margin-right: 5px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px;}
         .hud-value { font-weight: bold; cursor: default; }
@@ -498,12 +498,11 @@
         .conf-high { color: #66ffaa; background: rgba(102,255,170,0.1); }
         .conf-mid  { color: #ffaa00; background: rgba(255,170,0,0.1); }
         .conf-low  { color: #ff4444; background: rgba(255,68,68,0.1); }
-        /* TL Proximity badge in HUD */
-        .tl-prox-badge { font-size: 10px; font-weight: bold; padding: 1px 6px; border-radius: 3px; vertical-align: middle; margin-left: 4px; }
-        .tl-prox-up   { color: #ff4444; background: rgba(255,68,68,0.15); animation: tl-prox-pulse 1.5s ease-in-out infinite; }
-        .tl-prox-down { color: #66ffaa; background: rgba(102,255,170,0.1); }
-        .tl-prox-stable { display: none; }
-        @keyframes tl-prox-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+        /* TL Proximity indicator in HUD (hud-item style) */
+        .tl-prox-up   { color: #ff4444; }
+        .tl-prox-down { color: #66ffaa; }
+        .tl-prox-stable { color: var(--color-muted); }
+        @keyframes tl-prox-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
         .evidence-system-note { font-size: 11px; color: var(--color-text-dim); background: rgba(255,255,255,0.04); border-left: 3px solid #555; padding: 8px 12px; border-radius: 0 4px 4px 0; margin: 12px 0 8px; line-height: 1.6; }
         .convergence-row { display: flex; gap: 16px; margin: 8px 0 4px; flex-wrap: wrap; }
 

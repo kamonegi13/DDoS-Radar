@@ -82,14 +82,17 @@
 <div id="top-hud">
     <div class="hud-top-row">
         <div id="hud-threat" class="threat-hud threat-5-hud" data-tooltip="Click to view Analytic Rationale">THREAT Lv 5: NORMAL</div>
-        <span id="hud-tl-proximity" class="tl-prox-badge tl-prox-stable" data-i18n-tip="hud.tooltip.tl_proximity"></span>
+        <div class="hud-item" data-tooltip="Threat Level History (last 24 hours / 288 cycles)" data-i18n-tip="hud.tooltip.threat_24h">
+            <span class="hud-label" data-i18n="hud.label.threat_24h">THREAT 24h:</span>
+            <canvas id="hud-threat-spark" width="200" height="20" style="vertical-align:middle; margin-left:4px; cursor:help; border-radius:2px;"></canvas>
+        </div>
+        <div id="hud-tl-proximity-wrap" class="hud-item" style="display:none;">
+            <span class="hud-label" data-i18n="hud.label.tl_proximity">ESCALATION:</span>
+            <span id="hud-tl-proximity" class="hud-value tl-prox-stable" data-i18n-tip="hud.tooltip.tl_proximity"></span>
+        </div>
         <div class="hud-item"><span class="hud-label" data-i18n="hud.label.epicenter">Epicenter:</span> <span id="hud-epicenter" class="hud-value" style="color:#00ffff;">-</span></div>
         <div class="hud-item">
             <span id="hud-convergence" class="conv-NONE" data-tooltip="Multi-Domain Convergence Level">CONVERGENCE: —</span>
-        </div>
-        <div class="hud-item" data-tooltip="Threat Level History (last 24 hours / 288 cycles)" data-i18n-tip="hud.tooltip.threat_24h">
-            <span class="hud-label" data-i18n="hud.label.threat_24h">THREAT 24h:</span>
-            <canvas id="hud-threat-spark" width="80" height="18" style="vertical-align:middle; margin-left:4px; cursor:help;"></canvas>
         </div>
         
         <div style="flex-grow: 1;"></div>
