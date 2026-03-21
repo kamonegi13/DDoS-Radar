@@ -1419,6 +1419,7 @@
     // Threat Situation Map layers
     const haloLayer         = L.layerGroup().addTo(map);
     const sensorMarkerLayer = L.layerGroup().addTo(map);
+    const coordLinkLayer    = L.layerGroup().addTo(map);  // Constellation links
 
     const overlayLayers = {
         "Target Nodes":      targetLayer,
@@ -1437,6 +1438,7 @@
         "Threat Terrain":    threatTerrainLayer,
         "Threat Halos":      haloLayer,
         "Sensor Status":     sensorMarkerLayer,
+        "Coordination":      coordLinkLayer,
     };
     L.control.layers(null, overlayLayers, { position: 'topright', collapsed: true }).addTo(map);
 
@@ -2071,18 +2073,15 @@
 
             epicenterEl.innerText = strat.core_theater || 'None';
 
-            let overlapText = "None";
             if (strat.correlations && Object.keys(strat.correlations).length > 0) {
-                let arr = [];
-                for (const [pair, overlap] of Object.entries(strat.correlations)) {
-                    const color = overlap > 40 ? "#ff2a2a" : (overlap > 20 ? "#ffaa00" : "#fff");
-                    const l3v = strat.correlations_l3 ? (strat.correlations_l3[pair] || 0).toFixed(1) : '-';
-                    const l7v = strat.correlations_l7 ? (strat.correlations_l7[pair] || 0).toFixed(1) : '-';
-                    arr.push(`<span style="color:${color}" data-tooltip="L3 overlap: ${l3v}%\nL7 overlap: ${l7v}%">${pair}: ${overlap}%</span>`);
-                }
-                overlapText = arr.join(' | ');
+                const maxEntry = Object.entries(strat.correlations).reduce((a, b) => b[1] > a[1] ? b : a, ['—', 0]);
+                const maxPct = maxEntry[1];
+                const color = maxPct > 40 ? '#ff2a2a' : maxPct > 20 ? '#ffaa00' : '#888';
+                overlapEl.innerHTML = `<span style="color:${color}">${maxEntry[0]}: ${maxPct.toFixed(0)}%</span>`;
+                overlapEl.setAttribute('data-tooltip', Object.entries(strat.correlations).map(([k,v]) => `${k}: ${v.toFixed(1)}%`).join('\n') + '\n(see map: Origin Overlap layer)');
+            } else {
+                overlapEl.innerHTML = 'None';
             }
-            overlapEl.innerHTML = overlapText;
             
             if (strat.vector_shifts && strat.vector_shifts.length > 0) {
                 shiftEl.innerHTML = `<span class="alert-text">${strat.vector_shifts.join(', ')}</span>`;
@@ -2789,9 +2788,10 @@
 
         originContainer.innerHTML = originHtml;
 
-        // ── Intuition UI: Pulse Display + Threat Terrain (common to all renders) ──
+        // ── Intuition UI: Pulse Display + Threat Terrain + Overlap Links ──
         updatePulseDisplay(data.threat_history || []);
         updateThreatTerrain(data);
+        updateCoordinationIndex(data);
 
         // P7-Opt: batch Canvas rendering after innerHTML is finalized
         originContainer.querySelectorAll('.sparkline-canvas').forEach(cvs => {
@@ -3176,6 +3176,41 @@
         const ixpCnt   = intel.ixp_count || 0;
         const ixpNames = (intel.ixp_names || []).slice(0, 4).join(', ') || '—';
 
+        // IHR data
+        const ihrSt    = intel.ihr_status || 'NORMAL';
+        const ihrDisco = intel.ihr_disco || [];
+        const ihrCol   = ihrSt === 'DISCO_EVENT' ? 'cip-alert' : ihrSt === 'HEGEMONY_ALARM' ? 'cip-warn' : ihrSt === 'DELAY_ANOMALY' ? 'cip-warn' : 'cip-ok';
+        const ihrTxt   = ihrSt === 'DISCO_EVENT' ? _t('cip.ihr.disco')
+                       : ihrSt === 'HEGEMONY_ALARM' ? _t('cip.ihr.hegemony')
+                       : ihrSt === 'DELAY_ANOMALY' ? _t('cip.ihr.delay')
+                       : _t('cip.ihr.normal');
+        const ihrSub   = ihrDisco.length ? _t('cip.ihr.events', {n: ihrDisco.length}) : '';
+
+        // RIPE Atlas data
+        const atlasD   = intel.ripe_atlas || {};
+        const atlasSt  = atlasD.status || 'NORMAL';
+        const atlasCol = atlasSt === 'PROBE_BLACKOUT' ? 'cip-alert' : atlasSt === 'PROBE_DROP' ? 'cip-warn' : 'cip-ok';
+        const atlasTxt = atlasSt === 'PROBE_BLACKOUT' ? _t('cip.atlas.probe_blackout')
+                       : atlasSt === 'PROBE_DROP' ? _t('cip.atlas.probe_drop')
+                       : _t('cip.atlas.normal');
+        const atlasProbes = atlasD.probes || {};
+        const atlasSub = atlasProbes.active != null ? _t('cip.atlas.probes', {n: atlasProbes.active}) : '';
+        const atlasLat = atlasD.latency || {};
+        const atlasRtt = atlasLat.avg_ms != null ? _t('cip.atlas.rtt', {avg: atlasLat.avg_ms, p95: atlasLat.p95_ms}) : '—';
+
+        // Tor Metrics data
+        const torD     = intel.tor_metrics || {};
+        const torSt    = torD.status || 'NORMAL';
+        const torCol   = torSt === 'CENSORSHIP_INDICATOR' ? 'cip-alert' : torSt === 'RELAY_DROP' ? 'cip-warn' : torSt === 'USER_SURGE' ? 'cip-warn' : 'cip-ok';
+        const torTxt   = torSt === 'CENSORSHIP_INDICATOR' ? _t('cip.tor.censorship')
+                       : torSt === 'RELAY_DROP' ? _t('cip.tor.relay_drop')
+                       : torSt === 'USER_SURGE' ? _t('cip.tor.user_surge')
+                       : _t('cip.tor.normal');
+        const torRelays  = torD.relays || {};
+        const torClients = torD.clients || {};
+        const torSub   = torRelays.running != null ? _t('cip.tor.relays', {n: torRelays.running, b: torRelays.bridges || 0}) : '';
+        const torUsers = torClients.bridge_users != null ? _t('cip.tor.users', {n: torClients.bridge_users}) : '';
+
         document.getElementById('country-modal-body').innerHTML = `
         <div class="cip-header">
             <div class="cip-flag">🌐</div>
@@ -3231,6 +3266,41 @@
                     <div class="cip-card-value">${ixpCnt}</div>
                     <div class="cip-card-sub" style="font-size:10px;">${ixpNames}</div>
                 </div>
+            </div>
+        </div>
+
+        <div class="cip-section">
+            <div class="cip-section-title">${_t('cip.section.network')}</div>
+            <div class="cip-grid">
+                <div class="cip-card">
+                    <div class="cip-card-label">${_t('cip.label.ihr_disco')}</div>
+                    <div class="cip-card-value ${ihrCol}">${ihrTxt}</div>
+                    ${ihrSub ? `<div class="cip-card-sub">${ihrSub}</div>` : ''}
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">${_t('cip.label.ripe_atlas')}</div>
+                    <div class="cip-card-value ${atlasCol}">${atlasTxt}</div>
+                    ${atlasSub ? `<div class="cip-card-sub">${atlasSub}</div>` : ''}
+                </div>
+                <div class="cip-card">
+                    <div class="cip-card-label">${_t('cip.label.ripe_latency')}</div>
+                    <div class="cip-card-value">${atlasRtt}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="cip-section">
+            <div class="cip-section-title">${_t('cip.section.censorship')}</div>
+            <div class="cip-grid">
+                <div class="cip-card">
+                    <div class="cip-card-label">${_t('cip.label.tor_metrics')}</div>
+                    <div class="cip-card-value ${torCol}">${torTxt}</div>
+                    ${torSub ? `<div class="cip-card-sub">${torSub}</div>` : ''}
+                </div>
+                ${torUsers ? `<div class="cip-card">
+                    <div class="cip-card-label">Bridge Users</div>
+                    <div class="cip-card-value">${torUsers}</div>
+                </div>` : ''}
             </div>
         </div>
 
@@ -3928,6 +3998,113 @@
         });
     }
 
+    // ── Coordination Index: Constellation Pattern ──────────────────
+    function _coordColor(coordIdx, isC2Sync) {
+        if (isC2Sync && coordIdx > 60) return '#ff4444';
+        if (coordIdx > 70) return '#ff8833';
+        if (coordIdx > 45) return '#ffcc44';
+        return '#66ffee';
+    }
+
+    function updateCoordinationIndex(data) {
+        coordLinkLayer.clearLayers();
+        const strat = data && data.strategic_alert;
+        if (!strat || !strat.correlations) return;
+
+        const targets = data.targets || [];
+        const posMap = {}, spikeMap = {};
+        targets.forEach(t => {
+            if (t.lat != null && t.lng != null) posMap[t.code] = {lat: t.lat, lng: shiftLng(t.lng)};
+            spikeMap[t.code] = t.avg_spike || 0;
+        });
+
+        const tc = (strat.analytics || {}).temporal_coherence || {};
+        const isC2Sync = tc.is_c2_sync || false;
+        const c2Score = tc.coherence_score || 0;
+        const strikes = strat.adversary_strikes || [];
+        const strikeTargets = new Set(strikes.map(s => s.target));
+
+        const OVERLAP_THRESHOLD = 15;
+        const diamondPlaced = new Set();
+
+        for (const [pair, overlap] of Object.entries(strat.correlations)) {
+            const [a, b] = pair.split('-');
+            const ca = posMap[a], cb = posMap[b];
+            if (!ca || !cb) continue;
+
+            let coordIdx = overlap;
+            const bothElevated = spikeMap[a] > 2 && spikeMap[b] > 2;
+            if (bothElevated) coordIdx += 10;
+            if (isC2Sync) coordIdx += 15;
+            else if (c2Score > 0) coordIdx += 5;
+            if (strikeTargets.has(a) && strikeTargets.has(b)) coordIdx += 10;
+            coordIdx = Math.min(100, Math.max(0, coordIdx));
+            if (coordIdx < OVERLAP_THRESHOLD) continue;
+
+            const norm = Math.min(1, (coordIdx - OVERLAP_THRESHOLD) / (100 - OVERLAP_THRESHOLD));
+            const weight = 1.5 + norm * 2.5;
+            const alpha = 0.25 + norm * 0.55;
+            const color = _coordColor(coordIdx, isC2Sync);
+            const isC2High = isC2Sync && coordIdx > 60;
+            const speedCls = isC2High ? 'coord-core-fast' : (coordIdx > 50 ? 'coord-core-med' : 'coord-core-slow');
+            const c2Cls = isC2High ? ' coord-c2sync' : '';
+
+            // Layer 1: Glow track (wide, dim, blurred feel)
+            L.polyline([[ca.lat, ca.lng], [cb.lat, cb.lng]], {
+                color, weight: weight + 6, opacity: alpha * 0.18,
+                lineCap: 'round', interactive: false, className: 'coord-glow'
+            }).addTo(coordLinkLayer);
+
+            // Layer 2: Core line with breathing animation
+            const coreLine = L.polyline([[ca.lat, ca.lng], [cb.lat, cb.lng]], {
+                color, weight, opacity: alpha,
+                lineCap: 'round', interactive: true,
+                className: 'coord-core ' + speedCls + c2Cls
+            }).addTo(coordLinkLayer);
+
+            // Pass base weight as CSS variable for breathing keyframes
+            requestAnimationFrame(() => {
+                const el = coreLine.getElement && coreLine.getElement();
+                if (el) el.style.setProperty('--coord-w', weight + 'px');
+            });
+
+            // Rich tooltip with signal breakdown
+            const l3 = strat.correlations_l3 ? (strat.correlations_l3[pair] || 0).toFixed(0) : '—';
+            const l7 = strat.correlations_l7 ? (strat.correlations_l7[pair] || 0).toFixed(0) : '—';
+            let tipHtml = `<b>${a} ↔ ${b}</b> — Coord: ${coordIdx.toFixed(0)}%`;
+            tipHtml += `<br><span style="color:#888">Origin:</span> ${overlap.toFixed(0)}% (<span style="color:#ff6666">L3:${l3}%</span> <span style="color:#66ff66">L7:${l7}%</span>)`;
+            if (bothElevated) tipHtml += `<br><span style="color:#ffaa00">▲ Both elevated (${spikeMap[a].toFixed(1)}× / ${spikeMap[b].toFixed(1)}×)</span>`;
+            if (isC2Sync) tipHtml += `<br><span style="color:#ff2200">⚡ C2-SYNC confirmed</span>`;
+            else if (c2Score > 0) tipHtml += `<br><span style="color:#ffaa00">◉ Partial temporal coherence</span>`;
+            if (strikeTargets.has(a) && strikeTargets.has(b)) tipHtml += `<br><span style="color:#ff4444">✦ Adversary strikes on both</span>`;
+            coreLine.bindTooltip(tipHtml, {sticky: true, className: 'coord-tooltip'});
+
+            // Midpoint percentage label
+            const midLat = (ca.lat + cb.lat) / 2;
+            const midLng = (ca.lng + cb.lng) / 2;
+            const labelIcon = L.divIcon({
+                className: '',
+                html: `<div style="font-size:13px;font-weight:bold;font-family:monospace;color:${color};opacity:${Math.min(1, alpha + 0.15)};text-shadow:0 0 6px rgba(0,0,0,0.95),0 0 2px rgba(0,0,0,0.8);white-space:nowrap;pointer-events:none;">${coordIdx.toFixed(0)}%</div>`,
+                iconSize: [40, 18], iconAnchor: [20, 9],
+            });
+            L.marker([midLat, midLng], {icon: labelIcon, interactive: false}).addTo(coordLinkLayer);
+
+            // Diamond endpoint markers (one per theater)
+            for (const code of [a, b]) {
+                if (diamondPlaced.has(code)) continue;
+                diamondPlaced.add(code);
+                const pos = posMap[code];
+                const pulseCls = isC2High ? ' coord-diamond-pulse' : '';
+                const dIcon = L.divIcon({
+                    className: '',
+                    html: `<div class="coord-diamond${pulseCls}" style="width:8px;height:8px;background:${color};transform:rotate(45deg);box-shadow:0 0 6px ${color}88;opacity:${Math.min(1, alpha + 0.2)};"></div>`,
+                    iconSize: [8, 8], iconAnchor: [4, 4],
+                });
+                L.marker([pos.lat, pos.lng], {icon: dIcon, interactive: false}).addTo(coordLinkLayer);
+            }
+        }
+    }
+
     // ── Significant event detected → reset operational tempo timer ────
     function recordSignificantEvent(threatLevel) {
         if (threatLevel <= 3) _lastEventTs = Date.now();
@@ -4200,6 +4377,10 @@
         'telegram_mirror':  {angle: 215, label: 'TG',   domain: 'info'},
         'gdelt':            {angle: 243, label: 'GDT',  domain: 'info'},
         'rss_narrative':    {angle: 268, label: 'RSS',  domain: 'info'},
+        'ihr_disco':        {angle: 135, label: 'IHR',  domain: 'physical'},
+        'ihr_delay':        {angle: 150, label: 'IHRd', domain: 'physical'},
+        'ripe_atlas':       {angle: 108, label: 'ATL',  domain: 'physical'},
+        'tor_metrics':      {angle: 230, label: 'TOR',  domain: 'info'},
     };
 
     const HALO_CFG = {
@@ -5583,10 +5764,119 @@
     }, 1000);
 
     // ═══════════════════════════════════════════════════════════════
-    // Phase 3: Correlation Heatmap panel
+    // Phase 3 → Phase 4: Sensor × Theater Heatmap
     // ═══════════════════════════════════════════════════════════════
     const toggleCorrHeatmap = _createPanelToggle('corr-heatmap-panel', { floating: false, onShow: renderCorrHeatmap });
-    let _corrMode = 'combined'; // 'combined' | 'l3' | 'l7'
+    let _heatmapDomain = 'all'; // 'all' | 'cyber' | 'physical' | 'info'
+
+    // Sensor definitions for the heatmap: name, short label, domain, data extractor
+    // Extractor: (intel, tgtDetail, code, sa) → {level: 0|1|2, label: string, tip: string}
+    //   level: 0=quiet, 1=warning, 2=alert
+    const _HEATMAP_SENSORS = [
+        { name: 'cloudflare_radar', lbl: 'CF',   domain: 'cyber',    extract: (_i, td) => {
+            const sp = td && td.avg_spike || 0;
+            return sp >= 3 ? {level:2, label:sp.toFixed(1)+'×', tip:'DDoS spike '+sp.toFixed(1)+'×'}
+                 : sp >= 1.5 ? {level:1, label:sp.toFixed(1)+'×', tip:'Elevated '+sp.toFixed(1)+'×'}
+                 : {level:0, label:sp > 0 ? sp.toFixed(1)+'×' : '—', tip:'Normal'};
+        }},
+        { name: 'ioda_bgp', lbl: 'IODA', domain: 'cyber',    extract: (i) => {
+            const st = i.ioda_status || 'NORMAL';
+            return st === 'BGP_OUTAGE' ? {level: i.is_bgp_degraded ? 2 : 1, label:'OUT', tip:'BGP Outage'+(i.is_bgp_degraded?'':' (Wx)')}
+                 : {level:0, label:'OK', tip:'Normal'};
+        }},
+        { name: 'ripe_bgp', lbl: 'BGP',  domain: 'cyber',    extract: (i) => {
+            const b = i.bgp_routing || {};
+            return b.is_anomaly ? {level:2, label:'⚠'+((b.drop_pct||0))+'%', tip:'BGP anomaly, drop '+(b.drop_pct||0)+'%'}
+                 : {level:0, label:b.announced_prefixes != null ? b.announced_prefixes+'pfx' : '—', tip:'Stable'};
+        }},
+        { name: 'check_host', lbl: 'CH',  domain: 'cyber',    extract: (_i, _td, code, sa) => {
+            const ch = (sa.analytics || {}).check_host || {};
+            if (sa.core_theater !== code) return {level:-1, label:'—', tip:'Core only'};
+            const sr = ch.theater_success_rate;
+            return sr != null && sr < 0.5 ? {level:2, label:Math.round(sr*100)+'%', tip:'Reachability '+Math.round(sr*100)+'%'}
+                 : sr != null && sr < 0.9 ? {level:1, label:Math.round(sr*100)+'%', tip:'Partial: '+Math.round(sr*100)+'%'}
+                 : {level:0, label:sr != null ? Math.round(sr*100)+'%' : '—', tip:'OK'};
+        }},
+        { name: 'threatfox', lbl: 'TFX', domain: 'cyber',    extract: (_i, _td, code, sa) => {
+            const r = (sa.rationale_matrix||[]).find(e => e.sensor === 'threatfox');
+            return r && r.status === 'FIRED' ? {level:1, label:'⚠', tip:r.fired_reason||'Active'} : {level:0, label:'—', tip:'Clear'};
+        }},
+        { name: 'greynoise', lbl: 'GN',  domain: 'cyber',    extract: (_i, _td, code, sa) => {
+            const gn = (sa.analytics || {}).greynoise || {};
+            if (gn.suppressing) return {level:1, label:'NOISE', tip:'Noise dominant — suppressing cyber'};
+            return {level:0, label:gn.noise_class || '—', tip:gn.noise_class || 'Unknown'};
+        }},
+        { name: 'openweather', lbl: 'WX', domain: 'physical', extract: (i) => {
+            const wx = i.weather || {};
+            const s = wx.severity || 'NORMAL';
+            return s === 'SEVERE' ? {level:2, label:'SEV', tip:wx.condition||'Severe weather'}
+                 : s === 'MODERATE' ? {level:1, label:'MOD', tip:wx.condition||'Moderate'}
+                 : {level:0, label:'OK', tip:wx.condition||'Normal'};
+        }},
+        { name: 'opensky', lbl: 'AIR',   domain: 'physical', extract: (i) => {
+            const a = i.airspace || {};
+            return a.status === 'CLOSURE' || a.status === 'ANOMALY' ? {level:2, label:a.status.slice(0,4), tip:a.airport+': '+a.status}
+                 : a.status === 'WEATHER_NOISE' ? {level:1, label:'Wx', tip:a.airport+': weather noise'}
+                 : {level:0, label:a.count != null ? a.count : '—', tip:a.airport||'—'};
+        }},
+        { name: 'ihr_health', lbl: 'IHR', domain: 'physical', extract: (i) => {
+            const st = i.ihr_status || 'NORMAL';
+            return st === 'DISCO_EVENT' ? {level:2, label:'DISCO', tip:'IHR disconnection event'}
+                 : st === 'HEGEMONY_ALARM' ? {level:1, label:'HEG', tip:'Hegemony alarm'}
+                 : st === 'DELAY_ANOMALY' ? {level:1, label:'DLY', tip:'Delay anomaly'}
+                 : {level:0, label:'OK', tip:'Normal'};
+        }},
+        { name: 'ripe_atlas', lbl: 'ATL', domain: 'physical', extract: (i) => {
+            const a = i.ripe_atlas || {};
+            const st = a.status || 'NORMAL';
+            return st === 'PROBE_BLACKOUT' ? {level:2, label:'OUT', tip:'Probe blackout'}
+                 : st === 'PROBE_DROP' ? {level:1, label:'DROP', tip:'Probe drop'}
+                 : {level:0, label:a.probes && a.probes.active != null ? a.probes.active : '—', tip:'Normal'};
+        }},
+        { name: 'isr_hotspot', lbl: 'ISR', domain: 'physical', extract: (_i, _td, code, sa) => {
+            const isr = (sa.analytics || {}).isr || {};
+            if (sa.core_theater !== code) return {level:-1, label:'—', tip:'Core only'};
+            return isr.is_surge ? {level:2, label:isr.count, tip:'ISR surge: '+isr.count+' aircraft'}
+                 : isr.count > 0 ? {level:0, label:isr.count, tip:isr.count+' aircraft'}
+                 : {level:0, label:'0', tip:'No ISR activity'};
+        }},
+        { name: 'ais_maritime', lbl: 'AIS', domain: 'physical', extract: (_i, _td, code, sa) => {
+            const ais = (sa.analytics || {}).ais || {};
+            if (sa.core_theater !== code) return {level:-1, label:'—', tip:'Core only'};
+            return ais.has_anomaly ? {level:2, label:ais.dark_gaps+'gap', tip:'Dark gaps: '+ais.dark_gaps}
+                 : {level:0, label:'OK', tip:'Normal'};
+        }},
+        { name: 'space_weather', lbl: 'SpWx', domain: 'physical', extract: (_i, _td, _c, sa) => {
+            const sw = (sa.analytics || {}).space_weather || {};
+            if (sw.suppressing) return {level:2, label:sw.storm_level||'⚠', tip:'Suppressing physical: '+(sw.suppress_reason||'')};
+            const kp = sw.kp_index;
+            return kp >= 5 ? {level:1, label:'Kp'+kp, tip:'Kp index: '+kp} : {level:0, label:kp != null ? 'Kp'+kp : '—', tip:'Quiet'};
+        }},
+        { name: 'gdelt', lbl: 'GDT',     domain: 'info',     extract: (i) => {
+            const g = i.gdelt || {};
+            return g.status === 'ALERT' ? {level:2, label:g.tone_current != null ? g.tone_current.toFixed(0) : '⚠', tip:'GDELT alert, tone='+((g.tone_current||0).toFixed(1))}
+                 : {level:0, label:g.tone_current != null ? g.tone_current.toFixed(0) : '—', tip:'Tone: '+(g.tone_current||'—')};
+        }},
+        { name: 'rss_narrative', lbl: 'RSS', domain: 'info',  extract: (_i, _td, code, sa) => {
+            const r = (sa.rationale_matrix||[]).find(e => e.sensor === 'rss_narrative');
+            return r && r.status === 'FIRED' ? {level:1, label:'⚠', tip:r.fired_reason||'Narrative burst'} : {level:0, label:'—', tip:'Clear'};
+        }},
+        { name: 'telegram_mirror', lbl: 'TG', domain: 'info', extract: (_i, _td, code, sa) => {
+            const tg = (sa.analytics || {}).telegram_mirror || {};
+            if (sa.core_theater !== code) return {level:-1, label:'—', tip:'Core only'};
+            return tg.has_intent ? {level:2, label:'INTENT', tip:'Telegram intent detected'}
+                 : tg.status === 'TARGETS_FOUND' ? {level:1, label:'TGT', tip:'Targets found'}
+                 : {level:0, label:tg.status||'—', tip:tg.status||'Pending'};
+        }},
+        { name: 'tor_metrics', lbl: 'TOR',  domain: 'info',   extract: (i) => {
+            const t = i.tor_metrics || {};
+            const st = t.status || 'NORMAL';
+            return st === 'CENSORSHIP_INDICATOR' ? {level:2, label:'CENS', tip:'Censorship indicator'}
+                 : st === 'RELAY_DROP' ? {level:1, label:'DROP', tip:'Relay drop'}
+                 : st === 'USER_SURGE' ? {level:1, label:'SURGE', tip:'User surge'}
+                 : {level:0, label:'OK', tip:'Normal'};
+        }},
+    ];
 
     function renderCorrHeatmap() {
         const panel = document.getElementById('corr-heatmap-panel');
@@ -5595,81 +5885,90 @@
         if (!body) return;
 
         const sa = latestData && latestData.strategic_alert;
-        if (!sa || !sa.correlations) {
+        if (!sa) {
             body.innerHTML = `<div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.corr.no_data')}</div>`;
             return;
         }
 
-        const corrMap = _corrMode === 'l3' ? sa.correlations_l3
-                      : _corrMode === 'l7' ? sa.correlations_l7
-                      : sa.correlations;
+        const countryIntel = sa.country_intel || {};
+        const targets = latestData.targets || [];
+        const tgtMap = {};
+        targets.forEach(t => { tgtMap[t.code] = t; });
 
-        // Extract unique theaters from keys like "TW-JP"
-        const theaterSet = new Set();
-        Object.keys(corrMap).forEach(k => {
-            const [a, b] = k.split('-');
-            theaterSet.add(a); theaterSet.add(b);
-        });
-        const theaters = Array.from(theaterSet).sort();
-
-        if (theaters.length < 2) {
+        // Theaters: core + correlates (from targets list)
+        const theaters = targets.map(t => t.code).filter(c => c);
+        if (!theaters.length) {
             body.innerHTML = `<div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.corr.no_data')}</div>`;
             return;
         }
+
+        // Filter sensors by domain
+        const sensors = _heatmapDomain === 'all' ? _HEATMAP_SENSORS
+            : _HEATMAP_SENSORS.filter(s => s.domain === _heatmapDomain);
 
         let html = '';
-        // Toggle buttons
+        // Domain toggle buttons
         html += `<div class="corr-toggle-group">`;
-        ['combined', 'l3', 'l7'].forEach(m => {
-            const active = m === _corrMode ? ' corr-toggle-active' : '';
-            const label = _t('panel.corr.toggle.' + m);
+        ['all', 'cyber', 'physical', 'info'].forEach(m => {
+            const active = m === _heatmapDomain ? ' corr-toggle-active' : '';
+            const label = _t('panel.heatmap.toggle.' + m);
             html += `<button class="corr-toggle-btn${active}" onclick="_setCorrMode('${m}')">${label}</button>`;
         });
         html += `</div>`;
 
-        // Grid — use 1fr cells to fill available width regardless of dock/float state
-        const n = theaters.length;
         const isDocked = !panel.classList.contains('floating');
-        const labelCol = isDocked ? 28 : 36;
+        const labelCol = isDocked ? 32 : 40;
+        const n = theaters.length;
+
         html += `<div class="corr-grid-wrap">`;
         const compactCls = isDocked ? ' corr-grid-compact' : '';
         html += `<div class="corr-grid${compactCls}" style="grid-template-columns: ${labelCol}px repeat(${n}, 1fr);">`;
-        // Header row
+
+        // Header row: theater codes
         html += `<div class="corr-corner"></div>`;
-        theaters.forEach(t => { html += `<div class="corr-col-label">${t}</div>`; });
-        // Data rows
-        theaters.forEach(row => {
-            html += `<div class="corr-row-label">${row}</div>`;
-            theaters.forEach(col => {
-                if (row === col) {
-                    html += `<div class="corr-cell corr-cell-diag">—</div>`;
+        theaters.forEach(t => {
+            const isCore = t === sa.core_theater;
+            html += `<div class="corr-col-label" style="${isCore ? 'color:#00ffff;font-weight:bold;' : ''}">${t}</div>`;
+        });
+
+        // Sensor rows
+        const domainColors = {cyber:'#4488ff', physical:'#ff8800', info:'#aa66ff'};
+        sensors.forEach(sensor => {
+            const domCol = domainColors[sensor.domain] || '#888';
+            html += `<div class="corr-row-label" style="color:${domCol};" data-tooltip="${sensor.name}">${sensor.lbl}</div>`;
+            theaters.forEach(code => {
+                const intel = countryIntel[code] || {};
+                const td = tgtMap[code] || {};
+                const cell = sensor.extract(intel, td, code, sa);
+                if (cell.level === -1) {
+                    // No data for this theater
+                    html += `<div class="corr-cell" style="background:transparent; color:#333;" data-tooltip="${sensor.lbl}@${code}: ${cell.tip}">—</div>`;
                 } else {
-                    const key = corrMap[`${row}-${col}`] !== undefined ? `${row}-${col}` : `${col}-${row}`;
-                    const val = corrMap[key] || 0;
-                    const pct = Math.min(val, 100);
-                    // Color: low=teal, mid=yellow, high=red
-                    const r = pct > 40 ? 255 : Math.round(pct * 6.375);
-                    const g = pct > 60 ? 0 : pct > 40 ? Math.round(255 - (pct - 40) * 12.75) : 255;
-                    const b = pct > 20 ? 0 : Math.round(200 - pct * 10);
-                    const alpha = 0.15 + pct * 0.007;
-                    html += `<div class="corr-cell" style="background:rgba(${r},${g},${b},${alpha})" data-tooltip="${row}↔${col}: ${val.toFixed(1)}%">${val.toFixed(0)}</div>`;
+                    const bg = cell.level === 2 ? 'rgba(255,34,0,0.25)'
+                             : cell.level === 1 ? 'rgba(255,170,0,0.2)'
+                             : 'rgba(255,255,255,0.03)';
+                    const fg = cell.level === 2 ? '#ff4444'
+                             : cell.level === 1 ? '#ffaa00'
+                             : '#666';
+                    html += `<div class="corr-cell" style="background:${bg}; color:${fg};" data-tooltip="${sensor.lbl}@${code}: ${cell.tip}">${cell.label}</div>`;
                 }
             });
         });
+
         html += `</div></div>`;
 
-        // Color legend
+        // Legend
         html += `<div class="corr-legend">`;
-        html += `<span style="color:#55ccaa;">0%</span>`;
-        html += `<span class="corr-legend-bar"></span>`;
-        html += `<span style="color:#ff4444;">100%</span>`;
+        html += `<span style="color:#666;">● ${_t('panel.heatmap.legend.quiet')}</span>`;
+        html += `<span style="color:#ffaa00;">● ${_t('panel.heatmap.legend.warning')}</span>`;
+        html += `<span style="color:#ff4444;">● ${_t('panel.heatmap.legend.alert')}</span>`;
         html += `</div>`;
 
         body.innerHTML = html;
     }
 
     function _setCorrMode(mode) {
-        _corrMode = mode;
+        _heatmapDomain = mode;
         renderCorrHeatmap();
     }
     window._setCorrMode = _setCorrMode;

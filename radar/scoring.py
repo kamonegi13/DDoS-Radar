@@ -524,7 +524,11 @@ def parse_origins(origins_list: list) -> dict:
 
 def calculate_overlap(dist1: dict, dist2: dict) -> float:
     if not dist1 or not dist2: return 0.0
-    return round(sum(min(dist1.get(k, 0.0), dist2.get(k, 0.0)) for k in set(dist1) | set(dist2)), 2)
+    # Normalize both distributions so each sums to 100%
+    s1 = sum(dist1.values()) or 1.0
+    s2 = sum(dist2.values()) or 1.0
+    all_keys = set(dist1) | set(dist2)
+    return round(sum(min(dist1.get(k, 0.0) / s1, dist2.get(k, 0.0) / s2) for k in all_keys) * 100, 2)
 
 _asn_cache: dict = {}  # {target_code: {"time": float, "data": dict}}
 

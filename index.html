@@ -193,7 +193,7 @@
                 </div>
                 <div class="tools-menu-item" id="tm-item-corr" onclick="handleToolToggle('corr-heatmap-panel', toggleCorrHeatmap, 'tm-dot-corr', 'tm-item-corr')">
                     <span class="tools-menu-icon">🌡</span>
-                    <span class="tools-menu-label" data-i18n="tools.corr_heatmap">Correlation Heatmap</span>
+                    <span class="tools-menu-label" data-i18n="tools.corr_heatmap">Sensor Heatmap</span>
                     <span class="tools-menu-dot" id="tm-dot-corr"></span>
                 </div>
                 <div class="tools-menu-section-header" data-i18n="tools.section.admin">ADMIN</div>
@@ -1012,7 +1012,7 @@
 ═══════════════════════════════════════════════════════ -->
 <div id="corr-heatmap-panel" class="draggable-panel floating" style="display:none; left:60px; top:160px; width:340px;">
     <div class="drag-handle panel-header-unified">
-        <span data-i18n="panel.corr.title">CORRELATION HEATMAP</span>
+        <span data-i18n="panel.corr.title">SENSOR × THEATER</span>
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
@@ -1805,16 +1805,25 @@
             <li><b>Feint Detection:</b> Identifies diversionary attack patterns — one domain at high alert level with two or more domains at low-medium alert, suggesting coordinated misdirection.</li>
         </ul>
 
-        <p><b>Q. Correlation Heatmap</b> <span style="color:#66ffcc;">[Phase 3]</span> — <span class="code-block">TOOLS ▾</span> → Correlation Heatmap</p>
+        <p><b>Q. Sensor × Theater Heatmap</b> <span style="color:#66ffcc;">[Phase 3]</span> — <span class="code-block">TOOLS ▾</span> → Sensor Heatmap</p>
         <ul>
-            <li><b>Purpose:</b> Visualizes cross-theater attack origin overlap as an interactive heatmap matrix. High overlap values indicate coordinated or botnet-based multi-theater campaigns.</li>
-            <li><b>Modes:</b> Toggle between Combined, L3 (volumetric), and L7 (application-layer) correlation views.</li>
-            <li><b>Color Scale:</b> 0% (teal/green) → 100% (red). Values above 30% are flagged as high correlation.</li>
+            <li><b>Purpose:</b> Visualizes signal levels across all 17 sensors (rows) × active theaters (columns). Domain-colored rows (cyan=Cyber, orange=Physical, magenta=Info).</li>
+            <li><b>Filters:</b> Toggle ALL / CYBER / PHYS / INFO to focus on specific domains.</li>
+            <li><b>Color Scale:</b> Quiet (dim) → Warning (yellow) → Alert (red).</li>
+        </ul>
+
+        <p><b>Q2. Coordination Index — Constellation Field</b> <span style="color:#66ffcc;">[Phase 4]</span></p>
+        <ul>
+            <li><b>Purpose:</b> Visualizes cross-theater coordination on the map. When multiple theaters share attack origin infrastructure, a "Coordination Index" (0–100%) is computed combining origin overlap, spike correlation, C2-SYNC status, and adversary strikes.</li>
+            <li><b>Constellation Links:</b> Dual-layer straight lines (wide glow track + thin animated pulse core) connect correlated theaters. Visually distinct from curved DDoS attack arcs. Diamond ◆ markers at each endpoint.</li>
+            <li><b>Color Scale:</b> Cyan (low) → Yellow (mid) → Orange (high) → Red (C2-SYNC confirmed). Pulse speed increases with coordination level.</li>
+            <li><b>Tooltip:</b> Hover over a link to see the breakdown — origin overlap %, L3/L7 split, elevation status, C2-SYNC, and adversary strike indicators.</li>
+            <li><b>Layer Toggle:</b> "Coordination" in the layer control panel.</li>
         </ul>
 
         <p><b>R. Phase 3 UX Enhancements</b> <span style="color:#66ffcc;">[Phase 3]</span></p>
         <ul>
-            <li><b>Collapsible HUD:</b> The bottom metrics row is now split into primary (Velocity, C2-SYNC, Survival, Domains) and secondary (Overlap, BGP, Blockade, etc.) rows. Click the ▾ button to toggle secondary metrics.</li>
+            <li><b>Collapsible HUD:</b> The bottom metrics row is now split into primary (Velocity, C2-SYNC, Survival, Domains) and secondary (Coord, BGP, Blockade, etc.) rows. Click the ▾ button to toggle secondary metrics.</li>
             <li><b>TOOLS Menu Sections:</b> Tools are grouped into CORE, ANALYTICS, SIMULATION, and ADMIN categories for easier navigation.</li>
             <li><b>Sync Countdown:</b> Real-time countdown timer shows time until next data refresh. Resets on manual SYNC or WebSocket push.</li>
             <li><b>WebSocket Indicator:</b> Green/orange dot next to SYNC button shows connection status (green = live WS, orange = polling fallback).</li>
@@ -1846,6 +1855,15 @@
             <li><b>RIPE BGP Full Time Series:</b> The RIPE BGP sensor now analyzes the entire <code>stats[]</code> array (not just the latest entry) to compute prefix count trend via linear regression. Results appear as <code>WITHDRAWING</code> / <code>STABLE</code> / <code>GROWING</code> labels with percentage slopes. A withdrawing trend enriches the BGP anomaly rationale with trend context.</li>
             <li><b>Combined L3+L7 Timeseries:</b> The HOD (Hour-of-Day) baseline prefill now fetches both L3 and L7 attack timeseries from CF Radar and merges them (max per hour bucket), providing more comprehensive diurnal attack pattern baselines.</li>
             <li><b>Origin Entropy Tracking:</b> Shannon entropy of attack origin distributions is now computed per theater. A rolling moving average tracks changes over time. Significant shifts are classified as <code>CONCENTRATING</code> (≥20% entropy drop — attack focusing), <code>DISPERSING</code> (≥20% entropy rise — attack spreading), or <code>STABLE</code>. Available in target_details and deep_analytics.</li>
+        </ul>
+
+        <p><b>V. Network Reachability Sensors</b> <span style="color:#66ffcc;">[Phase 4]</span> — Three new ground-truth sensors</p>
+        <ul>
+            <li><b>IHR (Internet Health Report):</b> Queries IIJ/RIPE IHR API for three signal types: (1) Disconnection events per country — regional Internet blackouts, (2) AS hegemony alarms — abnormal transit dependency changes, (3) Network delay alarms — latency anomalies. Domain: Physical. Poll: 5 min. Free, no auth. Rationale entries: <code>ihr_disco</code> (+1/+2pt) and <code>ihr_delay</code> (+1pt). Multi-source corroboration with IODA enriches confidence to 100%.</li>
+            <li><b>RIPE Atlas:</b> Queries RIPE Atlas API for: (1) Active probe counts per country — drop ≥30% = PROBE_DROP, ≥70% = PROBE_BLACKOUT, (2) Public measurement RTT from global probes (root DNS pings) — avg and p95 latency. Domain: Physical. Poll: 10 min. Free, no auth. Rationale: <code>ripe_atlas</code> (+1/+2pt). Cross-corroborates with Check-Host for infrastructure status.</li>
+            <li><b>Tor Metrics (Onionoo):</b> Queries Tor Project Onionoo API for: (1) Running relay counts per country — drop ≥40% = RELAY_DROP, (2) Bridge user estimates — surge ≥100% = USER_SURGE, (3) Combined relay drop + user surge = CENSORSHIP_INDICATOR. Domain: Info. Poll: 30 min. Free, no auth. Rationale: <code>tor_metrics</code> (+1/+2pt). Tor relay drop + IHR disconnection triggers CENSORSHIP_DETECTED sequence event.</li>
+            <li><b>Cross-Sensor Correlation:</b> IHR + IODA multi-source confirmation; Atlas + Check-Host infrastructure corroboration (note: CDN-masked hosts may show asymmetric results); Tor + IHR censorship detection chain. Space weather suppression applies to IHR and Atlas (physical domain) but NOT Tor Metrics (info domain — censorship is deliberate, not weather-related).</li>
+            <li><b>Country Intel:</b> Two new sections in Country Intel modal: "Network Reachability" (IHR disconnection status, RIPE Atlas probe counts & RTT) and "Censorship / Tor" (Tor relay/bridge counts, user estimates, censorship indicator).</li>
         </ul>
 
         </div>
@@ -1983,16 +2001,25 @@
             <li><b>陽動攻撃検出:</b> 1つのドメインが高警戒レベル、2つ以上のドメインが低〜中警戒レベルという、組織的な欺瞞を示唆する陽動攻撃パターンを特定。</li>
         </ul>
 
-        <p><b>Q. 相関ヒートマップ</b> <span style="color:#66ffcc;">[Phase 3]</span> — <span class="code-block">TOOLS ▾</span> → Correlation Heatmap</p>
+        <p><b>Q. センサー × シアター ヒートマップ</b> <span style="color:#66ffcc;">[Phase 3]</span> — <span class="code-block">TOOLS ▾</span> → Sensor Heatmap</p>
         <ul>
-            <li><b>目的:</b> シアター間の攻撃元重複をインタラクティブなヒートマップ行列で可視化。高い重複値は協調攻撃またはボットネットベースのマルチシアターキャンペーンを示唆。</li>
-            <li><b>モード:</b> 統合、L3（ボリューム型）、L7（アプリケーション層）の相関ビューを切り替え可能。</li>
-            <li><b>色スケール:</b> 0%（ティール/緑）→ 100%（赤）。30%以上は高相関としてフラグ。</li>
+            <li><b>目的:</b> 全17センサー（行）× アクティブシアター（列）のシグナルレベルを可視化。行はドメイン色（シアン=Cyber、オレンジ=Physical、マゼンタ=Info）。</li>
+            <li><b>フィルター:</b> ALL / CYBER / PHYS / INFO で特定ドメインに絞り込み。</li>
+            <li><b>色スケール:</b> Quiet（暗）→ Warning（黄）→ Alert（赤）。</li>
+        </ul>
+
+        <p><b>Q2. 協調指数 — コンステレーション・フィールド</b> <span style="color:#66ffcc;">[Phase 4]</span></p>
+        <ul>
+            <li><b>目的:</b> シアター間の協調関係をマップ上に可視化。複数のシアターが攻撃元インフラを共有している場合、攻撃元重複・スパイク相関・C2-SYNC状態・敵対的打撃を統合した「協調指数」（0〜100%）を算出。</li>
+            <li><b>コンステレーションリンク:</b> 二層の直線（太いグロートラック＋細いパルスコア）が相関シアターを接続。曲線のDDoS攻撃アークとは視覚的に明確に区別。両端にダイヤモンド◆マーカー。</li>
+            <li><b>色スケール:</b> シアン（低）→ イエロー（中）→ オレンジ（高）→ レッド（C2-SYNC確認時）。パルス速度は協調レベルに応じて加速。</li>
+            <li><b>ツールチップ:</b> リンクにホバーで内訳表示 — 攻撃元重複%、L3/L7分割、両方高負荷、C2-SYNC、敵対的打撃指標。</li>
+            <li><b>レイヤー切替:</b> レイヤーコントロールの「Coordination」で表示/非表示。</li>
         </ul>
 
         <p><b>R. Phase 3 UX強化</b> <span style="color:#66ffcc;">[Phase 3]</span></p>
         <ul>
-            <li><b>折りたたみHUD:</b> 下部メトリクス行がプライマリ（Velocity、C2-SYNC、Survival、Domains）とセカンダリ（Overlap、BGP、Blockade等）に分割。▾ボタンでセカンダリの表示/非表示を切り替え。</li>
+            <li><b>折りたたみHUD:</b> 下部メトリクス行がプライマリ（Velocity、C2-SYNC、Survival、Domains）とセカンダリ（Coord、BGP、Blockade等）に分割。▾ボタンでセカンダリの表示/非表示を切り替え。</li>
             <li><b>TOOLSメニューセクション:</b> ツールがコア、アナリティクス、シミュレーション、管理のカテゴリに分類され、ナビゲーションが容易に。</li>
             <li><b>同期カウントダウン:</b> 次のデータ更新までのリアルタイムカウントダウンタイマー。手動SYNCまたはWebSocketプッシュでリセット。</li>
             <li><b>WebSocketインジケーター:</b> SYNCボタン横の緑/橙ドットで接続状態を表示（緑=WS接続中、橙=ポーリングフォールバック）。</li>
@@ -2026,13 +2053,22 @@
             <li><b>オリジンエントロピー追跡:</b> 攻撃元分布のシャノンエントロピーをシアターごとに計算。ローリング移動平均で時系列変化を追跡。有意な変化を<code>CONCENTRATING</code>（エントロピー20%以上低下 — 攻撃集中化）、<code>DISPERSING</code>（20%以上上昇 — 攻撃分散化）、<code>STABLE</code>（安定）に分類。target_detailsとdeep_analyticsで利用可能。</li>
         </ul>
 
+        <p><b>V. ネットワーク到達性センサー</b> <span style="color:#66ffcc;">[Phase 4]</span> — 3つの新しいグラウンドトゥルースセンサー</p>
+        <ul>
+            <li><b>IHR（Internet Health Report）:</b> IIJ/RIPE IHR APIから3種類のシグナルを取得: (1) 国別切断イベント — 地域的なインターネット遮断、(2) ASヘゲモニー警報 — 異常なトランジット依存関係変化、(3) ネットワーク遅延警報 — レイテンシ異常。ドメイン: Physical。ポーリング: 5分。無料、認証不要。Rationaleエントリ: <code>ihr_disco</code>（+1/+2pt）、<code>ihr_delay</code>（+1pt）。IODAとの複数ソース裏付けで信頼度100%に向上。</li>
+            <li><b>RIPE Atlas:</b> RIPE Atlas APIから取得: (1) 国別アクティブプローブ数 — 30%以上減少 = PROBE_DROP、70%以上 = PROBE_BLACKOUT、(2) グローバルプローブからの公開測定RTT（ルートDNS ping）— 平均値とp95レイテンシ。ドメイン: Physical。ポーリング: 10分。無料、認証不要。Rationale: <code>ripe_atlas</code>（+1/+2pt）。Check-Hostとインフラ状態を相互裏付け。</li>
+            <li><b>Torメトリクス（Onionoo）:</b> Tor Project Onionoo APIから取得: (1) 国別稼働リレー数 — 40%以上減少 = RELAY_DROP、(2) ブリッジユーザー推定 — 100%以上急増 = USER_SURGE、(3) リレー減少＋ユーザー急増 = CENSORSHIP_INDICATOR。ドメイン: Info。ポーリング: 30分。無料、認証不要。Rationale: <code>tor_metrics</code>（+1/+2pt）。Torリレー減少 + IHR切断でCENSORSHIP_DETECTEDシーケンスイベント発火。</li>
+            <li><b>クロスセンサー相関:</b> IHR + IODA複数ソース確認；Atlas + Check-Hostインフラ裏付け（注意: CDNマスキングされたホストは非対称結果を示す場合あり）；Tor + IHR検閲検出チェーン。宇宙天気抑制はIHRとAtlas（物理ドメイン）に適用されるが、Torメトリクス（情報ドメイン — 検閲は意図的であり気象起因ではない）には適用されない。</li>
+            <li><b>国家インテル:</b> Country Intelモーダルに2つの新セクション: 「ネットワーク到達性」（IHR切断状態、RIPE Atlasプローブ数＆RTT）と「検閲/Tor」（Torリレー/ブリッジ数、ユーザー推定、検閲指標）。</li>
+        </ul>
+
         </div>
         </div><!-- /guide-ch-8 -->
         <div class="guide-chapter" id="guide-ch-9">
         <div class="guide-lang-en">
         <h4>9. API Reference (Analyst / Integration Endpoints)</h4>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
-            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data, threat score, domain breakdown, and deep analytics block (including v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise).</li>
+            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data, threat score, domain breakdown, and deep analytics block (including v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics). Country intel now includes ihr_status, ihr_disco, ripe_atlas, and tor_metrics per country.</li>
             <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — Threat level history (up to 24 hrs / 288 cycles). Each cycle includes velocity, ambush flag, and blockade index.</li>
             <li><span class="code-block">GET /api/sitrep</span> — Machine-readable SITREP including trend, domain activity, and convergence state.</li>
             <li><span class="code-block">GET /api/data_status</span> — Sensor health, polling intervals, last fetch time, and error logs. Shows all 15 sensors including v9 additions.</li>
@@ -2081,7 +2117,7 @@
         <div class="guide-lang-ja" style="display:none;">
         <h4>9. API リファレンス（アナリスト / 統合エンドポイント）</h4>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
-            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — プライマリデータフィード。すべてのセンサーデータ、脅威スコア、ドメイン内訳、ディープアナリティクスブロックを返す（v9 追加: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise を含む）。</li>
+            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — プライマリデータフィード。すべてのセンサーデータ、脅威スコア、ドメイン内訳、ディープアナリティクスブロックを返す（v9追加: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4追加: ihr, ripe_atlas, tor_metrics）。国家インテルにihr_status、ihr_disco、ripe_atlas、tor_metricsを国別に含む。</li>
             <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — 脅威レベル履歴（最大24時間 / 288サイクル）。各サイクルには速度、アンブッシュフラグ、封鎖インデックスを含む。</li>
             <li><span class="code-block">GET /api/sitrep</span> — トレンド、ドメイン活動、収束状態を含む機械可読 SITREP。</li>
             <li><span class="code-block">GET /api/data_status</span> — センサーヘルス、ポーリング間隔、最終フェッチ時刻、エラーログ。v9 追加分を含む全15センサーを表示。</li>

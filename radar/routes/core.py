@@ -149,6 +149,23 @@ def get_threat_data():
         space_weather_sensor   = _routes.registry.get("space_weather")
         space_weather_data     = space_weather_sensor.get_cache().get("space_weather", {}) if space_weather_sensor else {}
         sw_suppress            = space_weather_data.get("suppress_physical", False)
+        # Phase 4: IHR, RIPE Atlas, Tor Metrics sensors
+        ihr_sensor             = _routes.registry.get("ihr_health")
+        _ihr_cache             = ihr_sensor.get_cache() if ihr_sensor else {}
+        ihr_disco              = _ihr_cache.get("disconnections", {})
+        ihr_hegemony           = _ihr_cache.get("hegemony_alarms", {})
+        ihr_delay              = _ihr_cache.get("delay_alarms", {})
+        ihr_country_status     = _ihr_cache.get("country_status", {})
+        atlas_sensor           = _routes.registry.get("ripe_atlas")
+        _atlas_cache           = atlas_sensor.get_cache() if atlas_sensor else {}
+        atlas_probes           = _atlas_cache.get("probe_counts", {})
+        atlas_latency          = _atlas_cache.get("latency", {})
+        atlas_country_status   = _atlas_cache.get("country_status", {})
+        tor_sensor             = _routes.registry.get("tor_metrics")
+        _tor_cache             = tor_sensor.get_cache() if tor_sensor else {}
+        tor_relays             = _tor_cache.get("relay_counts", {})
+        tor_clients            = _tor_cache.get("client_estimates", {})
+        tor_country_status     = _tor_cache.get("country_status", {})
 
         airspace_anomalies, noise_filters_applied = [], []
         for code, ainfo in airspace_data.items():
@@ -311,13 +328,19 @@ def get_threat_data():
             target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "avg_l3_spike": round(avg_l3_spike, 2), "avg_l7_spike": round(avg_l7_spike, 2), "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values()), "origin_entropy": _entropy_track}
 
         correlations, correlations_l3, correlations_l7 = {}, {}, {}
-        if core_theater in origin_distributions:
-            for t in correlate_targets:
-                if t != core_theater and t in origin_distributions:
-                    key = f"{core_theater}-{t}"
-                    correlations[key]    = calculate_overlap(origin_distributions[core_theater], origin_distributions[t])
-                    correlations_l3[key] = calculate_overlap(origin_distributions_l3.get(core_theater, {}), origin_distributions_l3.get(t, {}))
-                    correlations_l7[key] = calculate_overlap(origin_distributions_l7.get(core_theater, {}), origin_distributions_l7.get(t, {}))
+        # Compute all pairwise correlations (not just core vs correlates)
+        _corr_seen = set()
+        _corr_theaters = []
+        for t in [core_theater] + correlate_targets:
+            if t in origin_distributions and t not in _corr_seen:
+                _corr_theaters.append(t)
+                _corr_seen.add(t)
+        for i, a in enumerate(_corr_theaters):
+            for b in _corr_theaters[i + 1:]:
+                key = f"{a}-{b}"
+                correlations[key]    = calculate_overlap(origin_distributions[a], origin_distributions[b])
+                correlations_l3[key] = calculate_overlap(origin_distributions_l3.get(a, {}), origin_distributions_l3.get(b, {}))
+                correlations_l7[key] = calculate_overlap(origin_distributions_l7.get(a, {}), origin_distributions_l7.get(b, {}))
 
         elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
         is_coordinated = len(elevated_theaters) >= 2
@@ -731,6 +754,119 @@ def get_threat_data():
                 f"CF spike ({core_spike:.1f}x) concurrent with BGP outage"
             )
 
+        # ── Phase 4: IHR rationale ────────────────────────────────────────────
+        _ihr_suppress = sw_suppress  # IHR is physical domain; respect space weather
+        _ihr_suppress_reason = space_weather_data.get("suppress_reason") if sw_suppress else None
+        _ihr_core_disco = ihr_disco.get(core_theater, [])
+        _ihr_core_delay = ihr_delay.get(core_theater, [])
+        _ihr_core_status = ihr_country_status.get(core_theater, "NORMAL")
+        if not (ihr_sensor and ihr_sensor.enabled):
+            add_rat("ihr_disco", "physical", "DISABLED", "sensor off", 0, None)
+        else:
+            _ihr_disco_fired = len(_ihr_core_disco) > 0
+            _ihr_disco_score = 2 if any(e.get("avglevel", 0) > 5 for e in _ihr_core_disco) else (1 if _ihr_disco_fired else 0)
+            _ihr_disco_value = f"{len(_ihr_core_disco)} events" if _ihr_disco_fired else "—"
+            _ihr_disco_reason = (f"IHR: Disconnection event in {core_theater} "
+                                 f"({len(_ihr_core_disco)} events, "
+                                 f"probes={_ihr_core_disco[0].get('nbprobes', '?') if _ihr_core_disco else 0})"
+                                 ) if _ihr_disco_fired else None
+            add_rat("ihr_disco", "physical",
+                    "FIRED" if _ihr_disco_fired else "OK",
+                    _ihr_disco_value, _ihr_disco_score, _ihr_disco_reason,
+                    is_suppressed=_ihr_suppress, suppress_reason=_ihr_suppress_reason,
+                    confidence=ihr_sensor.compute_confidence() if ihr_sensor else 0.0)
+
+            _ihr_delay_fired = len(_ihr_core_delay) > 0
+            add_rat("ihr_delay", "physical",
+                    "FIRED" if _ihr_delay_fired else "OK",
+                    f"{len(_ihr_core_delay)} alarms" if _ihr_delay_fired else "—",
+                    1 if _ihr_delay_fired else 0,
+                    f"IHR: Network delay anomaly ({len(_ihr_core_delay)} alarms)" if _ihr_delay_fired else None,
+                    is_suppressed=_ihr_suppress, suppress_reason=_ihr_suppress_reason,
+                    confidence=ihr_sensor.compute_confidence() if ihr_sensor else 0.0)
+
+        # ── Phase 4: RIPE Atlas rationale ─────────────────────────────────────
+        _atlas_core_status = atlas_country_status.get(core_theater, "NORMAL")
+        _atlas_core_probes = atlas_probes.get(core_theater, {})
+        _atlas_core_lat = atlas_latency.get(core_theater, {})
+        if not (atlas_sensor and atlas_sensor.enabled):
+            add_rat("ripe_atlas", "physical", "DISABLED", "sensor off", 0, None)
+        else:
+            _atlas_fired = _atlas_core_status in ("PROBE_DROP", "PROBE_BLACKOUT")
+            _atlas_score = 2 if _atlas_core_status == "PROBE_BLACKOUT" else (1 if _atlas_fired else 0)
+            _atlas_active = _atlas_core_probes.get("active", 0)
+            _atlas_drop = _atlas_core_probes.get("drop_pct", 0)
+            _atlas_avg_ms = _atlas_core_lat.get("avg_ms", 0)
+            _atlas_value = (f"{_atlas_core_status} ({_atlas_active} probes"
+                            f", drop={_atlas_drop:.0%}"
+                            f", lat={_atlas_avg_ms:.0f}ms)"
+                            if _atlas_fired
+                            else f"{_atlas_active} probes, {_atlas_avg_ms:.0f}ms")
+            _atlas_reason = (f"RIPE Atlas: {_atlas_core_status} — "
+                             f"{_atlas_active} active probes (drop {_atlas_drop:.0%}), "
+                             f"avg latency {_atlas_avg_ms:.0f}ms"
+                             ) if _atlas_fired else None
+            add_rat("ripe_atlas", "physical",
+                    "FIRED" if _atlas_fired else "OK",
+                    _atlas_value, _atlas_score, _atlas_reason,
+                    is_suppressed=sw_suppress, suppress_reason=_ihr_suppress_reason,
+                    confidence=atlas_sensor.compute_confidence() if atlas_sensor else 0.0)
+
+        # ── Phase 4: Tor Metrics rationale ────────────────────────────────────
+        _tor_core_status = tor_country_status.get(core_theater, "NORMAL")
+        _tor_core_relays = tor_relays.get(core_theater, {})
+        _tor_core_clients = tor_clients.get(core_theater, {})
+        if not (tor_sensor and tor_sensor.enabled):
+            add_rat("tor_metrics", "info", "DISABLED", "sensor off", 0, None)
+        else:
+            _tor_fired = _tor_core_status in ("RELAY_DROP", "CENSORSHIP_INDICATOR")
+            _tor_score = 2 if _tor_core_status == "CENSORSHIP_INDICATOR" else (1 if _tor_fired else 0)
+            _tor_running = _tor_core_relays.get("running", 0)
+            _tor_drop = _tor_core_relays.get("drop_pct", 0)
+            _tor_users = _tor_core_clients.get("bridge_users", 0)
+            _tor_trend = _tor_core_clients.get("trend", "NORMAL")
+            _tor_value = (f"{_tor_core_status} (relays={_tor_running}"
+                          f", drop={_tor_drop:.0%}"
+                          f", users={_tor_users} [{_tor_trend}])"
+                          if _tor_fired
+                          else f"relays={_tor_running}, users={_tor_users}")
+            _tor_reason = (f"Tor: {_tor_core_status} — "
+                           f"relays={_tor_running} (drop {_tor_drop:.0%}), "
+                           f"bridge_users={_tor_users}"
+                           ) if _tor_fired else None
+            # Tor is NOT suppressed by space weather (censorship is deliberate)
+            add_rat("tor_metrics", "info",
+                    "FIRED" if _tor_fired else "OK",
+                    _tor_value, _tor_score, _tor_reason,
+                    confidence=tor_sensor.compute_confidence() if tor_sensor else 0.0)
+
+        # ── Phase 4: Cross-sensor correlation enrichment ──────────────────────
+        # IHR disco + IODA BGP_OUTAGE = multi-source physical outage
+        _ihr_disco_entry = next((e for e in rationale if e.sensor == "ihr_disco" and e.status == "FIRED" and not e.suppressed), None)
+        if _ihr_disco_entry and _bgp_fired_entry:
+            _ihr_disco_entry.fired_reason += " — Multi-source confirmed (IODA + IHR)"
+            _ihr_disco_entry.confidence = 1.0
+            if _bgp_fired_entry:
+                _bgp_fired_entry.confidence = 1.0
+
+        # RIPE Atlas + CheckHost = confirmed infrastructure degradation
+        _atlas_entry = next((e for e in rationale if e.sensor == "ripe_atlas" and e.status == "FIRED" and not e.suppressed), None)
+        _ch_entry = next((e for e in rationale if e.sensor == "check_host" and e.status == "FIRED" and not e.suppressed), None)
+        if _atlas_entry and _ch_entry:
+            _ch_entry.fired_reason += f" — Confirmed by RIPE Atlas ({_atlas_core_probes.get('active', 0)} probes)"
+            _ch_entry.confidence = 1.0
+        elif _ch_entry and not _atlas_entry and atlas_sensor and atlas_sensor.enabled:
+            # CheckHost fires but Atlas is normal — possible CDN-level issue
+            _ch_entry.fired_reason += " — Note: RIPE Atlas probes nominal (CDN-layer issue possible)"
+
+        # Tor relay_drop + IHR disco = censorship detection
+        _tor_entry = next((e for e in rationale if e.sensor == "tor_metrics" and e.status == "FIRED" and not e.suppressed), None)
+        if _tor_entry and _ihr_disco_entry:
+            _tor_entry.fired_reason += " — Censorship chain: IHR disconnection concurrent with Tor relay drop"
+            _tor_entry.confidence = 1.0
+            register_sequence_event(core_theater, "CENSORSHIP_DETECTED",
+                                    {"tor_status": _tor_core_status, "ihr_status": _ihr_core_status})
+
         # ── Sequence Bonus computation ──────────────────────────────────────────
         seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
 
@@ -898,6 +1034,24 @@ def get_threat_data():
                 "min_confidence": round(min(domain_confidences.values()), 3) if domain_confidences else 1.0,
             },
             "tl_proximity": tl_proximity,
+            # Phase 4: IHR / RIPE Atlas / Tor Metrics
+            "ihr": {
+                "core_disco": ihr_disco.get(core_theater, []),
+                "core_delay": ihr_delay.get(core_theater, []),
+                "core_hegemony": ihr_hegemony.get(core_theater, []),
+                "status": ihr_country_status.get(core_theater, "NORMAL"),
+                "disco_countries": [c for c, s in ihr_country_status.items() if s == "DISCO_EVENT"],
+            },
+            "ripe_atlas": {
+                "core_probes": atlas_probes.get(core_theater),
+                "core_latency": atlas_latency.get(core_theater),
+                "status": atlas_country_status.get(core_theater, "NORMAL"),
+            },
+            "tor_metrics": {
+                "core_relays": tor_relays.get(core_theater),
+                "core_clients": tor_clients.get(core_theater),
+                "status": tor_country_status.get(core_theater, "NORMAL"),
+            },
         }
 
         score_breakdown = {
@@ -940,7 +1094,11 @@ def get_threat_data():
                         "ioda_detail": ioda_details.get(code),
                         "ioda_source": ioda_source,
                         "is_bgp_degraded": code in degraded_targets_effective,
-                    } for code in (strategic_theaters_set | {c for c, s in ioda_data.items() if s == "BGP_OUTAGE"}) if code in COUNTRY_COORDS
+                        "ihr_status": ihr_country_status.get(code, "NORMAL"),
+                        "ihr_disco": ihr_disco.get(code),
+                        "ripe_atlas": {"probes": atlas_probes.get(code), "latency": atlas_latency.get(code), "status": atlas_country_status.get(code, "NORMAL")} if atlas_probes.get(code) else None,
+                        "tor_metrics": {"relays": tor_relays.get(code), "clients": tor_clients.get(code), "status": tor_country_status.get(code, "NORMAL")} if tor_relays.get(code) else None,
+                    } for code in (strategic_theaters_set | {c for c, s in ioda_data.items() if s == "BGP_OUTAGE"} | {c for c, s in ihr_country_status.items() if s != "NORMAL"}) if code in COUNTRY_COORDS
                 },
                 "map_overlays": {
                     "ioda_outages": ioda_overlays, "airspace_anomaly": airspace_anomalies,

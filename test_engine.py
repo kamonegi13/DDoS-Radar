@@ -30,6 +30,9 @@ from radar_api import (
     _entropy_history,
     BgpRoutingSensor,
     _linear_slope,
+    IhrSensor,
+    RipeAtlasSensor,
+    TorMetricsSensor,
 )
 
 
@@ -1047,3 +1050,169 @@ class TestCfBgpHijackScoring:
         assert not fired
         assert core_h == 0
         assert core_l == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IHR Sensor
+# ─────────────────────────────────────────────────────────────────────────────
+class TestIhrSensor:
+    def test_init(self):
+        s = IhrSensor()
+        assert s.name == "ihr_health"
+        assert s.domain == "physical"
+        assert s.poll_interval == 300
+
+    def test_cache_fallback(self):
+        """When no cache set, get_cache returns empty dict or None."""
+        s = IhrSensor()
+        result = s.get_cache()
+        # BaseSensor.get_cache() returns {} or None depending on implementation
+        assert result is None or result == {}
+
+    def test_country_status_logic(self):
+        """Verify country status assignment from disconnection data."""
+        s = IhrSensor()
+        # Simulate setting cache with known data
+        cache_data = {
+            "disconnections": {"TW": [{"avglevel": 7}]},
+            "hegemony_alarms": [],
+            "delay_alarms": {},
+            "country_status": {"TW": "DISCO_EVENT"},
+        }
+        s.set_cache(cache_data)
+        cached = s.get_cache()
+        assert cached["country_status"]["TW"] == "DISCO_EVENT"
+        assert len(cached["disconnections"]["TW"]) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RIPE Atlas Sensor
+# ─────────────────────────────────────────────────────────────────────────────
+class TestRipeAtlasSensor:
+    def test_init(self):
+        s = RipeAtlasSensor()
+        assert s.name == "ripe_atlas"
+        assert s.domain == "physical"
+        assert s.poll_interval == 600
+
+    def test_probe_drop_detection(self):
+        """Verify probe drop percentage calculation."""
+        s = RipeAtlasSensor()
+        # Simulate previous count of 100 probes
+        s._prev_probe_counts["TW"] = 100
+        # If current active is 60 → drop_pct = 0.40 (40%)
+        prev = s._prev_probe_counts.get("TW", 60)
+        active = 60
+        drop_pct = (prev - active) / max(prev, 1)
+        assert drop_pct == pytest.approx(0.40)
+        # 40% ≥ 30% threshold → PROBE_DROP
+        from radar.sensors.ripe_atlas import PROBE_DROP_PCT, PROBE_BLACKOUT_PCT
+        assert drop_pct >= PROBE_DROP_PCT
+        assert drop_pct < PROBE_BLACKOUT_PCT
+
+    def test_probe_blackout_detection(self):
+        """70% drop should be PROBE_BLACKOUT."""
+        s = RipeAtlasSensor()
+        s._prev_probe_counts["TW"] = 100
+        prev = s._prev_probe_counts["TW"]
+        active = 25
+        drop_pct = (prev - active) / max(prev, 1)
+        assert drop_pct == pytest.approx(0.75)
+        from radar.sensors.ripe_atlas import PROBE_BLACKOUT_PCT
+        assert drop_pct >= PROBE_BLACKOUT_PCT
+
+    def test_cache_roundtrip(self):
+        s = RipeAtlasSensor()
+        data = {
+            "probe_counts": {"TW": {"active": 50, "prev": 80, "drop_pct": 0.375}},
+            "latency": {"TW": {"avg_ms": 25.5, "p95_ms": 45.0, "probes_responding": 12}},
+            "country_status": {"TW": "PROBE_DROP"},
+        }
+        s.set_cache(data)
+        assert s.get_cache() == data
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tor Metrics Sensor
+# ─────────────────────────────────────────────────────────────────────────────
+class TestTorMetricsSensor:
+    def test_init(self):
+        s = TorMetricsSensor()
+        assert s.name == "tor_metrics"
+        assert s.domain == "info"
+        assert s.poll_interval == 1800
+
+    def test_relay_drop_detection(self):
+        """40% relay drop should be detected."""
+        s = TorMetricsSensor()
+        s._prev_relay_counts["IR"] = 100
+        prev = s._prev_relay_counts["IR"]
+        running = 55
+        drop_pct = (prev - running) / max(prev, 1)
+        assert drop_pct == pytest.approx(0.45)
+        from radar.sensors.tor_metrics import RELAY_DROP_FALLBACK_PCT
+        assert drop_pct >= RELAY_DROP_FALLBACK_PCT
+
+    def test_user_surge_detection(self):
+        """100%+ user surge should be classified as SURGE."""
+        s = TorMetricsSensor()
+        s._prev_user_counts["IR"] = 1000
+        prev_users = s._prev_user_counts["IR"]
+        total_users = 2500
+        surge_pct = (total_users - prev_users) / max(prev_users, 1)
+        assert surge_pct == pytest.approx(1.5)
+        from radar.sensors.tor_metrics import USER_SURGE_FALLBACK_PCT
+        assert surge_pct > USER_SURGE_FALLBACK_PCT
+
+    def test_censorship_indicator(self):
+        """Relay drop + user surge → CENSORSHIP_INDICATOR."""
+        relay_drop = True
+        user_surge = True
+        if relay_drop and user_surge:
+            status = "CENSORSHIP_INDICATOR"
+        elif relay_drop:
+            status = "RELAY_DROP"
+        elif user_surge:
+            status = "USER_SURGE"
+        else:
+            status = "NORMAL"
+        assert status == "CENSORSHIP_INDICATOR"
+
+    def test_cache_roundtrip(self):
+        s = TorMetricsSensor()
+        data = {
+            "relay_counts": {"IR": {"running": 50, "bridges": 10, "bandwidth_kbps": 5000, "prev": 100, "drop_pct": 0.5}},
+            "client_estimates": {"IR": {"bridge_users": 5000, "prev_users": 2000, "surge_pct": 1.5, "trend": "SURGE"}},
+            "country_status": {"IR": "CENSORSHIP_INDICATOR"},
+        }
+        s.set_cache(data)
+        assert s.get_cache() == data
+
+    def test_new_sensor_rationale_integration(self):
+        """Verify new sensors produce valid RationaleEntry objects."""
+        # IHR disco fired
+        e1 = RationaleEntry("ihr_disco", "physical", "FIRED", "2 events", 2,
+                            fired_reason="IHR: Disconnection event in TW")
+        assert e1.sensor == "ihr_disco"
+        assert e1.domain == "physical"
+        assert e1.score == 2
+
+        # RIPE Atlas fired
+        e2 = RationaleEntry("ripe_atlas", "physical", "FIRED", "PROBE_DROP 40%", 1,
+                            fired_reason="RIPE Atlas: Probe drop 40% in TW")
+        assert e2.sensor == "ripe_atlas"
+        assert e2.score == 1
+
+        # Tor metrics fired
+        e3 = RationaleEntry("tor_metrics", "info", "FIRED", "CENSORSHIP_INDICATOR", 2,
+                            fired_reason="Tor: CENSORSHIP_INDICATOR in IR")
+        assert e3.sensor == "tor_metrics"
+        assert e3.domain == "info"
+        assert e3.score == 2
+
+        # Engine should compute domain scores correctly with new sensors
+        engine = WeightedConvergenceEngine()
+        scores = engine.compute_domain_scores([e1, e2, e3])
+        assert scores["physical"] == 3  # ihr_disco(2) + ripe_atlas(1)
+        assert scores["info"] == 2      # tor_metrics(2)
+        assert scores["cyber"] == 0

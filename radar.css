@@ -855,8 +855,8 @@
 .ws-dot-disconnected { background:#ff8800; box-shadow:0 0 4px #ff880066; }
 
 /* ── Phase 3: Collapsible HUD rows ───────────────────────── */
-.hud-bottom-primary { display:flex; flex-wrap:wrap; align-items:center; gap:1px; }
-.hud-bottom-secondary { display:flex; flex-wrap:wrap; align-items:center; gap:1px; border-top:1px solid #1a1a1a; padding-top:2px; margin-top:2px; }
+.hud-bottom-primary { display:flex; flex-wrap:wrap; align-items:center; gap:1px; width:100%; }
+.hud-bottom-secondary { display:flex; flex-wrap:wrap; align-items:center; gap:1px; width:100%; border-top:1px solid #1a1a1a; padding-top:2px; margin-top:2px; }
 .hud-expand-btn {
     background:none; border:1px solid #333; color:#666; font-size:10px; cursor:pointer;
     padding:0 6px; border-radius:3px; margin-left:4px; line-height:16px; transition:all 0.2s;
@@ -883,21 +883,57 @@
 .corr-col-label { padding:2px 0; }
 .corr-row-label { justify-content:flex-end; padding-right:4px; }
 .corr-cell {
-    font-size:10px; color:#ccc; text-align:center;
+    font-size:9px; color:#ccc; text-align:center;
     display:flex; align-items:center; justify-content:center;
-    aspect-ratio:1;
+    padding:3px 1px; min-height:20px;
     border:1px solid #181818; border-radius:2px; font-family:monospace; cursor:default;
-    transition:background 0.3s; overflow:hidden;
+    transition:background 0.3s; overflow:hidden; white-space:nowrap;
 }
 .corr-cell:hover { border-color:#00ffff44; z-index:1; }
 .corr-cell-diag { background:rgba(255,255,255,0.015) !important; color:#333; border-color:transparent; }
-.corr-legend { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px; font-size:9px; color:#777; }
-.corr-legend-bar {
-    width:100px; height:7px; border-radius:3px;
-    background:linear-gradient(90deg, #55ccaa 0%, #ffcc00 40%, #ff6600 70%, #ff2222 100%);
-}
+.corr-legend { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:8px; font-size:9px; color:#777; }
 /* Compact mode when docked in narrow sidebar */
 .corr-grid-compact .corr-col-label,
 .corr-grid-compact .corr-row-label { font-size:8px; }
 .corr-grid-compact .corr-row-label { padding-right:3px; }
-.corr-grid-compact .corr-cell { font-size:8px; }
+.corr-grid-compact .corr-cell { font-size:7px; min-height:16px; padding:2px 1px; }
+/* ── Coordination Index: Constellation Pattern ───────────── */
+/* Constellation glow track (wide, dim) */
+.coord-glow { pointer-events: none; outline: none; }
+.coord-core, .coord-glow { outline: none; }
+.coord-core:focus, .coord-glow:focus { outline: none; }
+/* Constellation core line with breathing animation */
+.coord-core {
+    pointer-events: auto;
+    animation: coordBreathe 4s ease-in-out infinite;
+}
+.coord-core-fast  { animation-duration: 1.5s !important; }
+.coord-core-med   { animation-duration: 3s !important; }
+.coord-core-slow  { animation-duration: 5s !important; }
+@keyframes coordBreathe {
+    0%, 100% { stroke-opacity: 0.25; stroke-width: var(--coord-w); }
+    50%      { stroke-opacity: 0.85; stroke-width: calc(var(--coord-w) + 1.5px); }
+}
+/* C2-SYNC escalation glow */
+.coord-c2sync { filter: drop-shadow(0 0 4px currentColor); }
+/* Diamond endpoint markers */
+.coord-diamond {
+    border-radius: 1px;
+    transition: box-shadow 0.3s, opacity 0.3s;
+}
+.coord-diamond-pulse {
+    animation: coordDiamondPulse 1.5s ease-in-out infinite;
+}
+@keyframes coordDiamondPulse {
+    0%, 100% { opacity: 0.7; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 1.0; box-shadow: 0 0 10px currentColor; }
+}
+/* Tooltip */
+.coord-tooltip {
+    background: rgba(10,10,15,0.92) !important;
+    border: 1px solid #66ffee44 !important;
+    color: #ccc;
+    font-size: 11px;
+    font-family: monospace;
+    padding: 4px 8px !important;
+}

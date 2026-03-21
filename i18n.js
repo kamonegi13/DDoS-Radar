@@ -48,7 +48,7 @@ const LANG = {
     'hud.vec.l7':                     'L7 APPLICATION',
 
     // ── bottom row labels ─────────────────────────────────────────
-    'hud.label.overlap':              'Overlap:',
+    'hud.label.overlap':              'Coord:',
     'hud.label.l7_shift':             'L7 Shift:',
     'hud.label.strikes':              'Strikes:',
     'hud.label.bgp':                  'BGP:',
@@ -506,6 +506,34 @@ const LANG = {
     'cip.ambush.active':              '⚡ AMBUSH PATTERN ACTIVE',
     'cip.vessels_unit':               '{n} vessels',
 
+    // ── Country Intel: IHR / RIPE Atlas / Tor Metrics ───────────
+    'cip.label.ihr_disco':            'Disconnection (IHR)',
+    'cip.label.ihr_delay':            'Delay Anomaly (IHR)',
+    'cip.ihr.normal':                 '🟢 NORMAL',
+    'cip.ihr.disco':                  '🔴 DISCO EVENT',
+    'cip.ihr.hegemony':               '🟠 HEGEMONY ALARM',
+    'cip.ihr.delay':                  '🟡 DELAY ANOMALY',
+    'cip.ihr.events':                 '{n} events',
+    'cip.ihr.alarms':                 '{n} alarms',
+    'cip.label.ripe_atlas':           'Probe Reach (RIPE Atlas)',
+    'cip.label.ripe_latency':         'Measurement RTT',
+    'cip.atlas.normal':               '🟢 NORMAL',
+    'cip.atlas.probe_drop':           '🟠 PROBE DROP',
+    'cip.atlas.probe_blackout':       '🔴 PROBE BLACKOUT',
+    'cip.atlas.probes':               '{n} active probes',
+    'cip.atlas.drop_pct':             'drop {pct}%',
+    'cip.atlas.rtt':                  'avg {avg}ms / p95 {p95}ms',
+    'cip.label.tor_metrics':          'Tor Network',
+    'cip.tor.normal':                 '🟢 NORMAL',
+    'cip.tor.relay_drop':             '🟠 RELAY DROP',
+    'cip.tor.user_surge':             '🟡 USER SURGE',
+    'cip.tor.censorship':             '🔴 CENSORSHIP INDICATOR',
+    'cip.tor.relays':                 '{n} relays / {b} bridges',
+    'cip.tor.users':                  '{n} bridge users',
+    'cip.tor.surge_pct':              'surge {pct}%',
+    'cip.section.network':            '🌐 Network Reachability',
+    'cip.section.censorship':         '🔒 Censorship / Tor',
+
     // ══════════════════════════════════════════════════════════════
     // Map — target list badges
     // ══════════════════════════════════════════════════════════════
@@ -710,13 +738,17 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     // Phase 3: Correlation Heatmap panel
     // ══════════════════════════════════════════════════════════════
-    'tools.corr_heatmap':             'Correlation Heatmap',
-    'panel.corr.title':               'CORRELATION HEATMAP',
-    'panel.corr.loading':             'Loading correlation data...',
-    'panel.corr.no_data':             'No correlation data available',
-    'panel.corr.toggle.combined':     'Combined',
-    'panel.corr.toggle.l3':           'L3',
-    'panel.corr.toggle.l7':           'L7',
+    'tools.corr_heatmap':             'Sensor Heatmap',
+    'panel.corr.title':               'SENSOR × THEATER',
+    'panel.corr.loading':             'Loading sensor data...',
+    'panel.corr.no_data':             'No sensor data available',
+    'panel.heatmap.toggle.all':       'ALL',
+    'panel.heatmap.toggle.cyber':     'CYBER',
+    'panel.heatmap.toggle.physical':  'PHYS',
+    'panel.heatmap.toggle.info':      'INFO',
+    'panel.heatmap.legend.quiet':     'Quiet',
+    'panel.heatmap.legend.warning':   'Warning',
+    'panel.heatmap.legend.alert':     'Alert',
 
     // Phase 3: TOOLS menu sections
     'tools.section.core':             'CORE',
@@ -949,7 +981,7 @@ const LANG = {
     'hud.vec.l3':                     'L3 大容量型',
     'hud.vec.l7':                     'L7 アプリ層型',
 
-    'hud.label.overlap':              '重複:',
+    'hud.label.overlap':              '協調:',
     'hud.label.l7_shift':             'L7変移:',
     'hud.label.strikes':              '攻撃:',
     'hud.label.bgp':                  'BGP:',
@@ -1400,6 +1432,34 @@ const LANG = {
     'cip.ambush.active':              '⚡ 待伏パターン検知',
     'cip.vessels_unit':               '{n} 隻',
 
+    // ── Country Intel: IHR / RIPE Atlas / Tor Metrics ───────────
+    'cip.label.ihr_disco':            '切断イベント (IHR)',
+    'cip.label.ihr_delay':            '遅延異常 (IHR)',
+    'cip.ihr.normal':                 '🟢 正常',
+    'cip.ihr.disco':                  '🔴 切断検出',
+    'cip.ihr.hegemony':               '🟠 ヘゲモニー警報',
+    'cip.ihr.delay':                  '🟡 遅延異常',
+    'cip.ihr.events':                 '{n} イベント',
+    'cip.ihr.alarms':                 '{n} アラーム',
+    'cip.label.ripe_atlas':           'プローブ到達性 (RIPE Atlas)',
+    'cip.label.ripe_latency':         '測定RTT',
+    'cip.atlas.normal':               '🟢 正常',
+    'cip.atlas.probe_drop':           '🟠 プローブ減少',
+    'cip.atlas.probe_blackout':       '🔴 プローブ消失',
+    'cip.atlas.probes':               'アクティブ {n} プローブ',
+    'cip.atlas.drop_pct':             '減少率 {pct}%',
+    'cip.atlas.rtt':                  '平均 {avg}ms / p95 {p95}ms',
+    'cip.label.tor_metrics':          'Torネットワーク',
+    'cip.tor.normal':                 '🟢 正常',
+    'cip.tor.relay_drop':             '🟠 リレー減少',
+    'cip.tor.user_surge':             '🟡 ユーザー急増',
+    'cip.tor.censorship':             '🔴 検閲の兆候',
+    'cip.tor.relays':                 'リレー {n} / ブリッジ {b}',
+    'cip.tor.users':                  'ブリッジユーザー {n}',
+    'cip.tor.surge_pct':              '急増 {pct}%',
+    'cip.section.network':            '🌐 ネットワーク到達性',
+    'cip.section.censorship':         '🔒 検閲 / Tor',
+
     // ══════════════════════════════════════════════════════════════
     // Map — target list badges
     // ══════════════════════════════════════════════════════════════
@@ -1603,12 +1663,16 @@ const LANG = {
     // Phase 3: 相関ヒートマップパネル
     // ══════════════════════════════════════════════════════════════
     'tools.corr_heatmap':             '相関ヒートマップ',
-    'panel.corr.title':               '相関ヒートマップ',
-    'panel.corr.loading':             '相関データを読み込み中...',
-    'panel.corr.no_data':             '相関データなし',
-    'panel.corr.toggle.combined':     '統合',
-    'panel.corr.toggle.l3':           'L3',
-    'panel.corr.toggle.l7':           'L7',
+    'panel.corr.title':               'センサー × シアター',
+    'panel.corr.loading':             'センサーデータを読み込み中...',
+    'panel.corr.no_data':             'センサーデータなし',
+    'panel.heatmap.toggle.all':       '全て',
+    'panel.heatmap.toggle.cyber':     'サイバー',
+    'panel.heatmap.toggle.physical':  '物理',
+    'panel.heatmap.toggle.info':      '情報',
+    'panel.heatmap.legend.quiet':     '静穏',
+    'panel.heatmap.legend.warning':   '警戒',
+    'panel.heatmap.legend.alert':     '警報',
 
     // Phase 3: TOOLSメニューセクション
     'tools.section.core':             'コア',

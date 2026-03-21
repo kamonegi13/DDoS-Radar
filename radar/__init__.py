@@ -41,14 +41,14 @@ from radar.sensors import (  # noqa: E402
     GDELTSensor, PeeringDbSensor, BgpRoutingSensor, NasaFirmsSensor, ThreatFoxSensor,
     RssNarrativeSensor, IsrHotspotSensor, AisMaritimeSensor,
     TelegramMirrorSensor, CheckHostSensor, GreyNoiseSensor,
-    SpaceWeatherSensor,
+    SpaceWeatherSensor, IhrSensor, RipeAtlasSensor, TorMetricsSensor,
 )
 for _s in [
     CloudflareSensor(), IodaSensor(), OpenSkySensor(), OpenWeatherSensor(),
     GDELTSensor(), PeeringDbSensor(), BgpRoutingSensor(), NasaFirmsSensor(), ThreatFoxSensor(),
     RssNarrativeSensor(), IsrHotspotSensor(), AisMaritimeSensor(),
     TelegramMirrorSensor(), CheckHostSensor(), GreyNoiseSensor(),
-    SpaceWeatherSensor(),
+    SpaceWeatherSensor(), IhrSensor(), RipeAtlasSensor(), TorMetricsSensor(),
 ]:
     registry.register(_s)
 

@@ -20,6 +20,9 @@ from radar.scoring import (  # noqa: F401
 )
 from radar.config import SEQUENCE_WINDOW  # noqa: F401
 from radar.sensors.bgp_routing import BgpRoutingSensor, _linear_slope  # noqa: F401
+from radar.sensors.ihr import IhrSensor  # noqa: F401
+from radar.sensors.ripe_atlas import RipeAtlasSensor  # noqa: F401
+from radar.sensors.tor_metrics import TorMetricsSensor  # noqa: F401
 from radar.database import db as _db  # noqa: F401
 
 
