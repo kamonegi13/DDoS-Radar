@@ -493,6 +493,17 @@
         .rat-domain-info     { color: #cc66ff; }
         .rat-score-pos { color: var(--color-critical); font-weight: bold; }
         .rat-score-zero { color: #444; }
+        /* Confidence badge in evidence table */
+        .conf-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: bold; }
+        .conf-high { color: #66ffaa; background: rgba(102,255,170,0.1); }
+        .conf-mid  { color: #ffaa00; background: rgba(255,170,0,0.1); }
+        .conf-low  { color: #ff4444; background: rgba(255,68,68,0.1); }
+        /* TL Proximity badge in HUD */
+        .tl-prox-badge { font-size: 10px; font-weight: bold; padding: 1px 6px; border-radius: 3px; vertical-align: middle; margin-left: 4px; }
+        .tl-prox-up   { color: #ff4444; background: rgba(255,68,68,0.15); animation: tl-prox-pulse 1.5s ease-in-out infinite; }
+        .tl-prox-down { color: #66ffaa; background: rgba(102,255,170,0.1); }
+        .tl-prox-stable { display: none; }
+        @keyframes tl-prox-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
         .evidence-system-note { font-size: 11px; color: var(--color-text-dim); background: rgba(255,255,255,0.04); border-left: 3px solid #555; padding: 8px 12px; border-radius: 0 4px 4px 0; margin: 12px 0 8px; line-height: 1.6; }
         .convergence-row { display: flex; gap: 16px; margin: 8px 0 4px; flex-wrap: wrap; }
 
@@ -830,3 +841,64 @@
 .esc-transition-row { display:flex; align-items:center; gap:6px; padding:2px 0; font-size:10px; font-family:monospace; }
 .esc-trans-time { color:#555; min-width:42px; font-size:9px; }
 .esc-trans-arrow { color:#444; }
+
+/* ── Phase 3: TOOLS menu section headers ─────────────────── */
+.tools-menu-section-header {
+    font-size:8px; color:#00ffff66; letter-spacing:2px; text-transform:uppercase;
+    padding:5px 10px 2px; margin-top:2px; border-bottom:1px solid #00ffff11;
+    pointer-events:none; user-select:none;
+}
+.tools-menu-section-header:first-child { margin-top:0; }
+
+/* ── Phase 3: WebSocket status dot ───────────────────────── */
+.ws-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+.ws-dot-connected { background:#00ff88; box-shadow:0 0 4px #00ff88; }
+.ws-dot-disconnected { background:#ff8800; box-shadow:0 0 4px #ff880066; }
+
+/* ── Phase 3: Collapsible HUD rows ───────────────────────── */
+.hud-bottom-primary { display:flex; flex-wrap:wrap; align-items:center; gap:1px; }
+.hud-bottom-secondary { display:flex; flex-wrap:wrap; align-items:center; gap:1px; border-top:1px solid #1a1a1a; padding-top:2px; margin-top:2px; }
+.hud-expand-btn {
+    background:none; border:1px solid #333; color:#666; font-size:10px; cursor:pointer;
+    padding:0 6px; border-radius:3px; margin-left:4px; line-height:16px; transition:all 0.2s;
+}
+.hud-expand-btn:hover { color:#00ffff; border-color:#00ffff44; }
+
+/* ── Phase 3: Correlation Heatmap Panel ──────────────────── */
+.corr-toggle-group { display:flex; gap:3px; margin-bottom:8px; justify-content:center; }
+.corr-toggle-btn {
+    font-size:9px; padding:3px 12px; border:1px solid #333; border-radius:3px;
+    background:#060606; color:#888; cursor:pointer; text-align:center; transition:all 0.2s;
+}
+.corr-toggle-btn:hover { border-color:#00ffff44; color:#aaa; }
+.corr-toggle-active { background:#00ffff11; border-color:#00ffff44; color:#00ffff; }
+.corr-grid-wrap { padding:0; }
+.corr-grid { display:grid; gap:2px; width:100%; }
+.corr-corner { background:transparent; }
+.corr-col-label, .corr-row-label {
+    font-size:9px; font-weight:bold; color:#aaa; text-align:center;
+    letter-spacing:0.5px; font-family:monospace;
+    display:flex; align-items:center; justify-content:center;
+    min-height:0; aspect-ratio:auto;
+}
+.corr-col-label { padding:2px 0; }
+.corr-row-label { justify-content:flex-end; padding-right:4px; }
+.corr-cell {
+    font-size:10px; color:#ccc; text-align:center;
+    display:flex; align-items:center; justify-content:center;
+    aspect-ratio:1;
+    border:1px solid #181818; border-radius:2px; font-family:monospace; cursor:default;
+    transition:background 0.3s; overflow:hidden;
+}
+.corr-cell:hover { border-color:#00ffff44; z-index:1; }
+.corr-cell-diag { background:rgba(255,255,255,0.015) !important; color:#333; border-color:transparent; }
+.corr-legend { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px; font-size:9px; color:#777; }
+.corr-legend-bar {
+    width:100px; height:7px; border-radius:3px;
+    background:linear-gradient(90deg, #55ccaa 0%, #ffcc00 40%, #ff6600 70%, #ff2222 100%);
+}
+/* Compact mode when docked in narrow sidebar */
+.corr-grid-compact .corr-col-label,
+.corr-grid-compact .corr-row-label { font-size:8px; }
+.corr-grid-compact .corr-row-label { padding-right:3px; }
+.corr-grid-compact .corr-cell { font-size:8px; }

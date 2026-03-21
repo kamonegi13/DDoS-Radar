@@ -15,8 +15,11 @@ from radar.scoring import (  # noqa: F401
     compute_hod_zscore, record_hod_sample,
     calculate_overlap, compute_confidence,
     compute_adaptive_zscore,
+    compute_origin_entropy, track_entropy_change,
+    _entropy_history,
 )
 from radar.config import SEQUENCE_WINDOW  # noqa: F401
+from radar.sensors.bgp_routing import BgpRoutingSensor, _linear_slope  # noqa: F401
 from radar.database import db as _db  # noqa: F401
 
 

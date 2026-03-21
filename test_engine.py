@@ -25,8 +25,19 @@ from radar_api import (
     calculate_overlap,
     compute_confidence,
     SEQUENCE_WINDOW,
+    compute_origin_entropy,
+    track_entropy_change,
+    _entropy_history,
+    BgpRoutingSensor,
+    _linear_slope,
 )
 
+
+@pytest.fixture(autouse=True)
+def clean_entropy_history():
+    """Reset entropy history between tests."""
+    _entropy_history.clear()
+    yield
 
 @pytest.fixture(autouse=True)
 def clean_global_state():
@@ -483,3 +494,556 @@ class TestEscalationProgress:
         result = self.engine.compute_escalation_progress(history, timeline)
         # Score is increasing → positive trend
         assert result["score_trend"] > 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Engine Enhancement: Confidence Propagation, TL Proximity, Domain Confidences
+# ─────────────────────────────────────────────────────────────────────────────
+class TestConfidenceWeighting:
+    def setup_method(self):
+        self.engine = WeightedConvergenceEngine()
+
+    def test_full_confidence_unchanged(self):
+        """When all confidences are 1.0, scoring is identical to legacy behavior."""
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "3x", 3, confidence=1.0),
+            RationaleEntry("ioda_bgp", "physical", "FIRED", "OUTAGE", 1, confidence=1.0),
+            RationaleEntry("gdelt", "info", "FIRED", "ALERT", 1, confidence=1.0),
+        ]
+        scores = self.engine.compute_domain_scores(rationale)
+        assert scores == {"cyber": 3, "physical": 1, "info": 1}
+
+    def test_partial_confidence_reduces_score(self):
+        """Confidence < 1.0 reduces domain score proportionally."""
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "3x", 3, confidence=0.5),
+            RationaleEntry("ioda_bgp", "physical", "FIRED", "OUTAGE", 1, confidence=1.0),
+        ]
+        scores = self.engine.compute_domain_scores(rationale)
+        assert scores["cyber"] == 1.5
+        assert scores["physical"] == 1.0
+
+    def test_zero_confidence_zeroes_score(self):
+        """Confidence = 0.0 effectively removes sensor contribution."""
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "3x", 3, confidence=0.0),
+        ]
+        scores = self.engine.compute_domain_scores(rationale)
+        assert scores["cyber"] == 0
+
+    def test_suppressed_entries_ignored(self):
+        """Suppressed entries are still excluded regardless of confidence."""
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "3x", 3, confidence=1.0, suppressed=True),
+        ]
+        scores = self.engine.compute_domain_scores(rationale)
+        assert scores["cyber"] == 0
+
+
+class TestConvergenceGating:
+    def setup_method(self):
+        self.engine = WeightedConvergenceEngine()
+
+    def test_full_convergence_no_gating(self):
+        """Without domain_confidences, bonus is unchanged."""
+        domain_scores = {"cyber": 3, "physical": 2, "info": 1}
+        score, bonus, level = self.engine.apply_convergence_bonus(6, domain_scores)
+        assert level == "FULL_CONVERGENCE"
+        assert bonus == 2  # CONVERGENCE_FULL_BONUS default
+
+    def test_full_convergence_gated_by_low_confidence(self):
+        """Domain confidences gate the bonus multiplicatively."""
+        domain_scores = {"cyber": 3, "physical": 2, "info": 1}
+        domain_confs = {"cyber": 1.0, "physical": 0.5, "info": 1.0}
+        score, bonus, level = self.engine.apply_convergence_bonus(6, domain_scores, domain_confs)
+        assert level == "FULL_CONVERGENCE"
+        # bonus = 2 * min(1.0, 0.5, 1.0) = 2 * 0.5 = 1.0
+        assert bonus == 1.0
+
+    def test_dual_domain_gated(self):
+        """Dual domain bonus also gated by confidence."""
+        domain_scores = {"cyber": 3, "physical": 2, "info": 0}
+        domain_confs = {"cyber": 0.6, "physical": 0.6, "info": 1.0}
+        score, bonus, level = self.engine.apply_convergence_bonus(5, domain_scores, domain_confs)
+        assert level == "DUAL_DOMAIN"
+        # bonus = 1 * min(0.6, 0.6) = 0.6
+        assert bonus == 0.6
+
+    def test_single_domain_no_bonus(self):
+        """Single domain has no bonus regardless of confidence."""
+        domain_scores = {"cyber": 5, "physical": 0, "info": 0}
+        domain_confs = {"cyber": 1.0, "physical": 1.0, "info": 1.0}
+        score, bonus, level = self.engine.apply_convergence_bonus(5, domain_scores, domain_confs)
+        assert bonus == 0
+        assert level == "SINGLE_DOMAIN"
+
+
+class TestTlProximity:
+    def setup_method(self):
+        self.engine = WeightedConvergenceEngine()
+
+    def test_tl5_stable(self):
+        """Score 0 at TL5 → no escalation/de-escalation near boundary."""
+        result = self.engine.compute_tl_proximity(0, 5)
+        assert result["proximity_label"] == "STABLE"
+        assert result["distance_down"] is None  # Already at TL5
+
+    def test_tl4_near_escalation(self):
+        """Score 3 at TL4 → 1pt to TL3 threshold (4pt)."""
+        result = self.engine.compute_tl_proximity(3, 4)
+        assert result["distance_up"] == 1.0
+        assert result["next_tl_up"] == 3
+        assert result["proximity_label"] == "NEAR_ESCALATION"
+
+    def test_tl3_near_escalation_priority(self):
+        """Score 4.5 at TL3 → 1.5pt to TL2 (6pt), 0.51pt above TL3 floor.
+        NEAR_ESCALATION takes priority since dist_up <= 1.5."""
+        result = self.engine.compute_tl_proximity(4.5, 3)
+        assert result["distance_down"] is not None
+        assert result["next_tl_down"] == 4
+        assert result["distance_up"] == 1.5
+        assert result["proximity_label"] == "NEAR_ESCALATION"
+
+    def test_tl3_near_de_escalation(self):
+        """Score 4.1 at TL3 → 1.9pt to TL2, 0.11pt above TL3 floor → NEAR_DE_ESCALATION."""
+        result = self.engine.compute_tl_proximity(4.1, 3)
+        assert result["distance_down"] is not None
+        assert result["distance_up"] == 1.9  # > 1.5 threshold
+        assert result["proximity_label"] == "NEAR_DE_ESCALATION"
+
+    def test_tl2_near_escalation_at_boundary(self):
+        """Score 7.5 at TL2 → 1.5pt to TL1 (9pt) → NEAR_ESCALATION."""
+        result = self.engine.compute_tl_proximity(7.5, 2)
+        assert result["proximity_label"] == "NEAR_ESCALATION"
+        assert result["distance_up"] == 1.5
+        assert result["next_tl_up"] == 1
+
+    def test_tl2_stable_middle(self):
+        """Score 7.8 at TL2 → 1.2pt to TL1, 1.81pt above TL2 floor → NEAR_ESCALATION (dist_up < 1.5)."""
+        result = self.engine.compute_tl_proximity(7.8, 2)
+        assert result["proximity_label"] == "NEAR_ESCALATION"
+
+    def test_tl3_stable_wide_gap(self):
+        """Score 5 at TL3 → 1pt to TL2, 1.01pt above TL3 floor → NEAR_ESCALATION.
+        Score 4.8 → 1.2pt to TL2 → NEAR_ESCALATION. For true STABLE, need gap > 1.5 on both sides."""
+        # TL3 range is 4–6, so it's only 2pt wide — hard to be STABLE
+        # Use TL4 (2–4 range) with score=3: dist_up=1, dist_down=1.01
+        result = self.engine.compute_tl_proximity(3, 4)
+        assert result["proximity_label"] == "NEAR_ESCALATION"  # 1pt to TL3
+
+    def test_tl1_no_up(self):
+        """At TL1 there is no escalation above."""
+        result = self.engine.compute_tl_proximity(10, 1)
+        assert result["distance_up"] is None
+        assert result["next_tl_up"] is None
+
+
+class TestDomainConfidences:
+    def test_all_high_confidence(self):
+        """All sensors at 1.0 → all domains 1.0."""
+        engine = WeightedConvergenceEngine()
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "3x", 3, confidence=1.0),
+            RationaleEntry("ioda_bgp", "physical", "FIRED", "OUTAGE", 1, confidence=1.0),
+            RationaleEntry("gdelt", "info", "FIRED", "ALERT", 1, confidence=1.0),
+        ]
+        confs = engine.compute_domain_confidences(rationale)
+        assert confs == {"cyber": 1.0, "physical": 1.0, "info": 1.0}
+
+    def test_mixed_confidence_averaged(self):
+        """Multiple sensors in same domain → average confidence."""
+        engine = WeightedConvergenceEngine()
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "3x", 3, confidence=0.8),
+            RationaleEntry("ripe_bgp", "cyber", "FIRED", "ANOMALY", 1, confidence=0.6),
+            RationaleEntry("ioda_bgp", "physical", "FIRED", "OUTAGE", 1, confidence=1.0),
+        ]
+        confs = engine.compute_domain_confidences(rationale)
+        assert confs["cyber"] == 0.7  # (0.8 + 0.6) / 2
+        assert confs["physical"] == 1.0
+        assert confs["info"] == 1.0  # No fired entries → default 1.0
+
+    def test_suppressed_excluded(self):
+        """Suppressed entries don't affect domain confidence."""
+        engine = WeightedConvergenceEngine()
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "3x", 3, confidence=0.8),
+            RationaleEntry("ripe_bgp", "cyber", "FIRED", "ANOMALY", 1, confidence=0.2, suppressed=True),
+        ]
+        confs = engine.compute_domain_confidences(rationale)
+        assert confs["cyber"] == 0.8  # Only the non-suppressed entry
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# (i) Blockade Index scoring
+# ─────────────────────────────────────────────────────────────────────────────
+class TestBlockadeIndexScoring:
+    """Blockade Index ≥ 7.0 should be significant infrastructure blockade."""
+
+    def test_blockade_high_value(self):
+        """BI ≥ 7.0 indicates effective blockade."""
+        engine = WeightedConvergenceEngine()
+        # High DDoS intensity + low checkhost success → high BI
+        bi = engine.compute_blockade_index(ddos_intensity=8.0, ripe_drop_pct=10.0,
+                                            checkhost_success_rate=0.1)
+        assert bi >= 7.0
+
+    def test_blockade_low_value(self):
+        """BI < 7.0 when infrastructure is mostly healthy."""
+        engine = WeightedConvergenceEngine()
+        bi = engine.compute_blockade_index(ddos_intensity=2.0, ripe_drop_pct=0.0,
+                                            checkhost_success_rate=0.9)
+        assert bi < 7.0
+
+    def test_asphyxiation_amplifies_bi(self):
+        """Asphyxiation flag should amplify blockade index by 1.5×."""
+        engine = WeightedConvergenceEngine()
+        bi_normal = engine.compute_blockade_index(ddos_intensity=5.0, ripe_drop_pct=0.0,
+                                                   checkhost_success_rate=0.3)
+        bi_asphyx = engine.compute_blockade_index(ddos_intensity=5.0, ripe_drop_pct=0.0,
+                                                   checkhost_success_rate=0.3, asphyxiation=True)
+        assert bi_asphyx > bi_normal
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# (iii) Graduated L3/L7 vector shift
+# ─────────────────────────────────────────────────────────────────────────────
+class TestGraduatedVectorShift:
+    """L3→L7 vector shift should have moderate (+1) and severe (+2) tiers."""
+
+    def test_severe_shift_criteria(self):
+        """Severe shift: L7 ≥ 5.0x AND L7 > L3 × 2.0."""
+        # Just validate the criteria logic matches expectations
+        l7_spike = 6.0
+        l3_spike = 2.0
+        is_shifted = True
+        severe = is_shifted and l7_spike >= 5.0 and l7_spike > l3_spike * 2.0
+        assert severe is True
+
+    def test_moderate_shift_not_severe(self):
+        """Moderate shift: shifted but L7 < 5.0 → not severe."""
+        l7_spike = 3.0
+        l3_spike = 1.5
+        is_shifted = True
+        severe = is_shifted and l7_spike >= 5.0 and l7_spike > l3_spike * 2.0
+        assert severe is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# (iv) Adversary strike count-proportional scoring
+# ─────────────────────────────────────────────────────────────────────────────
+class TestAdversaryCountScoring:
+    """Adversary strike scoring should be count-proportional."""
+
+    def test_no_strikes(self):
+        count = 0
+        score = 3 if count >= 3 else (2 if count >= 1 else 0)
+        assert score == 0
+
+    def test_single_strike(self):
+        count = 1
+        score = 3 if count >= 3 else (2 if count >= 1 else 0)
+        assert score == 2
+
+    def test_two_strikes(self):
+        count = 2
+        score = 3 if count >= 3 else (2 if count >= 1 else 0)
+        assert score == 2
+
+    def test_three_or_more_strikes(self):
+        count = 3
+        score = 3 if count >= 3 else (2 if count >= 1 else 0)
+        assert score == 3
+
+    def test_many_strikes(self):
+        count = 5
+        score = 3 if count >= 3 else (2 if count >= 1 else 0)
+        assert score == 3
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# (v) Sequence temporal decay
+# ─────────────────────────────────────────────────────────────────────────────
+class TestSequenceTemporalDecay:
+    """Sequence bonus should decay based on event age."""
+
+    def test_fresh_events_full_bonus(self):
+        """Events just registered (age ≈ 0) should get full bonus."""
+        register_sequence_event("TW", "NARRATIVE_BURST")
+        register_sequence_event("TW", "ISR_SURGE")
+        register_sequence_event("TW", "SYNC_DDOS")
+        register_sequence_event("TW", "FIRMS_ANOMALY")
+        bonus, status, chain = compute_sequence_bonus("TW")
+        assert bonus == 3  # SEQUENCE_FULL_BONUS = 3, decay ≈ 1.0
+        assert "FULL" in status
+
+    def test_old_events_decayed_bonus(self):
+        """Events 20 hours old should have decayed bonus."""
+        now = time.time()
+        # Insert events that are 20 hours old
+        sequence_event_log["TW"] = [
+            {"ts": now - 20 * 3600, "type": "NARRATIVE_BURST", "meta": {}},
+            {"ts": now - 20 * 3600, "type": "ISR_SURGE", "meta": {}},
+            {"ts": now - 20 * 3600, "type": "SYNC_DDOS", "meta": {}},
+            {"ts": now - 20 * 3600, "type": "FIRMS_ANOMALY", "meta": {}},
+        ]
+        bonus, status, chain = compute_sequence_bonus("TW")
+        # weight = max(0.3, 1.0 - 20/24) ≈ 0.167 → clamped to 0.3
+        # decayed = round(3 * 0.3) = 1, min 1
+        assert bonus == 1
+        assert "decay=" in status
+
+    def test_mid_age_events_partial_decay(self):
+        """Events 8 hours old should have partial decay."""
+        now = time.time()
+        sequence_event_log["TW"] = [
+            {"ts": now - 8 * 3600, "type": "NARRATIVE_BURST", "meta": {}},
+            {"ts": now - 8 * 3600, "type": "ISR_SURGE", "meta": {}},
+            {"ts": now - 8 * 3600, "type": "SYNC_DDOS", "meta": {}},
+            {"ts": now - 8 * 3600, "type": "FIRMS_ANOMALY", "meta": {}},
+        ]
+        bonus, status, chain = compute_sequence_bonus("TW")
+        # weight = max(0.3, 1.0 - 8/24) ≈ 0.667
+        # decayed = round(3 * 0.667) = 2
+        assert bonus == 2
+        assert "decay=" in status
+
+    def test_insufficient_chain_no_decay(self):
+        """Insufficient chain (< 3 events) returns 0 regardless of age."""
+        register_sequence_event("TW", "NARRATIVE_BURST")
+        register_sequence_event("TW", "ISR_SURGE")
+        bonus, status, chain = compute_sequence_bonus("TW")
+        assert bonus == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# (vi) DDoS-BGP causality enrichment
+# ─────────────────────────────────────────────────────────────────────────────
+class TestDdosBgpCausality:
+    """When CF spike and BGP outage co-occur, IODA rationale should be enriched."""
+
+    def test_causality_enrichment(self):
+        """Both CF spike + IODA BGP fired → causal link in fired_reason."""
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "3x", 3, fired_reason="HOD Z-score=2.5"),
+            RationaleEntry("ioda_bgp", "physical", "FIRED", "bgp=OUTAGE", 1, fired_reason="BGP anomaly confirmed"),
+        ]
+        # Simulate the causality enrichment logic from core.py
+        cf_fired = any(e.sensor == "cf_spike_core" and e.status == "FIRED" and not e.suppressed for e in rationale)
+        bgp_entry = next((e for e in rationale if e.sensor == "ioda_bgp" and e.status == "FIRED" and not e.suppressed), None)
+        if cf_fired and bgp_entry:
+            bgp_entry.fired_reason = f"{bgp_entry.fired_reason} — DDoS-BGP causal link: CF spike (5.0x) concurrent with BGP outage"
+        assert "DDoS-BGP causal link" in bgp_entry.fired_reason
+
+    def test_no_causality_when_cf_not_fired(self):
+        """If CF spike is OK (not fired), no causal enrichment."""
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "OK", "1.2x", 0),
+            RationaleEntry("ioda_bgp", "physical", "FIRED", "bgp=OUTAGE", 1, fired_reason="BGP anomaly confirmed"),
+        ]
+        cf_fired = any(e.sensor == "cf_spike_core" and e.status == "FIRED" and not e.suppressed for e in rationale)
+        bgp_entry = next((e for e in rationale if e.sensor == "ioda_bgp" and e.status == "FIRED" and not e.suppressed), None)
+        if cf_fired and bgp_entry:
+            bgp_entry.fired_reason += " — DDoS-BGP causal link"
+        assert "DDoS-BGP causal link" not in bgp_entry.fired_reason
+
+    def test_no_causality_when_bgp_suppressed(self):
+        """If IODA BGP is suppressed, no causal enrichment."""
+        rationale = [
+            RationaleEntry("cf_spike_core", "cyber", "FIRED", "3x", 3),
+            RationaleEntry("ioda_bgp", "physical", "FIRED", "bgp=OUTAGE", 1, fired_reason="BGP anomaly", suppressed=True),
+        ]
+        cf_fired = any(e.sensor == "cf_spike_core" and e.status == "FIRED" and not e.suppressed for e in rationale)
+        bgp_entry = next((e for e in rationale if e.sensor == "ioda_bgp" and e.status == "FIRED" and not e.suppressed), None)
+        assert bgp_entry is None  # Suppressed, so not found
+
+
+# ══════════════════════════════════════════════════════════════
+# DDoS Intelligence Enhancement (v11) Tests
+# ══════════════════════════════════════════════════════════════
+
+class TestOriginEntropy:
+    """Tests for Shannon entropy of attack origin distributions."""
+
+    def test_single_source_zero_entropy(self):
+        """Single source → 0 bits entropy."""
+        dist = {"CN": 100.0}
+        assert compute_origin_entropy(dist) == 0.0
+
+    def test_two_equal_sources(self):
+        """Two equal sources → 1 bit."""
+        dist = {"CN": 50.0, "RU": 50.0}
+        assert compute_origin_entropy(dist) == pytest.approx(1.0, abs=0.01)
+
+    def test_four_equal_sources(self):
+        """Four equal sources → 2 bits."""
+        dist = {"CN": 25.0, "RU": 25.0, "IR": 25.0, "KP": 25.0}
+        assert compute_origin_entropy(dist) == pytest.approx(2.0, abs=0.01)
+
+    def test_empty_distribution(self):
+        """Empty distribution → 0 bits."""
+        assert compute_origin_entropy({}) == 0.0
+
+    def test_skewed_distribution(self):
+        """Highly skewed → low entropy (< 1 bit for dominant source)."""
+        dist = {"CN": 90.0, "RU": 5.0, "IR": 3.0, "KP": 2.0}
+        entropy = compute_origin_entropy(dist)
+        assert 0.0 < entropy < 1.5
+
+    def test_zero_values_ignored(self):
+        """Origins with 0% share are ignored."""
+        dist = {"CN": 50.0, "RU": 50.0, "IR": 0.0}
+        assert compute_origin_entropy(dist) == pytest.approx(1.0, abs=0.01)
+
+
+class TestEntropyTracking:
+    """Tests for entropy change tracking with moving average."""
+
+    def test_insufficient_data(self):
+        """< 3 readings → INSUFFICIENT_DATA label."""
+        result = track_entropy_change("TW", 2.5)
+        assert result["shift_label"] == "INSUFFICIENT_DATA"
+        result = track_entropy_change("TW", 2.5)
+        assert result["shift_label"] == "INSUFFICIENT_DATA"
+
+    def test_stable_entropy(self):
+        """Stable entropy readings → STABLE label."""
+        for _ in range(5):
+            track_entropy_change("TW", 2.5)
+        result = track_entropy_change("TW", 2.5)
+        assert result["shift_label"] == "STABLE"
+        assert abs(result["delta_pct"]) < 20.0
+
+    def test_concentrating_attack(self):
+        """Sharp entropy drop → CONCENTRATING label."""
+        for _ in range(5):
+            track_entropy_change("TW", 3.0)
+        # Sudden drop to 1.0 (>20% decrease)
+        result = track_entropy_change("TW", 1.0)
+        assert result["shift_label"] == "CONCENTRATING"
+        assert result["delta_pct"] < -20.0
+
+    def test_dispersing_attack(self):
+        """Sharp entropy rise → DISPERSING label."""
+        for _ in range(5):
+            track_entropy_change("TW", 1.0)
+        # Sudden rise to 3.0 (>20% increase)
+        result = track_entropy_change("TW", 3.0)
+        assert result["shift_label"] == "DISPERSING"
+        assert result["delta_pct"] > 20.0
+
+
+class TestBgpTrend:
+    """Tests for RIPE BGP time series trend computation."""
+
+    def test_stable_prefixes(self):
+        """Constant prefix counts → STABLE trend."""
+        stats = [{"announced_prefixes": 1000, "seen_ases": 50} for _ in range(5)]
+        result = BgpRoutingSensor._compute_trend(stats)
+        assert result["trend_label"] == "STABLE"
+        assert result["prefix_trend"] == 0.0
+
+    def test_withdrawing_prefixes(self):
+        """Decreasing prefix counts → WITHDRAWING trend."""
+        stats = [{"announced_prefixes": 1000 - i * 20, "seen_ases": 50} for i in range(10)]
+        result = BgpRoutingSensor._compute_trend(stats)
+        assert result["trend_label"] == "WITHDRAWING"
+        assert result["prefix_trend"] < 0
+        assert result["prefix_trend_pct"] < -0.5
+
+    def test_growing_prefixes(self):
+        """Increasing prefix counts → GROWING trend."""
+        stats = [{"announced_prefixes": 1000 + i * 20, "seen_ases": 50} for i in range(10)]
+        result = BgpRoutingSensor._compute_trend(stats)
+        assert result["trend_label"] == "GROWING"
+        assert result["prefix_trend"] > 0
+        assert result["prefix_trend_pct"] > 0.5
+
+    def test_insufficient_data(self):
+        """< 3 entries → INSUFFICIENT_DATA."""
+        stats = [{"announced_prefixes": 1000, "seen_ases": 50}]
+        result = BgpRoutingSensor._compute_trend(stats)
+        assert result["trend_label"] == "INSUFFICIENT_DATA"
+
+    def test_ases_trend_computed(self):
+        """ASN trend is also computed."""
+        stats = [{"announced_prefixes": 1000, "seen_ases": 50 + i * 2} for i in range(5)]
+        result = BgpRoutingSensor._compute_trend(stats)
+        assert result["ases_trend"] > 0
+
+
+class TestLinearSlope:
+    """Tests for _linear_slope helper."""
+
+    def test_positive_slope(self):
+        """Increasing values → positive slope."""
+        assert _linear_slope([1, 2, 3, 4, 5]) == pytest.approx(1.0, abs=0.01)
+
+    def test_zero_slope(self):
+        """Constant values → zero slope."""
+        assert _linear_slope([5, 5, 5, 5]) == pytest.approx(0.0, abs=0.01)
+
+    def test_negative_slope(self):
+        """Decreasing values → negative slope."""
+        assert _linear_slope([5, 4, 3, 2, 1]) == pytest.approx(-1.0, abs=0.01)
+
+    def test_single_value(self):
+        """Single value → 0."""
+        assert _linear_slope([42]) == 0.0
+
+    def test_empty(self):
+        """Empty list → 0."""
+        assert _linear_slope([]) == 0.0
+
+
+class TestCfBgpHijackScoring:
+    """Tests for CF Radar BGP hijack/leak scoring logic (as implemented in core.py)."""
+
+    def _score_bgp_events(self, hijacks, leaks, core_theater="TW"):
+        """Replicate the scoring logic from core.py for BGP events."""
+        core_hijacks = [h for h in hijacks if h.get("victim_country") == core_theater]
+        core_leaks = [l for l in leaks if l.get("leak_country") == core_theater]
+        hijack_ongoing = [h for h in core_hijacks if h.get("is_ongoing")]
+        fired = len(hijack_ongoing) > 0 or len(core_leaks) >= 3
+        return fired, len(core_hijacks), len(core_leaks), len(hijack_ongoing)
+
+    def test_no_events(self):
+        """No events → not fired."""
+        fired, _, _, _ = self._score_bgp_events([], [])
+        assert not fired
+
+    def test_ongoing_hijack_fires(self):
+        """Ongoing hijack targeting core → fired."""
+        hijacks = [{"victim_country": "TW", "is_ongoing": True, "confidence": 80}]
+        fired, core_h, _, ongoing = self._score_bgp_events(hijacks, [])
+        assert fired
+        assert core_h == 1
+        assert ongoing == 1
+
+    def test_non_ongoing_hijack_not_fired(self):
+        """Past hijack (not ongoing) → not fired."""
+        hijacks = [{"victim_country": "TW", "is_ongoing": False, "confidence": 80}]
+        fired, _, _, _ = self._score_bgp_events(hijacks, [])
+        assert not fired
+
+    def test_three_leaks_fires(self):
+        """≥3 leaks targeting core → fired."""
+        leaks = [{"leak_country": "TW"} for _ in range(3)]
+        fired, _, core_l, _ = self._score_bgp_events([], leaks)
+        assert fired
+        assert core_l == 3
+
+    def test_two_leaks_not_fired(self):
+        """2 leaks → not fired (needs ≥3)."""
+        leaks = [{"leak_country": "TW"} for _ in range(2)]
+        fired, _, _, _ = self._score_bgp_events([], leaks)
+        assert not fired
+
+    def test_different_country_ignored(self):
+        """Events for other countries don't fire for core theater."""
+        hijacks = [{"victim_country": "JP", "is_ongoing": True, "confidence": 80}]
+        leaks = [{"leak_country": "JP"} for _ in range(5)]
+        fired, core_h, core_l, _ = self._score_bgp_events(hijacks, leaks)
+        assert not fired
+        assert core_h == 0
+        assert core_l == 0

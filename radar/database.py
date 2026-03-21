@@ -138,6 +138,19 @@ CREATE TABLE IF NOT EXISTS sensor_zscore_stats (
     last_updated REAL NOT NULL,
     PRIMARY KEY (sensor_name, theater)
 );
+
+-- Phase 3: Persistent sensor fetch log for reliability tracking
+CREATE TABLE IF NOT EXISTS sensor_fetch_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    sensor_name  TEXT NOT NULL,
+    ts           REAL NOT NULL,
+    success      INTEGER NOT NULL DEFAULT 1,
+    duration_ms  INTEGER DEFAULT 0,
+    http_status  INTEGER DEFAULT 0,
+    records      INTEGER DEFAULT 0,
+    error        TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_fetch_log_sensor_ts ON sensor_fetch_log (sensor_name, ts);
 """
 
 # Column name mapping for parameterized HOD methods
@@ -634,6 +647,48 @@ class RadarDB:
             })
         return result
 
+    # ── sensor_fetch_log ─────────────────────────────────────────────────────
+    def fetch_log_append(self, sensor_name: str, ts: float, success: bool,
+                         duration_ms: int = 0, http_status: int = 0,
+                         records: int = 0, error: str = ""):
+        """Persist a sensor fetch result. Auto-prunes entries older than 7 days."""
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO sensor_fetch_log (sensor_name, ts, success, duration_ms, http_status, records, error) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sensor_name, ts, 1 if success else 0, duration_ms, http_status, records, error[:300]),
+        )
+        conn.commit()
+
+    def fetch_log_reliability(self, sensor_name: str = None, hours: int = 24) -> list:
+        """Per-sensor reliability aggregates over the given time window."""
+        import time as _time
+        cutoff = _time.time() - hours * 3600
+        conn = self._get_conn()
+        if sensor_name:
+            rows = conn.execute(
+                "SELECT sensor_name, COUNT(*) AS total, SUM(success) AS ok, "
+                "AVG(duration_ms) AS avg_ms, MIN(ts) AS first_ts, MAX(ts) AS last_ts "
+                "FROM sensor_fetch_log WHERE sensor_name=? AND ts>=? GROUP BY sensor_name",
+                (sensor_name, cutoff),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT sensor_name, COUNT(*) AS total, SUM(success) AS ok, "
+                "AVG(duration_ms) AS avg_ms, MIN(ts) AS first_ts, MAX(ts) AS last_ts "
+                "FROM sensor_fetch_log WHERE ts>=? GROUP BY sensor_name ORDER BY sensor_name",
+                (cutoff,),
+            ).fetchall()
+        return [
+            {
+                "sensor_name": r[0], "total_fetches": r[1],
+                "success_rate": round(r[2] / r[1], 4) if r[1] else 0,
+                "avg_duration_ms": round(r[3]) if r[3] else 0,
+                "first_seen": r[4], "last_seen": r[5],
+            }
+            for r in rows
+        ]
+
     # ── sensor_caches ───────────────────────────────────────────────────────
     def sensor_cache_set(self, sensor_name: str, cache_time: float, cache_data: dict):
         self._get_conn().execute(
@@ -676,6 +731,8 @@ class RadarDB:
         # Prune old revoked tokens (expired tokens older than 7 days)
         cutoff_7d = _time.time() - 7 * 86400
         conn.execute("DELETE FROM revoked_tokens WHERE revoked_at < ?", (cutoff_7d,))
+        # Prune old fetch log entries (keep last 7 days)
+        conn.execute("DELETE FROM sensor_fetch_log WHERE ts < ?", (cutoff_7d,))
         conn.commit()
         log.info("[DB] Startup cleanup complete")
 

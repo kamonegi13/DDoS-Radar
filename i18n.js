@@ -66,6 +66,11 @@ const LANG = {
     'hud.tooltip.chain_hud':          'Escalation Sequence Chain: Evidence chain of Narrative→ISR→DDoS→Kinetic within 24h window.',
     'hud.label.comms':                'COMMS:',
     'hud.label.sensors':              'SENSORS',
+    'hud.tooltip.tl_proximity':       'TL Proximity: distance from current score to next Threat Level boundary',
+    'tl_prox.near_esc':               '{pts}pt → TL{tl}',
+    'tl_prox.near_deesc':             '{pts}pt → TL{tl}',
+    'tl_prox.tooltip_up':             '{pts} points to escalation (TL{tl})',
+    'tl_prox.tooltip_down':           '{pts} points to de-escalation (TL{tl})',
     'hud.tooltip.sensor_health':      'Sensor fleet status: green=OK, orange=STALE, red=ERROR, grey=DISABLED',
     'hud.tooltip.comms':              'COMMS: GREEN=All sensors live / ORANGE=Abnormal silence detected — possible sensor suppression or pre-op comms blackout',
     'hud.domain.cyber':               'Cyber',
@@ -264,6 +269,7 @@ const LANG = {
     'modal.evidence.th_status':       'Status',
     'modal.evidence.th_observed':     'Observed Value',
     'modal.evidence.th_score':        'Score',
+    'modal.evidence.th_confidence':   'Conf',
     'modal.evidence.th_reason':       'Fired Reason / Note',
     'modal.evidence.noise_filters':   'Noise filters applied:',
     'modal.evidence.no_filters':      'None',
@@ -701,6 +707,28 @@ const LANG = {
     'badge.adaptive_zscore.learning': 'Learning ({n}/{min} samples)',
 
     // ══════════════════════════════════════════════════════════════
+    // Phase 3: Correlation Heatmap panel
+    // ══════════════════════════════════════════════════════════════
+    'tools.corr_heatmap':             'Correlation Heatmap',
+    'panel.corr.title':               'CORRELATION HEATMAP',
+    'panel.corr.loading':             'Loading correlation data...',
+    'panel.corr.no_data':             'No correlation data available',
+    'panel.corr.toggle.combined':     'Combined',
+    'panel.corr.toggle.l3':           'L3',
+    'panel.corr.toggle.l7':           'L7',
+
+    // Phase 3: TOOLS menu sections
+    'tools.section.core':             'CORE',
+    'tools.section.analytics':        'ANALYTICS',
+    'tools.section.simulation':       'SIMULATION',
+    'tools.section.admin':            'ADMIN',
+
+    // Phase 3: HUD UX
+    'hud.tooltip.expand_secondary':   'Show/hide secondary metrics',
+    'hud.sync.next':                  'Next sync in',
+    'hud.tooltip.ws_status':          'WebSocket status: green=connected, orange=polling fallback',
+
+    // ══════════════════════════════════════════════════════════════
     // User Management panel
     // ══════════════════════════════════════════════════════════════
     'panel.usermgr.title':            'User Management',
@@ -823,6 +851,34 @@ const LANG = {
     'tooltip.cdn_asphyxiation':       'CDN Asphyxiation: success rate appears normal but latency ≥3× baseline',
     'tooltip.thermal_anomaly':        'Thermal Anomaly (FIRMS)',
 
+    // ── DDoS Core Strengthening (v10) ────────────────────────────
+    'evidence.blockade_index':        'Blockade Index',
+    'evidence.blockade_scored':       'Effective infrastructure blockade (BI≥7.0) — contributes to threat score',
+    'evidence.cdn_asphyxiation':      'CDN Asphyxiation',
+    'evidence.cdn_asphyx_scored':     'CDN masks packet loss but latency tripling reveals strain — independent signal',
+    'evidence.vector_shift_severe':   'Severe L7 Shift',
+    'evidence.vector_shift_moderate': 'L7 Shift',
+    'evidence.adversary_multi':       'Multi-Actor Adversary Strike ({n} actors)',
+    'evidence.seq_decay':             'Sequence bonus decayed by {pct}% (event age)',
+    'evidence.ddos_bgp_causal':       'DDoS-BGP Causal Link: CF spike concurrent with BGP outage',
+
+    // ── DDoS Intelligence Enhancement (v11) ─────────────────────
+    'evidence.ioda_proper':           'IODA Proper API',
+    'evidence.ioda_multi_source':     'IODA: Confirmed by {n} independent datasources ({sources})',
+    'evidence.ioda_fallback':         'IODA: Using CF Radar fallback (IODA API unreachable)',
+    'evidence.bgp_hijack':            'BGP Hijack Detected',
+    'evidence.bgp_hijack_detail':     'BGP manipulation: {hijacks} ongoing hijack(s), {leaks} route leak(s)',
+    'evidence.bgp_trend_withdraw':    'BGP Prefix Trend: Withdrawing ({pct}% decline)',
+    'evidence.bgp_trend_stable':      'BGP Prefix Trend: Stable',
+    'evidence.bgp_trend_growing':     'BGP Prefix Trend: Growing ({pct}% increase)',
+    'evidence.entropy_concentrating': 'Attack sources concentrating ({delta}% entropy drop)',
+    'evidence.entropy_dispersing':    'Attack sources dispersing ({delta}% entropy rise)',
+    'evidence.entropy_stable':        'Attack source distribution stable',
+    'label.ioda_source':              'IODA Source',
+    'label.bgp_events':              'BGP Events',
+    'label.origin_entropy':           'Origin Entropy',
+    'label.prefix_trend':             'Prefix Trend',
+
     // ── ISR / map popups ────────────────────────────────────────
     'map.popup.isr_track':            '▲ ISR TRACK',
     'map.popup.isr_callsign':         'Callsign: {cs}',
@@ -910,6 +966,11 @@ const LANG = {
     'hud.tooltip.chain_hud':          'エスカレーション順序チェーン: 24時間窓内の情報→ISR→DDoS→動態の証拠連鎖。',
     'hud.label.comms':                '通信:',
     'hud.label.sensors':              'センサー',
+    'hud.tooltip.tl_proximity':       'TL近接度: 現在スコアから次の脅威レベル境界までの距離',
+    'tl_prox.near_esc':               '{pts}pt → TL{tl}',
+    'tl_prox.near_deesc':             '{pts}pt → TL{tl}',
+    'tl_prox.tooltip_up':             'エスカレーションまで{pts}ポイント (TL{tl})',
+    'tl_prox.tooltip_down':           'デエスカレーションまで{pts}ポイント (TL{tl})',
     'hud.tooltip.sensor_health':      'センサー状態: 緑=正常, 橙=古い, 赤=エラー, 灰=無効',
     'hud.tooltip.comms':              '通信: 緑=全センサー稼働中 / 橙=異常な沈黙を検出 — センサー妨害または作戦前通信封止の可能性',
     'hud.domain.cyber':               'サイバー',
@@ -1105,6 +1166,7 @@ const LANG = {
     'modal.evidence.th_status':       '状態',
     'modal.evidence.th_observed':     '観測値',
     'modal.evidence.th_score':        'スコア',
+    'modal.evidence.th_confidence':   '信頼度',
     'modal.evidence.th_reason':       '発火理由 / 備考',
     'modal.evidence.noise_filters':   '適用ノイズフィルター:',
     'modal.evidence.no_filters':      'なし',
@@ -1536,6 +1598,28 @@ const LANG = {
     'badge.adaptive_zscore.learning': '学習中 ({n}/{min}サンプル)',
 
     // ══════════════════════════════════════════════════════════════
+    // Phase 3: 相関ヒートマップパネル
+    // ══════════════════════════════════════════════════════════════
+    'tools.corr_heatmap':             '相関ヒートマップ',
+    'panel.corr.title':               '相関ヒートマップ',
+    'panel.corr.loading':             '相関データを読み込み中...',
+    'panel.corr.no_data':             '相関データなし',
+    'panel.corr.toggle.combined':     '統合',
+    'panel.corr.toggle.l3':           'L3',
+    'panel.corr.toggle.l7':           'L7',
+
+    // Phase 3: TOOLSメニューセクション
+    'tools.section.core':             'コア',
+    'tools.section.analytics':        'アナリティクス',
+    'tools.section.simulation':       'シミュレーション',
+    'tools.section.admin':            '管理',
+
+    // Phase 3: HUD UX
+    'hud.tooltip.expand_secondary':   '副次メトリクスの表示/非表示',
+    'hud.sync.next':                  '次の同期まで',
+    'hud.tooltip.ws_status':          'WebSocket状態: 緑=接続中、橙=ポーリングフォールバック',
+
+    // ══════════════════════════════════════════════════════════════
     // User Management panel
     // ══════════════════════════════════════════════════════════════
     'panel.usermgr.title':            'ユーザー管理',
@@ -1657,6 +1741,34 @@ const LANG = {
     'tooltip.state_asn':              '国家帰属ASN検出:\n{asns}',
     'tooltip.cdn_asphyxiation':       'CDN窒息: 成功率は正常だがレイテンシがベースラインの3倍以上',
     'tooltip.thermal_anomaly':        '熱異常 (FIRMS)',
+
+    // ── DDoS Core Strengthening (v10) ────────────────────────────
+    'evidence.blockade_index':        '封鎖指数',
+    'evidence.blockade_scored':       'インフラ封鎖有効（BI≥7.0）— 脅威スコアに反映',
+    'evidence.cdn_asphyxiation':      'CDN窒息',
+    'evidence.cdn_asphyx_scored':     'CDNがパケットロスを隠蔽するがレイテンシ3倍化でインフラ負荷を検出 — 独立シグナル',
+    'evidence.vector_shift_severe':   '重度L7シフト',
+    'evidence.vector_shift_moderate': 'L7シフト',
+    'evidence.adversary_multi':       '複数アクター敵対攻撃（{n}アクター）',
+    'evidence.seq_decay':             'シーケンスボーナス {pct}% 減衰（イベント経過時間）',
+    'evidence.ddos_bgp_causal':       'DDoS-BGP因果: CFスパイクとBGP障害が同時発生',
+
+    // ── DDoS Intelligence Enhancement (v11) ─────────────────────
+    'evidence.ioda_proper':           'IODA本格API',
+    'evidence.ioda_multi_source':     'IODA: {n}個の独立データソースで確認（{sources}）',
+    'evidence.ioda_fallback':         'IODA: CF Radarフォールバック使用（IODA API到達不能）',
+    'evidence.bgp_hijack':            'BGPハイジャック検出',
+    'evidence.bgp_hijack_detail':     'BGP操作: 進行中のハイジャック{hijacks}件、ルートリーク{leaks}件',
+    'evidence.bgp_trend_withdraw':    'BGPプレフィックス傾向: 減少中（{pct}%低下）',
+    'evidence.bgp_trend_stable':      'BGPプレフィックス傾向: 安定',
+    'evidence.bgp_trend_growing':     'BGPプレフィックス傾向: 増加中（{pct}%上昇）',
+    'evidence.entropy_concentrating': '攻撃ソース集中化（エントロピー{delta}%低下）',
+    'evidence.entropy_dispersing':    '攻撃ソース分散化（エントロピー{delta}%上昇）',
+    'evidence.entropy_stable':        '攻撃ソース分布安定',
+    'label.ioda_source':              'IODAソース',
+    'label.bgp_events':              'BGPイベント',
+    'label.origin_entropy':           'オリジンエントロピー',
+    'label.prefix_trend':             'プレフィックス傾向',
 
     // ── ISR / map popups ─────────────────────────────────────
     'map.popup.isr_track':            '▲ ISR 追跡',

@@ -217,6 +217,9 @@ ESCALATION_HISTORY_MAX        = int(os.getenv("ESCALATION_HISTORY_MAX", "100"))
 # TL thresholds (score_with_bonus boundaries): TL4=2, TL3=4, TL2=6, TL1=9
 ESCALATION_TL_THRESHOLDS      = {4: 2, 3: 4, 2: 6, 1: 9}
 
+# ── Confidence Propagation Config ──────────────────────────────────────────
+CONFIDENCE_MIN_SAMPLES        = int(os.getenv("CONFIDENCE_MIN_SAMPLES", "10"))
+
 # OpenSky Network authentication
 # Basic auth deprecated after 2026-03-18 → migrated to OAuth2 Bearer token
 # Set OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET in config.env

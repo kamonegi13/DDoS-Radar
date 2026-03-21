@@ -15,6 +15,7 @@ from radar.scoring import (
     get_fallback_coord, fetch_cf_data_cached,
     parse_origins, calculate_overlap, fetch_asn_origins,
     compute_confidence, compute_adaptive_zscore,
+    compute_origin_entropy, track_entropy_change,
 )
 from radar.ws import emit_threat_update, emit_ambush_alert, emit_sequence_event
 from radar.notifications import notify_threat_level_change, notify_sequence_complete
@@ -106,8 +107,14 @@ def get_threat_data():
     if (current_time - st.global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync:
         # Extract required states from caches
         cf_sensor = _routes.registry.get("cloudflare_radar")
+        _cf_cache = cf_sensor.get_cache() if cf_sensor else {}
+        cf_bgp_hijacks = _cf_cache.get("bgp_hijacks", [])
+        cf_bgp_leaks = _cf_cache.get("bgp_leaks", [])
         ioda_sensor = _routes.registry.get("ioda_bgp")
-        ioda_data = ioda_sensor.get_cache().get("statuses", {}) if ioda_sensor else {}
+        _ioda_cache = ioda_sensor.get_cache() if ioda_sensor else {}
+        ioda_data = _ioda_cache.get("statuses", {})
+        ioda_details = _ioda_cache.get("ioda_details", {})
+        ioda_source = _ioda_cache.get("source", "unknown")
         owm_sensor = _routes.registry.get("openweather")
         weather_conditions = owm_sensor.get_cache().get("conditions", {}) if owm_sensor else {}
         opensky_sensor = _routes.registry.get("opensky")
@@ -297,7 +304,11 @@ def get_threat_data():
             if t in strategic_theaters_set:
                 record_hod_sample(t, current_time, avg_spike_record)
 
-            target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values())}
+            # Origin distribution entropy tracking
+            _origin_entropy = compute_origin_entropy(normalized_dist)
+            _entropy_track = track_entropy_change(t, _origin_entropy) if t in strategic_theaters_set else {"current": _origin_entropy, "moving_avg": _origin_entropy, "delta_pct": 0.0, "shift_label": "N/A"}
+
+            target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "avg_l3_spike": round(avg_l3_spike, 2), "avg_l7_spike": round(avg_l7_spike, 2), "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values()), "origin_entropy": _entropy_track}
 
         correlations, correlations_l3, correlations_l7 = {}, {}, {}
         if core_theater in origin_distributions:
@@ -321,10 +332,16 @@ def get_threat_data():
 
         rationale: list[RationaleEntry] = []
 
-        def add_rat(sensor, domain, status, value, score, fired_reason, is_suppressed=False, suppress_reason=None):
+        def _sensor_conf(sensor_obj, sample_count=0, baseline_samples=0):
+            """Compute confidence for a sensor, returning 1.0 if sensor is None."""
+            if sensor_obj is None:
+                return 1.0
+            return sensor_obj.compute_confidence(sample_count, baseline_samples)
+
+        def add_rat(sensor, domain, status, value, score, fired_reason, is_suppressed=False, suppress_reason=None, confidence=1.0):
             _is_muted = (sensor in muted_sensors) or is_suppressed
             _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
-            rationale.append(RationaleEntry(sensor=sensor, domain=domain, status=status, value=value, score=score, fired_reason=fired_reason, suppressed=_is_muted, suppress_reason=_s_reason))
+            rationale.append(RationaleEntry(sensor=sensor, domain=domain, status=status, value=value, score=score, fired_reason=fired_reason, suppressed=_is_muted, suppress_reason=_s_reason, confidence=confidence))
 
         if not (cf_sensor and cf_sensor.enabled):
             add_rat("cloudflare_radar", "cyber", "DISABLED", "sensor off", 0, None)
@@ -349,25 +366,50 @@ def get_threat_data():
                 "cf_spike_core", core_theater, core_spike, fallback_threshold=2.0)
             if az_adaptive and spike_value:
                 spike_value += f" [AZ={az_score:.2f} n={az_n}]"
-            add_rat("cf_spike_core", "cyber", "FIRED" if spike_fired else "OK", spike_value, spike_score, spike_reason)
+            _cf_conf = _sensor_conf(cf_sensor, sample_count=hod_n, baseline_samples=hod_n)
+            add_rat("cf_spike_core", "cyber", "FIRED" if spike_fired else "OK", spike_value, spike_score, spike_reason, confidence=_cf_conf)
             max_overlap = max(correlations.values(), default=0.0)
-            add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None)
-            add_rat("cf_vector_shift", "cyber", "FIRED" if core_shifted else "OK", f"theaters={vector_shifts}", 1 if core_shifted else 0, "L7 application-layer escalation detected" if core_shifted else None)
-            add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{len(adversary_strikes)} strike(s)", 2 if major_adversary else 0, f"Adversary state direct strike" if major_adversary else None)
-            add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None)
+            add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None, confidence=_cf_conf)
+            # Graduated L3→L7 vector shift scoring: moderate +1, severe +2
+            _core_l7s = target_details.get(core_theater, {}).get("avg_l7_spike", 0)
+            _core_l3s = target_details.get(core_theater, {}).get("avg_l3_spike", 0)
+            _shift_severe = core_shifted and _core_l7s >= 5.0 and _core_l7s > _core_l3s * 2.0
+            _shift_score = 2 if _shift_severe else (1 if core_shifted else 0)
+            _shift_reason = (f"Severe L7 escalation (L7={_core_l7s:.1f}x vs L3={_core_l3s:.1f}x)" if _shift_severe
+                             else "L7 application-layer escalation detected" if core_shifted else None)
+            add_rat("cf_vector_shift", "cyber", "FIRED" if core_shifted else "OK", f"theaters={vector_shifts} L7={_core_l7s:.1f}x L3={_core_l3s:.1f}x", _shift_score, _shift_reason, confidence=_cf_conf)
+            # Count-proportional adversary scoring: 1-2 actors → +2, ≥3 actors → +3
+            _adv_count = len(adversary_strikes)
+            _adv_score = 3 if _adv_count >= 3 else (2 if _adv_count >= 1 else 0)
+            add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{_adv_count} strike(s)", _adv_score, f"Adversary state direct strike ({_adv_count} actors)" if major_adversary else None, confidence=_cf_conf)
+            add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None, confidence=_cf_conf)
 
         if not (ioda_sensor and ioda_sensor.enabled):
             add_rat("ioda_bgp", "physical", "DISABLED", "sensor off", 0, None)
         else:
             weather_suppressed_bgp = [t for t in degraded_targets_raw if t not in degraded_targets_effective]
+            # Enrich BGP value with IODA datasource details when available
+            _ioda_core_detail = ioda_details.get(core_theater, {})
+            _ioda_src_count = _ioda_core_detail.get("source_count", 0)
+            _ioda_level = _ioda_core_detail.get("level", "")
             bgp_value = f"bgp={'OUTAGE' if core_degraded else 'NORMAL'}"
+            if _ioda_src_count > 0:
+                bgp_value += f" ioda={_ioda_level}({_ioda_src_count}src)"
+            bgp_value += f" [{ioda_source}]"
             if weather_suppressed_bgp: bgp_value += f" weather_muted={weather_suppressed_bgp}"
             _wx_suppressed = (core_theater in weather_suppressed_bgp)
             _sw_bgp_suppressed = sw_suppress and core_degraded and not _wx_suppressed
             _bgp_suppress = _wx_suppressed or _sw_bgp_suppressed
             _bgp_suppress_reason = (f"Weather-muted: {weather_suppressed_bgp}" if _wx_suppressed
                                     else space_weather_data.get("suppress_reason") if _sw_bgp_suppressed else None)
-            add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, f"BGP anomaly confirmed" if core_degraded else None, is_suppressed=_bgp_suppress, suppress_reason=_bgp_suppress_reason)
+            # Multi-source corroboration: IODA proper with ≥2 datasources = higher confidence
+            _ioda_fired_reason = "BGP anomaly confirmed" if core_degraded else None
+            if core_degraded and _ioda_src_count >= 2:
+                _ioda_fired_reason = (
+                    f"BGP anomaly confirmed by {_ioda_src_count} independent IODA datasources "
+                    f"({', '.join(_ioda_core_detail.get('sources', {}).keys())})"
+                )
+            add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, _ioda_fired_reason, is_suppressed=_bgp_suppress, suppress_reason=_bgp_suppress_reason, confidence=_sensor_conf(ioda_sensor))
 
         if not (opensky_sensor and opensky_sensor.enabled):
             add_rat("opensky", "physical", "DISABLED", "sensor off", 0, None)
@@ -383,7 +425,7 @@ def get_threat_data():
             _as_suppress = _as_wx_suppress or _as_sw_suppress
             _as_suppress_reason = ("Severe weather detected" if _as_wx_suppress
                                    else space_weather_data.get("suppress_reason") if _as_sw_suppress else None)
-            add_rat("opensky", "physical", "FIRED" if airspace_fired else ("SUPPRESSED" if _as_suppress else "OK"), airspace_value, airspace_score, airspace_reason, is_suppressed=_as_suppress, suppress_reason=_as_suppress_reason)
+            add_rat("opensky", "physical", "FIRED" if airspace_fired else ("SUPPRESSED" if _as_suppress else "OK"), airspace_value, airspace_score, airspace_reason, is_suppressed=_as_suppress, suppress_reason=_as_suppress_reason, confidence=_sensor_conf(opensky_sensor))
 
         if not (owm_sensor and owm_sensor.enabled):
             add_rat("openweather", "physical", "DISABLED", "sensor off", 0, None)
@@ -396,13 +438,45 @@ def get_threat_data():
         else:
             core_tone = gdelt_tones.get(core_theater, {})
             tone_status, gdelt_alert = core_tone.get("status", "NO_DATA"), core_tone.get("status") == "ALERT"
-            add_rat("gdelt", "info", "SUPPRESSED" if tone_status == "WEATHER_NOISE" else "FIRED" if gdelt_alert else "OK", tone_status, 1 if gdelt_alert else 0, "Media tone collapse" if gdelt_alert else None, is_suppressed=(tone_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if tone_status == "WEATHER_NOISE" else None)
+            add_rat("gdelt", "info", "SUPPRESSED" if tone_status == "WEATHER_NOISE" else "FIRED" if gdelt_alert else "OK", tone_status, 1 if gdelt_alert else 0, "Media tone collapse" if gdelt_alert else None, is_suppressed=(tone_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if tone_status == "WEATHER_NOISE" else None, confidence=_sensor_conf(gdelt_sensor))
 
         if not (bgp_routing_sensor and bgp_routing_sensor.enabled):
             add_rat("ripe_bgp", "cyber", "DISABLED", "sensor off", 0, None)
         else:
-            core_bgp, bgp_anomaly = bgp_routing_data.get(core_theater, {}), bgp_routing_data.get(core_theater, {}).get("is_anomaly", False)
-            add_rat("ripe_bgp", "cyber", "FIRED" if bgp_anomaly else "OK", "ANOMALY" if bgp_anomaly else "NORMAL", 1 if bgp_anomaly else 0, "BGP prefix withdrawal" if bgp_anomaly else None)
+            core_bgp = bgp_routing_data.get(core_theater, {})
+            bgp_anomaly = core_bgp.get("is_anomaly", False)
+            _bgp_trend_label = core_bgp.get("trend_label", "")
+            _bgp_trend_pct = core_bgp.get("prefix_trend_pct", 0.0)
+            _bgp_value = "ANOMALY" if bgp_anomaly else "NORMAL"
+            if _bgp_trend_label and _bgp_trend_label != "INSUFFICIENT_DATA":
+                _bgp_value += f" trend={_bgp_trend_label}({_bgp_trend_pct:+.2f}%)"
+            _bgp_reason = "BGP prefix withdrawal" if bgp_anomaly else None
+            # Enrich reason with trend context when withdrawing
+            if bgp_anomaly and _bgp_trend_label == "WITHDRAWING":
+                _bgp_reason = f"BGP prefix withdrawal (trend: {_bgp_trend_pct:+.2f}% decline across time series)"
+            add_rat("ripe_bgp", "cyber", "FIRED" if bgp_anomaly else "OK", _bgp_value, 1 if bgp_anomaly else 0, _bgp_reason, confidence=_sensor_conf(bgp_routing_sensor))
+
+        # CF Radar BGP Hijack/Leak detection (Cyber)
+        if cf_sensor and cf_sensor.enabled:
+            _core_hijacks = [h for h in cf_bgp_hijacks if h.get("victim_country") == core_theater]
+            _core_leaks = [l for l in cf_bgp_leaks if l.get("leak_country") == core_theater]
+            _hijack_ongoing = [h for h in _core_hijacks if h.get("is_ongoing")]
+            _bgp_event_count = len(_core_hijacks) + len(_core_leaks)
+            _bgp_event_fired = len(_hijack_ongoing) > 0 or len(_core_leaks) >= 3
+            _bgp_ev_value = f"hijack={len(_core_hijacks)}(ongoing={len(_hijack_ongoing)}) leak={len(_core_leaks)}"
+            if _bgp_event_fired:
+                _bgp_ev_reason = (
+                    f"BGP manipulation detected: {len(_hijack_ongoing)} ongoing hijack(s), "
+                    f"{len(_core_leaks)} route leak(s)"
+                )
+            else:
+                _bgp_ev_reason = None
+            add_rat("cf_bgp_hijack", "cyber",
+                    "FIRED" if _bgp_event_fired else "OK",
+                    _bgp_ev_value,
+                    1 if _bgp_event_fired else 0,
+                    _bgp_ev_reason,
+                    confidence=_sensor_conf(cf_sensor))
 
         # NASA FIRMS (Physical)
         if nasa_firms_sensor and nasa_firms_sensor.enabled:
@@ -414,12 +488,12 @@ def get_threat_data():
                 _firms_val = f"Global only [{','.join(_firms_global_codes[:4])}]"
             else:
                 _firms_val = "No Anomalies"
-            add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", _firms_val, 3 if has_firms else 0, "Kinetic Strike Precursor")
+            add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", _firms_val, 3 if has_firms else 0, "Kinetic Strike Precursor", confidence=_sensor_conf(nasa_firms_sensor))
 
         # ThreatFox (Cyber)
         if threatfox_sensor and threatfox_sensor.enabled:
             has_tf = core_theater in threatfox_data
-            add_rat("threatfox", "cyber", "FIRED" if has_tf else "OK", "APT C2 Hit", 1 if has_tf else 0, "Known APT infra matched")
+            add_rat("threatfox", "cyber", "FIRED" if has_tf else "OK", "APT C2 Hit", 1 if has_tf else 0, "Known APT infra matched", confidence=_sensor_conf(threatfox_sensor))
 
         if peeringdb_sensor and peeringdb_sensor.enabled:
             add_rat("peeringdb_ixp", "physical", "OK", f"IXP(s) registered", 0, None)
@@ -437,7 +511,8 @@ def get_threat_data():
                     "FIRED" if narrative_burst else "OK",
                     f"Z={narrative_z:.2f} [{narrative_status}]",
                     n_score,
-                    f"Narrative Burst Z={narrative_z:.2f}" if narrative_burst else None)
+                    f"Narrative Burst Z={narrative_z:.2f}" if narrative_burst else None,
+                    confidence=_sensor_conf(rss_narrative_sensor))
             if narrative_burst:
                 register_sequence_event(core_theater, "NARRATIVE_BURST",
                                         {"z_score": narrative_z, "status": narrative_status})
@@ -451,7 +526,8 @@ def get_threat_data():
                     "FIRED" if isr_surge else "OK",
                     f"{isr_count} ISR ac in hotspot",
                     2 if isr_surge else 0,
-                    f"ISR surge: {isr_count} aircraft" if isr_surge else None)
+                    f"ISR surge: {isr_count} aircraft" if isr_surge else None,
+                    confidence=_sensor_conf(isr_hotspot_sensor))
             if isr_surge:
                 register_sequence_event(core_theater, "ISR_SURGE",
                                         {"count": isr_count, "hotspots": core_isr.get("hotspots", [])})
@@ -466,7 +542,8 @@ def get_threat_data():
                     "FIRED" if ais_fired else "OK",
                     f"dark_gaps={len(ais_dark_gaps)} stationary={len(ais_stationary)}",
                     1 if ais_fired else 0,
-                    "AIS Dark Gap / Stationary Anomaly at chokepoint" if ais_fired else None)
+                    "AIS Dark Gap / Stationary Anomaly at chokepoint" if ais_fired else None,
+                    confidence=_sensor_conf(ais_maritime_sensor))
             if ais_fired:
                 register_sequence_event(core_theater, "AIS_DARK_GAP",
                                         {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)})
@@ -517,7 +594,8 @@ def get_threat_data():
                     tg_score,
                     f"Telegram Burst Z={telegram_z:.2f} (conf={telegram_confidence:.2f})" if telegram_burst else
                     f"Attack intent intercepted on Telegram: {telegram_active_ch}" if telegram_intent else
-                    "Target URLs found in Telegram channels" if telegram_status == "TARGETS_FOUND" else None)
+                    "Target URLs found in Telegram channels" if telegram_status == "TARGETS_FOUND" else None,
+                    confidence=_sensor_conf(telegram_mirror_sensor))
             if telegram_burst or telegram_intent:
                 register_sequence_event(core_theater, "NARRATIVE_BURST", {
                     "source": "telegram_mirror", "channels": telegram_active_ch,
@@ -541,7 +619,8 @@ def get_threat_data():
                     ch_score,
                     f"Infrastructure availability: {ch_status} (success_rate={ch_success_rate:.0%})" if ch_fired and ch_success_rate is not None else None,
                     is_suppressed=_ch_sw_suppress,
-                    suppress_reason=space_weather_data.get("suppress_reason") if _ch_sw_suppress else None)
+                    suppress_reason=space_weather_data.get("suppress_reason") if _ch_sw_suppress else None,
+                    confidence=_sensor_conf(check_host_sensor))
 
         # GreyNoise (Cyber Domain — noise suppressor)
         core_greynoise     = greynoise_data.get(core_theater, {})
@@ -621,6 +700,37 @@ def get_threat_data():
                     "FIRED", f"Ambush Z={ambush_z:.2f} v={velocity_val:.4f}",
                     2, f"Exponential escalation detected (2nd derivative Z={ambush_z:.2f})")
 
+        # ── (i) Blockade Index → scoring ─────────────────────────────────────────
+        # Compute early so it can contribute to rationale before domain_scores
+        _bi_ripe_drop = bgp_routing_data.get(core_theater, {}).get("drop_pct", 0.0)
+        blockade_index = _routes.engine.compute_blockade_index(
+            ddos_intensity=core_spike,
+            ripe_drop_pct=_bi_ripe_drop,
+            checkhost_success_rate=ch_success_rate,
+            asphyxiation=ch_asphyxiation,
+        )
+        if blockade_index >= 7.0:
+            add_rat("blockade_index", "cyber", "FIRED",
+                    f"BI={blockade_index:.1f}/10",
+                    1, f"Effective infrastructure blockade (BI={blockade_index:.1f})")
+
+        # ── (ii) Asphyxiation → independent signal ───────────────────────────────
+        # CDN masking: success_rate OK but latency ≥3× baseline reveals hidden strain
+        if ch_asphyxiation:
+            add_rat("cdn_asphyxiation", "cyber", "FIRED",
+                    "CDN masking detected",
+                    1, "CDN masks packet loss but latency tripling reveals infrastructure strain")
+
+        # ── (vi) DDoS-BGP causality enrichment ──────────────────────────────────
+        # When CF spike and BGP_OUTAGE co-occur, enrich IODA rationale with causal context
+        _cf_fired = any(e.sensor == "cf_spike_core" and e.status == "FIRED" and not e.suppressed for e in rationale)
+        _bgp_fired_entry = next((e for e in rationale if e.sensor == "ioda_bgp" and e.status == "FIRED" and not e.suppressed), None)
+        if _cf_fired and _bgp_fired_entry:
+            _bgp_fired_entry.fired_reason = (
+                f"{_bgp_fired_entry.fired_reason} — DDoS-BGP causal link: "
+                f"CF spike ({core_spike:.1f}x) concurrent with BGP outage"
+            )
+
         # ── Sequence Bonus computation ──────────────────────────────────────────
         seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
 
@@ -633,9 +743,12 @@ def get_threat_data():
             add_rat("feint_detector", feint_primary, "FIRED", f"conf={feint_conf}",
                     0, feint_detail)
 
-        total_score = sum(e.score for e in rationale if e.status == "FIRED" and not e.suppressed)
+        # Confidence-weighted total: sum(score * confidence) for fired, non-suppressed entries
+        total_score = sum(e.score * e.confidence for e in rationale if e.status == "FIRED" and not e.suppressed)
+        total_score = round(total_score, 2)
         convergence_score = _routes.engine.compute_convergence_score(domain_scores)
-        score_with_bonus, conv_bonus, convergence_level = _routes.engine.apply_convergence_bonus(total_score, domain_scores)
+        domain_confidences = _routes.engine.compute_domain_confidences(rationale)
+        score_with_bonus, conv_bonus, convergence_level = _routes.engine.apply_convergence_bonus(total_score, domain_scores, domain_confidences)
         # Add Sequence Bonus and Temporal Coherence Bonus to final score
         score_with_bonus += seq_bonus + temporal_bonus
         # Cap final score to prevent bonus stacking from inflating beyond TL1 threshold ceiling
@@ -646,6 +759,9 @@ def get_threat_data():
         prev_threat_level = prev_threat[1] if prev_threat else 5
         threat_level, tl_held = _routes.engine.apply_hysteresis(tl_raw, _db.threat_list())
         _db.threat_append(current_time, threat_level)
+
+        # TL Proximity: how close the current score is to TL boundaries
+        tl_proximity = _routes.engine.compute_tl_proximity(score_with_bonus, threat_level)
 
         system_note = _routes.engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
 
@@ -674,12 +790,7 @@ def get_threat_data():
             },
             # Blockade Index v9: (DDoS intensity × RIPE delay) / Check-Host success rate
             # asphyxiation=True applies 1.5× weight when CDN masks packet loss but latency triples
-            "blockade_index": _routes.engine.compute_blockade_index(
-                ddos_intensity=core_spike,
-                ripe_drop_pct=bgp_routing_data.get(core_theater, {}).get("drop_pct", 0.0),
-                checkhost_success_rate=ch_success_rate,
-                asphyxiation=ch_asphyxiation,
-            ),
+            "blockade_index": blockade_index,
             # Temporal Coherence (v9 C2 synchrony analysis)
             "temporal_coherence": {
                 "is_c2_sync":     is_c2_sync,
@@ -738,6 +849,8 @@ def get_threat_data():
                 "gnql_tier":     core_greynoise.get("gnql_tier", "none"),
                 "theater_data":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},
             },
+            # Origin distribution entropy (attack source diversity tracking)
+            "origin_entropy": target_details.get(core_theater, {}).get("origin_entropy"),
             # Phase 2: Space Weather noise suppressor
             "space_weather": {
                 "kp_index":           space_weather_data.get("kp_index", 0),
@@ -746,6 +859,19 @@ def get_threat_data():
                 "storm_level":        space_weather_data.get("storm_level", "NONE"),
                 "suppressing":        sw_suppress,
                 "suppress_reason":    space_weather_data.get("suppress_reason", ""),
+            },
+            # BGP Hijack/Leak events from CF Radar
+            "bgp_events": {
+                "hijacks": cf_bgp_hijacks,
+                "leaks": cf_bgp_leaks,
+                "core_hijacks": [h for h in cf_bgp_hijacks if h.get("victim_country") == core_theater],
+                "core_leaks": [l for l in cf_bgp_leaks if l.get("leak_country") == core_theater],
+            },
+            # IODA details (multi-datasource outage corroboration)
+            "ioda": {
+                "source": ioda_source,
+                "core_detail": ioda_details.get(core_theater),
+                "outage_countries": [code for code, status in ioda_data.items() if status == "BGP_OUTAGE"],
             },
             # Phase 2: Adaptive Z-score status
             "adaptive_zscore": {
@@ -766,6 +892,12 @@ def get_threat_data():
             # Phase 2: Escalation Progress (computed from threat history)
             "escalation": _routes.engine.compute_escalation_progress(
                 _db.threat_list(), _db.alert_list(limit=100)),
+            # Confidence Propagation: per-domain confidence and TL boundary proximity
+            "confidence": {
+                "domain_confidences": domain_confidences,
+                "min_confidence": round(min(domain_confidences.values()), 3) if domain_confidences else 1.0,
+            },
+            "tl_proximity": tl_proximity,
         }
 
         score_breakdown = {
@@ -805,6 +937,8 @@ def get_threat_data():
                         "weather": weather_conditions.get(code), "airspace": airspace_data.get(code), "gdelt": gdelt_tones.get(code),
                         "bgp_routing": bgp_routing_data.get(code), "ixp_count": ixp_data.get(code, {}).get("count", 0),
                         "ixp_names": [ix["name"] for ix in ixp_data.get(code, {}).get("ixps", [])], "ioda_status": ioda_data.get(code, "NORMAL"),
+                        "ioda_detail": ioda_details.get(code),
+                        "ioda_source": ioda_source,
                         "is_bgp_degraded": code in degraded_targets_effective,
                     } for code in strategic_theaters_set if code in COUNTRY_COORDS
                 },

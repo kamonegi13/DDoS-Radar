@@ -637,6 +637,7 @@
         { panelId: 'spof-panel',           dotId: 'tm-dot-spof',  itemId: 'tm-item-spof'  },
         { panelId: 'actionplan-panel',     dotId: 'tm-dot-ap',    itemId: 'tm-item-ap'    },
         { panelId: 'escalation-panel',    dotId: 'tm-dot-esc',  itemId: 'tm-item-esc'   },
+        { panelId: 'corr-heatmap-panel', dotId: 'tm-dot-corr', itemId: 'tm-item-corr'  },
     ];
 
     function toggleToolsMenu() {
@@ -975,12 +976,13 @@
         { id: 'tg-sigint-panel',      ph: 'lsb-ph-tg'             },
         { id: 'history-panel',        ph: 'lsb-ph-hist'           },
         { id: 'escalation-panel',    ph: 'lsb-ph-esc'            },
+        { id: 'corr-heatmap-panel',  ph: 'lsb-ph-corr'           },
     ];
 
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
     let _sidebarOrder = {
         'sidebar':      ['target-panel', 'dashboard-panel', 'chain-panel'],
-        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'escalation-panel']
+        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'escalation-panel', 'corr-heatmap-panel']
     };
 
     // Re-order placeholder divs within a sidebar to match _sidebarOrder
@@ -1359,6 +1361,7 @@
     setupFloatingOnlyPanel('spof-panel');
     setupFloatingOnlyPanel('actionplan-panel');
     setupDockablePanel('escalation-panel',   'lsb-ph-esc',            320);
+    setupDockablePanel('corr-heatmap-panel', 'lsb-ph-corr',           340);
     updateSidebarVisibility();
 
     const map = L.map('map', {
@@ -1911,6 +1914,8 @@
     let _wsConnected = false;
     let _wsSocket = null;
     let _wsSubscribedTheater = '';
+    let _lastSyncTime = 0;
+    const _POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 min
 
     function forceDataSync() { fetchDDoSData(true); }
     window.forceDataSync = forceDataSync;
@@ -1942,7 +1947,8 @@
             const response = await fetch(apiUrl);
             latestData = await response.json(); 
             
-            lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()} (Next in 15 min)`;
+            _lastSyncTime = Date.now();
+            lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()}`;
             document.getElementById('update-time').innerText = lastSyncedTimeText;
             lastSyncedConfig = getCurrentConfig();
 
@@ -2031,6 +2037,29 @@
                 threatEl.setAttribute('data-tooltip', lines.join('\n'));
             }
             threatEl.innerText = threatLabels[strat.threat_level];
+
+            // TL Proximity badge
+            const proxEl = document.getElementById('hud-tl-proximity');
+            if (proxEl) {
+                const tlp = (strat.analytics || {}).tl_proximity;
+                if (tlp) {
+                    const lbl = tlp.proximity_label;
+                    proxEl.className = 'tl-prox-badge ' + (lbl === 'NEAR_ESCALATION' ? 'tl-prox-up' : lbl === 'NEAR_DE_ESCALATION' ? 'tl-prox-down' : 'tl-prox-stable');
+                    if (lbl === 'NEAR_ESCALATION') {
+                        proxEl.textContent = '▲ ' + _t('tl_prox.near_esc', {pts: tlp.distance_up, tl: tlp.next_tl_up});
+                        proxEl.setAttribute('data-tooltip', _t('tl_prox.tooltip_up', {pts: tlp.distance_up, tl: tlp.next_tl_up}));
+                    } else if (lbl === 'NEAR_DE_ESCALATION') {
+                        proxEl.textContent = '▼ ' + _t('tl_prox.near_deesc', {pts: tlp.distance_down, tl: tlp.next_tl_down});
+                        proxEl.setAttribute('data-tooltip', _t('tl_prox.tooltip_down', {pts: tlp.distance_down, tl: tlp.next_tl_down}));
+                    } else {
+                        proxEl.textContent = '';
+                    }
+                } else {
+                    proxEl.textContent = '';
+                    proxEl.className = 'tl-prox-badge tl-prox-stable';
+                }
+            }
+
             epicenterEl.innerText = strat.core_theater || 'None';
 
             let overlapText = "None";
@@ -2182,6 +2211,10 @@
             if (salPanel && salPanel.style.display !== 'none') renderSaluteBoard();
             const haPanel = document.getElementById('hist-analog-panel');
             if (haPanel && haPanel.style.display !== 'none') renderHistoricalAnalog();
+            const corrPanel = document.getElementById('corr-heatmap-panel');
+            if (corrPanel && (corrPanel.style.display !== 'none' || corrPanel.closest('#left-sidebar'))) renderCorrHeatmap();
+            const escPanel = document.getElementById('escalation-panel');
+            if (escPanel && (escPanel.style.display !== 'none' || escPanel.closest('#left-sidebar'))) renderEscalationPanel();
         }
 
         // ── Sensor Fleet Health HUD ──
@@ -2983,14 +3016,19 @@
                     _wsSubscribedTheater = core;
                     _wsSocket.emit('subscribe_theater', core);
                     console.log('[WS] Connected, subscribed to', core);
+                    const dot = document.getElementById('ws-status-dot');
+                    if (dot) dot.className = 'ws-dot ws-dot-connected';
                 });
                 _wsSocket.on('disconnect', () => {
                     _wsConnected = false;
                     _wsSubscribedTheater = '';
                     console.log('[WS] Disconnected — polling fallback active');
+                    const dot = document.getElementById('ws-status-dot');
+                    if (dot) dot.className = 'ws-dot ws-dot-disconnected';
                 });
                 _wsSocket.on('threat_update', (data) => {
                     latestData = data;
+                    _lastSyncTime = Date.now();
                     lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()} (WS Live)`;
                     document.getElementById('update-time').innerText = lastSyncedTimeText;
                     renderTelemetry(latestData);
@@ -3283,17 +3321,23 @@
                 const muteBtnStyle = isMuted ? 'color:#ffaa00; border-color:#ffaa00;' : 'color:#555; border-color:#555;';
                 const muteBtn = `<button onclick="toggleMute('${e.sensor}')" style="background:transparent; border:1px solid; border-radius:3px; font-size:9px; cursor:pointer; margin-left:8px; transition:0.2s; ${muteBtnStyle}">${muteBtnTxt}</button>`;
 
+                // Confidence badge: color-coded by level
+                const conf = e.confidence != null ? e.confidence : 1.0;
+                const confClass = conf >= 0.8 ? 'conf-high' : conf >= 0.5 ? 'conf-mid' : 'conf-low';
+                const confHtml = `<span class="conf-badge ${confClass}">${(conf * 100).toFixed(0)}%</span>`;
+
                 return `<tr>
                     <td style="font-family:monospace; font-size:11px; color:#ccc;">${e.sensor} ${muteBtn}</td>
                     <td><span class="rat-domain-${e.domain}">${e.domain}</span></td>
                     <td><span class="rat-status-${e.status}">${e.status}</span></td>
                     <td style="color:#fff; font-size:11px;">${e.value}</td>
                     <td style="text-align:center;">${scoreHtml}</td>
+                    <td style="text-align:center;">${confHtml}</td>
                     <td style="font-size:11px; color:#aaa;">${reasonText}</td>
                 </tr>`;
             }).join('');
         } else {
-            tbody.innerHTML = `<tr><td colspan="6" style="color:#555; text-align:center;">${_t('evidence.no_data')}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="color:#555; text-align:center;">${_t('evidence.no_data')}</td></tr>`;
         }
 
         openModal('evidence-modal');
@@ -5363,7 +5407,7 @@
 
     async function renderEscalationPanel() {
         const panel = document.getElementById('escalation-panel');
-        if (!panel || panel.style.display === 'none') return;
+        if (!panel || (panel.style.display === 'none' && !panel.closest('#left-sidebar'))) return;
         const body = panel.querySelector('.escalation-body');
         if (!body) return;
 
@@ -5459,3 +5503,134 @@
             body.innerHTML = `<div style="color:#ff4444; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.esc.api_error')}</div>`;
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 3: Collapsible HUD secondary row
+    // ═══════════════════════════════════════════════════════════════
+    function toggleHudSecondary() {
+        const sec = document.getElementById('hud-bottom-secondary');
+        const btn = document.getElementById('hud-expand-toggle');
+        if (!sec) return;
+        const collapsed = sec.style.display === 'none';
+        sec.style.display = collapsed ? 'flex' : 'none';
+        if (btn) btn.textContent = collapsed ? '▴' : '▾';
+        localStorage.setItem('hud_secondary_collapsed', collapsed ? '0' : '1');
+    }
+    window.toggleHudSecondary = toggleHudSecondary;
+    // Restore collapsed state from localStorage
+    if (localStorage.getItem('hud_secondary_collapsed') === '1') {
+        const sec = document.getElementById('hud-bottom-secondary');
+        const btn = document.getElementById('hud-expand-toggle');
+        if (sec) sec.style.display = 'none';
+        if (btn) btn.textContent = '▾';
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 3: Sync countdown timer
+    // ═══════════════════════════════════════════════════════════════
+    setInterval(() => {
+        if (!_lastSyncTime) return;
+        const elapsed = Date.now() - _lastSyncTime;
+        const remaining = Math.max(0, _POLL_INTERVAL_MS - elapsed);
+        const mm = String(Math.floor(remaining / 60000)).padStart(2, '0');
+        const ss = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0');
+        const el = document.getElementById('update-time');
+        if (!el) return;
+        if (_wsConnected) {
+            el.innerText = `WS Live | ${_t('hud.sync.next')} ${mm}:${ss}`;
+        } else {
+            el.innerText = `${_t('hud.sync.next')} ${mm}:${ss}`;
+        }
+    }, 1000);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 3: Correlation Heatmap panel
+    // ═══════════════════════════════════════════════════════════════
+    const toggleCorrHeatmap = _createPanelToggle('corr-heatmap-panel', { floating: false, onShow: renderCorrHeatmap });
+    let _corrMode = 'combined'; // 'combined' | 'l3' | 'l7'
+
+    function renderCorrHeatmap() {
+        const panel = document.getElementById('corr-heatmap-panel');
+        if (!panel || (panel.style.display === 'none' && !panel.closest('#left-sidebar'))) return;
+        const body = panel.querySelector('.corr-heatmap-body');
+        if (!body) return;
+
+        const sa = latestData && latestData.strategic_alert;
+        if (!sa || !sa.correlations) {
+            body.innerHTML = `<div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.corr.no_data')}</div>`;
+            return;
+        }
+
+        const corrMap = _corrMode === 'l3' ? sa.correlations_l3
+                      : _corrMode === 'l7' ? sa.correlations_l7
+                      : sa.correlations;
+
+        // Extract unique theaters from keys like "TW-JP"
+        const theaterSet = new Set();
+        Object.keys(corrMap).forEach(k => {
+            const [a, b] = k.split('-');
+            theaterSet.add(a); theaterSet.add(b);
+        });
+        const theaters = Array.from(theaterSet).sort();
+
+        if (theaters.length < 2) {
+            body.innerHTML = `<div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.corr.no_data')}</div>`;
+            return;
+        }
+
+        let html = '';
+        // Toggle buttons
+        html += `<div class="corr-toggle-group">`;
+        ['combined', 'l3', 'l7'].forEach(m => {
+            const active = m === _corrMode ? ' corr-toggle-active' : '';
+            const label = _t('panel.corr.toggle.' + m);
+            html += `<button class="corr-toggle-btn${active}" onclick="_setCorrMode('${m}')">${label}</button>`;
+        });
+        html += `</div>`;
+
+        // Grid — use 1fr cells to fill available width regardless of dock/float state
+        const n = theaters.length;
+        const isDocked = !panel.classList.contains('floating');
+        const labelCol = isDocked ? 28 : 36;
+        html += `<div class="corr-grid-wrap">`;
+        const compactCls = isDocked ? ' corr-grid-compact' : '';
+        html += `<div class="corr-grid${compactCls}" style="grid-template-columns: ${labelCol}px repeat(${n}, 1fr);">`;
+        // Header row
+        html += `<div class="corr-corner"></div>`;
+        theaters.forEach(t => { html += `<div class="corr-col-label">${t}</div>`; });
+        // Data rows
+        theaters.forEach(row => {
+            html += `<div class="corr-row-label">${row}</div>`;
+            theaters.forEach(col => {
+                if (row === col) {
+                    html += `<div class="corr-cell corr-cell-diag">—</div>`;
+                } else {
+                    const key = corrMap[`${row}-${col}`] !== undefined ? `${row}-${col}` : `${col}-${row}`;
+                    const val = corrMap[key] || 0;
+                    const pct = Math.min(val, 100);
+                    // Color: low=teal, mid=yellow, high=red
+                    const r = pct > 40 ? 255 : Math.round(pct * 6.375);
+                    const g = pct > 60 ? 0 : pct > 40 ? Math.round(255 - (pct - 40) * 12.75) : 255;
+                    const b = pct > 20 ? 0 : Math.round(200 - pct * 10);
+                    const alpha = 0.15 + pct * 0.007;
+                    html += `<div class="corr-cell" style="background:rgba(${r},${g},${b},${alpha})" data-tooltip="${row}↔${col}: ${val.toFixed(1)}%">${val.toFixed(0)}</div>`;
+                }
+            });
+        });
+        html += `</div></div>`;
+
+        // Color legend
+        html += `<div class="corr-legend">`;
+        html += `<span style="color:#55ccaa;">0%</span>`;
+        html += `<span class="corr-legend-bar"></span>`;
+        html += `<span style="color:#ff4444;">100%</span>`;
+        html += `</div>`;
+
+        body.innerHTML = html;
+    }
+
+    function _setCorrMode(mode) {
+        _corrMode = mode;
+        renderCorrHeatmap();
+    }
+    window._setCorrMode = _setCorrMode;

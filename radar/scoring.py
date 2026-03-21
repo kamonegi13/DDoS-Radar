@@ -40,6 +40,8 @@ def compute_sequence_bonus(theater: str) -> tuple:
     Validate the escalation chain within a 24h window and return bonus score and status string.
     Chain order (loose co-existence mode): all event types must exist within SEQUENCE_WINDOW.
     Strict ordering is not required, but temporal direction is verified (first event precedes last).
+    Temporal decay: events are weighted by recency — weight = max(0.3, 1.0 - age_hours/24).
+    The raw bonus is multiplied by the average weight of chain events.
     Returns: (bonus: int, chain_status: str, events_found: list)
     """
     now = time.time()
@@ -62,24 +64,39 @@ def compute_sequence_bonus(theater: str) -> tuple:
     else:
         timespan_h = 0.0
 
+    # Temporal decay: weight each chain event by recency
+    # Use the most recent event of each type for decay calculation
+    chain_weights = []
+    for ctype in found_in_chain:
+        type_events = [e for e in events if e["type"] == ctype]
+        most_recent = max(e["ts"] for e in type_events)
+        age_hours = (now - most_recent) / 3600.0
+        weight = max(0.3, 1.0 - age_hours / 24.0)
+        chain_weights.append(weight)
+    avg_weight = sum(chain_weights) / len(chain_weights) if chain_weights else 1.0
+
     if found_count == 4:
-        return SEQUENCE_FULL_BONUS, f"FULL_CHAIN_CONFIRMED [{timespan_h}h span]", found_in_chain
+        raw_bonus = SEQUENCE_FULL_BONUS
+        decayed_bonus = round(raw_bonus * avg_weight)
+        return max(1, decayed_bonus), f"FULL_CHAIN_CONFIRMED [{timespan_h}h span, decay={avg_weight:.2f}]", found_in_chain
     elif found_count >= 3:
-        return SEQUENCE_PARTIAL_BONUS, f"PARTIAL_CHAIN ({found_count}/4): {found_in_chain}", found_in_chain
+        raw_bonus = SEQUENCE_PARTIAL_BONUS
+        decayed_bonus = round(raw_bonus * avg_weight)
+        return max(1, decayed_bonus), f"PARTIAL_CHAIN ({found_count}/4, decay={avg_weight:.2f}): {found_in_chain}", found_in_chain
     else:
         return 0, f"INSUFFICIENT_CHAIN ({found_count}/4)", found_in_chain
 
 _HOD_PREFILL_L3_URL  = "https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/origin"
 _HOD_PREFILL_L7_URL  = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin"
 _HOD_PREFILL_TS_URL  = "https://api.cloudflare.com/client/v4/radar/attacks/layer7/timeseries"
+_HOD_PREFILL_L3_TS_URL = "https://api.cloudflare.com/client/v4/radar/attacks/layer3/timeseries"
 
 
 def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
-    """Fetch hourly L7 attack timeseries for a theater over the past N days.
+    """Fetch hourly L3+L7 combined attack timeseries for a theater.
 
-    Tries theater-specific timeseries first (location= param).
-    Falls back to global timeseries if location param is unsupported or returns
-    empty — global diurnal patterns are a valid HOD scaling proxy.
+    Fetches both L3 and L7 timeseries and merges them (max of each hour bucket).
+    Falls back to L7-only, then global timeseries.
     Returns {unix_hour_bucket: normalized_value}, empty dict on total failure."""
     from datetime import datetime
 
@@ -111,29 +128,65 @@ def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
 
     base_params = {"dateRange": f"{days}d", "aggInterval": "1h", "format": "json"}
     try:
-        # Attempt 1: theater-specific timeseries
-        res = requests.get(_HOD_PREFILL_TS_URL, headers=CF_HEADERS,
+        # Fetch L7 timeseries (theater-specific, then global fallback)
+        l7_out = _fetch_single_ts(_HOD_PREFILL_TS_URL, base_params, theater)
+
+        # Fetch L3 timeseries (non-critical; merge with L7 if available)
+        l3_out = _fetch_single_ts(_HOD_PREFILL_L3_TS_URL, base_params, theater)
+
+        # Merge: take max(L3, L7) per hour bucket for combined attack intensity
+        if l7_out and l3_out:
+            all_keys = set(l7_out) | set(l3_out)
+            return {k: max(l7_out.get(k, 0), l3_out.get(k, 0)) for k in all_keys}
+        return l7_out or l3_out or {}
+    except Exception as e:
+        log.warning(f"[HOD TS] {theater}: fetch error — {e}")
+        return {}
+
+
+def _fetch_single_ts(url: str, base_params: dict, theater: str) -> dict:
+    """Fetch a single CF Radar timeseries (L3 or L7) for a theater."""
+    from datetime import datetime
+
+    def _parse_ts_response(res) -> dict:
+        if res.status_code != 200:
+            return {}
+        result = res.json().get("result", {})
+        if "timestamps" in result:
+            timestamps = result["timestamps"]
+            values     = result.get("values", [])
+        else:
+            serie = next((v for k, v in result.items()
+                          if k.startswith("serie_") and isinstance(v, dict)), {})
+            timestamps = serie.get("timestamps", [])
+            values     = serie.get("values", [])
+        if not timestamps or not values:
+            return {}
+        out: dict = {}
+        for ts_str, v_str in zip(timestamps, values):
+            try:
+                dt  = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                bkt = int(dt.timestamp() // 3600) * 3600
+                out[bkt] = float(v_str)
+            except (ValueError, TypeError):
+                pass
+        return out
+
+    try:
+        # Attempt 1: theater-specific
+        res = requests.get(url, headers=CF_HEADERS,
                            params={**base_params, "location": theater},
                            timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
         out = _parse_ts_response(res)
         if out:
             return out
-        # Attempt 2: global timeseries (no location filter) — always has data
-        log.warning(f"[HOD TS] {theater}: location-specific empty, falling back to global TS")
-        res = requests.get(_HOD_PREFILL_TS_URL, headers=CF_HEADERS,
+        # Attempt 2: global fallback
+        res = requests.get(url, headers=CF_HEADERS,
                            params=base_params,
                            timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-        out = _parse_ts_response(res)
-        if not out:
-            # Log raw response keys to diagnose unexpected API structure
-            try:
-                raw_keys = list(res.json().get("result", {}).keys())
-                log.warning(f"[HOD TS] {theater}: global TS also empty — result keys={raw_keys}")
-            except Exception:
-                log.warning(f"[HOD TS] {theater}: global TS also empty — HTTP {res.status_code}")
-        return out
+        return _parse_ts_response(res)
     except Exception as e:
-        log.warning(f"[HOD TS] {theater}: fetch error — {e}")
+        log.warning(f"[HOD TS] {theater}: {url.split('/')[-1]} fetch error — {e}")
         return {}
 
 
@@ -351,6 +404,76 @@ def compute_adaptive_zscore(sensor_name: str, theater: str,
     z_score = (current_value - mean) / std
     adaptive_threshold = ADAPTIVE_ZSCORE_SENSITIVITY * std + mean
     return round(z_score, 3), True, round(adaptive_threshold, 3), stats["sample_count"]
+
+
+def compute_origin_entropy(distribution: dict) -> float:
+    """Compute Shannon entropy of an attack origin distribution.
+
+    distribution: {country_code: percentage_share, ...}
+    Returns entropy in bits. Higher = more distributed attack sources.
+    Single-source attacks → 0 bits. Perfectly uniform across N sources → log2(N).
+    """
+    import math
+    total = sum(v for v in distribution.values() if v > 0)
+    if total <= 0:
+        return 0.0
+    entropy = 0.0
+    for v in distribution.values():
+        if v > 0:
+            p = v / total
+            entropy -= p * math.log2(p)
+    return round(entropy, 3)
+
+
+# In-memory entropy history per theater (rolling window for moving average)
+_entropy_history: dict[str, list[float]] = {}
+ENTROPY_HISTORY_SIZE = 20  # Keep last 20 readings for moving average
+
+
+def track_entropy_change(theater: str, current_entropy: float) -> dict:
+    """Track entropy changes with a moving average for anomaly detection.
+
+    Returns dict with:
+      - current: current entropy value
+      - moving_avg: moving average of recent entropy values
+      - delta_pct: percent change from moving average
+      - shift_label: CONCENTRATING / DISPERSING / STABLE
+    """
+    history = _entropy_history.setdefault(theater, [])
+    history.append(current_entropy)
+    if len(history) > ENTROPY_HISTORY_SIZE:
+        _entropy_history[theater] = history[-ENTROPY_HISTORY_SIZE:]
+        history = _entropy_history[theater]
+
+    if len(history) < 3:
+        return {
+            "current": current_entropy, "moving_avg": current_entropy,
+            "delta_pct": 0.0, "shift_label": "INSUFFICIENT_DATA",
+        }
+
+    # Moving average excluding the latest point (to compare against)
+    prior = history[:-1]
+    moving_avg = sum(prior) / len(prior) if prior else current_entropy
+
+    if moving_avg > 0:
+        delta_pct = round(((current_entropy - moving_avg) / moving_avg) * 100, 2)
+    else:
+        delta_pct = 0.0
+
+    # Significant change thresholds
+    if delta_pct < -20.0:
+        label = "CONCENTRATING"  # Attack sources becoming more focused
+    elif delta_pct > 20.0:
+        label = "DISPERSING"     # Attack spreading to more sources
+    else:
+        label = "STABLE"
+
+    return {
+        "current": current_entropy,
+        "moving_avg": round(moving_avg, 3),
+        "delta_pct": delta_pct,
+        "shift_label": label,
+    }
 
 
 def get_fallback_coord(code: str) -> dict:

@@ -24,6 +24,13 @@ def data_status():
         })
     return jsonify({"ts": datetime.datetime.now().isoformat(), "sensors": sensors_status})
 
+@bp.route("/api/sensor_reliability", methods=["GET"])
+def sensor_reliability():
+    """Per-sensor fetch reliability over a given time window (default 24h, max 168h)."""
+    hours = min(int(request.args.get("hours", 24)), 168)
+    rows = _db.fetch_log_reliability(hours=hours)
+    return jsonify({"ts": datetime.datetime.now().isoformat(), "hours": hours, "sensors": rows})
+
 @bp.route("/api/alert_timeline", methods=["GET"])
 def api_alert_timeline():
     limit = min(int(request.args.get("limit", 288)), 288)

@@ -5,6 +5,12 @@ import time
 import threading
 from abc import ABC, abstractmethod
 
+
+def _get_db():
+    """Lazy import to avoid circular import at module load time."""
+    from radar.database import db
+    return db
+
 class BaseSensor(ABC):
     def __init__(self, name: str, domain: str, poll_interval: int):
         self.name = name; self.domain = domain; self.poll_interval = poll_interval; self.enabled = True
@@ -33,6 +39,11 @@ class BaseSensor(ABC):
         with self._lock:
             self._fetch_log.append({"ts": datetime.datetime.now().isoformat(), "success": success, "duration_ms": duration_ms, "http_status": http_status, "records": records, "error": error[:300] if error else "", "_from_log_fetch": True})
             self._fetch_log = self._fetch_log[-10:]
+        # Persist to SQLite (non-critical; never break sensor on DB error)
+        try:
+            _get_db().fetch_log_append(self.name, time.time(), success, duration_ms, http_status, records, error[:300] if error else "")
+        except Exception:
+            pass
     def get_fetch_log(self) -> list:
         with self._lock: return [{k: v for k, v in e.items() if k != "_from_log_fetch"} for e in self._fetch_log]
     @property
@@ -42,5 +53,29 @@ class BaseSensor(ABC):
         elapsed = time.time() - self._cache_time
         if elapsed > self.poll_interval * 3: return "STALE" if self._cache else "INITIALIZING"
         return "OK"
+    def compute_confidence(self, sample_count: int = 0, baseline_samples: int = 0) -> float:
+        """
+        Compute sensor confidence factor (0.0–1.0).
+        Combines health state, sample adequacy, and baseline coverage.
+        When confidence is 1.0 (default), scoring is unchanged from legacy behavior.
+        """
+        from radar.config import CONFIDENCE_MIN_SAMPLES
+        # Health factor: maps sensor health state to confidence
+        health_factors = {"OK": 1.0, "STALE": 0.5, "ERROR": 0.0, "INITIALIZING": 0.1, "DISABLED": 0.0}
+        health_f = health_factors.get(self.health, 0.0)
+        if health_f == 0.0:
+            return 0.0
+        # Sample factor: ramp from 0.3 to 1.0 as samples reach CONFIDENCE_MIN_SAMPLES
+        if CONFIDENCE_MIN_SAMPLES > 0 and sample_count < CONFIDENCE_MIN_SAMPLES:
+            sample_f = 0.3 + 0.7 * (sample_count / CONFIDENCE_MIN_SAMPLES)
+        else:
+            sample_f = 1.0
+        # Baseline factor: penalize when baseline data is insufficient
+        if baseline_samples > 0 and baseline_samples < CONFIDENCE_MIN_SAMPLES:
+            baseline_f = 0.5 + 0.5 * (baseline_samples / CONFIDENCE_MIN_SAMPLES)
+        else:
+            baseline_f = 1.0
+        return round(min(health_f * sample_f * baseline_f, 1.0), 3)
+
     def to_config_dict(self) -> dict:
         return {"name": self.name, "domain": self.domain, "enabled": self.enabled, "health": self.health, "poll_interval_sec": self.poll_interval, "last_error": self._last_error, "cache_age_sec": round(time.time() - self._cache_time) if self._cache_time else None}

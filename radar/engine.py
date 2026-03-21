@@ -31,16 +31,29 @@ class WeightedConvergenceEngine:
         scores = {"cyber": 0, "physical": 0, "info": 0}
         for entry in rationale:
             if isinstance(entry, RationaleEntry) and not entry.suppressed and entry.status == "FIRED":
-                if entry.domain in scores: scores[entry.domain] += entry.score
-        return scores
+                if entry.domain in scores:
+                    scores[entry.domain] += entry.score * entry.confidence
+        # Round to avoid floating point noise in downstream integer comparisons
+        return {d: round(s, 2) for d, s in scores.items()}
     def compute_convergence_score(self, domain_scores: dict) -> float:
         return sum(min(domain_scores.get(d, 0), 10) * w for d, w in self.DOMAIN_WEIGHTS.items())
     def compute_convergence_level(self, domain_scores: dict) -> str:
         active = sum(1 for s in domain_scores.values() if s > 0)
         return "FULL_CONVERGENCE" if active >= 3 else "DUAL_DOMAIN" if active == 2 else "SINGLE_DOMAIN" if active == 1 else "NONE"
-    def apply_convergence_bonus(self, score: int, domain_scores: dict) -> tuple:
+    def apply_convergence_bonus(self, score: int, domain_scores: dict,
+                                domain_confidences: dict | None = None) -> tuple:
         level = self.compute_convergence_level(domain_scores)
-        bonus = CONVERGENCE_FULL_BONUS if level == "FULL_CONVERGENCE" else CONVERGENCE_DUAL_BONUS if level == "DUAL_DOMAIN" else 0
+        raw_bonus = CONVERGENCE_FULL_BONUS if level == "FULL_CONVERGENCE" else CONVERGENCE_DUAL_BONUS if level == "DUAL_DOMAIN" else 0
+        # Gate bonus by minimum confidence across active domains
+        if raw_bonus > 0 and domain_confidences:
+            active_confs = [domain_confidences[d] for d in domain_scores if domain_scores[d] > 0 and d in domain_confidences]
+            if active_confs:
+                gate = min(active_confs)
+                bonus = round(raw_bonus * gate, 2)
+            else:
+                bonus = raw_bonus
+        else:
+            bonus = raw_bonus
         return score + bonus, bonus, level
     def compute_threat_level(self, score: int, tl1_hard: bool, active_domains: int = 0) -> int:
         if score >= 9 and tl1_hard: return 1
@@ -51,6 +64,59 @@ class WeightedConvergenceEngine:
         if score >= 4: return 3
         if score >= 2: return 4
         return 5
+
+    @staticmethod
+    def compute_tl_proximity(score: float, current_tl: int) -> dict:
+        """
+        Compute distance from current score to TL boundaries.
+        Returns dict with distance_up (pts to escalate), distance_down (pts to de-escalate),
+        next_tl_up, next_tl_down, and proximity_label (NEAR_ESCALATION / NEAR_DE_ESCALATION / STABLE).
+        """
+        thresholds = ESCALATION_TL_THRESHOLDS  # {4:2, 3:4, 2:6, 1:9}
+        # Distance to escalation (lower TL = higher threat)
+        dist_up = None
+        next_up = None
+        for tl in sorted(thresholds.keys()):
+            if tl < current_tl:
+                needed = thresholds[tl] - score
+                if needed > 0 and (dist_up is None or needed < dist_up):
+                    dist_up = round(needed, 2)
+                    next_up = tl
+        # Distance to de-escalation (higher TL = lower threat)
+        dist_down = None
+        next_down = None
+        if current_tl < 5:
+            threshold_current = thresholds.get(current_tl, 0)
+            if score >= threshold_current:
+                dist_down = round(score - threshold_current + 0.01, 2)
+                next_down = current_tl + 1
+        # Proximity label
+        near_threshold = 1.5
+        if dist_up is not None and dist_up <= near_threshold:
+            label = "NEAR_ESCALATION"
+        elif dist_down is not None and dist_down <= near_threshold:
+            label = "NEAR_DE_ESCALATION"
+        else:
+            label = "STABLE"
+        return {
+            "distance_up": dist_up, "next_tl_up": next_up,
+            "distance_down": dist_down, "next_tl_down": next_down,
+            "proximity_label": label,
+        }
+
+    @staticmethod
+    def compute_domain_confidences(rationale: list) -> dict:
+        """
+        Compute average confidence per domain from fired rationale entries.
+        Returns {domain: avg_confidence} for domains with fired entries.
+        """
+        domain_confs: dict[str, list] = {"cyber": [], "physical": [], "info": []}
+        for entry in rationale:
+            if isinstance(entry, RationaleEntry) and not entry.suppressed and entry.status == "FIRED":
+                if entry.domain in domain_confs:
+                    domain_confs[entry.domain].append(entry.confidence)
+        return {d: round(sum(cs) / len(cs), 3) if cs else 1.0 for d, cs in domain_confs.items()}
+
     def apply_hysteresis(self, new_tl: int, history: list) -> tuple:
         if not history: return new_tl, False
         last_tl = history[-1][1]

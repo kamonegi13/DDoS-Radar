@@ -82,6 +82,7 @@
 <div id="top-hud">
     <div class="hud-top-row">
         <div id="hud-threat" class="threat-hud threat-5-hud" data-tooltip="Click to view Analytic Rationale">THREAT Lv 5: NORMAL</div>
+        <span id="hud-tl-proximity" class="tl-prox-badge tl-prox-stable" data-i18n-tip="hud.tooltip.tl_proximity"></span>
         <div class="hud-item"><span class="hud-label" data-i18n="hud.label.epicenter">Epicenter:</span> <span id="hud-epicenter" class="hud-value" style="color:#00ffff;">-</span></div>
         <div class="hud-item">
             <span id="hud-convergence" class="conv-NONE" data-tooltip="Multi-Domain Convergence Level">CONVERGENCE: —</span>
@@ -98,11 +99,13 @@
             <button id="vec-btn-l3"  class="vec-btn"            onclick="switchVector('l3')" data-i18n="hud.vec.l3">L3 VOLUMETRIC</button>
             <button id="vec-btn-l7"  class="vec-btn"            onclick="switchVector('l7')" data-i18n="hud.vec.l7">L7 APPLICATION</button>
         </div>
+        <span id="ws-status-dot" class="ws-dot ws-dot-disconnected" data-i18n-tip="hud.tooltip.ws_status"></span>
         <button id="btn-sync-top" class="btn-tactical btn-sync" onclick="forceDataSync()" data-i18n="hud.btn.sync">SYNC</button>
         <button class="btn-tactical btn-action" onclick="toggleChainPanel()" data-tooltip="Evidence Chain Timeline — Escalation Sequence Viewer" data-i18n="hud.btn.chain" data-i18n-tip="hud.tooltip.chain">CHAIN</button>
         <div class="tools-dropdown-wrap" data-tooltip="Intuition Tools — RPD Analysis Panels">
             <button class="btn-tactical btn-action" id="tools-dropdown-btn" onclick="toggleToolsMenu()" data-i18n="hud.btn.tools">TOOLS ▾</button>
             <div id="tools-menu" class="tools-menu">
+                <div class="tools-menu-section-header" data-i18n="tools.section.core">CORE</div>
                 <div class="tools-menu-item" id="tm-item-tgt"  onclick="handleToolToggle('target-panel',    toggleTargetPanel,    'tm-dot-tgt',   'tm-item-tgt')">
                     <span class="tools-menu-icon">🎯</span>
                     <span class="tools-menu-label" data-i18n="tools.target_visibility">Target Visibility</span>
@@ -123,13 +126,12 @@
                     <span class="tools-menu-label" data-i18n="tools.telegram_sigint">Telegram SIGINT</span>
                     <span class="tools-menu-dot" id="tm-dot-tg"></span>
                 </div>
-                <div class="tools-menu-sep"></div>
+                <div class="tools-menu-section-header" data-i18n="tools.section.analytics">ANALYTICS</div>
                 <div class="tools-menu-item" id="tm-item-pulse" onclick="handleToolToggle('pulse-panel', togglePulseDisplay, 'tm-dot-pulse', 'tm-item-pulse')">
                     <span class="tools-menu-icon">💓</span>
                     <span class="tools-menu-label" data-i18n="tools.threat_pulse">Threat Pulse</span>
                     <span class="tools-menu-dot" id="tm-dot-pulse"></span>
                 </div>
-                <div class="tools-menu-sep"></div>
                 <div class="tools-menu-item" id="tm-item-wx"  onclick="handleToolToggle('weather-brief-panel', toggleWeatherBrief,  'tm-dot-wx',  'tm-item-wx')">
                     <span class="tools-menu-icon">⛈</span>
                     <span class="tools-menu-label" data-i18n="tools.weather_brief">Weather Brief</span>
@@ -145,13 +147,11 @@
                     <span class="tools-menu-label" data-i18n="tools.historical_analog">Historical Analog</span>
                     <span class="tools-menu-dot" id="tm-dot-ha"></span>
                 </div>
-                <div class="tools-menu-sep"></div>
                 <div class="tools-menu-item" id="tm-item-clk" onclick="handleToolToggle('op-clock-panel',        toggleOpClock,     'tm-dot-clk', 'tm-item-clk')">
                     <span class="tools-menu-icon">⏱</span>
                     <span class="tools-menu-label" data-i18n="tools.ops_clock">Ops Clock</span>
                     <span class="tools-menu-dot" id="tm-dot-clk"></span>
                 </div>
-                <div class="tools-menu-sep"></div>
                 <div class="tools-menu-item" id="tm-item-gn"  onclick="handleToolToggle('gn-panel',       toggleGnPanel,   'tm-dot-gn',  'tm-item-gn')">
                     <span class="tools-menu-icon">🔍</span>
                     <span class="tools-menu-label" data-i18n="tools.greynoise">GreyNoise</span>
@@ -167,7 +167,7 @@
                     <span class="tools-menu-label" data-i18n="tools.analyst_notebook">Analyst Notebook</span>
                     <span class="tools-menu-dot" id="tm-dot-nb"></span>
                 </div>
-                <div class="tools-menu-sep"></div>
+                <div class="tools-menu-section-header" data-i18n="tools.section.simulation">SIMULATION</div>
                 <div class="tools-menu-item" id="tm-item-wif" onclick="handleToolToggle('whatif-panel', toggleWhatIfPanel, 'tm-dot-wif', 'tm-item-wif')">
                     <span class="tools-menu-icon">🧪</span>
                     <span class="tools-menu-label" data-i18n="tools.whatif_sim">What-If Sim</span>
@@ -188,7 +188,12 @@
                     <span class="tools-menu-label" data-i18n="tools.escalation_tracker">Escalation Tracker</span>
                     <span class="tools-menu-dot" id="tm-dot-esc"></span>
                 </div>
-                <div class="tools-menu-sep"></div>
+                <div class="tools-menu-item" id="tm-item-corr" onclick="handleToolToggle('corr-heatmap-panel', toggleCorrHeatmap, 'tm-dot-corr', 'tm-item-corr')">
+                    <span class="tools-menu-icon">🌡</span>
+                    <span class="tools-menu-label" data-i18n="tools.corr_heatmap">Correlation Heatmap</span>
+                    <span class="tools-menu-dot" id="tm-dot-corr"></span>
+                </div>
+                <div class="tools-menu-section-header" data-i18n="tools.section.admin">ADMIN</div>
                 <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();">
                     <span class="tools-menu-icon">👤</span>
                     <span class="tools-menu-label" data-i18n="tools.user_management">User Management</span>
@@ -209,61 +214,69 @@
     </div>
     
     <div class="hud-bottom-row">
-        <div class="hud-item"><span class="hud-label" data-i18n="hud.label.overlap">Overlap:</span> <span id="hud-overlap" class="hud-value">-</span></div>
-        <div class="hud-item"><span class="hud-label" data-i18n="hud.label.l7_shift">L7 Shift:</span> <span id="hud-vector-shift" class="hud-value">-</span></div>
-        <div class="hud-item"><span class="hud-label" data-i18n="hud.label.strikes">Strikes:</span> <span id="hud-strikes" class="hud-value">-</span></div>
-        <div class="hud-item"><span class="hud-label" data-i18n="hud.label.bgp">BGP:</span> <span id="hud-outages" class="hud-value">-</span></div>
-        <div class="hud-item"><span class="hud-label" data-i18n="hud.label.multi_front">Multi-Front:</span> <span id="hud-coordinated" class="hud-value">-</span></div>
-        <!-- Velocity Meter -->
-        <div class="hud-item" data-tooltip="Rate of Escalation (1st derivative of threat score). Destroys Normalcy Bias by showing DIRECTION of change." data-i18n-tip="hud.tooltip.velocity">
-            <span class="hud-label" data-i18n="hud.label.velocity">VELOCITY:</span>
-            <span id="hud-velocity" class="hud-value" style="font-weight:bold;">—</span>
-            <span id="hud-velocity-arrow" style="margin-left:2px;font-size:13px;">→</span>
+        <!-- Primary metrics (always visible) -->
+        <div class="hud-bottom-primary">
+            <!-- Velocity Meter -->
+            <div class="hud-item" data-tooltip="Rate of Escalation (1st derivative of threat score). Destroys Normalcy Bias by showing DIRECTION of change." data-i18n-tip="hud.tooltip.velocity">
+                <span class="hud-label" data-i18n="hud.label.velocity">VELOCITY:</span>
+                <span id="hud-velocity" class="hud-value" style="font-weight:bold;">—</span>
+                <span id="hud-velocity-arrow" style="margin-left:2px;font-size:13px;">→</span>
+            </div>
+            <!-- Ambush Alert -->
+            <div class="hud-item" id="hud-ambush-wrap" data-tooltip="Ambush Pattern: 2nd derivative Z-Score spike indicating exponential escalation." style="display:none;" data-i18n-tip="hud.tooltip.ambush">
+                <span id="hud-ambush" style="color:#ff2200;font-weight:bold;animation:blink 0.7s step-end infinite;" data-i18n="hud.ambush.text">⚡ AMBUSH</span>
+            </div>
+            <!-- v9: Temporal Coherence — C2 sync -->
+            <div class="hud-item" data-tooltip="C2 SYNC: Multiple theater attack onsets converge within 60 s → evidence of nation-state command and control" data-i18n-tip="hud.tooltip.c2sync">
+                <span class="hud-label" data-i18n="hud.label.c2sync">C2-SYNC:</span>
+                <span id="hud-c2sync" class="hud-value" style="font-size:10px;">—</span>
+            </div>
+            <!-- v9: Survival HUD -->
+            <div class="hud-item" id="hud-survival-item" data-tooltip="SURVIVAL: Check-Host.net real liveness check for key infrastructure. OK=all nodes reachable / PARTIAL=partial outage / BLACKOUT=all nodes unreachable" data-i18n-tip="hud.tooltip.survival">
+                <span class="hud-label" data-i18n="hud.label.survival">SURVIVAL:</span>
+                <span id="hud-survival" class="hud-value" style="font-weight:700;letter-spacing:1px;">—</span>
+                <span id="hud-survival-icon" style="margin-left:4px;font-size:12px;"></span>
+                <span id="hud-survival-nodes" style="margin-left:4px;display:inline-flex;align-items:center;"></span>
+            </div>
+            <!-- Domain bars -->
+            <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap" onclick="toggleDrilldown()" data-tooltip="Click to expand sensor score breakdown" data-i18n-tip="hud.tooltip.domain_expand">
+                <div id="hud-domain-cyber"    class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_cyber"><span class="domain-label" data-i18n="hud.domain.cyber">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
+                <div id="hud-domain-physical" class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_physical"><span class="domain-label" data-i18n="hud.domain.physical">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
+                <div id="hud-domain-info"     class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_info"><span class="domain-label" data-i18n="hud.domain.info">Info</span><div id="bar-info"     class="domain-bar domain-info"     style="width:0px;"></div><span id="status-info"     class="domain-status NORMAL">-</span></div>
+                <span id="dd-toggle-hint" style="font-size:8px; color:#333; font-family:'Courier New',monospace; align-self:flex-end; line-height:1;">▾</span>
+            </div>
+            <button id="hud-expand-toggle" class="hud-expand-btn" onclick="toggleHudSecondary()" data-i18n-tip="hud.tooltip.expand_secondary">▾</button>
         </div>
-        <!-- Ambush Alert -->
-        <div class="hud-item" id="hud-ambush-wrap" data-tooltip="Ambush Pattern: 2nd derivative Z-Score spike indicating exponential escalation." style="display:none;" data-i18n-tip="hud.tooltip.ambush">
-            <span id="hud-ambush" style="color:#ff2200;font-weight:bold;animation:blink 0.7s step-end infinite;" data-i18n="hud.ambush.text">⚡ AMBUSH</span>
-        </div>
-        <!-- Blockade Index -->
-        <div class="hud-item" data-tooltip="Blockade Index = DDoS Intensity / Network Reachability. Distinguishes Political Noise from Real Infrastructure Neutralization." data-i18n-tip="hud.tooltip.blockade">
-            <span class="hud-label" data-i18n="hud.label.blockade">BLOCKADE:</span>
-            <span id="hud-blockade" class="hud-value">—</span>
-            <span id="hud-blockade-bar" style="display:inline-block;width:40px;height:8px;background:#333;border-radius:3px;margin-left:4px;vertical-align:middle;"><span id="hud-blockade-fill" style="display:block;height:100%;width:0%;background:#ff6600;border-radius:3px;transition:width 0.5s;"></span></span>
-        </div>
-        <!-- v9: Survival HUD — Check-Host infrastructure liveness status -->
-        <div class="hud-item" id="hud-survival-item" data-tooltip="SURVIVAL: Check-Host.net real liveness check for key infrastructure. OK=all nodes reachable / PARTIAL=partial outage / BLACKOUT=all nodes unreachable" data-i18n-tip="hud.tooltip.survival">
-            <span class="hud-label" data-i18n="hud.label.survival">SURVIVAL:</span>
-            <span id="hud-survival" class="hud-value" style="font-weight:700;letter-spacing:1px;">—</span>
-            <span id="hud-survival-icon" style="margin-left:4px;font-size:12px;"></span>
-            <span id="hud-survival-nodes" style="margin-left:4px;display:inline-flex;align-items:center;"></span>
-        </div>
-        <!-- v9: Temporal Coherence — C2 sync -->
-        <div class="hud-item" data-tooltip="C2 SYNC: Multiple theater attack onsets converge within 60 s → evidence of nation-state command and control" data-i18n-tip="hud.tooltip.c2sync">
-            <span class="hud-label" data-i18n="hud.label.c2sync">C2-SYNC:</span>
-            <span id="hud-c2sync" class="hud-value" style="font-size:10px;">—</span>
-        </div>
-        <!-- Sequence Chain -->
-        <div class="hud-item" data-tooltip="Escalation Sequence Chain: Evidence chain of Narrative→ISR→DDoS→Kinetic within 24h window." data-i18n-tip="hud.tooltip.chain_hud">
-            <span class="hud-label" data-i18n="hud.label.chain">CHAIN:</span>
-            <span id="hud-chain" class="hud-value" style="font-size:10px;">—</span>
-        </div>
-        <!-- Intuition UI: Radio Silence -->
-        <div class="hud-item" id="hud-radio-silence" data-tooltip="COMMS: GREEN=All sensors live / ORANGE=Abnormal silence detected — possible sensor suppression or pre-op comms blackout" data-i18n-tip="hud.tooltip.comms">
-            <div class="rs-dot rs-dot-live"></div>
-            <span class="hud-label" style="margin-left:4px;" data-i18n="hud.label.comms">COMMS:</span>
-            <span id="hud-rs-text" class="hud-value" style="font-size:10px; color:#00ff88;">LIVE</span>
-        </div>
-        <!-- Sensor Fleet Health -->
-        <div class="hud-item" id="hud-sensor-health" data-tooltip="Sensor fleet health: green=OK, orange=STALE, red=ERROR, grey=DISABLED" data-i18n-tip="hud.tooltip.sensor_health">
-            <span class="hud-label" data-i18n="hud.label.sensors">SENSORS</span>
-            <span id="hud-sensor-dots" style="display:inline-flex;gap:2px;margin-left:4px;"></span>
-            <span id="hud-sensor-summary" class="hud-value" style="font-size:9px;margin-left:3px;">—</span>
-        </div>
-        <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap" onclick="toggleDrilldown()" data-tooltip="Click to expand sensor score breakdown" data-i18n-tip="hud.tooltip.domain_expand">
-            <div id="hud-domain-cyber"    class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_cyber"><span class="domain-label" data-i18n="hud.domain.cyber">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
-            <div id="hud-domain-physical" class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_physical"><span class="domain-label" data-i18n="hud.domain.physical">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
-            <div id="hud-domain-info"     class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_info"><span class="domain-label" data-i18n="hud.domain.info">Info</span><div id="bar-info"     class="domain-bar domain-info"     style="width:0px;"></div><span id="status-info"     class="domain-status NORMAL">-</span></div>
-            <span id="dd-toggle-hint" style="font-size:8px; color:#333; font-family:'Courier New',monospace; align-self:flex-end; line-height:1;">▾</span>
+        <!-- Secondary metrics (collapsible) -->
+        <div class="hud-bottom-secondary" id="hud-bottom-secondary">
+            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.overlap">Overlap:</span> <span id="hud-overlap" class="hud-value">-</span></div>
+            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.l7_shift">L7 Shift:</span> <span id="hud-vector-shift" class="hud-value">-</span></div>
+            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.strikes">Strikes:</span> <span id="hud-strikes" class="hud-value">-</span></div>
+            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.bgp">BGP:</span> <span id="hud-outages" class="hud-value">-</span></div>
+            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.multi_front">Multi-Front:</span> <span id="hud-coordinated" class="hud-value">-</span></div>
+            <!-- Blockade Index -->
+            <div class="hud-item" data-tooltip="Blockade Index = DDoS Intensity / Network Reachability. Distinguishes Political Noise from Real Infrastructure Neutralization." data-i18n-tip="hud.tooltip.blockade">
+                <span class="hud-label" data-i18n="hud.label.blockade">BLOCKADE:</span>
+                <span id="hud-blockade" class="hud-value">—</span>
+                <span id="hud-blockade-bar" style="display:inline-block;width:40px;height:8px;background:#333;border-radius:3px;margin-left:4px;vertical-align:middle;"><span id="hud-blockade-fill" style="display:block;height:100%;width:0%;background:#ff6600;border-radius:3px;transition:width 0.5s;"></span></span>
+            </div>
+            <!-- Sequence Chain -->
+            <div class="hud-item" data-tooltip="Escalation Sequence Chain: Evidence chain of Narrative→ISR→DDoS→Kinetic within 24h window." data-i18n-tip="hud.tooltip.chain_hud">
+                <span class="hud-label" data-i18n="hud.label.chain">CHAIN:</span>
+                <span id="hud-chain" class="hud-value" style="font-size:10px;">—</span>
+            </div>
+            <!-- Intuition UI: Radio Silence -->
+            <div class="hud-item" id="hud-radio-silence" data-tooltip="COMMS: GREEN=All sensors live / ORANGE=Abnormal silence detected — possible sensor suppression or pre-op comms blackout" data-i18n-tip="hud.tooltip.comms">
+                <div class="rs-dot rs-dot-live"></div>
+                <span class="hud-label" style="margin-left:4px;" data-i18n="hud.label.comms">COMMS:</span>
+                <span id="hud-rs-text" class="hud-value" style="font-size:10px; color:#00ff88;">LIVE</span>
+            </div>
+            <!-- Sensor Fleet Health -->
+            <div class="hud-item" id="hud-sensor-health" data-tooltip="Sensor fleet health: green=OK, orange=STALE, red=ERROR, grey=DISABLED" data-i18n-tip="hud.tooltip.sensor_health">
+                <span class="hud-label" data-i18n="hud.label.sensors">SENSORS</span>
+                <span id="hud-sensor-dots" style="display:inline-flex;gap:2px;margin-left:4px;"></span>
+                <span id="hud-sensor-summary" class="hud-value" style="font-size:9px;margin-left:3px;">—</span>
+            </div>
         </div>
     </div>
     <!-- Discrepancy / Maskirovka full-width alert bar -->
@@ -307,6 +320,7 @@
         <div id="lsb-ph-sal"></div>
         <div id="lsb-ph-clk"></div>
         <div id="lsb-ph-esc"></div>
+        <div id="lsb-ph-corr"></div>
     </div>
 
     <div id="map-wrapper">
@@ -991,6 +1005,23 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
+     Phase 3: Correlation Heatmap (dockable)
+═══════════════════════════════════════════════════════ -->
+<div id="corr-heatmap-panel" class="draggable-panel floating" style="display:none; left:60px; top:160px; width:340px;">
+    <div class="drag-handle panel-header-unified">
+        <span data-i18n="panel.corr.title">CORRELATION HEATMAP</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('corr-heatmap-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
+        </div>
+    </div>
+    <div class="panel-content corr-heatmap-body" style="max-height:420px; overflow-y:auto;">
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="panel.corr.loading">Loading correlation data...</div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
      Intuition UI: Pulse Display (draggable)
 ═══════════════════════════════════════════════════════ -->
 <div id="pulse-panel" class="draggable-panel floating" style="display:none; left:10px; top:140px;">
@@ -1067,7 +1098,7 @@
     </div>
 </div>
 
-<div id="evidence-modal" class="modal-window" style="width:800px;">
+<div id="evidence-modal" class="modal-window" style="width:860px;">
     <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #333; padding-bottom:10px;">
         <div data-i18n="modal.evidence.title">Analytic Rationale — Evidence Panel</div>
         <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()" data-i18n="modal.evidence.close">[ X ] Close</button>
@@ -1083,6 +1114,7 @@
                     <th style="width:80px;" data-i18n="modal.evidence.th_status">Status</th>
                     <th style="width:130px;" data-i18n="modal.evidence.th_observed">Observed Value</th>
                     <th style="width:40px;" data-i18n="modal.evidence.th_score">Score</th>
+                    <th style="width:50px;" data-i18n="modal.evidence.th_confidence">Conf</th>
                     <th data-i18n="modal.evidence.th_reason">Fired Reason / Note</th>
                 </tr>
             </thead>
@@ -1770,6 +1802,49 @@
             <li><b>Feint Detection:</b> Identifies diversionary attack patterns — one domain at high alert level with two or more domains at low-medium alert, suggesting coordinated misdirection.</li>
         </ul>
 
+        <p><b>Q. Correlation Heatmap</b> <span style="color:#66ffcc;">[Phase 3]</span> — <span class="code-block">TOOLS ▾</span> → Correlation Heatmap</p>
+        <ul>
+            <li><b>Purpose:</b> Visualizes cross-theater attack origin overlap as an interactive heatmap matrix. High overlap values indicate coordinated or botnet-based multi-theater campaigns.</li>
+            <li><b>Modes:</b> Toggle between Combined, L3 (volumetric), and L7 (application-layer) correlation views.</li>
+            <li><b>Color Scale:</b> 0% (teal/green) → 100% (red). Values above 30% are flagged as high correlation.</li>
+        </ul>
+
+        <p><b>R. Phase 3 UX Enhancements</b> <span style="color:#66ffcc;">[Phase 3]</span></p>
+        <ul>
+            <li><b>Collapsible HUD:</b> The bottom metrics row is now split into primary (Velocity, C2-SYNC, Survival, Domains) and secondary (Overlap, BGP, Blockade, etc.) rows. Click the ▾ button to toggle secondary metrics.</li>
+            <li><b>TOOLS Menu Sections:</b> Tools are grouped into CORE, ANALYTICS, SIMULATION, and ADMIN categories for easier navigation.</li>
+            <li><b>Sync Countdown:</b> Real-time countdown timer shows time until next data refresh. Resets on manual SYNC or WebSocket push.</li>
+            <li><b>WebSocket Indicator:</b> Green/orange dot next to SYNC button shows connection status (green = live WS, orange = polling fallback).</li>
+            <li><b>Sensor Reliability:</b> Persistent fetch log tracks per-sensor success rate, response time, and uptime over 7 days. Available via <span class="code-block">/api/sensor_reliability</span>.</li>
+        </ul>
+
+        <p><b>S. Confidence Propagation &amp; TL Proximity</b> <span style="color:#66ffcc;">[Engine Enhancement]</span></p>
+        <ul>
+            <li><b>Sensor Confidence (0–100%):</b> Each sensor now reports a confidence factor based on health state (OK=100%, STALE=50%, ERROR/DISABLED=0%), sample adequacy (ramps from 30% to 100% as samples reach threshold), and baseline coverage. Shown as a color-coded badge (green/amber/red) in the Evidence Panel's "Conf" column.</li>
+            <li><b>Confidence-Weighted Scoring:</b> Domain scores are computed as <code>score × confidence</code>. Low-confidence sensors contribute proportionally less. When all sensors are healthy with sufficient data, behavior is identical to the legacy engine.</li>
+            <li><b>Convergence Bonus Gating:</b> The multi-domain convergence bonus (+1/+2) is multiplied by <code>min(active_domain_confidences)</code>. This prevents noisy or degraded sensors from inflating the score through FULL_CONVERGENCE.</li>
+            <li><b>TL Proximity Indicator:</b> A badge next to the Threat Level in the HUD shows how close the current score is to the next TL boundary. <span style="color:#ff4444;">▲ red</span> = near escalation, <span style="color:#66ffaa;">▼ green</span> = near de-escalation. Hidden when stable (>1.5pt from any boundary).</li>
+        </ul>
+
+        <p><b>T. DDoS Core Strengthening</b> <span style="color:#66ffcc;">[Scoring Enhancement]</span></p>
+        <ul>
+            <li><b>Blockade Index → Scoring:</b> When the Blockade Index (BI) reaches ≥7.0/10 — indicating effective infrastructure blockade — it now contributes +1pt to the cyber domain threat score. Previously display-only.</li>
+            <li><b>CDN Asphyxiation Signal:</b> When CDN masking is detected (success rate appears normal but latency ≥3× baseline), this is now an independent +1pt cyber signal, separate from the Blockade Index amplification.</li>
+            <li><b>Graduated L3→L7 Vector Shift:</b> The L7 application-layer escalation detector now uses two tiers: moderate shift (L7 spike ≥2.5×) = +1pt, severe shift (L7 ≥5.0× AND L7 > L3×2) = +2pt. Previously binary +1/0.</li>
+            <li><b>Count-Proportional Adversary Strike:</b> Adversary state direct strikes now score proportionally: 1–2 actors = +2pt, ≥3 actors = +3pt. Previously binary +2/0.</li>
+            <li><b>Sequence Time Decay:</b> Escalation chain events are now weighted by recency: <code>weight = max(0.3, 1.0 − age_hours/24)</code>. Old events near the 24h window edge contribute 30% of their original weight, preventing stale chains from inflating the bonus.</li>
+            <li><b>DDoS-BGP Causal Link:</b> When CF spike and IODA BGP_OUTAGE co-occur in the same scoring cycle, the IODA rationale is enriched with causal context noting the concurrent DDoS activity. Visible in the Evidence Panel's fired_reason column.</li>
+        </ul>
+
+        <p><b>U. DDoS Intelligence Enhancement</b> <span style="color:#66ffcc;">[Data Source Upgrade]</span></p>
+        <ul>
+            <li><b>IODA Proper API Integration:</b> The IODA sensor now queries Georgia Tech's real IODA API (<code>api.ioda.inetintel.cc.gatech.edu/v2</code>) instead of CF Radar traffic_anomalies. Provides three independent observation methods: BGP route monitoring (~5 min), Merit Network Telescope (~5 min), and active probing of 4.2M /24 blocks (~10 min). Falls back to CF Radar when IODA API is unreachable. Multi-source corroboration enriches the rationale when ≥2 IODA datasources confirm an outage.</li>
+            <li><b>CF Radar BGP Hijack/Leak Detection:</b> The Cloudflare sensor now also fetches BGP hijack events (<code>/radar/bgp/hijacks/events</code>) and route leak events (<code>/radar/bgp/leaks/events</code>). Ongoing hijacks targeting the core theater or ≥3 route leaks fire a <code>cf_bgp_hijack</code> rationale entry (+1pt cyber). Confidence-filtered (≥50%).</li>
+            <li><b>RIPE BGP Full Time Series:</b> The RIPE BGP sensor now analyzes the entire <code>stats[]</code> array (not just the latest entry) to compute prefix count trend via linear regression. Results appear as <code>WITHDRAWING</code> / <code>STABLE</code> / <code>GROWING</code> labels with percentage slopes. A withdrawing trend enriches the BGP anomaly rationale with trend context.</li>
+            <li><b>Combined L3+L7 Timeseries:</b> The HOD (Hour-of-Day) baseline prefill now fetches both L3 and L7 attack timeseries from CF Radar and merges them (max per hour bucket), providing more comprehensive diurnal attack pattern baselines.</li>
+            <li><b>Origin Entropy Tracking:</b> Shannon entropy of attack origin distributions is now computed per theater. A rolling moving average tracks changes over time. Significant shifts are classified as <code>CONCENTRATING</code> (≥20% entropy drop — attack focusing), <code>DISPERSING</code> (≥20% entropy rise — attack spreading), or <code>STABLE</code>. Available in target_details and deep_analytics.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>8. 直感 UI — 識別先行意思決定（RPD）コンポーネント</h4>
@@ -1905,6 +1980,49 @@
             <li><b>陽動攻撃検出:</b> 1つのドメインが高警戒レベル、2つ以上のドメインが低〜中警戒レベルという、組織的な欺瞞を示唆する陽動攻撃パターンを特定。</li>
         </ul>
 
+        <p><b>Q. 相関ヒートマップ</b> <span style="color:#66ffcc;">[Phase 3]</span> — <span class="code-block">TOOLS ▾</span> → Correlation Heatmap</p>
+        <ul>
+            <li><b>目的:</b> シアター間の攻撃元重複をインタラクティブなヒートマップ行列で可視化。高い重複値は協調攻撃またはボットネットベースのマルチシアターキャンペーンを示唆。</li>
+            <li><b>モード:</b> 統合、L3（ボリューム型）、L7（アプリケーション層）の相関ビューを切り替え可能。</li>
+            <li><b>色スケール:</b> 0%（ティール/緑）→ 100%（赤）。30%以上は高相関としてフラグ。</li>
+        </ul>
+
+        <p><b>R. Phase 3 UX強化</b> <span style="color:#66ffcc;">[Phase 3]</span></p>
+        <ul>
+            <li><b>折りたたみHUD:</b> 下部メトリクス行がプライマリ（Velocity、C2-SYNC、Survival、Domains）とセカンダリ（Overlap、BGP、Blockade等）に分割。▾ボタンでセカンダリの表示/非表示を切り替え。</li>
+            <li><b>TOOLSメニューセクション:</b> ツールがコア、アナリティクス、シミュレーション、管理のカテゴリに分類され、ナビゲーションが容易に。</li>
+            <li><b>同期カウントダウン:</b> 次のデータ更新までのリアルタイムカウントダウンタイマー。手動SYNCまたはWebSocketプッシュでリセット。</li>
+            <li><b>WebSocketインジケーター:</b> SYNCボタン横の緑/橙ドットで接続状態を表示（緑=WS接続中、橙=ポーリングフォールバック）。</li>
+            <li><b>センサー信頼性:</b> 永続的なフェッチログが7日間のセンサー別成功率・応答時間・稼働率を追跡。<span class="code-block">/api/sensor_reliability</span> で取得可能。</li>
+        </ul>
+
+        <p><b>S. 信頼度伝播 &amp; TL近接度</b> <span style="color:#66ffcc;">[エンジン強化]</span></p>
+        <ul>
+            <li><b>センサー信頼度 (0–100%):</b> 各センサーがヘルス状態（OK=100%, STALE=50%, ERROR/DISABLED=0%）、サンプル充足度（閾値到達まで30%→100%で漸増）、ベースラインカバレッジに基づく信頼度係数を報告。証拠パネルの「信頼度」列に色分けバッジ（緑/橙/赤）で表示。</li>
+            <li><b>信頼度加重スコアリング:</b> ドメインスコアが <code>スコア × 信頼度</code> で計算。低信頼度センサーの寄与は比例的に低減。全センサーが正常でデータ十分な場合、従来エンジンと同一の動作。</li>
+            <li><b>収束ボーナスゲーティング:</b> マルチドメイン収束ボーナス（+1/+2）に <code>min(アクティブドメイン信頼度)</code> を乗算。ノイズの多いまたは劣化したセンサーによるFULL_CONVERGENCE経由のスコア膨張を防止。</li>
+            <li><b>TL近接度インジケーター:</b> HUDの脅威レベル横に現在スコアの次のTL境界までの距離を表示。<span style="color:#ff4444;">▲ 赤</span> = エスカレーション近接、<span style="color:#66ffaa;">▼ 緑</span> = デエスカレーション近接。安定時（境界から1.5pt以上）は非表示。</li>
+        </ul>
+
+        <p><b>T. DDoSコア強化</b> <span style="color:#66ffcc;">[スコアリング強化]</span></p>
+        <ul>
+            <li><b>封鎖指数 → スコア反映:</b> 封鎖指数（BI）が7.0/10以上に達した場合（有効なインフラ封鎖を示す）、サイバードメインの脅威スコアに+1pt寄与。従来は表示のみ。</li>
+            <li><b>CDN窒息シグナル:</b> CDNマスキング検出時（成功率は正常だがレイテンシがベースラインの3倍以上）、封鎖指数の増幅とは別に独立した+1ptサイバーシグナルとして機能。</li>
+            <li><b>段階的L3→L7ベクターシフト:</b> L7アプリケーション層エスカレーション検出が2段階に: 中程度シフト（L7スパイク≥2.5×）= +1pt、重度シフト（L7≥5.0× かつ L7 > L3×2）= +2pt。従来は+1/0の二値。</li>
+            <li><b>件数比例の敵対攻撃:</b> 敵対国家の直接攻撃がアクター数に比例してスコアリング: 1〜2アクター = +2pt、3アクター以上 = +3pt。従来は+2/0の二値。</li>
+            <li><b>シーケンス時間減衰:</b> エスカレーションチェーンイベントが新しさで重み付け: <code>weight = max(0.3, 1.0 − 経過時間/24)</code>。24時間ウィンドウ端に近い古いイベントは元の重みの30%で寄与し、古いチェーンによるボーナス膨張を防止。</li>
+            <li><b>DDoS-BGP因果リンク:</b> CFスパイクとIODA BGP_OUTAGEが同一スコアリングサイクルで同時発生した場合、IODAのrationaleに因果コンテキスト（同時発生DDoS活動の記載）が付加。証拠パネルのfired_reason列で確認可能。</li>
+        </ul>
+
+        <p><b>U. DDoSインテリジェンス強化</b> <span style="color:#66ffcc;">[データソースアップグレード]</span></p>
+        <ul>
+            <li><b>IODA本格API統合:</b> IODAセンサーがCF Radar traffic_anomaliesの代わりにジョージア工科大学の本格IODA API（<code>api.ioda.inetintel.cc.gatech.edu/v2</code>）を照会。3つの独立観測手法を提供: BGP経路監視（~5分）、Meritネットワークテレスコープ（~5分）、4.2M /24ブロックのアクティブプロービング（~10分）。IODA API到達不能時はCF Radarにフォールバック。2つ以上のIODAデータソースが障害を確認した場合、rationaleに複数ソース裏付けを付加。</li>
+            <li><b>CF Radar BGPハイジャック/リーク検出:</b> Cloudflareセンサーが<code>/radar/bgp/hijacks/events</code>（ハイジャック）と<code>/radar/bgp/leaks/events</code>（ルートリーク）も取得。コアシアター対象の進行中ハイジャック、または3件以上のルートリークで<code>cf_bgp_hijack</code> rationale発火（+1pt cyber）。信頼度50%以上でフィルタ。</li>
+            <li><b>RIPE BGP完全時系列:</b> RIPE BGPセンサーが<code>stats[]</code>配列全体（最新エントリだけでなく）を分析し、線形回帰でプレフィックス数の傾向を計算。結果は<code>WITHDRAWING</code>（減少中）/ <code>STABLE</code>（安定）/ <code>GROWING</code>（増加中）のラベルとパーセンテージ勾配で表示。減少傾向はBGP異常rationaleに傾向コンテキストを付加。</li>
+            <li><b>L3+L7統合タイムシリーズ:</b> HOD（時間帯）ベースライン事前充填がCF RadarからL3とL7の両方の攻撃タイムシリーズを取得し、マージ（時間バケットごとの最大値）。より包括的な日周攻撃パターンベースラインを提供。</li>
+            <li><b>オリジンエントロピー追跡:</b> 攻撃元分布のシャノンエントロピーをシアターごとに計算。ローリング移動平均で時系列変化を追跡。有意な変化を<code>CONCENTRATING</code>（エントロピー20%以上低下 — 攻撃集中化）、<code>DISPERSING</code>（20%以上上昇 — 攻撃分散化）、<code>STABLE</code>（安定）に分類。target_detailsとdeep_analyticsで利用可能。</li>
+        </ul>
+
         </div>
         </div><!-- /guide-ch-8 -->
         <div class="guide-chapter" id="guide-ch-9">
@@ -1945,6 +2063,16 @@
             <li><span class="code-block">GET /api/spof_analysis</span> — Compute SPOF analysis for the current threat state. Returns per-sensor impact assessment, domain health summary, and criticality ranking.</li>
             <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns escalation analysis: current TL, duration, velocity, score trend, pattern classification (STABLE/ESCALATING/DE-ESCALATING/OSCILLATING), predicted next TL, and transition history.</li>
             <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns per-sensor/per-theater adaptive Z-score statistics: sample count, running mean, standard deviation, and whether adaptive mode is active.</li>
+            <li><span class="code-block">GET /api/sensor_reliability?hours=24</span> — <span style="color:#66ffcc;">[Phase 3]</span> Returns per-sensor fetch reliability over the given time window (default 24h, max 168h). Includes total fetches, success rate, average response time, and first/last seen timestamps.</li>
+        </ul>
+        <p><b>Response Field Additions</b> <span style="color:#66ffcc;">[Engine Enhancement]</span></p>
+        <ul style="font-size: 11px; line-height: 1.8;">
+            <li><span class="code-block">rationale_matrix[].confidence</span> — Sensor confidence factor (0.0–1.0). Based on health state, sample count, and baseline coverage.</li>
+            <li><span class="code-block">analytics.confidence.domain_confidences</span> — Per-domain average confidence: <span class="code-block">{cyber: 0.95, physical: 0.72, info: 1.0}</span></li>
+            <li><span class="code-block">analytics.confidence.min_confidence</span> — Lowest domain confidence (used for convergence bonus gating).</li>
+            <li><span class="code-block">analytics.tl_proximity.distance_up</span> — Points needed to escalate to next TL (null if at TL1).</li>
+            <li><span class="code-block">analytics.tl_proximity.distance_down</span> — Points to drop below current TL threshold (null if at TL5).</li>
+            <li><span class="code-block">analytics.tl_proximity.proximity_label</span> — <span class="code-block">NEAR_ESCALATION</span> / <span class="code-block">NEAR_DE_ESCALATION</span> / <span class="code-block">STABLE</span></li>
         </ul>
         </div>
         <div class="guide-lang-ja" style="display:none;">
@@ -1984,6 +2112,16 @@
             <li><span class="code-block">GET /api/spof_analysis</span> — 現在の脅威状態のSPOF分析を計算。センサーごとの影響評価、ドメイン健全性サマリー、重要度ランキングを返す。</li>
             <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> エスカレーション分析を返す: 現在のTL、持続時間、速度、スコアトレンド、パターン分類（STABLE/ESCALATING/DE-ESCALATING/OSCILLATING）、予測次TL、遷移履歴。</li>
             <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> センサー/シアター別の適応型Zスコア統計を返す: サンプル数、移動平均、標準偏差、適応モードのアクティブ状態。</li>
+            <li><span class="code-block">GET /api/sensor_reliability?hours=24</span> — <span style="color:#66ffcc;">[Phase 3]</span> 指定時間ウィンドウ（デフォルト24h、最大168h）のセンサー別フェッチ信頼性を返す。総フェッチ数、成功率、平均応答時間、初回/最終確認タイムスタンプを含む。</li>
+        </ul>
+        <p><b>レスポンスフィールド追加</b> <span style="color:#66ffcc;">[エンジン強化]</span></p>
+        <ul style="font-size: 11px; line-height: 1.8;">
+            <li><span class="code-block">rationale_matrix[].confidence</span> — センサー信頼度係数（0.0–1.0）。ヘルス状態、サンプル数、ベースラインカバレッジに基づく。</li>
+            <li><span class="code-block">analytics.confidence.domain_confidences</span> — ドメイン別平均信頼度: <span class="code-block">{cyber: 0.95, physical: 0.72, info: 1.0}</span></li>
+            <li><span class="code-block">analytics.confidence.min_confidence</span> — 最低ドメイン信頼度（収束ボーナスゲーティングに使用）。</li>
+            <li><span class="code-block">analytics.tl_proximity.distance_up</span> — 次のTLへのエスカレーションに必要なポイント数（TL1の場合null）。</li>
+            <li><span class="code-block">analytics.tl_proximity.distance_down</span> — 現在のTL閾値を下回るまでのポイント数（TL5の場合null）。</li>
+            <li><span class="code-block">analytics.tl_proximity.proximity_label</span> — <span class="code-block">NEAR_ESCALATION</span> / <span class="code-block">NEAR_DE_ESCALATION</span> / <span class="code-block">STABLE</span></li>
         </ul>
         </div>
         </div><!-- /guide-ch-9 -->
