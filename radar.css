@@ -898,8 +898,23 @@
 .corr-grid-compact .corr-row-label { padding-right:3px; }
 .corr-grid-compact .corr-cell { font-size:7px; min-height:16px; padding:2px 1px; }
 /* ── Coordination Index: Constellation Pattern ───────────── */
-/* Constellation glow track (wide, dim) */
-.coord-glow { pointer-events: none; outline: none; }
+/* Constellation glow track (wide, dim, breathing) */
+.coord-glow { pointer-events: none; outline: none; animation: coordGlowBreathe 5s ease-in-out infinite; }
+.coord-glow.coord-core-fast  { animation: coordGlowBreatheHigh 1.5s ease-in-out infinite; }
+.coord-glow.coord-core-med   { animation: coordGlowBreatheMed 3s ease-in-out infinite; }
+.coord-glow.coord-core-slow  { animation: coordGlowBreatheLow 5s ease-in-out infinite; }
+@keyframes coordGlowBreatheLow {
+    0%, 100% { stroke-opacity: 0; }
+    50%      { stroke-opacity: 0.03; }
+}
+@keyframes coordGlowBreatheMed {
+    0%, 100% { stroke-opacity: 0.01; }
+    50%      { stroke-opacity: 0.08; }
+}
+@keyframes coordGlowBreatheHigh {
+    0%, 100% { stroke-opacity: 0.08; }
+    50%      { stroke-opacity: 0.45; }
+}
 .coord-core, .coord-glow { outline: none; }
 .coord-core:focus, .coord-glow:focus { outline: none; }
 /* Constellation core line with breathing animation */
@@ -909,10 +924,20 @@
 }
 .coord-core-fast  { animation-duration: 1.5s !important; }
 .coord-core-med   { animation-duration: 3s !important; }
-.coord-core-slow  { animation-duration: 5s !important; }
+.coord-core-slow  { animation-duration: 6s !important; }
+@keyframes coordBreatheLow {
+    0%, 100% { stroke-opacity: 0.03; }
+    50%      { stroke-opacity: 0.25; }
+}
+.coord-core.coord-core-slow { animation-name: coordBreatheLow !important; }
+@keyframes coordBreatheMed {
+    0%, 100% { stroke-opacity: 0.05; }
+    50%      { stroke-opacity: 0.4; }
+}
+.coord-core.coord-core-med { animation-name: coordBreatheMed !important; }
 @keyframes coordBreathe {
-    0%, 100% { stroke-opacity: 0.25; stroke-width: var(--coord-w); }
-    50%      { stroke-opacity: 0.85; stroke-width: calc(var(--coord-w) + 1.5px); }
+    0%, 100% { stroke-opacity: 0.05; }
+    50%      { stroke-opacity: 0.9; }
 }
 /* C2-SYNC escalation glow */
 .coord-c2sync { filter: drop-shadow(0 0 4px currentColor); }

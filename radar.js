@@ -4042,31 +4042,35 @@
             if (coordIdx < OVERLAP_THRESHOLD) continue;
 
             const norm = Math.min(1, (coordIdx - OVERLAP_THRESHOLD) / (100 - OVERLAP_THRESHOLD));
-            const weight = 1.5 + norm * 2.5;
-            const alpha = 0.25 + norm * 0.55;
             const color = _coordColor(coordIdx, isC2Sync);
             const isC2High = isC2Sync && coordIdx > 60;
-            const speedCls = isC2High ? 'coord-core-fast' : (coordIdx > 50 ? 'coord-core-med' : 'coord-core-slow');
+
+            // Tiered visual intensity: low(cyan) is subtle, high(red) is aggressive
+            let coreW, glowW, glowOp, speedCls;
+            if (isC2High) {
+                coreW = 4; glowW = 12; glowOp = 0.35; speedCls = 'coord-core-fast';
+            } else if (coordIdx > 70) {
+                coreW = 3; glowW = 10; glowOp = 0.22; speedCls = 'coord-core-fast';
+            } else if (coordIdx > 45) {
+                coreW = 2; glowW = 7; glowOp = 0.12; speedCls = 'coord-core-med';
+            } else {
+                coreW = 1; glowW = 4; glowOp = 0.05; speedCls = 'coord-core-slow';
+            }
             const c2Cls = isC2High ? ' coord-c2sync' : '';
 
-            // Layer 1: Glow track (wide, dim, blurred feel)
+            // Layer 1: Glow track (opacity=1, CSS animation controls stroke-opacity)
             L.polyline([[ca.lat, ca.lng], [cb.lat, cb.lng]], {
-                color, weight: weight + 6, opacity: alpha * 0.18,
-                lineCap: 'round', interactive: false, className: 'coord-glow'
+                color, weight: glowW, opacity: 1,
+                lineCap: 'round', interactive: false, className: 'coord-glow ' + speedCls
             }).addTo(coordLinkLayer);
 
-            // Layer 2: Core line with breathing animation
+            // Layer 2: Core line (opacity=1, CSS animation controls stroke-opacity)
             const coreLine = L.polyline([[ca.lat, ca.lng], [cb.lat, cb.lng]], {
-                color, weight, opacity: alpha,
+                color, weight: coreW, opacity: 1,
                 lineCap: 'round', interactive: true,
                 className: 'coord-core ' + speedCls + c2Cls
             }).addTo(coordLinkLayer);
 
-            // Pass base weight as CSS variable for breathing keyframes
-            requestAnimationFrame(() => {
-                const el = coreLine.getElement && coreLine.getElement();
-                if (el) el.style.setProperty('--coord-w', weight + 'px');
-            });
 
             // Rich tooltip with signal breakdown
             const l3 = strat.correlations_l3 ? (strat.correlations_l3[pair] || 0).toFixed(0) : '—';
@@ -4084,7 +4088,7 @@
             const midLng = (ca.lng + cb.lng) / 2;
             const labelIcon = L.divIcon({
                 className: '',
-                html: `<div style="font-size:13px;font-weight:bold;font-family:monospace;color:${color};opacity:${Math.min(1, alpha + 0.15)};text-shadow:0 0 6px rgba(0,0,0,0.95),0 0 2px rgba(0,0,0,0.8);white-space:nowrap;pointer-events:none;">${coordIdx.toFixed(0)}%</div>`,
+                html: `<div style="font-size:13px;font-weight:bold;font-family:monospace;color:${color};text-shadow:0 0 6px rgba(0,0,0,0.95),0 0 2px rgba(0,0,0,0.8);white-space:nowrap;pointer-events:none;">${coordIdx.toFixed(0)}%</div>`,
                 iconSize: [40, 18], iconAnchor: [20, 9],
             });
             L.marker([midLat, midLng], {icon: labelIcon, interactive: false}).addTo(coordLinkLayer);
@@ -4097,7 +4101,7 @@
                 const pulseCls = isC2High ? ' coord-diamond-pulse' : '';
                 const dIcon = L.divIcon({
                     className: '',
-                    html: `<div class="coord-diamond${pulseCls}" style="width:8px;height:8px;background:${color};transform:rotate(45deg);box-shadow:0 0 6px ${color}88;opacity:${Math.min(1, alpha + 0.2)};"></div>`,
+                    html: `<div class="coord-diamond${pulseCls}" style="width:8px;height:8px;background:${color};transform:rotate(45deg);box-shadow:0 0 6px ${color}88;"></div>`,
                     iconSize: [8, 8], iconAnchor: [4, 4],
                 });
                 L.marker([pos.lat, pos.lng], {icon: dIcon, interactive: false}).addTo(coordLinkLayer);
