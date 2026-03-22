@@ -45,4 +45,4 @@ def _require_admin():
 
 
 # ── Register all sub-module routes on the shared Blueprint ──────────────────
-from radar.routes import static, core, admin, analytics, history  # noqa: E402,F401
+from radar.routes import static, core, admin, analytics, history, climate, situation  # noqa: E402,F401

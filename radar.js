@@ -720,6 +720,8 @@
         { panelId: 'actionplan-panel',     dotId: 'tm-dot-ap',    itemId: 'tm-item-ap'    },
         { panelId: 'attack-phase-panel', dotId: 'tm-dot-phase', itemId: 'tm-item-phase' },
         { panelId: 'corr-heatmap-panel', dotId: 'tm-dot-corr', itemId: 'tm-item-corr'  },
+        { panelId: 'climate-panel',      dotId: 'tm-dot-climate', itemId: 'tm-item-climate' },
+        { panelId: 'sitboard-panel',     dotId: 'tm-dot-sitboard', itemId: 'tm-item-sitboard' },
     ];
 
     function toggleToolsMenu() {
@@ -1058,6 +1060,8 @@
         { id: 'history-panel',        ph: 'lsb-ph-hist'           },
         { id: 'attack-phase-panel',  ph: 'lsb-ph-phase'          },
         { id: 'corr-heatmap-panel',  ph: 'lsb-ph-corr'           },
+        { id: 'climate-panel',       ph: 'lsb-ph-climate'        },
+        { id: 'sitboard-panel',      ph: 'lsb-ph-sitboard'       },
         // Floating-only panels (no sidebar placeholder)
         { id: 'whatif-panel',        ph: null                     },
         { id: 'spof-panel',         ph: null                     },
@@ -1067,7 +1071,7 @@
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
     let _sidebarOrder = {
         'sidebar':      ['target-panel', 'dashboard-panel', 'chain-panel'],
-        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'attack-phase-panel', 'corr-heatmap-panel']
+        'left-sidebar': ['sitboard-panel', 'climate-panel', 'pulse-panel', 'weather-brief-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'attack-phase-panel', 'corr-heatmap-panel']
     };
 
     // Re-order placeholder divs within a sidebar to match _sidebarOrder
@@ -1446,6 +1450,8 @@
     setupFloatingOnlyPanel('actionplan-panel');
     setupDockablePanel('attack-phase-panel', 'lsb-ph-phase',          380);
     setupDockablePanel('corr-heatmap-panel', 'lsb-ph-corr',           340);
+    setupDockablePanel('climate-panel',      'lsb-ph-climate',        380);
+    setupDockablePanel('sitboard-panel',     'lsb-ph-sitboard',       420);
     updateSidebarVisibility();
 
     const map = L.map('map', {
@@ -2088,6 +2094,8 @@
 
     function renderTelemetry(data) {
         window._lastThreatData = data; // Store for CAC threat classification
+        if (window._updateClimateFromPoll) window._updateClimateFromPoll(data);
+        if (window._updateSitBoardFromPoll) window._updateSitBoardFromPoll();
         const curr = getCurrentConfig();
         const displayTargets = curr.displays;
 
@@ -3001,7 +3009,7 @@
         syncToolsMenuState();
     }
 
-    const LAYOUT_VERSION = 12; // bump when layout structure changes to auto-clear stale state
+    const LAYOUT_VERSION = 14; // bump when layout structure changes to auto-clear stale state
 
     function loadTargetState(defaults) {
         // Initialize THEATERS from app_config global list before building UI
@@ -6253,3 +6261,289 @@
         renderCorrHeatmap();
     }
     window._setCorrMode = _setCorrMode;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  STRATEGIC CLIMATE FEED
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    let _climateActiveFilter = 'all';
+
+    const toggleClimatePanel = _createPanelToggle('climate-panel', { onShow: _fetchClimateData });
+    window.toggleClimatePanel = toggleClimatePanel;
+
+    function _fetchClimateData() {
+        fetch('/api/climate').then(r => r.json()).then(data => {
+            _renderClimateGauge(data.gauge || {});
+            _renderClimateFeed(data.feed || []);
+        }).catch(() => {});
+    }
+
+    // Update HUD badge from main polling loop data
+    function _updateClimateHud(gaugeData) {
+        const badge = document.getElementById('hud-climate-badge');
+        const dot = document.getElementById('hud-climate-dot');
+        const text = document.getElementById('hud-climate-text');
+        if (!badge || !gaugeData || !gaugeData.level) return;
+
+        const level = gaugeData.level;
+        const colors = { FROZEN: '#4488aa', COOL: '#44aa66', WARMING: '#ffaa00', HOT: '#ff6622', FLASHPOINT: '#ff2a2a' };
+        const color = colors[level] || '#666';
+
+        dot.setAttribute('data-level', level);
+        text.textContent = 'CLIMATE: ' + level;
+        text.style.color = color;
+        badge.style.borderColor = color + '44';
+
+        // Also update panel gauge if visible
+        _renderClimateGauge(gaugeData);
+    }
+
+    function _renderClimateGauge(gauge) {
+        const fill = document.getElementById('climate-gauge-fill');
+        const levelEl = document.getElementById('climate-gauge-level');
+        if (!fill || !levelEl) return;
+
+        const level = gauge.level || 'COOL';
+        const colors = { FROZEN: '#4488aa', COOL: '#44aa66', WARMING: '#ffaa00', HOT: '#ff6622', FLASHPOINT: '#ff2a2a' };
+        fill.setAttribute('data-level', level);
+        levelEl.textContent = level;
+        levelEl.style.color = colors[level] || '#666';
+    }
+
+    function _renderClimateFeed(events) {
+        const container = document.getElementById('climate-feed');
+        if (!container) return;
+
+        const filtered = _climateActiveFilter === 'all' ? events
+            : events.filter(e => e.axis === _climateActiveFilter);
+
+        if (!filtered.length) {
+            container.innerHTML = `<div style="color:#555; font-size:10px; text-align:center; padding:20px 0;">${_t('panel.climate.no_events')}</div>`;
+            return;
+        }
+
+        const axisIcons = { time: '⏱', space: '📍', target: '🎯', context: '📅' };
+
+        container.innerHTML = filtered.map(ev => {
+            const icon = axisIcons[ev.axis] || '•';
+            return `<div class="climate-event" data-severity="${ev.severity}">
+                <div class="climate-event-header">
+                    <span class="climate-event-ts">${ev.ts_iso || ''}</span>
+                    <span class="climate-event-tag" data-axis="${ev.axis}">${icon} ${(ev.indicator || '').toUpperCase()}</span>
+                    <span class="climate-event-headline">${_escHtml(ev.headline || '')}</span>
+                </div>
+                <div class="climate-event-detail">${_escHtml(ev.detail || '')}</div>
+            </div>`;
+        }).join('');
+    }
+
+    function _climateFilter(axis) {
+        _climateActiveFilter = axis;
+        document.querySelectorAll('.climate-filter-btn').forEach(btn => {
+            btn.classList.toggle('climate-filter-active', btn.getAttribute('data-axis') === axis);
+        });
+        // Re-fetch and render
+        _fetchClimateData();
+    }
+    window._climateFilter = _climateFilter;
+
+    function _escHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    // Expose for main render loop
+    window._updateClimateFromPoll = function(data) {
+        if (data && data.climate_gauge) {
+            _updateClimateHud(data.climate_gauge);
+        }
+        // Auto-refresh climate panel if visible
+        const cp = document.getElementById('climate-panel');
+        if (cp && cp.style.display !== 'none') {
+            _fetchClimateData();
+        }
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ██  SITUATION BOARD
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    let _sitboardSelectedTheaters = new Set(); // empty = show all
+    let _sitboardChipsBuilt = false;
+    let _sitboardData = null;
+
+    function toggleSitBoard() {
+        _createPanelToggle('sitboard-panel', () => { _fetchSitBoardData(); })();
+    }
+    window.toggleSitBoard = toggleSitBoard;
+
+    function _fetchSitBoardData() {
+        fetch('/api/situation')
+            .then(r => r.json())
+            .then(data => {
+                _sitboardData = data;
+                _buildSitBoardChips(data);
+                _renderSitBoard(data);
+            })
+            .catch(e => log.warn('[SitBoard] fetch error:', e));
+    }
+
+    function _buildSitBoardChips(data) {
+        const row = document.getElementById('sitboard-filter-row');
+        if (!row) return;
+        const theaters = data.theaters || [];
+        if (!theaters.length) return;
+        // Check if theater set changed
+        const newCodes = theaters.map(t => t.theater).sort().join(',');
+        if (row.dataset.codes === newCodes) return;
+        row.dataset.codes = newCodes;
+        // Rebuild: keep ALL button, remove old chips
+        row.querySelectorAll('.sitboard-chip:not([data-code="ALL"])').forEach(c => c.remove());
+        theaters.forEach(t => {
+            const btn = document.createElement('button');
+            btn.className = 'sitboard-chip' + (_sitboardSelectedTheaters.has(t.theater) ? ' sitboard-chip-active' : '');
+            btn.dataset.code = t.theater;
+            btn.textContent = t.theater;
+            btn.title = t.theater_name || t.theater;
+            btn.onclick = function() { _sitboardToggleChip(this); };
+            row.appendChild(btn);
+        });
+    }
+
+    function _sitboardToggleChip(btn) {
+        const code = btn.dataset.code;
+        if (code === 'ALL') {
+            // Toggle ALL: clear selection = show all
+            _sitboardSelectedTheaters.clear();
+            document.querySelectorAll('#sitboard-filter-row .sitboard-chip').forEach(c => {
+                c.classList.toggle('sitboard-chip-active', c.dataset.code === 'ALL');
+            });
+        } else {
+            // Toggle individual theater
+            if (_sitboardSelectedTheaters.has(code)) {
+                _sitboardSelectedTheaters.delete(code);
+            } else {
+                _sitboardSelectedTheaters.add(code);
+            }
+            // Update chip styles
+            document.querySelectorAll('#sitboard-filter-row .sitboard-chip').forEach(c => {
+                if (c.dataset.code === 'ALL') {
+                    c.classList.toggle('sitboard-chip-active', _sitboardSelectedTheaters.size === 0);
+                } else {
+                    c.classList.toggle('sitboard-chip-active', _sitboardSelectedTheaters.has(c.dataset.code));
+                }
+            });
+        }
+        if (_sitboardData) _renderSitBoard(_sitboardData);
+    }
+    window._sitboardToggleChip = _sitboardToggleChip;
+
+    function _renderSitBoard(data) {
+        const container = document.getElementById('sitboard-theaters');
+        if (!container) return;
+        let theaters = data.theaters || [];
+        if (!theaters.length) {
+            container.innerHTML = `<div style="color:#666;font-size:10px;text-align:center;padding:20px 0;">${_t('panel.sitboard.no_data')}</div>`;
+            return;
+        }
+
+        // Filter by selected theaters (empty set = show all)
+        if (_sitboardSelectedTheaters.size > 0) {
+            theaters = theaters.filter(t => _sitboardSelectedTheaters.has(t.theater));
+        }
+        if (!theaters.length) {
+            container.innerHTML = `<div style="color:#666;font-size:10px;text-align:center;padding:20px 0;">${_t('panel.sitboard.no_data')}</div>`;
+            return;
+        }
+
+        // Direction description helpers
+        const _dirDesc = {
+            'ESCALATING':    _t('panel.sitboard.dir_desc_esc')    || 'Multiple indicators trending toward heightened tension',
+            'DE-ESCALATING': _t('panel.sitboard.dir_desc_deesc')  || 'Indicators suggest easing tension',
+            'STABLE':        _t('panel.sitboard.dir_desc_stable') || 'No significant directional change detected',
+        };
+
+        // Climate indicator readable names
+        const _clmLabels = {
+            T2: _t('panel.sitboard.clm_t2') || 'Media Tempo',
+            T4: _t('panel.sitboard.clm_t4') || 'Search Trends',
+            S1: _t('panel.sitboard.clm_s1') || 'Aviation Rerouting',
+            S2: _t('panel.sitboard.clm_s2') || 'Shipping Anomaly',
+            S3: _t('panel.sitboard.clm_s3') || 'Forex Stress',
+            O1: _t('panel.sitboard.clm_o1') || 'Cert Surge',
+            O3: _t('panel.sitboard.clm_o3') || 'Narrative Shift',
+        };
+
+        let html = '';
+        for (const t of theaters) {
+            const dirClass = t.direction === 'ESCALATING' ? 'sit-esc'
+                           : t.direction === 'DE-ESCALATING' ? 'sit-deesc' : 'sit-stable';
+            const dirArrow = t.direction === 'ESCALATING' ? '\u2191'
+                           : t.direction === 'DE-ESCALATING' ? '\u2193' : '\u2192';
+            const dirLabel = _t(`panel.sitboard.dir_${t.direction.toLowerCase().replace('-', '_')}`) || t.direction;
+            const theaterLabel = t.theater_name ? `${t.theater_name} (${t.theater})` : t.theater;
+
+            html += `<div class="sitboard-theater ${dirClass}">`;
+
+            // Header: country name + direction
+            html += `<div class="sitboard-theater-header">`;
+            html += `<span class="sitboard-theater-code">${_escHtml(theaterLabel)}</span>`;
+            html += `<span class="sitboard-direction ${dirClass}">${dirArrow} ${_escHtml(dirLabel)}</span>`;
+            html += `</div>`;
+
+            // Direction description
+            html += `<div class="sitboard-dir-desc">${_escHtml(_dirDesc[t.direction] || '')}</div>`;
+
+            // Metrics row — with full descriptions
+            html += `<div class="sitboard-metrics">`;
+            if (t.tone_current !== null) {
+                const toneDir = t.tone_delta_7d !== null ? (t.tone_delta_7d < 0 ? '\u25bc' : '\u25b2') : '';
+                const toneDelta = t.tone_delta_7d !== null ? ` (7d ${toneDir}${Math.abs(t.tone_delta_7d).toFixed(1)})` : '';
+                const toneDesc = t.tone_current < -3 ? ' — hostile' : t.tone_current < -1 ? ' — negative' : t.tone_current < 1 ? ' — neutral' : ' — positive';
+                html += `<span class="sitboard-metric" title="GDELT global media tone index">${_t('panel.sitboard.metric_tone')} ${t.tone_current.toFixed(1)}${toneDesc}${toneDelta}</span>`;
+            }
+            if (t.media_concentration !== null && t.media_concentration > 0.5) {
+                html += `<span class="sitboard-metric" title="State-affiliated media publication rate vs baseline">${_t('panel.sitboard.metric_media')} ${t.media_concentration.toFixed(1)}\u03c3 above normal</span>`;
+            }
+            if (t.aviation_change_pct !== null && Math.abs(t.aviation_change_pct) > 5) {
+                const avDesc = t.aviation_change_pct < 0 ? 'below normal' : 'above normal';
+                html += `<span class="sitboard-metric" title="Civilian flight count change from baseline">${_t('panel.sitboard.metric_aviation')} ${Math.abs(t.aviation_change_pct).toFixed(0)}% ${avDesc}</span>`;
+            }
+            if (t.forex_z !== null && Math.abs(t.forex_z) > 0.8) {
+                const fxDesc = t.forex_z > 0 ? 'weakening' : 'strengthening';
+                html += `<span class="sitboard-metric" title="Currency deviation from baseline">${_t('panel.sitboard.metric_forex')} ${Math.abs(t.forex_z).toFixed(1)}\u03c3 ${fxDesc}</span>`;
+            }
+            if (t.climate_indicators.length > 0) {
+                const clmDesc = t.climate_indicators.map(c => _clmLabels[c] || c).join(', ');
+                html += `<span class="sitboard-metric sitboard-metric-clm" title="Active indirect indicators">${_t('panel.sitboard.metric_climate_active') || 'Active signals'}: ${clmDesc}</span>`;
+            }
+            html += `</div>`;
+
+            // Wire items
+            const wire = t.wire || [];
+            if (wire.length > 0) {
+                html += `<div class="sitboard-wire">`;
+                for (const w of wire) {
+                    const sevClass = w.severity >= 2 ? 'sit-wire-sig' : w.severity === 1 ? 'sit-wire-note' : '';
+                    html += `<div class="sitboard-wire-item ${sevClass}">`;
+                    html += `<span class="sitboard-wire-ts">${w.ts_iso}</span>`;
+                    html += `<span class="sitboard-wire-src">${_escHtml(w.source)}</span>`;
+                    html += `<span class="sitboard-wire-text">${_escHtml(w.text)}</span>`;
+                    html += `</div>`;
+                }
+                html += `</div>`;
+            }
+
+            html += `</div>`;
+        }
+        container.innerHTML = html;
+    }
+
+
+    window._updateSitBoardFromPoll = function() {
+        const panel = document.getElementById('sitboard-panel');
+        if (panel && panel.style.display !== 'none') {
+            _fetchSitBoardData();
+        }
+    };

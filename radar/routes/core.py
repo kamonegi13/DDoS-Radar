@@ -1467,6 +1467,14 @@ def get_threat_data():
                 "analytics": deep_analytics,
             },
         }
+        # Store the active theater set for Situation Board filtering
+        _active_theaters = set()
+        _active_theaters.add(core_theater)
+        _active_theaters.update(requested_targets)
+        _active_theaters.update(correlate_targets)
+        _active_theaters.update(adversary_states)
+        _new_cache["active_theaters"] = sorted(_active_theaters)
+
         with _global_cache_lock:
             st.global_cache = _new_cache
 
@@ -1480,6 +1488,20 @@ def get_threat_data():
             "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
             "blockade_index": deep_analytics["blockade_index"],
         })
+
+        # ── Strategic Climate Engine update ───────────────────────────────────
+        try:
+            from radar.climate_state import climate_engine
+            climate_engine.update(_routes.registry)
+        except Exception as _ce:
+            log.debug(f"[Climate] update error: {_ce}")
+
+        # ── Situation Board update ────────────────────────────────────────────
+        try:
+            from radar.situation_state import situation_engine
+            situation_engine.update(_routes.registry, _new_cache)
+        except Exception as _se:
+            log.debug(f"[Situation] update error: {_se}")
 
         # ── WebSocket push + external notifications ──────────────────────────
         emit_threat_update(core_theater, _new_cache["strategic"])
@@ -1521,11 +1543,20 @@ def get_threat_data():
             "ambush_z":  t_ambush_z,
         })
 
+    # Climate gauge summary (lightweight, embedded in main response)
+    try:
+        from radar.climate_state import climate_engine
+        _climate = climate_engine.get_summary()
+        _climate_gauge = _climate.get("gauge", {})
+    except Exception:
+        _climate_gauge = {}
+
     return jsonify({
         "timestamp":       datetime.datetime.now().isoformat(),
         "sensor_health":   _routes.registry.health_report(),
         "strategic_alert": st.global_cache["strategic"],
         "targets":         results,
         "threat_history":  _db.threat_list(),
+        "climate_gauge":   _climate_gauge,
     })
 

@@ -955,6 +955,75 @@
 .corr-heatmap-body:has(.corr-grid-compact) .corr-toggle-group { margin-bottom:3px; }
 .corr-heatmap-body:has(.corr-grid-compact) .corr-toggle-btn { font-size:9px; padding:2px 5px; }
 .corr-heatmap-body:has(.corr-grid-compact) .corr-legend { margin-top:3px; font-size:8px; gap:6px; }
+/* ── Strategic Climate Feed ───────────────────────────────── */
+.climate-body { padding: 0; display: flex; flex-direction: column; max-height: 500px; }
+.climate-gauge-bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(0,0,0,0.4); border-bottom: 1px solid #222; }
+.climate-gauge-label { font-size: 8px; color: #888; letter-spacing: 2px; text-transform: uppercase; min-width: 50px; }
+.climate-gauge-track { flex: 1; height: 6px; background: #1a1a1a; border-radius: 3px; overflow: hidden; border: 1px solid #333; }
+.climate-gauge-fill { height: 100%; width: 0%; border-radius: 3px; transition: width 0.8s ease, background 0.8s ease; }
+.climate-gauge-level { font-size: 10px; font-weight: bold; letter-spacing: 1px; min-width: 80px; text-align: right; }
+.climate-gauge-fill[data-level="FROZEN"]     { width: 5%;  background: #4488aa; }
+.climate-gauge-fill[data-level="COOL"]       { width: 25%; background: #44aa66; }
+.climate-gauge-fill[data-level="WARMING"]    { width: 50%; background: #ffaa00; }
+.climate-gauge-fill[data-level="HOT"]        { width: 75%; background: #ff6622; }
+.climate-gauge-fill[data-level="FLASHPOINT"] { width: 100%; background: #ff2a2a; }
+.climate-filter-row { display: flex; gap: 2px; padding: 4px 8px; background: rgba(0,0,0,0.2); border-bottom: 1px solid #1a1a1a; }
+.climate-filter-btn { font-size: 9px; padding: 2px 6px; background: transparent; border: 1px solid transparent; color: #666; cursor: pointer; border-radius: 2px; letter-spacing: 0.5px; }
+.climate-filter-btn:hover { color: #aaa; border-color: #444; }
+.climate-filter-active { color: var(--color-accent); border-color: rgba(0,255,255,0.2); background: rgba(0,255,255,0.05); }
+.climate-feed { overflow-y: auto; flex: 1; padding: 4px 0; }
+.climate-event { padding: 6px 10px; border-bottom: 1px solid #111; cursor: default; transition: background 0.15s; }
+.climate-event:hover { background: rgba(255,255,255,0.02); }
+.climate-event-header { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.climate-event-ts { font-size: 9px; color: #555; font-family: monospace; min-width: 52px; }
+.climate-event-tag { font-size: 8px; padding: 1px 4px; border-radius: 2px; letter-spacing: 0.5px; font-weight: bold; }
+.climate-event-tag[data-axis="time"]    { color: #ffaa00; background: rgba(255,170,0,0.1); border: 1px solid rgba(255,170,0,0.2); }
+.climate-event-tag[data-axis="space"]   { color: #4488ff; background: rgba(68,136,255,0.1); border: 1px solid rgba(68,136,255,0.2); }
+.climate-event-tag[data-axis="target"]  { color: #ff4488; background: rgba(255,68,136,0.1); border: 1px solid rgba(255,68,136,0.2); }
+.climate-event-tag[data-axis="context"] { color: #888; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); }
+.climate-event-headline { font-size: 10px; color: #ccc; flex: 1; }
+.climate-event-detail { font-size: 9px; color: #777; line-height: 1.5; padding-left: 58px; }
+.climate-event[data-severity="2"] .climate-event-headline { color: #ff8844; }
+.climate-event[data-severity="2"] { border-left: 2px solid #ff884433; }
+/* Climate HUD indicator (compact, next to threat level) */
+.hud-climate-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid #333; border-radius: 3px; font-size: 9px; letter-spacing: 1px; cursor: pointer; transition: border-color 0.3s; margin-left: 6px; vertical-align: middle; }
+.hud-climate-badge:hover { border-color: #555; }
+.hud-climate-dot { width: 6px; height: 6px; border-radius: 50%; }
+.hud-climate-dot[data-level="FROZEN"]     { background: #4488aa; }
+.hud-climate-dot[data-level="COOL"]       { background: #44aa66; }
+.hud-climate-dot[data-level="WARMING"]    { background: #ffaa00; }
+.hud-climate-dot[data-level="HOT"]        { background: #ff6622; }
+.hud-climate-dot[data-level="FLASHPOINT"] { background: #ff2a2a; }
+/* ── Situation Board ───────────────────────────────────── */
+.sitboard-body { display: flex; flex-direction: column; max-height: 600px; }
+.sitboard-filter-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 10px; border-bottom: 1px solid #222; }
+.sitboard-chip { background: #111; color: #666; border: 1px solid #333; border-radius: 3px; font-size: 9px; padding: 2px 7px; cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; }
+.sitboard-chip:hover { color: #aaa; border-color: #555; }
+.sitboard-chip-active { color: var(--color-accent); border-color: rgba(0,255,255,0.3); background: rgba(0,255,255,0.06); }
+.sitboard-theaters { overflow-y: auto; flex: 1; }
+.sitboard-theater { border-bottom: 1px solid #1a1a1a; padding: 0; }
+.sitboard-theater-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px 4px; }
+.sitboard-theater-code { font-size: 13px; font-weight: bold; letter-spacing: 1px; color: #ddd; }
+.sitboard-direction { font-size: 10px; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; }
+.sit-esc .sitboard-direction { color: #ff6622; background: rgba(255,102,34,0.1); }
+.sit-deesc .sitboard-direction { color: #44cc66; background: rgba(68,204,102,0.1); }
+.sit-stable .sitboard-direction { color: #888; background: rgba(136,136,136,0.08); }
+.sitboard-dir-desc { font-size: 9px; color: #666; padding: 0 10px 4px; line-height: 1.3; }
+.sit-esc .sitboard-dir-desc { color: #aa7733; }
+.sit-deesc .sitboard-dir-desc { color: #55aa77; }
+.sitboard-metrics { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 2px 10px 6px; }
+.sitboard-metric { font-size: 9px; color: #999; background: #111; padding: 1px 5px; border-radius: 2px; border: 1px solid #222; white-space: nowrap; }
+.sitboard-metric-clm { color: var(--color-accent); border-color: rgba(0,255,255,0.15); }
+.sitboard-wire { border-top: 1px dashed #222; padding: 4px 0; }
+.sitboard-wire-item { display: flex; gap: 6px; padding: 2px 10px; font-size: 10px; line-height: 1.4; align-items: baseline; }
+.sitboard-wire-item:hover { background: rgba(255,255,255,0.02); }
+.sitboard-wire-ts { color: #555; font-size: 9px; white-space: nowrap; min-width: 52px; }
+.sitboard-wire-src { color: #666; font-size: 8px; letter-spacing: 0.5px; min-width: 44px; text-align: right; }
+.sitboard-wire-text { color: #aaa; }
+.sit-wire-note .sitboard-wire-text { color: #ccaa44; }
+.sit-wire-sig .sitboard-wire-text { color: #ff8844; }
+.sit-esc { border-left: 2px solid rgba(255,102,34,0.3); }
+.sit-deesc { border-left: 2px solid rgba(68,204,102,0.2); }
 /* ── Coordination Index: Constellation Pattern ───────────── */
 /* Constellation glow track (wide, dim, breathing) */
 .coord-glow { pointer-events: none; outline: none; animation: coordGlowBreathe 5s ease-in-out infinite; }

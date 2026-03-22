@@ -221,6 +221,33 @@ CREATE TABLE IF NOT EXISTS cooccurrence_stats (
     UNIQUE(sensor_a, sensor_b, theater)
 );
 CREATE INDEX IF NOT EXISTS idx_cooccur_sensors ON cooccurrence_stats (sensor_a, sensor_b);
+
+-- Climate Feed events (persistent)
+CREATE TABLE IF NOT EXISTS climate_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         REAL NOT NULL,
+    indicator  TEXT NOT NULL,
+    axis       TEXT NOT NULL,
+    headline   TEXT NOT NULL,
+    detail     TEXT NOT NULL,
+    severity   INTEGER NOT NULL DEFAULT 0,
+    theater    TEXT NOT NULL DEFAULT '',
+    meta_json  TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_climate_events_ts ON climate_events (ts);
+CREATE INDEX IF NOT EXISTS idx_climate_events_dedup ON climate_events (indicator, theater, ts);
+
+-- Situation Wire items (persistent)
+CREATE TABLE IF NOT EXISTS situation_wire (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         REAL NOT NULL,
+    theater    TEXT NOT NULL,
+    source     TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    severity   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_situation_wire_ts ON situation_wire (ts);
+CREATE INDEX IF NOT EXISTS idx_situation_wire_theater ON situation_wire (theater, ts);
 """
 
 # Column name mapping for parameterized HOD methods
@@ -1035,8 +1062,98 @@ class RadarDB:
         # Prune expired noise exclusion rules
         conn.execute("DELETE FROM noise_exclusion WHERE expires_at IS NOT NULL AND expires_at < ?",
                       (_time.time(),))
+        # Prune old climate events and situation wire (keep last 48 hours)
+        cutoff_48h = _time.time() - 48 * 86400
+        conn.execute("DELETE FROM climate_events WHERE ts < ?", (cutoff_48h,))
+        conn.execute("DELETE FROM situation_wire WHERE ts < ?", (cutoff_48h,))
         conn.commit()
         log.info("[DB] Startup cleanup complete")
+
+    # ── Climate Events ─────────────────────────────────────────────────────
+    def climate_events_save(self, events: list[dict]):
+        """Persist climate events. Replaces existing entries with same (indicator, theater, hour)."""
+        if not events:
+            return
+        conn = self._get_conn()
+        # Delete old entries matching same dedup key (indicator, theater, hour_bucket)
+        for e in events:
+            hour_bucket = int(e["ts"] // 3600)
+            hour_start = hour_bucket * 3600
+            hour_end = hour_start + 3600
+            conn.execute(
+                "DELETE FROM climate_events WHERE indicator=? AND theater=? AND ts>=? AND ts<?",
+                (e["indicator"], e.get("theater", ""), hour_start, hour_end),
+            )
+        conn.executemany(
+            "INSERT INTO climate_events (ts, indicator, axis, headline, detail, severity, theater, meta_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [(e["ts"], e["indicator"], e["axis"], e["headline"], e["detail"],
+              e.get("severity", 0), e.get("theater", ""), json.dumps(e.get("meta", {})))
+             for e in events],
+        )
+        conn.commit()
+
+    def climate_events_load(self, since_ts: float) -> list[dict]:
+        """Load climate events since a given timestamp."""
+        rows = self._get_conn().execute(
+            "SELECT ts, indicator, axis, headline, detail, severity, theater, meta_json "
+            "FROM climate_events WHERE ts > ? ORDER BY ts",
+            (since_ts,),
+        ).fetchall()
+        result = []
+        for r in rows:
+            result.append({
+                "ts": r["ts"], "indicator": r["indicator"], "axis": r["axis"],
+                "headline": r["headline"], "detail": r["detail"],
+                "severity": r["severity"], "theater": r["theater"],
+                "meta": json.loads(r["meta_json"]) if r["meta_json"] else {},
+            })
+        return result
+
+    def climate_events_prune(self, before_ts: float):
+        """Remove climate events older than given timestamp."""
+        conn = self._get_conn()
+        conn.execute("DELETE FROM climate_events WHERE ts < ?", (before_ts,))
+        conn.commit()
+
+    # ── Situation Wire ───────────────────────────────────────────────────────
+    def situation_wire_save(self, items: list[dict]):
+        """Persist wire items. Replaces existing entries with same (theater, source, hour)."""
+        if not items:
+            return
+        conn = self._get_conn()
+        # Delete old entries matching same dedup key (theater, source, hour_bucket)
+        for w in items:
+            hour_bucket = int(w["ts"] // 3600)
+            hour_start = hour_bucket * 3600
+            hour_end = hour_start + 3600
+            conn.execute(
+                "DELETE FROM situation_wire WHERE theater=? AND source=? AND ts>=? AND ts<?",
+                (w["theater"], w["source"], hour_start, hour_end),
+            )
+        conn.executemany(
+            "INSERT INTO situation_wire (ts, theater, source, text, severity) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [(w["ts"], w["theater"], w["source"], w["text"], w.get("severity", 0))
+             for w in items],
+        )
+        conn.commit()
+
+    def situation_wire_load(self, since_ts: float) -> list[dict]:
+        """Load wire items since a given timestamp."""
+        rows = self._get_conn().execute(
+            "SELECT ts, theater, source, text, severity "
+            "FROM situation_wire WHERE ts > ? ORDER BY ts",
+            (since_ts,),
+        ).fetchall()
+        return [{"ts": r["ts"], "theater": r["theater"], "source": r["source"],
+                 "text": r["text"], "severity": r["severity"]} for r in rows]
+
+    def situation_wire_prune(self, before_ts: float):
+        """Remove wire items older than given timestamp."""
+        conn = self._get_conn()
+        conn.execute("DELETE FROM situation_wire WHERE ts < ?", (before_ts,))
+        conn.commit()
 
     # ── Utility ─────────────────────────────────────────────────────────────
     def close(self):

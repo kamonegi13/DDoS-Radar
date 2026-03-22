@@ -765,6 +765,48 @@ const LANG = {
     'panel.heatmap.legend.warning':   'Warning',
     'panel.heatmap.legend.alert':     'Alert',
 
+    // ══════════════════════════════════════════════════════════════
+    // Strategic Climate Feed
+    // ══════════════════════════════════════════════════════════════
+    'tools.strategic_climate':            'Strategic Climate',
+    'panel.climate.title':                'STRATEGIC CLIMATE',
+    'panel.climate.gauge_label':          'CLIMATE',
+    'panel.climate.loading':              'Collecting climate signals...',
+    'panel.climate.no_events':            'No climate signals detected',
+    'panel.climate.filter_all':           'ALL',
+    'panel.climate.filter_time':          'TIME',
+    'panel.climate.filter_space':         'SPACE',
+    'panel.climate.filter_target':        'TARGET',
+    'panel.climate.filter_context':       'CAL',
+    'hud.tooltip.climate':                'Strategic Climate — Indirect environmental indicators',
+
+    // ══════════════════════════════════════════════════════════════
+    // Situation Board
+    // ══════════════════════════════════════════════════════════════
+    'tools.situation_board':              'Situation Board',
+    'panel.sitboard.title':               'SITUATION BOARD',
+    'panel.sitboard.loading':             'Loading situation data...',
+    'panel.sitboard.no_data':             'No situation data available yet',
+    'panel.sitboard.filter_all':          'ALL THEATERS',
+    'panel.sitboard.dir_escalating':      'ESCALATING',
+    'panel.sitboard.dir_stable':          'STABLE',
+    'panel.sitboard.dir_de_escalating':   'DE-ESCALATING',
+    'panel.sitboard.metric_tone':         'Media Tone',
+    'panel.sitboard.metric_media':        'State Media',
+    'panel.sitboard.metric_aviation':     'Civilian Aviation',
+    'panel.sitboard.metric_forex':        'Currency',
+    'panel.sitboard.metric_climate_active': 'Active indirect signals',
+    'panel.sitboard.dir_desc_esc':        'Multiple indicators trending toward heightened tension',
+    'panel.sitboard.dir_desc_deesc':      'Indicators suggest easing tension',
+    'panel.sitboard.dir_desc_stable':     'No significant directional change detected',
+    'panel.sitboard.clm_t2':             'Media Tempo',
+    'panel.sitboard.clm_t4':             'Search Trends',
+    'panel.sitboard.clm_s1':             'Aviation Rerouting',
+    'panel.sitboard.clm_s2':             'Shipping Anomaly',
+    'panel.sitboard.clm_s3':             'Forex Stress',
+    'panel.sitboard.clm_o1':             'Cert Surge',
+    'panel.sitboard.clm_o3':             'Narrative Shift',
+
     // Phase 3: TOOLS menu sections
     'tools.section.core':             'CORE',
     'tools.section.analytics':        'ANALYTICS',
@@ -1817,6 +1859,48 @@ const LANG = {
     'panel.heatmap.legend.quiet':     '静穏',
     'panel.heatmap.legend.warning':   '警戒',
     'panel.heatmap.legend.alert':     '警報',
+
+    // ══════════════════════════════════════════════════════════════
+    // 戦略的環境気候フィード
+    // ══════════════════════════════════════════════════════════════
+    'tools.strategic_climate':            '戦略的環境気候',
+    'panel.climate.title':                '戦略的環境気候',
+    'panel.climate.gauge_label':          '環境気候',
+    'panel.climate.loading':              '環境シグナルを収集中...',
+    'panel.climate.no_events':            '環境シグナルなし',
+    'panel.climate.filter_all':           '全て',
+    'panel.climate.filter_time':          '時間',
+    'panel.climate.filter_space':         '空間',
+    'panel.climate.filter_target':        '対象',
+    'panel.climate.filter_context':       '暦',
+    'hud.tooltip.climate':                '戦略的環境気候 — 間接的環境指標',
+
+    // ══════════════════════════════════════════════════════════════
+    // 情勢ボード
+    // ══════════════════════════════════════════════════════════════
+    'tools.situation_board':              '情勢ボード',
+    'panel.sitboard.title':               '情勢ボード',
+    'panel.sitboard.loading':             '情勢データを読み込み中...',
+    'panel.sitboard.no_data':             '情勢データはまだありません',
+    'panel.sitboard.filter_all':          '全シアター',
+    'panel.sitboard.dir_escalating':      'エスカレーション中',
+    'panel.sitboard.dir_stable':          '安定',
+    'panel.sitboard.dir_de_escalating':   'デエスカレーション中',
+    'panel.sitboard.metric_tone':         'メディア論調',
+    'panel.sitboard.metric_media':        '国営メディア',
+    'panel.sitboard.metric_aviation':     '民間航空',
+    'panel.sitboard.metric_forex':        '通貨',
+    'panel.sitboard.metric_climate_active': '活性化中の間接指標',
+    'panel.sitboard.dir_desc_esc':        '複数の指標が緊張の高まりを示唆',
+    'panel.sitboard.dir_desc_deesc':      '指標は緊張の緩和を示唆',
+    'panel.sitboard.dir_desc_stable':     '有意な方向性の変化なし',
+    'panel.sitboard.clm_t2':             'メディアテンポ',
+    'panel.sitboard.clm_t4':             '検索トレンド',
+    'panel.sitboard.clm_s1':             '航空回避',
+    'panel.sitboard.clm_s2':             '船舶異常',
+    'panel.sitboard.clm_s3':             '為替ストレス',
+    'panel.sitboard.clm_o1':             '証明書急増',
+    'panel.sitboard.clm_o3':             'ナラティブシフト',
 
     // Phase 3: TOOLSメニューセクション
     'tools.section.core':             'コア',
