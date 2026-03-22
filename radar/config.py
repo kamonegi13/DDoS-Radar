@@ -234,3 +234,36 @@ PERSISTENCE_STATE_FILE    = os.path.join(PERSISTENCE_DIR, "state.json")
 PERSISTENCE_SAVE_INTERVAL = int(os.getenv("PERSISTENCE_SAVE_INTERVAL", "300"))  # seconds (default: 5 min)
 
 OPENSKY_MIN_INTERVAL = int(os.getenv("OPENSKY_MIN_INTERVAL", "10"))
+
+# ── Phase C: New Sensor Config ─────────────────────────────────────────────
+# S1: NOTAM anomaly detection
+NOTAM_SURGE_THRESHOLD         = int(os.getenv("NOTAM_SURGE_THRESHOLD", "20"))
+NOTAM_MILITARY_KEYWORDS       = [kw.strip().upper() for kw in os.getenv(
+    "NOTAM_MILITARY_KEYWORDS",
+    "MILITARY,MIL AIRSPACE,PROHIBITED AREA,RESTRICTED AREA,DANGER AREA,"
+    "LIVE FIRING,MISSILE,EXERCISE,TFR,NO FLY,HAZARD AREA,COMBAT,"
+    "AIR DEFENSE,AIR REFUELING"
+).split(",") if kw.strip()]
+
+# S4: USGS Seismic
+USGS_MIN_MAGNITUDE            = float(os.getenv("USGS_MIN_MAGNITUDE", "4.0"))
+USGS_CABLE_RADIUS_KM          = float(os.getenv("USGS_CABLE_RADIUS_KM", "200"))
+
+# S6: GPS Jamming
+GPS_JAM_THRESHOLD             = float(os.getenv("GPS_JAM_THRESHOLD", "3.0"))
+GPS_JAM_CRITICAL_THRESHOLD    = float(os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "7.0"))
+
+# S7: CT Log
+CT_LOG_SURGE_THRESHOLD        = int(os.getenv("CT_LOG_SURGE_THRESHOLD", "100"))
+CT_LOG_GOV_TLDS: dict[str, list] = {
+    "TW": ["gov.tw", "mil.tw"],
+    "JP": ["go.jp", "mod.go.jp"],
+    "KR": ["go.kr", "mil.kr"],
+    "CN": ["gov.cn", "mil.cn"],
+    "RU": ["gov.ru", "mil.ru"],
+    "UA": ["gov.ua", "mil.gov.ua"],
+    "IR": ["gov.ir", "ir"],
+    "IL": ["gov.il", "idf.il"],
+    "US": ["gov", "mil"],
+    "PH": ["gov.ph"],
+}

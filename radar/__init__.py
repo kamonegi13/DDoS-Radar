@@ -42,6 +42,8 @@ from radar.sensors import (  # noqa: E402
     RssNarrativeSensor, IsrHotspotSensor, AisMaritimeSensor,
     TelegramMirrorSensor, CheckHostSensor, GreyNoiseSensor,
     SpaceWeatherSensor, IhrSensor, RipeAtlasSensor, TorMetricsSensor,
+    NotamSensor, TravelAdvisorySensor, OoniSensor, UsgsSeismicSensor,
+    MilSupportAirSensor, GpsJammingSensor, CtLogSensor,
 )
 for _s in [
     CloudflareSensor(), IodaSensor(), OpenSkySensor(), OpenWeatherSensor(),
@@ -49,6 +51,8 @@ for _s in [
     RssNarrativeSensor(), IsrHotspotSensor(), AisMaritimeSensor(),
     TelegramMirrorSensor(), CheckHostSensor(), GreyNoiseSensor(),
     SpaceWeatherSensor(), IhrSensor(), RipeAtlasSensor(), TorMetricsSensor(),
+    NotamSensor(), TravelAdvisorySensor(), OoniSensor(), UsgsSeismicSensor(),
+    MilSupportAirSensor(), GpsJammingSensor(), CtLogSensor(),
 ]:
     registry.register(_s)
 

@@ -11,7 +11,11 @@ from radar.config import (
     FEINT_MIN_DISTRACTION_DOMAINS,
     ESCALATION_TL_THRESHOLDS,
 )
-from radar.models import RationaleEntry
+from radar.models import (
+    RationaleEntry,
+    DIRECTION_ADVERSARY_OFFENSIVE, DIRECTION_FRIENDLY_DEFENSIVE,
+    DIRECTION_TARGET_IMPACT, DIRECTION_UNKNOWN,
+)
 from radar.sensors.base import BaseSensor
 
 class SensorRegistry:
@@ -513,4 +517,331 @@ class WeightedConvergenceEngine:
             "predicted_time_sec": predicted_time_sec,
             "tl_transitions": transitions[-10:],
             "pattern": pattern,
+        }
+
+    # ── Context-Aware Convergence (CAC) ─────────────────────────────────────
+
+    @staticmethod
+    def compute_context_alignment(rationale: list) -> dict:
+        """Compute Context Alignment — an independent metric (does NOT affect score)
+        showing how many of 4 context axes are in a high-risk state.
+
+        Axes:
+        1. Temporal: multiple signals occurring within business hours / outside normal patterns
+        2. Spatial: signals concentrated near strategic chokepoints / proximate geography
+        3. Target: signals directly targeting strategic theaters (not ambient noise)
+        4. Direction: multiple ADVERSARY_OFFENSIVE signals converging
+
+        Returns: {
+            "alignment_score": 0-4 (count of aligned axes),
+            "alignment_pct": 0-100,
+            "axes": {"temporal": {...}, "spatial": {...}, "target": {...}, "direction": {...}},
+            "label": "LOW" / "MODERATE" / "HIGH" / "CRITICAL"
+        }
+        """
+        fired = [e for e in rationale
+                 if isinstance(e, RationaleEntry) and e.status == "FIRED" and not e.suppressed]
+        if not fired:
+            return {
+                "alignment_score": 0, "alignment_pct": 0,
+                "axes": {
+                    "temporal": {"aligned": False, "detail": "no_signals"},
+                    "spatial": {"aligned": False, "detail": "no_signals"},
+                    "target": {"aligned": False, "detail": "no_signals"},
+                    "direction": {"aligned": False, "detail": "no_signals"},
+                },
+                "label": "LOW",
+            }
+
+        # ── Temporal axis ─────────────────────────────────────────────────
+        # Aligned when: signals cluster outside normal business hours (night ops)
+        # or during known high-risk temporal windows
+        temporal_contexts = [e.temporal_context for e in fired if e.temporal_context]
+        temporal_aligned = False
+        temporal_detail = "insufficient_data"
+        if temporal_contexts:
+            off_hours = sum(1 for tc in temporal_contexts if not tc.get("is_business_hours", True))
+            weekend = sum(1 for tc in temporal_contexts if tc.get("is_weekend", False))
+            total = len(temporal_contexts)
+            # Night operations or weekend activity indicates deliberate timing
+            if total > 0 and (off_hours / total > 0.5 or weekend / total > 0.5):
+                temporal_aligned = True
+                temporal_detail = f"off_hours={off_hours}/{total} weekend={weekend}/{total}"
+            else:
+                temporal_detail = f"business_hours={total - off_hours}/{total}"
+
+        # ── Spatial axis ──────────────────────────────────────────────────
+        # Aligned when: signals are geographically proximate or near chokepoints
+        spatial_contexts = [e.spatial_context for e in fired if e.spatial_context]
+        spatial_aligned = False
+        spatial_detail = "insufficient_data"
+        if spatial_contexts:
+            proximate = sum(1 for sc in spatial_contexts if sc.get("distance_class") == "PROXIMATE")
+            near_cp = sum(1 for sc in spatial_contexts if sc.get("near_chokepoint", False))
+            total = len(spatial_contexts)
+            if total > 0 and (proximate / total > 0.3 or near_cp > 0):
+                spatial_aligned = True
+                spatial_detail = f"proximate={proximate}/{total} chokepoint={near_cp}"
+            else:
+                spatial_detail = f"distant={total - proximate}/{total}"
+
+        # ── Target axis ───────────────────────────────────────────────────
+        # Aligned when: signals directly target strategic theaters
+        target_contexts = [e.target_context for e in fired if e.target_context]
+        target_aligned = False
+        target_detail = "insufficient_data"
+        if target_contexts:
+            direct = sum(1 for tc in target_contexts if tc.get("target_relevance") == "DIRECT")
+            adv_involved = sum(1 for tc in target_contexts if tc.get("adversary_involvement", False))
+            total = len(target_contexts)
+            if total > 0 and (direct / total > 0.3 or adv_involved > 0):
+                target_aligned = True
+                target_detail = f"direct={direct}/{total} adversary={adv_involved}"
+            else:
+                target_detail = f"ambient={total - direct}/{total}"
+
+        # ── Direction axis ────────────────────────────────────────────────
+        # Aligned when: multiple ADVERSARY_OFFENSIVE signals present
+        adv_offensive = [e for e in fired if e.direction == DIRECTION_ADVERSARY_OFFENSIVE]
+        direction_aligned = False
+        direction_detail = f"adversary_offensive={len(adv_offensive)}"
+        if len(adv_offensive) >= 2:
+            direction_aligned = True
+            # High confidence if average direction_confidence is strong
+            avg_dir_conf = sum(e.direction_confidence for e in adv_offensive) / len(adv_offensive)
+            direction_detail += f" avg_conf={avg_dir_conf:.2f}"
+
+        # ── Aggregate ─────────────────────────────────────────────────────
+        axes = {
+            "temporal": {"aligned": temporal_aligned, "detail": temporal_detail},
+            "spatial": {"aligned": spatial_aligned, "detail": spatial_detail},
+            "target": {"aligned": target_aligned, "detail": target_detail},
+            "direction": {"aligned": direction_aligned, "detail": direction_detail},
+        }
+        score = sum(1 for a in axes.values() if a["aligned"])
+        labels = {0: "LOW", 1: "LOW", 2: "MODERATE", 3: "HIGH", 4: "CRITICAL"}
+        return {
+            "alignment_score": score,
+            "alignment_pct": round(score / 4 * 100),
+            "axes": axes,
+            "label": labels[score],
+        }
+
+    @staticmethod
+    def compute_direction_summary(rationale: list) -> dict:
+        """Summarize direction classifications across all fired rationale entries.
+
+        Returns: {
+            "adversary_offensive": count,
+            "friendly_defensive": count,
+            "target_impact": count,
+            "unknown": count,
+            "dominant_direction": str,
+            "direction_clarity": float (0-1, how clear the dominant direction is)
+        }
+        """
+        fired = [e for e in rationale
+                 if isinstance(e, RationaleEntry) and e.status == "FIRED" and not e.suppressed]
+        counts = {
+            DIRECTION_ADVERSARY_OFFENSIVE: 0,
+            DIRECTION_FRIENDLY_DEFENSIVE: 0,
+            DIRECTION_TARGET_IMPACT: 0,
+            DIRECTION_UNKNOWN: 0,
+        }
+        for e in fired:
+            d = e.direction if e.direction in counts else DIRECTION_UNKNOWN
+            counts[d] += 1
+
+        total = sum(counts.values())
+        if total == 0:
+            return {
+                "adversary_offensive": 0, "friendly_defensive": 0,
+                "target_impact": 0, "unknown": 0,
+                "dominant_direction": DIRECTION_UNKNOWN,
+                "direction_clarity": 0.0,
+            }
+
+        dominant = max(counts, key=counts.get)
+        clarity = counts[dominant] / total if total > 0 else 0.0
+
+        return {
+            "adversary_offensive": counts[DIRECTION_ADVERSARY_OFFENSIVE],
+            "friendly_defensive": counts[DIRECTION_FRIENDLY_DEFENSIVE],
+            "target_impact": counts[DIRECTION_TARGET_IMPACT],
+            "unknown": counts[DIRECTION_UNKNOWN],
+            "dominant_direction": dominant,
+            "direction_clarity": round(clarity, 3),
+        }
+
+    @staticmethod
+    def build_event_feature_summary(sensor_name: str, theater: str,
+                                     value: str, rationale: list,
+                                     confirmed_threats: list = None) -> dict:
+        """Generate supporting information for analyst noise classification.
+
+        Returns dict with:
+        - similar_events: count of similar past confirmed events
+        - recurrence_pattern: FIRST_TIME / RECURRING / FREQUENT
+        - cross_domain_signals: other domains with concurrent activity
+        - contradiction_warnings: signals that contradict the current alert
+        """
+        confirmed_threats = confirmed_threats or []
+
+        # Count similar past events for this sensor/theater combination
+        similar = [ct for ct in confirmed_threats
+                   if ct.get("theater") == theater
+                   and sensor_name in ct.get("sensors_active", [])]
+        similar_count = len(similar)
+
+        if similar_count == 0:
+            recurrence = "FIRST_TIME"
+        elif similar_count < 3:
+            recurrence = "RECURRING"
+        else:
+            recurrence = "FREQUENT"
+
+        # Past classification distribution
+        classifications = {}
+        for ct in similar:
+            cls = ct.get("classification", "unknown")
+            classifications[cls] = classifications.get(cls, 0) + 1
+
+        # Cross-domain concurrent activity
+        fired = [e for e in rationale
+                 if isinstance(e, RationaleEntry) and e.status == "FIRED" and not e.suppressed]
+        active_domains = set(e.domain for e in fired)
+
+        # Contradiction detection: defensive signals alongside offensive ones
+        contradictions = []
+        offensive = [e for e in fired if e.direction == DIRECTION_ADVERSARY_OFFENSIVE]
+        defensive = [e for e in fired if e.direction == DIRECTION_FRIENDLY_DEFENSIVE]
+        if offensive and defensive:
+            contradictions.append({
+                "type": "OFFENSIVE_DEFENSIVE_COEXIST",
+                "detail": (f"{len(offensive)} adversary offensive + "
+                           f"{len(defensive)} friendly defensive signals"),
+            })
+
+        return {
+            "similar_events": similar_count,
+            "recurrence_pattern": recurrence,
+            "past_classifications": classifications,
+            "cross_domain_signals": sorted(active_domains),
+            "contradiction_warnings": contradictions,
+        }
+
+    # ── CAC Phase D: Forecast + Co-occurrence ─────────────────────────────
+
+    @staticmethod
+    def record_forecast(db, theater: str, current_time: float,
+                        threat_level: int, escalation_data: dict) -> int | None:
+        """
+        Record a TL forecast based on escalation prediction.
+        Only records when escalation predictor has sufficient confidence.
+        Returns forecast_log ID or None.
+        """
+        pred = escalation_data.get("prediction", {})
+        pred_tl = pred.get("predicted_tl")
+        if pred_tl is None:
+            return None
+        # Only forecast if predicted TL differs from current
+        if pred_tl == threat_level:
+            return None
+        forecast_type = "tl_escalation" if pred_tl < threat_level else "tl_de_escalation"
+        predicted_str = f"TL{pred_tl}"
+        try:
+            return db.forecast_log_add(theater, current_time, forecast_type, predicted_str)
+        except Exception:
+            return None
+
+    @staticmethod
+    def resolve_pending_forecasts(db, theater: str, current_time: float,
+                                  current_tl: int):
+        """
+        Resolve any pending forecasts whose prediction window has elapsed.
+        Compares predicted TL against actual TL to compute accuracy.
+        """
+        try:
+            pending = db.forecast_log_get(theater, limit=50)
+        except Exception:
+            return
+        for f in pending:
+            if f.get("resolved_at") is not None:
+                continue  # Already resolved
+            age = current_time - f["ts"]
+            # Resolve forecasts after 1 hour (prediction window)
+            if age < 3600:
+                continue
+            predicted = f.get("predicted", "")
+            # Extract TL number from "TLn"
+            try:
+                pred_tl = int(predicted.replace("TL", ""))
+            except (ValueError, AttributeError):
+                continue
+            actual_str = f"TL{current_tl}"
+            # Accuracy: 1.0 = exact match, 0.5 = off by 1, 0.0 = off by ≥2
+            diff = abs(pred_tl - current_tl)
+            accuracy = 1.0 if diff == 0 else 0.5 if diff == 1 else 0.0
+            try:
+                db.forecast_log_resolve(f["id"], actual_str, accuracy)
+            except Exception:
+                pass
+
+    @staticmethod
+    def compute_cooccurrence_boost(db, fired_sensors: list[str],
+                                   theater: str) -> dict:
+        """
+        Compute co-occurrence-based sensitivity boost.
+        When sensor pairs that historically fire together are BOTH firing,
+        this returns a confidence boost factor (only UP, never down).
+
+        Returns: {
+            "boost_factor": float (1.0 = no boost, max 1.5),
+            "boosted_pairs": list of sensor pair dicts,
+            "reasoning": str
+        }
+        """
+        if len(fired_sensors) < 2:
+            return {"boost_factor": 1.0, "boosted_pairs": [], "reasoning": ""}
+
+        try:
+            cooc_stats = db.cooccurrence_get(theater)
+        except Exception:
+            return {"boost_factor": 1.0, "boosted_pairs": [], "reasoning": ""}
+
+        fired_set = set(fired_sensors)
+        boosted_pairs = []
+
+        for stat in cooc_stats:
+            sa, sb = stat["sensor_a"], stat["sensor_b"]
+            if sa not in fired_set or sb not in fired_set:
+                continue
+            co = stat.get("co_count", 0)
+            total = co + stat.get("solo_a_count", 0) + stat.get("solo_b_count", 0)
+            if total < 5:
+                continue  # Not enough data
+            co_rate = co / total
+            # Pairs that fire together >60% of the time indicate correlated
+            # threats; boost confidence when they co-fire again
+            if co_rate >= 0.6:
+                boosted_pairs.append({
+                    "sensor_a": sa, "sensor_b": sb,
+                    "co_rate": round(co_rate, 3),
+                    "co_count": co, "total": total,
+                })
+
+        if not boosted_pairs:
+            return {"boost_factor": 1.0, "boosted_pairs": [], "reasoning": ""}
+
+        # Boost factor: 1.0 base + 0.1 per confirmed pair, max 1.5
+        # This only INCREASES sensitivity (design principle)
+        boost = min(1.0 + 0.1 * len(boosted_pairs), 1.5)
+        pair_names = [f"{p['sensor_a']}+{p['sensor_b']}" for p in boosted_pairs[:3]]
+        reasoning = (f"Co-occurrence boost: {len(boosted_pairs)} correlated pair(s) "
+                     f"firing simultaneously ({', '.join(pair_names)})")
+
+        return {
+            "boost_factor": round(boost, 2),
+            "boosted_pairs": boosted_pairs,
+            "reasoning": reasoning,
         }

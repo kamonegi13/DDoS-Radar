@@ -354,12 +354,14 @@ class TestHelpers:
 
     def test_calculate_overlap_identical(self):
         d = {"A": 5.0, "B": 3.0}
-        assert calculate_overlap(d, d) == 8.0
+        # Normalized: both distributions identical → 100% overlap
+        assert calculate_overlap(d, d) == 100.0
 
     def test_calculate_overlap_partial(self):
-        d1 = {"A": 5.0, "B": 3.0}
-        d2 = {"A": 2.0, "C": 10.0}
-        assert calculate_overlap(d1, d2) == 2.0  # min(5,2) + min(3,0) + min(0,10)
+        d1 = {"A": 5.0, "B": 3.0}       # normalized: A=62.5%, B=37.5%
+        d2 = {"A": 2.0, "C": 10.0}       # normalized: A=16.67%, C=83.33%
+        # overlap = min(62.5,16.67) + min(37.5,0) + min(0,83.33) = 16.67%
+        assert calculate_overlap(d1, d2) == 16.67
 
     def test_compute_confidence_state_asn(self):
         assert compute_confidence(3.0, "CN", False, True) == "HIGH"

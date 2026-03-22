@@ -501,6 +501,42 @@
         /* TL Proximity indicator in HUD (hud-item style) */
         .tl-prox-up   { color: #ff4444; }
         .tl-prox-down { color: #66ffaa; }
+
+        /* ── CAC: Context Alignment ── */
+        .cac-low      { color: #555; }
+        .cac-moderate { color: var(--color-warning); }
+        .cac-high     { color: #ff8833; }
+        .cac-critical { color: var(--color-critical); font-weight: bold; }
+        .cac-summary  { font-size: 11px; }
+        .cac-axes     { display: flex; gap: 4px; margin-top: 2px; font-size: 10px; }
+
+        /* ── CAC: Direction badges ── */
+        .dir-badge { font-size: 9px; padding: 1px 4px; border: 1px solid; border-radius: 3px; font-weight: bold; cursor: help; }
+
+        /* ── CAC: Noise Classification button ── */
+        .btn-classify {
+            background: transparent; border: 1px solid #333; border-radius: 3px;
+            font-size: 10px; cursor: pointer; margin-left: 4px; padding: 0 3px;
+            transition: border-color 0.2s;
+        }
+        .btn-classify:hover { border-color: var(--color-accent); }
+
+        /* ── CAC: Attack Phase Panel ── */
+        .phase-bar { display: flex; gap: 2px; margin: 8px 0; }
+        .phase-step {
+            flex: 1; text-align: center; padding: 4px 2px;
+            border: 1px solid #333; border-radius: 3px;
+            transition: all 0.3s;
+        }
+        .phase-active { box-shadow: 0 0 6px rgba(255,255,255,0.1); }
+        .phase-section-label { font-size: 8px; color: #555; margin: 10px 0 4px 0; letter-spacing: 1px; text-transform: uppercase; }
+        .phase-axes { display: flex; gap: 4px; }
+        .phase-axis {
+            flex: 1; text-align: center; padding: 4px;
+            border: 1px solid #222; border-radius: 3px;
+            transition: all 0.3s;
+        }
+        .phase-axis-on { border-color: var(--color-accent); background: rgba(0,255,255,0.05); }
         .tl-prox-stable { color: var(--color-muted); }
         @keyframes tl-prox-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
         .evidence-system-note { font-size: 11px; color: var(--color-text-dim); background: rgba(255,255,255,0.04); border-left: 3px solid #555; padding: 8px 12px; border-radius: 0 4px 4px 0; margin: 12px 0 8px; line-height: 1.6; }
@@ -529,6 +565,19 @@
         #hud-narrative-burst.active { display: inline-block; color: #cc66ff; font-weight: bold; animation: blink 1.2s step-end infinite; font-size: 11px; }
         .convergence-item { font-size: 12px; }
         .conv-val { font-weight: bold; color: var(--color-accent); }
+
+        /* ── HUD Report Button Group ── */
+        .hud-report-group { display: inline-flex; border: 1px solid #00ffff44; border-radius: 3px; overflow: hidden; margin-left: 8px; }
+        .btn-report { margin-left: 0 !important; border: none !important; border-radius: 0 !important; border-right: 1px solid #00ffff22 !important; color: var(--color-accent); }
+        .btn-report:last-child { border-right: none !important; }
+        .btn-report:hover { background: rgba(0, 255, 255, 0.15); border-color: var(--color-accent); color: var(--color-accent); }
+
+        /* ── Evidence Modal Sections ── */
+        .evidence-section-label { font-size: 9px; color: #00ffff88; text-transform: uppercase; letter-spacing: 2px; margin: 16px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #00ffff15; }
+        .evidence-section-label:first-child { margin-top: 0; }
+        .evidence-footer { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 16px; border-top: 1px solid #333; background: rgba(0,0,0,0.3); flex-shrink: 0; }
+        .btn-evidence-action { font-size: 10px; padding: 5px 14px; color: #aaa; border-color: #555; }
+        .btn-evidence-action:hover { color: var(--color-accent); border-color: var(--color-accent); }
 
         .sensor-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--color-border); }
         .sensor-name { font-size: 12px; color: #ccc; flex: 1; font-family: 'Courier New', monospace; }
@@ -648,14 +697,18 @@
         }
         .leaflet-popup-close-button:hover { color: var(--color-accent) !important; }
 
-        /* ── Intuition UI: SALUTE Board ── */
-        #salute-panel .panel-content { font-family: 'Courier New', monospace; padding: 10px 12px; }
+        /* ── SALUTE Report (modal) ── */
+        #salute-modal .salute-body { font-family: 'Courier New', monospace; padding: 10px 12px; }
         .salute-ts { font-size: 8px; color: #aa8855; }
         .s-row { display: flex; gap: 4px; margin-bottom: 5px; line-height: 1.4; }
         .s-key   { color: #ff9922; font-weight: bold; width: 20px; flex-shrink: 0; font-size: 12px; }
         .s-label { color: #bb8844; width: 72px; flex-shrink: 0; font-size: 9px; padding-top: 2px; text-transform: uppercase; letter-spacing: 1px; }
         .s-val   { color: #ddcc99; flex: 1; font-size: 10px; line-height: 1.4; }
-        .s-assess { margin-top: 8px; padding: 6px 8px; background: rgba(255,136,0,0.08); border-left: 2px solid #ff880055; border-radius: 0 4px 4px 0; font-size: 9px; color: #cc9966; line-height: 1.6; }
+        .s-tl-badge { text-align: center; margin-bottom: 10px; padding: 6px 0; border: 1px solid; border-radius: 4px; background: rgba(0,0,0,0.3); }
+        .s-tl-level { font-size: 16px; font-weight: bold; letter-spacing: 2px; }
+        .s-crossref { margin-top: 10px; padding: 6px 8px; background: rgba(0,255,255,0.05); border-left: 2px solid #00ffff33; border-radius: 0 4px 4px 0; font-size: 10px; color: #88aaaa; line-height: 1.5; }
+        .s-crossref-label { color: #00ffff66; font-size: 8px; text-transform: uppercase; letter-spacing: 1px; margin-right: 6px; }
+        .s-assess { margin-top: 8px; padding: 8px 10px; background: rgba(255,136,0,0.08); border-left: 2px solid #ff880055; border-radius: 0 4px 4px 0; font-size: 10px; color: #cc9966; line-height: 1.7; }
 
         /* ── Intuition UI: Historical Analog ── */
         #hist-analog-panel .panel-content { padding: 10px 12px; }
@@ -674,13 +727,12 @@
         /* ── Floating color overrides for new panels ── */
         #op-clock-panel.floating      { background: rgba(8,10,12,0.96) !important; border-color: #1a2a1a !important; }
         #weather-brief-panel.floating { background: rgba(8,10,16,0.97) !important; border-color: #1a2a3a !important; }
-        #salute-panel.floating        { background: rgba(8,10,12,0.97) !important; border-color: #2a1800 !important; }
         #hist-analog-panel.floating   { background: rgba(8,10,12,0.97) !important; border-color: #2a1a00 !important; }
         #pulse-panel.floating         { background: rgba(8,10,12,0.88) !important; border-color: #1a1a1a !important; }
 
         /* ── Left Sidebar ── */
         #left-sidebar { width: 280px; flex-shrink: 0; background: #121212; border-right: 1px solid #444; display: none; flex-direction: column; z-index: 10; box-shadow: 5px 0 20px rgba(0,0,0,0.5); overflow-y: auto; }
-        #lsb-ph-pulse, #lsb-ph-wx, #lsb-ph-sal, #lsb-ph-ha, #lsb-ph-clk { flex-shrink: 0; }
+        #lsb-ph-pulse, #lsb-ph-wx, #lsb-ph-ha, #lsb-ph-clk, #lsb-ph-phase { flex-shrink: 0; }
 
         /* ── Intuition UI: TOOLS Dropdown Menu ── */
         .tools-dropdown-wrap { position: relative; margin-left: 8px; }

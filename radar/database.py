@@ -151,6 +151,76 @@ CREATE TABLE IF NOT EXISTS sensor_fetch_log (
     error        TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_fetch_log_sensor_ts ON sensor_fetch_log (sensor_name, ts);
+
+-- CAC: Noise exclusion rules (analyst-defined)
+CREATE TABLE IF NOT EXISTS noise_exclusion (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sensor      TEXT NOT NULL,
+    theater     TEXT NOT NULL DEFAULT '',
+    pattern     TEXT NOT NULL DEFAULT '',
+    reason      TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL,
+    created_by  TEXT NOT NULL DEFAULT '',
+    expires_at  REAL DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_noise_excl_sensor ON noise_exclusion (sensor, theater);
+
+-- CAC: Confirmed threat events (analyst classification)
+CREATE TABLE IF NOT EXISTS confirmed_threats (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    theater         TEXT NOT NULL,
+    ts              REAL NOT NULL,
+    classification  TEXT NOT NULL DEFAULT '',
+    sensors_json    TEXT NOT NULL DEFAULT '[]',
+    threat_level    INTEGER NOT NULL DEFAULT 5,
+    notes           TEXT NOT NULL DEFAULT '',
+    created_by      TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_confirmed_theater_ts ON confirmed_threats (theater, ts);
+
+-- CAC: Daily summary snapshots for long-term trend analysis
+CREATE TABLE IF NOT EXISTS daily_summary (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    theater       TEXT NOT NULL,
+    day_bucket    INTEGER NOT NULL,
+    avg_score     REAL NOT NULL DEFAULT 0.0,
+    max_score     REAL NOT NULL DEFAULT 0.0,
+    min_tl        INTEGER NOT NULL DEFAULT 5,
+    max_tl        INTEGER NOT NULL DEFAULT 5,
+    fired_sensors TEXT NOT NULL DEFAULT '[]',
+    domain_scores TEXT NOT NULL DEFAULT '{}',
+    context_alignment TEXT NOT NULL DEFAULT '{}',
+    summary_json  TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(theater, day_bucket)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_summary_theater ON daily_summary (theater, day_bucket);
+
+-- CAC: Forecast log for prediction accuracy tracking
+CREATE TABLE IF NOT EXISTS forecast_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    theater       TEXT NOT NULL,
+    ts            REAL NOT NULL,
+    forecast_type TEXT NOT NULL DEFAULT '',
+    predicted     TEXT NOT NULL DEFAULT '',
+    actual        TEXT DEFAULT NULL,
+    resolved_at   REAL DEFAULT NULL,
+    accuracy      REAL DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_forecast_theater_ts ON forecast_log (theater, ts);
+
+-- CAC: Co-occurrence statistics for sensor pattern learning (sensitivity UP only)
+CREATE TABLE IF NOT EXISTS cooccurrence_stats (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    sensor_a      TEXT NOT NULL,
+    sensor_b      TEXT NOT NULL,
+    theater       TEXT NOT NULL DEFAULT '',
+    co_count      INTEGER NOT NULL DEFAULT 0,
+    solo_a_count  INTEGER NOT NULL DEFAULT 0,
+    solo_b_count  INTEGER NOT NULL DEFAULT 0,
+    last_updated  REAL NOT NULL,
+    UNIQUE(sensor_a, sensor_b, theater)
+);
+CREATE INDEX IF NOT EXISTS idx_cooccur_sensors ON cooccurrence_stats (sensor_a, sensor_b);
 """
 
 # Column name mapping for parameterized HOD methods
@@ -720,6 +790,235 @@ class RadarDB:
         row = self._get_conn().execute("SELECT COUNT(*) FROM sensor_caches").fetchone()
         return row[0] if row else 0
 
+    # ── noise_exclusion ────────────────────────────────────────────────────
+    def noise_excl_add(self, sensor: str, theater: str, pattern: str,
+                       reason: str, created_by: str,
+                       expires_at: float = None) -> int:
+        import time as _time
+        conn = self._get_conn()
+        cur = conn.execute(
+            "INSERT INTO noise_exclusion (sensor, theater, pattern, reason, "
+            "created_at, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sensor, theater, pattern, reason, _time.time(), created_by, expires_at),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+    def noise_excl_remove(self, rule_id: int) -> bool:
+        conn = self._get_conn()
+        cur = conn.execute("DELETE FROM noise_exclusion WHERE id=?", (rule_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+    def noise_excl_list(self, sensor: str = None, theater: str = None) -> list[dict]:
+        import time as _time
+        conn = self._get_conn()
+        q = "SELECT id, sensor, theater, pattern, reason, created_at, created_by, expires_at FROM noise_exclusion WHERE 1=1"
+        params = []
+        if sensor:
+            q += " AND sensor=?"
+            params.append(sensor)
+        if theater:
+            q += " AND (theater=? OR theater='')"
+            params.append(theater)
+        # Exclude expired rules
+        q += " AND (expires_at IS NULL OR expires_at > ?)"
+        params.append(_time.time())
+        rows = conn.execute(q, params).fetchall()
+        return [{"id": r[0], "sensor": r[1], "theater": r[2], "pattern": r[3],
+                 "reason": r[4], "created_at": r[5], "created_by": r[6],
+                 "expires_at": r[7]} for r in rows]
+
+    def noise_excl_match(self, sensor: str, theater: str, value: str) -> Optional[dict]:
+        """Check if a signal matches any active noise exclusion rule."""
+        rules = self.noise_excl_list(sensor=sensor, theater=theater)
+        for rule in rules:
+            pattern = rule.get("pattern", "")
+            if pattern and pattern in value:
+                return rule
+        return None
+
+    # ── confirmed_threats ──────────────────────────────────────────────────
+    def confirmed_threat_add(self, theater: str, ts: float, classification: str,
+                             sensors_active: list, threat_level: int,
+                             notes: str, created_by: str) -> int:
+        conn = self._get_conn()
+        cur = conn.execute(
+            "INSERT INTO confirmed_threats (theater, ts, classification, sensors_json, "
+            "threat_level, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (theater, ts, classification, json.dumps(sensors_active),
+             threat_level, notes, created_by),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+    def confirmed_threat_list(self, theater: str = None, limit: int = 100) -> list[dict]:
+        conn = self._get_conn()
+        if theater:
+            rows = conn.execute(
+                "SELECT id, theater, ts, classification, sensors_json, threat_level, "
+                "notes, created_by FROM confirmed_threats WHERE theater=? "
+                "ORDER BY ts DESC LIMIT ?", (theater, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, theater, ts, classification, sensors_json, threat_level, "
+                "notes, created_by FROM confirmed_threats ORDER BY ts DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{"id": r[0], "theater": r[1], "ts": r[2], "classification": r[3],
+                 "sensors_active": json.loads(r[4]), "threat_level": r[5],
+                 "notes": r[6], "created_by": r[7]} for r in rows]
+
+    # ── daily_summary ──────────────────────────────────────────────────────
+    def daily_summary_upsert(self, theater: str, day_bucket: int,
+                             avg_score: float, max_score: float,
+                             min_tl: int, max_tl: int,
+                             fired_sensors: list, domain_scores: dict,
+                             context_alignment: dict, summary: dict):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO daily_summary "
+            "(theater, day_bucket, avg_score, max_score, min_tl, max_tl, "
+            "fired_sensors, domain_scores, context_alignment, summary_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (theater, day_bucket, avg_score, max_score, min_tl, max_tl,
+             json.dumps(fired_sensors), json.dumps(domain_scores),
+             json.dumps(context_alignment), json.dumps(summary, default=str)),
+        )
+        conn.commit()
+
+    def daily_summary_get(self, theater: str, days: int = 90) -> list[dict]:
+        import time as _time
+        cutoff = int(_time.time() // 86400) * 86400 - days * 86400
+        rows = self._get_conn().execute(
+            "SELECT theater, day_bucket, avg_score, max_score, min_tl, max_tl, "
+            "fired_sensors, domain_scores, context_alignment, summary_json "
+            "FROM daily_summary WHERE theater=? AND day_bucket>=? ORDER BY day_bucket",
+            (theater, cutoff),
+        ).fetchall()
+        return [{"theater": r[0], "day_bucket": r[1], "avg_score": r[2],
+                 "max_score": r[3], "min_tl": r[4], "max_tl": r[5],
+                 "fired_sensors": json.loads(r[6]), "domain_scores": json.loads(r[7]),
+                 "context_alignment": json.loads(r[8]),
+                 "summary": json.loads(r[9])} for r in rows]
+
+    # ── forecast_log ───────────────────────────────────────────────────────
+    def forecast_log_add(self, theater: str, ts: float, forecast_type: str,
+                         predicted: str) -> int:
+        conn = self._get_conn()
+        cur = conn.execute(
+            "INSERT INTO forecast_log (theater, ts, forecast_type, predicted) "
+            "VALUES (?, ?, ?, ?)",
+            (theater, ts, forecast_type, predicted),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+    def forecast_log_resolve(self, forecast_id: int, actual: str, accuracy: float):
+        import time as _time
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE forecast_log SET actual=?, resolved_at=?, accuracy=? WHERE id=?",
+            (actual, _time.time(), accuracy, forecast_id),
+        )
+        conn.commit()
+
+    def forecast_log_get(self, theater: str = None, limit: int = 100) -> list[dict]:
+        conn = self._get_conn()
+        if theater:
+            rows = conn.execute(
+                "SELECT id, theater, ts, forecast_type, predicted, actual, "
+                "resolved_at, accuracy FROM forecast_log WHERE theater=? "
+                "ORDER BY ts DESC LIMIT ?", (theater, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, theater, ts, forecast_type, predicted, actual, "
+                "resolved_at, accuracy FROM forecast_log ORDER BY ts DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{"id": r[0], "theater": r[1], "ts": r[2], "forecast_type": r[3],
+                 "predicted": r[4], "actual": r[5], "resolved_at": r[6],
+                 "accuracy": r[7]} for r in rows]
+
+    def forecast_accuracy_summary(self, theater: str = None) -> dict:
+        """Aggregate forecast accuracy for resolved forecasts."""
+        conn = self._get_conn()
+        if theater:
+            row = conn.execute(
+                "SELECT COUNT(*) AS total, "
+                "SUM(CASE WHEN accuracy IS NOT NULL THEN 1 ELSE 0 END) AS resolved, "
+                "AVG(accuracy) AS avg_accuracy "
+                "FROM forecast_log WHERE theater=? AND resolved_at IS NOT NULL",
+                (theater,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) AS total, "
+                "SUM(CASE WHEN accuracy IS NOT NULL THEN 1 ELSE 0 END) AS resolved, "
+                "AVG(accuracy) AS avg_accuracy "
+                "FROM forecast_log WHERE resolved_at IS NOT NULL",
+            ).fetchone()
+        return {
+            "total_forecasts": row[0] if row else 0,
+            "resolved": row[1] if row else 0,
+            "avg_accuracy": round(row[2], 4) if row and row[2] is not None else None,
+        }
+
+    # ── cooccurrence_stats ─────────────────────────────────────────────────
+    def cooccurrence_update(self, sensor_a: str, sensor_b: str, theater: str,
+                            both_fired: bool):
+        """Update co-occurrence counts. Only increases sensitivity (per design principle)."""
+        import time as _time
+        # Ensure consistent ordering (sensor_a < sensor_b alphabetically)
+        if sensor_a > sensor_b:
+            sensor_a, sensor_b = sensor_b, sensor_a
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT co_count, solo_a_count, solo_b_count FROM cooccurrence_stats "
+            "WHERE sensor_a=? AND sensor_b=? AND theater=?",
+            (sensor_a, sensor_b, theater),
+        ).fetchone()
+        if row:
+            co = row[0] + (1 if both_fired else 0)
+            sa = row[1] + (1 if not both_fired else 0)
+            sb = row[2]
+            conn.execute(
+                "UPDATE cooccurrence_stats SET co_count=?, solo_a_count=?, "
+                "solo_b_count=?, last_updated=? "
+                "WHERE sensor_a=? AND sensor_b=? AND theater=?",
+                (co, sa, sb, _time.time(), sensor_a, sensor_b, theater),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO cooccurrence_stats "
+                "(sensor_a, sensor_b, theater, co_count, solo_a_count, "
+                "solo_b_count, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (sensor_a, sensor_b, theater,
+                 1 if both_fired else 0,
+                 1 if not both_fired else 0,
+                 0, _time.time()),
+            )
+        conn.commit()
+
+    def cooccurrence_get(self, theater: str = None) -> list[dict]:
+        conn = self._get_conn()
+        if theater:
+            rows = conn.execute(
+                "SELECT sensor_a, sensor_b, theater, co_count, solo_a_count, "
+                "solo_b_count, last_updated FROM cooccurrence_stats WHERE theater=?",
+                (theater,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT sensor_a, sensor_b, theater, co_count, solo_a_count, "
+                "solo_b_count, last_updated FROM cooccurrence_stats",
+            ).fetchall()
+        return [{"sensor_a": r[0], "sensor_b": r[1], "theater": r[2],
+                 "co_count": r[3], "solo_a_count": r[4], "solo_b_count": r[5],
+                 "last_updated": r[6]} for r in rows]
+
     # ── Startup Cleanup ────────────────────────────────────────────────────
     def startup_cleanup(self):
         """Prune stale data on startup. Called once during app init."""
@@ -733,6 +1032,9 @@ class RadarDB:
         conn.execute("DELETE FROM revoked_tokens WHERE revoked_at < ?", (cutoff_7d,))
         # Prune old fetch log entries (keep last 7 days)
         conn.execute("DELETE FROM sensor_fetch_log WHERE ts < ?", (cutoff_7d,))
+        # Prune expired noise exclusion rules
+        conn.execute("DELETE FROM noise_exclusion WHERE expires_at IS NOT NULL AND expires_at < ?",
+                      (_time.time(),))
         conn.commit()
         log.info("[DB] Startup cleanup complete")
 

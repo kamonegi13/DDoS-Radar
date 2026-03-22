@@ -1,4 +1,5 @@
-"""radar.scoring -- Sequence scorer, HOD Z-score, CF helpers, misc scoring functions."""
+"""radar.scoring -- Sequence scorer, HOD Z-score, CF helpers, misc scoring functions,
+   and Context-Aware Convergence (CAC) direction classification."""
 from __future__ import annotations
 import hashlib
 import logging
@@ -11,6 +12,11 @@ from radar.config import (
     HOD_BASELINE_DAYS, HOD_MIN_SAME_HOUR, HOD_MAX_ENTRIES,
     DEFAULT_CORE, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES, DEFAULT_PINS,
     ADAPTIVE_ZSCORE_ENABLED, ADAPTIVE_ZSCORE_MIN_SAMPLES, ADAPTIVE_ZSCORE_SENSITIVITY,
+    STATE_ASNS, COUNTRY_COORDS, CHOKEPOINTS,
+)
+from radar.models import (
+    DIRECTION_ADVERSARY_OFFENSIVE, DIRECTION_FRIENDLY_DEFENSIVE,
+    DIRECTION_TARGET_IMPACT, DIRECTION_UNKNOWN,
 )
 from radar.state import _cf_scoring_cache
 from radar.database import db as _db
@@ -557,3 +563,206 @@ def compute_confidence(spike_factor: float, code: str, is_new_actor: bool, is_st
     if spike_factor > 3.0: return "MEDIUM"
     if spike_factor > 2.0: return "MEDIUM"
     return "LOW"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Context-Aware Convergence (CAC) — Direction & Context Classification
+# ══════════════════════════════════════════════════════════════════════════════
+
+def classify_direction(sensor_name: str, domain: str,
+                       source_country: str = "",
+                       target_country: str = "",
+                       adversary_states: list = None,
+                       strategic_theaters: list = None,
+                       **kwargs) -> tuple[str, float]:
+    """Classify a signal's direction as ADVERSARY_OFFENSIVE, FRIENDLY_DEFENSIVE,
+    TARGET_IMPACT, or UNKNOWN.
+
+    Returns: (direction: str, confidence: float 0.0-1.0)
+
+    Rules:
+    - Attack traffic FROM adversary state TO target → ADVERSARY_OFFENSIVE (high conf)
+    - ISR/military recon FROM friendly state near target → FRIENDLY_DEFENSIVE
+    - Infrastructure degradation AT target → TARGET_IMPACT
+    - Narrative/media signals: depends on source attribution
+    - State ASN involvement raises confidence
+    """
+    adversary_states = adversary_states or []
+    strategic_theaters = strategic_theaters or []
+    src = source_country.upper() if source_country else ""
+    tgt = target_country.upper() if target_country else ""
+    is_src_adversary = src in adversary_states
+    is_src_friendly = src in strategic_theaters and src not in adversary_states
+    is_tgt_strategic = tgt in strategic_theaters
+
+    # Cyber domain: DDoS origin, BGP manipulation, APT infrastructure
+    if domain == "cyber":
+        if is_src_adversary and is_tgt_strategic:
+            # State ASN involvement increases confidence
+            has_state_asn = kwargs.get("is_state_asn", False)
+            conf = 0.9 if has_state_asn else 0.7
+            return DIRECTION_ADVERSARY_OFFENSIVE, conf
+        if is_src_adversary:
+            return DIRECTION_ADVERSARY_OFFENSIVE, 0.5
+        if is_tgt_strategic and not src:
+            # Impact on target without clear source attribution
+            return DIRECTION_TARGET_IMPACT, 0.4
+        return DIRECTION_UNKNOWN, 0.2
+
+    # Physical domain: airspace, maritime, infrastructure, seismic
+    if domain == "physical":
+        # ISR/reconnaissance: friendly aircraft near target = defensive posture
+        if sensor_name in ("isr_hotspot", "opensky"):
+            if is_src_friendly or kwargs.get("is_friendly_asset", False):
+                return DIRECTION_FRIENDLY_DEFENSIVE, 0.7
+            if is_src_adversary:
+                return DIRECTION_ADVERSARY_OFFENSIVE, 0.6
+        # Infrastructure degradation (Check-Host, IODA, BGP routing)
+        if sensor_name in ("check_host", "ioda_bgp", "ripe_bgp"):
+            if is_tgt_strategic:
+                return DIRECTION_TARGET_IMPACT, 0.8
+        # Maritime: AIS dark gap near chokepoint
+        if sensor_name == "ais_maritime":
+            return DIRECTION_ADVERSARY_OFFENSIVE, 0.4
+        # FIRMS thermal anomaly at target
+        if sensor_name == "nasa_firms":
+            if is_tgt_strategic:
+                return DIRECTION_TARGET_IMPACT, 0.6
+        # Space weather: natural phenomenon, no direction
+        if sensor_name == "space_weather":
+            return DIRECTION_UNKNOWN, 0.0
+        return DIRECTION_UNKNOWN, 0.3
+
+    # Info domain: narrative, media tone, Telegram
+    if domain == "info":
+        if sensor_name in ("rss_narrative", "telegram_mirror"):
+            # Narrative from adversary-attributed sources
+            if kwargs.get("is_adversary_narrative", False):
+                return DIRECTION_ADVERSARY_OFFENSIVE, 0.6
+            # General media tone shift about target
+            if is_tgt_strategic:
+                return DIRECTION_TARGET_IMPACT, 0.4
+        if sensor_name == "gdelt":
+            if is_tgt_strategic:
+                return DIRECTION_TARGET_IMPACT, 0.5
+        return DIRECTION_UNKNOWN, 0.3
+
+    return DIRECTION_UNKNOWN, 0.1
+
+
+def compute_temporal_context(sensor_name: str, current_ts: float,
+                             theater: str) -> dict:
+    """Compute temporal context features for a sensor signal.
+
+    Returns dict with:
+    - hour_of_day: 0-23 UTC
+    - is_business_hours: whether target timezone is in business hours (approx)
+    - day_of_week: 0=Mon, 6=Sun
+    - is_weekend: boolean
+    - recency_weight: decay factor based on data freshness
+    """
+    import datetime
+    dt = datetime.datetime.fromtimestamp(current_ts, tz=datetime.timezone.utc)
+    hod = dt.hour
+    dow = dt.weekday()
+
+    # Approximate business hours for theater (UTC offset estimation)
+    tz_offsets = {
+        "TW": 8, "JP": 9, "KR": 9, "CN": 8, "US": -5, "RU": 3,
+        "UA": 2, "IL": 2, "IR": 3.5, "IN": 5.5, "AU": 10,
+    }
+    offset = tz_offsets.get(theater, 0)
+    local_hour = (hod + offset) % 24
+    is_business = 8 <= local_hour < 18
+
+    return {
+        "hour_of_day": hod,
+        "local_hour": round(local_hour),
+        "is_business_hours": is_business,
+        "day_of_week": dow,
+        "is_weekend": dow >= 5,
+    }
+
+
+def compute_spatial_context(sensor_name: str, theater: str,
+                            source_country: str = "",
+                            adversary_states: list = None) -> dict:
+    """Compute spatial context: geographic relationship between signal source and target.
+
+    Returns dict with:
+    - distance_class: PROXIMATE / REGIONAL / DISTANT
+    - near_chokepoint: boolean
+    - chokepoint_name: nearest chokepoint name if relevant
+    """
+    adversary_states = adversary_states or []
+
+    # Check chokepoint proximity
+    near_cp = False
+    cp_name = ""
+    for cp in CHOKEPOINTS:
+        cp_countries = cp.get("countries", [])
+        if isinstance(cp_countries, list):
+            if theater in cp_countries or source_country in cp_countries:
+                near_cp = True
+                cp_name = cp.get("name", "")
+                break
+
+    # Distance classification based on regional proximity
+    src_coord = COUNTRY_COORDS.get(source_country, {})
+    tgt_coord = COUNTRY_COORDS.get(theater, {})
+    if src_coord and tgt_coord:
+        import math
+        dlat = abs(src_coord.get("lat", 0) - tgt_coord.get("lat", 0))
+        dlng = abs(src_coord.get("lng", 0) - tgt_coord.get("lng", 0))
+        approx_dist = math.sqrt(dlat**2 + dlng**2)
+        if approx_dist < 15:
+            dist_class = "PROXIMATE"
+        elif approx_dist < 40:
+            dist_class = "REGIONAL"
+        else:
+            dist_class = "DISTANT"
+    else:
+        dist_class = "UNKNOWN"
+
+    return {
+        "distance_class": dist_class,
+        "near_chokepoint": near_cp,
+        "chokepoint_name": cp_name,
+    }
+
+
+def compute_target_context(sensor_name: str, theater: str,
+                           source_country: str = "",
+                           adversary_states: list = None,
+                           strategic_theaters: list = None) -> dict:
+    """Compute target context: relationship between signal and monitored target.
+
+    Returns dict with:
+    - target_relevance: DIRECT / INDIRECT / AMBIENT
+    - is_core_theater: boolean
+    - adversary_involvement: boolean
+    - multi_target: boolean (signal affects multiple strategic theaters)
+    """
+    adversary_states = adversary_states or []
+    strategic_theaters = strategic_theaters or []
+    is_core = theater == (strategic_theaters[0] if strategic_theaters else "")
+    is_adversary = source_country in adversary_states if source_country else False
+
+    # Direct: signal specifically targets this theater
+    # Indirect: signal affects regional infrastructure that includes this theater
+    # Ambient: background signal with no specific target attribution
+    if source_country and theater:
+        if is_adversary and theater in strategic_theaters:
+            relevance = "DIRECT"
+        elif theater in strategic_theaters:
+            relevance = "INDIRECT"
+        else:
+            relevance = "AMBIENT"
+    else:
+        relevance = "AMBIENT"
+
+    return {
+        "target_relevance": relevance,
+        "is_core_theater": is_core,
+        "adversary_involvement": is_adversary,
+    }

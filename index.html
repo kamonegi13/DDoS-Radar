@@ -94,7 +94,15 @@
         <div class="hud-item">
             <span id="hud-convergence" class="conv-NONE" data-tooltip="Multi-Domain Convergence Level">CONVERGENCE: —</span>
         </div>
-        
+        <div class="hud-item" id="hud-cac-wrap" style="display:none;">
+            <span class="hud-label" data-i18n="hud.label.context_align">CTX:</span>
+            <span id="hud-cac-score" class="hud-value cac-low" data-i18n-tip="hud.tooltip.context_align">—</span>
+        </div>
+        <div class="hud-item" id="hud-direction-wrap" style="display:none;">
+            <span class="hud-label" data-i18n="hud.label.direction">DIR:</span>
+            <span id="hud-direction" class="hud-value" data-i18n-tip="hud.tooltip.direction">—</span>
+        </div>
+
         <div style="flex-grow: 1;"></div>
         
         <div class="vec-toggle-group">
@@ -140,11 +148,6 @@
                     <span class="tools-menu-label" data-i18n="tools.weather_brief">Weather Brief</span>
                     <span class="tools-menu-dot" id="tm-dot-wx"></span>
                 </div>
-                <div class="tools-menu-item" id="tm-item-sal" onclick="handleToolToggle('salute-panel',          toggleSaluteBoard, 'tm-dot-sal', 'tm-item-sal')">
-                    <span class="tools-menu-icon">📋</span>
-                    <span class="tools-menu-label" data-i18n="tools.salute_board">SALUTE Board</span>
-                    <span class="tools-menu-dot" id="tm-dot-sal"></span>
-                </div>
                 <div class="tools-menu-item" id="tm-item-ha"  onclick="handleToolToggle('hist-analog-panel',     toggleHistAnalog,  'tm-dot-ha',  'tm-item-ha')">
                     <span class="tools-menu-icon">📊</span>
                     <span class="tools-menu-label" data-i18n="tools.historical_analog">Historical Analog</span>
@@ -186,10 +189,10 @@
                     <span class="tools-menu-label" data-i18n="tools.action_plan">Action Plan</span>
                     <span class="tools-menu-dot" id="tm-dot-ap"></span>
                 </div>
-                <div class="tools-menu-item" id="tm-item-esc" onclick="handleToolToggle('escalation-panel', toggleEscalationPanel, 'tm-dot-esc', 'tm-item-esc')">
-                    <span class="tools-menu-icon">📈</span>
-                    <span class="tools-menu-label" data-i18n="tools.escalation_tracker">Escalation Tracker</span>
-                    <span class="tools-menu-dot" id="tm-dot-esc"></span>
+                <div class="tools-menu-item" id="tm-item-phase" onclick="handleToolToggle('attack-phase-panel', toggleAttackPhasePanel, 'tm-dot-phase', 'tm-item-phase')">
+                    <span class="tools-menu-icon">⚔</span>
+                    <span class="tools-menu-label" data-i18n="tools.phase_escalation">Phase & Escalation</span>
+                    <span class="tools-menu-dot" id="tm-dot-phase"></span>
                 </div>
                 <div class="tools-menu-item" id="tm-item-corr" onclick="handleToolToggle('corr-heatmap-panel', toggleCorrHeatmap, 'tm-dot-corr', 'tm-item-corr')">
                     <span class="tools-menu-icon">🌡</span>
@@ -203,7 +206,11 @@
                 </div>
             </div>
         </div>
-        <button class="btn-tactical btn-action" onclick="openSitrep()" data-i18n="hud.btn.sitrep">SITREP</button>
+        <span class="hud-report-group">
+            <button class="btn-tactical btn-report" onclick="openSitrep()" data-i18n="hud.btn.sitrep" data-i18n-tip="hud.tooltip.sitrep">SITREP</button>
+            <button class="btn-tactical btn-report" onclick="openEvidenceFromHud()" data-i18n="hud.btn.evidence" data-i18n-tip="hud.tooltip.evidence">EVIDENCE</button>
+            <button class="btn-tactical btn-report" onclick="openSaluteModal()" data-i18n="hud.btn.salute" data-i18n-tip="hud.tooltip.salute">SALUTE</button>
+        </span>
         <button class="btn-tactical btn-action" onclick="openModal('help-modal')" data-i18n="hud.btn.intel_guide" style="min-width:86px;text-align:center;">Intel Guide</button>
         <button class="btn-tactical btn-action" onclick="openModal('settings-modal')" data-i18n="hud.btn.config" style="min-width:56px;text-align:center;">Config</button>
         <span style="display:inline-flex;margin-left:8px;border:1px solid #00ffff33;border-radius:3px;overflow:hidden;">
@@ -320,9 +327,8 @@
     <div id="left-sidebar">
         <div id="lsb-ph-pulse"></div>
         <div id="lsb-ph-wx"></div>
-        <div id="lsb-ph-sal"></div>
         <div id="lsb-ph-clk"></div>
-        <div id="lsb-ph-esc"></div>
+        <div id="lsb-ph-phase"></div>
         <div id="lsb-ph-corr"></div>
     </div>
 
@@ -910,19 +916,22 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
-     Intuition UI: SALUTE Contact Report (draggable)
+     SALUTE Report Modal (on-demand export)
 ═══════════════════════════════════════════════════════ -->
-<div id="salute-panel" class="draggable-panel floating" style="display:none; left:16px; top:380px;">
-    <div class="drag-handle panel-header-unified">
-        <span data-i18n="panel.salute.title">SALUTE REPORT <span class="salute-ts" id="salute-ts" style="font-size:9px; font-weight:normal; color:#444; letter-spacing:0;">--:--Z</span></span>
+<div id="salute-modal" class="modal-window" style="width:480px; height:auto; max-height:70vh;">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #333; padding-bottom:10px;">
         <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
-            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
-            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('salute-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
+            <span data-i18n="panel.salute.title">SALUTE REPORT</span>
+            <span class="salute-ts" id="salute-ts" style="font-size:9px; font-weight:normal; color:#666; margin-left:8px;">--:--Z</span>
         </div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeSaluteModal()" data-i18n="panel.salute.btn_close">[ X ] Close</button>
     </div>
-    <div class="panel-content salute-body">
-        <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+    <div class="salute-body" style="overflow-y:auto; flex-grow:1; padding:12px;">
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">Loading...</div>
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; padding:10px 16px; border-top:1px solid #333; flex-shrink:0;">
+        <button onclick="copySaluteReport()" class="btn-tactical" style="font-size:10px; padding:5px 12px;" data-i18n="panel.salute.btn_copy">Copy</button>
+        <button onclick="downloadSaluteReport()" class="btn-tactical" style="font-size:10px; padding:5px 12px;" data-i18n="panel.salute.btn_download">Download</button>
     </div>
 </div>
 
@@ -991,19 +1000,19 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
-     Phase 2: Escalation Tracker (draggable)
+     Phase & Escalation (merged panel, dockable)
 ═══════════════════════════════════════════════════════ -->
-<div id="escalation-panel" class="draggable-panel floating" style="display:none; left:780px; top:140px; width:320px;">
+<div id="attack-phase-panel" class="draggable-panel floating" style="display:none; left:350px; top:180px; width:380px;">
     <div class="drag-handle panel-header-unified">
-        <span data-i18n="panel.esc.title">ESCALATION TRACKER</span>
+        <span data-i18n="panel.phase.title">PHASE &amp; ESCALATION</span>
         <div>
             <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
             <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
-            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('escalation-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('attack-phase-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
     </div>
-    <div class="panel-content escalation-body" style="max-height:520px; overflow-y:auto;">
-        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="panel.esc.loading">Loading escalation data...</div>
+    <div class="panel-content attack-phase-body" style="max-height:600px; overflow-y:auto;">
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="panel.phase.loading">Analyzing attack phase...</div>
     </div>
 </div>
 
@@ -1019,7 +1028,7 @@
             <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('corr-heatmap-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
     </div>
-    <div class="panel-content corr-heatmap-body" style="max-height:420px; overflow-y:auto;">
+    <div class="panel-content corr-heatmap-body">
         <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="panel.corr.loading">Loading correlation data...</div>
     </div>
 </div>
@@ -1101,14 +1110,22 @@
     </div>
 </div>
 
-<div id="evidence-modal" class="modal-window" style="width:860px;">
+<div id="evidence-modal" class="modal-window" style="width:920px;">
     <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #333; padding-bottom:10px;">
         <div data-i18n="modal.evidence.title">Analytic Rationale — Evidence Panel</div>
         <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()" data-i18n="modal.evidence.close">[ X ] Close</button>
     </div>
     <div style="overflow-y:auto; flex-grow:1; padding-top:10px;">
+        <!-- Section 1: Convergence Score Breakdown -->
+        <div class="evidence-section-label" data-i18n="modal.evidence.section_convergence">Convergence Score Breakdown</div>
         <div id="evidence-convergence" class="convergence-row"></div>
+
+        <!-- Section 2: System Assessment -->
+        <div class="evidence-section-label" data-i18n="modal.evidence.section_assessment">System Assessment</div>
         <div id="evidence-system-note" class="evidence-system-note"></div>
+
+        <!-- Section 3: Sensor Rationale Matrix -->
+        <div class="evidence-section-label" data-i18n="modal.evidence.section_rationale">Sensor Rationale Matrix</div>
         <table class="rationale-table">
             <thead>
                 <tr>
@@ -1116,8 +1133,9 @@
                     <th style="width:70px;" data-i18n="modal.evidence.th_domain">Domain</th>
                     <th style="width:80px;" data-i18n="modal.evidence.th_status">Status</th>
                     <th style="width:130px;" data-i18n="modal.evidence.th_observed">Observed Value</th>
-                    <th style="width:40px;" data-i18n="modal.evidence.th_score">Score</th>
-                    <th style="width:50px;" data-i18n="modal.evidence.th_confidence">Conf</th>
+                    <th style="width:50px;" data-i18n="modal.evidence.th_score">Score</th>
+                    <th style="width:80px;" data-i18n="modal.evidence.th_confidence">Confidence</th>
+                    <th style="width:70px;" data-i18n="modal.evidence.th_direction">Direction</th>
                     <th data-i18n="modal.evidence.th_reason">Fired Reason / Note</th>
                 </tr>
             </thead>
@@ -1126,6 +1144,11 @@
         <div style="margin-top:16px; padding: 10px 0; border-top: 1px solid #333; font-size:11px; color:#555;">
             <span data-i18n="modal.evidence.noise_filters">Noise filters applied:</span> <span id="evidence-noise-filters" style="color:#aaa;">None</span>
         </div>
+    </div>
+    <!-- Footer: Export Actions -->
+    <div class="evidence-footer">
+        <button onclick="openSaluteModal()" class="btn-tactical btn-evidence-action" data-i18n="modal.evidence.btn_salute">Export SALUTE Report</button>
+        <button onclick="openSitrep()" class="btn-tactical btn-evidence-action" data-i18n="modal.evidence.btn_sitrep">View SITREP</button>
     </div>
 </div>
 
@@ -1416,8 +1439,41 @@
             <li style="color:#66ffcc;">[Info]     telegram_mirror:    TARGETS_FOUND / BURST (Z ≥ 2.0) / INTENT_DETECTED → +1 [v9]</li>
             <li style="color:#66ffcc;">[Info]     telegram_mirror:    CRITICAL_BURST (Z ≥ 3.0) → +2; mean channel confidence &lt; 0.5 → score −1 suppression [v9]</li>
             <li style="color:#66ffcc;">[Info]     maskirovka_flag:    Physical outage confirmed but all narrative channels silent → +1 [v9]</li>
+            <li style="color:#ffaa44;">[Physical] isr_hotspot:         ISR aircraft at strategic hotspot (high-alt &gt;9km + low-speed &lt;160m/s, or FORTE/JAKE/MYSTIC/REAPER/GLOBAL callsign, or squawk 7777). Surge ≥3 → +2 [ISR]</li>
+            <li style="color:#ffaa44;">[Physical] nasa_firms:          NASA EONET active wildfire/thermal event within ±10° of theater — Kinetic Strike Precursor → +3 [EONET]</li>
+            <li style="color:#ffaa44;">[Cyber]    threatfox:           ThreatFox APT IoC (past 24h) with country/APT tag matching theater → +1</li>
+            <li style="color:#ffaa44;">[Info]     gdelt:               GDELT media tone &lt; –15.0 OR Day-of-Week Z &lt; –2.0σ (20-week same-weekday baseline, ≥3 samples). Per-theater keyword-focused queries. Weather-suppressed if severe OWM at same location → +1</li>
+            <li style="color:#88ccff;">[Physical] notam:               FAA NOTAM surge ≥ NOTAM_SURGE_THRESHOLD (20). Military keyword match (EXERCISE, MISSILE, LIVE FIRE, RESTRICTED). Score +2 if ≥3 military NOTAMs, else +1 [CAC]</li>
+            <li style="color:#88ccff;">[Info]     travel_advisory:     US State Dept advisory level ≥3 (Reconsider Travel) → +1; Level 4 (Do Not Travel) → +2. Upgrade detected → +1 [CAC]</li>
+            <li style="color:#88ccff;">[Cyber]    ooni_censorship:     OONI anomaly rate &gt;20% or confirmed blocks &gt;5%. Heavy: anomaly &gt;40% or confirmed &gt;15% → +2, else +1. Registers CENSORSHIP_DETECTED [CAC]</li>
+            <li style="color:#88ccff;">[Physical] usgs_seismic:        Nuclear test detector: shallow (&lt;10km) M4.0+ earthquake in adversary territory → +3. Dual role: earthquake near submarine cable = noise suppressor (suppresses physical domain alerts) [CAC]</li>
+            <li style="color:#88ccff;">[Physical] mil_support_air:     Military support aircraft (tankers KC-135/TEXAC/SHELL, transports C-17/REACH, AWACS E-3/SENTRY) via OpenSky. Surge threshold per type. AWACS active + tanker surge → +2, else +1 [CAC]</li>
+            <li style="color:#88ccff;">[Physical] gps_jamming:         GPSJam crowdsourced ADS-B interference data. Jamming level ≥ 3.0 → +1; critical ≥ 7.0 → +2. Registers GPS_JAMMING event [CAC]</li>
+            <li style="color:#88ccff;">[Cyber]    ct_log:              Certificate Transparency (crt.sh) surge ≥ CT_LOG_SURGE_THRESHOLD (100). Government TLD match bonus: ≥5 gov certs → +2, else +1 [CAC]</li>
         </ul>
-        <p style="font-size:11px; color:#888;"><span style="color:#66ffcc;">■</span> = v9 additions. greynoise sensor contributes score 0 (suppressor only — when NOISE_DOMINANT, all Cyber entries are excluded from the raw score total).</p>
+        <p style="font-size:11px; color:#888;"><span style="color:#66ffcc;">■</span> = v9 additions. <span style="color:#ffaa44;">■</span> = detailed logic for sensors originally listed above. <span style="color:#88ccff;">■</span> = CAC Phase C additions.</p>
+
+        <p><b>Noise Suppressors</b> — Sensors that contribute score 0 but filter false positives from other sensors:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #44aa44; line-height: 1.8;">
+            <li>[Physical] openweather:     OpenWeatherMap real-time conditions per theater. Never fires. SEVERE (weather ID 200-232/500-504/600-622/711/762/771/781 OR wind &gt;25m/s) → suppresses GDELT tone alerts and BGP outage detection for co-located theaters. MODERATE (precip/wind &gt;15m/s) → logged but no suppression. 30min poll, OWM_API_KEY required.</li>
+            <li>[Physical] peeringdb_ixp:   PeeringDB IXP registry per theater. Never fires. Returns Internet Exchange Point count and metadata. Used for infrastructure visualization (critical node mapping). 4hr poll, rate-limited (10s between requests, 60s backoff on 429).</li>
+            <li>[Cyber]    greynoise:       GreyNoise Community/Enterprise API. Score 0. When NOISE_DOMINANT (noise_ratio &gt;70%), all Cyber domain entries are excluded from raw score total — prevents internet background noise from triggering DDoS alerts.</li>
+            <li>[Physical] space_weather:   NOAA SWPC Kp index forecast + GOES X-ray flux. Suppresses physical domain sensors (Check-Host, OpenSky, IHR) when Kp ≥ 6 (MODERATE+ storm) OR X-ray ≥ M-class. Storm scale: MINOR(5)/MODERATE(6)/STRONG(7)/SEVERE(8)/EXTREME(9+). 30min poll.</li>
+            <li>[Physical] usgs_seismic:    (Dual role) Earthquake near submarine cable within USGS_CABLE_RADIUS_KM (200km) → suppresses physical domain false positives. Does NOT suppress if nuclear candidate detected simultaneously.</li>
+        </ul>
+
+        <p><b>Cross-Sensor Correlation Enrichment</b> — When specific sensor pairs co-fire, the system enriches confidence and adds causal context:</p>
+        <ul style="font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #ff8844; line-height: 1.8;">
+            <li><b>DDoS-BGP causal link:</b> CF spike + IODA BGP_OUTAGE co-fire → IODA reason enriched with "DDoS-BGP causal link" (attack likely caused the outage)</li>
+            <li><b>Multi-source physical outage:</b> IHR disconnection + IODA BGP_OUTAGE → both entries set confidence=1.0 (independent confirmation)</li>
+            <li><b>Confirmed infrastructure degradation:</b> RIPE Atlas + Check-Host both FIRED → Check-Host confidence=1.0. Atlas normal but Check-Host fires → "CDN-layer issue possible" annotation</li>
+            <li><b>Censorship chain:</b> Tor relay_drop + IHR disconnection → Tor reason enriched with "Censorship chain" + confidence=1.0, registers CENSORSHIP_DETECTED</li>
+            <li style="color:#88ccff;"><b>Multi-source censorship:</b> OONI censoring + Tor relay_drop → OONI confidence=1.0, "Confirmed by Tor relay drop" [CAC]</li>
+            <li style="color:#88ccff;"><b>EW pattern:</b> GPS Jamming + ISR surge co-fire → GPS reason enriched with "EW pattern: GPS jamming concurrent with ISR surge", confidence=1.0 [CAC]</li>
+            <li style="color:#88ccff;"><b>Confirmed military activity:</b> NOTAM surge + Airspace closure → NOTAM confidence=1.0, "Confirmed by concurrent airspace closure" [CAC]</li>
+        </ul>
+
+        <p><b>Co-occurrence Sensitivity Boost</b> <span style="color:#88ccff;">[CAC Phase D]</span> — Historical sensor pair co-firing rates (≥60% co-occurrence in past 72h) multiplicatively boost the raw score by up to 1.5×. Sensitivity only increases, never decreases (paranoid design).</p>
 
         <p><b>Domain Convergence Bonus</b> — Added when anomalies appear simultaneously across multiple domains (evidence of coordinated MDO activity rather than an isolated incident):</p>
         <ul>
@@ -1485,8 +1541,41 @@
             <li style="color:#66ffcc;">[Info]     telegram_mirror:    TARGETS_FOUND / BURST（Z ≥ 2.0）/ INTENT_DETECTED → +1 [v9]</li>
             <li style="color:#66ffcc;">[Info]     telegram_mirror:    CRITICAL_BURST（Z ≥ 3.0）→ +2; 平均チャンネル信頼度 &lt; 0.5 → スコア −1 抑制 [v9]</li>
             <li style="color:#66ffcc;">[Info]     maskirovka_flag:    物理的障害確認済みだがすべてのナラティブチャンネルが沈黙 → +1 [v9]</li>
+            <li style="color:#ffaa44;">[Physical] isr_hotspot:         戦略ホットスポットの ISR 機（高高度 &gt;9km + 低速 &lt;160m/s、または FORTE/JAKE/MYSTIC/REAPER/GLOBAL コールサイン、またはスコーク 7777）。サージ ≥3 → +2 [ISR]</li>
+            <li style="color:#ffaa44;">[Physical] nasa_firms:          NASA EONET 活発な山火事/熱イベント（シアターの±10°以内）— 運動学的打撃前駆体 → +3 [EONET]</li>
+            <li style="color:#ffaa44;">[Cyber]    threatfox:           ThreatFox APT IoC（過去24時間）国名/APTタグがシアターに一致 → +1</li>
+            <li style="color:#ffaa44;">[Info]     gdelt:               GDELT メディアトーン &lt; –15.0 または 曜日Z &lt; –2.0σ（20週間同一曜日ベースライン、≥3サンプル）。シアター別キーワード検索。同一場所で OWM 深刻気象検出時はウェザー抑制 → +1</li>
+            <li style="color:#88ccff;">[Physical] notam:               FAA NOTAM サージ ≥ NOTAM_SURGE_THRESHOLD (20)。軍事キーワード照合（EXERCISE, MISSILE, LIVE FIRE, RESTRICTED）。軍事 NOTAM ≥3 件 → +2、それ以外 → +1 [CAC]</li>
+            <li style="color:#88ccff;">[Info]     travel_advisory:     米国国務省渡航勧告レベル ≥3（渡航再検討）→ +1；レベル 4（渡航中止）→ +2。アップグレード検出 → +1 [CAC]</li>
+            <li style="color:#88ccff;">[Cyber]    ooni_censorship:     OONI 異常率 &gt;20% または確認済みブロック &gt;5%。重度: 異常 &gt;40% または確認 &gt;15% → +2、それ以外 → +1。CENSORSHIP_DETECTED を登録 [CAC]</li>
+            <li style="color:#88ccff;">[Physical] usgs_seismic:        核実験検出器: 浅発（&lt;10km）M4.0+地震（敵対国領域）→ +3。二重役割: 海底ケーブル近傍の地震 = ノイズ抑制器（物理ドメインアラートを抑制）[CAC]</li>
+            <li style="color:#88ccff;">[Physical] mil_support_air:     軍事支援機（空中給油機 KC-135/TEXAC/SHELL、輸送機 C-17/REACH、AWACS E-3/SENTRY）OpenSky 経由。タイプ別サージ閾値。AWACS 活動中 + 給油機サージ → +2、それ以外 → +1 [CAC]</li>
+            <li style="color:#88ccff;">[Physical] gps_jamming:         GPSJam クラウドソース ADS-B 干渉データ。妨害レベル ≥ 3.0 → +1；クリティカル ≥ 7.0 → +2。GPS_JAMMING イベントを登録 [CAC]</li>
+            <li style="color:#88ccff;">[Cyber]    ct_log:              Certificate Transparency (crt.sh) サージ ≥ CT_LOG_SURGE_THRESHOLD (100)。政府TLD一致ボーナス: gov 証明書 ≥5 → +2、それ以外 → +1 [CAC]</li>
         </ul>
-        <p style="font-size:11px; color:#888;"><span style="color:#66ffcc;">■</span> = v9 追加項目。greynoise センサーのスコア貢献は0（抑制専用 — NOISE_DOMINANT 時、すべての Cyber エントリが生スコア合計から除外される）。</p>
+        <p style="font-size:11px; color:#888;"><span style="color:#66ffcc;">■</span> = v9 追加項目。<span style="color:#ffaa44;">■</span> = 上記リスト済みセンサーの詳細ロジック。<span style="color:#88ccff;">■</span> = CAC Phase C 追加項目。</p>
+
+        <p><b>ノイズ抑制器</b> — スコア貢献0だが他センサーの偽陽性をフィルターするセンサー:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #44aa44; line-height: 1.8;">
+            <li>[Physical] openweather:     OpenWeatherMap シアター別リアルタイム気象条件。発報なし。SEVERE（気象ID 200-232/500-504/600-622/711/762/771/781 または風速 &gt;25m/s）→ 同一場所の GDELT トーンアラートと BGP 障害検出を抑制。MODERATE（降水/風速 &gt;15m/s）→ 記録のみ抑制なし。30分ポーリング、OWM_API_KEY 必須。</li>
+            <li>[Physical] peeringdb_ixp:   PeeringDB IXP レジストリ（シアター別）。発報なし。インターネット交換ポイントの数とメタデータを返却。インフラ可視化（重要ノードマッピング）に使用。4時間ポーリング、レート制限（リクエスト間10秒、429時60秒バックオフ）。</li>
+            <li>[Cyber]    greynoise:       GreyNoise Community/Enterprise API。スコア0。NOISE_DOMINANT（noise_ratio &gt;70%）時、すべての Cyber ドメインエントリが生スコア合計から除外 — インターネットバックグラウンドノイズによる DDoS アラートを防止。</li>
+            <li>[Physical] space_weather:   NOAA SWPC Kp指数予測 + GOES X線フラックス。Kp ≥ 6（MODERATE+嵐）または X線 ≥ Mクラス時、物理ドメインセンサー（Check-Host, OpenSky, IHR）を抑制。嵐スケール: MINOR(5)/MODERATE(6)/STRONG(7)/SEVERE(8)/EXTREME(9+)。30分ポーリング。</li>
+            <li>[Physical] usgs_seismic:    （二重役割）海底ケーブル近傍（USGS_CABLE_RADIUS_KM: 200km以内）の地震 → 物理ドメインの偽陽性を抑制。核候補が同時検出された場合は抑制しない。</li>
+        </ul>
+
+        <p><b>クロスセンサー相関エンリッチメント</b> — 特定のセンサーペアが同時発報した場合、信頼度を強化し因果関係を付加:</p>
+        <ul style="font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #ff8844; line-height: 1.8;">
+            <li><b>DDoS-BGP 因果リンク:</b> CF スパイク + IODA BGP_OUTAGE 同時発報 → IODA の理由に "DDoS-BGP causal link" を追加（攻撃が障害を引き起こした可能性）</li>
+            <li><b>複数ソース物理障害:</b> IHR 切断 + IODA BGP_OUTAGE → 両エントリの信頼度=1.0（独立確認）</li>
+            <li><b>確認済みインフラ劣化:</b> RIPE Atlas + Check-Host 両方 FIRED → Check-Host 信頼度=1.0。Atlas 正常だが Check-Host 発報 → "CDN-layer issue possible" 注釈</li>
+            <li><b>検閲チェーン:</b> Tor リレー減少 + IHR 切断 → Tor の理由に "Censorship chain" を追加 + 信頼度=1.0、CENSORSHIP_DETECTED を登録</li>
+            <li style="color:#88ccff;"><b>複数ソース検閲:</b> OONI 検閲中 + Tor リレー減少 → OONI 信頼度=1.0、"Confirmed by Tor relay drop" [CAC]</li>
+            <li style="color:#88ccff;"><b>電子戦パターン:</b> GPS 妨害 + ISR サージ同時発報 → GPS の理由に "EW pattern" を追加、信頼度=1.0 [CAC]</li>
+            <li style="color:#88ccff;"><b>確認済み軍事活動:</b> NOTAM サージ + 空域閉鎖 → NOTAM 信頼度=1.0、"Confirmed by concurrent airspace closure" [CAC]</li>
+        </ul>
+
+        <p><b>共起感度ブースト</b> <span style="color:#88ccff;">[CAC Phase D]</span> — 過去72時間のセンサーペア共起率（≥60%）が生スコアを最大1.5倍に乗算ブースト。感度は上昇のみ、低下なし（パラノイア設計）。</p>
 
         <p><b>ドメイン収束ボーナス</b> — 複数のドメインで同時に異常が発生した場合に加算（孤立したインシデントではなく、協調的MDO活動の証拠）:</p>
         <ul>
@@ -1637,7 +1726,7 @@
             </li>
             <li><b>Threat Actors</b>: Select from 5 adversary nation-states that conduct systematic cyber operations: <b>RU</b> (Russia), <b>CN</b> (China), <b>IR</b> (Iran), <b>KP</b> (North Korea), <b>BY</b> (Belarus / RU proxy). Selection drives both state-attribution badge display and RSS narrative source selection — only feeds relevant to the active adversary bloc are polled.</li>
             <li><b>Quick Pins</b>: Select countries to appear as quick-toggle buttons in the "Target Visibility" panel on the main screen.</li>
-            <li><b>Sensors</b>: Enable or disable individual sensors. A disabled sensor contributes zero to the score (graceful degradation). v9 adds 3 sensors: <i>telegram_mirror</i> (Info), <i>check_host</i> (Physical), <i>greynoise</i> (Cyber — suppressor).</li>
+            <li><b>Sensors</b>: Enable or disable individual 26 sensors. A disabled sensor contributes zero to the score (graceful degradation). Sensor fleet: 12 original + 3 v9 (telegram_mirror, check_host, greynoise) + 1 Phase 2 (space_weather) + 3 Phase 4 (ihr_health, ripe_atlas, tor_metrics) + 7 CAC (notam, travel_advisory, ooni_censorship, usgs_seismic, mil_support_air, gps_jamming, ct_log).</li>
             <li><b>Fetch Log</b>: Displays the last fetch result for each sensor (success/failure/cache age). Cache older than 3× the polling interval is flagged as STALE.</li>
         </ul>
         <p style="color:#888; font-size:11px;"><b>Bloc Filter (Strategy tab):</b> Filter pills at the top of the Strategy Scope tab filter by strategic bloc. Selecting a bloc zooms the Region Preview mini-map to the bloc's geographic bounds and shows all theaters relevant to that adversary's campaign — including cross-bloc countries that wouldn't appear in the ALL view. <b>Region Filter (Quick Pins tab):</b> Filters by geographic region (East Asia / SE Asia / Middle East, etc., across 16 regions). Both filters display current selections as color-coded dot markers on the mini-map: Core (cyan) / Link (amber) / Adversary (red) / Pin (green).</p>
@@ -1663,7 +1752,7 @@
             </li>
             <li><b>脅威アクター</b>: 組織的サイバー作戦を実施する5つの敵対国家から選択: <b>RU</b>（ロシア）、<b>CN</b>（中国）、<b>IR</b>（イラン）、<b>KP</b>（北朝鮮）、<b>BY</b>（ベラルーシ / RU プロキシ）。選択により、国家帰属バッジ表示と RSS ナラティブソース選択の両方が駆動 — アクティブな敵対ブロックに関連するフィードのみがポーリングされる。</li>
             <li><b>クイックピン</b>: メイン画面の「ターゲット表示」パネルにクイックトグルボタンとして表示する国を選択。</li>
-            <li><b>センサー</b>: 個別センサーの有効/無効を切り替え。無効化されたセンサーのスコア貢献はゼロ（グレースフルデグラデーション）。v9 では3つのセンサーが追加: <i>telegram_mirror</i>（情報ドメイン）、<i>check_host</i>（物理ドメイン）、<i>greynoise</i>（サイバードメイン — 抑制専用）。</li>
+            <li><b>センサー</b>: 全26個のセンサーを個別に有効/無効切替。無効化されたセンサーのスコア貢献はゼロ（グレースフルデグラデーション）。センサー構成: オリジナル12 + v9 3（telegram_mirror, check_host, greynoise）+ Phase 2 1（space_weather）+ Phase 4 3（ihr_health, ripe_atlas, tor_metrics）+ CAC 7（notam, travel_advisory, ooni_censorship, usgs_seismic, mil_support_air, gps_jamming, ct_log）。</li>
             <li><b>フェッチログ</b>: 各センサーの最終フェッチ結果（成功/失敗/キャッシュ経過時間）を表示。ポーリング間隔の3倍より古いキャッシュは STALE としてフラグ。</li>
         </ul>
         <p style="color:#888; font-size:11px;"><b>ブロックフィルター（戦略タブ）:</b> 戦略スコープタブ上部のフィルターピルで戦略ブロックをフィルタリング。ブロックを選択すると、地域プレビューミニマップがそのブロックの地理的境界にズームし、当該敵対者のキャンペーンに関連するすべてのシアターを表示 — ALL ビューでは表示されないクロスブロック国も含む。<b>地域フィルター（クイックピンタブ）:</b> 地理的地域（東アジア / 東南アジア / 中東など、16地域）でフィルタリング。両フィルターとも現在の選択をミニマップ上の色分けドットマーカーとして表示: コア（シアン）/ リンク（琥珀）/ 敵対者（赤）/ ピン（緑）。</p>
@@ -1673,11 +1762,11 @@
         <div class="guide-chapter" id="guide-ch-8">
         <div class="guide-lang-en">
         <h4>8. Intuition UI — Recognition-Primed Decision (RPD) Components</h4>
-        <p>Fourteen visual components designed to engage analyst intuition and pattern-recognition (Recognition-Primed Decision) in parallel with numerical computation. Based on Naturalistic Decision Making (NDM) theory; intended for immediate situational awareness formation.</p>
+        <p>Twenty visual components designed to engage analyst intuition and pattern-recognition (Recognition-Primed Decision) in parallel with numerical computation. Based on Naturalistic Decision Making (NDM) theory; intended for immediate situational awareness formation.</p>
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">How to access</div>
-            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of 9 panels: Weather Brief / SALUTE Board / Historical Analog / Ops Clock / GreyNoise / Analyst Notebook / What-If Sim / SPOF Analysis / Action Plan (cyan = active). Close each panel individually with ✕. Always-on components (Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain) operate automatically without any interaction. The <b>Telegram SIGINT</b> panel is opened via the <b>SIGINT↗</b> button on the Telegram Mirror row in the CHAIN panel.</p>
+            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of panels. <b>CORE</b> section: Target Visibility / Live Threat Telemetry / Evidence Chain / Telegram SIGINT. <b>ANALYTICS</b> section: Threat Pulse / Weather Brief / Historical Analog / Ops Clock / GreyNoise / History Analysis / Analyst Notebook. <b>SIMULATION</b> section: What-If Sim / SPOF Analysis / Scenario Builder / Convergence Tuner. <b>ADMIN</b> section: Action Plan / Phase &amp; Escalation / Sensor Heatmap / Sensor Manager / Admin Panel (cyan dot = active). Close each panel individually with ✕. Always-on components (Ambient Atmosphere / Radio Silence / Threat Terrain) operate automatically without any interaction. <b>Report button group</b> (HUD top-right, next to TOOLS): <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — one-click access to the three primary output modals. SALUTE Export is also accessible from the Evidence Modal footer. <b>Map interaction</b>: Click any country marker to open Country Intel modal. Click the Threat Level display in the HUD to open the Evidence panel (same as the EVIDENCE button).</p>
         </div>
 
         <p><b>A. Ambient Atmosphere</b></p>
@@ -1701,9 +1790,9 @@
             <li>Displays the threat state of each domain (Cyber / Physical / Info) using weather metaphors (e.g., Cyber = "Cyber Storm" = large-scale DDoS spike; Physical = "Strait Fog" = AIS dark gap active; Info = "Rising Pressure" = narrative operation intensifying). Enables intuitive understanding without domain expertise, increasing decision speed.</li>
         </ul>
 
-        <p><b>E. SALUTE Board</b> — <span class="code-block">TOOLS ▾</span> → SALUTE Board</p>
+        <p><b>E. SALUTE Export</b> — HUD <span class="code-block">SALUTE</span> button / Evidence Modal footer</p>
         <ul>
-            <li>Auto-generates a military-standard SALUTE contact report from current threat state:
+            <li>On-demand modal that generates a military-standard SALUTE contact report snapshot from current threat state. Accessible from two locations: (1) the <b>SALUTE</b> button in the HUD report group for instant access, and (2) the "Export SALUTE Report" button in the Evidence Modal footer for export after analysis review. Includes <b>Copy to Clipboard</b> and <b>Download as .txt</b> buttons for interoperability with external C2 systems:
                 <ul style="font-family:monospace; font-size:11px; background:rgba(0,0,0,0.3); padding:8px; border-left:2px solid #ff880044; line-height:1.9; margin-top:6px;">
                     <li><b>S</b>ize       — Enemy force scale (e.g., 12 botnet sources, 3 state-ASNs)</li>
                     <li><b>A</b>ctivity   — Confirmed activity type (e.g., L7 coordinated surge + narrative burst)</li>
@@ -1791,11 +1880,12 @@
             <li><b>Content:</b> TL5 (routine monitoring) → TL4 (increased watch) → TL3 (CDN hardening, SOC alert) → TL2 (failover prep, leadership escalation, geo-blocking) → TL1 (IR activation, CERT reporting, network isolation, evidence preservation).</li>
         </ul>
 
-        <p><b>O. Escalation Tracker</b> <span style="color:#66ffcc;">[Phase 2]</span> — <span class="code-block">TOOLS ▾</span> → Escalation Tracker</p>
+        <p><b>O. Phase &amp; Escalation</b> <span style="color:#66ffcc;">[Merged]</span> — <span class="code-block">TOOLS ▾</span> → Phase &amp; Escalation</p>
         <ul>
-            <li><b>Purpose:</b> Tracks and predicts threat level escalation patterns. Shows current TL duration, escalation velocity, score trend, and pattern classification (STABLE / ESCALATING / DE-ESCALATING / OSCILLATING).</li>
-            <li><b>Prediction:</b> Uses linear regression on recent score trends to predict the next TL transition and estimated time of arrival. Requires sufficient data points for prediction.</li>
-            <li><b>Transition History:</b> Displays the last 10 TL transitions with timestamps, showing directional changes (e.g., TL5 → TL4).</li>
+            <li><b>Purpose:</b> Unified panel combining Attack Phase assessment and Escalation tracking. Shows the 5-phase indicator bar (PHASE 0–4), Context Alignment axes (Temporal/Spatial/Target/Direction), and Signal Direction breakdown (ADV/FRD/TGT).</li>
+            <li><b>Escalation Section:</b> Tracks TL duration, escalation velocity, score trend, and pattern classification (STABLE / ESCALATING / DE-ESCALATING / OSCILLATING). Uses linear regression to predict next TL transition and ETA.</li>
+            <li><b>Transition History:</b> Displays the last 5 TL transitions with timestamps, showing directional changes (e.g., TL5 → TL4).</li>
+            <li><b>Dockable:</b> Can be docked to the left sidebar or used as a floating panel.</li>
         </ul>
 
         <p><b>P. Phase 2 Enhancements</b> <span style="color:#66ffcc;">[Phase 2]</span> — Integrated into Deep Analytics</p>
@@ -1866,14 +1956,132 @@
             <li><b>Country Intel:</b> Two new sections in Country Intel modal: "Network Reachability" (IHR disconnection status, RIPE Atlas probe counts & RTT) and "Censorship / Tor" (Tor relay/bridge counts, user estimates, censorship indicator).</li>
         </ul>
 
+        <p><b>VI. Context-Aware Convergence (CAC) Sensors</b> <span style="color:#66ffcc;">[Phase C]</span> — Seven new domain sensors</p>
+        <ul>
+            <li><b>S1 NOTAM Anomaly (<code>notam</code>):</b> Monitors FAA/ICAO NOTAMs for airspace restriction surges. Military NOTAMs, TFRs, and surge patterns detected. Domain: Physical. Poll: 30 min. Rationale: <code>notam</code> (+1/+2pt). Cross-correlates with OpenSky airspace closure for multi-source confirmation.</li>
+            <li><b>S2 Travel Advisory (<code>travel_advisory</code>):</b> US State Dept travel advisory level tracking. Level 3+ (Reconsider/Do Not Travel) or upgrade triggers alert. Domain: Info. Poll: 1 hr. Rationale: <code>travel_advisory</code> (+1/+2pt).</li>
+            <li><b>S3 OONI Censorship (<code>ooni_censorship</code>):</b> OONI Internet censorship measurements — anomaly rate, confirmed blocks, DNS tampering. Heavy censorship (>40% anomaly or >15% confirmed) = +2pt. Domain: Cyber. Poll: 30 min. Cross-correlates with Tor metrics for multi-source censorship confirmation.</li>
+            <li><b>S4 USGS Seismic (<code>usgs_seismic</code>):</b> Earthquake monitoring near submarine cables/chokepoints. Acts as noise suppressor (earthquakes explain physical disruptions). Also detects nuclear test signatures (shallow M4.0+ in adversary territory). Domain: Physical. Poll: 15 min.</li>
+            <li><b>S5 Military Support Aircraft (<code>mil_support_air</code>):</b> Tracks tankers (KC-135 etc.), transports (C-17, C-130), and AWACS (E-3, E-7) via OpenSky. Tanker surge + AWACS = force projection indicator. Domain: Physical. Poll: 30 min. Rationale: <code>mil_support_air</code> (+1/+2pt).</li>
+            <li><b>S6 GPS Jamming (<code>gps_jamming</code>):</b> GPS interference detection via GPSJam crowd-sourced data. Critical jamming = electronic warfare indicator. Domain: Physical. Poll: 30 min. Rationale: <code>gps_jamming</code> (+1/+2pt). Cross-correlates with ISR surge for EW pattern detection.</li>
+            <li><b>S7 CT Log (<code>ct_log</code>):</b> Certificate Transparency log monitoring via crt.sh. Certificate surge (especially government domains) may indicate MITM preparation or pre-disruption cert renewal. Domain: Cyber. Poll: 1 hr. Rationale: <code>ct_log</code> (+1/+2pt).</li>
+        </ul>
+
+        <p><b>VII. Forecast & Co-occurrence Learning</b> <span style="color:#66ffcc;">[Phase D]</span></p>
+        <ul>
+            <li><b>Forecast Accuracy Tracker:</b> Records TL escalation/de-escalation predictions from the escalation engine. Predictions are resolved after 1 hour against actual TL. Accuracy: exact=1.0, off-by-1=0.5, off-by-2+=0.0. Available via <code>GET /api/forecast_accuracy</code>.</li>
+            <li><b>Co-occurrence Sensitivity Boost:</b> When sensor pairs that historically fire together (≥60% co-occurrence rate) are both firing, total score receives a multiplicative boost (up to 1.5×). This only INCREASES sensitivity — the system never becomes less sensitive through learning. Boost details visible in deep_analytics.cooccurrence_boost.</li>
+        </ul>
+
+        <p><b>VIII. Target Visibility Panel</b> — <span class="code-block">TOOLS ▾</span> → Target Visibility (CORE)</p>
+        <ul>
+            <li><b>Purpose:</b> Quick toggle panel for selecting which countries/regions to display on the main map and in the Live Threat Telemetry panel. Only countries configured in Settings → Quick Pins appear here.</li>
+            <li><b>Controls:</b> Grid of checkboxes — one per pinned country. Toggle on/off to show/hide that country's threat data on the map and in telemetry. State is persisted to localStorage across sessions.</li>
+            <li><b>Dockable:</b> Can be docked to the left sidebar or used as a floating panel.</li>
+        </ul>
+
+        <p><b>IX. Live Threat Telemetry (Dashboard)</b> — <span class="code-block">TOOLS ▾</span> → Live Threat Telemetry (CORE)</p>
+        <ul>
+            <li><b>Purpose:</b> Real-time threat source telemetry showing all active DDoS origins attacking selected targets. The primary operational awareness panel — displays attack metrics, actor attribution, and network status for each monitored theater.</li>
+            <li><b>Target Group Header:</b> Each target country block shows:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>Country code + global share % (L3/L7/All vector selector)</li>
+                    <li>Network status badge: <span style="color:#00ff88;">Normal</span> / <span style="color:#ff2200;">Outage</span> / <span style="color:#ffaa00;">Degraded</span> / <span style="color:#aaa;">Weather</span></li>
+                    <li>BGP outage warning (when IODA detects reachability loss)</li>
+                    <li>L7 vector shift indicator (when application-layer escalation detected)</li>
+                    <li>Sparkline chart — 75-minute L3/L7 spike trend (Canvas)</li>
+                </ul>
+            </li>
+            <li><b>Attack Source List:</b> Expandable per-source metrics within each target group:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>Source name + weight % with color-coded bar (red = severe ≥6×, orange = elevated ≥2×)</li>
+                    <li>L3/L7 breakdown percentages</li>
+                    <li>Confidence badge (<span style="color:#00ff88;">HIGH</span> / <span style="color:#ffaa00;">MEDIUM</span> / <span style="color:#ff4444;">LOW</span>)</li>
+                    <li>Actor badges: <span style="color:#ff4444;">State ASN</span> (government-attributed origin), New Actor (first appearance)</li>
+                    <li>Attack flow visualization: animated firefly dots on the map trace attack vectors from source to target, speed and opacity proportional to weight</li>
+                </ul>
+            </li>
+            <li><b>Interaction:</b> Click target group title to collapse/expand sources. Click target country name to open Country Intel modal. Auto-updates every polling cycle (default 60s).</li>
+            <li><b>Dockable:</b> Can be docked to the left sidebar or used as a floating panel.</li>
+        </ul>
+
+        <p><b>X. History Analysis Panel</b> — <span class="code-block">TOOLS ▾</span> → History Analysis (ANALYTICS)</p>
+        <ul>
+            <li><b>Purpose:</b> Temporal analysis of threat evolution — historical threat scores, patterns, and alert timelines to identify escalation trends and baseline deviations over 24h to 28-day windows.</li>
+            <li><b>Theater &amp; Range Selector:</b> Theater dropdown (auto-populated from <span class="code-block">/api/history/theaters</span>) + range selector: 24h / 3d / 7d / 14d / 28d (default: 7d). Refresh and Export buttons.</li>
+            <li><b>Summary Stats Bar:</b> DATA PTS (data point count) / PEAK (highest TL in range) / AVG (average TL) / EVENTS (significant escalation count) / ALERTS (fired alert count).</li>
+            <li><b>Threat Score Trend Chart:</b> Canvas line chart (580×160px) with multi-line visualization — Combined score + L3 + L7 over time. Color-coded per vector.</li>
+            <li><b>Hour-of-Day Baseline Heatmap:</b> Canvas heatmap (580×110px) showing average threat spike pattern by hour across all days in range. Identifies time-of-day attack pattern dependencies.</li>
+            <li><b>Sequence Events:</b> Scrollable list of BGP sequence chain events with timestamps and chain status (FULL_CHAIN / PARTIAL / NONE).</li>
+            <li><b>Alert Timeline:</b> Horizontal canvas timeline strip (580×28px) showing alert distribution across the selected range, with grouped alert details and severity levels.</li>
+            <li><b>Export:</b> Downloads all historical data as JSON via <span class="code-block">/api/history/export</span> (admin only).</li>
+        </ul>
+
+        <p><b>XI. Country Intel Modal</b> — Click any country marker on the map or target name in Dashboard</p>
+        <ul>
+            <li><b>Purpose:</b> Detailed country/theater intelligence report combining geopolitical indicators, network resilience metrics, predictive signals, and threat actor correlation. Provides drill-down context for any monitored theater.</li>
+            <li><b>IODA Status (BGP Reachability):</b> Status: <span style="color:#00ff88;">Normal</span> / <span style="color:#ff2200;">BGP Outage</span> / <span style="color:#ffaa00;">Degraded</span>. Distinguishes effective outage from weather-induced. Per-datasource levels (critical/warning/normal) and source label (IODA / CF Radar / fallback).</li>
+            <li><b>Network Resilience:</b> Global L3 share %, Global L7 share %, L7 vector shift status (active/none).</li>
+            <li><b>Top Attack Sources:</b> Top 5 sources by spike factor — source name + ASN code, spike multiplier (e.g., ×3.2), State ASN badge if government-attributed.</li>
+            <li><b>Predictive Analytics (Phase 2+):</b>
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>Escalation Velocity — 1st derivative of threat score (rate of change)</li>
+                    <li>Blockade Index — choke point activity level (0–10 scale)</li>
+                    <li>Narrative Z-score — 30-day baseline deviation for information domain</li>
+                    <li>ISR Aircraft count — high-altitude reconnaissance aircraft detected</li>
+                    <li>AIS Dark Gaps — vessel transponder outage count</li>
+                    <li>Sequence Chain status (24h window)</li>
+                    <li>Ambush Badge — if pre-kinetic ambush pattern detected</li>
+                </ul>
+            </li>
+            <li><b>Network Reachability (Phase 4):</b> IHR disconnection status, RIPE Atlas probe count &amp; RTT metrics.</li>
+            <li><b>Censorship / Tor (Phase 4):</b> Tor relay/bridge counts, user estimates, censorship indicator status.</li>
+            <li><b>Color Coding:</b> <span style="color:#66ff66;">green</span> = normal, <span style="color:#ffaa00;">orange</span> = warning, <span style="color:#ff2a2a;">red</span> = critical.</li>
+        </ul>
+
+        <p><b>XII. Analytic Rationale (Evidence Modal)</b> — HUD <span class="code-block">EVIDENCE</span> button / Click the Threat Level display in the HUD</p>
+        <ul>
+            <li><b>Purpose:</b> Transparent analytic breakdown showing which sensors fired, at what confidence levels, and why — the core explainability layer of the convergence engine. Ensures every threat assessment can be audited and understood. Structured into three labeled sections: Convergence Score Breakdown, System Assessment, and Sensor Rationale Matrix.</li>
+            <li><b>How to access:</b> The <b>EVIDENCE</b> button in the HUD report group (next to SITREP / SALUTE) provides dedicated one-click access. Clicking the Threat Level display in the HUD also opens this modal as a power-user shortcut.</li>
+            <li><b>Section 1 — Convergence Score Breakdown:</b> Per-domain contributions (Cyber / Physical / Information) showing score points × weight = weighted contribution. Total Convergence Score summary.</li>
+            <li><b>Context Alignment (CAC):</b> Score (1–4 scale) with alignment status for each axis:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>Geographic Alignment — sensors firing in geographically consistent areas</li>
+                    <li>Temporal Alignment — timing patterns across domains are coherent</li>
+                    <li>Strategic Alignment — targets match known strategic objectives</li>
+                    <li>Operational Alignment — attack vectors are operationally consistent</li>
+                </ul>
+            </li>
+            <li><b>Direction Summary:</b> Dominant threat direction — <span style="color:#ff4444;">ADVERSARY_OFFENSIVE</span> / <span style="color:#66ff66;">FRIENDLY_DEFENSIVE</span> / <span style="color:#ffaa00;">TARGET_IMPACT</span> — with clarity percentage.</li>
+            <li><b>Section 2 — System Assessment:</b> Free-form contextual reasoning generated by the engine. Provides narrative explanation of the current threat posture, key signals, and notable patterns.</li>
+            <li><b>Section 3 — Sensor Rationale Matrix:</b> One row per sensor — columns: Sensor | Domain | Status (FIRED / HOLDING / SUPPRESSED) | Observed Value | Score | Confidence (0–100%) | Direction (Adversary Offensive / Friendly Defensive / Target Impact) | Fired Reason/Note. Domain-colored rows (Cyber = cyan, Physical = orange, Info = purple). Each sensor row includes a MUTE button for analyst-controlled suppression and a noise classify button for signal triage.</li>
+            <li><b>Noise Filters Applied:</b> Footer listing active noise suppressors (weather, GreyNoise, seismic, PeeringDB) that reduced scores this cycle.</li>
+            <li><b>Export Actions (footer):</b> <b>Export SALUTE Report</b> button opens the SALUTE modal directly from the evidence review workflow. <b>View SITREP</b> button opens the executive summary. Both provide a natural analysis → reporting flow without returning to the HUD.</li>
+        </ul>
+
+        <p><b>XIII. SITREP Modal</b> — HUD <span class="code-block">SITREP</span> button</p>
+        <ul>
+            <li><b>Purpose:</b> Executive-level threat assessment summary combining threat level trend, convergence state, and timeline visualization for command briefings. Fetches from <span class="code-block">/api/sitrep</span> and <span class="code-block">/api/alert_timeline</span>.</li>
+            <li><b>Summary Cards (4-column grid):</b>
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Threat Now:</b> Current TL with escalation/de-escalation trend arrow</li>
+                    <li><b>Threat 1H:</b> Min–Max range with average over the last hour</li>
+                    <li><b>Convergence:</b> Current convergence state (FULL / DUAL / NONE) with active domain list</li>
+                    <li><b>History:</b> Cycle count + time window (hours)</li>
+                </ul>
+            </li>
+            <li><b>Threat Level Timeline:</b> Canvas visualization (740×80px) of last 288 cycles (≈4.8 hours). Horizontal bars colored by threat level (TL1–5). Shows escalation/de-escalation patterns over time.</li>
+            <li><b>Auto-generated Report:</b> Pre-formatted natural language summary (monospace) of the current situation including key metrics, significant changes, and domain status. Selectable/copyable for reporting.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>8. 直感 UI — 識別先行意思決定（RPD）コンポーネント</h4>
-        <p>数値計算と並行してアナリストの直感とパターン認識（識別先行意思決定）を活性化するために設計された14のビジュアルコンポーネント。自然主義的意思決定（NDM）理論に基づく；即時の状況認識形成を目的とする。</p>
+        <p>数値計算と並行してアナリストの直感とパターン認識（識別先行意思決定）を活性化するために設計された20のビジュアルコンポーネント。自然主義的意思決定（NDM）理論に基づく；即時の状況認識形成を目的とする。</p>
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">アクセス方法</div>
-            <p style="font-size:11px; color:#aaa; margin:0;"><span class="code-block">TOOLS ▾</span> ドロップダウン（HUD 右上）で6つのパネルを個別に有効化: Weather Brief / SALUTE Board / Historical Analog / Ops Clock / GreyNoise / Analyst Notebook（シアン = アクティブ）。各パネルは ✕ で個別に閉じる。常時表示コンポーネント（Pulse Display / Radio Silence / Ambient Atmosphere / Threat Terrain）はインタラクションなしに自動動作。<b>Telegram SIGINT</b> パネルは、CHAIN パネルの Telegram Mirror 行の <b>SIGINT↗</b> ボタンから開く。</p>
+            <p style="font-size:11px; color:#aaa; margin:0;"><span class="code-block">TOOLS ▾</span> ドロップダウン（HUD 右上）でパネルを個別に有効化。<b>CORE</b>: Target Visibility / Live Threat Telemetry / Evidence Chain / Telegram SIGINT。<b>ANALYTICS</b>: Threat Pulse / Weather Brief / Historical Analog / Ops Clock / GreyNoise / History Analysis / Analyst Notebook。<b>SIMULATION</b>: What-If Sim / SPOF Analysis / Scenario Builder / Convergence Tuner。<b>ADMIN</b>: Action Plan / Phase &amp; Escalation / Sensor Heatmap / Sensor Manager / Admin Panel（シアンドット = アクティブ）。各パネルは ✕ で個別に閉じる。常時表示コンポーネント（Ambient Atmosphere / Radio Silence / Threat Terrain）はインタラクションなしに自動動作。<b>レポートボタングループ</b>（HUD右上、TOOLS横）: <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — 3つの主要出力モーダルへのワンクリックアクセス。SALUTEエクスポートはEvidence Modalフッターからもアクセス可能。<b>マップインタラクション</b>: 国マーカークリックでCountry Intelモーダルを開く。HUDの脅威レベル表示クリックでEvidenceパネルを開く（EVIDENCEボタンと同一）。</p>
         </div>
 
         <p><b>A. アンビエントアトモスフィア</b></p>
@@ -1897,9 +2105,9 @@
             <li>各ドメイン（サイバードメイン / 物理ドメイン / 情報ドメイン）の脅威状態を気象メタファーを使用して表示（例: サイバードメイン = "Cyber Storm" = 大規模 DDoS スパイク；物理ドメイン = "Strait Fog" = AIS ダークギャップ活動中；情報ドメイン = "Rising Pressure" = ナラティブ作戦が激化）。ドメイン専門知識なしに直感的な理解を可能にし、意思決定速度を向上。</li>
         </ul>
 
-        <p><b>E. SALUTE ボード</b> — <span class="code-block">TOOLS ▾</span> → SALUTE Board</p>
+        <p><b>E. SALUTEエクスポート</b> — HUD <span class="code-block">SALUTE</span> ボタン / Evidence Modalフッター</p>
         <ul>
-            <li>現在の脅威状態から軍事標準の SALUTE 接触報告書を自動生成:
+            <li>現在の脅威状態から軍事標準の SALUTE 接触報告書をオンデマンドで生成するモーダル。2つの場所からアクセス可能: (1) HUDレポートグループの<b>SALUTE</b>ボタンで即座にアクセス、(2) Evidence Modalフッターの「SALUTEレポート出力」ボタンで分析確認後のエクスポート。<b>クリップボードにコピー</b>や<b>.txtダウンロード</b>ボタンで外部C2システムとの連携が可能:
                 <ul style="font-family:monospace; font-size:11px; background:rgba(0,0,0,0.3); padding:8px; border-left:2px solid #ff880044; line-height:1.9; margin-top:6px;">
                     <li><b>S</b>ize（規模）       — 敵戦力の規模（例: 12のボットネット送信元、3つの国家 ASN）</li>
                     <li><b>A</b>ctivity（活動）   — 確認された活動タイプ（例: L7 協調サージ + ナラティブバースト）</li>
@@ -1987,11 +2195,12 @@
             <li><b>内容:</b> TL5（通常監視）→ TL4（監視強化）→ TL3（CDN強化、SOCアラート）→ TL2（フェイルオーバー準備、幹部エスカレーション、ジオブロッキング）→ TL1（IR発動、CERT報告、ネットワーク隔離、証拠保全）。</li>
         </ul>
 
-        <p><b>O. エスカレーショントラッカー</b> <span style="color:#66ffcc;">[Phase 2]</span> — <span class="code-block">TOOLS ▾</span> → Escalation Tracker</p>
+        <p><b>O. フェーズ＆エスカレーション</b> <span style="color:#66ffcc;">[統合]</span> — <span class="code-block">TOOLS ▾</span> → Phase &amp; Escalation</p>
         <ul>
-            <li><b>目的:</b> 脅威レベルのエスカレーションパターンを追跡・予測。現在のTL持続時間、エスカレーション速度、スコアトレンド、パターン分類（安定 / エスカレーション中 / デエスカレーション中 / 振動）を表示。</li>
-            <li><b>予測:</b> 直近のスコアトレンドに線形回帰を適用し、次のTL遷移と予想到達時間を予測。予測には十分なデータポイントが必要。</li>
-            <li><b>遷移履歴:</b> 直近10件のTL遷移をタイムスタンプ付きで表示。方向性の変化（例: TL5 → TL4）を確認可能。</li>
+            <li><b>目的:</b> 攻撃フェーズ評価とエスカレーション追跡を統合したパネル。5段階フェーズインジケーター（PHASE 0〜4）、文脈整合度の4軸（時間/空間/対象/方向）、シグナル方向性内訳（ADV/FRD/TGT）を表示。</li>
+            <li><b>エスカレーション:</b> TL持続時間、エスカレーション速度、スコアトレンド、パターン分類（安定 / エスカレーション中 / デエスカレーション中 / 振動）を追跡。線形回帰で次のTL遷移と予想到達時間を予測。</li>
+            <li><b>遷移履歴:</b> 直近5件のTL遷移をタイムスタンプ付きで表示。方向性の変化（例: TL5 → TL4）を確認可能。</li>
+            <li><b>ドッキング対応:</b> 左サイドバーにドッキングまたはフローティングパネルとして使用可能。</li>
         </ul>
 
         <p><b>P. Phase 2 強化機能</b> <span style="color:#66ffcc;">[Phase 2]</span> — Deep Analyticsに統合</p>
@@ -2062,22 +2271,140 @@
             <li><b>国家インテル:</b> Country Intelモーダルに2つの新セクション: 「ネットワーク到達性」（IHR切断状態、RIPE Atlasプローブ数＆RTT）と「検閲/Tor」（Torリレー/ブリッジ数、ユーザー推定、検閲指標）。</li>
         </ul>
 
+        <p><b>VI. Context-Aware Convergence (CAC) センサー</b> <span style="color:#66ffcc;">[Phase C]</span> — 7つの新規ドメインセンサー</p>
+        <ul>
+            <li><b>S1 NOTAM異常 (<code>notam</code>):</b> FAA/ICAO NOTAMの空域制限急増を監視。軍事NOTAM、TFR、急増パターンを検知。ドメイン: Physical。ポーリング: 30分。Rationale: <code>notam</code>（+1/+2pt）。OpenSky空域閉鎖との複数ソース裏付け。</li>
+            <li><b>S2 渡航勧告 (<code>travel_advisory</code>):</b> 米国務省渡航勧告レベル追跡。レベル3以上（渡航再検討/渡航中止）またはレベル引上げでアラート。ドメイン: Info。ポーリング: 1時間。Rationale: <code>travel_advisory</code>（+1/+2pt）。</li>
+            <li><b>S3 OONI検閲 (<code>ooni_censorship</code>):</b> OONIインターネット検閲測定 — 異常率、確認ブロック、DNS改竄。重度検閲（異常40%超 or 確認15%超）= +2pt。ドメイン: Cyber。ポーリング: 30分。Torメトリクスとの複数ソース検閲確認。</li>
+            <li><b>S4 USGS地震 (<code>usgs_seismic</code>):</b> 海底ケーブル/チョークポイント付近の地震監視。ノイズ抑制機能（地震が物理的障害を説明）。また核実験シグネチャ検知（敵国領内の浅発M4.0+）。ドメイン: Physical。ポーリング: 15分。</li>
+            <li><b>S5 軍事支援航空機 (<code>mil_support_air</code>):</b> OpenSky経由で空中給油機（KC-135等）、輸送機（C-17、C-130）、AWACS（E-3、E-7）を追跡。給油機急増＋AWACS = 戦力投射指標。ドメイン: Physical。ポーリング: 30分。Rationale: <code>mil_support_air</code>（+1/+2pt）。</li>
+            <li><b>S6 GPSジャミング (<code>gps_jamming</code>):</b> GPSJamクラウドソースデータによるGPS妨害検知。重大ジャミング = 電子戦指標。ドメイン: Physical。ポーリング: 30分。Rationale: <code>gps_jamming</code>（+1/+2pt）。ISR急増との電子戦パターン検知。</li>
+            <li><b>S7 CTログ (<code>ct_log</code>):</b> crt.sh経由の証明書透明性ログ監視。証明書急増（特に政府ドメイン）はMITM準備や障害前の証明書更新を示唆。ドメイン: Cyber。ポーリング: 1時間。Rationale: <code>ct_log</code>（+1/+2pt）。</li>
+        </ul>
+
+        <p><b>VII. 予測精度＆共起学習</b> <span style="color:#66ffcc;">[Phase D]</span></p>
+        <ul>
+            <li><b>予測精度トラッカー:</b> エスカレーションエンジンからのTLエスカレーション/デエスカレーション予測を記録。予測は1時間後に実際のTLと照合。精度: 完全一致=1.0、1差=0.5、2差以上=0.0。<code>GET /api/forecast_accuracy</code>で取得可能。</li>
+            <li><b>共起感度ブースト:</b> 歴史的に同時発火するセンサーペア（共起率60%以上）が再び同時発火した場合、合計スコアに乗数ブースト（最大1.5倍）。感度は上昇方向のみ — 学習によって感度が低下することはない。ブースト詳細はdeep_analytics.cooccurrence_boostで確認可能。</li>
+        </ul>
+
+        <p><b>VIII. ターゲット可視性パネル</b> — <span class="code-block">TOOLS ▾</span> → Target Visibility（CORE）</p>
+        <ul>
+            <li><b>目的:</b> マップおよびリアルタイム脅威テレメトリパネルに表示する国/地域をトグル選択するクイック操作パネル。設定 → Quick Pins で設定した国のみ表示。</li>
+            <li><b>操作:</b> ピン留め国ごとのチェックボックスグリッド。オン/オフでその国の脅威データをマップ・テレメトリ上に表示/非表示。状態はlocalStorageにセッション間で保持。</li>
+            <li><b>ドッキング対応:</b> 左サイドバーにドッキングまたはフローティングパネルとして使用可能。</li>
+        </ul>
+
+        <p><b>IX. リアルタイム脅威テレメトリ（ダッシュボード）</b> — <span class="code-block">TOOLS ▾</span> → Live Threat Telemetry（CORE）</p>
+        <ul>
+            <li><b>目的:</b> 選択されたターゲットを攻撃しているすべてのアクティブDDoS送信元のリアルタイム脅威テレメトリを表示。主要な状況認識パネル — 各監視シアターの攻撃メトリクス、アクター帰属、ネットワーク状態を表示。</li>
+            <li><b>ターゲットグループヘッダー:</b> 各ターゲット国ブロックに表示:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>国コード + グローバルシェア%（L3/L7/Allベクター選択）</li>
+                    <li>ネットワーク状態バッジ: <span style="color:#00ff88;">Normal</span> / <span style="color:#ff2200;">Outage</span> / <span style="color:#ffaa00;">Degraded</span> / <span style="color:#aaa;">Weather</span></li>
+                    <li>BGP障害警告（IODAが到達性喪失を検知した場合）</li>
+                    <li>L7ベクターシフトインジケーター（アプリケーション層エスカレーション検出時）</li>
+                    <li>スパークラインチャート — 75分間のL3/L7スパイクトレンド（Canvas）</li>
+                </ul>
+            </li>
+            <li><b>攻撃送信元リスト:</b> 各ターゲットグループ内の展開可能なソースごとのメトリクス:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>送信元名 + ウェイト%、色分けバー（赤 = 重度 ≥6×、オレンジ = 上昇 ≥2×）</li>
+                    <li>L3/L7内訳パーセンテージ</li>
+                    <li>信頼度バッジ（<span style="color:#00ff88;">HIGH</span> / <span style="color:#ffaa00;">MEDIUM</span> / <span style="color:#ff4444;">LOW</span>）</li>
+                    <li>アクターバッジ: <span style="color:#ff4444;">State ASN</span>（政府帰属元）、New Actor（初出現）</li>
+                    <li>攻撃フロー可視化: マップ上のアニメーション蛍光ドットが送信元からターゲットへの攻撃ベクターをトレース、速度と不透明度はウェイトに比例</li>
+                </ul>
+            </li>
+            <li><b>インタラクション:</b> ターゲットグループタイトルクリックで送信元を折りたたみ/展開。ターゲット国名クリックでCountry Intelモーダルを開く。ポーリングサイクルごとに自動更新（デフォルト60秒）。</li>
+            <li><b>ドッキング対応:</b> 左サイドバーにドッキングまたはフローティングパネルとして使用可能。</li>
+        </ul>
+
+        <p><b>X. 履歴分析パネル</b> — <span class="code-block">TOOLS ▾</span> → History Analysis（ANALYTICS）</p>
+        <ul>
+            <li><b>目的:</b> 脅威進化の時間的分析 — 24時間から28日間のウィンドウで、過去の脅威スコア、パターン、アラートタイムラインを確認し、エスカレーション傾向とベースライン逸脱を特定。</li>
+            <li><b>シアター＆範囲セレクター:</b> シアタードロップダウン（<span class="code-block">/api/history/theaters</span>から自動取得）+ 範囲セレクター: 24h / 3d / 7d / 14d / 28d（デフォルト: 7d）。更新・エクスポートボタン付き。</li>
+            <li><b>サマリー統計バー:</b> DATA PTS（データポイント数）/ PEAK（範囲内最高TL）/ AVG（平均TL）/ EVENTS（重大エスカレーション数）/ ALERTS（発火アラート数）。</li>
+            <li><b>脅威スコアトレンドチャート:</b> Canvasラインチャート（580×160px）、マルチライン可視化 — 統合スコア + L3 + L7の時系列。ベクターごとに色分け。</li>
+            <li><b>時間帯別ベースラインヒートマップ:</b> Canvasヒートマップ（580×110px）、範囲内の全日にわたる時間帯別平均脅威スパイクパターンを表示。攻撃パターンの時間帯依存性を特定。</li>
+            <li><b>シーケンスイベント:</b> BGPシーケンスチェーンイベントのスクロール可能リスト。タイムスタンプとチェーンステータス（FULL_CHAIN / PARTIAL / NONE）付き。</li>
+            <li><b>アラートタイムライン:</b> 水平Canvasタイムラインストリップ（580×28px）、選択範囲のアラート分布を表示。グループ化されたアラート詳細と重大度レベル付き。</li>
+            <li><b>エクスポート:</b> <span class="code-block">/api/history/export</span> 経由で全履歴データをJSON形式でダウンロード（管理者のみ）。</li>
+        </ul>
+
+        <p><b>XI. Country Intelモーダル</b> — マップ上の国マーカーまたはダッシュボードのターゲット名をクリック</p>
+        <ul>
+            <li><b>目的:</b> 地政学指標、ネットワークレジリエンスメトリクス、予測シグナル、脅威アクター相関を統合した国/シアター別インテリジェンスレポート。監視対象シアターのドリルダウンコンテキストを提供。</li>
+            <li><b>IODAステータス（BGP到達性）:</b> 状態: <span style="color:#00ff88;">Normal</span> / <span style="color:#ff2200;">BGP Outage</span> / <span style="color:#ffaa00;">Degraded</span>。有効な障害と気象起因を区別。データソース別レベル（critical/warning/normal）とソースラベル（IODA / CF Radar / fallback）。</li>
+            <li><b>ネットワークレジリエンス:</b> グローバルL3シェア%、グローバルL7シェア%、L7ベクターシフト状態（active/none）。</li>
+            <li><b>上位攻撃送信元:</b> スパイクファクター上位5送信元 — 送信元名 + ASNコード、スパイク倍率（例: ×3.2）、政府帰属の場合はState ASNバッジ。</li>
+            <li><b>予測分析（Phase 2以降）:</b>
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>エスカレーション速度 — 脅威スコアの1次微分（変化率）</li>
+                    <li>封鎖指数 — チョークポイント活動レベル（0〜10スケール）</li>
+                    <li>ナラティブZスコア — 情報ドメインの30日ベースライン偏差</li>
+                    <li>ISR航空機数 — 検出された高高度偵察機</li>
+                    <li>AISダークギャップ — 船舶トランスポンダ途絶数</li>
+                    <li>シーケンスチェーン状態（24時間ウィンドウ）</li>
+                    <li>アンブッシュバッジ — 運動学的行動前の待ち伏せパターン検出時</li>
+                </ul>
+            </li>
+            <li><b>ネットワーク到達性（Phase 4）:</b> IHR切断状態、RIPE Atlasプローブ数 &amp; RTTメトリクス。</li>
+            <li><b>検閲/Tor（Phase 4）:</b> Torリレー/ブリッジ数、ユーザー推定、検閲指標ステータス。</li>
+            <li><b>色分け:</b> <span style="color:#66ff66;">緑</span> = 正常、<span style="color:#ffaa00;">オレンジ</span> = 警告、<span style="color:#ff2a2a;">赤</span> = 重大。</li>
+        </ul>
+
+        <p><b>XII. 分析根拠（エビデンスモーダル）</b> — HUD <span class="code-block">EVIDENCE</span> ボタン / HUDの脅威レベル表示をクリック</p>
+        <ul>
+            <li><b>目的:</b> どのセンサーがどの信頼度レベルで発火し、なぜ発火したかを示す透明な分析内訳 — 収斂エンジンのコア説明責任レイヤー。すべての脅威評価が監査・理解可能であることを保証。収束スコア内訳、システム評価、センサー根拠マトリクスの3つのラベル付きセクションで構成。</li>
+            <li><b>アクセス方法:</b> HUDレポートグループ（SITREP / SALUTE横）の<b>EVIDENCE</b>ボタンで専用ワンクリックアクセス。HUDの脅威レベル表示をクリックしても同じモーダルが開く（パワーユーザー向けショートカット）。</li>
+            <li><b>セクション1 — 収束スコア内訳:</b> ドメイン別寄与度（Cyber / Physical / Information）— スコアポイント × 重み = 加重寄与度。収斂スコア合計サマリー。</li>
+            <li><b>文脈整合度（CAC）:</b> スコア（1〜4スケール）と各軸の整合状態:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>地理的整合 — 地理的に一貫したエリアでセンサーが発火</li>
+                    <li>時間的整合 — ドメイン間のタイミングパターンが整合</li>
+                    <li>戦略的整合 — ターゲットが既知の戦略目標と一致</li>
+                    <li>作戦的整合 — 攻撃ベクターが作戦的に一貫</li>
+                </ul>
+            </li>
+            <li><b>方向性サマリー:</b> 主要脅威方向 — <span style="color:#ff4444;">ADVERSARY_OFFENSIVE</span>（敵対的攻勢）/ <span style="color:#66ff66;">FRIENDLY_DEFENSIVE</span>（友軍防衛）/ <span style="color:#ffaa00;">TARGET_IMPACT</span>（標的影響）— 明瞭度パーセンテージ付き。</li>
+            <li><b>セクション2 — システム評価:</b> エンジンが生成した自由形式の文脈的推論。現在の脅威態勢、主要シグナル、注目すべきパターンのナラティブ説明を提供。</li>
+            <li><b>セクション3 — センサー根拠マトリクス:</b> センサーごとに1行 — 列: センサー | ドメイン | ステータス（FIRED / HOLDING / SUPPRESSED）| 観測値 | スコア | 信頼度（0–100%）| 方向（敵対的攻勢 / 友軍防衛 / 標的影響）| 発火理由/注記。ドメイン色分け行（Cyber = シアン、Physical = オレンジ、Info = パープル）。各センサー行にはアナリストによる制御抑制用のミュートボタンとシグナルトリアージ用のノイズ分類ボタンを含む。</li>
+            <li><b>ノイズフィルター適用:</b> このサイクルでスコアを低減したアクティブノイズ抑制器（宇宙天気、GreyNoise、地震、PeeringDB）のフッターリスト。</li>
+            <li><b>エクスポートアクション（フッター）:</b> <b>SALUTEレポート出力</b>ボタンでエビデンス確認ワークフローから直接SALUTEモーダルを開く。<b>SITREPを表示</b>ボタンでエグゼクティブサマリーを開く。いずれもHUDに戻ることなく、分析→報告の自然なフローを提供。</li>
+        </ul>
+
+        <p><b>XIII. SITREPモーダル</b> — HUD <span class="code-block">SITREP</span> ボタン</p>
+        <ul>
+            <li><b>目的:</b> 脅威レベルトレンド、収斂状態、タイムライン可視化を統合した司令部ブリーフィング用のエグゼクティブレベル脅威評価サマリー。<span class="code-block">/api/sitrep</span> と <span class="code-block">/api/alert_timeline</span> から取得。</li>
+            <li><b>サマリーカード（4列グリッド）:</b>
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Threat Now:</b> 現在のTL、エスカレーション/デエスカレーショントレンド矢印付き</li>
+                    <li><b>Threat 1H:</b> 過去1時間のMin–Max範囲と平均</li>
+                    <li><b>Convergence:</b> 現在の収斂状態（FULL / DUAL / NONE）とアクティブドメインリスト</li>
+                    <li><b>History:</b> サイクル数 + 時間ウィンドウ（時間）</li>
+                </ul>
+            </li>
+            <li><b>脅威レベルタイムライン:</b> Canvas可視化（740×80px）、直近288サイクル（≈4.8時間）。脅威レベル（TL1–5）ごとに色分けされた水平バー。経時的なエスカレーション/デエスカレーションパターンを表示。</li>
+            <li><b>自動生成レポート:</b> 主要メトリクス、重大変化、ドメインステータスを含む現在の状況の事前フォーマットされた自然言語サマリー（等幅フォント）。レポーティング用に選択・コピー可能。</li>
+        </ul>
+
         </div>
         </div><!-- /guide-ch-8 -->
         <div class="guide-chapter" id="guide-ch-9">
         <div class="guide-lang-en">
         <h4>9. API Reference (Analyst / Integration Endpoints)</h4>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
-            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data, threat score, domain breakdown, and deep analytics block (including v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics). Country intel now includes ihr_status, ihr_disco, ripe_atlas, and tor_metrics per country.</li>
+            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data (26 sensors), threat score, domain breakdown, and deep analytics block (v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics; Phase C: notam, travel_advisory, ooni, seismic, mil_support_air, gps_jamming, ct_log; Phase D: cooccurrence_boost, forecast_accuracy). Includes context_alignment and direction_summary (CAC).</li>
             <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — Threat level history (up to 24 hrs / 288 cycles). Each cycle includes velocity, ambush flag, and blockade index.</li>
             <li><span class="code-block">GET /api/sitrep</span> — Machine-readable SITREP including trend, domain activity, and convergence state.</li>
-            <li><span class="code-block">GET /api/data_status</span> — Sensor health, polling intervals, last fetch time, and error logs. Shows all 15 sensors including v9 additions.</li>
+            <li><span class="code-block">GET /api/data_status</span> — Sensor health, polling intervals, last fetch time, and error logs. Shows all 26 sensors (original 12 + v9 3 + Phase 2 1 + Phase 4 3 + CAC 7).</li>
             <li><span class="code-block">GET /api/sensor_config</span> — List of all sensors with enabled/domain/health status.</li>
             <li><span class="code-block">POST /api/sensor_config</span> — Enable/disable a sensor. Body example: <span class="code-block">{"name":"telegram_mirror","enabled":false}</span></li>
             <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> — Returns escalation chain events within the 24-hour window for the specified theater. v9 event types: TELEGRAM_INTENT, MASKIROVKA, C2_SYNC, INFRA_BLACKOUT (in addition to NARRATIVE_BURST, ISR_SURGE, SYNC_DDOS, FIRMS_ANOMALY, AIS_DARK_GAP).</li>
             <li><span class="code-block">GET /api/deep_analytics?theater=TW</span> — Deep analytics diagnostic dump: velocity series, acceleration, ambush Z-score, narrative Z-score, ISR aircraft count, AIS dark gaps, and Blockade Index (v9 formula) with interpretation label.</li>
             <li><span class="code-block">GET /api/ip_check?ip=1.2.3.4</span> — GreyNoise Community API IP lookup. Returns noise/riot/classification/name/last_seen. Results cached 24h per IP. Rate limit: 50 req/day (Community plan). Available via GreyNoise Investigator panel in TOOLS menu.</li>
-            <li><span class="code-block">GET /api/salute_report</span> — Generates a SALUTE-format contact report from current threat state. Used by the SALUTE Board panel.</li>
+            <li><span class="code-block">GET /api/salute_report</span> — Generates a SALUTE-format contact report from current threat state. Used by the SALUTE Export modal (copy/download).</li>
             <li><span class="code-block">GET /api/weather_brief</span> — Maps sensor values to weather metaphors. Returns per-domain state, color, icon, and summary text. Used by the Weather Brief panel.</li>
             <li><span class="code-block">GET /api/historical_events</span> — Returns the historical case pattern library from geo_data.json (5 reference fingerprints). Used by the Historical Analog panel.</li>
             <li><span class="code-block">GET /api/app_config</span> — Returns default settings, global monitored country list, and strategic bloc architecture. Includes: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span> (startup defaults), <span class="code-block">strategic_blocs</span> (4 blocs with sub-categories and theater lists), <span class="code-block">country_bloc_tags</span> (multi-threat country → blocs mapping), <span class="code-block">adversary_options</span> (5 adversary states: RU/CN/IR/KP/BY), <span class="code-block">available_countries</span> (full country list with code/name/region/lat/lng). Used for UI initialization on startup.</li>
@@ -2103,6 +2430,14 @@
             <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns escalation analysis: current TL, duration, velocity, score trend, pattern classification (STABLE/ESCALATING/DE-ESCALATING/OSCILLATING), predicted next TL, and transition history.</li>
             <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns per-sensor/per-theater adaptive Z-score statistics: sample count, running mean, standard deviation, and whether adaptive mode is active.</li>
             <li><span class="code-block">GET /api/sensor_reliability?hours=24</span> — <span style="color:#66ffcc;">[Phase 3]</span> Returns per-sensor fetch reliability over the given time window (default 24h, max 168h). Includes total fetches, success rate, average response time, and first/last seen timestamps.</li>
+            <li><span class="code-block">GET /api/noise_exclusion?sensor=X&amp;theater=TW</span> — <span style="color:#66ffcc;">[CAC]</span> List active noise exclusion rules. Optional filter by sensor/theater.</li>
+            <li><span class="code-block">POST /api/noise_exclusion</span> — <span style="color:#66ffcc;">[CAC]</span> Add noise exclusion rule. Body: <span class="code-block">{"sensor":"X","theater":"TW","pattern":"...","reason":"exercise|maintenance|known_noise|false_positive","expires_hours":24}</span></li>
+            <li><span class="code-block">DELETE /api/noise_exclusion/{id}</span> — <span style="color:#66ffcc;">[CAC]</span> Remove a noise exclusion rule.</li>
+            <li><span class="code-block">GET /api/confirmed_threats?theater=TW&amp;limit=100</span> — <span style="color:#66ffcc;">[CAC]</span> List confirmed threat classifications.</li>
+            <li><span class="code-block">POST /api/confirmed_threats</span> — <span style="color:#66ffcc;">[CAC]</span> Add threat classification. Body: <span class="code-block">{"theater":"TW","classification":"exercise|maintenance|confirmed_threat|false_positive","sensors_active":["cf_spike_core"],"threat_level":5,"notes":"..."}</span></li>
+            <li><span class="code-block">GET /api/daily_summary?theater=TW&amp;days=90</span> — <span style="color:#66ffcc;">[CAC]</span> Daily summary snapshots (avg/max score, min/max TL, fired sensors, domain scores, context alignment).</li>
+            <li><span class="code-block">GET /api/forecast_accuracy?theater=TW</span> — <span style="color:#66ffcc;">[CAC Phase D]</span> Forecast accuracy summary (total forecasts, resolved, average accuracy).</li>
+            <li><span class="code-block">GET /api/cooccurrence?theater=TW</span> — <span style="color:#66ffcc;">[CAC Phase D]</span> Co-occurrence statistics for sensor pairs (co_count, solo counts, used for sensitivity boost).</li>
         </ul>
         <p><b>Response Field Additions</b> <span style="color:#66ffcc;">[Engine Enhancement]</span></p>
         <ul style="font-size: 11px; line-height: 1.8;">
@@ -2117,16 +2452,16 @@
         <div class="guide-lang-ja" style="display:none;">
         <h4>9. API リファレンス（アナリスト / 統合エンドポイント）</h4>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
-            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — プライマリデータフィード。すべてのセンサーデータ、脅威スコア、ドメイン内訳、ディープアナリティクスブロックを返す（v9追加: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4追加: ihr, ripe_atlas, tor_metrics）。国家インテルにihr_status、ihr_disco、ripe_atlas、tor_metricsを国別に含む。</li>
+            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — プライマリデータフィード。全26センサーのデータ、脅威スコア、ドメイン内訳、ディープアナリティクスブロックを返す（v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics; Phase C: notam, travel_advisory, ooni, seismic, mil_support_air, gps_jamming, ct_log; Phase D: cooccurrence_boost, forecast_accuracy）。context_alignment と direction_summary (CAC) を含む。</li>
             <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — 脅威レベル履歴（最大24時間 / 288サイクル）。各サイクルには速度、アンブッシュフラグ、封鎖インデックスを含む。</li>
             <li><span class="code-block">GET /api/sitrep</span> — トレンド、ドメイン活動、収束状態を含む機械可読 SITREP。</li>
-            <li><span class="code-block">GET /api/data_status</span> — センサーヘルス、ポーリング間隔、最終フェッチ時刻、エラーログ。v9 追加分を含む全15センサーを表示。</li>
+            <li><span class="code-block">GET /api/data_status</span> — センサーヘルス、ポーリング間隔、最終フェッチ時刻、エラーログ。全26センサーを表示（元12 + v9 3 + Phase 2 1 + Phase 4 3 + CAC 7）。</li>
             <li><span class="code-block">GET /api/sensor_config</span> — 有効/ドメイン/ヘルスステータス付きの全センサーリスト。</li>
             <li><span class="code-block">POST /api/sensor_config</span> — センサーの有効/無効切替。ボディ例: <span class="code-block">{"name":"telegram_mirror","enabled":false}</span></li>
             <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> — 指定シアターの24時間ウィンドウ内のエスカレーションチェーンイベントを返す。v9 イベントタイプ: TELEGRAM_INTENT, MASKIROVKA, C2_SYNC, INFRA_BLACKOUT（NARRATIVE_BURST, ISR_SURGE, SYNC_DDOS, FIRMS_ANOMALY, AIS_DARK_GAP に加えて）。</li>
             <li><span class="code-block">GET /api/deep_analytics?theater=TW</span> — ディープアナリティクス診断ダンプ: 速度系列、加速度、アンブッシュZスコア、ナラティブZスコア、ISR 航空機数、AIS ダークギャップ、解釈ラベル付き封鎖インデックス（v9 計算式）。</li>
             <li><span class="code-block">GET /api/ip_check?ip=1.2.3.4</span> — GreyNoise Community API IP 照会。noise/riot/classification/name/last_seen を返す。結果は IP ごとに24時間キャッシュ。レート制限: 50 req/day（Community プラン）。TOOLS メニューの GreyNoise インベスティゲーターパネルから利用可能。</li>
-            <li><span class="code-block">GET /api/salute_report</span> — 現在の脅威状態から SALUTE フォーマットの接触報告書を生成。SALUTE ボードパネルで使用。</li>
+            <li><span class="code-block">GET /api/salute_report</span> — 現在の脅威状態から SALUTE フォーマットの接触報告書を生成。SALUTEエクスポートモーダル（コピー/ダウンロード）で使用。</li>
             <li><span class="code-block">GET /api/weather_brief</span> — センサー値を気象メタファーにマッピング。ドメインごとの状態、色、アイコン、サマリーテキストを返す。Weather Brief パネルで使用。</li>
             <li><span class="code-block">GET /api/historical_events</span> — geo_data.json から歴史的事例パターンライブラリを返す（5つの参照フィンガープリント）。Historical Analog パネルで使用。</li>
             <li><span class="code-block">GET /api/app_config</span> — デフォルト設定、グローバル監視国リスト、戦略ブロックアーキテクチャを返す。含まれる内容: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span>（起動時デフォルト）、<span class="code-block">strategic_blocs</span>（サブカテゴリとシアターリスト付き4ブロック）、<span class="code-block">country_bloc_tags</span>（複数脅威国 → ブロックマッピング）、<span class="code-block">adversary_options</span>（5つの敵対国家: RU/CN/IR/KP/BY）、<span class="code-block">available_countries</span>（コード/名称/地域/緯度/経度付きの全国リスト）。起動時の UI 初期化に使用。</li>
@@ -2152,6 +2487,14 @@
             <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> エスカレーション分析を返す: 現在のTL、持続時間、速度、スコアトレンド、パターン分類（STABLE/ESCALATING/DE-ESCALATING/OSCILLATING）、予測次TL、遷移履歴。</li>
             <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> センサー/シアター別の適応型Zスコア統計を返す: サンプル数、移動平均、標準偏差、適応モードのアクティブ状態。</li>
             <li><span class="code-block">GET /api/sensor_reliability?hours=24</span> — <span style="color:#66ffcc;">[Phase 3]</span> 指定時間ウィンドウ（デフォルト24h、最大168h）のセンサー別フェッチ信頼性を返す。総フェッチ数、成功率、平均応答時間、初回/最終確認タイムスタンプを含む。</li>
+            <li><span class="code-block">GET /api/noise_exclusion?sensor=X&amp;theater=TW</span> — <span style="color:#66ffcc;">[CAC]</span> アクティブなノイズ除外ルール一覧。sensor/theater でフィルタ可能。</li>
+            <li><span class="code-block">POST /api/noise_exclusion</span> — <span style="color:#66ffcc;">[CAC]</span> ノイズ除外ルール追加。ボディ: <span class="code-block">{"sensor":"X","theater":"TW","pattern":"...","reason":"exercise|maintenance|known_noise|false_positive","expires_hours":24}</span></li>
+            <li><span class="code-block">DELETE /api/noise_exclusion/{id}</span> — <span style="color:#66ffcc;">[CAC]</span> ノイズ除外ルール削除。</li>
+            <li><span class="code-block">GET /api/confirmed_threats?theater=TW&amp;limit=100</span> — <span style="color:#66ffcc;">[CAC]</span> 確認済み脅威分類の一覧。</li>
+            <li><span class="code-block">POST /api/confirmed_threats</span> — <span style="color:#66ffcc;">[CAC]</span> 脅威分類追加。ボディ: <span class="code-block">{"theater":"TW","classification":"exercise|maintenance|confirmed_threat|false_positive","sensors_active":["cf_spike_core"],"threat_level":5,"notes":"..."}</span></li>
+            <li><span class="code-block">GET /api/daily_summary?theater=TW&amp;days=90</span> — <span style="color:#66ffcc;">[CAC]</span> 日次サマリースナップショット（平均/最大スコア、最小/最大TL、発火センサー、ドメインスコア、コンテキストアライメント）。</li>
+            <li><span class="code-block">GET /api/forecast_accuracy?theater=TW</span> — <span style="color:#66ffcc;">[CAC Phase D]</span> 予測精度サマリー（総予測数、解決済み、平均精度）。</li>
+            <li><span class="code-block">GET /api/cooccurrence?theater=TW</span> — <span style="color:#66ffcc;">[CAC Phase D]</span> センサーペアの共起統計（co_count、solo counts、感度ブーストに使用）。</li>
         </ul>
         <p><b>レスポンスフィールド追加</b> <span style="color:#66ffcc;">[エンジン強化]</span></p>
         <ul style="font-size: 11px; line-height: 1.8;">

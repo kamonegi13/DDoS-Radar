@@ -1,11 +1,14 @@
-"""radar.routes.admin -- Admin-only endpoints: config, sensor toggle, persist."""
+"""radar.routes.admin -- Admin-only endpoints: config, sensor toggle, persist,
+   noise exclusion, confirmed threats."""
 from __future__ import annotations
 import os
 import re
 import json
 import datetime
+import time as _time
 from flask import jsonify, request
 from radar.config import PERSISTENCE_STATE_FILE
+from radar.database import db as _db
 from radar.persistence import save_state
 from radar.sensors.telegram import TelegramMirrorSensor
 import radar.routes as _routes
@@ -116,4 +119,106 @@ def api_persist_save():
         })
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ── CAC: Noise Exclusion API ──────────────────────────────────────────────
+
+@bp.route("/api/noise_exclusion", methods=["GET"])
+def api_noise_exclusion_list():
+    """List active noise exclusion rules."""
+    sensor = request.args.get("sensor")
+    theater = request.args.get("theater")
+    return jsonify(_db.noise_excl_list(sensor=sensor, theater=theater))
+
+
+@bp.route("/api/noise_exclusion", methods=["POST"])
+def api_noise_exclusion_add():
+    """Add a noise exclusion rule. Body: {sensor, theater, pattern, reason, expires_hours?}"""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    body = request.get_json(silent=True) or {}
+    sensor = body.get("sensor", "")
+    if not sensor:
+        return jsonify({"error": "sensor is required"}), 400
+    reason = body.get("reason", "")
+    valid_reasons = ("exercise", "maintenance", "known_noise", "false_positive")
+    if reason not in valid_reasons:
+        return jsonify({"error": f"reason must be one of: {valid_reasons}"}), 400
+    expires_hours = body.get("expires_hours")
+    expires_at = _time.time() + float(expires_hours) * 3600 if expires_hours else None
+    rule_id = _db.noise_excl_add(
+        sensor=sensor,
+        theater=body.get("theater", ""),
+        pattern=body.get("pattern", ""),
+        reason=reason,
+        created_by=body.get("created_by", "analyst"),
+        expires_at=expires_at,
+    )
+    return jsonify({"ok": True, "id": rule_id})
+
+
+@bp.route("/api/noise_exclusion/<int:rule_id>", methods=["DELETE"])
+def api_noise_exclusion_delete(rule_id):
+    """Remove a noise exclusion rule."""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    ok = _db.noise_excl_remove(rule_id)
+    return jsonify({"ok": ok})
+
+
+# ── CAC: Confirmed Threats API ────────────────────────────────────────────
+
+@bp.route("/api/confirmed_threats", methods=["GET"])
+def api_confirmed_threats_list():
+    """List confirmed threat events."""
+    theater = request.args.get("theater")
+    limit = int(request.args.get("limit", "100"))
+    return jsonify(_db.confirmed_threat_list(theater=theater, limit=limit))
+
+
+@bp.route("/api/confirmed_threats", methods=["POST"])
+def api_confirmed_threats_add():
+    """Classify an event. Body: {theater, classification, sensors_active[], threat_level, notes}"""
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    body = request.get_json(silent=True) or {}
+    theater = body.get("theater", "")
+    classification = body.get("classification", "")
+    valid_cls = ("exercise", "maintenance", "confirmed_threat", "false_positive")
+    if classification not in valid_cls:
+        return jsonify({"error": f"classification must be one of: {valid_cls}"}), 400
+    ct_id = _db.confirmed_threat_add(
+        theater=theater,
+        ts=body.get("timestamp", _time.time()),
+        classification=classification,
+        sensors_active=body.get("sensors_active", []),
+        threat_level=body.get("threat_level", 5),
+        notes=body.get("notes", ""),
+        created_by=body.get("created_by", "analyst"),
+    )
+    return jsonify({"ok": True, "id": ct_id})
+
+
+# ── CAC: Daily Summary & Forecast API ────────────────────────────────────
+
+@bp.route("/api/daily_summary", methods=["GET"])
+def api_daily_summary():
+    """Get daily summary for a theater."""
+    theater = request.args.get("theater", "")
+    days = int(request.args.get("days", "90"))
+    return jsonify(_db.daily_summary_get(theater, days))
+
+
+@bp.route("/api/forecast_accuracy", methods=["GET"])
+def api_forecast_accuracy():
+    """Get forecast accuracy summary."""
+    theater = request.args.get("theater")
+    return jsonify(_db.forecast_accuracy_summary(theater))
+
+
+@bp.route("/api/cooccurrence", methods=["GET"])
+def api_cooccurrence():
+    """Get co-occurrence statistics."""
+    theater = request.args.get("theater")
+    return jsonify(_db.cooccurrence_get(theater))
 

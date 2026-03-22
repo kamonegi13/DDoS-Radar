@@ -19,6 +19,13 @@ from radar.sensors.space_weather import SpaceWeatherSensor
 from radar.sensors.ihr import IhrSensor
 from radar.sensors.ripe_atlas import RipeAtlasSensor
 from radar.sensors.tor_metrics import TorMetricsSensor
+from radar.sensors.notam import NotamSensor
+from radar.sensors.travel_advisory import TravelAdvisorySensor
+from radar.sensors.ooni import OoniSensor
+from radar.sensors.usgs_seismic import UsgsSeismicSensor
+from radar.sensors.mil_support_air import MilSupportAirSensor
+from radar.sensors.gps_jamming import GpsJammingSensor
+from radar.sensors.ct_log import CtLogSensor
 
 __all__ = [
     "BaseSensor",
@@ -41,4 +48,11 @@ __all__ = [
     "IhrSensor",
     "RipeAtlasSensor",
     "TorMetricsSensor",
+    "NotamSensor",
+    "TravelAdvisorySensor",
+    "OoniSensor",
+    "UsgsSeismicSensor",
+    "MilSupportAirSensor",
+    "GpsJammingSensor",
+    "CtLogSensor",
 ]

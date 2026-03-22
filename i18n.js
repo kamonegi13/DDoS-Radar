@@ -22,12 +22,17 @@ const LANG = {
     'hud.btn.chain':                  'CHAIN',
     'hud.btn.tools':                  'TOOLS ▾',
     'hud.btn.sitrep':                 'SITREP',
+    'hud.btn.evidence':               'EVIDENCE',
+    'hud.btn.salute':                 'SALUTE',
     'hud.btn.intel_guide':            'Intel Guide',
     'hud.btn.config':                 'Config',
 
     'hud.tooltip.chain':              'Evidence Chain Timeline — Escalation Sequence Viewer',
     'hud.tooltip.tools':              'Intuition Tools — RPD Analysis Panels',
     'hud.tooltip.sync':               'Force data sync',
+    'hud.tooltip.sitrep':             'Situation Report — Executive threat summary',
+    'hud.tooltip.evidence':           'Analytic Rationale — Sensor-by-sensor scoring breakdown',
+    'hud.tooltip.salute':             'SALUTE Contact Report — Export current threat state',
 
     // ── threat meter (static text within HUD) ─────────────────────
     'hud.threat.click_hint':          'Click to view Analytic Rationale',
@@ -107,7 +112,7 @@ const LANG = {
     'tools.telegram_sigint':          'Telegram SIGINT',
     'tools.threat_pulse':             'Threat Pulse',
     'tools.weather_brief':            'Weather Brief',
-    'tools.salute_board':             'SALUTE Board',
+    'tools.salute_export':            'SALUTE Export',
     'tools.historical_analog':        'Historical Analog',
     'tools.ops_clock':                'Ops Clock',
     'tools.greynoise':                'GreyNoise',
@@ -265,14 +270,19 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     'modal.evidence.title':           'Analytic Rationale — Evidence Panel',
     'modal.evidence.close':           '[ X ] Close',
+    'modal.evidence.section_convergence': 'Convergence Score Breakdown',
+    'modal.evidence.section_assessment':  'System Assessment',
+    'modal.evidence.section_rationale':   'Sensor Rationale Matrix',
     'modal.evidence.th_sensor':       'Sensor',
     'modal.evidence.th_domain':       'Domain',
     'modal.evidence.th_status':       'Status',
     'modal.evidence.th_observed':     'Observed Value',
     'modal.evidence.th_score':        'Score',
-    'modal.evidence.th_confidence':   'Conf',
+    'modal.evidence.th_confidence':   'Confidence',
     'modal.evidence.th_reason':       'Fired Reason / Note',
     'modal.evidence.noise_filters':   'Noise filters applied:',
+    'modal.evidence.btn_salute':      'Export SALUTE Report',
+    'modal.evidence.btn_sitrep':      'View SITREP',
     'modal.evidence.no_filters':      'None',
     'modal.evidence.system_note_label': 'System Note',
     'modal.evidence.convergence_score': 'Convergence Score:',
@@ -309,6 +319,11 @@ const LANG = {
     // Panel — SALUTE Report
     // ══════════════════════════════════════════════════════════════
     'panel.salute.title':             'SALUTE REPORT',
+    'panel.salute.btn_close':         '[ X ] Close',
+    'panel.salute.btn_copy':          'Copy',
+    'panel.salute.btn_download':      'Download',
+    'panel.salute.copied':            'SALUTE report copied to clipboard',
+    'panel.salute.cross_ref':         'CROSS-REF',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Historical Analog
@@ -697,7 +712,7 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     // Escalation Tracker panel (Phase 2)
     // ══════════════════════════════════════════════════════════════
-    'tools.escalation_tracker':       'Escalation Tracker',
+    'tools.phase_escalation':         'Phase & Escalation',
     'panel.esc.title':                'ESCALATION TRACKER',
     'panel.esc.loading':              'Loading escalation data...',
     'panel.esc.api_error':            'No threat data available yet.',
@@ -945,6 +960,120 @@ const LANG = {
     'sysconfig.help.plugin_enabled':  'Comma-separated filenames (without extension), or * for all plugins',
     'sysconfig.help.plugin_disabled': 'Plugin names to explicitly disable (comma-separated)',
 
+    // ══════════════════════════════════════════════════════════════
+    // CAC — Context-Aware Convergence
+    // ══════════════════════════════════════════════════════════════
+    'hud.label.context_align':        'CTX:',
+    'hud.tooltip.context_align':      'Context Alignment: how many axes (Temporal/Spatial/Target/Direction) are in high-risk state',
+    'hud.label.direction':            'DIR:',
+    'hud.tooltip.direction':          'Signal Direction: dominant classification of fired signals',
+    'evidence.context_alignment':     'Context Alignment',
+    'evidence.direction':             'Direction',
+    'evidence.btn.classify_tip':      'Classify this signal as noise (exercise/maintenance/known)',
+    'modal.evidence.th_direction':    'Direction',
+    'cac.axis.temporal':              'Temporal',
+    'cac.axis.spatial':               'Spatial',
+    'cac.axis.target':                'Target',
+    'cac.axis.direction':             'Direction',
+    'dir.adversary':                  'ADVERSARY OFFENSIVE',
+    'dir.friendly':                   'FRIENDLY DEFENSIVE',
+    'dir.target':                     'TARGET IMPACT',
+    'dir.unknown':                    'UNKNOWN',
+    'noise.classify_prompt':          'Classify signal from {sensor} as:',
+    'noise.classify_hint':            'Enter number (1-4):',
+    'noise.invalid_choice':           'Invalid choice.',
+    'noise.exercise':                 'Exercise / Drill',
+    'noise.maintenance':              'Scheduled Maintenance',
+    'noise.known_noise':              'Known Noise Source',
+    'noise.false_positive':           'False Positive',
+    'noise.expires_prompt':           'Auto-expire after hours (blank = permanent):',
+    'notebook.entry.noise_excluded':  'Noise exclusion added: {sensor} → {reason}',
+    'threat_cls.prompt':              'Classify current threat situation:',
+    'threat_cls.exercise':            'Exercise / Drill',
+    'threat_cls.maintenance':         'Scheduled Maintenance',
+    'threat_cls.confirmed_threat':    'Confirmed Threat',
+    'threat_cls.false_positive':      'False Positive',
+    'threat_cls.notes_prompt':        'Additional notes (optional):',
+    'notebook.entry.threat_classified': 'Threat classified: {cls}',
+
+    // Attack Phase Panel
+    'panel.phase.title':              'PHASE & ESCALATION',
+    'panel.phase.escalation':         'Escalation Status',
+    'panel.phase.loading':            'Analyzing attack phase...',
+    'panel.phase.no_data':            'No threat data available.',
+    'panel.phase.context_alignment':  'Context Alignment',
+    'panel.phase.direction':          'Signal Direction',
+    'panel.phase.trend':              'Escalation Trend',
+    'panel.phase.btn_classify':       'Classify Threat',
+    'phase.0.label':                  'PHASE 0: NORMAL',
+    'phase.0.desc':                   'No significant indicators. Routine monitoring.',
+    'phase.1.label':                  'PHASE 1: WATCH',
+    'phase.1.desc':                   'Early indicators detected. Single-domain activity.',
+    'phase.2.label':                  'PHASE 2: ELEVATED',
+    'phase.2.desc':                   'Multi-domain signals converging. Possible preparation.',
+    'phase.3.label':                  'PHASE 3: HEIGHTENED',
+    'phase.3.desc':                   'Strong adversary offensive pattern. Dual-domain convergence.',
+    'phase.4.label':                  'PHASE 4: CRITICAL',
+    'phase.4.desc':                   'Full convergence with infrastructure degradation. Imminent threat.',
+
+    // ══════════════════════════════════════════════════════════════
+    // Phase C: New Sensors S1-S7
+    // ══════════════════════════════════════════════════════════════
+    // S1: NOTAM
+    'sensor.notam':                   'NOTAM Anomaly',
+    'sensor.notam.desc':              'Airspace restriction surge detection (TFR / military NOTAMs)',
+    'sensor.notam.surge':             'NOTAM surge: {total} notices ({mil} military)',
+    'sensor.notam.normal':            'No NOTAM anomalies',
+    'badge.notam_surge':              'NOTAM SURGE',
+    // S2: Travel Advisory
+    'sensor.travel_advisory':         'Travel Advisory',
+    'sensor.travel_advisory.desc':    'US State Dept travel advisory level monitoring',
+    'sensor.travel_advisory.level':   'Level {n}: {label}',
+    'sensor.travel_advisory.upgraded':'UPGRADED',
+    'sensor.travel_advisory.l1':      'Normal Precautions',
+    'sensor.travel_advisory.l2':      'Increased Caution',
+    'sensor.travel_advisory.l3':      'Reconsider Travel',
+    'sensor.travel_advisory.l4':      'Do Not Travel',
+    'badge.travel_advisory':          'TRAVEL ADV',
+    // S3: OONI Censorship
+    'sensor.ooni':                    'OONI Censorship',
+    'sensor.ooni.desc':               'Internet censorship measurement (website blocking, DNS tampering)',
+    'sensor.ooni.censoring':          'Censorship detected: {rate} anomaly rate',
+    'sensor.ooni.heavy':              'Heavy censorship: {rate} anomaly, {confirmed} confirmed',
+    'sensor.ooni.normal':             'No significant censorship',
+    'badge.ooni_censorship':          'CENSORSHIP',
+    // S4: USGS Seismic
+    'sensor.usgs_seismic':            'USGS Seismic',
+    'sensor.usgs_seismic.desc':       'Earthquake monitoring near submarine cables and chokepoints',
+    'sensor.usgs_seismic.cable':      'Seismic event near submarine cable: {cp}',
+    'sensor.usgs_seismic.nuclear':    'Possible nuclear test signature ({n} candidates)',
+    'sensor.usgs_seismic.normal':     'No significant seismic activity',
+    'badge.seismic_cable':            'SEISMIC / CABLE',
+    'badge.nuclear_candidate':        'NUCLEAR TEST?',
+    // S5: Military Support Aircraft
+    'sensor.mil_support_air':         'Mil Support Air',
+    'sensor.mil_support_air.desc':    'Military tanker, transport, and AWACS aircraft tracking',
+    'sensor.mil_support_air.surge':   'Military air surge: T={tanker} C={transport} A={awacs}',
+    'sensor.mil_support_air.normal':  'No military support aircraft anomaly',
+    'badge.mil_air_surge':            'MIL AIR SURGE',
+    'badge.tanker':                   'TANKER',
+    'badge.transport':                'TRANSPORT',
+    'badge.awacs':                    'AWACS',
+    // S6: GPS Jamming
+    'sensor.gps_jamming':             'GPS Jamming',
+    'sensor.gps_jamming.desc':        'GPS interference / spoofing detection near theaters',
+    'sensor.gps_jamming.detected':    'GPS jamming detected: max={max}, avg={avg}',
+    'sensor.gps_jamming.critical':    'Critical GPS jamming: max={max}',
+    'sensor.gps_jamming.normal':      'No GPS interference detected',
+    'badge.gps_jamming':              'GPS JAM',
+    // S7: CT Log
+    'sensor.ct_log':                  'CT Log Monitor',
+    'sensor.ct_log.desc':             'Certificate Transparency log anomaly detection',
+    'sensor.ct_log.surge':            'Certificate surge: {total} certs ({gov} gov)',
+    'sensor.ct_log.gov_surge':        'Government certificate surge: {gov} gov certs',
+    'sensor.ct_log.normal':           'No CT log anomalies',
+    'badge.ct_surge':                 'CERT SURGE',
+
   },
 
   // ============================================================
@@ -959,12 +1088,17 @@ const LANG = {
     'hud.btn.chain':                  'CHAIN',
     'hud.btn.tools':                  'TOOLS ▾',
     'hud.btn.sitrep':                 'SITREP',
+    'hud.btn.evidence':               'EVIDENCE',
+    'hud.btn.salute':                 'SALUTE',
     'hud.btn.intel_guide':            'インテルガイド',
     'hud.btn.config':                 '設定',
 
     'hud.tooltip.chain':              '証拠チェーンタイムライン — エスカレーション順序ビューア',
     'hud.tooltip.tools':              '直感ツール — RPD分析パネル',
     'hud.tooltip.sync':               'データを強制同期',
+    'hud.tooltip.sitrep':             '状況報告 — エグゼクティブ脅威サマリー',
+    'hud.tooltip.evidence':           '分析根拠 — センサー別スコアリング内訳',
+    'hud.tooltip.salute':             'SALUTE接触報告 — 現在の脅威状態をエクスポート',
 
     'hud.threat.click_hint':          'クリックして分析根拠を表示',
 
@@ -1037,7 +1171,7 @@ const LANG = {
     'tools.telegram_sigint':          'Telegram SIGINT',
     'tools.threat_pulse':             '脅威パルス',
     'tools.weather_brief':            '気象ブリーフィング',
-    'tools.salute_board':             'SALUTE 報告板',
+    'tools.salute_export':            'SALUTEエクスポート',
     'tools.historical_analog':        '歴史的パターン類推',
     'tools.ops_clock':                '作戦時計',
     'tools.greynoise':                'GreyNoise',
@@ -1195,6 +1329,9 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     'modal.evidence.title':           '分析根拠 — 証拠パネル',
     'modal.evidence.close':           '[ X ] 閉じる',
+    'modal.evidence.section_convergence': '収束スコア内訳',
+    'modal.evidence.section_assessment':  'システム評価',
+    'modal.evidence.section_rationale':   'センサー根拠マトリクス',
     'modal.evidence.th_sensor':       'センサー',
     'modal.evidence.th_domain':       'ドメイン',
     'modal.evidence.th_status':       '状態',
@@ -1203,6 +1340,8 @@ const LANG = {
     'modal.evidence.th_confidence':   '信頼度',
     'modal.evidence.th_reason':       '発火理由 / 備考',
     'modal.evidence.noise_filters':   '適用ノイズフィルター:',
+    'modal.evidence.btn_salute':      'SALUTEレポート出力',
+    'modal.evidence.btn_sitrep':      'SITREPを表示',
     'modal.evidence.no_filters':      'なし',
     'modal.evidence.system_note_label': 'システムノート',
     'modal.evidence.convergence_score': '収束スコア:',
@@ -1239,6 +1378,11 @@ const LANG = {
     // Panel — SALUTE Report
     // ══════════════════════════════════════════════════════════════
     'panel.salute.title':             'SALUTE 報告書',
+    'panel.salute.btn_close':         '[ X ] 閉じる',
+    'panel.salute.btn_copy':          'コピー',
+    'panel.salute.btn_download':      'ダウンロード',
+    'panel.salute.copied':            'SALUTE報告書をクリップボードにコピーしました',
+    'panel.salute.cross_ref':         '相互参照',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Historical Analog
@@ -1621,7 +1765,7 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     // Escalation Tracker panel (Phase 2)
     // ══════════════════════════════════════════════════════════════
-    'tools.escalation_tracker':       'エスカレーショントラッカー',
+    'tools.phase_escalation':         'フェーズ＆エスカレーション',
     'panel.esc.title':                'エスカレーショントラッカー',
     'panel.esc.loading':              'エスカレーションデータを読み込み中...',
     'panel.esc.api_error':            '脅威データがまだありません。',
@@ -1868,6 +2012,120 @@ const LANG = {
     'sysconfig.help.plugins_desc':    'plugins/ ディレクトリからBaseSensorサブクラスを動的にロードします。',
     'sysconfig.help.plugin_enabled':  'カンマ区切りのファイル名（拡張子なし）、または * で全プラグイン',
     'sysconfig.help.plugin_disabled': '明示的に無効にするプラグイン名（カンマ区切り）',
+
+    // ══════════════════════════════════════════════════════════════
+    // CAC — Context-Aware Convergence
+    // ══════════════════════════════════════════════════════════════
+    'hud.label.context_align':        'CTX:',
+    'hud.tooltip.context_align':      '文脈整合度: 4軸（時間/空間/対象/方向）のうちいくつが高リスク状態か',
+    'hud.label.direction':            'DIR:',
+    'hud.tooltip.direction':          'シグナル方向性: 発火シグナルの支配的分類',
+    'evidence.context_alignment':     '文脈整合度',
+    'evidence.direction':             '方向性',
+    'evidence.btn.classify_tip':      'このシグナルをノイズとして分類（演習/保守/既知）',
+    'modal.evidence.th_direction':    '方向',
+    'cac.axis.temporal':              '時間',
+    'cac.axis.spatial':               '空間',
+    'cac.axis.target':                '対象',
+    'cac.axis.direction':             '方向',
+    'dir.adversary':                  '敵性攻勢',
+    'dir.friendly':                   '友軍防御',
+    'dir.target':                     '対象影響',
+    'dir.unknown':                    '不明',
+    'noise.classify_prompt':          '{sensor} のシグナルを分類:',
+    'noise.classify_hint':            '番号を入力 (1-4):',
+    'noise.invalid_choice':           '無効な選択です。',
+    'noise.exercise':                 '演習 / 訓練',
+    'noise.maintenance':              '定期保守',
+    'noise.known_noise':              '既知ノイズ源',
+    'noise.false_positive':           '誤検知',
+    'noise.expires_prompt':           '自動失効までの時間（空欄=永続）:',
+    'notebook.entry.noise_excluded':  'ノイズ除外追加: {sensor} → {reason}',
+    'threat_cls.prompt':              '現在の脅威状況を分類:',
+    'threat_cls.exercise':            '演習 / 訓練',
+    'threat_cls.maintenance':         '定期保守',
+    'threat_cls.confirmed_threat':    '確認済み脅威',
+    'threat_cls.false_positive':      '誤検知',
+    'threat_cls.notes_prompt':        '追加メモ（任意）:',
+    'notebook.entry.threat_classified': '脅威分類: {cls}',
+
+    // Attack Phase Panel
+    'panel.phase.title':              'フェーズ＆エスカレーション',
+    'panel.phase.escalation':         'エスカレーション状況',
+    'panel.phase.loading':            '攻撃フェーズを分析中...',
+    'panel.phase.no_data':            '脅威データなし',
+    'panel.phase.context_alignment':  '文脈整合度',
+    'panel.phase.direction':          'シグナル方向性',
+    'panel.phase.trend':              'エスカレーション傾向',
+    'panel.phase.btn_classify':       '脅威を分類',
+    'phase.0.label':                  'フェーズ0: 通常',
+    'phase.0.desc':                   '有意な兆候なし。通常監視。',
+    'phase.1.label':                  'フェーズ1: 注意',
+    'phase.1.desc':                   '初期兆候を検出。単一ドメインの活動。',
+    'phase.2.label':                  'フェーズ2: 警戒',
+    'phase.2.desc':                   '複数ドメインのシグナルが収束。準備段階の可能性。',
+    'phase.3.label':                  'フェーズ3: 高脅威',
+    'phase.3.desc':                   '強い敵性攻勢パターン。二重ドメイン収束。',
+    'phase.4.label':                  'フェーズ4: 危機',
+    'phase.4.desc':                   '完全収束とインフラ劣化。脅威が差し迫っている。',
+
+    // ══════════════════════════════════════════════════════════════
+    // Phase C: 新規センサー S1-S7
+    // ══════════════════════════════════════════════════════════════
+    // S1: NOTAM
+    'sensor.notam':                   'NOTAM異常',
+    'sensor.notam.desc':              '空域制限急増検知（TFR / 軍事NOTAM）',
+    'sensor.notam.surge':             'NOTAM急増: {total}件 (軍事{mil}件)',
+    'sensor.notam.normal':            'NOTAM異常なし',
+    'badge.notam_surge':              'NOTAM急増',
+    // S2: Travel Advisory
+    'sensor.travel_advisory':         '渡航勧告',
+    'sensor.travel_advisory.desc':    '米国務省渡航勧告レベル監視',
+    'sensor.travel_advisory.level':   'レベル{n}: {label}',
+    'sensor.travel_advisory.upgraded':'引上げ',
+    'sensor.travel_advisory.l1':      '通常注意',
+    'sensor.travel_advisory.l2':      '注意強化',
+    'sensor.travel_advisory.l3':      '渡航再検討',
+    'sensor.travel_advisory.l4':      '渡航中止勧告',
+    'badge.travel_advisory':          '渡航勧告',
+    // S3: OONI Censorship
+    'sensor.ooni':                    'OONI検閲',
+    'sensor.ooni.desc':               'インターネット検閲測定（Webブロッキング、DNS改竄）',
+    'sensor.ooni.censoring':          '検閲検知: 異常率{rate}',
+    'sensor.ooni.heavy':              '重度検閲: 異常率{rate}、確認{confirmed}',
+    'sensor.ooni.normal':             '重大な検閲なし',
+    'badge.ooni_censorship':          '検閲',
+    // S4: USGS Seismic
+    'sensor.usgs_seismic':            'USGS地震',
+    'sensor.usgs_seismic.desc':       '海底ケーブル・チョークポイント付近の地震監視',
+    'sensor.usgs_seismic.cable':      '海底ケーブル付近で地震: {cp}',
+    'sensor.usgs_seismic.nuclear':    '核実験疑い（{n}候補）',
+    'sensor.usgs_seismic.normal':     '重大な地震活動なし',
+    'badge.seismic_cable':            '地震/ケーブル',
+    'badge.nuclear_candidate':        '核実験？',
+    // S5: Military Support Aircraft
+    'sensor.mil_support_air':         '軍事支援航空機',
+    'sensor.mil_support_air.desc':    '空中給油機・輸送機・早期警戒機の追跡',
+    'sensor.mil_support_air.surge':   '軍事航空機急増: 給油={tanker} 輸送={transport} 早警={awacs}',
+    'sensor.mil_support_air.normal':  '軍事支援航空機の異常なし',
+    'badge.mil_air_surge':            '軍事航空急増',
+    'badge.tanker':                   '給油機',
+    'badge.transport':                '輸送機',
+    'badge.awacs':                    'AWACS',
+    // S6: GPS Jamming
+    'sensor.gps_jamming':             'GPSジャミング',
+    'sensor.gps_jamming.desc':        '戦域付近のGPS妨害/スプーフィング検知',
+    'sensor.gps_jamming.detected':    'GPSジャミング検知: 最大={max}、平均={avg}',
+    'sensor.gps_jamming.critical':    '重大GPSジャミング: 最大={max}',
+    'sensor.gps_jamming.normal':      'GPS干渉なし',
+    'badge.gps_jamming':              'GPS妨害',
+    // S7: CT Log
+    'sensor.ct_log':                  'CTログ監視',
+    'sensor.ct_log.desc':             '証明書透明性ログ異常検知',
+    'sensor.ct_log.surge':            '証明書急増: {total}件 (政府{gov}件)',
+    'sensor.ct_log.gov_surge':        '政府証明書急増: {gov}件',
+    'sensor.ct_log.normal':           'CTログ異常なし',
+    'badge.ct_surge':                 '証明書急増',
 
   },
 };

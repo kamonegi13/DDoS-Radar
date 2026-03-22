@@ -16,6 +16,8 @@ from radar.scoring import (
     parse_origins, calculate_overlap, fetch_asn_origins,
     compute_confidence, compute_adaptive_zscore,
     compute_origin_entropy, track_entropy_change,
+    classify_direction, compute_temporal_context,
+    compute_spatial_context, compute_target_context,
 )
 from radar.ws import emit_threat_update, emit_ambush_alert, emit_sequence_event
 from radar.notifications import notify_threat_level_change, notify_sequence_complete
@@ -166,6 +168,36 @@ def get_threat_data():
         tor_relays             = _tor_cache.get("relay_counts", {})
         tor_clients            = _tor_cache.get("client_estimates", {})
         tor_country_status     = _tor_cache.get("country_status", {})
+
+        # Phase C: New sensors (S1-S7) cache reads
+        notam_sensor           = _routes.registry.get("notam")
+        _notam_cache           = notam_sensor.get_cache() if notam_sensor else {}
+        notam_data             = _notam_cache.get("notam_data", {})
+        notam_country_status   = _notam_cache.get("country_status", {})
+        travel_adv_sensor      = _routes.registry.get("travel_advisory")
+        _travel_cache          = travel_adv_sensor.get_cache() if travel_adv_sensor else {}
+        travel_advisories      = _travel_cache.get("advisories", {})
+        ooni_sensor            = _routes.registry.get("ooni_censorship")
+        _ooni_cache            = ooni_sensor.get_cache() if ooni_sensor else {}
+        ooni_data              = _ooni_cache.get("censorship_data", {})
+        ooni_country_status    = _ooni_cache.get("country_status", {})
+        usgs_sensor            = _routes.registry.get("usgs_seismic")
+        _usgs_cache            = usgs_sensor.get_cache() if usgs_sensor else {}
+        seismic_data           = _usgs_cache.get("seismic", {})
+        mil_air_sensor         = _routes.registry.get("mil_support_air")
+        _mil_air_cache         = mil_air_sensor.get_cache() if mil_air_sensor else {}
+        mil_air_data           = _mil_air_cache.get("mil_air_data", {})
+        gps_jam_sensor         = _routes.registry.get("gps_jamming")
+        _gps_cache             = gps_jam_sensor.get_cache() if gps_jam_sensor else {}
+        gps_jam_data           = _gps_cache.get("jamming_data", {})
+        gps_country_status     = _gps_cache.get("country_status", {})
+        ct_log_sensor          = _routes.registry.get("ct_log")
+        _ct_cache              = ct_log_sensor.get_cache() if ct_log_sensor else {}
+        ct_data                = _ct_cache.get("ct_data", {})
+        ct_country_status      = _ct_cache.get("country_status", {})
+
+        # USGS seismic noise suppression (major earthquake near cables)
+        seismic_suppress       = seismic_data.get("suppress_physical", False)
 
         airspace_anomalies, noise_filters_applied = [], []
         for code, ainfo in airspace_data.items():
@@ -361,10 +393,41 @@ def get_threat_data():
                 return 1.0
             return sensor_obj.compute_confidence(sample_count, baseline_samples)
 
-        def add_rat(sensor, domain, status, value, score, fired_reason, is_suppressed=False, suppress_reason=None, confidence=1.0):
+        def add_rat(sensor, domain, status, value, score, fired_reason,
+                    is_suppressed=False, suppress_reason=None, confidence=1.0,
+                    source_country="", **cac_kwargs):
             _is_muted = (sensor in muted_sensors) or is_suppressed
             _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
-            rationale.append(RationaleEntry(sensor=sensor, domain=domain, status=status, value=value, score=score, fired_reason=fired_reason, suppressed=_is_muted, suppress_reason=_s_reason, confidence=confidence))
+            # Check noise exclusion rules
+            _noise_rule = _db.noise_excl_match(sensor, core_theater, value)
+            if _noise_rule and not _is_muted:
+                _is_muted = True
+                _s_reason = f"Noise exclusion: {_noise_rule['reason']} (rule #{_noise_rule['id']})"
+                noise_filters_applied.append(f"noise_excl@{sensor}: {_noise_rule['reason']}")
+            # CAC direction classification
+            _dir, _dir_conf = classify_direction(
+                sensor, domain, source_country=source_country,
+                target_country=core_theater,
+                adversary_states=adversary_states,
+                strategic_theaters=list(strategic_theaters_set),
+                **cac_kwargs)
+            # CAC context computation
+            _temporal = compute_temporal_context(sensor, current_time, core_theater)
+            _spatial = compute_spatial_context(sensor, core_theater,
+                                               source_country=source_country,
+                                               adversary_states=adversary_states)
+            _target = compute_target_context(sensor, core_theater,
+                                              source_country=source_country,
+                                              adversary_states=adversary_states,
+                                              strategic_theaters=list(strategic_theaters_set))
+            rationale.append(RationaleEntry(
+                sensor=sensor, domain=domain, status=status, value=value,
+                score=score, fired_reason=fired_reason,
+                suppressed=_is_muted, suppress_reason=_s_reason,
+                confidence=confidence,
+                direction=_dir, direction_confidence=_dir_conf,
+                temporal_context=_temporal, spatial_context=_spatial,
+                target_context=_target))
 
         if not (cf_sensor and cf_sensor.enabled):
             add_rat("cloudflare_radar", "cyber", "DISABLED", "sensor off", 0, None)
@@ -404,7 +467,8 @@ def get_threat_data():
             # Count-proportional adversary scoring: 1-2 actors → +2, ≥3 actors → +3
             _adv_count = len(adversary_strikes)
             _adv_score = 3 if _adv_count >= 3 else (2 if _adv_count >= 1 else 0)
-            add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{_adv_count} strike(s)", _adv_score, f"Adversary state direct strike ({_adv_count} actors)" if major_adversary else None, confidence=_cf_conf)
+            _adv_top_actor = adversary_strikes[0]["actor"] if adversary_strikes else ""
+            add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{_adv_count} strike(s)", _adv_score, f"Adversary state direct strike ({_adv_count} actors)" if major_adversary else None, confidence=_cf_conf, source_country=_adv_top_actor, is_state_asn=bool(state_asn_hits))
             add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None, confidence=_cf_conf)
 
         if not (ioda_sensor and ioda_sensor.enabled):
@@ -867,6 +931,184 @@ def get_threat_data():
             register_sequence_event(core_theater, "CENSORSHIP_DETECTED",
                                     {"tor_status": _tor_core_status, "ihr_status": _ihr_core_status})
 
+        # ── Phase C: S1 NOTAM Anomaly rationale ──────────────────────────────
+        _notam_core = notam_data.get(core_theater, {})
+        _notam_surge = _notam_core.get("is_surge", False)
+        _notam_mil = _notam_core.get("military", 0)
+        _notam_total = _notam_core.get("total", 0)
+        if notam_sensor and notam_sensor.enabled:
+            _notam_score = 2 if (_notam_surge and _notam_mil >= 3) else (1 if _notam_surge else 0)
+            _notam_fired = _notam_surge
+            _notam_value = f"total={_notam_total} mil={_notam_mil} tfr={_notam_core.get('tfr', 0)}"
+            _notam_reason = (f"NOTAM surge: {_notam_total} notices ({_notam_mil} military)"
+                             if _notam_fired else None)
+            add_rat("notam", "physical",
+                    "FIRED" if _notam_fired else "OK",
+                    _notam_value, _notam_score, _notam_reason,
+                    confidence=_sensor_conf(notam_sensor))
+            if _notam_fired:
+                register_sequence_event(core_theater, "NOTAM_SURGE",
+                                        {"total": _notam_total, "military": _notam_mil})
+
+        # ── Phase C: S2 Travel Advisory rationale ────────────────────────────
+        _travel_core = travel_advisories.get(core_theater, {})
+        _travel_level = _travel_core.get("level", 0)
+        _travel_upgraded = _travel_core.get("upgraded", False)
+        if travel_adv_sensor and travel_adv_sensor.enabled:
+            _travel_fired = _travel_level >= 3 or _travel_upgraded
+            _travel_score = (2 if _travel_level >= 4 else
+                             1 if _travel_level >= 3 or _travel_upgraded else 0)
+            _travel_label = _travel_core.get("level_label", "UNKNOWN")
+            _travel_value = f"Level {_travel_level} ({_travel_label})"
+            if _travel_upgraded:
+                _travel_value += " UPGRADED"
+            _travel_reason = (f"Travel Advisory: Level {_travel_level} ({_travel_label})"
+                              if _travel_fired else None)
+            add_rat("travel_advisory", "info",
+                    "FIRED" if _travel_fired else "OK",
+                    _travel_value, _travel_score, _travel_reason,
+                    confidence=_sensor_conf(travel_adv_sensor))
+
+        # ── Phase C: S3 OONI Censorship rationale ────────────────────────────
+        _ooni_core = ooni_data.get(core_theater, {})
+        _ooni_censoring = _ooni_core.get("is_censoring", False)
+        _ooni_heavy = _ooni_core.get("is_heavy", False)
+        _ooni_anomaly_rate = _ooni_core.get("anomaly_rate", 0)
+        _ooni_confirmed_rate = _ooni_core.get("confirmed_rate", 0)
+        if ooni_sensor and ooni_sensor.enabled:
+            _ooni_fired = _ooni_censoring
+            _ooni_score = 2 if _ooni_heavy else (1 if _ooni_censoring else 0)
+            _ooni_value = (f"anomaly={_ooni_anomaly_rate:.1%} confirmed={_ooni_confirmed_rate:.1%}"
+                           f" [{ooni_country_status.get(core_theater, 'NORMAL')}]")
+            _ooni_reason = (f"OONI: Internet censorship detected "
+                            f"(anomaly={_ooni_anomaly_rate:.1%}, confirmed={_ooni_confirmed_rate:.1%})"
+                            if _ooni_fired else None)
+            add_rat("ooni_censorship", "cyber",
+                    "FIRED" if _ooni_fired else "OK",
+                    _ooni_value, _ooni_score, _ooni_reason,
+                    confidence=_sensor_conf(ooni_sensor))
+            if _ooni_heavy:
+                register_sequence_event(core_theater, "CENSORSHIP_DETECTED",
+                                        {"source": "ooni", "anomaly_rate": _ooni_anomaly_rate})
+
+        # ── Phase C: S4 USGS Seismic rationale ──────────────────────────────
+        _seismic_cable = seismic_data.get("has_cable_threat", False)
+        _seismic_nuclear = seismic_data.get("has_nuclear_candidate", False)
+        _seismic_total = seismic_data.get("total_events", 0)
+        _seismic_near = seismic_data.get("near_cable", [])
+        if usgs_sensor and usgs_sensor.enabled:
+            _seismic_fired = _seismic_nuclear
+            _seismic_score = 3 if _seismic_nuclear else 0
+            _seismic_value = f"events={_seismic_total} near_cable={len(_seismic_near)}"
+            if _seismic_nuclear:
+                _seismic_value += f" NUCLEAR_CANDIDATE={len(seismic_data.get('nuclear_candidates', []))}"
+            _seismic_reason = (f"USGS: Possible underground nuclear test signature "
+                               f"({len(seismic_data.get('nuclear_candidates', []))} candidates)"
+                               if _seismic_nuclear else None)
+            # Cable threat = noise suppressor (explains physical disruption)
+            _is_seismic_suppress = _seismic_cable and not _seismic_nuclear
+            add_rat("usgs_seismic", "physical",
+                    "FIRED" if _seismic_fired else ("SUPPRESSED" if _is_seismic_suppress else "OK"),
+                    _seismic_value, _seismic_score, _seismic_reason,
+                    is_suppressed=_is_seismic_suppress,
+                    suppress_reason=f"Seismic event near submarine cable ({_seismic_near[0]['chokepoint'] if _seismic_near else 'unknown'})" if _is_seismic_suppress else None,
+                    confidence=_sensor_conf(usgs_sensor))
+            if _is_seismic_suppress:
+                noise_filters_applied.append(
+                    f"seismic_cable: earthquake near {_seismic_near[0]['chokepoint'] if _seismic_near else '?'}")
+
+        # ── Phase C: S5 Military Support Aircraft rationale ──────────────────
+        _mil_air_core = mil_air_data.get(core_theater, {})
+        _mil_air_surge = _mil_air_core.get("is_surge", False)
+        _mil_tanker = _mil_air_core.get("tanker", 0)
+        _mil_transport = _mil_air_core.get("transport", 0)
+        _mil_awacs = _mil_air_core.get("awacs", 0)
+        _mil_air_total = _mil_air_core.get("total", 0)
+        if mil_air_sensor and mil_air_sensor.enabled:
+            _mil_fired = _mil_air_surge
+            _mil_score = (2 if (_mil_air_core.get("is_awacs_active") and
+                                _mil_air_core.get("is_tanker_surge"))
+                          else 1 if _mil_air_surge else 0)
+            _mil_value = f"T={_mil_tanker} C={_mil_transport} A={_mil_awacs}"
+            _mil_reason = None
+            if _mil_fired:
+                parts = []
+                if _mil_air_core.get("is_tanker_surge"):
+                    parts.append(f"tanker surge ({_mil_tanker})")
+                if _mil_air_core.get("is_transport_surge"):
+                    parts.append(f"transport surge ({_mil_transport})")
+                if _mil_air_core.get("is_awacs_active"):
+                    parts.append(f"AWACS active ({_mil_awacs})")
+                _mil_reason = f"Military support aircraft: {', '.join(parts)}"
+            add_rat("mil_support_air", "physical",
+                    "FIRED" if _mil_fired else "OK",
+                    _mil_value, _mil_score, _mil_reason,
+                    confidence=_sensor_conf(mil_air_sensor))
+            if _mil_fired:
+                register_sequence_event(core_theater, "MIL_AIR_SURGE",
+                                        {"tanker": _mil_tanker, "transport": _mil_transport, "awacs": _mil_awacs})
+
+        # ── Phase C: S6 GPS Jamming rationale ────────────────────────────────
+        _gps_core = gps_jam_data.get(core_theater, {})
+        _gps_jammed = _gps_core.get("is_jammed", False)
+        _gps_critical = _gps_core.get("is_critical", False)
+        _gps_max = _gps_core.get("max_level", 0)
+        _gps_avg = _gps_core.get("avg_level", 0)
+        if gps_jam_sensor and gps_jam_sensor.enabled:
+            _gps_fired = _gps_jammed
+            _gps_score = 2 if _gps_critical else (1 if _gps_jammed else 0)
+            _gps_value = f"max={_gps_max:.1f} avg={_gps_avg:.1f} [{gps_country_status.get(core_theater, 'NO_DATA')}]"
+            _gps_reason = (f"GPS jamming: {gps_country_status.get(core_theater, 'DETECTED')} "
+                           f"(max={_gps_max:.1f}, avg={_gps_avg:.1f})"
+                           if _gps_fired else None)
+            add_rat("gps_jamming", "physical",
+                    "FIRED" if _gps_fired else "OK",
+                    _gps_value, _gps_score, _gps_reason,
+                    confidence=_sensor_conf(gps_jam_sensor))
+            if _gps_fired:
+                register_sequence_event(core_theater, "GPS_JAMMING",
+                                        {"max_level": _gps_max, "is_critical": _gps_critical})
+
+        # ── Phase C: S7 CT Log Certificate rationale ─────────────────────────
+        _ct_core = ct_data.get(core_theater, {})
+        _ct_surge = _ct_core.get("is_surge", False)
+        _ct_total = _ct_core.get("total_recent", 0)
+        _ct_gov = _ct_core.get("gov_count", 0)
+        _ct_wildcard = _ct_core.get("wildcard_count", 0)
+        if ct_log_sensor and ct_log_sensor.enabled:
+            _ct_fired = _ct_surge
+            _ct_score = 2 if (_ct_surge and _ct_gov >= 5) else (1 if _ct_surge else 0)
+            _ct_value = f"certs={_ct_total} gov={_ct_gov} wildcard={_ct_wildcard}"
+            _ct_status_label = ct_country_status.get(core_theater, "NORMAL")
+            _ct_reason = (f"CT Log: Certificate surge ({_ct_total} certs, {_ct_gov} gov) [{_ct_status_label}]"
+                          if _ct_fired else None)
+            add_rat("ct_log", "cyber",
+                    "FIRED" if _ct_fired else "OK",
+                    _ct_value, _ct_score, _ct_reason,
+                    confidence=_sensor_conf(ct_log_sensor))
+
+        # ── Phase C: Cross-sensor enrichment ─────────────────────────────────
+        # OONI + Tor = strong censorship confirmation
+        if _ooni_censoring and _tor_entry:
+            _ooni_entry = next((e for e in rationale if e.sensor == "ooni_censorship" and e.status == "FIRED"), None)
+            if _ooni_entry:
+                _ooni_entry.fired_reason += " — Confirmed by Tor relay drop (multi-source censorship)"
+                _ooni_entry.confidence = 1.0
+
+        # GPS Jamming + ISR surge = electronic warfare preparation
+        _gps_entry = next((e for e in rationale if e.sensor == "gps_jamming" and e.status == "FIRED"), None)
+        _isr_entry = next((e for e in rationale if e.sensor == "isr_hotspot" and e.status == "FIRED"), None)
+        if _gps_entry and _isr_entry:
+            _gps_entry.fired_reason += " — EW pattern: GPS jamming concurrent with ISR surge"
+            _gps_entry.confidence = 1.0
+
+        # NOTAM surge + Airspace closure = confirmed military activity
+        _notam_entry = next((e for e in rationale if e.sensor == "notam" and e.status == "FIRED"), None)
+        _airspace_entry = next((e for e in rationale if e.sensor == "opensky" and e.status == "FIRED"), None)
+        if _notam_entry and _airspace_entry:
+            _notam_entry.fired_reason += " — Confirmed by concurrent airspace closure"
+            _notam_entry.confidence = 1.0
+
         # ── Sequence Bonus computation ──────────────────────────────────────────
         seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
 
@@ -879,9 +1121,15 @@ def get_threat_data():
             add_rat("feint_detector", feint_primary, "FIRED", f"conf={feint_conf}",
                     0, feint_detail)
 
+        # ── CAC Phase D: Co-occurrence sensitivity boost (UP only) ──────────
+        _fired_for_boost = [e.sensor for e in rationale if e.status == "FIRED" and not e.suppressed]
+        cooc_boost = _routes.engine.compute_cooccurrence_boost(_db, _fired_for_boost, core_theater)
+        _cooc_factor = cooc_boost["boost_factor"]
+
         # Confidence-weighted total: sum(score * confidence) for fired, non-suppressed entries
         total_score = sum(e.score * e.confidence for e in rationale if e.status == "FIRED" and not e.suppressed)
-        total_score = round(total_score, 2)
+        # Apply co-occurrence boost (only increases, never decreases)
+        total_score = round(total_score * _cooc_factor, 2)
         convergence_score = _routes.engine.compute_convergence_score(domain_scores)
         domain_confidences = _routes.engine.compute_domain_confidences(rationale)
         score_with_bonus, conv_bonus, convergence_level = _routes.engine.apply_convergence_bonus(total_score, domain_scores, domain_confidences)
@@ -899,7 +1147,47 @@ def get_threat_data():
         # TL Proximity: how close the current score is to TL boundaries
         tl_proximity = _routes.engine.compute_tl_proximity(score_with_bonus, threat_level)
 
+        # ── CAC Phase D: Forecast recording & resolution ──────────────────
+        _escalation = _routes.engine.compute_escalation_progress(
+            _db.threat_list(), _db.alert_list(limit=100))
+        try:
+            _routes.engine.record_forecast(
+                _db, core_theater, current_time, threat_level, _escalation)
+            _routes.engine.resolve_pending_forecasts(
+                _db, core_theater, current_time, threat_level)
+        except Exception:
+            pass  # Non-critical
+
         system_note = _routes.engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
+
+        # ── CAC: Context Alignment & Direction Summary ─────────────────────────
+        context_alignment = _routes.engine.compute_context_alignment(rationale)
+        direction_summary = _routes.engine.compute_direction_summary(rationale)
+
+        # ── CAC: Daily summary recording ──────────────────────────────────────
+        _day_bucket = int(current_time // 86400) * 86400
+        try:
+            _fired_sensors = [e.sensor for e in rationale if e.status == "FIRED" and not e.suppressed]
+            _db.daily_summary_upsert(
+                core_theater, _day_bucket,
+                avg_score=score_with_bonus, max_score=score_with_bonus,
+                min_tl=threat_level, max_tl=threat_level,
+                fired_sensors=_fired_sensors,
+                domain_scores=domain_scores,
+                context_alignment=context_alignment,
+                summary={"convergence_level": convergence_level})
+        except Exception:
+            pass  # Non-critical; never break scoring on summary recording
+
+        # ── CAC: Co-occurrence statistics update ──────────────────────────────
+        _fired_set = {e.sensor for e in rationale if e.status == "FIRED" and not e.suppressed}
+        _fired_list = sorted(_fired_set)
+        for i, sa in enumerate(_fired_list):
+            for sb in _fired_list[i + 1:]:
+                try:
+                    _db.cooccurrence_update(sa, sb, core_theater, both_fired=True)
+                except Exception:
+                    pass
 
         # Deep analysis result summary
         deep_analytics = {
@@ -1026,14 +1314,16 @@ def get_threat_data():
                 "detail":                feint_detail,
             },
             # Phase 2: Escalation Progress (computed from threat history)
-            "escalation": _routes.engine.compute_escalation_progress(
-                _db.threat_list(), _db.alert_list(limit=100)),
+            "escalation": _escalation,
             # Confidence Propagation: per-domain confidence and TL boundary proximity
             "confidence": {
                 "domain_confidences": domain_confidences,
                 "min_confidence": round(min(domain_confidences.values()), 3) if domain_confidences else 1.0,
             },
             "tl_proximity": tl_proximity,
+            # CAC: Context-Aware Convergence
+            "context_alignment": context_alignment,
+            "direction_summary": direction_summary,
             # Phase 4: IHR / RIPE Atlas / Tor Metrics
             "ihr": {
                 "core_disco": ihr_disco.get(core_theater, []),
@@ -1052,6 +1342,36 @@ def get_threat_data():
                 "core_clients": tor_clients.get(core_theater),
                 "status": tor_country_status.get(core_theater, "NORMAL"),
             },
+            # Phase C: New sensors S1-S7
+            "notam": {
+                "core": notam_data.get(core_theater),
+                "status": notam_country_status.get(core_theater, "NORMAL"),
+            },
+            "travel_advisory": {
+                "core": travel_advisories.get(core_theater),
+                "all": {t: travel_advisories.get(t) for t in strategic_theaters_set if travel_advisories.get(t)},
+            },
+            "ooni": {
+                "core": ooni_data.get(core_theater),
+                "status": ooni_country_status.get(core_theater, "NORMAL"),
+                "adversary": {a: ooni_data.get(a) for a in adversary_states if ooni_data.get(a)},
+            },
+            "seismic": seismic_data,
+            "mil_support_air": {
+                "core": mil_air_data.get(core_theater),
+                "all": mil_air_data,
+            },
+            "gps_jamming": {
+                "core": gps_jam_data.get(core_theater),
+                "status": gps_country_status.get(core_theater, "NO_DATA"),
+            },
+            "ct_log": {
+                "core": ct_data.get(core_theater),
+                "status": ct_country_status.get(core_theater, "NORMAL"),
+            },
+            # Phase D: Co-occurrence boost & Forecast accuracy
+            "cooccurrence_boost": cooc_boost,
+            "forecast_accuracy": _db.forecast_accuracy_summary(core_theater),
         }
 
         score_breakdown = {
@@ -1061,6 +1381,7 @@ def get_threat_data():
             "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "temporal_bonus": temporal_bonus,
             "score_with_bonus": score_with_bonus, "threat_raw": tl_raw, "threat_held": tl_held,
             "is_c2_sync": is_c2_sync, "is_maskirovka": is_maskirovka,
+            "cooccurrence_boost": _cooc_factor,
         }
 
         # ioda_overlays: extract BGP_OUTAGE countries from full IODA cache (global display)

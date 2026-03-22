@@ -79,6 +79,89 @@
         forceDataSync(); // Trigger immediate recalculation
     };
 
+    // ── CAC: Noise Classification Dialog ────────────────────────────────────
+    window.openNoiseClassify = function(sensorName, value, domain) {
+        const reasons = ['exercise', 'maintenance', 'known_noise', 'false_positive'];
+        const labels = reasons.map(r => _t('noise.' + r));
+        const choice = prompt(
+            _t('noise.classify_prompt', {sensor: sensorName}) + '\n' +
+            reasons.map((r, i) => `${i + 1}. ${labels[i]}`).join('\n') +
+            '\n\n' + _t('noise.classify_hint'),
+            ''
+        );
+        if (!choice) return;
+        const idx = parseInt(choice) - 1;
+        if (idx < 0 || idx >= reasons.length) {
+            alert(_t('noise.invalid_choice'));
+            return;
+        }
+        const reason = reasons[idx];
+        const expiresHours = prompt(_t('noise.expires_prompt'), '24');
+        const payload = {
+            sensor: sensorName,
+            theater: getCurrentConfig().core || '',
+            pattern: value.substring(0, 100),
+            reason: reason,
+            expires_hours: expiresHours ? parseFloat(expiresHours) : null,
+            created_by: 'analyst',
+        };
+        fetch('/api/noise_exclusion', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        })
+        .then(r => r.json())
+        .then(d => {
+            if (d.ok) {
+                addNotebookEntry('NOISE_EXCL', _t('notebook.entry.noise_excluded', {sensor: sensorName, reason: reason}));
+                forceDataSync();
+            } else {
+                alert(d.error || 'Failed');
+            }
+        })
+        .catch(e => alert('Error: ' + e.message));
+    };
+
+    // ── CAC: Confirmed Threat Classification ─────────────────────────────────
+    window.openThreatClassify = function() {
+        const strat = (window._lastThreatData || {}).strategic_alert;
+        if (!strat) return;
+        const reasons = ['exercise', 'maintenance', 'confirmed_threat', 'false_positive'];
+        const labels = reasons.map(r => _t('threat_cls.' + r));
+        const choice = prompt(
+            _t('threat_cls.prompt') + '\n' +
+            reasons.map((r, i) => `${i + 1}. ${labels[i]}`).join('\n'),
+            ''
+        );
+        if (!choice) return;
+        const idx = parseInt(choice) - 1;
+        if (idx < 0 || idx >= reasons.length) return;
+        const classification = reasons[idx];
+        const notes = prompt(_t('threat_cls.notes_prompt'), '') || '';
+        const firedSensors = (strat.rationale_matrix || [])
+            .filter(e => e.status === 'FIRED' && !e.suppressed)
+            .map(e => e.sensor);
+        fetch('/api/confirmed_threats', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                theater: strat.core_theater,
+                classification: classification,
+                sensors_active: firedSensors,
+                threat_level: strat.threat_level,
+                notes: notes,
+                created_by: 'analyst',
+            }),
+        })
+        .then(r => r.json())
+        .then(d => {
+            if (d.ok) {
+                addNotebookEntry('THREAT_CLS', _t('notebook.entry.threat_classified', {cls: classification}));
+            }
+        })
+        .catch(e => console.warn('[ThreatClassify]', e));
+    };
+
     // ── GreyNoise Investigator ─────────────────────────────────────────────────
     let _gnLog = JSON.parse(localStorage.getItem('gnLookupLog') || '[]');
 
@@ -627,7 +710,6 @@
         { panelId: 'tg-sigint-panel',      dotId: 'tm-dot-tg',    itemId: 'tm-item-tg'    },
         { panelId: 'pulse-panel',          dotId: 'tm-dot-pulse', itemId: 'tm-item-pulse' },
         { panelId: 'weather-brief-panel',  dotId: 'tm-dot-wx',    itemId: 'tm-item-wx'    },
-        { panelId: 'salute-panel',         dotId: 'tm-dot-sal',   itemId: 'tm-item-sal'   },
         { panelId: 'hist-analog-panel',    dotId: 'tm-dot-ha',    itemId: 'tm-item-ha'    },
         { panelId: 'op-clock-panel',       dotId: 'tm-dot-clk',   itemId: 'tm-item-clk'  },
         { panelId: 'gn-panel',             dotId: 'tm-dot-gn',    itemId: 'tm-item-gn'    },
@@ -636,7 +718,7 @@
         { panelId: 'whatif-panel',         dotId: 'tm-dot-wif',   itemId: 'tm-item-wif'   },
         { panelId: 'spof-panel',           dotId: 'tm-dot-spof',  itemId: 'tm-item-spof'  },
         { panelId: 'actionplan-panel',     dotId: 'tm-dot-ap',    itemId: 'tm-item-ap'    },
-        { panelId: 'escalation-panel',    dotId: 'tm-dot-esc',  itemId: 'tm-item-esc'   },
+        { panelId: 'attack-phase-panel', dotId: 'tm-dot-phase', itemId: 'tm-item-phase' },
         { panelId: 'corr-heatmap-panel', dotId: 'tm-dot-corr', itemId: 'tm-item-corr'  },
     ];
 
@@ -968,14 +1050,13 @@
         { id: 'chain-panel',          ph: 'chain-placeholder'     },
         { id: 'pulse-panel',          ph: 'lsb-ph-pulse'          },
         { id: 'weather-brief-panel',  ph: 'lsb-ph-wx'             },
-        { id: 'salute-panel',         ph: 'lsb-ph-sal'            },
         { id: 'hist-analog-panel',    ph: 'lsb-ph-ha'             },
         { id: 'op-clock-panel',       ph: 'lsb-ph-clk'            },
         { id: 'gn-panel',            ph: 'lsb-ph-gn'             },
         { id: 'notebook-panel',       ph: 'lsb-ph-nb'             },
         { id: 'tg-sigint-panel',      ph: 'lsb-ph-tg'             },
         { id: 'history-panel',        ph: 'lsb-ph-hist'           },
-        { id: 'escalation-panel',    ph: 'lsb-ph-esc'            },
+        { id: 'attack-phase-panel',  ph: 'lsb-ph-phase'          },
         { id: 'corr-heatmap-panel',  ph: 'lsb-ph-corr'           },
         // Floating-only panels (no sidebar placeholder)
         { id: 'whatif-panel',        ph: null                     },
@@ -986,7 +1067,7 @@
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
     let _sidebarOrder = {
         'sidebar':      ['target-panel', 'dashboard-panel', 'chain-panel'],
-        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'salute-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'escalation-panel', 'corr-heatmap-panel']
+        'left-sidebar': ['pulse-panel', 'weather-brief-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'attack-phase-panel', 'corr-heatmap-panel']
     };
 
     // Re-order placeholder divs within a sidebar to match _sidebarOrder
@@ -1353,7 +1434,6 @@
     setupDockablePanel('chain-panel',         'chain-placeholder',     300);
     setupDockablePanel('pulse-panel',         'lsb-ph-pulse',          260);
     setupDockablePanel('weather-brief-panel', 'lsb-ph-wx',             420);
-    setupDockablePanel('salute-panel',        'lsb-ph-sal',            380);
     setupDockablePanel('op-clock-panel',      'lsb-ph-clk',            340);
     // Floating-only panels (on-demand tools)
     setupFloatingOnlyPanel('hist-analog-panel');
@@ -1364,7 +1444,7 @@
     setupFloatingOnlyPanel('whatif-panel');
     setupFloatingOnlyPanel('spof-panel');
     setupFloatingOnlyPanel('actionplan-panel');
-    setupDockablePanel('escalation-panel',   'lsb-ph-esc',            320);
+    setupDockablePanel('attack-phase-panel', 'lsb-ph-phase',          380);
     setupDockablePanel('corr-heatmap-panel', 'lsb-ph-corr',           340);
     updateSidebarVisibility();
 
@@ -2007,11 +2087,15 @@
     }
 
     function renderTelemetry(data) {
+        window._lastThreatData = data; // Store for CAC threat classification
         const curr = getCurrentConfig();
         const displayTargets = curr.displays;
 
-        // P4-Opt: skip if data, vector, display targets, and map center are unchanged
-        const _sig = `${data.timestamp || ''}_${currentVector}_${[...displayTargets].sort().join(',')}_${mapCenterMode}`;
+        // P4-Opt: skip if data + UI state are unchanged
+        // Use JSON hash of strategic_alert to catch any data change (TL, scores, correlations, analytics, etc.)
+        const _stratHash = data.strategic_alert ? JSON.stringify(data.strategic_alert).length + '_' + (data.strategic_alert.threat_level || 0) + '_' + (data.strategic_alert.score_with_bonus || 0) : '';
+        const _tgtHash = (data.targets || []).map(t => `${t.code}:${t.avg_spike||0}:${t.l7_spike||0}`).join('|');
+        const _sig = `${data.timestamp || ''}_${currentVector}_${[...displayTargets].sort().join(',')}_${mapCenterMode}_${_stratHash}_${_tgtHash}`;
         if (_sig === _lastRenderSig) return;
         _lastRenderSig = _sig;
 
@@ -2069,6 +2153,37 @@
                     proxWrap.style.display = 'none';
                     proxEl.textContent = '';
                 }
+            }
+
+            // CAC: Context Alignment HUD indicator
+            const cacWrap = document.getElementById('hud-cac-wrap');
+            const cacEl = document.getElementById('hud-cac-score');
+            const dirWrap = document.getElementById('hud-direction-wrap');
+            const dirEl = document.getElementById('hud-direction');
+            const ca = (strat.analytics || {}).context_alignment;
+            if (ca && cacWrap && cacEl) {
+                const caLabel = ca.label || 'LOW';
+                const caScore = ca.alignment_score || 0;
+                cacEl.className = `hud-value cac-${caLabel.toLowerCase()}`;
+                cacEl.textContent = `${caScore}/4 ${caLabel}`;
+                const axisDetail = ca.axes ? Object.entries(ca.axes).map(([k, v]) =>
+                    `${k}: ${v.aligned ? '●' : '○'} ${v.detail}`).join('\n') : '';
+                cacEl.setAttribute('data-tooltip', _t('hud.tooltip.context_align') + '\n' + axisDetail);
+                cacWrap.style.display = caScore > 0 ? '' : 'none';
+            } else if (cacWrap) {
+                cacWrap.style.display = 'none';
+            }
+            const ds = (strat.analytics || {}).direction_summary;
+            if (ds && dirWrap && dirEl) {
+                const dom = ds.dominant_direction || 'UNKNOWN';
+                const short = { 'ADVERSARY_OFFENSIVE': '⚔ ADV', 'FRIENDLY_DEFENSIVE': '🛡 FRD', 'TARGET_IMPACT': '⚡ TGT', 'UNKNOWN': '? UNK' };
+                const dirColors = { 'ADVERSARY_OFFENSIVE': '#ff2a2a', 'FRIENDLY_DEFENSIVE': '#00cc66', 'TARGET_IMPACT': '#ffaa00', 'UNKNOWN': '#555' };
+                dirEl.textContent = short[dom] || dom;
+                dirEl.style.color = dirColors[dom] || '#888';
+                dirEl.setAttribute('data-tooltip', `${_t('hud.tooltip.direction')}\nADV:${ds.adversary_offensive} FRD:${ds.friendly_defensive} TGT:${ds.target_impact} UNK:${ds.unknown}\nClarity: ${((ds.direction_clarity || 0) * 100).toFixed(0)}%`);
+                dirWrap.style.display = (ds.adversary_offensive > 0 || ds.target_impact > 0) ? '' : 'none';
+            } else if (dirWrap) {
+                dirWrap.style.display = 'none';
             }
 
             epicenterEl.innerText = strat.core_theater || 'None';
@@ -2215,14 +2330,12 @@
             // Refresh open panels only (suppress unnecessary API calls)
             const wbPanel = document.getElementById('weather-brief-panel');
             if (wbPanel && wbPanel.style.display !== 'none') renderWeatherBrief();
-            const salPanel = document.getElementById('salute-panel');
-            if (salPanel && salPanel.style.display !== 'none') renderSaluteBoard();
             const haPanel = document.getElementById('hist-analog-panel');
             if (haPanel && haPanel.style.display !== 'none') renderHistoricalAnalog();
             const corrPanel = document.getElementById('corr-heatmap-panel');
             if (corrPanel && (corrPanel.style.display !== 'none' || corrPanel.closest('#left-sidebar'))) renderCorrHeatmap();
-            const escPanel = document.getElementById('escalation-panel');
-            if (escPanel && (escPanel.style.display !== 'none' || escPanel.closest('#left-sidebar'))) renderEscalationPanel();
+            const phasePanel = document.getElementById('attack-phase-panel');
+            if (phasePanel && (phasePanel.style.display !== 'none' || phasePanel.closest('#left-sidebar'))) renderAttackPhasePanel();
         }
 
         // ── Sensor Fleet Health HUD ──
@@ -2888,7 +3001,7 @@
         syncToolsMenuState();
     }
 
-    const LAYOUT_VERSION = 11; // bump when layout structure changes to auto-clear stale state
+    const LAYOUT_VERSION = 12; // bump when layout structure changes to auto-clear stale state
 
     function loadTargetState(defaults) {
         // Initialize THEATERS from app_config global list before building UI
@@ -3390,12 +3503,40 @@
     function openEvidencePanel(strat) {
         const convEl = document.getElementById('evidence-convergence');
         if (strat.domains) {
-            convEl.innerHTML = Object.entries(strat.domains).map(([d, info]) =>
+            let convHtml = Object.entries(strat.domains).map(([d, info]) =>
                 `<div class="convergence-item"><span class="rat-domain-${d}">${d.toUpperCase()}</span>: <span class="conv-val">${info.score}pt</span> × ${info.weight} = <b style="color:#fff">${info.weighted}</b></div>`
-            ).join('') +
-            (strat.convergence_score !== undefined
-                ? `<div class="convergence-item" style="margin-left:8px; border-left:2px solid #555; padding-left:8px;">Convergence Score: <span class="conv-val">${strat.convergence_score}</span></div>`
-                : '');
+            ).join('');
+            if (strat.convergence_score !== undefined) {
+                convHtml += `<div class="convergence-item" style="margin-left:8px; border-left:2px solid #555; padding-left:8px;">Convergence Score: <span class="conv-val">${strat.convergence_score}</span></div>`;
+            }
+            // CAC: Context Alignment display
+            const ca = (strat.analytics || {}).context_alignment;
+            if (ca) {
+                const cacClass = `cac-${(ca.label || 'LOW').toLowerCase()}`;
+                convHtml += `<div class="convergence-item cac-summary" style="margin-left:8px; border-left:2px solid #555; padding-left:8px;">`;
+                convHtml += `<span class="${cacClass}">${_t('evidence.context_alignment')}: ${ca.alignment_score}/4 (${ca.label})</span>`;
+                if (ca.axes) {
+                    convHtml += `<div class="cac-axes">`;
+                    for (const [axis, info] of Object.entries(ca.axes)) {
+                        const dot = info.aligned ? '●' : '○';
+                        const axisColor = info.aligned ? '#00ffff' : '#444';
+                        convHtml += `<span style="color:${axisColor}; margin-right:8px;" title="${info.detail}">${dot} ${_t('cac.axis.' + axis)}</span>`;
+                    }
+                    convHtml += `</div>`;
+                }
+                convHtml += `</div>`;
+            }
+            // CAC: Direction Summary
+            const ds = (strat.analytics || {}).direction_summary;
+            if (ds && ds.dominant_direction !== 'UNKNOWN') {
+                const dirLabels = { 'ADVERSARY_OFFENSIVE': _t('dir.adversary'), 'FRIENDLY_DEFENSIVE': _t('dir.friendly'), 'TARGET_IMPACT': _t('dir.target'), 'UNKNOWN': _t('dir.unknown') };
+                const dirColors = { 'ADVERSARY_OFFENSIVE': '#ff2a2a', 'FRIENDLY_DEFENSIVE': '#00cc66', 'TARGET_IMPACT': '#ffaa00', 'UNKNOWN': '#555' };
+                convHtml += `<div class="convergence-item" style="margin-left:8px; border-left:2px solid #555; padding-left:8px;">`;
+                convHtml += `<span style="color:${dirColors[ds.dominant_direction]}">${_t('evidence.direction')}: ${dirLabels[ds.dominant_direction]} (${(ds.direction_clarity * 100).toFixed(0)}%)</span>`;
+                convHtml += ` <span style="color:#666; font-size:10px;">ADV:${ds.adversary_offensive} FRD:${ds.friendly_defensive} TGT:${ds.target_impact}</span>`;
+                convHtml += `</div>`;
+            }
+            convEl.innerHTML = convHtml;
         } else {
             convEl.innerHTML = '';
         }
@@ -3428,22 +3569,48 @@
                 const confClass = conf >= 0.8 ? 'conf-high' : conf >= 0.5 ? 'conf-mid' : 'conf-low';
                 const confHtml = `<span class="conf-badge ${confClass}">${(conf * 100).toFixed(0)}%</span>`;
 
+                // CAC: Direction badge
+                const dirBadgeColors = { 'ADVERSARY_OFFENSIVE': '#ff2a2a', 'FRIENDLY_DEFENSIVE': '#00cc66', 'TARGET_IMPACT': '#ffaa00', 'UNKNOWN': '#333' };
+                const dirBadgeShort = { 'ADVERSARY_OFFENSIVE': 'ADV', 'FRIENDLY_DEFENSIVE': 'FRD', 'TARGET_IMPACT': 'TGT', 'UNKNOWN': '—' };
+                const dir = e.direction || 'UNKNOWN';
+                const dirConf = e.direction_confidence != null ? e.direction_confidence : 0;
+                const dirColor = dirBadgeColors[dir] || '#333';
+                const dirHtml = dir !== 'UNKNOWN'
+                    ? `<span class="dir-badge" style="color:${dirColor}; border-color:${dirColor};" title="${dir} (${(dirConf*100).toFixed(0)}%)">${dirBadgeShort[dir]}</span>`
+                    : '<span class="dir-badge" style="color:#333;">—</span>';
+
+                // CAC: Noise classification button (only for FIRED entries)
+                const classifyBtn = (e.status === 'FIRED' && !e.suppressed)
+                    ? `<button onclick="openNoiseClassify('${e.sensor}','${e.value.replace(/'/g, "\\'")}','${e.domain}')" class="btn-classify" title="${_t('evidence.btn.classify_tip')}">📋</button>`
+                    : '';
+
                 return `<tr>
-                    <td style="font-family:monospace; font-size:11px; color:#ccc;">${e.sensor} ${muteBtn}</td>
+                    <td style="font-family:monospace; font-size:11px; color:#ccc;">${e.sensor} ${muteBtn}${classifyBtn}</td>
                     <td><span class="rat-domain-${e.domain}">${e.domain}</span></td>
                     <td><span class="rat-status-${e.status}">${e.status}</span></td>
                     <td style="color:#fff; font-size:11px;">${e.value}</td>
                     <td style="text-align:center;">${scoreHtml}</td>
                     <td style="text-align:center;">${confHtml}</td>
+                    <td style="text-align:center;">${dirHtml}</td>
                     <td style="font-size:11px; color:#aaa;">${reasonText}</td>
                 </tr>`;
             }).join('');
         } else {
-            tbody.innerHTML = `<tr><td colspan="7" style="color:#555; text-align:center;">${_t('evidence.no_data')}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" style="color:#555; text-align:center;">${_t('evidence.no_data')}</td></tr>`;
         }
 
         openModal('evidence-modal');
     }
+
+    // HUD button entry point — opens Evidence Modal with last known data
+    window.openEvidenceFromHud = function() {
+        const strat = (window._lastThreatData || {}).strategic_alert;
+        if (strat) {
+            openEvidencePanel(strat);
+        } else {
+            openModal('evidence-modal');
+        }
+    };
 
     async function loadSensorConfig() {
         const container = document.getElementById('sensor-list-container');
@@ -3809,26 +3976,26 @@
         }
     }
 
-    // ── E. SALUTE Board ───────────────────────────────────────────────
+    // ── E. SALUTE Report (on-demand export modal) ──────────────────────
     // Size/Activity/Location/Unit/Time/Equipment — military contact report format
-    const toggleSaluteBoard = _createPanelToggle('salute-panel', { onShow: renderSaluteBoard });
+    // Generates a snapshot report for copy/download instead of a live panel
+    let _lastSaluteData = null;
 
-    async function renderSaluteBoard() {
-        const panel = document.getElementById('salute-panel');
-        if (!panel || panel.style.display === 'none') return;
-        const bodyEl = panel.querySelector('.salute-body');
+    async function openSaluteModal() {
+        const modal = document.getElementById('salute-modal');
+        if (!modal) return;
+        openModal('salute-modal');
+        const bodyEl = modal.querySelector('.salute-body');
         const tsEl   = document.getElementById('salute-ts');
-        if (!bodyEl) return;
 
-        if (tsEl) {
-            const now = new Date();
-            const pad = n => String(n).padStart(2, '0');
-            tsEl.textContent = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}Z`;
-        }
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        if (tsEl) tsEl.textContent = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}Z`;
 
         try {
             const res = await fetch(`/api/salute_report?lang=${_currentLang}`);
             const sal = (await res.json()).report || {};
+            _lastSaluteData = sal;
             const fields = [
                 { k:'S', l:'SIZE',     v: sal.size      || '—' },
                 { k:'A', l:'ACTIVITY', v: sal.activity  || '—' },
@@ -3837,17 +4004,70 @@
                 { k:'T', l:'TIME',     v: sal.time       || '—' },
                 { k:'E', l:'EQUIP',    v: sal.equipment  || '—' },
             ];
-            bodyEl.innerHTML = fields.map(f =>
-                `<div class="s-row">
-                    <span class="s-key">${f.k}</span>
-                    <span class="s-label">${f.l}</span>
-                    <span class="s-val">${f.v}</span>
-                </div>`
-            ).join('') + (sal.assessment
-                ? `<div class="s-assess">${sal.assessment}</div>` : '');
+            // TL badge
+            const tl = sal.threat_level || 5;
+            const tlColors = {1:'#ff0000',2:'#ff4444',3:'#ffaa00',4:'#ffff00',5:'#00ffff'};
+            const tlBadge = `<div class="s-tl-badge" style="border-color:${tlColors[tl]}44;"><span class="s-tl-level" style="color:${tlColors[tl]};">TL${tl}</span></div>`;
+
+            bodyEl.innerHTML = tlBadge +
+                fields.map(f =>
+                    `<div class="s-row">
+                        <span class="s-key">${f.k}</span>
+                        <span class="s-label">${f.l}</span>
+                        <span class="s-val">${f.v}</span>
+                    </div>`
+                ).join('') +
+                (sal.cross_ref ? `<div class="s-crossref"><span class="s-crossref-label">${_t('panel.salute.cross_ref')}</span> ${sal.cross_ref}</div>` : '') +
+                (sal.assessment ? `<div class="s-assess">${sal.assessment}</div>` : '');
         } catch(e) {
             bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API unavailable</div>';
         }
+    }
+
+    function closeSaluteModal() {
+        closeAllModals();
+    }
+
+    function _saluteToText() {
+        if (!_lastSaluteData) return '';
+        const s = _lastSaluteData;
+        const now = new Date();
+        const dtg = now.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
+        return [
+            `SALUTE REPORT — ${dtg}`,
+            `THREAT LEVEL: ${s.threat_level || '—'}`,
+            '─'.repeat(40),
+            `S (SIZE):      ${s.size || '—'}`,
+            `A (ACTIVITY):  ${s.activity || '—'}`,
+            `L (LOCATION):  ${s.location || '—'}`,
+            `U (UNIT):      ${s.unit || '—'}`,
+            `T (TIME):      ${s.time || '—'}`,
+            `E (EQUIPMENT): ${s.equipment || '—'}`,
+            '',
+            s.cross_ref ? `CROSS-REF:  ${s.cross_ref}` : '',
+            '',
+            s.assessment ? `ASSESSMENT:\n${s.assessment}` : '',
+        ].filter(Boolean).join('\n');
+    }
+
+    function copySaluteReport() {
+        const text = _saluteToText();
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            addNotebookEntry('SALUTE', _t('panel.salute.copied'));
+        });
+    }
+
+    function downloadSaluteReport() {
+        const text = _saluteToText();
+        if (!text) return;
+        const blob = new Blob([text], { type: 'text/plain' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        const now = new Date();
+        a.download = `SALUTE_${now.toISOString().slice(0,10)}_${now.toISOString().slice(11,16).replace(':','')}.txt`;
+        a.click();
+        URL.revokeObjectURL(a.href);
     }
 
     // ── F. Historical Pattern Analog ──────────────────────────────────
@@ -4810,38 +5030,34 @@
     }
 
     // ── History Analysis Panel ─────────────────────────────────────────────
-    window.toggleHistoryPanel = function() {
-        const p = document.getElementById('history-panel');
-        if (!p) return;
-        const vis = p.style.display !== 'none';
-        p.style.display = vis ? 'none' : '';
-        if (!vis) {
-            // Populate theater selector from DB (all theaters with recorded data)
-            const sel = document.getElementById('hist-theater');
-            if (sel) {
-                const prev = sel.value;
-                fetch('/api/history/theaters').then(r => {
-                    if (!r.ok) throw new Error(r.status);
-                    return r.json();
-                }).then(data => {
-                    const theaters = data.theaters || [];
-                    if (!theaters.length) return;
-                    sel.innerHTML = '';
-                    theaters.forEach(t => {
-                        const o = document.createElement('option');
-                        o.value = t; o.textContent = t;
-                        sel.appendChild(o);
-                    });
-                    // Keep previous selection, or default to core theater
-                    const core = getCurrentConfig().core;
-                    sel.value = prev && theaters.includes(prev) ? prev : theaters.includes(core) ? core : theaters[0];
-                    loadHistoryData();
-                }).catch(() => loadHistoryData());
-            } else {
+    function _historyPanelOnShow() {
+        // Populate theater selector from DB (all theaters with recorded data)
+        const sel = document.getElementById('hist-theater');
+        if (sel) {
+            const prev = sel.value;
+            fetch('/api/history/theaters').then(r => {
+                if (!r.ok) throw new Error(r.status);
+                return r.json();
+            }).then(data => {
+                const theaters = data.theaters || [];
+                if (!theaters.length) return;
+                sel.innerHTML = '';
+                theaters.forEach(t => {
+                    const o = document.createElement('option');
+                    o.value = t; o.textContent = t;
+                    sel.appendChild(o);
+                });
+                // Keep previous selection, or default to core theater
+                const core = getCurrentConfig().core;
+                sel.value = prev && theaters.includes(prev) ? prev : theaters.includes(core) ? core : theaters[0];
                 loadHistoryData();
-            }
+            }).catch(() => loadHistoryData());
+        } else {
+            loadHistoryData();
         }
-    };
+    }
+    const toggleHistoryPanel = _createPanelToggle('history-panel', { onShow: _historyPanelOnShow });
+    window.toggleHistoryPanel = toggleHistoryPanel;
 
     // TL color mapping used across history panel
     const _TL_COLORS = ['#ff2222','#ff4444','#ffaa00','#ffff00','#66ff66'];
@@ -5625,88 +5841,144 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Phase 2: Escalation Tracker panel
+    // Phase & Escalation (merged panel — attack phase + escalation tracker)
     // ═══════════════════════════════════════════════════════════════
-    const toggleEscalationPanel = _createPanelToggle('escalation-panel', { floating: false, onShow: renderEscalationPanel });
+    const toggleAttackPhasePanel = _createPanelToggle('attack-phase-panel', { floating: false, onShow: renderAttackPhasePanel });
 
-    async function renderEscalationPanel() {
-        const panel = document.getElementById('escalation-panel');
+    async function renderAttackPhasePanel() {
+        const panel = document.getElementById('attack-phase-panel');
         if (!panel || (panel.style.display === 'none' && !panel.closest('#left-sidebar'))) return;
-        const body = panel.querySelector('.escalation-body');
+        const body = panel.querySelector('.attack-phase-body');
         if (!body) return;
 
-        body.innerHTML = `<div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.esc.loading')}</div>`;
+        const data = window._lastThreatData;
+        if (!data || !data.strategic_alert) {
+            body.innerHTML = `<div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.phase.no_data')}</div>`;
+            return;
+        }
 
+        const strat = data.strategic_alert;
+        const analytics = strat.analytics || {};
+        const ca = analytics.context_alignment || {};
+        const ds = analytics.direction_summary || {};
+        const tl = strat.threat_level || 5;
+
+        const tlColors = { 1: '#ff2222', 2: '#ff8800', 3: '#ffcc00', 4: '#88aa22', 5: '#44aa44' };
+
+        // Determine attack phase based on TL
+        const phases = [
+            { id: 'PHASE_0', label: _t('phase.0.label'), desc: _t('phase.0.desc'), color: '#66ff66', min_tl: 5, max_tl: 5 },
+            { id: 'PHASE_1', label: _t('phase.1.label'), desc: _t('phase.1.desc'), color: '#ffff00', min_tl: 4, max_tl: 4 },
+            { id: 'PHASE_2', label: _t('phase.2.label'), desc: _t('phase.2.desc'), color: '#ffaa00', min_tl: 3, max_tl: 3 },
+            { id: 'PHASE_3', label: _t('phase.3.label'), desc: _t('phase.3.desc'), color: '#ff4444', min_tl: 2, max_tl: 2 },
+            { id: 'PHASE_4', label: _t('phase.4.label'), desc: _t('phase.4.desc'), color: '#ff0000', min_tl: 1, max_tl: 1 },
+        ];
+        const currentPhase = phases.find(p => tl >= p.min_tl && tl <= p.max_tl) || phases[0];
+
+        let html = '';
+
+        // ── Phase indicator bar ──
+        html += `<div class="phase-bar">`;
+        for (const p of phases) {
+            const active = p.id === currentPhase.id;
+            html += `<div class="phase-step ${active ? 'phase-active' : ''}" style="border-color:${active ? p.color : '#333'}; ${active ? `background:${p.color}22;` : ''}">`;
+            html += `<div style="font-size:8px; color:${active ? p.color : '#555'}; font-weight:bold;">${p.label}</div>`;
+            html += `</div>`;
+        }
+        html += `</div>`;
+
+        // Current phase detail
+        html += `<div style="padding:8px; border:1px solid ${currentPhase.color}33; border-radius:4px; margin:8px 0;">`;
+        html += `<div style="color:${currentPhase.color}; font-weight:bold; font-size:12px;">${currentPhase.label}</div>`;
+        html += `<div style="color:#aaa; font-size:10px; margin-top:4px;">${currentPhase.desc}</div>`;
+        html += `</div>`;
+
+        // Context Alignment summary
+        html += `<div class="phase-section-label">${_t('panel.phase.context_alignment')}</div>`;
+        html += `<div class="phase-axes">`;
+        const axes = ca.axes || {};
+        for (const [axis, info] of Object.entries(axes)) {
+            const on = info.aligned;
+            html += `<div class="phase-axis ${on ? 'phase-axis-on' : ''}" title="${info.detail}">`;
+            html += `<div style="font-size:8px; color:${on ? '#0ff' : '#444'};">${_t('cac.axis.' + axis)}</div>`;
+            html += `<div style="font-size:12px;">${on ? '●' : '○'}</div>`;
+            html += `</div>`;
+        }
+        html += `</div>`;
+
+        // Direction summary
+        html += `<div class="phase-section-label">${_t('panel.phase.direction')}</div>`;
+        const dirCounts = [
+            { key: 'adversary_offensive', label: 'ADV', color: '#ff2a2a', count: ds.adversary_offensive || 0 },
+            { key: 'friendly_defensive', label: 'FRD', color: '#00cc66', count: ds.friendly_defensive || 0 },
+            { key: 'target_impact', label: 'TGT', color: '#ffaa00', count: ds.target_impact || 0 },
+        ];
+        html += `<div style="display:flex; gap:6px;">`;
+        for (const d of dirCounts) {
+            if (d.count > 0) {
+                html += `<span class="dir-badge" style="color:${d.color}; border-color:${d.color};">${d.label}: ${d.count}</span>`;
+            }
+        }
+        html += `</div>`;
+
+        // ── Escalation section (fetched from API) ──
+        html += `<div class="phase-section-label" style="margin-top:10px;">${_t('panel.phase.escalation')}</div>`;
         try {
             const resp = await fetch('/api/escalation_progress');
             if (!resp.ok) throw new Error('API error');
-            const data = await resp.json();
+            const esc = await resp.json();
 
-            const tlColors = { 1: '#ff2222', 2: '#ff8800', 3: '#ffcc00', 4: '#88aa22', 5: '#44aa44' };
-            const tlColor = tlColors[data.current_tl] || '#666';
-
-            // Pattern label and color
-            const patternRaw = (data.pattern || 'STABLE').replace('-', '_');
+            const tlColor = tlColors[esc.current_tl] || '#666';
+            const patternRaw = (esc.pattern || 'STABLE').replace('-', '_');
             const patternKey = 'panel.esc.pattern.' + patternRaw;
             const patternColors = { ESCALATING: '#ff4444', 'DE-ESCALATING': '#44aa44', STABLE: '#666', OSCILLATING: '#ffaa00' };
-            const patternColor = patternColors[data.pattern] || '#666';
+            const patternColor = patternColors[esc.pattern] || '#666';
 
-            // Format duration
-            const durSec = data.tl_duration_sec || 0;
+            const durSec = esc.tl_duration_sec || 0;
             const durMin = Math.floor(durSec / 60);
             const durH = Math.floor(durMin / 60);
             const durStr = durH > 0 ? `${durH}h ${durMin % 60}m` : `${durMin}m`;
 
-            // Velocity indicator
-            const vel = data.escalation_velocity || 0;
+            const vel = esc.escalation_velocity || 0;
             const velSign = vel > 0 ? '+' : '';
             const velColor = vel > 0.5 ? '#ff4444' : vel < -0.5 ? '#44aa44' : '#888';
 
-            // Score trend
-            const trend = data.score_trend || 0;
+            const trend = esc.score_trend || 0;
             const trendSign = trend > 0 ? '▲' : trend < 0 ? '▼' : '—';
             const trendColor = trend > 0 ? '#ff4444' : trend < 0 ? '#44aa44' : '#888';
 
-            let html = '';
-
-            // Current status block
+            // Status grid
             html += `<div class="esc-status-grid">`;
-            html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.current_tl')}</div><div class="esc-stat-value" style="color:${tlColor}; font-size:22px;">TL${data.current_tl}</div></div>`;
             html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.duration')}</div><div class="esc-stat-value">${durStr}</div></div>`;
             html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.velocity')}</div><div class="esc-stat-value" style="color:${velColor}">${velSign}${vel.toFixed(2)}/cyc</div></div>`;
-            html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.trend')}</div><div class="esc-stat-value" style="color:${trendColor}">${trendSign} ${Math.abs(trend).toFixed(2)}</div></div>`;
             html += `</div>`;
 
-            // Pattern
+            // Pattern + Trend inline
             html += `<div class="esc-pattern-bar" style="border-color:${patternColor}33">`;
             html += `<span class="esc-pattern-label">${_t('panel.esc.pattern')}</span>`;
             html += `<span class="esc-pattern-value" style="color:${patternColor}">${_t(patternKey)}</span>`;
+            html += `<span style="color:${trendColor}; font-size:10px; margin-left:auto;">${trendSign} ${Math.abs(trend).toFixed(2)}</span>`;
             html += `</div>`;
 
             // Prediction
-            html += `<div class="esc-prediction-block">`;
-            html += `<div class="esc-section-title">${_t('panel.esc.prediction')}</div>`;
-            if (data.predicted_next_tl) {
-                const predColor = tlColors[data.predicted_next_tl] || '#666';
-                const predSec = data.predicted_time_sec || 0;
+            if (esc.predicted_next_tl) {
+                const predColor = tlColors[esc.predicted_next_tl] || '#666';
+                const predSec = esc.predicted_time_sec || 0;
                 const predMin = Math.floor(predSec / 60);
                 const predH = Math.floor(predMin / 60);
                 const predStr = predH > 0 ? `${predH}h ${predMin % 60}m` : `${predMin}m`;
-                html += `<div class="esc-pred-row"><span style="color:${predColor}">${_t('panel.esc.predicted_tl', { tl: data.predicted_next_tl })}</span></div>`;
-                html += `<div class="esc-pred-row">${_t('panel.esc.predicted_time', { time: predStr })}</div>`;
-            } else {
-                html += `<div class="esc-pred-row" style="color:#666">${_t('panel.esc.no_prediction')}</div>`;
+                html += `<div class="esc-prediction-block">`;
+                html += `<div class="esc-pred-row"><span style="color:${predColor}">${_t('panel.esc.predicted_tl', { tl: esc.predicted_next_tl })}</span>`;
+                html += ` <span style="color:#888; font-size:9px;">(${_t('panel.esc.predicted_time', { time: predStr })})</span></div>`;
+                html += `</div>`;
             }
-            html += `</div>`;
 
-            // Transition history
-            html += `<div class="esc-transitions-block">`;
-            html += `<div class="esc-section-title">${_t('panel.esc.transitions')}</div>`;
-            const transitions = data.tl_transitions || [];
-            if (transitions.length === 0) {
-                html += `<div style="color:#555; font-size:9px; text-align:center; padding:4px;">${_t('panel.esc.no_transitions')}</div>`;
-            } else {
-                const recent = transitions.slice(-10).reverse();
+            // Transition history (compact — last 5)
+            const transitions = esc.tl_transitions || [];
+            if (transitions.length > 0) {
+                html += `<div class="esc-transitions-block">`;
+                html += `<div class="esc-section-title">${_t('panel.esc.transitions')}</div>`;
+                const recent = transitions.slice(-5).reverse();
                 recent.forEach(t => {
                     const fromColor = tlColors[t.from] || '#666';
                     const toColor = tlColors[t.to] || '#666';
@@ -5719,13 +5991,18 @@
                     html += `<span style="color:${toColor}">TL${t.to}</span>`;
                     html += `</div>`;
                 });
+                html += `</div>`;
             }
-            html += `</div>`;
-
-            body.innerHTML = html;
         } catch (e) {
-            body.innerHTML = `<div style="color:#ff4444; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.esc.api_error')}</div>`;
+            html += `<div style="color:#555; font-size:9px; text-align:center; padding:4px;">${_t('panel.esc.api_error')}</div>`;
         }
+
+        // Classify button
+        html += `<div style="margin-top:10px; text-align:center;">`;
+        html += `<button onclick="openThreatClassify()" class="btn-tactical" style="font-size:10px; padding:4px 12px;">${_t('panel.phase.btn_classify')}</button>`;
+        html += `</div>`;
+
+        body.innerHTML = html;
     }
 
     // ═══════════════════════════════════════════════════════════════

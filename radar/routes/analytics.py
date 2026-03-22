@@ -335,18 +335,71 @@ def api_salute_report():
         equip_parts.append("秘密海上要素" if ja else "COVERT MARITIME ELEMENT")
     equip = "; ".join(equip_parts) if equip_parts else ("標準的サイバーツール" if ja else "STANDARD CYBER TOOLS")
 
-    # ASSESSMENT
+    # ASSESSMENT — full narrative assessment paragraph
     sig_map = (
         {1: "危機的", 2: "高度", 3: "重大", 4: "中程度", 5: "通常"} if ja else
         {1: "CRITICAL", 2: "HIGH", 3: "SIGNIFICANT", 4: "MODERATE", 5: "ROUTINE"}
     )
     significance = sig_map.get(threat_level, "不明" if ja else "UNKNOWN")
 
-    bi_interp = (
-        "INFRASTRUCTURE_NEUTRALIZATION" if bi >= 7.0 else
-        "SEVERE_DISRUPTION"             if bi >= 4.0 else
-        "POLITICAL_NOISE"               if bi >= 1.5 else "NORMAL"
+    bi_interp_map = (
+        {7.0: "インフラ無力化", 4.0: "重度障害", 1.5: "政治的ノイズ"} if ja else
+        {7.0: "INFRASTRUCTURE NEUTRALIZATION", 4.0: "SEVERE DISRUPTION", 1.5: "POLITICAL NOISE"}
     )
+    bi_interp = next((v for k, v in sorted(bi_interp_map.items(), reverse=True) if bi >= k), ("通常" if ja else "NORMAL"))
+
+    conv_level = strat.get("convergence_level", "NONE")
+    conv_map = (
+        {"FULL_CONVERGENCE": "完全収束（3ドメイン活性化）", "DUAL_DOMAIN": "2ドメイン収束", "SINGLE_DOMAIN": "単一ドメイン活動", "NONE": "収束なし"} if ja else
+        {"FULL_CONVERGENCE": "FULL CONVERGENCE (3 domains active)", "DUAL_DOMAIN": "DUAL DOMAIN convergence", "SINGLE_DOMAIN": "SINGLE DOMAIN activity", "NONE": "NO CONVERGENCE"}
+    )
+    conv_text = conv_map.get(conv_level, conv_level)
+
+    # Domain scores for assessment
+    domains = strat.get("domains", {})
+    domain_parts = []
+    for d_key, d_label in [("cyber", "Cyber" if not ja else "サイバー"), ("physical", "Physical" if not ja else "物理"), ("info", "Info" if not ja else "情報")]:
+        d_info = domains.get(d_key, {})
+        if d_info.get("score", 0) > 0:
+            domain_parts.append(f"{d_label}: {d_info['score']}pt")
+
+    # Velocity and trend
+    vel = p8.get("velocity", 0.0)
+    vel_label = ("急上昇" if ja else "RAPIDLY ESCALATING") if vel > 1.0 else \
+                ("上昇中" if ja else "ESCALATING") if vel > 0.3 else \
+                ("安定" if ja else "STABLE") if vel > -0.3 else \
+                ("低下中" if ja else "DE-ESCALATING")
+
+    # Build assessment paragraph
+    assess_parts = []
+    if ja:
+        assess_parts.append(f"脅威レベル{threat_level}（{significance}）。")
+        assess_parts.append(f"収束状態: {conv_text}。")
+        if domain_parts:
+            assess_parts.append(f"ドメインスコア: {', '.join(domain_parts)}。")
+        assess_parts.append(f"脅威速度: {vel_label}（{vel:+.2f}/時間）。")
+        if bi >= 1.5:
+            assess_parts.append(f"封鎖指数: {bi:.1f}/10（{bi_interp}）。")
+        if seq not in ("NO_EVENTS", "INSUFFICIENT_CHAIN (0/4)"):
+            assess_parts.append(f"シーケンスチェーン: {seq}。")
+    else:
+        assess_parts.append(f"THREAT LEVEL {threat_level} ({significance}).")
+        assess_parts.append(f"Convergence: {conv_text}.")
+        if domain_parts:
+            assess_parts.append(f"Domain scores: {', '.join(domain_parts)}.")
+        assess_parts.append(f"Threat velocity: {vel_label} ({vel:+.2f}/hr).")
+        if bi >= 1.5:
+            assess_parts.append(f"Blockade Index: {bi:.1f}/10 ({bi_interp}).")
+        if seq not in ("NO_EVENTS", "INSUFFICIENT_CHAIN (0/4)"):
+            assess_parts.append(f"Sequence chain: {seq}.")
+
+    # Noise filters active
+    noise_filters = strat.get("noise_filters_applied", [])
+    if noise_filters:
+        nf_text = "適用ノイズフィルター" if ja else "Noise filters applied"
+        assess_parts.append(f"{nf_text}: {', '.join(noise_filters)}.")
+
+    assessment_text = " ".join(assess_parts)
 
     no_chain_text = "活動中のシーケンスチェーンなし" if ja else "NO ACTIVE SEQUENCE CHAIN"
     report = {
@@ -357,8 +410,10 @@ def api_salute_report():
         "unit":         unit,
         "time":         dtg,
         "equipment":    equip,
-        "assessment":   significance,
+        "assessment":   assessment_text,
         "threat_level": threat_level,
+        "convergence":  conv_text,
+        "velocity":     vel_label,
         "blockade_interpretation": bi_interp,
         "blockade_index": bi,
         "sequence_status": seq,
