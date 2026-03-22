@@ -386,7 +386,7 @@
         if (pollInfo) {
             const active    = (tg.active_channels || []).length;
             const monitored = (tg.channels_monitored || []).length;
-            const ts        = tg.last_poll_ts ? tg.last_poll_ts.substring(11,16) + ' UTC' : '—';
+            const ts        = tg.last_poll_ts ? new Date(tg.last_poll_ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '—';
             const ok        = tg.last_poll_ok !== false;
             pollInfo.innerHTML =
                 `${active}/${monitored} active &nbsp;<span style="color:${ok?'#00cc66':'#cc4444'};">${ok?'●':'✕'}</span>&nbsp; ${ts}`;
@@ -451,7 +451,7 @@
         }
 
         logEl.innerHTML = filtered.map(h => {
-            const ts       = h.ts ? h.ts.substring(11,16) + ' UTC' : '';
+            const ts       = h.ts ? new Date(h.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
             const isIntent = h.status === 'INTENT_DETECTED';
             const color    = isIntent ? '#ff66cc' : '#ffaa00';
             const cls      = isIntent ? 'intent' : 'target';
@@ -6328,7 +6328,7 @@
             const icon = axisIcons[ev.axis] || '•';
             return `<div class="climate-event" data-severity="${ev.severity}">
                 <div class="climate-event-header">
-                    <span class="climate-event-ts">${ev.ts_iso || ''}</span>
+                    <span class="climate-event-ts">${ev.ts_iso ? new Date(ev.ts_iso).toLocaleString() : ''}</span>
                     <span class="climate-event-tag" data-axis="${ev.axis}">${icon} ${(ev.indicator || '').toUpperCase()}</span>
                     <span class="climate-event-headline">${_escHtml(ev.headline || '')}</span>
                 </div>
@@ -6527,7 +6527,7 @@
                 for (const w of wire) {
                     const sevClass = w.severity >= 2 ? 'sit-wire-sig' : w.severity === 1 ? 'sit-wire-note' : '';
                     html += `<div class="sitboard-wire-item ${sevClass}">`;
-                    html += `<span class="sitboard-wire-ts">${w.ts_iso}</span>`;
+                    html += `<span class="sitboard-wire-ts">${w.ts_iso ? new Date(w.ts_iso).toLocaleString() : ''}</span>`;
                     html += `<span class="sitboard-wire-src">${_escHtml(w.source)}</span>`;
                     html += `<span class="sitboard-wire-text">${_escHtml(w.text)}</span>`;
                     html += `</div>`;
