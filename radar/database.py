@@ -14,6 +14,7 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 from typing import Optional
 
 log = logging.getLogger("radar")
@@ -286,6 +287,7 @@ class RadarDB:
             conn = self._get_conn()
             conn.executescript(_SCHEMA_SQL)
             conn.commit()
+            self._run_migrations(conn)
 
     def schema_version(self) -> int:
         try:
@@ -297,13 +299,67 @@ class RadarDB:
             return 0
 
     def set_schema_version(self, ver: int):
-        import time
         conn = self._get_conn()
         conn.execute(
             "INSERT INTO schema_version (version, migrated_at) VALUES (?, ?)",
             (ver, time.time()),
         )
         conn.commit()
+
+    # ── Auto-migration engine ─────────────────────────────────────────────
+    # Each entry: (version_number, description, sql_or_callable)
+    #   - sql_or_callable: str  → executed as conn.executescript()
+    #                      callable(conn) → arbitrary Python migration
+    #
+    # To add a new migration:
+    #   1. Append a tuple to _MIGRATIONS with the next version number
+    #   2. Write the ALTER TABLE / INSERT / Python logic needed
+    #   3. The engine auto-applies all pending migrations in order
+    #
+    # Example entries:
+    #   (2, "Add priority column to alerts", "ALTER TABLE alert_timeline ADD COLUMN priority INTEGER DEFAULT 0;"),
+    #   (3, "Backfill priorities", lambda conn: conn.execute("UPDATE alert_timeline SET priority=1 WHERE level='CRITICAL'")),
+
+    _MIGRATIONS: list[tuple[int, str, str | callable]] = [
+        # (1, "initial schema", "")  -- version 1 = current _SCHEMA_SQL baseline
+    ]
+
+    def _run_migrations(self, conn: sqlite3.Connection):
+        """Apply any pending schema migrations in order."""
+        current = self.schema_version()
+
+        # If DB is brand new (no version record), mark as current baseline
+        if current == 0:
+            baseline = max((m[0] for m in self._MIGRATIONS), default=0)
+            target = max(baseline, 1)
+            self.set_schema_version(target)
+            log.info("DB schema initialized at version %d", target)
+            return
+
+        pending = [m for m in self._MIGRATIONS if m[0] > current]
+        if not pending:
+            return
+
+        pending.sort(key=lambda m: m[0])
+        log.info("DB schema at v%d — %d migration(s) pending", current, len(pending))
+
+        for ver, desc, action in pending:
+            log.info("Applying migration v%d: %s", ver, desc)
+            try:
+                if callable(action):
+                    action(conn)
+                    conn.commit()
+                elif action.strip():
+                    conn.executescript(action)
+                    conn.commit()
+                self.set_schema_version(ver)
+                log.info("Migration v%d applied successfully", ver)
+            except Exception:
+                log.exception("Migration v%d FAILED: %s", ver, desc)
+                raise RuntimeError(
+                    f"Database migration v{ver} failed: {desc}. "
+                    f"Please check logs or restore from backup."
+                )
 
     # ── baseline_cache ──────────────────────────────────────────────────────
     def baseline_get(self, theater: str) -> dict:
