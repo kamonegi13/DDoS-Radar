@@ -39,6 +39,11 @@ class BaseSensor(ABC):
         with self._lock:
             self._fetch_log.append({"ts": datetime.datetime.now().isoformat(), "success": success, "duration_ms": duration_ms, "http_status": http_status, "records": records, "error": error[:300] if error else "", "_from_log_fetch": True})
             self._fetch_log = self._fetch_log[-10:]
+            # Sync health status: set _last_error on failure, clear on success
+            if not success and error:
+                self._last_error = error[:300]
+            elif success:
+                self._last_error = ""
         # Persist to SQLite (non-critical; never break sensor on DB error)
         try:
             _get_db().fetch_log_append(self.name, time.time(), success, duration_ms, http_status, records, error[:300] if error else "")
