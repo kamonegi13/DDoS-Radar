@@ -35,7 +35,18 @@
   if (token) {
     // Validate token by calling a protected endpoint
     fetch('/api/data_status', { headers: { 'Authorization': 'Bearer ' + token } })
-      .then(r => { if (r.ok) { document.getElementById('login-gate').style.display = 'none'; } })
+      .then(r => {
+        if (r.ok) {
+          document.getElementById('login-gate').style.display = 'none';
+          // Invalidate Leaflet map size after login-gate overlay is removed
+          // (map tiles/layers rendered while hidden get wrong dimensions)
+          setTimeout(() => {
+            if (window._radarMap) window._radarMap.invalidateSize();
+            if (window._resetRenderSig) window._resetRenderSig();
+            if (window.forceDataSync) window.forceDataSync();
+          }, 300);
+        }
+      })
       .catch(() => {});
   }
   window._doLogin = async function() {
@@ -56,6 +67,7 @@
       localStorage.setItem('radar_refresh_token', data.refresh_token);
       localStorage.setItem('radar_username', data.username);
       localStorage.setItem('radar_role', data.role);
+      if (data.access_expires_sec) localStorage.setItem('radar_token_lifetime', data.access_expires_sec);
       // Reload page — initApp will run with valid token in localStorage
       location.reload();
     } catch (e) {

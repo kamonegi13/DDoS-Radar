@@ -238,13 +238,18 @@ def login():
     conn.execute("UPDATE users SET last_login=? WHERE id=?", (time.time(), row["id"]))
     conn.commit()
 
+    from flask import current_app
     access_token = create_access_token(identity=username, additional_claims={"role": row["role"]})
     refresh_token = create_refresh_token(identity=username)
+    access_expires = current_app.config.get("JWT_ACCESS_TOKEN_EXPIRES", 3600)
+    if hasattr(access_expires, "total_seconds"):
+        access_expires = int(access_expires.total_seconds())
     return jsonify({
         "access_token": access_token,
         "refresh_token": refresh_token,
         "username": username,
         "role": row["role"],
+        "access_expires_sec": access_expires,
     })
 
 

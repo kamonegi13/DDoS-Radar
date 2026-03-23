@@ -3,6 +3,57 @@
 
     // ── Auth: wrap fetch to include JWT and handle 401 ──
     const _origFetch = window.fetch.bind(window);
+    let _refreshPromise = null; // Serialize concurrent refresh attempts
+
+    // Proactive token refresh: refresh when 80% of lifetime has elapsed
+    // This prevents 401 errors from ever reaching the user
+    const _TOKEN_LIFETIME_MS = (parseInt(localStorage.getItem('radar_token_lifetime') || '3600') || 3600) * 1000;
+    const _REFRESH_THRESHOLD = 0.8; // refresh at 80% of lifetime
+    let _tokenAcquiredAt = Date.now();
+
+    function _scheduleProactiveRefresh() {
+        const delay = _TOKEN_LIFETIME_MS * _REFRESH_THRESHOLD;
+        setTimeout(() => {
+            const refreshToken = localStorage.getItem('radar_refresh_token');
+            if (!refreshToken) return;
+            _doTokenRefresh(refreshToken).then(ok => {
+                if (ok) _scheduleProactiveRefresh();
+            });
+        }, delay);
+    }
+
+    function _doTokenRefresh(refreshToken) {
+        // Serialize: if already refreshing, reuse the same promise
+        if (_refreshPromise) return _refreshPromise;
+        _refreshPromise = _origFetch('/api/auth/refresh', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + refreshToken }
+        }).then(rr => {
+            if (rr.ok) {
+                return rr.json().then(d => {
+                    localStorage.setItem('radar_access_token', d.access_token);
+                    _tokenAcquiredAt = Date.now();
+                    return true;
+                });
+            }
+            // Refresh failed — show login gate
+            _showLoginGate();
+            return false;
+        }).catch(() => {
+            return false;
+        }).finally(() => {
+            _refreshPromise = null;
+        });
+        return _refreshPromise;
+    }
+
+    function _showLoginGate() {
+        localStorage.removeItem('radar_access_token');
+        localStorage.removeItem('radar_refresh_token');
+        const gate = document.getElementById('login-gate');
+        if (gate) gate.style.display = 'flex';
+    }
+
     window.fetch = function(url, opts = {}) {
         const token = localStorage.getItem('radar_access_token');
         if (token && typeof url === 'string' && url.startsWith('/api/')) {
@@ -13,36 +64,29 @@
         }
         return _origFetch(url, opts).then(res => {
             if (res.status === 401 && typeof url === 'string' && url.startsWith('/api/')
-                && !url.includes('/api/auth/login')) {
-                // Try token refresh once
+                && !url.includes('/api/auth/login') && !url.includes('/api/auth/refresh')) {
                 const refreshToken = localStorage.getItem('radar_refresh_token');
                 if (refreshToken) {
-                    return _origFetch('/api/auth/refresh', {
-                        method: 'POST',
-                        headers: { 'Authorization': 'Bearer ' + refreshToken }
-                    }).then(rr => {
-                        if (rr.ok) {
-                            return rr.json().then(d => {
-                                localStorage.setItem('radar_access_token', d.access_token);
-                                opts.headers = opts.headers || {};
-                                opts.headers['Authorization'] = 'Bearer ' + d.access_token;
-                                return _origFetch(url, opts);
-                            });
+                    return _doTokenRefresh(refreshToken).then(ok => {
+                        if (ok) {
+                            // Retry original request with new token
+                            opts.headers = opts.headers || {};
+                            opts.headers['Authorization'] = 'Bearer ' + localStorage.getItem('radar_access_token');
+                            return _origFetch(url, opts);
                         }
-                        // Refresh failed — show login gate
-                        localStorage.removeItem('radar_access_token');
-                        localStorage.removeItem('radar_refresh_token');
-                        document.getElementById('login-gate').style.display = 'flex';
                         return res;
                     });
                 }
-                // No refresh token — show login gate
-                localStorage.removeItem('radar_access_token');
-                document.getElementById('login-gate').style.display = 'flex';
+                _showLoginGate();
             }
             return res;
         });
     };
+
+    // Start proactive refresh cycle if we have a token
+    if (localStorage.getItem('radar_access_token')) {
+        _scheduleProactiveRefresh();
+    }
 
 
 
@@ -50,6 +94,7 @@
     let currentVector = 'all';
     let mapCenterMode = 'atlantic';
     let _lastRenderSig = ''; // P4-Opt: diff signature cache
+    window._resetRenderSig = () => { _lastRenderSig = ''; };
     let lastSyncedConfig = { core: "", correlates: [], adversaries: [], displays: [] };
     let lastSyncedTimeText = "System Initializing...";
     let isFirstLoad = true;
@@ -1478,6 +1523,7 @@
         worldCopyJump: false,
         maxBounds: [[-85.0511, -180], [85.0511, 180]],
     }).setView([20.0, 10.0], 3);
+    window._radarMap = map;
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; CARTO', maxZoom: 18 }).addTo(map);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
