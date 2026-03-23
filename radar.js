@@ -315,7 +315,13 @@
 
     const toggleTargetPanel    = _createPanelToggle('target-panel',    { floating: false });
     const toggleDashboardPanel = _createPanelToggle('dashboard-panel', { floating: false });
-    const toggleTgSigint       = _createPanelToggle('tg-sigint-panel', { floating: true });
+    const toggleTgSigint       = _createPanelToggle('tg-sigint-panel', { floating: true, onShow: () => {
+        if (window._lastThreatData) {
+            const strat = window._lastThreatData.strategic_alert || {};
+            const tg = ((strat.analytics || {}).phase8 || {}).telegram || {};
+            renderTgSigintPanel(tg);
+        }
+    }});
 
     function openTgSigint() {
         const p = document.getElementById('tg-sigint-panel');
@@ -476,6 +482,16 @@
         }).join('');
     }
     // ── End Telegram SIGINT Panel ────────────────────────────────────────────
+
+    // Auto-refresh TG SIGINT panel when visible
+    window._updateTgSigintFromPoll = function(data) {
+        const p = document.getElementById('tg-sigint-panel');
+        if (p && p.style.display !== 'none') {
+            const strat = (data && data.strategic_alert) || {};
+            const tg = ((strat.analytics || {}).phase8 || {}).telegram || {};
+            renderTgSigintPanel(tg);
+        }
+    };
 
     function clearGnLog() {
         _gnLog = [];
@@ -2094,8 +2110,12 @@
 
     function renderTelemetry(data) {
         window._lastThreatData = data; // Store for CAC threat classification
+
+        // Always update auxiliary panels regardless of data change (they fetch independently)
         if (window._updateClimateFromPoll) window._updateClimateFromPoll(data);
         if (window._updateSitBoardFromPoll) window._updateSitBoardFromPoll();
+        if (window._updateTgSigintFromPoll) window._updateTgSigintFromPoll(data);
+
         const curr = getCurrentConfig();
         const displayTargets = curr.displays;
 
@@ -3197,10 +3217,10 @@
                 console.warn('[WS] Socket.IO init failed, using polling fallback:', e);
             }
         }
-        // Polling fallback: always active, but interval is longer when WS is connected
+        // Polling fallback: fixed 15-min interval, skips if WS is delivering updates
         setInterval(() => {
             if (!_wsConnected) fetchDDoSData(false);
-        }, _wsConnected ? 1800000 : 900000);
+        }, _POLL_INTERVAL_MS);
     }
     
     // Boot sequence
