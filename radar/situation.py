@@ -38,7 +38,7 @@ class WireItem:
             "ts": self.ts,
             "ts_iso": datetime.datetime.fromtimestamp(
                 self.ts, tz=datetime.timezone.utc
-            ).strftime("%H:%M:%SZ"),
+            ).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "theater": self.theater,
             "source": self.source,
             "text": self.text,

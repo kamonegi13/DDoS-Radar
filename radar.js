@@ -6328,7 +6328,7 @@
             const icon = axisIcons[ev.axis] || '•';
             return `<div class="climate-event" data-severity="${ev.severity}">
                 <div class="climate-event-header">
-                    <span class="climate-event-ts">${ev.ts_iso ? new Date(ev.ts_iso).toLocaleString() : ''}</span>
+                    <span class="climate-event-ts">${_fmtTs(ev.ts_iso, ev.ts)}</span>
                     <span class="climate-event-tag" data-axis="${ev.axis}">${icon} ${(ev.indicator || '').toUpperCase()}</span>
                     <span class="climate-event-headline">${_escHtml(ev.headline || '')}</span>
                 </div>
@@ -6346,6 +6346,18 @@
         _fetchClimateData();
     }
     window._climateFilter = _climateFilter;
+
+    function _fmtTs(iso, epoch) {
+        if (iso) {
+            const d = new Date(iso);
+            if (!isNaN(d)) return d.toLocaleString();
+        }
+        if (epoch) {
+            const d = new Date(epoch * 1000);
+            if (!isNaN(d)) return d.toLocaleString();
+        }
+        return iso || '';
+    }
 
     function _escHtml(s) {
         const d = document.createElement('div');
@@ -6373,9 +6385,7 @@
     let _sitboardChipsBuilt = false;
     let _sitboardData = null;
 
-    function toggleSitBoard() {
-        _createPanelToggle('sitboard-panel', () => { _fetchSitBoardData(); })();
-    }
+    const toggleSitBoard = _createPanelToggle('sitboard-panel', { onShow: _fetchSitBoardData });
     window.toggleSitBoard = toggleSitBoard;
 
     function _fetchSitBoardData() {
@@ -6527,7 +6537,7 @@
                 for (const w of wire) {
                     const sevClass = w.severity >= 2 ? 'sit-wire-sig' : w.severity === 1 ? 'sit-wire-note' : '';
                     html += `<div class="sitboard-wire-item ${sevClass}">`;
-                    html += `<span class="sitboard-wire-ts">${w.ts_iso ? new Date(w.ts_iso).toLocaleString() : ''}</span>`;
+                    html += `<span class="sitboard-wire-ts">${_fmtTs(w.ts_iso, w.ts)}</span>`;
                     html += `<span class="sitboard-wire-src">${_escHtml(w.source)}</span>`;
                     html += `<span class="sitboard-wire-text">${_escHtml(w.text)}</span>`;
                     html += `</div>`;

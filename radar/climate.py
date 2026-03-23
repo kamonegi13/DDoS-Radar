@@ -52,7 +52,7 @@ class ClimateEvent:
     def to_dict(self) -> dict:
         return {
             "ts": self.ts,
-            "ts_iso": datetime.datetime.fromtimestamp(self.ts, tz=datetime.timezone.utc).strftime("%H:%M:%SZ"),
+            "ts_iso": datetime.datetime.fromtimestamp(self.ts, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "indicator": self.indicator,
             "axis": self.axis,
             "headline": self.headline,
