@@ -29,13 +29,22 @@ def _build_default_context() -> dict:
         "gdelt_history_window": GDELT_HISTORY_WINDOW,
     }
 
-def _sensor_scheduler_worker(sensor: BaseSensor, registry=None):
+def _sensor_scheduler_worker(sensor: BaseSensor, registry=None,
+                             initial_delay: float = 0.0):
     """Dedicated background fetch thread for a sensor.
     - Normal: periodic fetch every poll_interval
     - On failure: retry up to 3 times at shorter intervals [5min, 10min, 30min]
     - Emits sensor_status via WS on health changes
+    - initial_delay: seconds to wait before first fetch (for staggering shared-API sensors)
     """
     from radar.ws import emit_sensor_status
+
+    if not sensor.enabled:
+        log.info(f"[Sensor/{sensor.name}] DISABLED — skipping scheduler")
+        return
+
+    if initial_delay > 0:
+        time.sleep(initial_delay)
 
     _RETRY_DELAYS = [d for d in [300, 600, 1800] if d < sensor.poll_interval]
     _last_health = sensor.health

@@ -120,8 +120,12 @@ _db.startup_cleanup()
 
 # ── Scheduler (background sensor fetch) ──
 from radar.scheduler import _sensor_scheduler_worker, _cache_cleanup_worker  # noqa: E402
+# Stagger OpenSky-dependent sensors to avoid 429 rate-limit cascades.
+# opensky=0s, isr_hotspot=+120s, mil_support_air=+240s
+_OPENSKY_STAGGER = {"opensky": 0, "isr_hotspot": 120, "mil_support_air": 240}
 for _s in registry._sensors.values():
-    threading.Thread(target=_sensor_scheduler_worker, args=(_s, registry),
+    _delay = _OPENSKY_STAGGER.get(_s.name, 0.0)
+    threading.Thread(target=_sensor_scheduler_worker, args=(_s, registry, _delay),
                      daemon=True, name=f'sensor-{_s.name}').start()
 
 # ── HOD Prefill ──

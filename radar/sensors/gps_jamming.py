@@ -2,18 +2,23 @@
 
 Monitors GPS jamming/spoofing activity near strategic theaters via
 the GPSJam project data (crowdsourced ADS-B-derived GPS interference).
-Also checks EUROCONTROL / FAA GPS interference reports.
 
 GPS jamming is a strong indicator of electronic warfare activity
 and is frequently observed in pre-conflict scenarios (e.g., Baltic
 states, Eastern Mediterranean, Taiwan Strait).
 
-Data source: gpsjam.org (public, no API key)
+Data source: gpsjam.org daily H3 hex tile CSV files (public, no API key).
+Each tile reports count_good_aircraft / count_bad_aircraft where "bad"
+means degraded GPS navigation accuracy (NACp/NIC drop detected via ADS-B).
 """
 from __future__ import annotations
+import csv
+import datetime
+import io
 import logging
 import time
 import requests
+import h3
 from radar.sensors.base import BaseSensor
 from radar.config import (
     COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY,
@@ -22,10 +27,24 @@ from radar.config import (
 
 log = logging.getLogger("radar")
 
-# GPSJam data endpoint (aggregated hex tiles with interference levels)
-_GPSJAM_URL = "https://gpsjam.org/api"
-# Fallback: EUROCONTROL GPS NOTAM feed
-_EUROCONTROL_GPS_URL = "https://www.eurocontrol.int/gps-navaids-loss"
+# GPSJam publishes daily H3 resolution-4 tile CSV files
+_GPSJAM_DATA_URL = "https://gpsjam.org/data"
+_GPSJAM_MANIFEST_URL = f"{_GPSJAM_DATA_URL}/manifest.csv"
+_H3_RESOLUTION = 4
+
+# H3 resolution 4 hex has ~1,770 km² area; edge length ~22 km.
+# At this resolution, 1° latitude ≈ 2 hexes.
+# We search within ~3° (~330 km) of the country center.
+_SEARCH_RADIUS_DEG = 3.0
+
+
+def _h3_to_lat_lon(h3_hex: str) -> tuple[float, float] | None:
+    """Get H3 hex center coordinates using the h3 library."""
+    try:
+        lat, lon = h3.cell_to_latlng(h3_hex)
+        return (lat, lon)
+    except Exception:
+        return None
 
 
 class GpsJammingSensor(BaseSensor):
@@ -34,6 +53,56 @@ class GpsJammingSensor(BaseSensor):
     def __init__(self):
         super().__init__("gps_jamming", "physical", 1800)
         self._prev_levels: dict[str, float] = {}
+        self._latest_date: str = ""
+
+    def _get_latest_date(self) -> str:
+        """Fetch manifest.csv to find the most recent available date."""
+        try:
+            res = requests.get(
+                _GPSJAM_MANIFEST_URL, timeout=15,
+                proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+                headers={"Accept-Encoding": "gzip, deflate"},
+            )
+            if res.status_code == 429:
+                log.warning("[GPSJam] Manifest rate-limited (429)")
+                return self._latest_date or ""
+            if res.status_code != 200:
+                return self._latest_date or ""
+            lines = res.text.strip().split("\n")
+            if len(lines) < 2:
+                return ""
+            last_line = lines[-1]
+            date_str = last_line.split(",")[0]
+            self._latest_date = date_str
+            return date_str
+        except Exception as e:
+            log.warning(f"[GPSJam] Manifest fetch error: {e}")
+            return self._latest_date or ""
+
+    def _fetch_tile_data(self, date_str: str) -> list[dict]:
+        """Fetch H3 tile CSV for a given date."""
+        url = f"{_GPSJAM_DATA_URL}/{date_str}-h3_{_H3_RESOLUTION}.csv"
+        res = requests.get(
+            url, timeout=30,
+            proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+            headers={"Accept-Encoding": "gzip, deflate"},
+        )
+        if res.status_code == 429:
+            raise ValueError(f"Rate limited (429) for {url}")
+        if res.status_code != 200:
+            raise ValueError(f"HTTP {res.status_code} for {url}")
+        reader = csv.DictReader(io.StringIO(res.text))
+        tiles = []
+        for row in reader:
+            try:
+                tiles.append({
+                    "hex": row["hex"],
+                    "good": int(row.get("count_good_aircraft", 0)),
+                    "bad": int(row.get("count_bad_aircraft", 0)),
+                })
+            except (KeyError, ValueError):
+                continue
+        return tiles
 
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
@@ -48,81 +117,102 @@ class GpsJammingSensor(BaseSensor):
         any_success = False
         last_error = ""
 
-        for code in all_targets:
-            coord = COUNTRY_COORDS.get(code)
-            if not coord:
-                continue
+        try:
+            # Get latest available date
+            date_str = self._get_latest_date()
+            if not date_str:
+                raise ValueError("No date available from manifest")
 
-            try:
-                # Query GPSJam API for interference around country center
-                lat, lon = coord["lat"], coord["lng"]
-                res = requests.get(
-                    f"{_GPSJAM_URL}/interference",
-                    params={
-                        "lat": lat, "lon": lon,
-                        "radius": 300,  # km
-                        "hours": 24,
-                    },
-                    timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
-                    headers={"Accept": "application/json"},
-                )
+            # Fetch global tile data (single request for all countries)
+            all_tiles = self._fetch_tile_data(date_str)
+            any_success = True
+            log.info(f"[GPSJam] Fetched {len(all_tiles)} tiles for {date_str}")
 
-                if res.status_code == 200:
-                    data = res.json()
-                    any_success = True
+            # Pre-compute lat/lon for all tiles once (h3 library gives exact centers)
+            tile_coords = []
+            for tile in all_tiles:
+                center = _h3_to_lat_lon(tile["hex"])
+                if center is not None:
+                    tile_coords.append((tile, center[0], center[1]))
+            log.info(f"[GPSJam] Resolved coordinates for {len(tile_coords)}/{len(all_tiles)} tiles")
 
-                    # Parse interference data
-                    tiles = data if isinstance(data, list) else data.get("tiles", [])
-                    total_tiles = len(tiles)
-                    jammed_tiles = sum(1 for t in tiles
-                                       if isinstance(t, dict) and
-                                       t.get("level", 0) >= GPS_JAM_THRESHOLD)
-                    max_level = max(
-                        (t.get("level", 0) for t in tiles if isinstance(t, dict)),
-                        default=0)
-                    avg_level = (sum(t.get("level", 0) for t in tiles if isinstance(t, dict))
-                                 / max(total_tiles, 1)) if total_tiles > 0 else 0
-
-                    prev = self._prev_levels.get(code, avg_level)
-                    surge = avg_level > prev * 1.5 if prev > 0 else False
-
-                    is_jammed = (jammed_tiles >= 3 or
-                                 max_level >= GPS_JAM_CRITICAL_THRESHOLD or
-                                 avg_level >= GPS_JAM_THRESHOLD)
-
-                    jamming_data[code] = {
-                        "total_tiles": total_tiles,
-                        "jammed_tiles": jammed_tiles,
-                        "max_level": round(max_level, 2),
-                        "avg_level": round(avg_level, 2),
-                        "prev_avg": round(prev, 2),
-                        "surge": surge,
-                        "is_jammed": is_jammed,
-                        "is_critical": max_level >= GPS_JAM_CRITICAL_THRESHOLD,
-                    }
-
-                    if max_level >= GPS_JAM_CRITICAL_THRESHOLD:
-                        country_status[code] = "CRITICAL_JAMMING"
-                    elif is_jammed:
-                        country_status[code] = "JAMMING_DETECTED"
-                    else:
-                        country_status[code] = "NORMAL"
-
-                    if avg_level > 0:
-                        self._prev_levels[code] = avg_level
-
-                elif res.status_code == 404:
-                    # GPSJam API may not cover all regions
+            for code in all_targets:
+                coord = COUNTRY_COORDS.get(code)
+                if not coord:
                     jamming_data[code] = _default_entry()
                     country_status[code] = "NO_DATA"
+                    continue
 
-                time.sleep(0.5)
+                lat, lon = coord["lat"], coord["lng"]
 
-            except Exception as e:
-                last_error = f"gps({code}): {e}"
-                log.warning(f"[GPSJam] Error for {code}: {e}")
-                jamming_data[code] = _default_entry()
-                country_status[code] = "NO_DATA"
+                # Filter tiles within search radius using pre-computed coords
+                nearby_tiles = []
+                for tile, tlat, tlon in tile_coords:
+                    dlat = abs(tlat - lat)
+                    dlon = abs(tlon - lon)
+                    if dlon > 180:
+                        dlon = 360 - dlon
+                    if dlat <= _SEARCH_RADIUS_DEG and dlon <= _SEARCH_RADIUS_DEG:
+                        nearby_tiles.append(tile)
+
+                total_tiles = len(nearby_tiles)
+                log.debug(f"[GPSJam] {code}: {total_tiles} nearby tiles (radius={_SEARCH_RADIUS_DEG}°)")
+                total_good = sum(t["good"] for t in nearby_tiles)
+                total_bad = sum(t["bad"] for t in nearby_tiles)
+                total_aircraft = total_good + total_bad
+
+                # Compute jamming ratio (bad / total aircraft)
+                if total_aircraft > 0:
+                    jam_ratio = total_bad / total_aircraft
+                else:
+                    jam_ratio = 0.0
+
+                jammed_tiles = sum(1 for t in nearby_tiles
+                                   if (t["good"] + t["bad"]) > 0 and
+                                   t["bad"] / (t["good"] + t["bad"]) >= GPS_JAM_THRESHOLD)
+                max_ratio = max(
+                    (t["bad"] / (t["good"] + t["bad"])
+                     for t in nearby_tiles if (t["good"] + t["bad"]) > 0),
+                    default=0.0)
+
+                prev = self._prev_levels.get(code, jam_ratio)
+                surge = jam_ratio > prev * 1.5 if prev > 0 else False
+
+                is_jammed = (jammed_tiles >= 3 or
+                             max_ratio >= GPS_JAM_CRITICAL_THRESHOLD or
+                             jam_ratio >= GPS_JAM_THRESHOLD)
+
+                jamming_data[code] = {
+                    "total_tiles": total_tiles,
+                    "jammed_tiles": jammed_tiles,
+                    "total_aircraft": total_aircraft,
+                    "bad_aircraft": total_bad,
+                    "max_level": round(max_ratio, 4),
+                    "avg_level": round(jam_ratio, 4),
+                    "prev_avg": round(prev, 4),
+                    "surge": surge,
+                    "is_jammed": is_jammed,
+                    "is_critical": max_ratio >= GPS_JAM_CRITICAL_THRESHOLD,
+                    "date": date_str,
+                }
+
+                if max_ratio >= GPS_JAM_CRITICAL_THRESHOLD:
+                    country_status[code] = "CRITICAL_JAMMING"
+                elif is_jammed:
+                    country_status[code] = "JAMMING_DETECTED"
+                else:
+                    country_status[code] = "NORMAL"
+
+                if jam_ratio > 0:
+                    self._prev_levels[code] = jam_ratio
+
+        except Exception as e:
+            last_error = f"gpsjam: {e}"
+            log.warning(f"[GPSJam] Fetch error: {e}")
+            for code in all_targets:
+                if code not in jamming_data:
+                    jamming_data[code] = _default_entry()
+                    country_status[code] = "NO_DATA"
 
         duration = round((time.time() - t0) * 1000)
         self.log_fetch(any_success, duration, 0,
@@ -142,6 +232,7 @@ class GpsJammingSensor(BaseSensor):
 def _default_entry() -> dict:
     return {
         "total_tiles": 0, "jammed_tiles": 0,
+        "total_aircraft": 0, "bad_aircraft": 0,
         "max_level": 0, "avg_level": 0,
         "prev_avg": 0, "surge": False,
         "is_jammed": False, "is_critical": False,

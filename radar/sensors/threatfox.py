@@ -42,7 +42,10 @@ class ThreatFoxSensor(BaseSensor):
             res = requests.post(url, json=payload, headers=headers, timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
             duration = round((time.time() - t0) * 1000)
 
-            if res.status_code == 200:
+            if res.status_code == 429:
+                self.handle_rate_limit(res, duration)
+                return self.get_cache() or {"hits": hits}
+            elif res.status_code == 200:
                 data = res.json()
                 if data.get("query_status") in ["ok", "no_result"]:
                     iocs = data.get("data", [])

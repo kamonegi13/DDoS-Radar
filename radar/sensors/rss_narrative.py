@@ -28,6 +28,8 @@ class RssNarrativeSensor(BaseSensor):
         try:
             res = requests.get(url, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
                                headers={"User-Agent": "Mozilla/5.0 (OSINT-Radar/8.0)"})
+            if res.status_code == 429:
+                return ""  # rate-limited, skip this feed
             if res.status_code == 200:
                 return res.text
         except Exception:

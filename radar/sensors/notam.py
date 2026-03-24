@@ -29,11 +29,25 @@ _FAA_NOTAM_URL = "https://notams.aim.faa.gov/notamSearch/search"
 _ICAO_NOTAM_URL = "https://applications.icao.int/dataservices/api/notams-realtime-list"
 
 
+def _decimal_to_dms(deg: float) -> tuple[int, int, int]:
+    """Convert decimal degrees to (degrees, minutes, seconds)."""
+    d = abs(deg)
+    degrees = int(d)
+    minutes = int((d - degrees) * 60)
+    seconds = int(((d - degrees) * 60 - minutes) * 60)
+    return (degrees, minutes, seconds)
+
+
 class NotamSensor(BaseSensor):
     """FAA/ICAO NOTAM anomaly sensor (physical domain)."""
 
     def __init__(self):
         super().__init__("notam", "physical", 1800)
+        # DISABLED: No free international NOTAM API available.
+        # FAA covers US only; ICAO API has 100-call free limit.
+        # Physical domain signals covered by GPS Jamming, ISR Hotspot, Mil Support Air.
+        # Re-enable when FAA NMS or ICAO offers viable free tier.
+        self.enabled = False
         self._prev_counts: dict[str, int] = {}
 
     def fetch(self, context: dict) -> dict:
@@ -66,16 +80,24 @@ class NotamSensor(BaseSensor):
                         continue
 
                 # Try FAA NOTAM search (JSON endpoint)
+                # Compute center of bounding box in DMS format
+                center_lat = box.get("lamin", 0) + (box.get("lamax", 0) - box.get("lamin", 0)) / 2
+                center_lon = box.get("lomin", 0) + (box.get("lomax", 0) - box.get("lomin", 0)) / 2
+                lat_dms = _decimal_to_dms(center_lat)
+                lon_dms = _decimal_to_dms(center_lon)
+
                 payload = {
                     "searchType": 0,
                     "designatorsForLocation": "",
-                    "latMinutes": 0, "latSeconds": 0,
-                    "longMinutes": 0, "longSeconds": 0,
-                    "radius": 200,
-                    "radiusSearchLatDirection": "",
-                    "radiusSearchLongDirection": "",
-                    "radiusSearchLatDeg": box.get("lamin", 0) + (box.get("lamax", 0) - box.get("lamin", 0)) / 2,
-                    "radiusSearchLongDeg": box.get("lomin", 0) + (box.get("lomax", 0) - box.get("lomin", 0)) / 2,
+                    "latMinutes": lat_dms[1],
+                    "latSeconds": lat_dms[2],
+                    "longMinutes": lon_dms[1],
+                    "longSeconds": lon_dms[2],
+                    "radius": 100,
+                    "radiusSearchLatDirection": "N" if center_lat >= 0 else "S",
+                    "radiusSearchLongDirection": "E" if center_lon >= 0 else "W",
+                    "radiusSearchLatDeg": lat_dms[0],
+                    "radiusSearchLongDeg": lon_dms[0],
                     "fcmSequenceNumber": 0,
                     "notamType": "N",
                     "offset": 0,
@@ -85,7 +107,7 @@ class NotamSensor(BaseSensor):
                 }
                 res = requests.post(
                     _FAA_NOTAM_URL, json=payload,
-                    timeout=20, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+                    timeout=(10, 45), proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
                     headers={"Content-Type": "application/json", "Accept": "application/json"},
                 )
                 last_status = res.status_code

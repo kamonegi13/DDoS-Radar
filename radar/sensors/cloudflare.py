@@ -30,7 +30,9 @@ class CloudflareSensor(BaseSensor):
         try:
             r3 = requests.get(l3_url, headers=CF_HEADERS, params=params, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
             duration = round((time.time() - t0) * 1000)
-            if r3.status_code == 200:
+            if self.handle_rate_limit(r3, duration):
+                return self.get_cache() or {"active": True, "date_range": CURRENT_DATE_RANGE}
+            elif r3.status_code == 200:
                 l3_data = r3.json().get("result", {}).get("top_0", [])
                 r7 = requests.get(l7_url, headers=CF_HEADERS, params=params, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
                 l7_data = r7.json().get("result", {}).get("top_0", []) if r7.status_code == 200 else []

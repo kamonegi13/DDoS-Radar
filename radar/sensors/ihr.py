@@ -9,6 +9,9 @@ All endpoints are free, require no authentication, and return JSON
 with native country-level granularity.
 
 API base: https://ihr.iijlab.net/ihr/api/
+Note: ihr.iijlab.net 301-redirects to www.ihr.live.
+We hit www.ihr.live directly and disable redirect-following
+to avoid double-hop latency through corporate proxies.
 """
 from __future__ import annotations
 import requests
@@ -20,7 +23,8 @@ from radar.sensors.base import BaseSensor
 
 log = logging.getLogger("radar")
 
-IHR_API_BASE = "https://ihr.iijlab.net/ihr/api"
+# Canonical hostname (ihr.iijlab.net redirects here via 301)
+IHR_API_BASE = "https://www.ihr.live/ihr/api"
 
 
 class IhrSensor(BaseSensor):
@@ -44,37 +48,34 @@ class IhrSensor(BaseSensor):
         since = (now - datetime.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
         until = now.strftime("%Y-%m-%dT%H:%M")
 
-        # 1. Disconnection events (per-country)
+        # 1. Disconnection events — single global query, then filter by country
+        #    (replaces per-country loop to reduce request count and timeout exposure)
         try:
-            for code in all_codes:
-                url = f"{IHR_API_BASE}/disco/events/"
-                params = {
-                    "streamtype": "country",
-                    "streamname": code,
-                    "starttime": since,
-                    "endtime": until,
-                    "format": "json",
-                }
-                res = requests.get(url, params=params, timeout=15,
-                                   proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-                last_status = res.status_code
-                if res.status_code == 200:
-                    data = res.json()
-                    results = data.get("results", data) if isinstance(data, dict) else data
-                    if isinstance(results, list) and results:
-                        disco_data[code] = [
-                            {
+            url = f"{IHR_API_BASE}/disco/events/"
+            params = {
+                "streamtype": "country",
+                "starttime": since,
+                "endtime": until,
+                "format": "json",
+            }
+            res = requests.get(url, params=params, timeout=30,
+                               proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            last_status = res.status_code
+            if res.status_code == 200:
+                data = res.json()
+                results = data.get("results", data) if isinstance(data, dict) else data
+                if isinstance(results, list):
+                    for e in results:
+                        code = (e.get("streamname", "") or "").upper()
+                        if code and code in COUNTRY_COORDS:
+                            disco_data.setdefault(code, []).append({
                                 "ts": e.get("starttime", ""),
                                 "endtime": e.get("endtime", ""),
                                 "level": e.get("level", 0),
                                 "avglevel": e.get("avglevel", 0),
                                 "nbprobes": e.get("nbprobes", 0),
-                            }
-                            for e in results
-                        ]
-                    any_success = True
-                # Rate limit courtesy: small delay between per-country queries
-                time.sleep(0.3)
+                            })
+                any_success = True
         except Exception as e:
             last_error = f"disco: {e}"
             log.warning(f"[IHR] Disco events error: {e}")
@@ -83,7 +84,7 @@ class IhrSensor(BaseSensor):
         try:
             url = f"{IHR_API_BASE}/hegemony/alarms/"
             params = {"starttime": since, "endtime": until, "format": "json"}
-            res = requests.get(url, params=params, timeout=20,
+            res = requests.get(url, params=params, timeout=30,
                                proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
             if res.status_code == 200:
                 data = res.json()
@@ -107,7 +108,7 @@ class IhrSensor(BaseSensor):
         try:
             url = f"{IHR_API_BASE}/network_delay/alarms/"
             params = {"starttime": since, "endtime": until, "format": "json"}
-            res = requests.get(url, params=params, timeout=20,
+            res = requests.get(url, params=params, timeout=30,
                                proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
             if res.status_code == 200:
                 data = res.json()

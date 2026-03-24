@@ -2700,6 +2700,14 @@
             <li>Per-sensor caches remain in memory for performance; all other state (baselines, HOD data, sequence events, alerts, threat levels) is persisted to SQLite.</li>
         </ul>
 
+        <p><b>F. Sensor Health &amp; Rate Limiting</b></p>
+        <ul>
+            <li><b>Health States</b>: Each sensor reports one of 5 states: <b>OK</b> (green), <b>STALE</b> (orange — no fresh data for 3× poll interval), <b>ERROR</b> (red — last fetch failed), <b>INITIALIZING</b> (grey — no data fetched yet), <b>DISABLED</b> (grey — manually muted). The HUD SENSORS indicator shows a dot per sensor colored by state.</li>
+            <li><b>Error Propagation</b>: When a sensor fetch fails (HTTP error, timeout, etc.), the error is immediately reflected in the health state. Any failed <span class="code-block">log_fetch()</span> call automatically sets the sensor to ERROR, even when no specific error message is provided. Successful fetches clear the error state.</li>
+            <li><b>OpenSky Rate Limiting</b>: Three sensors (OpenSky airspace, ISR Hotspot, Military Support Air) share the OpenSky Network API. A shared rate limiter enforces minimum 10-second intervals between API calls. At startup, sensors are staggered (0s, +120s, +240s) to prevent 429 rate-limit cascades. If a 429 response is received, the sensor waits for the Retry-After period before retrying once.</li>
+            <li><b>Cache-on-Success</b>: Sensors only update their cache when at least one successful response is received. On complete failure, the previous cached data is returned to prevent data loss during transient outages.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -2744,6 +2752,14 @@
             <li>すべての永続状態は WAL モードの SQLite に保存され、並行読み書き性能を確保。データベースファイルは <span class="code-block">persistence/radar.db</span> に配置。</li>
             <li>マイグレーション後の初回起動時に、既存の <span class="code-block">state.json</span> データが自動的に SQLite にマイグレーションされ、JSON ファイルはバックアップとして <span class="code-block">state.json.migrated</span> にリネーム。</li>
             <li>センサーごとのキャッシュはパフォーマンスのためメモリに保持。その他すべての状態（ベースライン、HOD データ、シーケンスイベント、アラート、脅威レベル）は SQLite に永続化。</li>
+        </ul>
+
+        <p><b>F. センサーヘルス &amp; レート制限</b></p>
+        <ul>
+            <li><b>ヘルス状態</b>: 各センサーは5つの状態のいずれかを報告: <b>OK</b>（緑）、<b>STALE</b>（橙 — ポーリング間隔の3倍以上データ更新なし）、<b>ERROR</b>（赤 — 最終フェッチ失敗）、<b>INITIALIZING</b>（灰 — 初回データ未取得）、<b>DISABLED</b>（灰 — 手動ミュート中）。HUD の SENSORS インジケーターはセンサーごとに状態色のドットを表示。</li>
+            <li><b>エラー伝搬</b>: センサーフェッチが失敗した場合（HTTP エラー、タイムアウト等）、エラーは即座にヘルス状態に反映。<span class="code-block">log_fetch()</span> の失敗呼び出しは、特定のエラーメッセージがなくても自動的にセンサーを ERROR に設定。成功したフェッチはエラー状態をクリア。</li>
+            <li><b>OpenSky レート制限</b>: 3つのセンサー（OpenSky 空域、ISR ホットスポット、軍事支援航空機）は OpenSky Network API を共有。共有レートリミッターが API コール間に最低10秒の間隔を強制。起動時にセンサーは段階的に起動（0秒、+120秒、+240秒）し、429 レート制限の連鎖を防止。429 レスポンスを受信した場合、Retry-After 期間待機後に1回リトライ。</li>
+            <li><b>成功時のみキャッシュ</b>: センサーは少なくとも1つの成功レスポンスを受信した場合のみキャッシュを更新。完全な失敗時は前回のキャッシュデータを返し、一時的な障害中のデータ損失を防止。</li>
         </ul>
 
         </div>

@@ -68,7 +68,10 @@ class UsgsSeismicSensor(BaseSensor):
                 _USGS_URL, params=params, timeout=20,
                 proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
             )
-            if res.status_code == 200:
+            if res.status_code == 429:
+                self.handle_rate_limit(res, round((time.time() - t0) * 1000))
+                return self.get_cache() or {"quakes": {}, "country_status": {}}
+            elif res.status_code == 200:
                 data = res.json()
                 features = data.get("features", [])
                 any_success = True

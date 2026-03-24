@@ -147,8 +147,10 @@ class MilSupportAirSensor(BaseSensor):
         self.log_fetch(any_success, duration, last_status, total_ac, last_error)
 
         result = {"mil_air_data": results}
-        self.set_cache(result)
-        return result
+        if any_success:
+            self.set_cache(result)
+            return result
+        return self.get_cache() or result
 
 
 def _classify_mil(callsign: str) -> str:

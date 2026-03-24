@@ -5073,7 +5073,7 @@
     };
 
     // ── Sensor Fleet Health HUD ─────────────────────────────────────────────
-    const _SENSOR_STATUS_COLOR = { OK: '#00ff88', STALE: '#ffaa00', ERROR: '#ff2222', DISABLED: '#444', INITIALIZING: '#666' };
+    const _SENSOR_STATUS_COLOR = { OK: '#00ff88', DEGRADED: '#ffcc00', STALE: '#ffaa00', ERROR: '#ff2222', DISABLED: '#444', INITIALIZING: '#666' };
     let _sensorHealthCache = {};
     function _updateSensorHealthHUD(healthMap) {
         if (!healthMap) return;
@@ -5085,6 +5085,7 @@
         let ok = 0, stale = 0, err = 0, disabled = 0;
         entries.forEach(([, st]) => {
             if (st === 'OK') ok++;
+            else if (st === 'DEGRADED') stale++;
             else if (st === 'STALE') stale++;
             else if (st === 'ERROR') err++;
             else disabled++;

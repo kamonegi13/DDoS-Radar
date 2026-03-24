@@ -48,6 +48,8 @@ class CheckHostSensor(BaseSensor):
                          "User-Agent": "OSINT-Radar/9.0"},
                 timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
             )
+            if res.status_code == 429:
+                return {"success_rate": None, "error": "rate_limited(429)"}
             if res.status_code != 200:
                 return {"success_rate": None, "error": f"HTTP {res.status_code}"}
 

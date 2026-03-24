@@ -107,6 +107,12 @@ class GreyNoiseSensor(BaseSensor):
                     "last_seen": None, "message": "This IP has not been observed by GreyNoise.",
                     "cached": False, "fetched_at": now, "daily_remaining": remaining, "error": None
                 }
+            elif res.status_code == 429:
+                with self._ip_lock:
+                    self._daily_count = max(0, self._daily_count - 1)
+                    actual_remaining = max(0, self.COMMUNITY_DAILY_LIMIT - self._daily_count)
+                return {"ip": ip, "cached": False, "daily_remaining": actual_remaining,
+                        "error": "rate_limited(429)"}
             elif res.status_code != 200:
                 with self._ip_lock:
                     self._daily_count = max(0, self._daily_count - 1)  # Roll back count on failure

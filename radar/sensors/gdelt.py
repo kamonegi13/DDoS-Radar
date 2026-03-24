@@ -22,7 +22,7 @@ class GDELTSensor(BaseSensor):
     def _fetch_tone(self, query: str, timespan: str) -> Optional[float]:
         try:
             res = requests.get("https://api.gdeltproject.org/api/v2/doc/doc", params={"query": query, "mode": "TimelineTone", "timespan": timespan, "format": "json"}, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-            if res.status_code != 200: return None
+            if res.status_code in (429, 503): return None  # rate limited or overloaded
             timeline = res.json().get("timeline") or []
             if not timeline: return None
             values = [pt["value"] for pt in timeline[0].get("data", []) if "value" in pt]

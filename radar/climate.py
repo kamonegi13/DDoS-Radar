@@ -170,8 +170,8 @@ class MediaTempoAnalyzer:
 
             z = (article_count - mean) / std
 
-            if z > 1.0:
-                sev = 2 if z > 3.5 else (1 if z > 2.0 else 0)
+            if z > 1.5:
+                sev = 2 if z > 3.5 else (1 if z > 2.5 else 0)
                 events.append(ClimateEvent(
                     ts=now, indicator="T2", axis=AXIS_TIME,
                     headline=f"State media tempo surge: {theater}",
@@ -180,12 +180,12 @@ class MediaTempoAnalyzer:
                     theater=theater,
                     meta={"article_count": article_count, "baseline_mean": round(mean, 1), "z_score": round(z, 2)},
                 ))
-            elif z < -1.0 and mean > 2:
+            elif z < -1.5 and mean > 2:
                 events.append(ClimateEvent(
                     ts=now, indicator="T2", axis=AXIS_TIME,
                     headline=f"State media silence: {theater}",
                     detail=f"{article_count} articles vs baseline {mean:.0f} — unusual silence ({z:.1f}σ below normal)",
-                    severity=1 if z < -1.5 else 0,
+                    severity=1 if z < -2.0 else 0,
                     theater=theater,
                     meta={"article_count": article_count, "baseline_mean": round(mean, 1), "z_score": round(z, 2)},
                 ))
@@ -245,10 +245,10 @@ class AviationRouteAnalyzer:
             std = max(std, 1.0)
             z = (count - mean) / std
 
-            if z < -1.0:
+            if z < -1.5:
                 drop_pct = round((1 - count / mean) * 100) if mean > 0 else 0
                 airport_name = data.get("airport", code)
-                sev = 2 if z < -2.5 else (1 if z < -1.5 else 0)
+                sev = 2 if z < -3.0 else (1 if z < -2.0 else 0)
                 events.append(ClimateEvent(
                     ts=now, indicator="S1", axis=AXIS_SPACE,
                     headline=f"Aviation drop near {airport_name}",
@@ -748,9 +748,14 @@ class StrategicClimateEngine:
         if not recent:
             return 0.0, "FROZEN"
 
-        # Score: weight by severity (0=0.3, 1=1.0, 2=2.0) with diversity bonus
-        sev_weights = {0: 0.3, 1: 1.0, 2: 2.0}
-        base_score = sum(sev_weights.get(e.severity, 0.3) for e in recent)
+        # Score: weight by severity (0=0.2, 1=1.0, 2=2.0) with diversity bonus
+        sev_weights = {0: 0.2, 1: 1.0, 2: 2.0}
+        # Cap severity-0 contribution to avoid noise accumulation
+        sev0_score = sum(0.2 for e in recent if e.severity == 0)
+        sev0_capped = min(sev0_score, 3.0)
+        sev12_score = sum(sev_weights.get(e.severity, 0) for e in recent if e.severity > 0)
+        base_score = sev12_score + sev0_capped
+
         indicators_active = len({e.indicator for e in recent})
         diversity_bonus = indicators_active * 0.5
 
@@ -760,12 +765,12 @@ class StrategicClimateEngine:
 
         total = base_score + diversity_bonus + theater_bonus
 
-        # Map to level (thresholds raised to compensate for more severity=0 events)
-        if total >= 15:
+        # Map to level
+        if total >= 18:
             return total, "FLASHPOINT"
-        elif total >= 9:
+        elif total >= 11:
             return total, "HOT"
-        elif total >= 4:
+        elif total >= 5:
             return total, "WARMING"
         elif total > 0:
             return total, "COOL"

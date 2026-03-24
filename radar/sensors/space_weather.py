@@ -73,7 +73,9 @@ class SpaceWeatherSensor(BaseSensor):
         try:
             res = requests.get(_KP_URL, timeout=15,
                                proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-            if res.status_code == 200:
+            if res.status_code == 429:
+                log.warning("[SpaceWeather] Kp API rate limited (429)")
+            elif res.status_code == 200:
                 rows = res.json()
                 # Format: [[time_tag, Kp, observed/estimated/predicted], ...]
                 # First row is header. Find most recent observed value.
@@ -91,7 +93,9 @@ class SpaceWeatherSensor(BaseSensor):
         try:
             res = requests.get(_XRAY_URL, timeout=15,
                                proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-            if res.status_code == 200:
+            if res.status_code == 429:
+                log.warning("[SpaceWeather] X-ray API rate limited (429)")
+            elif res.status_code == 200:
                 data = res.json()
                 if data:
                     # Use most recent entry; flux is in W/m²

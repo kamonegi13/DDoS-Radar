@@ -57,7 +57,10 @@ class RipeAtlasSensor(BaseSensor):
                 res = requests.get(url, params=params, timeout=10,
                                    proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
                 last_status = res.status_code
-                if res.status_code == 200:
+                if res.status_code == 429:
+                    self.handle_rate_limit(res, round((time.time() - t0) * 1000))
+                    break
+                elif res.status_code == 200:
                     data = res.json()
                     active = data.get("count", 0)
                     prev = self._prev_probe_counts.get(code, active)

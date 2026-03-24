@@ -22,7 +22,7 @@ class BaseSensor(ABC):
         with self._lock: return dict(self._cache)
     def set_cache(self, data: dict):
         with self._lock:
-            self._cache = data; self._cache_time = time.time(); self._last_error = ""
+            self._cache = data; self._cache_time = time.time()
             last = self._fetch_log[-1] if self._fetch_log else {}
             if not last.get("_from_log_fetch"):
                 rec_count = sum(len(v) for v in data.values() if isinstance(v, (list, dict)))
@@ -40,9 +40,12 @@ class BaseSensor(ABC):
             self._fetch_log.append({"ts": datetime.datetime.now().isoformat(), "success": success, "duration_ms": duration_ms, "http_status": http_status, "records": records, "error": error[:300] if error else "", "_from_log_fetch": True})
             self._fetch_log = self._fetch_log[-10:]
             # Sync health status: set _last_error on failure, clear on success
-            if not success and error:
-                self._last_error = error[:300]
-            elif success:
+            # Partial success (success=True but error present) → keep error for display but mark as DEGRADED
+            if not success:
+                self._last_error = error[:300] if error else "fetch_failed"
+            elif success and error:
+                self._last_error = f"PARTIAL: {error[:280]}"
+            else:
                 self._last_error = ""
         # Persist to SQLite (non-critical; never break sensor on DB error)
         try:
@@ -54,7 +57,9 @@ class BaseSensor(ABC):
     @property
     def health(self) -> str:
         if not self.enabled: return "DISABLED"
-        if self._last_error: return "ERROR"
+        if self._last_error:
+            if self._last_error.startswith("PARTIAL:"): return "DEGRADED"
+            return "ERROR"
         elapsed = time.time() - self._cache_time
         if elapsed > self.poll_interval * 3: return "STALE" if self._cache else "INITIALIZING"
         return "OK"
@@ -66,7 +71,7 @@ class BaseSensor(ABC):
         """
         from radar.config import CONFIDENCE_MIN_SAMPLES
         # Health factor: maps sensor health state to confidence
-        health_factors = {"OK": 1.0, "STALE": 0.5, "ERROR": 0.0, "INITIALIZING": 0.1, "DISABLED": 0.0}
+        health_factors = {"OK": 1.0, "DEGRADED": 0.8, "STALE": 0.5, "ERROR": 0.0, "INITIALIZING": 0.1, "DISABLED": 0.0}
         health_f = health_factors.get(self.health, 0.0)
         if health_f == 0.0:
             return 0.0
@@ -81,6 +86,54 @@ class BaseSensor(ABC):
         else:
             baseline_f = 1.0
         return round(min(health_f * sample_f * baseline_f, 1.0), 3)
+
+    def handle_rate_limit(self, response, duration_ms: int = 0) -> bool:
+        """Check if response is 429 and log appropriately. Returns True if rate-limited.
+
+        Usage in sensor fetch():
+            res = requests.get(...)
+            if self.handle_rate_limit(res, duration_ms):
+                return self.get_cache() or default_result
+        """
+        if response.status_code != 429:
+            return False
+        retry_after = response.headers.get("Retry-After", "60")
+        import logging
+        logging.getLogger("radar").warning(
+            f"[{self.name}] Rate limited (429). Retry-After: {retry_after}s"
+        )
+        cached = self.get_cache()
+        if cached:
+            self.log_fetch(True, duration_ms, 429, 0,
+                           f"rate_limited(429), using cache. Retry-After={retry_after}s")
+        else:
+            self.log_fetch(False, duration_ms, 429, 0,
+                           f"rate_limited(429), no cache. Retry-After={retry_after}s")
+        return True
+
+    def _safe_get(self, url: str, **kwargs):
+        """requests.get wrapper with automatic 429 handling.
+
+        Returns response object, or None if rate-limited (cache/log handled internally).
+        Callers should check: if res is None: return self.get_cache() or default
+        """
+        import requests as _requests
+        duration = kwargs.pop("_duration_ms", 0)
+        res = _requests.get(url, **kwargs)
+        if res.status_code == 429:
+            self.handle_rate_limit(res, duration)
+            return None
+        return res
+
+    def _safe_post(self, url: str, **kwargs):
+        """requests.post wrapper with automatic 429 handling."""
+        import requests as _requests
+        duration = kwargs.pop("_duration_ms", 0)
+        res = _requests.post(url, **kwargs)
+        if res.status_code == 429:
+            self.handle_rate_limit(res, duration)
+            return None
+        return res
 
     def to_config_dict(self) -> dict:
         return {"name": self.name, "domain": self.domain, "enabled": self.enabled, "health": self.health, "poll_interval_sec": self.poll_interval, "last_error": self._last_error, "cache_age_sec": round(time.time() - self._cache_time) if self._cache_time else None}

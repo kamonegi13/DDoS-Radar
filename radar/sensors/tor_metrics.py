@@ -56,7 +56,10 @@ class TorMetricsSensor(BaseSensor):
                                    proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
                                    headers={"Accept": "application/json"})
                 last_status = res.status_code
-                if res.status_code == 200:
+                if res.status_code == 429:
+                    self.handle_rate_limit(res, round((time.time() - t0) * 1000))
+                    break
+                elif res.status_code == 200:
                     data = res.json()
                     relays = data.get("relays", [])
                     bridges = data.get("bridges", [])

@@ -67,6 +67,10 @@ class IodaSensor(BaseSensor):
         try:
             res = requests.get(url, params=params, timeout=20,
                                proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            if res.status_code == 429:
+                self.handle_rate_limit(res, round((time.time() - t0) * 1000))
+                cached = self.get_cache()
+                return cached if cached else None
             if res.status_code != 200:
                 log.warning(f"[IODA] IODA API returned HTTP {res.status_code}")
                 return None

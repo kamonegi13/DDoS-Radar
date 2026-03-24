@@ -66,6 +66,9 @@ class AisMaritimeSensor(BaseSensor):
                     timeout=15, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
                     headers={"User-Agent": "OSINT-Radar/8.0"}
                 )
+                if res.status_code == 429:
+                    self.handle_rate_limit(res, round((time.time() - t0) * 1000))
+                    break
                 if res.status_code != 200:
                     cp_errors += 1; last_error = f"HTTP {res.status_code}"
                     continue

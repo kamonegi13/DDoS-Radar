@@ -98,6 +98,8 @@ class IsrHotspotSensor(BaseSensor):
             data["is_surge"] = data["count"] >= ISR_SURGE_THRESHOLD
 
         result = {"isr_data": results}
-        self.set_cache(result)
-        return result
+        if any_success:
+            self.set_cache(result)
+            return result
+        return self.get_cache() or result
 

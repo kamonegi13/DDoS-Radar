@@ -84,7 +84,10 @@ class CtLogSensor(BaseSensor):
                         headers={"Accept": "application/json"},
                     )
 
-                    if res.status_code == 200:
+                    if res.status_code == 429:
+                        log.warning(f"[CTLog] Rate limited for {code}, skipping")
+                        break
+                    elif res.status_code == 200:
                         try:
                             certs = res.json()
                         except Exception:

@@ -22,7 +22,10 @@ class OpenWeatherSensor(BaseSensor):
             try:
                 res = requests.get("https://api.openweathermap.org/data/2.5/weather", params={"lat": coord["lat"], "lon": coord["lng"], "appid": api_key, "units": "metric"}, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
                 last_status = res.status_code
-                if res.status_code == 200:
+                if res.status_code == 429:
+                    self.handle_rate_limit(res, round((time.time() - t0) * 1000))
+                    return self.get_cache() or {"conditions": {}}
+                elif res.status_code == 200:
                     d = res.json(); w = (d.get("weather") or [{}])[0]; wind = d.get("wind", {}).get("speed", 0)
                     wid = w.get("id", 800)
                     is_severe = wid in SEVERE_WEATHER_IDS or wind > 25

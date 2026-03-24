@@ -33,5 +33,8 @@ class OpenSkySensor(BaseSensor):
                 results[code] = {"airport": box.get("airport", code), "count": -1, "lat": lat, "lng": lng, "error": str(e)}
                 last_error = str(e)
         self.log_fetch(any_success, round((time.time() - t0) * 1000), last_status, total_states, last_error)
-        result = {"airports": results}; self.set_cache(result)
-        return result
+        result = {"airports": results}
+        if any_success:
+            self.set_cache(result)
+            return result
+        return self.get_cache() or result

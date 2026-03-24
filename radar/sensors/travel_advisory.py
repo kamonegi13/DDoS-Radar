@@ -54,7 +54,10 @@ class TravelAdvisorySensor(BaseSensor):
                 proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
                 headers={"Accept": "application/xml, text/xml, */*"},
             )
-            if res.status_code == 200:
+            if res.status_code == 429:
+                self.handle_rate_limit(res, round((time.time() - t0) * 1000))
+                return self.get_cache() or {"advisories": {}, "country_status": {}}
+            elif res.status_code == 200:
                 # Parse simple XML (no external XML lib required)
                 text = res.text
                 any_success = True

@@ -32,7 +32,10 @@ class NasaFirmsSensor(BaseSensor):
             )
             duration = round((time.time() - t0) * 1000)
 
-            if res.status_code == 200:
+            if res.status_code == 429:
+                self.handle_rate_limit(res, round((time.time() - t0) * 1000))
+                return self.get_cache() or {"anomalies": []}
+            elif res.status_code == 200:
                 events = res.json().get("events", [])
                 record_count = len(events)
                 self.log_fetch(True, duration, res.status_code, record_count)
