@@ -6,6 +6,7 @@ import time
 from radar.config import (
     COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY, GDELT_TONE_ALERT_THRESHOLD, GDELT_HISTORY_WINDOW,
 )
+from typing import Optional
 from radar.sensors.base import BaseSensor
 from radar.database import db as _db
 

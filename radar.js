@@ -363,7 +363,7 @@
     const toggleTgSigint       = _createPanelToggle('tg-sigint-panel', { floating: true, onShow: () => {
         if (window._lastThreatData) {
             const strat = window._lastThreatData.strategic_alert || {};
-            const tg = ((strat.analytics || {}).phase8 || {}).telegram || {};
+            const tg = (strat.analytics || {}).telegram_mirror || {};
             renderTgSigintPanel(tg);
         }
     }});
@@ -533,7 +533,7 @@
         const p = document.getElementById('tg-sigint-panel');
         if (p && p.style.display !== 'none') {
             const strat = (data && data.strategic_alert) || {};
-            const tg = ((strat.analytics || {}).phase8 || {}).telegram || {};
+            const tg = (strat.analytics || {}).telegram_mirror || {};
             renderTgSigintPanel(tg);
         }
     };
@@ -2273,25 +2273,25 @@
             }
             
             if (strat.vector_shifts && strat.vector_shifts.length > 0) {
-                shiftEl.innerHTML = `<span class="alert-text">${strat.vector_shifts.join(', ')}</span>`;
+                shiftEl.innerHTML = `<span class="alert-text">${esc(strat.vector_shifts.join(', '))}</span>`;
             } else {
                 shiftEl.innerText = "None";
             }
-            
+
             let strikesText = "None";
             if (strat.adversary_strikes && strat.adversary_strikes.length > 0) {
                 let arr = [];
-                strat.adversary_strikes.forEach(strike => { arr.push(`<span class="warn-text">${strike.actor}➔${strike.target} (x${strike.spike})</span>`); });
+                strat.adversary_strikes.forEach(strike => { arr.push(`<span class="warn-text">${esc(strike.actor)}➔${esc(strike.target)} (x${esc(strike.spike)})</span>`); });
                 strikesText = arr.join(' | ');
             }
             strikesEl.innerHTML = strikesText;
 
-            const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? strat.degraded_theaters.join(', ') : "None";
+            const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? esc(strat.degraded_theaters.join(', ')) : "None";
             outagesEl.innerHTML = `<span class="${degraded !== 'None' ? 'warn-text' : ''}">${degraded}</span>`;
 
             if (coordinatedEl) {
                 if (strat.coordinated_theaters && strat.coordinated_theaters.length >= 2) {
-                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${strat.coordinated_theaters.join(', ')}]</span>`;
+                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${esc(strat.coordinated_theaters.join(', '))}]</span>`;
                 } else {
                     coordinatedEl.innerText = "None";
                 }

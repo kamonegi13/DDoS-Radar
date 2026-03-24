@@ -9,6 +9,7 @@ from radar.config import (
     THREAT_ACTOR_MAPPING, TELEGRAM_CHANNEL_META, GLOBAL_PROXIES, SSL_VERIFY, NARRATIVE_ZSCORE_ALERT, NARRATIVE_ZSCORE_CRITICAL, NARRATIVE_BASELINE_DAYS,
 )
 from radar.sensors.base import BaseSensor
+from radar.scoring import register_sequence_event
 import os
 log = logging.getLogger("radar")
 

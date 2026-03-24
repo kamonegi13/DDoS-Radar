@@ -40,8 +40,10 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None,
     from radar.ws import emit_sensor_status
 
     if not sensor.enabled:
-        log.info(f"[Sensor/{sensor.name}] DISABLED — skipping scheduler")
-        return
+        log.info(f"[Sensor/{sensor.name}] DISABLED — waiting for re-enablement")
+        while not sensor.enabled:
+            time.sleep(60)
+        log.info(f"[Sensor/{sensor.name}] RE-ENABLED — starting scheduler")
 
     if initial_delay > 0:
         time.sleep(initial_delay)

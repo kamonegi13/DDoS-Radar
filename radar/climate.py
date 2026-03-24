@@ -733,9 +733,9 @@ class StrategicClimateEngine:
             self._gauge_score, self._gauge_level = self._compute_gauge()
             self._last_update = now
 
-        # Persist new events to DB
-        if deduped:
-            self._persist_to_db(deduped)
+            # Persist new events to DB (inside lock to prevent race with _restore_from_db)
+            if deduped:
+                self._persist_to_db(deduped)
 
         return self.get_summary()
 

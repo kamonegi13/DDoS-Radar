@@ -1,7 +1,6 @@
 """radar.sensors.ais_maritime -- AisMaritimeSensor."""
 from __future__ import annotations
 import math
-import os
 import requests
 import time
 from radar.config import (
@@ -162,32 +161,3 @@ class AisMaritimeSensor(BaseSensor):
         }
         self.set_cache(result)
         return result
-
-# ─────────────────────────────────────────────────────────────────────────────
-# v9 New Sensors: TelegramMirrorSensor / CheckHostSensor / GreyNoiseSensor
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ── Config loading (placed before sensor definitions) ─────────────────────────
-GREYNOISE_API_KEY        = os.getenv("GREYNOISE_API_KEY", "")
-CHECKHOST_NODES_STR      = os.getenv("CHECKHOST_NODES",
-    "jp1.node.check-host.net,us1.node.check-host.net,"
-    "de1.node.check-host.net,nl1.node.check-host.net,fr1.node.check-host.net")
-CHECKHOST_NODES          = [n.strip() for n in CHECKHOST_NODES_STR.split(",") if n.strip()]
-CHECKHOST_POLL_INTERVAL  = int(os.getenv("CHECKHOST_POLL_INTERVAL", "600"))
-CHECKHOST_TIMEOUT_MS     = int(os.getenv("CHECKHOST_TIMEOUT_MS", "3000"))
-TELEGRAM_MIRROR_POLL     = int(os.getenv("TELEGRAM_MIRROR_POLL_INTERVAL", "900"))
-TELEGRAM_ATTACK_KW_RAW   = os.getenv(
-    "TELEGRAM_ATTACK_KEYWORDS",
-    "target,attack,ddos,http flood,under attack,down,offline,op,#target"
-)
-TELEGRAM_ATTACK_KEYWORDS = [k.strip().lower() for k in TELEGRAM_ATTACK_KW_RAW.split(",") if k.strip()]
-TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD = float(os.getenv("TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD", "0.5"))
-
-# Scraper User-Agent pool — rotated per request to reduce fingerprinting
-_SCRAPER_UA_POOL = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-]
