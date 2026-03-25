@@ -10,6 +10,7 @@ from radar.config import (
     FEINT_DISTRACTION_MAX_SCORE, FEINT_PRIMARY_MIN_SCORE,
     FEINT_MIN_DISTRACTION_DOMAINS,
     ESCALATION_TL_THRESHOLDS,
+    DOMAIN_WEIGHT_CYBER, DOMAIN_WEIGHT_PHYSICAL, DOMAIN_WEIGHT_INFO,
 )
 from radar.models import (
     RationaleEntry,
@@ -30,13 +31,29 @@ class SensorRegistry:
     def config_list(self) -> list: return [s.to_config_dict() for s in self._sensors.values()]
 
 class WeightedConvergenceEngine:
-    DOMAIN_WEIGHTS = {"cyber": 0.50, "physical": 0.30, "info": 0.20}
+    DOMAIN_WEIGHTS = {"cyber": DOMAIN_WEIGHT_CYBER, "physical": DOMAIN_WEIGHT_PHYSICAL, "info": DOMAIN_WEIGHT_INFO}
     def compute_domain_scores(self, rationale: list) -> dict:
         scores = {"cyber": 0, "physical": 0, "info": 0}
+        # Group entries by signal_source to deduplicate correlated sensors.
+        # Sensors sharing a signal_source (e.g. "bgp" for IODA/BgpRouting/IHR)
+        # contribute only the MAX(score × confidence) instead of additive sum.
+        source_best: dict[str, tuple[str, float]] = {}  # source -> (domain, best_score)
         for entry in rationale:
             if isinstance(entry, RationaleEntry) and not entry.suppressed and entry.status == "FIRED":
-                if entry.domain in scores:
-                    scores[entry.domain] += entry.score * entry.confidence
+                if entry.domain not in scores:
+                    continue
+                weighted = entry.score * entry.confidence
+                if entry.signal_source:
+                    key = entry.signal_source
+                    prev_domain, prev_best = source_best.get(key, ("", 0.0))
+                    if weighted > prev_best:
+                        source_best[key] = (entry.domain, weighted)
+                else:
+                    # No signal_source: add directly (independent sensor)
+                    scores[entry.domain] += weighted
+        # Add deduplicated signal_source contributions
+        for src, (domain, best) in source_best.items():
+            scores[domain] += best
         # Round to avoid floating point noise in downstream integer comparisons
         return {d: round(s, 2) for d, s in scores.items()}
     def compute_convergence_score(self, domain_scores: dict) -> float:

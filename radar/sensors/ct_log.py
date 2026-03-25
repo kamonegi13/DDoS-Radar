@@ -39,11 +39,22 @@ _CC_TLDS = {
 
 
 class CtLogSensor(BaseSensor):
-    """Certificate Transparency log anomaly sensor (cyber domain)."""
+    """Certificate Transparency log anomaly sensor (cyber domain).
+
+    Redesigned thresholds: uses Z-score relative to per-country rolling
+    baseline instead of a fixed absolute threshold (CT_LOG_SURGE_THRESHOLD).
+    This reduces false positives from Let's Encrypt automated renewals
+    and adapts to each country's normal certificate volume.
+    """
+
+    # Minimum history entries before Z-score is valid
+    _MIN_HISTORY = 4
 
     def __init__(self):
         super().__init__("ct_log", "cyber", 3600)
         self._prev_counts: dict[str, int] = {}
+        # Rolling history for Z-score computation: country -> [count, ...]
+        self._count_history: dict[str, list[int]] = {}
 
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
@@ -64,25 +75,34 @@ class CtLogSensor(BaseSensor):
                 continue
 
             try:
-                # Query crt.sh for recent certificates for this TLD
-                # Check government-related domains
+                # Query crt.sh for government-domain certificates only.
+                # Full-TLD wildcard queries (e.g. "%.cn") are too heavy for
+                # crt.sh and cause frequent timeouts. Gov-domain queries are
+                # targeted and return fast — and are the actual signal we need.
                 gov_tlds = CT_LOG_GOV_TLDS.get(code, [f"gov{tld}"])
                 total_recent = 0
                 gov_count = 0
                 wildcard_count = 0
                 recent_certs = []
 
-                for domain_pattern in [f"%{tld}", ] + [f"%.{g}" for g in gov_tlds]:
-                    res = requests.get(
-                        _CRTSH_URL,
-                        params={
-                            "q": domain_pattern,
-                            "output": "json",
-                            "exclude": "expired",
-                        },
-                        timeout=20, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
-                        headers={"Accept": "application/json"},
-                    )
+                for domain_pattern in [f"%.{g}" for g in gov_tlds]:
+                    try:
+                        res = requests.get(
+                            _CRTSH_URL,
+                            params={
+                                "q": domain_pattern,
+                                "output": "json",
+                                "exclude": "expired",
+                            },
+                            timeout=30, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+                            headers={"Accept": "application/json"},
+                        )
+                    except requests.exceptions.Timeout:
+                        log.warning(f"[CTLog] Timeout for {code} ({domain_pattern})")
+                        continue
+                    except requests.exceptions.ConnectionError:
+                        log.warning(f"[CTLog] Connection error for {code}")
+                        continue
 
                     if res.status_code == 429:
                         log.warning(f"[CTLog] Rate limited for {code}, skipping")
@@ -95,7 +115,6 @@ class CtLogSensor(BaseSensor):
 
                         if isinstance(certs, list):
                             any_success = True
-                            # Only count certificates from the last 24 hours
                             for cert in certs[:100]:
                                 name = cert.get("common_name", "") or cert.get("name_value", "")
                                 issuer = cert.get("issuer_name", "")
@@ -113,14 +132,35 @@ class CtLogSensor(BaseSensor):
                                         "not_before": cert.get("not_before", ""),
                                     })
 
-                    time.sleep(1.0)  # Rate limit crt.sh
+                    time.sleep(1.5)  # Rate limit crt.sh (slightly longer gap)
 
                 prev = self._prev_counts.get(code, total_recent)
                 surge_pct = ((total_recent - prev) / max(prev, 1)
                              if prev > 0 else 0)
-                is_surge = (total_recent >= CT_LOG_SURGE_THRESHOLD or
-                            (surge_pct > 1.0 and total_recent > 20) or
-                            gov_count >= 5)
+
+                # Z-score based surge detection (replaces fixed threshold)
+                hist = self._count_history.setdefault(code, [])
+                z_score = 0.0
+                z_valid = len(hist) >= self._MIN_HISTORY
+                if z_valid:
+                    import math
+                    h_mean = sum(hist) / len(hist)
+                    h_var = sum((x - h_mean) ** 2 for x in hist) / len(hist)
+                    h_std = max(math.sqrt(h_var) if h_var > 0 else 1.0, 1.0)
+                    z_score = (total_recent - h_mean) / h_std
+
+                # Update history (keep last 30 observations)
+                hist.append(total_recent)
+                if len(hist) > 30:
+                    self._count_history[code] = hist[-30:]
+
+                # Gov domain cert surge: Z-score ≥ 2.5 on gov certs OR ≥5 gov certs
+                # General surge: Z-score ≥ 2.5 on total certs (replaces flat 100 threshold)
+                is_gov_surge = gov_count >= 5
+                is_z_surge = z_valid and z_score >= 2.5 and total_recent > 10
+                is_surge = is_gov_surge or is_z_surge or (
+                    not z_valid and (total_recent >= CT_LOG_SURGE_THRESHOLD or
+                                    (surge_pct > 1.0 and total_recent > 20)))
 
                 ct_data[code] = {
                     "total_recent": total_recent,
@@ -128,11 +168,13 @@ class CtLogSensor(BaseSensor):
                     "wildcard_count": wildcard_count,
                     "prev_count": prev,
                     "surge_pct": round(surge_pct, 3),
+                    "z_score": round(z_score, 2),
+                    "z_valid": z_valid,
                     "is_surge": is_surge,
                     "recent_certs": recent_certs,
                 }
 
-                if is_surge and gov_count >= 5:
+                if is_surge and is_gov_surge:
                     country_status[code] = "GOV_CERT_SURGE"
                 elif is_surge:
                     country_status[code] = "CERT_SURGE"

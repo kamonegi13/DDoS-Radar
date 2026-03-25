@@ -395,7 +395,7 @@ def get_threat_data():
 
         def add_rat(sensor, domain, status, value, score, fired_reason,
                     is_suppressed=False, suppress_reason=None, confidence=1.0,
-                    source_country="", **cac_kwargs):
+                    source_country="", signal_source="", **cac_kwargs):
             _is_muted = (sensor in muted_sensors) or is_suppressed
             _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
             # Check noise exclusion rules
@@ -425,6 +425,7 @@ def get_threat_data():
                 score=score, fired_reason=fired_reason,
                 suppressed=_is_muted, suppress_reason=_s_reason,
                 confidence=confidence,
+                signal_source=signal_source,
                 direction=_dir, direction_confidence=_dir_conf,
                 temporal_context=_temporal, spatial_context=_spatial,
                 target_context=_target))
@@ -496,7 +497,7 @@ def get_threat_data():
                     f"BGP anomaly confirmed by {_ioda_src_count} independent IODA datasources "
                     f"({', '.join(_ioda_core_detail.get('sources', {}).keys())})"
                 )
-            add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, _ioda_fired_reason, is_suppressed=_bgp_suppress, suppress_reason=_bgp_suppress_reason, confidence=_sensor_conf(ioda_sensor))
+            add_rat("ioda_bgp", "physical", "FIRED" if core_degraded else "OK", bgp_value, 1 if core_degraded else 0, _ioda_fired_reason, is_suppressed=_bgp_suppress, suppress_reason=_bgp_suppress_reason, confidence=_sensor_conf(ioda_sensor), signal_source="bgp")
 
         if not (opensky_sensor and opensky_sensor.enabled):
             add_rat("opensky", "physical", "DISABLED", "sensor off", 0, None)
@@ -541,7 +542,7 @@ def get_threat_data():
             # Enrich reason with trend context when withdrawing
             if bgp_anomaly and _bgp_trend_label == "WITHDRAWING":
                 _bgp_reason = f"BGP prefix withdrawal (trend: {_bgp_trend_pct:+.2f}% decline across time series)"
-            add_rat("ripe_bgp", "cyber", "FIRED" if bgp_anomaly else "OK", _bgp_value, 1 if bgp_anomaly else 0, _bgp_reason, confidence=_sensor_conf(bgp_routing_sensor))
+            add_rat("ripe_bgp", "cyber", "FIRED" if bgp_anomaly else "OK", _bgp_value, 1 if bgp_anomaly else 0, _bgp_reason, confidence=_sensor_conf(bgp_routing_sensor), signal_source="bgp")
 
         # CF Radar BGP Hijack/Leak detection (Cyber)
         if cf_sensor and cf_sensor.enabled:
@@ -838,7 +839,8 @@ def get_threat_data():
                     "FIRED" if _ihr_disco_fired else "OK",
                     _ihr_disco_value, _ihr_disco_score, _ihr_disco_reason,
                     is_suppressed=_ihr_suppress, suppress_reason=_ihr_suppress_reason,
-                    confidence=ihr_sensor.compute_confidence() if ihr_sensor else 0.0)
+                    confidence=ihr_sensor.compute_confidence() if ihr_sensor else 0.0,
+                    signal_source="bgp")
 
             _ihr_delay_fired = len(_ihr_core_delay) > 0
             add_rat("ihr_delay", "physical",
@@ -954,20 +956,33 @@ def get_threat_data():
         _travel_core = travel_advisories.get(core_theater, {})
         _travel_level = _travel_core.get("level", 0)
         _travel_upgraded = _travel_core.get("upgraded", False)
+        _travel_converged = _travel_core.get("converged", False)
+        _travel_single_warn = _travel_core.get("single_source_warning", False)
+        _travel_conv_count = _travel_core.get("convergence_count", 0)
         if travel_adv_sensor and travel_adv_sensor.enabled:
             _travel_fired = _travel_level >= 3 or _travel_upgraded
             _travel_score = (2 if _travel_level >= 4 else
                              1 if _travel_level >= 3 or _travel_upgraded else 0)
+            # Convergence bonus: multiple governments agree → higher confidence
+            _travel_conf = _sensor_conf(travel_adv_sensor)
+            if _travel_converged:
+                _travel_conf = min(_travel_conf + 0.15, 1.0)
+            elif _travel_single_warn:
+                _travel_conf = max(_travel_conf - 0.1, 0.1)
             _travel_label = _travel_core.get("level_label", "UNKNOWN")
             _travel_value = f"Level {_travel_level} ({_travel_label})"
             if _travel_upgraded:
                 _travel_value += " UPGRADED"
+            if _travel_converged:
+                _travel_value += f" [{_travel_conv_count} sources converge]"
+            elif _travel_single_warn:
+                _travel_value += " [single-source]"
             _travel_reason = (f"Travel Advisory: Level {_travel_level} ({_travel_label})"
                               if _travel_fired else None)
             add_rat("travel_advisory", "info",
                     "FIRED" if _travel_fired else "OK",
                     _travel_value, _travel_score, _travel_reason,
-                    confidence=_sensor_conf(travel_adv_sensor))
+                    confidence=_travel_conf)
 
         # ── Phase C: S3 OONI Censorship rationale ────────────────────────────
         _ooni_core = ooni_data.get(core_theater, {})

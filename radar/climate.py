@@ -323,10 +323,13 @@ class ShippingRouteAnalyzer:
 
     Monitors AIS anomaly patterns. Increase in dark gaps or decrease in vessel
     density near cable landing stations = commercial shipping rerouting.
+
+    Uses SeasonalBaseline (weekday × 6h bucket) to avoid false positives
+    from regular weekly shipping patterns (e.g. weekend port closures).
     """
 
     def __init__(self):
-        self._history: list[tuple[float, int, int]] = []  # [(ts, dark_gaps, stationary)]
+        self._baseline = SeasonalBaseline(14)  # 14-day retention for shipping
         self._lock = threading.Lock()
 
     def analyze(self, registry) -> list[ClimateEvent]:
@@ -337,35 +340,31 @@ class ShippingRouteAnalyzer:
             return events
         cache = ais.get_cache()
         dark_gaps = cache.get("dark_gaps", [])
-        stationary = cache.get("stationary_anomalies", [])
 
         n_dark = len(dark_gaps)
-        n_stat = len(stationary)
 
         with self._lock:
-            self._history.append((now, n_dark, n_stat))
-            cutoff = now - 7 * 86400
-            self._history = [(t, d, s) for t, d, s in self._history if t > cutoff]
-            hist = list(self._history)
+            mean, std, n, level = self._baseline.get_baseline(now, std_floor=0.5)
+            self._baseline.record(n_dark, now)
 
-        if len(hist) < 4:
+        if n < 4:
             return events
 
-        dark_counts = [d for _, d, _ in hist[:-1]]
-        dark_mean = sum(dark_counts) / len(dark_counts) if dark_counts else 0
-
         if n_dark > 0:
-            # Group by chokepoint for detail
-            cp_names = list({g["chokepoint"] for g in dark_gaps})
-            sev = 2 if n_dark >= 3 else (1 if n_dark >= 2 or n_dark > dark_mean * 1.5 else 0)
-            events.append(ClimateEvent(
-                ts=now, indicator="S2", axis=AXIS_SPACE,
-                headline=f"Shipping dark gaps: {n_dark} vessels",
-                detail=f"{n_dark} AIS dark gaps detected near {', '.join(cp_names[:3])} (baseline avg {dark_mean:.0f}) — possible EMCON or rerouting",
-                severity=sev,
-                meta={"dark_gap_count": n_dark, "chokepoints": cp_names[:5],
-                      "baseline_mean": round(dark_mean, 1)},
-            ))
+            z = (n_dark - mean) / std
+            if z > 1.5:
+                # Group by chokepoint for detail
+                cp_names = list({g["chokepoint"] for g in dark_gaps})
+                sev = 2 if z > 3.0 else (1 if z > 2.0 or n_dark >= 3 else 0)
+                events.append(ClimateEvent(
+                    ts=now, indicator="S2", axis=AXIS_SPACE,
+                    headline=f"Shipping dark gaps: {n_dark} vessels",
+                    detail=f"{n_dark} AIS dark gaps near {', '.join(cp_names[:3])} (baseline avg {mean:.0f}, {z:.1f}σ, {level}) — possible EMCON or rerouting",
+                    severity=sev,
+                    meta={"dark_gap_count": n_dark, "chokepoints": cp_names[:5],
+                          "baseline_mean": round(mean, 1), "z_score": round(z, 2),
+                          "baseline_level": level},
+                ))
 
         return events
 
@@ -431,42 +430,67 @@ class ForexMonitor:
     def _analyze_existing(self, now: float) -> list[ClimateEvent]:
         events = []
         with self._lock:
+            # Phase 1: compute z-scores for all currencies
+            z_scores: dict[str, float] = {}
+            ccy_data: dict[str, dict] = {}
             for ccy, theater in self.CURRENCIES.items():
                 bl = self._baselines.get(ccy)
                 if not bl or bl.sample_count() < 7:
-                    continue  # Need ≥7 samples for meaningful z-scores
+                    continue
                 latest_rate = self._prev_rates.get(ccy)
                 if latest_rate is None:
                     continue
 
-                # Get baseline with std floor at 0.5% of mean (forex daily noise)
                 mean, std, n, level = bl.get_baseline(now, std_floor=0.01)
-                # Apply proportional floor: 0.5% of mean
                 std = max(std, mean * 0.005) if mean > 0 else std
-
                 z = (latest_rate - mean) / std
 
-                # Compute daily change from previous fetch
-                # (prev_rates stores the most recent rate; we need second-latest)
-                # Use baseline data to approximate previous
-                prev = mean  # Fallback: compare against baseline mean
+                prev = mean
                 if bl.sample_count() >= 2:
-                    prev = bl._data[-2][1]  # Second-latest raw observation
+                    prev = bl._data[-2][1]
                 daily_change_pct = ((latest_rate - prev) / prev * 100) if prev else 0
 
-                # Weakening = rate going up for most currencies (more local per USD)
-                # Thresholds: z > 2.0 filters out normal daily fluctuation noise
-                if z > 2.0 or daily_change_pct > 2.0:
-                    sev = 2 if z > 3.5 else (1 if z > 2.5 or daily_change_pct > 2.0 else 0)
+                z_scores[ccy] = z
+                ccy_data[ccy] = {
+                    "rate": latest_rate, "mean": mean, "std": std,
+                    "z": z, "n": n, "level": level,
+                    "daily_change_pct": daily_change_pct,
+                    "theater": theater,
+                }
+
+            # Phase 2: USD-factor filter — if all currencies move in the same
+            # direction, it is likely a USD-driven shift (e.g. Fed rate change),
+            # not a geopolitical signal. Compute median z-score and subtract it
+            # so that only currencies deviating FROM the pack trigger alerts.
+            if len(z_scores) >= 3:
+                sorted_z = sorted(z_scores.values())
+                mid = len(sorted_z) // 2
+                median_z = (sorted_z[mid] if len(sorted_z) % 2 == 1
+                            else (sorted_z[mid - 1] + sorted_z[mid]) / 2)
+            else:
+                median_z = 0.0
+
+            for ccy, d in ccy_data.items():
+                raw_z = d["z"]
+                # Adjusted z-score: remove the common USD-factor component
+                adj_z = raw_z - median_z
+
+                if adj_z > 2.0 or d["daily_change_pct"] > 2.0:
+                    sev = 2 if adj_z > 3.5 else (1 if adj_z > 2.5 or d["daily_change_pct"] > 2.0 else 0)
+                    usd_note = f", USD-adj {adj_z:.1f}σ" if abs(median_z) > 0.3 else ""
                     events.append(ClimateEvent(
                         ts=now, indicator="S3", axis=AXIS_SPACE,
-                        headline=f"{ccy} weakening: +{daily_change_pct:.1f}% vs USD",
-                        detail=f"{ccy}/USD at {latest_rate:.2f} (baseline {mean:.2f}, {z:.1f}σ, {level}) — capital stress signal for {theater}",
+                        headline=f"{ccy} weakening: +{d['daily_change_pct']:.1f}% vs USD",
+                        detail=f"{ccy}/USD at {d['rate']:.2f} (baseline {d['mean']:.2f}, {raw_z:.1f}σ raw{usd_note}, {d['level']}) — capital stress signal for {d['theater']}",
                         severity=sev,
-                        theater=theater,
-                        meta={"currency": ccy, "rate": latest_rate, "baseline_mean": round(mean, 4),
-                              "daily_change_pct": round(daily_change_pct, 2), "z_score": round(z, 2),
-                              "baseline_level": level},
+                        theater=d["theater"],
+                        meta={"currency": ccy, "rate": d["rate"],
+                              "baseline_mean": round(d["mean"], 4),
+                              "daily_change_pct": round(d["daily_change_pct"], 2),
+                              "z_score_raw": round(raw_z, 2),
+                              "z_score_adj": round(adj_z, 2),
+                              "usd_median_z": round(median_z, 2),
+                              "baseline_level": d["level"]},
                     ))
         return events
 
@@ -648,6 +672,11 @@ class NarrativeTargetAnalyzer:
 
     Tracks which countries/entities are receiving hostile media tone.
     A shift in targeting reveals strategic intent.
+
+    English-bias correction: computes median delta across all monitored
+    theaters. When all tones shift together (global media trend), the
+    median is subtracted so only theaters deviating from the pack
+    trigger alerts. This mitigates GDELT's ~60% English media bias.
     """
 
     def __init__(self):
@@ -663,38 +692,58 @@ class NarrativeTargetAnalyzer:
         cache = gdelt.get_cache()
         tones = cache.get("gdelt_tones", {})
 
-        targets_hostile = []
+        # Phase 1: collect all deltas for median-based bias correction
+        all_deltas: dict[str, float] = {}
         for country, data in tones.items():
             tone = data.get("tone_current")
-            baseline = data.get("tone_baseline")
             delta = data.get("delta")
-            dow_z = data.get("dow_z")
-            is_alert = data.get("is_alert", False)
-
             if tone is None:
                 continue
-
             # Record history
             with self._lock:
                 hist = self._history.setdefault(country, [])
                 hist.append((now, tone))
                 cutoff = now - 14 * 86400
                 self._history[country] = [(t, v) for t, v in hist if t > cutoff]
+            if delta is not None:
+                all_deltas[country] = delta
 
-            if delta is not None and delta < -1.5:
-                targets_hostile.append((country, tone, delta, dow_z, is_alert))
+        # Compute median delta (global media trend component)
+        median_delta = 0.0
+        if len(all_deltas) >= 3:
+            sorted_d = sorted(all_deltas.values())
+            mid = len(sorted_d) // 2
+            median_delta = (sorted_d[mid] if len(sorted_d) % 2 == 1
+                            else (sorted_d[mid - 1] + sorted_d[mid]) / 2)
+
+        # Phase 2: identify hostile targets using adjusted delta
+        targets_hostile = []
+        for country, data in tones.items():
+            delta = data.get("delta")
+            if delta is None:
+                continue
+            adj_delta = delta - median_delta
+            dow_z = data.get("dow_z")
+            is_alert = data.get("is_alert", False)
+            tone = data.get("tone_current", 0.0)
+
+            if adj_delta < -1.5:
+                targets_hostile.append((country, tone, delta, adj_delta, dow_z, is_alert))
 
         # Report hostile or shifting tone targets
-        for country, tone, delta, dow_z, is_alert in sorted(targets_hostile, key=lambda x: x[2]):
+        for country, tone, raw_delta, adj_delta, dow_z, is_alert in sorted(targets_hostile, key=lambda x: x[3]):
             z_str = f", DoW Z-score {dow_z:.1f}" if dow_z is not None else ""
-            sev = 2 if delta < -5 else (1 if delta < -3 or is_alert else 0)
+            bias_note = f", media-adj {adj_delta:+.1f}" if abs(median_delta) > 0.3 else ""
+            sev = 2 if adj_delta < -5 else (1 if adj_delta < -3 or is_alert else 0)
             events.append(ClimateEvent(
                 ts=now, indicator="O3", axis=AXIS_TARGET,
                 headline=f"Narrative tone shift: {country}",
-                detail=f"GDELT tone {tone:.1f} (Δ{delta:+.1f} from baseline{z_str}) — media hostility directed at {country}",
+                detail=f"GDELT tone {tone:.1f} (Δ{raw_delta:+.1f} from baseline{bias_note}{z_str}) — media hostility directed at {country}",
                 severity=sev,
                 theater=country,
-                meta={"tone": round(tone, 1), "delta": round(delta, 1),
+                meta={"tone": round(tone, 1), "delta_raw": round(raw_delta, 1),
+                      "delta_adj": round(adj_delta, 1),
+                      "global_median_delta": round(median_delta, 1),
                       "dow_z": round(dow_z, 1) if dow_z else None},
             ))
 
@@ -805,6 +854,37 @@ class StrategicClimateEngine:
 
         return self.get_summary()
 
+    def _compute_baseline_maturity(self) -> tuple[str, float]:
+        """Assess overall baseline maturity across all seasonal-baseline analyzers.
+
+        Returns (label, pct):
+          label: 'immature' | 'developing' | 'mature'
+          pct:   0.0-1.0 fraction of analyzers at 'exact' baseline level
+        """
+        analyzers = [self.media_tempo, self.aviation_route, self.forex]
+        total = 0
+        exact = 0
+        for a in analyzers:
+            baselines = getattr(a, "_baselines", {})
+            if hasattr(a, "_baseline"):
+                # S2 has a single baseline
+                total += 1
+                if a._baseline.sample_count() >= SeasonalBaseline.MIN_BUCKET_SAMPLES * 7:
+                    exact += 1
+            else:
+                for bl in baselines.values():
+                    total += 1
+                    if bl.sample_count() >= SeasonalBaseline.MIN_BUCKET_SAMPLES * 7:
+                        exact += 1
+        if total == 0:
+            return "immature", 0.0
+        pct = exact / total
+        if pct >= 0.8:
+            return "mature", pct
+        elif pct >= 0.3:
+            return "developing", pct
+        return "immature", pct
+
     def _compute_gauge(self) -> tuple[float, str]:
         """Compute climate gauge from recent events (last 6 hours).
 
@@ -812,6 +892,9 @@ class StrategicClimateEngine:
         rather than "how many events accumulated over time."
         Each unique (indicator, theater) pair counts ONCE using its max severity.
         This prevents persistent low-severity conditions from inflating the score.
+
+        Cold-start protection: during 'immature' baseline period, severity=2
+        events are capped at severity=1 to prevent false escalations.
         """
         now = time.time()
         cutoff = now - 6 * 3600
@@ -820,12 +903,17 @@ class StrategicClimateEngine:
         if not recent:
             return 0.0, "FROZEN"
 
+        # Cold-start severity cap: immature baselines cannot produce sev=2
+        maturity_label, _ = self._compute_baseline_maturity()
+        sev_cap = 1 if maturity_label == "immature" else 2
+
         # Deduplicate: per (indicator, theater), keep MAX severity seen in window
         # This prevents the same signal repeating every hour from accumulating 6×
         signal_max: dict[tuple[str, str], int] = {}
         for e in recent:
             key = (e.indicator, e.theater)
-            signal_max[key] = max(signal_max.get(key, 0), e.severity)
+            capped_sev = min(e.severity, sev_cap)
+            signal_max[key] = max(signal_max.get(key, 0), capped_sev)
 
         # Score: weight each unique signal by its max severity
         sev_weights = {0: 0.2, 1: 1.0, 2: 2.0}
@@ -880,11 +968,14 @@ class StrategicClimateEngine:
                 if e.axis != AXIS_CONTEXT:
                     indicator_counts[e.indicator] = indicator_counts.get(e.indicator, 0) + 1
 
+            maturity_label, maturity_pct = self._compute_baseline_maturity()
             return {
                 "gauge": {
                     "level": self._gauge_level,
                     "score": round(self._gauge_score, 1),
                     "levels": CLIMATE_LEVELS,
+                    "baseline_maturity": maturity_label,
+                    "baseline_maturity_pct": round(maturity_pct * 100),
                 },
                 "feed": [e.to_dict() for e in reversed(recent_events[-50:])],
                 "indicators_active": indicator_counts,

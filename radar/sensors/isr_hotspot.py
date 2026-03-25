@@ -58,8 +58,16 @@ class IsrHotspotSensor(BaseSensor):
                         is_mil_squawk = (squawk == "7777")
                         is_isr_call   = any(
                             callsign.startswith(pfx)
-                            for pfx in ("FORTE", "JAKE", "MYSTIC", "RICO", "TROLL",
-                                        "DRAGON", "COBRA", "HAWK", "REAPER", "GLOBAL")
+                            for pfx in (
+                                # NATO/Western ISR callsigns
+                                "FORTE", "JAKE", "MYSTIC", "RICO", "TROLL",
+                                "DRAGON", "COBRA", "HAWK", "REAPER", "GLOBAL",
+                                # Russian Air Force ISR/patrol (ADS-B when active)
+                                "RFAF", "RFF", "RSD",  # Russian AF prefixes
+                                # Chinese PLAAF ISR/patrol
+                                "CCA", "CHN",           # Chinese military prefixes
+                                "BAF",                   # Belarusian AF
+                            )
                         )
                         if is_high_slow or is_mil_squawk or is_isr_call:
                             isr_count += 1

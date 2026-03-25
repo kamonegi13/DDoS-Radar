@@ -12,8 +12,15 @@ class NasaFirmsSensor(BaseSensor):
     No API key required. eonet.gsfc.nasa.gov verified reachable in corporate proxy environments.
     """
     EONET_URL = "https://eonet.gsfc.nasa.gov/api/v3/events"
-    # Tolerance in degrees to determine if an event is near the target theater
-    GEO_RADIUS_DEG = 10.0
+    # Adaptive radius per theater size. Small countries (TW, IL) use tight
+    # radius to avoid overwhelming false positives from neighboring countries'
+    # natural fires. Large countries default to 3.0° (≈330km).
+    _THEATER_RADIUS: dict[str, float] = {
+        "TW": 2.0, "IL": 2.0, "KR": 2.0, "KW": 2.0, "LB": 2.0,
+        "JP": 3.0, "UA": 3.0, "PH": 3.0, "GE": 2.0, "EE": 2.0,
+        "LV": 2.0, "LT": 2.0,
+    }
+    GEO_RADIUS_DEG_DEFAULT = 3.0
 
     def __init__(self): super().__init__("nasa_firms", "physical", 3600)
 
@@ -45,6 +52,7 @@ class NasaFirmsSensor(BaseSensor):
                     coord = COUNTRY_COORDS.get(code)
                     if not coord: continue
                     tlat, tlng = coord["lat"], coord["lng"]
+                    radius = self._THEATER_RADIUS.get(code, self.GEO_RADIUS_DEG_DEFAULT)
 
                     for ev in events:
                         for geo in (ev.get("geometry") or []):
@@ -52,8 +60,8 @@ class NasaFirmsSensor(BaseSensor):
                             if not coords or len(coords) < 2: continue
                             # EONET coordinates are in [lng, lat] order
                             elng, elat = coords[0], coords[1]
-                            if (abs(elat - tlat) <= self.GEO_RADIUS_DEG and
-                                    abs(elng - tlng) <= self.GEO_RADIUS_DEG):
+                            if (abs(elat - tlat) <= radius and
+                                    abs(elng - tlng) <= radius):
                                 anomalies.append({
                                     "lat": elat, "lng": elng,
                                     "code": code, "confidence": "HIGH",

@@ -19,22 +19,35 @@ from radar.sensors.opensky_auth import _opensky_get
 
 log = logging.getLogger("radar")
 
-# Military support aircraft callsign prefixes (NATO/Western + major adversary)
+# Military support aircraft callsign prefixes (NATO/Western + adversary)
 _TANKER_PREFIXES = (
+    # NATO/Western
     "TEXAC", "SHELL", "PETRO",    # USAF tanker callsigns (KC-135, KC-46)
     "NKCTK", "ASTRA",              # KC-10 / KC-46
     "VOVAG", "MRTT",               # Airbus MRTT
     "NAF", "RAF", "GAF",           # National Air Force prefixes (US/UK/German)
+    # Russian — Il-78 Midas tanker
+    "RFF78", "RFAF78",
 )
 _TRANSPORT_PREFIXES = (
+    # NATO/Western
     "REACH", "RCH",                # USAF C-17 / C-5 (Air Mobility Command)
     "CARGO", "MOOSE",              # C-130 / C-5 callsigns
     "ANVIL", "STEEL",              # MAC heavy lift
     "SAM", "EXEC",                 # VIP / executive transport
+    # Russian — Il-76 Candid, An-124 Condor
+    "RFF76", "RFAF76", "VDA",      # Volga-Dnepr Airlines (An-124 operator)
+    # Chinese — Y-20 Kunpeng
+    "CCA20", "CHN20",
 )
 _AWACS_PREFIXES = (
+    # NATO/Western
     "SENTRY", "DARKSTAR", "MAGIC", # E-3 AWACS
     "WEDGE",                        # E-7 Wedgetail
+    # Russian — A-50 Mainstay
+    "RFF50", "RFAF50",
+    # Chinese — KJ-500, KJ-2000
+    "CCA50", "CHN50",
 )
 
 # Combined set for quick lookup

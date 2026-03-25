@@ -29,6 +29,11 @@ class RationaleEntry:
     suppressed: bool = False
     suppress_reason: Optional[str] = None
     confidence: float = 1.0
+    # Signal source group: sensors sharing the same signal_source are
+    # deduplicated (max-scored) in compute_domain_scores() to prevent
+    # the same underlying event from being counted multiple times.
+    # e.g. "bgp" for IODA/BgpRouting/IHR (all measure BGP anomalies)
+    signal_source: str = ""
     # ── Context-Aware Convergence (CAC) fields ───────────────────────────────
     # Direction: who is acting and toward whom
     direction: str = DIRECTION_UNKNOWN

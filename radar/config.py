@@ -165,6 +165,10 @@ GDELT_TONE_ALERT_THRESHOLD  = float(os.getenv("GDELT_TONE_ALERT_THRESHOLD", "-15
 GDELT_HISTORY_WINDOW        = int(os.getenv("GDELT_HISTORY_WINDOW", "28"))
 CONVERGENCE_DUAL_BONUS      = int(os.getenv("CONVERGENCE_DUAL_BONUS", "1"))
 CONVERGENCE_FULL_BONUS      = int(os.getenv("CONVERGENCE_FULL_BONUS", "2"))
+# Domain weights for convergence scoring (must sum to 1.0)
+DOMAIN_WEIGHT_CYBER         = float(os.getenv("DOMAIN_WEIGHT_CYBER",    "0.50"))
+DOMAIN_WEIGHT_PHYSICAL      = float(os.getenv("DOMAIN_WEIGHT_PHYSICAL", "0.30"))
+DOMAIN_WEIGHT_INFO          = float(os.getenv("DOMAIN_WEIGHT_INFO",     "0.20"))
 THREAT_LEVEL_HYSTERESIS_CYCLES = int(os.getenv("THREAT_LEVEL_HYSTERESIS_CYCLES", "1"))
 HOD_BASELINE_DAYS  = 28  # Days of same-hour history to retain across all HOD sensors
 HOD_MIN_SAME_HOUR  = 7   # Minimum same-hour samples before HOD Z-score is valid

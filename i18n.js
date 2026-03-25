@@ -302,6 +302,7 @@ const LANG = {
     'modal.help.ch8':                 '8. Intuition UI',
     'modal.help.ch9':                 '9. API Reference',
     'modal.help.ch10':                '10. Admin',
+    'modal.help.ch11':                '11. Limitations',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Operational Clock
@@ -1407,6 +1408,7 @@ const LANG = {
     'modal.help.ch8':                 '8. 直感UI',
     'modal.help.ch9':                 '9. API参照',
     'modal.help.ch10':                '10. 管理',
+    'modal.help.ch11':                '11. 限界と方向性',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Operational Clock

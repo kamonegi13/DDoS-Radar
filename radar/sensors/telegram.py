@@ -21,6 +21,15 @@ TELEGRAM_ATTACK_KW_RAW = os.getenv(
 TELEGRAM_ATTACK_KEYWORDS = [k.strip().lower() for k in TELEGRAM_ATTACK_KW_RAW.split(",") if k.strip()]
 TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD = float(os.getenv("TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD", "0.5"))
 
+# Multi-stage confidence scoring for attack claims.
+# Stage 1: Declaration only (keywords matched) → base confidence 0.2
+# Stage 2: Declaration + government target URLs found → 0.4
+# Stage 3: Declaration + Z-score burst (corroborated by frequency) → 0.6
+# Cross-validation with other sensors (CheckHost/IODA) happens in scoring engine.
+_CONF_DECLARATION_ONLY = 0.2
+_CONF_WITH_GOV_TARGETS = 0.4
+_CONF_WITH_ZSCORE_BURST = 0.6
+
 _SCRAPER_UA_POOL = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
@@ -261,6 +270,20 @@ class TelegramMirrorSensor(BaseSensor):
             else:
                 tg_status = "CLEAR"
 
+            # Multi-stage confidence: escalates with corroborating evidence
+            gov_target_found = any(
+                any(pat in u for pat in (".gov", ".mil", ".parliament"))
+                for u in theater_targets
+            )
+            if is_burst:
+                claim_conf = _CONF_WITH_ZSCORE_BURST
+            elif theater_intent and gov_target_found:
+                claim_conf = _CONF_WITH_GOV_TARGETS
+            elif theater_intent:
+                claim_conf = _CONF_DECLARATION_ONLY
+            else:
+                claim_conf = 0.0  # No claim detected
+
             results[theater] = {
                 "channels_monitored": channels,
                 "active_channels":    active_channels,
@@ -269,7 +292,10 @@ class TelegramMirrorSensor(BaseSensor):
                 "status":             tg_status,
                 "z_score":            z_score,
                 "is_burst":           is_burst,
-                "claim_confidence":   round(mean_confidence, 3),
+                "claim_confidence":   round(claim_conf, 3),
+                "confidence_stage":   ("burst" if is_burst else
+                                       "gov_target" if gov_target_found and theater_intent else
+                                       "declaration" if theater_intent else "none"),
                 "normalized_freq":    round(normalized, 5),
             }
 

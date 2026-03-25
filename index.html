@@ -1260,13 +1260,14 @@
             <button class="guide-ch-btn" data-ch="8" onclick="switchGuideChapter(8)" data-i18n="modal.help.ch8">8. Intuition UI</button>
             <button class="guide-ch-btn" data-ch="9" onclick="switchGuideChapter(9)" data-i18n="modal.help.ch9">9. API Ref</button>
             <button class="guide-ch-btn" data-ch="10" onclick="switchGuideChapter(10)" data-i18n="modal.help.ch10">10. Admin</button>
+            <button class="guide-ch-btn" data-ch="11" onclick="switchGuideChapter(11)" data-i18n="modal.help.ch11">11. Limitations</button>
         </div>
 
         <div class="guide-chapter active" id="guide-ch-1">
         <div class="guide-lang-en">
         <h4>1. Multi-Domain Sensor Architecture (15 Sensors)</h4>
 
-        <p><b>Cyber Domain (weight 0.50)</b> — Highest-weighted domain. State-directed cyber operations typically precede kinetic action by 24–72 hours.</p>
+        <p><b>Cyber Domain (weight 0.50 default)</b> — Highest-weighted domain. State-directed cyber operations typically precede kinetic action by 24–72 hours. <span style="color:#888; font-size:11px;">Weights configurable via <code>DOMAIN_WEIGHT_CYBER</code>, <code>DOMAIN_WEIGHT_PHYSICAL</code>, <code>DOMAIN_WEIGHT_INFO</code> (must sum to 1.0).</span></p>
         <ul>
             <li><i>Cloudflare Radar API</i> [poll: 15 min]: Covers over 20% of global internet traffic. Provides L3 (volumetric) and L7 (application-layer) DDoS telemetry. Spike detection uses <b>HOD (Hour-of-Day) Z-score normalization</b>: the current spike ratio is compared against the historical distribution of the same UTC hour over the past 28 days, eliminating diurnal bias (daytime attack concentrations inflating flat-average baselines). Detects botnet overlap across allied theaters and identifies L7 vector shifts (HTTP flood transitions).
                 <br><span style="color:#888; font-size:11px;">HOD baseline is pre-fetched at startup in a background thread (~7 s per theater): (1) one L7 hourly timeseries call fetches 28 days × 24 h of attack intensity; (2) 28 daily origin-distribution calls provide per-day adversary share. Each HOD slot's spike estimate = daily_avg_spike × (hour_intensity / day_avg_intensity), giving real per-hour baselines immediately without waiting for accumulation. All 24 UTC-hour slots are filled at startup — no warmup period on any slot. Falls back to raw ratio thresholds (2×/4×/6×) only if timeseries is unavailable. Outliers capped at 25×. Sources with absolute share &lt;1% excluded. Non-adversary floor: 3%; adversary floor (CN/RU/KP): 0.5% to retain low-volume state operations. HOD baseline (672 pts/theater) persisted across restarts.</span>
@@ -1308,7 +1309,7 @@
         <div class="guide-lang-ja" style="display:none;">
         <h4>1. マルチドメイン・センサー・アーキテクチャ（15センサー）</h4>
 
-        <p><b>サイバードメイン（重み 0.50）</b> — 最も重みが高いドメイン。国家指揮による サイバー作戦は、運動学的行動に24〜72時間先行するのが一般的。</p>
+        <p><b>サイバードメイン（重み 0.50 デフォルト）</b> — 最も重みが高いドメイン。国家指揮による サイバー作戦は、運動学的行動に24〜72時間先行するのが一般的。<span style="color:#888; font-size:11px;">重みは<code>DOMAIN_WEIGHT_CYBER</code>、<code>DOMAIN_WEIGHT_PHYSICAL</code>、<code>DOMAIN_WEIGHT_INFO</code>で設定可能（合計1.0）。</span></p>
         <ul>
             <li><i>Cloudflare Radar API</i> [poll: 15 min]: グローバルインターネットトラフィックの20%以上をカバー。L3（ボリューメトリック）およびL7（アプリケーション層）の DDoS テレメトリを提供。スパイク検出には<b>HOD（時刻帯別）Z スコア正規化</b>を採用：現在のスパイク比率を過去28日間の同じ UTC 時間帯の分布と比較し、昼夜の通信量変動による誤検知バイアスを排除する。同盟国シアター間のボットネット重複を検出し、L7ベクターシフト（HTTP フラッドの遷移）を識別する。
                 <br><span style="color:#888; font-size:11px;">HOD ベースラインは起動時にバックグラウンドスレッドで即時プリフェッチ（シアターあたり約7秒）：(1) L7 hourly timeseries 1回で28日 × 24時間の攻撃強度を取得、(2) 28回の日次オリジン分布コールで敵対国シェアを取得。各 HOD スロットのスパイク推定値 = 日次平均スパイク × (時間帯強度 ÷ 日平均強度) により、蓄積待ちなしで真の時間帯別ベースラインを即時構築。起動時に全24 UTC 時間帯スロットを補完——ウォームアップ期間なし。timeseries 取得不可時のみ生比率閾値（2×/4×/6×）にフォールバック。外れ値は25×に上限設定。絶対シェアが1%未満の送信元は除外。非敵対フロア: 3%; 敵対フロア（CN/RU/KP）: 0.5%。HOD ベースライン（672点/シアター）は再起動をまたいで保持。</span>
@@ -1629,7 +1630,7 @@
             <li style="color:#ffaa44;">[Cyber]    threatfox:           ThreatFox APT IoC（過去24時間）国名/APTタグがシアターに一致 → +1</li>
             <li style="color:#ffaa44;">[Info]     gdelt:               GDELT メディアトーン &lt; –15.0 または 曜日Z &lt; –2.0σ（20週間同一曜日ベースライン、≥3サンプル）。シアター別キーワード検索。同一場所で OWM 深刻気象検出時はウェザー抑制 → +1</li>
             <li style="color:#88ccff;">[Physical] notam:               FAA NOTAM サージ ≥ NOTAM_SURGE_THRESHOLD (20)。軍事キーワード照合（EXERCISE, MISSILE, LIVE FIRE, RESTRICTED）。軍事 NOTAM ≥3 件 → +2、それ以外 → +1 [CAC]</li>
-            <li style="color:#88ccff;">[Info]     travel_advisory:     米国国務省渡航勧告レベル ≥3（渡航再検討）→ +1；レベル 4（渡航中止）→ +2。アップグレード検出 → +1 [CAC]</li>
+            <li style="color:#88ccff;">[Info]     travel_advisory:     多ソース渡航勧告（米国務省/英FCDO/加GAC）レベル ≥3 → +1；レベル 4 → +2。複数国収束 → 信頼度+0.15；単一ソースのみ → 信頼度−0.10 [CAC]</li>
             <li style="color:#88ccff;">[Cyber]    ooni_censorship:     OONI 異常率 &gt;20% または確認済みブロック &gt;5%。重度: 異常 &gt;40% または確認 &gt;15% → +2、それ以外 → +1。CENSORSHIP_DETECTED を登録 [CAC]</li>
             <li style="color:#88ccff;">[Physical] usgs_seismic:        核実験検出器: 浅発（&lt;10km）M4.0+地震（敵対国領域）→ +3。二重役割: 海底ケーブル近傍の地震 = ノイズ抑制器（物理ドメインアラートを抑制）[CAC]</li>
             <li style="color:#88ccff;">[Physical] mil_support_air:     軍事支援機（空中給油機 KC-135/TEXAC/SHELL、輸送機 C-17/REACH、AWACS E-3/SENTRY）OpenSky 経由。タイプ別サージ閾値。AWACS 活動中 + 給油機サージ → +2、それ以外 → +1 [CAC]</li>
@@ -2042,7 +2043,7 @@
         <p><b>VI. Context-Aware Convergence (CAC) Sensors</b> <span style="color:#66ffcc;">[Phase C]</span> — Seven new domain sensors</p>
         <ul>
             <li><b>S1 NOTAM Anomaly (<code>notam</code>):</b> Monitors FAA/ICAO NOTAMs for airspace restriction surges. Military NOTAMs, TFRs, and surge patterns detected. Domain: Physical. Poll: 30 min. Rationale: <code>notam</code> (+1/+2pt). Cross-correlates with OpenSky airspace closure for multi-source confirmation.</li>
-            <li><b>S2 Travel Advisory (<code>travel_advisory</code>):</b> US State Dept travel advisory level tracking. Level 3+ (Reconsider/Do Not Travel) or upgrade triggers alert. Domain: Info. Poll: 1 hr. Rationale: <code>travel_advisory</code> (+1/+2pt).</li>
+            <li><b>S2 Travel Advisory (<code>travel_advisory</code>):</b> Multi-source advisory monitoring: US State Dept, UK FCDO, Canada GAC. Level 3+ or upgrade triggers alert. <b>Convergence detection</b>: multiple governments upgrading simultaneously → +0.15 confidence bonus (independent confirmation). Single-source upgrade → −0.10 confidence penalty (potential political bias). Domain: Info. Poll: 1 hr. Rationale: <code>travel_advisory</code> (+1/+2pt).</li>
             <li><b>S3 OONI Censorship (<code>ooni_censorship</code>):</b> OONI Internet censorship measurements — anomaly rate, confirmed blocks, DNS tampering. Heavy censorship (>40% anomaly or >15% confirmed) = +2pt. Domain: Cyber. Poll: 30 min. Cross-correlates with Tor metrics for multi-source censorship confirmation.</li>
             <li><b>S4 USGS Seismic (<code>usgs_seismic</code>):</b> Earthquake monitoring near submarine cables/chokepoints. Acts as noise suppressor (earthquakes explain physical disruptions). Also detects nuclear test signatures (shallow M4.0+ in adversary territory). Domain: Physical. Poll: 15 min.</li>
             <li><b>S5 Military Support Aircraft (<code>mil_support_air</code>):</b> Tracks tankers (KC-135 etc.), transports (C-17, C-130), and AWACS (E-3, E-7) via OpenSky. Tanker surge + AWACS = force projection indicator. Domain: Physical. Poll: 30 min. Rationale: <code>mil_support_air</code> (+1/+2pt).</li>
@@ -2386,7 +2387,7 @@
         <p><b>VI. Context-Aware Convergence (CAC) センサー</b> <span style="color:#66ffcc;">[Phase C]</span> — 7つの新規ドメインセンサー</p>
         <ul>
             <li><b>S1 NOTAM異常 (<code>notam</code>):</b> FAA/ICAO NOTAMの空域制限急増を監視。軍事NOTAM、TFR、急増パターンを検知。ドメイン: Physical。ポーリング: 30分。Rationale: <code>notam</code>（+1/+2pt）。OpenSky空域閉鎖との複数ソース裏付け。</li>
-            <li><b>S2 渡航勧告 (<code>travel_advisory</code>):</b> 米国務省渡航勧告レベル追跡。レベル3以上（渡航再検討/渡航中止）またはレベル引上げでアラート。ドメイン: Info。ポーリング: 1時間。Rationale: <code>travel_advisory</code>（+1/+2pt）。</li>
+            <li><b>S2 渡航勧告 (<code>travel_advisory</code>):</b> 多ソース勧告監視：米国務省、英国FCDO、カナダGAC。レベル3以上またはレベル引上げでアラート。<b>収束検出</b>：複数政府の同時引上げ → 信頼度+0.15ボーナス（独立確認）。単一ソースのみの引上げ → 信頼度−0.10ペナルティ（政治的バイアスの可能性）。ドメイン: Info。ポーリング: 1時間。Rationale: <code>travel_advisory</code>（+1/+2pt）。</li>
             <li><b>S3 OONI検閲 (<code>ooni_censorship</code>):</b> OONIインターネット検閲測定 — 異常率、確認ブロック、DNS改竄。重度検閲（異常40%超 or 確認15%超）= +2pt。ドメイン: Cyber。ポーリング: 30分。Torメトリクスとの複数ソース検閲確認。</li>
             <li><b>S4 USGS地震 (<code>usgs_seismic</code>):</b> 海底ケーブル/チョークポイント付近の地震監視。ノイズ抑制機能（地震が物理的障害を説明）。また核実験シグネチャ検知（敵国領内の浅発M4.0+）。ドメイン: Physical。ポーリング: 15分。</li>
             <li><b>S5 軍事支援航空機 (<code>mil_support_air</code>):</b> OpenSky経由で空中給油機（KC-135等）、輸送機（C-17、C-130）、AWACS（E-3、E-7）を追跡。給油機急増＋AWACS = 戦力投射指標。ドメイン: Physical。ポーリング: 30分。Rationale: <code>mil_support_air</code>（+1/+2pt）。</li>
@@ -2766,6 +2767,94 @@
 
         </div>
         </div><!-- /guide-ch-10 -->
+
+        <div class="guide-chapter" id="guide-ch-11">
+        <div class="guide-lang-en">
+        <h4>11. System Limitations &amp; Monitoring Directionality</h4>
+
+        <p><b>This chapter is required reading for all operators.</b> Understanding the system's inherent limitations is critical to avoiding over-reliance on automated assessments and maintaining human-in-the-loop (HITL) judgment.</p>
+
+        <h5>11.1 Sensor Coverage Gaps</h5>
+        <ul>
+            <li><b>English-language bias</b>: GDELT and RSS narrative sensors primarily index English-language media. Mandarin, Russian, Farsi, and Korean-language sources are under-represented. The system applies median-delta subtraction to mitigate global English-media trends, but local-language narratives may be missed entirely.</li>
+            <li><b>Western advisory bias</b>: Travel advisory data comes from US, UK, and Canada — all Western Five Eyes nations. These governments may issue advisories based on shared intelligence or political alignment rather than independent assessment. Convergence detection mitigates but does not eliminate this.</li>
+            <li><b>ADS-B coverage</b>: ISR and military support air monitoring depends on ADS-B transponder data. Military aircraft frequently operate with transponders off (EMCON). Detection of ISR sorties via ADS-B represents a lower bound — absence of ADS-B tracks does NOT mean absence of ISR activity.</li>
+            <li><b>AIS dark gaps</b>: Maritime monitoring relies on AIS transponder signals. State actors deliberately disable AIS during sensitive operations. Detection of "dark gaps" is itself the signal, but requires prior AIS history.</li>
+            <li><b>Telegram mirror lag</b>: Telegram scraping uses public mirror sites (tgstat.com, telemetr.io), not Telegram's API directly. Mirror sites may have 15–60 minute lag, and are subject to rate limiting or blocking.</li>
+        </ul>
+
+        <h5>11.2 Baseline &amp; Cold-Start Limitations</h5>
+        <ul>
+            <li><b>Cold-start period</b>: Z-score based detection (Cloudflare HOD, BGP, CT Log, shipping, narrative) requires historical baselines. During the first 4–7 days of operation, anomaly detection sensitivity is reduced and severity is capped at level 1 (WATCH). The <code>baseline_maturity</code> indicator in the HUD shows current baseline completeness.</li>
+            <li><b>Seasonal/cyclical blindness</b>: Shipping route analysis uses weekday+time-bucket baselines (14-day window). Annual patterns (holidays, monsoon seasons, political cycles) may still cause false positives.</li>
+            <li><b>Forex USD-factor noise</b>: The system subtracts median z-score across all monitored currencies to filter global USD movements. This works for gradual Fed policy shifts but may over-correct during genuine crisis-driven capital flight if the flight is globally correlated.</li>
+        </ul>
+
+        <h5>11.3 Directionality &amp; Attribution</h5>
+        <ul>
+            <li><b>Correlation ≠ causation</b>: Multi-domain convergence scoring identifies statistical co-occurrence of signals across cyber, physical, and info domains. It cannot determine intent, command relationships, or causal chains. A high convergence score means "multiple indicators are active simultaneously" — not "an attack is imminent."</li>
+            <li><b>Attribution limitations</b>: The system maps threat actors to theaters using THREAT_ACTOR_MAPPING (Telegram channels, ASN ownership, APT tags). These mappings are heuristic and may be incorrect due to false-flag operations, shared infrastructure, or proxy actors.</li>
+            <li><b>Monitoring directionality</b>: This system is designed to detect precursors to <em>attacks on monitored theaters</em>. It is NOT designed to detect friendly-force offensive operations, defensive preparations by adversaries, or internal civil unrest. Signals are interpreted through the lens of "is this theater about to be attacked?" which introduces confirmation bias when applied to ambiguous situations.</li>
+            <li><b>Ambush pattern caveat</b>: The 2nd-derivative acceleration detector ("ambush pattern") identifies sudden changes in the rate of change. This can trigger on legitimate events (e.g., a scheduled military exercise suddenly ramping up) as well as genuine surprise attacks.</li>
+        </ul>
+
+        <h5>11.4 Signal Deduplication &amp; Double-Counting</h5>
+        <ul>
+            <li><b>BGP signal grouping</b>: IODA, RIPE BGP, and IHR disconnection sensors all measure BGP routing anomalies. The engine groups these by <code>signal_source="bgp"</code> and takes max() instead of sum to prevent triple-counting the same physical event.</li>
+            <li><b>Remaining overlaps</b>: Certificate Transparency surges may correlate with BGP hijacking events (DNS+BGP attacks often co-occur). These are NOT currently deduplicated because the underlying phenomena are distinct even if tactically coordinated.</li>
+        </ul>
+
+        <h5>11.5 Operator Responsibilities</h5>
+        <ul>
+            <li><b>HITL override is mandatory</b>: All automated assessments must be validated by a human analyst before action is taken. The MUTE function exists specifically for this purpose.</li>
+            <li><b>Domain weight bias</b>: Default weights (cyber=0.50, physical=0.30, info=0.20) reflect a cyber-first monitoring posture. Operators should adjust <code>DOMAIN_WEIGHT_*</code> variables based on the operational context (e.g., increase physical weight during kinetic conflict).</li>
+            <li><b>Threat level interpretation</b>: Severity levels (NORMAL→WATCH→ELEVATED→CRITICAL) are relative to baseline, NOT absolute assessments of danger. A "CRITICAL" rating means "significantly above historical normal" — it does not inherently mean an attack is imminent.</li>
+        </ul>
+        </div>
+
+        <div class="guide-lang-ja">
+        <h4>11. システムの限界と監視方向性</h4>
+
+        <p><b>本章はすべてのオペレーターの必読事項です。</b>自動評価への過度な依存を避け、HITL（Human-in-the-Loop）判断を維持するため、システムの固有の限界を理解することが不可欠です。</p>
+
+        <h5>11.1 センサーカバレッジのギャップ</h5>
+        <ul>
+            <li><b>英語バイアス</b>：GDELTおよびRSSナラティブセンサーは主に英語メディアをインデックスしています。中国語、ロシア語、ペルシャ語、韓国語のソースは過小表現されています。システムはグローバルな英語メディアトレンドを緩和するためにmedian-delta減算を適用していますが、現地語のナラティブは完全に見逃される可能性があります。</li>
+            <li><b>西側諸国アドバイザリーバイアス</b>：渡航勧告データは米国、英国、カナダ（すべてファイブアイズ加盟国）から取得。これらの政府は独立した評価ではなく、共有情報や政治的同盟に基づいて勧告を発行する場合があります。収束検出により緩和されますが、完全には排除されません。</li>
+            <li><b>ADS-Bカバレッジ</b>：ISRおよび軍事支援航空機の監視はADS-Bトランスポンダデータに依存します。軍用機はEMCON（電波管制）時にトランスポンダをオフにすることが多く、ADS-BによるISRソーティの検出は下限値を示します。ADS-Bトラックの不在はISR活動の不在を意味しません。</li>
+            <li><b>AISダークギャップ</b>：海上監視はAISトランスポンダ信号に依存します。国家行為者は機密作戦中にAISを意図的に無効化します。「ダークギャップ」の検出自体がシグナルですが、事前のAIS履歴が必要です。</li>
+            <li><b>Telegramミラーラグ</b>：Telegramスクレイピングは公開ミラーサイト（tgstat.com、telemetr.io）を使用し、TelegramのAPIに直接アクセスしません。ミラーサイトには15〜60分の遅延があり、レート制限やブロックの対象となります。</li>
+        </ul>
+
+        <h5>11.2 ベースラインとコールドスタートの制限</h5>
+        <ul>
+            <li><b>コールドスタート期間</b>：Zスコアベースの検出（Cloudflare HOD、BGP、CT Log、海運、ナラティブ）には履歴ベースラインが必要です。運用開始から最初の4〜7日間は異常検出感度が低下し、重大度はレベル1（WATCH）に制限されます。HUDの<code>baseline_maturity</code>インジケーターが現在のベースライン完成度を表示します。</li>
+            <li><b>季節/周期的盲点</b>：海運ルート分析は曜日+時間バケットベースライン（14日間ウィンドウ）を使用します。年間パターン（祝日、モンスーン季節、政治サイクル）は依然として偽陽性を引き起こす可能性があります。</li>
+            <li><b>為替USDファクターノイズ</b>：システムは全監視通貨のZスコア中央値を減算してグローバルなUSD変動をフィルタリングします。これは緩やかなFRB政策変更には有効ですが、危機に起因する資本逃避がグローバルに相関している場合は過剰補正する可能性があります。</li>
+        </ul>
+
+        <h5>11.3 方向性と帰属</h5>
+        <ul>
+            <li><b>相関 ≠ 因果関係</b>：マルチドメイン収束スコアリングは、サイバー・物理・情報ドメイン間のシグナルの統計的共起を識別します。意図、指揮関係、因果連鎖を判定することはできません。高い収束スコアは「複数の指標が同時にアクティブである」ことを意味し、「攻撃が差し迫っている」ことを意味しません。</li>
+            <li><b>帰属の限界</b>：システムはTHREAT_ACTOR_MAPPING（Telegramチャネル、ASN所有権、APTタグ）を使用して脅威アクターをシアターにマッピングします。これらのマッピングはヒューリスティックであり、偽旗作戦、共有インフラ、プロキシアクターにより不正確な場合があります。</li>
+            <li><b>監視方向性</b>：本システムは<em>監視対象シアターに対する攻撃</em>の前兆を検出するように設計されています。味方の攻撃作戦、敵対者の防衛準備、または国内の市民不安の検出を目的としていません。シグナルは「このシアターが攻撃されようとしているか？」というレンズを通じて解釈されるため、曖昧な状況に適用すると確認バイアスが生じます。</li>
+            <li><b>待ち伏せパターンの注意</b>：二次微分加速度検出器（「待ち伏せパターン」）は変化率の急激な変化を識別します。これは正当なイベント（例：予定された軍事演習の突然のランプアップ）と本物の奇襲攻撃の両方でトリガーされる可能性があります。</li>
+        </ul>
+
+        <h5>11.4 信号重複排除と二重カウント</h5>
+        <ul>
+            <li><b>BGP信号グルーピング</b>：IODA、RIPE BGP、IHR切断センサーはすべてBGPルーティング異常を測定します。エンジンはこれらを<code>signal_source="bgp"</code>でグループ化し、同一の物理イベントの三重カウントを防ぐためにsum()ではなくmax()を取ります。</li>
+            <li><b>残存する重複</b>：証明書透過性のサージはBGPハイジャックイベントと相関する場合があります（DNS+BGP攻撃は共起することが多い）。基盤となる現象が異なるため、現時点ではこれらは重複排除されていません。</li>
+        </ul>
+
+        <h5>11.5 オペレーターの責任</h5>
+        <ul>
+            <li><b>HITLオーバーライドは必須</b>：すべての自動評価は、アクションを取る前に人間のアナリストによって検証されなければなりません。MUTE機能はまさにこの目的のために存在します。</li>
+            <li><b>ドメイン重みバイアス</b>：デフォルトの重み（cyber=0.50、physical=0.30、info=0.20）はサイバーファーストの監視姿勢を反映しています。オペレーターは運用コンテキストに基づいて<code>DOMAIN_WEIGHT_*</code>変数を調整する必要があります（例：動的紛争中はphysical重みを増加）。</li>
+            <li><b>脅威レベルの解釈</b>：重大度レベル（NORMAL→WATCH→ELEVATED→CRITICAL）はベースラインに対する相対値であり、危険の絶対的評価ではありません。「CRITICAL」レーティングは「過去の正常値を大幅に上回っている」ことを意味し、攻撃が差し迫っていることを本質的に意味するものではありません。</li>
+        </ul>
+        </div>
+        </div><!-- /guide-ch-11 -->
 
     </div>
 </div>
