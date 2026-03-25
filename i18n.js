@@ -779,6 +779,10 @@ const LANG = {
     'panel.climate.filter_target':        'TARGET',
     'panel.climate.filter_context':       'CAL',
     'hud.tooltip.climate':                'Strategic Climate — Indirect environmental indicators',
+    'panel.climate.baseline_exact':       'exact',
+    'panel.climate.baseline_hour':        'hour',
+    'panel.climate.baseline_all':         'all',
+    'panel.climate.baseline_tooltip':     'Seasonal baseline level: exact=same weekday+time, hour=same time-of-day, all=flat average',
 
     // ══════════════════════════════════════════════════════════════
     // Situation Board
@@ -1874,6 +1878,10 @@ const LANG = {
     'panel.climate.filter_target':        '対象',
     'panel.climate.filter_context':       '暦',
     'hud.tooltip.climate':                '戦略的環境気候 — 間接的環境指標',
+    'panel.climate.baseline_exact':       '完全一致',
+    'panel.climate.baseline_hour':        '時間帯',
+    'panel.climate.baseline_all':         '全体',
+    'panel.climate.baseline_tooltip':     '季節ベースライン: 完全一致=同曜日同時間帯, 時間帯=同時間帯全曜日, 全体=全履歴平均',
 
     // ══════════════════════════════════════════════════════════════
     // 情勢ボード

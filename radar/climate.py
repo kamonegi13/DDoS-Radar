@@ -63,6 +63,84 @@ class ClimateEvent:
         }
 
 
+# ── Seasonal Baseline Utility ────────────────────────────────────────────────
+
+class SeasonalBaseline:
+    """Temporal-aware baseline with (weekday, 6h-bucket) granularity.
+
+    Prevents false positives from regular cyclical patterns (e.g. weekend
+    media silence, nighttime aviation drop, forex market closures).
+
+    3-level fallback for cold-start:
+      1. Exact (weekday, hour_bucket) — requires ≥3 samples
+      2. Same hour_bucket across all weekdays — requires ≥3 samples
+      3. All historical data (equivalent to flat average)
+    """
+    MIN_BUCKET_SAMPLES = 3
+
+    def __init__(self, retention_days: int = 30):
+        self._data: list[tuple[float, float]] = []  # (ts, value)
+        self._retention = retention_days * 86400
+
+    def record(self, value: float, ts: float = 0.0):
+        """Record an observation. Call AFTER get_baseline() to keep baseline uncontaminated."""
+        if ts == 0.0:
+            ts = time.time()
+        self._data.append((ts, value))
+        # Lazy prune every 50 records
+        if len(self._data) % 50 == 0:
+            cutoff = ts - self._retention
+            self._data = [(t, v) for t, v in self._data if t > cutoff]
+
+    def get_baseline(self, ts: float = 0.0, std_floor: float = 0.5
+                     ) -> tuple[float, float, int, str]:
+        """Return (mean, std, sample_count, level) for the temporal bucket at *ts*.
+
+        level: 'exact' | 'hour' | 'all' | 'none'
+        Call BEFORE record() so current observation doesn't contaminate the baseline.
+        """
+        if ts == 0.0:
+            ts = time.time()
+        if len(self._data) < 2:
+            return 0.0, 1.0, 0, "none"
+
+        weekday, hour_bucket = self._bucket(ts)
+
+        # Level 1: exact (weekday, hour_bucket)
+        exact = [v for t, v in self._data if self._bucket(t) == (weekday, hour_bucket)]
+        if len(exact) >= self.MIN_BUCKET_SAMPLES:
+            mean, std = self._stats(exact, std_floor)
+            return mean, std, len(exact), "exact"
+
+        # Level 2: same hour_bucket, any weekday
+        hourly = [v for t, v in self._data if self._bucket(t)[1] == hour_bucket]
+        if len(hourly) >= self.MIN_BUCKET_SAMPLES:
+            mean, std = self._stats(hourly, std_floor)
+            return mean, std, len(hourly), "hour"
+
+        # Level 3: all data
+        all_vals = [v for _, v in self._data]
+        mean, std = self._stats(all_vals, std_floor)
+        return mean, std, len(all_vals), "all"
+
+    def sample_count(self) -> int:
+        """Total number of recorded observations."""
+        return len(self._data)
+
+    @staticmethod
+    def _bucket(ts: float) -> tuple[int, int]:
+        dt = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+        return dt.weekday(), dt.hour // 6
+
+    @staticmethod
+    def _stats(values: list[float], std_floor: float) -> tuple[float, float]:
+        n = len(values)
+        mean = sum(values) / n
+        std = (math.sqrt(sum((v - mean) ** 2 for v in values) / n)
+               if n > 1 else std_floor)
+        return mean, max(std, std_floor)
+
+
 # ── Calendar Context ──────────────────────────────────────────────────────────
 
 # Curated historical events for anniversary matching (month, day, description)
@@ -125,22 +203,14 @@ class MediaTempoAnalyzer:
     Taps into RssNarrativeSensor's cache metadata — specifically article_count
     vs historical baseline. A dramatic change in publication tempo (surge or
     silence) is an operational byproduct, not content-based signal.
+
+    Uses SeasonalBaseline (weekday × 6h bucket) to avoid false positives
+    from regular weekly publication patterns (e.g. weekend media silence).
     """
 
     def __init__(self):
-        self._history: dict[str, list[tuple[float, int]]] = {}  # theater -> [(ts, article_count)]
+        self._baselines: dict[str, SeasonalBaseline] = {}  # theater -> baseline
         self._lock = threading.Lock()
-
-    def record(self, theater: str, article_count: int, ts: float = 0.0):
-        """Record a sample of article count from RSS fetch."""
-        if ts == 0.0:
-            ts = time.time()
-        with self._lock:
-            hist = self._history.setdefault(theater, [])
-            hist.append((ts, article_count))
-            # Keep 7 days of hourly samples (max ~168)
-            cutoff = ts - 7 * 86400
-            self._history[theater] = [(t, c) for t, c in hist if t > cutoff]
 
     def analyze(self, registry) -> list[ClimateEvent]:
         """Analyze current RSS cache for tempo anomalies."""
@@ -154,19 +224,14 @@ class MediaTempoAnalyzer:
 
         for theater, data in narratives.items():
             article_count = data.get("article_count", 0)
-            self.record(theater, article_count, now)
 
             with self._lock:
-                hist = self._history.get(theater, [])
+                bl = self._baselines.setdefault(theater, SeasonalBaseline(7))
+                mean, std, n, level = bl.get_baseline(now, std_floor=0.5)
+                bl.record(article_count, now)
 
-            if len(hist) < 4:
+            if n < 4:
                 continue
-
-            # Compute baseline mean and std from history (excluding latest)
-            counts = [c for _, c in hist[:-1]]
-            mean = sum(counts) / len(counts)
-            std = math.sqrt(sum((c - mean) ** 2 for c in counts) / len(counts)) if len(counts) > 1 else 1.0
-            std = max(std, 0.5)  # Avoid division by near-zero
 
             z = (article_count - mean) / std
 
@@ -175,19 +240,21 @@ class MediaTempoAnalyzer:
                 events.append(ClimateEvent(
                     ts=now, indicator="T2", axis=AXIS_TIME,
                     headline=f"State media tempo surge: {theater}",
-                    detail=f"{article_count} articles (baseline avg {mean:.0f}, {z:.1f}σ) — publication rate above normal",
+                    detail=f"{article_count} articles (baseline avg {mean:.0f}, {z:.1f}σ, {level}) — publication rate above normal",
                     severity=sev,
                     theater=theater,
-                    meta={"article_count": article_count, "baseline_mean": round(mean, 1), "z_score": round(z, 2)},
+                    meta={"article_count": article_count, "baseline_mean": round(mean, 1),
+                          "z_score": round(z, 2), "baseline_level": level},
                 ))
             elif z < -1.5 and mean > 2:
                 events.append(ClimateEvent(
                     ts=now, indicator="T2", axis=AXIS_TIME,
                     headline=f"State media silence: {theater}",
-                    detail=f"{article_count} articles vs baseline {mean:.0f} — unusual silence ({z:.1f}σ below normal)",
+                    detail=f"{article_count} articles vs baseline {mean:.0f} — unusual silence ({z:.1f}σ below normal, {level})",
                     severity=1 if z < -2.0 else 0,
                     theater=theater,
-                    meta={"article_count": article_count, "baseline_mean": round(mean, 1), "z_score": round(z, 2)},
+                    meta={"article_count": article_count, "baseline_mean": round(mean, 1),
+                          "z_score": round(z, 2), "baseline_level": level},
                 ))
 
         return events
@@ -203,17 +270,8 @@ class AviationRouteAnalyzer:
     """
 
     def __init__(self):
-        self._history: dict[str, list[tuple[float, int]]] = {}  # airport -> [(ts, count)]
+        self._baselines: dict[str, SeasonalBaseline] = {}  # airport -> baseline
         self._lock = threading.Lock()
-
-    def record(self, airport: str, count: int, ts: float = 0.0):
-        if ts == 0.0:
-            ts = time.time()
-        with self._lock:
-            hist = self._history.setdefault(airport, [])
-            hist.append((ts, count))
-            cutoff = ts - 7 * 86400
-            self._history[airport] = [(t, c) for t, c in hist if t > cutoff]
 
     def analyze(self, registry) -> list[ClimateEvent]:
         events = []
@@ -228,21 +286,17 @@ class AviationRouteAnalyzer:
             count = data.get("count", -1)
             if count < 0:
                 continue
-            self.record(code, count, now)
 
             with self._lock:
-                hist = self._history.get(code, [])
+                bl = self._baselines.setdefault(code, SeasonalBaseline(7))
+                mean, std, n, level = bl.get_baseline(now, std_floor=1.0)
+                bl.record(count, now)
 
-            if len(hist) < 6:
+            if n < 6:
                 continue
-
-            counts = [c for _, c in hist[:-1]]
-            mean = sum(counts) / len(counts)
             if mean < 3:
                 continue  # Too few flights for meaningful baseline
 
-            std = math.sqrt(sum((c - mean) ** 2 for c in counts) / len(counts)) if len(counts) > 1 else 1.0
-            std = max(std, 1.0)
             z = (count - mean) / std
 
             if z < -1.5:
@@ -252,11 +306,11 @@ class AviationRouteAnalyzer:
                 events.append(ClimateEvent(
                     ts=now, indicator="S1", axis=AXIS_SPACE,
                     headline=f"Aviation drop near {airport_name}",
-                    detail=f"{count} aircraft vs baseline {mean:.0f} ({drop_pct}% reduction, {z:.1f}σ) — possible airspace avoidance",
+                    detail=f"{count} aircraft vs baseline {mean:.0f} ({drop_pct}% reduction, {z:.1f}σ, {level}) — possible airspace avoidance",
                     severity=sev,
                     theater=code,
                     meta={"airport": airport_name, "count": count, "baseline_mean": round(mean, 1),
-                          "drop_pct": drop_pct, "z_score": round(z, 2)},
+                          "drop_pct": drop_pct, "z_score": round(z, 2), "baseline_level": level},
                 ))
 
         return events
@@ -332,7 +386,8 @@ class ForexMonitor:
     }
 
     def __init__(self):
-        self._history: dict[str, list[tuple[float, float]]] = {}  # currency -> [(ts, rate)]
+        self._baselines: dict[str, SeasonalBaseline] = {}  # currency -> baseline
+        self._prev_rates: dict[str, float] = {}             # currency -> last rate (for daily_change)
         self._lock = threading.Lock()
         self._last_fetch: float = 0.0
 
@@ -363,10 +418,9 @@ class ForexMonitor:
                 for ccy in self.CURRENCIES:
                     rate = rates.get(ccy)
                     if rate:
-                        hist = self._history.setdefault(ccy, [])
-                        hist.append((now, rate))
-                        cutoff = now - 30 * 86400
-                        self._history[ccy] = [(t, r) for t, r in hist if t > cutoff]
+                        bl = self._baselines.setdefault(ccy, SeasonalBaseline(30))
+                        bl.record(rate, now)
+                        self._prev_rates[ccy] = rate
 
             log.info(f"[Climate/Forex] Updated {len(self.CURRENCIES)} currencies")
         except Exception as e:
@@ -378,29 +432,41 @@ class ForexMonitor:
         events = []
         with self._lock:
             for ccy, theater in self.CURRENCIES.items():
-                hist = self._history.get(ccy, [])
-                if len(hist) < 3:
+                bl = self._baselines.get(ccy)
+                if not bl or bl.sample_count() < 7:
+                    continue  # Need ≥7 samples for meaningful z-scores
+                latest_rate = self._prev_rates.get(ccy)
+                if latest_rate is None:
                     continue
-                rates = [r for _, r in hist]
-                latest = rates[-1]
-                prev = rates[-2]
-                mean = sum(rates[:-1]) / len(rates[:-1])
-                std = math.sqrt(sum((r - mean) ** 2 for r in rates[:-1]) / len(rates[:-1])) if len(rates) > 2 else 0.01
-                std = max(std, mean * 0.001)  # Floor at 0.1% of mean
-                z = (latest - mean) / std
-                daily_change_pct = ((latest - prev) / prev * 100) if prev else 0
+
+                # Get baseline with std floor at 0.5% of mean (forex daily noise)
+                mean, std, n, level = bl.get_baseline(now, std_floor=0.01)
+                # Apply proportional floor: 0.5% of mean
+                std = max(std, mean * 0.005) if mean > 0 else std
+
+                z = (latest_rate - mean) / std
+
+                # Compute daily change from previous fetch
+                # (prev_rates stores the most recent rate; we need second-latest)
+                # Use baseline data to approximate previous
+                prev = mean  # Fallback: compare against baseline mean
+                if bl.sample_count() >= 2:
+                    prev = bl._data[-2][1]  # Second-latest raw observation
+                daily_change_pct = ((latest_rate - prev) / prev * 100) if prev else 0
 
                 # Weakening = rate going up for most currencies (more local per USD)
-                if z > 1.0 or daily_change_pct > 0.5:
-                    sev = 2 if z > 2.5 else (1 if z > 1.5 or daily_change_pct > 0.5 else 0)
+                # Thresholds: z > 2.0 filters out normal daily fluctuation noise
+                if z > 2.0 or daily_change_pct > 2.0:
+                    sev = 2 if z > 3.5 else (1 if z > 2.5 or daily_change_pct > 2.0 else 0)
                     events.append(ClimateEvent(
                         ts=now, indicator="S3", axis=AXIS_SPACE,
                         headline=f"{ccy} weakening: +{daily_change_pct:.1f}% vs USD",
-                        detail=f"{ccy}/USD at {latest:.2f} (baseline {mean:.2f}, {z:.1f}σ) — capital stress signal for {theater}",
+                        detail=f"{ccy}/USD at {latest_rate:.2f} (baseline {mean:.2f}, {z:.1f}σ, {level}) — capital stress signal for {theater}",
                         severity=sev,
                         theater=theater,
-                        meta={"currency": ccy, "rate": latest, "baseline_mean": round(mean, 4),
-                              "daily_change_pct": round(daily_change_pct, 2), "z_score": round(z, 2)},
+                        meta={"currency": ccy, "rate": latest_rate, "baseline_mean": round(mean, 4),
+                              "daily_change_pct": round(daily_change_pct, 2), "z_score": round(z, 2),
+                              "baseline_level": level},
                     ))
         return events
 
@@ -740,7 +806,13 @@ class StrategicClimateEngine:
         return self.get_summary()
 
     def _compute_gauge(self) -> tuple[float, str]:
-        """Compute climate gauge from recent events (last 6 hours)."""
+        """Compute climate gauge from recent events (last 6 hours).
+
+        Design: measures "how many distinct signals are currently active"
+        rather than "how many events accumulated over time."
+        Each unique (indicator, theater) pair counts ONCE using its max severity.
+        This prevents persistent low-severity conditions from inflating the score.
+        """
         now = time.time()
         cutoff = now - 6 * 3600
         recent = [e for e in self._feed if e.ts > cutoff and e.axis != AXIS_CONTEXT]
@@ -748,29 +820,50 @@ class StrategicClimateEngine:
         if not recent:
             return 0.0, "FROZEN"
 
-        # Score: weight by severity (0=0.2, 1=1.0, 2=2.0) with diversity bonus
+        # Deduplicate: per (indicator, theater), keep MAX severity seen in window
+        # This prevents the same signal repeating every hour from accumulating 6×
+        signal_max: dict[tuple[str, str], int] = {}
+        for e in recent:
+            key = (e.indicator, e.theater)
+            signal_max[key] = max(signal_max.get(key, 0), e.severity)
+
+        # Score: weight each unique signal by its max severity
         sev_weights = {0: 0.2, 1: 1.0, 2: 2.0}
-        # Cap severity-0 contribution to avoid noise accumulation
-        sev0_score = sum(0.2 for e in recent if e.severity == 0)
-        sev0_capped = min(sev0_score, 3.0)
-        sev12_score = sum(sev_weights.get(e.severity, 0) for e in recent if e.severity > 0)
-        base_score = sev12_score + sev0_capped
+        sev0_signals = sum(1 for s in signal_max.values() if s == 0)
+        sev0_score = min(sev0_signals * 0.2, 2.0)  # Cap sev=0 contribution
+        sev12_score = sum(sev_weights.get(s, 0) for s in signal_max.values() if s > 0)
+        base_score = sev12_score + sev0_score
 
-        indicators_active = len({e.indicator for e in recent})
-        diversity_bonus = indicators_active * 0.5
+        # Convergence bonus: reward genuine cross-domain convergence on SAME theater
+        # Indicator-to-domain mapping (independent analysis axes)
+        _INDICATOR_DOMAIN = {
+            "T2": "info", "T4": "info",     # Information domain
+            "S1": "physical", "S2": "physical",  # Physical domain
+            "S3": "economic",                # Economic domain (independent)
+            "O1": "cyber", "O3": "info",     # Note: O3 shares info domain with T2
+        }
+        # Per-theater: count how many DIFFERENT domains have active signals
+        theater_domains: dict[str, set] = {}
+        for (indicator, theater), sev in signal_max.items():
+            if theater and sev > 0:  # Only count sev>=1 for convergence
+                domain = _INDICATOR_DOMAIN.get(indicator, indicator)
+                theater_domains.setdefault(theater, set()).add(domain)
+        # Convergence bonus: theaters with 2+ domains converging (genuine multi-domain signal)
+        convergence_bonus = sum(
+            (len(domains) - 1) * 0.5
+            for domains in theater_domains.values()
+            if len(domains) >= 2
+        )
+        convergence_bonus = min(convergence_bonus, 3.0)  # Cap
 
-        # Theater convergence: multiple theaters seeing signals
-        theaters_active = len({e.theater for e in recent if e.theater})
-        theater_bonus = min(theaters_active * 0.3, 2.0)
-
-        total = base_score + diversity_bonus + theater_bonus
+        total = base_score + convergence_bonus
 
         # Map to level
-        if total >= 18:
+        if total >= 15:
             return total, "FLASHPOINT"
-        elif total >= 11:
+        elif total >= 8:
             return total, "HOT"
-        elif total >= 5:
+        elif total >= 3:
             return total, "WARMING"
         elif total > 0:
             return total, "COOL"

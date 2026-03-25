@@ -2170,6 +2170,7 @@
                     <li><b>CAL (📅)</b> — Historical anniversary matching (±2 days), diplomatic deadline convergence</li>
                 </ul>
             </li>
+            <li><b>Seasonal Baseline:</b> Indicators T2 (media tempo), S1 (aviation), and S3 (forex) use a <b>SeasonalBaseline</b> engine that compares observations against the same weekday and 6-hour time bucket. This prevents false positives from regular cyclical patterns (e.g. weekend media silence, nighttime flight reduction, forex market closures). The system uses a 3-level fallback: exact (weekday, time-of-day) → same time-of-day across all weekdays → flat historical average. Baseline level is shown in event detail as <span class="code-block">exact</span>, <span class="code-block">hour</span>, or <span class="code-block">all</span>.</li>
             <li><b>Key Principle:</b> The Climate Feed complements the Threat Level but never modifies it. When TL is low but Climate is WARMING, the gap itself is the signal — something may be in preparation but not yet visible in direct channels.</li>
             <li><b>API:</b> <span class="code-block">GET /api/climate</span> (full state) / <span class="code-block">GET /api/climate/feed?axis=time&amp;limit=50</span> (filtered feed).</li>
         </ul>
@@ -2513,6 +2514,7 @@
                     <li><b>暦 (📅)</b> — 歴史的記念日の一致（±2日）、外交デッドラインの収束</li>
                 </ul>
             </li>
+            <li><b>季節ベースライン:</b> 指標T2（メディアテンポ）、S1（航空）、S3（為替）は<b>SeasonalBaseline</b>エンジンを使用し、同じ曜日・6時間帯バケットと比較。これにより定期的な周期パターン（週末のメディア沈黙、夜間の航空減少、為替市場の閉鎖）からの誤検出を防止。3段階フォールバック: 完全一致（曜日＋時間帯）→ 同時間帯の全曜日集約 → 全履歴平均。ベースラインレベルはイベント詳細に <span class="code-block">exact</span>、<span class="code-block">hour</span>、<span class="code-block">all</span> として表示。</li>
             <li><b>設計原則:</b> 環境気候フィードは脅威レベルを補完するが、決して変更しない。TLが低いのにClimateがWARMINGの場合、その乖離そのものがシグナル — 直接チャネルではまだ見えないが何かが準備されている可能性。</li>
             <li><b>API:</b> <span class="code-block">GET /api/climate</span>（全体状態）/ <span class="code-block">GET /api/climate/feed?axis=time&amp;limit=50</span>（フィルタ済みフィード）。</li>
         </ul>

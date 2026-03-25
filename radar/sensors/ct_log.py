@@ -56,7 +56,7 @@ class CtLogSensor(BaseSensor):
         ct_data: dict[str, dict] = {}
         country_status: dict[str, str] = {}
         any_success = False
-        last_error = ""
+        error_countries: list[str] = []
 
         for code in all_targets:
             tld = _CC_TLDS.get(code)
@@ -143,12 +143,13 @@ class CtLogSensor(BaseSensor):
                     self._prev_counts[code] = total_recent
 
             except Exception as e:
-                last_error = f"ct({code}): {e}"
+                error_countries.append(code)
                 log.warning(f"[CTLog] Error for {code}: {e}")
 
         duration = round((time.time() - t0) * 1000)
+        combined_error = f"timeout({','.join(error_countries)})" if error_countries else ""
         self.log_fetch(any_success, duration, 0,
-                       sum(d["total_recent"] for d in ct_data.values()), last_error)
+                       sum(d["total_recent"] for d in ct_data.values()), combined_error)
 
         result = {"ct_data": ct_data, "country_status": country_status}
         if any_success:

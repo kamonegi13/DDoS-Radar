@@ -3263,9 +3263,10 @@
                 console.warn('[WS] Socket.IO init failed, using polling fallback:', e);
             }
         }
-        // Polling fallback: fixed 15-min interval, skips if WS is delivering updates
+        // Periodic refresh: always poll to trigger server-side scoring + WS push
+        // WS delivers real-time alerts (ambush, sensor status) between polls
         setInterval(() => {
-            if (!_wsConnected) fetchDDoSData(false);
+            fetchDDoSData(false);
         }, _POLL_INTERVAL_MS);
     }
     
