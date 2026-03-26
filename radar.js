@@ -2099,7 +2099,11 @@
             // Append &muted=${mutedList}
             const apiUrl = `/api/threat_data?targets=${fetchTargets}&core=${coreTheater}&correlates=${selectedCorrelates}&adversaries=${selectedAdversaries}&muted=${mutedList}&force=${force}`;
             const response = await fetch(apiUrl);
-            latestData = await response.json(); 
+            if (!response.ok) {
+                console.warn(`[API] HTTP ${response.status} — keeping previous data`);
+                return;  // Preserve latestData from last successful poll
+            }
+            latestData = await response.json();
             
             _lastSyncTime = Date.now();
             lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()}`;
@@ -2436,7 +2440,7 @@
 
         if (displayTargets.length === 0) {
             originHtml = "<div style='color:grey; padding: 10px;'>No targets active. Turn on toggles in Target Visibility panel.</div>";
-        } else if (data.targets) {
+        } else if (data.targets && data.targets.length > 0) {
             const vecShareKey = currentVector === 'l3' ? 'global_share_l3' : currentVector === 'l7' ? 'global_share_l7' : 'global_share';
             data.targets.sort((a, b) => (b[vecShareKey] || 0) - (a[vecShareKey] || 0)).forEach(t => {
                 if (!displayTargets.includes(t.code)) return;
@@ -3223,7 +3227,14 @@
                     if (dot) dot.className = 'ws-dot ws-dot-disconnected';
                 });
                 _wsSocket.on('threat_update', (data) => {
-                    latestData = data;
+                    // WS pushes only strategic_alert — merge into existing latestData
+                    // instead of replacing, so that targets/sensor_health/etc. are preserved.
+                    if (latestData) {
+                        latestData.strategic_alert = data;
+                        latestData.timestamp = new Date().toISOString();
+                    } else {
+                        latestData = { strategic_alert: data, targets: [], timestamp: new Date().toISOString() };
+                    }
                     _lastSyncTime = Date.now();
                     lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()} (WS Live)`;
                     document.getElementById('update-time').innerText = lastSyncedTimeText;

@@ -1533,14 +1533,19 @@ def get_threat_data():
             })
             notify_sequence_complete(core_theater, seq_status, seq_chain)
 
+    # Snapshot global_cache under lock to prevent reading mid-update
+    with _global_cache_lock:
+        _cache_snap = st.global_cache
+        _snap_data = _cache_snap.get("data", {})
+        _snap_strategic = _cache_snap.get("strategic", {})
+
     results = []
+    _degraded_raw = _snap_strategic.get("degraded_theaters_raw", [])
+    _degraded_eff = _snap_strategic.get("degraded_theaters", [])
     for t in requested_targets:
         t_info = COUNTRY_COORDS.get(t, {"lat": 0, "lng": 0, "name": t})
-        data = st.global_cache["data"].get(t, {"global_share": 0, "global_share_l3": 0, "global_share_l7": 0, "is_vector_shift": False, "shift_actors": [], "sources": []})
-        
-        degraded_raw = st.global_cache["strategic"].get("degraded_theaters_raw", [])
-        degraded_eff = st.global_cache["strategic"].get("degraded_theaters", [])
-        
+        data = _snap_data.get(t, {"global_share": 0, "global_share_l3": 0, "global_share_l7": 0, "is_vector_shift": False, "shift_actors": [], "sources": []})
+
         # Compute velocity and acceleration per target
         ts_series_t = _db.ts_get(t)
         t_vel = _routes.engine.compute_velocity(ts_series_t)
@@ -1548,8 +1553,8 @@ def get_threat_data():
         results.append({
             "lat": t_info["lat"], "lng": t_info["lng"], "info": t_info["name"], "code": t,
             "global_share": data.get("global_share", 0.0), "global_share_l3": data.get("global_share_l3", 0.0), "global_share_l7": data.get("global_share_l7", 0.0),
-            "is_bgp_outage": t in degraded_raw,
-            "is_bgp_effective": t in degraded_eff,
+            "is_bgp_outage": t in _degraded_raw,
+            "is_bgp_effective": t in _degraded_eff,
             "is_vector_shift": data.get("is_vector_shift", False), "shift_actors": data.get("shift_actors", []),
             "trend_history": _db.series_get(t, "combined"), "trend_history_l3": _db.series_get(t, "l3"), "trend_history_l7": _db.series_get(t, "l7"),
             "sources": data.get("sources", []),
@@ -1569,7 +1574,7 @@ def get_threat_data():
     return jsonify({
         "timestamp":       datetime.datetime.now().isoformat(),
         "sensor_health":   _routes.registry.health_report(),
-        "strategic_alert": st.global_cache["strategic"],
+        "strategic_alert": _snap_strategic,
         "targets":         results,
         "threat_history":  _db.threat_list(),
         "climate_gauge":   _climate_gauge,

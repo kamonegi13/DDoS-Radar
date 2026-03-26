@@ -18,3 +18,4 @@ SEQUENCE_EVENT_TYPES = ["NARRATIVE_BURST", "ISR_SURGE", "SYNC_DDOS", "FIRMS_ANOM
 # ── Short-lived scoring cache (NOT persisted) ──
 # Key: (url, frozenset(params.items())) → {"time": float, "data": list}
 _cf_scoring_cache: dict = {}
+_cf_cache_lock = threading.Lock()  # Protects _cf_scoring_cache across threads

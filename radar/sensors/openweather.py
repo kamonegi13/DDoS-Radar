@@ -23,8 +23,11 @@ class OpenWeatherSensor(BaseSensor):
                 res = requests.get("https://api.openweathermap.org/data/2.5/weather", params={"lat": coord["lat"], "lon": coord["lng"], "appid": api_key, "units": "metric"}, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
                 last_status = res.status_code
                 if res.status_code == 429:
-                    self.handle_rate_limit(res, round((time.time() - t0) * 1000))
-                    return self.get_cache() or {"conditions": {}}
+                    # Don't return early — continue processing remaining theaters
+                    prev = (self.get_cache() or {}).get("conditions", {}).get(code)
+                    if prev:
+                        conditions[code] = prev
+                    continue
                 elif res.status_code == 200:
                     d = res.json(); w = (d.get("weather") or [{}])[0]; wind = d.get("wind", {}).get("speed", 0)
                     wid = w.get("id", 800)

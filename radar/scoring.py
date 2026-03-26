@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import requests
+import threading
 import time
 from radar.config import (
     SEQUENCE_WINDOW, SEQUENCE_FULL_BONUS, SEQUENCE_PARTIAL_BONUS,
@@ -18,7 +19,7 @@ from radar.models import (
     DIRECTION_ADVERSARY_OFFENSIVE, DIRECTION_FRIENDLY_DEFENSIVE,
     DIRECTION_TARGET_IMPACT, DIRECTION_UNKNOWN,
 )
-from radar.state import _cf_scoring_cache
+from radar.state import _cf_scoring_cache, _cf_cache_lock
 from radar.database import db as _db
 
 log = logging.getLogger("radar")
@@ -433,6 +434,7 @@ def compute_origin_entropy(distribution: dict) -> float:
 
 # In-memory entropy history per theater (rolling window for moving average)
 _entropy_history: dict[str, list[float]] = {}
+_entropy_lock = threading.Lock()
 ENTROPY_HISTORY_SIZE = 20  # Keep last 20 readings for moving average
 
 
@@ -445,11 +447,12 @@ def track_entropy_change(theater: str, current_entropy: float) -> dict:
       - delta_pct: percent change from moving average
       - shift_label: CONCENTRATING / DISPERSING / STABLE
     """
-    history = _entropy_history.setdefault(theater, [])
-    history.append(current_entropy)
-    if len(history) > ENTROPY_HISTORY_SIZE:
-        _entropy_history[theater] = history[-ENTROPY_HISTORY_SIZE:]
-        history = _entropy_history[theater]
+    with _entropy_lock:
+        history = _entropy_history.setdefault(theater, [])
+        history.append(current_entropy)
+        if len(history) > ENTROPY_HISTORY_SIZE:
+            _entropy_history[theater] = history[-ENTROPY_HISTORY_SIZE:]
+        history = list(_entropy_history[theater])  # snapshot for read
 
     if len(history) < 3:
         return {
@@ -500,21 +503,32 @@ def fetch_cf_data(url: str, params: dict) -> list:
 def fetch_cf_data_cached(url: str, params: dict, ttl: float = None) -> list:
     """Cache CF API calls within the scoring loop.
     Uses CACHE_EXPIRY when TTL is omitted. Prevents repeated fetches on reload.
-    Cleans up expired entries on each call to prevent memory leaks."""
-    global _cf_scoring_cache
+    Cleans up expired entries on each call to prevent memory leaks.
+    On fetch failure (empty result), preserves stale cache instead of overwriting."""
     if ttl is None:
         ttl = CACHE_EXPIRY
     now = time.time()
-    # Remove expired entries (memory leak prevention)
-    expired = [k for k, v in _cf_scoring_cache.items() if now - v["time"] > ttl * 2]
-    for k in expired:
-        del _cf_scoring_cache[k]
     cache_key = (url, frozenset(params.items()))
-    entry = _cf_scoring_cache.get(cache_key)
-    if entry and (now - entry["time"]) < ttl:
-        return entry["data"]
+    # Cleanup: only remove entries older than max TTL (86400*2) to avoid
+    # short-TTL calls evicting long-TTL baseline entries (BUG-6 fix)
+    _MAX_TTL = 86400 * 2
+    with _cf_cache_lock:
+        expired = [k for k, v in _cf_scoring_cache.items() if now - v["time"] > _MAX_TTL]
+        for k in expired:
+            _cf_scoring_cache.pop(k, None)
+        entry = _cf_scoring_cache.get(cache_key)
+        if entry and (now - entry["time"]) < ttl:
+            return entry["data"]
     data = fetch_cf_data(url, params)
-    _cf_scoring_cache[cache_key] = {"time": now, "data": data}
+    # On failure (empty list), preserve stale cache data instead of overwriting
+    if not data:
+        with _cf_cache_lock:
+            stale = _cf_scoring_cache.get(cache_key)
+        if stale:
+            log.debug("[CF cache] Fetch returned empty, using stale cache for %s", url)
+            return stale["data"]
+    with _cf_cache_lock:
+        _cf_scoring_cache[cache_key] = {"time": now, "data": data}
     return data
 
 def parse_origins(origins_list: list) -> dict:

@@ -171,6 +171,12 @@ class CheckHostSensor(BaseSensor):
         any_success   = False
         now = time.time()
 
+        # Evict stale URL entries (>24h old) to prevent unbounded growth
+        _stale_cutoff = now - 86400
+        for url in [u for u, ts in CheckHostSensor._url_last_poll.items() if ts < _stale_cutoff]:
+            CheckHostSensor._url_last_poll.pop(url, None)
+            CheckHostSensor._url_latency_history.pop(url, None)
+
         for theater in theaters:
             urls = INFRASTRUCTURE_URLS.get(theater, [])
             if not urls:

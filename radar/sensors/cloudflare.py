@@ -12,7 +12,7 @@ from radar.config import (
     GLOBAL_PROXIES, SSL_VERIFY, CF_HEADERS, CURRENT_DATE_RANGE,
 )
 from radar.sensors.base import BaseSensor
-from radar.state import _cf_scoring_cache
+from radar.state import _cf_scoring_cache, _cf_cache_lock
 
 log = logging.getLogger("radar")
 
@@ -39,8 +39,9 @@ class CloudflareSensor(BaseSensor):
                 records = len(l3_data) + len(l7_data)
                 duration = round((time.time() - t0) * 1000)
                 now = time.time()
-                _cf_scoring_cache[(l3_url, frozenset(params.items()))] = {"time": now, "data": l3_data}
-                _cf_scoring_cache[(l7_url, frozenset(params.items()))] = {"time": now, "data": l7_data}
+                with _cf_cache_lock:
+                    _cf_scoring_cache[(l3_url, frozenset(params.items()))] = {"time": now, "data": l3_data}
+                    _cf_scoring_cache[(l7_url, frozenset(params.items()))] = {"time": now, "data": l7_data}
                 result = {"active": True, "date_range": CURRENT_DATE_RANGE, "l3_targets": l3_data, "l7_targets": l7_data}
 
                 # Fetch BGP hijack and leak events (non-critical; failure does not block main data)

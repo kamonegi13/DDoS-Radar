@@ -514,13 +514,16 @@ class WeightedConvergenceEngine:
                         break
             else:
                 # Score decreasing → de-escalating (higher TL number)
+                abs_trend = abs(score_trend)
+                if abs_trend < 1e-6:
+                    abs_trend = 1e-6  # Guard against near-zero float
                 for tl in sorted(ESCALATION_TL_THRESHOLDS.keys(), reverse=True):
                     threshold = ESCALATION_TL_THRESHOLDS[tl]
                     if threshold <= current_score and tl >= current_tl:
                         continue
                     if threshold < current_score:
                         pts_drop = current_score - threshold
-                        hours = pts_drop / abs(score_trend)
+                        hours = pts_drop / abs_trend
                         predicted_next_tl = tl + 1 if tl < 5 else 5
                         predicted_time_sec = round(hours * 3600)
                         break

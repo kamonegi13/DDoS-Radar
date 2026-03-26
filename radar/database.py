@@ -759,30 +759,38 @@ class RadarDB:
         }
 
     def zscore_stats_update(self, sensor: str, theater: str, new_value: float):
-        """Incrementally update running mean/variance using Welford's algorithm."""
+        """Incrementally update running mean/variance using Welford's algorithm.
+
+        Uses BEGIN IMMEDIATE to ensure atomic read-modify-write across threads.
+        """
         import time as _time
         conn = self._get_conn()
-        row = conn.execute(
-            "SELECT sample_count, mean, m2 "
-            "FROM sensor_zscore_stats WHERE sensor_name=? AND theater=?",
-            (sensor, theater),
-        ).fetchone()
-        if row:
-            n, mean, m2 = row[0], row[1], row[2]
-        else:
-            n, mean, m2 = 0, 0.0, 0.0
-        n += 1
-        delta = new_value - mean
-        mean += delta / n
-        delta2 = new_value - mean
-        m2 += delta * delta2
-        conn.execute(
-            "INSERT OR REPLACE INTO sensor_zscore_stats "
-            "(sensor_name, theater, sample_count, mean, m2, last_updated) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (sensor, theater, n, mean, m2, _time.time()),
-        )
-        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute(
+                "SELECT sample_count, mean, m2 "
+                "FROM sensor_zscore_stats WHERE sensor_name=? AND theater=?",
+                (sensor, theater),
+            ).fetchone()
+            if row:
+                n, mean, m2 = row[0], row[1], row[2]
+            else:
+                n, mean, m2 = 0, 0.0, 0.0
+            n += 1
+            delta = new_value - mean
+            mean += delta / n
+            delta2 = new_value - mean
+            m2 += delta * delta2
+            conn.execute(
+                "INSERT OR REPLACE INTO sensor_zscore_stats "
+                "(sensor_name, theater, sample_count, mean, m2, last_updated) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (sensor, theater, n, mean, m2, _time.time()),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def zscore_stats_all(self) -> list:
         rows = self._get_conn().execute(
@@ -1052,38 +1060,46 @@ class RadarDB:
     # ── cooccurrence_stats ─────────────────────────────────────────────────
     def cooccurrence_update(self, sensor_a: str, sensor_b: str, theater: str,
                             both_fired: bool):
-        """Update co-occurrence counts. Only increases sensitivity (per design principle)."""
+        """Update co-occurrence counts. Only increases sensitivity (per design principle).
+
+        Uses BEGIN IMMEDIATE to ensure atomic read-modify-write across threads.
+        """
         import time as _time
         # Ensure consistent ordering (sensor_a < sensor_b alphabetically)
         if sensor_a > sensor_b:
             sensor_a, sensor_b = sensor_b, sensor_a
         conn = self._get_conn()
-        row = conn.execute(
-            "SELECT co_count, solo_a_count, solo_b_count FROM cooccurrence_stats "
-            "WHERE sensor_a=? AND sensor_b=? AND theater=?",
-            (sensor_a, sensor_b, theater),
-        ).fetchone()
-        if row:
-            co = row[0] + (1 if both_fired else 0)
-            sa = row[1] + (1 if not both_fired else 0)
-            sb = row[2]
-            conn.execute(
-                "UPDATE cooccurrence_stats SET co_count=?, solo_a_count=?, "
-                "solo_b_count=?, last_updated=? "
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute(
+                "SELECT co_count, solo_a_count, solo_b_count FROM cooccurrence_stats "
                 "WHERE sensor_a=? AND sensor_b=? AND theater=?",
-                (co, sa, sb, _time.time(), sensor_a, sensor_b, theater),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO cooccurrence_stats "
-                "(sensor_a, sensor_b, theater, co_count, solo_a_count, "
-                "solo_b_count, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (sensor_a, sensor_b, theater,
-                 1 if both_fired else 0,
-                 1 if not both_fired else 0,
-                 0, _time.time()),
-            )
-        conn.commit()
+                (sensor_a, sensor_b, theater),
+            ).fetchone()
+            if row:
+                co = row[0] + (1 if both_fired else 0)
+                sa = row[1] + (1 if not both_fired else 0)
+                sb = row[2]
+                conn.execute(
+                    "UPDATE cooccurrence_stats SET co_count=?, solo_a_count=?, "
+                    "solo_b_count=?, last_updated=? "
+                    "WHERE sensor_a=? AND sensor_b=? AND theater=?",
+                    (co, sa, sb, _time.time(), sensor_a, sensor_b, theater),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO cooccurrence_stats "
+                    "(sensor_a, sensor_b, theater, co_count, solo_a_count, "
+                    "solo_b_count, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (sensor_a, sensor_b, theater,
+                     1 if both_fired else 0,
+                     1 if not both_fired else 0,
+                     0, _time.time()),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def cooccurrence_get(self, theater: str = None) -> list[dict]:
         conn = self._get_conn()

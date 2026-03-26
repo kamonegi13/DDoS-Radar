@@ -10,7 +10,7 @@ from radar.config import (
     CACHE_EXPIRY, SEQUENCE_WINDOW,
 )
 from radar.sensors.base import BaseSensor
-from radar.state import _cf_scoring_cache
+from radar.state import _cf_scoring_cache, _cf_cache_lock
 from radar.database import db as _db
 from radar.scoring import _asn_cache
 
@@ -113,8 +113,9 @@ def _cache_cleanup_worker(registry=None):
             _db.seq_cleanup(now - SEQ_LOG_WINDOW)
 
             # _cf_scoring_cache / _asn_cache: sweep expired in-memory entries
-            for k in [k for k, v in list(_cf_scoring_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
-                _cf_scoring_cache.pop(k, None)
+            with _cf_cache_lock:
+                for k in [k for k, v in list(_cf_scoring_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
+                    _cf_scoring_cache.pop(k, None)
             for k in [k for k, v in list(_asn_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
                 _asn_cache.pop(k, None)
 

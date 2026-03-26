@@ -135,9 +135,15 @@ class GreyNoiseSensor(BaseSensor):
                     "error":          None
                 }
 
-            # Save to cache
+            # Save to cache (with TTL eviction to prevent unbounded growth)
             with self._ip_lock:
                 self._ip_cache[ip] = {"result": result, "fetched_at": now}
+                # Evict expired entries (older than IP_CACHE_TTL)
+                if len(self._ip_cache) > 200:
+                    stale = [k for k, v in self._ip_cache.items()
+                             if now - v["fetched_at"] > self.IP_CACHE_TTL]
+                    for k in stale:
+                        del self._ip_cache[k]
             return result
 
         except Exception as e:

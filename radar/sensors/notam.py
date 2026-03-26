@@ -118,7 +118,11 @@ class NotamSensor(BaseSensor):
                 tfr_count = 0
 
                 if res.status_code == 200:
-                    data = res.json()
+                    try:
+                        data = res.json()
+                    except (ValueError, Exception):
+                        last_error = f"Invalid JSON from NOTAM API for {code}"
+                        continue
                     items = data if isinstance(data, list) else data.get("notamList", [])
                     total_count = len(items)
                     for item in items:

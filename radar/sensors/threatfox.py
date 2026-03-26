@@ -46,7 +46,13 @@ class ThreatFoxSensor(BaseSensor):
                 self.handle_rate_limit(res, duration)
                 return self.get_cache() or {"hits": hits}
             elif res.status_code == 200:
-                data = res.json()
+                try:
+                    data = res.json()
+                except (ValueError, requests.exceptions.JSONDecodeError):
+                    self.log_fetch(False, duration, res.status_code, 0, "Invalid JSON response")
+                    self.set_error("Invalid JSON from ThreatFox")
+                    result = {"hits": hits}; self.set_cache(result)
+                    return result
                 if data.get("query_status") in ["ok", "no_result"]:
                     iocs = data.get("data", [])
                     for code in theaters:

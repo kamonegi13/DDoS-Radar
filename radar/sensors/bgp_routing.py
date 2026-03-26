@@ -34,8 +34,13 @@ class BgpRoutingSensor(BaseSensor):
                 res = requests.get("https://stat.ripe.net/data/country-routing-stats/data.json", params={"resource": code, "sourceapp": "osint-radar"}, timeout=12, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
                 last_status = res.status_code
                 if res.status_code == 429:
-                    self.handle_rate_limit(res, round((time.time() - t0) * 1000))
-                    break
+                    # Don't break — continue processing remaining theaters
+                    prev = (self.get_cache() or {}).get("routing_stats", {}).get(code)
+                    if prev:
+                        results[code] = prev
+                    else:
+                        results[code] = {"status": "RATE_LIMITED", "is_anomaly": False}
+                    continue
                 elif res.status_code == 200:
                     stats = res.json().get("data", {}).get("stats", [])
                     if stats:
