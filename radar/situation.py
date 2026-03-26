@@ -134,16 +134,17 @@ class SituationEngine:
         """
         key = f"{theater}:{source}"
         now = time.time()
-        prev = self._last_reported.get(key)
-        if prev is None:
-            self._last_reported[key] = {"value": value, "ts": now}
-            return True
-        elapsed = now - prev["ts"]
-        delta = abs(value - prev["value"])
-        if delta > threshold or elapsed > 6 * 3600:
-            self._last_reported[key] = {"value": value, "ts": now}
-            return True
-        return False
+        with self._lock:
+            prev = self._last_reported.get(key)
+            if prev is None:
+                self._last_reported[key] = {"value": value, "ts": now}
+                return True
+            elapsed = now - prev["ts"]
+            delta = abs(value - prev["value"])
+            if delta > threshold or elapsed > 6 * 3600:
+                self._last_reported[key] = {"value": value, "ts": now}
+                return True
+            return False
 
     def update(self, registry, global_cache: dict) -> None:
         """Recompute situation summaries from current sensor caches."""

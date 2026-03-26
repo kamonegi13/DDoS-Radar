@@ -11,6 +11,7 @@ from radar.config import (
 from radar.sensors.base import BaseSensor
 from radar.scoring import register_sequence_event
 import os
+import threading
 log = logging.getLogger("radar")
 
 TELEGRAM_MIRROR_POLL = int(os.getenv("TELEGRAM_MIRROR_POLL_INTERVAL", "900"))
@@ -52,6 +53,7 @@ class TelegramMirrorSensor(BaseSensor):
         r'https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(?:/[^\s<"\']*)?'
     )
     _intercept_log: list = []   # class-level ring buffer (shared across instances)
+    _intercept_lock = threading.Lock()  # Protects _intercept_log and _baseline_tg
     _MAX_LOG        = 50
     _last_poll_ts: str  = ""
     _last_poll_ok: bool = False
@@ -158,16 +160,18 @@ class TelegramMirrorSensor(BaseSensor):
             "target_urls":     targets[:5],
             "snippet":         snippet,
         }
-        cls._intercept_log.insert(0, entry)
-        if len(cls._intercept_log) > cls._MAX_LOG:
-            cls._intercept_log.pop()
+        with cls._intercept_lock:
+            cls._intercept_log.insert(0, entry)
+            if len(cls._intercept_log) > cls._MAX_LOG:
+                cls._intercept_log.pop()
 
     @classmethod
     def _compute_zscore_tg(cls, theater: str, today_normalized: float) -> tuple:
         """Compute Z-score against rolling baseline (same logic as RssNarrativeSensor).
         Returns: (z_score, mean, std). Returns (0,0,0) until ≥7 days of data."""
-        bl    = cls._baseline_tg.get(theater, {})
-        daily = bl.get("daily_counts", [])
+        with cls._intercept_lock:
+            bl    = cls._baseline_tg.get(theater, {})
+            daily = list(bl.get("daily_counts", []))  # snapshot under lock
         if len(daily) < 7:
             return 0.0, 0.0, 0.0
         n        = len(daily)
@@ -180,12 +184,13 @@ class TelegramMirrorSensor(BaseSensor):
     @classmethod
     def _update_baseline_tg(cls, theater: str, today_normalized: float):
         """Append today's normalized frequency to rolling baseline (capped at NARRATIVE_BASELINE_DAYS)."""
-        if theater not in cls._baseline_tg:
-            cls._baseline_tg[theater] = {"daily_counts": [], "last_updated": 0.0}
-        bl = cls._baseline_tg[theater]
-        bl["daily_counts"].append(today_normalized)
-        bl["daily_counts"] = bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]
-        bl["last_updated"] = time.time()
+        with cls._intercept_lock:
+            if theater not in cls._baseline_tg:
+                cls._baseline_tg[theater] = {"daily_counts": [], "last_updated": 0.0}
+            bl = cls._baseline_tg[theater]
+            bl["daily_counts"].append(today_normalized)
+            bl["daily_counts"] = bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]
+            bl["last_updated"] = time.time()
 
     @staticmethod
     def _count_keyword_hits(text: str, keywords: list) -> int:

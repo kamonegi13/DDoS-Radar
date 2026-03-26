@@ -1,6 +1,7 @@
 """radar.sensors.checkhost -- CheckHostSensor."""
 from __future__ import annotations
 import requests
+import threading
 import time
 from collections import deque
 from radar.config import (
@@ -30,6 +31,7 @@ class CheckHostSensor(BaseSensor):
     _url_last_poll: dict = {}   # url → unix timestamp of last successful check
     # Rolling latency history: last 12 readings per URL (≈1 h at 5-min poll interval)
     _url_latency_history: dict = {}  # url → deque of latency_ms floats
+    _url_lock = threading.Lock()     # Protects _url_last_poll and _url_latency_history
 
     def __init__(self):
         super().__init__("check_host", "physical", CHECKHOST_POLL_INTERVAL)
@@ -134,9 +136,10 @@ class CheckHostSensor(BaseSensor):
             # ── Asphyxiation detection (CDN masking) ─────────────────────────────
             # Compute rolling baseline BEFORE appending current sample so the spike
             # does not contaminate the baseline it is being compared against.
-            if url not in CheckHostSensor._url_latency_history:
-                CheckHostSensor._url_latency_history[url] = deque(maxlen=12)
-            lat_history = list(CheckHostSensor._url_latency_history[url])
+            with CheckHostSensor._url_lock:
+                if url not in CheckHostSensor._url_latency_history:
+                    CheckHostSensor._url_latency_history[url] = deque(maxlen=12)
+                lat_history = list(CheckHostSensor._url_latency_history[url])
             rolling_avg = sum(lat_history) / len(lat_history) if len(lat_history) >= 3 else None
             # Asphyxiation: success looks 100% but latency has tripled vs rolling baseline
             asphyxiation = (
@@ -146,7 +149,8 @@ class CheckHostSensor(BaseSensor):
             )
             # Append current sample after comparison (update history for next cycle)
             if avg_latency is not None:
-                CheckHostSensor._url_latency_history[url].append(avg_latency)
+                with CheckHostSensor._url_lock:
+                    CheckHostSensor._url_latency_history[url].append(avg_latency)
 
             return {
                 "success_rate":   success_rate,
@@ -172,10 +176,11 @@ class CheckHostSensor(BaseSensor):
         now = time.time()
 
         # Evict stale URL entries (>24h old) to prevent unbounded growth
-        _stale_cutoff = now - 86400
-        for url in [u for u, ts in CheckHostSensor._url_last_poll.items() if ts < _stale_cutoff]:
-            CheckHostSensor._url_last_poll.pop(url, None)
-            CheckHostSensor._url_latency_history.pop(url, None)
+        with CheckHostSensor._url_lock:
+            _stale_cutoff = now - 86400
+            for url in [u for u, ts in CheckHostSensor._url_last_poll.items() if ts < _stale_cutoff]:
+                CheckHostSensor._url_last_poll.pop(url, None)
+                CheckHostSensor._url_latency_history.pop(url, None)
 
         for theater in theaters:
             urls = INFRASTRUCTURE_URLS.get(theater, [])
@@ -189,7 +194,8 @@ class CheckHostSensor(BaseSensor):
 
             for url in urls[:3]:  # Rate limit mitigation: max 3 URLs per theater
                 # Per-URL cooldown: skip if polled within the last 5 minutes
-                last_poll = CheckHostSensor._url_last_poll.get(url, 0)
+                with CheckHostSensor._url_lock:
+                    last_poll = CheckHostSensor._url_last_poll.get(url, 0)
                 if now - last_poll < CheckHostSensor._URL_COOLDOWN_SEC:
                     # Reuse cached result from previous fetch if available
                     cached_ch = self.get_cache().get("check_host", {})
@@ -210,7 +216,8 @@ class CheckHostSensor(BaseSensor):
                     url_count += 1
                     any_success = True
                     total_checked += 1
-                    CheckHostSensor._url_last_poll[url] = now
+                    with CheckHostSensor._url_lock:
+                        CheckHostSensor._url_last_poll[url] = now
                     if chk["success_rate"] >= 0.8:
                         ok_count += 1
                 if chk.get("asphyxiation"):

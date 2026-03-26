@@ -1276,7 +1276,7 @@ def get_threat_data():
                 "channels_monitored":  core_telegram.get("channels_monitored", []),
                 "target_urls":         core_telegram.get("target_urls", []),
                 "theater_breakdown":   telegram_data,
-                "recent_hits":         TelegramMirrorSensor._intercept_log[:10],
+                "recent_hits":         list(TelegramMirrorSensor._intercept_log[:10]),
                 "last_poll_ts":        TelegramMirrorSensor._last_poll_ts,
                 "last_poll_ok":        TelegramMirrorSensor._last_poll_ok,
             },

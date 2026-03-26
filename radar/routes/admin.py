@@ -99,7 +99,8 @@ def api_telegram_log_clear():
     """Clear the Telegram SIGINT intercept log."""
     auth_err = _require_admin()
     if auth_err: return auth_err
-    TelegramMirrorSensor._intercept_log.clear()
+    with TelegramMirrorSensor._intercept_lock:
+        TelegramMirrorSensor._intercept_log.clear()
     return jsonify({"ok": True, "ts": datetime.datetime.now(datetime.timezone.utc).isoformat()})
 
 
