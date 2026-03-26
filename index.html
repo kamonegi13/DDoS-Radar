@@ -301,6 +301,21 @@
                 <span class="hud-label" data-i18n="hud.label.chain">CHAIN:</span>
                 <span id="hud-chain" class="hud-value" style="font-size:10px;">—</span>
             </div>
+            <!-- A3: Triangulation -->
+            <div class="hud-item" id="hud-triangulation" data-tooltip="TRIANGULATION: All 3 domains (Cyber/Physical/Info) independently confirm anomalous activity — highest confidence convergence." data-i18n-tip="hud.tooltip.triangulation" style="display:none;">
+                <span class="hud-label" data-i18n="hud.label.triangulation">TRI:</span>
+                <span id="hud-tri-text" class="hud-value" style="font-size:10px; color:#ff4444; font-weight:bold;">CONFIRMED</span>
+            </div>
+            <!-- A1: Silent Divergence -->
+            <div class="hud-item" id="hud-silent-div" data-tooltip="SILENT DIVERGENCE: Cyber+Physical domains active but Info domain silent — possible pre-conflict reconnaissance/preparation." data-i18n-tip="hud.tooltip.silent_div" style="display:none;">
+                <span class="hud-label" data-i18n="hud.label.silent_div">SILENT:</span>
+                <span id="hud-silent-text" class="hud-value" style="font-size:10px; color:#ff8800; font-weight:bold;">—</span>
+            </div>
+            <!-- A2: Theater Baseline -->
+            <div class="hud-item" data-tooltip="BASELINE: Theater-specific Z-score showing how current score compares to 30-day historical average for this theater." data-i18n-tip="hud.tooltip.baseline">
+                <span class="hud-label" data-i18n="hud.label.baseline">BASE-Z:</span>
+                <span id="hud-baseline-z" class="hud-value" style="font-size:10px;">—</span>
+            </div>
             <!-- Intuition UI: Radio Silence -->
             <div class="hud-item" id="hud-radio-silence" data-tooltip="COMMS: GREEN=All sensors live / ORANGE=Abnormal silence detected — possible sensor suppression or pre-op comms blackout" data-i18n-tip="hud.tooltip.comms">
                 <div class="rs-dot rs-dot-live"></div>
@@ -1597,6 +1612,33 @@
             <li>INFRASTRUCTURE_NEUTRALIZATION — ≥ 7.0: Large-scale DDoS + BGP withdrawal + infrastructure blackout. Signature of a pre-invasion communications cutoff.</li>
         </ul>
 
+        <p><b>Triangulation Bonus</b> <span style="color:#dd88ff;">[WM]</span> — Applied when ALL three domains (Cyber, Physical, Info) independently confirm anomalous activity with score &ge; 1 AND confidence &ge; 0.5. This is the highest-confidence convergence signal — unlike the FULL CONVERGENCE bonus which triggers on domain threshold alone, Triangulation requires quality thresholds on both score and confidence:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #dd88ff; line-height: 1.8;">
+            <li>Condition: All 3 domains score &ge; 1 AND confidence &ge; 0.5</li>
+            <li>Bonus: TRIANGULATION_BONUS (0.5) &times; average domain confidence</li>
+            <li>Displayed in the HUD as <b>TRI: CONFIRMED</b> (red). Hidden when inactive.</li>
+        </ul>
+
+        <p><b>Silent Divergence Detection</b> <span style="color:#dd88ff;">[WM]</span> — Detects the reconnaissance/preparation phase pattern where Cyber AND Physical domains show anomalies but the Information domain is completely silent (score = 0). This absence of propaganda suggests adversary operational security rather than the typical pre-conflict media buildup:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #dd88ff; line-height: 1.8;">
+            <li>Condition: cyber &ge; 1 AND physical &ge; 1 AND info == 0</li>
+            <li>Minimum fired sensors (cyber + physical combined) &ge; SILENT_DIVERGENCE_THRESHOLD (2)</li>
+            <li>Confidence: HIGH (combined &ge; 6) / MEDIUM (&ge; 3) / LOW (&lt; 3)</li>
+            <li>Score injection: +2 (HIGH) or +1 (MEDIUM/LOW) to cyber domain as &ldquo;silent_divergence&rdquo;</li>
+            <li>Displayed in the HUD as <b>SILENT: HIGH/MED/LOW</b> (orange). Hidden when inactive.</li>
+            <li style="color:#888; font-size:10px;">Anti-bias note: This pattern is also consistent with benign explanations (sensors offline, calm news cycle). The confidence tier system explicitly communicates uncertainty to the analyst.</li>
+        </ul>
+
+        <p><b>Theater Baseline Z-Score</b> <span style="color:#dd88ff;">[WM]</span> — Provides per-theater historical context by computing how the current score compares to its own 30-day rolling average. The same raw score of 4.0 means very different things for a chronically active theater (TW) vs. a normally quiet one (Baltic):</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #dd88ff; line-height: 1.8;">
+            <li>Window: THEATER_BASELINE_WINDOW (30 days), minimum THEATER_BASELINE_MIN_SAMPLES (20) required</li>
+            <li>Formula: Z = (current_score &minus; baseline_mean) / baseline_std</li>
+            <li>Anomalous: Z &gt; 2.0 (current score is &gt;2&sigma; above this theater&rsquo;s normal)</li>
+            <li>Displayed in the HUD as <b>BASE-Z: &plusmn;X.XX&sigma;</b> — red (&gt;2&sigma;), yellow (&gt;1&sigma;), green (&lt;&minus;1&sigma;), white (normal)</li>
+            <li style="color:#888; font-size:10px;">Theater baseline does NOT modify the score — it provides context only. The analyst decides whether an anomalous baseline deviation warrants action.</li>
+        </ul>
+        <p style="font-size:11px; color:#888;"><span style="color:#dd88ff;">■</span> = WorldMonitor-inspired analytical enhancements.</p>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>3. スコアリングエンジン &amp; 収束アルゴリズム</h4>
@@ -1698,6 +1740,33 @@
             <li>深刻な障害             — 4.0〜6.9: 高 DDoS + RIPE プレフィックス削減 + 部分的 Check-Host 障害が同時発生。</li>
             <li>インフラ無力化 — ≥ 7.0: 大規模 DDoS + BGP 撤退 + インフラブラックアウト。侵攻前通信遮断の特徴。</li>
         </ul>
+
+        <p><b>三角測量ボーナス</b> <span style="color:#dd88ff;">[WM]</span> — 3ドメイン（サイバー、物理、情報）すべてが独立してスコア &ge; 1 かつ 信頼度 &ge; 0.5 で異常を確認した場合に加算。ドメインしきい値のみで発動する FULL CONVERGENCE とは異なり、スコアと信頼度の両方に品質閾値を要求する最高信頼度の収束シグナル:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #dd88ff; line-height: 1.8;">
+            <li>条件: 3ドメインすべてのスコア &ge; 1 かつ 信頼度 &ge; 0.5</li>
+            <li>ボーナス: TRIANGULATION_BONUS (0.5) &times; ドメイン平均信頼度</li>
+            <li>HUD に <b>TRI: CONFIRMED</b>（赤）として表示。非アクティブ時は非表示。</li>
+        </ul>
+
+        <p><b>サイレント乖離検出</b> <span style="color:#dd88ff;">[WM]</span> — サイバーおよび物理ドメインが異常を示すが情報ドメインが完全に沈黙（スコア = 0）している偵察/準備フェーズのパターンを検出。プロパガンダの不在は、典型的な紛争前メディア展開ではなく、敵対側の作戦保全を示唆:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #dd88ff; line-height: 1.8;">
+            <li>条件: cyber &ge; 1 かつ physical &ge; 1 かつ info == 0</li>
+            <li>発報センサー数（サイバー+物理合計）&ge; SILENT_DIVERGENCE_THRESHOLD (2)</li>
+            <li>信頼度: HIGH（合計 &ge; 6）/ MEDIUM（&ge; 3）/ LOW（&lt; 3）</li>
+            <li>スコア注入: +2（HIGH）または +1（MEDIUM/LOW）をサイバードメインに「silent_divergence」として加算</li>
+            <li>HUD に <b>SILENT: HIGH/MED/LOW</b>（橙）として表示。非アクティブ時は非表示。</li>
+            <li style="color:#888; font-size:10px;">バイアス防止注記: このパターンは良性の説明（センサーオフライン、穏やかなニュースサイクル）とも整合する。信頼度ティアシステムはアナリストに不確実性を明示的に伝達する。</li>
+        </ul>
+
+        <p><b>シアター基準Zスコア</b> <span style="color:#dd88ff;">[WM]</span> — 現在のスコアがそのシアター自身の30日間ローリング平均と比較してどの位置にあるかを算出し、シアター固有の文脈を提供。同じ生スコア4.0でも、慢性的にアクティブなシアター（TW）と通常静かなシアター（Baltic）では意味が大きく異なる:</p>
+        <ul style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 10px; border-left: 2px solid #dd88ff; line-height: 1.8;">
+            <li>ウィンドウ: THEATER_BASELINE_WINDOW（30日）、最小 THEATER_BASELINE_MIN_SAMPLES（20）が必要</li>
+            <li>計算式: Z = (current_score &minus; baseline_mean) / baseline_std</li>
+            <li>異常判定: Z &gt; 2.0（現在スコアがそのシアターの通常値から2&sigma;超）</li>
+            <li>HUD に <b>BASE-Z: &plusmn;X.XX&sigma;</b> として表示 — 赤（&gt;2&sigma;）、黄（&gt;1&sigma;）、緑（&lt;&minus;1&sigma;）、白（通常）</li>
+            <li style="color:#888; font-size:10px;">シアター基準はスコアを変更しない — コンテキストのみを提供。ベースライン乖離の異常が対処を要するかはアナリストが判断する。</li>
+        </ul>
+        <p style="font-size:11px; color:#888;"><span style="color:#dd88ff;">■</span> = WorldMonitor着想の分析強化機能。</p>
 
         </div>
         </div><!-- /guide-ch-3 -->

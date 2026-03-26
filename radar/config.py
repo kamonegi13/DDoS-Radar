@@ -179,6 +179,12 @@ SEVERE_WEATHER_IDS = (
     {600, 602, 621, 622} | {711, 762} | {771, 781} | {900, 902}
 )
 
+# ── Theater Baseline & Cross-Domain Correlation ─────────────────────────────
+THEATER_BASELINE_WINDOW      = int(os.getenv("THEATER_BASELINE_WINDOW", "30"))      # Days for auto-baseline
+THEATER_BASELINE_MIN_SAMPLES = int(os.getenv("THEATER_BASELINE_MIN_SAMPLES", "20")) # Min samples for Z-score
+TRIANGULATION_BONUS          = float(os.getenv("TRIANGULATION_BONUS", "0.5"))       # Extra bonus for 3-domain convergence
+SILENT_DIVERGENCE_THRESHOLD  = int(os.getenv("SILENT_DIVERGENCE_THRESHOLD", "2"))   # Min cyber+physical anomalies for silent divergence
+
 # ── Deep Pattern Analysis Config ───────────────────────────────────────────────
 # A. DDoS Acceleration Engine
 AMBUSH_ZSCORE_THRESHOLD = float(os.getenv("AMBUSH_ZSCORE_THRESHOLD", "2.0"))

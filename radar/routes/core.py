@@ -1148,11 +1148,39 @@ def get_threat_data():
         convergence_score = _routes.engine.compute_convergence_score(domain_scores)
         domain_confidences = _routes.engine.compute_domain_confidences(rationale)
         score_with_bonus, conv_bonus, convergence_level = _routes.engine.apply_convergence_bonus(total_score, domain_scores, domain_confidences)
+
+        # ── A3: Triangulation bonus (3-domain quality confirmation) ────────
+        tri_bonus, is_triangulated, tri_detail = \
+            _routes.engine.compute_triangulation_bonus(domain_scores, domain_confidences)
+        if is_triangulated:
+            score_with_bonus += tri_bonus
+
+        # ── A1: Silent Divergence detection ────────────────────────────────
+        is_silent_div, silent_div_conf, silent_div_detail = \
+            _routes.engine.detect_silent_divergence(domain_scores, rationale)
+        if is_silent_div:
+            _sd_score = 2 if silent_div_conf == "HIGH" else 1
+            add_rat("silent_divergence", "cyber",
+                    "FIRED", f"conf={silent_div_conf}",
+                    _sd_score, silent_div_detail)
+            # Recalculate domain_scores after adding silent divergence rationale
+            domain_scores = _routes.engine.compute_domain_scores(rationale)
+            total_score = sum(e.score * e.confidence for e in rationale if e.status == "FIRED" and not e.suppressed)
+            total_score = round(total_score * _cooc_factor, 2)
+            score_with_bonus, conv_bonus, convergence_level = _routes.engine.apply_convergence_bonus(total_score, domain_scores, domain_confidences)
+            if is_triangulated:
+                score_with_bonus += tri_bonus
+
         # Add Sequence Bonus and Temporal Coherence Bonus to final score
         score_with_bonus += seq_bonus + temporal_bonus
         # Cap final score to prevent bonus stacking from inflating beyond TL1 threshold ceiling
         score_with_bonus = min(score_with_bonus, 15)
         active_domains = sum(1 for s in domain_scores.values() if s > 0)
+
+        # ── A2: Theater Baseline — record score and compute Z-score ────────
+        _routes.engine.record_theater_score(core_theater, score_with_bonus)
+        theater_baseline = _routes.engine.compute_theater_zscore(core_theater, score_with_bonus)
+
         tl_raw = _routes.engine.compute_threat_level(score_with_bonus, tl1_hard, active_domains)
         prev_threat = _db.threat_last()
         prev_threat_level = prev_threat[1] if prev_threat else 5
@@ -1174,6 +1202,16 @@ def get_threat_data():
             pass  # Non-critical
 
         system_note = _routes.engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
+        # Append new analysis annotations
+        if is_triangulated:
+            system_note += f" TRIANGULATION: {tri_detail}"
+        if is_silent_div:
+            system_note += f" SILENT DIVERGENCE [{silent_div_conf}]: cyber+physical active, info silent."
+        if theater_baseline.get("is_anomalous"):
+            system_note += (f" THEATER BASELINE ANOMALY: Z={theater_baseline['z_score']:.1f} "
+                            f"(mean={theater_baseline['baseline_mean']:.1f}, "
+                            f"std={theater_baseline['baseline_std']:.1f}, "
+                            f"n={theater_baseline['samples']})")
 
         # ── CAC: Context Alignment & Direction Summary ─────────────────────────
         context_alignment = _routes.engine.compute_context_alignment(rationale)
@@ -1339,6 +1377,20 @@ def get_threat_data():
             # CAC: Context-Aware Convergence
             "context_alignment": context_alignment,
             "direction_summary": direction_summary,
+            # A2: Theater Baseline Risk (auto-calculated Z-score)
+            "theater_baseline": theater_baseline,
+            # A3: Triangulation (3-domain quality confirmation)
+            "triangulation": {
+                "is_triangulated": is_triangulated,
+                "bonus":           tri_bonus,
+                "detail":          tri_detail,
+            },
+            # A1: Silent Divergence (cyber+physical active, info silent)
+            "silent_divergence": {
+                "detected":    is_silent_div,
+                "confidence":  silent_div_conf,
+                "detail":      silent_div_detail,
+            },
             # Phase 4: IHR / RIPE Atlas / Tor Metrics
             "ihr": {
                 "core_disco": ihr_disco.get(core_theater, []),
@@ -1394,8 +1446,11 @@ def get_threat_data():
             "high_correlation": high_correlation, "core_shifted": core_shifted, "major_adversary": major_adversary, "core_degraded": core_degraded,
             "is_coordinated": is_coordinated, "tl1_hard": tl1_hard, "total_score": total_score,
             "convergence_bonus": conv_bonus, "sequence_bonus": seq_bonus, "temporal_bonus": temporal_bonus,
+            "triangulation_bonus": tri_bonus, "is_triangulated": is_triangulated,
             "score_with_bonus": score_with_bonus, "threat_raw": tl_raw, "threat_held": tl_held,
             "is_c2_sync": is_c2_sync, "is_maskirovka": is_maskirovka,
+            "is_silent_divergence": is_silent_div, "silent_divergence_conf": silent_div_conf,
+            "theater_baseline": theater_baseline,
             "cooccurrence_boost": _cooc_factor,
         }
 

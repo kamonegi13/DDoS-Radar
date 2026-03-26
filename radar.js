@@ -2380,6 +2380,36 @@
             // Update Evidence Chain Panel
             updateChainPanel(strat);
 
+            // A3: Triangulation indicator
+            const triEl = document.getElementById('hud-triangulation');
+            if (triEl) triEl.style.display = p8.triangulation?.is_triangulated ? 'flex' : 'none';
+
+            // A1: Silent Divergence indicator
+            const sdEl = document.getElementById('hud-silent-div');
+            const sdText = document.getElementById('hud-silent-text');
+            if (sdEl && p8.silent_divergence) {
+                const sd = p8.silent_divergence;
+                sdEl.style.display = sd.detected ? 'flex' : 'none';
+                if (sdText && sd.detected) {
+                    sdText.textContent = sd.confidence;
+                    sdText.style.color = sd.confidence === 'HIGH' ? '#ff2200' : sd.confidence === 'MEDIUM' ? '#ff8800' : '#ffaa00';
+                }
+            }
+
+            // A2: Theater Baseline Z-score
+            const baseZEl = document.getElementById('hud-baseline-z');
+            if (baseZEl && p8.theater_baseline) {
+                const tb = p8.theater_baseline;
+                if (tb.samples >= 20) {
+                    const z = tb.z_score;
+                    baseZEl.textContent = (z >= 0 ? '+' : '') + z.toFixed(1) + 'σ';
+                    baseZEl.style.color = z > 2.0 ? '#ff2200' : z > 1.0 ? '#ffaa00' : z < -1.0 ? '#66ffaa' : '#aaa';
+                } else {
+                    baseZEl.textContent = `(n=${tb.samples})`;
+                    baseZEl.style.color = '#555';
+                }
+            }
+
             // ── v9 new sensor panel update ───────────────────────────────
             if (document.getElementById('gn-panel')?.style.display !== 'none') {
                 updateGreyNoisePanel(p8);

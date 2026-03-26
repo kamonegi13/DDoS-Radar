@@ -2,6 +2,7 @@
 from __future__ import annotations
 import math
 import threading
+import time
 from typing import Optional
 from radar.config import (
     CONVERGENCE_DUAL_BONUS, CONVERGENCE_FULL_BONUS,
@@ -11,6 +12,8 @@ from radar.config import (
     FEINT_MIN_DISTRACTION_DOMAINS,
     ESCALATION_TL_THRESHOLDS,
     DOMAIN_WEIGHT_CYBER, DOMAIN_WEIGHT_PHYSICAL, DOMAIN_WEIGHT_INFO,
+    THEATER_BASELINE_WINDOW, THEATER_BASELINE_MIN_SAMPLES,
+    TRIANGULATION_BONUS, SILENT_DIVERGENCE_THRESHOLD,
 )
 from radar.models import (
     RationaleEntry,
@@ -806,6 +809,132 @@ class WeightedConvergenceEngine:
                 db.forecast_log_resolve(f["id"], actual_str, accuracy)
             except Exception:
                 pass
+
+    # ── A2: Theater Baseline Risk (auto-calculated) ──────────────────────────
+
+    def __init__(self):
+        self._theater_baselines: dict[str, list[tuple[float, float]]] = {}
+        self._baseline_lock = threading.Lock()
+
+    def record_theater_score(self, theater: str, score: float):
+        """Record a score sample for theater baseline computation."""
+        now = time.time()
+        cutoff = now - THEATER_BASELINE_WINDOW * 86400
+        with self._baseline_lock:
+            history = self._theater_baselines.setdefault(theater, [])
+            history.append((now, score))
+            # Prune entries older than the baseline window
+            self._theater_baselines[theater] = [
+                (t, s) for t, s in history if t > cutoff
+            ]
+
+    def compute_theater_zscore(self, theater: str, current_score: float) -> dict:
+        """Compute Z-score of current score against theater-specific baseline.
+
+        Returns: {"z_score": float, "baseline_mean": float, "baseline_std": float,
+                  "samples": int, "is_anomalous": bool}
+        """
+        with self._baseline_lock:
+            history = list(self._theater_baselines.get(theater, []))
+        scores = [s for _, s in history]
+        n = len(scores)
+        if n < THEATER_BASELINE_MIN_SAMPLES:
+            return {"z_score": 0.0, "baseline_mean": 0.0, "baseline_std": 0.0,
+                    "samples": n, "is_anomalous": False}
+        mean = sum(scores) / n
+        variance = sum((s - mean) ** 2 for s in scores) / n
+        std = math.sqrt(variance) if variance > 0 else 0.0
+        z = (current_score - mean) / std if std > 0 else 0.0
+        return {
+            "z_score": round(z, 3),
+            "baseline_mean": round(mean, 3),
+            "baseline_std": round(std, 3),
+            "samples": n,
+            "is_anomalous": z > 2.0,
+        }
+
+    # ── A3: Triangulation (3-domain quality bonus) ─────────────────────────
+
+    @staticmethod
+    def compute_triangulation_bonus(domain_scores: dict,
+                                     domain_confidences: dict) -> tuple:
+        """Award additional bonus when ALL 3 domains (cyber, physical, info)
+        independently confirm anomalous activity.
+
+        Unlike convergence_bonus (which only checks domain count), triangulation
+        verifies that each domain has meaningful signal strength (score >= 1)
+        AND reasonable confidence (>= 0.5).
+
+        Returns: (bonus: float, is_triangulated: bool, detail: str)
+        """
+        domains = ["cyber", "physical", "info"]
+        active_strong = []
+        for d in domains:
+            score = domain_scores.get(d, 0)
+            conf = domain_confidences.get(d, 0)
+            if score >= 1 and conf >= 0.5:
+                active_strong.append(d)
+
+        if len(active_strong) == 3:
+            # Quality-weighted: average confidence across all 3 domains
+            avg_conf = sum(domain_confidences.get(d, 1.0) for d in domains) / 3
+            bonus = round(TRIANGULATION_BONUS * avg_conf, 2)
+            detail = (f"Triangulation confirmed: all 3 domains active with "
+                      f"avg confidence {avg_conf:.2f} (+{bonus}pt)")
+            return bonus, True, detail
+        return 0.0, False, ""
+
+    # ── A1: Silent Divergence (anomaly with info silence) ──────────────────
+
+    @staticmethod
+    def detect_silent_divergence(domain_scores: dict, rationale: list) -> tuple:
+        """Detect when cyber AND physical domains show anomalies but the
+        information domain is completely silent.
+
+        This pattern indicates potential pre-conflict reconnaissance or
+        preparatory activity that has not yet been publicly reported —
+        the most dangerous phase of escalation.
+
+        Requires BOTH cyber AND physical to be active (>= 1pt each) while
+        info is zero. A single active domain is NOT sufficient (too many
+        false positives from routine cyber noise or weather events).
+
+        Returns: (is_silent_div: bool, confidence: str, detail: str)
+        """
+        cyber_score = domain_scores.get("cyber", 0)
+        physical_score = domain_scores.get("physical", 0)
+        info_score = domain_scores.get("info", 0)
+
+        # Require BOTH cyber AND physical active, info silent
+        if cyber_score < 1 or physical_score < 1:
+            return False, "NONE", ""
+        if info_score > 0:
+            return False, "NONE", ""
+
+        # Count how many cyber+physical sensors actually fired
+        fired_cp = [e for e in rationale
+                    if isinstance(e, RationaleEntry)
+                    and e.status == "FIRED" and not e.suppressed
+                    and e.domain in ("cyber", "physical")]
+        if len(fired_cp) < SILENT_DIVERGENCE_THRESHOLD:
+            return False, "NONE", ""
+
+        # Confidence based on signal strength
+        combined = cyber_score + physical_score
+        if combined >= 6:
+            confidence = "HIGH"
+        elif combined >= 3:
+            confidence = "MEDIUM"
+        else:
+            confidence = "LOW"
+
+        sensors = [e.sensor for e in fired_cp]
+        detail = (f"Silent Divergence: {len(fired_cp)} sensors across cyber "
+                  f"({cyber_score:.1f}pt) and physical ({physical_score:.1f}pt) "
+                  f"domains active, but info domain is silent. "
+                  f"Sensors: {', '.join(sensors[:5])}. "
+                  f"Possible pre-conflict reconnaissance/preparation phase.")
+        return True, confidence, detail
 
     @staticmethod
     def compute_cooccurrence_boost(db, fired_sensors: list[str],
