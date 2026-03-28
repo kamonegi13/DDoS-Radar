@@ -114,22 +114,40 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None,
 
 
 # ── Cache cleanup worker ──
+_CF_CACHE_MAX_SIZE = 1000  # Hard cap on _cf_scoring_cache entries
+
+
 def _cache_cleanup_worker(registry=None):
-    """Daemon thread: removes expired cache entries from all caches every hour."""
-    CLEANUP_INTERVAL = 3600  # 1 hour
-    SEQ_LOG_WINDOW   = SEQUENCE_WINDOW  # 24h
+    """Daemon thread: removes expired cache entries from all caches every hour.
+    Also runs a full SQLite prune + WAL checkpoint once every 24 hours.
+    """
+    CLEANUP_INTERVAL  = 3600   # 1 hour
+    DB_CLEANUP_EVERY  = 24     # cycles → once per day
+    SEQ_LOG_WINDOW    = SEQUENCE_WINDOW  # 24h
+    _cycle = 0
+
     while True:
         time.sleep(CLEANUP_INTERVAL)
+        _cycle += 1
         try:
             now = time.time()
 
             # sequence_event_log: prune old events in SQLite
             _db.seq_cleanup(now - SEQ_LOG_WINDOW)
 
-            # _cf_scoring_cache / _asn_cache: sweep expired in-memory entries
+            # _cf_scoring_cache: sweep expired entries, then enforce MAX SIZE cap
             with _cf_cache_lock:
-                for k in [k for k, v in list(_cf_scoring_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
+                for k in [k for k, v in list(_cf_scoring_cache.items())
+                          if now - v["time"] > CACHE_EXPIRY * 3]:
                     _cf_scoring_cache.pop(k, None)
+                # If still over cap after TTL eviction, drop oldest entries
+                if len(_cf_scoring_cache) > _CF_CACHE_MAX_SIZE:
+                    overflow = len(_cf_scoring_cache) - _CF_CACHE_MAX_SIZE
+                    oldest = sorted(_cf_scoring_cache.items(), key=lambda x: x[1]["time"])
+                    for k, _ in oldest[:overflow]:
+                        _cf_scoring_cache.pop(k, None)
+
+            # _asn_cache: sweep expired entries
             for k in [k for k, v in list(_asn_cache.items()) if now - v["time"] > CACHE_EXPIRY * 3]:
                 _asn_cache.pop(k, None)
 
@@ -142,7 +160,13 @@ def _cache_cleanup_worker(registry=None):
                     for k in stale_ips:
                         gn._ip_cache.pop(k, None)
 
-            log.info(f"[Cleanup] baseline={_db.baseline_len()} seqlog={_db.seq_total()} "
-                  f"cf_cache={len(_cf_scoring_cache)} asn_cache={len(_asn_cache)}")
+            log.info(f"[Cleanup] cycle={_cycle} baseline={_db.baseline_len()} "
+                     f"seqlog={_db.seq_total()} "
+                     f"cf_cache={len(_cf_scoring_cache)} asn_cache={len(_asn_cache)}")
+
+            # Daily: prune SQLite tables and checkpoint WAL
+            if _cycle % DB_CLEANUP_EVERY == 0:
+                _db.periodic_cleanup()
+
         except Exception as e:
             log.error(f"[Cleanup] Error: {e}")

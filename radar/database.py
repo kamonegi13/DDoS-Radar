@@ -1121,25 +1121,45 @@ class RadarDB:
     # ── Startup Cleanup ────────────────────────────────────────────────────
     def startup_cleanup(self):
         """Prune stale data on startup. Called once during app init."""
+        self._prune_stale_rows()
+        log.info("[DB] Startup cleanup complete")
+
+    def periodic_cleanup(self):
+        """Prune stale data during long-running operation. Called daily by the cleanup worker."""
+        deleted = self._prune_stale_rows()
+        conn = self._get_conn()
+        # WAL checkpoint: flush WAL to main DB file and reset WAL size
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.commit()
+        log.info(f"[DB] Periodic cleanup complete — deleted rows: {deleted}, WAL checkpointed")
+
+    def _prune_stale_rows(self) -> dict:
+        """Execute all time-based DELETE statements. Returns counts of deleted rows."""
         import time as _time
         conn = self._get_conn()
-        cutoff_30d = _time.time() - 30 * 86400
-        # Prune old sequence events (keep last 30 days)
-        conn.execute("DELETE FROM sequence_events WHERE ts < ?", (cutoff_30d,))
-        # Prune old revoked tokens (expired tokens older than 7 days)
-        cutoff_7d = _time.time() - 7 * 86400
-        conn.execute("DELETE FROM revoked_tokens WHERE revoked_at < ?", (cutoff_7d,))
-        # Prune old fetch log entries (keep last 7 days)
-        conn.execute("DELETE FROM sensor_fetch_log WHERE ts < ?", (cutoff_7d,))
-        # Prune expired noise exclusion rules
-        conn.execute("DELETE FROM noise_exclusion WHERE expires_at IS NOT NULL AND expires_at < ?",
-                      (_time.time(),))
-        # Prune old climate events and situation wire (keep last 48 hours)
-        cutoff_48h = _time.time() - 48 * 86400
-        conn.execute("DELETE FROM climate_events WHERE ts < ?", (cutoff_48h,))
-        conn.execute("DELETE FROM situation_wire WHERE ts < ?", (cutoff_48h,))
+        now = _time.time()
+        cutoff_30d = now - 30 * 86400
+        cutoff_7d  = now - 7 * 86400
+        cutoff_48h = now - 48 * 3600
+
+        deleted: dict[str, int] = {}
+
+        cur = conn.execute("DELETE FROM sequence_events WHERE ts < ?", (cutoff_30d,))
+        deleted["sequence_events"] = cur.rowcount
+        cur = conn.execute("DELETE FROM revoked_tokens WHERE revoked_at < ?", (cutoff_7d,))
+        deleted["revoked_tokens"] = cur.rowcount
+        cur = conn.execute("DELETE FROM sensor_fetch_log WHERE ts < ?", (cutoff_7d,))
+        deleted["sensor_fetch_log"] = cur.rowcount
+        cur = conn.execute(
+            "DELETE FROM noise_exclusion WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
+        deleted["noise_exclusion"] = cur.rowcount
+        cur = conn.execute("DELETE FROM climate_events WHERE ts < ?", (cutoff_48h,))
+        deleted["climate_events"] = cur.rowcount
+        cur = conn.execute("DELETE FROM situation_wire WHERE ts < ?", (cutoff_48h,))
+        deleted["situation_wire"] = cur.rowcount
+
         conn.commit()
-        log.info("[DB] Startup cleanup complete")
+        return deleted
 
     # ── Climate Events ─────────────────────────────────────────────────────
     def climate_events_save(self, events: list[dict]):
