@@ -4856,8 +4856,14 @@
 
     // Per-sensor config: angle (degrees from north, CW), short label, domain
     const SENSOR_ICON_CFG = {
-        'cloudflare_radar': {angle:   0, label: 'CF',   domain: 'cyber'},
-        'ripe_bgp':         {angle: 330, label: 'BGP',  domain: 'cyber'},
+        'cloudflare_radar':    {angle:   0, label: 'CF',    domain: 'cyber'},
+        'cf_spike_core':       {angle:   0, label: 'DDOS',  domain: 'cyber'},
+        'cf_coordinated':      {angle:   0, label: 'COORD', domain: 'cyber'},
+        'cf_botnet_overlap':   {angle:   0, label: 'BOTNT', domain: 'cyber'},
+        'cf_adversary_strike': {angle:   0, label: 'ADVST', domain: 'cyber'},
+        'cf_vector_shift':     {angle:   0, label: 'VSHFT', domain: 'cyber'},
+        'cf_bgp_hijack':       {angle:   0, label: 'HIJCK', domain: 'cyber'},
+        'ripe_bgp':            {angle: 330, label: 'BGP',   domain: 'cyber'},
         'check_host':       {angle:  30, label: 'CH',   domain: 'cyber'},
         'threatfox':        {angle: 305, label: 'TFX',  domain: 'cyber'},
         'greynoise':        {angle:  55, label: 'GN',   domain: 'cyber'},
@@ -4875,6 +4881,21 @@
         'ihr_delay':        {angle: 150, label: 'IHRd', domain: 'physical'},
         'ripe_atlas':       {angle: 108, label: 'ATL',  domain: 'physical'},
         'tor_metrics':      {angle: 230, label: 'TOR',  domain: 'info'},
+        // Composite / derived sensors (no dedicated map marker — angle matches nearest domain)
+        'ct_log':           {angle:  30, label: 'CT',   domain: 'cyber'},
+        'ooni_censorship':  {angle:  30, label: 'OONI', domain: 'cyber'},
+        'gps_jamming':      {angle: 192, label: 'GPS',  domain: 'physical'},
+        'usgs_seismic':     {angle: 143, label: 'SEIS', domain: 'physical'},
+        'mil_support_air':  {angle:  75, label: 'MIL',  domain: 'physical'},
+        'space_weather':    {angle: 192, label: 'SPWX', domain: 'physical'},
+        'notam':            {angle:  75, label: 'NTAM', domain: 'physical'},
+        'travel_advisory':  {angle: 268, label: 'TRVL', domain: 'info'},
+        'ddos_acceleration':{angle:   0, label: 'DACC', domain: 'cyber'},
+        'blockade_index':   {angle:   0, label: 'BLKD', domain: 'cyber'},
+        'cdn_asphyxiation': {angle:   0, label: 'CDN',  domain: 'cyber'},
+        'silent_divergence':{angle:   0, label: 'SDIV', domain: 'cyber'},
+        'maskirovka_flag':  {angle: 268, label: 'MASK', domain: 'info'},
+        'feint_detector':   {angle:   0, label: 'FINT', domain: 'cyber'},
     };
 
     const HALO_CFG = {
