@@ -339,6 +339,18 @@
                 }
             }
             panel.style.display = show ? 'flex' : 'none';
+            // Re-render dirty panels that were skipped while hidden
+            if (show && panel.dataset.dirty === '1') {
+                panel.dataset.dirty = '';
+                const _dirtyMap = {
+                    'weather-brief-panel': typeof renderWeatherBrief === 'function' ? renderWeatherBrief : null,
+                    'hist-analog-panel': typeof renderHistoricalAnalog === 'function' ? renderHistoricalAnalog : null,
+                    'corr-heatmap-panel': typeof renderCorrHeatmap === 'function' ? renderCorrHeatmap : null,
+                    'attack-phase-panel': typeof renderAttackPhasePanel === 'function' ? renderAttackPhasePanel : null,
+                    'gn-panel': typeof updateGreyNoisePanel === 'function' ? () => updateGreyNoisePanel(window._lastThreatData) : null,
+                };
+                if (_dirtyMap[panelId]) _dirtyMap[panelId]();
+            }
             if (show && onShow) onShow();
             if (!show && onHide) onHide();
             updateSidebarVisibility();
@@ -2170,8 +2182,14 @@
         const displayTargets = curr.displays;
 
         // P4-Opt: skip if data + UI state are unchanged
-        // Use JSON hash of strategic_alert to catch any data change (TL, scores, correlations, analytics, etc.)
-        const _stratHash = data.strategic_alert ? JSON.stringify(data.strategic_alert).length + '_' + (data.strategic_alert.threat_level || 0) + '_' + (data.strategic_alert.score_with_bonus || 0) : '';
+        // Hash strategic_alert including convergence level and domain scores
+        const _stratHash = data.strategic_alert ? (
+            (data.strategic_alert.threat_level || 0) + '_' +
+            (data.strategic_alert.score_with_bonus || 0) + '_' +
+            (data.strategic_alert.convergence_level || '') + '_' +
+            JSON.stringify(data.strategic_alert.domains || {}) + '_' +
+            (data.strategic_alert.rationale_matrix || []).map(e => `${e.sensor}:${e.status}:${e.score}`).join(',')
+        ) : '';
         const _tgtHash = (data.targets || []).map(t => `${t.code}:${t.avg_spike||0}:${t.l7_spike||0}`).join('|');
         const _sig = `${data.timestamp || ''}_${currentVector}_${[...displayTargets].sort().join(',')}_${mapCenterMode}_${_stratHash}_${_tgtHash}`;
         if (_sig === _lastRenderSig) return;
@@ -2411,8 +2429,12 @@
             }
 
             // ── v9 new sensor panel update ───────────────────────────────
-            if (document.getElementById('gn-panel')?.style.display !== 'none') {
+            const gnEl = document.getElementById('gn-panel');
+            if (gnEl && gnEl.style.display !== 'none') {
                 updateGreyNoisePanel(p8);
+                gnEl.dataset.dirty = '';
+            } else if (gnEl) {
+                gnEl.dataset.dirty = '1';
             }
             // Auto-log DEFCON changes to Analyst Notebook
             const newLevel = strat.threat_level;
@@ -2435,15 +2457,23 @@
             updateSensorMarkers(strat, coreCoord);
             updateDrilldown(strat);
 
-            // Refresh open panels only (suppress unnecessary API calls)
-            const wbPanel = document.getElementById('weather-brief-panel');
-            if (wbPanel && wbPanel.style.display !== 'none') renderWeatherBrief();
-            const haPanel = document.getElementById('hist-analog-panel');
-            if (haPanel && haPanel.style.display !== 'none') renderHistoricalAnalog();
-            const corrPanel = document.getElementById('corr-heatmap-panel');
-            if (corrPanel && (corrPanel.style.display !== 'none' || corrPanel.closest('#left-sidebar'))) renderCorrHeatmap();
-            const phasePanel = document.getElementById('attack-phase-panel');
-            if (phasePanel && (phasePanel.style.display !== 'none' || phasePanel.closest('#left-sidebar'))) renderAttackPhasePanel();
+            // Refresh open/visible panels only; mark hidden ones dirty for on-show render
+            const _panelRenders = [
+                ['weather-brief-panel', renderWeatherBrief],
+                ['hist-analog-panel', renderHistoricalAnalog],
+                ['corr-heatmap-panel', renderCorrHeatmap],
+                ['attack-phase-panel', renderAttackPhasePanel],
+            ];
+            for (const [pid, fn] of _panelRenders) {
+                const el = document.getElementById(pid);
+                if (!el) continue;
+                if (el.style.display !== 'none' || el.closest('#left-sidebar')) {
+                    fn();
+                    el.dataset.dirty = '';
+                } else {
+                    el.dataset.dirty = '1';
+                }
+            }
         }
 
         // ── Sensor Fleet Health HUD ──
@@ -3296,7 +3326,13 @@
                 _wsSocket.on('sensor_status', (data) => {
                     console.info('[WS] Sensor status:', data.sensor, data.status);
                     if (data.sensor && data.status) {
-                        _sensorHealthCache[data.sensor] = data.status;
+                        // Preserve existing object fields (domain, last_fetch_ts, cb_state) when WS only sends status string
+                        const prev = _sensorHealthCache[data.sensor];
+                        if (prev && typeof prev === 'object') {
+                            _sensorHealthCache[data.sensor] = { ...prev, status: data.status, cb_state: data.status === 'CIRCUIT_OPEN' ? 'OPEN' : prev.cb_state };
+                        } else {
+                            _sensorHealthCache[data.sensor] = data.status;
+                        }
                         _updateSensorHealthHUD(_sensorHealthCache);
                     }
                 });
@@ -3306,9 +3342,22 @@
         }
         // Periodic refresh: always poll to trigger server-side scoring + WS push
         // WS delivers real-time alerts (ambush, sensor status) between polls
-        setInterval(() => {
-            fetchDDoSData(false);
-        }, _POLL_INTERVAL_MS);
+        const _POLL_HIDDEN_MS = 60 * 60 * 1000; // 60 min when tab hidden
+        let _pollTimer = setInterval(() => fetchDDoSData(false), _POLL_INTERVAL_MS);
+
+        document.addEventListener('visibilitychange', () => {
+            clearInterval(_pollTimer);
+            if (document.hidden) {
+                // Reduce polling when analyst is in another tab
+                _pollTimer = setInterval(() => fetchDDoSData(false), _POLL_HIDDEN_MS);
+                console.info('[Poll] Tab hidden — reduced to 60min interval');
+            } else {
+                // Immediate catch-up fetch, then resume normal interval
+                fetchDDoSData(false);
+                _pollTimer = setInterval(() => fetchDDoSData(false), _POLL_INTERVAL_MS);
+                console.info('[Poll] Tab visible — resumed normal interval');
+            }
+        });
     }
     
     // Boot sequence
@@ -3715,7 +3764,112 @@
             tbody.innerHTML = `<tr><td colspan="8" style="color:#555; text-align:center;">${_t('evidence.no_data')}</td></tr>`;
         }
 
+        // ── #5: Contribution Waterfall ───────────────────────────────────
+        const wfEl = document.getElementById('evidence-waterfall');
+        if (wfEl && strat.rationale_matrix) {
+            const fired = strat.rationale_matrix.filter(e => e.status === 'FIRED' && !e.suppressed && e.score > 0);
+            const totalRaw = fired.reduce((s, e) => s + (e.score * (e.confidence != null ? e.confidence : 1)), 0);
+            const bonus = (strat.threat_breakdown || {}).convergence_bonus || 0;
+            const totalWithBonus = totalRaw + bonus;
+            if (totalWithBonus > 0) {
+                const domainColors = { cyber: 'var(--color-accent, #00ffff)', physical: 'var(--color-warning, #ffaa00)', info: '#cc66ff' };
+                let wfHtml = '<div class="wf-bar">';
+                fired.sort((a, b) => (b.score * (b.confidence || 1)) - (a.score * (a.confidence || 1)));
+                for (const e of fired) {
+                    const eff = e.score * (e.confidence != null ? e.confidence : 1);
+                    const pct = (eff / totalWithBonus) * 100;
+                    if (pct < 1) continue;
+                    const color = domainColors[e.domain] || '#888';
+                    wfHtml += `<div class="wf-segment" style="width:${pct.toFixed(1)}%;background:${color};" title="${_escAttr(e.sensor)}: ${eff.toFixed(1)}pt (${pct.toFixed(0)}%) [${_escAttr(e.domain)}]"></div>`;
+                }
+                if (bonus > 0) {
+                    const bPct = (bonus / totalWithBonus) * 100;
+                    wfHtml += `<div class="wf-segment wf-bonus" style="width:${bPct.toFixed(1)}%;" title="${_t('evidence.wf_bonus')}: +${bonus}pt (${bPct.toFixed(0)}%)"></div>`;
+                }
+                wfHtml += '</div>';
+                wfHtml += `<div class="wf-legend"><span class="wf-leg-item" style="color:var(--color-accent,#00ffff);">● CYBER</span><span class="wf-leg-item" style="color:var(--color-warning,#ffaa00);">● PHYS</span><span class="wf-leg-item" style="color:#cc66ff;">● INFO</span>`;
+                if (bonus > 0) wfHtml += `<span class="wf-leg-item" style="color:#44ff88;">● BONUS</span>`;
+                wfHtml += `</div>`;
+                wfEl.innerHTML = wfHtml;
+                wfEl.style.display = 'block';
+            } else {
+                wfEl.innerHTML = '';
+                wfEl.style.display = 'none';
+            }
+        } else if (wfEl) {
+            wfEl.innerHTML = '';
+            wfEl.style.display = 'none';
+        }
+
+        // ── #6: Counter-Signals & Intelligence Gaps ──────────────────────
+        const csEl = document.getElementById('evidence-counter-signals');
+        if (csEl && strat.rationale_matrix) {
+            const healthMap = _sensorHealthCache || {};
+            const notFired = strat.rationale_matrix.filter(e => e.status !== 'FIRED' && e.status !== 'SUPPRESSED');
+            // Counter-signals: sensor is healthy but did not fire (reassuring)
+            const counters = [];
+            // Intelligence gaps: sensor is offline/degraded (blind spot)
+            const gaps = [];
+            for (const e of notFired) {
+                const hInfo = healthMap[e.sensor];
+                const st = hInfo ? (typeof hInfo === 'string' ? hInfo : hInfo.status) : null;
+                const lastTs = hInfo && typeof hInfo === 'object' ? hInfo.last_fetch_ts : null;
+                if (st === 'OK' || st === 'DEGRADED') {
+                    counters.push(e);
+                } else if (st === 'ERROR' || st === 'CIRCUIT_OPEN' || st === 'STALE' || st === 'DISABLED') {
+                    gaps.push({ ...e, health_status: st, last_fetch_ts: lastTs });
+                }
+            }
+            // Also find sensors in healthMap that have NO rationale entry
+            const rationaleSensors = new Set(strat.rationale_matrix.map(e => e.sensor));
+            for (const [name, hInfo] of Object.entries(healthMap)) {
+                if (rationaleSensors.has(name)) continue;
+                const st = typeof hInfo === 'string' ? hInfo : (hInfo.status || 'DISABLED');
+                const lastTs = typeof hInfo === 'object' ? hInfo.last_fetch_ts : null;
+                const domain = typeof hInfo === 'object' ? (hInfo.domain || '') : '';
+                if (st === 'ERROR' || st === 'CIRCUIT_OPEN' || st === 'STALE') {
+                    gaps.push({ sensor: name, domain, health_status: st, last_fetch_ts: lastTs });
+                }
+            }
+
+            let csHtml = '';
+            if (counters.length > 0) {
+                csHtml += `<div class="cs-section"><div class="cs-header cs-ok">${_t('evidence.counter_signals')} (${counters.length})</div>`;
+                csHtml += counters.map(e =>
+                    `<span class="cs-chip cs-chip-ok" title="${_escAttr(e.sensor)}: ${_escAttr(e.value || 'OK')}"><span class="rat-domain-${_escAttr(e.domain || '?')}">${(e.domain || '?')[0].toUpperCase()}</span> ${_escHtml(e.sensor)}</span>`
+                ).join('');
+                csHtml += '</div>';
+            }
+            if (gaps.length > 0) {
+                csHtml += `<div class="cs-section"><div class="cs-header cs-gap">${_t('evidence.intel_gaps')} (${gaps.length})</div>`;
+                csHtml += gaps.map(g => {
+                    const age = g.last_fetch_ts ? _formatAge(g.last_fetch_ts) : _t('evidence.gap_never');
+                    const icon = g.health_status === 'CIRCUIT_OPEN' ? '⏸' : g.health_status === 'DISABLED' ? '○' : '✕';
+                    return `<span class="cs-chip cs-chip-gap" title="${_escAttr(g.sensor)}: ${_escAttr(g.health_status)} — ${_t('evidence.gap_last_data')}: ${_escAttr(age)}">${icon} <span class="rat-domain-${_escAttr(g.domain || '?')}">${(g.domain || '?')[0].toUpperCase()}</span> ${_escHtml(g.sensor)}</span>`;
+                }).join('');
+                csHtml += '</div>';
+            }
+            if (csHtml) {
+                csEl.innerHTML = csHtml;
+                csEl.style.display = 'block';
+            } else {
+                csEl.style.display = 'none';
+            }
+        } else if (csEl) {
+            csEl.innerHTML = '';
+            csEl.style.display = 'none';
+        }
+
         openModal('evidence-modal');
+    }
+
+    function _formatAge(ts) {
+        const sec = Math.floor(Date.now() / 1000 - ts);
+        if (sec < 0) return '~0m';
+        if (sec < 60) return '~1m';
+        if (sec < 3600) return Math.floor(sec / 60) + 'm';
+        if (sec < 86400) return Math.floor(sec / 3600) + 'h';
+        return Math.floor(sec / 86400) + 'd';
     }
 
     // HUD button entry point — opens Evidence Modal with last known data
@@ -5115,7 +5269,7 @@
     };
 
     // ── Sensor Fleet Health HUD ─────────────────────────────────────────────
-    const _SENSOR_STATUS_COLOR = { OK: '#00ff88', DEGRADED: '#ffcc00', STALE: '#ffaa00', ERROR: '#ff2222', DISABLED: '#444', INITIALIZING: '#666' };
+    const _SENSOR_STATUS_COLOR = { OK: '#00ff88', DEGRADED: '#ffcc00', STALE: '#ffaa00', ERROR: '#ff2222', CIRCUIT_OPEN: '#ff6600', CIRCUIT_OPEN_PERSISTENT: '#cc2200', DISABLED: '#444', INITIALIZING: '#666' };
     let _sensorHealthCache = {};
     function _updateSensorHealthHUD(healthMap) {
         if (!healthMap) return;
@@ -5125,18 +5279,25 @@
         if (!dotsEl) return;
         const entries = Object.entries(healthMap);
         let ok = 0, stale = 0, err = 0, disabled = 0;
-        entries.forEach(([, st]) => {
+        entries.forEach(([, v]) => {
+            // Support both old format (string) and new format ({status, domain, ...})
+            const st = typeof v === 'string' ? v : (v.status || 'DISABLED');
             if (st === 'OK') ok++;
-            else if (st === 'DEGRADED') stale++;
-            else if (st === 'STALE') stale++;
-            else if (st === 'ERROR') err++;
+            else if (st === 'DEGRADED' || st === 'STALE') stale++;
+            else if (st === 'ERROR' || st === 'CIRCUIT_OPEN' || st === 'CIRCUIT_OPEN_PERSISTENT') err++;
             else disabled++;
         });
         const total = entries.length;
         // Dots
-        dotsEl.innerHTML = entries.map(([name, st]) => {
+        dotsEl.innerHTML = entries.map(([name, v]) => {
+            const st = typeof v === 'string' ? v : (v.status || 'DISABLED');
             const color = _SENSOR_STATUS_COLOR[st] || '#444';
-            return `<span style="width:6px;height:6px;border-radius:50%;background:${color};display:inline-block;" title="${name}: ${st}"></span>`;
+            const tip = st === 'CIRCUIT_OPEN_PERSISTENT'
+                ? `${name}: ${_t('sensor.health.circuit_open_persistent')}`
+                : st === 'CIRCUIT_OPEN'
+                ? `${name}: ${_t('sensor.health.circuit_open')}`
+                : `${name}: ${st}`;
+            return `<span style="width:6px;height:6px;border-radius:50%;background:${color};display:inline-block;" title="${_escAttr(tip)}"></span>`;
         }).join('');
         // Summary text
         if (summaryEl) {
@@ -6473,6 +6634,9 @@
         d.textContent = s;
         return d.innerHTML;
     }
+    function _escAttr(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
 
     // Expose for main render loop
     window._updateClimateFromPoll = function(data) {
@@ -6596,46 +6760,61 @@
 
         let html = '';
         for (const t of theaters) {
-            const dirClass = t.direction === 'ESCALATING' ? 'sit-esc'
-                           : t.direction === 'DE-ESCALATING' ? 'sit-deesc' : 'sit-stable';
-            const dirArrow = t.direction === 'ESCALATING' ? '\u2191'
-                           : t.direction === 'DE-ESCALATING' ? '\u2193' : '\u2192';
-            const dirLabel = _t(`panel.sitboard.dir_${t.direction.toLowerCase().replace('-', '_')}`) || t.direction;
+            const dir = t.direction || 'STABLE';
+            const dirClass = dir === 'ESCALATING' ? 'sit-esc'
+                           : dir === 'DE-ESCALATING' ? 'sit-deesc' : 'sit-stable';
+            const dirArrow = dir === 'ESCALATING' ? '\u2191'
+                           : dir === 'DE-ESCALATING' ? '\u2193' : '\u2192';
+            const dirLabel = _t(`panel.sitboard.dir_${dir.toLowerCase().replace('-', '_')}`) || dir;
             const theaterLabel = t.theater_name ? `${t.theater_name} (${t.theater})` : t.theater;
 
             html += `<div class="sitboard-theater ${dirClass}">`;
 
-            // Header: country name + direction
+            // Header: country name + direction + density indicator
             html += `<div class="sitboard-theater-header">`;
             html += `<span class="sitboard-theater-code">${_escHtml(theaterLabel)}</span>`;
+            // Temporal density indicator (wire events/6h)
+            if (t.wire_density_6h > 0) {
+                const maxBars = 5;
+                const filled = Math.min(t.wire_density_6h, maxBars);
+                const trendIcon = t.wire_density_trend === 'INCREASING' ? '\u25b2' : t.wire_density_trend === 'DECREASING' ? '\u25bc' : '';
+                const trendColor = t.wire_density_trend === 'INCREASING' ? 'var(--color-warning)' : t.wire_density_trend === 'DECREASING' ? 'var(--color-ok)' : '#666';
+                html += `<span class="sit-density" title="${_escAttr(_t('panel.sitboard.density_tip'))}: ${t.wire_density_6h} (${_escAttr(t.wire_density_trend || '')})">`;
+                for (let i = 0; i < maxBars; i++) {
+                    const h = 4 + i * 2;
+                    html += `<span class="sit-density-bar${i < filled ? ' active' : ''}" style="height:${h}px;"></span>`;
+                }
+                if (trendIcon) html += `<span class="sit-density-label" style="color:${trendColor};">${trendIcon}</span>`;
+                html += `</span>`;
+            }
             html += `<span class="sitboard-direction ${dirClass}">${dirArrow} ${_escHtml(dirLabel)}</span>`;
             html += `</div>`;
 
             // Direction description
-            html += `<div class="sitboard-dir-desc">${_escHtml(_dirDesc[t.direction] || '')}</div>`;
+            html += `<div class="sitboard-dir-desc">${_escHtml(_dirDesc[dir] || '')}</div>`;
 
             // Metrics row — with full descriptions
             html += `<div class="sitboard-metrics">`;
-            if (t.tone_current !== null) {
-                const toneDir = t.tone_delta_7d !== null ? (t.tone_delta_7d < 0 ? '\u25bc' : '\u25b2') : '';
-                const toneDelta = t.tone_delta_7d !== null ? ` (7d ${toneDir}${Math.abs(t.tone_delta_7d).toFixed(1)})` : '';
-                const toneDesc = t.tone_current < -3 ? ' — hostile' : t.tone_current < -1 ? ' — negative' : t.tone_current < 1 ? ' — neutral' : ' — positive';
-                html += `<span class="sitboard-metric" title="GDELT global media tone index">${_t('panel.sitboard.metric_tone')} ${t.tone_current.toFixed(1)}${toneDesc}${toneDelta}</span>`;
+            if (t.tone_current != null) {
+                const toneDir = t.tone_delta_7d != null ? (t.tone_delta_7d < 0 ? '\u25bc' : '\u25b2') : '';
+                const toneDelta = t.tone_delta_7d != null ? ` (7d ${toneDir}${Math.abs(t.tone_delta_7d).toFixed(1)})` : '';
+                const toneDesc = t.tone_current < -3 ? ` — ${_t('panel.sitboard.tone_hostile')}` : t.tone_current < -1 ? ` — ${_t('panel.sitboard.tone_negative')}` : t.tone_current < 1 ? ` — ${_t('panel.sitboard.tone_neutral')}` : ` — ${_t('panel.sitboard.tone_positive')}`;
+                html += `<span class="sitboard-metric" title="${_escAttr(_t('panel.sitboard.tip_tone'))}">${_t('panel.sitboard.metric_tone')} ${t.tone_current.toFixed(1)}${toneDesc}${toneDelta}</span>`;
             }
-            if (t.media_concentration !== null && t.media_concentration > 0.5) {
-                html += `<span class="sitboard-metric" title="State-affiliated media publication rate vs baseline">${_t('panel.sitboard.metric_media')} ${t.media_concentration.toFixed(1)}\u03c3 above normal</span>`;
+            if (t.media_concentration != null && t.media_concentration > 0.5) {
+                html += `<span class="sitboard-metric" title="${_escAttr(_t('panel.sitboard.tip_media'))}">${_t('panel.sitboard.metric_media')} ${t.media_concentration.toFixed(1)}\u03c3 ${_t('panel.sitboard.above_normal')}</span>`;
             }
-            if (t.aviation_change_pct !== null && Math.abs(t.aviation_change_pct) > 5) {
-                const avDesc = t.aviation_change_pct < 0 ? 'below normal' : 'above normal';
-                html += `<span class="sitboard-metric" title="Civilian flight count change from baseline">${_t('panel.sitboard.metric_aviation')} ${Math.abs(t.aviation_change_pct).toFixed(0)}% ${avDesc}</span>`;
+            if (t.aviation_change_pct != null && Math.abs(t.aviation_change_pct) > 5) {
+                const avDesc = t.aviation_change_pct < 0 ? _t('panel.sitboard.below_normal') : _t('panel.sitboard.above_normal');
+                html += `<span class="sitboard-metric" title="${_escAttr(_t('panel.sitboard.tip_aviation'))}">${_t('panel.sitboard.metric_aviation')} ${Math.abs(t.aviation_change_pct).toFixed(0)}% ${avDesc}</span>`;
             }
-            if (t.forex_z !== null && Math.abs(t.forex_z) > 0.8) {
-                const fxDesc = t.forex_z > 0 ? 'weakening' : 'strengthening';
-                html += `<span class="sitboard-metric" title="Currency deviation from baseline">${_t('panel.sitboard.metric_forex')} ${Math.abs(t.forex_z).toFixed(1)}\u03c3 ${fxDesc}</span>`;
+            if (t.forex_z != null && Math.abs(t.forex_z) > 0.8) {
+                const fxDesc = t.forex_z > 0 ? _t('panel.sitboard.fx_weakening') : _t('panel.sitboard.fx_strengthening');
+                html += `<span class="sitboard-metric" title="${_escAttr(_t('panel.sitboard.tip_forex'))}">${_t('panel.sitboard.metric_forex')} ${Math.abs(t.forex_z).toFixed(1)}\u03c3 ${fxDesc}</span>`;
             }
-            if (t.climate_indicators.length > 0) {
+            if (t.climate_indicators && t.climate_indicators.length > 0) {
                 const clmDesc = t.climate_indicators.map(c => _clmLabels[c] || c).join(', ');
-                html += `<span class="sitboard-metric sitboard-metric-clm" title="Active indirect indicators">${_t('panel.sitboard.metric_climate_active') || 'Active signals'}: ${clmDesc}</span>`;
+                html += `<span class="sitboard-metric sitboard-metric-clm" title="${_escAttr(_t('panel.sitboard.tip_climate'))}">${_t('panel.sitboard.metric_climate_active')}: ${clmDesc}</span>`;
             }
             html += `</div>`;
 
@@ -6648,7 +6827,12 @@
                     html += `<div class="sitboard-wire-item ${sevClass}">`;
                     html += `<span class="sitboard-wire-ts">${_fmtTs(w.ts_iso, w.ts)}</span>`;
                     html += `<span class="sitboard-wire-src">${_escHtml(w.source)}</span>`;
-                    html += `<span class="sitboard-wire-text">${_escHtml(w.text)}</span>`;
+                    html += `<span class="sitboard-wire-text">${_escHtml(w.text)}`;
+                    // Cross-theater sync badge
+                    if (w.sync_theaters && w.sync_theaters.length > 0) {
+                        html += ` <span class="sit-sync-badge" title="${_escAttr(_t('panel.sitboard.sync_tip'))}: ${_escAttr(w.sync_theaters.join(', '))}">SYNC ${_escHtml(w.sync_theaters.join(', '))}</span>`;
+                    }
+                    html += `</span>`;
                     html += `</div>`;
                 }
                 html += `</div>`;

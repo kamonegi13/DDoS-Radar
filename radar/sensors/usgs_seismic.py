@@ -14,6 +14,7 @@ API: https://earthquake.usgs.gov/fdsnws/event/1/
 No API key required (public USGS service).
 """
 from __future__ import annotations
+import hashlib
 import logging
 import time
 import math
@@ -45,6 +46,7 @@ class UsgsSeismicSensor(BaseSensor):
 
     def __init__(self):
         super().__init__("usgs_seismic", "physical", 900)
+        self._last_event_sig: str = ""  # MD5 of recent event IDs; skip processing when unchanged
 
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
@@ -75,6 +77,19 @@ class UsgsSeismicSensor(BaseSensor):
                 data = res.json()
                 features = data.get("features", [])
                 any_success = True
+
+                # Skip expensive proximity scan when event set is unchanged
+                sig = hashlib.md5(
+                    "|".join(f.get("id", "") for f in features[:20]).encode()
+                ).hexdigest()
+                if sig == self._last_event_sig:
+                    cached = self.get_cache()
+                    if cached:
+                        log.debug("[USGS] Event set unchanged — returning cache")
+                        duration = round((time.time() - t0) * 1000)
+                        self.log_fetch(True, duration, res.status_code, len(features))
+                        return cached
+                self._last_event_sig = sig
 
                 for feat in features:
                     props = feat.get("properties", {})

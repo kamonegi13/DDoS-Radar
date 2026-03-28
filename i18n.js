@@ -817,6 +817,32 @@ const LANG = {
     'panel.sitboard.clm_s3':             'Forex Stress',
     'panel.sitboard.clm_o1':             'Cert Surge',
     'panel.sitboard.clm_o3':             'Narrative Shift',
+    'panel.sitboard.sync_tip':            'Simultaneous changes detected in',
+    'panel.sitboard.density_tip':         'Wire event frequency (6h)',
+    'panel.sitboard.tone_hostile':        'hostile',
+    'panel.sitboard.tone_negative':       'negative',
+    'panel.sitboard.tone_neutral':        'neutral',
+    'panel.sitboard.tone_positive':       'positive',
+    'panel.sitboard.above_normal':        'above normal',
+    'panel.sitboard.below_normal':        'below normal',
+    'panel.sitboard.fx_weakening':        'weakening',
+    'panel.sitboard.fx_strengthening':    'strengthening',
+    'panel.sitboard.tip_tone':            'GDELT global media tone index',
+    'panel.sitboard.tip_media':           'State-affiliated media publication rate vs baseline',
+    'panel.sitboard.tip_aviation':        'Civilian flight count change from baseline',
+    'panel.sitboard.tip_forex':           'Currency deviation from baseline',
+    'panel.sitboard.tip_climate':         'Active indirect indicators',
+
+    // Evidence Panel: Contribution Waterfall & Counter-Signals
+    'evidence.wf_bonus':                  'Convergence Bonus',
+    'evidence.counter_signals':           'COUNTER-SIGNALS (normal readings)',
+    'evidence.intel_gaps':                'INTELLIGENCE GAPS (offline sensors)',
+    'evidence.gap_never':                 'never',
+    'evidence.gap_last_data':             'Last data',
+
+    // Sensor Health: Circuit Breaker
+    'sensor.health.circuit_open':             'CIRCUIT OPEN (auto-paused)',
+    'sensor.health.circuit_open_persistent':  'CIRCUIT OPEN — multiple recovery probes failed',
 
     // Phase 3: TOOLS menu sections
     'tools.section.core':             'CORE',
@@ -1923,6 +1949,32 @@ const LANG = {
     'panel.sitboard.clm_s3':             '為替ストレス',
     'panel.sitboard.clm_o1':             '証明書急増',
     'panel.sitboard.clm_o3':             'ナラティブシフト',
+    'panel.sitboard.sync_tip':            '同時変化を検出：',
+    'panel.sitboard.density_tip':         'ワイヤーイベント頻度（6時間）',
+    'panel.sitboard.tone_hostile':        '敵対的',
+    'panel.sitboard.tone_negative':       'ネガティブ',
+    'panel.sitboard.tone_neutral':        '中立',
+    'panel.sitboard.tone_positive':       'ポジティブ',
+    'panel.sitboard.above_normal':        '通常以上',
+    'panel.sitboard.below_normal':        '通常以下',
+    'panel.sitboard.fx_weakening':        '下落',
+    'panel.sitboard.fx_strengthening':    '上昇',
+    'panel.sitboard.tip_tone':            'GDELTグローバルメディア論調指数',
+    'panel.sitboard.tip_media':           '国営メディア発行レート vs 基準値',
+    'panel.sitboard.tip_aviation':        '民間航空便数の基準値からの変化',
+    'panel.sitboard.tip_forex':           '通貨の基準値からの偏差',
+    'panel.sitboard.tip_climate':         '活性化中の間接指標',
+
+    // エビデンスパネル：寄与率ウォーターフォール＆反証
+    'evidence.wf_bonus':                  '収束ボーナス',
+    'evidence.counter_signals':           '反証シグナル（正常な読み取り値）',
+    'evidence.intel_gaps':                'インテリジェンスギャップ（オフラインセンサー）',
+    'evidence.gap_never':                 'データなし',
+    'evidence.gap_last_data':             '最終取得',
+
+    // センサーヘルス：サーキットブレーカー
+    'sensor.health.circuit_open':             'サーキットオープン（自動一時停止）',
+    'sensor.health.circuit_open_persistent':  'サーキットオープン — 複数回のリカバリプローブ失敗',
 
     // Phase 3: TOOLSメニューセクション
     'tools.section.core':             'コア',

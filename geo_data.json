@@ -4156,6 +4156,13 @@
       "neutral policy"
     ]
   },
+  "SCHEDULED_EVENTS": [
+    {"year": 2026, "month": 7, "day": 26, "desc": "JP House of Councillors election", "theater": "JP"},
+    {"year": 2026, "month": 11, "day": 3, "desc": "US midterm elections", "theater": "US"},
+    {"year": 2026, "month": 6, "day": 26, "desc": "G7 Summit (Canada)", "theater": "US"},
+    {"year": 2026, "month": 5, "day": 20, "desc": "Taiwan presidential inauguration anniversary", "theater": "TW"},
+    {"year": 2026, "month": 9, "day": 21, "desc": "UN General Assembly opens", "theater": "US"}
+  ],
   "HISTORICAL_EVENTS": [
     {
       "id": "ukraine_invasion_2022",

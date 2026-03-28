@@ -31,10 +31,11 @@ class WireItem:
     source: str          # Sensor/indicator origin (e.g. "GDELT", "RSS", "S1")
     text: str            # One-line factual statement
     severity: int = 0    # 0=routine, 1=notable, 2=significant
+    sync_theaters: list = field(default_factory=list)  # Other theaters with near-simultaneous events
 
     def to_dict(self) -> dict:
         import datetime
-        return {
+        d = {
             "ts": self.ts,
             "ts_iso": datetime.datetime.fromtimestamp(
                 self.ts, tz=datetime.timezone.utc
@@ -44,6 +45,9 @@ class WireItem:
             "text": self.text,
             "severity": self.severity,
         }
+        if self.sync_theaters:
+            d["sync_theaters"] = self.sync_theaters
+        return d
 
 
 @dataclass
@@ -64,6 +68,8 @@ class TheaterSituation:
     convergence_level: str = ""
     threat_level: int = 5                # 1-5 from engine
     wire: list = field(default_factory=list)  # WireItem list
+    wire_density_6h: int = 0             # Wire events in last 6 hours
+    wire_density_trend: str = ""         # INCREASING / STABLE / DECREASING
 
     def to_dict(self) -> dict:
         return {
@@ -82,6 +88,8 @@ class TheaterSituation:
             "convergence_level": self.convergence_level,
             "threat_level": self.threat_level,
             "wire": [w.to_dict() for w in self.wire],
+            "wire_density_6h": self.wire_density_6h,
+            "wire_density_trend": self.wire_density_trend,
         }
 
 
@@ -93,7 +101,7 @@ class SituationEngine:
         self._wire_history: list[WireItem] = []
         self._tone_history: dict[str, list[tuple[float, float]]] = {}
         self._last_reported: dict[str, dict] = {}  # (theater, source) -> {value, ts}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._last_update: float = 0.0
         self._restore_from_db()
 
@@ -385,6 +393,20 @@ class SituationEngine:
                 deduped_wire.append(w)
         deduped_wire.reverse()
 
+        # ── Cross-theater sync detection ──
+        # Mark wire items that have near-simultaneous (30min) events in other theaters
+        SYNC_WINDOW = 30 * 60  # 30 minutes
+        notable = [w for w in deduped_wire if w.severity >= 1]
+        for w in notable:
+            synced = set()
+            for other in notable:
+                if other.theater == w.theater:
+                    continue
+                if abs(other.ts - w.ts) <= SYNC_WINDOW:
+                    synced.add(other.theater)
+            if synced:
+                w.sync_theaters = sorted(synced)
+
         with self._lock:
             self._situations = new_situations
 
@@ -400,6 +422,22 @@ class SituationEngine:
             cutoff = now - 48 * 3600
             self._wire_history = [w for w in self._wire_history if w.ts > cutoff]
             self._wire_history = self._wire_history[-500:]
+
+            # ── Temporal density per theater ──
+            cutoff_6h = now - 6 * 3600
+            cutoff_12h = now - 12 * 3600
+            for theater, sit in self._situations.items():
+                recent_6h = sum(1 for w in self._wire_history
+                                if w.theater == theater and w.ts > cutoff_6h)
+                prev_6h = sum(1 for w in self._wire_history
+                              if w.theater == theater and cutoff_12h < w.ts <= cutoff_6h)
+                sit.wire_density_6h = recent_6h
+                if recent_6h > prev_6h + 2:
+                    sit.wire_density_trend = "INCREASING"
+                elif recent_6h < prev_6h - 2:
+                    sit.wire_density_trend = "DECREASING"
+                else:
+                    sit.wire_density_trend = "STABLE"
 
             self._last_update = now
 
@@ -437,7 +475,7 @@ class SituationEngine:
 
         # 6. Tone history trend (slope over 7 days)
         with self._lock:
-            tone_hist = self._tone_history.get(theater, [])
+            tone_hist = list(self._tone_history.get(theater, []))
         if len(tone_hist) >= 4:
             # Simple linear slope using first/last halves
             mid = len(tone_hist) // 2
@@ -473,11 +511,12 @@ class SituationEngine:
                                 key=lambda x: -x[1].direction_score):
             if theater_filter and code != theater_filter:
                 continue
-            # Attach recent wire items for this theater
+            # Attach recent wire items for this theater (build dict without mutating shared object)
             theater_wire = [w for w in wire if w.theater == code]
             theater_wire.sort(key=lambda w: -w.ts)
-            sit.wire = theater_wire[:10]  # Latest 10 per theater
-            result.append(sit.to_dict())
+            d = sit.to_dict()
+            d["wire"] = [w.to_dict() for w in theater_wire[:10]]
+            result.append(d)
 
         return {
             "theaters": result,

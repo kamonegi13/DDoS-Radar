@@ -30,7 +30,19 @@ class SensorRegistry:
     def set_enabled(self, name: str, enabled: bool):
         with self._lock:
             if name in self._sensors: self._sensors[name].enabled = enabled
-    def health_report(self) -> dict: return {name: s.health for name, s in self._sensors.items()}
+    def health_report(self) -> dict:
+        result = {}
+        for name, s in self._sensors.items():
+            h = s.health  # Already lock-protected
+            with s._lock:
+                cache_time = s._cache_time
+                cb_state = s._cb_state
+            result[name] = {
+                "status": h, "domain": s.domain,
+                "last_fetch_ts": cache_time or None,
+                "cb_state": cb_state,
+            }
+        return result
     def config_list(self) -> list: return [s.to_config_dict() for s in self._sensors.values()]
 
 class WeightedConvergenceEngine:

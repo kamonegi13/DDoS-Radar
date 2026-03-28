@@ -12,10 +12,21 @@ def _get_db():
     return db
 
 class BaseSensor(ABC):
+    # Circuit breaker defaults (can be overridden per-sensor via config)
+    CB_FAILURE_THRESHOLD = 5    # Consecutive failures before opening
+    CB_INITIAL_DELAY = 300      # 5 min initial recovery delay
+    CB_MAX_DELAY = 3600         # 1 hour max recovery delay
+    CB_STATES = ("CLOSED", "OPEN", "HALF_OPEN")
+
     def __init__(self, name: str, domain: str, poll_interval: int):
         self.name = name; self.domain = domain; self.poll_interval = poll_interval; self.enabled = True
         self._cache: dict = {}; self._cache_time: float = 0.0; self._last_error: str = ""
         self._lock = threading.Lock(); self._fetch_log: list = []
+        # Circuit breaker state
+        self._cb_state: str = "CLOSED"
+        self._cb_fail_count: int = 0
+        self._cb_opened_at: float = 0.0
+        self._cb_recovery_delay: float = self.CB_INITIAL_DELAY
     @abstractmethod
     def fetch(self, context: dict) -> dict: pass
     def get_cache(self) -> dict:
@@ -54,14 +65,77 @@ class BaseSensor(ABC):
             pass
     def get_fetch_log(self) -> list:
         with self._lock: return [{k: v for k, v in e.items() if k != "_from_log_fetch"} for e in self._fetch_log]
+    # ── Circuit Breaker ──────────────────────────────────────────────────────
+    def cb_record_success(self):
+        """Record a successful fetch — reset circuit breaker to CLOSED."""
+        with self._lock:
+            if self._cb_state != "CLOSED":
+                import logging
+                logging.getLogger("radar").info(
+                    f"[CB/{self.name}] {self._cb_state} → CLOSED (recovered)")
+            self._cb_state = "CLOSED"
+            self._cb_fail_count = 0
+            self._cb_recovery_delay = self.CB_INITIAL_DELAY
+
+    def cb_record_failure(self):
+        """Record a failed fetch — may open the circuit breaker."""
+        with self._lock:
+            self._cb_fail_count += 1
+            if self._cb_state == "HALF_OPEN":
+                # Probe failed — reopen with doubled delay
+                self._cb_state = "OPEN"
+                self._cb_opened_at = time.time()
+                self._cb_recovery_delay = min(
+                    self._cb_recovery_delay * 2, self.CB_MAX_DELAY)
+                import logging
+                logging.getLogger("radar").warning(
+                    f"[CB/{self.name}] HALF_OPEN → OPEN (probe failed, "
+                    f"next retry in {self._cb_recovery_delay:.0f}s)")
+            elif (self._cb_state == "CLOSED"
+                  and self._cb_fail_count >= self.CB_FAILURE_THRESHOLD):
+                self._cb_state = "OPEN"
+                self._cb_opened_at = time.time()
+                import logging
+                logging.getLogger("radar").warning(
+                    f"[CB/{self.name}] CLOSED → OPEN after "
+                    f"{self._cb_fail_count} consecutive failures, "
+                    f"pausing for {self._cb_recovery_delay:.0f}s")
+
+    def cb_should_skip(self) -> bool:
+        """Return True if the scheduler should skip this fetch cycle.
+        Side effect: transitions OPEN → HALF_OPEN when recovery delay has elapsed.
+        Must be called exactly once per scheduler cycle.
+        """
+        with self._lock:
+            if self._cb_state == "CLOSED":
+                return False
+            if self._cb_state == "OPEN":
+                elapsed = time.time() - self._cb_opened_at
+                if elapsed >= self._cb_recovery_delay:
+                    # Transition to HALF_OPEN — allow one probe
+                    self._cb_state = "HALF_OPEN"
+                    import logging
+                    logging.getLogger("radar").info(
+                        f"[CB/{self.name}] OPEN → HALF_OPEN (probing)")
+                    return False
+                return True  # Still cooling down
+            # HALF_OPEN: allow the single probe fetch
+            return False
+
     @property
     def health(self) -> str:
         if not self.enabled: return "DISABLED"
-        if self._last_error:
-            if self._last_error.startswith("PARTIAL:"): return "DEGRADED"
+        with self._lock:
+            cb_state = self._cb_state
+            last_error = self._last_error
+            cache_time = self._cache_time
+            has_cache = bool(self._cache)
+        if cb_state == "OPEN": return "CIRCUIT_OPEN"
+        if last_error:
+            if last_error.startswith("PARTIAL:"): return "DEGRADED"
             return "ERROR"
-        elapsed = time.time() - self._cache_time
-        if elapsed > self.poll_interval * 3: return "STALE" if self._cache else "INITIALIZING"
+        elapsed = time.time() - cache_time
+        if elapsed > self.poll_interval * 3: return "STALE" if has_cache else "INITIALIZING"
         return "OK"
     def compute_confidence(self, sample_count: int = 0, baseline_samples: int = 0) -> float:
         """
@@ -71,7 +145,7 @@ class BaseSensor(ABC):
         """
         from radar.config import CONFIDENCE_MIN_SAMPLES
         # Health factor: maps sensor health state to confidence
-        health_factors = {"OK": 1.0, "DEGRADED": 0.8, "STALE": 0.5, "ERROR": 0.0, "INITIALIZING": 0.1, "DISABLED": 0.0}
+        health_factors = {"OK": 1.0, "DEGRADED": 0.8, "STALE": 0.5, "ERROR": 0.0, "CIRCUIT_OPEN": 0.0, "INITIALIZING": 0.1, "DISABLED": 0.0}
         health_f = health_factors.get(self.health, 0.0)
         if health_f == 0.0:
             return 0.0
@@ -136,4 +210,18 @@ class BaseSensor(ABC):
         return res
 
     def to_config_dict(self) -> dict:
-        return {"name": self.name, "domain": self.domain, "enabled": self.enabled, "health": self.health, "poll_interval_sec": self.poll_interval, "last_error": self._last_error, "cache_age_sec": round(time.time() - self._cache_time) if self._cache_time else None}
+        h = self.health
+        with self._lock:
+            last_error = self._last_error
+            cache_time = self._cache_time
+            cb_state = self._cb_state
+            cb_fail_count = self._cb_fail_count
+        return {
+            "name": self.name, "domain": self.domain, "enabled": self.enabled,
+            "health": h, "poll_interval_sec": self.poll_interval,
+            "last_error": last_error,
+            "cache_age_sec": round(time.time() - cache_time) if cache_time else None,
+            "last_fetch_ts": cache_time or None,
+            "cb_state": cb_state,
+            "cb_fail_count": cb_fail_count,
+        }

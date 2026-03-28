@@ -22,7 +22,9 @@ class NasaFirmsSensor(BaseSensor):
     }
     GEO_RADIUS_DEG_DEFAULT = 3.0
 
-    def __init__(self): super().__init__("nasa_firms", "physical", 3600)
+    def __init__(self):
+        super().__init__("nasa_firms", "physical", 3600)
+        self._last_event_sig: str = ""  # Skip reprocessing when wildfire set unchanged
 
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", [])
@@ -46,6 +48,19 @@ class NasaFirmsSensor(BaseSensor):
                 events = res.json().get("events", [])
                 record_count = len(events)
                 self.log_fetch(True, duration, res.status_code, record_count)
+
+                # Skip spatial scan when wildfire set is unchanged
+                import hashlib as _hl
+                sig = _hl.md5(
+                    f"{record_count}|" + "|".join(e.get("id", "") for e in events[:10])
+                ).hexdigest()
+                if sig == self._last_event_sig:
+                    cached = self.get_cache()
+                    if cached:
+                        import logging as _log
+                        _log.getLogger("radar").debug("[NASA_FIRMS] Wildfire set unchanged — returning cache")
+                        return cached
+                self._last_event_sig = sig
 
                 # Extract nearby events by comparing distance to each theater's coordinates
                 for code in theaters:

@@ -21,6 +21,7 @@ import logging
 import re
 import time
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from radar.sensors.base import BaseSensor
 from radar.config import COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY
 
@@ -154,17 +155,21 @@ class TravelAdvisorySensor(BaseSensor):
         if not all_targets:
             all_targets = set(list(COUNTRY_COORDS.keys())[:20])
 
-        # Fetch all sources
+        # Fetch all sources in parallel (US/UK/Canada are independent)
         source_results: dict[str, dict] = {}
         any_success = False
         sources_ok: list[str] = []
 
-        for src_key in _SOURCES:
-            data, ok = self._fetch_source(src_key, all_targets)
-            source_results[src_key] = data
-            if ok:
-                any_success = True
-                sources_ok.append(src_key)
+        with ThreadPoolExecutor(max_workers=len(_SOURCES)) as ex:
+            futures = {ex.submit(self._fetch_source, src_key, all_targets): src_key
+                       for src_key in _SOURCES}
+            for fut in as_completed(futures):
+                src_key = futures[fut]
+                data, ok = fut.result()
+                source_results[src_key] = data
+                if ok:
+                    any_success = True
+                    sources_ok.append(src_key)
 
         # Merge: compute per-country consensus from all sources
         advisory_data: dict[str, dict] = {}

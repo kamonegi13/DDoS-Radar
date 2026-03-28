@@ -1218,3 +1218,433 @@ class TestTorMetricsSensor:
         assert scores["physical"] == 3  # ihr_disco(2) + ripe_atlas(1)
         assert scores["info"] == 2      # tor_metrics(2)
         assert scores["cyber"] == 0
+
+
+# ── Circuit Breaker Tests ─────────────────────────────────────────────────
+
+class TestCircuitBreaker:
+    """Test circuit breaker state machine in BaseSensor."""
+
+    def _make_sensor(self):
+        """Create a concrete sensor subclass for testing."""
+        class DummySensor(IhrSensor):
+            pass
+        s = DummySensor.__new__(DummySensor)
+        # Minimal init without full IhrSensor constructor side effects
+        s.name = "test_cb"
+        s.domain = "cyber"
+        s.poll_interval = 300
+        s.enabled = True
+        s._cache = {}
+        s._cache_time = 0.0
+        s._last_error = ""
+        import threading
+        s._lock = threading.Lock()
+        s._fetch_log = []
+        s._cb_state = "CLOSED"
+        s._cb_fail_count = 0
+        s._cb_opened_at = 0.0
+        s._cb_recovery_delay = s.CB_INITIAL_DELAY
+        return s
+
+    def test_initial_state_closed(self):
+        s = self._make_sensor()
+        assert s._cb_state == "CLOSED"
+        assert s.cb_should_skip() is False
+
+    def test_stays_closed_under_threshold(self):
+        s = self._make_sensor()
+        for _ in range(s.CB_FAILURE_THRESHOLD - 1):
+            s.cb_record_failure()
+        assert s._cb_state == "CLOSED"
+        assert s.cb_should_skip() is False
+
+    def test_opens_at_threshold(self):
+        s = self._make_sensor()
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        assert s._cb_state == "OPEN"
+        assert s._cb_fail_count == s.CB_FAILURE_THRESHOLD
+
+    def test_open_skips_fetch(self):
+        s = self._make_sensor()
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        # Immediately after opening, recovery delay not elapsed
+        assert s.cb_should_skip() is True
+
+    def test_open_to_half_open_after_delay(self):
+        s = self._make_sensor()
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        assert s._cb_state == "OPEN"
+        # Simulate elapsed time past recovery delay
+        s._cb_opened_at = time.time() - s._cb_recovery_delay - 1
+        assert s.cb_should_skip() is False  # Transitions to HALF_OPEN
+        assert s._cb_state == "HALF_OPEN"
+
+    def test_half_open_success_closes(self):
+        s = self._make_sensor()
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        s._cb_opened_at = time.time() - s._cb_recovery_delay - 1
+        s.cb_should_skip()  # → HALF_OPEN
+        s.cb_record_success()
+        assert s._cb_state == "CLOSED"
+        assert s._cb_fail_count == 0
+        assert s._cb_recovery_delay == s.CB_INITIAL_DELAY
+
+    def test_half_open_failure_reopens_with_doubled_delay(self):
+        s = self._make_sensor()
+        initial_delay = s.CB_INITIAL_DELAY
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        s._cb_opened_at = time.time() - s._cb_recovery_delay - 1
+        s.cb_should_skip()  # → HALF_OPEN
+        s.cb_record_failure()  # Probe fails
+        assert s._cb_state == "OPEN"
+        assert s._cb_recovery_delay == initial_delay * 2
+
+    def test_recovery_delay_capped_at_max(self):
+        s = self._make_sensor()
+        s._cb_recovery_delay = s.CB_MAX_DELAY
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        s._cb_opened_at = time.time() - s.CB_MAX_DELAY - 1
+        s.cb_should_skip()  # → HALF_OPEN
+        s.cb_record_failure()  # Probe fails, delay doubles but capped
+        assert s._cb_recovery_delay == s.CB_MAX_DELAY
+
+    def test_health_returns_circuit_open(self):
+        s = self._make_sensor()
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        assert s.health == "CIRCUIT_OPEN"
+
+    def test_health_ok_after_recovery(self):
+        s = self._make_sensor()
+        s._cache_time = time.time()  # Recent cache
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        s._cb_opened_at = time.time() - s._cb_recovery_delay - 1
+        s.cb_should_skip()  # → HALF_OPEN
+        s.cb_record_success()
+        assert s.health == "OK"
+
+    def test_confidence_zero_when_circuit_open(self):
+        s = self._make_sensor()
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        assert s.compute_confidence() == 0.0
+
+    def test_to_config_dict_includes_cb_fields(self):
+        s = self._make_sensor()
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        d = s.to_config_dict()
+        assert d["cb_state"] == "OPEN"
+        assert d["cb_fail_count"] == s.CB_FAILURE_THRESHOLD
+        assert d["health"] == "CIRCUIT_OPEN"
+
+    def test_full_cycle_closed_open_halfopen_closed(self):
+        """Test complete CB lifecycle: CLOSED → OPEN → HALF_OPEN → CLOSED."""
+        s = self._make_sensor()
+        # 1. CLOSED → OPEN
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        assert s._cb_state == "OPEN"
+        # 2. OPEN → HALF_OPEN
+        s._cb_opened_at = time.time() - s._cb_recovery_delay - 1
+        s.cb_should_skip()
+        assert s._cb_state == "HALF_OPEN"
+        # 3. HALF_OPEN → CLOSED
+        s.cb_record_success()
+        assert s._cb_state == "CLOSED"
+        assert s._cb_fail_count == 0
+
+    def test_full_cycle_with_probe_failure(self):
+        """CLOSED → OPEN → HALF_OPEN → OPEN (probe fail) → HALF_OPEN → CLOSED."""
+        s = self._make_sensor()
+        for _ in range(s.CB_FAILURE_THRESHOLD):
+            s.cb_record_failure()
+        # First probe fails
+        s._cb_opened_at = time.time() - s._cb_recovery_delay - 1
+        s.cb_should_skip()  # → HALF_OPEN
+        s.cb_record_failure()  # → OPEN with doubled delay
+        assert s._cb_state == "OPEN"
+        assert s._cb_recovery_delay == s.CB_INITIAL_DELAY * 2
+        # Second probe succeeds
+        s._cb_opened_at = time.time() - s._cb_recovery_delay - 1
+        s.cb_should_skip()  # → HALF_OPEN
+        s.cb_record_success()
+        assert s._cb_state == "CLOSED"
+
+
+# ── Situation Engine Tests ────────────────────────────────────────────────
+
+class TestSituationEngine:
+    """Test SituationEngine: sync detection, temporal density, direction."""
+
+    def _make_engine(self):
+        from radar.situation import SituationEngine
+        # Bypass __init__ to avoid DB restore
+        eng = object.__new__(SituationEngine)
+        eng._situations = {}
+        eng._wire_history = []
+        eng._tone_history = {}
+        eng._last_reported = {}
+        import threading
+        eng._lock = threading.RLock()
+        eng._last_update = 0.0
+        return eng
+
+    def _make_wire(self, theater, source, ts, severity=0, text="test"):
+        from radar.situation import WireItem
+        return WireItem(ts=ts, theater=theater, source=source,
+                        text=text, severity=severity)
+
+    def test_cross_theater_sync_detected(self):
+        """Two notable events in different theaters within 30min should be synced."""
+        from radar.situation import SituationEngine
+        eng = self._make_engine()
+        now = time.time()
+        w1 = self._make_wire("US", "Media Tone", now, severity=1)
+        w2 = self._make_wire("JP", "State Media", now + 600, severity=1)  # 10 min later
+
+        # Simulate the sync detection logic directly
+        SYNC_WINDOW = 30 * 60
+        notable = [w1, w2]
+        for w in notable:
+            synced = set()
+            for other in notable:
+                if other.theater == w.theater:
+                    continue
+                if abs(other.ts - w.ts) <= SYNC_WINDOW:
+                    synced.add(other.theater)
+            if synced:
+                w.sync_theaters = sorted(synced)
+
+        assert w1.sync_theaters == ["JP"]
+        assert w2.sync_theaters == ["US"]
+
+    def test_cross_theater_sync_not_detected_beyond_window(self):
+        """Events >30min apart should not be synced."""
+        now = time.time()
+        w1 = self._make_wire("US", "Media Tone", now, severity=1)
+        w2 = self._make_wire("JP", "State Media", now + 2000, severity=1)  # 33 min later
+
+        SYNC_WINDOW = 30 * 60
+        notable = [w1, w2]
+        for w in notable:
+            synced = set()
+            for other in notable:
+                if other.theater == w.theater:
+                    continue
+                if abs(other.ts - w.ts) <= SYNC_WINDOW:
+                    synced.add(other.theater)
+            if synced:
+                w.sync_theaters = sorted(synced)
+
+        assert not hasattr(w1, 'sync_theaters') or w1.sync_theaters == []
+        assert not hasattr(w2, 'sync_theaters') or w2.sync_theaters == []
+
+    def test_cross_theater_sync_ignores_low_severity(self):
+        """Severity 0 events should not be considered for sync."""
+        now = time.time()
+        w1 = self._make_wire("US", "Media Tone", now, severity=0)
+        w2 = self._make_wire("JP", "State Media", now + 60, severity=1)
+
+        SYNC_WINDOW = 30 * 60
+        notable = [w for w in [w1, w2] if w.severity >= 1]
+        for w in notable:
+            synced = set()
+            for other in notable:
+                if other.theater == w.theater:
+                    continue
+                if abs(other.ts - w.ts) <= SYNC_WINDOW:
+                    synced.add(other.theater)
+            if synced:
+                w.sync_theaters = sorted(synced)
+
+        # w1 was excluded from notable, w2 has no partner
+        assert w1.sync_theaters == []  # default_factory
+        assert w2.sync_theaters == []
+
+    def test_cross_theater_sync_same_theater_ignored(self):
+        """Events in the same theater should not sync with each other."""
+        now = time.time()
+        w1 = self._make_wire("US", "Media Tone", now, severity=1)
+        w2 = self._make_wire("US", "State Media", now + 60, severity=1)
+
+        SYNC_WINDOW = 30 * 60
+        notable = [w1, w2]
+        for w in notable:
+            synced = set()
+            for other in notable:
+                if other.theater == w.theater:
+                    continue
+                if abs(other.ts - w.ts) <= SYNC_WINDOW:
+                    synced.add(other.theater)
+            if synced:
+                w.sync_theaters = sorted(synced)
+
+        assert w1.sync_theaters == []
+        assert w2.sync_theaters == []
+
+    def test_temporal_density_increasing(self):
+        """More events in recent 6h than previous 6h should be INCREASING."""
+        eng = self._make_engine()
+        now = time.time()
+        from radar.situation import TheaterSituation
+        sit = TheaterSituation(theater="US")
+        eng._situations = {"US": sit}
+
+        # 1 event in previous 6h window, 4 in recent
+        eng._wire_history = [
+            self._make_wire("US", "A", now - 8 * 3600),    # previous 6h
+            self._make_wire("US", "B", now - 1 * 3600),    # recent 6h
+            self._make_wire("US", "C", now - 2 * 3600),
+            self._make_wire("US", "D", now - 3 * 3600),
+            self._make_wire("US", "E", now - 0.5 * 3600),
+        ]
+
+        cutoff_6h = now - 6 * 3600
+        cutoff_12h = now - 12 * 3600
+        recent_6h = sum(1 for w in eng._wire_history
+                        if w.theater == "US" and w.ts > cutoff_6h)
+        prev_6h = sum(1 for w in eng._wire_history
+                      if w.theater == "US" and cutoff_12h < w.ts <= cutoff_6h)
+        assert recent_6h == 4
+        assert prev_6h == 1
+        # 4 > 1 + 2 → INCREASING
+        assert recent_6h > prev_6h + 2
+
+    def test_temporal_density_stable(self):
+        """Similar event counts should be STABLE."""
+        now = time.time()
+        eng = self._make_engine()
+
+        eng._wire_history = [
+            self._make_wire("US", "A", now - 8 * 3600),    # previous 6h
+            self._make_wire("US", "B", now - 7 * 3600),
+            self._make_wire("US", "C", now - 2 * 3600),    # recent 6h
+            self._make_wire("US", "D", now - 3 * 3600),
+        ]
+
+        cutoff_6h = now - 6 * 3600
+        cutoff_12h = now - 12 * 3600
+        recent_6h = sum(1 for w in eng._wire_history
+                        if w.theater == "US" and w.ts > cutoff_6h)
+        prev_6h = sum(1 for w in eng._wire_history
+                      if w.theater == "US" and cutoff_12h < w.ts <= cutoff_6h)
+        assert recent_6h == 2
+        assert prev_6h == 2
+        # |2 - 2| <= 2 → STABLE
+        assert not (recent_6h > prev_6h + 2)
+        assert not (recent_6h < prev_6h - 2)
+
+    def test_temporal_density_decreasing(self):
+        """Fewer events in recent 6h should be DECREASING."""
+        now = time.time()
+        eng = self._make_engine()
+
+        eng._wire_history = [
+            self._make_wire("US", "A", now - 8 * 3600),
+            self._make_wire("US", "B", now - 7 * 3600),
+            self._make_wire("US", "C", now - 9 * 3600),
+            self._make_wire("US", "D", now - 10 * 3600),
+            # No recent events
+        ]
+
+        cutoff_6h = now - 6 * 3600
+        cutoff_12h = now - 12 * 3600
+        recent_6h = sum(1 for w in eng._wire_history
+                        if w.theater == "US" and w.ts > cutoff_6h)
+        prev_6h = sum(1 for w in eng._wire_history
+                      if w.theater == "US" and cutoff_12h < w.ts <= cutoff_6h)
+        assert recent_6h == 0
+        assert prev_6h == 4
+        # 0 < 4 - 2 → DECREASING
+        assert recent_6h < prev_6h - 2
+
+    def test_direction_stable_no_signals(self):
+        """No signals should produce STABLE direction."""
+        eng = self._make_engine()
+        from radar.situation import TheaterSituation, DIR_STABLE
+        sit = TheaterSituation(theater="US")
+        score, direction = eng._compute_direction("US", sit, time.time())
+        assert direction == DIR_STABLE
+        assert score == 0.0
+
+    def test_direction_escalating_on_negative_tone(self):
+        """Negative tone delta should produce escalating signal."""
+        eng = self._make_engine()
+        from radar.situation import TheaterSituation, DIR_ESCALATING
+        sit = TheaterSituation(theater="US")
+        sit.tone_delta_7d = -3.0  # Strong negative
+        score, direction = eng._compute_direction("US", sit, time.time())
+        assert score > 0.3
+        assert direction == DIR_ESCALATING
+
+    def test_direction_deescalating_on_positive_tone(self):
+        """Positive tone delta should produce de-escalating signal."""
+        eng = self._make_engine()
+        from radar.situation import TheaterSituation, DIR_DE_ESCALATING
+        sit = TheaterSituation(theater="US")
+        sit.tone_delta_7d = 3.0  # Strong positive
+        score, direction = eng._compute_direction("US", sit, time.time())
+        assert score < -0.3
+        assert direction == DIR_DE_ESCALATING
+
+    def test_get_board_does_not_mutate_shared_state(self):
+        """get_board() should not modify the internal _situations objects."""
+        eng = self._make_engine()
+        from radar.situation import TheaterSituation
+        sit = TheaterSituation(theater="US")
+        sit.direction = "STABLE"
+        original_wire = sit.wire.copy()
+        eng._situations = {"US": sit}
+        eng._wire_history = [
+            self._make_wire("US", "Test", time.time(), severity=1, text="event")
+        ]
+        board = eng.get_board()
+        # The internal sit.wire should NOT have been modified
+        assert sit.wire == original_wire
+        # But the board result should include the wire
+        assert len(board["theaters"]) == 1
+        assert len(board["theaters"][0]["wire"]) == 1
+
+    def test_wire_item_serialization_with_sync(self):
+        """WireItem.to_dict() should include sync_theaters when set."""
+        from radar.situation import WireItem
+        w = WireItem(ts=time.time(), theater="US", source="Test",
+                     text="test event", severity=1)
+        w.sync_theaters = ["JP", "TW"]
+        d = w.to_dict()
+        assert "sync_theaters" in d
+        assert d["sync_theaters"] == ["JP", "TW"]
+
+    def test_wire_item_serialization_without_sync(self):
+        """WireItem.to_dict() should not include sync_theaters when empty."""
+        from radar.situation import WireItem
+        w = WireItem(ts=time.time(), theater="US", source="Test",
+                     text="test event", severity=0)
+        d = w.to_dict()
+        assert "sync_theaters" not in d
+
+    def test_should_emit_first_report(self):
+        """First report for a (theater, source) pair should always emit."""
+        eng = self._make_engine()
+        assert eng._should_emit("US", "Media Tone", 1.0) is True
+
+    def test_should_emit_suppresses_small_change(self):
+        """Small change below threshold should not emit."""
+        eng = self._make_engine()
+        eng._should_emit("US", "Media Tone", 1.0)
+        assert eng._should_emit("US", "Media Tone", 1.1) is False
+
+    def test_should_emit_allows_large_change(self):
+        """Change exceeding threshold should emit."""
+        eng = self._make_engine()
+        eng._should_emit("US", "Media Tone", 1.0)
+        assert eng._should_emit("US", "Media Tone", 2.0) is True

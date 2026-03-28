@@ -29,7 +29,9 @@ class BgpRoutingSensor(BaseSensor):
         _now = time.time()
         _bgp_hour_bucket = int(_now // 3600) * 3600
         _bgp_cur_hod     = (_bgp_hour_bucket // 3600) % 24
-        for code in theaters:
+        for idx, code in enumerate(theaters):
+            if idx > 0:
+                time.sleep(0.3)  # Courtesy interval for RIPE Stat API (free tier)
             try:
                 res = requests.get("https://stat.ripe.net/data/country-routing-stats/data.json", params={"resource": code, "sourceapp": "osint-radar"}, timeout=12, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
                 last_status = res.status_code

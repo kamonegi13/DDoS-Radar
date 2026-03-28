@@ -18,6 +18,7 @@ import requests
 import time
 import logging
 import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from radar.config import COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY
 from radar.sensors.base import BaseSensor
 
@@ -33,12 +34,92 @@ class IhrSensor(BaseSensor):
     def __init__(self):
         super().__init__("ihr_health", "physical", 300)
 
+    def _fetch_disco(self, since: str, until: str) -> tuple[dict, int, str]:
+        """Fetch disconnection events. Returns (data_dict, http_status, error)."""
+        url = f"{IHR_API_BASE}/disco/events/"
+        params = {"streamtype": "country", "starttime": since, "endtime": until, "format": "json"}
+        try:
+            res = requests.get(url, params=params, timeout=30,
+                               proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            if res.status_code == 200:
+                data = res.json()
+                results = data.get("results", data) if isinstance(data, dict) else data
+                out: dict[str, list] = {}
+                if isinstance(results, list):
+                    for e in results:
+                        code = (e.get("streamname", "") or "").upper()
+                        if code and code in COUNTRY_COORDS:
+                            out.setdefault(code, []).append({
+                                "ts": e.get("starttime", ""),
+                                "endtime": e.get("endtime", ""),
+                                "level": e.get("level", 0),
+                                "avglevel": e.get("avglevel", 0),
+                                "nbprobes": e.get("nbprobes", 0),
+                            })
+                return out, res.status_code, ""
+            return {}, res.status_code, f"HTTP {res.status_code}"
+        except Exception as e:
+            log.warning(f"[IHR] Disco events error: {e}")
+            return {}, 0, f"disco: {e}"
+
+    def _fetch_hegemony(self, since: str, until: str) -> tuple[dict, int, str]:
+        """Fetch hegemony alarms. Returns (data_dict, http_status, error)."""
+        url = f"{IHR_API_BASE}/hegemony/alarms/"
+        params = {"starttime": since, "endtime": until, "format": "json"}
+        try:
+            res = requests.get(url, params=params, timeout=30,
+                               proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            if res.status_code == 200:
+                data = res.json()
+                results = data.get("results", data) if isinstance(data, dict) else data
+                out: dict[str, list] = {}
+                if isinstance(results, list):
+                    for alarm in results:
+                        code = (alarm.get("entity", {}).get("code", "")
+                                or alarm.get("country", "")).upper()
+                        if code and code in COUNTRY_COORDS:
+                            out.setdefault(code, []).append({
+                                "asn": alarm.get("asn") or alarm.get("originasn"),
+                                "deviation": alarm.get("deviation", 0),
+                                "ts": alarm.get("timebin", ""),
+                            })
+                return out, res.status_code, ""
+            return {}, res.status_code, f"HTTP {res.status_code}"
+        except Exception as e:
+            log.warning(f"[IHR] Hegemony alarms error: {e}")
+            return {}, 0, f"hegemony: {e}"
+
+    def _fetch_delay(self, since: str, until: str) -> tuple[dict, int, str]:
+        """Fetch network delay alarms. Returns (data_dict, http_status, error)."""
+        url = f"{IHR_API_BASE}/network_delay/alarms/"
+        params = {"starttime": since, "endtime": until, "format": "json"}
+        try:
+            res = requests.get(url, params=params, timeout=30,
+                               proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            if res.status_code == 200:
+                data = res.json()
+                results = data.get("results", data) if isinstance(data, dict) else data
+                out: dict[str, list] = {}
+                if isinstance(results, list):
+                    for alarm in results:
+                        link = alarm.get("link", "")
+                        cc = (alarm.get("startpoint_name", "")
+                              or alarm.get("endpoint_name", "")).upper()[:2]
+                        if cc and cc in COUNTRY_COORDS:
+                            out.setdefault(cc, []).append({
+                                "link": link,
+                                "deviation": alarm.get("deviation", 0),
+                                "ts": alarm.get("timebin", ""),
+                            })
+                return out, res.status_code, ""
+            return {}, res.status_code, f"HTTP {res.status_code}"
+        except Exception as e:
+            log.warning(f"[IHR] Delay alarms error: {e}")
+            return {}, 0, f"delay: {e}"
+
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
         all_codes = list(COUNTRY_COORDS.keys())
-        disco_data: dict[str, list] = {}
-        hegemony_alarms: dict[str, list] = {}
-        delay_alarms: dict[str, list] = {}
         country_status: dict[str, str] = {}
         any_success = False
         last_status = 0
@@ -48,87 +129,28 @@ class IhrSensor(BaseSensor):
         since = (now - datetime.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
         until = now.strftime("%Y-%m-%dT%H:%M")
 
-        # 1. Disconnection events — single global query, then filter by country
-        #    (replaces per-country loop to reduce request count and timeout exposure)
-        try:
-            url = f"{IHR_API_BASE}/disco/events/"
-            params = {
-                "streamtype": "country",
-                "starttime": since,
-                "endtime": until,
-                "format": "json",
-            }
-            res = requests.get(url, params=params, timeout=30,
-                               proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-            last_status = res.status_code
-            if res.status_code == 200:
-                data = res.json()
-                results = data.get("results", data) if isinstance(data, dict) else data
-                if isinstance(results, list):
-                    for e in results:
-                        code = (e.get("streamname", "") or "").upper()
-                        if code and code in COUNTRY_COORDS:
-                            disco_data.setdefault(code, []).append({
-                                "ts": e.get("starttime", ""),
-                                "endtime": e.get("endtime", ""),
-                                "level": e.get("level", 0),
-                                "avglevel": e.get("avglevel", 0),
-                                "nbprobes": e.get("nbprobes", 0),
-                            })
-                any_success = True
-        except Exception as e:
-            last_error = f"disco: {e}"
-            log.warning(f"[IHR] Disco events error: {e}")
+        # Fire all 3 IHR endpoints concurrently — reduces worst-case latency
+        # from 3×30s=90s to ~30s (max of parallel calls).
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            f_disco = ex.submit(self._fetch_disco, since, until)
+            f_heg   = ex.submit(self._fetch_hegemony, since, until)
+            f_delay = ex.submit(self._fetch_delay, since, until)
+            disco_data,      status_d, err_d = f_disco.result()
+            hegemony_alarms, status_h, err_h = f_heg.result()
+            delay_alarms,    status_l, err_l = f_delay.result()
 
-        # 2. Hegemony alarms (global, then filter by country)
-        try:
-            url = f"{IHR_API_BASE}/hegemony/alarms/"
-            params = {"starttime": since, "endtime": until, "format": "json"}
-            res = requests.get(url, params=params, timeout=30,
-                               proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-            if res.status_code == 200:
-                data = res.json()
-                results = data.get("results", data) if isinstance(data, dict) else data
-                if isinstance(results, list):
-                    for alarm in results:
-                        code = (alarm.get("entity", {}).get("code", "")
-                                or alarm.get("country", "")).upper()
-                        if code and code in COUNTRY_COORDS:
-                            hegemony_alarms.setdefault(code, []).append({
-                                "asn": alarm.get("asn") or alarm.get("originasn"),
-                                "deviation": alarm.get("deviation", 0),
-                                "ts": alarm.get("timebin", ""),
-                            })
-                any_success = True
-        except Exception as e:
-            last_error = f"hegemony: {e}"
-            log.warning(f"[IHR] Hegemony alarms error: {e}")
-
-        # 3. Network delay alarms (global, then filter by country)
-        try:
-            url = f"{IHR_API_BASE}/network_delay/alarms/"
-            params = {"starttime": since, "endtime": until, "format": "json"}
-            res = requests.get(url, params=params, timeout=30,
-                               proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-            if res.status_code == 200:
-                data = res.json()
-                results = data.get("results", data) if isinstance(data, dict) else data
-                if isinstance(results, list):
-                    for alarm in results:
-                        # Extract country from startpoint or endpoint
-                        link = alarm.get("link", "")
-                        cc = (alarm.get("startpoint_name", "")
-                              or alarm.get("endpoint_name", "")).upper()[:2]
-                        if cc and cc in COUNTRY_COORDS:
-                            delay_alarms.setdefault(cc, []).append({
-                                "link": link,
-                                "deviation": alarm.get("deviation", 0),
-                                "ts": alarm.get("timebin", ""),
-                            })
-                any_success = True
-        except Exception as e:
-            last_error = f"delay: {e}"
-            log.warning(f"[IHR] Delay alarms error: {e}")
+        errors = [e for e in (err_d, err_h, err_l) if e]
+        last_error = "; ".join(errors) if errors else ""
+        # Consider any successful endpoint a partial success
+        if not err_d or disco_data:
+            any_success = True
+            last_status = status_d
+        if not err_h or hegemony_alarms:
+            any_success = True
+            last_status = last_status or status_h
+        if not err_l or delay_alarms:
+            any_success = True
+            last_status = last_status or status_l
 
         # Compute per-country status
         total_events = 0

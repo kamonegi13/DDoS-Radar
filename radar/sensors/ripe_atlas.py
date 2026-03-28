@@ -13,6 +13,7 @@ from __future__ import annotations
 import requests
 import time
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from radar.config import COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY
 from radar.sensors.base import BaseSensor
 
@@ -28,6 +29,9 @@ DEFAULT_MEASUREMENT_IDS = [1001, 1004, 10509]
 PROBE_DROP_PCT = 0.30      # 30% drop = PROBE_DROP
 PROBE_BLACKOUT_PCT = 0.70  # 70% drop = PROBE_BLACKOUT
 
+# Max concurrent requests to RIPE Atlas API (free tier courtesy limit)
+_MAX_WORKERS = 5
+
 
 class RipeAtlasSensor(BaseSensor):
     """RIPE Atlas sensor: probe availability and public measurement RTT."""
@@ -36,6 +40,55 @@ class RipeAtlasSensor(BaseSensor):
         super().__init__("ripe_atlas", "physical", 600)
         self._prev_probe_counts: dict[str, int] = {}
 
+    def _fetch_probe_count(self, code: str) -> tuple[str, dict, int, str]:
+        """Fetch active probe count for one country.
+        Returns (code, result_dict, http_status, error).
+        """
+        url = f"{ATLAS_API_BASE}/probes/"
+        params = {"country_code": code, "status": 1, "page_size": 1}
+        try:
+            res = requests.get(url, params=params, timeout=10,
+                               proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            if res.status_code == 200:
+                active = res.json().get("count", 0)
+                prev = self._prev_probe_counts.get(code, active)
+                drop_pct = (prev - active) / max(prev, 1) if prev > 0 else 0.0
+                return code, {
+                    "active": active,
+                    "prev": prev,
+                    "drop_pct": round(drop_pct, 3),
+                }, res.status_code, ""
+            return code, {}, res.status_code, f"HTTP {res.status_code}"
+        except Exception as e:
+            return code, {}, 0, f"probes({code}): {e}"
+
+    def _fetch_measurement(self, code: str, mid: int) -> tuple[str, list, str]:
+        """Fetch RTT values for one (country, measurement_id).
+        Returns (code, rtt_values, error).
+        """
+        url = f"{ATLAS_API_BASE}/measurements/{mid}/latest/"
+        params = {"probe_cc": code}
+        rtt_values: list[float] = []
+        try:
+            res = requests.get(url, params=params, timeout=10,
+                               proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
+            if res.status_code == 200:
+                probes = res.json()
+                if isinstance(probes, list):
+                    for probe in probes:
+                        avg = probe.get("avg")
+                        if avg is not None and avg > 0:
+                            rtt_values.append(avg)
+                        for result in probe.get("result", []):
+                            if not isinstance(result, dict):
+                                continue
+                            rt = result.get("rt")
+                            if rt is not None and rt > 0:
+                                rtt_values.append(rt)
+        except Exception as e:
+            return code, [], f"meas({mid},{code}): {e}"
+        return code, rtt_values, ""
+
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
         theaters = context.get("strategic_theaters", [])
@@ -43,67 +96,42 @@ class RipeAtlasSensor(BaseSensor):
             theaters = list(COUNTRY_COORDS.keys())[:20]
 
         probe_counts: dict[str, dict] = {}
+        latency_rtts: dict[str, list] = {}  # code -> accumulated rtt values
         latency_data: dict[str, dict] = {}
         country_status: dict[str, str] = {}
         any_success = False
         last_status = 0
         last_error = ""
 
-        # 1. Probe availability per country
-        for code in theaters:
-            try:
-                url = f"{ATLAS_API_BASE}/probes/"
-                params = {"country_code": code, "status": 1, "page_size": 1}
-                res = requests.get(url, params=params, timeout=10,
-                                   proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-                last_status = res.status_code
-                if res.status_code == 429:
-                    self.handle_rate_limit(res, round((time.time() - t0) * 1000))
-                    break
-                elif res.status_code == 200:
-                    data = res.json()
-                    active = data.get("count", 0)
-                    prev = self._prev_probe_counts.get(code, active)
-                    drop_pct = (prev - active) / max(prev, 1) if prev > 0 else 0
-                    probe_counts[code] = {
-                        "active": active,
-                        "prev": prev,
-                        "drop_pct": round(drop_pct, 3),
-                    }
+        # 1. Probe availability — all countries in parallel
+        with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as ex:
+            futures = {ex.submit(self._fetch_probe_count, code): code
+                       for code in theaters}
+            for fut in as_completed(futures):
+                code, result, status, err = fut.result()
+                if status:
+                    last_status = status
+                if err:
+                    last_error = err
+                elif result:
+                    probe_counts[code] = result
                     any_success = True
-                time.sleep(0.5)  # Rate limit courtesy
-            except Exception as e:
-                last_error = f"probes({code}): {e}"
 
-        # 2. Public measurement latency per country
-        for code in theaters:
-            rtt_values = []
-            for mid in DEFAULT_MEASUREMENT_IDS:
-                try:
-                    url = f"{ATLAS_API_BASE}/measurements/{mid}/latest/"
-                    params = {"probe_cc": code}
-                    res = requests.get(url, params=params, timeout=10,
-                                       proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
-                    if res.status_code == 200:
-                        probes = res.json()
-                        if isinstance(probes, list):
-                            for probe in probes:
-                                # Extract avg RTT from ping measurement
-                                avg = probe.get("avg")
-                                if avg is not None and avg > 0:
-                                    rtt_values.append(avg)
-                                # Also check result array for DNS measurements
-                                for result in probe.get("result", []):
-                                    if not isinstance(result, dict):
-                                        continue
-                                    rt = result.get("rt")
-                                    if rt is not None and rt > 0:
-                                        rtt_values.append(rt)
-                        any_success = True
-                    time.sleep(0.3)
-                except Exception as e:
-                    last_error = f"meas({mid},{code}): {e}"
+        # 2. Measurement latency — all (country, measurement_id) combos in parallel
+        tasks = [(code, mid) for code in theaters for mid in DEFAULT_MEASUREMENT_IDS]
+        with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as ex:
+            futures = {ex.submit(self._fetch_measurement, code, mid): (code, mid)
+                       for code, mid in tasks}
+            for fut in as_completed(futures):
+                code, rtts, err = fut.result()
+                if err:
+                    last_error = last_error or err
+                elif rtts:
+                    latency_rtts.setdefault(code, []).extend(rtts)
+                    any_success = True
 
+        # Aggregate RTT values per country
+        for code, rtt_values in latency_rtts.items():
             if rtt_values:
                 rtt_values.sort()
                 avg_ms = sum(rtt_values) / len(rtt_values)
@@ -119,8 +147,6 @@ class RipeAtlasSensor(BaseSensor):
         for code in theaters:
             pc = probe_counts.get(code, {})
             drop = pc.get("drop_pct", 0)
-            lat = latency_data.get(code, {})
-
             if drop >= PROBE_BLACKOUT_PCT:
                 country_status[code] = "PROBE_BLACKOUT"
             elif drop >= PROBE_DROP_PCT:

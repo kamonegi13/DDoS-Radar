@@ -54,6 +54,7 @@ class GpsJammingSensor(BaseSensor):
         super().__init__("gps_jamming", "physical", 1800)
         self._prev_levels: dict[str, float] = {}
         self._latest_date: str = ""
+        self._last_processed_date: str = ""  # Date for which tile data was last fully downloaded
 
     def _get_latest_date(self) -> str:
         """Fetch manifest.csv to find the most recent available date."""
@@ -116,12 +117,23 @@ class GpsJammingSensor(BaseSensor):
         country_status: dict[str, str] = {}
         any_success = False
         last_error = ""
+        date_str = ""
 
         try:
-            # Get latest available date
+            # Get latest available date from manifest
             date_str = self._get_latest_date()
             if not date_str:
                 raise ValueError("No date available from manifest")
+
+            # Skip expensive tile download if this date was already processed
+            if date_str == self._last_processed_date:
+                cached = self.get_cache()
+                if cached:
+                    log.debug(f"[GPSJam] Date {date_str} unchanged — returning cache")
+                    duration = round((time.time() - t0) * 1000)
+                    self.log_fetch(True, duration, 0,
+                                   sum(d.get("total_tiles", 0) for d in cached.get("jamming_data", {}).values()))
+                    return cached
 
             # Fetch global tile data (single request for all countries)
             all_tiles = self._fetch_tile_data(date_str)
@@ -221,6 +233,7 @@ class GpsJammingSensor(BaseSensor):
 
         result = {"jamming_data": jamming_data, "country_status": country_status}
         if any_success:
+            self._last_processed_date = date_str
             self.set_cache(result)
             return result
         return self.get_cache() or {

@@ -202,7 +202,9 @@ class GreyNoiseSensor(BaseSensor):
 
         gnql_unavailable = self._gnql_unavailable  # Permanently True after first 401
 
-        for theater in theaters:
+        for idx, theater in enumerate(theaters):
+            if idx > 0 and GREYNOISE_API_KEY and not gnql_unavailable:
+                time.sleep(0.5)  # Courtesy interval for GreyNoise API (Enterprise)
             if GREYNOISE_API_KEY and not gnql_unavailable:
                 # Fetch per-country noise statistics via Enterprise GNQL
                 stats = self._query_gnql_stats(theater)

@@ -105,6 +105,7 @@ CABLE_ROUTES: list = []
 THREAT_ACTOR_MAPPING:  dict = {}
 INFRASTRUCTURE_URLS:   dict = {}
 TELEGRAM_CHANNEL_META: dict = {}
+_raw_geo: dict = {}
 try:
     with open("geo_data.json", "r", encoding="utf-8") as f:
         geo_data = json.load(f)
@@ -122,6 +123,7 @@ try:
         THREAT_ACTOR_MAPPING   = geo_data.get("THREAT_ACTOR_MAPPING", {})
         INFRASTRUCTURE_URLS    = geo_data.get("INFRASTRUCTURE_URLS", {})
         TELEGRAM_CHANNEL_META  = geo_data.get("TELEGRAM_CHANNEL_META", {})
+        _raw_geo = geo_data  # Expose full geo_data for calendar scheduled events
         log.info("[Config] Loaded static data from geo_data.json")
 except Exception as e:
     log.warning(f"Failed to load geo_data.json: {e}")

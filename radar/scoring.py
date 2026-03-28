@@ -489,7 +489,20 @@ def get_fallback_coord(code: str) -> dict:
     h = int(hashlib.md5((code or "Unknown").encode()).hexdigest(), 16)
     return {"lat": (h % 100) - 50, "lng": ((h // 100) % 360) - 180, "name": f"Origin: {code}"}
 
+# Minimum interval between live CF API calls to avoid burst rate-limiting.
+# CF free tier allows ~1200 req/5min (~4/s); we conservatively limit to ~3/s.
+_CF_MIN_INTERVAL = 0.35  # seconds
+_cf_req_last_ts: float = 0.0
+_cf_req_lock = threading.Lock()
+
+
 def fetch_cf_data(url: str, params: dict) -> list:
+    global _cf_req_last_ts
+    with _cf_req_lock:
+        gap = time.time() - _cf_req_last_ts
+        if gap < _CF_MIN_INTERVAL:
+            time.sleep(_CF_MIN_INTERVAL - gap)
+        _cf_req_last_ts = time.time()
     try:
         res = requests.get(url, headers=CF_HEADERS, params=params, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
         if res.status_code == 200:

@@ -14,6 +14,10 @@ from radar.config import (
 
 log = logging.getLogger("radar")
 
+# Track the cache_time of each sensor at the last successful save.
+# Saves are skipped when no sensor cache has been updated since the last run.
+_last_saved_cache_times: dict[str, float] = {}
+
 
 def save_state() -> None:
     """Save per-sensor last-fetch caches to SQLite.
@@ -21,18 +25,30 @@ def save_state() -> None:
     All other state (HOD baselines, time series, alerts, sequence events)
     is written directly to SQLite by the producing modules, so only
     sensor snapshot caches need periodic saving.
+
+    Skips sensors whose cache_time is unchanged since the last save to
+    avoid redundant SQLite writes during periods of no new data.
     """
     try:
         from radar.database import db
         from radar import registry  # noqa: E402 — deferred to break circular import
         sc_count = 0
         for name, sensor in registry._sensors.items():
+            ct = sensor._cache_time
+            if not ct:
+                continue
+            if ct == _last_saved_cache_times.get(name):
+                continue  # Unchanged since last save
             cache = sensor.get_cache()
             if cache:
-                db.sensor_cache_set(name, sensor._cache_time, cache)
+                db.sensor_cache_set(name, ct, cache)
+                _last_saved_cache_times[name] = ct
                 sc_count += 1
+        if sc_count == 0:
+            log.debug("[Persist] No sensor cache changes — save skipped")
+            return
         log.info(
-            f"[Persist] Saved sensor caches: {sc_count} sensors, "
+            f"[Persist] Saved sensor caches: {sc_count} sensors updated, "
             f"hod={db.hod_total_points('hod_baseline')}pts, "
             f"ch_hod={db.hod_total_points('checkhost_hod')}pts, "
             f"bgp_hod={db.hod_total_points('bgp_hod')}pts, "

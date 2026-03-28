@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import requests
 import time
+from concurrent.futures import ThreadPoolExecutor
 from radar.config import (
     COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY, GDELT_TONE_ALERT_THRESHOLD, GDELT_HISTORY_WINDOW,
 )
@@ -37,12 +38,19 @@ class GDELTSensor(BaseSensor):
         _now_ts = time.time()
         _cur_weekday = datetime.datetime.fromtimestamp(_now_ts, tz=datetime.timezone.utc).weekday()  # 0=Mon … 6=Sun
         _cur_day_bucket = int(_now_ts // 86400) * 86400  # UTC day bucket
-        for code in theaters:
+        for idx, code in enumerate(theaters):
+            if idx > 0:
+                time.sleep(0.5)  # Courtesy delay between theater requests to avoid GDELT rate limits
             query = self.QUERY_TEMPLATES.get(code)
             if not query:
                 country_name = COUNTRY_COORDS.get(code, {}).get("name", code)
                 query = f'"{country_name}" (military OR conflict OR attack OR defense OR war)'
-            tone_current = self._fetch_tone(query, "1d"); tone_baseline = self._fetch_tone(query, f"{history_window}d")
+            # Fetch current and baseline tone in parallel (independent requests)
+            with ThreadPoolExecutor(max_workers=2) as _ex:
+                _f_cur  = _ex.submit(self._fetch_tone, query, "1d")
+                _f_base = _ex.submit(self._fetch_tone, query, f"{history_window}d")
+                tone_current  = _f_cur.result()
+                tone_baseline = _f_base.result()
             if tone_current is None:
                 tones[code] = {"status": "NO_DATA"}
                 continue

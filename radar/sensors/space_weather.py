@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from radar.sensors.base import BaseSensor
 from radar.config import (
     GLOBAL_PROXIES, SSL_VERIFY,
@@ -62,48 +63,51 @@ class SpaceWeatherSensor(BaseSensor):
         # Poll every 30 minutes (space weather changes slowly)
         super().__init__("space_weather", "physical", 1800)
 
-    def fetch(self, context: dict) -> dict:
-        t0 = time.time()
-        kp_index = 0.0
-        kp_forecast_24h = 0.0
-        xray_flux = 0.0
-        xray_class = "A"
-
-        # Fetch Kp index forecast
+    def _fetch_kp(self) -> tuple[float, float]:
+        """Fetch Kp index. Returns (kp_index, kp_forecast_24h)."""
         try:
             res = requests.get(_KP_URL, timeout=15,
                                proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
             if res.status_code == 429:
                 log.warning("[SpaceWeather] Kp API rate limited (429)")
-            elif res.status_code == 200:
+                return 0.0, 0.0
+            if res.status_code == 200:
                 rows = res.json()
-                # Format: [[time_tag, Kp, observed/estimated/predicted], ...]
-                # First row is header. Find most recent observed value.
                 observed = [r for r in rows[1:] if len(r) >= 3 and r[2] == "observed"]
-                if observed:
-                    kp_index = float(observed[-1][1])
-                # Max Kp in next 24h (any status)
+                kp_index = float(observed[-1][1]) if observed else 0.0
                 all_kp = [float(r[1]) for r in rows[1:] if len(r) >= 2]
-                if all_kp:
-                    kp_forecast_24h = max(all_kp)
+                kp_forecast_24h = max(all_kp) if all_kp else 0.0
+                return kp_index, kp_forecast_24h
         except Exception as e:
             log.warning(f"[SpaceWeather] Kp fetch error: {e}")
+        return 0.0, 0.0
 
-        # Fetch X-ray flux
+    def _fetch_xray(self) -> tuple[float, str]:
+        """Fetch X-ray flux. Returns (xray_flux, xray_class)."""
         try:
             res = requests.get(_XRAY_URL, timeout=15,
                                proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
             if res.status_code == 429:
                 log.warning("[SpaceWeather] X-ray API rate limited (429)")
-            elif res.status_code == 200:
+                return 0.0, "A"
+            if res.status_code == 200:
                 data = res.json()
                 if data:
-                    # Use most recent entry; flux is in W/m²
-                    latest = data[-1]
-                    xray_flux = float(latest.get("flux", 0))
-                    xray_class = _parse_xray_class(xray_flux)
+                    xray_flux = float(data[-1].get("flux", 0))
+                    return xray_flux, _parse_xray_class(xray_flux)
         except Exception as e:
             log.warning(f"[SpaceWeather] X-ray fetch error: {e}")
+        return 0.0, "A"
+
+    def fetch(self, context: dict) -> dict:
+        t0 = time.time()
+
+        # Fetch Kp and X-ray in parallel (independent NOAA endpoints)
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_kp   = ex.submit(self._fetch_kp)
+            f_xray = ex.submit(self._fetch_xray)
+            kp_index, kp_forecast_24h = f_kp.result()
+            xray_flux, xray_class     = f_xray.result()
 
         storm_level = _classify_storm(max(kp_index, kp_forecast_24h))
 

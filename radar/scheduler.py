@@ -48,8 +48,10 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None,
     if initial_delay > 0:
         time.sleep(initial_delay)
 
-    _RETRY_DELAYS = [d for d in [300, 600, 1800] if d < sensor.poll_interval]
     _last_health = sensor.health
+    # Track whether a persistent-CIRCUIT_OPEN warning has been emitted so
+    # we don't spam the log on every skip cycle.
+    _cb_persistent_warned = False
 
     def _do_fetch() -> bool:
         ctx = _build_default_context()
@@ -68,35 +70,47 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None,
             emit_sensor_status(sensor.name, new_health)
             _last_health = new_health
 
-    try:
-        success = _do_fetch()
-    except Exception as e:
-        log.error(f"[Sensor/{sensor.name}] Initial fetch error: {e}")
-        success = False
-    _check_health_change()
+    def _guarded_fetch() -> bool:
+        """Fetch with circuit breaker integration."""
+        nonlocal _cb_persistent_warned
+        if sensor.cb_should_skip():
+            # Emit a one-time warning when CB has failed 2+ probes
+            # (recovery_delay > CB_INITIAL_DELAY means at least one probe already failed)
+            with sensor._lock:
+                delay = sensor._cb_recovery_delay
+            if delay > sensor.CB_INITIAL_DELAY and not _cb_persistent_warned:
+                log.error(
+                    f"[CB/{sensor.name}] Sensor has been CIRCUIT_OPEN through multiple "
+                    f"recovery probes (next retry in {delay:.0f}s) — "
+                    f"check connectivity or API availability"
+                )
+                emit_sensor_status(sensor.name, "CIRCUIT_OPEN_PERSISTENT")
+                _cb_persistent_warned = True
+            return False
+        try:
+            ok = _do_fetch()
+        except Exception as e:
+            log.error(f"[Sensor/{sensor.name}] Fetch error: {e}")
+            ok = False
+        if ok:
+            sensor.cb_record_success()
+            _cb_persistent_warned = False  # Reset on recovery
+        else:
+            sensor.cb_record_failure()
+        _check_health_change()
+        return ok
+
+    # Initial fetch with fast retry on failure
+    _STARTUP_RETRY_DELAYS = [60, 300, 600]  # 1min, 5min, 10min
+    if not _guarded_fetch():
+        for delay in _STARTUP_RETRY_DELAYS:
+            time.sleep(delay)
+            if _guarded_fetch():
+                break
 
     while True:
-        if not success and _RETRY_DELAYS:
-            for delay in _RETRY_DELAYS:
-                time.sleep(delay)
-                try:
-                    success = _do_fetch()
-                    _check_health_change()
-                    if success:
-                        log.info(f"[Sensor/{sensor.name}] Retry succeeded after {delay}s")
-                        break
-                except Exception as e:
-                    log.warning(f"[Sensor/{sensor.name}] Retry error (delay={delay}s): {e}")
-                    _check_health_change()
-        else:
-            time.sleep(sensor.poll_interval)
-
-        try:
-            success = _do_fetch()
-        except Exception as e:
-            log.error(f"[Sensor/{sensor.name}] Scheduled fetch error: {e}")
-            success = False
-        _check_health_change()
+        time.sleep(sensor.poll_interval)
+        _guarded_fetch()
 
 
 # ── Cache cleanup worker ──

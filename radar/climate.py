@@ -143,55 +143,80 @@ class SeasonalBaseline:
 
 # ── Calendar Context ──────────────────────────────────────────────────────────
 
-# Curated historical events for anniversary matching (month, day, description)
+# Curated anniversaries with proven DDoS/cyber-attack correlation (same-day only)
 _HISTORICAL_CALENDAR = [
-    (3, 8,  "1996 Taiwan Strait Crisis: PLA missile tests begin", "TW"),
-    (3, 23, "1996 Taiwan presidential election amid missile crisis", "TW"),
-    (7, 7,  "1937 Marco Polo Bridge Incident", "CN"),
-    (8, 23, "2020 Belarus internet shutdown during protests", "BY"),
-    (9, 18, "1931 Mukden Incident / Manchurian Incident", "CN"),
-    (10, 1, "PRC National Day — heightened military posture", "CN"),
-    (10, 10, "ROC National Day (Double Ten Day)", "TW"),
-    (2, 24, "2022 Russia-Ukraine invasion begins", "UA"),
-    (8, 8,  "2008 Russia-Georgia War begins", "GE"),
-    (4, 1,  "2001 Hainan Island EP-3 incident", "CN"),
-    (6, 25, "1950 Korean War begins", "KR"),
-    (1, 13, "2021 Myanmar coup d'état", "MM"),
-    (7, 25, "2015 Turkish strikes on PKK", "TR"),
-    (9, 11, "2001 September 11 attacks", "US"),
-    (5, 20, "Taiwan presidential inauguration day", "TW"),
-    (4, 17, "2018 US Syria strikes", "SY"),
-    (1, 3,  "2020 Soleimani assassination", "IR"),
-    (11, 24, "2015 Turkey shoots down Russian Su-24", "TR"),
+    (2, 24, "2022 Russia-Ukraine invasion — massive pre-invasion DDoS wave", "UA"),
+    (10, 1, "PRC National Day — documented annual cyber posture spike", "CN"),
+    (9, 11, "2001 September 11 — annual hacktivist DDoS surge", "US"),
+    (3, 8,  "Taiwan Strait Crisis anniversary — PLA operations period", "TW"),
+    (10, 10, "ROC National Day (Double Ten) — cross-strait tension spike", "TW"),
 ]
+
+# Scheduled future events: (year, month, day, description, theater)
+# Loaded from geo_data.json at init, supplemented by static entries.
+_SCHEDULED_EVENTS: list[tuple] = []
+
+def _load_scheduled_events():
+    """Load scheduled events from geo_data.json if available."""
+    global _SCHEDULED_EVENTS
+    try:
+        from radar.config import _raw_geo
+        entries = _raw_geo.get("SCHEDULED_EVENTS", [])
+        _SCHEDULED_EVENTS = [
+            (e["year"], e["month"], e["day"], e["desc"], e.get("theater", ""))
+            for e in entries if all(k in e for k in ("year", "month", "day", "desc"))
+        ]
+    except Exception:
+        _SCHEDULED_EVENTS = []
+
+# Run at import time
+_load_scheduled_events()
 
 
 def get_calendar_context(now: Optional[datetime.datetime] = None) -> list[ClimateEvent]:
-    """Return anniversary events within ±2 days of current date."""
+    """Return anniversary events (same-day only) and upcoming scheduled events (7-day lookahead)."""
     if now is None:
         now = datetime.datetime.now(tz=datetime.timezone.utc)
     events = []
-    today = (now.month, now.day)
+
+    # Historical anniversaries — same-day match only
     for month, day, desc, theater in _HISTORICAL_CALENDAR:
-        # Check ±2 day window
+        if now.month == month and now.day == day:
+            events.append(ClimateEvent(
+                ts=now.timestamp(),
+                indicator="CAL",
+                axis=AXIS_CONTEXT,
+                headline=f"Anniversary: {desc}",
+                detail=desc,
+                severity=1,
+                theater=theater,
+                meta={"date": f"{month:02d}-{day:02d}", "type": "anniversary"},
+            ))
+
+    # Scheduled future events — 7-day lookahead
+    for year, month, day, desc, theater in _SCHEDULED_EVENTS:
         try:
-            event_date = now.replace(month=month, day=day)
+            event_date = datetime.date(year, month, day)
         except ValueError:
             continue
-        delta = abs((now.date() - event_date.date()).days)
-        if delta <= 2:
-            severity = 1 if delta == 0 else 0
-            headline = f"Anniversary: {desc}" if delta == 0 else f"Near anniversary ({delta}d): {desc}"
+        delta = (event_date - now.date()).days
+        if 0 <= delta <= 7:
+            sev = 1 if delta <= 1 else 0
+            if delta == 0:
+                headline = f"Today: {desc}"
+            else:
+                headline = f"In {delta}d: {desc}"
             events.append(ClimateEvent(
                 ts=now.timestamp(),
                 indicator="CAL",
                 axis=AXIS_CONTEXT,
                 headline=headline,
                 detail=desc,
-                severity=severity,
+                severity=sev,
                 theater=theater,
-                meta={"date": f"{month:02d}-{day:02d}", "delta_days": delta},
+                meta={"date": f"{year}-{month:02d}-{day:02d}", "days_until": delta, "type": "scheduled"},
             ))
+
     return events
 
 
