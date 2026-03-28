@@ -22,7 +22,7 @@ socketio: SocketIO | None = None
 def init_socketio(app, **kwargs) -> SocketIO:
     """Create and configure the SocketIO instance on the Flask app."""
     global socketio
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", **kwargs)
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent", **kwargs)
 
     @socketio.on("connect")
     def on_connect():

@@ -4,3 +4,6 @@ flask-jwt-extended>=4.6
 flask-socketio>=5.3
 requests>=2.31
 python-dotenv>=1.0
+gunicorn>=21.0
+gevent>=24.0
+gevent-websocket>=0.10

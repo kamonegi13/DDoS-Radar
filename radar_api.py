@@ -2,9 +2,13 @@
 # The application has been modularized into the radar/ package.
 # This file re-exports key symbols so that existing imports continue to work.
 #
-# Usage:  python radar_api.py          (runs the dev server)
-#    or:  from radar_api import app    (WSGI entry point)
+# Usage:  python radar_api.py          (runs the dev server via gunicorn/eventlet)
+#    or:  from radar_api import app    (WSGI entry point — prefer wsgi.py)
+#
+# gevent.monkey.patch_all() MUST precede all other imports when running directly.
 from __future__ import annotations
+from gevent import monkey as _monkey
+_monkey.patch_all()  # noqa: E402 — must be before radar imports
 
 # Import everything from the radar package (triggers full initialization)
 from radar import app, registry, engine, config, socketio  # noqa: F401
@@ -62,12 +66,11 @@ hod_baseline_db = _HodDbProxy()
 
 
 if __name__ == "__main__":
-    # Use socketio.run() instead of app.run() for WebSocket support
+    # Use socketio.run() with eventlet (monkey_patch already applied above)
     socketio.run(
         app,
         host=config.SERVER_HOST,
         port=config.SERVER_PORT,
         debug=config.FLASK_DEBUG,
         use_reloader=False,
-        allow_unsafe_werkzeug=True,
     )
