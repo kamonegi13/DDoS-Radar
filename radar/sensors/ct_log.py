@@ -27,9 +27,11 @@ log = logging.getLogger("radar")
 _CRTSH_URL = "https://crt.sh/"
 
 # Country code to TLD mapping (most countries use .cc TLD)
+# KP (.kp) is excluded: North Korea has virtually no certificates on crt.sh,
+# causing a full timeout (30s) on every fetch cycle with no useful signal.
 _CC_TLDS = {
     "TW": ".tw", "JP": ".jp", "KR": ".kr", "CN": ".cn",
-    "RU": ".ru", "UA": ".ua", "IR": ".ir", "KP": ".kp",
+    "RU": ".ru", "UA": ".ua", "IR": ".ir",
     "IL": ".il", "US": ".us", "GB": ".uk", "DE": ".de",
     "FR": ".fr", "PH": ".ph", "VN": ".vn", "IN": ".in",
     "PK": ".pk", "BY": ".by", "GE": ".ge", "PL": ".pl",
@@ -132,7 +134,7 @@ class CtLogSensor(BaseSensor):
                                         "not_before": cert.get("not_before", ""),
                                     })
 
-                    time.sleep(1.5)  # Rate limit crt.sh (slightly longer gap)
+                    time.sleep(1.0)  # Rate limit crt.sh
 
                 prev = self._prev_counts.get(code, total_recent)
                 surge_pct = ((total_recent - prev) / max(prev, 1)
