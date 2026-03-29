@@ -54,7 +54,7 @@ class TelegramMirrorSensor(BaseSensor):
     )
     _intercept_log: list = []   # class-level ring buffer (shared across instances)
     _intercept_lock = threading.Lock()  # Protects _intercept_log and _baseline_tg
-    _MAX_LOG        = 50
+    _MAX_LOG        = 200
     _last_poll_ts: str  = ""
     _last_poll_ok: bool = False
     _baseline_tg: dict  = {}    # theater → {"daily_counts": [], "last_updated": 0.0}
@@ -148,8 +148,9 @@ class TelegramMirrorSensor(BaseSensor):
 
     @classmethod
     def _log_detection(cls, theater: str, channel: str, channel_url: str,
-                       status: str, keywords: list, targets: list, snippet: str) -> None:
-        """Append an entry to the intercept log (CLEAR status is not recorded)."""
+                       status: str, keywords: list, targets: list, snippet: str,
+                       text_excerpt: str = "") -> None:
+        """Append an entry to the intercept log (all statuses including CLEAR)."""
         entry = {
             "ts":              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "theater":         theater,
@@ -159,6 +160,7 @@ class TelegramMirrorSensor(BaseSensor):
             "keywords_matched": keywords,
             "target_urls":     targets[:5],
             "snippet":         snippet,
+            "text_excerpt":    text_excerpt,
         }
         with cls._intercept_lock:
             cls._intercept_log.insert(0, entry)
@@ -245,6 +247,9 @@ class TelegramMirrorSensor(BaseSensor):
                 targets, has_intent, matched_kws = self._parse_posts(text, TELEGRAM_ATTACK_KEYWORDS)
                 kw_hits = self._count_keyword_hits(text, TELEGRAM_ATTACK_KEYWORDS)
                 total_kw_hits += kw_hits
+                # Always extract a text excerpt for full-text LLM analysis
+                text_excerpt = text[:1500].strip()
+                ch_url = self.TGSTAT_URL.format(channel=channel)
                 if has_intent or targets:
                     theater_targets.extend(targets)
                     if has_intent:
@@ -252,9 +257,11 @@ class TelegramMirrorSensor(BaseSensor):
                     active_channels.append(channel)
                     total_hits += 1
                     snippet    = self._extract_snippet(text, matched_kws or TELEGRAM_ATTACK_KEYWORDS)
-                    ch_url     = self.TGSTAT_URL.format(channel=channel)
                     det_status = "INTENT_DETECTED" if has_intent else "TARGETS_FOUND"
-                    self._log_detection(theater, channel, ch_url, det_status, matched_kws, targets, snippet)
+                else:
+                    snippet    = ""
+                    det_status = "CLEAR"
+                self._log_detection(theater, channel, ch_url, det_status, matched_kws, targets, snippet, text_excerpt)
 
             # Z-score analysis: normalize hits per channel scraped
             normalized = total_kw_hits / max(channels_scraped, 1)
