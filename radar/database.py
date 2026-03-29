@@ -22,7 +22,7 @@ log = logging.getLogger("radar")
 # ── Schema SQL ────────────────────────────────────────────────────────────────
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
-PRAGMA busy_timeout = 5000;
+PRAGMA busy_timeout = 30000;
 PRAGMA synchronous = NORMAL;
 PRAGMA wal_autocheckpoint = 1000;
 
@@ -249,6 +249,40 @@ CREATE TABLE IF NOT EXISTS situation_wire (
 );
 CREATE INDEX IF NOT EXISTS idx_situation_wire_ts ON situation_wire (ts);
 CREATE INDEX IF NOT EXISTS idx_situation_wire_theater ON situation_wire (theater, ts);
+
+-- LLM Intel: source credibility tracking
+CREATE TABLE IF NOT EXISTS llm_sources (
+    source_id            TEXT PRIMARY KEY,
+    source_type          TEXT NOT NULL,
+    credibility_weight   REAL NOT NULL DEFAULT 0.70,
+    confirmed_count      INTEGER NOT NULL DEFAULT 0,
+    false_positive_count INTEGER NOT NULL DEFAULT 0,
+    last_updated         REAL NOT NULL
+);
+
+-- LLM Intel: queue of LLM-analyzed intelligence items
+CREATE TABLE IF NOT EXISTS llm_intel (
+    id            TEXT PRIMARY KEY,
+    source_type   TEXT NOT NULL,
+    source_id     TEXT NOT NULL DEFAULT '',
+    theater       TEXT NOT NULL DEFAULT '',
+    ts            REAL NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    confidence    REAL NOT NULL DEFAULT 0.0,
+    raw_text      TEXT NOT NULL DEFAULT '',
+    raw_url       TEXT NOT NULL DEFAULT '',
+    headline      TEXT NOT NULL DEFAULT '',
+    llm_fields    TEXT NOT NULL DEFAULT '{}',
+    score_delta   REAL NOT NULL DEFAULT 0.0,
+    domain        TEXT NOT NULL DEFAULT 'info',
+    confirmed_by  TEXT DEFAULT NULL,
+    confirmed_at  REAL DEFAULT NULL,
+    override_at   REAL DEFAULT NULL,
+    created_at    REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_intel_ts     ON llm_intel (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_intel_status ON llm_intel (status, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC);
 """
 
 # Column name mapping for parameterized HOD methods
@@ -274,9 +308,9 @@ class RadarDB:
         conn = getattr(self._local, "conn", None)
         if conn is None:
             os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-            conn = sqlite3.connect(self._db_path, timeout=10)
+            conn = sqlite3.connect(self._db_path, timeout=30)
             conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA busy_timeout = 5000")
+            conn.execute("PRAGMA busy_timeout = 30000")
             conn.execute("PRAGMA synchronous = NORMAL")
             conn.row_factory = sqlite3.Row
             self._local.conn = conn
@@ -322,6 +356,38 @@ class RadarDB:
 
     _MIGRATIONS: list[tuple[int, str, str | callable]] = [
         # (1, "initial schema", "")  -- version 1 = current _SCHEMA_SQL baseline
+        (2, "Add LLM intel tables (llm_intel, llm_sources)", lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS llm_sources (
+                source_id            TEXT PRIMARY KEY,
+                source_type          TEXT NOT NULL,
+                credibility_weight   REAL NOT NULL DEFAULT 0.70,
+                confirmed_count      INTEGER NOT NULL DEFAULT 0,
+                false_positive_count INTEGER NOT NULL DEFAULT 0,
+                last_updated         REAL NOT NULL
+            )"""),
+            conn.execute("""CREATE TABLE IF NOT EXISTS llm_intel (
+                id            TEXT PRIMARY KEY,
+                source_type   TEXT NOT NULL,
+                source_id     TEXT NOT NULL DEFAULT '',
+                theater       TEXT NOT NULL DEFAULT '',
+                ts            REAL NOT NULL,
+                status        TEXT NOT NULL DEFAULT 'pending',
+                confidence    REAL NOT NULL DEFAULT 0.0,
+                raw_text      TEXT NOT NULL DEFAULT '',
+                raw_url       TEXT NOT NULL DEFAULT '',
+                headline      TEXT NOT NULL DEFAULT '',
+                llm_fields    TEXT NOT NULL DEFAULT '{}',
+                score_delta   REAL NOT NULL DEFAULT 0.0,
+                domain        TEXT NOT NULL DEFAULT 'info',
+                confirmed_by  TEXT DEFAULT NULL,
+                confirmed_at  REAL DEFAULT NULL,
+                override_at   REAL DEFAULT NULL,
+                created_at    REAL NOT NULL
+            )"""),
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_intel_ts      ON llm_intel (ts DESC)"),
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_intel_status  ON llm_intel (status, ts DESC)"),
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC)"),
+        ]),
     ]
 
     def _run_migrations(self, conn: sqlite3.Connection):
@@ -1157,6 +1223,11 @@ class RadarDB:
         deleted["climate_events"] = cur.rowcount
         cur = conn.execute("DELETE FROM situation_wire WHERE ts < ?", (cutoff_48h,))
         deleted["situation_wire"] = cur.rowcount
+        # LLM intel: retain based on INTEL_RETENTION_DAYS config (default 7d)
+        import os as _os
+        cutoff_intel = now - int(_os.getenv("INTEL_RETENTION_DAYS", "7")) * 86400
+        cur = conn.execute("DELETE FROM llm_intel WHERE created_at < ?", (cutoff_intel,))
+        deleted["llm_intel"] = cur.rowcount
 
         conn.commit()
         return deleted
@@ -1246,6 +1317,152 @@ class RadarDB:
         conn = self._get_conn()
         conn.execute("DELETE FROM situation_wire WHERE ts < ?", (before_ts,))
         conn.commit()
+
+    # ── LLM Intel ───────────────────────────────────────────────────────────
+    def intel_upsert(self, item: dict):
+        """Insert or replace an LLM intel item."""
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO llm_intel "
+            "(id, source_type, source_id, theater, ts, status, confidence, "
+            "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
+            "confirmed_by, confirmed_at, override_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (item["id"], item["source_type"], item.get("source_id", ""),
+             item.get("theater", ""), item["ts"], item.get("status", "pending"),
+             item.get("confidence", 0.0), item.get("raw_text", ""),
+             item.get("raw_url", ""), item.get("headline", ""),
+             json.dumps(item.get("llm_fields", {})),
+             item.get("score_delta", 0.0), item.get("domain", "info"),
+             item.get("confirmed_by"), item.get("confirmed_at"),
+             item.get("override_at"), item.get("created_at", time.time())),
+        )
+        conn.commit()
+
+    def intel_update_status(self, item_id: str, status: str,
+                            confirmed_by: str = None, confirmed_at: float = None,
+                            override_at: float = None):
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE llm_intel SET status=?, confirmed_by=?, confirmed_at=?, override_at=? "
+            "WHERE id=?",
+            (status, confirmed_by, confirmed_at, override_at, item_id),
+        )
+        conn.commit()
+
+    def intel_get(self, item_id: str) -> Optional[dict]:
+        row = self._get_conn().execute(
+            "SELECT id, source_type, source_id, theater, ts, status, confidence, "
+            "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
+            "confirmed_by, confirmed_at, override_at, created_at FROM llm_intel WHERE id=?",
+            (item_id,),
+        ).fetchone()
+        return self._intel_row_to_dict(row) if row else None
+
+    def intel_list(self, source_type: str = None, status: str = None,
+                   theater: str = None, limit: int = 100) -> list[dict]:
+        q = ("SELECT id, source_type, source_id, theater, ts, status, confidence, "
+             "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
+             "confirmed_by, confirmed_at, override_at, created_at FROM llm_intel WHERE 1=1")
+        params = []
+        if source_type:
+            q += " AND source_type=?"
+            params.append(source_type)
+        if status:
+            q += " AND status=?"
+            params.append(status)
+        if theater:
+            q += " AND theater=?"
+            params.append(theater)
+        q += " ORDER BY ts DESC LIMIT ?"
+        params.append(limit)
+        rows = self._get_conn().execute(q, params).fetchall()
+        return [self._intel_row_to_dict(r) for r in rows]
+
+    def intel_active_in_window(self, since_ts: float) -> list[dict]:
+        """Items that were auto_confirmed or confirmed in the given time window (for CLASSIFY THREAT linking)."""
+        rows = self._get_conn().execute(
+            "SELECT id, source_type, source_id, theater, ts, status, confidence, "
+            "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
+            "confirmed_by, confirmed_at, override_at, created_at FROM llm_intel "
+            "WHERE status IN ('auto_confirmed', 'confirmed') AND ts >= ? "
+            "ORDER BY ts DESC LIMIT 20",
+            (since_ts,),
+        ).fetchall()
+        return [self._intel_row_to_dict(r) for r in rows]
+
+    def _intel_row_to_dict(self, r) -> dict:
+        return {
+            "id": r[0], "source_type": r[1], "source_id": r[2],
+            "theater": r[3], "ts": r[4], "status": r[5],
+            "confidence": r[6], "raw_text": r[7], "raw_url": r[8],
+            "headline": r[9], "llm_fields": json.loads(r[10]),
+            "score_delta": r[11], "domain": r[12],
+            "confirmed_by": r[13], "confirmed_at": r[14],
+            "override_at": r[15], "created_at": r[16],
+        }
+
+    def intel_source_get(self, source_id: str) -> Optional[dict]:
+        row = self._get_conn().execute(
+            "SELECT source_id, source_type, credibility_weight, confirmed_count, "
+            "false_positive_count, last_updated FROM llm_sources WHERE source_id=?",
+            (source_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {"source_id": row[0], "source_type": row[1],
+                "credibility_weight": row[2], "confirmed_count": row[3],
+                "false_positive_count": row[4], "last_updated": row[5]}
+
+    def intel_source_upsert(self, source_id: str, source_type: str,
+                            credibility_weight: float = 0.70):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT OR IGNORE INTO llm_sources "
+            "(source_id, source_type, credibility_weight, last_updated) "
+            "VALUES (?, ?, ?, ?)",
+            (source_id, source_type, credibility_weight, time.time()),
+        )
+        conn.commit()
+
+    def intel_source_update_credibility(self, source_id: str, delta: float):
+        """Adjust credibility weight by delta, clamped to [0.30, 0.95]."""
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE llm_sources SET "
+            "credibility_weight = MAX(0.30, MIN(0.95, credibility_weight + ?)), "
+            "last_updated = ? WHERE source_id=?",
+            (delta, time.time(), source_id),
+        )
+        conn.commit()
+
+    def intel_source_record_outcome(self, source_id: str, confirmed: bool):
+        """Increment confirmed_count or false_positive_count and adjust credibility."""
+        conn = self._get_conn()
+        if confirmed:
+            conn.execute(
+                "UPDATE llm_sources SET confirmed_count = confirmed_count + 1, "
+                "credibility_weight = MAX(0.30, MIN(0.95, credibility_weight + 0.05)), "
+                "last_updated = ? WHERE source_id=?",
+                (time.time(), source_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE llm_sources SET false_positive_count = false_positive_count + 1, "
+                "credibility_weight = MAX(0.30, MIN(0.95, credibility_weight - 0.10)), "
+                "last_updated = ? WHERE source_id=?",
+                (time.time(), source_id),
+            )
+        conn.commit()
+
+    def intel_source_list(self) -> list[dict]:
+        rows = self._get_conn().execute(
+            "SELECT source_id, source_type, credibility_weight, confirmed_count, "
+            "false_positive_count, last_updated FROM llm_sources ORDER BY source_type, source_id"
+        ).fetchall()
+        return [{"source_id": r[0], "source_type": r[1], "credibility_weight": r[2],
+                 "confirmed_count": r[3], "false_positive_count": r[4],
+                 "last_updated": r[5]} for r in rows]
 
     # ── Utility ─────────────────────────────────────────────────────────────
     def close(self):

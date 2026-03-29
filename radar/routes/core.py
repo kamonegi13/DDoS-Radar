@@ -1,5 +1,6 @@
 """radar.routes.core -- Main API endpoints: app_config and threat_data scoring loop."""
 from __future__ import annotations
+import os
 import time
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -81,8 +82,8 @@ def get_threat_data():
         "strategic_theaters": list(strategic_theaters_set),
         "adversary_states": adversary_states,
         "cf_headers": CF_HEADERS, "owm_api_key": OWM_API_KEY,
-        "weather_conditions": {}, "gdelt_tone_threshold": GDELT_TONE_ALERT_THRESHOLD,
-        "gdelt_history_window": GDELT_HISTORY_WINDOW
+        "weather_conditions": {}, "gdelt_tone_threshold": float(os.getenv("GDELT_TONE_ALERT_THRESHOLD", "-15.0")),
+        "gdelt_history_window": int(os.getenv("GDELT_HISTORY_WINDOW", "28"))
     }
 
     # Sensors are individually scheduled in the background.
@@ -239,8 +240,8 @@ def get_threat_data():
                 severity = "CLOSURE" if _ah_z < -3.0 else "ANOMALY" if _ah_z < -2.0 else "NORMAL"
             else:
                 ainfo["hod_z"] = None; ainfo["hod_n"] = _n_as_hod
-                severity = "CLOSURE" if drop_ratio >= (1.0 - AIRSPACE_CLOSURE_THRESHOLD) else \
-                           "ANOMALY" if drop_ratio >= (1.0 - AIRSPACE_ANOMALY_THRESHOLD) else "NORMAL"
+                severity = "CLOSURE" if drop_ratio >= (1.0 - float(os.getenv("AIRSPACE_CLOSURE_THRESHOLD", "0.05"))) else \
+                           "ANOMALY" if drop_ratio >= (1.0 - float(os.getenv("AIRSPACE_ANOMALY_THRESHOLD", "0.40"))) else "NORMAL"
 
             if severity in ("CLOSURE", "ANOMALY"):
                 if weather_suppressed:
@@ -1126,6 +1127,30 @@ def get_threat_data():
 
         # ── Sequence Bonus computation ──────────────────────────────────────────
         seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
+
+        # ── LLM Intel rationale injection ──────────────────────────────────────
+        # Inject confirmed/auto_confirmed LLM intel items as scored rationale entries.
+        # This makes LLM signals visible in the evidence matrix and contributes to
+        # domain scores, exactly like any other sensor.
+        try:
+            from radar.intel_queue import intel_queue as _iq
+            for _llm_entry in _iq.get_active_rationale():
+                _llm_theater = _llm_entry.get("theater", "")
+                # Only inject entries relevant to the current core theater
+                if _llm_theater and _llm_theater != core_theater:
+                    continue
+                add_rat(
+                    _llm_entry["sensor"],
+                    _llm_entry["domain"],
+                    _llm_entry["status"],
+                    _llm_entry["detail"],
+                    _llm_entry["score"],
+                    _llm_entry["detail"],
+                    confidence=_llm_entry["confidence"],
+                    signal_source="llm_intel",
+                )
+        except Exception as _llm_err:
+            log.debug(f"[LLM Intel] rationale injection error: {_llm_err}")
 
         domain_scores = _routes.engine.compute_domain_scores(rationale)
 

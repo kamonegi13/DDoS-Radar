@@ -20,9 +20,10 @@ import time
 import math
 import requests
 from radar.sensors.base import BaseSensor
+import os as _os
 from radar.config import (
     COUNTRY_COORDS, CHOKEPOINTS, GLOBAL_PROXIES, SSL_VERIFY,
-    USGS_MIN_MAGNITUDE, USGS_CABLE_RADIUS_KM,
+    USGS_CABLE_RADIUS_KM,
 )
 
 log = logging.getLogger("radar")
@@ -62,7 +63,7 @@ class UsgsSeismicSensor(BaseSensor):
             params = {
                 "format": "geojson",
                 "starttime": _hours_ago(24),
-                "minmagnitude": USGS_MIN_MAGNITUDE,
+                "minmagnitude": float(_os.getenv("USGS_MIN_MAGNITUDE", "4.0")),
                 "orderby": "time",
                 "limit": 100,
             }

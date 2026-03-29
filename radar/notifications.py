@@ -22,12 +22,12 @@ import requests
 
 log = logging.getLogger("radar")
 
-# ── Config ────────────────────────────────────────────────────────────────────
-SLACK_WEBHOOK   = os.getenv("NOTIFY_SLACK_WEBHOOK", "")
-TEAMS_WEBHOOK   = os.getenv("NOTIFY_TEAMS_WEBHOOK", "")
-GENERIC_WEBHOOK = os.getenv("NOTIFY_WEBHOOK_URL", "")
-DEBOUNCE_SEC    = int(os.getenv("NOTIFY_DEBOUNCE_SEC", "300"))
-ENABLED         = os.getenv("NOTIFY_ENABLED", "true").lower() != "false"
+# ── Config helpers (read dynamically so changes to config.env take effect without restart) ──
+def _slack_webhook()   -> str:  return os.getenv("NOTIFY_SLACK_WEBHOOK", "")
+def _teams_webhook()   -> str:  return os.getenv("NOTIFY_TEAMS_WEBHOOK", "")
+def _generic_webhook() -> str:  return os.getenv("NOTIFY_WEBHOOK_URL", "")
+def _debounce_sec()    -> int:  return int(os.getenv("NOTIFY_DEBOUNCE_SEC", "300"))
+def _enabled()         -> bool: return os.getenv("NOTIFY_ENABLED", "true").lower() != "false"
 
 # Debounce tracker: {alert_key: last_sent_timestamp}
 _last_sent: dict[str, float] = {}
@@ -39,7 +39,7 @@ def _should_send(alert_key: str) -> bool:
     with _lock:
         now = time.time()
         last = _last_sent.get(alert_key, 0)
-        if now - last < DEBOUNCE_SEC:
+        if now - last < _debounce_sec():
             return False
         _last_sent[alert_key] = now
         return True
@@ -47,7 +47,8 @@ def _should_send(alert_key: str) -> bool:
 
 def _send_slack(text: str, color: str = "#ff0000"):
     """Send alert to Slack via Incoming Webhook. Raises on failure."""
-    if not SLACK_WEBHOOK:
+    url = _slack_webhook()
+    if not url:
         return
     payload = {
         "attachments": [{
@@ -56,14 +57,15 @@ def _send_slack(text: str, color: str = "#ff0000"):
             "ts": int(time.time()),
         }]
     }
-    resp = requests.post(SLACK_WEBHOOK, json=payload, timeout=10)
+    resp = requests.post(url, json=payload, timeout=10)
     if resp.status_code != 200:
         raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:100]}")
 
 
 def _send_teams(title: str, text: str, color: str = "FF0000"):
     """Send alert to Microsoft Teams via Incoming Webhook. Raises on failure."""
-    if not TEAMS_WEBHOOK:
+    url = _teams_webhook()
+    if not url:
         return
     payload = {
         "@type": "MessageCard",
@@ -76,21 +78,22 @@ def _send_teams(title: str, text: str, color: str = "FF0000"):
             "markdown": True,
         }]
     }
-    resp = requests.post(TEAMS_WEBHOOK, json=payload, timeout=10)
+    resp = requests.post(url, json=payload, timeout=10)
     if resp.status_code != 200:
         raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:100]}")
 
 
 def _send_generic(event_type: str, data: dict):
     """Send alert to generic webhook as JSON POST. Raises on failure."""
-    if not GENERIC_WEBHOOK:
+    url = _generic_webhook()
+    if not url:
         return
     payload = {
         "event": event_type,
         "timestamp": time.time(),
         "data": data,
     }
-    resp = requests.post(GENERIC_WEBHOOK, json=payload, timeout=10)
+    resp = requests.post(url, json=payload, timeout=10)
     if resp.status_code not in (200, 201, 202, 204):
         raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:100]}")
 
@@ -125,7 +128,7 @@ def _log_delivery(channel: str, event_type: str, title: str, success: bool, deta
 def _dispatch(event_type: str, title: str, text: str, data: dict,
               color_slack: str = "#ff0000", color_teams: str = "FF0000"):
     """Dispatch to all configured channels in background threads."""
-    if not ENABLED:
+    if not _enabled():
         return
 
     def _slack_with_log():
@@ -149,11 +152,11 @@ def _dispatch(event_type: str, title: str, text: str, data: dict,
         except Exception as e:
             _log_delivery("webhook", event_type, title, False, str(e))
 
-    if SLACK_WEBHOOK:
+    if _slack_webhook():
         threading.Thread(target=_slack_with_log, daemon=True).start()
-    if TEAMS_WEBHOOK:
+    if _teams_webhook():
         threading.Thread(target=_teams_with_log, daemon=True).start()
-    if GENERIC_WEBHOOK:
+    if _generic_webhook():
         threading.Thread(target=_generic_with_log, daemon=True).start()
 
 

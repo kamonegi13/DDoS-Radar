@@ -291,6 +291,8 @@
         .env-status.ok { color:#00cc66; }
         .env-status.err { color: var(--color-severe); }
         .env-restart-note { font-size:12px; color:#556; margin-top:8px; }
+        .cfg-restart-badge { display:inline-block; font-size:9px; font-weight:bold; letter-spacing:0.5px; padding:1px 5px; border-radius:2px; margin-left:4px; background:#ff660022; color:#ff8800; border:1px solid #ff660044; vertical-align:middle; }
+        .cfg-live-badge    { display:inline-block; font-size:9px; font-weight:bold; letter-spacing:0.5px; padding:1px 5px; border-radius:2px; margin-left:4px; background:#00cc6622; color:#00cc66; border:1px solid #00cc6644; vertical-align:middle; }
         /* Adversary bloc toggle buttons */
         .adv-bloc-picker { display:flex; flex-wrap:wrap; gap:8px; }
         .adv-bloc-btn { background:#0c1418; border:2px solid #1a2a32; color:#777; padding:8px 18px; cursor:pointer; font-family:inherit; border-radius:3px; display:flex; flex-direction:column; align-items:center; gap:2px; min-width:80px; transition:all 0.15s; }
@@ -955,6 +957,64 @@
 .corr-heatmap-body:has(.corr-grid-compact) .corr-toggle-group { margin-bottom:3px; }
 .corr-heatmap-body:has(.corr-grid-compact) .corr-toggle-btn { font-size:9px; padding:2px 5px; }
 .corr-heatmap-body:has(.corr-grid-compact) .corr-legend { margin-top:3px; font-size:8px; gap:6px; }
+/* ── LLM Intelligence Panel ───────────────────────────────── */
+.llm-intel-body { padding: 0; display: flex; flex-direction: column; max-height: 560px; }
+.llm-status-bar { display: flex; align-items: center; gap: 6px; padding: 5px 10px; background: rgba(0,0,0,0.5); border-bottom: 1px solid #222; font-size: 10px; }
+.llm-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #444; flex-shrink: 0; }
+.llm-status-dot.online  { background: #44cc66; box-shadow: 0 0 4px #44cc66; }
+.llm-status-dot.offline { background: #666; }
+#llm-status-text { color: #888; letter-spacing: 1px; text-transform: uppercase; }
+.llm-status-model { color: #556; font-size: 9px; margin-left: auto; }
+.llm-filter-row { display: flex; gap: 4px; padding: 5px 8px; background: rgba(0,0,0,0.3); border-bottom: 1px solid #1a1a1a; flex-wrap: wrap; }
+.llm-filter-btn { font-size: 9px; padding: 2px 7px; border: 1px solid #333; background: #111; color: #666; border-radius: 2px; cursor: pointer; letter-spacing: 0.5px; transition: all .15s; }
+.llm-filter-btn:hover { background: #1a1a1a; color: #aaa; }
+.llm-filter-btn.llm-filter-active { background: #0d2233; border-color: #0af; color: #0af; }
+.llm-stats-bar { display: flex; gap: 10px; padding: 4px 10px; font-size: 9px; background: rgba(0,0,0,0.2); border-bottom: 1px solid #1a1a1a; }
+.llm-stat-auto    { color: #44cc66; }
+.llm-stat-pending { color: #ffaa00; }
+.llm-stat-review  { color: #ff4444; }
+.llm-stat-reject  { color: #555; }
+.llm-intel-list { overflow-y: auto; flex: 1; min-height: 80px; }
+.llm-empty { color: #444; font-size: 10px; text-align: center; padding: 24px 0; }
+.llm-item { border-bottom: 1px solid #111; padding: 8px 10px; font-size: 11px; }
+.llm-item:hover { background: rgba(255,255,255,0.02); }
+.llm-item-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+.llm-item-badge { font-size: 8px; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.5px; font-weight: bold; }
+.llm-badge-hacktivist { background: #3a1a00; color: #ff6622; border: 1px solid #ff662244; }
+.llm-badge-diplomatic { background: #001a3a; color: #44aaff; border: 1px solid #44aaff44; }
+.llm-badge-military   { background: #1a2a00; color: #88cc00; border: 1px solid #88cc0044; }
+.llm-badge-ground_osint { background: #1a001a; color: #cc44cc; border: 1px solid #cc44cc44; }
+.llm-item-time    { font-size: 9px; color: #556; }
+.llm-item-theater { font-size: 9px; color: #44aaff; margin-left: auto; }
+.llm-item-headline { color: #ccc; line-height: 1.4; margin-bottom: 5px; }
+.llm-item-conf { font-size: 9px; color: #888; }
+.llm-item-conf-hi  { color: #44cc66; }
+.llm-item-conf-mid { color: #ffaa00; }
+.llm-item-conf-lo  { color: #ff6644; }
+.llm-item-score { font-size: 9px; color: #44cc88; margin-left: 8px; }
+.llm-item-raw { background: rgba(0,0,0,0.4); border-left: 2px solid #333; padding: 5px 7px; margin: 4px 0; font-size: 9px; color: #556; line-height: 1.5; max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; display: none; }
+.llm-item-raw.visible { display: block; }
+.llm-item-actions { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
+.llm-btn { font-size: 9px; padding: 2px 8px; border: 1px solid #333; background: #111; color: #888; border-radius: 2px; cursor: pointer; transition: all .15s; }
+.llm-btn:hover { background: #1a1a1a; }
+.llm-btn-raw      { border-color: #333; color: #556; }
+.llm-btn-confirm  { border-color: #44cc6644; color: #44cc66; }
+.llm-btn-confirm:hover { background: #0a2a15; }
+.llm-btn-reject   { border-color: #ff444444; color: #ff6644; }
+.llm-btn-reject:hover  { background: #2a0a0a; }
+.llm-btn-override { border-color: #ff880044; color: #ff8800; }
+.llm-btn-override:hover { background: #2a1500; }
+.llm-item-status-auto     { border-left: 3px solid #44cc66; }
+.llm-item-status-pending  { border-left: 3px solid #ffaa00; }
+.llm-item-status-review   { border-left: 3px solid #ff4444; }
+.llm-item-status-confirmed { border-left: 3px solid #44aaff; }
+.llm-item-status-rejected  { border-left: 3px solid #333; opacity: 0.6; }
+.llm-item-status-overridden { border-left: 3px solid #555; opacity: 0.5; }
+.llm-status-label-auto     { font-size: 8px; color: #44cc66; letter-spacing: 0.5px; }
+.llm-status-label-pending  { font-size: 8px; color: #ffaa00; letter-spacing: 0.5px; }
+.llm-status-label-review   { font-size: 8px; color: #ff4444; letter-spacing: 0.5px; }
+.llm-status-label-confirmed{ font-size: 8px; color: #44aaff; letter-spacing: 0.5px; }
+.llm-status-label-rejected { font-size: 8px; color: #555; letter-spacing: 0.5px; }
 /* ── Strategic Climate Feed ───────────────────────────────── */
 .climate-body { padding: 0; display: flex; flex-direction: column; max-height: 500px; }
 .climate-gauge-bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(0,0,0,0.4); border-bottom: 1px solid #222; }

@@ -167,7 +167,7 @@ const LANG = {
     'modal.settings.tab.users':       'Users',
 
     // ── System Config tab ──────────────────────────────────────────────
-    'sysconfig.help':                 'Edit <span class="code-block">config.env</span> settings. Changes are written to disk and take effect after server restart.',
+    'sysconfig.help':                 'Edit <span class="code-block">config.env</span> settings. Changes are written to disk immediately. <span class="cfg-live-badge">live</span> settings take effect instantly; <span class="cfg-restart-badge">restart</span> settings require <code>docker compose restart</code>.',
     'sysconfig.section.api_keys':     'API Keys',
     'sysconfig.section.scope':        'Default Scope',
     'sysconfig.scope.desc':           'Startup defaults for the STRATEGY SCOPE and THREAT ACTORS panels. These can always be changed at runtime from the main UI.',
@@ -225,7 +225,27 @@ const LANG = {
     'sysconfig.field.isr_surge':      'ISR Surge Threshold (aircraft)',
     'sysconfig.field.isr_icao':       'ISR ICAO Type Codes',
     'sysconfig.save_btn':             'Save to config.env',
-    'sysconfig.restart_note':         '\u26a0 Changes take effect after server restart',
+    'sysconfig.restart_note':         '\u26a0 Some settings require server restart (docker compose restart)',
+    'sysconfig.section.llm':          'LLM Intelligence',
+    'sysconfig.help.llm_desc':        'Requires Ollama running locally. Inside Docker on Mac/Windows use host.docker.internal as the hostname.',
+    'sysconfig.field.llm_enabled':    'LLM Enabled',
+    'sysconfig.field.llm_host':       'Ollama Host',
+    'sysconfig.field.llm_model':      'Model',
+    'sysconfig.field.llm_timeout':    'Request Timeout (s)',
+    'sysconfig.section.llm_thresholds': 'Intel Queue Thresholds',
+    'sysconfig.field.llm_auto_threshold': 'Auto-Confirm Threshold',
+    'sysconfig.help.llm_auto_threshold':  'Confidence \u2265 this \u2192 AUTO-CONFIRMED (no analyst review needed)',
+    'sysconfig.field.llm_min_confidence': 'Min Confidence',
+    'sysconfig.help.llm_min_confidence':  'Items below this are silently discarded',
+    'sysconfig.field.llm_override_window': 'Override Window (s)',
+    'sysconfig.help.llm_override_window':  'Seconds within which AUTO-CONFIRMED items can be overridden',
+    'sysconfig.field.intel_retention': 'Intel Retention (days)',
+    'sysconfig.llm.fetch_models':     'Fetch Models \u21ba',
+    'sysconfig.llm.fetching':         'Fetching...',
+    'sysconfig.llm.no_models':        'No models found — is Ollama running?',
+    'sysconfig.llm.models_loaded':    '\u2713 {n} model(s) loaded',
+    'sysconfig.llm.fetch_error':      '\u2717 {msg}',
+    'sysconfig.llm.model_hint':       'Click "Fetch Models" to load from Ollama, or type manually.',
 
     'modal.strategy.help_core':       '<b>Epicenter (Core):</b> The primary focal point of a contingency scenario.',
     'modal.strategy.help_link':       '<b>Correlate (Link):</b> Allied nations to monitor for coordinated attacks originating from the same botnets.',
@@ -359,6 +379,10 @@ const LANG = {
     'panel.chain.sigint_tooltip':     'Open SIGINT Panel',
     'panel.chain.infra_survival':     'Infra Survival',
     'panel.chain.c2_sync':            'C2 Sync',
+    'panel.chain.llm_intel':          'LLM Intel',
+    'chain.llm_intel.active':         'active',
+    'chain.llm_intel.review':         'REVIEW',
+    'chain.llm_intel.none':           '—',
 
     // ── chain sequence badge ──────────────────────────────────────
     'chain.seq.full_chain':           '✔ FULL CHAIN CONFIRMED',
@@ -690,6 +714,8 @@ const LANG = {
     'panel.ap.title':                 'ACTION PLAN',
     'panel.ap.current':               'CURRENT',
     'panel.ap.all_clear':             'All clear — review escalation procedures below for readiness.',
+    'panel.ap.llm_context':           'LLM Intel Context',
+    'ap.intel.theater_prefix':        '[{t}]',
     'panel.ap.tl5.monitor':           'Maintain routine OSINT monitoring cycle',
     'panel.ap.tl5.baseline':          'Verify HOD baseline data collection is active',
     'panel.ap.tl5.review':            'Review sensor health dashboard weekly',
@@ -772,6 +798,29 @@ const LANG = {
     'panel.heatmap.legend.warning':   'Warning',
     'panel.heatmap.legend.alert':     'Alert',
 
+    // ══════════════════════════════════════════════════════════════
+    // LLM Intelligence Panel
+    // ══════════════════════════════════════════════════════════════
+    'tools.llm_intelligence':               'LLM Intelligence',
+    'panel.llm_intel.title':                'LLM INTELLIGENCE',
+    'panel.llm_intel.status_online':        'LLM ONLINE',
+    'panel.llm_intel.status_offline':       'LLM OFFLINE',
+    'panel.llm_intel.status_disabled':      'LLM DISABLED',
+    'panel.llm_intel.filter_all':           'ALL',
+    'panel.llm_intel.filter_hacktivist':    'HACKTIVIST',
+    'panel.llm_intel.filter_diplo':         'DIPLO',
+    'panel.llm_intel.filter_military':      'MILITARY',
+    'panel.llm_intel.filter_ground':        'GROUND',
+    'panel.llm_intel.stat_pending':         'PENDING',
+    'panel.llm_intel.stat_rejected':        'REJ.',
+    'panel.llm_intel.stat_review':          'REVIEW',
+    'panel.llm_intel.empty':               'No intelligence items',
+    'panel.llm_intel.score_applied':        'Score applied',
+    'panel.llm_intel.btn_raw':             '▼ raw',
+    'panel.llm_intel.btn_confirm':          '✓ CONFIRM',
+    'panel.llm_intel.btn_reject':           '✗ REJECT',
+    'panel.llm_intel.btn_override':         '✗ OVERRIDE',
+    'panel.llm_intel.override_confirm':     'Override this AUTO-CONFIRMED item? Its score contribution will be reversed.',
     // ══════════════════════════════════════════════════════════════
     // Strategic Climate Feed
     // ══════════════════════════════════════════════════════════════
@@ -1018,8 +1067,11 @@ const LANG = {
     // ── config save status ──────────────────────────────────────
     'config.status.saving':           'Saving...',
     'config.status.saved':            '✓ Saved ({n} keys updated)',
+    'config.status.needs_restart':    '— restart required for some settings',
     'config.status.error':            '✗ Error: {msg}',
     'config.status.load_error':       'Failed to load: {msg}',
+    'sysconfig.badge.restart':        'restart',
+    'sysconfig.badge.live':           'live',
 
     // ══════════════════════════════════════════════════════════════
     // System Config — additional fields
@@ -1032,7 +1084,7 @@ const LANG = {
     'sysconfig.section.notifications':'Alert Notifications',
     'sysconfig.help.notifications':   'Sends external notifications on Threat Level changes and Ambush detection. Configure a Webhook URL to enable.',
     'sysconfig.section.plugins':      'Plugin Sensors',
-    'sysconfig.help.server_restart':  'Restart the server after changes.',
+    'sysconfig.help.server_restart':  'All Server settings require restart.',
     'sysconfig.help.auth_desc':       'User authentication and session management. A default admin user is created on first startup.',
     'sysconfig.help.debounce':        'Interval to suppress repeated alerts of the same type',
     'sysconfig.help.plugins_desc':    'Dynamically loads BaseSensor subclasses from the plugins/ directory.',
@@ -1074,6 +1126,7 @@ const LANG = {
     'threat_cls.false_positive':      'False Positive',
     'threat_cls.notes_prompt':        'Additional notes (optional):',
     'notebook.entry.threat_classified': 'Threat classified: {cls}',
+    'notebook.entry.llm_credibility_adjusted': 'LLM source credibility adjusted ({cls}) — check Intel panel for review items',
 
     // Attack Phase Panel
     'panel.phase.title':              'PHASE & ESCALATION',
@@ -1084,6 +1137,7 @@ const LANG = {
     'panel.phase.direction':          'Signal Direction',
     'panel.phase.trend':              'Escalation Trend',
     'panel.phase.btn_classify':       'Classify Threat',
+    'panel.phase.llm_intel':          'LLM Intelligence',
     'phase.0.label':                  'PHASE 0: NORMAL',
     'phase.0.desc':                   'No significant indicators. Routine monitoring.',
     'phase.1.label':                  'PHASE 1: WATCH',
@@ -1305,7 +1359,7 @@ const LANG = {
     'modal.settings.tab.users':       'ユーザー管理',
 
     // ── System Config tab ──────────────────────────────────────────────
-    'sysconfig.help':                 '<span class="code-block">config.env</span> の設定を編集します。変更はディスクに書き込まれ、サーバー再起動後に反映されます。',
+    'sysconfig.help':                 '<span class="code-block">config.env</span> の設定を編集します。変更は即座にディスクに書き込まれます。<span class="cfg-live-badge">ライブ</span> の設定は即時反映、<span class="cfg-restart-badge">再起動</span> の設定は <code>docker compose restart</code> が必要です。',
     'sysconfig.section.api_keys':     'API キー',
     'sysconfig.section.scope':        'デフォルトスコープ',
     'sysconfig.scope.desc':           'STRATEGY SCOPE・THREAT ACTORS パネルの起動時デフォルト設定。メインUIからいつでも変更できます。',
@@ -1363,7 +1417,27 @@ const LANG = {
     'sysconfig.field.isr_surge':      'ISR サージ閾値（機）',
     'sysconfig.field.isr_icao':       'ISR ICAO 機種コード',
     'sysconfig.save_btn':             'config.env に保存',
-    'sysconfig.restart_note':         '\u26a0 変更はサーバー再起動後に反映されます',
+    'sysconfig.restart_note':         '\u26a0 一部の設定は再起動が必要です（docker compose restart）',
+    'sysconfig.section.llm':          'LLMインテリジェンス',
+    'sysconfig.help.llm_desc':        'Ollama のローカル起動が必要。Docker内（Mac/Windows）では hostname に host.docker.internal を使用。',
+    'sysconfig.field.llm_enabled':    'LLM 有効',
+    'sysconfig.field.llm_host':       'Ollama ホスト',
+    'sysconfig.field.llm_model':      'モデル',
+    'sysconfig.field.llm_timeout':    'リクエストタイムアウト（秒）',
+    'sysconfig.section.llm_thresholds': 'インテルキュー閾値',
+    'sysconfig.field.llm_auto_threshold': '自動承認閾値',
+    'sysconfig.help.llm_auto_threshold':  'この信頼度以上 \u2192 AUTO-CONFIRMED（アナリスト審査不要）',
+    'sysconfig.field.llm_min_confidence': '最低信頼度',
+    'sysconfig.help.llm_min_confidence':  'これ未満のアイテムは破棄',
+    'sysconfig.field.llm_override_window': '取消可能時間（秒）',
+    'sysconfig.help.llm_override_window':  'AUTO-CONFIRMEDアイテムの取消可能な時間',
+    'sysconfig.field.intel_retention': 'インテル保持期間（日）',
+    'sysconfig.llm.fetch_models':     'モデル取得 \u21ba',
+    'sysconfig.llm.fetching':         '取得中...',
+    'sysconfig.llm.no_models':        'モデルが見つかりません — Ollama は起動していますか？',
+    'sysconfig.llm.models_loaded':    '\u2713 {n} 件のモデルを読み込みました',
+    'sysconfig.llm.fetch_error':      '\u2717 {msg}',
+    'sysconfig.llm.model_hint':       '「モデル取得」でOllamaから読み込み、または手動入力。',
 
     'modal.strategy.help_core':       '<b>震源地（コア）:</b> シナリオの主要焦点国。',
     'modal.strategy.help_link':       '<b>連携（リンク）:</b> 同一ボットネットからの協調攻撃を監視する同盟国。',
@@ -1497,6 +1571,10 @@ const LANG = {
     'panel.chain.sigint_tooltip':     'SIGINTパネルを開く',
     'panel.chain.infra_survival':     'インフラ生存',
     'panel.chain.c2_sync':            'C2同期',
+    'panel.chain.llm_intel':          'LLM インテル',
+    'chain.llm_intel.active':         '件確認済',
+    'chain.llm_intel.review':         '件要確認',
+    'chain.llm_intel.none':           '—',
 
     'chain.seq.full_chain':           '✔ チェーン完全確認',
     'chain.seq.partial':              '≈ チェーン部分確認',
@@ -1822,6 +1900,8 @@ const LANG = {
     'panel.ap.title':                 'アクションプラン',
     'panel.ap.current':               '現在',
     'panel.ap.all_clear':             '異常なし — 以下のエスカレーション手順を確認してください。',
+    'panel.ap.llm_context':           'LLMインテルコンテキスト',
+    'ap.intel.theater_prefix':        '[{t}]',
     'panel.ap.tl5.monitor':           '通常のOSINT監視サイクルを維持',
     'panel.ap.tl5.baseline':          'HODベースラインデータ収集が有効か確認',
     'panel.ap.tl5.review':            '週次でセンサー健全性ダッシュボードをレビュー',
@@ -1904,6 +1984,29 @@ const LANG = {
     'panel.heatmap.legend.warning':   '警戒',
     'panel.heatmap.legend.alert':     '警報',
 
+    // ══════════════════════════════════════════════════════════════
+    // LLMインテリジェンスパネル
+    // ══════════════════════════════════════════════════════════════
+    'tools.llm_intelligence':               'LLMインテリジェンス',
+    'panel.llm_intel.title':                'LLMインテリジェンス',
+    'panel.llm_intel.status_online':        'LLM オンライン',
+    'panel.llm_intel.status_offline':       'LLM オフライン',
+    'panel.llm_intel.status_disabled':      'LLM 無効',
+    'panel.llm_intel.filter_all':           'すべて',
+    'panel.llm_intel.filter_hacktivist':    'ハクティビスト',
+    'panel.llm_intel.filter_diplo':         '外交',
+    'panel.llm_intel.filter_military':      '軍事',
+    'panel.llm_intel.filter_ground':        'グラウンド',
+    'panel.llm_intel.stat_pending':         '審査待ち',
+    'panel.llm_intel.stat_rejected':        '却下',
+    'panel.llm_intel.stat_review':          '要確認',
+    'panel.llm_intel.empty':               'インテルアイテムなし',
+    'panel.llm_intel.score_applied':        'スコア反映済み',
+    'panel.llm_intel.btn_raw':             '▼ 原文',
+    'panel.llm_intel.btn_confirm':          '✓ 承認',
+    'panel.llm_intel.btn_reject':           '✗ 却下',
+    'panel.llm_intel.btn_override':         '✗ 取消',
+    'panel.llm_intel.override_confirm':     'この自動承認アイテムを取り消しますか？スコアへの加算が取り消されます。',
     // ══════════════════════════════════════════════════════════════
     // 戦略的環境気候フィード
     // ══════════════════════════════════════════════════════════════
@@ -2150,8 +2253,11 @@ const LANG = {
     // ── Config save status ────────────────────────────────────
     'config.status.saving':           '保存中...',
     'config.status.saved':            '✓ 保存完了（{n} 件更新）',
+    'config.status.needs_restart':    '— 一部の設定は再起動が必要です',
     'config.status.error':            '✗ エラー: {msg}',
     'config.status.load_error':       '読み込み失敗: {msg}',
+    'sysconfig.badge.restart':        '再起動',
+    'sysconfig.badge.live':           'ライブ',
 
     // ══════════════════════════════════════════════════════════════
     // System Config — additional fields
@@ -2164,7 +2270,7 @@ const LANG = {
     'sysconfig.section.notifications':'アラート通知',
     'sysconfig.help.notifications':   'Threat Level変化・Ambush検出時に外部通知を送信。Webhook URLを設定すると有効になります。',
     'sysconfig.section.plugins':      'プラグインセンサー',
-    'sysconfig.help.server_restart':  '変更後はサーバーを再起動してください。',
+    'sysconfig.help.server_restart':  'Server 設定はすべて再起動が必要です。',
     'sysconfig.help.auth_desc':       'ユーザー認証とセッション管理。初回起動時にデフォルト admin ユーザーが作成されます。',
     'sysconfig.help.debounce':        '同一アラートの連続通知を抑制する間隔',
     'sysconfig.help.plugins_desc':    'plugins/ ディレクトリからBaseSensorサブクラスを動的にロードします。',
@@ -2206,6 +2312,7 @@ const LANG = {
     'threat_cls.false_positive':      '誤検知',
     'threat_cls.notes_prompt':        '追加メモ（任意）:',
     'notebook.entry.threat_classified': '脅威分類: {cls}',
+    'notebook.entry.llm_credibility_adjusted': 'LLMソース信頼度更新 ({cls}) — Intelパネルで要確認アイテムを確認してください',
 
     // Attack Phase Panel
     'panel.phase.title':              'フェーズ＆エスカレーション',
@@ -2216,6 +2323,7 @@ const LANG = {
     'panel.phase.direction':          'シグナル方向性',
     'panel.phase.trend':              'エスカレーション傾向',
     'panel.phase.btn_classify':       '脅威を分類',
+    'panel.phase.llm_intel':          'LLMインテリジェンス',
     'phase.0.label':                  'フェーズ0: 通常',
     'phase.0.desc':                   '有意な兆候なし。通常監視。',
     'phase.1.label':                  'フェーズ1: 注意',

@@ -55,6 +55,7 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None,
 
     def _do_fetch() -> bool:
         ctx = _build_default_context()
+        ctx["_registry"] = registry
         if sensor.name == "gdelt":
             owm = registry.get("openweather")
             if owm: ctx["weather_conditions"] = owm.get_cache().get("conditions", {})

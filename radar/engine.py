@@ -1,20 +1,26 @@
 """radar.engine -- SensorRegistry and WeightedConvergenceEngine."""
 from __future__ import annotations
 import math
+import os
 import threading
 import time
 from typing import Optional
 from radar.config import (
-    CONVERGENCE_DUAL_BONUS, CONVERGENCE_FULL_BONUS,
-    AMBUSH_ZSCORE_THRESHOLD, DERIVATIVE_WINDOW,
-    SYNC_DELTA_MS, SYNC_C2_THRESHOLD,
     FEINT_DISTRACTION_MAX_SCORE, FEINT_PRIMARY_MIN_SCORE,
     FEINT_MIN_DISTRACTION_DOMAINS,
     ESCALATION_TL_THRESHOLDS,
-    DOMAIN_WEIGHT_CYBER, DOMAIN_WEIGHT_PHYSICAL, DOMAIN_WEIGHT_INFO,
+    DERIVATIVE_WINDOW,
     THEATER_BASELINE_WINDOW, THEATER_BASELINE_MIN_SAMPLES,
     TRIANGULATION_BONUS, SILENT_DIVERGENCE_THRESHOLD,
 )
+
+
+def _domain_weights() -> dict:
+    return {
+        "cyber":    float(os.getenv("DOMAIN_WEIGHT_CYBER",    "0.50")),
+        "physical": float(os.getenv("DOMAIN_WEIGHT_PHYSICAL", "0.30")),
+        "info":     float(os.getenv("DOMAIN_WEIGHT_INFO",     "0.20")),
+    }
 from radar.models import (
     RationaleEntry,
     DIRECTION_ADVERSARY_OFFENSIVE, DIRECTION_FRIENDLY_DEFENSIVE,
@@ -46,7 +52,9 @@ class SensorRegistry:
     def config_list(self) -> list: return [s.to_config_dict() for s in self._sensors.values()]
 
 class WeightedConvergenceEngine:
-    DOMAIN_WEIGHTS = {"cyber": DOMAIN_WEIGHT_CYBER, "physical": DOMAIN_WEIGHT_PHYSICAL, "info": DOMAIN_WEIGHT_INFO}
+    @property
+    def DOMAIN_WEIGHTS(self) -> dict:
+        return _domain_weights()
     def compute_domain_scores(self, rationale: list) -> dict:
         scores = {"cyber": 0, "physical": 0, "info": 0}
         # Group entries by signal_source to deduplicate correlated sensors.
@@ -79,7 +87,9 @@ class WeightedConvergenceEngine:
     def apply_convergence_bonus(self, score: int, domain_scores: dict,
                                 domain_confidences: dict | None = None) -> tuple:
         level = self.compute_convergence_level(domain_scores)
-        raw_bonus = CONVERGENCE_FULL_BONUS if level == "FULL_CONVERGENCE" else CONVERGENCE_DUAL_BONUS if level == "DUAL_DOMAIN" else 0
+        _full_bonus = int(os.getenv("CONVERGENCE_FULL_BONUS", "2"))
+        _dual_bonus = int(os.getenv("CONVERGENCE_DUAL_BONUS", "1"))
+        raw_bonus = _full_bonus if level == "FULL_CONVERGENCE" else _dual_bonus if level == "DUAL_DOMAIN" else 0
         # Gate bonus by minimum confidence across active domains
         if raw_bonus > 0 and domain_confidences:
             active_confs = [domain_confidences[d] for d in domain_scores if domain_scores[d] > 0 and d in domain_confidences]
@@ -165,7 +175,9 @@ class WeightedConvergenceEngine:
         suppressed = [e for e in rationale if isinstance(e, RationaleEntry) and e.suppressed]
         held_note = " [HYSTERESIS HOLD]" if tl_held else ""
         parts = [f"Assessed THREAT LEVEL {threat_level}{held_note}."]
-        conv_label = {"FULL_CONVERGENCE": f"⚡ FULL CONVERGENCE (+{CONVERGENCE_FULL_BONUS}pt bonus)", "DUAL_DOMAIN": f"⚠ DUAL DOMAIN (+{CONVERGENCE_DUAL_BONUS}pt bonus)", "SINGLE_DOMAIN": "Single Domain Activity", "NONE": ""}.get(convergence_level, "")
+        _fb = int(os.getenv("CONVERGENCE_FULL_BONUS", "2"))
+        _db = int(os.getenv("CONVERGENCE_DUAL_BONUS", "1"))
+        conv_label = {"FULL_CONVERGENCE": f"⚡ FULL CONVERGENCE (+{_fb}pt bonus)", "DUAL_DOMAIN": f"⚠ DUAL DOMAIN (+{_db}pt bonus)", "SINGLE_DOMAIN": "Single Domain Activity", "NONE": ""}.get(convergence_level, "")
         if conv_label: parts.append(conv_label + ".")
         active_domains = [f"{d.upper()}({domain_scores[d]}pt)" for d in ("cyber", "physical", "info") if domain_scores.get(d, 0) > 0]
         if active_domains: parts.append(f"Active Domains: {', '.join(active_domains)}.")
@@ -230,7 +242,7 @@ class WeightedConvergenceEngine:
         variance = sum((a - mean_acc) ** 2 for a in acc_series[:-1]) / len(acc_series[:-1])
         std_acc = math.sqrt(variance) if variance > 0 else 0.0
         z_score = (current_acc - mean_acc) / std_acc if std_acc > 0 else 0.0
-        is_ambush = (z_score > AMBUSH_ZSCORE_THRESHOLD) and (current_acc > 0) and (velocity > 0)
+        is_ambush = (z_score > float(os.getenv("AMBUSH_ZSCORE_THRESHOLD", "2.0"))) and (current_acc > 0) and (velocity > 0)
         return is_ambush, round(z_score, 3), round(velocity, 6), round(current_acc, 8)
 
     @staticmethod
@@ -248,7 +260,7 @@ class WeightedConvergenceEngine:
         for i in range(n):
             for j in range(i + 1, n):
                 dt = abs(origin_timestamps[codes[i]] - origin_timestamps[codes[j]])
-                if dt <= SYNC_DELTA_MS:
+                if dt <= float(os.getenv("SYNC_DELTA_MS", "500")):
                     sync_pairs += 1
         return round(sync_pairs / pair_count, 3) if pair_count > 0 else 0.0
 

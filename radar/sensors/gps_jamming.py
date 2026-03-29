@@ -20,9 +20,9 @@ import time
 import requests
 import h3
 from radar.sensors.base import BaseSensor
+import os as _os
 from radar.config import (
     COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY,
-    GPS_JAM_THRESHOLD, GPS_JAM_CRITICAL_THRESHOLD,
 )
 
 log = logging.getLogger("radar")
@@ -179,9 +179,11 @@ class GpsJammingSensor(BaseSensor):
                 else:
                     jam_ratio = 0.0
 
+                _jam_thr  = float(_os.getenv("GPS_JAM_THRESHOLD",          "3.0"))
+                _crit_thr = float(_os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "7.0"))
                 jammed_tiles = sum(1 for t in nearby_tiles
                                    if (t["good"] + t["bad"]) > 0 and
-                                   t["bad"] / (t["good"] + t["bad"]) >= GPS_JAM_THRESHOLD)
+                                   t["bad"] / (t["good"] + t["bad"]) >= _jam_thr)
                 max_ratio = max(
                     (t["bad"] / (t["good"] + t["bad"])
                      for t in nearby_tiles if (t["good"] + t["bad"]) > 0),
@@ -191,8 +193,8 @@ class GpsJammingSensor(BaseSensor):
                 surge = jam_ratio > prev * 1.5 if prev > 0 else False
 
                 is_jammed = (jammed_tiles >= 3 or
-                             max_ratio >= GPS_JAM_CRITICAL_THRESHOLD or
-                             jam_ratio >= GPS_JAM_THRESHOLD)
+                             max_ratio >= _crit_thr or
+                             jam_ratio >= _jam_thr)
 
                 jamming_data[code] = {
                     "total_tiles": total_tiles,
@@ -204,11 +206,11 @@ class GpsJammingSensor(BaseSensor):
                     "prev_avg": round(prev, 4),
                     "surge": surge,
                     "is_jammed": is_jammed,
-                    "is_critical": max_ratio >= GPS_JAM_CRITICAL_THRESHOLD,
+                    "is_critical": max_ratio >= _crit_thr,
                     "date": date_str,
                 }
 
-                if max_ratio >= GPS_JAM_CRITICAL_THRESHOLD:
+                if max_ratio >= _crit_thr:
                     country_status[code] = "CRITICAL_JAMMING"
                 elif is_jammed:
                     country_status[code] = "JAMMING_DETECTED"

@@ -6,8 +6,8 @@ import logging
 import requests
 import threading
 import time
+import os as _os
 from radar.config import (
-    SEQUENCE_WINDOW, SEQUENCE_FULL_BONUS, SEQUENCE_PARTIAL_BONUS,
     CF_HEADERS, GLOBAL_PROXIES, SSL_VERIFY, CURRENT_DATE_RANGE,
     BASELINE_DATE_RANGE, CACHE_EXPIRY,
     HOD_BASELINE_DAYS, HOD_MIN_SAME_HOUR, HOD_MAX_ENTRIES,
@@ -39,7 +39,7 @@ def register_sequence_event(theater: str, event_type: str, meta: dict = None,
         return
     _db.seq_append(theater, now, event_type, meta or {})
     # Remove entries older than 24h
-    cutoff = now - SEQUENCE_WINDOW
+    cutoff = now - int(_os.getenv("SEQUENCE_WINDOW", "86400"))
     _db.seq_cleanup(cutoff)
 
 def compute_sequence_bonus(theater: str) -> tuple:
@@ -52,7 +52,7 @@ def compute_sequence_bonus(theater: str) -> tuple:
     Returns: (bonus: int, chain_status: str, events_found: list)
     """
     now = time.time()
-    cutoff = now - SEQUENCE_WINDOW
+    cutoff = now - int(_os.getenv("SEQUENCE_WINDOW", "86400"))
     events = _db.seq_events_since(theater, cutoff)
     if not events:
         return 0, "NO_EVENTS", []
@@ -83,11 +83,11 @@ def compute_sequence_bonus(theater: str) -> tuple:
     avg_weight = sum(chain_weights) / len(chain_weights) if chain_weights else 1.0
 
     if found_count == 4:
-        raw_bonus = SEQUENCE_FULL_BONUS
+        raw_bonus = int(_os.getenv("SEQUENCE_FULL_BONUS", "3"))
         decayed_bonus = round(raw_bonus * avg_weight)
         return max(1, decayed_bonus), f"FULL_CHAIN_CONFIRMED [{timespan_h}h span, decay={avg_weight:.2f}]", found_in_chain
     elif found_count >= 3:
-        raw_bonus = SEQUENCE_PARTIAL_BONUS
+        raw_bonus = int(_os.getenv("SEQUENCE_PARTIAL_BONUS", "1"))
         decayed_bonus = round(raw_bonus * avg_weight)
         return max(1, decayed_bonus), f"PARTIAL_CHAIN ({found_count}/4, decay={avg_weight:.2f}): {found_in_chain}", found_in_chain
     else:

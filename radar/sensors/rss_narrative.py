@@ -5,8 +5,9 @@ import requests
 import threading
 import time
 import xml.etree.ElementTree as ET
+import os as _os
 from radar.config import (
-    ADVERSARY_NARRATIVE_SOURCES, TACTICAL_KEYWORDS, GLOBAL_PROXIES, SSL_VERIFY, NARRATIVE_ZSCORE_ALERT, NARRATIVE_ZSCORE_CRITICAL, NARRATIVE_BASELINE_DAYS,
+    ADVERSARY_NARRATIVE_SOURCES, TACTICAL_KEYWORDS, GLOBAL_PROXIES, SSL_VERIFY,
 )
 from radar.sensors.base import BaseSensor
 
@@ -100,7 +101,7 @@ class RssNarrativeSensor(BaseSensor):
                 self._baseline[theater] = {"daily_counts": [], "last_updated": 0.0}
             bl = self._baseline[theater]
             bl["daily_counts"].append(today_normalized)
-            bl["daily_counts"] = bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]
+            bl["daily_counts"] = bl["daily_counts"][-int(_os.getenv("NARRATIVE_BASELINE_DAYS", "30")):]
             bl["last_updated"] = time.time()
 
     def fetch(self, context: dict) -> dict:
@@ -139,9 +140,9 @@ class RssNarrativeSensor(BaseSensor):
             self._update_baseline(theater, normalized)
 
             status = "NORMAL"
-            if z_score >= NARRATIVE_ZSCORE_CRITICAL:
+            if z_score >= float(_os.getenv("NARRATIVE_ZSCORE_CRITICAL", "3.0")):
                 status = "CRITICAL_BURST"
-            elif z_score >= NARRATIVE_ZSCORE_ALERT:
+            elif z_score >= float(_os.getenv("NARRATIVE_ZSCORE_ALERT", "2.0")):
                 status = "BURST"
 
             results[theater] = {

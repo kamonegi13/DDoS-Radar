@@ -1,9 +1,8 @@
 """radar.sensors.isr_hotspot -- IsrHotspotSensor."""
 from __future__ import annotations
+import os
 import time
-from radar.config import (
-    ISR_HOTSPOTS, ISR_SURGE_THRESHOLD,
-)
+from radar.config import ISR_HOTSPOTS
 from radar.sensors.base import BaseSensor
 from radar.sensors.opensky_auth import _opensky_get
 
@@ -103,7 +102,7 @@ class IsrHotspotSensor(BaseSensor):
 
         # ISR surge detection
         for theater, data in results.items():
-            data["is_surge"] = data["count"] >= ISR_SURGE_THRESHOLD
+            data["is_surge"] = data["count"] >= int(os.getenv("ISR_SURGE_THRESHOLD", "3"))
 
         result = {"isr_data": results}
         if any_success:

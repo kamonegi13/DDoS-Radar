@@ -202,6 +202,12 @@
         .then(d => {
             if (d.ok) {
                 addNotebookEntry('THREAT_CLS', _t('notebook.entry.threat_classified', {cls: classification}));
+                // Refresh LLM Intel panel so review_needed items become visible
+                if (typeof _fetchLlmIntel === 'function') _fetchLlmIntel();
+                // Notify analyst if this classification affects LLM intel credibility
+                if (classification === 'false_positive' || classification === 'exercise') {
+                    addNotebookEntry('LLM_CRED', _t('notebook.entry.llm_credibility_adjusted', {cls: classification}));
+                }
             }
         })
         .catch(e => console.warn('[ThreatClassify]', e));
@@ -795,6 +801,7 @@
         { panelId: 'corr-heatmap-panel', dotId: 'tm-dot-corr', itemId: 'tm-item-corr'  },
         { panelId: 'climate-panel',      dotId: 'tm-dot-climate', itemId: 'tm-item-climate' },
         { panelId: 'sitboard-panel',     dotId: 'tm-dot-sitboard', itemId: 'tm-item-sitboard' },
+        { panelId: 'llm-intel-panel',    dotId: 'tm-dot-llm',     itemId: 'tm-item-llm'     },
     ];
 
     function toggleToolsMenu() {
@@ -1060,6 +1067,30 @@
             c2dEl.style.color  = tc.is_c2_sync ? '#ff2200' : tc.coherence_score > 0 ? '#ffaa00' : '#555';
         }
 
+        // ev-llm-intel (chain panel — LLM confirmed intel count for this theater)
+        const llmIntelEl = document.getElementById('ev-llm-intel');
+        if (llmIntelEl) {
+            const curTheater = strat.core_theater || '';
+            const active = _llmItems.filter(i =>
+                (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
+                (!curTheater || i.theater === curTheater)
+            );
+            const reviewNeeded = _llmItems.filter(i => i.status === 'review_needed' && (!curTheater || i.theater === curTheater));
+            if (reviewNeeded.length > 0) {
+                llmIntelEl.textContent = `⚠ ${reviewNeeded.length} ${_t('chain.llm_intel.review')}`;
+                llmIntelEl.style.color = '#ff8800';
+                llmIntelEl.dataset.tooltip = reviewNeeded.map(i => i.headline).join('\n');
+            } else if (active.length > 0) {
+                llmIntelEl.textContent = `● ${active.length} ${_t('chain.llm_intel.active')}`;
+                llmIntelEl.style.color = '#aa88ff';
+                llmIntelEl.dataset.tooltip = active.map(i => i.headline).join('\n');
+            } else {
+                llmIntelEl.textContent = _t('chain.llm_intel.none');
+                llmIntelEl.style.color = '#555';
+                llmIntelEl.dataset.tooltip = '';
+            }
+        }
+
         // Async: fetch sequence event list and render
         const theater = strat.core_theater || '';
         if (!theater) return;
@@ -1135,6 +1166,7 @@
         { id: 'corr-heatmap-panel',  ph: 'lsb-ph-corr'           },
         { id: 'climate-panel',       ph: 'lsb-ph-climate'        },
         { id: 'sitboard-panel',      ph: 'lsb-ph-sitboard'       },
+        { id: 'llm-intel-panel',     ph: 'lsb-ph-llm'            },
         // Floating-only panels (no sidebar placeholder)
         { id: 'whatif-panel',        ph: null                     },
         { id: 'spof-panel',         ph: null                     },
@@ -1144,7 +1176,7 @@
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
     let _sidebarOrder = {
         'sidebar':      ['target-panel', 'dashboard-panel', 'chain-panel'],
-        'left-sidebar': ['sitboard-panel', 'climate-panel', 'pulse-panel', 'weather-brief-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'attack-phase-panel', 'corr-heatmap-panel']
+        'left-sidebar': ['sitboard-panel', 'climate-panel', 'llm-intel-panel', 'pulse-panel', 'weather-brief-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'attack-phase-panel', 'corr-heatmap-panel']
     };
 
     // Re-order placeholder divs within a sidebar to match _sidebarOrder
@@ -1525,6 +1557,7 @@
     setupDockablePanel('corr-heatmap-panel', 'lsb-ph-corr',           340);
     setupDockablePanel('climate-panel',      'lsb-ph-climate',        380);
     setupDockablePanel('sitboard-panel',     'lsb-ph-sitboard',       420);
+    setupDockablePanel('llm-intel-panel',   'lsb-ph-llm',            440);
     updateSidebarVisibility();
 
     const map = L.map('map', {
@@ -2177,6 +2210,7 @@
         if (window._updateClimateFromPoll) window._updateClimateFromPoll(data);
         if (window._updateSitBoardFromPoll) window._updateSitBoardFromPoll();
         if (window._updateTgSigintFromPoll) window._updateTgSigintFromPoll(data);
+        if (window._updateLlmIntelFromPoll) window._updateLlmIntelFromPoll();
 
         const curr = getCurrentConfig();
         const displayTargets = curr.displays;
@@ -4664,6 +4698,8 @@
 
     // ── System Config (env_config) ────────────────────────────────────────────
     async function loadEnvConfig() {
+        const _rn = document.getElementById('env-restart-note');
+        if (_rn) _rn.style.display = 'none';
         try {
             const res = await fetch(`/api/env_config`, { headers: _adminHeaders() });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -4672,8 +4708,10 @@
             const pickerKeys = new Set(['DEFAULT_CORE','DEFAULT_ADVERSARIES','DEFAULT_CORRELATES','DEFAULT_PINS']);
             document.querySelectorAll('[id^="ec-"]').forEach(el => {
                 const key = el.id.replace('ec-', '');
+                if (key === 'LLM_MODEL_manual') return; // skip manual fallback field
                 if (!pickerKeys.has(key) && cfg[key] !== undefined) {
                     el.value = cfg[key];
+                    if (key === 'LLM_MODEL') el.dataset.current = cfg[key];
                 }
             });
             // Populate scope pickers
@@ -4814,9 +4852,11 @@
     async function saveEnvConfig() {
         syncEnvScopePickersToInputs();
         const updates = {};
+        const _skipKeys = new Set(['LLM_MODEL_manual']);
         document.querySelectorAll('[id^="ec-"]').forEach(el => {
             if (el.type === 'hidden' && el.value === '') return; // skip empty hidden
             const key = el.id.replace('ec-', '');
+            if (_skipKeys.has(key)) return; // UI-only field, not a real config key
             if (el.value !== '') updates[key] = el.value;
         });
         const st = document.getElementById('env-status');
@@ -4829,10 +4869,22 @@
             });
             const data = await res.json();
             if (data.ok) {
+                // Immediately reload reloadable keys (no restart needed for those)
+                let needsRestart = false;
+                try {
+                    const rel = await fetch('/api/env_config/reload', {
+                        method: 'POST',
+                        headers: _adminHeaders(),
+                    });
+                    const relData = await rel.json();
+                    needsRestart = relData.ok && relData.needs_restart && relData.needs_restart.length > 0;
+                } catch(_) {}
+                const restartNote = document.getElementById('env-restart-note');
+                if (restartNote) restartNote.style.display = needsRestart ? 'block' : 'none';
                 if (st) {
                     st.textContent = _t('config.status.saved', {n: data.updated.length});
                     st.className = 'env-status ok';
-                    setTimeout(() => { if (st) st.textContent = ''; }, 4000);
+                    setTimeout(() => { if (st) st.textContent = ''; }, 6000);
                 }
             } else {
                 throw new Error(data.error || 'Unknown error');
@@ -4849,6 +4901,66 @@
         const open = sec.classList.toggle('open');
         btn.textContent = _t(open ? 'sysconfig.adv_toggle_open' : 'sysconfig.adv_toggle');
     }
+
+    // ── LLM Model Fetch ───────────────────────────────────────────────────────
+    window.fetchLlmModels = async function() {
+        const hostEl    = document.getElementById('ec-LLM_HOST');
+        const selectEl  = document.getElementById('ec-LLM_MODEL');
+        const manualEl  = document.getElementById('ec-LLM_MODEL_manual');
+        const statusEl  = document.getElementById('llm-model-status');
+        if (!hostEl || !selectEl) return;
+
+        const host = (hostEl.value || 'http://host.docker.internal:11434').replace(/\/$/, '');
+        if (statusEl) { statusEl.textContent = _t('sysconfig.llm.fetching'); statusEl.style.color = '#aa88ff'; }
+
+        try {
+            const res = await fetch(`/api/llm_models?host=${encodeURIComponent(host)}`, {
+                headers: _adminHeaders(),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const models = data.models || [];
+
+            if (models.length === 0) {
+                if (statusEl) { statusEl.textContent = _t('sysconfig.llm.no_models'); statusEl.style.color = '#ff8800'; }
+                selectEl.style.display = 'none';
+                if (manualEl) manualEl.style.display = '';
+                return;
+            }
+
+            // Populate dropdown
+            const currentVal = (manualEl && manualEl.value) || selectEl.dataset.current || '';
+            selectEl.innerHTML = '';
+            models.forEach(m => {
+                const opt = new Option(m, m);
+                if (m === currentVal) opt.selected = true;
+                selectEl.appendChild(opt);
+            });
+            // If no match, preselect first
+            if (!selectEl.value && models.length > 0) selectEl.value = models[0];
+
+            selectEl.style.display = '';
+            if (manualEl) manualEl.style.display = 'none';
+            if (statusEl) { statusEl.textContent = _t('sysconfig.llm.models_loaded', {n: models.length}); statusEl.style.color = '#44aa44'; }
+        } catch(e) {
+            if (statusEl) { statusEl.textContent = _t('sysconfig.llm.fetch_error', {msg: e.message}); statusEl.style.color = '#ff4444'; }
+            // Fall back to manual entry
+            selectEl.style.display = 'none';
+            if (manualEl) manualEl.style.display = '';
+        }
+    };
+
+    // Sync manual model input → hidden ec-LLM_MODEL when select is hidden
+    document.addEventListener('input', e => {
+        if (e.target && e.target.id === 'ec-LLM_MODEL_manual') {
+            const sel = document.getElementById('ec-LLM_MODEL');
+            if (sel && sel.style.display === 'none') {
+                // Ensure the manual value will be picked up by saveEnvConfig via the select
+                // We repurpose the select by adding an option matching the typed value
+                sel.innerHTML = `<option value="${e.target.value}" selected>${e.target.value}</option>`;
+            }
+        }
+    });
 
     // ═══════════════════════════════════════════════════════════════════
     // Threat Situation Map (TSM) — Theater Halo + Sensor Status Icons
@@ -6136,6 +6248,31 @@
             html += `<div class="ap-note">${_t('panel.ap.all_clear')}</div>`;
         }
 
+        // LLM Intel context: show active diplomatic/hacktivist items as additional context
+        const apIntel = _llmItems.filter(i =>
+            (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
+            ['diplomatic', 'hacktivist', 'ground_osint'].includes(i.source_type)
+        );
+        if (apIntel.length > 0) {
+            html += `<div style="margin-top:10px; border-top:1px solid #1a1a1a; padding-top:8px;">`;
+            html += `<div style="font-size:9px; color:#aa88ff; letter-spacing:1px; margin-bottom:5px;">${_t('panel.ap.llm_context')}</div>`;
+            const byType = { diplomatic: [], hacktivist: [], ground_osint: [] };
+            for (const item of apIntel) {
+                if (byType[item.source_type]) byType[item.source_type].push(item);
+            }
+            for (const [type, items] of Object.entries(byType)) {
+                if (!items.length) continue;
+                const typeLabel = { diplomatic: '🏛', hacktivist: '⚡', ground_osint: '📡' }[type] || '●';
+                html += `<div style="margin-bottom:4px;">`;
+                html += `<div style="font-size:9px; color:#665588; margin-bottom:2px;">${typeLabel} ${type.toUpperCase().replace('_', ' ')}</div>`;
+                for (const item of items.slice(0, 2)) {
+                    html += `<div style="font-size:9px; color:#888; padding-left:8px; margin:1px 0;">${_t('ap.intel.theater_prefix', {t: item.theater})} ${(item.headline || '').slice(0, 70)}</div>`;
+                }
+                html += `</div>`;
+            }
+            html += `</div>`;
+        }
+
         body.innerHTML = html;
     }
 
@@ -6294,6 +6431,36 @@
             }
         } catch (e) {
             html += `<div style="color:#555; font-size:9px; text-align:center; padding:4px;">${_t('panel.esc.api_error')}</div>`;
+        }
+
+        // LLM Intel section (confirmed items for this theater)
+        const phaseTheater = strat.core_theater || '';
+        const activeIntel = _llmItems.filter(i =>
+            (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
+            (!phaseTheater || i.theater === phaseTheater)
+        );
+        const reviewIntel = _llmItems.filter(i =>
+            i.status === 'review_needed' &&
+            (!phaseTheater || i.theater === phaseTheater)
+        );
+        if (activeIntel.length > 0 || reviewIntel.length > 0) {
+            html += `<div class="phase-section-label" style="margin-top:10px; color:#aa88ff;">${_t('panel.phase.llm_intel')}</div>`;
+            for (const item of reviewIntel.slice(0, 2)) {
+                const src = (item.source_type || '').toUpperCase();
+                html += `<div style="padding:4px 6px; margin:2px 0; background:#1a0e00; border:1px solid #ff880044; border-radius:3px; font-size:9px;">`;
+                html += `<span style="color:#ff8800; font-weight:bold;">[${src}] ⚠ REVIEW</span> `;
+                html += `<span style="color:#aaa;">${(item.headline || '').slice(0, 80)}</span>`;
+                html += `</div>`;
+            }
+            for (const item of activeIntel.slice(0, 3)) {
+                const src = (item.source_type || '').toUpperCase();
+                const confPct = Math.round((item.confidence || 0) * 100) + '%';
+                html += `<div style="padding:4px 6px; margin:2px 0; background:#0e0a18; border:1px solid #aa88ff33; border-radius:3px; font-size:9px;">`;
+                html += `<span style="color:#aa88ff; font-weight:bold;">[${src}]</span> `;
+                html += `<span style="color:#aaa;">${(item.headline || '').slice(0, 80)}</span> `;
+                html += `<span style="color:#665588; float:right;">${confPct}</span>`;
+                html += `</div>`;
+            }
         }
 
         // Classify button
@@ -6555,6 +6722,171 @@
 
     // ═══════════════════════════════════════════════════════════════════════════
     //  STRATEGIC CLIMATE FEED
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LLM INTELLIGENCE PANEL
+    // ═══════════════════════════════════════════════════════════════════════════
+    let _llmActiveFilter = 'all';
+    let _llmItems = [];
+
+    const toggleLlmIntelPanel = _createPanelToggle('llm-intel-panel', { onShow: _fetchLlmIntel });
+    window.toggleLlmIntelPanel = toggleLlmIntelPanel;
+
+    function _fetchLlmIntel() {
+        const src = _llmActiveFilter === 'all' ? '' : _llmActiveFilter;
+        fetch('/api/intel' + (src ? '?source_type=' + src : ''))
+            .then(r => r.json())
+            .then(data => {
+                _llmItems = data.items || [];
+                _renderLlmStats(data.stats || {});
+                _renderLlmItems(_llmItems);
+            })
+            .catch(() => {});
+        // Also refresh status indicator
+        fetch('/api/intel/stats')
+            .then(r => r.json())
+            .then(s => _renderLlmStatusBar(s))
+            .catch(() => {});
+    }
+
+    function _renderLlmStatusBar(stats) {
+        const dot  = document.getElementById('llm-status-dot');
+        const text = document.getElementById('llm-status-text');
+        const mdl  = document.getElementById('llm-status-model');
+        if (!dot) return;
+        if (!stats.llm_enabled) {
+            dot.className  = 'llm-status-dot offline';
+            text.textContent = _t('panel.llm_intel.status_disabled');
+            mdl.textContent  = '';
+        } else if (stats.llm_online) {
+            dot.className  = 'llm-status-dot online';
+            text.textContent = _t('panel.llm_intel.status_online');
+            mdl.textContent  = '';
+        } else {
+            dot.className  = 'llm-status-dot offline';
+            text.textContent = _t('panel.llm_intel.status_offline');
+            mdl.textContent  = '';
+        }
+    }
+
+    function _renderLlmStats(stats) {
+        const setEl = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+        setEl('llm-stat-auto',    '● AUTO '    + (stats.auto_confirmed || 0));
+        setEl('llm-stat-pending', '⚠ ' + _t('panel.llm_intel.stat_pending') + ' ' + (stats.pending || 0));
+        setEl('llm-stat-reject',  '✗ ' + _t('panel.llm_intel.stat_rejected') + ' ' + ((stats.rejected || 0) + (stats.overridden || 0)));
+        const reviewEl = document.getElementById('llm-stat-review');
+        if (reviewEl) {
+            const rv = stats.review_needed || 0;
+            reviewEl.style.display = rv > 0 ? '' : 'none';
+            reviewEl.textContent = '🔴 ' + _t('panel.llm_intel.stat_review') + ' ' + rv;
+        }
+    }
+
+    function _renderLlmItems(items) {
+        const list = document.getElementById('llm-intel-list');
+        if (!list) return;
+        if (!items || items.length === 0) {
+            list.innerHTML = '<div class="llm-empty">' + _t('panel.llm_intel.empty') + '</div>';
+            return;
+        }
+        list.innerHTML = items.map(item => _renderLlmItem(item)).join('');
+    }
+
+    function _renderLlmItem(item) {
+        const statusClass = 'llm-item-status-' + (item.status || 'pending');
+        const badgeClass  = 'llm-badge-' + (item.source_type || 'unknown');
+        const badgeLabel  = (item.source_type || '').toUpperCase();
+        const timeStr     = item.ts ? new Date(item.ts * 1000).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'}) : '—';
+        const conf        = item.confidence || 0;
+        const confClass   = conf >= 0.80 ? 'llm-item-conf-hi' : conf >= 0.65 ? 'llm-item-conf-mid' : 'llm-item-conf-lo';
+        const confPct     = Math.round(conf * 100) + '%';
+        const scoreStr    = item.score_delta > 0 ? ' +' + item.score_delta + ' ' + (item.domain || '').toUpperCase() : '';
+        const isAuto      = item.status === 'auto_confirmed';
+        const isPending   = item.status === 'pending' || item.status === 'review_needed';
+        const isReview    = item.status === 'review_needed';
+
+        // Status label
+        let statusLabel = '';
+        if (isAuto)    statusLabel = '<span class="llm-status-label-auto">AUTO</span>';
+        else if (isReview)  statusLabel = '<span class="llm-status-label-review">REVIEW</span>';
+        else if (isPending) statusLabel = '<span class="llm-status-label-pending">PENDING</span>';
+        else if (item.status === 'confirmed')  statusLabel = '<span class="llm-status-label-confirmed">CONFIRMED</span>';
+        else if (item.status === 'rejected' || item.status === 'overridden') statusLabel = '<span class="llm-status-label-rejected">' + item.status.toUpperCase() + '</span>';
+
+        // Score applied display
+        const scoreApplied = (isAuto || item.status === 'confirmed') && scoreStr
+            ? '<div style="font-size:9px;color:#44cc88;margin-top:2px;">' + _t('panel.llm_intel.score_applied') + ': ' + scoreStr + '</div>'
+            : '';
+
+        // Action buttons
+        let actions = '<button class="llm-btn llm-btn-raw" onclick="_llmToggleRaw(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_raw">' + _t('panel.llm_intel.btn_raw') + '</button>';
+        if (isPending) {
+            actions += '<button class="llm-btn llm-btn-confirm" onclick="_llmConfirm(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_confirm">'
+                     + _t('panel.llm_intel.btn_confirm') + (scoreStr ? ' ' + scoreStr : '') + '</button>';
+            actions += '<button class="llm-btn llm-btn-reject" onclick="_llmReject(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_reject">' + _t('panel.llm_intel.btn_reject') + '</button>';
+        } else if (isAuto) {
+            actions += '<button class="llm-btn llm-btn-override" onclick="_llmOverride(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_override">' + _t('panel.llm_intel.btn_override') + '</button>';
+        }
+
+        return `<div class="llm-item ${statusClass}" id="llm-item-${_escHtml(item.id)}">
+            <div class="llm-item-header">
+                <span class="llm-item-badge ${badgeClass}">${badgeLabel}</span>
+                <span class="llm-item-time">${timeStr}</span>
+                ${statusLabel}
+                <span class="llm-item-theater">${_escHtml(item.theater || '')}</span>
+            </div>
+            <div class="llm-item-headline">${_escHtml(item.headline || '')}</div>
+            <div class="llm-item-conf"><span class="${confClass}">${confPct}</span> conf${scoreApplied ? '' : (scoreStr ? '<span class="llm-item-score">' + scoreStr + '</span>' : '')}</div>
+            ${scoreApplied}
+            <div class="llm-item-raw" id="llm-raw-${_escHtml(item.id)}">${_escHtml(item.raw_text || '')}</div>
+            <div class="llm-item-actions">${actions}</div>
+        </div>`;
+    }
+
+    window._llmFilter = function(src) {
+        _llmActiveFilter = src;
+        document.querySelectorAll('.llm-filter-btn').forEach(b => {
+            b.classList.toggle('llm-filter-active', b.dataset.src === src);
+        });
+        _fetchLlmIntel();
+    };
+
+    window._llmToggleRaw = function(itemId) {
+        const el = document.getElementById('llm-raw-' + itemId);
+        if (el) el.classList.toggle('visible');
+    };
+
+    window._llmConfirm = function(itemId) {
+        fetch('/api/intel/' + encodeURIComponent(itemId) + '/confirm', { method: 'POST' })
+            .then(r => r.json())
+            .then(() => _fetchLlmIntel())
+            .catch(() => {});
+    };
+
+    window._llmReject = function(itemId) {
+        fetch('/api/intel/' + encodeURIComponent(itemId) + '/reject', { method: 'POST' })
+            .then(r => r.json())
+            .then(() => _fetchLlmIntel())
+            .catch(() => {});
+    };
+
+    window._llmOverride = function(itemId) {
+        if (!confirm(_t('panel.llm_intel.override_confirm'))) return;
+        fetch('/api/intel/' + encodeURIComponent(itemId) + '/override', { method: 'POST' })
+            .then(r => r.json())
+            .then(() => _fetchLlmIntel())
+            .catch(() => {});
+    };
+
+    // Auto-refresh when panel is visible (called from main poll loop)
+    window._updateLlmIntelFromPoll = function() {
+        const panel = document.getElementById('llm-intel-panel');
+        if (panel && panel.style.display !== 'none') {
+            _fetchLlmIntel();
+        }
+    };
+
     // ═══════════════════════════════════════════════════════════════════════════
 
     let _climateActiveFilter = 'all';

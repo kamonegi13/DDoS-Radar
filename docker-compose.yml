@@ -10,7 +10,7 @@ services:
       # Persist SQLite DB and saved state across container restarts
       - ./radar/persistence:/app/radar/persistence
       # Mount your config — copy config.env.example → config.env and edit
-      - ./config.env:/app/config.env:ro
+      - ./config.env:/app/config.env
       # Optional: place custom plugin sensors here
       - ./plugins:/app/plugins
     environment:

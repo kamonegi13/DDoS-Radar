@@ -199,6 +199,11 @@
                     <span class="tools-menu-label" data-i18n="tools.analyst_notebook">Analyst Notebook</span>
                     <span class="tools-menu-dot" id="tm-dot-nb"></span>
                 </div>
+                <div class="tools-menu-item" id="tm-item-llm" onclick="handleToolToggle('llm-intel-panel', toggleLlmIntelPanel, 'tm-dot-llm', 'tm-item-llm')">
+                    <span class="tools-menu-icon">🤖</span>
+                    <span class="tools-menu-label" data-i18n="tools.llm_intelligence">LLM Intelligence</span>
+                    <span class="tools-menu-dot" id="tm-dot-llm"></span>
+                </div>
                 <div class="tools-menu-section-header" data-i18n="tools.section.simulation">SIMULATION</div>
                 <div class="tools-menu-item" id="tm-item-wif" onclick="handleToolToggle('whatif-panel', toggleWhatIfPanel, 'tm-dot-wif', 'tm-item-wif')">
                     <span class="tools-menu-icon">🧪</span>
@@ -368,6 +373,7 @@
     <div id="left-sidebar">
         <div id="lsb-ph-sitboard"></div>
         <div id="lsb-ph-climate"></div>
+        <div id="lsb-ph-llm"></div>
         <div id="lsb-ph-pulse"></div>
         <div id="lsb-ph-wx"></div>
         <div id="lsb-ph-clk"></div>
@@ -509,16 +515,16 @@
 <div class="env-section-title" data-i18n="sysconfig.section.server">Server</div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.server_restart">Restart the server after changes.</div>
                 <div class="env-field">
-                    <label>Listen Host (SERVER_HOST)</label>
+                    <label>Listen Host (SERVER_HOST) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-SERVER_HOST" type="text" placeholder="127.0.0.1">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.host_external">Set to 0.0.0.0 to allow external access</div>
                 </div>
                 <div class="env-field">
-                    <label>Listen Port (SERVER_PORT)</label>
+                    <label>Listen Port (SERVER_PORT) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-SERVER_PORT" type="number" min="1024" max="65535" placeholder="8000">
                 </div>
 
-                <div class="env-section-title" data-i18n="sysconfig.section.api_keys">API Keys</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.api_keys">API Keys <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
 
                 <div class="env-field">
                     <label>Cloudflare Radar Token<span class="req">*</span></label>
@@ -545,7 +551,7 @@
                     <input class="env-input secret-field" id="ec-OPENSKY_CLIENT_SECRET" type="text" autocomplete="off" data-1p-ignore>
                 </div>
 
-                <div class="env-section-title" data-i18n="sysconfig.section.scope">Default Scope</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.scope">Default Scope <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div style="font-size:12px;color:#556;margin-bottom:14px;" data-i18n="sysconfig.scope.desc">Startup defaults for the STRATEGY SCOPE and THREAT ACTORS panels. These can always be changed at runtime from the main UI.</div>
 
                 <!-- Core Theater -->
@@ -581,13 +587,65 @@
                     </div>
                 </div>
 
+                <!-- ── LLM Intelligence Settings ────────────────────── -->
+                <hr style="border:none;border-top:1px solid #aa88ff33;margin:16px 0 12px;">
+                <div class="env-section-title" style="color:#aa88ff;" data-i18n="sysconfig.section.llm">LLM Intelligence</div>
+                <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.llm_desc">Requires Ollama running locally. Inside Docker on Mac/Windows use host.docker.internal as the hostname.</div>
+                <!-- LLM_ENABLED / LLM_HOST / LLM_MODEL / LLM_TIMEOUT require restart -->
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.llm_enabled">LLM Enabled <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
+                    <select class="env-input" id="ec-LLM_ENABLED" style="max-width:120px;">
+                        <option value="false">false</option>
+                        <option value="true">true</option>
+                    </select>
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.llm_host">Ollama Host <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
+                    <input class="env-input wide" id="ec-LLM_HOST" type="text" placeholder="http://host.docker.internal:11434">
+                    <button type="button" onclick="fetchLlmModels()" class="btn-tactical" style="margin-top:4px;font-size:10px;padding:3px 10px;border-color:#aa88ff44;color:#aa88ff;" data-i18n="sysconfig.llm.fetch_models">Fetch Models ↺</button>
+                    <span id="llm-model-status" style="font-size:10px;color:#556;margin-left:6px;"></span>
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.llm_model">Model <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
+                    <select class="env-input" id="ec-LLM_MODEL" style="max-width:260px;">
+                        <option value="">— click Fetch Models —</option>
+                    </select>
+                    <input class="env-input" id="ec-LLM_MODEL_manual" type="text" placeholder="e.g. llama3.2:3b" style="max-width:200px;margin-top:4px;display:none;">
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.llm.model_hint">Click "Fetch Models" to load available models from Ollama, or type manually.</div>
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.llm_timeout">Request Timeout (s) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
+                    <input class="env-input" id="ec-LLM_TIMEOUT" type="number" min="10" max="120" placeholder="30" style="max-width:80px;">
+                </div>
+                <!-- Intel Queue Thresholds — reloadable (no restart needed) -->
+                <div class="env-section-title" style="font-size:10px;color:#665588;margin-top:12px;" data-i18n="sysconfig.section.llm_thresholds">Intel Queue Thresholds</div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.llm_auto_threshold">Auto-Confirm Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-LLM_AUTO_CONFIRM_THRESHOLD" type="number" min="0.5" max="1.0" step="0.05" placeholder="0.80" style="max-width:80px;">
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.llm_auto_threshold">Confidence ≥ this → AUTO-CONFIRMED (no analyst review needed)</div>
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.llm_min_confidence">Min Confidence <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-LLM_CONFIDENCE_MIN" type="number" min="0.1" max="0.9" step="0.05" placeholder="0.55" style="max-width:80px;">
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.llm_min_confidence">Items below this are silently discarded</div>
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.llm_override_window">Override Window (s) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-LLM_OVERRIDE_WINDOW" type="number" min="300" max="86400" placeholder="3600" style="max-width:100px;">
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.llm_override_window">Seconds within which AUTO-CONFIRMED items can be overridden</div>
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.intel_retention">Intel Retention (days) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-INTEL_RETENTION_DAYS" type="number" min="1" max="90" placeholder="7" style="max-width:80px;">
+                </div>
+
                 <!-- ── Advanced Settings (collapsed) ────────────────── -->
                 <hr style="border:none;border-top:1px solid #ff660033;margin:16px 0 8px;">
                 <button class="env-adv-toggle" id="env-adv-btn" onclick="toggleEnvAdvanced()" style="color:#ff8800;border-color:#ff880044;" data-i18n="sysconfig.adv_toggle">▶ Advanced Settings</button>
                 <div style="font-size:9px;color:#996633;margin:3px 0 4px 2px;letter-spacing:0.3px;" data-i18n="sysconfig.adv_warning">⚠ Incorrect values may cause system malfunction. Change only if you understand the impact.</div>
                 <div class="env-adv-section" id="env-adv-section">
 
-                <div class="env-section-title" data-i18n="sysconfig.section.network">Network / SSL</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.network">Network / SSL <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div class="env-field">
                     <label>HTTP Proxy</label>
                     <input class="env-input" id="ec-HTTP_PROXY" type="text" placeholder="http://proxy:8080">
@@ -604,7 +662,7 @@
                     </select>
                 </div>
 
-                <div class="env-section-title" data-i18n="sysconfig.section.cache">Cache &amp; Polling</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.cache">Cache &amp; Polling <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div class="env-field">
                     <label data-i18n="sysconfig.field.cache_expiry">Cache Expiry (seconds)</label>
                     <input class="env-input" id="ec-CACHE_EXPIRY" type="number" style="max-width:90px;">
@@ -622,11 +680,11 @@
                     <input class="env-input" id="ec-TELEGRAM_MIRROR_POLL_INTERVAL" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field" style="flex-direction:column;align-items:flex-start;">
-                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.telegram_kw">Telegram Attack Keywords</label>
+                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.telegram_kw">Telegram Attack Keywords <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input wide" id="ec-TELEGRAM_ATTACK_KEYWORDS" type="text" placeholder="target,attack,ddos,...">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.telegram_conf_thresh">Telegram Claim Confidence Threshold</label>
+                    <label data-i18n="sysconfig.field.telegram_conf_thresh">Telegram Claim Confidence Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD" type="number" step="0.05" min="0" max="1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
@@ -644,95 +702,95 @@
 
                 <div class="env-section-title" data-i18n="sysconfig.section.threat">Threat Scoring</div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.air_anomaly">Airspace Anomaly Threshold (ratio)</label>
+                    <label data-i18n="sysconfig.field.air_anomaly">Airspace Anomaly Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-AIRSPACE_ANOMALY_THRESHOLD" type="number" step="0.01" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.air_closure">Airspace Closure Threshold (ratio)</label>
+                    <label data-i18n="sysconfig.field.air_closure">Airspace Closure Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-AIRSPACE_CLOSURE_THRESHOLD" type="number" step="0.01" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.air_window">Airspace Baseline Window (cycles)</label>
+                    <label data-i18n="sysconfig.field.air_window">Airspace Baseline Window (cycles) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-AIRSPACE_WINDOW" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.gdelt_tone">GDELT Tone Alert Threshold</label>
+                    <label data-i18n="sysconfig.field.gdelt_tone">GDELT Tone Alert Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-GDELT_TONE_ALERT_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.gdelt_history">GDELT History Window (days)</label>
+                    <label data-i18n="sysconfig.field.gdelt_history">GDELT History Window (days) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-GDELT_HISTORY_WINDOW" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.conv_dual">Dual Convergence Bonus</label>
+                    <label data-i18n="sysconfig.field.conv_dual">Dual Convergence Bonus <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-CONVERGENCE_DUAL_BONUS" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.conv_full">Full Convergence Bonus</label>
+                    <label data-i18n="sysconfig.field.conv_full">Full Convergence Bonus <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-CONVERGENCE_FULL_BONUS" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.hysteresis">Threat Level Hysteresis Cycles</label>
+                    <label data-i18n="sysconfig.field.hysteresis">Threat Level Hysteresis Cycles <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-THREAT_LEVEL_HYSTERESIS_CYCLES" type="number" style="max-width:90px;">
                 </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.ddos">DDoS Acceleration Engine</div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.ambush_z">Ambush Z-Score Threshold</label>
+                    <label data-i18n="sysconfig.field.ambush_z">Ambush Z-Score Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-AMBUSH_ZSCORE_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.deriv_window">Velocity Derivative Window (cycles)</label>
+                    <label data-i18n="sysconfig.field.deriv_window">Velocity Derivative Window (cycles) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-DERIVATIVE_WINDOW" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.sync_delta">C2 Sync Delta (ms)</label>
+                    <label data-i18n="sysconfig.field.sync_delta">C2 Sync Delta (ms) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-SYNC_DELTA_MS" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.sync_threshold">C2 Sync Score Threshold (0–1)</label>
+                    <label data-i18n="sysconfig.field.sync_threshold">C2 Sync Score Threshold (0–1) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-SYNC_C2_THRESHOLD" type="number" step="0.01" style="max-width:90px;">
                 </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.narrative">Narrative Burst Detector</div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.narr_alert_z">Narrative Alert Z-Score</label>
+                    <label data-i18n="sysconfig.field.narr_alert_z">Narrative Alert Z-Score <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-NARRATIVE_ZSCORE_ALERT" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.narr_crit_z">Narrative Critical Z-Score</label>
+                    <label data-i18n="sysconfig.field.narr_crit_z">Narrative Critical Z-Score <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-NARRATIVE_ZSCORE_CRITICAL" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.narr_baseline">Narrative Baseline Days</label>
+                    <label data-i18n="sysconfig.field.narr_baseline">Narrative Baseline Days <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-NARRATIVE_BASELINE_DAYS" type="number" style="max-width:90px;">
                 </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.chain">Sequence Chain</div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.chain_window">Chain Window (seconds)</label>
+                    <label data-i18n="sysconfig.field.chain_window">Chain Window (seconds) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-SEQUENCE_WINDOW" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.chain_full">Full Chain Bonus Points</label>
+                    <label data-i18n="sysconfig.field.chain_full">Full Chain Bonus Points <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-SEQUENCE_FULL_BONUS" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.chain_partial">Partial Chain Bonus Points</label>
+                    <label data-i18n="sysconfig.field.chain_partial">Partial Chain Bonus Points <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-SEQUENCE_PARTIAL_BONUS" type="number" style="max-width:90px;">
                 </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.maritime">Maritime / ISR Sensors</div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.ais_dark_gap">AIS Dark Gap Threshold (seconds)</label>
+                    <label data-i18n="sysconfig.field.ais_dark_gap">AIS Dark Gap Threshold (seconds) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-AIS_DARK_GAP_THRESHOLD" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.ais_anchor">AIS Anchor Detection Radius (km)</label>
+                    <label data-i18n="sysconfig.field.ais_anchor">AIS Anchor Detection Radius (km) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-AIS_ANCHOR_RADIUS_KM" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.isr_surge">ISR Surge Threshold (aircraft)</label>
+                    <label data-i18n="sysconfig.field.isr_surge">ISR Surge Threshold (aircraft) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-ISR_SURGE_THRESHOLD" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field" style="flex-direction:column;align-items:flex-start;">
@@ -740,7 +798,7 @@
                     <input class="env-input wide" id="ec-ISR_ICAO_TYPES" type="text" placeholder="RC135,RC-135,E3,...">
                 </div>
 
-                <div class="env-section-title" data-i18n="sysconfig.section.auth">Authentication (JWT)</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.auth">Authentication (JWT) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.auth_desc">User authentication and session management. A default admin user is created on first startup.</div>
                 <div class="env-field">
                     <label>Default Admin Password</label>
@@ -764,31 +822,31 @@
                 <div class="env-section-title" data-i18n="sysconfig.section.notifications">Alert Notifications</div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.notifications">Sends external notifications on Threat Level changes and Ambush detection. Configure a Webhook URL to enable.</div>
                 <div class="env-field">
-                    <label>Notifications Enabled</label>
+                    <label>Notifications Enabled <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <select class="env-input" id="ec-NOTIFY_ENABLED" style="max-width:100px;">
                         <option value="true">Enabled</option>
                         <option value="false">Disabled</option>
                     </select>
                 </div>
                 <div class="env-field">
-                    <label>Slack Webhook URL<span class="opt">(optional)</span></label>
+                    <label>Slack Webhook URL <span class="opt">(optional)</span><span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input wide" id="ec-NOTIFY_SLACK_WEBHOOK" type="text" placeholder="https://hooks.slack.com/services/...">
                 </div>
                 <div class="env-field">
-                    <label>Teams Webhook URL<span class="opt">(optional)</span></label>
+                    <label>Teams Webhook URL <span class="opt">(optional)</span><span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input wide" id="ec-NOTIFY_TEAMS_WEBHOOK" type="text" placeholder="https://outlook.office.com/webhook/...">
                 </div>
                 <div class="env-field">
-                    <label>Generic Webhook URL<span class="opt">(optional)</span></label>
+                    <label>Generic Webhook URL <span class="opt">(optional)</span><span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input wide" id="ec-NOTIFY_WEBHOOK_URL" type="text" placeholder="https://your-server.com/webhook">
                 </div>
                 <div class="env-field">
-                    <label>Debounce Interval (seconds)</label>
+                    <label>Debounce Interval (seconds) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-NOTIFY_DEBOUNCE_SEC" type="number" style="max-width:90px;" placeholder="300">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.debounce">Interval to suppress repeated alerts of the same type</div>
                 </div>
 
-                <div class="env-section-title" data-i18n="sysconfig.section.plugins">Plugin Sensors</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.plugins">Plugin Sensors <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.plugins_desc">Dynamically loads BaseSensor subclasses from the plugins/ directory.</div>
                 <div class="env-field">
                     <label>Plugin Directory</label>
@@ -812,7 +870,7 @@
                 <div class="env-save-row" style="position:sticky;bottom:0;background:#0d0d0d;border-top:1px solid #333;padding:8px 0 4px;z-index:2;">
                     <button onclick="saveEnvConfig()" class="btn-tactical" style="border-color:#ff660066;color:#ff6600;font-weight:bold;" data-i18n="sysconfig.save_btn">Save to config.env</button>
                     <span id="env-status" class="env-status"></span>
-                    <div class="env-restart-note" style="margin-top:4px;" data-i18n="sysconfig.restart_note">⚠ Changes take effect after server restart (<span class="code-block">python radar_api.py</span>)</div>
+                    <div id="env-restart-note" class="env-restart-note" style="margin-top:4px;display:none;" data-i18n="sysconfig.restart_note">⚠ Changes take effect after server restart (<span class="code-block">docker compose restart</span>)</div>
                 </div>
             </div><!-- /tab-sysconfig -->
 
@@ -1060,6 +1118,47 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
+     LLM Intelligence Panel (dockable)
+═══════════════════════════════════════════════════════ -->
+<div id="llm-intel-panel" class="draggable-panel floating" style="display:none; left:60px; top:110px; width:440px;">
+    <div class="drag-handle panel-header-unified">
+        <span data-i18n="panel.llm_intel.title">LLM INTELLIGENCE</span>
+        <div>
+            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('llm-intel-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
+        </div>
+    </div>
+    <div class="panel-content llm-intel-body">
+        <!-- Status bar -->
+        <div class="llm-status-bar" id="llm-status-bar">
+            <span class="llm-status-dot" id="llm-status-dot"></span>
+            <span id="llm-status-text" data-i18n="panel.llm_intel.status_offline">LLM OFFLINE</span>
+            <span class="llm-status-model" id="llm-status-model"></span>
+        </div>
+        <!-- Source filter -->
+        <div class="llm-filter-row">
+            <button class="llm-filter-btn llm-filter-active" data-src="all"        onclick="_llmFilter('all')"        data-i18n="panel.llm_intel.filter_all">ALL</button>
+            <button class="llm-filter-btn" data-src="hacktivist"                   onclick="_llmFilter('hacktivist')" data-i18n="panel.llm_intel.filter_hacktivist">HACKTIVIST</button>
+            <button class="llm-filter-btn" data-src="diplomatic"                   onclick="_llmFilter('diplomatic')" data-i18n="panel.llm_intel.filter_diplo">DIPLO</button>
+            <button class="llm-filter-btn" data-src="military"                     onclick="_llmFilter('military')"   data-i18n="panel.llm_intel.filter_military">MILITARY</button>
+            <button class="llm-filter-btn" data-src="ground_osint"                 onclick="_llmFilter('ground_osint')" data-i18n="panel.llm_intel.filter_ground">GROUND</button>
+        </div>
+        <!-- Stats summary bar -->
+        <div class="llm-stats-bar" id="llm-stats-bar">
+            <span class="llm-stat-auto"    id="llm-stat-auto">● AUTO 0</span>
+            <span class="llm-stat-pending" id="llm-stat-pending">⚠ PENDING 0</span>
+            <span class="llm-stat-review"  id="llm-stat-review" style="display:none">🔴 REVIEW 0</span>
+            <span class="llm-stat-reject"  id="llm-stat-reject">✗ REJ. 0</span>
+        </div>
+        <!-- Intel item list -->
+        <div class="llm-intel-list" id="llm-intel-list">
+            <div class="llm-empty" data-i18n="panel.llm_intel.empty">No intelligence items</div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
      Strategic Climate Feed (dockable)
 ═══════════════════════════════════════════════════════ -->
 <div id="climate-panel" class="draggable-panel floating" style="display:none; left:40px; top:120px; width:380px;">
@@ -1196,6 +1295,10 @@
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
                     <span style="color:#ffffff;font-size:10px;" data-i18n="panel.chain.c2_sync">C2 Sync</span>
                     <span id="ev-c2sync-detail" style="color:#555;font-size:11px;font-weight:bold;">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                    <span style="color:#aa88ff;font-size:10px;" data-i18n="panel.chain.llm_intel">LLM Intel</span>
+                    <span id="ev-llm-intel" style="color:#555;font-size:11px;font-weight:bold;" data-tooltip="">—</span>
                 </div>
             </div>
             <!-- v9: CheckHost URL detail -->

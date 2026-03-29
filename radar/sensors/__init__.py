@@ -26,6 +26,10 @@ from radar.sensors.usgs_seismic import UsgsSeismicSensor
 from radar.sensors.mil_support_air import MilSupportAirSensor
 from radar.sensors.gps_jamming import GpsJammingSensor
 from radar.sensors.ct_log import CtLogSensor
+from radar.sensors.hacktivist_intel_sensor import HacktiivistIntelSensor
+from radar.sensors.ground_osint_sensor import GroundOsintSensor
+from radar.sensors.diplomatic import DiplomaticSensor
+from radar.sensors.military_exercise import MilitaryExerciseSensor
 
 __all__ = [
     "BaseSensor",
@@ -55,4 +59,8 @@ __all__ = [
     "MilSupportAirSensor",
     "GpsJammingSensor",
     "CtLogSensor",
+    "HacktiivistIntelSensor",
+    "GroundOsintSensor",
+    "DiplomaticSensor",
+    "MilitaryExerciseSensor",
 ]

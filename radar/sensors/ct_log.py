@@ -17,9 +17,10 @@ import logging
 import time
 import requests
 from radar.sensors.base import BaseSensor
+import os as _os
 from radar.config import (
     COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY,
-    CT_LOG_SURGE_THRESHOLD, CT_LOG_GOV_TLDS,
+    CT_LOG_GOV_TLDS,
 )
 
 log = logging.getLogger("radar")
@@ -161,7 +162,7 @@ class CtLogSensor(BaseSensor):
                 is_gov_surge = gov_count >= 5
                 is_z_surge = z_valid and z_score >= 2.5 and total_recent > 10
                 is_surge = is_gov_surge or is_z_surge or (
-                    not z_valid and (total_recent >= CT_LOG_SURGE_THRESHOLD or
+                    not z_valid and (total_recent >= int(_os.getenv("CT_LOG_SURGE_THRESHOLD", "100")) or
                                     (surge_pct > 1.0 and total_recent > 20)))
 
                 ct_data[code] = {
