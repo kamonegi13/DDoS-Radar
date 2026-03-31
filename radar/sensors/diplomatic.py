@@ -205,107 +205,97 @@ class DiplomaticSensor(BaseSensor):
             if not articles:
                 continue
 
-            # Dedup at article level (not theater level) to prevent same article
-            # being submitted once per theater.
-            new_articles = []
-            for art in articles:
-                key = _article_hash(source_name, art["title"])
-                if key not in _processed:
-                    new_articles.append((key, art))
-                    _processed.add(key)
-            if not new_articles:
-                continue
-
-            if len(_processed) > _MAX_PROCESSED:
-                to_remove = list(_processed)[:_MAX_PROCESSED // 2]
-                for k in to_remove:
-                    _processed.discard(k)
-
             country = meta["country"]
-            articles_text = "\n".join(
-                f"[{i+1}] {a['title']}\n  {a['summary'][:200]}"
-                for i, (_, a) in enumerate(new_articles[:3])
-            )
             theaters_str = ", ".join(theaters)
 
-            # Single LLM call per source: ask LLM to identify the most relevant theater
-            system_prompt = (
-                "You are a diplomatic intelligence analyst. "
-                "Analyze these official government statements for escalation signals "
-                f"relevant to any of these theaters: {theaters_str}. "
-                "Respond ONLY with a JSON object, no explanation."
-            )
-            user_prompt = (
-                f"Source: {country} official diplomatic statements\n"
-                f"Relevant theaters: {theaters_str}\n\n"
-                f"Recent statements:\n{articles_text}\n\n"
-                "Return a JSON object:\n"
-                "{\n"
-                '  "headline": "One-sentence escalation summary (max 100 chars)",\n'
-                '  "escalation_signal": true or false,\n'
-                '  "theater": "The single most relevant theater code from the list above",\n'
-                '  "diplomatic_action": "warning|condemnation|sanction|expulsion|military_posture|ceasefire|statement|none",\n'
-                '  "target_country": "Country being addressed or criticized",\n'
-                '  "urgency": "critical|high|medium|low",\n'
-                '  "confidence": 0.0\n'
-                "}\n"
-                "Confidence guide:\n"
-                "- 0.80-0.95: Explicit military warning or sanction announcement\n"
-                "- 0.65-0.79: Strong condemnation or posturing language\n"
-                "- 0.55-0.64: Relevant but ambiguous diplomatic language\n"
-                "- <0.55: Routine statement, no escalation signal (set escalation_signal=false)\n"
-                "If statements have no relevance to any theater, return confidence<0.40."
-            )
+            # Process each article independently for precise per-article theater assignment
+            for art in articles:
+                key = _article_hash(source_name, art["title"])
+                if key in _processed:
+                    continue
+                _processed.add(key)
 
-            result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
+                if len(_processed) > _MAX_PROCESSED:
+                    to_remove = list(_processed)[:_MAX_PROCESSED // 2]
+                    for k in to_remove:
+                        _processed.discard(k)
 
-            if not result["ok"]:
-                log.debug(f"[Diplomatic] LLM parse failed {source_name}: {result.get('error')}")
-                continue
+                article_text = f"{art['title']}\n{art['summary'][:400]}"
 
-            data = result["data"]
-            confidence = float(data.get("confidence", 0.0))
-
-            if not data.get("escalation_signal", False) or confidence < 0.55:
-                log.debug(f"[Diplomatic] No signal {source_name} conf={confidence:.2f}")
-                continue
-
-            # Use theater from LLM response if valid, otherwise first in list
-            llm_theater = data.get("theater", "").strip().upper()
-            theater = llm_theater if llm_theater in theaters else theaters[0]
-
-            urgency = data.get("urgency", "low")
-            score_delta = {"critical": 3.0, "high": 2.0, "medium": 1.5, "low": 1.0}.get(urgency, 1.0)
-
-            raw_url = new_articles[0][1].get("link", "")
-
-            item = {
-                "source_type":  "diplomatic",
-                "source_id":    f"diplomatic_{source_name.lower()}",
-                "theater":      theater,
-                "ts":           time.time(),
-                "confidence":   round(confidence, 3),
-                "raw_text":     articles_text[:1000],
-                "raw_url":      raw_url,
-                "headline":     data.get("headline", f"Diplomatic escalation signal: {source_name} / {theater}")[:100],
-                "llm_fields": {
-                    "diplomatic_action": data.get("diplomatic_action", "statement"),
-                    "target_country":    data.get("target_country", ""),
-                    "urgency":           urgency,
-                    "source_country":    country,
-                    "escalation_signal": True,
-                },
-                "score_delta":  score_delta,
-                "domain":       "info",
-            }
-
-            item_id = intel_queue.submit(item)
-            if item_id:
-                submitted += 1
-                log.info(
-                    f"[Diplomatic] Submitted: {item['headline'][:60]} "
-                    f"(src={source_name}, theater={theater}, conf={confidence:.2f}, urgency={urgency})"
+                system_prompt = (
+                    "You are a diplomatic intelligence analyst. "
+                    "Analyze this official government statement for escalation signals "
+                    f"relevant to any of these theaters: {theaters_str}. "
+                    "Respond ONLY with a JSON object, no explanation."
                 )
+                user_prompt = (
+                    f"Source: {country} official diplomatic statements\n"
+                    f"Relevant theaters: {theaters_str}\n\n"
+                    f"Statement:\n{article_text}\n\n"
+                    "Return a JSON object:\n"
+                    "{\n"
+                    '  "headline": "One-sentence escalation summary (max 100 chars)",\n'
+                    '  "escalation_signal": true or false,\n'
+                    '  "theater": "The single most relevant theater code from the list above",\n'
+                    '  "diplomatic_action": "warning|condemnation|sanction|expulsion|military_posture|ceasefire|statement|none",\n'
+                    '  "target_country": "Country being addressed or criticized",\n'
+                    '  "urgency": "critical|high|medium|low",\n'
+                    '  "confidence": 0.0\n'
+                    "}\n"
+                    "Confidence guide:\n"
+                    "- 0.80-0.95: Explicit military warning or sanction announcement\n"
+                    "- 0.65-0.79: Strong condemnation or posturing language\n"
+                    "- 0.55-0.64: Relevant but ambiguous diplomatic language\n"
+                    "- <0.55: Routine statement, no escalation signal (set escalation_signal=false)\n"
+                    "If statement has no relevance to any theater, return confidence<0.40."
+                )
+
+                result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
+
+                if not result["ok"]:
+                    log.debug(f"[Diplomatic] LLM parse failed {source_name}: {result.get('error')}")
+                    continue
+
+                data = result["data"]
+                confidence = float(data.get("confidence", 0.0))
+
+                if not data.get("escalation_signal", False) or confidence < 0.55:
+                    log.debug(f"[Diplomatic] No signal {source_name} conf={confidence:.2f}")
+                    continue
+
+                llm_theater = data.get("theater", "").strip().upper()
+                theater = llm_theater if llm_theater in theaters else theaters[0]
+
+                urgency = data.get("urgency", "low")
+                score_delta = {"critical": 3.0, "high": 2.0, "medium": 1.5, "low": 1.0}.get(urgency, 1.0)
+
+                item = {
+                    "source_type":  "diplomatic",
+                    "source_id":    f"diplomatic_{source_name.lower()}",
+                    "theater":      theater,
+                    "ts":           time.time(),
+                    "confidence":   round(confidence, 3),
+                    "raw_text":     article_text[:1000],
+                    "raw_url":      art.get("link", ""),
+                    "headline":     data.get("headline", f"Diplomatic escalation signal: {source_name} / {theater}")[:100],
+                    "llm_fields": {
+                        "diplomatic_action": data.get("diplomatic_action", "statement"),
+                        "target_country":    data.get("target_country", ""),
+                        "urgency":           urgency,
+                        "source_country":    country,
+                        "escalation_signal": True,
+                    },
+                    "score_delta":  score_delta,
+                    "domain":       "info",
+                }
+
+                item_id = intel_queue.submit(item)
+                if item_id:
+                    submitted += 1
+                    log.info(
+                        f"[Diplomatic] Submitted: {item['headline'][:60]} "
+                        f"(src={source_name}, theater={theater}, conf={confidence:.2f}, urgency={urgency})"
+                    )
 
         duration_ms = round((time.time() - t0) * 1000)
         self.log_fetch(True, duration_ms, 0, submitted)

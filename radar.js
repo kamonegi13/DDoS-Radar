@@ -6829,6 +6829,8 @@
             actions += '<button class="llm-btn llm-btn-reject" onclick="_llmReject(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_reject">' + _t('panel.llm_intel.btn_reject') + '</button>';
         } else if (isAuto) {
             actions += '<button class="llm-btn llm-btn-override" onclick="_llmOverride(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_override">' + _t('panel.llm_intel.btn_override') + '</button>';
+        } else if (item.status === 'confirmed' || item.status === 'rejected') {
+            actions += '<button class="llm-btn llm-btn-revert" onclick="_llmRevert(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_revert">' + _t('panel.llm_intel.btn_revert') + '</button>';
         }
 
         return `<div class="llm-item ${statusClass}" id="llm-item-${_escHtml(item.id)}">
@@ -6868,6 +6870,13 @@
 
     window._llmReject = function(itemId) {
         fetch('/api/intel/' + encodeURIComponent(itemId) + '/reject', { method: 'POST' })
+            .then(r => r.json())
+            .then(() => _fetchLlmIntel())
+            .catch(() => {});
+    };
+
+    window._llmRevert = function(itemId) {
+        fetch('/api/intel/' + encodeURIComponent(itemId) + '/revert', { method: 'POST' })
             .then(r => r.json())
             .then(() => _fetchLlmIntel())
             .catch(() => {});

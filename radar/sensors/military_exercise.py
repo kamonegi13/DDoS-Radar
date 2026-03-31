@@ -203,115 +203,103 @@ class MilitaryExerciseSensor(BaseSensor):
             if not articles:
                 continue
 
-            # Dedup at article level (not theater level) to prevent same article
-            # being submitted once per theater.
-            new_articles = []
-            for art in articles:
-                key = _article_hash(source_name, art["title"])
-                if key not in _processed:
-                    new_articles.append((key, art))
-                    _processed.add(key)
-            if not new_articles:
-                continue
-
-            if len(_processed) > _MAX_PROCESSED:
-                to_remove = list(_processed)[:_MAX_PROCESSED // 2]
-                for k in to_remove:
-                    _processed.discard(k)
-
             org = meta["org"]
-            articles_text = "\n".join(
-                f"[{i+1}] {a['title']}\n  {a['summary'][:200]}"
-                for i, (_, a) in enumerate(new_articles[:3])
-            )
             theaters_str = ", ".join(theaters)
 
-            # Single LLM call per source: ask LLM to identify the most relevant theater
-            system_prompt = (
-                "You are a military intelligence analyst. "
-                "Analyze these defense/military news items for exercise and deployment "
-                f"escalation signals relevant to any of these theaters: {theaters_str}. "
-                "Respond ONLY with a JSON object, no explanation."
-            )
-            user_prompt = (
-                f"Source: {org} defense news\n"
-                f"Relevant theaters: {theaters_str}\n\n"
-                f"Recent reports:\n{articles_text}\n\n"
-                "Return a JSON object:\n"
-                "{\n"
-                '  "headline": "One-sentence escalation summary (max 100 chars)",\n'
-                '  "escalation_signal": true or false,\n'
-                '  "theater": "The single most relevant theater code from the list above",\n'
-                '  "exercise_type": "live_fire|amphibious|naval|air|cyber|combined|deployment|none",\n'
-                '  "force_type": "naval|air|ground|rocket|cyber|combined",\n'
-                '  "scale": "strategic|operational|tactical",\n'
-                '  "urgency": "critical|high|medium|low",\n'
-                '  "confidence": 0.0\n'
-                "}\n"
-                "Confidence guide:\n"
-                "- 0.80-0.95: Active live-fire exercise near theater OR forward deployment\n"
-                "- 0.65-0.79: Large-scale exercise announcement with clear theater relevance\n"
-                "- 0.55-0.64: Routine exercise with some escalatory indicators\n"
-                "- <0.55: Routine training, no escalation relevance (set escalation_signal=false)\n"
-                "PLA exercises near Taiwan Strait or South China Sea: always escalation_signal=true.\n"
-                "If articles have no relevance to any theater, return confidence<0.40."
-            )
+            # Process each article independently for precise per-article theater assignment
+            for art in articles:
+                key = _article_hash(source_name, art["title"])
+                if key in _processed:
+                    continue
+                _processed.add(key)
 
-            result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
+                if len(_processed) > _MAX_PROCESSED:
+                    to_remove = list(_processed)[:_MAX_PROCESSED // 2]
+                    for k in to_remove:
+                        _processed.discard(k)
 
-            theater = None  # determined by LLM below
+                article_text = f"{art['title']}\n{art['summary'][:400]}"
 
-            if not result["ok"]:
-                log.debug(f"[MilExercise] LLM parse failed {source_name}: {result.get('error')}")
-                continue
-
-            data = result["data"]
-            confidence = float(data.get("confidence", 0.0))
-
-            if not data.get("escalation_signal", False) or confidence < 0.55:
-                log.debug(f"[MilExercise] No signal {source_name} conf={confidence:.2f}")
-                continue
-
-            # Use theater from LLM response if valid, otherwise first in list
-            llm_theater = data.get("theater", "").strip().upper()
-            theater = llm_theater if llm_theater in theaters else theaters[0]
-
-            urgency = data.get("urgency", "low")
-            scale   = data.get("scale", "tactical")
-            scale_mult = {"strategic": 1.5, "operational": 1.2, "tactical": 1.0}.get(scale, 1.0)
-            base_score = {"critical": 3.0, "high": 2.5, "medium": 2.0, "low": 1.5}.get(urgency, 1.5)
-            score_delta = round(base_score * scale_mult, 1)
-
-            raw_url = new_articles[0][1].get("link", "")
-
-            item = {
-                "source_type":  "military",
-                "source_id":    f"military_{source_name.lower()}",
-                "theater":      theater,
-                "ts":           time.time(),
-                "confidence":   round(confidence, 3),
-                "raw_text":     articles_text[:1000],
-                "raw_url":      raw_url,
-                "headline":     data.get("headline", f"Military exercise signal: {org} / {theater}")[:100],
-                "llm_fields": {
-                    "exercise_type": data.get("exercise_type", "none"),
-                    "force_type":    data.get("force_type", "combined"),
-                    "scale":         scale,
-                    "urgency":       urgency,
-                    "source_org":    org,
-                    "escalation_signal": True,
-                },
-                "score_delta":  score_delta,
-                "domain":       "physical",
-            }
-
-            item_id = intel_queue.submit(item)
-            if item_id:
-                submitted += 1
-                log.info(
-                    f"[MilExercise] Submitted: {item['headline'][:60]} "
-                    f"(src={source_name}, theater={theater}, conf={confidence:.2f}, scale={scale})"
+                system_prompt = (
+                    "You are a military intelligence analyst. "
+                    "Analyze this defense/military news item for exercise and deployment "
+                    f"escalation signals relevant to any of these theaters: {theaters_str}. "
+                    "Respond ONLY with a JSON object, no explanation."
                 )
+                user_prompt = (
+                    f"Source: {org} defense news\n"
+                    f"Relevant theaters: {theaters_str}\n\n"
+                    f"Article:\n{article_text}\n\n"
+                    "Return a JSON object:\n"
+                    "{\n"
+                    '  "headline": "One-sentence escalation summary (max 100 chars)",\n'
+                    '  "escalation_signal": true or false,\n'
+                    '  "theater": "The single most relevant theater code from the list above",\n'
+                    '  "exercise_type": "live_fire|amphibious|naval|air|cyber|combined|deployment|none",\n'
+                    '  "force_type": "naval|air|ground|rocket|cyber|combined",\n'
+                    '  "scale": "strategic|operational|tactical",\n'
+                    '  "urgency": "critical|high|medium|low",\n'
+                    '  "confidence": 0.0\n'
+                    "}\n"
+                    "Confidence guide:\n"
+                    "- 0.80-0.95: Active live-fire exercise near theater OR forward deployment\n"
+                    "- 0.65-0.79: Large-scale exercise announcement with clear theater relevance\n"
+                    "- 0.55-0.64: Routine exercise with some escalatory indicators\n"
+                    "- <0.55: Routine training, no escalation relevance (set escalation_signal=false)\n"
+                    "PLA exercises near Taiwan Strait or South China Sea: always escalation_signal=true.\n"
+                    "If article has no relevance to any theater, return confidence<0.40."
+                )
+
+                result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
+
+                if not result["ok"]:
+                    log.debug(f"[MilExercise] LLM parse failed {source_name}: {result.get('error')}")
+                    continue
+
+                data = result["data"]
+                confidence = float(data.get("confidence", 0.0))
+
+                if not data.get("escalation_signal", False) or confidence < 0.55:
+                    log.debug(f"[MilExercise] No signal {source_name} conf={confidence:.2f}")
+                    continue
+
+                llm_theater = data.get("theater", "").strip().upper()
+                theater = llm_theater if llm_theater in theaters else theaters[0]
+
+                urgency = data.get("urgency", "low")
+                scale   = data.get("scale", "tactical")
+                scale_mult = {"strategic": 1.5, "operational": 1.2, "tactical": 1.0}.get(scale, 1.0)
+                base_score = {"critical": 3.0, "high": 2.5, "medium": 2.0, "low": 1.5}.get(urgency, 1.5)
+                score_delta = round(base_score * scale_mult, 1)
+
+                item = {
+                    "source_type":  "military",
+                    "source_id":    f"military_{source_name.lower()}",
+                    "theater":      theater,
+                    "ts":           time.time(),
+                    "confidence":   round(confidence, 3),
+                    "raw_text":     article_text[:1000],
+                    "raw_url":      art.get("link", ""),
+                    "headline":     data.get("headline", f"Military exercise signal: {org} / {theater}")[:100],
+                    "llm_fields": {
+                        "exercise_type": data.get("exercise_type", "none"),
+                        "force_type":    data.get("force_type", "combined"),
+                        "scale":         scale,
+                        "urgency":       urgency,
+                        "source_org":    org,
+                        "escalation_signal": True,
+                    },
+                    "score_delta":  score_delta,
+                    "domain":       "physical",
+                }
+
+                item_id = intel_queue.submit(item)
+                if item_id:
+                    submitted += 1
+                    log.info(
+                        f"[MilExercise] Submitted: {item['headline'][:60]} "
+                        f"(src={source_name}, theater={theater}, conf={confidence:.2f}, scale={scale})"
+                    )
 
         duration_ms = round((time.time() - t0) * 1000)
         self.log_fetch(True, duration_ms, 0, submitted)

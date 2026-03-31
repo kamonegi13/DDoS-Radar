@@ -69,6 +69,18 @@ def intel_reject(item_id: str):
     return jsonify({"ok": True, "item_id": item_id, "status": "rejected"})
 
 
+@bp.route("/api/intel/<item_id>/revert", methods=["POST"])
+def intel_revert(item_id: str):
+    """Revert a confirmed or rejected item back to pending for re-review."""
+    from radar.intel_queue import intel_queue
+    from flask_jwt_extended import get_jwt_identity
+    analyst = get_jwt_identity() or "analyst"
+    ok = intel_queue.revert(item_id, analyst=analyst)
+    if not ok:
+        return jsonify({"error": "Item not found or not in confirmed/rejected state"}), 400
+    return jsonify({"ok": True, "item_id": item_id, "status": "pending"})
+
+
 @bp.route("/api/intel/<item_id>/override", methods=["POST"])
 def intel_override(item_id: str):
     """Override an AUTO-CONFIRMED item within the override window."""

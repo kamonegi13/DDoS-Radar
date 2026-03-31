@@ -828,6 +828,7 @@ const LANG = {
     'panel.llm_intel.btn_confirm':          '✓ CONFIRM',
     'panel.llm_intel.btn_reject':           '✗ REJECT',
     'panel.llm_intel.btn_override':         '✗ OVERRIDE',
+    'panel.llm_intel.btn_revert':           '↩ REVERT',
     'panel.llm_intel.override_confirm':     'Override this AUTO-CONFIRMED item? Its score contribution will be reversed.',
     // ══════════════════════════════════════════════════════════════
     // Strategic Climate Feed
@@ -2022,6 +2023,7 @@ const LANG = {
     'panel.llm_intel.btn_confirm':          '✓ 承認',
     'panel.llm_intel.btn_reject':           '✗ 却下',
     'panel.llm_intel.btn_override':         '✗ 取消',
+    'panel.llm_intel.btn_revert':           '↩ 差戻し',
     'panel.llm_intel.override_confirm':     'この自動承認アイテムを取り消しますか？スコアへの加算が取り消されます。',
     // ══════════════════════════════════════════════════════════════
     // 戦略的環境気候フィード

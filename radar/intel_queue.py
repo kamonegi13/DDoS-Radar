@@ -146,6 +146,25 @@ class IntelQueue:
         log.info(f"[Intel] REJECTED by {analyst}: {item.get('headline', '')[:80]}")
         return True
 
+    def revert(self, item_id: str, analyst: str = "analyst") -> bool:
+        """Revert a confirmed or rejected item back to pending.
+        This undoes a manual confirm/reject decision so the analyst can re-decide.
+        Not applicable to auto_confirmed items (use override() for those).
+        Returns True if successful.
+        """
+        item = db.intel_get(item_id)
+        if not item or item["status"] not in ("confirmed", "rejected"):
+            return False
+        was_confirmed = item["status"] == "confirmed"
+        db.intel_update_status(item_id, "pending",
+                               confirmed_by=None, confirmed_at=None)
+        if was_confirmed:
+            _active_item_ids.discard(item_id)
+            if item.get("source_id"):
+                db.intel_source_record_outcome(item["source_id"], confirmed=False)
+        log.info(f"[Intel] REVERTED to pending by {analyst}: {item.get('headline', '')[:80]}")
+        return True
+
     def override(self, item_id: str, analyst: str = "analyst") -> bool:
         """Override an AUTO-CONFIRMED item (undo its score contribution).
         Only allowed within LLM_OVERRIDE_WINDOW seconds of confirmation.

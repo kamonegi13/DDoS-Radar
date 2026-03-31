@@ -1004,6 +1004,8 @@
 .llm-btn-reject:hover  { background: #2a0a0a; }
 .llm-btn-override { border-color: #ff880044; color: #ff8800; }
 .llm-btn-override:hover { background: #2a1500; }
+.llm-btn-revert   { border-color: #8888cc44; color: #aaaaee; }
+.llm-btn-revert:hover  { background: #15152a; }
 .llm-item-status-auto     { border-left: 3px solid #44cc66; }
 .llm-item-status-pending  { border-left: 3px solid #ffaa00; }
 .llm-item-status-review   { border-left: 3px solid #ff4444; }
