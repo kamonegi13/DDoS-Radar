@@ -527,27 +527,27 @@
                 <div class="env-section-title" data-i18n="sysconfig.section.api_keys">API Keys <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
 
                 <div class="env-field">
-                    <label>Cloudflare Radar Token<span class="req">*</span></label>
+                    <label>Cloudflare Radar Token<span class="req">*</span> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-CF_API_TOKEN" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>OpenWeatherMap API Key<span class="opt">(optional)</span></label>
+                    <label>OpenWeatherMap API Key<span class="opt">(optional)</span> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-OWM_API_KEY" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>GreyNoise API Key<span class="opt">(optional)</span></label>
+                    <label>GreyNoise API Key<span class="opt">(optional)</span> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-GREYNOISE_API_KEY" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>ThreatFox API Key<span class="opt">(optional)</span></label>
+                    <label>ThreatFox API Key<span class="opt">(optional)</span> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-THREATFOX_API_KEY" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>OpenSky Client ID<span class="opt">(optional)</span></label>
+                    <label>OpenSky Client ID<span class="opt">(optional)</span> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-OPENSKY_CLIENT_ID" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>OpenSky Client Secret<span class="opt">(optional)</span></label>
+                    <label>OpenSky Client Secret<span class="opt">(optional)</span> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input secret-field" id="ec-OPENSKY_CLIENT_SECRET" type="text" autocomplete="off" data-1p-ignore>
                 </div>
 
@@ -556,7 +556,7 @@
 
                 <!-- Core Theater -->
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.core">Core Theater</label>
+                    <label data-i18n="sysconfig.field.core">Core Theater <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <select class="env-input" id="ec-DEFAULT_CORE" style="max-width:280px;">
                         <option value="">— none —</option>
                     </select>
@@ -564,7 +564,7 @@
 
                 <!-- Adversaries: toggle cards -->
                 <div style="margin-bottom:14px;">
-                    <div class="scope-label" data-i18n="sysconfig.scope.adversaries">Adversaries</div>
+                    <div class="scope-label" data-i18n="sysconfig.scope.adversaries">Adversaries <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                     <div class="adv-bloc-picker" id="ec-DEFAULT_ADVERSARIES-picker"></div>
                     <input type="hidden" id="ec-DEFAULT_ADVERSARIES">
                 </div>
@@ -572,14 +572,14 @@
                 <!-- Correlates + Quick Pins: two-column tag pickers -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
                     <div>
-                        <div class="scope-label" data-i18n-html="sysconfig.scope.correlates_label">Correlates <small>(allied nations to monitor)</small></div>
+                        <div class="scope-label" data-i18n-html="sysconfig.scope.correlates_label">Correlates <small>(allied nations to monitor)</small> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                         <div class="scope-tags" id="ec-correlates-tags"><span class="scope-tags-empty" data-i18n="sysconfig.scope.none_selected">None selected</span></div>
                         <input type="hidden" id="ec-DEFAULT_CORRELATES">
                         <input type="text" class="scope-search" id="ec-search-correlates" placeholder="Search countries…" data-i18n-ph="sysconfig.scope.search">
                         <div class="scope-list" id="ec-correlates-list"></div>
                     </div>
                     <div>
-                        <div class="scope-label" data-i18n-html="sysconfig.scope.pins_label">Quick Pins <small>(target visibility panel)</small></div>
+                        <div class="scope-label" data-i18n-html="sysconfig.scope.pins_label">Quick Pins <small>(target visibility panel)</small> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                         <div class="scope-tags" id="ec-pins-tags"><span class="scope-tags-empty" data-i18n="sysconfig.scope.none_selected">None selected</span></div>
                         <input type="hidden" id="ec-DEFAULT_PINS">
                         <input type="text" class="scope-search" id="ec-search-pins" placeholder="Search countries…" data-i18n-ph="sysconfig.scope.search">
@@ -647,15 +647,15 @@
 
                 <div class="env-section-title" data-i18n="sysconfig.section.network">Network / SSL <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div class="env-field">
-                    <label>HTTP Proxy</label>
+                    <label>HTTP Proxy <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-HTTP_PROXY" type="text" placeholder="http://proxy:8080">
                 </div>
                 <div class="env-field">
-                    <label>HTTPS Proxy</label>
+                    <label>HTTPS Proxy <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-HTTPS_PROXY" type="text" placeholder="http://proxy:8080">
                 </div>
                 <div class="env-field">
-                    <label>SSL Verification</label>
+                    <label>SSL Verification <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <select class="env-input" id="ec-SSL_VERIFY" style="max-width:100px;">
                         <option value="true" data-i18n="sysconfig.field.ssl_enabled">Enabled</option>
                         <option value="false" data-i18n="sysconfig.field.ssl_disabled">Disabled</option>
@@ -664,19 +664,19 @@
 
                 <div class="env-section-title" data-i18n="sysconfig.section.cache">Cache &amp; Polling <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.cache_expiry">Cache Expiry (seconds)</label>
+                    <label data-i18n="sysconfig.field.cache_expiry">Cache Expiry (seconds) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-CACHE_EXPIRY" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.opensky_int">OpenSky Min Interval (seconds)</label>
+                    <label data-i18n="sysconfig.field.opensky_int">OpenSky Min Interval (seconds) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-OPENSKY_MIN_INTERVAL" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.narrative_int">Narrative Poll Interval (seconds)</label>
+                    <label data-i18n="sysconfig.field.narrative_int">Narrative Poll Interval (seconds) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-NARRATIVE_POLL_INTERVAL" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.telegram_int">Telegram Poll Interval (seconds)</label>
+                    <label data-i18n="sysconfig.field.telegram_int">Telegram Poll Interval (seconds) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-TELEGRAM_MIRROR_POLL_INTERVAL" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field" style="flex-direction:column;align-items:flex-start;">
@@ -688,15 +688,15 @@
                     <input class="env-input" id="ec-TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD" type="number" step="0.05" min="0" max="1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.checkhost_int">Check-Host Poll Interval (seconds)</label>
+                    <label data-i18n="sysconfig.field.checkhost_int">Check-Host Poll Interval (seconds) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-CHECKHOST_POLL_INTERVAL" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.checkhost_to">Check-Host Timeout (ms)</label>
+                    <label data-i18n="sysconfig.field.checkhost_to">Check-Host Timeout (ms) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-CHECKHOST_TIMEOUT_MS" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field" style="flex-direction:column;align-items:flex-start;">
-                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.checkhost_nodes">Check-Host Nodes</label>
+                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.checkhost_nodes">Check-Host Nodes <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input wide" id="ec-CHECKHOST_NODES" type="text" placeholder="jp1.node.check-host.net,us1.node.check-host.net,...">
                 </div>
 
@@ -830,21 +830,21 @@
                 <div class="env-section-title" data-i18n="sysconfig.section.auth">Authentication (JWT) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.auth_desc">User authentication and session management. A default admin user is created on first startup.</div>
                 <div class="env-field">
-                    <label>Default Admin Password</label>
+                    <label>Default Admin Password <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input secret-field" id="ec-DEFAULT_ADMIN_PASSWORD" type="text" autocomplete="off" data-1p-ignore placeholder="admin">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.default_admin_pw">Admin password on first startup (change via API after deployment)</div>
                 </div>
                 <div class="env-field">
-                    <label>JWT Secret Key<span class="opt">(auto-generated if empty)</span></label>
+                    <label>JWT Secret Key<span class="opt">(auto-generated if empty)</span> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input secret-field" id="ec-JWT_SECRET_KEY" type="text" autocomplete="off" data-1p-ignore placeholder="Auto-generated">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.jwt_secret">If blank, randomly generated on each startup (tokens invalidated on restart)</div>
                 </div>
                 <div class="env-field">
-                    <label>Access Token Expiry (seconds)</label>
+                    <label>Access Token Expiry (seconds) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-JWT_ACCESS_EXPIRES" type="number" style="max-width:90px;" placeholder="3600">
                 </div>
                 <div class="env-field">
-                    <label>Refresh Token Expiry (seconds)</label>
+                    <label>Refresh Token Expiry (seconds) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-JWT_REFRESH_EXPIRES" type="number" style="max-width:90px;" placeholder="86400">
                 </div>
 
@@ -878,16 +878,16 @@
                 <div class="env-section-title" data-i18n="sysconfig.section.plugins">Plugin Sensors <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.plugins_desc">Dynamically loads BaseSensor subclasses from the plugins/ directory.</div>
                 <div class="env-field">
-                    <label>Plugin Directory</label>
+                    <label>Plugin Directory <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-PLUGIN_DIR" type="text" placeholder="plugins">
                 </div>
                 <div class="env-field">
-                    <label>Enabled Plugins<span class="opt">(* = all)</span></label>
+                    <label>Enabled Plugins<span class="opt">(* = all)</span> <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input wide" id="ec-PLUGIN_ENABLED" type="text" placeholder="*">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.plugin_enabled">Comma-separated filenames (without extension), or * for all plugins</div>
                 </div>
                 <div class="env-field">
-                    <label>Disabled Plugins</label>
+                    <label>Disabled Plugins <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input wide" id="ec-PLUGIN_DISABLED" type="text" placeholder="">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.plugin_disabled">Plugin names to explicitly disable (comma-separated)</div>
                 </div>
