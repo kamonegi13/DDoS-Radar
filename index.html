@@ -733,6 +733,19 @@
                     <label data-i18n="sysconfig.field.hysteresis">Threat Level Hysteresis Cycles <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input" id="ec-THREAT_LEVEL_HYSTERESIS_CYCLES" type="number" style="max-width:90px;">
                 </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.dw_cyber">Domain Weight — Cyber (0–1) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-DOMAIN_WEIGHT_CYBER" type="number" step="0.01" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.dw_physical">Domain Weight — Physical (0–1) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-DOMAIN_WEIGHT_PHYSICAL" type="number" step="0.01" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.dw_info">Domain Weight — Info (0–1) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-DOMAIN_WEIGHT_INFO" type="number" step="0.01" style="max-width:90px;">
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.domain_weights">Three weights must sum to 1.0</div>
+                </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.ddos">DDoS Acceleration Engine</div>
                 <div class="env-field">
@@ -794,8 +807,24 @@
                     <input class="env-input" id="ec-ISR_SURGE_THRESHOLD" type="number" style="max-width:90px;">
                 </div>
                 <div class="env-field" style="flex-direction:column;align-items:flex-start;">
-                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.isr_icao">ISR ICAO Type Codes</label>
+                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.isr_icao">ISR ICAO Type Codes <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
                     <input class="env-input wide" id="ec-ISR_ICAO_TYPES" type="text" placeholder="RC135,RC-135,E3,...">
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.gps_jam">GPS Jamming Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-GPS_JAM_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.gps_jam_crit">GPS Jamming Critical Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-GPS_JAM_CRITICAL_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.ct_log_surge">CT Log Surge Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-CT_LOG_SURGE_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.usgs_mag">USGS Min Magnitude <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
+                    <input class="env-input" id="ec-USGS_MIN_MAGNITUDE" type="number" step="0.1" style="max-width:90px;">
                 </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.auth">Authentication (JWT) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
