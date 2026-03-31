@@ -2445,7 +2445,17 @@ function _t(key, vars) {
 function _applyStaticTranslations() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
-    el.textContent = _t(key);
+    const translated = _t(key);
+    // Preserve child elements (e.g. cfg-restart-badge/cfg-live-badge spans):
+    // only update the first direct text node instead of wiping all children.
+    const firstText = Array.from(el.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
+    if (firstText) {
+      firstText.textContent = translated;
+    } else if (!el.childElementCount) {
+      el.textContent = translated;
+    } else {
+      el.insertBefore(document.createTextNode(translated), el.firstChild);
+    }
   });
   document.querySelectorAll('[data-i18n-html]').forEach(el => {
     const key = el.getAttribute('data-i18n-html');
