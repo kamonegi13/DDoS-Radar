@@ -80,14 +80,46 @@ def llm_analyze(prompt: str, system: str = "",
 
 def llm_analyze_json(prompt: str, system: str = "",
                      temperature: float = 0.1, max_tokens: int = 512) -> dict:
-    """Like llm_analyze but parses the response as JSON.
+    """Like llm_analyze but forces JSON output via Ollama format param and parses result.
 
     Returns:
         {"ok": True,  "data": {...}}
         {"ok": False, "data": {}, "error": "<reason>"}
     """
-    result = llm_analyze(prompt, system=system,
-                         temperature=temperature, max_tokens=max_tokens)
+    if not LLM_ENABLED:
+        return {"ok": False, "data": {}, "error": "LLM_ENABLED=false"}
+
+    # Use format="json" to force Ollama to output valid JSON regardless of model
+    payload: dict = {
+        "model": LLM_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": temperature, "num_predict": max_tokens},
+    }
+    if system:
+        payload["system"] = system
+
+    try:
+        res = requests.post(
+            _GENERATE_URL,
+            json=payload,
+            timeout=LLM_TIMEOUT,
+            proxies=GLOBAL_PROXIES,
+            verify=SSL_VERIFY,
+        )
+        if res.status_code != 200:
+            log.warning(f"[LLM] HTTP {res.status_code}: {res.text[:200]}")
+            return {"ok": False, "data": {}, "error": f"HTTP {res.status_code}"}
+        text = res.json().get("response", "").strip()
+    except requests.Timeout:
+        log.warning("[LLM] JSON request timed out")
+        return {"ok": False, "data": {}, "error": "timeout"}
+    except Exception as e:
+        log.error(f"[LLM] JSON request error: {e}")
+        return {"ok": False, "data": {}, "error": str(e)}
+
+    result = {"ok": True, "text": text}
     if not result["ok"]:
         return {"ok": False, "data": {}, "error": result.get("error", "")}
 
