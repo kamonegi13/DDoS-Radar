@@ -633,6 +633,11 @@
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.llm_override_window">Seconds within which AUTO-CONFIRMED items can be overridden</div>
                 </div>
                 <div class="env-field">
+                    <label data-i18n="sysconfig.field.llm_pending_auto_reject">Auto-Reject Pending After (h)</label>
+                    <input class="env-input" id="ec-LLM_PENDING_AUTO_REJECT_HOURS" type="number" min="0" max="168" step="1" placeholder="24" style="max-width:80px;">
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.llm_pending_auto_reject">Hours until unreviewed PENDING items are auto-rejected (0 = disabled)</div>
+                </div>
+                <div class="env-field">
                     <label data-i18n="sysconfig.field.intel_retention">Intel Retention (days)</label>
                     <input class="env-input" id="ec-INTEL_RETENTION_DAYS" type="number" min="1" max="90" placeholder="7" style="max-width:80px;">
                 </div>

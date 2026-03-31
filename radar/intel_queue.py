@@ -37,6 +37,11 @@ def _confidence_min() -> float:
 def _override_window() -> int:
     return int(os.getenv("LLM_OVERRIDE_WINDOW", "3600"))
 
+def _pending_auto_reject_hours() -> float:
+    """Hours after which unreviewed PENDING items are automatically rejected.
+    Set to 0 to disable auto-reject."""
+    return float(os.getenv("LLM_PENDING_AUTO_REJECT_HOURS", "24"))
+
 log = logging.getLogger("radar")
 
 # In-memory set of currently active (auto_confirmed or confirmed) item IDs
@@ -164,6 +169,27 @@ class IntelQueue:
                 db.intel_source_record_outcome(item["source_id"], confirmed=False)
         log.info(f"[Intel] REVERTED to pending by {analyst}: {item.get('headline', '')[:80]}")
         return True
+
+    def auto_reject_stale(self) -> int:
+        """Auto-reject PENDING items older than LLM_PENDING_AUTO_REJECT_HOURS.
+        Called hourly by the cache cleanup worker. Returns count of items rejected.
+        """
+        max_age_h = _pending_auto_reject_hours()
+        if max_age_h <= 0:
+            return 0
+        cutoff = time.time() - max_age_h * 3600
+        items = db.intel_list(status="pending", limit=500)
+        rejected = 0
+        for item in items:
+            if item.get("created_at", 0) < cutoff:
+                db.intel_update_status(item["id"], "rejected",
+                                       confirmed_by="auto", confirmed_at=time.time())
+                _active_item_ids.discard(item["id"])
+                rejected += 1
+                log.info(f"[Intel] AUTO-REJECTED (stale): {item.get('headline', '')[:80]}")
+        if rejected:
+            log.info(f"[Intel] Auto-rejected {rejected} stale pending items (>{max_age_h}h)")
+        return rejected
 
     def override(self, item_id: str, analyst: str = "analyst") -> bool:
         """Override an AUTO-CONFIRMED item (undo its score contribution).

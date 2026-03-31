@@ -71,6 +71,7 @@ def api_env_config_get():
         "LLM_AUTO_CONFIRM_THRESHOLD":    str(_cfg.LLM_AUTO_CONFIRM_THRESHOLD),
         "LLM_CONFIDENCE_MIN":            str(_cfg.LLM_CONFIDENCE_MIN),
         "LLM_OVERRIDE_WINDOW":           str(_cfg.LLM_OVERRIDE_WINDOW),
+        "LLM_PENDING_AUTO_REJECT_HOURS": str(_cfg.LLM_PENDING_AUTO_REJECT_HOURS),
         "INTEL_RETENTION_DAYS":          str(_cfg.INTEL_RETENTION_DAYS),
     }
     for key, default_val in _FALLBACK_KEYS.items():
@@ -136,7 +137,7 @@ def api_env_config_post():
 _RELOADABLE_KEYS = frozenset({
     # LLM intel queue thresholds
     "LLM_AUTO_CONFIRM_THRESHOLD", "LLM_CONFIDENCE_MIN",
-    "LLM_OVERRIDE_WINDOW", "INTEL_RETENTION_DAYS",
+    "LLM_OVERRIDE_WINDOW", "LLM_PENDING_AUTO_REJECT_HOURS", "INTEL_RETENTION_DAYS",
     # Notifications (read dynamically in notifications.py)
     "NOTIFY_ENABLED", "NOTIFY_DEBOUNCE_SEC",
     "NOTIFY_SLACK_WEBHOOK", "NOTIFY_TEAMS_WEBHOOK", "NOTIFY_WEBHOOK_URL",

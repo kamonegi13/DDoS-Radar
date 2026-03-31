@@ -165,6 +165,10 @@ def _cache_cleanup_worker(registry=None):
                      f"seqlog={_db.seq_total()} "
                      f"cf_cache={len(_cf_scoring_cache)} asn_cache={len(_asn_cache)}")
 
+            # Auto-reject stale pending intel items
+            from radar.intel_queue import intel_queue as _iq
+            _iq.auto_reject_stale()
+
             # Daily: prune SQLite tables and checkpoint WAL
             if _cycle % DB_CLEANUP_EVERY == 0:
                 _db.periodic_cleanup()
