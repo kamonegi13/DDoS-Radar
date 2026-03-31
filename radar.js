@@ -4718,6 +4718,8 @@
             await populateEnvScopePickers(cfg);
             const st = document.getElementById('env-status');
             if (st) { st.textContent = ''; }
+            // Auto-fetch Ollama models so the Model select shows the current selection
+            fetchLlmModels();
         } catch(e) {
             const st = document.getElementById('env-status');
             if (st) { st.textContent = _t('config.status.load_error', {msg: e.message}); st.className = 'env-status err'; }

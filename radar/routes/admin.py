@@ -16,7 +16,9 @@ from radar.routes import bp, _require_admin
 
 @bp.route("/api/env_config", methods=["GET"])
 def api_env_config_get():
-    """Read config.env and return all key=value pairs as JSON (excluding comments)."""
+    """Read config.env and return all key=value pairs as JSON (excluding comments).
+    For keys missing from config.env, fall back to the currently running radar.config
+    values so the CONFIG panel always shows meaningful defaults."""
     auth_err = _require_admin()
     if auth_err: return auth_err
     config = {}
@@ -28,10 +30,53 @@ def api_env_config_get():
                     continue
                 key, _, val = line.partition("=")
                 key = key.strip()
+                # Strip inline comments and surrounding quotes
+                if "  #" in val:
+                    val = val.split("  #", 1)[0]
                 val = val.strip().strip('"').strip("'")
                 config[key] = val
     except FileNotFoundError:
         return jsonify({"error": "config.env not found"}), 404
+
+    # Fill in missing keys from the currently running radar.config module
+    # (these reflect the defaults baked into config.py for any key absent from config.env)
+    import radar.config as _cfg
+    _FALLBACK_KEYS = {
+        "DOMAIN_WEIGHT_CYBER":           str(_cfg.DOMAIN_WEIGHT_CYBER),
+        "DOMAIN_WEIGHT_PHYSICAL":        str(_cfg.DOMAIN_WEIGHT_PHYSICAL),
+        "DOMAIN_WEIGHT_INFO":            str(_cfg.DOMAIN_WEIGHT_INFO),
+        "THREAT_LEVEL_HYSTERESIS_CYCLES": str(_cfg.THREAT_LEVEL_HYSTERESIS_CYCLES),
+        "AIRSPACE_ANOMALY_THRESHOLD":    str(_cfg.AIRSPACE_ANOMALY_THRESHOLD),
+        "AIRSPACE_CLOSURE_THRESHOLD":    str(_cfg.AIRSPACE_CLOSURE_THRESHOLD),
+        "AIRSPACE_WINDOW":               str(_cfg.AIRSPACE_WINDOW),
+        "GDELT_TONE_ALERT_THRESHOLD":    str(_cfg.GDELT_TONE_ALERT_THRESHOLD),
+        "GDELT_HISTORY_WINDOW":          str(_cfg.GDELT_HISTORY_WINDOW),
+        "CONVERGENCE_DUAL_BONUS":        str(_cfg.CONVERGENCE_DUAL_BONUS),
+        "CONVERGENCE_FULL_BONUS":        str(_cfg.CONVERGENCE_FULL_BONUS),
+        "AMBUSH_ZSCORE_THRESHOLD":       str(_cfg.AMBUSH_ZSCORE_THRESHOLD),
+        "DERIVATIVE_WINDOW":             str(_cfg.DERIVATIVE_WINDOW),
+        "SYNC_DELTA_MS":                 str(_cfg.SYNC_DELTA_MS),
+        "SYNC_C2_THRESHOLD":             str(_cfg.SYNC_C2_THRESHOLD),
+        "NARRATIVE_ZSCORE_ALERT":        str(_cfg.NARRATIVE_ZSCORE_ALERT),
+        "NARRATIVE_ZSCORE_CRITICAL":     str(_cfg.NARRATIVE_ZSCORE_CRITICAL),
+        "NARRATIVE_BASELINE_DAYS":       str(_cfg.NARRATIVE_BASELINE_DAYS),
+        "SEQUENCE_WINDOW":               str(_cfg.SEQUENCE_WINDOW),
+        "SEQUENCE_FULL_BONUS":           str(_cfg.SEQUENCE_FULL_BONUS),
+        "SEQUENCE_PARTIAL_BONUS":        str(_cfg.SEQUENCE_PARTIAL_BONUS),
+        "ISR_SURGE_THRESHOLD":           str(_cfg.ISR_SURGE_THRESHOLD),
+        "GPS_JAM_THRESHOLD":             str(_cfg.GPS_JAM_THRESHOLD),
+        "GPS_JAM_CRITICAL_THRESHOLD":    str(_cfg.GPS_JAM_CRITICAL_THRESHOLD),
+        "CT_LOG_SURGE_THRESHOLD":        str(_cfg.CT_LOG_SURGE_THRESHOLD),
+        "USGS_MIN_MAGNITUDE":            str(_cfg.USGS_MIN_MAGNITUDE),
+        "LLM_AUTO_CONFIRM_THRESHOLD":    str(_cfg.LLM_AUTO_CONFIRM_THRESHOLD),
+        "LLM_CONFIDENCE_MIN":            str(_cfg.LLM_CONFIDENCE_MIN),
+        "LLM_OVERRIDE_WINDOW":           str(_cfg.LLM_OVERRIDE_WINDOW),
+        "INTEL_RETENTION_DAYS":          str(_cfg.INTEL_RETENTION_DAYS),
+    }
+    for key, default_val in _FALLBACK_KEYS.items():
+        if key not in config:
+            config[key] = default_val
+
     return jsonify(config)
 
 

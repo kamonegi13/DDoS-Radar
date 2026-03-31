@@ -589,36 +589,34 @@
 
                 <!-- ── LLM Intelligence Settings ────────────────────── -->
                 <hr style="border:none;border-top:1px solid #aa88ff33;margin:16px 0 12px;">
-                <div class="env-section-title" style="color:#aa88ff;" data-i18n="sysconfig.section.llm">LLM Intelligence</div>
+                <div class="env-section-title" style="color:#aa88ff;" data-i18n="sysconfig.section.llm">LLM Intelligence <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.llm_desc">Requires Ollama running locally. Inside Docker on Mac/Windows use host.docker.internal as the hostname.</div>
-                <!-- LLM_ENABLED / LLM_HOST / LLM_MODEL / LLM_TIMEOUT require restart -->
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.llm_enabled">LLM Enabled <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
+                    <label data-i18n="sysconfig.field.llm_enabled">LLM Enabled</label>
                     <select class="env-input" id="ec-LLM_ENABLED" style="max-width:120px;">
                         <option value="false">false</option>
                         <option value="true">true</option>
                     </select>
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.llm_host">Ollama Host <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
+                    <label data-i18n="sysconfig.field.llm_host">Ollama Host</label>
                     <input class="env-input wide" id="ec-LLM_HOST" type="text" placeholder="http://host.docker.internal:11434">
-                    <button type="button" onclick="fetchLlmModels()" class="btn-tactical" style="margin-top:4px;font-size:10px;padding:3px 10px;border-color:#aa88ff44;color:#aa88ff;" data-i18n="sysconfig.llm.fetch_models">Fetch Models ↺</button>
                     <span id="llm-model-status" style="font-size:10px;color:#556;margin-left:6px;"></span>
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.llm_model">Model <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
+                    <label data-i18n="sysconfig.field.llm_model">Model</label>
                     <select class="env-input" id="ec-LLM_MODEL" style="max-width:260px;">
-                        <option value="">— click Fetch Models —</option>
+                        <option value="">— loading… —</option>
                     </select>
                     <input class="env-input" id="ec-LLM_MODEL_manual" type="text" placeholder="e.g. llama3.2:3b" style="max-width:200px;margin-top:4px;display:none;">
-                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.llm.model_hint">Click "Fetch Models" to load available models from Ollama, or type manually.</div>
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.llm_timeout">Request Timeout (s) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
+                    <label data-i18n="sysconfig.field.llm_timeout">Request Timeout (s)</label>
                     <input class="env-input" id="ec-LLM_TIMEOUT" type="number" min="10" max="120" placeholder="30" style="max-width:80px;">
                 </div>
-                <!-- Intel Queue Thresholds — reloadable (no restart needed) -->
-                <div class="env-section-title" style="font-size:10px;color:#665588;margin-top:12px;" data-i18n="sysconfig.section.llm_thresholds">Intel Queue Thresholds <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></div>
+
+                <!-- ── Intel Queue Thresholds ────────────────────────── -->
+                <div class="env-section-title" data-i18n="sysconfig.section.llm_thresholds">Intel Queue Thresholds <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></div>
                 <div class="env-field">
                     <label data-i18n="sysconfig.field.llm_auto_threshold">Auto-Confirm Threshold</label>
                     <input class="env-input" id="ec-LLM_AUTO_CONFIRM_THRESHOLD" type="number" min="0.5" max="1.0" step="0.05" placeholder="0.80" style="max-width:80px;">
