@@ -274,7 +274,6 @@ LLM_MODEL                 = os.getenv("LLM_MODEL", "llama3.2:3b")
 LLM_TIMEOUT               = int(os.getenv("LLM_TIMEOUT", "30"))
 LLM_AUTO_CONFIRM_THRESHOLD = float(os.getenv("LLM_AUTO_CONFIRM_THRESHOLD", "0.80"))
 LLM_CONFIDENCE_MIN        = float(os.getenv("LLM_CONFIDENCE_MIN", "0.55"))
-LLM_OVERRIDE_WINDOW            = int(os.getenv("LLM_OVERRIDE_WINDOW", "3600"))
 LLM_PENDING_AUTO_REJECT_HOURS  = float(os.getenv("LLM_PENDING_AUTO_REJECT_HOURS", "24"))
 INTEL_RETENTION_DAYS           = int(os.getenv("INTEL_RETENTION_DAYS", "7"))
 # How long a confirmed/auto_confirmed intel item contributes to the threat score.

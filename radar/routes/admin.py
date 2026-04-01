@@ -70,7 +70,6 @@ def api_env_config_get():
         "USGS_MIN_MAGNITUDE":            str(_cfg.USGS_MIN_MAGNITUDE),
         "LLM_AUTO_CONFIRM_THRESHOLD":    str(_cfg.LLM_AUTO_CONFIRM_THRESHOLD),
         "LLM_CONFIDENCE_MIN":            str(_cfg.LLM_CONFIDENCE_MIN),
-        "LLM_OVERRIDE_WINDOW":           str(_cfg.LLM_OVERRIDE_WINDOW),
         "LLM_PENDING_AUTO_REJECT_HOURS":      str(_cfg.LLM_PENDING_AUTO_REJECT_HOURS),
         "INTEL_RETENTION_DAYS":               str(_cfg.INTEL_RETENTION_DAYS),
         "INTEL_ITEM_TTL_HOURS":               str(_cfg.INTEL_ITEM_TTL_HOURS),
@@ -143,7 +142,7 @@ def api_env_config_post():
 _RELOADABLE_KEYS = frozenset({
     # LLM intel queue thresholds
     "LLM_AUTO_CONFIRM_THRESHOLD", "LLM_CONFIDENCE_MIN",
-    "LLM_OVERRIDE_WINDOW", "LLM_PENDING_AUTO_REJECT_HOURS", "INTEL_RETENTION_DAYS",
+    "LLM_PENDING_AUTO_REJECT_HOURS", "INTEL_RETENTION_DAYS",
     "INTEL_ITEM_TTL_HOURS", "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
     # Notifications (read dynamically in notifications.py)
     "NOTIFY_ENABLED", "NOTIFY_DEBOUNCE_SEC",

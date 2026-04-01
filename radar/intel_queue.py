@@ -34,9 +34,6 @@ def _auto_confirm_threshold() -> float:
 def _confidence_min() -> float:
     return float(os.getenv("LLM_CONFIDENCE_MIN", "0.55"))
 
-def _override_window() -> int:
-    return int(os.getenv("LLM_OVERRIDE_WINDOW", "3600"))
-
 def _item_ttl_seconds() -> float:
     """How long (seconds) a confirmed item contributes to active rationale."""
     return float(os.getenv("INTEL_ITEM_TTL_HOURS", "24")) * 3600
@@ -264,15 +261,12 @@ class IntelQueue:
 
     def override(self, item_id: str, analyst: str = "analyst") -> bool:
         """Override an AUTO-CONFIRMED item (undo its score contribution).
-        Only allowed within LLM_OVERRIDE_WINDOW seconds of confirmation.
+        No time window restriction — analysts can override any auto_confirmed
+        item as long as it has not already been overridden.
         Returns True if successful.
         """
         item = db.intel_get(item_id)
         if not item or item["status"] != "auto_confirmed":
-            return False
-        confirmed_at = item.get("confirmed_at") or item.get("created_at", 0)
-        if time.time() - confirmed_at > _override_window():
-            log.warning(f"[Intel] OVERRIDE rejected — outside window: {item_id}")
             return False
         now = time.time()
         db.intel_update_status(item_id, "overridden",
@@ -397,7 +391,6 @@ class IntelQueue:
             "llm_enabled":    LLM_ENABLED,
             "auto_threshold": _auto_confirm_threshold(),
             "confidence_min": _confidence_min(),
-            "override_window": _override_window(),
             "item_ttl_hours": _item_ttl_seconds() / 3600,
             "max_items_per_source_theater": _max_items_per_source_theater(),
         }

@@ -6889,13 +6889,7 @@
             .then(({ ok, data }) => {
                 if (!ok || !data.ok) {
                     const err = (data && data.error) || '';
-                    if (err.toLowerCase().includes('window')) {
-                        alert(_t('panel.llm_intel.override_expired'));
-                    } else if (err.toLowerCase().includes('not auto')) {
-                        alert(_t('panel.llm_intel.override_not_auto'));
-                    } else {
-                        alert('Override failed: ' + (err || 'unknown error'));
-                    }
+                    alert(_t('panel.llm_intel.override_failed') + (err ? ' — ' + err : ''));
                     _fetchLlmIntel();
                     return;
                 }
