@@ -836,6 +836,8 @@ const LANG = {
     'panel.llm_intel.btn_override':         '✗ OVERRIDE',
     'panel.llm_intel.btn_revert':           '↩ REVERT',
     'panel.llm_intel.override_confirm':     'Override this AUTO-CONFIRMED item? Its score contribution will be reversed.',
+    'panel.llm_intel.override_expired':     'Override failed: the override window has expired (items can only be overridden within 1 hour of auto-confirmation).',
+    'panel.llm_intel.override_not_auto':    'Override failed: only AUTO-CONFIRMED items can be overridden. Use REVERT for manually confirmed items.',
     // ══════════════════════════════════════════════════════════════
     // Strategic Climate Feed
     // ══════════════════════════════════════════════════════════════
@@ -2037,6 +2039,8 @@ const LANG = {
     'panel.llm_intel.btn_override':         '✗ 取消',
     'panel.llm_intel.btn_revert':           '↩ 差戻し',
     'panel.llm_intel.override_confirm':     'この自動承認アイテムを取り消しますか？スコアへの加算が取り消されます。',
+    'panel.llm_intel.override_expired':     '取消失敗：取消ウィンドウが期限切れです（自動承認から1時間以内のみ取消可能）。',
+    'panel.llm_intel.override_not_auto':    '取消失敗：AUTO-CONFIRMEDアイテムのみ取消可能です。手動承認済みアイテムにはREVERTを使用してください。',
     // ══════════════════════════════════════════════════════════════
     // 戦略的環境気候フィード
     // ══════════════════════════════════════════════════════════════

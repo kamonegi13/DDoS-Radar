@@ -6885,8 +6885,24 @@
     window._llmOverride = function(itemId) {
         if (!confirm(_t('panel.llm_intel.override_confirm'))) return;
         fetch('/api/intel/' + encodeURIComponent(itemId) + '/override', { method: 'POST' })
-            .then(r => r.json())
-            .then(() => _fetchLlmIntel())
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok || !data.ok) {
+                    const err = (data && data.error) || '';
+                    if (err.toLowerCase().includes('window')) {
+                        alert(_t('panel.llm_intel.override_expired'));
+                    } else if (err.toLowerCase().includes('not auto')) {
+                        alert(_t('panel.llm_intel.override_not_auto'));
+                    } else {
+                        alert('Override failed: ' + (err || 'unknown error'));
+                    }
+                    _fetchLlmIntel();
+                    return;
+                }
+                // Success: refresh intel panel AND immediately re-fetch threat score
+                _fetchLlmIntel();
+                fetchDDoSData(true);
+            })
             .catch(() => {});
     };
 
