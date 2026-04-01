@@ -256,6 +256,59 @@ class ConvergenceTrackerSensor(BaseSensor):
         self.set_cache(result_data)
         return result_data
 
+    def _build_sensor_context(self, sustained_sensors: list[str], theater: str, registry) -> str:
+        """Build rich context lines for each elevated sensor for LLM synthesis.
+
+        Pulls actual intel queue headlines and sensor cache values so the LLM
+        has real content to synthesize from rather than just sensor names.
+        """
+        from radar.database import db as _db
+        lines = []
+        for s in sustained_sensors:
+            sensor = registry.get(s)
+            cache = (sensor.get_cache() or {}) if sensor else {}
+
+            if s == "rss_narrative":
+                nd = cache.get("narratives", {}).get(theater, {})
+                z = nd.get("z_score", nd.get("dow_z_score", "?"))
+                theme = nd.get("dominant_theme", "")
+                lines.append(f"  - rss_narrative: Z-score={z}" + (f", theme={theme!r}" if theme else ""))
+
+            elif s == "gdelt":
+                td = cache.get("gdelt_tones", cache).get(theater, cache.get(theater, {}))
+                tone = td.get("tone_delta", td.get("mean_tone", "?"))
+                lines.append(f"  - gdelt: tone_delta={tone} (negative = hostile media coverage)")
+
+            elif s in ("diplomatic", "military_exercise", "apt_intel"):
+                # Pull actual recent headlines from intel queue for substance
+                recent = _db.intel_list(source_type=s if s != "apt_intel" else "apt",
+                                        theater=theater, limit=2)
+                if not recent:
+                    recent = _db.intel_list(source_type=s, limit=2)
+                if recent:
+                    headlines = "; ".join(r.get("headline", "")[:80] for r in recent[:2])
+                    lines.append(f"  - {s}: {headlines}")
+                else:
+                    lines.append(f"  - {s}: recent intel items submitted")
+
+            elif s == "telegram_mirror":
+                td = cache.get("telegram", {}).get(theater, {})
+                status = td.get("status", "?")
+                snippet = td.get("snippet", "")[:80]
+                lines.append(f"  - telegram_mirror: status={status}" + (f", snippet={snippet!r}" if snippet else ""))
+
+            elif s == "ioda":
+                td = cache.get("ioda", {}).get(theater, {})
+                lines.append(f"  - ioda: outage_score={td.get('score','?')}, is_outage={td.get('is_outage','?')}")
+
+            elif s == "bgp_routing":
+                lines.append(f"  - bgp_routing: BGP prefix anomaly detected for {theater}")
+
+            else:
+                lines.append(f"  - {s}: elevated")
+
+        return "\n".join(lines)
+
     def _submit_convergence_alert(
         self,
         theater: str,
@@ -270,38 +323,14 @@ class ConvergenceTrackerSensor(BaseSensor):
 
         try:
             from radar.intel_queue import intel_queue
-            from radar.llm_client import llm_analyze_json, llm_available
+            from radar.llm_client import llm_analyze_json, llm_available, safe_float, safe_enum, today_str
         except Exception:
             return False
 
         if not llm_available():
             return False
 
-        # Build sensor state summary for LLM context
-        sensor_lines = []
-        for s in sustained_sensors:
-            sensor = registry.get(s)
-            cache = (sensor.get_cache() or {}) if sensor else {}
-            detail = ""
-            if s == "rss_narrative":
-                z = cache.get("narratives", {}).get(theater, {}).get("z_score", "?")
-                detail = f"narrative Z-score={z}"
-            elif s == "gdelt":
-                td = cache.get(theater, {})
-                detail = f"tone_delta={td.get('tone_delta','?')}"
-            elif s in ("diplomatic", "military_exercise", "apt_intel"):
-                detail = f"intel items submitted"
-            elif s == "telegram_mirror":
-                td = cache.get("telegram", {}).get(theater, {})
-                detail = f"status={td.get('status','?')}"
-            elif s == "ioda":
-                td = cache.get("ioda", {}).get(theater, {})
-                detail = f"outage_score={td.get('score','?')}"
-            elif s == "bgp_routing":
-                detail = "BGP anomaly detected"
-            sensor_lines.append(f"  - {s}: {detail}")
-
-        sensor_summary = "\n".join(sensor_lines)
+        sensor_summary = self._build_sensor_context(sustained_sensors, theater, registry)
         window_h = round(_MIN_HOURS, 0)
 
         system_prompt = (
@@ -312,6 +341,7 @@ class ConvergenceTrackerSensor(BaseSensor):
             "Respond ONLY with a JSON object, no explanation."
         )
         user_prompt = (
+            f"Today's date: {today_str()}\n"
             f"Theater: {theater}\n"
             f"Convergence window: {window_h} hours\n"
             f"Sensors sustained as elevated ({len(sustained_sensors)} of {len(_MONITORED_SENSORS)}):\n"
@@ -326,32 +356,40 @@ class ConvergenceTrackerSensor(BaseSensor):
             '  "confidence": 0.0\n'
             "}\n"
             "Confidence guide:\n"
-            "- 0.75+: Physical + info + cyber domains all elevated — strong pre-conflict signal\n"
+            "- 0.75+: Physical + info + cyber domains all elevated with concrete evidence in each\n"
             "- 0.60-0.74: Two domains elevated with military or diplomatic sensor involved\n"
-            "- 0.50-0.59: Multi-sensor but dominated by info domain (could be propaganda)\n"
+            "- 0.50-0.59: Multi-sensor but dominated by info domain (could be propaganda cycle)\n"
             "- <0.50: Convergence likely coincidental — set pattern_type=noise_convergence\n"
-            "Be conservative. Set confidence < 0.55 if the pattern is ambiguous."
+            "Be conservative. Set confidence < 0.55 if the pattern is ambiguous or if\n"
+            "the elevated sensors are all info-domain (rss_narrative, gdelt, telegram)."
         )
 
-        result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=350)
+        result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=400)
         if not result["ok"]:
             log.debug(f"[ConvergenceTracker] LLM parse failed for {theater}: {result.get('error')}")
             return False
 
         data = result["data"]
-        confidence = float(data.get("confidence", 0.0))
-        pattern_type = data.get("pattern_type", "noise_convergence")
+        confidence = safe_float(data.get("confidence"), default=0.0)
+
+        _PATTERN_TYPES = {"pre-conflict_buildup", "active_conflict", "escalation_spike", "noise_convergence"}
+        pattern_type = safe_enum(data.get("pattern_type"), _PATTERN_TYPES, "noise_convergence")
 
         if confidence < 0.50 or pattern_type == "noise_convergence":
             log.debug(f"[ConvergenceTracker] {theater}: LLM assessed as noise (conf={confidence:.2f})")
             return False
 
-        urgency = data.get("urgency", "medium")
-        # Score reflects convergence breadth + LLM confidence
-        base_score = {"critical": 4.0, "high": 3.0, "medium": 2.0, "low": 1.0}.get(urgency, 2.0)
-        # Bonus for more sensors converging
-        sensor_bonus = round((len(sustained_sensors) - _MIN_SENSORS) * 0.5, 1)
+        urgency = safe_enum(data.get("urgency"), {"critical", "high", "medium", "low"}, "medium")
+
+        # Additive scoring: base + sensor_bonus, capped to avoid disproportionate inflation
+        # Max: 3.0 + min((8-3)*0.2, 1.0) = 4.0 (8 sensors all elevated at critical)
+        base_score  = {"critical": 3.0, "high": 2.5, "medium": 2.0, "low": 1.5}.get(urgency, 2.0)
+        sensor_bonus = round(min((len(sustained_sensors) - _MIN_SENSORS) * 0.2, 1.0), 1)
         score_delta = round(base_score + sensor_bonus, 1)
+
+        # Use LLM-determined dominant_domain for accurate domain weighting
+        _VALID_DOMAINS = {"cyber", "physical", "info", "mixed"}
+        dominant_domain = safe_enum(data.get("dominant_domain"), _VALID_DOMAINS, "mixed")
 
         item = {
             "source_type":  "convergence",
@@ -364,7 +402,7 @@ class ConvergenceTrackerSensor(BaseSensor):
             "headline":     data.get("headline", f"Multi-sensor convergence: {theater} ({len(sustained_sensors)} sensors)")[:100],
             "llm_fields": {
                 "pattern_type":      pattern_type,
-                "dominant_domain":   data.get("dominant_domain", "mixed"),
+                "dominant_domain":   dominant_domain,
                 "sustained_sensors": sustained_sensors,
                 "elevated_now":      elevated_now,
                 "window_hours":      window_h,
@@ -374,7 +412,7 @@ class ConvergenceTrackerSensor(BaseSensor):
                 "escalation_signal": True,
             },
             "score_delta":  score_delta,
-            "domain":       "info",
+            "domain":       dominant_domain,
         }
 
         item_id = intel_queue.submit(item)

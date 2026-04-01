@@ -184,7 +184,7 @@ class DiplomaticSensor(BaseSensor):
             return {"diplomatic": {"llm_disabled": True}}
 
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available
+        from radar.llm_client import llm_analyze_json, llm_available, safe_float, safe_enum, sanitize_llm_input, today_str
 
         if not llm_available():
             log.debug("[Diplomatic] LLM not available — skipping")
@@ -220,6 +220,8 @@ class DiplomaticSensor(BaseSensor):
                     for k in to_remove:
                         _processed.discard(k)
 
+                safe_title   = sanitize_llm_input(art["title"], 120)
+                safe_summary = sanitize_llm_input(art["summary"], 400)
                 article_text = f"{art['title']}\n{art['summary'][:400]}"
 
                 system_prompt = (
@@ -229,25 +231,26 @@ class DiplomaticSensor(BaseSensor):
                     "Respond ONLY with a JSON object, no explanation."
                 )
                 user_prompt = (
+                    f"Today's date: {today_str()}\n"
                     f"Source: {country} official diplomatic statements\n"
                     f"Relevant theaters: {theaters_str}\n\n"
-                    f"Statement:\n{article_text}\n\n"
+                    f"Statement:\n{safe_title}\n{safe_summary}\n\n"
                     "Return a JSON object:\n"
                     "{\n"
                     '  "headline": "One-sentence escalation summary (max 100 chars)",\n'
                     '  "escalation_signal": true or false,\n'
-                    '  "theater": "The single most relevant theater code from the list above",\n'
+                    '  "theater": "Theater code from the list above, or null if not specifically relevant",\n'
                     '  "diplomatic_action": "warning|condemnation|sanction|expulsion|military_posture|ceasefire|statement|none",\n'
                     '  "target_country": "Country being addressed or criticized",\n'
                     '  "urgency": "critical|high|medium|low",\n'
                     '  "confidence": 0.0\n'
                     "}\n"
                     "Confidence guide:\n"
-                    "- 0.80-0.95: Explicit military warning or sanction announcement\n"
-                    "- 0.65-0.79: Strong condemnation or posturing language\n"
-                    "- 0.55-0.64: Relevant but ambiguous diplomatic language\n"
-                    "- <0.55: Routine statement, no escalation signal (set escalation_signal=false)\n"
-                    "If statement has no relevance to any theater, return confidence<0.40."
+                    "- 0.80-0.95: Explicit military warning, sanction announcement, or expulsion\n"
+                    "- 0.65-0.79: Strong condemnation or direct posturing language\n"
+                    "- 0.40-0.64: Relevant but ambiguous diplomatic language\n"
+                    "- <0.40: Routine statement, no escalation signal — set escalation_signal=false, theater=null\n"
+                    "If the statement has no relevance to any of the listed theaters, set theater=null."
                 )
 
                 result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
@@ -257,16 +260,20 @@ class DiplomaticSensor(BaseSensor):
                     continue
 
                 data = result["data"]
-                confidence = float(data.get("confidence", 0.0))
+                confidence = safe_float(data.get("confidence"), default=0.0)
 
                 if not data.get("escalation_signal", False) or confidence < 0.55:
                     log.debug(f"[Diplomatic] No signal {source_name} conf={confidence:.2f}")
                     continue
 
-                llm_theater = data.get("theater", "").strip().upper()
-                theater = llm_theater if llm_theater in theaters else theaters[0]
+                # Discard if LLM could not assign a specific theater — no forced fallback
+                llm_theater = (data.get("theater") or "").strip().upper()
+                if not llm_theater or llm_theater not in theaters:
+                    log.debug(f"[Diplomatic] No specific theater match for {source_name} (llm={llm_theater!r})")
+                    continue
+                theater = llm_theater
 
-                urgency = data.get("urgency", "low")
+                urgency = safe_enum(data.get("urgency"), {"critical", "high", "medium", "low"}, "low")
                 score_delta = {"critical": 3.0, "high": 2.0, "medium": 1.5, "low": 1.0}.get(urgency, 1.0)
 
                 item = {

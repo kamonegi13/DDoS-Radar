@@ -1360,7 +1360,8 @@ class RadarDB:
         return self._intel_row_to_dict(row) if row else None
 
     def intel_list(self, source_type: str = None, status: str = None,
-                   theater: str = None, limit: int = 100) -> list[dict]:
+                   theater: str = None, limit: int = 100,
+                   since_ts: float = None) -> list[dict]:
         q = ("SELECT id, source_type, source_id, theater, ts, status, confidence, "
              "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
              "confirmed_by, confirmed_at, override_at, created_at FROM llm_intel WHERE 1=1")
@@ -1374,10 +1375,29 @@ class RadarDB:
         if theater:
             q += " AND theater=?"
             params.append(theater)
+        if since_ts is not None:
+            q += " AND ts >= ?"
+            params.append(since_ts)
         q += " ORDER BY ts DESC LIMIT ?"
         params.append(limit)
         rows = self._get_conn().execute(q, params).fetchall()
         return [self._intel_row_to_dict(r) for r in rows]
+
+    def intel_update_llm_fields(self, item_id: str, llm_fields: dict):
+        """Merge new key/value pairs into an existing item's llm_fields JSON blob."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT llm_fields FROM llm_intel WHERE id=?", (item_id,)
+        ).fetchone()
+        if not row:
+            return
+        existing = json.loads(row[0]) if row[0] else {}
+        existing.update(llm_fields)
+        conn.execute(
+            "UPDATE llm_intel SET llm_fields=? WHERE id=?",
+            (json.dumps(existing), item_id),
+        )
+        conn.commit()
 
     def intel_active_in_window(self, since_ts: float) -> list[dict]:
         """Items that were auto_confirmed or confirmed in the given time window (for CLASSIFY THREAT linking)."""

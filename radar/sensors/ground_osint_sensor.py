@@ -108,7 +108,7 @@ class GroundOsintSensor(BaseSensor):
 
         from radar.sensors.telegram import TelegramMirrorSensor
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available
+        from radar.llm_client import llm_analyze_json, llm_available, safe_float, safe_enum, sanitize_llm_input, today_str
 
         if not llm_available():
             log.debug("[GroundOsint] LLM not available — skipping")
@@ -153,12 +153,22 @@ class GroundOsintSensor(BaseSensor):
             ch_degraded = self._checkhost_degraded(ch_cache, theater)
             corroborates = cf_active or ch_degraded
 
+            safe_snippet = sanitize_llm_input(snippet, 400)
             raw_text = (
                 f"[Ground OSINT — Telegram: {channel} ({group_hint})]\n"
                 f"Theater: {theater}\n"
                 f"Status: {status}\n"
                 f"Target URLs: {', '.join(targets[:5])}\n"
                 f"Snippet: {snippet}\n"
+                f"CF active attack detected: {cf_active}\n"
+                f"CheckHost degraded: {ch_degraded}"
+            )
+            llm_raw = (
+                f"[Ground OSINT — Telegram: {channel} ({group_hint})]\n"
+                f"Theater: {theater}\n"
+                f"Status: {status}\n"
+                f"Target URLs: {', '.join(targets[:5])}\n"
+                f"Snippet: {safe_snippet}\n"
                 f"CF active attack detected: {cf_active}\n"
                 f"CheckHost degraded: {ch_degraded}"
             )
@@ -170,7 +180,7 @@ class GroundOsintSensor(BaseSensor):
                 "Respond ONLY with a JSON object."
             )
             user_prompt = (
-                f"{raw_text}\n\n"
+                f"{llm_raw}\n\n"
                 "Return a JSON object with these exact fields:\n"
                 "{\n"
                 '  "headline": "One-sentence attack summary (max 100 chars)",\n'
@@ -182,12 +192,12 @@ class GroundOsintSensor(BaseSensor):
                 '  "confidence": 0.0\n'
                 "}\n"
                 "confidence scoring guide:\n"
-                "- 0.85-0.95: Specific target URLs + ongoing language + sensor correlation\n"
-                "- 0.70-0.84: Specific targets OR sensor correlation (not both)\n"
-                "- 0.55-0.69: Generic intent, no target specifics\n"
-                "- <0.55: Noise or unverifiable claim (set is_ongoing=false)\n"
-                "Important: if cf_active=True or checkhost_degraded=True, "
-                "weight corroborates_sensor=true and raise confidence by 0.10."
+                "- 0.85-0.95: Specific target URLs + ongoing language\n"
+                "- 0.70-0.84: Specific targets named, intent clear\n"
+                "- 0.55-0.69: Generic intent, no specific targets\n"
+                "- <0.55: Noise or unverifiable claim — set is_ongoing=false\n"
+                "Set corroborates_sensor=true only if the content explicitly describes "
+                "an ongoing or just-launched attack. Do not factor in sensor data from the context header."
             )
 
             result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
@@ -203,9 +213,9 @@ class GroundOsintSensor(BaseSensor):
                 continue
 
             data = result["data"]
-            confidence = float(data.get("confidence", 0.0))
+            confidence = safe_float(data.get("confidence"), default=0.0)
 
-            # Boost confidence if live sensors already show attack
+            # Boost confidence if live sensors already show attack (single boost, Python-only)
             if corroborates and confidence >= 0.55:
                 confidence = min(confidence + 0.10, 0.95)
 
@@ -225,7 +235,7 @@ class GroundOsintSensor(BaseSensor):
 
             item = {
                 "source_type":  "ground_osint",
-                "source_id":    f"telegram_{channel}",
+                "source_id":    f"ground_osint_{channel}",
                 "theater":      theater,
                 "ts":           time.time(),
                 "confidence":   round(confidence, 3),

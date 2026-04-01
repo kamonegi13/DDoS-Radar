@@ -153,10 +153,12 @@ class RssNarrativeSensor(BaseSensor):
         if dedup_key in _burst_submitted:
             return 0
 
+        from radar.llm_client import sanitize_llm_input, today_str
         articles_text = "\n\n".join(
-            f"[{i+1}] {a['title']}\n{a['summary'][:200]}"
+            f"[{i+1}] {sanitize_llm_input(a['title'], 120)}\n{sanitize_llm_input(a['summary'], 200)}"
             for i, a in enumerate(burst_articles[:4])
         )
+        total_matched = len(burst_articles)
         sources_str = ", ".join(sources_used)
 
         system_prompt = (
@@ -167,10 +169,12 @@ class RssNarrativeSensor(BaseSensor):
             "Respond ONLY with a JSON object, no explanation."
         )
         user_prompt = (
+            f"Today's date: {today_str()}\n"
             f"Theater: {theater}\n"
-            f"Z-score: {z_score:.2f} (statistical keyword burst detected)\n"
-            f"Sources: {sources_str}\n\n"
-            f"Articles triggering the burst:\n{articles_text}\n\n"
+            f"Z-score: {z_score:.2f} (statistical keyword burst; {total_matched} articles matched)\n"
+            f"Sources: {sources_str}\n"
+            f"Sample articles (showing {min(4, total_matched)} of {total_matched}):\n\n"
+            f"{articles_text}\n\n"
             "Return a JSON object:\n"
             "{\n"
             '  "headline": "One-sentence summary of the narrative shift (max 100 chars)",\n'
@@ -181,23 +185,31 @@ class RssNarrativeSensor(BaseSensor):
             '  "confidence": 0.0\n'
             "}\n"
             "narrative_type guide:\n"
-            "- pre-operation_conditioning: Narrative preparing domestic/international audience for military action\n"
+            "- pre-operation_conditioning: Preparing audience for imminent military action (new, escalating tone)\n"
             "- threat_escalation: Adversary responding to or amplifying a genuine, current escalation\n"
             "- response_to_incident: Reactive coverage of an already-occurred incident\n"
-            "- propaganda_routine: Routine propaganda with no specific escalatory content\n"
+            "- propaganda_routine: Standard recurring propaganda — sovereignty rhetoric, routine condemnations\n"
+            "  NOTE: China/Russia/DPRK routinely publish sovereignty articles — classify as propaganda_routine\n"
+            "  unless there is a SPECIFIC new trigger (exercise, incident, political event today)\n"
             "Confidence guide:\n"
-            "- 0.75+: Strong pre-operation conditioning or active threat escalation language\n"
-            "- 0.60-0.74: Elevated narrative with clear escalatory framing\n"
-            "- <0.55: Routine propaganda burst, set escalation_signal=false"
+            "- 0.75+: Strong pre-operation conditioning language with a specific, new triggering event\n"
+            "- 0.60-0.74: Elevated narrative with clear new escalatory framing\n"
+            "- <0.55: Routine burst with no new specific trigger — set escalation_signal=false"
         )
 
         result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
         if not result["ok"]:
             return 0
 
+        from radar.llm_client import safe_float, safe_enum
         data = result["data"]
-        confidence = float(data.get("confidence", 0.0))
-        narrative_type = data.get("narrative_type", "unknown")
+        confidence = safe_float(data.get("confidence"), default=0.0)
+
+        _NARRATIVE_TYPES = {
+            "pre-operation_conditioning", "threat_escalation",
+            "response_to_incident", "propaganda_routine", "unknown",
+        }
+        narrative_type = safe_enum(data.get("narrative_type"), _NARRATIVE_TYPES, "unknown")
 
         if not data.get("escalation_signal", False) or confidence < 0.55:
             # Mark dedup even for non-escalation bursts to avoid spamming LLM every cycle
@@ -208,17 +220,19 @@ class RssNarrativeSensor(BaseSensor):
                     _burst_submitted.discard(k)
             return 0
 
-        urgency = data.get("urgency", "medium")
-        # pre-operation_conditioning is highest-value signal
-        type_score = {
-            "pre-operation_conditioning": 3.0,
-            "threat_escalation":          2.5,
+        # Additive scoring: type_base + urgency_bonus (max = 3.0, no multiplicative inflation)
+        urgency = safe_enum(
+            data.get("urgency"), {"critical", "high", "medium", "low"}, "medium"
+        )
+        type_base = {
+            "pre-operation_conditioning": 2.5,
+            "threat_escalation":          2.0,
             "response_to_incident":       1.5,
             "propaganda_routine":         0.5,
             "unknown":                    1.0,
         }.get(narrative_type, 1.0)
-        urgency_mult = {"critical": 1.3, "high": 1.1, "medium": 1.0, "low": 0.8}.get(urgency, 1.0)
-        score_delta = round(type_score * urgency_mult, 1)
+        urgency_bonus = {"critical": 0.5, "high": 0.2, "medium": 0.0, "low": 0.0}.get(urgency, 0.0)
+        score_delta = round(type_base + urgency_bonus, 1)
 
         item = {
             "source_type":  "narrative",

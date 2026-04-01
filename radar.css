@@ -983,7 +983,8 @@
 .llm-badge-hacktivist { background: #3a1a00; color: #ff6622; border: 1px solid #ff662244; }
 .llm-badge-diplomatic { background: #001a3a; color: #44aaff; border: 1px solid #44aaff44; }
 .llm-badge-military   { background: #1a2a00; color: #88cc00; border: 1px solid #88cc0044; }
-.llm-badge-ground_osint { background: #1a001a; color: #cc44cc; border: 1px solid #cc44cc44; }
+.llm-badge-ground_osint  { background: #1a001a; color: #cc44cc; border: 1px solid #cc44cc44; }
+.llm-badge-corroborated  { background: #001a2a; color: #00ddcc; border: 1px solid #00ddcc66; font-weight: 600; }
 .llm-item-time    { font-size: 9px; color: #556; }
 .llm-item-theater { font-size: 9px; color: #44aaff; margin-left: auto; }
 .llm-item-headline { color: #ccc; line-height: 1.4; margin-bottom: 5px; }

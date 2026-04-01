@@ -182,7 +182,7 @@ class MilitaryExerciseSensor(BaseSensor):
             return {"military_exercise": {"llm_disabled": True}}
 
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available
+        from radar.llm_client import llm_analyze_json, llm_available, safe_float, safe_enum, sanitize_llm_input, today_str
 
         if not llm_available():
             log.debug("[MilExercise] LLM not available — skipping")
@@ -218,6 +218,8 @@ class MilitaryExerciseSensor(BaseSensor):
                     for k in to_remove:
                         _processed.discard(k)
 
+                safe_title   = sanitize_llm_input(art["title"], 120)
+                safe_summary = sanitize_llm_input(art["summary"], 400)
                 article_text = f"{art['title']}\n{art['summary'][:400]}"
 
                 system_prompt = (
@@ -227,50 +229,75 @@ class MilitaryExerciseSensor(BaseSensor):
                     "Respond ONLY with a JSON object, no explanation."
                 )
                 user_prompt = (
+                    f"Today's date: {today_str()}\n"
                     f"Source: {org} defense news\n"
                     f"Relevant theaters: {theaters_str}\n\n"
-                    f"Article:\n{article_text}\n\n"
+                    f"Article:\n{safe_title}\n{safe_summary}\n\n"
                     "Return a JSON object:\n"
                     "{\n"
                     '  "headline": "One-sentence escalation summary (max 100 chars)",\n'
                     '  "escalation_signal": true or false,\n'
-                    '  "theater": "The single most relevant theater code from the list above",\n'
+                    '  "event_type": "new_deployment|exercise_start|readiness_elevation|status_report|historical_analysis|none",\n'
+                    '  "theater": "Theater code from the list above, or null if not specifically relevant",\n'
                     '  "exercise_type": "live_fire|amphibious|naval|air|cyber|combined|deployment|none",\n'
                     '  "force_type": "naval|air|ground|rocket|cyber|combined",\n'
                     '  "scale": "strategic|operational|tactical",\n'
                     '  "urgency": "critical|high|medium|low",\n'
                     '  "confidence": 0.0\n'
                     "}\n"
+                    "event_type rules (CRITICAL — read carefully):\n"
+                    "- new_deployment: New orders, units moving NOW to a contested area\n"
+                    "- exercise_start: Exercise commencing now or within 48h\n"
+                    "- readiness_elevation: Explicit alert level or readiness change\n"
+                    "- status_report: Weekly/periodic tracker, scheduled summary, current disposition\n"
+                    "- historical_analysis: Analysis of past events, retrospective reporting\n"
+                    "- none: No military activity signal\n"
                     "Confidence guide:\n"
-                    "- 0.80-0.95: Active live-fire exercise near theater OR forward deployment\n"
-                    "- 0.65-0.79: Large-scale exercise announcement with clear theater relevance\n"
-                    "- 0.55-0.64: Routine exercise with some escalatory indicators\n"
-                    "- <0.55: Routine training, no escalation relevance (set escalation_signal=false)\n"
-                    "PLA exercises near Taiwan Strait or South China Sea: always escalation_signal=true.\n"
-                    "If article has no relevance to any theater, return confidence<0.40."
+                    "- 0.80-0.95: Active live-fire exercise near theater OR new forward deployment orders\n"
+                    "- 0.65-0.79: Exercise announcement with clear theater relevance\n"
+                    "- 0.40-0.64: Relevant but ambiguous (routine patrol, scheduled exercise)\n"
+                    "- <0.40: No escalation relevance — set escalation_signal=false, theater=null\n"
+                    "If theater is not specifically mentioned or inferable, set theater=null.\n"
+                    "USNI Fleet Tracker weekly reports are status_report, not new_deployment."
                 )
 
-                result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
+                result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=300)
 
                 if not result["ok"]:
                     log.debug(f"[MilExercise] LLM parse failed {source_name}: {result.get('error')}")
                     continue
 
                 data = result["data"]
-                confidence = float(data.get("confidence", 0.0))
+                confidence = safe_float(data.get("confidence"), default=0.0)
+
+                _EVENT_TYPES = {
+                    "new_deployment", "exercise_start", "readiness_elevation",
+                    "status_report", "historical_analysis", "none",
+                }
+                event_type = safe_enum(data.get("event_type"), _EVENT_TYPES, "none")
+
+                # Reject status reports, historical analysis, and non-signals
+                if event_type in ("status_report", "historical_analysis", "none"):
+                    log.debug(f"[MilExercise] Discarding {event_type}: {source_name} — {art['title'][:60]}")
+                    continue
 
                 if not data.get("escalation_signal", False) or confidence < 0.55:
                     log.debug(f"[MilExercise] No signal {source_name} conf={confidence:.2f}")
                     continue
 
-                llm_theater = data.get("theater", "").strip().upper()
-                theater = llm_theater if llm_theater in theaters else theaters[0]
+                # Discard if LLM could not assign a specific theater — no forced fallback
+                llm_theater = (data.get("theater") or "").strip().upper()
+                if not llm_theater or llm_theater not in theaters:
+                    log.debug(f"[MilExercise] No specific theater match for {source_name} (llm={llm_theater!r})")
+                    continue
+                theater = llm_theater
 
-                urgency = data.get("urgency", "low")
-                scale   = data.get("scale", "tactical")
-                scale_mult = {"strategic": 1.5, "operational": 1.2, "tactical": 1.0}.get(scale, 1.0)
-                base_score = {"critical": 3.0, "high": 2.5, "medium": 2.0, "low": 1.5}.get(urgency, 1.5)
-                score_delta = round(base_score * scale_mult, 1)
+                # Additive scoring: base + scale_bonus (max = 3.0, avoids multiplicative inflation)
+                urgency = safe_enum(data.get("urgency"), {"critical", "high", "medium", "low"}, "low")
+                scale   = safe_enum(data.get("scale"), {"strategic", "operational", "tactical"}, "tactical")
+                base_score  = {"critical": 2.5, "high": 2.0, "medium": 1.5, "low": 1.0}.get(urgency, 1.0)
+                scale_bonus = {"strategic": 0.5, "operational": 0.2, "tactical": 0.0}.get(scale, 0.0)
+                score_delta = round(base_score + scale_bonus, 1)
 
                 item = {
                     "source_type":  "military",
@@ -283,6 +310,7 @@ class MilitaryExerciseSensor(BaseSensor):
                     "headline":     data.get("headline", f"Military exercise signal: {org} / {theater}")[:100],
                     "llm_fields": {
                         "exercise_type": data.get("exercise_type", "none"),
+                        "event_type":    event_type,
                         "force_type":    data.get("force_type", "combined"),
                         "scale":         scale,
                         "urgency":       urgency,

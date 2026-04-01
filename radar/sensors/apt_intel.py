@@ -237,7 +237,7 @@ class AptIntelSensor(BaseSensor):
             return {"apt_intel": {"llm_disabled": True}}
 
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available
+        from radar.llm_client import llm_analyze_json, llm_available, safe_float, safe_enum, sanitize_llm_input, today_str
 
         if not llm_available():
             log.debug("[AptIntel] LLM not available — skipping")
@@ -270,14 +270,13 @@ class AptIntelSensor(BaseSensor):
                     for k in to_remove:
                         _processed.discard(k)
 
+                safe_title   = sanitize_llm_input(art["title"], 120)
+                safe_summary = sanitize_llm_input(art["summary"], 500)
                 article_text = f"{art['title']}\n{art['summary'][:500]}"
+                llm_article  = f"{safe_title}\n{safe_summary}"
                 hints_str = ", ".join(theater_hints) if theater_hints else "any"
 
                 # ── Stage 1: Gate check ───────────────────────────────────────
-                # Ask LLM whether this advisory describes an ACTIVE threat
-                # with EXPLICIT geographic or sector targeting.
-                # This is a cheap check — small output, low token cost.
-                # If it fails, we discard without a Stage 2 call.
                 gate_system = (
                     "You are a cyber threat intelligence triage analyst. "
                     "Evaluate whether a government advisory describes an ACTIVE, ONGOING "
@@ -286,8 +285,9 @@ class AptIntelSensor(BaseSensor):
                     "Respond ONLY with a JSON object."
                 )
                 gate_prompt = (
+                    f"Today's date: {today_str()}\n"
                     f"Advisory source: {authority}\n"
-                    f"Advisory text:\n{article_text}\n\n"
+                    f"Advisory text:\n{llm_article}\n\n"
                     "Answer these two questions with a JSON object:\n"
                     "{\n"
                     '  "is_active_threat": true or false,\n'
@@ -327,9 +327,10 @@ class AptIntelSensor(BaseSensor):
                     "Respond ONLY with a JSON object, no explanation."
                 )
                 analysis_prompt = (
+                    f"Today's date: {today_str()}\n"
                     f"Advisory source: {authority}\n"
                     f"Active strategic theaters for context: {hints_str}\n\n"
-                    f"Advisory:\n{article_text}\n\n"
+                    f"Advisory:\n{llm_article}\n\n"
                     "Return a JSON object:\n"
                     "{\n"
                     '  "headline": "One-sentence threat summary (max 100 chars)",\n'
@@ -359,11 +360,11 @@ class AptIntelSensor(BaseSensor):
                     continue
 
                 data = result["data"]
-                confidence = float(data.get("confidence", 0.0))
+                confidence = safe_float(data.get("confidence"), default=0.0)
 
                 # Hard gate: no theater → discard (no forced assignment)
                 theater = (data.get("theater") or "").strip().upper() or None
-                if not theater or theater == "NULL" or theater == "NONE":
+                if not theater or theater in ("NULL", "NONE"):
                     log.debug(f"[AptIntel] Stage2 DISCARD (no theater): {art['title'][:60]}")
                     continue
 
@@ -376,22 +377,25 @@ class AptIntelSensor(BaseSensor):
                     log.debug(f"[AptIntel] Stage2 low confidence {confidence:.2f}: {art['title'][:60]}")
                     continue
 
-                ttp = data.get("ttp_category", "unknown")
-                urgency = data.get("urgency", "medium")
+                _TTP_CATEGORIES = {
+                    "pre-positioning", "active-exploitation", "espionage", "sabotage",
+                    "financial", "disruption", "unknown",
+                }
+                ttp = safe_enum(data.get("ttp_category"), _TTP_CATEGORIES, "unknown")
+                urgency = safe_enum(data.get("urgency"), {"critical", "high", "medium", "low"}, "medium")
 
-                # Conservative scoring: CERT advisories are already filtered,
-                # so scores are intentionally lower than raw sensor spikes.
-                ttp_score = {
-                    "sabotage":            3.0,
-                    "active-exploitation": 2.5,
+                # Additive scoring: ttp_base + urgency_bonus (max = 3.0, no multiplicative inflation)
+                ttp_base = {
+                    "sabotage":            2.5,
+                    "active-exploitation": 2.0,
                     "pre-positioning":     2.0,
-                    "disruption":          2.0,
+                    "disruption":          1.5,
                     "espionage":           1.5,
                     "financial":           1.0,
                     "unknown":             1.0,
                 }.get(ttp, 1.0)
-                urgency_mult = {"critical": 1.2, "high": 1.0, "medium": 0.9, "low": 0.7}.get(urgency, 0.9)
-                score_delta = round(ttp_score * urgency_mult, 1)
+                urgency_bonus = {"critical": 0.5, "high": 0.2, "medium": 0.0, "low": 0.0}.get(urgency, 0.0)
+                score_delta = round(ttp_base + urgency_bonus, 1)
 
                 item = {
                     "source_type":  "apt_intel",

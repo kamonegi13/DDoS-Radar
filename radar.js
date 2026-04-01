@@ -6264,7 +6264,7 @@
             }
             for (const [type, items] of Object.entries(byType)) {
                 if (!items.length) continue;
-                const typeLabel = { diplomatic: '🏛', hacktivist: '⚡', ground_osint: '📡', apt_intel: '🕵', narrative: '📰', convergence: '🔴', military: '⚔' }[type] || '●';
+                const typeLabel = { diplomatic: '🏛', hacktivist: '⚡', ground_osint: '📡', apt_intel: '🕵', narrative: '📰', convergence: '🔴', military: '⚔', corroborated: '🔗' }[type] || '●';
                 html += `<div style="margin-bottom:4px;">`;
                 html += `<div style="font-size:9px; color:#665588; margin-bottom:2px;">${typeLabel} ${type.toUpperCase().replace('_', ' ')}</div>`;
                 for (const item of items.slice(0, 2)) {

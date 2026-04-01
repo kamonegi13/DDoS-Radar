@@ -145,6 +145,11 @@ threading.Thread(
 threading.Thread(target=_cache_cleanup_worker, args=(registry,),
                  daemon=True, name='cache-cleanup').start()
 
+# ── Cross-source Corroboration ──
+from radar.scheduler import _corroboration_worker  # noqa: E402
+threading.Thread(target=_corroboration_worker,
+                 daemon=True, name='corroboration').start()
+
 # ── WebSocket (Flask-SocketIO) ──
 from radar.ws import init_socketio, socketio as _ws_ref  # noqa: E402,F401
 socketio = init_socketio(app)

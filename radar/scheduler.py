@@ -175,3 +175,24 @@ def _cache_cleanup_worker(registry=None):
 
         except Exception as e:
             log.error(f"[Cleanup] Error: {e}")
+
+
+# ── Cross-source corroboration worker ────────────────────────────────────────
+
+def _corroboration_worker():
+    """Daemon thread: runs the cross-source corroboration pass every 30 minutes.
+    Looks for independent-source signals in the same theater+time window and
+    synthesises them into a single 'corroborated' intel item via LLM.
+    """
+    CORR_INTERVAL = 1800  # 30 minutes
+    # Stagger startup so the main sensor fetches have time to populate the DB
+    time.sleep(300)  # 5-minute initial delay
+    while True:
+        try:
+            from radar.intel_corroboration import corroboration_engine
+            created = corroboration_engine.run_once()
+            if created:
+                log.info(f"[Corroboration] Worker: {created} new corroborated items")
+        except Exception as e:
+            log.error(f"[Corroboration] Worker error: {e}")
+        time.sleep(CORR_INTERVAL)

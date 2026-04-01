@@ -277,6 +277,22 @@ LLM_CONFIDENCE_MIN        = float(os.getenv("LLM_CONFIDENCE_MIN", "0.55"))
 LLM_OVERRIDE_WINDOW            = int(os.getenv("LLM_OVERRIDE_WINDOW", "3600"))
 LLM_PENDING_AUTO_REJECT_HOURS  = float(os.getenv("LLM_PENDING_AUTO_REJECT_HOURS", "24"))
 INTEL_RETENTION_DAYS           = int(os.getenv("INTEL_RETENTION_DAYS", "7"))
+# How long a confirmed/auto_confirmed intel item contributes to the threat score.
+# After this TTL the item is still in the DB but excluded from active rationale.
+INTEL_ITEM_TTL_HOURS           = float(os.getenv("INTEL_ITEM_TTL_HOURS", "24"))
+# Max number of active intel items per (source_type, theater) that contribute to score.
+# Prevents a single noisy sensor from dominating the total score via accumulation.
+# Top N items ranked by score_delta are kept; the rest are excluded from active rationale.
+INTEL_MAX_ITEMS_PER_SOURCE_THEATER = int(os.getenv("INTEL_MAX_ITEMS_PER_SOURCE_THEATER", "2"))
+
+# Cross-source corroboration: how far back to look for signals from independent sources
+CORROBORATION_WINDOW_HOURS    = float(os.getenv("CORROBORATION_WINDOW_HOURS", "8"))
+# Cooldown per theater after a corroboration event fires (prevents re-triggering same event)
+CORROBORATION_COOLDOWN_HOURS  = float(os.getenv("CORROBORATION_COOLDOWN_HOURS", "12"))
+# Minimum number of distinct independent source_types needed to trigger synthesis
+CORROBORATION_MIN_SOURCES     = int(os.getenv("CORROBORATION_MIN_SOURCES", "2"))
+# Minimum pairwise source independence score (0.0=same stream, 1.0=fully independent)
+CORROBORATION_MIN_INDEPENDENCE = float(os.getenv("CORROBORATION_MIN_INDEPENDENCE", "0.70"))
 
 CT_LOG_GOV_TLDS: dict[str, list] = {
     "TW": ["gov.tw", "mil.tw"],

@@ -37,6 +37,14 @@ def _confidence_min() -> float:
 def _override_window() -> int:
     return int(os.getenv("LLM_OVERRIDE_WINDOW", "3600"))
 
+def _item_ttl_seconds() -> float:
+    """How long (seconds) a confirmed item contributes to active rationale."""
+    return float(os.getenv("INTEL_ITEM_TTL_HOURS", "24")) * 3600
+
+def _max_items_per_source_theater() -> int:
+    """Max active items per (source_type, theater) in rationale. Prevents score inflation."""
+    return int(os.getenv("INTEL_MAX_ITEMS_PER_SOURCE_THEATER", "2"))
+
 def _pending_auto_reject_hours() -> float:
     """Hours after which unreviewed PENDING items are automatically rejected.
     Set to 0 to disable auto-reject."""
@@ -47,6 +55,32 @@ log = logging.getLogger("radar")
 # In-memory set of currently active (auto_confirmed or confirmed) item IDs
 # for fast rationale injection into the scoring engine
 _active_item_ids: set[str] = set()
+
+# Stop-words to exclude from Jaccard headline comparison
+_HEADLINE_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "in", "on", "at", "to", "for",
+    "of", "is", "are", "was", "were", "be", "by", "with", "from",
+    "this", "that", "as", "it", "its", "has", "have", "had",
+    "near", "over", "after", "before", "during", "amid",
+})
+
+_DEDUP_WINDOW_SECONDS = 48 * 3600   # 48-hour dedup window
+_JACCARD_THRESHOLD = 0.50           # headline similarity threshold for same-event dedup
+
+
+def _headline_tokens(headline: str) -> frozenset:
+    """Extract significant words from a headline for Jaccard comparison."""
+    import re
+    words = re.findall(r"[a-z]{3,}", headline.lower())
+    return frozenset(w for w in words if w not in _HEADLINE_STOPWORDS)
+
+
+def _jaccard(a: frozenset, b: frozenset) -> float:
+    if not a or not b:
+        return 0.0
+    intersection = len(a & b)
+    union = len(a | b)
+    return intersection / union if union else 0.0
 
 
 class IntelQueue:
@@ -81,9 +115,46 @@ class IntelQueue:
             return None
 
         source_id = item.get("source_id", "unknown")
+        source_type = item.get("source_type", "unknown")
+        theater = item.get("theater", "")
+        headline = item.get("headline", "")
+
+        # ── Intra-source-type dedup: discard wire-service echo chambers ──────────
+        # Within the same source_type + theater pair, check if we already have a
+        # recent item (48h) with a similar headline (Jaccard ≥ 0.50 on significant
+        # words). If so, this is most likely the same event reported by multiple
+        # outlets citing the same underlying source (e.g. PACOM press release
+        # re-published by USNI, DefenseNews, Stars&Stripes). We discard the
+        # duplicate but record its source_id in the winner's corroborating_sources
+        # so the provenance is not lost.
+        if headline:
+            new_tokens = _headline_tokens(headline)
+            since = time.time() - _DEDUP_WINDOW_SECONDS
+            existing = db.intel_list(source_type=source_type, theater=theater,
+                                     limit=50, since_ts=since)
+            for ex in existing:
+                if ex.get("source_id") == source_id:
+                    continue  # same source, different event — let through
+                ex_tokens = _headline_tokens(ex.get("headline", ""))
+                if _jaccard(new_tokens, ex_tokens) >= _JACCARD_THRESHOLD:
+                    # Same event from a different outlet — record as corroborator
+                    llm_upd: dict = ex.get("llm_fields", {}).copy()
+                    corroborators: list = llm_upd.get("corroborating_sources", [])
+                    if source_id not in corroborators:
+                        corroborators.append(source_id)
+                        llm_upd["corroborating_sources"] = corroborators
+                        db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
+                    log.debug(
+                        f"[Intel] Intra-type dedup: discarded {source_id!r} "
+                        f"(Jaccard={_jaccard(new_tokens, ex_tokens):.2f} vs {ex['source_id']!r}, "
+                        f"headline: {headline[:60]})"
+                    )
+                    return None  # discard — same event already tracked
+        # ─────────────────────────────────────────────────────────────────────────
+
         source = db.intel_source_get(source_id)
         if source is None:
-            db.intel_source_upsert(source_id, item.get("source_type", "unknown"))
+            db.intel_source_upsert(source_id, source_type)
             source = db.intel_source_get(source_id)
 
         credibility = source["credibility_weight"] if source else 0.70
@@ -104,9 +175,9 @@ class IntelQueue:
 
         record = {
             "id":          item_id,
-            "source_type": item.get("source_type", "unknown"),
+            "source_type": source_type,
             "source_id":   source_id,
-            "theater":     item.get("theater", ""),
+            "theater":     theater,
             "ts":          item.get("ts", now),
             "status":      status,
             "confidence":  confidence,
@@ -249,30 +320,54 @@ class IntelQueue:
     def get_active_rationale(self) -> list[dict]:
         """Return rationale entries for all currently confirmed/auto_confirmed items.
         These are injected into the WeightedConvergenceEngine as llm_intel signals.
+
+        Score accumulation cap: at most INTEL_MAX_ITEMS_PER_SOURCE_THEATER items per
+        (source_type, theater) pair contribute to the score. Items are ranked by
+        score_delta descending so the highest-signal items are always included.
+        This prevents a single noisy sensor from accumulating unbounded score.
         """
         if not LLM_ENABLED:
             return []
         items = db.intel_list(status=None, limit=200)
-        result = []
+        ttl = _item_ttl_seconds()
+        cap = _max_items_per_source_theater()
+        now = time.time()
+
+        # First pass: filter to active items within TTL
+        active = []
         for item in items:
             if item["status"] not in ("auto_confirmed", "confirmed"):
                 continue
             if item.get("override_at"):
                 continue
-            # Only include items less than 24h old
-            if time.time() - item["ts"] > 86400:
+            if now - item["ts"] > ttl:
                 continue
-            result.append({
-                "sensor":        "llm_intel",
-                "signal_source": "llm_intel",
-                "score":         item["score_delta"],
-                "confidence":    item["confidence"],
-                "domain":        item["domain"],
-                "theater":       item.get("theater", ""),
-                "status":        "FIRED",
-                "detail":        f"[{item['source_type'].upper()}] {item['headline']}",
-                "suppressed":    False,
-            })
+            active.append(item)
+
+        # Second pass: apply per-(source_type, theater) cap ranked by score_delta
+        # Group and sort descending; keep top `cap` items per group
+        from collections import defaultdict
+        groups: dict = defaultdict(list)
+        for item in active:
+            key = (item["source_type"], item.get("theater", ""))
+            groups[key].append(item)
+
+        result = []
+        for key, group_items in groups.items():
+            # Sort descending by score_delta; ties broken by confidence
+            group_items.sort(key=lambda x: (x["score_delta"], x["confidence"]), reverse=True)
+            for item in group_items[:cap]:
+                result.append({
+                    "sensor":        "llm_intel",
+                    "signal_source": "llm_intel",
+                    "score":         item["score_delta"],
+                    "confidence":    item["confidence"],
+                    "domain":        item["domain"],
+                    "theater":       item.get("theater", ""),
+                    "status":        "FIRED",
+                    "detail":        f"[{item['source_type'].upper()}] {item['headline']}",
+                    "suppressed":    False,
+                })
         return result
 
     def list_items(self, source_type: str = None, status: str = None,
@@ -303,6 +398,8 @@ class IntelQueue:
             "auto_threshold": _auto_confirm_threshold(),
             "confidence_min": _confidence_min(),
             "override_window": _override_window(),
+            "item_ttl_hours": _item_ttl_seconds() / 3600,
+            "max_items_per_source_theater": _max_items_per_source_theater(),
         }
 
 

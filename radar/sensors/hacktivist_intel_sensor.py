@@ -111,16 +111,19 @@ class HacktiivistIntelSensor(BaseSensor):
                 '  "attack_type": "Type of attack (e.g. DDoS, defacement, data leak, phishing)",\n'
                 '  "timeline": "Imminent (within hours), Soon (within 24h), Planned (days), Unknown",\n'
                 '  "group_name": "Hacktivist group name if identifiable, else Unknown",\n'
+                f' "theater": "The most relevant theater code from this list: {theater} — or null if the content targets a completely different region",\n'
                 '  "confidence": 0.0,\n'
                 '  "is_credible_threat": true or false\n'
                 "}\n"
-                "Set confidence between 0.55 and 0.95 based on:\n"
-                "- Specificity of targets (URLs, sector, country)\n"
-                "- Presence of attack keywords or declarations\n"
-                "- Channel credibility\n"
-                "- Coherence of the threat claim\n"
+                "Confidence scoring:\n"
+                "- 0.80-0.95: Explicit target URLs, named attack type, imminent/active operation\n"
+                "- 0.65-0.79: Named sector/country target with attack declaration\n"
+                "- 0.40-0.64: Generic threat language, no specific target confirmed\n"
+                "- <0.40: Noise, spam, unrelated content — set is_credible_threat=false\n"
                 "If the content contains no threat signals or is clearly noise/spam, set confidence below 0.40 "
-                "and is_credible_threat to false."
+                "and is_credible_threat to false.\n"
+                f"The channel is associated with theater {theater!r}. "
+                "If the content clearly targets a different region, set theater=null."
             )
 
             result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
@@ -137,15 +140,32 @@ class HacktiivistIntelSensor(BaseSensor):
                 log.debug(f"[HacktiivistIntel] LLM parse failed for {channel}: {result.get('error')}")
                 continue
 
+            from radar.llm_client import safe_float, safe_enum
             data = result["data"]
-            confidence = float(data.get("confidence", 0.0))
+            confidence = safe_float(data.get("confidence"), default=0.0)
 
-            if not data.get("is_credible_threat", False) and confidence < 0.55:
-                log.debug(f"[HacktiivistIntel] Low credibility for {channel} — skipped")
+            # Both conditions must be true to proceed — credible AND sufficient confidence
+            if not data.get("is_credible_threat", False) or confidence < 0.55:
+                log.debug(f"[HacktiivistIntel] Low credibility for {channel} conf={confidence:.2f} — skipped")
                 continue
 
+            # Verify theater: use LLM-assigned theater if it disagrees with channel metadata,
+            # but only if the LLM returned a non-null value (LLM can detect off-topic posts)
+            llm_theater_raw = data.get("theater")
+            if llm_theater_raw is None or str(llm_theater_raw).strip().upper() in ("NULL", "NONE", ""):
+                log.debug(f"[HacktiivistIntel] LLM flagged theater mismatch for {channel} — skipped")
+                continue
+            resolved_theater = str(llm_theater_raw).strip().upper()
+            # Accept LLM theater override if it's a plausible 2-letter code; otherwise keep original
+            if len(resolved_theater) == 2 and resolved_theater.isalpha():
+                theater = resolved_theater
+
             # Map domain: DDoS → cyber, defacement → cyber, data leak → info
-            attack_type = (data.get("attack_type") or "").lower()
+            attack_type = safe_enum(
+                (data.get("attack_type") or "").lower(),
+                {"ddos", "defacement", "flood", "disruption", "data_leak", "phishing", "ransomware", "unknown"},
+                "unknown"
+            )
             domain = "cyber" if any(t in attack_type for t in ("ddos", "defacement", "flood", "disruption")) else "info"
 
             # score_delta: 1 for basic declaration, 2 for specific gov/financial targets
@@ -154,7 +174,7 @@ class HacktiivistIntelSensor(BaseSensor):
 
             item = {
                 "source_type":  "hacktivist",
-                "source_id":    f"telegram_{channel}",
+                "source_id":    f"hacktivist_{channel}",
                 "theater":      theater,
                 "ts":           time.time(),
                 "confidence":   confidence,
