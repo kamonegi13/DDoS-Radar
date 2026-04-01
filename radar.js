@@ -6253,18 +6253,18 @@
         // LLM Intel context: show active diplomatic/hacktivist items as additional context
         const apIntel = _llmItems.filter(i =>
             (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
-            ['diplomatic', 'hacktivist', 'ground_osint'].includes(i.source_type)
+            ['diplomatic', 'hacktivist', 'ground_osint', 'apt_intel', 'narrative', 'convergence', 'military'].includes(i.source_type)
         );
         if (apIntel.length > 0) {
             html += `<div style="margin-top:10px; border-top:1px solid #1a1a1a; padding-top:8px;">`;
             html += `<div style="font-size:9px; color:#aa88ff; letter-spacing:1px; margin-bottom:5px;">${_t('panel.ap.llm_context')}</div>`;
-            const byType = { diplomatic: [], hacktivist: [], ground_osint: [] };
+            const byType = { diplomatic: [], hacktivist: [], ground_osint: [], apt_intel: [], narrative: [], convergence: [], military: [] };
             for (const item of apIntel) {
                 if (byType[item.source_type]) byType[item.source_type].push(item);
             }
             for (const [type, items] of Object.entries(byType)) {
                 if (!items.length) continue;
-                const typeLabel = { diplomatic: '🏛', hacktivist: '⚡', ground_osint: '📡' }[type] || '●';
+                const typeLabel = { diplomatic: '🏛', hacktivist: '⚡', ground_osint: '📡', apt_intel: '🕵', narrative: '📰', convergence: '🔴', military: '⚔' }[type] || '●';
                 html += `<div style="margin-bottom:4px;">`;
                 html += `<div style="font-size:9px; color:#665588; margin-bottom:2px;">${typeLabel} ${type.toUpperCase().replace('_', ' ')}</div>`;
                 for (const item of items.slice(0, 2)) {

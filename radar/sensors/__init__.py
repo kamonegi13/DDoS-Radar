@@ -30,6 +30,8 @@ from radar.sensors.hacktivist_intel_sensor import HacktiivistIntelSensor
 from radar.sensors.ground_osint_sensor import GroundOsintSensor
 from radar.sensors.diplomatic import DiplomaticSensor
 from radar.sensors.military_exercise import MilitaryExerciseSensor
+from radar.sensors.apt_intel import AptIntelSensor
+from radar.sensors.convergence_tracker import ConvergenceTrackerSensor
 
 __all__ = [
     "BaseSensor",
@@ -63,4 +65,6 @@ __all__ = [
     "GroundOsintSensor",
     "DiplomaticSensor",
     "MilitaryExerciseSensor",
+    "AptIntelSensor",
+    "ConvergenceTrackerSensor",
 ]
