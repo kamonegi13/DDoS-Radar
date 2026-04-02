@@ -235,6 +235,17 @@ class IntelQueue:
             "created_at":    now,
         }
         db.intel_upsert(record)
+
+        # Push real-time notification to connected clients
+        try:
+            from radar.ws import emit_intel_update
+            emit_intel_update(theater, {
+                "id": item_id, "headline": headline[:120],
+                "source_type": source_type, "status": status,
+            })
+        except Exception:
+            pass  # WS not initialized during tests or early startup
+
         return item_id
 
     def confirm(self, item_id: str, analyst: str = "analyst") -> bool:

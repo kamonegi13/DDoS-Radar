@@ -92,3 +92,15 @@ def emit_notification_result(entry: dict) -> None:
     if socketio is None:
         return
     socketio.emit("notification_result", entry)
+
+
+def emit_intel_update(theater: str, item_summary: dict) -> None:
+    """Push LLM intel item notification so the UI refreshes without polling.
+    item_summary should contain at minimum: {id, headline, source_type, status}.
+    Sent to the theater room AND broadcast (for the global intel panel).
+    """
+    if socketio is None:
+        return
+    socketio.emit("intel_update", item_summary, room=f"theater:{theater}")
+    # Also broadcast to all clients so the global intel panel refreshes
+    socketio.emit("intel_update", item_summary)

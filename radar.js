@@ -2165,6 +2165,9 @@
 
             renderTelemetry(latestData);
 
+            // Refresh LLM Intel data on every poll so chain panel and intel panel stay current
+            if (typeof _fetchLlmIntel === 'function') _fetchLlmIntel();
+
             // If node_ok is empty (CheckHost sensor still initializing at startup),
             // schedule a one-shot retry after 60s instead of waiting the full 15 min poll.
             const _chNodeOk = ((latestData.strategic_alert || {}).analytics || {}).check_host;
@@ -3369,6 +3372,12 @@
                         }
                         _updateSensorHealthHUD(_sensorHealthCache);
                     }
+                });
+
+                // LLM Intel real-time update: refresh intel panel when new item arrives
+                _wsSocket.on('intel_update', (data) => {
+                    console.info('[WS] Intel update:', data.source_type, data.status, data.headline);
+                    if (typeof _fetchLlmIntel === 'function') _fetchLlmIntel();
                 });
             } catch (e) {
                 console.warn('[WS] Socket.IO init failed, using polling fallback:', e);
