@@ -25,7 +25,7 @@ from email.utils import parsedate_to_datetime
 import requests
 
 from radar.sensors.base import BaseSensor
-from radar.config import LLM_ENABLED, GLOBAL_PROXIES, SSL_VERIFY
+from radar.config import LLM_ENABLED, GLOBAL_PROXIES, SSL_VERIFY, COUNTRY_COORDS
 
 log = logging.getLogger("radar")
 
@@ -111,8 +111,24 @@ def _fetch_rss(url: str) -> str:
     return ""
 
 
-def _parse_articles(xml_text: str, max_age_h: int = 48) -> list[dict]:
-    """Parse RSS XML and return recent articles as dicts with title, summary, pub_ts."""
+def _theater_names(theaters: list[str]) -> list[str]:
+    """Resolve theater codes to lowercase country/region names for text matching."""
+    names = []
+    for code in theaters:
+        entry = COUNTRY_COORDS.get(code, {})
+        name = entry.get("name", "")
+        if name:
+            names.append(name.lower())
+    return names
+
+
+def _parse_articles(xml_text: str, max_age_h: int = 48,
+                    theater_names: list[str] | None = None) -> list[dict]:
+    """Parse RSS XML and return recent articles as dicts with title, summary, pub_ts.
+    Two-slot system:
+      Slot 1: up to 5 articles matching escalation keywords
+      Slot 2: up to 2 articles matching only theater names (no keyword match)
+    """
     if not xml_text:
         return []
     try:
@@ -121,7 +137,8 @@ def _parse_articles(xml_text: str, max_age_h: int = 48) -> list[dict]:
         return []
 
     cutoff = time.time() - max_age_h * 3600
-    articles = []
+    keyword_articles = []
+    theater_only_articles = []
     seen_titles: set[str] = set()
 
     for item in root.iter("item"):
@@ -154,22 +171,24 @@ def _parse_articles(xml_text: str, max_age_h: int = 48) -> list[dict]:
         if pub_ts > 0 and pub_ts < cutoff:
             continue
 
-        # Pre-filter: only articles with escalation-relevant keywords
+        art = {"title": title, "summary": summary[:400], "pub_ts": pub_ts, "link": link}
         text_lower = (title + " " + summary).lower()
-        if not any(kw in text_lower for kw in _ESC_KEYWORDS):
+
+        # Slot 1: escalation keyword match (up to 5)
+        if any(kw in text_lower for kw in _ESC_KEYWORDS):
+            if len(keyword_articles) < 5:
+                keyword_articles.append(art)
             continue
 
-        articles.append({
-            "title":   title,
-            "summary": summary[:400],
-            "pub_ts":  pub_ts,
-            "link":    link,
-        })
+        # Slot 2: theater-name-only match (up to 2) — no keyword hit
+        if theater_names and any(tn in text_lower for tn in theater_names):
+            if len(theater_only_articles) < 2:
+                theater_only_articles.append(art)
 
-        if len(articles) >= 5:  # Cap at 5 per source
+        if len(keyword_articles) >= 5 and len(theater_only_articles) >= 2:
             break
 
-    return articles
+    return keyword_articles + theater_only_articles
 
 
 class DiplomaticSensor(BaseSensor):
@@ -201,7 +220,8 @@ class DiplomaticSensor(BaseSensor):
                 continue
 
             xml_text = _fetch_rss(meta["url"])
-            articles = _parse_articles(xml_text)
+            t_names = _theater_names(theaters)
+            articles = _parse_articles(xml_text, theater_names=t_names)
             if not articles:
                 continue
 
@@ -262,7 +282,7 @@ class DiplomaticSensor(BaseSensor):
                 data = result["data"]
                 confidence = safe_float(data.get("confidence"), default=0.0)
 
-                if not data.get("escalation_signal", False) or confidence < 0.55:
+                if not data.get("escalation_signal", False) or confidence < 0.40:
                     log.debug(f"[Diplomatic] No signal {source_name} conf={confidence:.2f}")
                     continue
 

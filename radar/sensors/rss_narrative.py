@@ -188,9 +188,9 @@ class RssNarrativeSensor(BaseSensor):
             "- pre-operation_conditioning: Preparing audience for imminent military action (new, escalating tone)\n"
             "- threat_escalation: Adversary responding to or amplifying a genuine, current escalation\n"
             "- response_to_incident: Reactive coverage of an already-occurred incident\n"
-            "- propaganda_routine: Standard recurring propaganda — sovereignty rhetoric, routine condemnations\n"
-            "  NOTE: China/Russia/DPRK routinely publish sovereignty articles — classify as propaganda_routine\n"
-            "  unless there is a SPECIFIC new trigger (exercise, incident, political event today)\n"
+            "- propaganda_routine: Content matching the source's normal publishing frequency and framing\n"
+            "  with no new trigger, specific threat, or escalation language beyond the baseline pattern.\n"
+            "  Classify based on whether the content departs from baseline patterns, not based on origin country.\n"
             "Confidence guide:\n"
             "- 0.75+: Strong pre-operation conditioning language with a specific, new triggering event\n"
             "- 0.60-0.74: Elevated narrative with clear new escalatory framing\n"
@@ -211,7 +211,7 @@ class RssNarrativeSensor(BaseSensor):
         }
         narrative_type = safe_enum(data.get("narrative_type"), _NARRATIVE_TYPES, "unknown")
 
-        if not data.get("escalation_signal", False) or confidence < 0.55:
+        if not data.get("escalation_signal", False) or confidence < 0.40:
             # Mark dedup even for non-escalation bursts to avoid spamming LLM every cycle
             _burst_submitted.add(dedup_key)
             if len(_burst_submitted) > _MAX_BURST_SUBMITTED:

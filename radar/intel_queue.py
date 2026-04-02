@@ -32,7 +32,7 @@ def _auto_confirm_threshold() -> float:
     return float(os.getenv("LLM_AUTO_CONFIRM_THRESHOLD", "0.80"))
 
 def _confidence_min() -> float:
-    return float(os.getenv("LLM_CONFIDENCE_MIN", "0.55"))
+    return float(os.getenv("LLM_CONFIDENCE_MIN", "0.40"))
 
 def _item_ttl_seconds() -> float:
     """How long (seconds) a confirmed item contributes to active rationale."""
@@ -121,11 +121,18 @@ class IntelQueue:
         # recent item (48h) with a similar headline (Jaccard ≥ 0.50 on significant
         # words). If so, this is most likely the same event reported by multiple
         # outlets citing the same underlying source (e.g. PACOM press release
-        # re-published by USNI, DefenseNews, Stars&Stripes). We discard the
-        # duplicate but record its source_id in the winner's corroborating_sources
-        # so the provenance is not lost.
+        # re-published by USNI, DefenseNews, Stars&Stripes).
+        #
+        # Confidence-based replacement: if the new item has higher confidence than
+        # the existing match, replace the existing item's analysis (headline,
+        # confidence, score_delta, etc.) while preserving corroborating sources.
+        #
+        # Distinct-event protection: even if Jaccard matches, do NOT merge items
+        # that have different theaters, actors, or diplomatic actions (these are
+        # similar-but-distinct events that happen to share vocabulary).
         if headline:
             new_tokens = _headline_tokens(headline)
+            new_llm = item.get("llm_fields", {})
             since = time.time() - _DEDUP_WINDOW_SECONDS
             existing = db.intel_list(source_type=source_type, theater=theater,
                                      limit=50, since_ts=since)
@@ -134,19 +141,57 @@ class IntelQueue:
                     continue  # same source, different event — let through
                 ex_tokens = _headline_tokens(ex.get("headline", ""))
                 if _jaccard(new_tokens, ex_tokens) >= _JACCARD_THRESHOLD:
-                    # Same event from a different outlet — record as corroborator
-                    llm_upd: dict = ex.get("llm_fields", {}).copy()
-                    corroborators: list = llm_upd.get("corroborating_sources", [])
-                    if source_id not in corroborators:
-                        corroborators.append(source_id)
-                        llm_upd["corroborating_sources"] = corroborators
-                        db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
-                    log.debug(
-                        f"[Intel] Intra-type dedup: discarded {source_id!r} "
-                        f"(Jaccard={_jaccard(new_tokens, ex_tokens):.2f} vs {ex['source_id']!r}, "
-                        f"headline: {headline[:60]})"
-                    )
-                    return None  # discard — same event already tracked
+                    # ── Distinct-event protection ──
+                    ex_llm = ex.get("llm_fields", {})
+                    # Different attributed actors → distinct events
+                    new_actor = new_llm.get("attributed_actor", "")
+                    ex_actor = ex_llm.get("attributed_actor", "")
+                    if new_actor and ex_actor and new_actor.lower() != ex_actor.lower():
+                        continue  # different actors, not a duplicate
+                    # Different diplomatic actions → distinct events
+                    new_action = new_llm.get("diplomatic_action", "")
+                    ex_action = ex_llm.get("diplomatic_action", "")
+                    if new_action and ex_action and new_action != ex_action:
+                        continue  # different actions, not a duplicate
+
+                    jacc = _jaccard(new_tokens, ex_tokens)
+
+                    # ── Confidence-based replacement ──
+                    if confidence > ex.get("confidence", 0):
+                        # New item is better — replace existing analysis, keep provenance
+                        corroborators: list = ex_llm.get("corroborating_sources", [])
+                        old_src = ex.get("source_id", "")
+                        if old_src and old_src not in corroborators:
+                            corroborators.append(old_src)
+                        merged_llm = new_llm.copy()
+                        merged_llm["corroborating_sources"] = corroborators
+                        db.intel_update_llm_fields(ex["id"], merged_llm)
+                        # Update headline, confidence, score_delta via status update
+                        conn = db._get_conn()
+                        conn.execute(
+                            "UPDATE llm_intel SET headline=?, confidence=?, score_delta=?, "
+                            "raw_text=?, raw_url=? WHERE id=?",
+                            (headline[:200], confidence, float(item.get("score_delta", 0)),
+                             item.get("raw_text", "")[:1000], item.get("raw_url", ""),
+                             ex["id"]),
+                        )
+                        conn.commit()
+                        log.info(
+                            f"[Intel] Dedup REPLACE: {ex['source_id']!r} conf={ex['confidence']:.2f} "
+                            f"→ {source_id!r} conf={confidence:.2f} (Jaccard={jacc:.2f})"
+                        )
+                    else:
+                        # Existing is same or better — just record corroborator
+                        corroborators = ex_llm.get("corroborating_sources", [])
+                        if source_id not in corroborators:
+                            corroborators.append(source_id)
+                            db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
+                        log.debug(
+                            f"[Intel] Intra-type dedup: discarded {source_id!r} "
+                            f"(Jaccard={jacc:.2f} vs {ex['source_id']!r}, "
+                            f"headline: {headline[:60]})"
+                        )
+                    return None  # don't create a new item either way
         # ─────────────────────────────────────────────────────────────────────────
 
         source = db.intel_source_get(source_id)

@@ -118,7 +118,7 @@ class HacktiivistIntelSensor(BaseSensor):
                 "Confidence scoring:\n"
                 "- 0.80-0.95: Explicit target URLs, named attack type, imminent/active operation\n"
                 "- 0.65-0.79: Named sector/country target with attack declaration\n"
-                "- 0.40-0.64: Generic threat language, no specific target confirmed\n"
+                "- 0.40-0.54: Generic threat language, no specific target confirmed\n"
                 "- <0.40: Noise, spam, unrelated content — set is_credible_threat=false\n"
                 "If the content contains no threat signals or is clearly noise/spam, set confidence below 0.40 "
                 "and is_credible_threat to false.\n"
@@ -168,9 +168,12 @@ class HacktiivistIntelSensor(BaseSensor):
             )
             domain = "cyber" if any(t in attack_type for t in ("ddos", "defacement", "flood", "disruption")) else "info"
 
-            # score_delta: 1 for basic declaration, 2 for specific gov/financial targets
+            # Additive score: sector_base + timeline_bonus (max 3.0)
             sector = (data.get("target_sector") or "").lower()
-            score_delta = 2.0 if any(s in sector for s in ("government", "financial", "energy", "telecom", "military")) else 1.0
+            sector_base = 2.0 if any(s in sector for s in ("government", "financial", "energy", "telecom", "military")) else 1.0
+            timeline = (data.get("timeline") or "").lower()
+            timeline_bonus = {"imminent": 1.0, "soon": 0.5, "planned": 0.2}.get(timeline, 0.0)
+            score_delta = min(round(sector_base + timeline_bonus, 1), 3.0)
 
             item = {
                 "source_type":  "hacktivist",

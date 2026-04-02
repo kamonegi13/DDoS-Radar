@@ -29,7 +29,7 @@ from email.utils import parsedate_to_datetime
 import requests
 
 from radar.sensors.base import BaseSensor
-from radar.config import LLM_ENABLED, GLOBAL_PROXIES, SSL_VERIFY
+from radar.config import LLM_ENABLED, GLOBAL_PROXIES, SSL_VERIFY, COUNTRY_COORDS
 
 log = logging.getLogger("radar")
 
@@ -91,6 +91,17 @@ _processed: set[str] = set()
 _MAX_PROCESSED = 1000
 
 
+def _theater_names(theaters: list[str]) -> list[str]:
+    """Resolve theater codes to lowercase country/region names for text matching."""
+    names = []
+    for code in theaters:
+        entry = COUNTRY_COORDS.get(code, {})
+        name = entry.get("name", "")
+        if name:
+            names.append(name.lower())
+    return names
+
+
 def _article_hash(source_name: str, title: str) -> str:
     """Hash keyed on article identity only (not theater) to prevent duplicate submissions."""
     raw = f"mil-{source_name}-{title[:60]}"
@@ -113,8 +124,13 @@ def _fetch_rss(url: str) -> str:
     return ""
 
 
-def _parse_articles(xml_text: str, max_age_h: int = 48) -> list[dict]:
-    """Parse RSS, filter by age and exercise keywords, return up to 5 articles."""
+def _parse_articles(xml_text: str, max_age_h: int = 48,
+                    theater_names: list[str] | None = None) -> list[dict]:
+    """Parse RSS, filter by age and exercise keywords, return articles.
+    Two-slot system:
+      Slot 1: up to 5 articles matching exercise keywords
+      Slot 2: up to 2 articles matching only theater names (no keyword match)
+    """
     if not xml_text:
         return []
     try:
@@ -123,7 +139,8 @@ def _parse_articles(xml_text: str, max_age_h: int = 48) -> list[dict]:
         return []
 
     cutoff = time.time() - max_age_h * 3600
-    articles = []
+    keyword_articles = []
+    theater_only_articles = []
     seen: set[str] = set()
     kw_lower = [k.lower() for k in _EXERCISE_KEYWORDS]
 
@@ -154,20 +171,24 @@ def _parse_articles(xml_text: str, max_age_h: int = 48) -> list[dict]:
         if pub_ts > 0 and pub_ts < cutoff:
             continue
 
+        art = {"title": title, "summary": summary[:400], "pub_ts": pub_ts, "link": link}
         text_lower = (title + " " + summary).lower()
-        if not any(kw in text_lower for kw in kw_lower):
+
+        # Slot 1: keyword match (up to 5)
+        if any(kw in text_lower for kw in kw_lower):
+            if len(keyword_articles) < 5:
+                keyword_articles.append(art)
             continue
 
-        articles.append({
-            "title":   title,
-            "summary": summary[:400],
-            "pub_ts":  pub_ts,
-            "link":    link,
-        })
-        if len(articles) >= 5:
+        # Slot 2: theater-name-only match (up to 2)
+        if theater_names and any(tn in text_lower for tn in theater_names):
+            if len(theater_only_articles) < 2:
+                theater_only_articles.append(art)
+
+        if len(keyword_articles) >= 5 and len(theater_only_articles) >= 2:
             break
 
-    return articles
+    return keyword_articles + theater_only_articles
 
 
 class MilitaryExerciseSensor(BaseSensor):
@@ -199,7 +220,8 @@ class MilitaryExerciseSensor(BaseSensor):
                 continue
 
             xml_text = _fetch_rss(meta["url"])
-            articles = _parse_articles(xml_text)
+            t_names = _theater_names(theaters)
+            articles = _parse_articles(xml_text, theater_names=t_names)
             if not articles:
                 continue
 
@@ -276,12 +298,16 @@ class MilitaryExerciseSensor(BaseSensor):
                 }
                 event_type = safe_enum(data.get("event_type"), _EVENT_TYPES, "none")
 
-                # Reject status reports, historical analysis, and non-signals
-                if event_type in ("status_report", "historical_analysis", "none"):
+                # Non-signals are discarded; status reports and historical analysis are kept
+                # at reduced confidence for pattern accumulation (may contain anomalies)
+                if event_type == "none":
                     log.debug(f"[MilExercise] Discarding {event_type}: {source_name} — {art['title'][:60]}")
                     continue
+                if event_type in ("status_report", "historical_analysis"):
+                    confidence = min(confidence, 0.45)  # Cap: never auto-confirm, but preserve for review
+                    log.debug(f"[MilExercise] Keeping {event_type} at reduced conf={confidence:.2f}: {art['title'][:60]}")
 
-                if not data.get("escalation_signal", False) or confidence < 0.55:
+                if not data.get("escalation_signal", False) or confidence < 0.40:
                     log.debug(f"[MilExercise] No signal {source_name} conf={confidence:.2f}")
                     continue
 

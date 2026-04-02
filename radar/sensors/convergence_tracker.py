@@ -356,12 +356,14 @@ class ConvergenceTrackerSensor(BaseSensor):
             '  "confidence": 0.0\n'
             "}\n"
             "Confidence guide:\n"
-            "- 0.75+: Physical + info + cyber domains all elevated with concrete evidence in each\n"
-            "- 0.60-0.74: Two domains elevated with military or diplomatic sensor involved\n"
-            "- 0.50-0.59: Multi-sensor but dominated by info domain (could be propaganda cycle)\n"
+            "- 0.75+: Three or more domains (physical, info, cyber) all elevated with concrete evidence\n"
+            "- 0.60-0.74: Two domains elevated with concrete indicators in at least one\n"
+            "- 0.50-0.59: Sensors elevated but pattern is ambiguous or lacks concrete indicators\n"
             "- <0.50: Convergence likely coincidental — set pattern_type=noise_convergence\n"
-            "Be conservative. Set confidence < 0.55 if the pattern is ambiguous or if\n"
-            "the elevated sensors are all info-domain (rss_narrative, gdelt, telegram)."
+            "Info-domain signals (narrative escalation, media campaigns, influence operations) are\n"
+            "critical early warning indicators that often precede physical action — treat them as\n"
+            "equally valid to physical or cyber signals when assessing confidence.\n"
+            "Set confidence < 0.50 only if the convergence appears genuinely coincidental."
         )
 
         result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=400)

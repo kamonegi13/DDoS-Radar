@@ -216,10 +216,12 @@ class GroundOsintSensor(BaseSensor):
             confidence = safe_float(data.get("confidence"), default=0.0)
 
             # Boost confidence if live sensors already show attack (single boost, Python-only)
-            if corroborates and confidence >= 0.55:
-                confidence = min(confidence + 0.10, 0.95)
+            python_boost = 0.0
+            if corroborates and confidence >= 0.40:
+                python_boost = 0.10
+                confidence = min(confidence + python_boost, 0.95)
 
-            if confidence < 0.55:
+            if confidence < 0.40:
                 log.debug(f"[GroundOsint] Low confidence {confidence:.2f} for {channel} — skipped")
                 continue
 
@@ -249,6 +251,7 @@ class GroundOsintSensor(BaseSensor):
                     "corroborates_sensor": corr_sensor,
                     "source_platform":    "telegram",
                     "channel_id":         channel,
+                    "python_confidence_boost": python_boost,
                 },
                 "score_delta":  score_delta,
                 "domain":       "cyber",
