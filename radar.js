@@ -3361,17 +3361,18 @@
                     }
                 });
                 _wsSocket.on('sensor_status', (data) => {
+                    if (!data || typeof data.sensor !== 'string' || typeof data.status !== 'string') return;
+                    // Guard against prototype pollution via crafted sensor names
+                    if (data.sensor === '__proto__' || data.sensor === 'constructor' || data.sensor === 'prototype') return;
                     console.info('[WS] Sensor status:', data.sensor, data.status);
-                    if (data.sensor && data.status) {
-                        // Preserve existing object fields (domain, last_fetch_ts, cb_state) when WS only sends status string
-                        const prev = _sensorHealthCache[data.sensor];
-                        if (prev && typeof prev === 'object') {
-                            _sensorHealthCache[data.sensor] = { ...prev, status: data.status, cb_state: data.status === 'CIRCUIT_OPEN' ? 'OPEN' : prev.cb_state };
-                        } else {
-                            _sensorHealthCache[data.sensor] = data.status;
-                        }
-                        _updateSensorHealthHUD(_sensorHealthCache);
+                    // Preserve existing object fields (domain, last_fetch_ts, cb_state) when WS only sends status string
+                    const prev = _sensorHealthCache[data.sensor];
+                    if (prev && typeof prev === 'object') {
+                        _sensorHealthCache[data.sensor] = { ...prev, status: data.status, cb_state: data.status === 'CIRCUIT_OPEN' ? 'OPEN' : prev.cb_state };
+                    } else {
+                        _sensorHealthCache[data.sensor] = data.status;
                     }
+                    _updateSensorHealthHUD(_sensorHealthCache);
                 });
 
                 // LLM Intel real-time update: refresh intel panel when new item arrives
@@ -6753,12 +6754,12 @@
                 _renderLlmStats(data.stats || {});
                 _renderLlmItems(_llmItems);
             })
-            .catch(() => {});
+            .catch(e => console.debug('[Intel] fetch failed:', e));
         // Also refresh status indicator
         fetch('/api/intel/stats')
             .then(r => r.json())
             .then(s => _renderLlmStatusBar(s))
-            .catch(() => {});
+            .catch(e => console.debug('[Intel] stats fetch failed:', e));
     }
 
     function _renderLlmStatusBar(stats) {
@@ -6807,12 +6808,12 @@
     function _renderLlmItem(item) {
         const statusClass = 'llm-item-status-' + (item.status || 'pending');
         const badgeClass  = 'llm-badge-' + (item.source_type || 'unknown');
-        const badgeLabel  = (item.source_type || '').toUpperCase();
+        const badgeLabel  = _escHtml((item.source_type || '').toUpperCase());
         const timeStr     = item.ts ? new Date(item.ts * 1000).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'}) : '—';
         const conf        = item.confidence || 0;
         const confClass   = conf >= 0.80 ? 'llm-item-conf-hi' : conf >= 0.65 ? 'llm-item-conf-mid' : 'llm-item-conf-lo';
         const confPct     = Math.round(conf * 100) + '%';
-        const scoreStr    = item.score_delta > 0 ? ' +' + item.score_delta + ' ' + (item.domain || '').toUpperCase() : '';
+        const scoreStr    = item.score_delta > 0 ? ' +' + item.score_delta + ' ' + _escHtml((item.domain || '').toUpperCase()) : '';
         const isAuto      = item.status === 'auto_confirmed';
         const isPending   = item.status === 'pending' || item.status === 'review_needed';
         const isReview    = item.status === 'review_needed';
@@ -6823,7 +6824,7 @@
         else if (isReview)  statusLabel = '<span class="llm-status-label-review">REVIEW</span>';
         else if (isPending) statusLabel = '<span class="llm-status-label-pending">PENDING</span>';
         else if (item.status === 'confirmed')  statusLabel = '<span class="llm-status-label-confirmed">CONFIRMED</span>';
-        else if (item.status === 'rejected' || item.status === 'overridden') statusLabel = '<span class="llm-status-label-rejected">' + item.status.toUpperCase() + '</span>';
+        else if (item.status === 'rejected' || item.status === 'overridden') statusLabel = '<span class="llm-status-label-rejected">' + _escHtml(item.status.toUpperCase()) + '</span>';
 
         // Score applied display
         const scoreApplied = (isAuto || item.status === 'confirmed') && scoreStr

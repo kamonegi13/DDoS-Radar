@@ -133,7 +133,7 @@ _DISCARD_KEYWORDS = [
 ]
 
 # Processed article hashes to avoid reprocessing
-_processed: set[str] = set()
+_processed: dict[str, None] = {}
 _MAX_PROCESSED = 1000
 
 
@@ -182,6 +182,7 @@ def _parse_articles(xml_text: str, max_age_h: int = 72,
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
+        log.debug("[AptIntel] RSS XML parse error")
         return []
 
     cutoff = time.time() - max_age_h * 3600
@@ -283,12 +284,11 @@ class AptIntelSensor(BaseSensor):
                 key = _article_hash(source_name, art["title"])
                 if key in _processed:
                     continue
-                _processed.add(key)
+                _processed[key] = None
 
                 if len(_processed) > _MAX_PROCESSED:
-                    to_remove = list(_processed)[:_MAX_PROCESSED // 2]
-                    for k in to_remove:
-                        _processed.discard(k)
+                    for k in list(_processed)[:_MAX_PROCESSED // 2]:
+                        _processed.pop(k, None)
 
                 safe_title   = sanitize_llm_input(art["title"], 120)
                 safe_summary = sanitize_llm_input(art["summary"], 500)
@@ -370,8 +370,8 @@ class AptIntelSensor(BaseSensor):
                     "Confidence guide:\n"
                     "- 0.80-0.95: Named state actor + named target country in active theater\n"
                     "- 0.65-0.79: Likely state actor + sector in theater explicitly named\n"
-                    "- 0.55-0.64: Possible state actor, theater inferred from sector/region\n"
-                    "- <0.55: Insufficient specificity even after Stage 1 (set theater=null)"
+                    "- 0.40-0.64: Possible state actor, theater inferred from sector/region\n"
+                    "- <0.40: Insufficient specificity even after Stage 1 (set theater=null)"
                 )
 
                 result = llm_analyze_json(analysis_prompt, system=analysis_system, max_tokens=280)

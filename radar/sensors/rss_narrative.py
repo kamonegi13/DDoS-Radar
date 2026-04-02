@@ -1,6 +1,7 @@
 """radar.sensors.rss_narrative -- RssNarrativeSensor."""
 from __future__ import annotations
 import hashlib
+import logging
 import math
 import requests
 import threading
@@ -12,8 +13,10 @@ from radar.config import (
 )
 from radar.sensors.base import BaseSensor
 
+log = logging.getLogger("radar")
+
 # Track narrative burst items already submitted to intel_queue (dedup across cycles)
-_burst_submitted: set[str] = set()
+_burst_submitted: dict[str, None] = {}
 _MAX_BURST_SUBMITTED = 500
 
 class RssNarrativeSensor(BaseSensor):
@@ -54,6 +57,7 @@ class RssNarrativeSensor(BaseSensor):
         try:
             root = ET.fromstring(xml_text)
         except ET.ParseError:
+            log.debug("[RssNarrative] RSS XML parse error")
             return 0, 0
 
         # Dedup: normalized hash of first 60 chars of title in a set (O(N) vs O(N²))
@@ -92,6 +96,7 @@ class RssNarrativeSensor(BaseSensor):
         try:
             root = ET.fromstring(xml_text)
         except ET.ParseError:
+            log.debug("[RssNarrative] RSS XML parse error (burst)")
             return []
 
         keywords_lower = [k.lower() for k in keywords]
@@ -213,11 +218,10 @@ class RssNarrativeSensor(BaseSensor):
 
         if not data.get("escalation_signal", False) or confidence < 0.40:
             # Mark dedup even for non-escalation bursts to avoid spamming LLM every cycle
-            _burst_submitted.add(dedup_key)
+            _burst_submitted[dedup_key] = None
             if len(_burst_submitted) > _MAX_BURST_SUBMITTED:
-                to_remove = list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]
-                for k in to_remove:
-                    _burst_submitted.discard(k)
+                for k in list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]:
+                    _burst_submitted.pop(k, None)
             return 0
 
         # Additive scoring: type_base + urgency_bonus (max = 3.0, no multiplicative inflation)
@@ -257,11 +261,10 @@ class RssNarrativeSensor(BaseSensor):
 
         item_id = intel_queue.submit(item)
         if item_id:
-            _burst_submitted.add(dedup_key)
+            _burst_submitted[dedup_key] = None
             if len(_burst_submitted) > _MAX_BURST_SUBMITTED:
-                to_remove = list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]
-                for k in to_remove:
-                    _burst_submitted.discard(k)
+                for k in list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]:
+                    _burst_submitted.pop(k, None)
             log.info(
                 f"[RssNarrative] LLM burst submitted: {item['headline'][:60]} "
                 f"(theater={theater}, type={narrative_type}, z={z_score:.2f}, conf={confidence:.2f})"

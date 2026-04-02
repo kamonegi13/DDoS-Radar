@@ -21,6 +21,7 @@ Usage (from routes):
 from __future__ import annotations
 import logging
 import os
+import threading
 import time
 import uuid
 from typing import Optional
@@ -50,8 +51,11 @@ def _pending_auto_reject_hours() -> float:
 log = logging.getLogger("radar")
 
 # In-memory set of currently active (auto_confirmed or confirmed) item IDs
-# for fast rationale injection into the scoring engine
+# for fast rationale injection into the scoring engine.
+# Protected by _active_lock for thread-safe access from sensor threads,
+# analyst routes, and the cleanup worker.
 _active_item_ids: set[str] = set()
+_active_lock = threading.Lock()
 
 # Stop-words to exclude from Jaccard headline comparison
 _HEADLINE_STOPWORDS = frozenset({
@@ -166,16 +170,14 @@ class IntelQueue:
                         merged_llm = new_llm.copy()
                         merged_llm["corroborating_sources"] = corroborators
                         db.intel_update_llm_fields(ex["id"], merged_llm)
-                        # Update headline, confidence, score_delta via status update
-                        conn = db._get_conn()
-                        conn.execute(
-                            "UPDATE llm_intel SET headline=?, confidence=?, score_delta=?, "
-                            "raw_text=?, raw_url=? WHERE id=?",
-                            (headline[:200], confidence, float(item.get("score_delta", 0)),
-                             item.get("raw_text", "")[:1000], item.get("raw_url", ""),
-                             ex["id"]),
+                        db.intel_update_core_fields(
+                            ex["id"],
+                            headline=headline[:200],
+                            confidence=confidence,
+                            score_delta=float(item.get("score_delta", 0)),
+                            raw_text=item.get("raw_text", "")[:1000],
+                            raw_url=item.get("raw_url", ""),
                         )
-                        conn.commit()
                         log.info(
                             f"[Intel] Dedup REPLACE: {ex['source_id']!r} conf={ex['confidence']:.2f} "
                             f"→ {source_id!r} conf={confidence:.2f} (Jaccard={jacc:.2f})"
@@ -207,7 +209,8 @@ class IntelQueue:
         # Determine initial status
         if confidence >= _auto_confirm_threshold() and credibility >= 0.75:
             status = "auto_confirmed"
-            _active_item_ids.add(item_id)
+            with _active_lock:
+                _active_item_ids.add(item_id)
             log.info(f"[Intel] AUTO-CONFIRMED: {item.get('headline', '')[:80]} "
                      f"(conf={confidence:.2f}, cred={credibility:.2f})")
         else:
@@ -256,7 +259,8 @@ class IntelQueue:
         now = time.time()
         db.intel_update_status(item_id, "confirmed",
                                confirmed_by=analyst, confirmed_at=now)
-        _active_item_ids.add(item_id)
+        with _active_lock:
+            _active_item_ids.add(item_id)
         if item.get("source_id"):
             db.intel_source_record_outcome(item["source_id"], confirmed=True)
         log.info(f"[Intel] CONFIRMED by {analyst}: {item.get('headline', '')[:80]}")
@@ -269,7 +273,8 @@ class IntelQueue:
             return False
         db.intel_update_status(item_id, "rejected",
                                confirmed_by=analyst, confirmed_at=time.time())
-        _active_item_ids.discard(item_id)
+        with _active_lock:
+            _active_item_ids.discard(item_id)
         if item.get("source_id"):
             db.intel_source_record_outcome(item["source_id"], confirmed=False)
         log.info(f"[Intel] REJECTED by {analyst}: {item.get('headline', '')[:80]}")
@@ -288,7 +293,8 @@ class IntelQueue:
         db.intel_update_status(item_id, "pending",
                                confirmed_by=None, confirmed_at=None)
         if was_confirmed:
-            _active_item_ids.discard(item_id)
+            with _active_lock:
+                _active_item_ids.discard(item_id)
             if item.get("source_id"):
                 db.intel_source_record_outcome(item["source_id"], confirmed=False)
         log.info(f"[Intel] REVERTED to pending by {analyst}: {item.get('headline', '')[:80]}")
@@ -308,7 +314,8 @@ class IntelQueue:
             if item.get("created_at", 0) < cutoff:
                 db.intel_update_status(item["id"], "rejected",
                                        confirmed_by="auto", confirmed_at=time.time())
-                _active_item_ids.discard(item["id"])
+                with _active_lock:
+                    _active_item_ids.discard(item["id"])
                 rejected += 1
                 log.info(f"[Intel] AUTO-REJECTED (stale): {item.get('headline', '')[:80]}")
         if rejected:
@@ -327,7 +334,8 @@ class IntelQueue:
         now = time.time()
         db.intel_update_status(item_id, "overridden",
                                confirmed_by=analyst, override_at=now)
-        _active_item_ids.discard(item_id)
+        with _active_lock:
+            _active_item_ids.discard(item_id)
         if item.get("source_id"):
             db.intel_source_record_outcome(item["source_id"], confirmed=False)
         log.info(f"[Intel] OVERRIDDEN by {analyst}: {item.get('headline', '')[:80]}")
@@ -356,13 +364,11 @@ class IntelQueue:
                 db.intel_source_record_outcome(src, confirmed=True)
             elif is_false_pos:
                 db.intel_source_record_outcome(src, confirmed=False)
-                # Flag the item so UI can highlight it
-                if item["status"] == "auto_confirmed" and item["id"] not in _active_item_ids:
-                    continue
-                # If still active, mark as needing review
-                if item["id"] in _active_item_ids:
-                    db.intel_update_status(item["id"], "review_needed")
-                    _active_item_ids.discard(item["id"])
+                # If item is still actively contributing to score, flag for review
+                with _active_lock:
+                    if item["id"] in _active_item_ids:
+                        db.intel_update_status(item["id"], "review_needed")
+                        _active_item_ids.discard(item["id"])
 
         log.info(f"[Intel] classify_threat={classification} for {theater}, "
                  f"updated {len(active)} active items")
@@ -378,21 +384,22 @@ class IntelQueue:
         """
         if not LLM_ENABLED:
             return []
-        items = db.intel_list(status=None, limit=200)
+        # Fetch only confirmed/auto_confirmed items at the DB level
+        items_ac = db.intel_list(status="auto_confirmed", limit=100)
+        items_c  = db.intel_list(status="confirmed", limit=100)
         ttl = _item_ttl_seconds()
         cap = _max_items_per_source_theater()
         now = time.time()
 
-        # First pass: filter to active items within TTL
+        # Filter to active items within TTL
         active = []
-        for item in items:
-            if item["status"] not in ("auto_confirmed", "confirmed"):
-                continue
-            if item.get("override_at"):
-                continue
-            if now - item["ts"] > ttl:
-                continue
-            active.append(item)
+        with _active_lock:
+            for item in items_ac + items_c:
+                if item.get("override_at"):
+                    continue
+                if now - item["ts"] > ttl:
+                    continue
+                active.append(item)
 
         # Second pass: apply per-(source_type, theater) cap ranked by score_delta
         # Group and sort descending; keep top `cap` items per group

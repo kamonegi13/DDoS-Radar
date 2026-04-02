@@ -40,7 +40,7 @@ _ONGOING_KEYWORDS = {
 }
 
 # Processed entry keys (same dedup logic as HacktiivistIntelSensor)
-_processed: set[str] = set()
+_processed: dict[str, None] = {}
 _MAX_PROCESSED = 500
 
 
@@ -201,12 +201,11 @@ class GroundOsintSensor(BaseSensor):
             )
 
             result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
-            _processed.add(key)
+            _processed[key] = None
 
             if len(_processed) > _MAX_PROCESSED:
-                to_remove = list(_processed)[:_MAX_PROCESSED // 2]
-                for k in to_remove:
-                    _processed.discard(k)
+                for k in list(_processed)[:_MAX_PROCESSED // 2]:
+                    _processed.pop(k, None)
 
             if not result["ok"]:
                 log.debug(f"[GroundOsint] LLM parse failed for {channel}: {result.get('error')}")

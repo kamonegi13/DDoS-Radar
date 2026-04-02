@@ -114,9 +114,13 @@ def _min_independence() -> float:
 
 
 def _select_independent_group(source_types: list[str]) -> list[str]:
-    """Greedy: pick the largest subset of source_types where every pair has
+    """Greedy: pick a large subset of source_types where every pair has
     independence ≥ _min_independence().  Returns an empty list if no 2-member
-    subset qualifies."""
+    subset qualifies.
+
+    Note: greedy approach is order-dependent and may not find the globally
+    optimal (maximum) independent set, but is sufficient for the typical
+    small number of source types (≤6) in practice."""
     threshold = _min_independence()
     unique = list(dict.fromkeys(source_types))  # preserve order, deduplicate
 
@@ -204,6 +208,12 @@ class CorroborationEngine:
                         f"{corr_item['headline'][:60]} "
                         f"(sources={','.join(independent_group)}, conf={corr_item['confidence']:.2f})"
                     )
+
+        # Purge expired cooldowns to prevent unbounded dict growth
+        now = time.time()
+        expired = [t for t, ts in _cooldown_until.items() if ts <= now]
+        for t in expired:
+            _cooldown_until.pop(t, None)
 
         if created:
             log.info(f"[Corroboration] Pass complete: {created} corroborated items created")

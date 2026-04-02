@@ -87,7 +87,7 @@ _EXERCISE_KEYWORDS = [
     "forward deploy", "preposition", "staging area",
 ]
 
-_processed: set[str] = set()
+_processed: dict[str, None] = {}
 _MAX_PROCESSED = 1000
 
 
@@ -136,6 +136,7 @@ def _parse_articles(xml_text: str, max_age_h: int = 48,
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
+        log.debug("[MilExercise] RSS XML parse error")
         return []
 
     cutoff = time.time() - max_age_h * 3600
@@ -233,12 +234,11 @@ class MilitaryExerciseSensor(BaseSensor):
                 key = _article_hash(source_name, art["title"])
                 if key in _processed:
                     continue
-                _processed.add(key)
+                _processed[key] = None
 
                 if len(_processed) > _MAX_PROCESSED:
-                    to_remove = list(_processed)[:_MAX_PROCESSED // 2]
-                    for k in to_remove:
-                        _processed.discard(k)
+                    for k in list(_processed)[:_MAX_PROCESSED // 2]:
+                        _processed.pop(k, None)
 
                 safe_title   = sanitize_llm_input(art["title"], 120)
                 safe_summary = sanitize_llm_input(art["summary"], 400)
@@ -271,8 +271,10 @@ class MilitaryExerciseSensor(BaseSensor):
                     "- new_deployment: New orders, units moving NOW to a contested area\n"
                     "- exercise_start: Exercise commencing now or within 48h\n"
                     "- readiness_elevation: Explicit alert level or readiness change\n"
-                    "- status_report: Weekly/periodic tracker, scheduled summary, current disposition\n"
-                    "- historical_analysis: Analysis of past events, retrospective reporting\n"
+                    "- status_report: Weekly/periodic tracker, scheduled summary, current disposition "
+                    "(confidence will be capped at 0.45 — low-priority review only)\n"
+                    "- historical_analysis: Analysis of past events, retrospective reporting "
+                    "(confidence will be capped at 0.45 — low-priority review only)\n"
                     "- none: No military activity signal\n"
                     "Confidence guide:\n"
                     "- 0.80-0.95: Active live-fire exercise near theater OR new forward deployment orders\n"

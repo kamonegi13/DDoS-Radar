@@ -1399,6 +1399,18 @@ class RadarDB:
         )
         conn.commit()
 
+    def intel_update_core_fields(self, item_id: str, headline: str,
+                                  confidence: float, score_delta: float,
+                                  raw_text: str, raw_url: str):
+        """Update headline, confidence, score_delta, raw_text, raw_url for an existing item."""
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE llm_intel SET headline=?, confidence=?, score_delta=?, "
+            "raw_text=?, raw_url=? WHERE id=?",
+            (headline, confidence, score_delta, raw_text, raw_url, item_id),
+        )
+        conn.commit()
+
     def intel_active_in_window(self, since_ts: float) -> list[dict]:
         """Items that were auto_confirmed or confirmed in the given time window (for CLASSIFY THREAT linking)."""
         rows = self._get_conn().execute(

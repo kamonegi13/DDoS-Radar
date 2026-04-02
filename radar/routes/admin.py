@@ -152,7 +152,7 @@ _RELOADABLE_KEYS = frozenset({
     "AIRSPACE_ANOMALY_THRESHOLD", "AIRSPACE_CLOSURE_THRESHOLD",
     "CONVERGENCE_DUAL_BONUS", "CONVERGENCE_FULL_BONUS",
     "THREAT_LEVEL_HYSTERESIS_CYCLES",
-    "AMBUSH_ZSCORE_THRESHOLD", "SYNC_DELTA_MS",
+    "AMBUSH_ZSCORE_THRESHOLD", "SYNC_DELTA_MS", "SYNC_C2_THRESHOLD",
     "SEQUENCE_WINDOW", "SEQUENCE_FULL_BONUS", "SEQUENCE_PARTIAL_BONUS",
     # Narrative sensor
     "NARRATIVE_ZSCORE_ALERT", "NARRATIVE_ZSCORE_CRITICAL", "NARRATIVE_BASELINE_DAYS",
@@ -211,6 +211,8 @@ def api_env_config_reload():
 @bp.route("/api/sensor_config", methods=["GET", "POST"])
 def sensor_config():
     if request.method == "GET": return jsonify({"sensors": _routes.registry.config_list(), "domain_weights": _routes.engine.DOMAIN_WEIGHTS})
+    auth_err = _require_admin()
+    if auth_err: return auth_err
     body = request.get_json(silent=True) or {}
     name, enabled = body.get("name", ""), body.get("enabled")
     if not name or enabled is None: return jsonify({"error": "name and enabled are required"}), 400

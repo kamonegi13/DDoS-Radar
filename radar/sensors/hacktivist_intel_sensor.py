@@ -28,7 +28,7 @@ log = logging.getLogger("radar")
 _POLL_INTERVAL = int(os.getenv("HACKTIVIST_INTEL_POLL_INTERVAL", "1800"))  # 30 min
 
 # Track processed entries: set of (ts_str, channel) tuples to avoid re-processing
-_processed: set[str] = set()
+_processed: dict[str, None] = {}
 _MAX_PROCESSED = 1000  # prevent unbounded growth
 
 
@@ -80,7 +80,7 @@ class HacktiivistIntelSensor(BaseSensor):
             # Use snippet if available (keyword-matched context), fall back to full excerpt
             text_content = snippet or text_excerpt
             if not text_content:
-                _processed.add(key)
+                _processed[key] = None
                 continue
 
             # Build LLM prompt
@@ -127,14 +127,12 @@ class HacktiivistIntelSensor(BaseSensor):
             )
 
             result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
-            _processed.add(key)
+            _processed[key] = None
 
-            # Prune processed set if too large
+            # Prune processed dict if too large (evict oldest entries)
             if len(_processed) > _MAX_PROCESSED:
-                # Remove oldest half (sets are unordered; just clear a chunk)
-                to_remove = list(_processed)[:_MAX_PROCESSED // 2]
-                for k in to_remove:
-                    _processed.discard(k)
+                for k in list(_processed)[:_MAX_PROCESSED // 2]:
+                    _processed.pop(k, None)
 
             if not result["ok"]:
                 log.debug(f"[HacktiivistIntel] LLM parse failed for {channel}: {result.get('error')}")
@@ -145,7 +143,7 @@ class HacktiivistIntelSensor(BaseSensor):
             confidence = safe_float(data.get("confidence"), default=0.0)
 
             # Both conditions must be true to proceed — credible AND sufficient confidence
-            if not data.get("is_credible_threat", False) or confidence < 0.55:
+            if not data.get("is_credible_threat", False) or confidence < 0.40:
                 log.debug(f"[HacktiivistIntel] Low credibility for {channel} conf={confidence:.2f} — skipped")
                 continue
 
