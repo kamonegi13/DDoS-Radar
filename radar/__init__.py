@@ -16,6 +16,27 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+# ── Default timeout for all outbound HTTP requests ──
+# Prevents hung connections from blocking the gevent event loop.
+# Individual sensors can still override with explicit timeout= kwargs.
+import requests as _requests  # noqa: E402
+_requests.adapters.DEFAULT_RETRIES = 1
+_DEFAULT_HTTP_TIMEOUT = (10, 20)  # (connect, read) seconds
+
+_orig_get = _requests.Session.get
+_orig_post = _requests.Session.post
+
+def _timeout_get(self, url, **kwargs):
+    kwargs.setdefault("timeout", _DEFAULT_HTTP_TIMEOUT)
+    return _orig_get(self, url, **kwargs)
+
+def _timeout_post(self, url, **kwargs):
+    kwargs.setdefault("timeout", _DEFAULT_HTTP_TIMEOUT)
+    return _orig_post(self, url, **kwargs)
+
+_requests.Session.get = _timeout_get
+_requests.Session.post = _timeout_post
+
 # ── App ──
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})

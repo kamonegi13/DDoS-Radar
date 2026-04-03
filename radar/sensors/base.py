@@ -185,6 +185,10 @@ class BaseSensor(ABC):
                            f"rate_limited(429), no cache. Retry-After={retry_after}s")
         return True
 
+    # Default timeout for external API calls (connect, read) in seconds.
+    # Prevents a single hung connection from blocking the gevent event loop.
+    _DEFAULT_TIMEOUT = (10, 20)  # (connect_timeout, read_timeout)
+
     def _safe_get(self, url: str, **kwargs):
         """requests.get wrapper with automatic 429 handling.
 
@@ -192,6 +196,7 @@ class BaseSensor(ABC):
         Callers should check: if res is None: return self.get_cache() or default
         """
         import requests as _requests
+        kwargs.setdefault("timeout", self._DEFAULT_TIMEOUT)
         duration = kwargs.pop("_duration_ms", 0)
         res = _requests.get(url, **kwargs)
         if res.status_code == 429:
@@ -202,6 +207,7 @@ class BaseSensor(ABC):
     def _safe_post(self, url: str, **kwargs):
         """requests.post wrapper with automatic 429 handling."""
         import requests as _requests
+        kwargs.setdefault("timeout", self._DEFAULT_TIMEOUT)
         duration = kwargs.pop("_duration_ms", 0)
         res = _requests.post(url, **kwargs)
         if res.status_code == 429:
