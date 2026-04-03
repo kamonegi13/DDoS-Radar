@@ -34,7 +34,7 @@ CMD ["gunicorn", \
      "-k", "geventwebsocket.gunicorn.workers.GeventWebSocketWorker", \
      "-w", "1", \
      "--bind", "0.0.0.0:8000", \
-     "--timeout", "120", \
+     "--timeout", "300", \
      "--graceful-timeout", "30", \
      "--log-level", "info", \
      "--access-logfile", "-", \

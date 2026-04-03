@@ -101,8 +101,10 @@ def _sensor_scheduler_worker(sensor: BaseSensor, registry=None,
         _check_health_change()
         return ok
 
-    # Initial fetch with fast retry on failure
+    # Initial fetch: yield to event loop between attempts so HTTP requests
+    # are not starved when many sensors start concurrently under gevent.
     _STARTUP_RETRY_DELAYS = [60, 300, 600]  # 1min, 5min, 10min
+    time.sleep(0)  # yield to gevent event loop before first fetch
     if not _guarded_fetch():
         for delay in _STARTUP_RETRY_DELAYS:
             time.sleep(delay)

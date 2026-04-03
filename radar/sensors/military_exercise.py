@@ -260,13 +260,23 @@ class MilitaryExerciseSensor(BaseSensor):
                     '  "headline": "One-sentence escalation summary (max 100 chars)",\n'
                     '  "escalation_signal": true or false,\n'
                     '  "event_type": "new_deployment|exercise_start|readiness_elevation|status_report|historical_analysis|none",\n'
-                    '  "theater": "Theater code from the list above, or null if not specifically relevant",\n'
+                    '  "geographic_location": "Where is this event physically taking place? (region/sea/country name)",\n'
+                    '  "theater": "Theater code from the list above, or null",\n'
+                    '  "theater_link": "direct|indirect|none — is the geographic_location IN the theater, or only indirectly related?",\n'
                     '  "exercise_type": "live_fire|amphibious|naval|air|cyber|combined|deployment|none",\n'
                     '  "force_type": "naval|air|ground|rocket|cyber|combined",\n'
                     '  "scale": "strategic|operational|tactical",\n'
                     '  "urgency": "critical|high|medium|low",\n'
                     '  "confidence": 0.0\n'
                     "}\n"
+                    "BIAS CHECK — before assigning theater, ask yourself:\n"
+                    "- Where are the forces PHYSICALLY located or moving to?\n"
+                    "- Does the article NAME a location within the theater, or am I INFERRING a connection?\n"
+                    "- Would an analyst in that theater consider this a local event, or a distant one?\n"
+                    "- 'Signals deterrence globally' or 'demonstrates alliance commitment' is NOT a direct theater link.\n"
+                    "Set theater_link='direct' ONLY when forces are physically in/near the theater.\n"
+                    "Set theater_link='indirect' if the connection is strategic inference only — confidence will be reduced.\n"
+                    "Set theater=null and theater_link='none' if no specific theater is relevant.\n\n"
                     "event_type rules (CRITICAL — read carefully):\n"
                     "- new_deployment: New orders, units moving NOW to a contested area\n"
                     "- exercise_start: Exercise commencing now or within 48h\n"
@@ -281,7 +291,6 @@ class MilitaryExerciseSensor(BaseSensor):
                     "- 0.65-0.79: Exercise announcement with clear theater relevance\n"
                     "- 0.40-0.64: Relevant but ambiguous (routine patrol, scheduled exercise)\n"
                     "- <0.40: No escalation relevance — set escalation_signal=false, theater=null\n"
-                    "If theater is not specifically mentioned or inferable, set theater=null.\n"
                     "USNI Fleet Tracker weekly reports are status_report, not new_deployment."
                 )
 
@@ -320,6 +329,26 @@ class MilitaryExerciseSensor(BaseSensor):
                     continue
                 theater = llm_theater
 
+                # Theater link validation: indirect links get confidence penalty,
+                # 'none' links are discarded.  This catches LLM over-association
+                # (e.g. Mediterranean exercise assigned to TW because it "signals deterrence").
+                theater_link = safe_enum(
+                    data.get("theater_link"), {"direct", "indirect", "none"}, "none"
+                )
+                if theater_link == "none":
+                    log.debug(
+                        f"[MilExercise] Discarding theater_link=none: {source_name} "
+                        f"geo={data.get('geographic_location', '?')!r} → {theater}"
+                    )
+                    continue
+                if theater_link == "indirect":
+                    confidence = min(confidence, 0.45)
+                    log.debug(
+                        f"[MilExercise] Indirect theater link: {source_name} "
+                        f"geo={data.get('geographic_location', '?')!r} → {theater} "
+                        f"(conf capped to {confidence:.2f})"
+                    )
+
                 # Additive scoring: base + scale_bonus (max = 3.0, avoids multiplicative inflation)
                 urgency = safe_enum(data.get("urgency"), {"critical", "high", "medium", "low"}, "low")
                 scale   = safe_enum(data.get("scale"), {"strategic", "operational", "tactical"}, "tactical")
@@ -343,6 +372,8 @@ class MilitaryExerciseSensor(BaseSensor):
                         "scale":         scale,
                         "urgency":       urgency,
                         "source_org":    org,
+                        "geographic_location": data.get("geographic_location", ""),
+                        "theater_link":  theater_link,
                         "escalation_signal": True,
                     },
                     "score_delta":  score_delta,

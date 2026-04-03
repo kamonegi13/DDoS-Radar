@@ -115,40 +115,59 @@ app.register_blueprint(_routes_mod.bp)
 from radar.persistence import restore_state, save_state, _persistence_worker  # noqa: E402,F401
 import atexit  # noqa: E402
 atexit.register(save_state)
-threading.Thread(target=_persistence_worker, daemon=True, name='persistence').start()
-restore_state()
 
-# ── Startup DB cleanup ──
-from radar.database import db as _db  # noqa: E402
-_db.startup_cleanup()
-
-# ── Scheduler (background sensor fetch) ──
-from radar.scheduler import _sensor_scheduler_worker, _cache_cleanup_worker  # noqa: E402
-# Stagger OpenSky-dependent sensors to avoid 429 rate-limit cascades.
-# opensky=0s, isr_hotspot=+120s, mil_support_air=+240s
-_OPENSKY_STAGGER = {"opensky": 0, "isr_hotspot": 120, "mil_support_air": 240}
-for _s in registry._sensors.values():
-    _delay = _OPENSKY_STAGGER.get(_s.name, 0.0)
-    threading.Thread(target=_sensor_scheduler_worker, args=(_s, registry, _delay),
-                     daemon=True, name=f'sensor-{_s.name}').start()
-
-# ── HOD Prefill ──
+# ── Deferred startup ──
+# Heavy initialization (DB cleanup, state restore, sensor fetch, HOD prefill)
+# runs in a single background thread so the app can serve requests immediately.
+from radar.scheduler import _sensor_scheduler_worker, _cache_cleanup_worker, _corroboration_worker  # noqa: E402
 from radar.scoring import prefill_hod_baseline_bg  # noqa: E402
-_hod_theaters = sorted(set([config.DEFAULT_CORE] + config.DEFAULT_PINS + config.DEFAULT_CORRELATES))
-threading.Thread(
-    target=prefill_hod_baseline_bg,
-    args=(_hod_theaters, config.DEFAULT_ADVERSARIES),
-    daemon=True, name='hod-prefill'
-).start()
+from radar.database import db as _db  # noqa: E402
 
-# ── Cache Cleanup ──
-threading.Thread(target=_cache_cleanup_worker, args=(registry,),
-                 daemon=True, name='cache-cleanup').start()
+_startup_ready = threading.Event()
 
-# ── Cross-source Corroboration ──
-from radar.scheduler import _corroboration_worker  # noqa: E402
-threading.Thread(target=_corroboration_worker,
-                 daemon=True, name='corroboration').start()
+def _deferred_startup():
+    """Run all heavy startup tasks in background, then signal readiness."""
+    log = logging.getLogger("radar")
+    try:
+        # Phase 1: restore persisted state + DB cleanup (fast, local I/O only)
+        restore_state()
+        _db.startup_cleanup()
+
+        # Phase 2: start persistence saver
+        threading.Thread(target=_persistence_worker, daemon=True, name='persistence').start()
+
+        # Phase 3: launch sensor scheduler threads with staggered start
+        # Spread sensor starts over ~60s to avoid DB write contention, API burst,
+        # and gevent event loop starvation (each initial fetch blocks its greenlet).
+        # OpenSky-dependent sensors get additional stagger for 429 avoidance.
+        _OPENSKY_STAGGER = {"opensky": 0, "isr_hotspot": 120, "mil_support_air": 240}
+        import time as _time
+        for _i, _s in enumerate(registry._sensors.values()):
+            _delay = _OPENSKY_STAGGER.get(_s.name, 2.0 + _i * 1.5)  # 1.5s apart, 2s base
+            threading.Thread(target=_sensor_scheduler_worker, args=(_s, registry, _delay),
+                             daemon=True, name=f'sensor-{_s.name}').start()
+
+        # Phase 4: HOD prefill (wait for initial sensor batch to settle)
+        _hod_theaters = sorted(set([config.DEFAULT_CORE] + config.DEFAULT_PINS + config.DEFAULT_CORRELATES))
+        threading.Thread(
+            target=prefill_hod_baseline_bg,
+            args=(_hod_theaters, config.DEFAULT_ADVERSARIES),
+            daemon=True, name='hod-prefill'
+        ).start()
+
+        # Phase 5: cache cleanup + corroboration
+        threading.Thread(target=_cache_cleanup_worker, args=(registry,),
+                         daemon=True, name='cache-cleanup').start()
+        threading.Thread(target=_corroboration_worker,
+                         daemon=True, name='corroboration').start()
+
+        log.info("[Startup] Deferred initialization complete — all background workers launched")
+    except Exception as e:
+        log.error(f"[Startup] Deferred initialization error: {e}")
+    finally:
+        _startup_ready.set()
+
+threading.Thread(target=_deferred_startup, daemon=True, name='deferred-startup').start()
 
 # ── WebSocket (Flask-SocketIO) ──
 from radar.ws import init_socketio, socketio as _ws_ref  # noqa: E402,F401

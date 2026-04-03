@@ -260,18 +260,26 @@ class DiplomaticSensor(BaseSensor):
                     "{\n"
                     '  "headline": "One-sentence escalation summary (max 100 chars)",\n'
                     '  "escalation_signal": true or false,\n'
-                    '  "theater": "Theater code from the list above, or null if not specifically relevant",\n'
+                    '  "geographic_focus": "What country or region does this statement specifically address?",\n'
+                    '  "theater": "Theater code from the list above, or null",\n'
+                    '  "theater_link": "direct|indirect|none — does the statement specifically address this theater?",\n'
                     '  "diplomatic_action": "warning|condemnation|sanction|expulsion|military_posture|ceasefire|statement|none",\n'
                     '  "target_country": "Country being addressed or criticized",\n'
                     '  "urgency": "critical|high|medium|low",\n'
                     '  "confidence": 0.0\n'
                     "}\n"
+                    "BIAS CHECK — before assigning theater, ask yourself:\n"
+                    "- Does the statement EXPLICITLY name or address the theater country/region?\n"
+                    "- Or am I inferring a connection because the issuing country is an adversary?\n"
+                    "- A statement about EU sanctions on Russia is 'direct' for UA, but 'none' for TW.\n"
+                    "Set theater_link='direct' ONLY when the statement explicitly addresses the theater.\n"
+                    "Set theater_link='indirect' for strategic inference only — confidence will be reduced.\n"
+                    "Set theater=null and theater_link='none' if no specific theater is addressed.\n\n"
                     "Confidence guide:\n"
                     "- 0.80-0.95: Explicit military warning, sanction announcement, or expulsion\n"
                     "- 0.65-0.79: Strong condemnation or direct posturing language\n"
                     "- 0.40-0.64: Relevant but ambiguous diplomatic language\n"
-                    "- <0.40: Routine statement, no escalation signal — set escalation_signal=false, theater=null\n"
-                    "If the statement has no relevance to any of the listed theaters, set theater=null."
+                    "- <0.40: Routine statement, no escalation signal — set escalation_signal=false, theater=null"
                 )
 
                 result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
@@ -294,6 +302,24 @@ class DiplomaticSensor(BaseSensor):
                     continue
                 theater = llm_theater
 
+                # Theater link validation: indirect/none links indicate LLM over-association
+                theater_link = safe_enum(
+                    data.get("theater_link"), {"direct", "indirect", "none"}, "none"
+                )
+                if theater_link == "none":
+                    log.debug(
+                        f"[Diplomatic] Discarding theater_link=none: {source_name} "
+                        f"geo={data.get('geographic_focus', '?')!r} → {theater}"
+                    )
+                    continue
+                if theater_link == "indirect":
+                    confidence = min(confidence, 0.45)
+                    log.debug(
+                        f"[Diplomatic] Indirect theater link: {source_name} "
+                        f"geo={data.get('geographic_focus', '?')!r} → {theater} "
+                        f"(conf capped to {confidence:.2f})"
+                    )
+
                 urgency = safe_enum(data.get("urgency"), {"critical", "high", "medium", "low"}, "low")
                 score_delta = {"critical": 3.0, "high": 2.0, "medium": 1.5, "low": 1.0}.get(urgency, 1.0)
 
@@ -311,6 +337,8 @@ class DiplomaticSensor(BaseSensor):
                         "target_country":    data.get("target_country", ""),
                         "urgency":           urgency,
                         "source_country":    country,
+                        "geographic_focus":  data.get("geographic_focus", ""),
+                        "theater_link":      theater_link,
                         "escalation_signal": True,
                     },
                     "score_delta":  score_delta,
