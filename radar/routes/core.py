@@ -91,7 +91,7 @@ def get_threat_data():
     # (At startup, background threads are fetching in parallel; waiting for sync would
     #  block for minutes on slow sensors like PeeringDB/AIS).
     if force_sync:
-        executor = ThreadPoolExecutor(max_workers=10)
+        executor = ThreadPoolExecutor(max_workers=4)
         futures = [executor.submit(sensor.fetch, sensor_context)
                    for sensor in _routes.registry._sensors.values() if sensor.enabled]
         try:
@@ -107,7 +107,9 @@ def get_threat_data():
         finally:
             executor.shutdown(wait=False, cancel_futures=False)
 
-    if (current_time - st.global_cache.get("time", 0) > SCORE_REFRESH_SEC) or force_sync:
+    with _global_cache_lock:
+        _cache_ts = st.global_cache.get("time", 0)
+    if (current_time - _cache_ts > SCORE_REFRESH_SEC) or force_sync:
         # Extract required states from caches
         cf_sensor = _routes.registry.get("cloudflare_radar")
         _cf_cache = cf_sensor.get_cache() if cf_sensor else {}

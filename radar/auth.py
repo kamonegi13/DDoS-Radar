@@ -1,7 +1,7 @@
 """radar.auth -- JWT authentication and user management.
 
 Provides user registration, login, and per-user theater settings.
-Uses SQLite (via radar.database) for user storage.
+Uses RadarDB public methods for all database operations.
 """
 from __future__ import annotations
 import hashlib
@@ -23,35 +23,6 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 # ── JWT Setup ────────────────────────────────────────────────────────────────
 jwt = JWTManager()
-
-# Schema for user tables
-_USER_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS users (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    username    TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    salt        TEXT NOT NULL,
-    role        TEXT NOT NULL DEFAULT 'viewer',
-    created_at  REAL NOT NULL,
-    last_login  REAL
-);
-
-CREATE TABLE IF NOT EXISTS user_settings (
-    user_id     INTEGER PRIMARY KEY REFERENCES users(id),
-    core        TEXT NOT NULL DEFAULT 'TW',
-    pins        TEXT NOT NULL DEFAULT '[]',
-    correlates  TEXT NOT NULL DEFAULT '[]',
-    adversaries TEXT NOT NULL DEFAULT '[]',
-    muted       TEXT NOT NULL DEFAULT '[]',
-    lang        TEXT NOT NULL DEFAULT 'en',
-    updated_at  REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS revoked_tokens (
-    jti         TEXT PRIMARY KEY,
-    revoked_at  REAL NOT NULL
-);
-"""
 
 
 def _hash_password(password: str, salt: str) -> str:
@@ -85,36 +56,27 @@ def _get_or_create_jwt_secret() -> str:
 
 
 def init_auth(app):
-    """Initialize JWT and create user tables."""
+    """Initialize JWT and create default admin if no users exist."""
     app.config["JWT_SECRET_KEY"] = _get_or_create_jwt_secret()
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = int(os.getenv("JWT_ACCESS_EXPIRES", "3600"))
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = int(os.getenv("JWT_REFRESH_EXPIRES", "86400"))
 
     jwt.init_app(app)
 
-    # Create user tables
+    # Auth tables are now part of the main _SCHEMA_SQL (database.py).
+    # Create default admin if no users exist.
     from radar.database import db
-    conn = db._get_conn()
-    conn.executescript(_USER_SCHEMA_SQL)
-    conn.commit()
-
-    # Create default admin if no users exist
-    row = conn.execute("SELECT COUNT(*) FROM users").fetchone()
-    if row[0] == 0:
-        _create_default_admin(conn)
+    if db.user_count() == 0:
+        _create_default_admin(db)
 
     # Token revocation check
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(jwt_header, jwt_payload):
-        jti = jwt_payload["jti"]
         from radar.database import db as _db
-        row = _db._get_conn().execute(
-            "SELECT 1 FROM revoked_tokens WHERE jti=?", (jti,)
-        ).fetchone()
-        return row is not None
+        return _db.token_is_revoked(jwt_payload["jti"])
 
 
-def _create_default_admin(conn):
+def _create_default_admin(db):
     """Create a default admin user on first run."""
     default_pw = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
     if not default_pw:
@@ -127,21 +89,13 @@ def _create_default_admin(conn):
     salt = secrets.token_hex(16)
     pw_hash = _hash_password(default_pw, salt)
     now = time.time()
-    conn.execute(
-        "INSERT INTO users (username, password_hash, salt, role, created_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        ("admin", pw_hash, salt, "admin", now),
-    )
-    user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    user_id = db.user_create("admin", pw_hash, salt, "admin", now)
     from radar.config import DEFAULT_CORE, DEFAULT_PINS, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES
-    conn.execute(
-        "INSERT INTO user_settings (user_id, core, pins, correlates, adversaries, muted, lang, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (user_id, DEFAULT_CORE, json.dumps(DEFAULT_PINS),
-         json.dumps(DEFAULT_CORRELATES), json.dumps(DEFAULT_ADVERSARIES),
-         "[]", "en", now),
+    db.user_settings_create(
+        user_id, DEFAULT_CORE, json.dumps(DEFAULT_PINS),
+        json.dumps(DEFAULT_CORRELATES), json.dumps(DEFAULT_ADVERSARIES),
+        "[]", "en", now,
     )
-    conn.commit()
     log.info("[Auth] Created default admin user (username: admin)")
 
 
@@ -153,10 +107,8 @@ def require_role(*roles):
         def decorated(*args, **kwargs):
             identity = get_jwt_identity()
             from radar.database import db
-            row = db._get_conn().execute(
-                "SELECT role FROM users WHERE username=?", (identity,)
-            ).fetchone()
-            if not row or row[0] not in roles:
+            role = db.user_get_role(identity)
+            if not role or role not in roles:
                 return jsonify({"error": "Insufficient permissions"}), 403
             return fn(*args, **kwargs)
         return decorated
@@ -171,10 +123,8 @@ def register():
     """Register a new user (admin only)."""
     caller = get_jwt_identity()
     from radar.database import db
-    caller_row = db._get_conn().execute(
-        "SELECT role FROM users WHERE username=?", (caller,)
-    ).fetchone()
-    if not caller_row or caller_row[0] != "admin":
+    caller_role = db.user_get_role(caller)
+    if caller_role != "admin":
         return jsonify({"error": "Admin only"}), 403
 
     data = request.get_json(silent=True) or {}
@@ -186,29 +136,19 @@ def register():
         return jsonify({"error": "username and password required"}), 400
     if role not in ("admin", "analyst", "viewer"):
         return jsonify({"error": "Invalid role"}), 400
-
-    conn = db._get_conn()
-    if conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+    if db.user_exists(username):
         return jsonify({"error": "Username already exists"}), 409
 
     salt = secrets.token_hex(16)
     pw_hash = _hash_password(password, salt)
     now = time.time()
-    conn.execute(
-        "INSERT INTO users (username, password_hash, salt, role, created_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (username, pw_hash, salt, role, now),
-    )
-    user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    user_id = db.user_create(username, pw_hash, salt, role, now)
     from radar.config import DEFAULT_CORE, DEFAULT_PINS, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES
-    conn.execute(
-        "INSERT INTO user_settings (user_id, core, pins, correlates, adversaries, muted, lang, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (user_id, DEFAULT_CORE, json.dumps(DEFAULT_PINS),
-         json.dumps(DEFAULT_CORRELATES), json.dumps(DEFAULT_ADVERSARIES),
-         "[]", "en", now),
+    db.user_settings_create(
+        user_id, DEFAULT_CORE, json.dumps(DEFAULT_PINS),
+        json.dumps(DEFAULT_CORRELATES), json.dumps(DEFAULT_ADVERSARIES),
+        "[]", "en", now,
     )
-    conn.commit()
     return jsonify({"status": "ok", "username": username, "role": role}), 201
 
 
@@ -223,23 +163,17 @@ def login():
         return jsonify({"error": "username and password required"}), 400
 
     from radar.database import db
-    conn = db._get_conn()
-    row = conn.execute(
-        "SELECT id, password_hash, salt, role FROM users WHERE username=?",
-        (username,),
-    ).fetchone()
-    if not row:
+    user = db.user_get(username)
+    if not user:
         return jsonify({"error": "Invalid credentials"}), 401
 
-    if _hash_password(password, row["salt"]) != row["password_hash"]:
+    if _hash_password(password, user["salt"]) != user["password_hash"]:
         return jsonify({"error": "Invalid credentials"}), 401
 
-    # Update last_login
-    conn.execute("UPDATE users SET last_login=? WHERE id=?", (time.time(), row["id"]))
-    conn.commit()
+    db.user_update_last_login(user["id"], time.time())
 
     from flask import current_app
-    access_token = create_access_token(identity=username, additional_claims={"role": row["role"]})
+    access_token = create_access_token(identity=username, additional_claims={"role": user["role"]})
     refresh_token = create_refresh_token(identity=username)
     access_expires = current_app.config.get("JWT_ACCESS_TOKEN_EXPIRES", 3600)
     if hasattr(access_expires, "total_seconds"):
@@ -248,7 +182,7 @@ def login():
         "access_token": access_token,
         "refresh_token": refresh_token,
         "username": username,
-        "role": row["role"],
+        "role": user["role"],
         "access_expires_sec": access_expires,
     })
 
@@ -259,10 +193,7 @@ def refresh():
     """Get a new access token using refresh token."""
     identity = get_jwt_identity()
     from radar.database import db
-    row = db._get_conn().execute(
-        "SELECT role FROM users WHERE username=?", (identity,)
-    ).fetchone()
-    role = row["role"] if row else "viewer"
+    role = db.user_get_role(identity) or "viewer"
     access_token = create_access_token(identity=identity, additional_claims={"role": role})
     return jsonify({"access_token": access_token})
 
@@ -273,11 +204,7 @@ def logout():
     """Revoke current access token."""
     jti = get_jwt()["jti"]
     from radar.database import db
-    db._get_conn().execute(
-        "INSERT OR IGNORE INTO revoked_tokens (jti, revoked_at) VALUES (?, ?)",
-        (jti, time.time()),
-    )
-    db._get_conn().commit()
+    db.token_revoke(jti, time.time())
     return jsonify({"status": "ok"})
 
 
@@ -287,13 +214,7 @@ def get_settings():
     """Get current user's theater settings."""
     identity = get_jwt_identity()
     from radar.database import db
-    conn = db._get_conn()
-    row = conn.execute(
-        "SELECT us.core, us.pins, us.correlates, us.adversaries, us.muted, us.lang "
-        "FROM user_settings us JOIN users u ON us.user_id = u.id "
-        "WHERE u.username=?",
-        (identity,),
-    ).fetchone()
+    row = db.user_settings_get(identity)
     if not row:
         return jsonify({"error": "Settings not found"}), 404
     return jsonify({
@@ -314,12 +235,10 @@ def update_settings():
     data = request.get_json(silent=True) or {}
 
     from radar.database import db
-    conn = db._get_conn()
-    user_row = conn.execute("SELECT id FROM users WHERE username=?", (identity,)).fetchone()
-    if not user_row:
+    user = db.user_get(identity)
+    if not user:
         return jsonify({"error": "User not found"}), 404
 
-    # Build SET clause from provided fields
     allowed = {"core": str, "pins": list, "correlates": list,
                "adversaries": list, "muted": list, "lang": str}
     updates = {}
@@ -337,12 +256,7 @@ def update_settings():
         return jsonify({"error": "No valid fields provided"}), 400
 
     updates["updated_at"] = time.time()
-    set_clause = ", ".join(f"{k}=?" for k in updates)
-    conn.execute(
-        f"UPDATE user_settings SET {set_clause} WHERE user_id=?",
-        (*updates.values(), user_row["id"]),
-    )
-    conn.commit()
+    db.user_settings_update(user["id"], updates)
     return jsonify({"status": "ok"})
 
 
@@ -352,20 +266,10 @@ def list_users():
     """List all users (admin only)."""
     caller = get_jwt_identity()
     from radar.database import db
-    caller_row = db._get_conn().execute(
-        "SELECT role FROM users WHERE username=?", (caller,)
-    ).fetchone()
-    if not caller_row or caller_row[0] != "admin":
+    if db.user_get_role(caller) != "admin":
         return jsonify({"error": "Admin only"}), 403
-
-    rows = db._get_conn().execute(
-        "SELECT username, role, created_at, last_login FROM users ORDER BY id"
-    ).fetchall()
-    return jsonify([
-        {"username": r["username"], "role": r["role"],
-         "created_at": r["created_at"], "last_login": r["last_login"]}
-        for r in rows
-    ])
+    users = db.user_list()
+    return jsonify(users)
 
 
 @bp.route("/users/<username>/role", methods=["PUT"])
@@ -374,11 +278,7 @@ def update_user_role(username):
     """Update a user's role (admin only)."""
     caller = get_jwt_identity()
     from radar.database import db
-    conn = db._get_conn()
-    caller_row = conn.execute(
-        "SELECT role FROM users WHERE username=?", (caller,)
-    ).fetchone()
-    if not caller_row or caller_row[0] != "admin":
+    if db.user_get_role(caller) != "admin":
         return jsonify({"error": "Admin only"}), 403
 
     if username == caller:
@@ -389,12 +289,11 @@ def update_user_role(username):
     if new_role not in ("admin", "analyst", "viewer"):
         return jsonify({"error": "Invalid role"}), 400
 
-    row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
-    if not row:
+    user = db.user_get(username)
+    if not user:
         return jsonify({"error": "User not found"}), 404
 
-    conn.execute("UPDATE users SET role=? WHERE id=?", (new_role, row["id"]))
-    conn.commit()
+    db.user_update_role(user["id"], new_role)
     log.info(f"[Auth] Role updated: {username} → {new_role} (by {caller})")
     return jsonify({"status": "ok", "username": username, "role": new_role})
 
@@ -405,23 +304,17 @@ def delete_user(username):
     """Delete a user (admin only)."""
     caller = get_jwt_identity()
     from radar.database import db
-    conn = db._get_conn()
-    caller_row = conn.execute(
-        "SELECT role FROM users WHERE username=?", (caller,)
-    ).fetchone()
-    if not caller_row or caller_row[0] != "admin":
+    if db.user_get_role(caller) != "admin":
         return jsonify({"error": "Admin only"}), 403
 
     if username == caller:
         return jsonify({"error": "Cannot delete own account"}), 400
 
-    row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
-    if not row:
+    user = db.user_get(username)
+    if not user:
         return jsonify({"error": "User not found"}), 404
 
-    conn.execute("DELETE FROM user_settings WHERE user_id=?", (row["id"],))
-    conn.execute("DELETE FROM users WHERE id=?", (row["id"],))
-    conn.commit()
+    db.user_delete(user["id"])
     log.info(f"[Auth] User deleted: {username} (by {caller})")
     return jsonify({"status": "ok"})
 
@@ -432,11 +325,7 @@ def admin_reset_password(username):
     """Reset a user's password (admin only)."""
     caller = get_jwt_identity()
     from radar.database import db
-    conn = db._get_conn()
-    caller_row = conn.execute(
-        "SELECT role FROM users WHERE username=?", (caller,)
-    ).fetchone()
-    if not caller_row or caller_row[0] != "admin":
+    if db.user_get_role(caller) != "admin":
         return jsonify({"error": "Admin only"}), 403
 
     data = request.get_json(silent=True) or {}
@@ -444,17 +333,13 @@ def admin_reset_password(username):
     if not new_pw or len(new_pw) < 6:
         return jsonify({"error": "Password must be at least 6 characters"}), 400
 
-    row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
-    if not row:
+    user = db.user_get(username)
+    if not user:
         return jsonify({"error": "User not found"}), 404
 
     new_salt = secrets.token_hex(16)
     new_hash = _hash_password(new_pw, new_salt)
-    conn.execute(
-        "UPDATE users SET password_hash=?, salt=? WHERE id=?",
-        (new_hash, new_salt, row["id"]),
-    )
-    conn.commit()
+    db.user_update_password(user["id"], new_hash, new_salt)
     log.info(f"[Auth] Password reset: {username} (by {caller})")
     return jsonify({"status": "ok"})
 
@@ -473,20 +358,13 @@ def change_password():
         return jsonify({"error": "Password must be at least 6 characters"}), 400
 
     from radar.database import db
-    conn = db._get_conn()
-    row = conn.execute(
-        "SELECT id, password_hash, salt FROM users WHERE username=?", (identity,)
-    ).fetchone()
-    if not row:
+    user = db.user_get(identity)
+    if not user:
         return jsonify({"error": "User not found"}), 404
-    if _hash_password(old_pw, row["salt"]) != row["password_hash"]:
+    if _hash_password(old_pw, user["salt"]) != user["password_hash"]:
         return jsonify({"error": "Invalid current password"}), 401
 
     new_salt = secrets.token_hex(16)
     new_hash = _hash_password(new_pw, new_salt)
-    conn.execute(
-        "UPDATE users SET password_hash=?, salt=? WHERE id=?",
-        (new_hash, new_salt, row["id"]),
-    )
-    conn.commit()
+    db.user_update_password(user["id"], new_hash, new_salt)
     return jsonify({"status": "ok"})

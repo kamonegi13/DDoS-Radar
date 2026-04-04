@@ -283,6 +283,35 @@ CREATE TABLE IF NOT EXISTS llm_intel (
 CREATE INDEX IF NOT EXISTS idx_llm_intel_ts     ON llm_intel (ts DESC);
 CREATE INDEX IF NOT EXISTS idx_llm_intel_status ON llm_intel (status, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC);
+
+-- Auth: user accounts
+CREATE TABLE IF NOT EXISTS users (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    username    TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    salt        TEXT NOT NULL,
+    role        TEXT NOT NULL DEFAULT 'viewer',
+    created_at  REAL NOT NULL,
+    last_login  REAL
+);
+
+-- Auth: per-user theater settings
+CREATE TABLE IF NOT EXISTS user_settings (
+    user_id     INTEGER PRIMARY KEY REFERENCES users(id),
+    core        TEXT NOT NULL DEFAULT 'TW',
+    pins        TEXT NOT NULL DEFAULT '[]',
+    correlates  TEXT NOT NULL DEFAULT '[]',
+    adversaries TEXT NOT NULL DEFAULT '[]',
+    muted       TEXT NOT NULL DEFAULT '[]',
+    lang        TEXT NOT NULL DEFAULT 'en',
+    updated_at  REAL NOT NULL
+);
+
+-- Auth: JWT revocation list
+CREATE TABLE IF NOT EXISTS revoked_tokens (
+    jti         TEXT PRIMARY KEY,
+    revoked_at  REAL NOT NULL
+);
 """
 
 # Column name mapping for parameterized HOD methods
@@ -1495,6 +1524,116 @@ class RadarDB:
         return [{"source_id": r[0], "source_type": r[1], "credibility_weight": r[2],
                  "confirmed_count": r[3], "false_positive_count": r[4],
                  "last_updated": r[5]} for r in rows]
+
+    # ── Auth ───────────────────────────────────────────────────────────────
+
+    def user_count(self) -> int:
+        row = self._get_conn().execute("SELECT COUNT(*) FROM users").fetchone()
+        return row[0]
+
+    def user_get(self, username: str) -> Optional[dict]:
+        row = self._get_conn().execute(
+            "SELECT id, username, password_hash, salt, role, created_at, last_login "
+            "FROM users WHERE username=?", (username,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def user_get_role(self, username: str) -> Optional[str]:
+        row = self._get_conn().execute(
+            "SELECT role FROM users WHERE username=?", (username,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def user_create(self, username: str, password_hash: str, salt: str,
+                    role: str, created_at: float) -> int:
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO users (username, password_hash, salt, role, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (username, password_hash, salt, role, created_at),
+        )
+        user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        return user_id
+
+    def user_exists(self, username: str) -> bool:
+        row = self._get_conn().execute(
+            "SELECT 1 FROM users WHERE username=?", (username,)
+        ).fetchone()
+        return row is not None
+
+    def user_update_last_login(self, user_id: int, ts: float):
+        conn = self._get_conn()
+        conn.execute("UPDATE users SET last_login=? WHERE id=?", (ts, user_id))
+        conn.commit()
+
+    def user_update_role(self, user_id: int, role: str):
+        conn = self._get_conn()
+        conn.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
+        conn.commit()
+
+    def user_update_password(self, user_id: int, password_hash: str, salt: str):
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE users SET password_hash=?, salt=? WHERE id=?",
+            (password_hash, salt, user_id),
+        )
+        conn.commit()
+
+    def user_delete(self, user_id: int):
+        conn = self._get_conn()
+        conn.execute("DELETE FROM user_settings WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+        conn.commit()
+
+    def user_list(self) -> list[dict]:
+        rows = self._get_conn().execute(
+            "SELECT username, role, created_at, last_login FROM users ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def user_settings_get(self, username: str) -> Optional[dict]:
+        row = self._get_conn().execute(
+            "SELECT us.core, us.pins, us.correlates, us.adversaries, us.muted, us.lang "
+            "FROM user_settings us JOIN users u ON us.user_id = u.id "
+            "WHERE u.username=?", (username,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def user_settings_create(self, user_id: int, core: str, pins: str,
+                             correlates: str, adversaries: str,
+                             muted: str, lang: str, updated_at: float):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO user_settings "
+            "(user_id, core, pins, correlates, adversaries, muted, lang, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, core, pins, correlates, adversaries, muted, lang, updated_at),
+        )
+        conn.commit()
+
+    def user_settings_update(self, user_id: int, updates: dict):
+        conn = self._get_conn()
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        conn.execute(
+            f"UPDATE user_settings SET {set_clause} WHERE user_id=?",
+            (*updates.values(), user_id),
+        )
+        conn.commit()
+
+    def token_revoke(self, jti: str, revoked_at: float):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT OR IGNORE INTO revoked_tokens (jti, revoked_at) VALUES (?, ?)",
+            (jti, revoked_at),
+        )
+        conn.commit()
+
+    def token_is_revoked(self, jti: str) -> bool:
+        row = self._get_conn().execute(
+            "SELECT 1 FROM revoked_tokens WHERE jti=?", (jti,)
+        ).fetchone()
+        return row is not None
 
     # ── Utility ─────────────────────────────────────────────────────────────
     def close(self):
