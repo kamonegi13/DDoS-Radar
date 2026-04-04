@@ -7,12 +7,22 @@ import json
 import datetime
 import time as _time
 from flask import jsonify, request
+from flask_jwt_extended import get_jwt_identity
 from radar.config import PERSISTENCE_STATE_FILE
 from radar.database import db as _db
 from radar.persistence import save_state
 from radar.sensors.telegram import TelegramMirrorSensor
 import radar.routes as _routes
 from radar.routes import bp, _require_admin
+
+# -- Secret masking for GET /api/env_config -----------------------------------
+_SECRET_PATTERNS = ("SECRET", "PASSWORD", "TOKEN", "WEBHOOK", "API_KEY")
+
+def _mask_value(key: str, val: str) -> str:
+    """Mask sensitive config values, showing only the last 4 characters."""
+    if any(p in key.upper() for p in _SECRET_PATTERNS):
+        return val[-4:].rjust(len(val), '*') if len(val) > 4 else '****'
+    return val
 
 @bp.route("/api/env_config", methods=["GET"])
 def api_env_config_get():
@@ -83,7 +93,9 @@ def api_env_config_get():
         if key not in config:
             config[key] = default_val
 
-    return jsonify(config)
+    # Mask sensitive values before returning
+    masked = {k: _mask_value(k, v) for k, v in config.items()}
+    return jsonify(masked)
 
 
 @bp.route("/api/env_config", methods=["POST"])
@@ -94,6 +106,22 @@ def api_env_config_post():
     updates = request.json or {}
     if not updates:
         return jsonify({"error": "No data provided"}), 400
+
+    # Sanitize: reject unknown keys and strip control characters from values
+    _KNOWN_KEYS = set(_RELOADABLE_KEYS) | {
+        "LLM_HOST", "LLM_MODEL", "SERVER_PORT", "SERVER_HOST",
+        "JWT_SECRET_KEY", "DEFAULT_ADMIN_PASSWORD",
+        "CF_API_TOKEN", "CF_ZONE_ID", "OWM_API_KEY",
+        "NOTIFY_SLACK_WEBHOOK", "NOTIFY_TEAMS_WEBHOOK", "NOTIFY_WEBHOOK_URL",
+        "CORS_ALLOWED_ORIGINS",
+    }
+    for key in list(updates.keys()):
+        if key not in _KNOWN_KEYS:
+            return jsonify({"error": f"Unknown config key: {key}"}), 400
+        val = str(updates[key])
+        # Strip newlines and control chars to prevent injection
+        updates[key] = val.replace('\n', '').replace('\r', '').replace('\x00', '')
+
     try:
         with open("config.env", encoding="utf-8") as f:
             lines = f.readlines()
@@ -279,7 +307,7 @@ def api_noise_exclusion_add():
         theater=body.get("theater", ""),
         pattern=body.get("pattern", ""),
         reason=reason,
-        created_by=body.get("created_by", "analyst"),
+        created_by=get_jwt_identity() or "analyst",
         expires_at=expires_at,
     )
     return jsonify({"ok": True, "id": rule_id})
@@ -300,7 +328,10 @@ def api_noise_exclusion_delete(rule_id):
 def api_confirmed_threats_list():
     """List confirmed threat events."""
     theater = request.args.get("theater")
-    limit = int(request.args.get("limit", "100"))
+    try:
+        limit = int(request.args.get("limit", "100"))
+    except (ValueError, TypeError):
+        limit = 100
     return jsonify(_db.confirmed_threat_list(theater=theater, limit=limit))
 
 
@@ -323,7 +354,7 @@ def api_confirmed_threats_add():
         sensors_active=body.get("sensors_active", []),
         threat_level=body.get("threat_level", 5),
         notes=body.get("notes", ""),
-        created_by=body.get("created_by", "analyst"),
+        created_by=get_jwt_identity() or "analyst",
     )
     # Notify LLM intel queue to update source credibility based on classification
     from radar.intel_queue import intel_queue as _iq
@@ -337,7 +368,10 @@ def api_confirmed_threats_add():
 def api_daily_summary():
     """Get daily summary for a theater."""
     theater = request.args.get("theater", "")
-    days = int(request.args.get("days", "90"))
+    try:
+        days = int(request.args.get("days", "90"))
+    except (ValueError, TypeError):
+        days = 90
     return jsonify(_db.daily_summary_get(theater, days))
 
 

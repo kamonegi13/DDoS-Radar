@@ -29,7 +29,10 @@ def api_history_timeseries():
     GET /api/history/timeseries?theater=TW&hours=168&series=combined,l3,l7
     """
     theater = request.args.get("theater", "TW").upper()
-    hours = min(int(request.args.get("hours", "168")), 720)  # max 30 days
+    try:
+        hours = min(int(request.args.get("hours", "168")), 720)  # max 30 days
+    except (ValueError, TypeError):
+        hours = 168
     series_types = request.args.get("series", "combined").split(",")
 
     cutoff = time.time() - hours * 3600
@@ -96,8 +99,14 @@ def api_history_alerts():
     """Return alert timeline with optional filtering.
     GET /api/history/alerts?limit=100&since=1710000000
     """
-    limit = min(int(request.args.get("limit", "100")), 500)
-    since = float(request.args.get("since", "0"))
+    try:
+        limit = min(int(request.args.get("limit", "100")), 500)
+    except (ValueError, TypeError):
+        limit = 100
+    try:
+        since = float(request.args.get("since", "0"))
+    except (ValueError, TypeError):
+        since = 0.0
 
     alerts = _db.alert_list(limit=ALERT_TIMELINE_MAX)
     if since > 0:
@@ -117,7 +126,10 @@ def api_history_sequence_events():
     GET /api/history/sequence_events?theater=TW&hours=48
     """
     theater = request.args.get("theater", "").upper()
-    hours = min(int(request.args.get("hours", "24")), 168)
+    try:
+        hours = min(int(request.args.get("hours", "24")), 168)
+    except (ValueError, TypeError):
+        hours = 24
 
     cutoff = time.time() - hours * 3600
 

@@ -33,7 +33,9 @@ def save_state() -> None:
         from radar.database import db
         from radar import registry  # noqa: E402 — deferred to break circular import
         sc_count = 0
-        for name, sensor in registry._sensors.items():
+        with registry._lock:
+            sensor_snapshot = list(registry._sensors.items())
+        for name, sensor in sensor_snapshot:
             ct = sensor._cache_time
             if not ct:
                 continue

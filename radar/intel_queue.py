@@ -308,16 +308,15 @@ class IntelQueue:
         if max_age_h <= 0:
             return 0
         cutoff = time.time() - max_age_h * 3600
-        items = db.intel_list(status="pending", limit=500)
+        items = db.intel_list(status="pending", limit=500, before_ts=cutoff)
         rejected = 0
         for item in items:
-            if item.get("created_at", 0) < cutoff:
-                db.intel_update_status(item["id"], "rejected",
-                                       confirmed_by="auto", confirmed_at=time.time())
-                with _active_lock:
-                    _active_item_ids.discard(item["id"])
-                rejected += 1
-                log.info(f"[Intel] AUTO-REJECTED (stale): {item.get('headline', '')[:80]}")
+            db.intel_update_status(item["id"], "rejected",
+                                   confirmed_by="auto", confirmed_at=time.time())
+            with _active_lock:
+                _active_item_ids.discard(item["id"])
+            rejected += 1
+            log.info(f"[Intel] AUTO-REJECTED (stale): {item.get('headline', '')[:80]}")
         if rejected:
             log.info(f"[Intel] Auto-rejected {rejected} stale pending items (>{max_age_h}h)")
         return rejected
@@ -393,13 +392,12 @@ class IntelQueue:
 
         # Filter to active items within TTL
         active = []
-        with _active_lock:
-            for item in items_ac + items_c:
-                if item.get("override_at"):
-                    continue
-                if now - item["ts"] > ttl:
-                    continue
-                active.append(item)
+        for item in items_ac + items_c:
+            if item.get("override_at"):
+                continue
+            if now - item["ts"] > ttl:
+                continue
+            active.append(item)
 
         # Second pass: apply per-(source_type, theater) cap ranked by score_delta
         # Group and sort descending; keep top `cap` items per group
@@ -436,21 +434,15 @@ class IntelQueue:
         return db.intel_source_list()
 
     def stats(self) -> dict:
-        all_items = db.intel_list(limit=500)
-        auto = sum(1 for i in all_items if i["status"] == "auto_confirmed")
-        pending = sum(1 for i in all_items if i["status"] == "pending")
-        confirmed = sum(1 for i in all_items if i["status"] == "confirmed")
-        rejected = sum(1 for i in all_items if i["status"] == "rejected")
-        overridden = sum(1 for i in all_items if i["status"] == "overridden")
-        review_needed = sum(1 for i in all_items if i["status"] == "review_needed")
+        counts = db.intel_status_counts()
         return {
-            "auto_confirmed": auto,
-            "pending":        pending,
-            "confirmed":      confirmed,
-            "rejected":       rejected,
-            "overridden":     overridden,
-            "review_needed":  review_needed,
-            "total":          len(all_items),
+            "auto_confirmed": counts.get("auto_confirmed", 0),
+            "pending":        counts.get("pending", 0),
+            "confirmed":      counts.get("confirmed", 0),
+            "rejected":       counts.get("rejected", 0),
+            "overridden":     counts.get("overridden", 0),
+            "review_needed":  counts.get("review_needed", 0),
+            "total":          sum(counts.values()),
             "llm_enabled":    LLM_ENABLED,
             "auto_threshold": _auto_confirm_threshold(),
             "confidence_min": _confidence_min(),

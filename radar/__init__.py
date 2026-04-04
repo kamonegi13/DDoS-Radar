@@ -5,6 +5,7 @@ Import the Flask app via: from radar import app
 """
 from __future__ import annotations
 import logging
+import os
 import threading
 from flask import Flask
 from flask_cors import CORS
@@ -16,9 +17,17 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+# ── Limit urllib3 connection retries ──
+# Without this, SSL errors cause Max-Retries loops that block greenlets
+# for extended periods, starving the gevent event loop and causing DB locks.
+import urllib3.util.retry as _uretry  # noqa: E402
+_uretry.Retry.DEFAULT = _uretry.Retry(total=1, backoff_factor=0)
+
 # ── App ──
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+_cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*")
+_cors_list = [o.strip() for o in _cors_origins.split(",")] if _cors_origins != "*" else "*"
+CORS(app, resources={r"/api/*": {"origins": _cors_list}})
 
 # ── Config (triggers _load_env) ──
 from radar import config  # noqa: E402

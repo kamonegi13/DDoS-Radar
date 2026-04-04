@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import radar.routes as _routes
 from flask import jsonify, request
+from radar.auth import require_role
 
 bp = _routes.bp
 
@@ -21,7 +22,10 @@ def intel_list():
     source_type = request.args.get("source_type", "")
     status      = request.args.get("status", "")
     theater     = request.args.get("theater", "")
-    limit       = min(int(request.args.get("limit", "100")), 200)
+    try:
+        limit = min(int(request.args.get("limit", "100")), 200)
+    except (ValueError, TypeError):
+        limit = 100
     items = intel_queue.list_items(
         source_type=source_type or None,
         status=status or None,
@@ -46,6 +50,7 @@ def intel_stats():
 
 
 @bp.route("/api/intel/<item_id>/confirm", methods=["POST"])
+@require_role("admin", "analyst")
 def intel_confirm(item_id: str):
     """Manually confirm a PENDING intel item."""
     from radar.intel_queue import intel_queue
@@ -58,6 +63,7 @@ def intel_confirm(item_id: str):
 
 
 @bp.route("/api/intel/<item_id>/reject", methods=["POST"])
+@require_role("admin", "analyst")
 def intel_reject(item_id: str):
     """Reject a PENDING intel item."""
     from radar.intel_queue import intel_queue
@@ -70,6 +76,7 @@ def intel_reject(item_id: str):
 
 
 @bp.route("/api/intel/<item_id>/revert", methods=["POST"])
+@require_role("admin", "analyst")
 def intel_revert(item_id: str):
     """Revert a confirmed or rejected item back to pending for re-review."""
     from radar.intel_queue import intel_queue
@@ -82,6 +89,7 @@ def intel_revert(item_id: str):
 
 
 @bp.route("/api/intel/<item_id>/override", methods=["POST"])
+@require_role("admin", "analyst")
 def intel_override(item_id: str):
     """Override an AUTO-CONFIRMED item within the override window."""
     from radar.intel_queue import intel_queue

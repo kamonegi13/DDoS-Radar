@@ -1,5 +1,5 @@
     // HTML escape utility — prevents XSS when inserting external API strings into innerHTML
-    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const esc = s => { s = String(s ?? ''); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); };
 
     // ── Auth: wrap fetch to include JWT and handle 401 ──
     const _origFetch = window.fetch.bind(window);
@@ -214,7 +214,8 @@
     };
 
     // ── GreyNoise Investigator ─────────────────────────────────────────────────
-    let _gnLog = JSON.parse(localStorage.getItem('gnLookupLog') || '[]');
+    let _gnLog = [];
+    try { _gnLog = JSON.parse(localStorage.getItem('gnLookupLog') || '[]'); } catch(e) { /* corrupted localStorage */ }
 
     const toggleGnPanel = _createPanelToggle('gn-panel', { onShow: () => renderGnLog() });
 
@@ -250,8 +251,8 @@
                 const nc = d.noise_class || 'UNKNOWN';
                 const nr = d.noise_ratio !== null && d.noise_ratio !== undefined ? ` (${Math.round(d.noise_ratio * 100)}%)` : '';
                 return `<div class="gn-theater-row">
-                    <span style="color:#888;font-size:10px;">${cc}</span>
-                    <span class="gn-noise-${nc}" style="font-size:10px;font-weight:bold;">${nc}${nr}</span>
+                    <span style="color:#888;font-size:10px;">${esc(cc)}</span>
+                    <span class="gn-noise-${esc(nc)}" style="font-size:10px;font-weight:bold;">${esc(nc)}${nr}</span>
                 </div>`;
             }).join('') || `<div style="color:#444;font-size:9px;">${_t('gn.no_theater_data')}</div>`;
         }
@@ -305,7 +306,7 @@
         el.innerHTML = _gnLog.map(e => {
             const t  = new Date(e.ts).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'});
             const cls = e.noise ? 'gn-log-noise' : e.classification === 'unknown' ? 'gn-log-unknown' : 'gn-log-targeted';
-            return `<div class="gn-log-entry"><span style="color:#444;">${t}</span> <span style="color:#888;">${e.ip}</span> → <span class="${cls}">${e.noise?'NOISE':'TARGETED'}</span> <span style="color:#666;">${e.name||''}</span></div>`;
+            return `<div class="gn-log-entry"><span style="color:#444;">${t}</span> <span style="color:#888;">${esc(e.ip)}</span> → <span class="${cls}">${e.noise?'NOISE':'TARGETED'}</span> <span style="color:#666;">${esc(e.name||'')}</span></div>`;
         }).join('');
     }
 
@@ -425,10 +426,6 @@
             .catch(() => {});
     }
 
-    function _tgEsc(s) {
-        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
     function renderTgSigintPanel(tg) {
         _tgLastData = tg;
 
@@ -480,8 +477,8 @@
                     const bg    = st === 'INTENT_DETECTED' ? 'rgba(255,102,204,0.1)' : st === 'TARGETS_FOUND' ? 'rgba(255,170,0,0.1)' : 'transparent';
                     const label = st === 'INTENT_DETECTED' ? '██' : st === 'TARGETS_FOUND' ? '◆' : '──';
                     return `<span class="tgsig-theater-btn" style="color:${color};background:${bg};border-color:${color}55;"
-                        onclick="tgSetFilter('theater','${_tgEsc(theater)}')" data-tooltip="${theater}: ${st}">
-                        ${_tgEsc(theater)}[${label}]</span>`;
+                        onclick="tgSetFilter('theater','${esc(theater)}')" data-tooltip="${theater}: ${st}">
+                        ${esc(theater)}[${label}]</span>`;
                 }).join('');
             }
         }
@@ -499,7 +496,7 @@
                 roster.innerHTML = monitored.map(ch => {
                     const isActive = active.includes(ch);
                     return `<span class="tgsig-roster-badge${isActive?' active':''}"
-                        onclick="tgSetFilter('channel','${_tgEsc(ch)}')">${_tgEsc(ch)}</span>`;
+                        onclick="tgSetFilter('channel','${esc(ch)}')">${esc(ch)}</span>`;
                 }).join('');
             }
         }
@@ -527,19 +524,19 @@
             const kwStr    = (h.keywords_matched || []).join(' · ') || '—';
             const urlStr   = (h.target_urls || []).map(u => u.replace(/^https?:\/\//,'')).join(' · ');
             const snippet  = h.snippet
-                ? `<div class="tgsig-snippet">${_tgEsc(h.snippet)}</div>` : '';
+                ? `<div class="tgsig-snippet">${esc(h.snippet)}</div>` : '';
             const srcLink  = h.channel_url
-                ? `<a href="${_tgEsc(h.channel_url)}" target="_blank" class="tgsig-src-link">↗SRC</a>` : '';
+                ? `<a href="${esc(h.channel_url)}" target="_blank" class="tgsig-src-link">↗SRC</a>` : '';
             return `<div class="tgsig-entry ${cls}">
                 <div class="tgsig-entry-hdr">
-                    <span><span style="color:#aaa;">${_tgEsc(h.channel||'?')}</span>&nbsp;·&nbsp;${ts}&nbsp;·&nbsp;${_tgEsc(h.theater||'')}</span>
+                    <span><span style="color:#aaa;">${esc(h.channel||'?')}</span>&nbsp;·&nbsp;${ts}&nbsp;·&nbsp;${esc(h.theater||'')}</span>
                     ${srcLink}
                 </div>
                 <div class="tgsig-entry-class" style="color:${color};">
                     ${isIntent?'INTENT':'TARGET'}
-                    <span class="tgsig-entry-kw">&nbsp;${_tgEsc(kwStr)}</span>
+                    <span class="tgsig-entry-kw">&nbsp;${esc(kwStr)}</span>
                 </div>
-                ${urlStr ? `<div class="tgsig-entry-urls">${_tgEsc(urlStr)}</div>` : ''}
+                ${urlStr ? `<div class="tgsig-entry-urls">${esc(urlStr)}</div>` : ''}
                 ${snippet}
             </div>`;
         }).join('');
@@ -565,7 +562,8 @@
     }
 
     // ── Analyst Notebook ───────────────────────────────────────────────────────
-    let _nbLog        = JSON.parse(localStorage.getItem('nbLog')        || '[]');
+    let _nbLog = [];
+    try { _nbLog = JSON.parse(localStorage.getItem('nbLog') || '[]'); } catch(e) { /* corrupted localStorage */ }
     let _nbConfidence = parseInt(localStorage.getItem('nbConfidence')   || '3');
     let _nbAssessment = localStorage.getItem('nbAssessment')            || 'NOMINAL';
     let _lastDefconLevel = null;   // for DEFCON auto-log
@@ -644,7 +642,7 @@
                 : '';
             return `<div class="nb-log-entry">
                 <div class="nb-ts">${t} <span class="${typeClass}">[${e.type}]</span>${assessBadge}${confStr}</div>
-                <div style="color:#aaa;font-size:10px;margin-top:1px;">${e.content}</div>
+                <div style="color:#aaa;font-size:10px;margin-top:1px;">${esc(e.content)}</div>
             </div>`;
         }).join('');
     }
@@ -1032,7 +1030,7 @@
             if (msk.detected) {
                 mskEl.style.display = 'block';
                 mskEl.innerHTML = `<span style="color:#ff8800;font-weight:700;">${_t('chain.maskirovka.title')}</span>
-                    <div style="color:#aaa;font-size:10px;margin-top:2px;">${msk.reason || ''}</div>`;
+                    <div style="color:#aaa;font-size:10px;margin-top:2px;">${esc(msk.reason || '')}</div>`;
             } else {
                 mskEl.style.display = 'none';
             }
@@ -2141,8 +2139,12 @@
         }
 
         try {
-            // Append &muted=${mutedList}
-            const apiUrl = `/api/threat_data?targets=${fetchTargets}&core=${coreTheater}&correlates=${selectedCorrelates}&adversaries=${selectedAdversaries}&muted=${mutedList}&force=${force}`;
+            const _params = new URLSearchParams({
+                targets: fetchTargets, core: coreTheater,
+                correlates: selectedCorrelates, adversaries: selectedAdversaries,
+                muted: mutedList, force: force
+            });
+            const apiUrl = `/api/threat_data?${_params}`;
             const response = await fetch(apiUrl);
             if (!response.ok) {
                 console.warn(`[API] HTTP ${response.status} — keeping previous data`);
@@ -3190,7 +3192,8 @@
 
         const savedState = localStorage.getItem('ctiIntelAlerts');
         if (savedState) {
-            const stateObj = JSON.parse(savedState);
+            let stateObj;
+            try { stateObj = JSON.parse(savedState); } catch(e) { stateObj = {}; }
             // If saved layout version is outdated, discard only the layout portion
             if (!stateObj.layoutVersion || stateObj.layoutVersion < LAYOUT_VERSION) {
                 delete stateObj.layout;
@@ -3306,7 +3309,8 @@
         // ── WebSocket: real-time push (polling fallback at 15-min interval) ──
         if (typeof io !== 'undefined') {
             try {
-                _wsSocket = io({ transports: ['websocket', 'polling'] });
+                const _wsToken = localStorage.getItem('radar_access_token') || '';
+                _wsSocket = io({ transports: ['websocket', 'polling'], query: { token: _wsToken } });
                 _wsSocket.on('connect', () => {
                     _wsConnected = true;
                     const core = getCurrentConfig().core || 'TW';
@@ -3537,7 +3541,7 @@
         <div class="cip-header">
             <div class="cip-flag">🌐</div>
             <div>
-                <div class="cip-title">${tgtData.info || code}</div>
+                <div class="cip-title">${esc(tgtData.info || code)}</div>
                 <div class="cip-code">${code} &nbsp;|&nbsp; ${coordName} &nbsp;|&nbsp; Global share L3: ${shareL3} / L7: ${shareL7}</div>
             </div>
         </div>
@@ -3764,14 +3768,14 @@
                     ? `<span class="rat-score-pos">+${e.score}</span>`
                     : `<span class="rat-score-zero">0</span>`;
                 const reasonText = e.suppressed
-                    ? `<span style="color:#ffaa00">${_t('evidence.suppressed', {reason: e.suppress_reason || ''})}</span>`
-                    : (e.fired_reason || '<span style="color:#444">—</span>');
+                    ? `<span style="color:#ffaa00">${_t('evidence.suppressed', {reason: esc(e.suppress_reason || '')})}</span>`
+                    : (esc(e.fired_reason) || '<span style="color:#444">—</span>');
                 
                 // Inject MUTE / UNMUTE button
                 const isMuted = mutedSensors.has(e.sensor);
                 const muteBtnTxt = isMuted ? _t('evidence.btn.unmute') : _t('evidence.btn.mute');
                 const muteBtnStyle = isMuted ? 'color:#ffaa00; border-color:#ffaa00;' : 'color:#555; border-color:#555;';
-                const muteBtn = `<button onclick="toggleMute('${e.sensor}')" style="background:transparent; border:1px solid; border-radius:3px; font-size:9px; cursor:pointer; margin-left:8px; transition:0.2s; ${muteBtnStyle}">${muteBtnTxt}</button>`;
+                const muteBtn = `<button onclick="toggleMute('${esc(e.sensor)}')" style="background:transparent; border:1px solid; border-radius:3px; font-size:9px; cursor:pointer; margin-left:8px; transition:0.2s; ${muteBtnStyle}">${muteBtnTxt}</button>`;
 
                 // Confidence badge: color-coded by level
                 const conf = e.confidence != null ? e.confidence : 1.0;
@@ -3790,14 +3794,14 @@
 
                 // CAC: Noise classification button (only for FIRED entries)
                 const classifyBtn = (e.status === 'FIRED' && !e.suppressed)
-                    ? `<button onclick="openNoiseClassify('${e.sensor}','${e.value.replace(/'/g, "\\'")}','${e.domain}')" class="btn-classify" title="${_t('evidence.btn.classify_tip')}">📋</button>`
+                    ? `<button onclick="openNoiseClassify('${esc(e.sensor)}','${esc(e.value)}','${esc(e.domain)}')" class="btn-classify" title="${_t('evidence.btn.classify_tip')}">📋</button>`
                     : '';
 
                 return `<tr>
-                    <td style="font-family:monospace; font-size:11px; color:#ccc;">${e.sensor} ${muteBtn}${classifyBtn}</td>
-                    <td><span class="rat-domain-${e.domain}">${e.domain}</span></td>
-                    <td><span class="rat-status-${e.status}">${e.status}</span></td>
-                    <td style="color:#fff; font-size:11px;">${e.value}</td>
+                    <td style="font-family:monospace; font-size:11px; color:#ccc;">${esc(e.sensor)} ${muteBtn}${classifyBtn}</td>
+                    <td><span class="rat-domain-${esc(e.domain)}">${esc(e.domain)}</span></td>
+                    <td><span class="rat-status-${esc(e.status)}">${esc(e.status)}</span></td>
+                    <td style="color:#fff; font-size:11px;">${esc(e.value)}</td>
                     <td style="text-align:center;">${scoreHtml}</td>
                     <td style="text-align:center;">${confHtml}</td>
                     <td style="text-align:center;">${dirHtml}</td>
@@ -4278,9 +4282,9 @@
                 return `<div class="wb-row">
                     <div class="wb-icon">${icon}</div>
                     <div class="wb-info">
-                        <div class="wb-domain-tag ${cls}">${key.toUpperCase()}</div>
-                        <div class="wb-condition" style="color:${color};">${v.state}</div>
-                        <div class="wb-desc">${v.detail}</div>
+                        <div class="wb-domain-tag ${cls}">${esc(key.toUpperCase())}</div>
+                        <div class="wb-condition" style="color:${color};">${esc(v.state)}</div>
+                        <div class="wb-desc">${esc(v.detail)}</div>
                     </div>
                 </div>`;
             }).join('');
@@ -4328,11 +4332,11 @@
                     `<div class="s-row">
                         <span class="s-key">${f.k}</span>
                         <span class="s-label">${f.l}</span>
-                        <span class="s-val">${f.v}</span>
+                        <span class="s-val">${esc(f.v)}</span>
                     </div>`
                 ).join('') +
-                (sal.cross_ref ? `<div class="s-crossref"><span class="s-crossref-label">${_t('panel.salute.cross_ref')}</span> ${sal.cross_ref}</div>` : '') +
-                (sal.assessment ? `<div class="s-assess">${sal.assessment}</div>` : '');
+                (sal.cross_ref ? `<div class="s-crossref"><span class="s-crossref-label">${_t('panel.salute.cross_ref')}</span> ${esc(sal.cross_ref)}</div>` : '') +
+                (sal.assessment ? `<div class="s-assess">${esc(sal.assessment)}</div>` : '');
         } catch(e) {
             bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API unavailable</div>';
         }
@@ -4670,18 +4674,18 @@
                 const httpSt   = last && last.http_status   ? last.http_status : '—';
                 const cacheAge = s.cache_age_sec != null ? `${s.cache_age_sec}s` : '—';
                 const dCol = domainColor[s.domain] || '#888';
-                const errMsg   = last && last.error ? `<div style="color:#ff4444;font-size:10px;margin-bottom:4px;">${last.error}</div>` : '';
+                const errMsg   = last && last.error ? `<div style="color:#ff4444;font-size:10px;margin-bottom:4px;">${esc(last.error)}</div>` : '';
 
                 const histBar = (s.fetch_log || []).map(e =>
-                    `<span style="display:inline-block;width:8px;height:16px;margin:0 1px;vertical-align:middle;border-radius:2px;background:${e.success ? '#66ff66' : '#ff4444'}44;border:1px solid ${e.success ? '#66ff66' : '#ff4444'};" data-tooltip="${new Date(e.ts).toLocaleTimeString()}\nStatus: ${e.success ? 'OK' : 'ERROR'}\n${e.error || ''}"></span>`
+                    `<span style="display:inline-block;width:8px;height:16px;margin:0 1px;vertical-align:middle;border-radius:2px;background:${e.success ? '#66ff66' : '#ff4444'}44;border:1px solid ${e.success ? '#66ff66' : '#ff4444'};" data-tooltip="${new Date(e.ts).toLocaleTimeString()}\nStatus: ${e.success ? 'OK' : 'ERROR'}\n${esc(e.error || '')}"></span>`
                 ).join('');
 
                 return `
                 <div style="margin-bottom:10px;padding:10px;background:#111;border:1px solid #222;border-left:3px solid ${healthCls};border-radius:4px;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                        <span style="font-size:13px;font-weight:bold;color:#eee;">${s.sensor}</span>
-                        <span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${dCol}22;color:${dCol};border:1px solid ${dCol}44; text-transform:uppercase;">${s.domain}</span>
-                        <span style="font-size:11px;padding:1px 6px;border-radius:3px;color:${healthCls};border:1px solid ${healthCls}55;">${s.health}</span>
+                        <span style="font-size:13px;font-weight:bold;color:#eee;">${esc(s.sensor)}</span>
+                        <span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${dCol}22;color:${dCol};border:1px solid ${dCol}44; text-transform:uppercase;">${esc(s.domain)}</span>
+                        <span style="font-size:11px;padding:1px 6px;border-radius:3px;color:${healthCls};border:1px solid ${healthCls}55;">${esc(s.health)}</span>
                         <span style="margin-left:auto;font-size:11px;color:#555;">poll: ${Math.round(s.poll_interval_sec/60)}min</span>
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px;color:#888;margin-bottom:6px;">
@@ -5119,12 +5123,12 @@
 
             const domainColor = cfg.domain === 'cyber' ? '#00ffff' : cfg.domain === 'physical' ? '#ffaa00' : '#cc66ff';
             const popup = `<div style="font-family:'Courier New',monospace;font-size:11px;min-width:150px;">` +
-                `<b style="color:${domainColor}">${sensor}</b><br>` +
-                `Status: <b>${entry.status}</b>${isSuppressed ? ' <span style="color:#888">[MUTED]</span>' : ''}<br>` +
+                `<b style="color:${domainColor}">${esc(sensor)}</b><br>` +
+                `Status: <b>${esc(entry.status)}</b>${isSuppressed ? ' <span style="color:#888">[MUTED]</span>' : ''}<br>` +
                 `Score: <b>+${score}pt</b><br>` +
-                (entry.value        ? `Value: ${entry.value}<br>` : '') +
-                (entry.fired_reason ? `Reason: ${entry.fired_reason}` : '') +
-                (isSuppressed && entry.suppress_reason ? `<br><span style="color:#666">Suppressed: ${entry.suppress_reason}</span>` : '') +
+                (entry.value        ? `Value: ${esc(entry.value)}<br>` : '') +
+                (entry.fired_reason ? `Reason: ${esc(entry.fired_reason)}` : '') +
+                (isSuppressed && entry.suppress_reason ? `<br><span style="color:#666">Suppressed: ${esc(entry.suppress_reason)}</span>` : '') +
                 `</div>`;
 
             L.marker([iconLat, iconLng], {icon})
@@ -5181,14 +5185,14 @@
                 const label       = cfg ? cfg.label : (e.sensor || '').substring(0, 6).toUpperCase();
                 const detail      = (e.value || e.fired_reason || '').substring(0, 28);
                 const mapBtn      = cfg
-                    ? `<span class="dd-map-btn" onclick="event.stopPropagation();focusSensorOnMap('${e.sensor}')" title="${_t('dd.btn.focus_map')}">⊙</span>`
+                    ? `<span class="dd-map-btn" onclick="event.stopPropagation();focusSensorOnMap('${esc(e.sensor)}')" title="${_t('dd.btn.focus_map')}">⊙</span>`
                     : '';
 
-                return `<div class="dd-sensor-row ${rowClass}" onclick="focusSensorOnMap('${e.sensor}')">` +
-                    `<span class="dd-label" style="color:${isFired ? color : '#777'}">${label}</span>` +
+                return `<div class="dd-sensor-row ${rowClass}" onclick="focusSensorOnMap('${esc(e.sensor)}')">` +
+                    `<span class="dd-label" style="color:${isFired ? color : '#777'}">${esc(label)}</span>` +
                     `<div class="dd-bar-wrap"><div class="dd-bar-fill" style="width:${pct}%;background:${isFired ? color : '#333'};"></div></div>` +
                     `<span class="dd-score" style="color:${isFired ? color : '#666'}">${e.score > 0 ? '+'+e.score : '—'}</span>` +
-                    `<span class="dd-detail">${detail}</span>` +
+                    `<span class="dd-detail">${esc(detail)}</span>` +
                     mapBtn +
                     `</div>`;
             }).join('');
@@ -6374,24 +6378,24 @@
         try {
             const resp = await fetch('/api/escalation_progress');
             if (!resp.ok) throw new Error('API error');
-            const esc = await resp.json();
+            const escData = await resp.json();
 
-            const tlColor = tlColors[esc.current_tl] || '#666';
-            const patternRaw = (esc.pattern || 'STABLE').replace('-', '_');
+            const tlColor = tlColors[escData.current_tl] || '#666';
+            const patternRaw = (escData.pattern || 'STABLE').replace('-', '_');
             const patternKey = 'panel.esc.pattern.' + patternRaw;
             const patternColors = { ESCALATING: '#ff4444', 'DE-ESCALATING': '#44aa44', STABLE: '#666', OSCILLATING: '#ffaa00' };
-            const patternColor = patternColors[esc.pattern] || '#666';
+            const patternColor = patternColors[escData.pattern] || '#666';
 
-            const durSec = esc.tl_duration_sec || 0;
+            const durSec = escData.tl_duration_sec || 0;
             const durMin = Math.floor(durSec / 60);
             const durH = Math.floor(durMin / 60);
             const durStr = durH > 0 ? `${durH}h ${durMin % 60}m` : `${durMin}m`;
 
-            const vel = esc.escalation_velocity || 0;
+            const vel = escData.escalation_velocity || 0;
             const velSign = vel > 0 ? '+' : '';
             const velColor = vel > 0.5 ? '#ff4444' : vel < -0.5 ? '#44aa44' : '#888';
 
-            const trend = esc.score_trend || 0;
+            const trend = escData.score_trend || 0;
             const trendSign = trend > 0 ? '▲' : trend < 0 ? '▼' : '—';
             const trendColor = trend > 0 ? '#ff4444' : trend < 0 ? '#44aa44' : '#888';
 
@@ -6409,20 +6413,20 @@
             html += `</div>`;
 
             // Prediction
-            if (esc.predicted_next_tl) {
-                const predColor = tlColors[esc.predicted_next_tl] || '#666';
-                const predSec = esc.predicted_time_sec || 0;
+            if (escData.predicted_next_tl) {
+                const predColor = tlColors[escData.predicted_next_tl] || '#666';
+                const predSec = escData.predicted_time_sec || 0;
                 const predMin = Math.floor(predSec / 60);
                 const predH = Math.floor(predMin / 60);
                 const predStr = predH > 0 ? `${predH}h ${predMin % 60}m` : `${predMin}m`;
                 html += `<div class="esc-prediction-block">`;
-                html += `<div class="esc-pred-row"><span style="color:${predColor}">${_t('panel.esc.predicted_tl', { tl: esc.predicted_next_tl })}</span>`;
+                html += `<div class="esc-pred-row"><span style="color:${predColor}">${_t('panel.esc.predicted_tl', { tl: escData.predicted_next_tl })}</span>`;
                 html += ` <span style="color:#888; font-size:9px;">(${_t('panel.esc.predicted_time', { time: predStr })})</span></div>`;
                 html += `</div>`;
             }
 
             // Transition history (compact — last 5)
-            const transitions = esc.tl_transitions || [];
+            const transitions = escData.tl_transitions || [];
             if (transitions.length > 0) {
                 html += `<div class="esc-transitions-block">`;
                 html += `<div class="esc-section-title">${_t('panel.esc.transitions')}</div>`;
@@ -7013,14 +7017,8 @@
         return iso || '';
     }
 
-    function _escHtml(s) {
-        const d = document.createElement('div');
-        d.textContent = s;
-        return d.innerHTML;
-    }
-    function _escAttr(s) {
-        return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    }
+    function _escHtml(s) { return esc(s); }
+    function _escAttr(s) { return esc(s); }
 
     // Expose for main render loop
     window._updateClimateFromPoll = function(data) {

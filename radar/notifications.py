@@ -12,6 +12,7 @@ Configuration via environment variables:
   NOTIFY_ENABLED          — Set to "false" to disable all notifications
 """
 from __future__ import annotations
+import collections
 import json
 import logging
 import os
@@ -99,8 +100,7 @@ def _send_generic(event_type: str, data: dict):
 
 
 # ── Notification log (ring buffer for UI feedback) ───────────────────────────
-_notification_log: list[dict] = []
-_NOTIFY_LOG_MAX = 50
+_notification_log: collections.deque[dict] = collections.deque(maxlen=50)
 
 def get_notification_log() -> list[dict]:
     """Return recent notification delivery log for UI display."""
@@ -115,8 +115,6 @@ def _log_delivery(channel: str, event_type: str, title: str, success: bool, deta
     }
     with _lock:
         _notification_log.append(entry)
-        if len(_notification_log) > _NOTIFY_LOG_MAX:
-            _notification_log.pop(0)
     # Emit to connected clients via WS
     try:
         from radar.ws import emit_notification_result

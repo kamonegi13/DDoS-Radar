@@ -37,6 +37,7 @@ Usage:
 from __future__ import annotations
 import logging
 import os
+import threading
 import time
 import uuid
 from collections import defaultdict
@@ -90,6 +91,7 @@ _DEFAULT_INDEPENDENCE = 0.70  # for unlisted pairs
 # Corroborated items go through intel_queue so they are reviewed / auto-confirmed
 # like any other item.  We track per-theater cooldown in memory.
 _cooldown_until: dict[str, float] = {}  # theater → Unix timestamp
+_cooldown_lock = threading.Lock()
 
 
 def _independence(a: str, b: str) -> float:
@@ -176,8 +178,9 @@ class CorroborationEngine:
         created = 0
         for theater, theater_items in by_theater.items():
             # Check cooldown
-            if time.time() < _cooldown_until.get(theater, 0):
-                continue
+            with _cooldown_lock:
+                if time.time() < _cooldown_until.get(theater, 0):
+                    continue
 
             # Collect distinct source_types present in this theater+window
             source_types_present = [i["source_type"] for i in theater_items]
@@ -202,7 +205,8 @@ class CorroborationEngine:
                 item_id = intel_queue.submit(corr_item)
                 if item_id:
                     created += 1
-                    _cooldown_until[theater] = time.time() + _corr_cooldown_seconds()
+                    with _cooldown_lock:
+                        _cooldown_until[theater] = time.time() + _corr_cooldown_seconds()
                     log.info(
                         f"[Corroboration] Created corroborated item for {theater}: "
                         f"{corr_item['headline'][:60]} "
@@ -211,9 +215,10 @@ class CorroborationEngine:
 
         # Purge expired cooldowns to prevent unbounded dict growth
         now = time.time()
-        expired = [t for t, ts in _cooldown_until.items() if ts <= now]
-        for t in expired:
-            _cooldown_until.pop(t, None)
+        with _cooldown_lock:
+            expired = [t for t, ts in _cooldown_until.items() if ts <= now]
+            for t in expired:
+                _cooldown_until.pop(t, None)
 
         if created:
             log.info(f"[Corroboration] Pass complete: {created} corroborated items created")

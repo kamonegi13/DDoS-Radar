@@ -11,7 +11,9 @@ Polling fallback via /api/threat_data remains functional.
 """
 from __future__ import annotations
 import logging
-from flask_socketio import SocketIO, emit, join_room, leave_room
+import os
+from flask import request as _flask_request
+from flask_socketio import SocketIO, emit, join_room, leave_room, disconnect
 
 log = logging.getLogger("radar")
 
@@ -22,11 +24,29 @@ socketio: SocketIO | None = None
 def init_socketio(app, **kwargs) -> SocketIO:
     """Create and configure the SocketIO instance on the Flask app."""
     global socketio
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent", **kwargs)
+    _cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*")
+    _cors_list = (
+        [o.strip() for o in _cors_origins.split(",")]
+        if _cors_origins != "*" else "*"
+    )
+    socketio = SocketIO(app, cors_allowed_origins=_cors_list, async_mode="gevent", **kwargs)
 
     @socketio.on("connect")
     def on_connect():
-        log.info("[WS] Client connected")
+        # Verify JWT token passed via auth query parameter
+        token = _flask_request.args.get("token", "")
+        if not token:
+            log.warning("[WS] Connection rejected: no token")
+            disconnect()
+            return False
+        try:
+            from flask_jwt_extended import decode_token
+            decode_token(token)
+        except Exception:
+            log.warning("[WS] Connection rejected: invalid token")
+            disconnect()
+            return False
+        log.info("[WS] Client connected (authenticated)")
 
     @socketio.on("disconnect")
     def on_disconnect():

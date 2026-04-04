@@ -105,34 +105,6 @@ def _fetch_cf_timeseries_hourly(theater: str, days: int) -> dict:
     Fetches both L3 and L7 timeseries and merges them (max of each hour bucket).
     Falls back to L7-only, then global timeseries.
     Returns {unix_hour_bucket: normalized_value}, empty dict on total failure."""
-    from datetime import datetime
-
-    def _parse_ts_response(res) -> dict:
-        if res.status_code != 200:
-            return {}
-        result = res.json().get("result", {})
-        # CF Radar timeseries may store data directly in result OR nested under
-        # "serie_0", "serie_1" etc. Try both layouts.
-        if "timestamps" in result:
-            timestamps = result["timestamps"]
-            values     = result.get("values", [])
-        else:
-            serie = next((v for k, v in result.items()
-                          if k.startswith("serie_") and isinstance(v, dict)), {})
-            timestamps = serie.get("timestamps", [])
-            values     = serie.get("values", [])
-        if not timestamps or not values:
-            return {}
-        out: dict = {}
-        for ts_str, v_str in zip(timestamps, values):
-            try:
-                dt  = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                bkt = int(dt.timestamp() // 3600) * 3600
-                out[bkt] = float(v_str)
-            except (ValueError, TypeError):
-                pass
-        return out
-
     base_params = {"dateRange": f"{days}d", "aggInterval": "1h", "format": "json"}
     try:
         # Fetch L7 timeseries (theater-specific, then global fallback)
@@ -564,22 +536,24 @@ def calculate_overlap(dist1: dict, dist2: dict) -> float:
     return round(sum(min(dist1.get(k, 0.0) / s1, dist2.get(k, 0.0) / s2) for k in all_keys) * 100, 2)
 
 _asn_cache: dict = {}  # {target_code: {"time": float, "data": dict}}
+_asn_cache_lock = threading.Lock()
 
 def fetch_asn_origins(target_code: str) -> dict:
-    global _asn_cache
     now = time.time()
-    # Remove expired entries (memory leak prevention)
-    expired = [k for k, v in _asn_cache.items() if now - v["time"] > CACHE_EXPIRY * 2]
-    for k in expired:
-        del _asn_cache[k]
-    entry = _asn_cache.get(target_code)
-    if entry and (now - entry["time"]) < CACHE_EXPIRY:
-        return entry["data"]
+    with _asn_cache_lock:
+        # Remove expired entries (memory leak prevention)
+        expired = [k for k, v in _asn_cache.items() if now - v["time"] > CACHE_EXPIRY * 2]
+        for k in expired:
+            del _asn_cache[k]
+        entry = _asn_cache.get(target_code)
+        if entry and (now - entry["time"]) < CACHE_EXPIRY:
+            return entry["data"]
     try:
         res = requests.get("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/ases/origin", headers=CF_HEADERS, params={"location": target_code, "dateRange": CURRENT_DATE_RANGE, "format": "json"}, timeout=5, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY)
         if res.status_code == 200:
             data = {f"AS{item.get('originAsn') or item.get('clientASN') or item.get('originAsnId')}": float(item.get("value", 0)) for item in res.json().get("result", {}).get("top_0", []) if item.get("originAsn") or item.get("clientASN") or item.get("originAsnId")}
-            _asn_cache[target_code] = {"time": now, "data": data}
+            with _asn_cache_lock:
+                _asn_cache[target_code] = {"time": now, "data": data}
             return data
     except Exception: pass
     return {}

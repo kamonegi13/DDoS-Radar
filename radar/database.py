@@ -15,6 +15,7 @@ import os
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from typing import Optional
 
 log = logging.getLogger("radar")
@@ -22,7 +23,6 @@ log = logging.getLogger("radar")
 # ── Schema SQL ────────────────────────────────────────────────────────────────
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
-PRAGMA busy_timeout = 30000;
 PRAGMA synchronous = NORMAL;
 PRAGMA wal_autocheckpoint = 1000;
 
@@ -324,24 +324,119 @@ _VALUE_COL = {
 _HOD_TABLES = set(_VALUE_COL.keys())
 
 
+_WRITE_SQL_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "BEGIN", "PRAGMA")
+
+
+class _CooperativeConn:
+    """Thin proxy around sqlite3.Connection that serializes write operations.
+
+    Under gevent, SQLite's C-level busy_timeout blocks the entire event loop
+    when waiting for a write lock, creating a deadlock. This proxy acquires a
+    cooperative threading.Lock (gevent-patched) before executing write SQL,
+    and releases it on commit/rollback. Read SQL runs without the lock.
+
+    All attribute access is forwarded to the underlying connection, so this
+    object is a drop-in replacement for sqlite3.Connection.
+    """
+    __slots__ = ("_conn", "_wlock", "_holding")
+
+    def __init__(self, conn: sqlite3.Connection, write_lock: threading.Lock):
+        self._conn = conn
+        self._wlock = write_lock
+        self._holding = False
+
+    def execute(self, sql: str, parameters=()):
+        first_word = sql.lstrip().split(None, 1)[0].upper() if sql.lstrip() else ""
+        if not self._holding and first_word in _WRITE_SQL_PREFIXES:
+            self._wlock.acquire()
+            self._holding = True
+        try:
+            return self._conn.execute(sql, parameters)
+        except Exception:
+            if self._holding:
+                self._holding = False
+                self._wlock.release()
+            raise
+
+    def executemany(self, sql: str, seq_of_parameters):
+        if not self._holding:
+            self._wlock.acquire()
+            self._holding = True
+        try:
+            return self._conn.executemany(sql, seq_of_parameters)
+        except Exception:
+            if self._holding:
+                self._holding = False
+                self._wlock.release()
+            raise
+
+    def executescript(self, sql: str):
+        if not self._holding:
+            self._wlock.acquire()
+            self._holding = True
+        return self._conn.executescript(sql)
+
+    def commit(self):
+        try:
+            self._conn.commit()
+        finally:
+            if self._holding:
+                self._holding = False
+                self._wlock.release()
+
+    def rollback(self):
+        try:
+            self._conn.rollback()
+        finally:
+            if self._holding:
+                self._holding = False
+                self._wlock.release()
+
+    def close(self):
+        if self._holding:
+            self._holding = False
+            self._wlock.release()
+        self._conn.close()
+
+    @contextmanager
+    def writing(self):
+        """Context manager ensuring the write lock is released on exception."""
+        try:
+            yield
+            self.commit()
+        except Exception:
+            self.rollback()
+            raise
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 class RadarDB:
-    """Thread-safe SQLite state store. One connection per thread."""
+    """Thread-safe SQLite state store. One connection per greenlet/thread.
+
+    All connections are wrapped with _CooperativeConn, which serializes
+    write operations via a cooperative lock. Under gevent, this prevents
+    the C-level busy_timeout deadlock where sqlite3_sleep blocks the
+    entire event loop. Read operations remain lock-free (WAL mode).
+    """
 
     def __init__(self, db_path: str):
         self._db_path = db_path
         self._local = threading.local()
         self._init_lock = threading.Lock()
+        self._write_lock = threading.Lock()
         self._ensure_schema()
 
-    def _get_conn(self) -> sqlite3.Connection:
+    def _get_conn(self) -> _CooperativeConn:
         conn = getattr(self._local, "conn", None)
         if conn is None:
             os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-            conn = sqlite3.connect(self._db_path, timeout=30)
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA busy_timeout = 30000")
-            conn.execute("PRAGMA synchronous = NORMAL")
-            conn.row_factory = sqlite3.Row
+            raw = sqlite3.connect(self._db_path, timeout=5)
+            raw.execute("PRAGMA journal_mode = WAL")
+            raw.execute("PRAGMA synchronous = NORMAL")
+            raw.row_factory = sqlite3.Row
+            conn = _CooperativeConn(raw, self._write_lock)
             self._local.conn = conn
         return conn
 
@@ -363,11 +458,11 @@ class RadarDB:
 
     def set_schema_version(self, ver: int):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT INTO schema_version (version, migrated_at) VALUES (?, ?)",
-            (ver, time.time()),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO schema_version (version, migrated_at) VALUES (?, ?)",
+                (ver, time.time()),
+            )
 
     # ── Auto-migration engine ─────────────────────────────────────────────
     # Each entry: (version_number, description, sql_or_callable)
@@ -469,12 +564,13 @@ class RadarDB:
         return data
 
     def baseline_set(self, theater: str, data: dict, ts: float):
-        self._get_conn().execute(
-            "INSERT OR REPLACE INTO baseline_cache (theater, updated_at, data_json) "
-            "VALUES (?, ?, ?)",
-            (theater, ts, json.dumps(data, default=str)),
-        )
-        self._get_conn().commit()
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR REPLACE INTO baseline_cache (theater, updated_at, data_json) "
+                "VALUES (?, ?, ?)",
+                (theater, ts, json.dumps(data, default=str)),
+            )
 
     def baseline_all(self) -> dict:
         rows = self._get_conn().execute(
@@ -500,12 +596,13 @@ class RadarDB:
         return json.loads(row[0]) if row else {}
 
     def airspace_set(self, code: str, data: dict):
-        self._get_conn().execute(
-            "INSERT OR REPLACE INTO airspace_baseline (airport_code, data_json) "
-            "VALUES (?, ?)",
-            (code, json.dumps(data, default=str)),
-        )
-        self._get_conn().commit()
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR REPLACE INTO airspace_baseline (airport_code, data_json) "
+                "VALUES (?, ?)",
+                (code, json.dumps(data, default=str)),
+            )
 
     def airspace_all(self) -> dict:
         rows = self._get_conn().execute(
@@ -523,19 +620,19 @@ class RadarDB:
         assert table in _HOD_TABLES, f"Invalid HOD table: {table}"
         col = _VALUE_COL[table]
         conn = self._get_conn()
-        conn.execute(
-            f"INSERT OR REPLACE INTO {table} (theater, hour_bucket, {col}) "
-            f"VALUES (?, ?, ?)",
-            (theater, hour_bucket, value),
-        )
-        # Prune oldest beyond limit
-        conn.execute(
-            f"DELETE FROM {table} WHERE theater=? AND hour_bucket NOT IN "
-            f"(SELECT hour_bucket FROM {table} WHERE theater=? "
-            f"ORDER BY hour_bucket DESC LIMIT ?)",
-            (theater, theater, max_entries),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                f"INSERT OR REPLACE INTO {table} (theater, hour_bucket, {col}) "
+                f"VALUES (?, ?, ?)",
+                (theater, hour_bucket, value),
+            )
+            # Prune oldest beyond limit
+            conn.execute(
+                f"DELETE FROM {table} WHERE theater=? AND hour_bucket NOT IN "
+                f"(SELECT hour_bucket FROM {table} WHERE theater=? "
+                f"ORDER BY hour_bucket DESC LIMIT ?)",
+                (theater, theater, max_entries),
+            )
 
     def hod_record_many(self, table: str, theater: str,
                         entries: list[tuple[int, float]], max_entries: int = 672):
@@ -543,18 +640,18 @@ class RadarDB:
         assert table in _HOD_TABLES
         col = _VALUE_COL[table]
         conn = self._get_conn()
-        conn.executemany(
-            f"INSERT OR REPLACE INTO {table} (theater, hour_bucket, {col}) "
-            f"VALUES (?, ?, ?)",
-            [(theater, hb, v) for hb, v in entries],
-        )
-        conn.execute(
-            f"DELETE FROM {table} WHERE theater=? AND hour_bucket NOT IN "
-            f"(SELECT hour_bucket FROM {table} WHERE theater=? "
-            f"ORDER BY hour_bucket DESC LIMIT ?)",
-            (theater, theater, max_entries),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.executemany(
+                f"INSERT OR REPLACE INTO {table} (theater, hour_bucket, {col}) "
+                f"VALUES (?, ?, ?)",
+                [(theater, hb, v) for hb, v in entries],
+            )
+            conn.execute(
+                f"DELETE FROM {table} WHERE theater=? AND hour_bucket NOT IN "
+                f"(SELECT hour_bucket FROM {table} WHERE theater=? "
+                f"ORDER BY hour_bucket DESC LIMIT ?)",
+                (theater, theater, max_entries),
+            )
 
     def hod_same_hour(self, table: str, theater: str,
                       target_hod: int, before_bucket: int) -> list[float]:
@@ -619,18 +716,18 @@ class RadarDB:
     def gdelt_dow_record(self, theater: str, day_bucket: int,
                          weekday: int, tone: float, max_entries: int = 140):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT OR REPLACE INTO gdelt_dow (theater, day_bucket, weekday, tone) "
-            "VALUES (?, ?, ?, ?)",
-            (theater, day_bucket, weekday, tone),
-        )
-        conn.execute(
-            "DELETE FROM gdelt_dow WHERE theater=? AND day_bucket NOT IN "
-            "(SELECT day_bucket FROM gdelt_dow WHERE theater=? "
-            "ORDER BY day_bucket DESC LIMIT ?)",
-            (theater, theater, max_entries),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR REPLACE INTO gdelt_dow (theater, day_bucket, weekday, tone) "
+                "VALUES (?, ?, ?, ?)",
+                (theater, day_bucket, weekday, tone),
+            )
+            conn.execute(
+                "DELETE FROM gdelt_dow WHERE theater=? AND day_bucket NOT IN "
+                "(SELECT day_bucket FROM gdelt_dow WHERE theater=? "
+                "ORDER BY day_bucket DESC LIMIT ?)",
+                (theater, theater, max_entries),
+            )
 
     def gdelt_dow_last_bucket(self, theater: str) -> Optional[int]:
         row = self._get_conn().execute(
@@ -655,17 +752,17 @@ class RadarDB:
     # ── time_series_ts (timestamped) ────────────────────────────────────────
     def ts_append(self, theater: str, ts: float, value: float, max_entries: int = 8064):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT OR REPLACE INTO time_series_ts (theater, ts, value) VALUES (?, ?, ?)",
-            (theater, ts, value),
-        )
-        conn.execute(
-            "DELETE FROM time_series_ts WHERE theater=? AND ts NOT IN "
-            "(SELECT ts FROM time_series_ts WHERE theater=? "
-            "ORDER BY ts DESC LIMIT ?)",
-            (theater, theater, max_entries),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR REPLACE INTO time_series_ts (theater, ts, value) VALUES (?, ?, ?)",
+                (theater, ts, value),
+            )
+            conn.execute(
+                "DELETE FROM time_series_ts WHERE theater=? AND ts NOT IN "
+                "(SELECT ts FROM time_series_ts WHERE theater=? "
+                "ORDER BY ts DESC LIMIT ?)",
+                (theater, theater, max_entries),
+            )
 
     def ts_get(self, theater: str) -> list[tuple[float, float]]:
         rows = self._get_conn().execute(
@@ -695,17 +792,17 @@ class RadarDB:
     def series_append(self, theater: str, series_type: str,
                       value: float, max_entries: int = 8064):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT INTO time_series (theater, series_type, value) VALUES (?, ?, ?)",
-            (theater, series_type, value),
-        )
-        conn.execute(
-            "DELETE FROM time_series WHERE theater=? AND series_type=? AND id NOT IN "
-            "(SELECT id FROM time_series WHERE theater=? AND series_type=? "
-            "ORDER BY id DESC LIMIT ?)",
-            (theater, series_type, theater, series_type, max_entries),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO time_series (theater, series_type, value) VALUES (?, ?, ?)",
+                (theater, series_type, value),
+            )
+            conn.execute(
+                "DELETE FROM time_series WHERE theater=? AND series_type=? AND id NOT IN "
+                "(SELECT id FROM time_series WHERE theater=? AND series_type=? "
+                "ORDER BY id DESC LIMIT ?)",
+                (theater, series_type, theater, series_type, max_entries),
+            )
 
     def series_get(self, theater: str, series_type: str) -> list[float]:
         rows = self._get_conn().execute(
@@ -718,16 +815,16 @@ class RadarDB:
     def alert_append(self, alert_dict: dict, max_entries: int = 288):
         conn = self._get_conn()
         ts = alert_dict.get("ts", 0)
-        conn.execute(
-            "INSERT INTO alert_timeline (ts, data_json) VALUES (?, ?)",
-            (ts, json.dumps(alert_dict, default=str)),
-        )
-        conn.execute(
-            "DELETE FROM alert_timeline WHERE id NOT IN "
-            "(SELECT id FROM alert_timeline ORDER BY id DESC LIMIT ?)",
-            (max_entries,),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO alert_timeline (ts, data_json) VALUES (?, ?)",
+                (ts, json.dumps(alert_dict, default=str)),
+            )
+            conn.execute(
+                "DELETE FROM alert_timeline WHERE id NOT IN "
+                "(SELECT id FROM alert_timeline ORDER BY id DESC LIMIT ?)",
+                (max_entries,),
+            )
 
     def alert_list(self, limit: int = 288) -> list[dict]:
         rows = self._get_conn().execute(
@@ -741,26 +838,27 @@ class RadarDB:
         return row[0] if row else 0
 
     def alert_clear(self):
-        self._get_conn().execute("DELETE FROM alert_timeline")
-        self._get_conn().commit()
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute("DELETE FROM alert_timeline")
 
     # ── sequence_event_log ──────────────────────────────────────────────────
     _SEQ_MAX = 500  # max sequence events per theater
 
     def seq_append(self, theater: str, ts: float, event_type: str, meta: dict):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT INTO sequence_events (theater, ts, event_type, meta_json) "
-            "VALUES (?, ?, ?, ?)",
-            (theater, ts, event_type, json.dumps(meta, default=str)),
-        )
-        # Auto-prune oldest entries beyond limit
-        conn.execute(
-            "DELETE FROM sequence_events WHERE theater=? AND id NOT IN "
-            "(SELECT id FROM sequence_events WHERE theater=? ORDER BY id DESC LIMIT ?)",
-            (theater, theater, self._SEQ_MAX),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO sequence_events (theater, ts, event_type, meta_json) "
+                "VALUES (?, ?, ?, ?)",
+                (theater, ts, event_type, json.dumps(meta, default=str)),
+            )
+            # Auto-prune oldest entries beyond limit
+            conn.execute(
+                "DELETE FROM sequence_events WHERE theater=? AND id NOT IN "
+                "(SELECT id FROM sequence_events WHERE theater=? ORDER BY id DESC LIMIT ?)",
+                (theater, theater, self._SEQ_MAX),
+            )
 
     def seq_exists_since(self, theater: str, event_type: str, since: float) -> bool:
         row = self._get_conn().execute(
@@ -787,8 +885,9 @@ class RadarDB:
         return [{"ts": r[0], "type": r[1], "meta": json.loads(r[2])} for r in rows]
 
     def seq_cleanup(self, cutoff: float):
-        self._get_conn().execute("DELETE FROM sequence_events WHERE ts<?", (cutoff,))
-        self._get_conn().commit()
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute("DELETE FROM sequence_events WHERE ts<?", (cutoff,))
 
     def seq_total(self) -> int:
         row = self._get_conn().execute("SELECT COUNT(*) FROM sequence_events").fetchone()
@@ -801,22 +900,23 @@ class RadarDB:
         return [r[0] for r in rows]
 
     def seq_clear(self):
-        self._get_conn().execute("DELETE FROM sequence_events")
-        self._get_conn().commit()
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute("DELETE FROM sequence_events")
 
     # ── threat_history ──────────────────────────────────────────────────────
     def threat_append(self, ts: float, level: int, max_entries: int = 100):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT INTO threat_history (ts, threat_level) VALUES (?, ?)",
-            (ts, level),
-        )
-        conn.execute(
-            "DELETE FROM threat_history WHERE id NOT IN "
-            "(SELECT id FROM threat_history ORDER BY id DESC LIMIT ?)",
-            (max_entries,),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO threat_history (ts, threat_level) VALUES (?, ?)",
+                (ts, level),
+            )
+            conn.execute(
+                "DELETE FROM threat_history WHERE id NOT IN "
+                "(SELECT id FROM threat_history ORDER BY id DESC LIMIT ?)",
+                (max_entries,),
+            )
 
     def threat_list(self) -> list[tuple[float, int]]:
         rows = self._get_conn().execute(
@@ -831,8 +931,9 @@ class RadarDB:
         return (row[0], row[1]) if row else None
 
     def threat_clear(self):
-        self._get_conn().execute("DELETE FROM threat_history")
-        self._get_conn().commit()
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute("DELETE FROM threat_history")
 
     # ── sensor_zscore_stats (Welford's online algorithm) ────────────────────
     def zscore_stats_get(self, sensor: str, theater: str) -> Optional[dict]:
@@ -909,12 +1010,12 @@ class RadarDB:
                          records: int = 0, error: str = ""):
         """Persist a sensor fetch result. Auto-prunes entries older than 7 days."""
         conn = self._get_conn()
-        conn.execute(
-            "INSERT INTO sensor_fetch_log (sensor_name, ts, success, duration_ms, http_status, records, error) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (sensor_name, ts, 1 if success else 0, duration_ms, http_status, records, error[:300]),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO sensor_fetch_log (sensor_name, ts, success, duration_ms, http_status, records, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (sensor_name, ts, 1 if success else 0, duration_ms, http_status, records, error[:300]),
+            )
 
     def fetch_log_reliability(self, sensor_name: str = None, hours: int = 24) -> list:
         """Per-sensor reliability aggregates over the given time window."""
@@ -982,18 +1083,18 @@ class RadarDB:
                        expires_at: float = None) -> int:
         import time as _time
         conn = self._get_conn()
-        cur = conn.execute(
-            "INSERT INTO noise_exclusion (sensor, theater, pattern, reason, "
-            "created_at, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (sensor, theater, pattern, reason, _time.time(), created_by, expires_at),
-        )
-        conn.commit()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO noise_exclusion (sensor, theater, pattern, reason, "
+                "created_at, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (sensor, theater, pattern, reason, _time.time(), created_by, expires_at),
+            )
         return cur.lastrowid
 
     def noise_excl_remove(self, rule_id: int) -> bool:
         conn = self._get_conn()
-        cur = conn.execute("DELETE FROM noise_exclusion WHERE id=?", (rule_id,))
-        conn.commit()
+        with conn.writing():
+            cur = conn.execute("DELETE FROM noise_exclusion WHERE id=?", (rule_id,))
         return cur.rowcount > 0
 
     def noise_excl_list(self, sensor: str = None, theater: str = None) -> list[dict]:
@@ -1029,13 +1130,13 @@ class RadarDB:
                              sensors_active: list, threat_level: int,
                              notes: str, created_by: str) -> int:
         conn = self._get_conn()
-        cur = conn.execute(
-            "INSERT INTO confirmed_threats (theater, ts, classification, sensors_json, "
-            "threat_level, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (theater, ts, classification, json.dumps(sensors_active),
-             threat_level, notes, created_by),
-        )
-        conn.commit()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO confirmed_threats (theater, ts, classification, sensors_json, "
+                "threat_level, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (theater, ts, classification, json.dumps(sensors_active),
+                 threat_level, notes, created_by),
+            )
         return cur.lastrowid
 
     def confirmed_threat_list(self, theater: str = None, limit: int = 100) -> list[dict]:
@@ -1063,16 +1164,16 @@ class RadarDB:
                              fired_sensors: list, domain_scores: dict,
                              context_alignment: dict, summary: dict):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT OR REPLACE INTO daily_summary "
-            "(theater, day_bucket, avg_score, max_score, min_tl, max_tl, "
-            "fired_sensors, domain_scores, context_alignment, summary_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (theater, day_bucket, avg_score, max_score, min_tl, max_tl,
-             json.dumps(fired_sensors), json.dumps(domain_scores),
-             json.dumps(context_alignment), json.dumps(summary, default=str)),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR REPLACE INTO daily_summary "
+                "(theater, day_bucket, avg_score, max_score, min_tl, max_tl, "
+                "fired_sensors, domain_scores, context_alignment, summary_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (theater, day_bucket, avg_score, max_score, min_tl, max_tl,
+                 json.dumps(fired_sensors), json.dumps(domain_scores),
+                 json.dumps(context_alignment), json.dumps(summary, default=str)),
+            )
 
     def daily_summary_get(self, theater: str, days: int = 90) -> list[dict]:
         import time as _time
@@ -1093,22 +1194,22 @@ class RadarDB:
     def forecast_log_add(self, theater: str, ts: float, forecast_type: str,
                          predicted: str) -> int:
         conn = self._get_conn()
-        cur = conn.execute(
-            "INSERT INTO forecast_log (theater, ts, forecast_type, predicted) "
-            "VALUES (?, ?, ?, ?)",
-            (theater, ts, forecast_type, predicted),
-        )
-        conn.commit()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO forecast_log (theater, ts, forecast_type, predicted) "
+                "VALUES (?, ?, ?, ?)",
+                (theater, ts, forecast_type, predicted),
+            )
         return cur.lastrowid
 
     def forecast_log_resolve(self, forecast_id: int, actual: str, accuracy: float):
         import time as _time
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE forecast_log SET actual=?, resolved_at=?, accuracy=? WHERE id=?",
-            (actual, _time.time(), accuracy, forecast_id),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "UPDATE forecast_log SET actual=?, resolved_at=?, accuracy=? WHERE id=?",
+                (actual, _time.time(), accuracy, forecast_id),
+            )
 
     def forecast_log_get(self, theater: str = None, limit: int = 100) -> list[dict]:
         conn = self._get_conn()
@@ -1239,26 +1340,40 @@ class RadarDB:
 
         deleted: dict[str, int] = {}
 
+        # Commit after each DELETE to release the write lock between tables,
+        # preventing long lock holds that would starve other greenlets.
         cur = conn.execute("DELETE FROM sequence_events WHERE ts < ?", (cutoff_30d,))
         deleted["sequence_events"] = cur.rowcount
+        conn.commit()
+
         cur = conn.execute("DELETE FROM revoked_tokens WHERE revoked_at < ?", (cutoff_7d,))
         deleted["revoked_tokens"] = cur.rowcount
+        conn.commit()
+
         cur = conn.execute("DELETE FROM sensor_fetch_log WHERE ts < ?", (cutoff_7d,))
         deleted["sensor_fetch_log"] = cur.rowcount
+        conn.commit()
+
         cur = conn.execute(
             "DELETE FROM noise_exclusion WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
         deleted["noise_exclusion"] = cur.rowcount
+        conn.commit()
+
         cur = conn.execute("DELETE FROM climate_events WHERE ts < ?", (cutoff_48h,))
         deleted["climate_events"] = cur.rowcount
+        conn.commit()
+
         cur = conn.execute("DELETE FROM situation_wire WHERE ts < ?", (cutoff_48h,))
         deleted["situation_wire"] = cur.rowcount
+        conn.commit()
+
         # LLM intel: retain based on INTEL_RETENTION_DAYS config (default 7d)
         import os as _os
         cutoff_intel = now - int(_os.getenv("INTEL_RETENTION_DAYS", "7")) * 86400
         cur = conn.execute("DELETE FROM llm_intel WHERE created_at < ?", (cutoff_intel,))
         deleted["llm_intel"] = cur.rowcount
-
         conn.commit()
+
         return deleted
 
     # ── Climate Events ─────────────────────────────────────────────────────
@@ -1276,14 +1391,14 @@ class RadarDB:
                 "DELETE FROM climate_events WHERE indicator=? AND theater=? AND ts>=? AND ts<?",
                 (e["indicator"], e.get("theater", ""), hour_start, hour_end),
             )
-        conn.executemany(
-            "INSERT INTO climate_events (ts, indicator, axis, headline, detail, severity, theater, meta_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [(e["ts"], e["indicator"], e["axis"], e["headline"], e["detail"],
-              e.get("severity", 0), e.get("theater", ""), json.dumps(e.get("meta", {})))
-             for e in events],
-        )
-        conn.commit()
+        with conn.writing():
+            conn.executemany(
+                "INSERT INTO climate_events (ts, indicator, axis, headline, detail, severity, theater, meta_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [(e["ts"], e["indicator"], e["axis"], e["headline"], e["detail"],
+                  e.get("severity", 0), e.get("theater", ""), json.dumps(e.get("meta", {})))
+                 for e in events],
+            )
 
     def climate_events_load(self, since_ts: float) -> list[dict]:
         """Load climate events since a given timestamp."""
@@ -1305,8 +1420,8 @@ class RadarDB:
     def climate_events_prune(self, before_ts: float):
         """Remove climate events older than given timestamp."""
         conn = self._get_conn()
-        conn.execute("DELETE FROM climate_events WHERE ts < ?", (before_ts,))
-        conn.commit()
+        with conn.writing():
+            conn.execute("DELETE FROM climate_events WHERE ts < ?", (before_ts,))
 
     # ── Situation Wire ───────────────────────────────────────────────────────
     def situation_wire_save(self, items: list[dict]):
@@ -1323,13 +1438,13 @@ class RadarDB:
                 "DELETE FROM situation_wire WHERE theater=? AND source=? AND ts>=? AND ts<?",
                 (w["theater"], w["source"], hour_start, hour_end),
             )
-        conn.executemany(
-            "INSERT INTO situation_wire (ts, theater, source, text, severity) "
-            "VALUES (?, ?, ?, ?, ?)",
-            [(w["ts"], w["theater"], w["source"], w["text"], w.get("severity", 0))
-             for w in items],
-        )
-        conn.commit()
+        with conn.writing():
+            conn.executemany(
+                "INSERT INTO situation_wire (ts, theater, source, text, severity) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [(w["ts"], w["theater"], w["source"], w["text"], w.get("severity", 0))
+                 for w in items],
+            )
 
     def situation_wire_load(self, since_ts: float) -> list[dict]:
         """Load wire items since a given timestamp."""
@@ -1344,40 +1459,40 @@ class RadarDB:
     def situation_wire_prune(self, before_ts: float):
         """Remove wire items older than given timestamp."""
         conn = self._get_conn()
-        conn.execute("DELETE FROM situation_wire WHERE ts < ?", (before_ts,))
-        conn.commit()
+        with conn.writing():
+            conn.execute("DELETE FROM situation_wire WHERE ts < ?", (before_ts,))
 
     # ── LLM Intel ───────────────────────────────────────────────────────────
     def intel_upsert(self, item: dict):
         """Insert or replace an LLM intel item."""
         conn = self._get_conn()
-        conn.execute(
-            "INSERT OR REPLACE INTO llm_intel "
-            "(id, source_type, source_id, theater, ts, status, confidence, "
-            "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
-            "confirmed_by, confirmed_at, override_at, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (item["id"], item["source_type"], item.get("source_id", ""),
-             item.get("theater", ""), item["ts"], item.get("status", "pending"),
-             item.get("confidence", 0.0), item.get("raw_text", ""),
-             item.get("raw_url", ""), item.get("headline", ""),
-             json.dumps(item.get("llm_fields", {})),
-             item.get("score_delta", 0.0), item.get("domain", "info"),
-             item.get("confirmed_by"), item.get("confirmed_at"),
-             item.get("override_at"), item.get("created_at", time.time())),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR REPLACE INTO llm_intel "
+                "(id, source_type, source_id, theater, ts, status, confidence, "
+                "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
+                "confirmed_by, confirmed_at, override_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (item["id"], item["source_type"], item.get("source_id", ""),
+                 item.get("theater", ""), item["ts"], item.get("status", "pending"),
+                 item.get("confidence", 0.0), item.get("raw_text", ""),
+                 item.get("raw_url", ""), item.get("headline", ""),
+                 json.dumps(item.get("llm_fields", {})),
+                 item.get("score_delta", 0.0), item.get("domain", "info"),
+                 item.get("confirmed_by"), item.get("confirmed_at"),
+                 item.get("override_at"), item.get("created_at", time.time())),
+            )
 
     def intel_update_status(self, item_id: str, status: str,
                             confirmed_by: str = None, confirmed_at: float = None,
                             override_at: float = None):
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE llm_intel SET status=?, confirmed_by=?, confirmed_at=?, override_at=? "
-            "WHERE id=?",
-            (status, confirmed_by, confirmed_at, override_at, item_id),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "UPDATE llm_intel SET status=?, confirmed_by=?, confirmed_at=?, override_at=? "
+                "WHERE id=?",
+                (status, confirmed_by, confirmed_at, override_at, item_id),
+            )
 
     def intel_get(self, item_id: str) -> Optional[dict]:
         row = self._get_conn().execute(
@@ -1390,7 +1505,7 @@ class RadarDB:
 
     def intel_list(self, source_type: str = None, status: str = None,
                    theater: str = None, limit: int = 100,
-                   since_ts: float = None) -> list[dict]:
+                   since_ts: float = None, before_ts: float = None) -> list[dict]:
         q = ("SELECT id, source_type, source_id, theater, ts, status, confidence, "
              "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
              "confirmed_by, confirmed_at, override_at, created_at FROM llm_intel WHERE 1=1")
@@ -1407,38 +1522,57 @@ class RadarDB:
         if since_ts is not None:
             q += " AND ts >= ?"
             params.append(since_ts)
+        if before_ts is not None:
+            q += " AND created_at < ?"
+            params.append(before_ts)
         q += " ORDER BY ts DESC LIMIT ?"
         params.append(limit)
         rows = self._get_conn().execute(q, params).fetchall()
         return [self._intel_row_to_dict(r) for r in rows]
 
+    def intel_status_counts(self) -> dict[str, int]:
+        """Return {status: count} for all intel items using GROUP BY."""
+        rows = self._get_conn().execute(
+            "SELECT status, COUNT(*) FROM llm_intel GROUP BY status"
+        ).fetchall()
+        return {row[0]: row[1] for row in rows}
+
     def intel_update_llm_fields(self, item_id: str, llm_fields: dict):
-        """Merge new key/value pairs into an existing item's llm_fields JSON blob."""
+        """Merge new key/value pairs into an existing item's llm_fields JSON blob.
+
+        Uses BEGIN IMMEDIATE to ensure atomic read-modify-write across greenlets.
+        """
         conn = self._get_conn()
-        row = conn.execute(
-            "SELECT llm_fields FROM llm_intel WHERE id=?", (item_id,)
-        ).fetchone()
-        if not row:
-            return
-        existing = json.loads(row[0]) if row[0] else {}
-        existing.update(llm_fields)
-        conn.execute(
-            "UPDATE llm_intel SET llm_fields=? WHERE id=?",
-            (json.dumps(existing), item_id),
-        )
-        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute(
+                "SELECT llm_fields FROM llm_intel WHERE id=?", (item_id,)
+            ).fetchone()
+            if not row:
+                conn.rollback()
+                return
+            existing = json.loads(row[0]) if row[0] else {}
+            existing.update(llm_fields)
+            conn.execute(
+                "UPDATE llm_intel SET llm_fields=? WHERE id=?",
+                (json.dumps(existing), item_id),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def intel_update_core_fields(self, item_id: str, headline: str,
                                   confidence: float, score_delta: float,
                                   raw_text: str, raw_url: str):
         """Update headline, confidence, score_delta, raw_text, raw_url for an existing item."""
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE llm_intel SET headline=?, confidence=?, score_delta=?, "
-            "raw_text=?, raw_url=? WHERE id=?",
-            (headline, confidence, score_delta, raw_text, raw_url, item_id),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "UPDATE llm_intel SET headline=?, confidence=?, score_delta=?, "
+                "raw_text=?, raw_url=? WHERE id=?",
+                (headline, confidence, score_delta, raw_text, raw_url, item_id),
+            )
 
     def intel_active_in_window(self, since_ts: float) -> list[dict]:
         """Items that were auto_confirmed or confirmed in the given time window (for CLASSIFY THREAT linking)."""
@@ -1478,43 +1612,43 @@ class RadarDB:
     def intel_source_upsert(self, source_id: str, source_type: str,
                             credibility_weight: float = 0.70):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT OR IGNORE INTO llm_sources "
-            "(source_id, source_type, credibility_weight, last_updated) "
-            "VALUES (?, ?, ?, ?)",
-            (source_id, source_type, credibility_weight, time.time()),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR IGNORE INTO llm_sources "
+                "(source_id, source_type, credibility_weight, last_updated) "
+                "VALUES (?, ?, ?, ?)",
+                (source_id, source_type, credibility_weight, time.time()),
+            )
 
     def intel_source_update_credibility(self, source_id: str, delta: float):
         """Adjust credibility weight by delta, clamped to [0.30, 0.95]."""
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE llm_sources SET "
-            "credibility_weight = MAX(0.30, MIN(0.95, credibility_weight + ?)), "
-            "last_updated = ? WHERE source_id=?",
-            (delta, time.time(), source_id),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "UPDATE llm_sources SET "
+                "credibility_weight = MAX(0.30, MIN(0.95, credibility_weight + ?)), "
+                "last_updated = ? WHERE source_id=?",
+                (delta, time.time(), source_id),
+            )
 
     def intel_source_record_outcome(self, source_id: str, confirmed: bool):
         """Increment confirmed_count or false_positive_count and adjust credibility."""
         conn = self._get_conn()
-        if confirmed:
-            conn.execute(
-                "UPDATE llm_sources SET confirmed_count = confirmed_count + 1, "
-                "credibility_weight = MAX(0.30, MIN(0.95, credibility_weight + 0.05)), "
-                "last_updated = ? WHERE source_id=?",
-                (time.time(), source_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE llm_sources SET false_positive_count = false_positive_count + 1, "
-                "credibility_weight = MAX(0.30, MIN(0.95, credibility_weight - 0.10)), "
-                "last_updated = ? WHERE source_id=?",
-                (time.time(), source_id),
-            )
-        conn.commit()
+        with conn.writing():
+            if confirmed:
+                conn.execute(
+                    "UPDATE llm_sources SET confirmed_count = confirmed_count + 1, "
+                    "credibility_weight = MAX(0.30, MIN(0.95, credibility_weight + 0.05)), "
+                    "last_updated = ? WHERE source_id=?",
+                    (time.time(), source_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE llm_sources SET false_positive_count = false_positive_count + 1, "
+                    "credibility_weight = MAX(0.30, MIN(0.95, credibility_weight - 0.10)), "
+                    "last_updated = ? WHERE source_id=?",
+                    (time.time(), source_id),
+                )
 
     def intel_source_list(self) -> list[dict]:
         rows = self._get_conn().execute(
@@ -1547,13 +1681,13 @@ class RadarDB:
     def user_create(self, username: str, password_hash: str, salt: str,
                     role: str, created_at: float) -> int:
         conn = self._get_conn()
-        conn.execute(
-            "INSERT INTO users (username, password_hash, salt, role, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (username, password_hash, salt, role, created_at),
-        )
-        user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO users (username, password_hash, salt, role, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (username, password_hash, salt, role, created_at),
+            )
+            user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         return user_id
 
     def user_exists(self, username: str) -> bool:
@@ -1564,27 +1698,27 @@ class RadarDB:
 
     def user_update_last_login(self, user_id: int, ts: float):
         conn = self._get_conn()
-        conn.execute("UPDATE users SET last_login=? WHERE id=?", (ts, user_id))
-        conn.commit()
+        with conn.writing():
+            conn.execute("UPDATE users SET last_login=? WHERE id=?", (ts, user_id))
 
     def user_update_role(self, user_id: int, role: str):
         conn = self._get_conn()
-        conn.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
-        conn.commit()
+        with conn.writing():
+            conn.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
 
     def user_update_password(self, user_id: int, password_hash: str, salt: str):
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE users SET password_hash=?, salt=? WHERE id=?",
-            (password_hash, salt, user_id),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "UPDATE users SET password_hash=?, salt=? WHERE id=?",
+                (password_hash, salt, user_id),
+            )
 
     def user_delete(self, user_id: int):
         conn = self._get_conn()
         conn.execute("DELETE FROM user_settings WHERE user_id=?", (user_id,))
-        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
-        conn.commit()
+        with conn.writing():
+            conn.execute("DELETE FROM users WHERE id=?", (user_id,))
 
     def user_list(self) -> list[dict]:
         rows = self._get_conn().execute(
@@ -1604,30 +1738,30 @@ class RadarDB:
                              correlates: str, adversaries: str,
                              muted: str, lang: str, updated_at: float):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT INTO user_settings "
-            "(user_id, core, pins, correlates, adversaries, muted, lang, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, core, pins, correlates, adversaries, muted, lang, updated_at),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO user_settings "
+                "(user_id, core, pins, correlates, adversaries, muted, lang, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, core, pins, correlates, adversaries, muted, lang, updated_at),
+            )
 
     def user_settings_update(self, user_id: int, updates: dict):
         conn = self._get_conn()
         set_clause = ", ".join(f"{k}=?" for k in updates)
-        conn.execute(
-            f"UPDATE user_settings SET {set_clause} WHERE user_id=?",
-            (*updates.values(), user_id),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                f"UPDATE user_settings SET {set_clause} WHERE user_id=?",
+                (*updates.values(), user_id),
+            )
 
     def token_revoke(self, jti: str, revoked_at: float):
         conn = self._get_conn()
-        conn.execute(
-            "INSERT OR IGNORE INTO revoked_tokens (jti, revoked_at) VALUES (?, ?)",
-            (jti, revoked_at),
-        )
-        conn.commit()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR IGNORE INTO revoked_tokens (jti, revoked_at) VALUES (?, ?)",
+                (jti, revoked_at),
+            )
 
     def token_is_revoked(self, jti: str) -> bool:
         row = self._get_conn().execute(

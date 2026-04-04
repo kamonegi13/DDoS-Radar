@@ -33,13 +33,17 @@ def init_routes(reg: SensorRegistry, eng: WeightedConvergenceEngine):
 
 
 def _require_admin():
-    """Check admin authorization via JWT role. Returns None if authorized, or a Flask response tuple on failure."""
-    from flask_jwt_extended import get_jwt
+    """Check admin authorization via DB role lookup. Returns None if authorized, or a Flask response tuple on failure."""
+    from flask_jwt_extended import get_jwt_identity
+    from radar.database import db
     try:
-        claims = get_jwt()
-        if claims.get("role") == "admin":
-            return None
-        return jsonify({"error": "Admin privileges required"}), 403
+        identity = get_jwt_identity()
+        if not identity:
+            return jsonify({"error": "Authentication required"}), 401
+        role = db.user_get_role(identity)
+        if role != "admin":
+            return jsonify({"error": "Admin access required"}), 403
+        return None
     except Exception:
         return jsonify({"error": "Authentication required"}), 401
 

@@ -21,6 +21,24 @@ log = logging.getLogger("radar")
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
+# ── Simple in-memory login rate limiter ──────────────────────────────────────
+_login_attempts: dict[str, list[float]] = {}
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW_SEC = 300
+
+
+def _check_login_rate(ip: str) -> bool:
+    """Return False if rate limit exceeded."""
+    now = time.time()
+    attempts = _login_attempts.get(ip, [])
+    attempts = [t for t in attempts if now - t < _LOGIN_WINDOW_SEC]
+    _login_attempts[ip] = attempts
+    return len(attempts) < _LOGIN_MAX_ATTEMPTS
+
+
+def _record_login_attempt(ip: str):
+    _login_attempts.setdefault(ip, []).append(time.time())
+
 # ── JWT Setup ────────────────────────────────────────────────────────────────
 jwt = JWTManager()
 
@@ -134,6 +152,8 @@ def register():
 
     if not username or not password:
         return jsonify({"error": "username and password required"}), 400
+    if len(password) < 12:
+        return jsonify({"error": "Password must be at least 12 characters"}), 400
     if role not in ("admin", "analyst", "viewer"):
         return jsonify({"error": "Invalid role"}), 400
     if db.user_exists(username):
@@ -155,6 +175,10 @@ def register():
 @bp.route("/login", methods=["POST"])
 def login():
     """Authenticate and return JWT tokens."""
+    ip = request.remote_addr or "unknown"
+    if not _check_login_rate(ip):
+        return jsonify({"error": "Too many login attempts. Try again later."}), 429
+
     data = request.get_json(silent=True) or {}
     username = data.get("username", "").strip()
     password = data.get("password", "")
@@ -165,11 +189,15 @@ def login():
     from radar.database import db
     user = db.user_get(username)
     if not user:
+        _record_login_attempt(ip)
         return jsonify({"error": "Invalid credentials"}), 401
 
     if _hash_password(password, user["salt"]) != user["password_hash"]:
+        _record_login_attempt(ip)
         return jsonify({"error": "Invalid credentials"}), 401
 
+    # Clear rate-limit tracking on success
+    _login_attempts.pop(ip, None)
     db.user_update_last_login(user["id"], time.time())
 
     from flask import current_app
@@ -201,10 +229,15 @@ def refresh():
 @bp.route("/logout", methods=["POST"])
 @jwt_required()
 def logout():
-    """Revoke current access token."""
+    """Revoke current access token and optionally the refresh token."""
     jti = get_jwt()["jti"]
     from radar.database import db
     db.token_revoke(jti, time.time())
+    # Also revoke refresh token if the client provides its JTI
+    body = request.get_json(silent=True) or {}
+    refresh_jti = body.get("refresh_jti")
+    if refresh_jti:
+        db.token_revoke(refresh_jti, time.time())
     return jsonify({"status": "ok"})
 
 
@@ -330,8 +363,8 @@ def admin_reset_password(username):
 
     data = request.get_json(silent=True) or {}
     new_pw = data.get("new_password", "")
-    if not new_pw or len(new_pw) < 6:
-        return jsonify({"error": "Password must be at least 6 characters"}), 400
+    if not new_pw or len(new_pw) < 12:
+        return jsonify({"error": "Password must be at least 12 characters"}), 400
 
     user = db.user_get(username)
     if not user:
@@ -354,8 +387,8 @@ def change_password():
     new_pw = data.get("new_password", "")
     if not old_pw or not new_pw:
         return jsonify({"error": "old_password and new_password required"}), 400
-    if len(new_pw) < 6:
-        return jsonify({"error": "Password must be at least 6 characters"}), 400
+    if len(new_pw) < 12:
+        return jsonify({"error": "Password must be at least 12 characters"}), 400
 
     from radar.database import db
     user = db.user_get(identity)
