@@ -225,6 +225,39 @@ class TelegramMirrorSensor(BaseSensor):
         total_hits = 0
         any_success = False
 
+        # ── Phase 1: scrape each unique channel ONCE ──
+        # Build reverse map: channel → set of theaters
+        channel_theaters: dict[str, list[str]] = {}
+        for theater in theaters:
+            for ch in THREAT_ACTOR_MAPPING.get(theater, []):
+                channel_theaters.setdefault(ch, []).append(theater)
+
+        # Scrape and analyse each channel exactly once, cache results
+        import random as _rnd_jitter
+        channel_results: dict[str, dict] = {}  # channel → parsed result
+        for i, channel in enumerate(channel_theaters):
+            if i > 0:
+                time.sleep(_rnd_jitter.uniform(1.5, 4.0))
+            html = self._scrape_channel(channel)
+            if not html:
+                channel_results[channel] = {"ok": False}
+                continue
+            any_success = True
+            text = self._extract_text(html)
+            targets, has_intent, matched_kws = self._parse_posts(text, TELEGRAM_ATTACK_KEYWORDS)
+            kw_hits = self._count_keyword_hits(text, TELEGRAM_ATTACK_KEYWORDS)
+            text_excerpt = text[:1500].strip()
+            snippet = self._extract_snippet(text, matched_kws or TELEGRAM_ATTACK_KEYWORDS) if (has_intent or targets) else ""
+            det_status = ("INTENT_DETECTED" if has_intent else
+                          "TARGETS_FOUND" if targets else "CLEAR")
+            channel_results[channel] = {
+                "ok": True, "targets": targets, "has_intent": has_intent,
+                "matched_kws": matched_kws, "kw_hits": kw_hits,
+                "text_excerpt": text_excerpt, "snippet": snippet,
+                "det_status": det_status,
+            }
+
+        # ── Phase 2: aggregate per theater using cached channel results ──
         for theater in theaters:
             channels = THREAT_ACTOR_MAPPING.get(theater, [])
             if not channels:
@@ -236,42 +269,24 @@ class TelegramMirrorSensor(BaseSensor):
             total_kw_hits    = 0
             channels_scraped = 0
 
-            # Compute mean confidence_weight for this theater's channel set
-            ch_confidences = [
-                TELEGRAM_CHANNEL_META.get(ch, {}).get("confidence_weight", 0.5)
-                for ch in channels
-            ]
-            mean_confidence = sum(ch_confidences) / len(ch_confidences) if ch_confidences else 0.5
-
-            import random as _rnd_jitter
-            for i, channel in enumerate(channels):
-                if i > 0:
-                    # Inter-channel jitter: 1.5–4.0 s to reduce rate-limit fingerprinting
-                    time.sleep(_rnd_jitter.uniform(1.5, 4.0))
-                html = self._scrape_channel(channel)
-                if not html:
+            for channel in channels:
+                cr = channel_results.get(channel)
+                if not cr or not cr["ok"]:
                     continue
-                any_success = True
                 channels_scraped += 1
-                text = self._extract_text(html)
-                targets, has_intent, matched_kws = self._parse_posts(text, TELEGRAM_ATTACK_KEYWORDS)
-                kw_hits = self._count_keyword_hits(text, TELEGRAM_ATTACK_KEYWORDS)
-                total_kw_hits += kw_hits
-                # Always extract a text excerpt for full-text LLM analysis
-                text_excerpt = text[:1500].strip()
+                total_kw_hits += cr["kw_hits"]
                 ch_url = self.TELEGRAM_PREVIEW_URL.format(channel=channel)
-                if has_intent or targets:
-                    theater_targets.extend(targets)
-                    if has_intent:
+                if cr["has_intent"] or cr["targets"]:
+                    theater_targets.extend(cr["targets"])
+                    if cr["has_intent"]:
                         theater_intent = True
                     active_channels.append(channel)
                     total_hits += 1
-                    snippet    = self._extract_snippet(text, matched_kws or TELEGRAM_ATTACK_KEYWORDS)
-                    det_status = "INTENT_DETECTED" if has_intent else "TARGETS_FOUND"
-                else:
-                    snippet    = ""
-                    det_status = "CLEAR"
-                self._log_detection(theater, channel, ch_url, det_status, matched_kws, targets, snippet, text_excerpt)
+                self._log_detection(
+                    theater, channel, ch_url, cr["det_status"],
+                    cr["matched_kws"], cr["targets"], cr["snippet"],
+                    cr["text_excerpt"],
+                )
 
             # Z-score analysis: normalize hits per channel scraped
             normalized = total_kw_hits / max(channels_scraped, 1)
