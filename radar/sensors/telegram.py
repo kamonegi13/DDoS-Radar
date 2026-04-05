@@ -41,13 +41,12 @@ _SCRAPER_UA_POOL = [
 
 class TelegramMirrorSensor(BaseSensor):
     """
-    Info Domain sensor: scrapes public mirror pages on tgstat.com / telemetr.io
+    Info Domain sensor: fetches public Telegram channel web previews via t.me/s/
     and monitors channel posts based on THREAT_ACTOR_MAPPING.
     No phone number or login required. Parses "target URLs" and "attack declarations"
     from posts and auto-registers them via register_sequence_event.
     """
-    TGSTAT_URL   = "https://tgstat.com/channel/@{channel}/stat"
-    TELEMETR_URL = "https://telemetr.io/@{channel}"
+    TELEGRAM_PREVIEW_URL = "https://t.me/s/{channel}"
     # URL extraction pattern (https?://example.com format)
     _URL_RE = re.compile(
         r'https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(?:/[^\s<"\']*)?'
@@ -62,31 +61,42 @@ class TelegramMirrorSensor(BaseSensor):
     def __init__(self):
         super().__init__("telegram_mirror", "info", TELEGRAM_MIRROR_POLL)
 
+    # Minimum content length to distinguish real channel pages from
+    # placeholder/auth-wall pages.  Real channel previews with posts
+    # typically contain several KB of HTML; a page under this threshold
+    # is almost certainly empty or a login gate.
+    _MIN_CONTENT_LEN = 2000
+
     def _scrape_channel(self, channel: str) -> str:
-        """Fetch public channel page from tgstat.com and return text.
-        Falls back to telemetr.io on failure.
+        """Fetch public channel web preview from t.me/s/{channel}.
+        Returns HTML text if the page contains actual post content,
+        empty string if the channel is private, empty, or unreachable.
         Applies UA rotation and exponential backoff on 403/429."""
         import random as _rnd
-        for url_tpl in (self.TGSTAT_URL, self.TELEMETR_URL):
-            url = url_tpl.format(channel=channel)
-            delay = 2.0  # initial backoff base (seconds)
-            for attempt in range(3):
-                try:
-                    ua = _rnd.choice(_SCRAPER_UA_POOL)
-                    res = requests.get(
-                        url, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
-                        headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"}
-                    )
-                    if res.status_code == 200 and len(res.text) > 200:
+        url = self.TELEGRAM_PREVIEW_URL.format(channel=channel)
+        delay = 2.0
+        for attempt in range(3):
+            try:
+                ua = _rnd.choice(_SCRAPER_UA_POOL)
+                res = requests.get(
+                    url, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+                    headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"}
+                )
+                if res.status_code == 200 and len(res.text) > self._MIN_CONTENT_LEN:
+                    # Validate that the page contains actual Telegram post content.
+                    # Private/restricted channels return a thin page with only a
+                    # "Send Message" / "View in Telegram" stub.
+                    if "tgme_widget_message_wrap" in res.text:
                         return res.text
-                    if res.status_code in (403, 429):
-                        # Exponential backoff: 2s → 4s → 8s with ±20% jitter
-                        sleep_time = delay * (2 ** attempt) * _rnd.uniform(0.8, 1.2)
-                        time.sleep(min(sleep_time, 30.0))
-                        continue
-                    break  # non-retryable error (404, 5xx) — try next source
-                except Exception:
-                    break
+                    log.debug(f"[Telegram] {channel}: page has no post content (private/empty)")
+                    return ""
+                if res.status_code in (403, 429):
+                    sleep_time = delay * (2 ** attempt) * _rnd.uniform(0.8, 1.2)
+                    time.sleep(min(sleep_time, 30.0))
+                    continue
+                break
+            except Exception:
+                break
         return ""
 
     @staticmethod
@@ -249,7 +259,7 @@ class TelegramMirrorSensor(BaseSensor):
                 total_kw_hits += kw_hits
                 # Always extract a text excerpt for full-text LLM analysis
                 text_excerpt = text[:1500].strip()
-                ch_url = self.TGSTAT_URL.format(channel=channel)
+                ch_url = self.TELEGRAM_PREVIEW_URL.format(channel=channel)
                 if has_intent or targets:
                     theater_targets.extend(targets)
                     if has_intent:

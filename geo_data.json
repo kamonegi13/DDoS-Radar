@@ -2404,7 +2404,8 @@
     ],
     "IN": [
       "MysteriousTeam0",
-      "TEAM_INSANE_PAKISTAN2"
+      "TEAM_INSANE_PAKISTAN2",
+      "indian_cyber_force"
     ],
     "PH": [
       "MysteriousTeam0",
@@ -2528,7 +2529,8 @@
     ],
     "BY": [
       "itarmyofukraine2022",
-      "cyber_resistance_ua"
+      "cyber_resistance_ua",
+      "anon_by"
     ],
     "SG": [
       "MysteriousTeam0"
@@ -2564,7 +2566,8 @@
       "noname05716"
     ],
     "PK": [
-      "MysteriousTeam0"
+      "MysteriousTeam0",
+      "indian_cyber_force"
     ],
     "BD": [
       "TEAM_INSANE_PAKISTAN2"
@@ -2654,7 +2657,9 @@
     "MysteriousTeam0":       {"bloc": "BD", "lang": "en", "confidence_weight": 0.45},
     "TEAM_INSANE_PAKISTAN2": {"bloc": "PK", "lang": "en", "confidence_weight": 0.40},
     "anonymous_sudan":       {"bloc": "SD", "lang": "ar", "confidence_weight": 0.45},
-    "GhostClan_op":          {"bloc": "XX", "lang": "en", "confidence_weight": 0.40}
+    "GhostClan_op":          {"bloc": "XX", "lang": "en", "confidence_weight": 0.40},
+    "indian_cyber_force":    {"bloc": "IN", "lang": "en", "confidence_weight": 0.45},
+    "anon_by":               {"bloc": "BY", "lang": "ru", "confidence_weight": 0.50}
   },
   "INFRASTRUCTURE_URLS": {
     "UA": [

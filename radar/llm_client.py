@@ -152,7 +152,10 @@ def llm_analyze(prompt: str, system: str = "",
             log.warning(f"[LLM] HTTP {res.status_code}: {res.text[:200]}")
             return {"ok": False, "text": "", "error": f"HTTP {res.status_code}"}
         data = res.json()
+        # Some models (e.g. Qwen3.5) put output in "thinking" field instead of "response"
         text = data.get("response", "").strip()
+        if not text:
+            text = data.get("thinking", "").strip()
         return {"ok": True, "text": text}
     except requests.Timeout:
         log.warning("[LLM] Request timed out")
@@ -195,7 +198,11 @@ def llm_analyze_json(prompt: str, system: str = "",
         if res.status_code != 200:
             log.warning(f"[LLM] HTTP {res.status_code}: {res.text[:200]}")
             return {"ok": False, "data": {}, "error": f"HTTP {res.status_code}"}
-        text = res.json().get("response", "").strip()
+        rj = res.json()
+        # Some models (e.g. Qwen3.5) put output in "thinking" field instead of "response"
+        text = rj.get("response", "").strip()
+        if not text:
+            text = rj.get("thinking", "").strip()
     except requests.Timeout:
         log.warning("[LLM] JSON request timed out")
         return {"ok": False, "data": {}, "error": "timeout"}

@@ -54,7 +54,7 @@ from radar.sensors import (  # noqa: E402
     NotamSensor, TravelAdvisorySensor, OoniSensor, UsgsSeismicSensor,
     MilSupportAirSensor, GpsJammingSensor, CtLogSensor,
     HacktiivistIntelSensor, GroundOsintSensor, DiplomaticSensor, MilitaryExerciseSensor,
-    AptIntelSensor, ConvergenceTrackerSensor,
+    AptIntelSensor, ConvergenceTrackerSensor, HacktivistNewsSensor,
 )
 for _s in [
     CloudflareSensor(), IodaSensor(), OpenSkySensor(), OpenWeatherSensor(),
@@ -65,7 +65,7 @@ for _s in [
     NotamSensor(), TravelAdvisorySensor(), OoniSensor(), UsgsSeismicSensor(),
     MilSupportAirSensor(), GpsJammingSensor(), CtLogSensor(),
     HacktiivistIntelSensor(), GroundOsintSensor(), DiplomaticSensor(), MilitaryExerciseSensor(),
-    AptIntelSensor(), ConvergenceTrackerSensor(),
+    AptIntelSensor(), ConvergenceTrackerSensor(), HacktivistNewsSensor(),
 ]:
     registry.register(_s)
 
