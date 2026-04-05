@@ -57,6 +57,8 @@ class TelegramMirrorSensor(BaseSensor):
     _last_poll_ts: str  = ""
     _last_poll_ok: bool = False
     _baseline_tg: dict  = {}    # theater → {"daily_counts": [], "last_updated": 0.0}
+    # Dedup: track (channel, theater) → snippet hash to suppress unchanged content
+    _last_seen: dict    = {}    # (channel, theater) → content_hash
 
     def __init__(self):
         super().__init__("telegram_mirror", "info", TELEGRAM_MIRROR_POLL)
@@ -160,19 +162,34 @@ class TelegramMirrorSensor(BaseSensor):
     def _log_detection(cls, theater: str, channel: str, channel_url: str,
                        status: str, keywords: list, targets: list, snippet: str,
                        text_excerpt: str = "") -> None:
-        """Append an entry to the intercept log (all statuses including CLEAR)."""
-        entry = {
-            "ts":              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "theater":         theater,
-            "channel":         channel,
-            "channel_url":     channel_url,
-            "status":          status,
-            "keywords_matched": keywords,
-            "target_urls":     targets[:5],
-            "snippet":         snippet,
-            "text_excerpt":    text_excerpt,
-        }
+        """Append an entry to the intercept log.
+        Suppresses duplicate entries when the same channel+theater produces
+        identical content across consecutive poll cycles (e.g. the same
+        pinned post being re-scraped every 15 minutes).
+        CLEAR status is never logged — only detections with signal.
+        """
+        if status == "CLEAR":
+            return
+        import hashlib as _hl
+        content_hash = _hl.md5(
+            f"{channel}:{theater}:{snippet[:200]}:{','.join(targets[:5])}".encode()
+        ).hexdigest()
+        key = (channel, theater)
         with cls._intercept_lock:
+            if cls._last_seen.get(key) == content_hash:
+                return  # Unchanged since last poll — suppress duplicate
+            cls._last_seen[key] = content_hash
+            entry = {
+                "ts":              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "theater":         theater,
+                "channel":         channel,
+                "channel_url":     channel_url,
+                "status":          status,
+                "keywords_matched": keywords,
+                "target_urls":     targets[:5],
+                "snippet":         snippet,
+                "text_excerpt":    text_excerpt,
+            }
             cls._intercept_log.insert(0, entry)
             if len(cls._intercept_log) > cls._MAX_LOG:
                 cls._intercept_log.pop()
