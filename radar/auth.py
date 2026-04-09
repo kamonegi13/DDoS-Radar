@@ -152,8 +152,8 @@ def register():
 
     if not username or not password:
         return jsonify({"error": "username and password required"}), 400
-    if len(password) < 12:
-        return jsonify({"error": "Password must be at least 12 characters"}), 400
+    if len(password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
     if role not in ("admin", "analyst", "viewer"):
         return jsonify({"error": "Invalid role"}), 400
     if db.user_exists(username):
@@ -363,8 +363,8 @@ def admin_reset_password(username):
 
     data = request.get_json(silent=True) or {}
     new_pw = data.get("new_password", "")
-    if not new_pw or len(new_pw) < 12:
-        return jsonify({"error": "Password must be at least 12 characters"}), 400
+    if not new_pw or len(new_pw) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
 
     user = db.user_get(username)
     if not user:
@@ -387,8 +387,8 @@ def change_password():
     new_pw = data.get("new_password", "")
     if not old_pw or not new_pw:
         return jsonify({"error": "old_password and new_password required"}), 400
-    if len(new_pw) < 12:
-        return jsonify({"error": "Password must be at least 12 characters"}), 400
+    if len(new_pw) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
 
     from radar.database import db
     user = db.user_get(identity)
