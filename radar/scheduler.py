@@ -171,7 +171,10 @@ def _cache_cleanup_worker(registry=None):
             from radar.intel_queue import intel_queue as _iq
             _iq.auto_reject_stale()
 
-            # Daily: prune SQLite tables and checkpoint WAL
+            # Hourly: WAL checkpoint (flush WAL to main DB file)
+            _db.wal_checkpoint()
+
+            # Daily: prune SQLite tables
             if _cycle % DB_CLEANUP_EVERY == 0:
                 _db.periodic_cleanup()
 

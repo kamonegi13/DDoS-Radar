@@ -4,11 +4,12 @@ services:
     image: ddos-radar:latest
     container_name: ddos-radar
     restart: unless-stopped
+    stop_grace_period: 30s
     ports:
       - "8000:8000"
     volumes:
-      # Persist SQLite DB and saved state across container restarts
-      - ./radar/persistence:/app/radar/persistence
+      # Persist SQLite DB — named volume for reliable fsync on Docker Desktop Mac
+      - radar-data:/app/radar/persistence
       # Mount your config — copy config.env.example → config.env and edit
       - ./config.env:/app/config.env
       # Optional: place custom plugin sensors here
@@ -28,3 +29,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+
+volumes:
+  radar-data:

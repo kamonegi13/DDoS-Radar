@@ -23,7 +23,7 @@ log = logging.getLogger("radar")
 # ── Schema SQL ────────────────────────────────────────────────────────────────
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
+PRAGMA synchronous = FULL;
 PRAGMA wal_autocheckpoint = 1000;
 
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -426,7 +426,40 @@ class RadarDB:
         self._local = threading.local()
         self._init_lock = threading.Lock()
         self._write_lock = threading.Lock()
+        self._check_integrity_or_recreate()
         self._ensure_schema()
+
+    def _check_integrity_or_recreate(self):
+        """Run PRAGMA integrity_check on startup. If the DB is corrupted,
+        rename it and let _ensure_schema create a fresh one.
+
+        All persistent data in this system (baselines, caches, HOD stats)
+        is ephemeral and will be rebuilt from upstream APIs within hours.
+        A clean DB is always preferable to a corrupted one.
+        """
+        if not os.path.exists(self._db_path):
+            return
+        try:
+            conn = sqlite3.connect(self._db_path, timeout=5)
+            result = conn.execute("PRAGMA integrity_check").fetchone()
+            conn.close()
+            if result and result[0] == "ok":
+                log.info("[DB] Startup integrity check: OK")
+                # Also remove stale WAL/SHM files from previous unclean shutdowns
+                return
+            log.error(f"[DB] Integrity check FAILED: {result}")
+        except Exception as e:
+            log.error(f"[DB] Integrity check error: {e}")
+
+        # Rename corrupted DB and WAL/SHM files
+        ts = time.strftime("%Y%m%d%H%M%S")
+        corrupt_name = f"{self._db_path}.corrupt.{ts}"
+        os.rename(self._db_path, corrupt_name)
+        for ext in ("-wal", "-shm"):
+            f = self._db_path + ext
+            if os.path.exists(f):
+                os.rename(f, corrupt_name + ext)
+        log.warning(f"[DB] Corrupted DB renamed to {corrupt_name} — creating fresh database")
 
     def _get_conn(self) -> _CooperativeConn:
         conn = getattr(self._local, "conn", None)
@@ -434,7 +467,7 @@ class RadarDB:
             os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
             raw = sqlite3.connect(self._db_path, timeout=5)
             raw.execute("PRAGMA journal_mode = WAL")
-            raw.execute("PRAGMA synchronous = NORMAL")
+            raw.execute("PRAGMA synchronous = FULL")
             raw.row_factory = sqlite3.Row
             conn = _CooperativeConn(raw, self._write_lock)
             self._local.conn = conn
@@ -1320,14 +1353,40 @@ class RadarDB:
         self._prune_stale_rows()
         log.info("[DB] Startup cleanup complete")
 
+    def shutdown(self):
+        """Checkpoint WAL and close the current thread's connection.
+
+        Called via atexit to ensure WAL data is flushed to the main DB
+        file before the process exits. Without this, Docker Desktop for
+        Mac volume mounts (VirtioFS/osxfs) may lose un-checkpointed WAL
+        data on container stop, leading to corruption or data loss.
+        """
+        try:
+            conn = getattr(self._local, "conn", None)
+            if conn is not None:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                conn.commit()
+                conn.close()
+                self._local.conn = None
+                log.info("[DB] Shutdown: WAL checkpointed and connection closed")
+        except Exception as e:
+            log.warning(f"[DB] Shutdown checkpoint failed: {e}")
+
+    def wal_checkpoint(self):
+        """Flush WAL to main DB file. Called hourly by cleanup worker."""
+        try:
+            conn = self._get_conn()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.commit()
+            log.debug("[DB] WAL checkpoint complete")
+        except Exception as e:
+            log.warning(f"[DB] WAL checkpoint failed: {e}")
+
     def periodic_cleanup(self):
         """Prune stale data during long-running operation. Called daily by the cleanup worker."""
         deleted = self._prune_stale_rows()
-        conn = self._get_conn()
-        # WAL checkpoint: flush WAL to main DB file and reset WAL size
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        conn.commit()
-        log.info(f"[DB] Periodic cleanup complete — deleted rows: {deleted}, WAL checkpointed")
+        self.wal_checkpoint()
+        log.info(f"[DB] Periodic cleanup complete — deleted rows: {deleted}")
 
     def _prune_stale_rows(self) -> dict:
         """Execute all time-based DELETE statements. Returns counts of deleted rows."""

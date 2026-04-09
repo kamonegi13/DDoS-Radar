@@ -123,7 +123,30 @@ app.register_blueprint(_routes_mod.bp)
 # ── Persistence (restore + background save) ──
 from radar.persistence import restore_state, save_state, _persistence_worker  # noqa: E402,F401
 import atexit  # noqa: E402
+import signal as _signal  # noqa: E402
 atexit.register(save_state)
+
+# Flush WAL to main DB file on shutdown (prevents data loss on Docker stop)
+from radar.database import db as _shutdown_db  # noqa: E402
+atexit.register(_shutdown_db.shutdown)
+
+# SIGTERM handler: docker stop sends SIGTERM, then SIGKILL after grace period.
+# atexit is NOT guaranteed to run on SIGTERM, so we handle it explicitly.
+def _sigterm_handler(signum, frame):
+    _log_sig = logging.getLogger("radar")
+    _log_sig.info("[Shutdown] SIGTERM received — flushing state and WAL")
+    try:
+        save_state()
+    except Exception as e:
+        _log_sig.warning(f"[Shutdown] save_state failed: {e}")
+    try:
+        _shutdown_db.shutdown()
+    except Exception as e:
+        _log_sig.warning(f"[Shutdown] DB shutdown failed: {e}")
+    _log_sig.info("[Shutdown] Graceful shutdown complete")
+    raise SystemExit(0)
+
+_signal.signal(_signal.SIGTERM, _sigterm_handler)
 
 # ── Synchronous startup (must complete before serving requests) ──
 from radar.scheduler import _sensor_scheduler_worker, _cache_cleanup_worker, _corroboration_worker  # noqa: E402
