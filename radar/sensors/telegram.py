@@ -9,7 +9,6 @@ from radar.config import (
     THREAT_ACTOR_MAPPING, TELEGRAM_CHANNEL_META, GLOBAL_PROXIES, SSL_VERIFY, NARRATIVE_ZSCORE_ALERT, NARRATIVE_ZSCORE_CRITICAL, NARRATIVE_BASELINE_DAYS,
 )
 from radar.sensors.base import BaseSensor
-from radar.scoring import register_sequence_event
 import os
 import threading
 log = logging.getLogger("radar")
@@ -44,7 +43,7 @@ class TelegramMirrorSensor(BaseSensor):
     Info Domain sensor: fetches public Telegram channel web previews via t.me/s/
     and monitors channel posts based on THREAT_ACTOR_MAPPING.
     No phone number or login required. Parses "target URLs" and "attack declarations"
-    from posts and auto-registers them via register_sequence_event.
+    from posts.
     """
     TELEGRAM_PREVIEW_URL = "https://t.me/s/{channel}"
     # URL extraction pattern (https?://example.com format)
@@ -353,14 +352,9 @@ class TelegramMirrorSensor(BaseSensor):
                 "normalized_freq":    round(normalized, 5),
             }
 
-            # Register sequence event on intent or Z-score burst
-            if theater_intent or is_burst:
-                register_sequence_event(theater, "NARRATIVE_BURST", {
-                    "source":   "telegram_mirror",
-                    "channels": active_channels,
-                    "targets":  list(set(theater_targets))[:5],
-                    "z_score":  z_score,
-                })
+            # Sequence event registration is handled by the scoring layer
+            # (core.py) which applies mute/suppression checks. Registering
+            # here bypasses those checks and causes phantom events.
 
         TelegramMirrorSensor._last_poll_ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         TelegramMirrorSensor._last_poll_ok = any_success or len(theaters) == 0

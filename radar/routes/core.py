@@ -399,6 +399,9 @@ def get_threat_data():
         def add_rat(sensor, domain, status, value, score, fired_reason,
                     is_suppressed=False, suppress_reason=None, confidence=1.0,
                     source_country="", signal_source="", **cac_kwargs):
+            """Add a rationale entry. Returns True if the entry is effectively
+            active (FIRED and not suppressed/muted), False otherwise.
+            Callers should use this to gate sequence event registration."""
             _is_muted = (sensor in muted_sensors) or is_suppressed
             _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
             # Check noise exclusion rules
@@ -432,7 +435,10 @@ def get_threat_data():
                 direction=_dir, direction_confidence=_dir_conf,
                 temporal_context=_temporal, spatial_context=_spatial,
                 target_context=_target))
+            return status == "FIRED" and not _is_muted
 
+        _overlap_active = False
+        _coord_active = False
         if not (cf_sensor and cf_sensor.enabled):
             add_rat("cloudflare_radar", "cyber", "DISABLED", "sensor off", 0, None)
         else:
@@ -459,7 +465,7 @@ def get_threat_data():
             _cf_conf = _sensor_conf(cf_sensor, sample_count=hod_n, baseline_samples=hod_n)
             add_rat("cf_spike_core", "cyber", "FIRED" if spike_fired else "OK", spike_value, spike_score, spike_reason, confidence=_cf_conf)
             max_overlap = max(correlations.values(), default=0.0)
-            add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None, confidence=_cf_conf)
+            _overlap_active = add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None, confidence=_cf_conf)
             # Graduated L3→L7 vector shift scoring: moderate +1, severe +2
             _core_l7s = target_details.get(core_theater, {}).get("avg_l7_spike", 0)
             _core_l3s = target_details.get(core_theater, {}).get("avg_l3_spike", 0)
@@ -473,7 +479,7 @@ def get_threat_data():
             _adv_score = 3 if _adv_count >= 3 else (2 if _adv_count >= 1 else 0)
             _adv_top_actor = adversary_strikes[0]["actor"] if adversary_strikes else ""
             add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{_adv_count} strike(s)", _adv_score, f"Adversary state direct strike ({_adv_count} actors)" if major_adversary else None, confidence=_cf_conf, source_country=_adv_top_actor, is_state_asn=bool(state_asn_hits))
-            add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None, confidence=_cf_conf)
+            _coord_active = add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None, confidence=_cf_conf)
 
         if not (ioda_sensor and ioda_sensor.enabled):
             add_rat("ioda_bgp", "physical", "DISABLED", "sensor off", 0, None)
@@ -570,8 +576,11 @@ def get_threat_data():
                     confidence=_sensor_conf(cf_sensor))
 
         # NASA FIRMS (Physical)
+        _firms_active = False
+        has_firms_core = False
         if nasa_firms_sensor and nasa_firms_sensor.enabled:
             has_firms = any(f["code"] == core_theater for f in nasa_firms_data)
+            has_firms_core = has_firms
             _firms_global_codes = sorted({f["code"] for f in nasa_firms_data})
             if has_firms:
                 _firms_val = f"Thermal Anomaly [{core_theater}]"
@@ -579,7 +588,7 @@ def get_threat_data():
                 _firms_val = f"Global only [{','.join(_firms_global_codes[:4])}]"
             else:
                 _firms_val = "No Anomalies"
-            add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", _firms_val, 3 if has_firms else 0, "Kinetic Strike Precursor", confidence=_sensor_conf(nasa_firms_sensor))
+            _firms_active = add_rat("nasa_firms", "physical", "FIRED" if has_firms else "OK", _firms_val, 3 if has_firms else 0, "Kinetic Strike Precursor", confidence=_sensor_conf(nasa_firms_sensor))
 
         # ThreatFox (Cyber)
         if threatfox_sensor and threatfox_sensor.enabled:
@@ -598,13 +607,13 @@ def get_threat_data():
         narrative_status = core_narrative.get("status", "NORMAL")
         if rss_narrative_sensor and rss_narrative_sensor.enabled:
             n_score = 2 if narrative_status == "CRITICAL_BURST" else 1 if narrative_burst else 0
-            add_rat("rss_narrative", "info",
+            _narr_active = add_rat("rss_narrative", "info",
                     "FIRED" if narrative_burst else "OK",
                     f"Z={narrative_z:.2f} [{narrative_status}]",
                     n_score,
                     f"Narrative Burst Z={narrative_z:.2f}" if narrative_burst else None,
                     confidence=_sensor_conf(rss_narrative_sensor))
-            if narrative_burst:
+            if narrative_burst and _narr_active:
                 register_sequence_event(core_theater, "NARRATIVE_BURST",
                                         {"z_score": narrative_z, "status": narrative_status})
 
@@ -613,13 +622,13 @@ def get_threat_data():
         isr_surge = core_isr.get("is_surge", False)
         isr_count = core_isr.get("count", 0)
         if isr_hotspot_sensor and isr_hotspot_sensor.enabled:
-            add_rat("isr_hotspot", "physical",
+            _isr_active = add_rat("isr_hotspot", "physical",
                     "FIRED" if isr_surge else "OK",
                     f"{isr_count} ISR ac in hotspot",
                     2 if isr_surge else 0,
                     f"ISR surge: {isr_count} aircraft" if isr_surge else None,
                     confidence=_sensor_conf(isr_hotspot_sensor))
-            if isr_surge:
+            if isr_surge and _isr_active:
                 register_sequence_event(core_theater, "ISR_SURGE",
                                         {"count": isr_count, "hotspots": core_isr.get("hotspots", [])})
 
@@ -629,24 +638,23 @@ def get_threat_data():
                 cp["country"] == core_theater for cp in CHOKEPOINTS if cp["name"] == g.get("chokepoint")
             )]
             ais_fired = ais_has_anomaly or len(core_gaps) > 0
-            add_rat("ais_maritime", "physical",
+            _ais_active = add_rat("ais_maritime", "physical",
                     "FIRED" if ais_fired else "OK",
                     f"dark_gaps={len(ais_dark_gaps)} stationary={len(ais_stationary)}",
                     1 if ais_fired else 0,
                     "AIS Dark Gap / Stationary Anomaly at chokepoint" if ais_fired else None,
                     confidence=_sensor_conf(ais_maritime_sensor))
-            if ais_fired:
+            if ais_fired and _ais_active:
                 register_sequence_event(core_theater, "AIS_DARK_GAP",
                                         {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)})
 
-        # FIRMS → register Sequence Event (reuse existing sensor result)
-        has_firms_core = any(f.get("code") == core_theater for f in nasa_firms_data)
-        if has_firms_core:
+        # FIRMS → register Sequence Event (gated by add_rat suppression check)
+        if has_firms_core and _firms_active:
             register_sequence_event(core_theater, "FIRMS_ANOMALY",
                                     {"hotspots": [f for f in nasa_firms_data if f.get("code") == core_theater]})
 
-        # Sync DDoS detection → register Sequence Event (only at high sync + high score)
-        if is_coordinated and high_correlation:
+        # Sync DDoS detection → register Sequence Event (gated by add_rat suppression checks)
+        if is_coordinated and high_correlation and _coord_active and _overlap_active:
             register_sequence_event(core_theater, "SYNC_DDOS",
                                     {"coordinated_theaters": elevated_theaters,
                                      "max_overlap": max(correlations.values(), default=0.0)})
@@ -679,7 +687,7 @@ def get_threat_data():
             detail = f"Z={telegram_z:.2f} [{telegram_status}] conf={telegram_confidence:.2f} ch={telegram_active_ch[:3]}"
             if suppressed_by_confidence:
                 detail += " (confidence-suppressed)"
-            add_rat("telegram_mirror", "info",
+            _tg_active = add_rat("telegram_mirror", "info",
                     "FIRED" if fired else "OK",
                     detail,
                     tg_score,
@@ -687,7 +695,7 @@ def get_threat_data():
                     f"Attack intent intercepted on Telegram: {telegram_active_ch}" if telegram_intent else
                     "Target URLs found in Telegram channels" if telegram_status == "TARGETS_FOUND" else None,
                     confidence=_sensor_conf(telegram_mirror_sensor))
-            if telegram_burst or telegram_intent:
+            if _tg_active and telegram_burst:
                 register_sequence_event(core_theater, "NARRATIVE_BURST", {
                     "source": "telegram_mirror", "channels": telegram_active_ch,
                     "targets": core_telegram.get("target_urls", [])[:5],
@@ -947,11 +955,11 @@ def get_threat_data():
             _notam_value = f"total={_notam_total} mil={_notam_mil} tfr={_notam_core.get('tfr', 0)}"
             _notam_reason = (f"NOTAM surge: {_notam_total} notices ({_notam_mil} military)"
                              if _notam_fired else None)
-            add_rat("notam", "physical",
+            _notam_active = add_rat("notam", "physical",
                     "FIRED" if _notam_fired else "OK",
                     _notam_value, _notam_score, _notam_reason,
                     confidence=_sensor_conf(notam_sensor))
-            if _notam_fired:
+            if _notam_fired and _notam_active:
                 register_sequence_event(core_theater, "NOTAM_SURGE",
                                         {"total": _notam_total, "military": _notam_mil})
 
@@ -1001,11 +1009,11 @@ def get_threat_data():
             _ooni_reason = (f"OONI: Internet censorship detected "
                             f"(anomaly={_ooni_anomaly_rate:.1%}, confirmed={_ooni_confirmed_rate:.1%})"
                             if _ooni_fired else None)
-            add_rat("ooni_censorship", "cyber",
+            _ooni_active = add_rat("ooni_censorship", "cyber",
                     "FIRED" if _ooni_fired else "OK",
                     _ooni_value, _ooni_score, _ooni_reason,
                     confidence=_sensor_conf(ooni_sensor))
-            if _ooni_heavy:
+            if _ooni_heavy and _ooni_active:
                 register_sequence_event(core_theater, "CENSORSHIP_DETECTED",
                                         {"source": "ooni", "anomaly_rate": _ooni_anomaly_rate})
 
@@ -1058,11 +1066,11 @@ def get_threat_data():
                 if _mil_air_core.get("is_awacs_active"):
                     parts.append(f"AWACS active ({_mil_awacs})")
                 _mil_reason = f"Military support aircraft: {', '.join(parts)}"
-            add_rat("mil_support_air", "physical",
+            _mil_active = add_rat("mil_support_air", "physical",
                     "FIRED" if _mil_fired else "OK",
                     _mil_value, _mil_score, _mil_reason,
                     confidence=_sensor_conf(mil_air_sensor))
-            if _mil_fired:
+            if _mil_fired and _mil_active:
                 register_sequence_event(core_theater, "MIL_AIR_SURGE",
                                         {"tanker": _mil_tanker, "transport": _mil_transport, "awacs": _mil_awacs})
 
@@ -1079,11 +1087,11 @@ def get_threat_data():
             _gps_reason = (f"GPS jamming: {gps_country_status.get(core_theater, 'DETECTED')} "
                            f"(max={_gps_max:.1f}, avg={_gps_avg:.1f})"
                            if _gps_fired else None)
-            add_rat("gps_jamming", "physical",
+            _gps_active = add_rat("gps_jamming", "physical",
                     "FIRED" if _gps_fired else "OK",
                     _gps_value, _gps_score, _gps_reason,
                     confidence=_sensor_conf(gps_jam_sensor))
-            if _gps_fired:
+            if _gps_fired and _gps_active:
                 register_sequence_event(core_theater, "GPS_JAMMING",
                                         {"max_level": _gps_max, "is_critical": _gps_critical})
 

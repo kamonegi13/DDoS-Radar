@@ -349,7 +349,11 @@ class RssNarrativeSensor(BaseSensor):
             elif z_score >= float(_os.getenv("NARRATIVE_ZSCORE_ALERT", "2.0")):
                 status = "BURST"
 
-            # On burst: collect matched articles and submit to LLM intel pipeline
+            # On burst: collect matched articles and submit to LLM intel pipeline.
+            # NOTE: This LLM submission stays in the sensor layer because it must
+            # run at sensor fetch frequency (30min), not at API poll frequency (15s).
+            # The intel_queue has its own dedup/confidence/auto_confirm pipeline.
+            # Sequence event registration is handled by the scoring layer (core.py).
             if status in ("BURST", "CRITICAL_BURST"):
                 for source_name, xml_text in xml_texts.items():
                     burst_article_pool.extend(
