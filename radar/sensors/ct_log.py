@@ -15,6 +15,7 @@ No API key required.
 from __future__ import annotations
 import logging
 import time
+from datetime import datetime, timezone, timedelta
 import requests
 from radar.sensors.base import BaseSensor
 import os as _os
@@ -118,9 +119,23 @@ class CtLogSensor(BaseSensor):
 
                         if isinstance(certs, list):
                             any_success = True
+                            age_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
                             for cert in certs[:100]:
                                 name = cert.get("common_name", "") or cert.get("name_value", "")
                                 issuer = cert.get("issuer_name", "")
+                                # Only count certs issued in the last 24h
+                                not_before = cert.get("not_before", "")
+                                is_recent = False
+                                if not_before:
+                                    try:
+                                        nb = datetime.fromisoformat(
+                                            not_before.replace("T", " ").split(".")[0]
+                                        ).replace(tzinfo=timezone.utc)
+                                        is_recent = nb >= age_cutoff
+                                    except (ValueError, TypeError):
+                                        pass
+                                if not is_recent:
+                                    continue
                                 total_recent += 1
                                 if name.startswith("*."):
                                     wildcard_count += 1
@@ -132,7 +147,7 @@ class CtLogSensor(BaseSensor):
                                     recent_certs.append({
                                         "name": name[:100],
                                         "issuer": issuer[:100],
-                                        "not_before": cert.get("not_before", ""),
+                                        "not_before": not_before,
                                     })
 
                     time.sleep(1.0)  # Rate limit crt.sh

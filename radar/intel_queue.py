@@ -141,58 +141,67 @@ class IntelQueue:
             existing = db.intel_list(source_type=source_type, theater=theater,
                                      limit=50, since_ts=since)
             for ex in existing:
-                if ex.get("source_id") == source_id:
-                    continue  # same source, different event — let through
+                same_source = (ex.get("source_id") == source_id)
                 ex_tokens = _headline_tokens(ex.get("headline", ""))
-                if _jaccard(new_tokens, ex_tokens) >= _JACCARD_THRESHOLD:
-                    # ── Distinct-event protection ──
-                    ex_llm = ex.get("llm_fields", {})
-                    # Different attributed actors → distinct events
-                    new_actor = new_llm.get("attributed_actor", "")
-                    ex_actor = ex_llm.get("attributed_actor", "")
-                    if new_actor and ex_actor and new_actor.lower() != ex_actor.lower():
-                        continue  # different actors, not a duplicate
-                    # Different diplomatic actions → distinct events
-                    new_action = new_llm.get("diplomatic_action", "")
-                    ex_action = ex_llm.get("diplomatic_action", "")
-                    if new_action and ex_action and new_action != ex_action:
-                        continue  # different actions, not a duplicate
+                jacc = _jaccard(new_tokens, ex_tokens)
+                if jacc < _JACCARD_THRESHOLD:
+                    continue  # sufficiently different headline — not a duplicate
 
-                    jacc = _jaccard(new_tokens, ex_tokens)
+                # Same source + similar headline = re-scraped identical content → discard
+                if same_source:
+                    log.debug(
+                        f"[Intel] Dedup SKIP same-source: {source_id!r} "
+                        f"Jaccard={jacc:.2f} headline={headline[:60]!r}"
+                    )
+                    return None
 
-                    # ── Confidence-based replacement ──
-                    if confidence > ex.get("confidence", 0):
-                        # New item is better — replace existing analysis, keep provenance
-                        corroborators: list = ex_llm.get("corroborating_sources", [])
-                        old_src = ex.get("source_id", "")
-                        if old_src and old_src not in corroborators:
-                            corroborators.append(old_src)
-                        merged_llm = new_llm.copy()
-                        merged_llm["corroborating_sources"] = corroborators
-                        db.intel_update_llm_fields(ex["id"], merged_llm)
-                        db.intel_update_core_fields(
-                            ex["id"],
-                            headline=headline[:200],
-                            confidence=confidence,
-                            score_delta=float(item.get("score_delta", 0)),
-                            raw_text=item.get("raw_text", "")[:1000],
-                            raw_url=item.get("raw_url", ""),
-                        )
-                        log.info(
-                            f"[Intel] Dedup REPLACE: {ex['source_id']!r} conf={ex['confidence']:.2f} "
-                            f"→ {source_id!r} conf={confidence:.2f} (Jaccard={jacc:.2f})"
-                        )
-                    else:
-                        # Existing is same or better — just record corroborator
-                        corroborators = ex_llm.get("corroborating_sources", [])
-                        if source_id not in corroborators:
-                            corroborators.append(source_id)
-                            db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
-                        log.debug(
-                            f"[Intel] Intra-type dedup: discarded {source_id!r} "
-                            f"(Jaccard={jacc:.2f} vs {ex['source_id']!r}, "
-                            f"headline: {headline[:60]})"
-                        )
+                # Cross-source dedup: different source, similar headline
+                # ── Distinct-event protection ──
+                ex_llm = ex.get("llm_fields", {})
+                # Different attributed actors → distinct events
+                new_actor = new_llm.get("attributed_actor", "")
+                ex_actor = ex_llm.get("attributed_actor", "")
+                if new_actor and ex_actor and new_actor.lower() != ex_actor.lower():
+                    continue  # different actors, not a duplicate
+                # Different diplomatic actions → distinct events
+                new_action = new_llm.get("diplomatic_action", "")
+                ex_action = ex_llm.get("diplomatic_action", "")
+                if new_action and ex_action and new_action != ex_action:
+                    continue  # different actions, not a duplicate
+
+                # ── Confidence-based replacement ──
+                if confidence > ex.get("confidence", 0):
+                    # New item is better — replace existing analysis, keep provenance
+                    corroborators: list = ex_llm.get("corroborating_sources", [])
+                    old_src = ex.get("source_id", "")
+                    if old_src and old_src not in corroborators:
+                        corroborators.append(old_src)
+                    merged_llm = new_llm.copy()
+                    merged_llm["corroborating_sources"] = corroborators
+                    db.intel_update_llm_fields(ex["id"], merged_llm)
+                    db.intel_update_core_fields(
+                        ex["id"],
+                        headline=headline[:200],
+                        confidence=confidence,
+                        score_delta=float(item.get("score_delta", 0)),
+                        raw_text=item.get("raw_text", "")[:1000],
+                        raw_url=item.get("raw_url", ""),
+                    )
+                    log.info(
+                        f"[Intel] Dedup REPLACE: {ex['source_id']!r} conf={ex['confidence']:.2f} "
+                        f"→ {source_id!r} conf={confidence:.2f} (Jaccard={jacc:.2f})"
+                    )
+                else:
+                    # Existing is same or better — just record corroborator
+                    corroborators = ex_llm.get("corroborating_sources", [])
+                    if source_id not in corroborators:
+                        corroborators.append(source_id)
+                        db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
+                    log.debug(
+                        f"[Intel] Intra-type dedup: discarded {source_id!r} "
+                        f"(Jaccard={jacc:.2f} vs {ex['source_id']!r}, "
+                        f"headline: {headline[:60]})"
+                    )
                     return None  # don't create a new item either way
         # ─────────────────────────────────────────────────────────────────────────
 

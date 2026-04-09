@@ -1425,7 +1425,7 @@
 
         <div class="guide-chapter active" id="guide-ch-1">
         <div class="guide-lang-en">
-        <h4>1. Multi-Domain Sensor Architecture (15 Sensors)</h4>
+        <h4>1. Multi-Domain Sensor Architecture (33 Sensors)</h4>
 
         <p><b>Cyber Domain (weight 0.50 default)</b> — Highest-weighted domain. State-directed cyber operations typically precede kinetic action by 24–72 hours. <span style="color:#888; font-size:11px;">Weights configurable via <code>DOMAIN_WEIGHT_CYBER</code>, <code>DOMAIN_WEIGHT_PHYSICAL</code>, <code>DOMAIN_WEIGHT_INFO</code> (must sum to 1.0).</span></p>
         <ul>
@@ -1463,12 +1463,12 @@
         <ul>
             <li><i>OpenWeatherMap (Weather Noise Filter)</i> [poll: 30 min]: When a significant weather event (thunderstorm, blizzard, hurricane, etc.) is detected at the core theater, Physical domain alerts (IODA BGP failure, OpenSky airspace anomaly) and the Information domain alert (GDELT tone) are automatically marked <b>SUPPRESSED</b> and excluded from scoring. This prevents weather events from triggering false escalations.</li>
             <li><i>GreyNoise (Automatic Noise Suppressor)</i> [v9]: When <span class="code-block">GREYNOISE_API_KEY</span> is configured and the GNQL Stats API classifies &gt;70% of traffic toward the theater as internet background noise (scanners, crawlers, opportunistic probes), the <span class="code-block">suppress_confidence</span> flag is raised. This automatically suppresses all Cyber domain sensor contributions, preventing scanner waves from being misread as targeted attack operations. Operates silently as UNKNOWN when no API key is set.</li>
-            <li><i>Analyst MUTE (HITL Override)</i>: Each sensor in the Evidence Panel has a <b>[ MUTE ]</b> button. Clicking it immediately excludes that sensor's score contribution and recalculates the convergence score. MUTE state is persisted to browser localStorage across sessions. Use this to suppress known false positives while preserving the underlying sensor record. When multiple sensors are muted, domain weights are correctly recalculated using only the remaining active sensors. All 15 sensors support MUTE.</li>
+            <li><i>Analyst MUTE (HITL Override)</i>: Each sensor in the Evidence Panel has a <b>[ MUTE ]</b> button. Clicking it immediately excludes that sensor's score contribution and recalculates the convergence score. MUTE state is persisted to browser localStorage across sessions. Use this to suppress known false positives while preserving the underlying sensor record. When multiple sensors are muted, domain weights are correctly recalculated using only the remaining active sensors. All 33 sensors support MUTE.</li>
         </ul>
 
         </div>
         <div class="guide-lang-ja" style="display:none;">
-        <h4>1. マルチドメイン・センサー・アーキテクチャ（15センサー）</h4>
+        <h4>1. マルチドメイン・センサー・アーキテクチャ（33センサー）</h4>
 
         <p><b>サイバードメイン（重み 0.50 デフォルト）</b> — 最も重みが高いドメイン。国家指揮による サイバー作戦は、運動学的行動に24〜72時間先行するのが一般的。<span style="color:#888; font-size:11px;">重みは<code>DOMAIN_WEIGHT_CYBER</code>、<code>DOMAIN_WEIGHT_PHYSICAL</code>、<code>DOMAIN_WEIGHT_INFO</code>で設定可能（合計1.0）。</span></p>
         <ul>
@@ -1506,7 +1506,7 @@
         <ul>
             <li><i>OpenWeatherMap (Weather Noise Filter)</i> [poll: 30 min]: コアシアターで重大な気象イベント（雷雨、吹雪、ハリケーンなど）が検出された場合、物理ドメインアラート（IODA BGP障害、OpenSky 領空異常）および情報ドメインアラート（GDELTトーン）は自動的に<b>SUPPRESSED</b>とマークされ、スコアリングから除外される。気象イベントによる誤ったエスカレーションを防止。</li>
             <li><i>GreyNoise (Automatic Noise Suppressor)</i> [v9]: <span class="code-block">GREYNOISE_API_KEY</span>が設定され、GNQL Stats API がシアターへのトラフィックの70%超をインターネットバックグラウンドノイズ（スキャナー、クローラー、日和見プローブ）と分類した場合、<span class="code-block">suppress_confidence</span>フラグが立てられる。これにより、すべてのサイバードメインセンサーの貢献が自動的に抑制され、スキャナー波が標的型攻撃作戦と誤認されることを防止。API キー未設定時は UNKNOWN としてサイレント動作。</li>
-            <li><i>アナリスト MUTE（HITL オーバーライド）</i>: エビデンスパネルの各センサーには <b>[ MUTE ]</b> ボタンがある。クリックすると、そのセンサーのスコア貢献が即座に除外され、収束スコアが再計算される。MUTE 状態はセッションをまたいでブラウザの localStorage に保持される。既知の誤検知を抑制しながら、基礎センサー記録を保持するために使用。複数のセンサーがミュートされている場合、ドメイン重みは残りのアクティブセンサーのみを使用して正しく再計算される。全15センサーが MUTE をサポート。</li>
+            <li><i>アナリスト MUTE（HITL オーバーライド）</i>: エビデンスパネルの各センサーには <b>[ MUTE ]</b> ボタンがある。クリックすると、そのセンサーのスコア貢献が即座に除外され、収束スコアが再計算される。MUTE 状態はセッションをまたいでブラウザの localStorage に保持される。既知の誤検知を抑制しながら、基礎センサー記録を保持するために使用。複数のセンサーがミュートされている場合、ドメイン重みは残りのアクティブセンサーのみを使用して正しく再計算される。全33センサーが MUTE をサポート。</li>
         </ul>
 
         </div>
@@ -2026,7 +2026,7 @@
             </li>
             <li><b>Threat Actors</b>: Select from 5 adversary nation-states that conduct systematic cyber operations: <b>RU</b> (Russia), <b>CN</b> (China), <b>IR</b> (Iran), <b>KP</b> (North Korea), <b>BY</b> (Belarus / RU proxy). Selection drives both state-attribution badge display and RSS narrative source selection — only feeds relevant to the active adversary bloc are polled.</li>
             <li><b>Quick Pins</b>: Select countries to appear as quick-toggle buttons in the "Target Visibility" panel on the main screen.</li>
-            <li><b>Sensors</b>: Enable or disable individual 26 sensors. A disabled sensor contributes zero to the score (graceful degradation). Sensor fleet: 12 original + 3 v9 (telegram_mirror, check_host, greynoise) + 1 Phase 2 (space_weather) + 3 Phase 4 (ihr_health, ripe_atlas, tor_metrics) + 7 CAC (notam, travel_advisory, ooni_censorship, usgs_seismic, mil_support_air, gps_jamming, ct_log).</li>
+            <li><b>Sensors</b>: Enable or disable individual 33 sensors. A disabled sensor contributes zero to the score (graceful degradation). Sensor fleet: 12 original + 3 v9 (telegram_mirror, check_host, greynoise) + 1 Phase 2 (space_weather) + 3 Phase 4 (ihr, ripe_atlas, tor_metrics) + 7 CAC (notam, travel_advisory, ooni, usgs_seismic, mil_support_air, gps_jamming, ct_log) + 6 LLM Intel (hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news) + 1 meta (convergence_tracker).</li>
             <li><b>Fetch Log</b>: Displays the last fetch result for each sensor (success/failure/cache age). Cache older than 3× the polling interval is flagged as STALE.</li>
         </ul>
         <p style="color:#888; font-size:11px;"><b>Bloc Filter (Strategy tab):</b> Filter pills at the top of the Strategy Scope tab filter by strategic bloc. Selecting a bloc zooms the Region Preview mini-map to the bloc's geographic bounds and shows all theaters relevant to that adversary's campaign — including cross-bloc countries that wouldn't appear in the ALL view. <b>Region Filter (Quick Pins tab):</b> Filters by geographic region (East Asia / SE Asia / Middle East, etc., across 16 regions). Both filters display current selections as color-coded dot markers on the mini-map: Core (cyan) / Link (amber) / Adversary (red) / Pin (green).</p>
@@ -2052,7 +2052,7 @@
             </li>
             <li><b>脅威アクター</b>: 組織的サイバー作戦を実施する5つの敵対国家から選択: <b>RU</b>（ロシア）、<b>CN</b>（中国）、<b>IR</b>（イラン）、<b>KP</b>（北朝鮮）、<b>BY</b>（ベラルーシ / RU プロキシ）。選択により、国家帰属バッジ表示と RSS ナラティブソース選択の両方が駆動 — アクティブな敵対ブロックに関連するフィードのみがポーリングされる。</li>
             <li><b>クイックピン</b>: メイン画面の「ターゲット表示」パネルにクイックトグルボタンとして表示する国を選択。</li>
-            <li><b>センサー</b>: 全26個のセンサーを個別に有効/無効切替。無効化されたセンサーのスコア貢献はゼロ（グレースフルデグラデーション）。センサー構成: オリジナル12 + v9 3（telegram_mirror, check_host, greynoise）+ Phase 2 1（space_weather）+ Phase 4 3（ihr_health, ripe_atlas, tor_metrics）+ CAC 7（notam, travel_advisory, ooni_censorship, usgs_seismic, mil_support_air, gps_jamming, ct_log）。</li>
+            <li><b>センサー</b>: 全33個のセンサーを個別に有効/無効切替。無効化されたセンサーのスコア貢献はゼロ（グレースフルデグラデーション）。センサー構成: オリジナル12 + v9 3（telegram_mirror, check_host, greynoise）+ Phase 2 1（space_weather）+ Phase 4 3（ihr, ripe_atlas, tor_metrics）+ CAC 7（notam, travel_advisory, ooni, usgs_seismic, mil_support_air, gps_jamming, ct_log）+ LLM Intel 6（hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news）+ meta 1（convergence_tracker）。</li>
             <li><b>フェッチログ</b>: 各センサーの最終フェッチ結果（成功/失敗/キャッシュ経過時間）を表示。ポーリング間隔の3倍より古いキャッシュは STALE としてフラグ。</li>
         </ul>
         <p style="color:#888; font-size:11px;"><b>ブロックフィルター（戦略タブ）:</b> 戦略スコープタブ上部のフィルターピルで戦略ブロックをフィルタリング。ブロックを選択すると、地域プレビューミニマップがそのブロックの地理的境界にズームし、当該敵対者のキャンペーンに関連するすべてのシアターを表示 — ALL ビューでは表示されないクロスブロック国も含む。<b>地域フィルター（クイックピンタブ）:</b> 地理的地域（東アジア / 東南アジア / 中東など、16地域）でフィルタリング。両フィルターとも現在の選択をミニマップ上の色分けドットマーカーとして表示: コア（シアン）/ リンク（琥珀）/ 敵対者（赤）/ ピン（緑）。</p>
@@ -2160,7 +2160,7 @@
         <p><b>L. What-If Simulation</b> <span style="color:#66ffcc;">[Phase 1]</span> — <span class="code-block">TOOLS ▾</span> → What-If Sim</p>
         <ul>
             <li><b>Purpose:</b> Sandbox mode for analysts to inject virtual sensor events and preview how the convergence engine responds — without affecting live threat assessment. Enables training, exercise scenarios, and regression verification of engine changes.</li>
-            <li><b>Sensor Selector:</b> Lists all 18+ sensors grouped by domain (Cyber / Physical / Info). Check a sensor to activate it; set its score contribution (0 to max). Suppressor sensors (GreyNoise, Weather) can be toggled to simulate noise suppression.</li>
+            <li><b>Sensor Selector:</b> Lists all 33 sensors grouped by domain (Cyber / Physical / Info). Check a sensor to activate it; set its score contribution (0 to max). Suppressor sensors (GreyNoise, Weather) can be toggled to simulate noise suppression.</li>
             <li><b>Bonus Controls:</b> Override TL1 hard gate (core_degraded), inject Sequence Bonus (+1 PARTIAL / +3 FULL CHAIN), and Temporal Coherence Bonus (+1 PARTIAL / +2 C2 SYNC).</li>
             <li><b>Simulation Output:</b> Displays computed Threat Level badge, total score with bonus breakdown, domain score bars, convergence level, and the full system note — identical to the live engine output. All computation runs server-side using the same <span class="code-block">WeightedConvergenceEngine</span> instance.</li>
         </ul>
@@ -2197,7 +2197,7 @@
 
         <p><b>Q. Sensor × Theater Heatmap</b> <span style="color:#66ffcc;">[Phase 3]</span> — <span class="code-block">TOOLS ▾</span> → Sensor Heatmap</p>
         <ul>
-            <li><b>Purpose:</b> Visualizes signal levels across all 17 sensors (rows) × active theaters (columns). Domain-colored rows (cyan=Cyber, orange=Physical, magenta=Info).</li>
+            <li><b>Purpose:</b> Visualizes signal levels across all 33 sensors (rows) × active theaters (columns). Domain-colored rows (cyan=Cyber, orange=Physical, magenta=Info).</li>
             <li><b>Filters:</b> Toggle ALL / CYBER / PHYS / INFO to focus on specific domains.</li>
             <li><b>Color Scale:</b> Quiet (dim) → Warning (yellow) → Alert (red).</li>
         </ul>
@@ -2513,7 +2513,7 @@
         <p><b>L. What-Ifシミュレーション</b> <span style="color:#66ffcc;">[Phase 1]</span> — <span class="code-block">TOOLS ▾</span> → What-If Sim</p>
         <ul>
             <li><b>目的:</b> アナリストが仮想センサーイベントを注入し、収斂エンジンの応答をプレビューするサンドボックスモード — ライブ脅威評価に影響を与えません。訓練、演習シナリオ、エンジン変更の回帰検証に使用。</li>
-            <li><b>センサーセレクター:</b> 全18+センサーをドメイン別（Cyber / Physical / Info）にグループ化して表示。チェックボックスでセンサーを有効化、スコア寄与度（0〜最大値）を設定。抑制センサー（GreyNoise、Weather）はノイズ抑制シミュレーション用にトグル可能。</li>
+            <li><b>センサーセレクター:</b> 全33センサーをドメイン別（Cyber / Physical / Info）にグループ化して表示。チェックボックスでセンサーを有効化、スコア寄与度（0〜最大値）を設定。抑制センサー（GreyNoise、Weather）はノイズ抑制シミュレーション用にトグル可能。</li>
             <li><b>ボーナス制御:</b> TL1ハードゲート（core_degraded）のオーバーライド、シーケンスボーナス（+1 PARTIAL / +3 FULL CHAIN）、時間的整合性ボーナス（+1 PARTIAL / +2 C2 SYNC）を注入可能。</li>
             <li><b>シミュレーション出力:</b> 脅威レベルバッジ、ボーナス内訳付き合計スコア、ドメインスコアバー、収斂レベル、システムノートを表示 — ライブエンジン出力と同一。全計算はサーバーサイドで同一の <span class="code-block">WeightedConvergenceEngine</span> インスタンスを使用。</li>
         </ul>
@@ -2550,7 +2550,7 @@
 
         <p><b>Q. センサー × シアター ヒートマップ</b> <span style="color:#66ffcc;">[Phase 3]</span> — <span class="code-block">TOOLS ▾</span> → Sensor Heatmap</p>
         <ul>
-            <li><b>目的:</b> 全17センサー（行）× アクティブシアター（列）のシグナルレベルを可視化。行はドメイン色（シアン=Cyber、オレンジ=Physical、マゼンタ=Info）。</li>
+            <li><b>目的:</b> 全33センサー（行）× アクティブシアター（列）のシグナルレベルを可視化。行はドメイン色（シアン=Cyber、オレンジ=Physical、マゼンタ=Info）。</li>
             <li><b>フィルター:</b> ALL / CYBER / PHYS / INFO で特定ドメインに絞り込み。</li>
             <li><b>色スケール:</b> Quiet（暗）→ Warning（黄）→ Alert（赤）。</li>
         </ul>
@@ -2771,10 +2771,10 @@
         <div class="guide-lang-en">
         <h4>9. API Reference (Analyst / Integration Endpoints)</h4>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
-            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data (26 sensors), threat score, domain breakdown, and deep analytics block (v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics; Phase C: notam, travel_advisory, ooni, seismic, mil_support_air, gps_jamming, ct_log; Phase D: cooccurrence_boost, forecast_accuracy). Includes context_alignment and direction_summary (CAC).</li>
+            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data (33 sensors), threat score, domain breakdown, and deep analytics block (v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics; Phase C: notam, travel_advisory, ooni, seismic, mil_support_air, gps_jamming, ct_log; LLM Intel: hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news; Phase D: cooccurrence_boost, forecast_accuracy). Includes context_alignment and direction_summary (CAC).</li>
             <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — Threat level history (up to 24 hrs / 288 cycles). Each cycle includes velocity, ambush flag, and blockade index.</li>
             <li><span class="code-block">GET /api/sitrep</span> — Machine-readable SITREP including trend, domain activity, and convergence state.</li>
-            <li><span class="code-block">GET /api/data_status</span> — Sensor health, polling intervals, last fetch time, and error logs. Shows all 26 sensors (original 12 + v9 3 + Phase 2 1 + Phase 4 3 + CAC 7).</li>
+            <li><span class="code-block">GET /api/data_status</span> — Sensor health, polling intervals, last fetch time, and error logs. Shows all 33 sensors (original 12 + v9 3 + Phase 2 1 + Phase 4 3 + CAC 7 + LLM Intel 6 + meta 1).</li>
             <li><span class="code-block">GET /api/sensor_config</span> — List of all sensors with enabled/domain/health status.</li>
             <li><span class="code-block">POST /api/sensor_config</span> — Enable/disable a sensor. Body example: <span class="code-block">{"name":"telegram_mirror","enabled":false}</span></li>
             <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> — Returns escalation chain events within the 24-hour window for the specified theater. v9 event types: TELEGRAM_INTENT, MASKIROVKA, C2_SYNC, INFRA_BLACKOUT (in addition to NARRATIVE_BURST, ISR_SURGE, SYNC_DDOS, FIRMS_ANOMALY, AIS_DARK_GAP).</li>
@@ -2832,10 +2832,10 @@
         <div class="guide-lang-ja" style="display:none;">
         <h4>9. API リファレンス（アナリスト / 統合エンドポイント）</h4>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
-            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — プライマリデータフィード。全26センサーのデータ、脅威スコア、ドメイン内訳、ディープアナリティクスブロックを返す（v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics; Phase C: notam, travel_advisory, ooni, seismic, mil_support_air, gps_jamming, ct_log; Phase D: cooccurrence_boost, forecast_accuracy）。context_alignment と direction_summary (CAC) を含む。</li>
+            <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — プライマリデータフィード。全33センサーのデータ、脅威スコア、ドメイン内訳、ディープアナリティクスブロックを返す（v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics; Phase C: notam, travel_advisory, ooni, seismic, mil_support_air, gps_jamming, ct_log; LLM Intel: hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news; Phase D: cooccurrence_boost, forecast_accuracy）。context_alignment と direction_summary (CAC) を含む。</li>
             <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — 脅威レベル履歴（最大24時間 / 288サイクル）。各サイクルには速度、アンブッシュフラグ、封鎖インデックスを含む。</li>
             <li><span class="code-block">GET /api/sitrep</span> — トレンド、ドメイン活動、収束状態を含む機械可読 SITREP。</li>
-            <li><span class="code-block">GET /api/data_status</span> — センサーヘルス、ポーリング間隔、最終フェッチ時刻、エラーログ。全26センサーを表示（元12 + v9 3 + Phase 2 1 + Phase 4 3 + CAC 7）。</li>
+            <li><span class="code-block">GET /api/data_status</span> — センサーヘルス、ポーリング間隔、最終フェッチ時刻、エラーログ。全33センサーを表示（元12 + v9 3 + Phase 2 1 + Phase 4 3 + CAC 7 + LLM Intel 6 + meta 1）。</li>
             <li><span class="code-block">GET /api/sensor_config</span> — 有効/ドメイン/ヘルスステータス付きの全センサーリスト。</li>
             <li><span class="code-block">POST /api/sensor_config</span> — センサーの有効/無効切替。ボディ例: <span class="code-block">{"name":"telegram_mirror","enabled":false}</span></li>
             <li><span class="code-block">GET /api/sequence_chain?theater=TW</span> — 指定シアターの24時間ウィンドウ内のエスカレーションチェーンイベントを返す。v9 イベントタイプ: TELEGRAM_INTENT, MASKIROVKA, C2_SYNC, INFRA_BLACKOUT（NARRATIVE_BURST, ISR_SURGE, SYNC_DDOS, FIRMS_ANOMALY, AIS_DARK_GAP に加えて）。</li>
