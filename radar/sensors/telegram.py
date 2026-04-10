@@ -20,6 +20,9 @@ TELEGRAM_ATTACK_KW_RAW = os.getenv(
 )
 TELEGRAM_ATTACK_KEYWORDS = [k.strip().lower() for k in TELEGRAM_ATTACK_KW_RAW.split(",") if k.strip()]
 TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD = float(os.getenv("TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD", "0.5"))
+# Maximum age (hours) for individual posts to be analyzed.
+# Posts older than this are ignored to prevent stale detections.
+TELEGRAM_POST_MAX_AGE_H = int(os.getenv("TELEGRAM_POST_MAX_AGE_HOURS", "8"))
 
 # Multi-stage confidence scoring for attack claims.
 # Stage 1: Declaration only (keywords matched) → base confidence 0.2
@@ -99,6 +102,53 @@ class TelegramMirrorSensor(BaseSensor):
             except Exception:
                 break
         return ""
+
+    @staticmethod
+    def _parse_html_posts(html: str, max_age_seconds: int) -> list[dict]:
+        """Parse individual posts from t.me/s/ HTML with timestamp filtering.
+        Returns list of {"text": str, "ts": float} for posts newer than max_age_seconds.
+        Each post on t.me/s/ is wrapped in a tgme_widget_message_wrap div
+        containing a <time datetime="..."> element and message text div.
+        """
+        from datetime import datetime as _dt
+        now = time.time()
+        cutoff = now - max_age_seconds
+        posts = []
+
+        # Split HTML at each message wrapper boundary
+        parts = re.split(r'<div[^>]*class="[^"]*tgme_widget_message_wrap', html)
+
+        for part in parts[1:]:  # skip content before first message
+            # Extract timestamp from <time datetime="...">
+            time_match = re.search(r'<time[^>]*datetime="([^"]+)"', part)
+            if not time_match:
+                continue
+
+            dt_str = time_match.group(1).replace("Z", "+00:00")
+            try:
+                post_ts = _dt.fromisoformat(dt_str).timestamp()
+            except (ValueError, OSError):
+                continue
+
+            if post_ts < cutoff:
+                continue  # Post is too old — skip
+
+            # Extract message text from tgme_widget_message_text div
+            text_match = re.search(
+                r'<div[^>]*class="[^"]*tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>',
+                part, re.DOTALL,
+            )
+            raw_text = text_match.group(1) if text_match else part
+
+            # Strip HTML tags and entities
+            clean = re.sub(r'<[^>]+>', ' ', raw_text)
+            clean = re.sub(r'&[a-zA-Z0-9#]+;', ' ', clean)
+            clean = clean.lower().strip()
+
+            if clean:
+                posts.append({"text": clean, "ts": post_ts})
+
+        return posts
 
     @staticmethod
     def _extract_text(html: str) -> str:
@@ -259,7 +309,13 @@ class TelegramMirrorSensor(BaseSensor):
                 channel_results[channel] = {"ok": False}
                 continue
             any_success = True
-            text = self._extract_text(html)
+            # Parse individual posts with timestamp filtering to ignore stale content
+            recent_posts = self._parse_html_posts(html, TELEGRAM_POST_MAX_AGE_H * 3600)
+            if recent_posts:
+                text = " ".join(p["text"] for p in recent_posts)
+            else:
+                log.debug(f"[Telegram] {channel}: no posts within {TELEGRAM_POST_MAX_AGE_H}h window")
+                text = ""
             targets, has_intent, matched_kws = self._parse_posts(text, TELEGRAM_ATTACK_KEYWORDS)
             kw_hits = self._count_keyword_hits(text, TELEGRAM_ATTACK_KEYWORDS)
             text_excerpt = text[:1500].strip()

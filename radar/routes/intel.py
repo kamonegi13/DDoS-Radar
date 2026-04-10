@@ -32,8 +32,20 @@ def intel_list():
         theater=theater or None,
         limit=limit,
     )
+    # Filter out stale terminal-state items from UI display.
+    # Rejected/overridden items older than the display TTL are noise.
+    # Active/pending items use INTEL_ITEM_TTL (24h) from intel_queue.
+    import os as _os
+    now = time.time()
+    _TERMINAL_DISPLAY_TTL = int(_os.getenv("INTEL_TERMINAL_DISPLAY_HOURS", "8")) * 3600
+    filtered = []
+    for it in items:
+        age = now - it.get("created_at", it.get("ts", 0))
+        if it["status"] in ("rejected", "overridden") and age > _TERMINAL_DISPLAY_TTL:
+            continue
+        filtered.append(it)
     return jsonify({
-        "items": items,
+        "items": filtered,
         "stats": intel_queue.stats(),
         "ts":    time.time(),
     })
