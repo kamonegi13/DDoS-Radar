@@ -3,11 +3,51 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
+import re
 import requests
 import threading
 import time
 import xml.etree.ElementTree as ET
 import os as _os
+
+# Stop-words to drop when extracting atomic terms from multi-word phrases.
+# These appear in too many news articles to be useful as standalone signals.
+_TERM_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "in", "on", "at", "to", "for",
+    "of", "is", "are", "was", "were", "be", "by", "with", "from",
+    "this", "that", "as", "it", "its", "has", "have", "had",
+    "near", "over", "after", "before", "during", "amid",
+    "new", "old", "all", "any", "no", "not", "but",
+    # Generic words that appear in too many news contexts to be discriminating
+    "policy", "relations", "tensions", "crisis", "operations",
+})
+
+
+def _expand_keywords(keywords: list) -> tuple[list[str], list[str]]:
+    """Split TACTICAL_KEYWORDS into (phrases, atomic_terms).
+
+    phrases: original multi-word entries — kept for high-precision substring match.
+    atomic_terms: significant single words extracted from each phrase, deduped.
+                  These provide recall when news articles paraphrase official wording.
+
+    Example:
+        ["combat readiness", "encirclement"] →
+            phrases    = ["combat readiness", "encirclement"]
+            atomic     = ["combat", "readiness", "encirclement"]
+    """
+    phrases: list[str] = []
+    atomic: set[str] = set()
+    for kw in keywords:
+        kw_lower = kw.lower().strip()
+        if not kw_lower:
+            continue
+        if " " in kw_lower or "-" in kw_lower:
+            phrases.append(kw_lower)
+        # Extract significant words from each entry
+        for tok in re.findall(r"[a-z]+", kw_lower):
+            if len(tok) >= 4 and tok not in _TERM_STOPWORDS:
+                atomic.add(tok)
+    return phrases, sorted(atomic)
 from radar.config import (
     ADVERSARY_NARRATIVE_SOURCES, TACTICAL_KEYWORDS, GLOBAL_PROXIES, SSL_VERIFY, LLM_ENABLED,
 )
@@ -49,7 +89,9 @@ class RssNarrativeSensor(BaseSensor):
     def _count_keywords_in_rss(xml_text: str, keywords: list) -> tuple:
         """
         Parse RSS XML and return keyword hit count and article count.
-        Duplicate articles are excluded using difflib.
+        Two-tier matching: phrase substring (high precision) + atomic word boundary (high recall).
+        An article counts as a hit if it matches at least one phrase or two atomic terms,
+        preventing single-word matches from inflating the baseline.
         Returns: (keyword_hits: int, article_count: int)
         """
         if not xml_text:
@@ -60,10 +102,14 @@ class RssNarrativeSensor(BaseSensor):
             log.debug("[RssNarrative] RSS XML parse error")
             return 0, 0
 
-        # Dedup: normalized hash of first 60 chars of title in a set (O(N) vs O(N²))
+        phrases, atomic = _expand_keywords(keywords)
+        # Compile word-boundary regex for atomic terms (single pass per article)
+        atomic_re = re.compile(
+            r"\b(?:" + "|".join(re.escape(t) for t in atomic) + r")\b"
+        ) if atomic else None
+
         titles_seen: set = set()
         keyword_hits, article_count = 0, 0
-        keywords_lower = [k.lower() for k in keywords]
 
         for item in root.iter("item"):
             title_el = item.find("title")
@@ -72,7 +118,6 @@ class RssNarrativeSensor(BaseSensor):
             desc  = (desc_el.text  or "").strip() if desc_el  is not None else ""
             text  = (title + " " + desc).lower()
 
-            # Detect duplicates via normalized 60-char key (eliminates SequenceMatcher O(N²))
             title_key = "".join(c for c in title.lower()[:60] if c.isalnum())
             if title_key and title_key in titles_seen:
                 continue
@@ -80,16 +125,24 @@ class RssNarrativeSensor(BaseSensor):
                 titles_seen.add(title_key)
 
             article_count += 1
-            if any(kw in text for kw in keywords_lower):
+            # Tier 1: phrase match (high precision)
+            if any(p in text for p in phrases):
                 keyword_hits += 1
+                continue
+            # Tier 2: atomic term match (require ≥2 distinct terms to count as hit)
+            if atomic_re:
+                matches = set(atomic_re.findall(text))
+                if len(matches) >= 2:
+                    keyword_hits += 1
 
         return keyword_hits, article_count
 
     @staticmethod
     def _get_burst_articles(xml_text: str, keywords: list, max_articles: int = 4) -> list[dict]:
         """Extract matched articles from RSS XML for LLM burst analysis.
-        Called only when Z-score burst is detected — does not duplicate the
-        counting logic, just collects article text for semantic analysis.
+        Uses the same two-tier matching as _count_keywords_in_rss to stay
+        consistent with hit counts (otherwise burst-detected articles could
+        appear empty when only atomic terms matched).
         """
         if not xml_text:
             return []
@@ -99,7 +152,11 @@ class RssNarrativeSensor(BaseSensor):
             log.debug("[RssNarrative] RSS XML parse error (burst)")
             return []
 
-        keywords_lower = [k.lower() for k in keywords]
+        phrases, atomic = _expand_keywords(keywords)
+        atomic_re = re.compile(
+            r"\b(?:" + "|".join(re.escape(t) for t in atomic) + r")\b"
+        ) if atomic else None
+
         titles_seen: set = set()
         articles = []
 
@@ -118,7 +175,9 @@ class RssNarrativeSensor(BaseSensor):
                 titles_seen.add(title_key)
 
             text_lower = (title + " " + desc).lower()
-            if any(kw in text_lower for kw in keywords_lower):
+            phrase_hit = any(p in text_lower for p in phrases)
+            atomic_hits = len(set(atomic_re.findall(text_lower))) if atomic_re else 0
+            if phrase_hit or atomic_hits >= 2:
                 articles.append({
                     "title":   title,
                     "summary": desc[:300],

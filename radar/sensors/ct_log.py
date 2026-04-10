@@ -98,7 +98,10 @@ class CtLogSensor(BaseSensor):
                                 "output": "json",
                                 "exclude": "expired",
                             },
-                            timeout=30, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+                            # crt.sh either responds in 2-5s or hangs.
+                            # 10s timeout caps a full-cycle worst case at
+                            # ~27 countries × 10s ≈ 4.5min instead of ~14min.
+                            timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
                             headers={"Accept": "application/json"},
                         )
                     except requests.exceptions.Timeout:
@@ -150,7 +153,7 @@ class CtLogSensor(BaseSensor):
                                         "not_before": not_before,
                                     })
 
-                    time.sleep(1.0)  # Rate limit crt.sh
+                    time.sleep(0.3)  # Rate limit crt.sh — 0.3s is enough; the bottleneck is the 30s timeout, not throughput
 
                 prev = self._prev_counts.get(code, total_recent)
                 surge_pct = ((total_recent - prev) / max(prev, 1)

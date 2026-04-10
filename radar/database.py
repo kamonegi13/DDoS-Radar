@@ -153,6 +153,27 @@ CREATE TABLE IF NOT EXISTS sensor_fetch_log (
 );
 CREATE INDEX IF NOT EXISTS idx_fetch_log_sensor_ts ON sensor_fetch_log (sensor_name, ts);
 
+-- llm_call_log: every LLM analysis attempt and its outcome.
+-- Lets operators distinguish "sensor silent" from "LLM down" from "threshold too high".
+-- caller    : sensor name (e.g. hacktivist_intel)
+-- outcome   : ok | parse_failed | http_error | timeout | disabled | exception
+-- verdict   : auto_confirmed | pending | discarded_low_conf | discarded_dedup | not_submitted
+--             (verdict='' when call failed before reaching the queue)
+CREATE TABLE IF NOT EXISTS llm_call_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts           REAL NOT NULL,
+    caller       TEXT NOT NULL,
+    model        TEXT NOT NULL DEFAULT '',
+    duration_ms  INTEGER DEFAULT 0,
+    outcome      TEXT NOT NULL DEFAULT '',
+    verdict      TEXT NOT NULL DEFAULT '',
+    confidence   REAL DEFAULT 0,
+    headline     TEXT DEFAULT '',
+    error        TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_llm_call_log_ts     ON llm_call_log (ts);
+CREATE INDEX IF NOT EXISTS idx_llm_call_log_caller ON llm_call_log (caller, ts);
+
 -- CAC: Noise exclusion rules (analyst-defined)
 CREATE TABLE IF NOT EXISTS noise_exclusion (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1079,6 +1100,96 @@ class RadarDB:
             for r in rows
         ]
 
+    # ── llm_call_log ─────────────────────────────────────────────────────────
+    def llm_call_log_append(self, caller: str, model: str, duration_ms: int,
+                            outcome: str, verdict: str = "",
+                            confidence: float = 0.0, headline: str = "",
+                            error: str = ""):
+        """Persist a single LLM call attempt and its downstream queue verdict."""
+        import time as _time
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO llm_call_log "
+                "(ts, caller, model, duration_ms, outcome, verdict, confidence, headline, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (_time.time(), caller, model[:80], duration_ms, outcome,
+                 verdict, float(confidence), (headline or "")[:200], (error or "")[:300]),
+            )
+
+    def llm_call_stats(self, hours: int = 24) -> dict:
+        """Aggregate stats per caller and overall verdict counts."""
+        import time as _time
+        cutoff = _time.time() - hours * 3600
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT caller, "
+            "COUNT(*) AS total, "
+            "SUM(CASE WHEN outcome='ok' THEN 1 ELSE 0 END) AS ok, "
+            "SUM(CASE WHEN outcome='parse_failed' THEN 1 ELSE 0 END) AS parse_failed, "
+            "SUM(CASE WHEN outcome='http_error' THEN 1 ELSE 0 END) AS http_error, "
+            "SUM(CASE WHEN outcome='timeout' THEN 1 ELSE 0 END) AS timeout_, "
+            "SUM(CASE WHEN outcome='exception' THEN 1 ELSE 0 END) AS exception_, "
+            "SUM(CASE WHEN verdict='auto_confirmed' THEN 1 ELSE 0 END) AS auto_confirmed, "
+            "SUM(CASE WHEN verdict='pending' THEN 1 ELSE 0 END) AS pending, "
+            "SUM(CASE WHEN verdict='discarded_low_conf' THEN 1 ELSE 0 END) AS discarded_low, "
+            "SUM(CASE WHEN verdict='discarded_dedup' THEN 1 ELSE 0 END) AS discarded_dedup, "
+            "AVG(duration_ms) AS avg_ms, "
+            "AVG(confidence) AS avg_conf, "
+            "MAX(ts) AS last_ts "
+            "FROM llm_call_log WHERE ts>=? GROUP BY caller ORDER BY caller",
+            (cutoff,),
+        ).fetchall()
+        per_caller = [
+            {
+                "caller": r[0], "total": r[1] or 0, "ok": r[2] or 0,
+                "parse_failed": r[3] or 0, "http_error": r[4] or 0,
+                "timeout": r[5] or 0, "exception": r[6] or 0,
+                "auto_confirmed": r[7] or 0, "pending": r[8] or 0,
+                "discarded_low_conf": r[9] or 0,
+                "discarded_dedup": r[10] or 0,
+                "avg_duration_ms": round(r[11]) if r[11] else 0,
+                "avg_confidence": round(r[12], 3) if r[12] else 0.0,
+                "last_seen": r[13],
+            }
+            for r in rows
+        ]
+        totals_row = conn.execute(
+            "SELECT COUNT(*), SUM(CASE WHEN outcome='ok' THEN 1 ELSE 0 END) "
+            "FROM llm_call_log WHERE ts>=?",
+            (cutoff,),
+        ).fetchone()
+        return {
+            "window_hours": hours,
+            "total_calls": totals_row[0] or 0,
+            "ok_calls": totals_row[1] or 0,
+            "per_caller": per_caller,
+        }
+
+    def llm_call_recent(self, caller: str = "", limit: int = 50) -> list:
+        """Most recent llm_call_log rows, optionally filtered by caller."""
+        conn = self._get_conn()
+        if caller:
+            rows = conn.execute(
+                "SELECT ts, caller, model, duration_ms, outcome, verdict, confidence, headline, error "
+                "FROM llm_call_log WHERE caller=? ORDER BY ts DESC LIMIT ?",
+                (caller, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT ts, caller, model, duration_ms, outcome, verdict, confidence, headline, error "
+                "FROM llm_call_log ORDER BY ts DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "ts": r[0], "caller": r[1], "model": r[2], "duration_ms": r[3],
+                "outcome": r[4], "verdict": r[5], "confidence": r[6],
+                "headline": r[7], "error": r[8],
+            }
+            for r in rows
+        ]
+
     # ── sensor_caches ───────────────────────────────────────────────────────
     def sensor_cache_set(self, sensor_name: str, cache_time: float, cache_data: dict):
         self._get_conn().execute(
@@ -1411,6 +1522,10 @@ class RadarDB:
 
         cur = conn.execute("DELETE FROM sensor_fetch_log WHERE ts < ?", (cutoff_7d,))
         deleted["sensor_fetch_log"] = cur.rowcount
+        conn.commit()
+
+        cur = conn.execute("DELETE FROM llm_call_log WHERE ts < ?", (cutoff_7d,))
+        deleted["llm_call_log"] = cur.rowcount
         conn.commit()
 
         cur = conn.execute(

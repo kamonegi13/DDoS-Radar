@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
+import time
 import requests
 from datetime import date
 from radar.config import (
@@ -95,6 +97,41 @@ def today_str() -> str:
     return date.today().isoformat()
 
 
+def _infer_caller() -> str:
+    """Infer the immediate caller module name for observability logging.
+
+    Walks the stack until it finds the first frame outside radar/llm_client.py
+    and returns its module's short name (e.g. "hacktivist_intel_sensor").
+    Returns "unknown" if inference fails.
+    """
+    try:
+        frame = sys._getframe(2)  # skip _infer_caller and llm_analyze_json
+        while frame is not None:
+            mod = frame.f_globals.get("__name__", "")
+            if mod and not mod.endswith("llm_client"):
+                # Use only the leaf module name to keep storage compact
+                return mod.rsplit(".", 1)[-1]
+            frame = frame.f_back
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _log_call(caller: str, duration_ms: int, outcome: str,
+              confidence: float = 0.0, headline: str = "", error: str = ""):
+    """Best-effort logging of an LLM call to llm_call_log.
+    Verdict (auto_confirmed/pending/discarded_*) is recorded later by intel_queue."""
+    try:
+        from radar.database import db
+        db.llm_call_log_append(
+            caller=caller, model=LLM_MODEL, duration_ms=duration_ms,
+            outcome=outcome, verdict="", confidence=confidence,
+            headline=headline, error=error,
+        )
+    except Exception:
+        pass  # never let observability break the main flow
+
+
 # ── Core API functions ────────────────────────────────────────────────────────
 
 def llm_available() -> bool:
@@ -166,14 +203,24 @@ def llm_analyze(prompt: str, system: str = "",
 
 
 def llm_analyze_json(prompt: str, system: str = "",
-                     temperature: float = 0.1, max_tokens: int = 512) -> dict:
+                     temperature: float = 0.1, max_tokens: int = 512,
+                     caller: str = "") -> dict:
     """Like llm_analyze but forces JSON output via Ollama format param and parses result.
+
+    Logs every call to llm_call_log so operators can distinguish "sensor silent"
+    from "LLM unreachable" from "parse failure" without trawling logs.
+
+    caller : optional explicit name for logging. Inferred from stack if empty.
 
     Returns:
         {"ok": True,  "data": {...}}
         {"ok": False, "data": {}, "error": "<reason>"}
     """
+    if not caller:
+        caller = _infer_caller()
+
     if not LLM_ENABLED:
+        _log_call(caller, 0, "disabled", error="LLM_ENABLED=false")
         return {"ok": False, "data": {}, "error": "LLM_ENABLED=false"}
 
     # Use format="json" to force Ollama to output valid JSON regardless of model
@@ -187,6 +234,7 @@ def llm_analyze_json(prompt: str, system: str = "",
     if system:
         payload["system"] = system
 
+    t0 = time.time()
     try:
         res = requests.post(
             _GENERATE_URL,
@@ -195,8 +243,11 @@ def llm_analyze_json(prompt: str, system: str = "",
             proxies=GLOBAL_PROXIES,
             verify=SSL_VERIFY,
         )
+        duration_ms = int((time.time() - t0) * 1000)
         if res.status_code != 200:
             log.warning(f"[LLM] HTTP {res.status_code}: {res.text[:200]}")
+            _log_call(caller, duration_ms, "http_error",
+                      error=f"HTTP {res.status_code}")
             return {"ok": False, "data": {}, "error": f"HTTP {res.status_code}"}
         rj = res.json()
         # Some models (e.g. Qwen3.5) put output in "thinking" field instead of "response"
@@ -204,10 +255,14 @@ def llm_analyze_json(prompt: str, system: str = "",
         if not text:
             text = rj.get("thinking", "").strip()
     except requests.Timeout:
+        duration_ms = int((time.time() - t0) * 1000)
         log.warning("[LLM] JSON request timed out")
+        _log_call(caller, duration_ms, "timeout", error="timeout")
         return {"ok": False, "data": {}, "error": "timeout"}
     except Exception as e:
+        duration_ms = int((time.time() - t0) * 1000)
         log.error(f"[LLM] JSON request error: {e}")
+        _log_call(caller, duration_ms, "exception", error=str(e))
         return {"ok": False, "data": {}, "error": str(e)}
 
     # Strip markdown code fences if present
@@ -219,6 +274,11 @@ def llm_analyze_json(prompt: str, system: str = "",
         )
     try:
         data = json.loads(text)
+        _log_call(
+            caller, duration_ms, "ok",
+            confidence=safe_float(data.get("confidence"), 0.0),
+            headline=str(data.get("headline", ""))[:200],
+        )
         return {"ok": True, "data": data}
     except json.JSONDecodeError:
         # Try to extract JSON object from within the text
@@ -227,8 +287,15 @@ def llm_analyze_json(prompt: str, system: str = "",
         if start >= 0 and end > start:
             try:
                 data = json.loads(text[start:end])
+                _log_call(
+                    caller, duration_ms, "ok",
+                    confidence=safe_float(data.get("confidence"), 0.0),
+                    headline=str(data.get("headline", ""))[:200],
+                )
                 return {"ok": True, "data": data}
             except json.JSONDecodeError:
                 pass
         log.warning(f"[LLM] JSON parse failed: {text[:200]}")
+        _log_call(caller, duration_ms, "parse_failed",
+                  error=text[:200])
         return {"ok": False, "data": {}, "error": "json_parse_failed"}

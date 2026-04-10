@@ -120,6 +120,28 @@ def intel_sources():
     return jsonify({"sources": intel_queue.list_sources()})
 
 
+@bp.route("/api/intel/llm_call_stats")
+def intel_llm_call_stats():
+    """Aggregate LLM call observability over the given window.
+
+    Lets operators distinguish "sensor never called LLM" from "LLM down" from
+    "all results dropped below confidence threshold" from "all parses failed".
+
+    Query params:
+        hours  : aggregation window (default 24, max 168)
+        recent : if "1", also include the 50 most recent rows
+    """
+    from radar.database import db
+    try:
+        hours = min(int(request.args.get("hours", "24")), 168)
+    except (ValueError, TypeError):
+        hours = 24
+    payload = db.llm_call_stats(hours=hours)
+    if request.args.get("recent") == "1":
+        payload["recent"] = db.llm_call_recent(limit=50)
+    return jsonify(payload)
+
+
 @bp.route("/api/llm_models")
 def llm_models():
     """Proxy: fetch available models from Ollama at the given host.

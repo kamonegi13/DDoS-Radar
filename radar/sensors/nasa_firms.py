@@ -52,7 +52,7 @@ class NasaFirmsSensor(BaseSensor):
                 # Skip spatial scan when wildfire set is unchanged
                 import hashlib as _hl
                 sig = _hl.md5(
-                    f"{record_count}|" + "|".join(e.get("id", "") for e in events[:10])
+                    (f"{record_count}|" + "|".join(e.get("id", "") for e in events[:10])).encode()
                 ).hexdigest()
                 if sig == self._last_event_sig:
                     cached = self.get_cache()

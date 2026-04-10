@@ -33,6 +33,12 @@ class IhrSensor(BaseSensor):
 
     def __init__(self):
         super().__init__("ihr_health", "physical", 300)
+        # DISABLED: All three IHR endpoints (disco/hegemony/network_delay) have
+        # returned chronic HTTP 400 since 2026-Q1 — the API contract changed and
+        # our query format is no longer accepted. The signal is also redundant
+        # with IODA + BgpRouting (both share signal_source="bgp" and dedupe via MAX).
+        # Re-enable after the IHR query format is fixed and a probe confirms 200 OK.
+        self.enabled = False
 
     def _fetch_disco(self, since: str, until: str) -> tuple[dict, int, str]:
         """Fetch disconnection events. Returns (data_dict, http_status, error)."""

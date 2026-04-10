@@ -786,9 +786,12 @@ class WeightedConvergenceEngine:
         Record a TL forecast based on escalation prediction.
         Only records when escalation predictor has sufficient confidence.
         Returns forecast_log ID or None.
+
+        compute_escalation_progress() returns predicted_next_tl at the top
+        level (not nested under a "prediction" key) — until 2026-04 this
+        function read the wrong key and silently never recorded any forecasts.
         """
-        pred = escalation_data.get("prediction", {})
-        pred_tl = pred.get("predicted_tl")
+        pred_tl = escalation_data.get("predicted_next_tl")
         if pred_tl is None:
             return None
         # Only forecast if predicted TL differs from current

@@ -87,6 +87,46 @@ def _jaccard(a: frozenset, b: frozenset) -> float:
 class IntelQueue:
     """LLM Intel item lifecycle manager."""
 
+    def _record_verdict(self, source_type: str, verdict: str,
+                        confidence: float, headline: str) -> None:
+        """Update the most recent llm_call_log row for this source_type with
+        the queue verdict (auto_confirmed/pending/discarded_low_conf/discarded_dedup).
+
+        Best-effort: never raises. The llm_client already wrote a row with empty
+        verdict — we patch it in place by matching caller (sensor module) and
+        the highest-id row within the last few seconds. If matching fails we
+        skip silently rather than create a duplicate row.
+        """
+        try:
+            from radar.database import db
+            # Map source_type to caller module name(s) used by llm_analyze_json
+            # caller comes from _infer_caller (sys._getframe) so it's the leaf
+            # module name like "hacktivist_intel_sensor".
+            _CALLER_BY_TYPE = {
+                "hacktivist": ("hacktivist_intel_sensor", "hacktivist_news_sensor"),
+                "diplomatic": ("diplomatic",),
+                "military":   ("military_exercise",),
+                "ground_osint": ("ground_osint_sensor",),
+                "apt":        ("apt_intel",),
+                "narrative":  ("rss_narrative",),
+            }
+            callers = _CALLER_BY_TYPE.get(source_type, ())
+            if not callers:
+                return
+            conn = db._get_conn()
+            placeholders = ",".join("?" * len(callers))
+            cutoff = time.time() - 60  # last minute
+            with conn.writing():
+                conn.execute(
+                    f"UPDATE llm_call_log SET verdict=? "
+                    f"WHERE id = (SELECT id FROM llm_call_log "
+                    f"WHERE caller IN ({placeholders}) AND ts >= ? "
+                    f"AND verdict='' ORDER BY id DESC LIMIT 1)",
+                    (verdict, *callers, cutoff),
+                )
+        except Exception:
+            pass
+
     def submit(self, item: dict) -> Optional[str]:
         """Accept a new LLM-analyzed item from a sensor.
 
@@ -109,16 +149,16 @@ class IntelQueue:
             return None
 
         confidence = float(item.get("confidence", 0.0))
-
-        # Discard below minimum threshold
-        if confidence < _confidence_min():
-            log.debug(f"[Intel] Discarded low-confidence item ({confidence:.2f}) from {item.get('source_id')}")
-            return None
-
         source_id = item.get("source_id", "unknown")
         source_type = item.get("source_type", "unknown")
         theater = item.get("theater", "")
         headline = item.get("headline", "")
+
+        # Discard below minimum threshold
+        if confidence < _confidence_min():
+            log.debug(f"[Intel] Discarded low-confidence item ({confidence:.2f}) from {source_id}")
+            self._record_verdict(source_type, "discarded_low_conf", confidence, headline)
+            return None
 
         # ── Intra-source-type dedup: discard wire-service echo chambers ──────────
         # Within the same source_type + theater pair, check if we already have a
@@ -153,6 +193,7 @@ class IntelQueue:
                         f"[Intel] Dedup SKIP same-source: {source_id!r} "
                         f"Jaccard={jacc:.2f} headline={headline[:60]!r}"
                     )
+                    self._record_verdict(source_type, "discarded_dedup", confidence, headline)
                     return None
 
                 # Cross-source dedup: different source, similar headline
@@ -202,6 +243,7 @@ class IntelQueue:
                         f"(Jaccard={jacc:.2f} vs {ex['source_id']!r}, "
                         f"headline: {headline[:60]})"
                     )
+                    self._record_verdict(source_type, "discarded_dedup", confidence, headline)
                     return None  # don't create a new item either way
         # ─────────────────────────────────────────────────────────────────────────
 
@@ -226,6 +268,7 @@ class IntelQueue:
             status = "pending"
             log.info(f"[Intel] PENDING review: {item.get('headline', '')[:80]} "
                      f"(conf={confidence:.2f}, cred={credibility:.2f})")
+        self._record_verdict(source_type, status, confidence, headline)
 
         record = {
             "id":          item_id,
