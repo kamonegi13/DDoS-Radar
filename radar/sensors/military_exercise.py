@@ -282,16 +282,19 @@ class MilitaryExerciseSensor(BaseSensor):
                     "- exercise_start: Exercise commencing now or within 48h\n"
                     "- readiness_elevation: Explicit alert level or readiness change\n"
                     "- status_report: Weekly/periodic tracker, scheduled summary, current disposition "
-                    "(confidence will be capped at 0.45 — low-priority review only)\n"
+                    "(confidence will be capped at 0.50 — surfaces for analyst review)\n"
                     "- historical_analysis: Analysis of past events, retrospective reporting "
-                    "(confidence will be capped at 0.45 — low-priority review only)\n"
-                    "- none: No military activity signal\n"
-                    "Confidence guide:\n"
+                    "(confidence will be capped at 0.50 — surfaces for analyst review)\n"
+                    "- none: No military activity signal (use <0.30)\n"
+                    "Confidence guide (lowered floor — analyst-review-first posture):\n"
                     "- 0.80-0.95: Active live-fire exercise near theater OR new forward deployment orders\n"
-                    "- 0.65-0.79: Exercise announcement with clear theater relevance\n"
-                    "- 0.40-0.64: Relevant but ambiguous (routine patrol, scheduled exercise)\n"
-                    "- <0.40: No escalation relevance — set escalation_signal=false, theater=null\n"
-                    "USNI Fleet Tracker weekly reports are status_report, not new_deployment."
+                    "- 0.60-0.79: Exercise announcement with clear theater relevance\n"
+                    "- 0.40-0.59: Clear military activity but indirect theater link OR routine posture change\n"
+                    "- 0.35-0.39: Weak but traceable signal — brief mention of theater-relevant forces\n"
+                    "- <0.35: No signal, unrelated to any listed theater — set escalation_signal=false, theater=null\n"
+                    "USNI Fleet Tracker weekly reports are status_report, not new_deployment. "
+                    "Default to escalation_signal=true whenever the article names a theater-relevant force "
+                    "or location, even if the event is routine — analysts will triage."
                 )
 
                 result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=300)
@@ -315,10 +318,10 @@ class MilitaryExerciseSensor(BaseSensor):
                     log.debug(f"[MilExercise] Discarding {event_type}: {source_name} — {art['title'][:60]}")
                     continue
                 if event_type in ("status_report", "historical_analysis"):
-                    confidence = min(confidence, 0.45)  # Cap: never auto-confirm, but preserve for review
+                    confidence = min(confidence, 0.50)  # Cap: never auto-confirm, but above floor for review
                     log.debug(f"[MilExercise] Keeping {event_type} at reduced conf={confidence:.2f}: {art['title'][:60]}")
 
-                if not data.get("escalation_signal", False) or confidence < 0.40:
+                if not data.get("escalation_signal", False) or confidence < 0.35:
                     log.debug(f"[MilExercise] No signal {source_name} conf={confidence:.2f}")
                     continue
 
@@ -342,7 +345,7 @@ class MilitaryExerciseSensor(BaseSensor):
                     )
                     continue
                 if theater_link == "indirect":
-                    confidence = min(confidence, 0.45)
+                    confidence = min(confidence, 0.50)
                     log.debug(
                         f"[MilExercise] Indirect theater link: {source_name} "
                         f"geo={data.get('geographic_location', '?')!r} → {theater} "

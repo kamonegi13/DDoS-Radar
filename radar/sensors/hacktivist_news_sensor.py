@@ -311,7 +311,7 @@ class HacktivistNewsSensor(BaseSensor):
                     )
                     continue
 
-                if confidence < 0.40:
+                if confidence < 0.35:
                     log.debug(
                         f"[HackNews] Low confidence {confidence:.2f}: "
                         f"{art['title'][:60]}"

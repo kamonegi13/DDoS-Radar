@@ -393,7 +393,7 @@ class AptIntelSensor(BaseSensor):
                     log.debug(f"[AptIntel] Stage2 DISCARD (theater {theater} not strategic): {art['title'][:60]}")
                     continue
 
-                if confidence < 0.40:
+                if confidence < 0.35:
                     log.debug(f"[AptIntel] Stage2 low confidence {confidence:.2f}: {art['title'][:60]}")
                     continue
 

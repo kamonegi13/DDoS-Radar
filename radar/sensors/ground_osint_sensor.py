@@ -216,11 +216,11 @@ class GroundOsintSensor(BaseSensor):
 
             # Boost confidence if live sensors already show attack (single boost, Python-only)
             python_boost = 0.0
-            if corroborates and confidence >= 0.40:
+            if corroborates and confidence >= 0.35:
                 python_boost = 0.10
                 confidence = min(confidence + python_boost, 0.95)
 
-            if confidence < 0.40:
+            if confidence < 0.35:
                 log.debug(f"[GroundOsint] Low confidence {confidence:.2f} for {channel} — skipped")
                 continue
 

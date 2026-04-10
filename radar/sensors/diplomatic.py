@@ -291,7 +291,7 @@ class DiplomaticSensor(BaseSensor):
                 data = result["data"]
                 confidence = safe_float(data.get("confidence"), default=0.0)
 
-                if not data.get("escalation_signal", False) or confidence < 0.40:
+                if not data.get("escalation_signal", False) or confidence < 0.35:
                     log.debug(f"[Diplomatic] No signal {source_name} conf={confidence:.2f}")
                     continue
 

@@ -275,7 +275,7 @@ class RssNarrativeSensor(BaseSensor):
         }
         narrative_type = safe_enum(data.get("narrative_type"), _NARRATIVE_TYPES, "unknown")
 
-        if not data.get("escalation_signal", False) or confidence < 0.40:
+        if not data.get("escalation_signal", False) or confidence < 0.35:
             # Mark dedup even for non-escalation bursts to avoid spamming LLM every cycle
             _burst_submitted[dedup_key] = None
             if len(_burst_submitted) > _MAX_BURST_SUBMITTED:

@@ -33,7 +33,7 @@ def _auto_confirm_threshold() -> float:
     return float(os.getenv("LLM_AUTO_CONFIRM_THRESHOLD", "0.80"))
 
 def _confidence_min() -> float:
-    return float(os.getenv("LLM_CONFIDENCE_MIN", "0.40"))
+    return float(os.getenv("LLM_CONFIDENCE_MIN", "0.35"))
 
 def _item_ttl_seconds() -> float:
     """How long (seconds) a confirmed item contributes to active rationale."""

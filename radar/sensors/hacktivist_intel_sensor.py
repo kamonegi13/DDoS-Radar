@@ -143,7 +143,7 @@ class HacktiivistIntelSensor(BaseSensor):
             confidence = safe_float(data.get("confidence"), default=0.0)
 
             # Both conditions must be true to proceed — credible AND sufficient confidence
-            if not data.get("is_credible_threat", False) or confidence < 0.40:
+            if not data.get("is_credible_threat", False) or confidence < 0.35:
                 log.debug(f"[HacktiivistIntel] Low credibility for {channel} conf={confidence:.2f} — skipped")
                 continue
 
