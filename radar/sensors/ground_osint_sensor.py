@@ -108,7 +108,7 @@ class GroundOsintSensor(BaseSensor):
 
         from radar.sensors.telegram import TelegramMirrorSensor
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available, safe_float, safe_enum, sanitize_llm_input, today_str
+        from radar.llm_client import llm_analyze_json, llm_available, record_sensor_drop, safe_float, safe_enum, sanitize_llm_input, today_str
 
         if not llm_available():
             log.debug("[GroundOsint] LLM not available — skipping")
@@ -222,6 +222,7 @@ class GroundOsintSensor(BaseSensor):
 
             if confidence < 0.35:
                 log.debug(f"[GroundOsint] Low confidence {confidence:.2f} for {channel} — skipped")
+                record_sensor_drop("below_floor")
                 continue
 
             # score_delta: higher for ongoing attacks corroborated by sensors

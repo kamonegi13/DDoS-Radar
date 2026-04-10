@@ -281,6 +281,8 @@ class RssNarrativeSensor(BaseSensor):
             if len(_burst_submitted) > _MAX_BURST_SUBMITTED:
                 for k in list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]:
                     _burst_submitted.pop(k, None)
+            from radar.llm_client import record_sensor_drop
+            record_sensor_drop("no_escalation_signal" if not data.get("escalation_signal") else "below_floor")
             return 0
 
         # Additive scoring: type_base + urgency_bonus (max = 3.0, no multiplicative inflation)

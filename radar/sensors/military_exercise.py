@@ -204,7 +204,7 @@ class MilitaryExerciseSensor(BaseSensor):
             return {"military_exercise": {"llm_disabled": True}}
 
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available, safe_float, safe_enum, sanitize_llm_input, today_str
+        from radar.llm_client import llm_analyze_json, llm_available, record_sensor_drop, safe_float, safe_enum, sanitize_llm_input, today_str
 
         if not llm_available():
             log.debug("[MilExercise] LLM not available — skipping")
@@ -316,6 +316,7 @@ class MilitaryExerciseSensor(BaseSensor):
                 # at reduced confidence for pattern accumulation (may contain anomalies)
                 if event_type == "none":
                     log.debug(f"[MilExercise] Discarding {event_type}: {source_name} — {art['title'][:60]}")
+                    record_sensor_drop("event_type_none")
                     continue
                 if event_type in ("status_report", "historical_analysis"):
                     confidence = min(confidence, 0.50)  # Cap: never auto-confirm, but above floor for review
@@ -323,12 +324,14 @@ class MilitaryExerciseSensor(BaseSensor):
 
                 if not data.get("escalation_signal", False) or confidence < 0.35:
                     log.debug(f"[MilExercise] No signal {source_name} conf={confidence:.2f}")
+                    record_sensor_drop("no_escalation_signal" if not data.get("escalation_signal") else "below_floor")
                     continue
 
                 # Discard if LLM could not assign a specific theater — no forced fallback
                 llm_theater = (data.get("theater") or "").strip().upper()
                 if not llm_theater or llm_theater not in theaters:
                     log.debug(f"[MilExercise] No specific theater match for {source_name} (llm={llm_theater!r})")
+                    record_sensor_drop("theater_mismatch")
                     continue
                 theater = llm_theater
 
@@ -343,6 +346,7 @@ class MilitaryExerciseSensor(BaseSensor):
                         f"[MilExercise] Discarding theater_link=none: {source_name} "
                         f"geo={data.get('geographic_location', '?')!r} → {theater}"
                     )
+                    record_sensor_drop("theater_link_none")
                     continue
                 if theater_link == "indirect":
                     confidence = min(confidence, 0.50)

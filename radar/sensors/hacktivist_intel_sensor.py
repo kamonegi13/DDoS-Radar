@@ -51,7 +51,7 @@ class HacktiivistIntelSensor(BaseSensor):
 
         from radar.sensors.telegram import TelegramMirrorSensor
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available
+        from radar.llm_client import llm_analyze_json, llm_available, record_sensor_drop
 
         if not llm_available():
             log.debug("[HacktiivistIntel] LLM not available — skipping")
@@ -145,6 +145,7 @@ class HacktiivistIntelSensor(BaseSensor):
             # Both conditions must be true to proceed — credible AND sufficient confidence
             if not data.get("is_credible_threat", False) or confidence < 0.35:
                 log.debug(f"[HacktiivistIntel] Low credibility for {channel} conf={confidence:.2f} — skipped")
+                record_sensor_drop("not_credible" if not data.get("is_credible_threat") else "below_floor")
                 continue
 
             # Verify theater: use LLM-assigned theater if it disagrees with channel metadata,
@@ -152,6 +153,7 @@ class HacktiivistIntelSensor(BaseSensor):
             llm_theater_raw = data.get("theater")
             if llm_theater_raw is None or str(llm_theater_raw).strip().upper() in ("NULL", "NONE", ""):
                 log.debug(f"[HacktiivistIntel] LLM flagged theater mismatch for {channel} — skipped")
+                record_sensor_drop("theater_null")
                 continue
             resolved_theater = str(llm_theater_raw).strip().upper()
             # Accept LLM theater override if it's a plausible 2-letter code; otherwise keep original

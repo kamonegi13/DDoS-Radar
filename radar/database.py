@@ -1134,6 +1134,8 @@ class RadarDB:
             "SUM(CASE WHEN verdict='pending' THEN 1 ELSE 0 END) AS pending, "
             "SUM(CASE WHEN verdict='discarded_low_conf' THEN 1 ELSE 0 END) AS discarded_low, "
             "SUM(CASE WHEN verdict='discarded_dedup' THEN 1 ELSE 0 END) AS discarded_dedup, "
+            "SUM(CASE WHEN verdict LIKE 'sensor_filtered:%' THEN 1 ELSE 0 END) AS sensor_filtered, "
+            "SUM(CASE WHEN verdict='' THEN 1 ELSE 0 END) AS verdict_empty, "
             "AVG(duration_ms) AS avg_ms, "
             "AVG(confidence) AS avg_conf, "
             "MAX(ts) AS last_ts "
@@ -1148,9 +1150,11 @@ class RadarDB:
                 "auto_confirmed": r[7] or 0, "pending": r[8] or 0,
                 "discarded_low_conf": r[9] or 0,
                 "discarded_dedup": r[10] or 0,
-                "avg_duration_ms": round(r[11]) if r[11] else 0,
-                "avg_confidence": round(r[12], 3) if r[12] else 0.0,
-                "last_seen": r[13],
+                "sensor_filtered": r[11] or 0,
+                "verdict_empty": r[12] or 0,
+                "avg_duration_ms": round(r[13]) if r[13] else 0,
+                "avg_confidence": round(r[14], 3) if r[14] else 0.0,
+                "last_seen": r[15],
             }
             for r in rows
         ]
@@ -1159,12 +1163,51 @@ class RadarDB:
             "FROM llm_call_log WHERE ts>=?",
             (cutoff,),
         ).fetchone()
+        # Breakdown of sensor_filtered reasons (verdict = "sensor_filtered:<reason>")
+        filter_rows = conn.execute(
+            "SELECT caller, verdict, COUNT(*) FROM llm_call_log "
+            "WHERE ts>=? AND verdict LIKE 'sensor_filtered:%' "
+            "GROUP BY caller, verdict ORDER BY caller, verdict",
+            (cutoff,),
+        ).fetchall()
+        sensor_filter_breakdown = [
+            {"caller": r[0], "reason": r[1].split(":", 1)[1], "count": r[2]}
+            for r in filter_rows
+        ]
         return {
             "window_hours": hours,
             "total_calls": totals_row[0] or 0,
             "ok_calls": totals_row[1] or 0,
             "per_caller": per_caller,
+            "sensor_filter_breakdown": sensor_filter_breakdown,
         }
+
+    def llm_call_patch_verdict(self, callers: tuple, verdict: str,
+                               window_sec: int = 60) -> bool:
+        """Patch the most recent empty-verdict llm_call_log row for a caller set.
+
+        Used by both intel_queue (for auto_confirmed/pending/discarded_*) and
+        sensors (for sensor_filtered:<reason>). Best-effort, single-row update.
+        Returns True if a row was updated.
+        """
+        if not callers or not verdict:
+            return False
+        import time as _time
+        cutoff = _time.time() - window_sec
+        conn = self._get_conn()
+        placeholders = ",".join("?" * len(callers))
+        try:
+            with conn.writing():
+                cur = conn.execute(
+                    f"UPDATE llm_call_log SET verdict=? "
+                    f"WHERE id = (SELECT id FROM llm_call_log "
+                    f"WHERE caller IN ({placeholders}) AND ts >= ? "
+                    f"AND verdict='' ORDER BY id DESC LIMIT 1)",
+                    (verdict, *callers, cutoff),
+                )
+                return cur.rowcount > 0
+        except Exception:
+            return False
 
     def llm_call_recent(self, caller: str = "", limit: int = 50) -> list:
         """Most recent llm_call_log rows, optionally filtered by caller."""

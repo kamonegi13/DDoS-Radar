@@ -132,6 +132,25 @@ def _log_call(caller: str, duration_ms: int, outcome: str,
         pass  # never let observability break the main flow
 
 
+def record_sensor_drop(reason: str, caller: str = "") -> None:
+    """Record a sensor-layer drop verdict on the most recent llm_call_log row.
+
+    Call this immediately after a post-LLM `continue` in a sensor (e.g. when
+    event_type=none, theater_link=none, theater not in whitelist) so operators
+    can distinguish sensor-layer filtering from intel_queue dedup/low-conf.
+
+    Verdict format: "sensor_filtered:<reason>" — keeps the row identifiable
+    in llm_call_stats while leaving the sensor_filter_breakdown tally queryable.
+    """
+    try:
+        from radar.database import db
+        if not caller:
+            caller = _infer_caller()
+        db.llm_call_patch_verdict((caller,), f"sensor_filtered:{reason}", window_sec=60)
+    except Exception:
+        pass  # observability must never break the main flow
+
+
 # ── Core API functions ────────────────────────────────────────────────────────
 
 def llm_available() -> bool:

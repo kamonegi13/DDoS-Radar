@@ -219,8 +219,8 @@ class HacktivistNewsSensor(BaseSensor):
 
         from radar.intel_queue import intel_queue
         from radar.llm_client import (
-            llm_analyze_json, llm_available, safe_float, safe_enum,
-            sanitize_llm_input, today_str,
+            llm_analyze_json, llm_available, record_sensor_drop,
+            safe_float, safe_enum, sanitize_llm_input, today_str,
         )
 
         if not llm_available():
@@ -309,6 +309,7 @@ class HacktivistNewsSensor(BaseSensor):
                         f"[HackNews] Not active campaign: "
                         f"{art['title'][:60]}"
                     )
+                    record_sensor_drop("not_active_campaign")
                     continue
 
                 if confidence < 0.35:
@@ -316,6 +317,7 @@ class HacktivistNewsSensor(BaseSensor):
                         f"[HackNews] Low confidence {confidence:.2f}: "
                         f"{art['title'][:60]}"
                     )
+                    record_sensor_drop("below_floor")
                     continue
 
                 # Theater validation
@@ -324,6 +326,7 @@ class HacktivistNewsSensor(BaseSensor):
                     log.debug(
                         f"[HackNews] No theater: {art['title'][:60]}"
                     )
+                    record_sensor_drop("no_theater")
                     continue
 
                 if strategic_theaters and theater not in strategic_theaters:
@@ -331,6 +334,7 @@ class HacktivistNewsSensor(BaseSensor):
                         f"[HackNews] Theater {theater} not strategic: "
                         f"{art['title'][:60]}"
                     )
+                    record_sensor_drop("theater_not_strategic")
                     continue
 
                 urgency = safe_enum(

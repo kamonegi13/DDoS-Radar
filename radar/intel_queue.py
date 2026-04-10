@@ -93,39 +93,23 @@ class IntelQueue:
         the queue verdict (auto_confirmed/pending/discarded_low_conf/discarded_dedup).
 
         Best-effort: never raises. The llm_client already wrote a row with empty
-        verdict — we patch it in place by matching caller (sensor module) and
-        the highest-id row within the last few seconds. If matching fails we
-        skip silently rather than create a duplicate row.
+        verdict — we patch it in place via db.llm_call_patch_verdict() which
+        matches by caller (sensor module leaf name).
         """
-        try:
-            from radar.database import db
-            # Map source_type to caller module name(s) used by llm_analyze_json
-            # caller comes from _infer_caller (sys._getframe) so it's the leaf
-            # module name like "hacktivist_intel_sensor".
-            _CALLER_BY_TYPE = {
-                "hacktivist": ("hacktivist_intel_sensor", "hacktivist_news_sensor"),
-                "diplomatic": ("diplomatic",),
-                "military":   ("military_exercise",),
-                "ground_osint": ("ground_osint_sensor",),
-                "apt":        ("apt_intel",),
-                "narrative":  ("rss_narrative",),
-            }
-            callers = _CALLER_BY_TYPE.get(source_type, ())
-            if not callers:
-                return
-            conn = db._get_conn()
-            placeholders = ",".join("?" * len(callers))
-            cutoff = time.time() - 60  # last minute
-            with conn.writing():
-                conn.execute(
-                    f"UPDATE llm_call_log SET verdict=? "
-                    f"WHERE id = (SELECT id FROM llm_call_log "
-                    f"WHERE caller IN ({placeholders}) AND ts >= ? "
-                    f"AND verdict='' ORDER BY id DESC LIMIT 1)",
-                    (verdict, *callers, cutoff),
-                )
-        except Exception:
-            pass
+        # Map source_type to caller module name(s) used by llm_analyze_json.
+        # caller comes from _infer_caller so it's the leaf module name.
+        _CALLER_BY_TYPE = {
+            "hacktivist": ("hacktivist_intel_sensor", "hacktivist_news_sensor"),
+            "diplomatic": ("diplomatic",),
+            "military":   ("military_exercise",),
+            "ground_osint": ("ground_osint_sensor",),
+            "apt":        ("apt_intel",),
+            "narrative":  ("rss_narrative",),
+        }
+        callers = _CALLER_BY_TYPE.get(source_type, ())
+        if not callers:
+            return
+        db.llm_call_patch_verdict(callers, verdict, window_sec=60)
 
     def submit(self, item: dict) -> Optional[str]:
         """Accept a new LLM-analyzed item from a sensor.
