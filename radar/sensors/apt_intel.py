@@ -142,6 +142,16 @@ _DISCARD_KEYWORDS = [
     "whitepaper", "ebook", "free download", "register now", "join us",
 ]
 
+# Title prefixes indicating routine CVE digests rather than state-actor
+# advisories. JPCERT's "Weekly Report" series on jpcert.rdf is a fixed
+# digest format that only lists generic consumer-software CVEs — it never
+# contains APT attribution (urgent state-actor bulletins are published as
+# separate 注意喚起 items). Dropping this prefix at pre-filter avoids
+# wasting LLM calls on items Stage 1 always rejects.
+_NOISE_TITLE_PREFIXES = [
+    "weekly report",
+]
+
 # Processed article hashes to avoid reprocessing
 _processed: dict[str, None] = {}
 _MAX_PROCESSED = 1000
@@ -163,17 +173,34 @@ def _article_hash(source_name: str, title: str) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
+# CISA fronts its feeds behind Akamai, which 403s any UA that looks like a
+# script (including "OSINT-Radar/8.0"). A realistic desktop Chrome UA plus
+# Accept/Accept-Language headers passes the check. The other CERT feeds are
+# indifferent to UA, so we use the same headers everywhere for consistency.
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/121.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/rss+xml, application/xml, text/xml, */*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,ja;q=0.8,de;q=0.7",
+}
+
+
 def _fetch_rss(url: str) -> str:
     try:
         resp = requests.get(
             url, timeout=15,
             proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
-            headers={"User-Agent": "Mozilla/5.0 (OSINT-Radar/8.0)"},
+            headers=_BROWSER_HEADERS,
         )
         if resp.status_code == 200:
             return resp.text
         if resp.status_code == 429:
             log.debug(f"[AptIntel] 429 rate-limited: {url}")
+        elif resp.status_code == 403:
+            log.debug(f"[AptIntel] 403 blocked: {url}")
     except Exception as e:
         log.debug(f"[AptIntel] Fetch failed {url}: {e}")
     return ""
@@ -253,9 +280,14 @@ def _parse_articles(xml_text: str, max_age_h: int = 168,
             continue
 
         text_lower = (title + " " + summary).lower()
+        title_lower = title.lower()
 
         # Hard discard: marketing/resolved language → skip before LLM
         if any(kw in text_lower for kw in dis_kw):
+            continue
+
+        # Hard discard: routine digest formats (e.g. JPCERT Weekly Report)
+        if any(title_lower.startswith(p) for p in _NOISE_TITLE_PREFIXES):
             continue
 
         art = {"title": title, "summary": summary[:500], "pub_ts": pub_ts, "link": link}

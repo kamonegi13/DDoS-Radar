@@ -322,9 +322,16 @@ class MilitaryExerciseSensor(BaseSensor):
                     confidence = min(confidence, 0.50)  # Cap: never auto-confirm, but above floor for review
                     log.debug(f"[MilExercise] Keeping {event_type} at reduced conf={confidence:.2f}: {art['title'][:60]}")
 
-                if not data.get("escalation_signal", False) or confidence < 0.35:
+                # Split rejection reasons so the diagnostics panel can distinguish
+                # "LLM said no signal" from "confidence below floor" — two very
+                # different failure modes (prompt/model tuning vs threshold tuning).
+                if not data.get("escalation_signal", False):
                     log.debug(f"[MilExercise] No signal {source_name} conf={confidence:.2f}")
-                    record_sensor_drop("no_escalation_signal" if not data.get("escalation_signal") else "below_floor")
+                    record_sensor_drop("no_escalation_signal")
+                    continue
+                if confidence < 0.35:
+                    log.debug(f"[MilExercise] Below floor {source_name} conf={confidence:.2f}")
+                    record_sensor_drop("below_floor")
                     continue
 
                 # Discard if LLM could not assign a specific theater — no forced fallback
