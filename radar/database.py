@@ -1876,6 +1876,25 @@ class RadarDB:
                  "confirmed_count": r[3], "false_positive_count": r[4],
                  "last_updated": r[5]} for r in rows]
 
+    def intel_source_reset_credibility(self, source_id: str,
+                                       credibility_weight: float) -> bool:
+        """Reset credibility to an explicit value if the source has never been
+        reviewed by an analyst (confirmed_count=0 AND false_positive_count=0).
+        Returns True if updated, False if the row had learned state and was left
+        alone. Used by startup to retroactively apply archetype bootstrap weights
+        to sources that existed before bootstrapping was introduced.
+        """
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "UPDATE llm_sources SET "
+                "credibility_weight = ?, last_updated = ? "
+                "WHERE source_id = ? "
+                "AND confirmed_count = 0 AND false_positive_count = 0",
+                (credibility_weight, time.time(), source_id),
+            )
+            return cur.rowcount > 0
+
     # ── Auth ───────────────────────────────────────────────────────────────
 
     def user_count(self) -> int:

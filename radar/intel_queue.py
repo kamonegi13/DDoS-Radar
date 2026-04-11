@@ -50,6 +50,62 @@ def _pending_auto_reject_hours() -> float:
 
 log = logging.getLogger("radar")
 
+# ── Source credibility bootstrap ──────────────────────────────────────────────
+# Analyst feedback is the only path to adjust credibility upward after creation,
+# but several archetypes of source are institutionally high- or low-authority
+# from the moment they first appear. Seeding the initial credibility breaks the
+# bootstrap deadlock where a government CERT advisory (authority-backed, zero
+# marketing incentive, legally accountable) could never auto-confirm until an
+# analyst happened to confirm one by hand.
+#
+# 0.85 — government CERT / national cyber authority (CISA, NCSC-UK, JPCERT,
+#        CERT-Bund, ACSC, CCCS): advisories are published only for confirmed
+#        threats, attribution is reviewed, no marketing incentive.
+# 0.75 — established defense/military reporting (USNI, PACOM, DefenseNews,
+#        Stars & Stripes, Janes): editorial standards, professional OSINT
+#        pipeline, but still secondary sourcing.
+# 0.60 — state propaganda outlets (TASS, PLA Daily, Xinhua, Sputnik): may
+#        carry authentic signal but also deliberate misdirection — never
+#        auto-confirm, always analyst review.
+# 0.60 — hacktivist Telegram channels: frequent false claims of attacks that
+#        never materialized; treat as leads, not intelligence.
+# 0.70 — default for unrecognized source_id (conservative middle).
+#
+# Each bucket is matched by source_id prefix because source_id is assembled
+# deterministically by each sensor (e.g. "cert_cisa_advisories",
+# "military_usni_news", "hacktivist_dragonforceio").
+_CREDIBILITY_BOOTSTRAP: list[tuple[tuple[str, ...], float]] = [
+    # Government CERTs — prefix matches radar.sensors.apt_intel._CERT_SOURCES
+    (("cert_cisa_advisories", "cert_cisa_alerts", "cert_ncsc_uk",
+      "cert_jpcert", "cert_cert_bund", "cert_acsc", "cert_cccs"), 0.85),
+    # Established defense reporting — matches military_exercise._MILITARY_SOURCES
+    (("military_pacom_news", "military_usni_news", "military_defense_news",
+      "military_janes", "military_stars_stripes"), 0.75),
+    # State propaganda: distinctly below auto-confirm threshold
+    (("military_tass_military", "military_pla_daily"), 0.60),
+    # Hacktivist feeds: aspirational claims, high false-positive rate
+    (("hacktivist_",), 0.60),
+]
+
+
+def _initial_credibility(source_id: str) -> float:
+    """Return the seed credibility weight for a newly-seen source_id.
+
+    Longest-prefix match wins so that e.g. "cert_cisa_advisories" is scored
+    before a hypothetical "cert_" wildcard. Falls back to 0.70 when nothing
+    matches — same as the schema default.
+    """
+    sid = (source_id or "").lower()
+    best_len = 0
+    best_weight = 0.70
+    for prefixes, weight in _CREDIBILITY_BOOTSTRAP:
+        for p in prefixes:
+            if sid.startswith(p) and len(p) > best_len:
+                best_len = len(p)
+                best_weight = weight
+    return best_weight
+
+
 # In-memory set of currently active (auto_confirmed or confirmed) item IDs
 # for fast rationale injection into the scoring engine.
 # Protected by _active_lock for thread-safe access from sensor threads,
@@ -96,15 +152,20 @@ class IntelQueue:
         verdict — we patch it in place via db.llm_call_patch_verdict() which
         matches by caller (sensor module leaf name).
         """
-        # Map source_type to caller module name(s) used by llm_analyze_json.
-        # caller comes from _infer_caller so it's the leaf module name.
+        # Map source_type (what the sensor writes into the item dict) to the
+        # caller module name(s) that llm_analyze_json records in llm_call_log.
+        # caller = the leaf module name returned by _infer_caller, so it must
+        # match the .py filename stem exactly. Keys on the left are the
+        # `source_type` values the sensors actually submit — historically this
+        # table used "apt" while the sensor submits "apt_intel", which silently
+        # dropped every apt_intel verdict patch for years.
         _CALLER_BY_TYPE = {
-            "hacktivist": ("hacktivist_intel_sensor", "hacktivist_news_sensor"),
-            "diplomatic": ("diplomatic",),
-            "military":   ("military_exercise",),
+            "hacktivist":   ("hacktivist_intel_sensor", "hacktivist_news_sensor"),
+            "diplomatic":   ("diplomatic",),
+            "military":     ("military_exercise",),
             "ground_osint": ("ground_osint_sensor",),
-            "apt":        ("apt_intel",),
-            "narrative":  ("rss_narrative",),
+            "apt_intel":    ("apt_intel",),
+            "narrative":    ("rss_narrative",),
         }
         callers = _CALLER_BY_TYPE.get(source_type, ())
         if not callers:
@@ -231,9 +292,12 @@ class IntelQueue:
                     return None  # don't create a new item either way
         # ─────────────────────────────────────────────────────────────────────────
 
+        # Seed archetype credibility on first sight. After this, intel_source
+        # ops update the weight via analyst feedback only.
         source = db.intel_source_get(source_id)
         if source is None:
-            db.intel_source_upsert(source_id, source_type)
+            seed = _initial_credibility(source_id)
+            db.intel_source_upsert(source_id, source_type, credibility_weight=seed)
             source = db.intel_source_get(source_id)
 
         credibility = source["credibility_weight"] if source else 0.70
@@ -468,6 +532,64 @@ class IntelQueue:
 
     def list_sources(self) -> list[dict]:
         return db.intel_source_list()
+
+    def reseed_existing_credibility(self) -> int:
+        """Apply _initial_credibility() to llm_sources rows that pre-date the
+        bootstrap table. Only updates rows that have never received analyst
+        feedback (confirmed_count=0 and false_positive_count=0) so we never
+        overwrite learned state. Called once during startup restore.
+        """
+        updated = 0
+        for row in db.intel_source_list():
+            seed = _initial_credibility(row["source_id"])
+            if abs(row["credibility_weight"] - seed) < 1e-6:
+                continue  # already at target
+            if row["confirmed_count"] > 0 or row["false_positive_count"] > 0:
+                continue  # learned state present — respect it
+            if db.intel_source_reset_credibility(row["source_id"], seed):
+                log.info(
+                    f"[Intel] Reseeded credibility: {row['source_id']} "
+                    f"{row['credibility_weight']:.2f} → {seed:.2f}"
+                )
+                updated += 1
+        return updated
+
+    def promote_pending_after_reseed(self) -> int:
+        """Sweep pending items that would now qualify for auto-confirm under the
+        current credibility table. Exists because the reseed retroactively
+        raises a source's weight above the auto-confirm floor: any pending item
+        from that source that already has confidence ≥ threshold was only
+        pending because of a bug/bootstrap gap, not because an analyst decided
+        to hold it. Promote those so the scoring engine actually sees them.
+
+        Called once during startup restore, after reseed_existing_credibility.
+        """
+        threshold = _auto_confirm_threshold()
+        promoted = 0
+        # Load every source's current credibility once so we don't re-query
+        # inside the pending loop.
+        creds = {s["source_id"]: s["credibility_weight"]
+                 for s in db.intel_source_list()}
+        for item in db.intel_list(status="pending", limit=500):
+            conf = item.get("confidence", 0.0)
+            if conf < threshold:
+                continue
+            sid = item.get("source_id", "")
+            if creds.get(sid, 0.0) < 0.75:
+                continue
+            now = time.time()
+            db.intel_update_status(
+                item["id"], "auto_confirmed",
+                confirmed_by="system_reseed", confirmed_at=now,
+            )
+            with _active_lock:
+                _active_item_ids.add(item["id"])
+            log.info(
+                f"[Intel] PROMOTED after reseed: {item.get('headline', '')[:80]} "
+                f"(src={sid}, conf={conf:.2f}, cred={creds.get(sid, 0):.2f})"
+            )
+            promoted += 1
+        return promoted
 
     def stats(self) -> dict:
         counts = db.intel_status_counts()

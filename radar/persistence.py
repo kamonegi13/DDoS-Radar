@@ -107,6 +107,25 @@ def restore_state() -> None:
         else:
             sc_skip += 1
     log.info(f"[Persist] Sensor caches: {sc_ok} restored, {sc_skip} expired")
+
+    # Reapply credibility bootstrap weights to existing llm_sources rows and
+    # promote any pending items that now qualify for auto-confirm. Both
+    # operations are idempotent: reseed only touches rows with no analyst
+    # feedback, and promotion only affects pending items that already meet the
+    # auto-confirm confidence floor. Run on every startup so pending items
+    # created before a bootstrap change (or under a past bug) get promoted as
+    # soon as the code catches up to the intended behavior.
+    try:
+        from radar.intel_queue import intel_queue
+        reseeded = intel_queue.reseed_existing_credibility()
+        if reseeded:
+            log.info(f"[Persist] Credibility bootstrap: reseeded {reseeded} sources")
+        promoted = intel_queue.promote_pending_after_reseed()
+        if promoted:
+            log.info(f"[Persist] Credibility bootstrap: promoted {promoted} pending items")
+    except Exception as exc:
+        log.warning(f"[Persist] Credibility reseed failed: {exc}")
+
     log.info("[Persist] Restore complete.")
 
 
