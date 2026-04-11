@@ -6919,8 +6919,102 @@
         const panel = document.getElementById('llm-intel-panel');
         if (panel && panel.style.display !== 'none') {
             _fetchLlmIntel();
+            if (_llmDiagOpen) _fetchLlmDiag();
         }
     };
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LLM Intel Diagnostics (sensor-layer observability)
+    //   — surfaces /api/intel/llm_call_stats so operators can distinguish
+    //     "sensor silent" from "LLM down" from "all dropped by sensor filter"
+    //     without shelling into the container.
+    // ═══════════════════════════════════════════════════════════════════════════
+    let _llmDiagOpen = false;
+    let _llmDiagWindow = 24;
+
+    window._llmToggleDiag = function() {
+        _llmDiagOpen = !_llmDiagOpen;
+        const body = document.getElementById('llm-diag-body');
+        const chev = document.getElementById('llm-diag-chev');
+        if (body) body.style.display = _llmDiagOpen ? 'block' : 'none';
+        if (chev) chev.classList.toggle('open', _llmDiagOpen);
+        if (_llmDiagOpen) _fetchLlmDiag();
+    };
+
+    window._llmSetDiagWindow = function(hours) {
+        _llmDiagWindow = hours;
+        document.querySelectorAll('.llm-diag-win-btn').forEach(b => {
+            b.classList.toggle('llm-diag-win-active', Number(b.dataset.win) === hours);
+        });
+        if (_llmDiagOpen) _fetchLlmDiag();
+    };
+
+    function _fetchLlmDiag() {
+        fetch('/api/intel/llm_call_stats?hours=' + _llmDiagWindow)
+            .then(r => r.json())
+            .then(data => _renderLlmDiag(data))
+            .catch(e => console.debug('[Diag] fetch failed:', e));
+    }
+
+    function _renderLlmDiag(data) {
+        const body = document.getElementById('llm-diag-body');
+        if (!body) return;
+        const per = (data && data.per_caller) || [];
+        const breakdown = (data && data.sensor_filter_breakdown) || [];
+
+        if (!per.length) {
+            body.innerHTML = '<div class="llm-diag-empty">' + _t('panel.llm_intel.diag_empty') + '</div>';
+            return;
+        }
+
+        // Per-caller stats table.  Each row shows: sensor | total | auto | pend |
+        // filtered | dedup | err | avg_conf | avg_ms. "err" sums parse_failed +
+        // http_error + timeout + exception.
+        const hdr = '<tr>'
+            + '<th class="col-name">' + _t('panel.llm_intel.diag_col_sensor') + '</th>'
+            + '<th>' + _t('panel.llm_intel.diag_col_calls') + '</th>'
+            + '<th>' + _t('panel.llm_intel.diag_col_auto')    + '</th>'
+            + '<th>' + _t('panel.llm_intel.diag_col_pending') + '</th>'
+            + '<th>' + _t('panel.llm_intel.diag_col_filtered')+ '</th>'
+            + '<th>' + _t('panel.llm_intel.diag_col_dedup')   + '</th>'
+            + '<th>' + _t('panel.llm_intel.diag_col_err')     + '</th>'
+            + '<th>' + _t('panel.llm_intel.diag_col_conf')    + '</th>'
+            + '<th>' + _t('panel.llm_intel.diag_col_ms')      + '</th>'
+            + '</tr>';
+
+        const cls = (n, cssClass) => n > 0 ? '<td class="' + cssClass + '">' + n + '</td>' : '<td class="llm-diag-val-muted">0</td>';
+        const rows = per.map(r => {
+            const err = (r.parse_failed || 0) + (r.http_error || 0) + (r.timeout || 0) + (r.exception || 0);
+            const conf = r.avg_confidence != null ? r.avg_confidence.toFixed(2) : '—';
+            const ms   = r.avg_duration_ms != null ? r.avg_duration_ms : '—';
+            return '<tr>'
+                + '<td class="col-name">' + _escHtml(r.caller || '') + '</td>'
+                + '<td>' + (r.total || 0) + '</td>'
+                + cls(r.auto_confirmed,  'llm-diag-val-ok')
+                + cls(r.pending,         'llm-diag-val-pending')
+                + cls(r.sensor_filtered, 'llm-diag-val-filtered')
+                + cls(r.discarded_dedup, 'llm-diag-val-dedup')
+                + cls(err,               'llm-diag-val-err')
+                + '<td>' + conf + '</td>'
+                + '<td>' + ms + '</td>'
+                + '</tr>';
+        }).join('');
+
+        let html = '<table class="llm-diag-table">' + hdr + rows + '</table>';
+
+        // Sensor-layer filter breakdown list. Empty if no filters fired.
+        if (breakdown.length) {
+            html += '<div class="llm-diag-breakdown-title">'
+                 + _t('panel.llm_intel.diag_breakdown_title') + '</div>';
+            html += breakdown.map(b => '<div class="llm-diag-reason-row">'
+                + '<span class="rr-sensor">' + _escHtml(b.caller || '') + '</span>'
+                + '<span class="rr-reason">' + _escHtml(b.reason || '') + '</span>'
+                + '<span class="rr-count">'  + (b.count || 0) + '</span>'
+                + '</div>').join('');
+        }
+
+        body.innerHTML = html;
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════
 

@@ -974,6 +974,35 @@
 .llm-stat-pending { color: #ffaa00; }
 .llm-stat-review  { color: #ff4444; }
 .llm-stat-reject  { color: #555; }
+/* Diagnostics section (sensor-layer LLM call observability) */
+.llm-diag-section { border-bottom: 1px solid #1a1a1a; background: rgba(0,0,0,0.25); }
+.llm-diag-toggle { display: flex; align-items: center; gap: 4px; padding: 4px 10px; font-size: 9px; color: #889; cursor: pointer; user-select: none; letter-spacing: 0.5px; }
+.llm-diag-toggle:hover { color: #bbc; }
+.llm-diag-chev { display: inline-block; width: 10px; color: #556; transition: transform 0.15s ease; }
+.llm-diag-chev.open { transform: rotate(90deg); color: #0af; }
+.llm-diag-window-group { margin-left: auto; display: flex; gap: 2px; }
+.llm-diag-win-btn { background: #0a0a0a; border: 1px solid #222; color: #556; font-size: 8px; padding: 1px 5px; cursor: pointer; letter-spacing: 0.5px; border-radius: 2px; }
+.llm-diag-win-btn:hover { color: #aaa; border-color: #444; }
+.llm-diag-win-btn.llm-diag-win-active { color: #0af; border-color: #0af; background: #0d2233; }
+.llm-diag-body { padding: 4px 8px 8px; max-height: 220px; overflow-y: auto; }
+.llm-diag-empty { color: #444; font-size: 9px; text-align: center; padding: 10px 0; }
+.llm-diag-table { width: 100%; border-collapse: collapse; font-size: 9px; font-family: "SF Mono", Consolas, monospace; }
+.llm-diag-table th { text-align: right; color: #556; font-weight: normal; padding: 2px 3px; border-bottom: 1px solid #222; font-size: 8px; letter-spacing: 0.3px; }
+.llm-diag-table th.col-name { text-align: left; }
+.llm-diag-table td { padding: 2px 3px; color: #889; text-align: right; border-bottom: 1px solid #111; white-space: nowrap; }
+.llm-diag-table td.col-name { text-align: left; color: #88aacc; }
+.llm-diag-table tr:hover td { background: rgba(255,255,255,0.02); }
+.llm-diag-val-ok       { color: #44cc66; }
+.llm-diag-val-pending  { color: #ffaa00; }
+.llm-diag-val-filtered { color: #cc8866; }
+.llm-diag-val-dedup    { color: #777; }
+.llm-diag-val-err      { color: #ff6644; }
+.llm-diag-val-muted    { color: #445; }
+.llm-diag-breakdown-title { color: #556; font-size: 8px; letter-spacing: 0.5px; margin: 8px 0 3px 0; padding-bottom: 2px; border-bottom: 1px solid #1a1a1a; }
+.llm-diag-reason-row { display: flex; gap: 6px; padding: 1px 2px; font-size: 9px; font-family: "SF Mono", Consolas, monospace; }
+.llm-diag-reason-row .rr-sensor { color: #88aacc; flex: 0 0 100px; overflow: hidden; text-overflow: ellipsis; }
+.llm-diag-reason-row .rr-reason { color: #cc8866; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.llm-diag-reason-row .rr-count  { color: #aab; flex: 0 0 24px; text-align: right; }
 .llm-intel-list { overflow-y: auto; flex: 1; min-height: 80px; }
 .llm-empty { color: #444; font-size: 10px; text-align: center; padding: 24px 0; }
 .llm-item { border-bottom: 1px solid #111; padding: 8px 10px; font-size: 11px; }

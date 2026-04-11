@@ -1187,6 +1187,21 @@
             <span class="llm-stat-review"  id="llm-stat-review" style="display:none">🔴 REVIEW 0</span>
             <span class="llm-stat-reject"  id="llm-stat-reject">✗ REJ. 0</span>
         </div>
+        <!-- Diagnostics: per-sensor LLM call observability + filter breakdown -->
+        <div class="llm-diag-section">
+            <div class="llm-diag-toggle" onclick="_llmToggleDiag()">
+                <span class="llm-diag-chev" id="llm-diag-chev">▸</span>
+                <span data-i18n="panel.llm_intel.diag_title">Diagnostics</span>
+                <span class="llm-diag-window-group" onclick="event.stopPropagation();">
+                    <button class="llm-diag-win-btn" data-win="1"   onclick="_llmSetDiagWindow(1)">1h</button>
+                    <button class="llm-diag-win-btn llm-diag-win-active" data-win="24"  onclick="_llmSetDiagWindow(24)">24h</button>
+                    <button class="llm-diag-win-btn" data-win="168" onclick="_llmSetDiagWindow(168)">7d</button>
+                </span>
+            </div>
+            <div class="llm-diag-body" id="llm-diag-body" style="display:none;">
+                <div class="llm-diag-empty" data-i18n="panel.llm_intel.diag_empty">No LLM calls in window</div>
+            </div>
+        </div>
         <!-- Intel item list -->
         <div class="llm-intel-list" id="llm-intel-list">
             <div class="llm-empty" data-i18n="panel.llm_intel.empty">No intelligence items</div>
@@ -2810,6 +2825,7 @@
             <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns escalation analysis: current TL, duration, velocity, score trend, pattern classification (STABLE/ESCALATING/DE-ESCALATING/OSCILLATING), predicted next TL, and transition history.</li>
             <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns per-sensor/per-theater adaptive Z-score statistics: sample count, running mean, standard deviation, and whether adaptive mode is active.</li>
             <li><span class="code-block">GET /api/sensor_reliability?hours=24</span> — <span style="color:#66ffcc;">[Phase 3]</span> Returns per-sensor fetch reliability over the given time window (default 24h, max 168h). Includes total fetches, success rate, average response time, and first/last seen timestamps.</li>
+            <li><span class="code-block">GET /api/intel/llm_call_stats?hours=24</span> — <span style="color:#aa88ff;">[LLM Obs]</span> Per-caller LLM observability aggregated over the window (max 168h). For each LLM-driven sensor returns total/ok/parse_failed/http_error/timeout counts plus verdict tallies: <span class="code-block">auto_confirmed</span>, <span class="code-block">pending</span>, <span class="code-block">discarded_low_conf</span>, <span class="code-block">discarded_dedup</span>, <span class="code-block">sensor_filtered</span> (dropped by the sensor before submit), plus avg_confidence and avg_duration_ms. Also returns <span class="code-block">sensor_filter_breakdown</span> — (caller, reason, count) rows showing exactly why each sensor-layer filter fired (e.g. <span class="code-block">stage1_not_active</span>, <span class="code-block">theater_mismatch</span>, <span class="code-block">no_escalation_signal</span>). Surfaced in the LLM Intelligence panel's Diagnostics section.</li>
             <li><span class="code-block">GET /api/noise_exclusion?sensor=X&amp;theater=TW</span> — <span style="color:#66ffcc;">[CAC]</span> List active noise exclusion rules. Optional filter by sensor/theater.</li>
             <li><span class="code-block">POST /api/noise_exclusion</span> — <span style="color:#66ffcc;">[CAC]</span> Add noise exclusion rule. Body: <span class="code-block">{"sensor":"X","theater":"TW","pattern":"...","reason":"exercise|maintenance|known_noise|false_positive","expires_hours":24}</span></li>
             <li><span class="code-block">DELETE /api/noise_exclusion/{id}</span> — <span style="color:#66ffcc;">[CAC]</span> Remove a noise exclusion rule.</li>
@@ -2871,6 +2887,7 @@
             <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> エスカレーション分析を返す: 現在のTL、持続時間、速度、スコアトレンド、パターン分類（STABLE/ESCALATING/DE-ESCALATING/OSCILLATING）、予測次TL、遷移履歴。</li>
             <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> センサー/シアター別の適応型Zスコア統計を返す: サンプル数、移動平均、標準偏差、適応モードのアクティブ状態。</li>
             <li><span class="code-block">GET /api/sensor_reliability?hours=24</span> — <span style="color:#66ffcc;">[Phase 3]</span> 指定時間ウィンドウ（デフォルト24h、最大168h）のセンサー別フェッチ信頼性を返す。総フェッチ数、成功率、平均応答時間、初回/最終確認タイムスタンプを含む。</li>
+            <li><span class="code-block">GET /api/intel/llm_call_stats?hours=24</span> — <span style="color:#aa88ff;">[LLM 可観測性]</span> 指定ウィンドウ（最大168h）のLLM呼び出し統計をセンサー別に集約。各LLM駆動センサーについて total/ok/parse_failed/http_error/timeout と、判定内訳（<span class="code-block">auto_confirmed</span>、<span class="code-block">pending</span>、<span class="code-block">discarded_low_conf</span>、<span class="code-block">discarded_dedup</span>、<span class="code-block">sensor_filtered</span>＝センサー層で submit 前にドロップ）、平均 confidence、平均 duration_ms を返す。<span class="code-block">sensor_filter_breakdown</span> フィールドには各センサー層フィルタが発火した理由（例: <span class="code-block">stage1_not_active</span>、<span class="code-block">theater_mismatch</span>、<span class="code-block">no_escalation_signal</span>）と件数を (caller, reason, count) 行で返す。LLM Intelligence パネルの「診断」セクションで可視化。</li>
             <li><span class="code-block">GET /api/noise_exclusion?sensor=X&amp;theater=TW</span> — <span style="color:#66ffcc;">[CAC]</span> アクティブなノイズ除外ルール一覧。sensor/theater でフィルタ可能。</li>
             <li><span class="code-block">POST /api/noise_exclusion</span> — <span style="color:#66ffcc;">[CAC]</span> ノイズ除外ルール追加。ボディ: <span class="code-block">{"sensor":"X","theater":"TW","pattern":"...","reason":"exercise|maintenance|known_noise|false_positive","expires_hours":24}</span></li>
             <li><span class="code-block">DELETE /api/noise_exclusion/{id}</span> — <span style="color:#66ffcc;">[CAC]</span> ノイズ除外ルール削除。</li>

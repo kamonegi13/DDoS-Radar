@@ -837,6 +837,18 @@ const LANG = {
     'panel.llm_intel.btn_revert':           '↩ REVERT',
     'panel.llm_intel.override_confirm':     'Override this AUTO-CONFIRMED item? Its score contribution will be reversed.',
     'panel.llm_intel.override_failed':      'Override failed.',
+    'panel.llm_intel.diag_title':           'Diagnostics',
+    'panel.llm_intel.diag_empty':           'No LLM calls in this window',
+    'panel.llm_intel.diag_col_sensor':      'sensor',
+    'panel.llm_intel.diag_col_calls':       'calls',
+    'panel.llm_intel.diag_col_auto':        'auto',
+    'panel.llm_intel.diag_col_pending':     'pend',
+    'panel.llm_intel.diag_col_filtered':    'filt',
+    'panel.llm_intel.diag_col_dedup':       'dedup',
+    'panel.llm_intel.diag_col_err':         'err',
+    'panel.llm_intel.diag_col_conf':        'conf',
+    'panel.llm_intel.diag_col_ms':          'ms',
+    'panel.llm_intel.diag_breakdown_title': 'SENSOR FILTER BREAKDOWN',
     // ══════════════════════════════════════════════════════════════
     // Strategic Climate Feed
     // ══════════════════════════════════════════════════════════════
@@ -2039,6 +2051,18 @@ const LANG = {
     'panel.llm_intel.btn_revert':           '↩ 差戻し',
     'panel.llm_intel.override_confirm':     'この自動承認アイテムを取り消しますか？スコアへの加算が取り消されます。',
     'panel.llm_intel.override_failed':      '取消に失敗しました。',
+    'panel.llm_intel.diag_title':           '診断',
+    'panel.llm_intel.diag_empty':           'このウィンドウ内にLLM呼出なし',
+    'panel.llm_intel.diag_col_sensor':      'センサー',
+    'panel.llm_intel.diag_col_calls':       '呼出',
+    'panel.llm_intel.diag_col_auto':        '自動',
+    'panel.llm_intel.diag_col_pending':     '保留',
+    'panel.llm_intel.diag_col_filtered':    'フィルタ',
+    'panel.llm_intel.diag_col_dedup':       '重複',
+    'panel.llm_intel.diag_col_err':         'エラー',
+    'panel.llm_intel.diag_col_conf':        '信頼',
+    'panel.llm_intel.diag_col_ms':          'ms',
+    'panel.llm_intel.diag_breakdown_title': 'センサー層フィルタ内訳',
     // ══════════════════════════════════════════════════════════════
     // 戦略的環境気候フィード
     // ══════════════════════════════════════════════════════════════
