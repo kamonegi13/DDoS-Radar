@@ -13,7 +13,7 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 1.2.0 |
+| **現バージョン** | 1.3.0 |
 | **作成日** | 2026-04-11 |
 | **最終更新** | 2026-04-12 |
 | **現在のフェーズ** | **Phase 0 完了、Phase 1 着手準備完了** |
@@ -337,6 +337,22 @@ class Role(Enum):
 - `restore` = paused/archived → active
 - `purge` = archived → 完全削除(admin 専用、change_log 必須、scenario_id は予約語化)
 
+**`enabled` と `state` の関係(v1.3 明確化)**:
+
+`enabled` と `state` は **直交する 2 軸**。混同を防ぐためにここで意味論を確定する。
+
+| `state` | `enabled` | 意味 | scoring 対象 | UI 表示 | 用途 |
+|---------|-----------|------|:---:|:---:|------|
+| `active` | `true` | 通常稼働 | ✅ | ✅ | 既定の状態 |
+| `active` | `false` | 定義済みだが scoring 除外 | ❌ | 一覧に表示（グレーアウト） | 初期 disabled（south_china_sea）、一時的な scoring 除外 |
+| `paused` | (無視) | 意味的削除、データ保持 | ❌ | 非表示 | delete 操作の結果 |
+| `archived` | (無視) | 終了、履歴のみ | ❌ | 非表示 | archive 操作の結果 |
+
+- `state != "active"` の場合、`enabled` は無視される（paused/archived は常に scoring 対象外）
+- scoring 対象 = `state == "active" AND enabled == true`
+- `enabled` は **admin の軽量スイッチ**（state 遷移を伴わず、change_log に記録するが diff_json は `{"enabled": false}` のみ）
+- `state` は **lifecycle 遷移**（delete/archive/restore/purge は ADR-011 の操作定義に従う）
+
 **Consequences**:
 - ✅ 「削除」の意味が明確
 - ✅ P4(検証可能性)を保てる(履歴を不用意に失わない)
@@ -429,7 +445,7 @@ contribution = signal.raw_score
 1. **LLM 非決定性**: 同じ記事を別時刻に再分析すると `country_weights` が変わりうる。これは signal.raw_score に直接掛かるため、scoring 安定性の外乱源になる。
 2. **ハルシネーション**: LLM が「TW に関連あり」と 0.8 を返した根拠が原典に無い場合、scoring が過大化する。拘束④(検証可能)を守るには `llm_reasoning` と evidence URL を厳密に保持する必要がある。
 3. **P3(透明性)との緊張**: 「なぜ TW 経由が 0.6 で US 経由が 1.0 なのか」の問いに対して「LLM がそう判定したから」という答えは、直接性を弱める。アナリストにとっての可読性を Phase 4 の HUD 設計で実証する必要がある。
-4. **後退オプション**: 上記 3 つのいずれかが運用上の問題になった場合、ADR-021(将来)で `country_weights` を **metadata 保存のみに留め、scoring には participant_weight のみを使う** single-weight 方式へ戻す。この場合の `formula_trace` は `raw × participant_weight` の 2 段になる。
+4. **後退オプション**: 上記 3 つのいずれかが運用上の問題になった場合、将来の ADR で `country_weights` を **metadata 保存のみに留め、scoring には participant_weight のみを使う** single-weight 方式へ戻す。この場合の `formula_trace` は `raw × participant_weight` の 2 段になる。
 
 **観察指標(Phase 2 完了後から収集開始)**:
 - 同じ LLM intel item の再分析結果に対する `country_weights` のばらつき(標本数 >= 20)
@@ -504,6 +520,69 @@ contribution = signal.raw_score
 - ✅ scenario 単位のシーケンス検出が可能
 - ✅ 既存イベントデータが失われない
 - ⚠️ DB スキーマに scenario_id カラム追加(nullable、既存データは null)
+
+### ADR-021: scenario scoring では domain weight を廃止し、participant weight に一元化する
+
+**Status**: Accepted (2026-04-12)
+**Context**: 既存 country 単位の scoring engine（WeightedConvergenceEngine）は domain weight `cyber=0.50, physical=0.30, info=0.20` を乗じていた。scenario 単位の scoring ではこの domain weight をどうするか。
+**Decision**: scenario scoring では **domain weight を使用しない**。理由:
+1. participant weight がすでに「この国の観測はどれだけ重要か」を表現しており、domain weight との二重の重み付けは P3（透明性）を損なう
+2. domain weight `info=0.20` は country 単位では妥当だったが、scenario 単位では background（C-lite）が info 偏重になるため、info を 0.20 で抑えると background scenario の score_lite がほぼ無意味になる
+3. convergence bonus（DUAL +1.0 / FULL +2.0）がすでに「物理ドメインの重要性」を間接的に表現している（physical がないと FULL bonus は取れない）
+4. 「cyber の 1 点は physical の 1 点と等価か」という問いは、participant weight の校正で各シナリオに合わせて調整するのがより柔軟
+
+**Consequences**:
+- ✅ scoring 式がシンプルになる（`raw × llm_cw × pw` の 3 項のみ）
+- ✅ domain 間の相対重要度は convergence bonus + TL 判定式の physical 閾値で間接的に反映
+- ⚠️ 既存 country-level API（deprecated 並行運用中）は従来通り domain weight を使用。混在期間中は「scenario API と country API で同じセンサーデータから異なるスコアが出る」ことの説明が必要
+- ⚠️ Phase 2 のベースライン計測で「info 偏重により TL3 以上が頻発する」ことが判明した場合、domain weight を再導入するか DOMAIN_CAP（ADR-022）で調整するかを再評価
+
+### ADR-022: global signal の countries 規約と per-domain 寄与上限
+
+**Status**: Accepted (2026-04-12)
+**Context**: 非 LLM の global sensor（GreyNoise, GDELT, USGS 等）が `Signal.countries` に全 participant を列挙した場合、1 つの global 事象が participant 数に比例して score を膨張させる。例: BGP global instability が 8 participant の Taiwan Contingency に寄与すると、`raw_score × Σ(participant_weights) ≈ raw × 5.4` となり、1 signal だけで TL3 に到達する。
+
+**Decision**:
+
+**(a) Signal.countries の規約（センサー層に義務付け）**:
+- **per-country sensor**（SensorTier.FOCUSED_ONLY）: `countries` は **観測対象の単一国**。例: `countries=["TW"]`
+- **global sensor**（SensorTier.GLOBAL）の非 LLM: `countries` は **空リスト `[]`**。scoring engine が別経路で処理する（下記 b 参照）
+- **global sensor の LLM**: `countries` は **LLM が判定した関連国のみ**（全 participant を列挙しない）。LLM が特定国に帰属させた根拠が必要（P4）
+
+**(b) global signal の scoring 経路**:
+`Signal.countries == []` の signal は、scenario の全 participant に展開するのではなく、**scenario 全体への flat な寄与** として扱う:
+
+```python
+if not signal.countries:
+    # Global signal: contribute as scenario-level, no country attribution
+    final = signal.raw_score * GLOBAL_SIGNAL_WEIGHT
+    contributions.append(ScenarioContribution(
+        contributing_country="GLOBAL",
+        llm_country_weight=1.0,
+        participant_weight=GLOBAL_SIGNAL_WEIGHT,
+        ...
+    ))
+```
+
+`GLOBAL_SIGNAL_WEIGHT` のデフォルト値: **0.5**（global signal は特定国に帰属しないため、最高 participant weight の半分程度で寄与させる。Phase 2 のベースライン計測で校正対象）。
+
+**(c) per-domain 寄与上限（安全弁）**:
+participant 展開後の寄与合算にも安全弁を設ける:
+
+```python
+DOMAIN_CAP = 6.0  # 1 domain が単独で TL2 相当を超えない
+for domain in domains:
+    domains[domain] = min(domains[domain], DOMAIN_CAP)
+```
+
+`DOMAIN_CAP` は Phase 2 のベースライン計測で校正する。初期値 6.0 は「1 ドメインのみで TL2 条件(score ≥ 6)に到達させない」ための設定。
+
+**Consequences**:
+- ✅ global BGP instability が participant 数に比例して膨張する問題を排除
+- ✅ global signal の寄与が predictable になる
+- ✅ per-domain cap で異常な単一ドメイン偏重を防止
+- ⚠️ 全 global sensor の `countries` 出力を空リストに統一する Phase 2 の作業が必要
+- ⚠️ `GLOBAL_SIGNAL_WEIGHT` と `DOMAIN_CAP` の初期値は保守的に設定し、運用で校正
 
 ---
 
@@ -708,7 +787,10 @@ class Signal:
     sensor: str                            # センサー名
     observed_at: float                     # UNIX timestamp
     domain: str                            # "cyber" | "physical" | "info"
-    countries: list[str]                   # 関連国(LLM signal は複数可、非 LLM は単一)
+    countries: list[str]                   # 関連国。ADR-022 の規約参照:
+                                           #   per-country sensor: 単一国 ["TW"]
+                                           #   global sensor (非LLM): 空 []
+                                           #   global sensor (LLM): LLM判定の関連国 ["US","TW"]
     country_weights: dict[str, float]      # LLM が判定した国別関連度 (0.0-1.0)
                                            # 非 LLM は {country: 1.0}、未指定は default 1.0
     raw_score: float                       # scoring engine が使う元値
@@ -717,9 +799,10 @@ class Signal:
     llm_reasoning: str | None              # LLM 由来の reasoning trace
 ```
 
-**センサー層の責務**: 各センサーは自身の観測を `Signal` に変換して scoring engine に供給する。
-- 非 LLM センサー: `countries` は常に単一要素、`country_weights` は `{country: 1.0}`
-- LLM センサー: `countries` は LLM 出力、`country_weights` は LLM が返す場合は使用、返さない場合は全て 1.0
+**センサー層の責務**: 各センサーは自身の観測を `Signal` に変換して scoring engine に供給する。ADR-022 の countries 規約に従うこと。
+- **per-country sensor（FOCUSED_ONLY）**: `countries` は観測対象の単一国 `["TW"]`、`country_weights` は `{"TW": 1.0}`
+- **global sensor（GLOBAL）非 LLM**: `countries` は **空 `[]`**。scoring engine が GLOBAL_SIGNAL_WEIGHT で scenario-level 寄与として扱う
+- **global sensor（GLOBAL）LLM**: `countries` は LLM が判定した関連国 `["US","TW"]`。`country_weights` は LLM が返す場合は使用、返さない場合は全て 1.0
 
 ### 6.4 RationaleEntry と ScenarioContribution
 
@@ -776,11 +859,20 @@ GET /api/threat_data?focus=taiwan_contingency
         {
           "rationale": { /* RationaleEntry */ },
           "contributing_country": "US",
-          "llm_country_weight": 0.6,
+          "llm_country_weight": 1.0,
           "participant_weight": 0.8,
           "participant_role": "primary_ally",
-          "final_contribution": 2.0,
-          "formula_trace": "3.0 (raw) × 0.6 (llm:TW) × 0.8 (participant:US) × 1.0 (bonus) = 1.44"
+          "final_contribution": 2.4,
+          "formula_trace": "3.0 (raw) × 1.0 (llm:US) × 0.8 (participant:US) = 2.4"
+        },
+        {
+          "rationale": { /* RationaleEntry — same signal, TW route */ },
+          "contributing_country": "TW",
+          "llm_country_weight": 0.6,
+          "participant_weight": 1.0,
+          "participant_role": "primary_target",
+          "final_contribution": 1.8,
+          "formula_trace": "3.0 (raw) × 0.6 (llm:TW) × 1.0 (participant:TW) = 1.8"
         }
       ],
       "data_freshness_sec": 287
@@ -819,7 +911,8 @@ GET /api/threat_data?focus=taiwan_contingency
 **重要な数値の検算**(P3):
 - `sum(domains) = 3.2 + 1.2 + 1.0 = 5.4`
 - `score = sum(domains) + convergence_bonus = 5.4 + 1.0 = 6.4` ✓
-- contributions の formula_trace は raw_score から final_contribution までの式を保持する
+- contributions の `formula_trace` は `raw_score × llm_country_weight × participant_weight = final_contribution` の形式。**convergence_bonus は contribution には掛からない**（domain 合計への加算であり、個別寄与の乗数ではない）
+- 上記例の 2 contributions(US 経由 2.4 + TW 経由 1.8 = 4.2)はサンプルの一部。実際の domains 合計 5.4 には他の contributions も含まれる
 
 **同一 signal が複数 contribution を生む仕様**:
 
@@ -854,6 +947,24 @@ def compute_scenario_score(
     contributions: list[ScenarioContribution] = []
 
     for signal in all_signals:
+        if not signal.countries:
+            # Global signal (ADR-022): flat contribution, no country attribution
+            final = signal.raw_score * GLOBAL_SIGNAL_WEIGHT
+            contributions.append(ScenarioContribution(
+                rationale=RationaleEntry(signal=signal, suppress_reason=None),
+                contributing_country="GLOBAL",
+                llm_country_weight=1.0,
+                participant_weight=GLOBAL_SIGNAL_WEIGHT,
+                participant_role="global",
+                final_contribution=final,
+                formula_trace=(
+                    f"{signal.raw_score:.2f} (raw) "
+                    f"× {GLOBAL_SIGNAL_WEIGHT:.2f} (global) "
+                    f"= {final:.2f}"
+                ),
+            ))
+            continue
+
         for country in signal.countries:
             if country not in scenario.participants:
                 continue
@@ -880,10 +991,12 @@ def compute_scenario_score(
     # Dedup: (signal_source, contributing_country) 単位で MAX (ADR-007)
     deduped = dedup_by_source_country_max(contributions)
 
-    # Domain aggregation
+    # Domain aggregation with per-domain cap (ADR-022)
     domains = {"cyber": 0.0, "physical": 0.0, "info": 0.0}
     for c in deduped:
         domains[c.rationale.signal.domain] += c.final_contribution
+    for d in domains:
+        domains[d] = min(domains[d], DOMAIN_CAP)
 
     # Convergence bonus (within scenario)
     active_domains = [d for d, s in domains.items() if s > 0]
@@ -1017,7 +1130,9 @@ def derive_tl(
 | **focused_scenario が存在しない・disabled・paused** | `DEFAULT_FOCUSED_SCENARIO` にフォールバック。それも無効なら `enabled=true, state=active` の tier 1 先頭(`scenarios` table 順)。全滅時は 503 Service Unavailable |
 | **enabled scenario が 0 件** | 起動 warning。API は空の `scenarios: {}` と警告メッセージを返す |
 | **Layer 3 override で weight が 0.0** | participant を除外したのと同等に扱う |
+| **Layer 3 override で weight が範囲外(負数/1.0超)** | Phase 1 loader と同じ CHECK を in-memory で適用。reject して warning ログ(v1.3 追加) |
 | **signal.countries が空** | rationale に残すが scoring には寄与しない(UI debug 用) |
+| **scoring 対象判定** | `state == "active" AND enabled == true` の scenario のみ。ADR-011 の v1.3 明確化を参照(v1.3 追加) |
 
 ---
 
@@ -1513,6 +1628,8 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 | **R10** | LLM country_weights の過学習(1つのニュース記事で過剰な TW 関連度を主張) | TL 過大評価 | 中 | country_weights の上限を 1.0 に、observation で監視、必要ならプロンプトに抑制条項 |
 | **R11** | signal_source dedup の複合キー変更で既存テスト破壊 | test 失敗 | 中 | Phase 2 で既存テストの期待値を更新 |
 | **R12** | sequence_events の scenario_id 移行で既存イベントが null のままになる | 将来データ解析の断絶 | 低 | ADR-018 に従い意図的に許容、UI で「scenario 単位履歴開始日」を明示 |
+| **R13** | GLOBAL_SIGNAL_WEIGHT / DOMAIN_CAP の初期値が不適切で scenario score が過大/過小 | TL 精度低下 | 中 | Phase 2 ベースライン計測で校正。初期値は保守的(0.5 / 6.0) |
+| **R14** | domain weight 廃止(ADR-021)により info 偏重が悪化 | background scenario の score_lite が info に支配される | 中 | DOMAIN_CAP で安全弁、Phase 2 計測で判明時に domain weight 再導入を ADR で検討 |
 
 ---
 
@@ -1524,7 +1641,7 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 Phase 完了コミットには **必ず** このドキュメントの「Phase 進行表」と各 Phase の完了条件チェックリストを更新する。完了条件が満たされていない Phase は完了とみなさない。
 
 ### ルール 2: 設計から外れる変更には ADR を追加
-実装中に「設計と違うやり方が良い」と気づいた場合、コードを変える前に **ADR を追加** して理由を記録する。事後ではなく事前に。ADR の番号は連番(ADR-021, ADR-022, ...)。
+実装中に「設計と違うやり方が良い」と気づいた場合、コードを変える前に **ADR を追加** して理由を記録する。事後ではなく事前に。ADR の番号は連番(ADR-023, ADR-024, ...)。
 
 ### ルール 3: Open Question は決まったら ADR に昇格
 OQ-1 〜 等は決定された瞬間に Open Questions セクションから削除し、ADR として永続化する。
@@ -1654,6 +1771,7 @@ OQ-1 〜 等は決定された瞬間に Open Questions セクションから削�
 | 2026-04-11 | 1.0.0 | 初版作成。Phase 0 進行中。ADR-001〜008、初期データモデル、4シナリオ想定。 | Claude (Opus 4.6) + kamonegi13 |
 | 2026-04-12 | 1.1.0 | Phase 0 完了。全体レビューを経て大幅更新:<br>• Open Questions Q1〜Q5 を ADR-009〜013 に昇格<br>• ADR-014: adversaries を participants に統合、scoring に算入<br>• ADR-015: LLM country_weight × participant weight の二重重み<br>• ADR-016: role を固定 enum としてバリデーション<br>• ADR-017: SensorTier を Phase 1 で導入<br>• ADR-018: 既存履歴データ保持方針<br>• ADR-019: scoring_mode はランタイム属性<br>• ADR-020: sequence events の scenario 拡張<br>• 6章データモデル全面改訂(Signal クラス導入、5シナリオ完全定義、SQL CHECK 制約、edge cases)<br>• 7章スコアリング疑似コード修正(二重重み、dedup 複合キー、数値例の検算)<br>• Phase 1 のスコープ拡張(SensorTier、Signal クラス、edge cases テスト)<br>• リスク登録簿に R9-R12 追加<br>• Appendix C: 参加国重みのルブリック追加 | Claude (Opus 4.6) + kamonegi13 |
 | 2026-04-12 | 1.2.0 | 批判的レビューに基づく5点の補強:<br>• ADR-015 にリスク注記追加(LLM 非決定性、ハルシネーション、P3 緊張、single-weight 後退オプション、観察指標)<br>• 7.3.1 節追加: TL 閾値の再校正計画(country→scenario 単位でのインフレーション対策、校正手順、回帰防止)<br>• Phase 2 完了条件に二重カウント実証テスト・adversary 寄与検証・TL ベースライン計測を追加<br>• Phase 3 工数を ~4-5日 → ~8-12日、Phase 4 を ~4-5日 → ~6-8日 に現実化(合計 ~22-28日)<br>• 9.3.1 節追加: C-medium 移行判定「見逃し」の厳密定義・後追い検証手順・focus_switch_log テーブル設計<br>• Phase 5 完了条件に TL 閾値再校正完了・ADR-015 dual-weight 評価を追加<br>• OQ-5 追加: Phase 1 シナリオ投入数の段階化オプション | Claude (Opus 4.6) + kamonegi13 |
+| 2026-04-12 | 1.3.0 | 数理・内部一貫性レビューに基づく4件の構造修正:<br>• 6.5 節 API レスポンス例修正: formula_trace の数値不整合(final_contribution と計算結果の不一致、convergence_bonus の誤混入、llm ラベル誤り)を修正。2 contributions の正確な計算例に置換<br>• ADR-011 に `enabled` と `state` の意味論を明確化: 2 軸の直交関係を定義、scoring 対象条件を `state=="active" AND enabled==true` に確定、7.5 edge cases に Layer 3 weight 範囲外検証と scoring 対象判定を追加<br>• ADR-021 追加: scenario scoring で domain weight を廃止し participant weight に一元化。理由: 二重重み付けによる P3 違反回避、info 偏重の C-lite との整合、convergence bonus による間接的なドメイン重要度反映<br>• ADR-022 追加: global signal の countries 規約(per-country=単一国、global 非LLM=空リスト、global LLM=LLM 判定国)、GLOBAL_SIGNAL_WEIGHT(0.5)による scenario-level flat 寄与、DOMAIN_CAP(6.0)による per-domain 安全弁。疑似コードに global signal 分岐と domain cap を反映<br>• リスク登録簿に R13-R14 追加 | Claude (Opus 4.6) + kamonegi13 |
 
 ---
 
