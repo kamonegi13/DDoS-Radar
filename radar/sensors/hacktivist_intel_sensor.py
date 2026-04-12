@@ -112,6 +112,8 @@ class HacktiivistIntelSensor(BaseSensor):
                 '  "timeline": "Imminent (within hours), Soon (within 24h), Planned (days), Unknown",\n'
                 '  "group_name": "Hacktivist group name if identifiable, else Unknown",\n'
                 f' "theater": "The most relevant theater code from this list: {theater} — or null if the content targets a completely different region",\n'
+                '  "countries": ["ISO codes of ALL targeted countries"],\n'
+                '  "country_weights": {"ISO": 0.0-1.0 relevance weight per country},\n'
                 '  "confidence": 0.0,\n'
                 '  "is_credible_threat": true or false\n'
                 "}\n"
@@ -148,6 +150,16 @@ class HacktiivistIntelSensor(BaseSensor):
                 record_sensor_drop("not_credible" if not data.get("is_credible_threat") else "below_floor")
                 continue
 
+            # Parse multi-country output (Phase 3)
+            raw_countries = data.get("countries") or []
+            raw_weights = data.get("country_weights") or {}
+            countries = [c.strip().upper() for c in raw_countries
+                         if isinstance(c, str) and len(c.strip()) == 2]
+            country_weights = {}
+            for c in countries:
+                w = raw_weights.get(c, raw_weights.get(c.lower(), 1.0))
+                country_weights[c] = max(0.0, min(1.0, safe_float(w, default=1.0)))
+
             # Verify theater: use LLM-assigned theater if it disagrees with channel metadata,
             # but only if the LLM returned a non-null value (LLM can detect off-topic posts)
             llm_theater_raw = data.get("theater")
@@ -159,6 +171,10 @@ class HacktiivistIntelSensor(BaseSensor):
             # Accept LLM theater override if it's a plausible 2-letter code; otherwise keep original
             if len(resolved_theater) == 2 and resolved_theater.isalpha():
                 theater = resolved_theater
+
+            if theater not in countries:
+                countries = [theater] + countries
+                country_weights.setdefault(theater, 1.0)
 
             # Map domain: DDoS → cyber, defacement → cyber, data leak → info
             attack_type = safe_enum(
@@ -179,6 +195,8 @@ class HacktiivistIntelSensor(BaseSensor):
                 "source_type":  "hacktivist",
                 "source_id":    f"hacktivist_{channel}",
                 "theater":      theater,
+                "countries":    countries,
+                "country_weights": country_weights,
                 "ts":           time.time(),
                 "confidence":   confidence,
                 "raw_text":     raw_text[:1000],

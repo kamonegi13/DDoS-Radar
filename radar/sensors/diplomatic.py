@@ -262,6 +262,8 @@ class DiplomaticSensor(BaseSensor):
                     '  "escalation_signal": true or false,\n'
                     '  "geographic_focus": "What country or region does this statement specifically address?",\n'
                     '  "theater": "Theater code from the list above, or null",\n'
+                    '  "countries": ["ISO codes of ALL countries explicitly addressed"],\n'
+                    '  "country_weights": {"ISO": 0.0-1.0 relevance weight per country},\n'
                     '  "theater_link": "direct|indirect|none — does the statement specifically address this theater?",\n'
                     '  "diplomatic_action": "warning|condemnation|sanction|expulsion|military_posture|ceasefire|statement|none",\n'
                     '  "target_country": "Country being addressed or criticized",\n'
@@ -296,6 +298,16 @@ class DiplomaticSensor(BaseSensor):
                     record_sensor_drop("no_escalation_signal" if not data.get("escalation_signal") else "below_floor")
                     continue
 
+                # Parse multi-country output (Phase 3)
+                raw_countries = data.get("countries") or []
+                raw_weights = data.get("country_weights") or {}
+                countries = [c.strip().upper() for c in raw_countries
+                             if isinstance(c, str) and len(c.strip()) == 2]
+                country_weights = {}
+                for c in countries:
+                    w = raw_weights.get(c, raw_weights.get(c.lower(), 1.0))
+                    country_weights[c] = max(0.0, min(1.0, safe_float(w, default=1.0)))
+
                 # Discard if LLM could not assign a specific theater — no forced fallback
                 llm_theater = (data.get("theater") or "").strip().upper()
                 if not llm_theater or llm_theater not in theaters:
@@ -303,6 +315,10 @@ class DiplomaticSensor(BaseSensor):
                     record_sensor_drop("theater_mismatch")
                     continue
                 theater = llm_theater
+
+                if theater not in countries:
+                    countries = [theater] + countries
+                    country_weights.setdefault(theater, 1.0)
 
                 # Theater link validation: indirect/none links indicate LLM over-association
                 theater_link = safe_enum(
@@ -330,6 +346,8 @@ class DiplomaticSensor(BaseSensor):
                     "source_type":  "diplomatic",
                     "source_id":    f"diplomatic_{source_name.lower()}",
                     "theater":      theater,
+                    "countries":    countries,
+                    "country_weights": country_weights,
                     "ts":           time.time(),
                     "confidence":   round(confidence, 3),
                     "raw_text":     article_text[:1000],

@@ -423,6 +423,8 @@ class AptIntelSensor(BaseSensor):
                     '  "headline": "One-sentence threat summary (max 100 chars)",\n'
                     '  "theater": "ISO country code of the PRIMARY targeted country/region, '
                     'OR null if not in the active theaters list above",\n'
+                    '  "countries": ["ISO codes of ALL countries explicitly named as targets"],\n'
+                    '  "country_weights": {"ISO": 0.0-1.0 relevance weight per country},\n'
                     '  "attributed_actor": "APT group or state actor name, or unknown",\n'
                     '  "actor_nexus": "Sponsoring state ISO code (CN/RU/KP/IR/XX)",\n'
                     '  "targeted_sector": "critical_infrastructure|government|military|financial|'
@@ -434,6 +436,8 @@ class AptIntelSensor(BaseSensor):
                     "}\n"
                     "CRITICAL: theater must be null if the advisory does not explicitly name "
                     "a country that matches the active theaters list. Do NOT infer or guess.\n"
+                    "countries: list every country EXPLICITLY named as a target in the advisory. "
+                    "country_weights: 1.0 = primary target, 0.3-0.7 = secondary mention.\n"
                     "Confidence guide:\n"
                     "- 0.80-0.95: Named state actor + named target country in active theater\n"
                     "- 0.65-0.79: Likely state actor + sector in theater explicitly named\n"
@@ -449,6 +453,16 @@ class AptIntelSensor(BaseSensor):
                 data = result["data"]
                 confidence = safe_float(data.get("confidence"), default=0.0)
 
+                # Parse multi-country output (Phase 3)
+                raw_countries = data.get("countries") or []
+                raw_weights = data.get("country_weights") or {}
+                countries = [c.strip().upper() for c in raw_countries
+                             if isinstance(c, str) and len(c.strip()) == 2]
+                country_weights = {}
+                for c in countries:
+                    w = raw_weights.get(c, raw_weights.get(c.lower(), 1.0))
+                    country_weights[c] = max(0.0, min(1.0, safe_float(w, default=1.0)))
+
                 # Hard gate: no theater → discard (no forced assignment)
                 theater = (data.get("theater") or "").strip().upper() or None
                 if not theater or theater in ("NULL", "NONE"):
@@ -461,6 +475,10 @@ class AptIntelSensor(BaseSensor):
                     log.debug(f"[AptIntel] Stage2 DISCARD (theater {theater} not strategic): {art['title'][:60]}")
                     record_sensor_drop("stage2_theater_not_strategic")
                     continue
+
+                if theater not in countries:
+                    countries = [theater] + countries
+                    country_weights.setdefault(theater, 1.0)
 
                 if confidence < 0.35:
                     log.debug(f"[AptIntel] Stage2 low confidence {confidence:.2f}: {art['title'][:60]}")
@@ -491,6 +509,8 @@ class AptIntelSensor(BaseSensor):
                     "source_type":  "apt_intel",
                     "source_id":    f"cert_{source_name.lower()}",
                     "theater":      theater,
+                    "countries":    countries,
+                    "country_weights": country_weights,
                     "ts":           time.time(),
                     "confidence":   round(confidence, 3),
                     "raw_text":     article_text[:1000],

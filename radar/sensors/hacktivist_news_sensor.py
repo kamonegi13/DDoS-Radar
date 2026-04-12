@@ -273,6 +273,8 @@ class HacktivistNewsSensor(BaseSensor):
                     '  "is_active_campaign": true or false,\n'
                     '  "group_name": "Hacktivist group name or unknown",\n'
                     '  "theater": "ISO country code of PRIMARY target, or null",\n'
+                    '  "countries": ["ISO codes of ALL targeted countries"],\n'
+                    '  "country_weights": {"ISO": 0.0-1.0 relevance weight per country},\n'
                     '  "attack_type": "DDoS|defacement|data_leak|combined|none",\n'
                     '  "target_sector": "government|military|financial|telecom|'
                     'energy|media|transport|healthcare|unknown",\n'
@@ -320,6 +322,16 @@ class HacktivistNewsSensor(BaseSensor):
                     record_sensor_drop("below_floor")
                     continue
 
+                # Parse multi-country output (Phase 3)
+                raw_countries = data.get("countries") or []
+                raw_weights = data.get("country_weights") or {}
+                countries = [c.strip().upper() for c in raw_countries
+                             if isinstance(c, str) and len(c.strip()) == 2]
+                country_weights = {}
+                for c in countries:
+                    w = raw_weights.get(c, raw_weights.get(c.lower(), 1.0))
+                    country_weights[c] = max(0.0, min(1.0, safe_float(w, default=1.0)))
+
                 # Theater validation
                 theater = (data.get("theater") or "").strip().upper() or None
                 if not theater or theater in ("NULL", "NONE"):
@@ -336,6 +348,10 @@ class HacktivistNewsSensor(BaseSensor):
                     )
                     record_sensor_drop("theater_not_strategic")
                     continue
+
+                if theater not in countries:
+                    countries = [theater] + countries
+                    country_weights.setdefault(theater, 1.0)
 
                 urgency = safe_enum(
                     data.get("urgency"),
@@ -360,6 +376,8 @@ class HacktivistNewsSensor(BaseSensor):
                     "source_type": "hacktivist",
                     "source_id": f"hacknews_{source_name.lower()}",
                     "theater": theater,
+                    "countries": countries,
+                    "country_weights": country_weights,
                     "ts": time.time(),
                     "confidence": round(confidence, 3),
                     "raw_text": article_text[:1000],

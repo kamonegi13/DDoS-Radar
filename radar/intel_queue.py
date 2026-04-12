@@ -178,7 +178,9 @@ class IntelQueue:
         item must contain:
             source_type  : hacktivist | diplomatic | military | ground_osint
             source_id    : channel/feed identifier (for credibility tracking)
-            theater      : e.g. "CN-TW"
+            theater      : e.g. "TW" (legacy, kept for backward compat)
+            countries    : list[str] — multi-country tags (Phase 3)
+            country_weights : dict[str, float] — LLM relevance per country
             ts           : Unix timestamp of the original text
             confidence   : LLM confidence (0.0–1.0)
             raw_text     : original text
@@ -196,8 +198,16 @@ class IntelQueue:
         confidence = float(item.get("confidence", 0.0))
         source_id = item.get("source_id", "unknown")
         source_type = item.get("source_type", "unknown")
-        theater = item.get("theater", "")
         headline = item.get("headline", "")
+
+        # Multi-country support (Phase 3): derive countries from item,
+        # fall back to legacy theater field for backward compatibility
+        countries: list[str] = item.get("countries", [])
+        country_weights: dict[str, float] = item.get("country_weights", {})
+        theater = item.get("theater", "")
+        if not countries and theater:
+            countries = [theater]
+            country_weights = {theater: 1.0}
 
         # Discard below minimum threshold
         if confidence < _confidence_min():
@@ -206,26 +216,32 @@ class IntelQueue:
             return None
 
         # ── Intra-source-type dedup: discard wire-service echo chambers ──────────
-        # Within the same source_type + theater pair, check if we already have a
-        # recent item (48h) with a similar headline (Jaccard ≥ 0.50 on significant
-        # words). If so, this is most likely the same event reported by multiple
-        # outlets citing the same underlying source (e.g. PACOM press release
-        # re-published by USNI, DefenseNews, Stars&Stripes).
+        # Within the same source_type with overlapping countries, check if we
+        # already have a recent item (48h) with a similar headline (Jaccard ≥ 0.50
+        # on significant words). If so, this is most likely the same event reported
+        # by multiple outlets citing the same underlying source.
         #
         # Confidence-based replacement: if the new item has higher confidence than
         # the existing match, replace the existing item's analysis (headline,
         # confidence, score_delta, etc.) while preserving corroborating sources.
         #
         # Distinct-event protection: even if Jaccard matches, do NOT merge items
-        # that have different theaters, actors, or diplomatic actions (these are
-        # similar-but-distinct events that happen to share vocabulary).
+        # that have non-overlapping countries, different actors, or different
+        # diplomatic actions (these are similar-but-distinct events).
         if headline:
             new_tokens = _headline_tokens(headline)
             new_llm = item.get("llm_fields", {})
+            new_countries_set = set(countries)
             since = time.time() - _DEDUP_WINDOW_SECONDS
-            existing = db.intel_list(source_type=source_type, theater=theater,
+            existing = db.intel_list(source_type=source_type,
                                      limit=50, since_ts=since)
             for ex in existing:
+                ex_countries_set = set(ex.get("countries", []))
+                if not ex_countries_set and ex.get("theater"):
+                    ex_countries_set = {ex["theater"]}
+                if new_countries_set and ex_countries_set and not (new_countries_set & ex_countries_set):
+                    continue  # non-overlapping regions — distinct events
+
                 same_source = (ex.get("source_id") == source_id)
                 ex_tokens = _headline_tokens(ex.get("headline", ""))
                 jacc = _jaccard(new_tokens, ex_tokens)
@@ -323,6 +339,8 @@ class IntelQueue:
             "source_type": source_type,
             "source_id":   source_id,
             "theater":     theater,
+            "countries":   countries,
+            "country_weights": country_weights,
             "ts":          item.get("ts", now),
             "status":      status,
             "confidence":  confidence,
@@ -513,15 +531,17 @@ class IntelQueue:
             group_items.sort(key=lambda x: (x["score_delta"], x["confidence"]), reverse=True)
             for item in group_items[:cap]:
                 result.append({
-                    "sensor":        "llm_intel",
-                    "signal_source": "llm_intel",
-                    "score":         item["score_delta"],
-                    "confidence":    item["confidence"],
-                    "domain":        item["domain"],
-                    "theater":       item.get("theater", ""),
-                    "status":        "FIRED",
-                    "detail":        f"[{item['source_type'].upper()}] {item['headline']}",
-                    "suppressed":    False,
+                    "sensor":           "llm_intel",
+                    "signal_source":    "llm_intel",
+                    "score":            item["score_delta"],
+                    "confidence":       item["confidence"],
+                    "domain":           item["domain"],
+                    "theater":          item.get("theater", ""),
+                    "countries":        item.get("countries", []),
+                    "country_weights":  item.get("country_weights", {}),
+                    "status":           "FIRED",
+                    "detail":           f"[{item['source_type'].upper()}] {item['headline']}",
+                    "suppressed":       False,
                 })
         return result
 

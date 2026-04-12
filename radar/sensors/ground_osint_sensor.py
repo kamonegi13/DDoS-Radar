@@ -235,10 +235,15 @@ class GroundOsintSensor(BaseSensor):
             else:
                 score_delta = 1.0   # Declaration only
 
+            countries = [theater] if theater else []
+            country_weights = {theater: 1.0} if theater else {}
+
             item = {
                 "source_type":  "ground_osint",
                 "source_id":    f"ground_osint_{channel}",
                 "theater":      theater,
+                "countries":    countries,
+                "country_weights": country_weights,
                 "ts":           time.time(),
                 "confidence":   round(confidence, 3),
                 "raw_text":     raw_text[:1000],

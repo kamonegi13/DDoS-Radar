@@ -262,6 +262,8 @@ class MilitaryExerciseSensor(BaseSensor):
                     '  "event_type": "new_deployment|exercise_start|readiness_elevation|status_report|historical_analysis|none",\n'
                     '  "geographic_location": "Where is this event physically taking place? (region/sea/country name)",\n'
                     '  "theater": "Theater code from the list above, or null",\n'
+                    '  "countries": ["ISO codes of ALL countries where forces are located or moving"],\n'
+                    '  "country_weights": {"ISO": 0.0-1.0 relevance weight per country},\n'
                     '  "theater_link": "direct|indirect|none — is the geographic_location IN the theater, or only indirectly related?",\n'
                     '  "exercise_type": "live_fire|amphibious|naval|air|cyber|combined|deployment|none",\n'
                     '  "force_type": "naval|air|ground|rocket|cyber|combined",\n'
@@ -305,6 +307,16 @@ class MilitaryExerciseSensor(BaseSensor):
 
                 data = result["data"]
                 confidence = safe_float(data.get("confidence"), default=0.0)
+
+                # Parse multi-country output (Phase 3)
+                raw_countries = data.get("countries") or []
+                raw_weights = data.get("country_weights") or {}
+                countries = [c.strip().upper() for c in raw_countries
+                             if isinstance(c, str) and len(c.strip()) == 2]
+                country_weights = {}
+                for c in countries:
+                    w = raw_weights.get(c, raw_weights.get(c.lower(), 1.0))
+                    country_weights[c] = max(0.0, min(1.0, safe_float(w, default=1.0)))
 
                 _EVENT_TYPES = {
                     "new_deployment", "exercise_start", "readiness_elevation",
@@ -363,6 +375,10 @@ class MilitaryExerciseSensor(BaseSensor):
                         f"(conf capped to {confidence:.2f})"
                     )
 
+                if theater not in countries:
+                    countries = [theater] + countries
+                    country_weights.setdefault(theater, 1.0)
+
                 # Additive scoring: base + scale_bonus (max = 3.0, avoids multiplicative inflation)
                 urgency = safe_enum(data.get("urgency"), {"critical", "high", "medium", "low"}, "low")
                 scale   = safe_enum(data.get("scale"), {"strategic", "operational", "tactical"}, "tactical")
@@ -374,6 +390,8 @@ class MilitaryExerciseSensor(BaseSensor):
                     "source_type":  "military",
                     "source_id":    f"military_{source_name.lower()}",
                     "theater":      theater,
+                    "countries":    countries,
+                    "country_weights": country_weights,
                     "ts":           time.time(),
                     "confidence":   round(confidence, 3),
                     "raw_text":     article_text[:1000],

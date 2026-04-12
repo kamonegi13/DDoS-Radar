@@ -299,7 +299,9 @@ CREATE TABLE IF NOT EXISTS llm_intel (
     confirmed_by  TEXT DEFAULT NULL,
     confirmed_at  REAL DEFAULT NULL,
     override_at   REAL DEFAULT NULL,
-    created_at    REAL NOT NULL
+    created_at    REAL NOT NULL,
+    countries     TEXT NOT NULL DEFAULT '[]',
+    country_weights TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_llm_intel_ts     ON llm_intel (ts DESC);
 CREATE INDEX IF NOT EXISTS idx_llm_intel_status ON llm_intel (status, ts DESC);
@@ -641,6 +643,21 @@ class RadarDB:
             )"""),
             conn.execute("""CREATE INDEX IF NOT EXISTS idx_scenario_tl_obs_sid
                 ON scenario_tl_observation (scenario_id, observed_at DESC)"""),
+        ]),
+        (6, "Add countries/country_weights to llm_intel, backfill from theater", lambda conn: [
+            conn.execute("ALTER TABLE llm_intel ADD COLUMN countries TEXT NOT NULL DEFAULT '[]'"),
+            conn.execute("ALTER TABLE llm_intel ADD COLUMN country_weights TEXT NOT NULL DEFAULT '{}'"),
+            conn.execute("""
+                UPDATE llm_intel
+                SET countries = CASE
+                    WHEN theater IS NOT NULL AND theater != '' THEN '["' || theater || '"]'
+                    ELSE '[]'
+                END,
+                country_weights = CASE
+                    WHEN theater IS NOT NULL AND theater != '' THEN '{"' || theater || '": 1.0}'
+                    ELSE '{}'
+                END
+            """),
         ]),
     ]
 
@@ -1777,14 +1794,17 @@ class RadarDB:
     # ── LLM Intel ───────────────────────────────────────────────────────────
     def intel_upsert(self, item: dict):
         """Insert or replace an LLM intel item."""
+        countries = item.get("countries", [])
+        country_weights = item.get("country_weights", {})
         conn = self._get_conn()
         with conn.writing():
             conn.execute(
                 "INSERT OR REPLACE INTO llm_intel "
                 "(id, source_type, source_id, theater, ts, status, confidence, "
                 "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
-                "confirmed_by, confirmed_at, override_at, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "confirmed_by, confirmed_at, override_at, created_at, "
+                "countries, country_weights) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (item["id"], item["source_type"], item.get("source_id", ""),
                  item.get("theater", ""), item["ts"], item.get("status", "pending"),
                  item.get("confidence", 0.0), item.get("raw_text", ""),
@@ -1792,7 +1812,8 @@ class RadarDB:
                  json.dumps(item.get("llm_fields", {})),
                  item.get("score_delta", 0.0), item.get("domain", "info"),
                  item.get("confirmed_by"), item.get("confirmed_at"),
-                 item.get("override_at"), item.get("created_at", time.time())),
+                 item.get("override_at"), item.get("created_at", time.time()),
+                 json.dumps(countries), json.dumps(country_weights)),
             )
 
     def intel_update_status(self, item_id: str, status: str,
@@ -1810,7 +1831,8 @@ class RadarDB:
         row = self._get_conn().execute(
             "SELECT id, source_type, source_id, theater, ts, status, confidence, "
             "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
-            "confirmed_by, confirmed_at, override_at, created_at FROM llm_intel WHERE id=?",
+            "confirmed_by, confirmed_at, override_at, created_at, "
+            "countries, country_weights FROM llm_intel WHERE id=?",
             (item_id,),
         ).fetchone()
         return self._intel_row_to_dict(row) if row else None
@@ -1820,7 +1842,8 @@ class RadarDB:
                    since_ts: float = None, before_ts: float = None) -> list[dict]:
         q = ("SELECT id, source_type, source_id, theater, ts, status, confidence, "
              "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
-             "confirmed_by, confirmed_at, override_at, created_at FROM llm_intel WHERE 1=1")
+             "confirmed_by, confirmed_at, override_at, created_at, "
+             "countries, country_weights FROM llm_intel WHERE 1=1")
         params = []
         if source_type:
             q += " AND source_type=?"
@@ -1891,7 +1914,8 @@ class RadarDB:
         rows = self._get_conn().execute(
             "SELECT id, source_type, source_id, theater, ts, status, confidence, "
             "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
-            "confirmed_by, confirmed_at, override_at, created_at FROM llm_intel "
+            "confirmed_by, confirmed_at, override_at, created_at, "
+            "countries, country_weights FROM llm_intel "
             "WHERE status IN ('auto_confirmed', 'confirmed') AND ts >= ? "
             "ORDER BY ts DESC LIMIT 20",
             (since_ts,),
@@ -1907,6 +1931,8 @@ class RadarDB:
             "score_delta": r[11], "domain": r[12],
             "confirmed_by": r[13], "confirmed_at": r[14],
             "override_at": r[15], "created_at": r[16],
+            "countries": json.loads(r[17]) if r[17] else [],
+            "country_weights": json.loads(r[18]) if r[18] else {},
         }
 
     def intel_source_get(self, source_id: str) -> Optional[dict]:
