@@ -13,7 +13,7 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 1.3.0 |
+| **現バージョン** | 1.3.1 |
 | **作成日** | 2026-04-11 |
 | **最終更新** | 2026-04-12 |
 | **現在のフェーズ** | **Phase 0 完了、Phase 1 着手準備完了** |
@@ -84,7 +84,7 @@
 ### P3: スコア合成式は完全に透明
 **根拠**: 拘束③④
 **意味**:
-- スコアは `Σ (signal.score × llm_country_weight × participant_weight)` の形で展開可能
+- スコアは展開可能な積和式で構成される（→ 正規定義: 7.1 節）
 - すべての項を数値とラベル付きで表示できる
 - ブラックボックス ML や隠れたヒューリスティックは禁止
 - HOD baseline 等の統計的処理は許可だが、式と入力値は表示可能でなければならない
@@ -697,8 +697,8 @@ for domain in domains:
 | `name_en`, `name_ja` | str | ✓ | i18n 表示名 |
 | `description_en`, `description_ja` | str | – | 詳細説明(ツールチップ) |
 | `core_country` | str \| null | – | UI 補助。scoring には関与しない(ADR-009) |
-| `state` | str | – | `"active"` / `"paused"` / `"archived"`(ADR-011)。デフォルト `"active"` |
-| `enabled` | bool | – | デフォルト true。false だと scoring 対象外 |
+| `state` | str | – | `"active"` / `"paused"` / `"archived"`。デフォルト `"active"`。→ ADR-011 参照 |
+| `enabled` | bool | – | デフォルト true。`state` との関係 → ADR-011 参照 |
 | `tier` | int | – | 1=主要 / 2=副次 / 3=実験的(UI ソート用のみ、scoring には影響しない) |
 | `participants` | dict | ✓ | 国 → {weight, role}。味方・敵を問わず全 participant を含む |
 | `participants[].weight` | float [0.0-1.0] | ✓ | scoring 寄与重み |
@@ -799,10 +799,7 @@ class Signal:
     llm_reasoning: str | None              # LLM 由来の reasoning trace
 ```
 
-**センサー層の責務**: 各センサーは自身の観測を `Signal` に変換して scoring engine に供給する。ADR-022 の countries 規約に従うこと。
-- **per-country sensor（FOCUSED_ONLY）**: `countries` は観測対象の単一国 `["TW"]`、`country_weights` は `{"TW": 1.0}`
-- **global sensor（GLOBAL）非 LLM**: `countries` は **空 `[]`**。scoring engine が GLOBAL_SIGNAL_WEIGHT で scenario-level 寄与として扱う
-- **global sensor（GLOBAL）LLM**: `countries` は LLM が判定した関連国 `["US","TW"]`。`country_weights` は LLM が返す場合は使用、返さない場合は全て 1.0
+**センサー層の責務**: 各センサーは自身の観測を `Signal` に変換して scoring engine に供給する。`countries` フィールドの設定規約は → ADR-022(正規定義)を参照。
 
 ### 6.4 RationaleEntry と ScenarioContribution
 
@@ -829,7 +826,7 @@ class ScenarioContribution:
     llm_country_weight: float              # signal.country_weights[contributing_country]
     participant_weight: float              # scenario.participants[contributing_country].weight
     participant_role: str                  # 表示用 role ラベル
-    final_contribution: float              # raw_score × llm_country_weight × participant_weight
+    final_contribution: float              # 計算式 → 7.1 節参照
     formula_trace: str                     # 人間可読の計算過程文字列
 ```
 
@@ -1132,7 +1129,7 @@ def derive_tl(
 | **Layer 3 override で weight が 0.0** | participant を除外したのと同等に扱う |
 | **Layer 3 override で weight が範囲外(負数/1.0超)** | Phase 1 loader と同じ CHECK を in-memory で適用。reject して warning ログ(v1.3 追加) |
 | **signal.countries が空** | rationale に残すが scoring には寄与しない(UI debug 用) |
-| **scoring 対象判定** | `state == "active" AND enabled == true` の scenario のみ。ADR-011 の v1.3 明確化を参照(v1.3 追加) |
+| **scoring 対象判定** | → ADR-011 参照(v1.3 追加) |
 
 ---
 
@@ -1658,6 +1655,27 @@ OQ-1 〜 等は決定された瞬間に Open Questions セクションから削�
 ### ルール 7: 数値例は式と一緒に書く
 本ドキュメント内の数値例(スコア、重み、計算結果)は必ず式と共に記載する。式なしで数字だけ書かない(6.5 API レスポンスの「検算」節のように)。
 
+### ルール 8: 実装完了した仕様は実コード参照に圧縮する
+Phase N の完了時に、その Phase で実装された **疑似コード・SQL スキーマ・API レスポンス例・データクラス定義** は、実ファイルへの参照に置き換えて圧縮する。
+- 形式: `→ 実装: radar/scoring.py:compute_scenario_score() を参照`
+- 圧縮前の疑似コードは git 履歴に残るため情報は失われない
+- **ADR・設計判断・計算式の説明文** は圧縮対象外(長命な設計知識)
+- 目的: 疑似コードと実コードの二重管理を防止し、ルール 6 の 2000 行上限を維持する
+
+### ルール 9: 各情報の正規定義箇所は 1 つ、他は参照
+同じ情報が複数箇所に現れる場合、**正規の定義箇所(canonical location)を 1 つだけ持ち**、他は `→ X 章参照` で済ませる。変更時は正規箇所のみ更新すればよい。正規箇所は以下の表で管理する:
+
+| 情報 | 正規定義箇所 |
+|------|------------|
+| scoring 計算式 | 7.1 節 |
+| Signal.countries の規約 | ADR-022 |
+| Signal データクラスのフィールド | 6.3 節 |
+| enabled と state の意味論 | ADR-011 |
+| Role enum | 4.3 節 |
+| TL 閾値 | 7.3 節 |
+| scenario JSON スキーマ | 6.1 節 |
+| GLOBAL_SIGNAL_WEIGHT / DOMAIN_CAP | ADR-022 |
+
 ---
 
 ## 14. セッション開始チェックリスト
@@ -1766,12 +1784,13 @@ OQ-1 〜 等は決定された瞬間に Open Questions セクションから削�
 
 ## 改訂履歴
 
-| 日付 | バージョン | 変更内容 | 担当 |
-|------|----------|---------|------|
-| 2026-04-11 | 1.0.0 | 初版作成。Phase 0 進行中。ADR-001〜008、初期データモデル、4シナリオ想定。 | Claude (Opus 4.6) + kamonegi13 |
-| 2026-04-12 | 1.1.0 | Phase 0 完了。全体レビューを経て大幅更新:<br>• Open Questions Q1〜Q5 を ADR-009〜013 に昇格<br>• ADR-014: adversaries を participants に統合、scoring に算入<br>• ADR-015: LLM country_weight × participant weight の二重重み<br>• ADR-016: role を固定 enum としてバリデーション<br>• ADR-017: SensorTier を Phase 1 で導入<br>• ADR-018: 既存履歴データ保持方針<br>• ADR-019: scoring_mode はランタイム属性<br>• ADR-020: sequence events の scenario 拡張<br>• 6章データモデル全面改訂(Signal クラス導入、5シナリオ完全定義、SQL CHECK 制約、edge cases)<br>• 7章スコアリング疑似コード修正(二重重み、dedup 複合キー、数値例の検算)<br>• Phase 1 のスコープ拡張(SensorTier、Signal クラス、edge cases テスト)<br>• リスク登録簿に R9-R12 追加<br>• Appendix C: 参加国重みのルブリック追加 | Claude (Opus 4.6) + kamonegi13 |
-| 2026-04-12 | 1.2.0 | 批判的レビューに基づく5点の補強:<br>• ADR-015 にリスク注記追加(LLM 非決定性、ハルシネーション、P3 緊張、single-weight 後退オプション、観察指標)<br>• 7.3.1 節追加: TL 閾値の再校正計画(country→scenario 単位でのインフレーション対策、校正手順、回帰防止)<br>• Phase 2 完了条件に二重カウント実証テスト・adversary 寄与検証・TL ベースライン計測を追加<br>• Phase 3 工数を ~4-5日 → ~8-12日、Phase 4 を ~4-5日 → ~6-8日 に現実化(合計 ~22-28日)<br>• 9.3.1 節追加: C-medium 移行判定「見逃し」の厳密定義・後追い検証手順・focus_switch_log テーブル設計<br>• Phase 5 完了条件に TL 閾値再校正完了・ADR-015 dual-weight 評価を追加<br>• OQ-5 追加: Phase 1 シナリオ投入数の段階化オプション | Claude (Opus 4.6) + kamonegi13 |
-| 2026-04-12 | 1.3.0 | 数理・内部一貫性レビューに基づく4件の構造修正:<br>• 6.5 節 API レスポンス例修正: formula_trace の数値不整合(final_contribution と計算結果の不一致、convergence_bonus の誤混入、llm ラベル誤り)を修正。2 contributions の正確な計算例に置換<br>• ADR-011 に `enabled` と `state` の意味論を明確化: 2 軸の直交関係を定義、scoring 対象条件を `state=="active" AND enabled==true` に確定、7.5 edge cases に Layer 3 weight 範囲外検証と scoring 対象判定を追加<br>• ADR-021 追加: scenario scoring で domain weight を廃止し participant weight に一元化。理由: 二重重み付けによる P3 違反回避、info 偏重の C-lite との整合、convergence bonus による間接的なドメイン重要度反映<br>• ADR-022 追加: global signal の countries 規約(per-country=単一国、global 非LLM=空リスト、global LLM=LLM 判定国)、GLOBAL_SIGNAL_WEIGHT(0.5)による scenario-level flat 寄与、DOMAIN_CAP(6.0)による per-domain 安全弁。疑似コードに global signal 分岐と domain cap を反映<br>• リスク登録簿に R13-R14 追加 | Claude (Opus 4.6) + kamonegi13 |
+| 日付 | Ver | 変更概要 | commit |
+|------|-----|---------|--------|
+| 2026-04-11 | 1.0.0 | 初版。ADR-001〜008、データモデル、4 シナリオ想定 | `e7e321b` |
+| 2026-04-12 | 1.1.0 | Phase 0 完了。ADR-009〜020 追加、5 シナリオ確定、Signal クラス導入、scoring 疑似コード全面改訂 | `e7e321b` 内 |
+| 2026-04-12 | 1.2.0 | 批判的レビュー。ADR-015 リスク注記、TL 再校正計画(7.3.1)、C-medium 見逃し定義(9.3.1)、工数現実化、OQ-5 追加 | `198a0c2` |
+| 2026-04-12 | 1.3.0 | 数理・一貫性修正。formula_trace 数値修正、enabled/state 意味論確定、ADR-021(domain weight 廃止)、ADR-022(global signal 規約 + DOMAIN_CAP) | `a03f628` |
+| 2026-04-12 | 1.3.1 | 文書保守性改善。ルール 8(実装完了→実コード参照に圧縮)、ルール 9(正規定義箇所の一元化)追加。改訂履歴を圧縮、冗長箇所を正規定義への参照に置換(約 30 行削減) | — |
 
 ---
 
