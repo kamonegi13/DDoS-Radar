@@ -158,6 +158,11 @@ DEFAULT_CORRELATES  = [x.strip() for x in os.getenv("DEFAULT_CORRELATES", "JP,US
 DEFAULT_ADVERSARIES = [x.strip() for x in os.getenv("DEFAULT_ADVERSARIES", "CN,RU,KP").split(",") if x.strip()]
 DEFAULT_PINS        = [x.strip() for x in os.getenv("DEFAULT_PINS", "TW,JP,US").split(",") if x.strip()]
 
+# Scenario-centric scoring (Phase 1)
+DEFAULT_FOCUSED_SCENARIO = os.getenv("DEFAULT_FOCUSED_SCENARIO", "taiwan_contingency")
+GLOBAL_SIGNAL_WEIGHT     = float(os.getenv("GLOBAL_SIGNAL_WEIGHT", "0.5"))
+DOMAIN_CAP               = float(os.getenv("DOMAIN_CAP", "6.0"))
+
 CF_HEADERS = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
 
 AIRSPACE_WINDOW             = int(os.getenv("AIRSPACE_WINDOW", "20"))

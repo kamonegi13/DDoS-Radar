@@ -7,6 +7,8 @@ import requests
 import threading
 import time
 import os as _os
+from dataclasses import dataclass, field
+from typing import Optional
 from radar.config import (
     CF_HEADERS, GLOBAL_PROXIES, SSL_VERIFY, CURRENT_DATE_RANGE,
     BASELINE_DATE_RANGE, CACHE_EXPIRY,
@@ -23,6 +25,45 @@ from radar.state import _cf_scoring_cache, _cf_cache_lock
 from radar.database import db as _db
 
 log = logging.getLogger("radar")
+
+
+# ── Signal dataclass (scenario-refactor Phase 1) ────────────────────────────
+
+@dataclass
+class Signal:
+    """Atomic observation emitted by a sensor — input unit for scoring engine.
+
+    See docs/design/scenario-refactor.md §6.3 for field semantics and
+    ADR-022 for the Signal.countries convention.
+    """
+    signal_source: str
+    sensor: str
+    observed_at: float
+    domain: str
+    countries: list[str]
+    country_weights: dict[str, float] = field(default_factory=dict)
+    raw_score: float = 0.0
+    value_display: str = ""
+    evidence_url: Optional[str] = None
+    llm_reasoning: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        d = {
+            "signal_source": self.signal_source,
+            "sensor": self.sensor,
+            "observed_at": self.observed_at,
+            "domain": self.domain,
+            "countries": self.countries,
+            "raw_score": self.raw_score,
+            "value_display": self.value_display,
+        }
+        if self.country_weights:
+            d["country_weights"] = self.country_weights
+        if self.evidence_url:
+            d["evidence_url"] = self.evidence_url
+        if self.llm_reasoning:
+            d["llm_reasoning"] = self.llm_reasoning
+        return d
 
 def register_sequence_event(theater: str, event_type: str, meta: dict = None,
                             dedup_window: int = 300):

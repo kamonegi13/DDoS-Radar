@@ -60,6 +60,18 @@ def app_config():
         ],
     })
 
+@bp.route("/api/scenarios", methods=["GET"])
+def list_scenarios():
+    from radar.scenarios import scenario_store
+    from radar.config import DEFAULT_FOCUSED_SCENARIO
+    scenarios = scenario_store.all()
+    return jsonify({
+        "focused_scenario": DEFAULT_FOCUSED_SCENARIO,
+        "scenarios": {
+            sid: s.to_dict() for sid, s in sorted(scenarios.items())
+        },
+    })
+
 @bp.route("/api/threat_data", methods=["GET"])
 def get_threat_data():
     current_time = time.time()

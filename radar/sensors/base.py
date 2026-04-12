@@ -4,6 +4,7 @@ import datetime
 import time
 import threading
 from abc import ABC, abstractmethod
+from radar.scenarios import SensorTier
 
 
 def _get_db():
@@ -17,6 +18,8 @@ class BaseSensor(ABC):
     CB_INITIAL_DELAY = 300      # 5 min initial recovery delay
     CB_MAX_DELAY = 3600         # 1 hour max recovery delay
     CB_STATES = ("CLOSED", "OPEN", "HALF_OPEN")
+
+    tier: SensorTier = SensorTier.GLOBAL
 
     def __init__(self, name: str, domain: str, poll_interval: int):
         self.name = name; self.domain = domain; self.poll_interval = poll_interval; self.enabled = True

@@ -69,6 +69,18 @@ for _s in [
 ]:
     registry.register(_s)
 
+# ── Sensor Tier assignment (scenario-refactor §8.2) ──
+# Default tier on BaseSensor is GLOBAL. Override per-country sensors to FOCUSED_ONLY.
+from radar.scenarios import SensorTier  # noqa: E402
+_FOCUSED_ONLY_SENSORS = frozenset({
+    "cloudflare_radar", "ioda_bgp", "ripe_bgp", "openweather",
+    "check_host", "opensky", "notam", "ripe_atlas",
+    "ais_maritime", "isr_hotspot", "nasa_firms", "mil_support_air",
+})
+for _sname, _sensor in registry._sensors.items():
+    if _sname in _FOCUSED_ONLY_SENSORS:
+        _sensor.tier = SensorTier.FOCUSED_ONLY
+
 # ── Plugin Sensors (dynamic loading from plugins/ directory) ──
 from radar.plugin_loader import load_and_register_plugins  # noqa: E402
 load_and_register_plugins(registry)
@@ -158,6 +170,10 @@ _log = logging.getLogger("radar")
 # Phase 1: restore persisted state + DB cleanup (must finish before any request)
 restore_state()
 _db.startup_cleanup()
+
+# Phase 1b: load scenario definitions (Layer 1 from geo_data.json + Layer 2 from SQLite)
+from radar.scenarios import scenario_store as _scenario_store  # noqa: E402
+_scenario_store.load(config._raw_geo)
 
 # Phase 2: start persistence saver
 threading.Thread(target=_persistence_worker, daemon=True, name='persistence').start()

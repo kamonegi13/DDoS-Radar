@@ -2647,19 +2647,71 @@
     ]
   },
   "TELEGRAM_CHANNEL_META": {
-    "noname05716":           {"bloc": "RU", "lang": "ru", "confidence_weight": 0.70},
-    "killnet_mirror":        {"bloc": "RU", "lang": "ru", "confidence_weight": 0.60},
-    "CyberArmyofRussia_Reborn": {"bloc": "RU", "lang": "ru", "confidence_weight": 0.75},
-    "itarmyofukraine2022":   {"bloc": "UA", "lang": "uk", "confidence_weight": 0.65},
-    "cyber_resistance_ua":   {"bloc": "UA", "lang": "uk", "confidence_weight": 0.65},
-    "AnonCollective":        {"bloc": "IR", "lang": "en", "confidence_weight": 0.50},
-    "dragonforceio":         {"bloc": "MY", "lang": "en", "confidence_weight": 0.55},
-    "MysteriousTeam0":       {"bloc": "BD", "lang": "en", "confidence_weight": 0.45},
-    "TEAM_INSANE_PAKISTAN2": {"bloc": "PK", "lang": "en", "confidence_weight": 0.40},
-    "anonymous_sudan":       {"bloc": "SD", "lang": "ar", "confidence_weight": 0.45},
-    "GhostClan_op":          {"bloc": "XX", "lang": "en", "confidence_weight": 0.40},
-    "indian_cyber_force":    {"bloc": "IN", "lang": "en", "confidence_weight": 0.45},
-    "anon_by":               {"bloc": "BY", "lang": "ru", "confidence_weight": 0.50}
+    "noname05716": {
+      "bloc": "RU",
+      "lang": "ru",
+      "confidence_weight": 0.7
+    },
+    "killnet_mirror": {
+      "bloc": "RU",
+      "lang": "ru",
+      "confidence_weight": 0.6
+    },
+    "CyberArmyofRussia_Reborn": {
+      "bloc": "RU",
+      "lang": "ru",
+      "confidence_weight": 0.75
+    },
+    "itarmyofukraine2022": {
+      "bloc": "UA",
+      "lang": "uk",
+      "confidence_weight": 0.65
+    },
+    "cyber_resistance_ua": {
+      "bloc": "UA",
+      "lang": "uk",
+      "confidence_weight": 0.65
+    },
+    "AnonCollective": {
+      "bloc": "IR",
+      "lang": "en",
+      "confidence_weight": 0.5
+    },
+    "dragonforceio": {
+      "bloc": "MY",
+      "lang": "en",
+      "confidence_weight": 0.55
+    },
+    "MysteriousTeam0": {
+      "bloc": "BD",
+      "lang": "en",
+      "confidence_weight": 0.45
+    },
+    "TEAM_INSANE_PAKISTAN2": {
+      "bloc": "PK",
+      "lang": "en",
+      "confidence_weight": 0.4
+    },
+    "anonymous_sudan": {
+      "bloc": "SD",
+      "lang": "ar",
+      "confidence_weight": 0.45
+    },
+    "GhostClan_op": {
+      "bloc": "XX",
+      "lang": "en",
+      "confidence_weight": 0.4
+    },
+    "indian_cyber_force": {
+      "bloc": "IN",
+      "lang": "en",
+      "confidence_weight": 0.45
+    },
+    "anon_by": {
+      "bloc": "BY",
+      "lang": "ru",
+      "confidence_weight": 0.5
+    }
   },
   "INFRASTRUCTURE_URLS": {
     "UA": [
@@ -3358,14 +3410,14 @@
   "ADVERSARY_NARRATIVE_SOURCES": {
     "RU": {
       "tass": "https://tass.com/rss/v2.xml",
-      "ria":  "https://ria.ru/export/rss2/archive/index.xml"
+      "ria": "https://ria.ru/export/rss2/archive/index.xml"
     },
     "CN": {
-      "xinhua":      "https://www.xinhuanet.com/english/rss/worldrss.xml",
+      "xinhua": "https://www.xinhuanet.com/english/rss/worldrss.xml",
       "globaltimes": "https://www.globaltimes.cn/rss/outbrain.xml"
     },
     "IR": {
-      "mehr":   "https://en.mehrnews.com/rss",
+      "mehr": "https://en.mehrnews.com/rss",
       "tasnim": "https://www.tasnimnews.com/en/rss"
     },
     "KP": {
@@ -3381,16 +3433,110 @@
       "color": "#ff4444",
       "adversary": "RU",
       "proxy_adversaries": [
-        {"code": "BY", "label": "Belarus (RU proxy)", "color": "#ff4444"}
+        {
+          "code": "BY",
+          "label": "Belarus (RU proxy)",
+          "color": "#ff4444"
+        }
       ],
       "categories": [
-        {"key": "eastern_front",  "label": "Eastern Front",         "theaters": ["UA","MD"]},
-        {"key": "csto",           "label": "CSTO / Post-Soviet",    "theaters": ["BY","GE","AM","AZ","KZ","KG","TJ","UZ"]},
-        {"key": "nato_east",      "label": "NATO Eastern Flank",    "theaters": ["PL","LT","LV","EE","FI","NO","SE","DK"]},
-        {"key": "western_eu",     "label": "Western Europe / EU",   "theaters": ["DE","FR","GB","BE","NL","IT","ES","PT","CZ","SK","HU","RO","AT","CH","BG","HR","RS","GR","SI","MK","ME","AL","BA","IS","CY","MT","LU","XK","IE","TR"]},
-        {"key": "north_america",  "label": "North America",         "theaters": ["US","CA"]},
-        {"key": "far_east",       "label": "Far East / Pacific",    "theaters": ["JP","KR"]},
-        {"key": "africa_wagner",  "label": "Africa (Wagner)",       "theaters": ["LY","ML","SD"]}
+        {
+          "key": "eastern_front",
+          "label": "Eastern Front",
+          "theaters": [
+            "UA",
+            "MD"
+          ]
+        },
+        {
+          "key": "csto",
+          "label": "CSTO / Post-Soviet",
+          "theaters": [
+            "BY",
+            "GE",
+            "AM",
+            "AZ",
+            "KZ",
+            "KG",
+            "TJ",
+            "UZ"
+          ]
+        },
+        {
+          "key": "nato_east",
+          "label": "NATO Eastern Flank",
+          "theaters": [
+            "PL",
+            "LT",
+            "LV",
+            "EE",
+            "FI",
+            "NO",
+            "SE",
+            "DK"
+          ]
+        },
+        {
+          "key": "western_eu",
+          "label": "Western Europe / EU",
+          "theaters": [
+            "DE",
+            "FR",
+            "GB",
+            "BE",
+            "NL",
+            "IT",
+            "ES",
+            "PT",
+            "CZ",
+            "SK",
+            "HU",
+            "RO",
+            "AT",
+            "CH",
+            "BG",
+            "HR",
+            "RS",
+            "GR",
+            "SI",
+            "MK",
+            "ME",
+            "AL",
+            "BA",
+            "IS",
+            "CY",
+            "MT",
+            "LU",
+            "XK",
+            "IE",
+            "TR"
+          ]
+        },
+        {
+          "key": "north_america",
+          "label": "North America",
+          "theaters": [
+            "US",
+            "CA"
+          ]
+        },
+        {
+          "key": "far_east",
+          "label": "Far East / Pacific",
+          "theaters": [
+            "JP",
+            "KR"
+          ]
+        },
+        {
+          "key": "africa_wagner",
+          "label": "Africa (Wagner)",
+          "theaters": [
+            "LY",
+            "ML",
+            "SD"
+          ]
+        }
       ]
     },
     "CHINA": {
@@ -3398,10 +3544,51 @@
       "color": "#ff8800",
       "adversary": "CN",
       "categories": [
-        {"key": "taiwan_strait",   "label": "Taiwan Strait / 1st Island Chain", "theaters": ["TW","JP","PH","US","AU","KR"]},
-        {"key": "south_china_sea", "label": "South China Sea",                  "theaters": ["VN","MY","SG","ID"]},
-        {"key": "indo_pacific",    "label": "Indo-Pacific / QUAD",              "theaters": ["IN","NZ"]},
-        {"key": "bri",             "label": "BRI / Continental",                "theaters": ["PK","BD","KH","LA","MM","MN","AF","HK","TH"]}
+        {
+          "key": "taiwan_strait",
+          "label": "Taiwan Strait / 1st Island Chain",
+          "theaters": [
+            "TW",
+            "JP",
+            "PH",
+            "US",
+            "AU",
+            "KR"
+          ]
+        },
+        {
+          "key": "south_china_sea",
+          "label": "South China Sea",
+          "theaters": [
+            "VN",
+            "MY",
+            "SG",
+            "ID"
+          ]
+        },
+        {
+          "key": "indo_pacific",
+          "label": "Indo-Pacific / QUAD",
+          "theaters": [
+            "IN",
+            "NZ"
+          ]
+        },
+        {
+          "key": "bri",
+          "label": "BRI / Continental",
+          "theaters": [
+            "PK",
+            "BD",
+            "KH",
+            "LA",
+            "MM",
+            "MN",
+            "AF",
+            "HK",
+            "TH"
+          ]
+        }
       ]
     },
     "IRAN": {
@@ -3409,8 +3596,31 @@
       "color": "#aa44ff",
       "adversary": "IR",
       "categories": [
-        {"key": "levant", "label": "Levant / Resistance Axis", "theaters": ["IL","LB","SY","JO"]},
-        {"key": "gulf",   "label": "Gulf",                     "theaters": ["SA","AE","BH","QA","OM","YE","IQ","IR","US"]}
+        {
+          "key": "levant",
+          "label": "Levant / Resistance Axis",
+          "theaters": [
+            "IL",
+            "LB",
+            "SY",
+            "JO"
+          ]
+        },
+        {
+          "key": "gulf",
+          "label": "Gulf",
+          "theaters": [
+            "SA",
+            "AE",
+            "BH",
+            "QA",
+            "OM",
+            "YE",
+            "IQ",
+            "IR",
+            "US"
+          ]
+        }
       ]
     },
     "DPRK": {
@@ -3418,38 +3628,135 @@
       "color": "#44aaff",
       "adversary": "KP",
       "categories": [
-        {"key": "korean_peninsula", "label": "Korean Peninsula", "theaters": ["KR","US","JP"]}
+        {
+          "key": "korean_peninsula",
+          "label": "Korean Peninsula",
+          "theaters": [
+            "KR",
+            "US",
+            "JP"
+          ]
+        }
       ]
     }
   },
   "COUNTRY_BLOC_TAGS": {
-    "US": ["RUSSIA","CHINA","IRAN","DPRK"],
-    "JP": ["CHINA","DPRK","RUSSIA"],
-    "KR": ["DPRK","CHINA","RUSSIA"],
-    "GB": ["RUSSIA","CHINA","IRAN"],
-    "DE": ["RUSSIA","CHINA"],
-    "FR": ["RUSSIA","CHINA","IRAN"],
-    "AU": ["CHINA","RUSSIA"],
-    "CA": ["RUSSIA","CHINA","DPRK"],
-    "NZ": ["CHINA","RUSSIA"],
-    "IL": ["IRAN","RUSSIA","CHINA"],
-    "SA": ["IRAN","CHINA"],
-    "AE": ["IRAN","CHINA"],
-    "AL": ["RUSSIA","IRAN"],
-    "AZ": ["RUSSIA","IRAN"],
-    "IN": ["CHINA","RUSSIA"],
-    "PK": ["CHINA","RUSSIA"],
-    "MN": ["CHINA","RUSSIA"],
-    "KZ": ["RUSSIA","CHINA"],
-    "BY": ["RUSSIA","CHINA"],
-    "TR": ["RUSSIA","IRAN"],
-    "IQ": ["IRAN","RUSSIA"],
-    "PL": ["RUSSIA","CHINA"],
-    "NO": ["RUSSIA","CHINA"],
-    "SE": ["RUSSIA","CHINA"],
-    "FI": ["RUSSIA","CHINA"],
-    "IE": ["RUSSIA","CHINA"],
-    "AF": ["CHINA","RUSSIA"]
+    "US": [
+      "RUSSIA",
+      "CHINA",
+      "IRAN",
+      "DPRK"
+    ],
+    "JP": [
+      "CHINA",
+      "DPRK",
+      "RUSSIA"
+    ],
+    "KR": [
+      "DPRK",
+      "CHINA",
+      "RUSSIA"
+    ],
+    "GB": [
+      "RUSSIA",
+      "CHINA",
+      "IRAN"
+    ],
+    "DE": [
+      "RUSSIA",
+      "CHINA"
+    ],
+    "FR": [
+      "RUSSIA",
+      "CHINA",
+      "IRAN"
+    ],
+    "AU": [
+      "CHINA",
+      "RUSSIA"
+    ],
+    "CA": [
+      "RUSSIA",
+      "CHINA",
+      "DPRK"
+    ],
+    "NZ": [
+      "CHINA",
+      "RUSSIA"
+    ],
+    "IL": [
+      "IRAN",
+      "RUSSIA",
+      "CHINA"
+    ],
+    "SA": [
+      "IRAN",
+      "CHINA"
+    ],
+    "AE": [
+      "IRAN",
+      "CHINA"
+    ],
+    "AL": [
+      "RUSSIA",
+      "IRAN"
+    ],
+    "AZ": [
+      "RUSSIA",
+      "IRAN"
+    ],
+    "IN": [
+      "CHINA",
+      "RUSSIA"
+    ],
+    "PK": [
+      "CHINA",
+      "RUSSIA"
+    ],
+    "MN": [
+      "CHINA",
+      "RUSSIA"
+    ],
+    "KZ": [
+      "RUSSIA",
+      "CHINA"
+    ],
+    "BY": [
+      "RUSSIA",
+      "CHINA"
+    ],
+    "TR": [
+      "RUSSIA",
+      "IRAN"
+    ],
+    "IQ": [
+      "IRAN",
+      "RUSSIA"
+    ],
+    "PL": [
+      "RUSSIA",
+      "CHINA"
+    ],
+    "NO": [
+      "RUSSIA",
+      "CHINA"
+    ],
+    "SE": [
+      "RUSSIA",
+      "CHINA"
+    ],
+    "FI": [
+      "RUSSIA",
+      "CHINA"
+    ],
+    "IE": [
+      "RUSSIA",
+      "CHINA"
+    ],
+    "AF": [
+      "CHINA",
+      "RUSSIA"
+    ]
   },
   "TACTICAL_KEYWORDS": {
     "TW": [
@@ -4172,11 +4479,41 @@
     ]
   },
   "SCHEDULED_EVENTS": [
-    {"year": 2026, "month": 7, "day": 26, "desc": "JP House of Councillors election", "theater": "JP"},
-    {"year": 2026, "month": 11, "day": 3, "desc": "US midterm elections", "theater": "US"},
-    {"year": 2026, "month": 6, "day": 26, "desc": "G7 Summit (Canada)", "theater": "US"},
-    {"year": 2026, "month": 5, "day": 20, "desc": "Taiwan presidential inauguration anniversary", "theater": "TW"},
-    {"year": 2026, "month": 9, "day": 21, "desc": "UN General Assembly opens", "theater": "US"}
+    {
+      "year": 2026,
+      "month": 7,
+      "day": 26,
+      "desc": "JP House of Councillors election",
+      "theater": "JP"
+    },
+    {
+      "year": 2026,
+      "month": 11,
+      "day": 3,
+      "desc": "US midterm elections",
+      "theater": "US"
+    },
+    {
+      "year": 2026,
+      "month": 6,
+      "day": 26,
+      "desc": "G7 Summit (Canada)",
+      "theater": "US"
+    },
+    {
+      "year": 2026,
+      "month": 5,
+      "day": 20,
+      "desc": "Taiwan presidential inauguration anniversary",
+      "theater": "TW"
+    },
+    {
+      "year": 2026,
+      "month": 9,
+      "day": 21,
+      "desc": "UN General Assembly opens",
+      "theater": "US"
+    }
   ],
   "HISTORICAL_EVENTS": [
     {
@@ -4324,5 +4661,223 @@
       ],
       "description": "Expected peacetime noise floor."
     }
-  ]
+  ],
+  "SCENARIOS": {
+    "taiwan_contingency": {
+      "name_en": "Taiwan Contingency",
+      "name_ja": "台湾有事",
+      "description_en": "PRC contingency operations against Taiwan",
+      "description_ja": "中国による台湾に対する有事対応",
+      "core_country": "TW",
+      "state": "active",
+      "enabled": true,
+      "tier": 1,
+      "participants": {
+        "TW": {
+          "weight": 1.0,
+          "role": "primary_target"
+        },
+        "US": {
+          "weight": 0.8,
+          "role": "primary_ally"
+        },
+        "JP": {
+          "weight": 0.8,
+          "role": "forward_base"
+        },
+        "GU": {
+          "weight": 0.7,
+          "role": "forward_base"
+        },
+        "PH": {
+          "weight": 0.6,
+          "role": "secondary_ally"
+        },
+        "AU": {
+          "weight": 0.4,
+          "role": "extended_deterrence"
+        },
+        "KR": {
+          "weight": 0.4,
+          "role": "strategic_observer"
+        },
+        "CN": {
+          "weight": 0.7,
+          "role": "adversary"
+        }
+      }
+    },
+    "eastern_europe": {
+      "name_en": "Eastern Europe (Russia-Ukraine)",
+      "name_ja": "東欧紛争",
+      "description_en": "Russia-Ukraine conflict and NATO eastern flank",
+      "description_ja": "露宇戦争とNATO東方側面",
+      "core_country": "UA",
+      "state": "active",
+      "enabled": true,
+      "tier": 1,
+      "participants": {
+        "UA": {
+          "weight": 1.0,
+          "role": "primary_target"
+        },
+        "PL": {
+          "weight": 0.8,
+          "role": "forward_base"
+        },
+        "RO": {
+          "weight": 0.6,
+          "role": "secondary_ally"
+        },
+        "EE": {
+          "weight": 0.6,
+          "role": "secondary_ally"
+        },
+        "LV": {
+          "weight": 0.6,
+          "role": "secondary_ally"
+        },
+        "LT": {
+          "weight": 0.6,
+          "role": "secondary_ally"
+        },
+        "FI": {
+          "weight": 0.6,
+          "role": "secondary_ally"
+        },
+        "MD": {
+          "weight": 0.5,
+          "role": "spillover_risk"
+        },
+        "SK": {
+          "weight": 0.4,
+          "role": "extended_deterrence"
+        },
+        "RU": {
+          "weight": 0.8,
+          "role": "adversary"
+        },
+        "BY": {
+          "weight": 0.6,
+          "role": "adversary"
+        }
+      }
+    },
+    "middle_east": {
+      "name_en": "Middle East (Israel-Iran-Proxies)",
+      "name_ja": "中東紛争",
+      "description_en": "Israel-Iran confrontation and proxy conflicts",
+      "description_ja": "イスラエル・イラン対立とプロキシ紛争",
+      "core_country": null,
+      "state": "active",
+      "enabled": true,
+      "tier": 1,
+      "participants": {
+        "IL": {
+          "weight": 1.0,
+          "role": "principal_belligerent"
+        },
+        "IR": {
+          "weight": 1.0,
+          "role": "principal_belligerent"
+        },
+        "LB": {
+          "weight": 0.7,
+          "role": "proxy_front"
+        },
+        "YE": {
+          "weight": 0.6,
+          "role": "proxy_front"
+        },
+        "US": {
+          "weight": 0.6,
+          "role": "force_projection"
+        },
+        "SY": {
+          "weight": 0.5,
+          "role": "proxy_front"
+        },
+        "IQ": {
+          "weight": 0.5,
+          "role": "proxy_front"
+        },
+        "SA": {
+          "weight": 0.3,
+          "role": "regional_power"
+        }
+      }
+    },
+    "korean_peninsula": {
+      "name_en": "Korean Peninsula",
+      "name_ja": "朝鮮半島",
+      "description_en": "North Korean provocations and peninsula stability",
+      "description_ja": "北朝鮮の挑発と半島の安定",
+      "core_country": "KR",
+      "state": "active",
+      "enabled": true,
+      "tier": 2,
+      "participants": {
+        "KR": {
+          "weight": 1.0,
+          "role": "primary_target"
+        },
+        "US": {
+          "weight": 0.8,
+          "role": "primary_ally"
+        },
+        "JP": {
+          "weight": 0.7,
+          "role": "forward_base"
+        },
+        "CN": {
+          "weight": 0.4,
+          "role": "strategic_observer"
+        },
+        "KP": {
+          "weight": 0.8,
+          "role": "adversary"
+        }
+      }
+    },
+    "south_china_sea": {
+      "name_en": "South China Sea",
+      "name_ja": "南シナ海",
+      "description_en": "Maritime territorial disputes in the South China Sea",
+      "description_ja": "南シナ海における海洋領土紛争",
+      "core_country": "PH",
+      "state": "active",
+      "enabled": false,
+      "tier": 2,
+      "participants": {
+        "PH": {
+          "weight": 1.0,
+          "role": "primary_target"
+        },
+        "US": {
+          "weight": 0.7,
+          "role": "primary_ally"
+        },
+        "VN": {
+          "weight": 0.5,
+          "role": "secondary_party"
+        },
+        "MY": {
+          "weight": 0.4,
+          "role": "secondary_party"
+        },
+        "TW": {
+          "weight": 0.4,
+          "role": "secondary_party"
+        },
+        "JP": {
+          "weight": 0.4,
+          "role": "extended_deterrence"
+        },
+        "CN": {
+          "weight": 0.7,
+          "role": "adversary"
+        }
+      }
+    }
+  }
 }

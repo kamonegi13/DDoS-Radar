@@ -566,6 +566,65 @@ class RadarDB:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_intel_status  ON llm_intel (status, ts DESC)"),
             conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC)"),
         ]),
+        (3, "Add scenario tables and sequence_events.scenario_id", lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS scenarios (
+                id              TEXT PRIMARY KEY,
+                name_en         TEXT NOT NULL,
+                name_ja         TEXT NOT NULL,
+                description_en  TEXT,
+                description_ja  TEXT,
+                core_country    TEXT,
+                state           TEXT NOT NULL DEFAULT 'active'
+                    CHECK (state IN ('active', 'paused', 'archived')),
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                tier            INTEGER NOT NULL DEFAULT 1,
+                created_at      REAL NOT NULL,
+                updated_at      REAL NOT NULL,
+                updated_by      TEXT
+            )"""),
+            conn.execute("""CREATE TABLE IF NOT EXISTS scenario_participants (
+                scenario_id TEXT NOT NULL,
+                country     TEXT NOT NULL,
+                weight      REAL NOT NULL CHECK (weight >= 0.0 AND weight <= 1.0),
+                role        TEXT NOT NULL
+                    CHECK (role IN (
+                        'primary_target', 'principal_belligerent', 'adversary',
+                        'primary_ally', 'forward_base', 'secondary_ally',
+                        'extended_deterrence', 'strategic_observer',
+                        'proxy_front', 'force_projection', 'secondary_party',
+                        'spillover_risk', 'regional_power'
+                    )),
+                PRIMARY KEY (scenario_id, country),
+                FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
+            )"""),
+            conn.execute("""CREATE TABLE IF NOT EXISTS scenario_change_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id TEXT NOT NULL,
+                changed_at  REAL NOT NULL,
+                changed_by  TEXT,
+                change_type TEXT NOT NULL
+                    CHECK (change_type IN (
+                        'create', 'update', 'delete', 'archive',
+                        'restore', 'purge', 'reset'
+                    )),
+                diff_json   TEXT
+            )"""),
+            conn.execute("""CREATE TABLE IF NOT EXISTS scenario_reserved_ids (
+                id          TEXT PRIMARY KEY,
+                reserved_at REAL NOT NULL,
+                reserved_by TEXT,
+                reason      TEXT
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_scenario_participants_sid
+                ON scenario_participants (scenario_id)"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_scenario_change_log_sid
+                ON scenario_change_log (scenario_id, changed_at DESC)"""),
+        ]),
+        (4, "Add scenario_id column to sequence_events", lambda conn: [
+            conn.execute("ALTER TABLE sequence_events ADD COLUMN scenario_id TEXT"),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_sequence_events_scenario
+                ON sequence_events (scenario_id)"""),
+        ]),
     ]
 
     def _run_migrations(self, conn: sqlite3.Connection):
