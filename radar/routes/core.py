@@ -27,6 +27,13 @@ from radar.sensors.telegram import TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD, Telegram
 import radar.routes as _routes
 from radar.routes import bp
 from radar.engine import WeightedConvergenceEngine
+from radar.scenarios import SensorTier
+
+_FOCUSED_ONLY_SENSOR_NAMES = frozenset({
+    "cloudflare_radar", "ioda_bgp", "ripe_bgp", "openweather",
+    "check_host", "opensky", "notam", "ripe_atlas",
+    "ais_maritime", "isr_hotspot", "nasa_firms", "mil_support_air",
+})
 
 @bp.route("/api/app_config", methods=["GET"])
 def app_config():
@@ -70,6 +77,31 @@ def list_scenarios():
         "scenarios": {
             sid: s.to_dict() for sid, s in sorted(scenarios.items())
         },
+    })
+
+@bp.route("/api/scenario/<scenario_id>/breakdown", methods=["GET"])
+def scenario_breakdown(scenario_id: str):
+    from radar.scenarios import scenario_store
+    sc = scenario_store.get(scenario_id)
+    if not sc:
+        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+
+    breakdown = {}
+    for cc, p in sorted(sc.participants.items()):
+        breakdown[cc] = {
+            "weight": p.weight,
+            "role": p.role.value,
+        }
+
+    return jsonify({
+        "scenario_id": scenario_id,
+        "name_en": sc.name_en,
+        "name_ja": sc.name_ja,
+        "core_country": sc.core_country,
+        "state": sc.state,
+        "enabled": sc.enabled,
+        "is_scorable": sc.is_scorable,
+        "participants": breakdown,
     })
 
 @bp.route("/api/threat_data", methods=["GET"])
@@ -1673,6 +1705,62 @@ def get_threat_data():
     except Exception:
         _climate_gauge = {}
 
+    # ── Scenario scoring (Phase 2) ──────────────────────────────────────
+    _scenario_results = {}
+    try:
+        from radar.scenarios import scenario_store
+        from radar.scoring import (
+            rationale_to_signal, compute_scenario_score, Signal,
+        )
+        _focused_id = request.args.get("focus", DEFAULT_FOCUSED_SCENARIO)
+
+        # Convert fired rationale entries to Signals
+        _signals: list[Signal] = []
+        for rat in rationale:
+            _src_country = core_theater if rat.sensor in _FOCUSED_ONLY_SENSOR_NAMES else ""
+            sig = rationale_to_signal(rat, source_country=_src_country,
+                                      observed_at=current_time)
+            if sig is not None:
+                _signals.append(sig)
+
+        for _sc in scenario_store.scorable():
+            _is_focused = (_sc.id == _focused_id)
+            _state = compute_scenario_score(
+                _sc, _signals, _is_focused,
+                global_signal_weight=GLOBAL_SIGNAL_WEIGHT,
+                domain_cap=DOMAIN_CAP,
+            )
+            _sd = _state.to_dict()
+            _sd["name_en"] = _sc.name_en
+            _sd["name_ja"] = _sc.name_ja
+            if not _is_focused:
+                _sd["lite_bias_warning"] = (
+                    "LITE mode: LLM intel + global signals only. "
+                    "Physical and per-country cyber signals are not observed."
+                )
+            _scenario_results[_sc.id] = _sd
+
+            # TL baseline observation recording (§7.3.1)
+            try:
+                _db.tl_observation_append(
+                    scenario_id=_sc.id,
+                    observed_at=current_time,
+                    score=_state.score,
+                    tl=_state.tl,
+                    cyber=_state.domains.get("cyber", 0),
+                    physical=_state.domains.get("physical", 0),
+                    info=_state.domains.get("info", 0),
+                    convergence_bonus=_state.convergence_bonus,
+                    scoring_mode=_state.scoring_mode,
+                    active_countries=_state.active_countries,
+                )
+            except Exception:
+                pass
+    except Exception as _sc_err:
+        import logging as _sc_log
+        _sc_log.getLogger("radar").warning(
+            "[Scoring] Scenario scoring failed: %s", _sc_err)
+
     return jsonify({
         "timestamp":       datetime.datetime.now().isoformat(),
         "sensor_health":   _routes.registry.health_report(),
@@ -1680,5 +1768,7 @@ def get_threat_data():
         "targets":         results,
         "threat_history":  _db.threat_list(),
         "climate_gauge":   _climate_gauge,
+        "focused_scenario": request.args.get("focus", DEFAULT_FOCUSED_SCENARIO),
+        "scenarios":       _scenario_results,
     })
 

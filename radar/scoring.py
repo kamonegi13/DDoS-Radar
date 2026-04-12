@@ -65,20 +65,46 @@ class Signal:
             d["llm_reasoning"] = self.llm_reasoning
         return d
 
+
+def rationale_to_signal(rat, source_country: str = "", observed_at: float = 0.0) -> Optional[Signal]:
+    """Convert a legacy RationaleEntry to a Signal for scenario scoring.
+
+    Skips suppressed/non-FIRED rationale entries. Determines countries
+    from source_country (per-country sensor) or empty list (global sensor).
+    """
+    if rat.suppressed or rat.status != "FIRED" or rat.score <= 0:
+        return None
+    countries = [source_country] if source_country else []
+    return Signal(
+        signal_source=rat.signal_source or rat.sensor,
+        sensor=rat.sensor,
+        observed_at=observed_at or time.time(),
+        domain=rat.domain,
+        countries=countries,
+        country_weights={source_country: 1.0} if source_country else {},
+        raw_score=float(rat.score),
+        value_display=str(rat.value),
+        evidence_url=None,
+        llm_reasoning=None,
+    )
+
+
 def register_sequence_event(theater: str, event_type: str, meta: dict = None,
-                            dedup_window: int = 300):
+                            dedup_window: int = 300,
+                            scenario_id: str | None = None):
     """Register an event in the escalation chain log.
 
     dedup_window: seconds within which duplicate event_type entries are suppressed
         (default 300 s = 5 min).  Prevents double-counting when multiple sensors
         (e.g. RSS + Telegram) fire the same event type in the same scoring cycle.
+    scenario_id: optional scenario association (ADR-020).
     """
     now = time.time()
     # Dedup: skip if the same event type was registered within the dedup window
     dedup_cutoff = now - dedup_window
     if _db.seq_exists_since(theater, event_type, dedup_cutoff):
         return
-    _db.seq_append(theater, now, event_type, meta or {})
+    _db.seq_append(theater, now, event_type, meta or {}, scenario_id=scenario_id)
     # Remove entries older than 24h
     cutoff = now - int(_os.getenv("SEQUENCE_WINDOW", "86400"))
     _db.seq_cleanup(cutoff)
@@ -808,3 +834,179 @@ def compute_target_context(sensor_name: str, theater: str,
         "is_core_theater": is_core,
         "adversary_involvement": is_adversary,
     }
+
+
+# ── Scenario scoring (Phase 2) ─────────────────────────────────────────────
+
+@dataclass
+class ScenarioContribution:
+    """A single signal's contribution to a scenario via one participant country."""
+    signal: Signal
+    contributing_country: str
+    llm_country_weight: float
+    participant_weight: float
+    participant_role: str
+    final_contribution: float
+    formula_trace: str
+    suppress_reason: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        d = {
+            "signal": self.signal.to_dict(),
+            "contributing_country": self.contributing_country,
+            "llm_country_weight": round(self.llm_country_weight, 3),
+            "participant_weight": round(self.participant_weight, 3),
+            "participant_role": self.participant_role,
+            "final_contribution": round(self.final_contribution, 3),
+            "formula_trace": self.formula_trace,
+        }
+        if self.suppress_reason:
+            d["suppress_reason"] = self.suppress_reason
+        return d
+
+
+@dataclass
+class ScenarioState:
+    """Result of computing a scenario's score."""
+    scenario_id: str
+    is_focused: bool
+    scoring_mode: str
+    score: float
+    domains: dict[str, float]
+    active_countries: list[str]
+    convergence_bonus: float
+    tl: Optional[int]
+    contributions: list[ScenarioContribution]
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.scenario_id,
+            "is_focused": self.is_focused,
+            "scoring_mode": self.scoring_mode,
+            "score": round(self.score, 2),
+            "tl": self.tl,
+            "domains": {d: round(v, 2) for d, v in self.domains.items()},
+            "convergence_bonus": round(self.convergence_bonus, 2),
+            "active_countries": self.active_countries,
+            "contributions": [c.to_dict() for c in self.contributions],
+        }
+
+
+def compute_convergence_bonus_scenario(active_domains: list[str]) -> float:
+    n = len(active_domains)
+    if n >= 3:
+        return 2.0
+    if n == 2:
+        return 1.0
+    return 0.0
+
+
+def derive_tl(total_score: float, active_domains: list[str],
+              physical_score: float) -> int:
+    if total_score >= 9 and physical_score >= 3.0:
+        return 1
+    if total_score >= 6 and len(active_domains) >= 2:
+        return 2
+    if total_score >= 4:
+        return 3
+    if total_score >= 2:
+        return 4
+    return 5
+
+
+def dedup_by_source_country_max(
+    contributions: list[ScenarioContribution],
+) -> list[ScenarioContribution]:
+    best: dict[tuple[str, str], ScenarioContribution] = {}
+    for c in contributions:
+        key = (c.signal.signal_source, c.contributing_country)
+        if key not in best or c.final_contribution > best[key].final_contribution:
+            best[key] = c
+    return list(best.values())
+
+
+def compute_scenario_score(
+    scenario,
+    all_signals: list[Signal],
+    is_focused: bool,
+    global_signal_weight: float = 0.5,
+    domain_cap: float = 6.0,
+) -> ScenarioState:
+    from radar.scenarios import Scenario
+    contributions: list[ScenarioContribution] = []
+
+    for signal in all_signals:
+        if not signal.countries:
+            final = signal.raw_score * global_signal_weight
+            contributions.append(ScenarioContribution(
+                signal=signal,
+                contributing_country="GLOBAL",
+                llm_country_weight=1.0,
+                participant_weight=global_signal_weight,
+                participant_role="global",
+                final_contribution=final,
+                formula_trace=(
+                    f"{signal.raw_score:.2f} (raw) "
+                    f"× {global_signal_weight:.2f} (global) "
+                    f"= {final:.2f}"
+                ),
+            ))
+            continue
+
+        for country in signal.countries:
+            if country not in scenario.participants:
+                continue
+
+            participant = scenario.participants[country]
+            llm_cw = signal.country_weights.get(country, 1.0)
+            pw = participant.weight
+            final = signal.raw_score * llm_cw * pw
+
+            contributions.append(ScenarioContribution(
+                signal=signal,
+                contributing_country=country,
+                llm_country_weight=llm_cw,
+                participant_weight=pw,
+                participant_role=participant.role.value,
+                final_contribution=final,
+                formula_trace=(
+                    f"{signal.raw_score:.2f} (raw) "
+                    f"× {llm_cw:.2f} (llm:{country}) "
+                    f"× {pw:.2f} (participant:{country}) "
+                    f"= {final:.2f}"
+                ),
+            ))
+
+    deduped = dedup_by_source_country_max(contributions)
+
+    domains: dict[str, float] = {"cyber": 0.0, "physical": 0.0, "info": 0.0}
+    for c in deduped:
+        d = c.signal.domain
+        if d in domains:
+            domains[d] += c.final_contribution
+
+    for d in domains:
+        domains[d] = min(domains[d], domain_cap)
+
+    active_domains = [d for d, s in domains.items() if s > 0]
+    active_countries = sorted(set(
+        c.contributing_country for c in deduped
+        if c.contributing_country != "GLOBAL"
+    ))
+    convergence_bonus = compute_convergence_bonus_scenario(active_domains)
+    total_score = sum(domains.values()) + convergence_bonus
+
+    scoring_mode = "full" if is_focused else "lite"
+    tl = derive_tl(total_score, active_domains, domains["physical"]) if is_focused else None
+
+    return ScenarioState(
+        scenario_id=scenario.id,
+        is_focused=is_focused,
+        scoring_mode=scoring_mode,
+        score=total_score,
+        domains=domains,
+        active_countries=active_countries,
+        convergence_bonus=convergence_bonus,
+        tl=tl,
+        contributions=deduped,
+    )

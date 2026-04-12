@@ -625,6 +625,23 @@ class RadarDB:
             conn.execute("""CREATE INDEX IF NOT EXISTS idx_sequence_events_scenario
                 ON sequence_events (scenario_id)"""),
         ]),
+        (5, "Add scenario_tl_observation table for TL baseline calibration", lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS scenario_tl_observation (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id  TEXT NOT NULL,
+                observed_at  REAL NOT NULL,
+                score        REAL NOT NULL,
+                tl           INTEGER,
+                cyber        REAL NOT NULL DEFAULT 0,
+                physical     REAL NOT NULL DEFAULT 0,
+                info         REAL NOT NULL DEFAULT 0,
+                convergence_bonus REAL NOT NULL DEFAULT 0,
+                scoring_mode TEXT NOT NULL DEFAULT 'full',
+                active_countries TEXT NOT NULL DEFAULT '[]'
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_scenario_tl_obs_sid
+                ON scenario_tl_observation (scenario_id, observed_at DESC)"""),
+        ]),
     ]
 
     def _run_migrations(self, conn: sqlite3.Connection):
@@ -958,13 +975,14 @@ class RadarDB:
     # ── sequence_event_log ──────────────────────────────────────────────────
     _SEQ_MAX = 500  # max sequence events per theater
 
-    def seq_append(self, theater: str, ts: float, event_type: str, meta: dict):
+    def seq_append(self, theater: str, ts: float, event_type: str, meta: dict,
+                   scenario_id: str | None = None):
         conn = self._get_conn()
         with conn.writing():
             conn.execute(
-                "INSERT INTO sequence_events (theater, ts, event_type, meta_json) "
-                "VALUES (?, ?, ?, ?)",
-                (theater, ts, event_type, json.dumps(meta, default=str)),
+                "INSERT INTO sequence_events (theater, ts, event_type, meta_json, scenario_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (theater, ts, event_type, json.dumps(meta, default=str), scenario_id),
             )
             # Auto-prune oldest entries beyond limit
             conn.execute(
@@ -1016,6 +1034,24 @@ class RadarDB:
         conn = self._get_conn()
         with conn.writing():
             conn.execute("DELETE FROM sequence_events")
+
+    # ── scenario_tl_observation (Phase 2 baseline calibration) ──────────────
+    def tl_observation_append(self, scenario_id: str, observed_at: float,
+                              score: float, tl: int | None,
+                              cyber: float, physical: float, info: float,
+                              convergence_bonus: float, scoring_mode: str,
+                              active_countries: list[str]):
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO scenario_tl_observation "
+                "(scenario_id, observed_at, score, tl, cyber, physical, info, "
+                " convergence_bonus, scoring_mode, active_countries) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (scenario_id, observed_at, score, tl, cyber, physical, info,
+                 convergence_bonus, scoring_mode,
+                 json.dumps(active_countries)),
+            )
 
     # ── threat_history ──────────────────────────────────────────────────────
     def threat_append(self, ts: float, level: int, max_entries: int = 100):
