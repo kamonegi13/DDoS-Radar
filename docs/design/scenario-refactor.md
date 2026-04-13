@@ -13,9 +13,9 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 1.5.0 |
+| **現バージョン** | 1.5.1 |
 | **作成日** | 2026-04-11 |
-| **最終更新** | 2026-04-13 |
+| **最終更新** | 2026-04-14 |
 | **現在のフェーズ** | **Phase 4 完了（Layer 3 は Phase 5 へ繰延）** |
 | **採用方針** | **C-lite** で開始、運用知見をもとに **C-medium** へ進化 |
 | **責任者** | kamonegi13(@juzo1192) |
@@ -1477,8 +1477,8 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 
 **完了条件**:
 - ✅ `/api/threat_data?focus=taiwan_contingency` がシナリオ単位 TL を返す
-- ✅ background scenario には TL を出さず、indicators + contributions を返す
-- ✅ 既存 API レスポンスとの後方互換が維持されている(deprecated フラグ付き)
+- ✅ background scenario には TL を出さず、indicators + contributions を返す（v1.5: indicators は Phase 4 後に追加修正）
+- ✅ 既存 API レスポンスとの後方互換が維持されている（deprecation ヘッダは Phase 5 で付与）
 - ✅ rationale/contribution に `evidence_url` と `formula_trace` が含まれる
 - ✅ dedup が `(signal_source, contributing_country)` 単位で動作することを単体テストで確認
 - ✅ 単体テスト: 5シナリオ × 各種シグナルパターン(enabled=false の SCS は scoring 対象外テスト含む)で期待値検証
@@ -1543,12 +1543,15 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 **完了条件**:
 - ✅ HUD に focused scenario の詳細とその他 scenario カードが並列表示される
 - ✅ クリックで focus 切替が可能
-- ✅ admin が新規シナリオを作成・編集・delete・restore できる
-- ✅ admin が purge(完全削除)できる(確認ダイアログ必須)
+- ✅ admin が新規シナリオを作成・編集・delete・restore できる（ADR-011 状態遷移バリデーション付き）
+- ✅ admin が purge(完全削除)できる(確認ダイアログ必須、archived のみ許可、scenario_reserved_ids に登録)
 - ⏳ analyst がセッション override で重みを一時変更できる → Phase 5 へ繰り延べ（Layer 3 は設計上「将来」扱い）
 - ✅ disabled な SCS シナリオを enable できる(動的構成のデモ)
 - ✅ EN/JA すべて翻訳済み、ハードコード文字列なし
 - ✅ Help Guide が新 UI と整合
+- ✅ focus_switch_log テーブル追加（Section 9.3.1、C-medium 移行判定データ蓄積開始）
+- ✅ API レスポンスに data_freshness_sec, scenario_history_starts_at, indicators を追加（Section 6.5 準拠）
+- ✅ `/api/analytics/focus_switches` エンドポイント追加
 
 **依存**: Phase 2, Phase 3
 

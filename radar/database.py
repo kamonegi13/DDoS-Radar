@@ -659,6 +659,19 @@ class RadarDB:
                 END
             """),
         ]),
+        (7, "Add focus_switch_log table for C-medium migration metrics", lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS focus_switch_log (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id  TEXT NOT NULL,
+                switched_at  REAL NOT NULL,
+                lite_score   REAL NOT NULL,
+                full_score   REAL NOT NULL,
+                delta        REAL NOT NULL,
+                is_miss      INTEGER NOT NULL DEFAULT 0
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_focus_switch_log_time
+                ON focus_switch_log (switched_at DESC)"""),
+        ]),
     ]
 
     def _run_migrations(self, conn: sqlite3.Connection):
@@ -1070,6 +1083,64 @@ class RadarDB:
                  json.dumps(active_countries)),
             )
 
+    def scenario_history_start(self) -> float | None:
+        """Return the earliest scenario_tl_observation timestamp, or None."""
+        row = self._get_conn().execute(
+            "SELECT MIN(observed_at) AS earliest FROM scenario_tl_observation"
+        ).fetchone()
+        return row["earliest"] if row and row["earliest"] else None
+
+    # ── focus_switch_log (Section 9.3.1) ───────────────────────────────────
+    def focus_switch_append(self, scenario_id: str, switched_at: float,
+                            lite_score: float, full_score: float,
+                            delta: float, is_miss: bool):
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO focus_switch_log "
+                "(scenario_id, switched_at, lite_score, full_score, delta, is_miss) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (scenario_id, switched_at, lite_score, full_score, delta,
+                 1 if is_miss else 0),
+            )
+
+    def focus_switch_stats(self, days: int = 28) -> dict:
+        """Return miss statistics for C-medium migration evaluation."""
+        conn = self._get_conn()
+        cutoff = time.time() - days * 86400
+        rows = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "  SUM(CASE WHEN is_miss = 1 THEN 1 ELSE 0 END) AS misses "
+            "FROM focus_switch_log WHERE switched_at > ?",
+            (cutoff,),
+        ).fetchone()
+        return {
+            "period_days": days,
+            "total_switches": rows["total"] or 0,
+            "misses": rows["misses"] or 0,
+        }
+
+    def intel_count_24h_by_scenario(self, scenario_participants: dict[str, set[str]]) -> dict[str, int]:
+        """Count LLM intel items (confirmed/auto_confirmed) in the last 24h per scenario.
+        scenario_participants: {scenario_id: set_of_participant_country_codes}"""
+        conn = self._get_conn()
+        cutoff = time.time() - 86400
+        rows = conn.execute(
+            "SELECT countries FROM llm_intel "
+            "WHERE ts > ? AND status IN ('confirmed', 'auto_confirmed')",
+            (cutoff,),
+        ).fetchall()
+        counts: dict[str, int] = {sid: 0 for sid in scenario_participants}
+        for row in rows:
+            try:
+                item_countries = set(json.loads(row["countries"]))
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for sid, participants in scenario_participants.items():
+                if item_countries & participants:
+                    counts[sid] += 1
+        return counts
+
     # ── scenario CRUD (Phase 4) ──────────────────────────────────────────────
 
     def scenario_get(self, scenario_id: str) -> dict | None:
@@ -1135,13 +1206,30 @@ class RadarDB:
                 (scenario_id, now, changed_by, change_type, json.dumps(data, ensure_ascii=False)),
             )
 
-    def scenario_update_state(self, scenario_id: str, state: str, changed_by: str = "") -> bool:
+    # ADR-011 valid state transitions
+    _STATE_TRANSITIONS: dict[str, dict[str, str]] = {
+        # target_state: {required_current_state: change_type, ...}
+        "paused":   {"active": "delete"},
+        "archived": {"paused": "archive"},
+        "active":   {"paused": "restore", "archived": "restore"},
+    }
+
+    def scenario_update_state(self, scenario_id: str, state: str, changed_by: str = "") -> tuple[bool, str]:
+        """Returns (success, error_message). Error is empty on success."""
         conn = self._get_conn()
-        existing = conn.execute("SELECT id FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
-        if not existing:
-            return False
+        row = conn.execute("SELECT id, state FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
+        if not row:
+            return False, "not_found"
+        current_state = row["state"]
+        allowed = self._STATE_TRANSITIONS.get(state)
+        if not allowed or current_state not in allowed:
+            return False, (
+                f"Invalid transition: {current_state} -> {state}. "
+                f"Allowed from {current_state}: "
+                f"{[s for s, t in self._STATE_TRANSITIONS.items() if current_state in t]}"
+            )
+        change_type = allowed[current_state]
         now = time.time()
-        change_type = "archive" if state == "archived" else "restore" if state == "active" else "update"
         with conn.writing():
             conn.execute(
                 "UPDATE scenarios SET state=?, updated_at=?, updated_by=? WHERE id=?",
@@ -1152,7 +1240,7 @@ class RadarDB:
                 "VALUES (?, ?, ?, ?, ?)",
                 (scenario_id, now, changed_by, change_type, json.dumps({"state": state})),
             )
-        return True
+        return True, ""
 
     def scenario_set_enabled(self, scenario_id: str, enabled: bool, changed_by: str = "") -> bool:
         conn = self._get_conn()
@@ -1172,41 +1260,37 @@ class RadarDB:
             )
         return True
 
-    def scenario_delete(self, scenario_id: str, changed_by: str = "") -> bool:
-        conn = self._get_conn()
-        existing = conn.execute("SELECT id FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
-        if not existing:
-            return False
-        now = time.time()
-        with conn.writing():
-            conn.execute(
-                "INSERT INTO scenario_change_log (scenario_id, changed_at, changed_by, change_type, diff_json) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (scenario_id, now, changed_by, "delete", None),
-            )
-            conn.execute("DELETE FROM scenarios WHERE id=?", (scenario_id,))
-        return True
+    def scenario_delete(self, scenario_id: str, changed_by: str = "") -> tuple[bool, str]:
+        """ADR-011: delete = active -> paused (semantic deletion, data retained)."""
+        return self.scenario_update_state(scenario_id, "paused", changed_by)
 
-    def scenario_purge(self, scenario_id: str, changed_by: str = "") -> bool:
+    def scenario_purge(self, scenario_id: str, changed_by: str = "") -> tuple[bool, str]:
+        """ADR-011: purge = archived -> permanent delete. Reserves the scenario_id."""
         conn = self._get_conn()
-        existing = conn.execute(
-            "SELECT id FROM scenarios WHERE id=? "
-            "UNION SELECT scenario_id FROM scenario_change_log WHERE scenario_id=? LIMIT 1",
-            (scenario_id, scenario_id),
-        ).fetchone()
-        if not existing:
-            return False
+        row = conn.execute("SELECT id, state FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
+        if not row:
+            return False, "not_found"
+        if row["state"] != "archived":
+            return False, (
+                f"Purge requires state=archived, current={row['state']}. "
+                f"Transition: active -> paused (delete) -> archived (archive) -> purge"
+            )
         now = time.time()
         with conn.writing():
             conn.execute("DELETE FROM scenarios WHERE id=?", (scenario_id,))
             conn.execute("DELETE FROM scenario_participants WHERE scenario_id=?", (scenario_id,))
             conn.execute("DELETE FROM scenario_tl_observation WHERE scenario_id=?", (scenario_id,))
             conn.execute(
+                "INSERT INTO scenario_reserved_ids (id, reserved_at, reserved_by, reason) "
+                "VALUES (?, ?, ?, ?)",
+                (scenario_id, now, changed_by, "purged"),
+            )
+            conn.execute(
                 "INSERT INTO scenario_change_log (scenario_id, changed_at, changed_by, change_type, diff_json) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (scenario_id, now, changed_by, "purge", None),
             )
-        return True
+        return True, ""
 
     def scenario_reset(self, scenario_id: str, changed_by: str = "") -> bool:
         conn = self._get_conn()

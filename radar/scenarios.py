@@ -121,6 +121,20 @@ def validate_scenario_id(scenario_id: str) -> None:
         raise ScenarioValidationError(
             f"scenario_id '{scenario_id}' is a reserved word"
         )
+    try:
+        from radar.database import db
+        conn = db._get_conn()
+        row = conn.execute(
+            "SELECT id FROM scenario_reserved_ids WHERE id=?", (scenario_id,)
+        ).fetchone()
+        if row:
+            raise ScenarioValidationError(
+                f"scenario_id '{scenario_id}' was previously purged and is reserved"
+            )
+    except ScenarioValidationError:
+        raise
+    except Exception:
+        pass
     if scenario_id.startswith("test_"):
         log.warning("scenario_id '%s' uses test_ prefix (reserved for QA)", scenario_id)
 

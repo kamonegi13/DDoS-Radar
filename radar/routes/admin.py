@@ -487,11 +487,13 @@ def api_admin_scenario_delete(scenario_id: str):
     user = get_jwt_identity()
 
     if purge:
-        ok = _db.scenario_purge(scenario_id, changed_by=user)
+        ok, err = _db.scenario_purge(scenario_id, changed_by=user)
     else:
-        ok = _db.scenario_delete(scenario_id, changed_by=user)
+        ok, err = _db.scenario_delete(scenario_id, changed_by=user)
     if not ok:
-        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+        if err == "not_found":
+            return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+        return jsonify({"error": err}), 409
 
     scenario_store.reload()
     return jsonify({"ok": True, "action": "purge" if purge else "delete"})
@@ -511,9 +513,11 @@ def api_admin_scenario_state(scenario_id: str):
         return jsonify({"error": str(e)}), 400
 
     user = get_jwt_identity()
-    ok = _db.scenario_update_state(scenario_id, new_state, changed_by=user)
+    ok, err = _db.scenario_update_state(scenario_id, new_state, changed_by=user)
     if not ok:
-        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+        if err == "not_found":
+            return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+        return jsonify({"error": err}), 409
     scenario_store.reload()
     return jsonify({"ok": True, "state": new_state})
 

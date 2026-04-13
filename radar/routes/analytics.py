@@ -958,3 +958,9 @@ def adaptive_zscore_status():
     })
 
 
+@bp.route("/api/analytics/focus_switches", methods=["GET"])
+def api_focus_switch_stats():
+    """C-medium migration metric: focus switch miss rate (Section 9.3.1)."""
+    days = int(request.args.get("days", "28"))
+    return jsonify(_db.focus_switch_stats(days=days))
+

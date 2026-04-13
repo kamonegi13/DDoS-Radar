@@ -879,17 +879,30 @@ class ScenarioState:
     contributions: list[ScenarioContribution]
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.scenario_id,
             "is_focused": self.is_focused,
             "scoring_mode": self.scoring_mode,
             "score": round(self.score, 2),
             "tl": self.tl,
-            "domains": {d: round(v, 2) for d, v in self.domains.items()},
+            "domains": {d_: round(v, 2) for d_, v in self.domains.items()},
             "convergence_bonus": round(self.convergence_bonus, 2),
             "active_countries": self.active_countries,
             "contributions": [c.to_dict() for c in self.contributions],
         }
+        if not self.is_focused:
+            domain_counts: dict[str, int] = {"cyber": 0, "physical": 0, "info": 0}
+            seen: set[tuple[str, str]] = set()
+            for c in self.contributions:
+                key = (c.signal.signal_source, c.signal.sensor)
+                if key not in seen:
+                    seen.add(key)
+                    domain_counts[c.signal.domain] = domain_counts.get(c.signal.domain, 0) + 1
+            d["indicators"] = {
+                "active_countries": len(self.active_countries),
+                "domain_signal_counts": domain_counts,
+            }
+        return d
 
 
 def compute_convergence_bonus_scenario(active_domains: list[str]) -> float:

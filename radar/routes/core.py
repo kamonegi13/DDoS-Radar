@@ -29,6 +29,8 @@ from radar.routes import bp
 from radar.engine import WeightedConvergenceEngine
 from radar.scenarios import SensorTier
 
+_prev_focused_id: str | None = None
+
 _FOCUSED_ONLY_SENSOR_NAMES = frozenset({
     "cloudflare_radar", "ioda_bgp", "ripe_bgp", "openweather",
     "check_host", "opensky", "notam", "ripe_atlas",
@@ -1645,7 +1647,14 @@ def get_threat_data():
                 if sig is not None:
                     _signals.append(sig)
 
-            for _sc in scenario_store.scorable():
+            _scorable = scenario_store.scorable()
+            _sc_participants = {
+                sc.id: set(sc.participants.keys())
+                for sc in _scorable if sc.id != _focused_id
+            }
+            _intel_24h = _db.intel_count_24h_by_scenario(_sc_participants) if _sc_participants else {}
+
+            for _sc in _scorable:
                 _is_focused = (_sc.id == _focused_id)
                 _state = compute_scenario_score(
                     _sc, _signals, _is_focused,
@@ -1660,6 +1669,8 @@ def get_threat_data():
                         "LITE mode: LLM intel + global signals only. "
                         "Physical and per-country cyber signals are not observed."
                     )
+                    if "indicators" in _sd:
+                        _sd["indicators"]["llm_intel_24h"] = _intel_24h.get(_sc.id, 0)
                 _scenario_results[_sc.id] = _sd
 
                 try:
@@ -1677,9 +1688,32 @@ def get_threat_data():
                     )
                 except Exception:
                     pass
+            # Focus switch detection (Section 9.3.1)
+            global _prev_focused_id
+            if _prev_focused_id is not None and _prev_focused_id != _focused_id:
+                _new_sd = _scenario_results.get(_focused_id, {})
+                _old_sd = _scenario_results.get(_prev_focused_id, {})
+                if _new_sd:
+                    _full_score = _new_sd.get("score", 0)
+                    _lite_score = _old_sd.get("score", 0) if _old_sd else 0
+                    _delta = abs(_full_score - _lite_score)
+                    try:
+                        _db.focus_switch_append(
+                            scenario_id=_focused_id,
+                            switched_at=current_time,
+                            lite_score=_lite_score,
+                            full_score=_full_score,
+                            delta=_delta,
+                            is_miss=(_delta >= 1.0),
+                        )
+                    except Exception:
+                        pass
+            _prev_focused_id = _focused_id
+
         except Exception as _sc_err:
             log.warning("[Scoring] Scenario scoring failed: %s", _sc_err)
         _new_cache["scenarios"] = _scenario_results
+        _new_cache["scenario_history_starts_at"] = _db.scenario_history_start()
 
         with _global_cache_lock:
             st.global_cache = _new_cache
@@ -1762,7 +1796,13 @@ def get_threat_data():
     except Exception:
         _climate_gauge = {}
 
-    _scenario_results = _cache_snap.get("scenarios", {})
+    _scenario_cached = _cache_snap.get("scenarios", {})
+    _cache_age = int(current_time - _cache_snap.get("time", current_time))
+    _scenario_results = {}
+    for _sk, _sv in _scenario_cached.items():
+        _sr = dict(_sv)
+        _sr["data_freshness_sec"] = _cache_age
+        _scenario_results[_sk] = _sr
 
     return jsonify({
         "timestamp":       datetime.datetime.now().isoformat(),
@@ -1773,5 +1813,6 @@ def get_threat_data():
         "climate_gauge":   _climate_gauge,
         "focused_scenario": request.args.get("focus", DEFAULT_FOCUSED_SCENARIO),
         "scenarios":       _scenario_results,
+        "scenario_history_starts_at": _cache_snap.get("scenario_history_starts_at"),
     })
 
