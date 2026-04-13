@@ -1493,7 +1493,7 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 
 **スコープ**:
 - 6種類の LLM intel sensor のプロンプトを multi-country 出力に変更
-  - apt_intel, ground_osint, military_exercise, hacktivist_intel, hacktivist_news_sensor, diplomatic
+  - apt_intel, ground_osint, military_exercise, hacktivist_intel, hacktivist_news_sensor, diplomatic, rss_narrative
 - ~~**1センサーずつ段階的に変更**(全部一括ではない)、各変更後 1-2日の品質観察期間~~ → **実績**: 6センサー一括で変更（2026-04-13）。全変更が後方互換（`countries` 未指定時は `theater` フォールバック）のため、一括変更のリスクは限定的と判断。デプロイ後 2-3 日の統合観察期間で代替
 - `intel_queue.submit()` の引数を `theater: str` → `countries: list[str], country_weights: dict[str, float]` に
 - `RationaleEntry` を `Signal` ベースに移行

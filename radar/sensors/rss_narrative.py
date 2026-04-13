@@ -245,6 +245,8 @@ class RssNarrativeSensor(BaseSensor):
             '  "narrative_type": "pre-operation_conditioning|threat_escalation|response_to_incident|propaganda_routine|unknown",\n'
             '  "dominant_theme": "Key theme across articles (e.g. sovereignty, military threat, sanctions)",\n'
             '  "escalation_signal": true or false,\n'
+            '  "countries": ["ISO codes of ALL countries explicitly addressed in this narrative burst"],\n'
+            '  "country_weights": {"ISO": 0.0-1.0 relevance weight per country},\n'
             '  "urgency": "critical|high|medium|low",\n'
             '  "confidence": 0.0\n'
             "}\n"
@@ -275,6 +277,19 @@ class RssNarrativeSensor(BaseSensor):
         }
         narrative_type = safe_enum(data.get("narrative_type"), _NARRATIVE_TYPES, "unknown")
 
+        # Parse multi-country output (Phase 3)
+        raw_countries = data.get("countries") or []
+        raw_weights = data.get("country_weights") or {}
+        countries = [c.strip().upper() for c in raw_countries
+                     if isinstance(c, str) and len(c.strip()) == 2]
+        country_weights = {}
+        for c in countries:
+            w = raw_weights.get(c, raw_weights.get(c.lower(), 1.0))
+            country_weights[c] = max(0.0, min(1.0, safe_float(w, default=1.0)))
+        if theater not in countries:
+            countries = [theater] + countries
+            country_weights.setdefault(theater, 1.0)
+
         if not data.get("escalation_signal", False) or confidence < 0.35:
             # Mark dedup even for non-escalation bursts to avoid spamming LLM every cycle
             _burst_submitted[dedup_key] = None
@@ -303,6 +318,8 @@ class RssNarrativeSensor(BaseSensor):
             "source_type":  "narrative",
             "source_id":    f"narrative_{theater.lower()}",
             "theater":      theater,
+            "countries":    countries,
+            "country_weights": country_weights,
             "ts":           time.time(),
             "confidence":   round(confidence, 3),
             "raw_text":     articles_text[:1000],
