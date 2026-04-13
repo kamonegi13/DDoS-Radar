@@ -1070,6 +1070,163 @@ class RadarDB:
                  json.dumps(active_countries)),
             )
 
+    # ── scenario CRUD (Phase 4) ──────────────────────────────────────────────
+
+    def scenario_get(self, scenario_id: str) -> dict | None:
+        conn = self._get_conn()
+        row = conn.execute("SELECT * FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        p_rows = conn.execute(
+            "SELECT country, weight, role FROM scenario_participants WHERE scenario_id=?",
+            (scenario_id,),
+        ).fetchall()
+        result["participants"] = {r["country"]: {"weight": r["weight"], "role": r["role"]} for r in p_rows}
+        return result
+
+    def scenario_list(self) -> list[dict]:
+        conn = self._get_conn()
+        rows = conn.execute("SELECT * FROM scenarios ORDER BY tier, id").fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            p_rows = conn.execute(
+                "SELECT country, weight, role FROM scenario_participants WHERE scenario_id=?",
+                (row["id"],),
+            ).fetchall()
+            d["participants"] = {r["country"]: {"weight": r["weight"], "role": r["role"]} for r in p_rows}
+            result.append(d)
+        return result
+
+    def scenario_upsert(self, scenario_id: str, data: dict, changed_by: str = "") -> None:
+        conn = self._get_conn()
+        now = time.time()
+        existing = conn.execute("SELECT id FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
+        change_type = "update" if existing else "create"
+
+        with conn.writing():
+            conn.execute(
+                """INSERT INTO scenarios (id, name_en, name_ja, description_en, description_ja,
+                   core_country, state, enabled, tier, created_at, updated_at, updated_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     name_en=excluded.name_en, name_ja=excluded.name_ja,
+                     description_en=excluded.description_en, description_ja=excluded.description_ja,
+                     core_country=excluded.core_country, state=excluded.state,
+                     enabled=excluded.enabled, tier=excluded.tier,
+                     updated_at=excluded.updated_at, updated_by=excluded.updated_by""",
+                (scenario_id, data["name_en"], data["name_ja"],
+                 data.get("description_en", ""), data.get("description_ja", ""),
+                 data.get("core_country"), data.get("state", "active"),
+                 1 if data.get("enabled", True) else 0,
+                 data.get("tier", 1),
+                 now, now, changed_by),
+            )
+            conn.execute("DELETE FROM scenario_participants WHERE scenario_id=?", (scenario_id,))
+            for cc, pdata in data.get("participants", {}).items():
+                conn.execute(
+                    "INSERT INTO scenario_participants (scenario_id, country, weight, role) VALUES (?, ?, ?, ?)",
+                    (scenario_id, cc, pdata["weight"], pdata["role"]),
+                )
+            conn.execute(
+                "INSERT INTO scenario_change_log (scenario_id, changed_at, changed_by, change_type, diff_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (scenario_id, now, changed_by, change_type, json.dumps(data, ensure_ascii=False)),
+            )
+
+    def scenario_update_state(self, scenario_id: str, state: str, changed_by: str = "") -> bool:
+        conn = self._get_conn()
+        existing = conn.execute("SELECT id FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
+        if not existing:
+            return False
+        now = time.time()
+        change_type = "archive" if state == "archived" else "restore" if state == "active" else "update"
+        with conn.writing():
+            conn.execute(
+                "UPDATE scenarios SET state=?, updated_at=?, updated_by=? WHERE id=?",
+                (state, now, changed_by, scenario_id),
+            )
+            conn.execute(
+                "INSERT INTO scenario_change_log (scenario_id, changed_at, changed_by, change_type, diff_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (scenario_id, now, changed_by, change_type, json.dumps({"state": state})),
+            )
+        return True
+
+    def scenario_set_enabled(self, scenario_id: str, enabled: bool, changed_by: str = "") -> bool:
+        conn = self._get_conn()
+        existing = conn.execute("SELECT id FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
+        if not existing:
+            return False
+        now = time.time()
+        with conn.writing():
+            conn.execute(
+                "UPDATE scenarios SET enabled=?, updated_at=?, updated_by=? WHERE id=?",
+                (1 if enabled else 0, now, changed_by, scenario_id),
+            )
+            conn.execute(
+                "INSERT INTO scenario_change_log (scenario_id, changed_at, changed_by, change_type, diff_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (scenario_id, now, changed_by, "update", json.dumps({"enabled": enabled})),
+            )
+        return True
+
+    def scenario_delete(self, scenario_id: str, changed_by: str = "") -> bool:
+        conn = self._get_conn()
+        existing = conn.execute("SELECT id FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
+        if not existing:
+            return False
+        now = time.time()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO scenario_change_log (scenario_id, changed_at, changed_by, change_type, diff_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (scenario_id, now, changed_by, "delete", None),
+            )
+            conn.execute("DELETE FROM scenarios WHERE id=?", (scenario_id,))
+        return True
+
+    def scenario_purge(self, scenario_id: str, changed_by: str = "") -> bool:
+        conn = self._get_conn()
+        existing = conn.execute(
+            "SELECT id FROM scenarios WHERE id=? "
+            "UNION SELECT scenario_id FROM scenario_change_log WHERE scenario_id=? LIMIT 1",
+            (scenario_id, scenario_id),
+        ).fetchone()
+        if not existing:
+            return False
+        now = time.time()
+        with conn.writing():
+            conn.execute("DELETE FROM scenarios WHERE id=?", (scenario_id,))
+            conn.execute("DELETE FROM scenario_participants WHERE scenario_id=?", (scenario_id,))
+            conn.execute("DELETE FROM scenario_tl_observation WHERE scenario_id=?", (scenario_id,))
+            conn.execute(
+                "INSERT INTO scenario_change_log (scenario_id, changed_at, changed_by, change_type, diff_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (scenario_id, now, changed_by, "purge", None),
+            )
+        return True
+
+    def scenario_reset(self, scenario_id: str, changed_by: str = "") -> bool:
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute("DELETE FROM scenarios WHERE id=?", (scenario_id,))
+            conn.execute("DELETE FROM scenario_participants WHERE scenario_id=?", (scenario_id,))
+            conn.execute(
+                "INSERT INTO scenario_change_log (scenario_id, changed_at, changed_by, change_type, diff_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (scenario_id, time.time(), changed_by, "reset", None),
+            )
+        return True
+
+    def scenario_change_log(self, scenario_id: str, limit: int = 50) -> list[dict]:
+        rows = self._get_conn().execute(
+            "SELECT * FROM scenario_change_log WHERE scenario_id=? ORDER BY changed_at DESC LIMIT ?",
+            (scenario_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # ── threat_history ──────────────────────────────────────────────────────
     def threat_append(self, ts: float, level: int, max_entries: int = 100):
         conn = self._get_conn()

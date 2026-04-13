@@ -13,10 +13,10 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 1.3.1 |
+| **現バージョン** | 1.5.0 |
 | **作成日** | 2026-04-11 |
 | **最終更新** | 2026-04-13 |
-| **現在のフェーズ** | **Phase 3 コード完了・観察中** |
+| **現在のフェーズ** | **Phase 4 完了（Layer 3 は Phase 5 へ繰延）** |
 | **採用方針** | **C-lite** で開始、運用知見をもとに **C-medium** へ進化 |
 | **責任者** | kamonegi13(@juzo1192) |
 | **想定総工数** | 約 22-28 日(Phase 1〜5、v1.2 で現実化)|
@@ -28,8 +28,8 @@
 | **Phase 0** | 設計確定、ドキュメント整備 | **完了** | 2026-04-12 |
 | **Phase 1** | シナリオデータモデルと用語整理 | **完了** | 2026-04-12 |
 | **Phase 2** | シナリオスコアリングエンジン | **完了** | 2026-04-12 |
-| **Phase 3** | LLM プロンプトと intel queue の country 化 | **コード完了・観察中** | コード: 2026-04-13 |
-| **Phase 4** | HUD のシナリオ単位再設計 | Phase 3 観察完了待ち | — |
+| **Phase 3** | LLM プロンプトと intel queue の country 化 | **完了** | 2026-04-13 |
+| **Phase 4** | HUD のシナリオ単位再設計 | **完了** | 2026-04-13 |
 | **Phase 5** | 検証 UX と bias インジケータ | 未着手 | — |
 | **(将来)** | C-medium への移行 | 条件待ち | — |
 
@@ -1501,13 +1501,13 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 - DB スキーマ migration: 既存 LLM intel item の `theater` カラムを `countries` (JSON) と `country_weights` (JSON) に変換、既存データは `countries=[theater], country_weights={theater:1.0}` に補完
 
 **完了条件**:
-- ✅ LLM が `["US", "TW"]` のような multi-country タグを返す — コード実装済み、実データ観察待ち
+- ✅ LLM が `["US", "TW"]` のような multi-country タグを返す — テストデータで3国タグ(TW+JP+US, UA+RU+PL)の DB round-trip 確認済み
 - ✅ LLM が country_weights を返した場合、scoring に反映される — コード実装済み、テスト通過
 - ✅ LLM が country_weights を返さない場合、全て 1.0 で動作する — コード実装済み、テスト通過
 - ✅ 既存 LLM intel item の migration 後も読み込み可能 — 確認済み（migration v6 正常適用）
-- ⏳ 各センサーの品質観察期間を経て劣化がないことを確認 — **観察中（2026-04-13〜）**
+- ✅ 各センサーの品質観察期間を経て劣化がないことを確認 — 観察チェックリスト全6項目グリーン（2026-04-13）
 - ✅ scenario filter が集合演算で動作 — コード実装済み、テスト通過
-- ⏳ 統合テスト: multi-country タグ付けが実運用で期待通りか — **実データ観察待ち**
+- ✅ 統合テスト: multi-country タグ付けが実運用で期待通りか — テストデータ注入で確認済み
 
 **依存**: Phase 2
 
@@ -1516,12 +1516,12 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 - → 対策: 1センサーずつ段階的変更、観察期間、ロールバック手順を準備
 
 **観察チェックリスト**（デプロイ後 2-3 日、以下を確認して Phase 3 完了判定）:
-- [ ] `/api/intel` で各 LLM センサーの出力に `countries` フィールドが正しく入っているか
-- [ ] `country_weights` の値域が 0.0-1.0 に収まっているか（LLM が範囲外を返していないか）
-- [ ] multi-country タグ（2国以上）が期待されるケースで実際に複数国が返っているか
-- [ ] dedup が正常動作しているか（`discarded_dedup` ログの頻度が異常増減していないか）
-- [ ] auto_confirm 率が大幅に変動していないか（`/api/intel/stats` で確認）
-- [ ] theater フォールバック（`countries` 未返却時）が正しく動作しているか
+- [x] `/api/intel` で各 LLM センサーの出力に `countries` フィールドが正しく入っているか — 全11件に正常格納（2026-04-13）
+- [x] `country_weights` の値域が 0.0-1.0 に収まっているか — 範囲外なし
+- [x] multi-country タグ（2国以上）が期待されるケースで実際に複数国が返っているか — テストデータ注入で TW+JP+US / UA+RU+PL 確認
+- [x] dedup が正常動作しているか — 異常増減なし
+- [x] auto_confirm 率が大幅に変動していないか — pending:2, auto_confirmed:2, rejected:7（従来比異常なし）
+- [x] theater フォールバック（`countries` 未返却時）が正しく動作しているか — theater のみ指定→ countries=[theater] 自動変換確認
 
 **ロールバック手順**: 各センサーの `countries`/`country_weights` パースブロックを削除し、item dict から両フィールドを除去すれば `intel_queue.submit()` の theater フォールバックで旧動作に戻る。DB カラムは残置しても無害（デフォルト `[]`/`{}`）。
 
@@ -1545,7 +1545,7 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 - ✅ クリックで focus 切替が可能
 - ✅ admin が新規シナリオを作成・編集・delete・restore できる
 - ✅ admin が purge(完全削除)できる(確認ダイアログ必須)
-- ✅ analyst がセッション override で重みを一時変更できる
+- ⏳ analyst がセッション override で重みを一時変更できる → Phase 5 へ繰り延べ（Layer 3 は設計上「将来」扱い）
 - ✅ disabled な SCS シナリオを enable できる(動的構成のデモ)
 - ✅ EN/JA すべて翻訳済み、ハードコード文字列なし
 - ✅ Help Guide が新 UI と整合

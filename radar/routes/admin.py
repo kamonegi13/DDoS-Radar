@@ -388,3 +388,172 @@ def api_cooccurrence():
     theater = request.args.get("theater")
     return jsonify(_db.cooccurrence_get(theater))
 
+
+# ── Scenario management (Phase 4) ──────────────────────────────────────────
+
+@bp.route("/api/admin/scenarios", methods=["GET"])
+def api_admin_scenario_list():
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    from radar.scenarios import scenario_store
+    all_sc = scenario_store.all()
+    db_rows = _db.scenario_list()
+    db_ids = {r["id"] for r in db_rows}
+    result = []
+    for sid, sc in sorted(all_sc.items()):
+        d = sc.to_dict()
+        d["source"] = "db" if sid in db_ids else "preset"
+        d["is_scorable"] = sc.is_scorable
+        result.append(d)
+    return jsonify({"scenarios": result})
+
+
+@bp.route("/api/admin/scenarios", methods=["POST"])
+def api_admin_scenario_create():
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    data = request.get_json(silent=True) or {}
+    scenario_id = data.get("id", "").strip().lower()
+
+    from radar.scenarios import validate_scenario_id, ScenarioValidationError, scenario_store
+    try:
+        validate_scenario_id(scenario_id)
+    except ScenarioValidationError as e:
+        return jsonify({"error": str(e)}), 400
+
+    if scenario_store.get(scenario_id):
+        return jsonify({"error": f"Scenario '{scenario_id}' already exists"}), 409
+
+    if not data.get("name_en") or not data.get("name_ja"):
+        return jsonify({"error": "name_en and name_ja are required"}), 400
+    if not data.get("participants"):
+        return jsonify({"error": "At least one participant is required"}), 400
+
+    from radar.scenarios import validate_participant, validate_state
+    try:
+        if "state" in data:
+            validate_state(data["state"], scenario_id)
+        for cc, pdata in data["participants"].items():
+            validate_participant(cc, pdata, scenario_id)
+    except ScenarioValidationError as e:
+        return jsonify({"error": str(e)}), 400
+
+    user = get_jwt_identity()
+    _db.scenario_upsert(scenario_id, data, changed_by=user)
+    scenario_store.reload()
+    return jsonify({"ok": True, "id": scenario_id}), 201
+
+
+@bp.route("/api/admin/scenarios/<scenario_id>", methods=["PUT"])
+def api_admin_scenario_update(scenario_id: str):
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    data = request.get_json(silent=True) or {}
+
+    from radar.scenarios import scenario_store, ScenarioValidationError, validate_participant, validate_state
+    sc = scenario_store.get(scenario_id)
+    if not sc:
+        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+
+    merged = sc.to_dict()
+    for key in ("name_en", "name_ja", "description_en", "description_ja",
+                "core_country", "state", "enabled", "tier"):
+        if key in data:
+            merged[key] = data[key]
+    if "participants" in data:
+        merged["participants"] = data["participants"]
+
+    try:
+        if "state" in data:
+            validate_state(data["state"], scenario_id)
+        for cc, pdata in merged["participants"].items():
+            validate_participant(cc, pdata, scenario_id)
+    except ScenarioValidationError as e:
+        return jsonify({"error": str(e)}), 400
+
+    user = get_jwt_identity()
+    _db.scenario_upsert(scenario_id, merged, changed_by=user)
+    scenario_store.reload()
+    return jsonify({"ok": True, "id": scenario_id})
+
+
+@bp.route("/api/admin/scenarios/<scenario_id>", methods=["DELETE"])
+def api_admin_scenario_delete(scenario_id: str):
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+
+    from radar.scenarios import scenario_store
+    purge = request.args.get("purge", "false").lower() == "true"
+    user = get_jwt_identity()
+
+    if purge:
+        ok = _db.scenario_purge(scenario_id, changed_by=user)
+    else:
+        ok = _db.scenario_delete(scenario_id, changed_by=user)
+    if not ok:
+        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+
+    scenario_store.reload()
+    return jsonify({"ok": True, "action": "purge" if purge else "delete"})
+
+
+@bp.route("/api/admin/scenarios/<scenario_id>/state", methods=["POST"])
+def api_admin_scenario_state(scenario_id: str):
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    data = request.get_json(silent=True) or {}
+    new_state = data.get("state", "")
+
+    from radar.scenarios import validate_state, ScenarioValidationError, scenario_store
+    try:
+        validate_state(new_state, scenario_id)
+    except ScenarioValidationError as e:
+        return jsonify({"error": str(e)}), 400
+
+    user = get_jwt_identity()
+    ok = _db.scenario_update_state(scenario_id, new_state, changed_by=user)
+    if not ok:
+        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+    scenario_store.reload()
+    return jsonify({"ok": True, "state": new_state})
+
+
+@bp.route("/api/admin/scenarios/<scenario_id>/enabled", methods=["POST"])
+def api_admin_scenario_enabled(scenario_id: str):
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    data = request.get_json(silent=True) or {}
+    enabled = bool(data.get("enabled", True))
+
+    user = get_jwt_identity()
+    from radar.scenarios import scenario_store
+    ok = _db.scenario_set_enabled(scenario_id, enabled, changed_by=user)
+    if not ok:
+        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+    scenario_store.reload()
+    return jsonify({"ok": True, "enabled": enabled})
+
+
+@bp.route("/api/admin/scenarios/<scenario_id>/reset", methods=["POST"])
+def api_admin_scenario_reset(scenario_id: str):
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+
+    from radar.scenarios import scenario_store
+    user = get_jwt_identity()
+    _db.scenario_reset(scenario_id, changed_by=user)
+    scenario_store.reload()
+    sc = scenario_store.get(scenario_id)
+    if not sc:
+        return jsonify({"error": f"Scenario '{scenario_id}' has no preset to reset to"}), 404
+    return jsonify({"ok": True, "source": "preset"})
+
+
+@bp.route("/api/admin/scenarios/<scenario_id>/changelog", methods=["GET"])
+def api_admin_scenario_changelog(scenario_id: str):
+    auth_err = _require_admin()
+    if auth_err: return auth_err
+    limit = int(request.args.get("limit", "50"))
+    logs = _db.scenario_change_log(scenario_id, limit=limit)
+    return jsonify({"scenario_id": scenario_id, "changes": logs})
+

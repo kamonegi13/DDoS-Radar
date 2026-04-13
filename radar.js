@@ -2139,10 +2139,12 @@
         }
 
         try {
+            const _focusParam = _getScenarioFocus();
             const _params = new URLSearchParams({
                 targets: fetchTargets, core: coreTheater,
                 correlates: selectedCorrelates, adversaries: selectedAdversaries,
-                muted: mutedList, force: force
+                muted: mutedList, force: force,
+                focus: _focusParam
             });
             const apiUrl = `/api/threat_data?${_params}`;
             const response = await fetch(apiUrl);
@@ -2517,6 +2519,9 @@
 
         // ── Sensor Fleet Health HUD ──
         _updateSensorHealthHUD(data.sensor_health);
+
+        // ── Scenario Bar ──
+        renderScenarioBar(data);
 
         const originContainer = document.getElementById('origin-list-container');
         targetLayer.clearLayers(); sourceLayer.clearLayers(); lineLayer.clearLayers(); iodaLayer.clearLayers();
@@ -7325,4 +7330,322 @@
         if (panel && panel.style.display !== 'none') {
             _fetchSitBoardData();
         }
+    };
+
+    // ── Scenario Bar (Phase 4) ─────────────────────────────────────────
+    let _scenarioFocusId = null;
+
+    function _getScenarioFocus() {
+        if (_scenarioFocusId) return _scenarioFocusId;
+        return (window._lastThreatData || {}).focused_scenario || '';
+    }
+
+    function renderScenarioBar(data) {
+        const container = document.getElementById('scenario-cards');
+        if (!container) return;
+        const scenarios = data.scenarios || {};
+        const focusedId = data.focused_scenario || '';
+        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
+        const ids = Object.keys(scenarios);
+        if (ids.length === 0) { container.innerHTML = ''; return; }
+
+        const sorted = ids.slice().sort((a, b) => {
+            if (a === focusedId) return -1;
+            if (b === focusedId) return 1;
+            return a.localeCompare(b);
+        });
+
+        let html = '';
+        for (const sid of sorted) {
+            const sc = scenarios[sid];
+            const isFocused = (sid === focusedId);
+            const name = lang === 'ja' ? (sc.name_ja || sc.name_en || sid) : (sc.name_en || sid);
+            const tl = sc.tl;
+            const score = (sc.score || 0).toFixed(2);
+            const mode = sc.scoring_mode || 'lite';
+            const domains = sc.domains || {};
+
+            const cardClass = isFocused ? 'sc-card sc-card-focused' : 'sc-card';
+            const onclick = isFocused ? '' : ` onclick="switchScenarioFocus('${sid}')"`;
+            const badge = isFocused
+                ? `<span class="sc-badge sc-badge-focused">${_t('scenario.badge.focused')}</span>`
+                : `<span class="sc-badge sc-badge-lite">${_t('scenario.badge.lite')}</span>`;
+
+            let tlHtml = '';
+            if (tl != null) {
+                tlHtml = `<span class="sc-tl sc-tl-${tl}">TL${tl}</span>`;
+            }
+
+            const cyberActive = (domains.cyber || 0) > 0 ? 'sc-domain-active' : 'sc-domain-inactive';
+            const physActive  = (domains.physical || 0) > 0 ? 'sc-domain-active' : 'sc-domain-inactive';
+            const infoActive  = (domains.info || 0) > 0 ? 'sc-domain-active' : 'sc-domain-inactive';
+
+            let tooltip = '';
+            if (!isFocused && sc.lite_bias_warning) {
+                tooltip = ` data-tooltip="${_escHtml(sc.lite_bias_warning)}"`;
+            } else if (isFocused) {
+                const parts = [
+                    `Score: ${score}`,
+                    `Cyber: ${(domains.cyber||0).toFixed(2)}`,
+                    `Physical: ${(domains.physical||0).toFixed(2)}`,
+                    `Info: ${(domains.info||0).toFixed(2)}`,
+                ];
+                if (sc.convergence_bonus) parts.push(`Convergence: +${sc.convergence_bonus.toFixed(2)}`);
+                if (sc.active_countries && sc.active_countries.length) parts.push(`Countries: ${sc.active_countries.join(', ')}`);
+                tooltip = ` data-tooltip="${_escHtml(parts.join('\n'))}"`;
+            }
+
+            html += `<div class="${cardClass}"${onclick}${tooltip}>`;
+            html += badge;
+            html += `<span class="sc-name">${_escHtml(name)}</span>`;
+            html += tlHtml;
+            html += `<span class="sc-score">${score}</span>`;
+            html += `<span class="sc-domains">`;
+            html += `<span class="sc-domain-dot sc-domain-cyber ${cyberActive}">C</span>`;
+            html += `<span class="sc-domain-dot sc-domain-physical ${physActive}">P</span>`;
+            html += `<span class="sc-domain-dot sc-domain-info ${infoActive}">I</span>`;
+            html += `</span>`;
+            html += `</div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    window.switchScenarioFocus = function(scenarioId) {
+        _scenarioFocusId = scenarioId;
+        fetchData(true);
+    };
+
+    // ── Scenario Manager (Phase 4 Admin) ───────────────────────────────
+
+    window.loadScenarioManager = async function() {
+        const listEl = document.getElementById('scenario-mgr-list');
+        if (!listEl) return;
+        listEl.innerHTML = '<div style="color:#666;font-size:10px;">Loading...</div>';
+        try {
+            const resp = await fetch('/api/admin/scenarios');
+            if (!resp.ok) { listEl.innerHTML = `<div style="color:red;">Error ${resp.status}</div>`; return; }
+            const data = await resp.json();
+            _scMgrRenderList(data.scenarios || [], listEl);
+        } catch (e) {
+            listEl.innerHTML = `<div style="color:red;">${_escHtml(e.message)}</div>`;
+        }
+    };
+
+    const _ROLE_OPTIONS = [
+        'primary_target','principal_belligerent','adversary','primary_ally',
+        'forward_base','secondary_ally','extended_deterrence','strategic_observer',
+        'proxy_front','force_projection','secondary_party','spillover_risk','regional_power'
+    ];
+
+    function _scMgrRenderList(scenarios, container) {
+        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
+        if (!scenarios.length) {
+            container.innerHTML = '<div style="color:#666;font-size:10px;">No scenarios found.</div>';
+            return;
+        }
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:10px;font-family:monospace;">';
+        html += '<thead><tr style="color:#888;border-bottom:1px solid #333;">';
+        html += '<th style="text-align:left;padding:4px;">ID</th>';
+        html += `<th style="text-align:left;padding:4px;">${_t('scenario.mgr.name_en')}</th>`;
+        html += '<th style="padding:4px;">State</th>';
+        html += '<th style="padding:4px;">Source</th>';
+        html += '<th style="padding:4px;">Participants</th>';
+        html += '<th style="padding:4px;">Actions</th>';
+        html += '</tr></thead><tbody>';
+        for (const sc of scenarios) {
+            const name = lang === 'ja' ? (sc.name_ja || sc.name_en) : sc.name_en;
+            const stateColor = sc.state === 'active' ? '#00ff88' : sc.state === 'paused' ? '#ffaa00' : '#888';
+            const enabledDot = sc.enabled ? '🟢' : '🔴';
+            const pCount = Object.keys(sc.participants || {}).length;
+            const srcBadge = sc.source === 'preset'
+                ? `<span style="color:#00ffff;font-size:8px;">${_t('scenario.mgr.source_preset')}</span>`
+                : `<span style="color:#ffaa00;font-size:8px;">${_t('scenario.mgr.source_db')}</span>`;
+
+            html += `<tr style="border-bottom:1px solid #222;">`;
+            html += `<td style="padding:4px;color:#ccc;">${_escHtml(sc.id)}</td>`;
+            html += `<td style="padding:4px;color:#eee;">${_escHtml(name)}</td>`;
+            html += `<td style="padding:4px;text-align:center;color:${stateColor};">${enabledDot} ${_t('scenario.state.' + sc.state)}</td>`;
+            html += `<td style="padding:4px;text-align:center;">${srcBadge}</td>`;
+            html += `<td style="padding:4px;text-align:center;color:#999;">${pCount}</td>`;
+            html += `<td style="padding:4px;text-align:center;">`;
+            html += `<button class="btn-tactical" onclick="scMgrShowEdit('${sc.id}')" style="font-size:9px;padding:2px 6px;">${_t('scenario.mgr.edit')}</button> `;
+            if (sc.state === 'active') {
+                html += `<button class="btn-tactical" onclick="scMgrArchive('${sc.id}')" style="font-size:9px;padding:2px 6px;color:#ffaa00;">${_t('scenario.mgr.archive')}</button> `;
+            } else if (sc.state === 'archived') {
+                html += `<button class="btn-tactical" onclick="scMgrRestore('${sc.id}')" style="font-size:9px;padding:2px 6px;color:#00ff88;">${_t('scenario.mgr.restore')}</button> `;
+            }
+            if (sc.source === 'db') {
+                html += `<button class="btn-tactical" onclick="scMgrPurge('${sc.id}')" style="font-size:9px;padding:2px 6px;color:#ff2a2a;">${_t('scenario.mgr.purge')}</button> `;
+            } else {
+                html += `<button class="btn-tactical" onclick="scMgrReset('${sc.id}')" style="font-size:9px;padding:2px 6px;color:#888;">${_t('scenario.mgr.reset')}</button> `;
+            }
+            if (!sc.enabled) {
+                html += `<button class="btn-tactical" onclick="scMgrToggleEnabled('${sc.id}', true)" style="font-size:9px;padding:2px 6px;color:#00ff88;">Enable</button>`;
+            } else {
+                html += `<button class="btn-tactical" onclick="scMgrToggleEnabled('${sc.id}', false)" style="font-size:9px;padding:2px 6px;color:#ff6666;">Disable</button>`;
+            }
+            html += `</td></tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    function _scMgrEditorHtml(sc, isNew) {
+        const title = isNew ? _t('scenario.mgr.create') : _t('scenario.mgr.edit');
+        const sid = sc.id || '';
+        const participants = sc.participants || {};
+        let html = `<div style="border:1px solid #444;padding:10px;margin-top:8px;background:#111;border-radius:4px;">`;
+        html += `<div style="font-weight:bold;color:#00ffff;margin-bottom:8px;">${title}</div>`;
+        if (isNew) {
+            html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">ID:</label> <input id="scmgr-id" value="${_escHtml(sid)}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-family:monospace;font-size:10px;width:200px;"></div>`;
+        }
+        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.name_en')}:</label> <input id="scmgr-name-en" value="${_escHtml(sc.name_en||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:250px;"></div>`;
+        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.name_ja')}:</label> <input id="scmgr-name-ja" value="${_escHtml(sc.name_ja||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:250px;"></div>`;
+        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.desc_en')}:</label> <input id="scmgr-desc-en" value="${_escHtml(sc.description_en||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:350px;"></div>`;
+        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.desc_ja')}:</label> <input id="scmgr-desc-ja" value="${_escHtml(sc.description_ja||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:350px;"></div>`;
+        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.core_country')}:</label> <input id="scmgr-core" value="${_escHtml(sc.core_country||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:60px;text-transform:uppercase;"></div>`;
+
+        html += `<div style="margin-top:8px;margin-bottom:4px;color:#888;font-size:10px;font-weight:bold;">${_t('scenario.mgr.participants')}</div>`;
+        html += `<table id="scmgr-participants" style="width:100%;border-collapse:collapse;font-size:10px;font-family:monospace;">`;
+        html += `<thead><tr style="color:#666;"><th style="text-align:left;padding:2px;">${_t('scenario.mgr.country')}</th><th style="padding:2px;">${_t('scenario.mgr.weight')}</th><th style="padding:2px;">${_t('scenario.mgr.role')}</th><th></th></tr></thead>`;
+        html += `<tbody id="scmgr-p-body">`;
+        for (const [cc, p] of Object.entries(participants)) {
+            html += _scMgrParticipantRow(cc, p.weight, p.role);
+        }
+        html += `</tbody></table>`;
+        html += `<button class="btn-tactical" onclick="scMgrAddParticipant()" style="font-size:9px;padding:2px 8px;margin-top:4px;">${_t('scenario.mgr.add_participant')}</button>`;
+
+        html += `<div style="margin-top:10px;display:flex;gap:8px;">`;
+        html += `<button class="btn-tactical btn-action" onclick="scMgrSave(${isNew})" style="font-size:10px;padding:4px 16px;">${_t('scenario.mgr.save')}</button>`;
+        html += `<button class="btn-tactical" onclick="scMgrCancelEdit()" style="font-size:10px;padding:4px 12px;color:#888;">${_t('scenario.mgr.cancel')}</button>`;
+        html += `<span id="scmgr-status" style="font-size:10px;color:#888;align-self:center;"></span>`;
+        html += `</div></div>`;
+        return html;
+    }
+
+    function _scMgrParticipantRow(cc, weight, role) {
+        const roleOpts = _ROLE_OPTIONS.map(r =>
+            `<option value="${r}"${r===role?' selected':''}>${_t('scenario.role.'+r)}</option>`
+        ).join('');
+        return `<tr style="border-bottom:1px solid #222;">` +
+            `<td style="padding:2px;"><input class="scmgr-p-cc" value="${_escHtml(cc)}" style="background:#222;color:#fff;border:1px solid #444;padding:1px 4px;font-size:10px;width:40px;text-transform:uppercase;"></td>` +
+            `<td style="padding:2px;text-align:center;"><input class="scmgr-p-wt" type="number" min="0" max="1" step="0.1" value="${weight}" style="background:#222;color:#fff;border:1px solid #444;padding:1px 4px;font-size:10px;width:50px;"></td>` +
+            `<td style="padding:2px;"><select class="scmgr-p-role" style="background:#222;color:#fff;border:1px solid #444;font-size:9px;padding:1px;">${roleOpts}</select></td>` +
+            `<td style="padding:2px;"><button class="btn-tactical" onclick="this.closest('tr').remove()" style="font-size:9px;padding:1px 4px;color:#ff6666;">✕</button></td></tr>`;
+    }
+
+    let _scMgrEditId = null;
+
+    window.scMgrShowCreate = function() {
+        _scMgrEditId = null;
+        const editor = document.getElementById('scenario-mgr-editor');
+        editor.innerHTML = _scMgrEditorHtml({}, true);
+        editor.style.display = '';
+    };
+
+    window.scMgrShowEdit = async function(sid) {
+        _scMgrEditId = sid;
+        try {
+            const resp = await fetch('/api/admin/scenarios');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const sc = (data.scenarios || []).find(s => s.id === sid);
+            if (!sc) return;
+            const editor = document.getElementById('scenario-mgr-editor');
+            editor.innerHTML = _scMgrEditorHtml(sc, false);
+            editor.style.display = '';
+        } catch (e) { console.error(e); }
+    };
+
+    window.scMgrCancelEdit = function() {
+        const editor = document.getElementById('scenario-mgr-editor');
+        editor.style.display = 'none';
+        editor.innerHTML = '';
+        _scMgrEditId = null;
+    };
+
+    window.scMgrAddParticipant = function() {
+        const tbody = document.getElementById('scmgr-p-body');
+        if (!tbody) return;
+        tbody.insertAdjacentHTML('beforeend', _scMgrParticipantRow('', 0.5, 'secondary_party'));
+    };
+
+    window.scMgrSave = async function(isNew) {
+        const status = document.getElementById('scmgr-status');
+        const sid = isNew ? (document.getElementById('scmgr-id')?.value || '').trim().toLowerCase() : _scMgrEditId;
+        if (!sid) { if (status) status.textContent = 'ID required'; return; }
+
+        const payload = {
+            id: sid,
+            name_en: document.getElementById('scmgr-name-en')?.value || '',
+            name_ja: document.getElementById('scmgr-name-ja')?.value || '',
+            description_en: document.getElementById('scmgr-desc-en')?.value || '',
+            description_ja: document.getElementById('scmgr-desc-ja')?.value || '',
+            core_country: (document.getElementById('scmgr-core')?.value || '').toUpperCase(),
+            state: 'active',
+            enabled: true,
+            participants: {},
+        };
+
+        const rows = document.querySelectorAll('#scmgr-p-body tr');
+        for (const row of rows) {
+            const cc = (row.querySelector('.scmgr-p-cc')?.value || '').toUpperCase().trim();
+            const wt = parseFloat(row.querySelector('.scmgr-p-wt')?.value || '0');
+            const role = row.querySelector('.scmgr-p-role')?.value || 'secondary_party';
+            if (cc) payload.participants[cc] = { weight: wt, role: role };
+        }
+
+        const url = isNew ? '/api/admin/scenarios' : `/api/admin/scenarios/${sid}`;
+        const method = isNew ? 'POST' : 'PUT';
+        try {
+            if (status) status.textContent = 'Saving...';
+            const resp = await fetch(url, {
+                method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+            });
+            const result = await resp.json();
+            if (!resp.ok) {
+                if (status) status.textContent = result.error || 'Error';
+                return;
+            }
+            if (status) status.textContent = 'Saved!';
+            scMgrCancelEdit();
+            loadScenarioManager();
+        } catch (e) {
+            if (status) status.textContent = e.message;
+        }
+    };
+
+    window.scMgrArchive = async function(sid) {
+        await fetch(`/api/admin/scenarios/${sid}/state`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ state: 'archived' })
+        });
+        loadScenarioManager();
+    };
+
+    window.scMgrRestore = async function(sid) {
+        await fetch(`/api/admin/scenarios/${sid}/state`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ state: 'active' })
+        });
+        loadScenarioManager();
+    };
+
+    window.scMgrPurge = async function(sid) {
+        if (!confirm(_t('scenario.mgr.purge_confirm'))) return;
+        await fetch(`/api/admin/scenarios/${sid}?purge=true`, { method: 'DELETE' });
+        loadScenarioManager();
+    };
+
+    window.scMgrReset = async function(sid) {
+        await fetch(`/api/admin/scenarios/${sid}/reset`, { method: 'POST' });
+        loadScenarioManager();
+    };
+
+    window.scMgrToggleEnabled = async function(sid, enabled) {
+        await fetch(`/api/admin/scenarios/${sid}/enabled`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ enabled })
+        });
+        loadScenarioManager();
     };

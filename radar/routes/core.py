@@ -1624,6 +1624,63 @@ def get_threat_data():
         _active_theaters.update(adversary_states)
         _new_cache["active_theaters"] = sorted(_active_theaters)
 
+        # ── Scenario scoring (Phase 2) ──────────────────────────────────
+        # Computed inside the cache-gated block so that:
+        #   - rationale (defined at line ~435) is in scope
+        #   - tl_observation_append only runs when data actually changes
+        #   - results are cached for inter-refresh requests
+        _scenario_results = {}
+        try:
+            from radar.scenarios import scenario_store
+            from radar.scoring import (
+                rationale_to_signal, compute_scenario_score, Signal,
+            )
+            _focused_id = request.args.get("focus", DEFAULT_FOCUSED_SCENARIO)
+
+            _signals: list[Signal] = []
+            for rat in rationale:
+                _src_country = core_theater if rat.sensor in _FOCUSED_ONLY_SENSOR_NAMES else ""
+                sig = rationale_to_signal(rat, source_country=_src_country,
+                                          observed_at=current_time)
+                if sig is not None:
+                    _signals.append(sig)
+
+            for _sc in scenario_store.scorable():
+                _is_focused = (_sc.id == _focused_id)
+                _state = compute_scenario_score(
+                    _sc, _signals, _is_focused,
+                    global_signal_weight=GLOBAL_SIGNAL_WEIGHT,
+                    domain_cap=DOMAIN_CAP,
+                )
+                _sd = _state.to_dict()
+                _sd["name_en"] = _sc.name_en
+                _sd["name_ja"] = _sc.name_ja
+                if not _is_focused:
+                    _sd["lite_bias_warning"] = (
+                        "LITE mode: LLM intel + global signals only. "
+                        "Physical and per-country cyber signals are not observed."
+                    )
+                _scenario_results[_sc.id] = _sd
+
+                try:
+                    _db.tl_observation_append(
+                        scenario_id=_sc.id,
+                        observed_at=current_time,
+                        score=_state.score,
+                        tl=_state.tl,
+                        cyber=_state.domains.get("cyber", 0),
+                        physical=_state.domains.get("physical", 0),
+                        info=_state.domains.get("info", 0),
+                        convergence_bonus=_state.convergence_bonus,
+                        scoring_mode=_state.scoring_mode,
+                        active_countries=_state.active_countries,
+                    )
+                except Exception:
+                    pass
+        except Exception as _sc_err:
+            log.warning("[Scoring] Scenario scoring failed: %s", _sc_err)
+        _new_cache["scenarios"] = _scenario_results
+
         with _global_cache_lock:
             st.global_cache = _new_cache
 
@@ -1705,61 +1762,7 @@ def get_threat_data():
     except Exception:
         _climate_gauge = {}
 
-    # ── Scenario scoring (Phase 2) ──────────────────────────────────────
-    _scenario_results = {}
-    try:
-        from radar.scenarios import scenario_store
-        from radar.scoring import (
-            rationale_to_signal, compute_scenario_score, Signal,
-        )
-        _focused_id = request.args.get("focus", DEFAULT_FOCUSED_SCENARIO)
-
-        # Convert fired rationale entries to Signals
-        _signals: list[Signal] = []
-        for rat in rationale:
-            _src_country = core_theater if rat.sensor in _FOCUSED_ONLY_SENSOR_NAMES else ""
-            sig = rationale_to_signal(rat, source_country=_src_country,
-                                      observed_at=current_time)
-            if sig is not None:
-                _signals.append(sig)
-
-        for _sc in scenario_store.scorable():
-            _is_focused = (_sc.id == _focused_id)
-            _state = compute_scenario_score(
-                _sc, _signals, _is_focused,
-                global_signal_weight=GLOBAL_SIGNAL_WEIGHT,
-                domain_cap=DOMAIN_CAP,
-            )
-            _sd = _state.to_dict()
-            _sd["name_en"] = _sc.name_en
-            _sd["name_ja"] = _sc.name_ja
-            if not _is_focused:
-                _sd["lite_bias_warning"] = (
-                    "LITE mode: LLM intel + global signals only. "
-                    "Physical and per-country cyber signals are not observed."
-                )
-            _scenario_results[_sc.id] = _sd
-
-            # TL baseline observation recording (§7.3.1)
-            try:
-                _db.tl_observation_append(
-                    scenario_id=_sc.id,
-                    observed_at=current_time,
-                    score=_state.score,
-                    tl=_state.tl,
-                    cyber=_state.domains.get("cyber", 0),
-                    physical=_state.domains.get("physical", 0),
-                    info=_state.domains.get("info", 0),
-                    convergence_bonus=_state.convergence_bonus,
-                    scoring_mode=_state.scoring_mode,
-                    active_countries=_state.active_countries,
-                )
-            except Exception:
-                pass
-    except Exception as _sc_err:
-        import logging as _sc_log
-        _sc_log.getLogger("radar").warning(
-            "[Scoring] Scenario scoring failed: %s", _sc_err)
+    _scenario_results = _cache_snap.get("scenarios", {})
 
     return jsonify({
         "timestamp":       datetime.datetime.now().isoformat(),

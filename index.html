@@ -339,6 +339,11 @@
     <div id="hud-discrepancy-alert">! DISCREPANCY DETECTED: POSSIBLE MASKIROVKA</div>
 </div>
 
+<!-- ── Scenario Bar ──────────────────────────────────────────────────── -->
+<div id="scenario-bar">
+    <div id="scenario-cards"></div>
+</div>
+
 <!-- ── Domain Drilldown Panel ─────────────────────────────────────────── -->
 <div id="domain-drilldown-panel">
     <span id="dd-close-btn" onclick="toggleDrilldown()" title="Close">✕</span>
@@ -446,6 +451,7 @@
         <div class="tab" onclick="switchTab('fetchlog'); loadFetchLog()" data-i18n="modal.settings.tab.fetchlog">Fetch Log</div>
         <div class="tab" onclick="switchTab('sysconfig'); loadEnvConfig()" data-i18n="modal.settings.tab.sysconfig" data-role-min="admin">System</div>
         <div class="tab" onclick="switchTab('users'); umgrLoadUsers()" data-i18n="modal.settings.tab.users">Users</div>
+        <div class="tab" onclick="switchTab('scenarios'); loadScenarioManager()" data-i18n="scenario.tab.scenarios" data-role-min="admin">Scenarios</div>
     </div>
     <div class="modal-main-area">
         <div class="modal-content-panel">
@@ -967,6 +973,16 @@
                     </div>
                 </div>
             </div><!-- /tab-users -->
+            <div id="tab-scenarios" class="tab-content">
+                <div class="help-text" style="margin-bottom:8px;">
+                    <b style="color:#00ffff" data-i18n="scenario.mgr.title">Scenario Manager</b>
+                </div>
+                <div style="margin-bottom:8px;">
+                    <button class="btn-tactical btn-action" onclick="scMgrShowCreate()" style="font-size:10px;padding:4px 12px;" data-i18n="scenario.mgr.create">Create Scenario</button>
+                </div>
+                <div id="scenario-mgr-list"></div>
+                <div id="scenario-mgr-editor" style="display:none;"></div>
+            </div><!-- /tab-scenarios -->
         </div><!-- /modal-content-panel -->
         <!-- Region Preview mini-map (hidden for Sensors/Fetchlog tabs) -->
         <div id="modal-map-panel">
@@ -2780,6 +2796,24 @@
             <li><b>API:</b> <span class="code-block">GET /api/situation</span>（全体ボード）/ <span class="code-block">GET /api/situation/wire?theater=TW&amp;limit=50</span>（フィルタ済みワイヤー）。</li>
         </ul>
 
+        <h5>H. Scenario Bar</h5>
+        <ul>
+            <li><b>Scenario cards</b> appear as a horizontal strip below the HUD. Each registered scenario has a card showing its name, score, TL (for focused), and domain activity dots (C/P/I).</li>
+            <li><b>Focused scenario</b> (cyan border, FOCUSED badge): receives signals from all 33 sensors — full scoring fidelity. TL1–5 threat level is computed.</li>
+            <li><b>Background scenarios</b> (LITE badge): scored using LLM intel and global-only signals. TL is not computed. Hover for bias warning.</li>
+            <li><b>Click</b> a background card to switch focus. The data re-fetches with the new focus applied.</li>
+        </ul>
+
+        </div>
+        <div class="guide-lang-ja">
+        <h5>H. シナリオバー</h5>
+        <ul>
+            <li><b>シナリオカード</b>はHUD下部に水平バーとして表示されます。登録済みの各シナリオが名称、スコア、TL（フォーカス時）、ドメイン活動ドット(C/P/I)と共にカード表示されます。</li>
+            <li><b>フォーカスシナリオ</b>（シアンの枠、FOCUSEDバッジ）: 全33センサーからの信号を受信し、完全なスコアリング精度でTL1–5の脅威レベルが算出されます。</li>
+            <li><b>バックグラウンドシナリオ</b>（LITEバッジ）: LLMインテルとグローバル信号のみでスコアリングされます。TLは算出されません。ホバーでバイアス警告が表示されます。</li>
+            <li><b>クリック</b>でバックグラウンドカードにフォーカスを切り替え。新しいフォーカスでデータが再取得されます。</li>
+        </ul>
+
         </div>
         </div><!-- /guide-ch-8 -->
         <div class="guide-chapter" id="guide-ch-9">
@@ -2803,6 +2837,16 @@
             <li><span class="code-block">GET /api/weather_brief</span> — Maps sensor values to weather metaphors. Returns per-domain state, color, icon, and summary text. Used by the Weather Brief panel.</li>
             <li><span class="code-block">GET /api/historical_events</span> — Returns the historical case pattern library from geo_data.json (5 reference fingerprints). Used by the Historical Analog panel.</li>
             <li><span class="code-block">GET /api/app_config</span> — Returns default settings, global monitored country list, and strategic bloc architecture. Includes: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span> (startup defaults), <span class="code-block">strategic_blocs</span> (4 blocs with sub-categories and theater lists), <span class="code-block">country_bloc_tags</span> (multi-threat country → blocs mapping), <span class="code-block">adversary_options</span> (5 adversary states: RU/CN/IR/KP/BY), <span class="code-block">available_countries</span> (full country list with code/name/region/lat/lng). Used for UI initialization on startup.</li>
+            <li><span class="code-block">GET /api/scenarios</span> — List all registered scenarios with focused_scenario id. Returns merged Layer 1 (presets) + Layer 2 (DB customizations).</li>
+            <li><span class="code-block">GET /api/scenario/&lt;id&gt;/breakdown</span> — Detailed scenario data: participants with weights and roles.</li>
+            <li><span class="code-block">GET /api/admin/scenarios</span> — (Admin) Full scenario list with source (preset/db) and is_scorable flags.</li>
+            <li><span class="code-block">POST /api/admin/scenarios</span> — (Admin) Create a new custom scenario. Body: id, name_en, name_ja, participants, etc.</li>
+            <li><span class="code-block">PUT /api/admin/scenarios/&lt;id&gt;</span> — (Admin) Update scenario metadata and participants.</li>
+            <li><span class="code-block">DELETE /api/admin/scenarios/&lt;id&gt;?purge=true</span> — (Admin) Delete or purge a scenario. Without purge: soft delete. With purge: permanent removal.</li>
+            <li><span class="code-block">POST /api/admin/scenarios/&lt;id&gt;/state</span> — (Admin) Change state: active/paused/archived.</li>
+            <li><span class="code-block">POST /api/admin/scenarios/&lt;id&gt;/enabled</span> — (Admin) Enable/disable scoring.</li>
+            <li><span class="code-block">POST /api/admin/scenarios/&lt;id&gt;/reset</span> — (Admin) Reset DB overrides to preset defaults.</li>
+            <li><span class="code-block">GET /api/admin/scenarios/&lt;id&gt;/changelog</span> — (Admin) View change history for a scenario.</li>
             <li><span class="code-block">POST /api/telegram_log/clear</span> — Clears the in-memory Telegram SIGINT intercept log ring buffer. Used by the [CLEAR] button in the Telegram SIGINT panel.</li>
             <li><span class="code-block">POST /api/auth/login</span> — Authenticate with username/password. Returns access_token, refresh_token, username, role.</li>
             <li><span class="code-block">POST /api/auth/register</span> — Create a new user (admin only). Body: {username, password, role}.</li>
@@ -2865,6 +2909,16 @@
             <li><span class="code-block">GET /api/weather_brief</span> — センサー値を気象メタファーにマッピング。ドメインごとの状態、色、アイコン、サマリーテキストを返す。Weather Brief パネルで使用。</li>
             <li><span class="code-block">GET /api/historical_events</span> — geo_data.json から歴史的事例パターンライブラリを返す（5つの参照フィンガープリント）。Historical Analog パネルで使用。</li>
             <li><span class="code-block">GET /api/app_config</span> — デフォルト設定、グローバル監視国リスト、戦略ブロックアーキテクチャを返す。含まれる内容: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span>（起動時デフォルト）、<span class="code-block">strategic_blocs</span>（サブカテゴリとシアターリスト付き4ブロック）、<span class="code-block">country_bloc_tags</span>（複数脅威国 → ブロックマッピング）、<span class="code-block">adversary_options</span>（5つの敵対国家: RU/CN/IR/KP/BY）、<span class="code-block">available_countries</span>（コード/名称/地域/緯度/経度付きの全国リスト）。起動時の UI 初期化に使用。</li>
+            <li><span class="code-block">GET /api/scenarios</span> — 登録済み全シナリオと focused_scenario ID を返す。Layer 1（プリセット）+ Layer 2（DBカスタマイズ）のマージ結果。</li>
+            <li><span class="code-block">GET /api/scenario/&lt;id&gt;/breakdown</span> — シナリオ詳細: 重みと役割を含む参加国情報。</li>
+            <li><span class="code-block">GET /api/admin/scenarios</span> — (Admin) ソース（preset/db）と is_scorable フラグ付きの完全シナリオリスト。</li>
+            <li><span class="code-block">POST /api/admin/scenarios</span> — (Admin) カスタムシナリオを新規作成。ボディ: id, name_en, name_ja, participants 等。</li>
+            <li><span class="code-block">PUT /api/admin/scenarios/&lt;id&gt;</span> — (Admin) シナリオのメタデータと参加国を更新。</li>
+            <li><span class="code-block">DELETE /api/admin/scenarios/&lt;id&gt;?purge=true</span> — (Admin) シナリオを削除または完全削除。purge なし: 論理削除。purge あり: 完全削除。</li>
+            <li><span class="code-block">POST /api/admin/scenarios/&lt;id&gt;/state</span> — (Admin) 状態変更: active/paused/archived。</li>
+            <li><span class="code-block">POST /api/admin/scenarios/&lt;id&gt;/enabled</span> — (Admin) スコアリングの有効/無効切替。</li>
+            <li><span class="code-block">POST /api/admin/scenarios/&lt;id&gt;/reset</span> — (Admin) DB 上書きをプリセットのデフォルトにリセット。</li>
+            <li><span class="code-block">GET /api/admin/scenarios/&lt;id&gt;/changelog</span> — (Admin) シナリオの変更履歴を表示。</li>
             <li><span class="code-block">POST /api/telegram_log/clear</span> — インメモリ Telegram SIGINT 傍受ログリングバッファをクリア。Telegram SIGINT パネルの [CLEAR] ボタンで使用。</li>
             <li><span class="code-block">POST /api/auth/login</span> — ユーザー名/パスワードで認証。access_token, refresh_token, username, role を返す。</li>
             <li><span class="code-block">POST /api/auth/register</span> — 新規ユーザー作成（admin のみ）。ボディ: {username, password, role}。</li>
@@ -2962,6 +3016,18 @@
             <li><b>Cache-on-Success</b>: Sensors only update their cache when at least one successful response is received. On complete failure, the previous cached data is returned to prevent data loss during transient outages.</li>
         </ul>
 
+        <p><b>G. Scenario Manager</b> — Config → Scenarios tab (Admin only)</p>
+        <ul>
+            <li><b>Scenario Architecture</b>: DDoS-Radar scores threats per scenario (e.g., "Taiwan Contingency"), not per country. Each scenario defines participants (countries) with coupling weights (0.0–1.0) and roles (primary_target, adversary, primary_ally, etc.).</li>
+            <li><b>3-Layer Design</b>: Layer 1 = presets from geo_data.json (read-only). Layer 2 = admin customizations stored in SQLite (overrides presets). Layer 3 = session overrides (future).</li>
+            <li><b>Create</b>: New custom scenarios with unique ID (lowercase, 3–30 chars), bilingual names, core country, and participant table.</li>
+            <li><b>Edit</b>: Modify names, descriptions, core country, and participant weights/roles. Changes are written to Layer 2 (DB), preserving the original preset.</li>
+            <li><b>State Management</b>: Active → Paused → Archived lifecycle. Only active+enabled scenarios are scored. Paused scenarios retain data but don't contribute to scores.</li>
+            <li><b>Reset</b>: For preset-based scenarios, removes all Layer 2 overrides and reverts to geo_data.json defaults.</li>
+            <li><b>Purge</b>: Permanently deletes a custom (DB-only) scenario and all associated data. Requires confirmation dialog.</li>
+            <li><b>Change Log</b>: All modifications are recorded in scenario_change_log with timestamps and diff.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3014,6 +3080,18 @@
             <li><b>エラー伝搬</b>: センサーフェッチが失敗した場合（HTTP エラー、タイムアウト等）、エラーは即座にヘルス状態に反映。<span class="code-block">log_fetch()</span> の失敗呼び出しは、特定のエラーメッセージがなくても自動的にセンサーを ERROR に設定。成功したフェッチはエラー状態をクリア。</li>
             <li><b>OpenSky レート制限</b>: 3つのセンサー（OpenSky 空域、ISR ホットスポット、軍事支援航空機）は OpenSky Network API を共有。共有レートリミッターが API コール間に最低10秒の間隔を強制。起動時にセンサーは段階的に起動（0秒、+120秒、+240秒）し、429 レート制限の連鎖を防止。429 レスポンスを受信した場合、Retry-After 期間待機後に1回リトライ。</li>
             <li><b>成功時のみキャッシュ</b>: センサーは少なくとも1つの成功レスポンスを受信した場合のみキャッシュを更新。完全な失敗時は前回のキャッシュデータを返し、一時的な障害中のデータ損失を防止。</li>
+        </ul>
+
+        <p><b>G. シナリオマネージャー</b> — Config → Scenarios タブ（Admin のみ）</p>
+        <ul>
+            <li><b>シナリオアーキテクチャ</b>: DDoS-Radar は国単位ではなくシナリオ単位（例: 「台湾有事」）で脅威をスコアリング。各シナリオは参加国（participants）をカップリングウェイト（0.0–1.0）とロール（primary_target、adversary、primary_ally 等）で定義。</li>
+            <li><b>3層設計</b>: Layer 1 = geo_data.json のプリセット（読み取り専用）。Layer 2 = SQLite に保存された管理者カスタマイズ（プリセットを上書き）。Layer 3 = セッションオーバーライド（将来実装予定）。</li>
+            <li><b>作成</b>: 一意の ID（小文字、3–30文字）、日英バイリンガル名、コア国、参加国テーブルを指定してカスタムシナリオを新規作成。</li>
+            <li><b>編集</b>: 名前、説明、コア国、参加国のウェイト/ロールを変更可能。変更は Layer 2（DB）に書き込まれ、元のプリセットは保持。</li>
+            <li><b>状態管理</b>: Active → Paused → Archived のライフサイクル。スコアリング対象は active かつ enabled のシナリオのみ。Paused シナリオはデータを保持するがスコアに寄与しない。</li>
+            <li><b>リセット</b>: プリセットベースのシナリオについて、Layer 2 のすべてのオーバーライドを削除し、geo_data.json のデフォルトに復帰。</li>
+            <li><b>パージ</b>: カスタム（DB のみ）シナリオと関連データを完全削除。確認ダイアログが必要。</li>
+            <li><b>変更ログ</b>: すべての変更は scenario_change_log にタイムスタンプと差分とともに記録。</li>
         </ul>
 
         </div>

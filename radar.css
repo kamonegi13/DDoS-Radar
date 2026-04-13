@@ -1205,3 +1205,94 @@
     font-family: monospace;
     padding: 4px 8px !important;
 }
+
+/* ── Scenario Bar (Phase 4) ───────────────────────────────────────── */
+#scenario-bar {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: 4px 10px;
+    display: flex;
+    align-items: stretch;
+    min-height: 36px;
+}
+#scenario-cards {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+.sc-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    min-width: 160px;
+    flex-shrink: 0;
+}
+.sc-card:hover { border-color: var(--color-accent-dim); background: rgba(0,255,255,0.03); }
+.sc-card-focused {
+    border-color: var(--color-accent);
+    background: rgba(0,255,255,0.06);
+    cursor: default;
+}
+.sc-card-focused:hover { background: rgba(0,255,255,0.06); }
+.sc-badge {
+    font-size: 8px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+.sc-badge-focused { background: var(--color-accent); color: #000; }
+.sc-badge-lite { background: var(--color-muted); color: #000; }
+.sc-name { color: #ccc; letter-spacing: 0.5px; }
+.sc-card-focused .sc-name { color: var(--color-accent); }
+.sc-tl {
+    font-weight: bold;
+    font-size: 11px;
+    padding: 0 4px;
+    border-radius: 2px;
+}
+.sc-tl-1 { color: var(--color-critical); }
+.sc-tl-2 { color: var(--color-severe); }
+.sc-tl-3 { color: var(--color-warning); }
+.sc-tl-4 { color: var(--color-elevated); }
+.sc-tl-5 { color: var(--color-normal); }
+.sc-score { color: #999; font-size: 9px; }
+.sc-domains {
+    display: inline-flex;
+    gap: 2px;
+    margin-left: auto;
+}
+.sc-domain-dot {
+    width: 14px;
+    height: 8px;
+    border-radius: 1px;
+    font-size: 7px;
+    text-align: center;
+    line-height: 8px;
+    color: #000;
+    font-weight: bold;
+}
+.sc-domain-active { opacity: 1.0; }
+.sc-domain-inactive { opacity: 0.2; }
+.sc-domain-cyber    { background: #00ccff; }
+.sc-domain-physical { background: #ff8800; }
+.sc-domain-info     { background: #aa66ff; }
+.sc-lite-warn {
+    font-size: 8px;
+    color: var(--color-muted);
+    font-style: italic;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

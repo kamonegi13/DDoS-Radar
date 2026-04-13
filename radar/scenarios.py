@@ -334,6 +334,12 @@ class ScenarioStore:
             pass
         return reserved
 
+    def reload(self) -> None:
+        if not self._loaded:
+            return
+        from radar.config import GEO_DATA
+        self.load(GEO_DATA)
+
     @property
     def loaded(self) -> bool:
         return self._loaded
