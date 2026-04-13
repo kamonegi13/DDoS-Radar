@@ -15,7 +15,7 @@
 |------|-----|
 | **現バージョン** | 1.3.1 |
 | **作成日** | 2026-04-11 |
-| **最終更新** | 2026-04-12 |
+| **最終更新** | 2026-04-13 |
 | **現在のフェーズ** | **Phase 3 コード完了・観察中** |
 | **採用方針** | **C-lite** で開始、運用知見をもとに **C-medium** へ進化 |
 | **責任者** | kamonegi13(@juzo1192) |
@@ -1494,20 +1494,20 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 **スコープ**:
 - 6種類の LLM intel sensor のプロンプトを multi-country 出力に変更
   - apt_intel, ground_osint, military_exercise, hacktivist_intel, hacktivist_news_sensor, diplomatic
-- **1センサーずつ段階的に変更**(全部一括ではない)、各変更後 1-2日の品質観察期間(v1.2: 6センサー × 実装1日+観察1-2日 = 12-18日だが、並行作業で圧縮。実質 8-12日を見込む)
+- ~~**1センサーずつ段階的に変更**(全部一括ではない)、各変更後 1-2日の品質観察期間~~ → **実績**: 6センサー一括で変更（2026-04-13）。全変更が後方互換（`countries` 未指定時は `theater` フォールバック）のため、一括変更のリスクは限定的と判断。デプロイ後 2-3 日の統合観察期間で代替
 - `intel_queue.submit()` の引数を `theater: str` → `countries: list[str], country_weights: dict[str, float]` に
 - `RationaleEntry` を `Signal` ベースに移行
 - LLM intel の dedup ロジックを multi-country 対応に(Jaccard 類似度 + countries の集合演算)
 - DB スキーマ migration: 既存 LLM intel item の `theater` カラムを `countries` (JSON) と `country_weights` (JSON) に変換、既存データは `countries=[theater], country_weights={theater:1.0}` に補完
 
 **完了条件**:
-- ✅ LLM が `["US", "TW"]` のような multi-country タグを返す
-- ✅ LLM が country_weights を返した場合、scoring に反映される
-- ✅ LLM が country_weights を返さない場合、全て 1.0 で動作する
-- ✅ 既存 LLM intel item の migration 後も読み込み可能
-- ✅ 各センサーの品質観察期間を経て劣化がないことを確認
-- ✅ scenario filter が集合演算で動作
-- ✅ 統合テスト: 「Iranian APT exploit US PLCs」が `countries=["US","TW"]` でタグ付けされ、Taiwan Contingency の rationale に出現
+- ✅ LLM が `["US", "TW"]` のような multi-country タグを返す — コード実装済み、実データ観察待ち
+- ✅ LLM が country_weights を返した場合、scoring に反映される — コード実装済み、テスト通過
+- ✅ LLM が country_weights を返さない場合、全て 1.0 で動作する — コード実装済み、テスト通過
+- ✅ 既存 LLM intel item の migration 後も読み込み可能 — 確認済み（migration v6 正常適用）
+- ⏳ 各センサーの品質観察期間を経て劣化がないことを確認 — **観察中（2026-04-13〜）**
+- ✅ scenario filter が集合演算で動作 — コード実装済み、テスト通過
+- ⏳ 統合テスト: multi-country タグ付けが実運用で期待通りか — **実データ観察待ち**
 
 **依存**: Phase 2
 
