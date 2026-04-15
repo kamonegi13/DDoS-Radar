@@ -16,7 +16,7 @@
 | **現バージョン** | 1.5.1 |
 | **作成日** | 2026-04-11 |
 | **最終更新** | 2026-04-14 |
-| **現在のフェーズ** | **Phase 4 完了（Layer 3 は Phase 5 へ繰延）** |
+| **現在のフェーズ** | **Phase 5 実装完了（TL 閾値再校正と ADR-015 dual-weight 評価は運用データ蓄積待ち）** |
 | **採用方針** | **C-lite** で開始、運用知見をもとに **C-medium** へ進化 |
 | **責任者** | kamonegi13(@juzo1192) |
 | **想定総工数** | 約 22-28 日(Phase 1〜5、v1.2 で現実化)|
@@ -30,7 +30,7 @@
 | **Phase 2** | シナリオスコアリングエンジン | **完了** | 2026-04-12 |
 | **Phase 3** | LLM プロンプトと intel queue の country 化 | **完了** | 2026-04-13 |
 | **Phase 4** | HUD のシナリオ単位再設計 | **完了** | 2026-04-13 |
-| **Phase 5** | 検証 UX と bias インジケータ | 未着手 | — |
+| **Phase 5** | 検証 UX と bias インジケータ | **実装完了（TL 再校正と dual-weight 評価は運用データ蓄積待ち）** | 2026-04-14 |
 | **(将来)** | C-medium への移行 | 条件待ち | — |
 
 ---
@@ -1569,14 +1569,23 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 - 旧 country-level API の deprecation ヘッダ付与
 
 **完了条件**:
-- ✅ すべての contribution が原典に追跡可能
-- ✅ background scenario の表示に LITE バッジと bias warning が必ずある
-- ✅ what-if が動作する
-- ✅ Help Guide に「rationale の検証方法」の章が追加されている
-- ✅ **TL 閾値の再校正完了(v1.2 追加)**: 7.3.1 節の校正手順に基づき、Phase 2 稼働開始後の TL 分布データを検証し、必要に応じて閾値を調整。調整を行った場合は ADR として記録
-- ✅ **ADR-015 dual-weight 評価(v1.2 追加)**: Phase 2-3 で収集した LLM country_weights の観察指標(ADR-015 リスク注記参照)を評価し、問題があれば single-weight 方式への後退 ADR を起案
+- ✅ すべての contribution が原典に追跡可能 — `Signal.evidence_url` / `Signal.llm_reasoning` を routes/core.py で伝搬、scenario detail panel の行展開で `formula_trace` / `value_display` / `llm_reasoning` / `observed_at` / evidence URL を表示
+- ✅ background scenario の表示に LITE バッジと bias warning が必ずある — scenario card に `BIAS` タグ、detail panel 先頭に `.sc-bias-warning` バナー（オレンジ枠、ADR-008 を明記）
+- ✅ what-if が動作する — detail panel のトグルで contribution を除外し、クライアント側でドメインスコア / 収斂ボーナス / TL をリアルタイム再計算（サーバーエンジンと同じ DOMAIN_CAP=6.0 / TL derivation を使用）
+- ✅ Help Guide に「rationale の検証方法」の章が追加されている — index.html Ch.8-I 「Scenario Detail Panel & Rationale Verification」を EN/JA 両方で追加
+- ✅ evidence URL のクリックで原典が新タブで開く — `target="_blank" rel="noopener"` 付きのリンクで実装
+- ✅ 旧 country-level API の deprecation ヘッダ — `/api/threat_data` に `Deprecation: true`, `Sunset: 2026-10-01`, `X-Deprecation-Notice` を付与
+- ✅ `/api/scenario/{id}/timeseries` / `/api/scenario/{id}/country/{cc}/timeseries` エンドポイント（ADR-010 drill-down）を analytics.py に追加、database.py に `scenario_tl_timeseries` / `scenario_country_timeseries` を実装
+- ⏳ **TL 閾値の再校正(v1.2 追加)**: 7.3.1 節の校正手順に基づく評価は運用データ蓄積待ち(Phase 5 実装完了後、2 週間以上の `scenario_tl_observation` 蓄積を経てから判断)。現閾値を維持。
+- ⏳ **ADR-015 dual-weight 評価(v1.2 追加)**: LLM country_weights の観察指標(分散、極端値比率、多国割当率)も運用データ蓄積待ち。現方式(LLM × participant の dual-weight)を継続。
 
 **依存**: Phase 4
+
+**テスト結果**: `python -m pytest test_engine.py -v` → 164 passed (2026-04-14)
+
+**依然として Phase 5 完了後に再評価する項目**:
+- TL 閾値(§7.3.1) — 2 週間分の TL 分布を見てから ADR-023 で確定
+- ADR-015 dual-weight — 観察指標がリスク閾値を超えた場合 ADR で single-weight にロールバック
 
 ---
 

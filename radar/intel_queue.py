@@ -542,6 +542,8 @@ class IntelQueue:
                     "status":           "FIRED",
                     "detail":           f"[{item['source_type'].upper()}] {item['headline']}",
                     "suppressed":       False,
+                    "raw_url":          item.get("raw_url", ""),
+                    "llm_reasoning":    item.get("llm_fields", {}).get("gate_reason", ""),
                 })
         return result
 

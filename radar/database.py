@@ -318,16 +318,13 @@ CREATE TABLE IF NOT EXISTS users (
     last_login  REAL
 );
 
--- Auth: per-user theater settings
+-- Auth: per-user scenario-centric settings (ADR-005)
 CREATE TABLE IF NOT EXISTS user_settings (
-    user_id     INTEGER PRIMARY KEY REFERENCES users(id),
-    core        TEXT NOT NULL DEFAULT 'TW',
-    pins        TEXT NOT NULL DEFAULT '[]',
-    correlates  TEXT NOT NULL DEFAULT '[]',
-    adversaries TEXT NOT NULL DEFAULT '[]',
-    muted       TEXT NOT NULL DEFAULT '[]',
-    lang        TEXT NOT NULL DEFAULT 'en',
-    updated_at  REAL NOT NULL
+    user_id           INTEGER PRIMARY KEY REFERENCES users(id),
+    focused_scenario  TEXT,
+    muted             TEXT NOT NULL DEFAULT '[]',
+    lang              TEXT NOT NULL DEFAULT 'en',
+    updated_at        REAL NOT NULL
 );
 
 -- Auth: JWT revocation list
@@ -671,6 +668,24 @@ class RadarDB:
             )"""),
             conn.execute("""CREATE INDEX IF NOT EXISTS idx_focus_switch_log_time
                 ON focus_switch_log (switched_at DESC)"""),
+        ]),
+        (8, "Replace user_settings country columns with focused_scenario (ADR-005)", lambda conn: [
+            # Rebuild table to drop legacy country-centric columns
+            # (core/pins/correlates/adversaries) in a single atomic step.
+            # Preserves per-user muted/lang state; focused_scenario starts NULL
+            # and callers fall back to DEFAULT_FOCUSED_SCENARIO.
+            conn.execute("""CREATE TABLE user_settings_new (
+                user_id          INTEGER PRIMARY KEY REFERENCES users(id),
+                focused_scenario TEXT,
+                muted            TEXT NOT NULL DEFAULT '[]',
+                lang             TEXT NOT NULL DEFAULT 'en',
+                updated_at       REAL NOT NULL
+            )"""),
+            conn.execute("""INSERT INTO user_settings_new
+                (user_id, focused_scenario, muted, lang, updated_at)
+                SELECT user_id, NULL, muted, lang, updated_at FROM user_settings"""),
+            conn.execute("DROP TABLE user_settings"),
+            conn.execute("ALTER TABLE user_settings_new RENAME TO user_settings"),
         ]),
     ]
 
@@ -1140,6 +1155,82 @@ class RadarDB:
                 if item_countries & participants:
                     counts[sid] += 1
         return counts
+
+    def scenario_tl_last(self, scenario_id: str) -> int | None:
+        """Return the most recent non-null TL observation for a scenario.
+        Used for hysteresis: limits TL de-escalation to one step per cycle."""
+        row = self._get_conn().execute(
+            "SELECT tl FROM scenario_tl_observation "
+            "WHERE scenario_id=? AND tl IS NOT NULL "
+            "ORDER BY observed_at DESC LIMIT 1",
+            (scenario_id,),
+        ).fetchone()
+        return row["tl"] if row else None
+
+    def scenario_prev_lite_score(self, scenario_id: str,
+                                 before_ts: float) -> float | None:
+        """Return the most recent lite-mode score for a scenario strictly
+        before before_ts. Used to compute focus-switch delta against the
+        same scenario's pre-switch baseline (scenario-refactor §9.3.1)."""
+        row = self._get_conn().execute(
+            "SELECT score FROM scenario_tl_observation "
+            "WHERE scenario_id=? AND scoring_mode='lite' "
+            "  AND observed_at < ? "
+            "ORDER BY observed_at DESC LIMIT 1",
+            (scenario_id, before_ts),
+        ).fetchone()
+        return row["score"] if row else None
+
+    def scenario_tl_timeseries(self, scenario_id: str, hours: int = 72,
+                              limit: int = 500) -> list[dict]:
+        """Return TL observation timeseries for a scenario."""
+        conn = self._get_conn()
+        cutoff = time.time() - hours * 3600
+        rows = conn.execute(
+            "SELECT observed_at, score, tl, cyber, physical, info, "
+            "  convergence_bonus, scoring_mode, active_countries "
+            "FROM scenario_tl_observation "
+            "WHERE scenario_id=? AND observed_at>? "
+            "ORDER BY observed_at DESC LIMIT ?",
+            (scenario_id, cutoff, limit),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["active_countries"] = json.loads(d["active_countries"])
+            except Exception:
+                d["active_countries"] = []
+            result.append(d)
+        result.reverse()
+        return result
+
+    def scenario_country_timeseries(self, scenario_id: str, country: str,
+                                     hours: int = 72) -> list[dict]:
+        """Return TL observation timeseries filtered to entries where a specific
+        country was active in the given scenario."""
+        conn = self._get_conn()
+        cutoff = time.time() - hours * 3600
+        rows = conn.execute(
+            "SELECT observed_at, score, tl, cyber, physical, info, "
+            "  convergence_bonus, scoring_mode, active_countries "
+            "FROM scenario_tl_observation "
+            "WHERE scenario_id=? AND observed_at>? "
+            "ORDER BY observed_at DESC LIMIT 500",
+            (scenario_id, cutoff),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                ac = json.loads(d["active_countries"])
+            except Exception:
+                ac = []
+            if country in ac:
+                d["active_countries"] = ac
+                result.append(d)
+        result.reverse()
+        return result
 
     # ── scenario CRUD (Phase 4) ──────────────────────────────────────────────
 
@@ -2326,22 +2417,21 @@ class RadarDB:
 
     def user_settings_get(self, username: str) -> Optional[dict]:
         row = self._get_conn().execute(
-            "SELECT us.core, us.pins, us.correlates, us.adversaries, us.muted, us.lang "
+            "SELECT us.focused_scenario, us.muted, us.lang "
             "FROM user_settings us JOIN users u ON us.user_id = u.id "
             "WHERE u.username=?", (username,)
         ).fetchone()
         return dict(row) if row else None
 
-    def user_settings_create(self, user_id: int, core: str, pins: str,
-                             correlates: str, adversaries: str,
+    def user_settings_create(self, user_id: int, focused_scenario: Optional[str],
                              muted: str, lang: str, updated_at: float):
         conn = self._get_conn()
         with conn.writing():
             conn.execute(
                 "INSERT INTO user_settings "
-                "(user_id, core, pins, correlates, adversaries, muted, lang, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (user_id, core, pins, correlates, adversaries, muted, lang, updated_at),
+                "(user_id, focused_scenario, muted, lang, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, focused_scenario, muted, lang, updated_at),
             )
 
     def user_settings_update(self, user_id: int, updates: dict):

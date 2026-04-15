@@ -188,11 +188,19 @@ for _i, _s in enumerate(registry._sensors.values()):
     threading.Thread(target=_sensor_scheduler_worker, args=(_s, registry, _delay),
                      daemon=True, name=f'sensor-{_s.name}').start()
 
-# Phase 4: HOD prefill (background — not blocking request serving)
-_hod_theaters = sorted(set([config.DEFAULT_CORE] + config.DEFAULT_PINS + config.DEFAULT_CORRELATES))
+# Phase 4: HOD prefill (background — not blocking request serving).
+# HOD covers every country any scorable scenario participates in, and treats
+# ADVERSARY-role participants as adversaries for baseline purposes (ADR-014).
+from radar.scenarios import scenario_store as _scenario_store, Role as _Role
+_hod_theaters: set[str] = set()
+_hod_adversaries: set[str] = set()
+for _sc in _scenario_store.scorable():
+    _hod_theaters |= set(_sc.participants.keys())
+    _hod_adversaries |= {_cc for _cc, _p in _sc.participants.items()
+                         if _p.role == _Role.ADVERSARY}
 threading.Thread(
     target=prefill_hod_baseline_bg,
-    args=(_hod_theaters, config.DEFAULT_ADVERSARIES),
+    args=(sorted(_hod_theaters), sorted(_hod_adversaries)),
     daemon=True, name='hod-prefill'
 ).start()
 

@@ -8,7 +8,7 @@ from radar import state as st
 from radar.state import _global_cache_lock, ALERT_TIMELINE_MAX
 from radar.database import db as _db
 from radar.models import RationaleEntry
-from radar.scoring import compute_sequence_bonus
+from radar.scoring import compute_sequence_bonus, derive_tl
 import radar.routes as _routes
 from radar.routes import bp
 
@@ -156,7 +156,13 @@ def api_deep_analytics():
     Detailed endpoint for deep analysis results.
     Returns velocity/acceleration/ambush/narrative/ISR/AIS/blockade_index.
     """
-    theater_param = request.args.get("theater", DEFAULT_CORE).upper()
+    _default_theater = (
+        st.global_cache.get("strategic", {}).get("core_theater")
+        or ""
+    )
+    theater_param = (request.args.get("theater") or _default_theater).upper()
+    if not theater_param:
+        return jsonify({"error": "theater required (no focused scenario resolved)"}), 400
     ts_series = _db.ts_get(theater_param)
     velocity   = _routes.engine.compute_velocity(ts_series)
     acc        = _routes.engine.compute_acceleration(ts_series)
@@ -740,7 +746,14 @@ def whatif_simulate():
     score_with_bonus += seq_bonus + temporal_bonus
     score_with_bonus = min(score_with_bonus, 15)
     active_domains = sum(1 for s in domain_scores.values() if s > 0)
-    threat_level = engine.compute_threat_level(score_with_bonus, tl1_hard_override, active_domains)
+    # Derive TL using the canonical scoring function (single source of truth
+    # with /api/threat_data). The legacy tl1_hard flag is preserved as an
+    # explicit TL1 override when score >= 9 but physical_score < 3.
+    _active_domain_list = [d for d, s in domain_scores.items() if s > 0]
+    _physical_score = domain_scores.get("physical", 0)
+    threat_level = derive_tl(score_with_bonus, _active_domain_list, _physical_score)
+    if tl1_hard_override and score_with_bonus >= 9 and threat_level > 1:
+        threat_level = 1
 
     system_note = engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, [])
 
@@ -963,4 +976,30 @@ def api_focus_switch_stats():
     """C-medium migration metric: focus switch miss rate (Section 9.3.1)."""
     days = int(request.args.get("days", "28"))
     return jsonify(_db.focus_switch_stats(days=days))
+
+
+@bp.route("/api/scenario/<scenario_id>/timeseries", methods=["GET"])
+def api_scenario_timeseries(scenario_id):
+    """Return TL observation timeseries for a scenario (ADR-010)."""
+    hours = int(request.args.get("hours", "72"))
+    return jsonify({
+        "scenario_id": scenario_id,
+        "hours": hours,
+        "observations": _db.scenario_tl_timeseries(scenario_id, hours=hours),
+    })
+
+
+@bp.route("/api/scenario/<scenario_id>/country/<country>/timeseries", methods=["GET"])
+def api_scenario_country_timeseries(scenario_id, country):
+    """Return TL observation timeseries filtered to a specific country's
+    active periods within a scenario (ADR-010)."""
+    hours = int(request.args.get("hours", "72"))
+    country = country.upper()
+    return jsonify({
+        "scenario_id": scenario_id,
+        "country": country,
+        "hours": hours,
+        "observations": _db.scenario_country_timeseries(
+            scenario_id, country, hours=hours),
+    })
 

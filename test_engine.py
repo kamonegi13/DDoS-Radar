@@ -108,46 +108,56 @@ class TestWeightedConvergenceEngine:
         # cyber: min(20,10) * 0.50 = 5.0
         assert result == 5.0
 
-    # ── compute_threat_level ──
+    # ── derive_tl (scoring.py) ──
+    # Canonical TL derivation after scenario unification. TL1 requires
+    # physical_score >= 3.0; TL2 requires >=2 active domains.
     def test_tl5_low_score(self):
-        assert self.engine.compute_threat_level(0, False) == 5
-        assert self.engine.compute_threat_level(1, False) == 5
+        from radar.scoring import derive_tl
+        assert derive_tl(0, [], 0) == 5
+        assert derive_tl(1, ["cyber"], 0) == 5
 
     def test_tl4_moderate(self):
-        assert self.engine.compute_threat_level(2, False) == 4
-        assert self.engine.compute_threat_level(3, False) == 4
+        from radar.scoring import derive_tl
+        assert derive_tl(2, ["cyber"], 0) == 4
+        assert derive_tl(3, ["cyber"], 0) == 4
 
     def test_tl3_elevated(self):
-        assert self.engine.compute_threat_level(4, False) == 3
-        assert self.engine.compute_threat_level(5, False) == 3
+        from radar.scoring import derive_tl
+        assert derive_tl(4, ["cyber"], 0) == 3
+        assert derive_tl(5, ["cyber"], 0) == 3
 
     def test_tl2_requires_dual_domain(self):
+        from radar.scoring import derive_tl
         # score=6 but only 1 active domain → stays at TL3
-        assert self.engine.compute_threat_level(6, False, active_domains=1) == 3
+        assert derive_tl(6, ["cyber"], 0) == 3
         # score=6 with 2 active domains → TL2
-        assert self.engine.compute_threat_level(6, False, active_domains=2) == 2
+        assert derive_tl(6, ["cyber", "physical"], 1) == 2
 
-    def test_tl1_requires_hard_condition(self):
-        assert self.engine.compute_threat_level(9, True) == 1
-        assert self.engine.compute_threat_level(9, False, active_domains=2) == 2  # no tl1_hard → TL2
+    def test_tl1_requires_physical(self):
+        from radar.scoring import derive_tl
+        # score=9 with physical=3 → TL1
+        assert derive_tl(9, ["cyber", "physical"], 3) == 1
+        # score=9 without physical ≥3 → TL2 (dual domain, score ≥6)
+        assert derive_tl(9, ["cyber", "info"], 0) == 2
 
-    # ── apply_hysteresis ──
+    # ── apply_hysteresis_to_tl (scoring.py) ──
     def test_hysteresis_first_entry(self):
-        tl, held = self.engine.apply_hysteresis(3, [])
+        from radar.scoring import apply_hysteresis_to_tl
+        tl, held = apply_hysteresis_to_tl(3, None)
         assert tl == 3
         assert held is False
 
     def test_hysteresis_escalation_instant(self):
         """Escalation (lower TL = higher threat) applies immediately."""
-        history = [(time.time(), 5)]
-        tl, held = self.engine.apply_hysteresis(2, history)
+        from radar.scoring import apply_hysteresis_to_tl
+        tl, held = apply_hysteresis_to_tl(2, 5)
         assert tl == 2  # escalation is instant
         assert held is False
 
     def test_hysteresis_de_escalation_capped(self):
         """De-escalation (higher TL = lower threat) limited to one step."""
-        history = [(time.time(), 2)]
-        tl, held = self.engine.apply_hysteresis(5, history)
+        from radar.scoring import apply_hysteresis_to_tl
+        tl, held = apply_hysteresis_to_tl(5, 2)
         assert tl == 3  # held at 2→3 (one step)
         assert held is True
 

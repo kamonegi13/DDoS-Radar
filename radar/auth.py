@@ -108,12 +108,7 @@ def _create_default_admin(db):
     pw_hash = _hash_password(default_pw, salt)
     now = time.time()
     user_id = db.user_create("admin", pw_hash, salt, "admin", now)
-    from radar.config import DEFAULT_CORE, DEFAULT_PINS, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES
-    db.user_settings_create(
-        user_id, DEFAULT_CORE, json.dumps(DEFAULT_PINS),
-        json.dumps(DEFAULT_CORRELATES), json.dumps(DEFAULT_ADVERSARIES),
-        "[]", "en", now,
-    )
+    db.user_settings_create(user_id, None, "[]", "en", now)
     log.info("[Auth] Created default admin user (username: admin)")
 
 
@@ -163,12 +158,7 @@ def register():
     pw_hash = _hash_password(password, salt)
     now = time.time()
     user_id = db.user_create(username, pw_hash, salt, role, now)
-    from radar.config import DEFAULT_CORE, DEFAULT_PINS, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES
-    db.user_settings_create(
-        user_id, DEFAULT_CORE, json.dumps(DEFAULT_PINS),
-        json.dumps(DEFAULT_CORRELATES), json.dumps(DEFAULT_ADVERSARIES),
-        "[]", "en", now,
-    )
+    db.user_settings_create(user_id, None, "[]", "en", now)
     return jsonify({"status": "ok", "username": username, "role": role}), 201
 
 
@@ -244,17 +234,14 @@ def logout():
 @bp.route("/settings", methods=["GET"])
 @jwt_required()
 def get_settings():
-    """Get current user's theater settings."""
+    """Get current user's scenario-centric settings (ADR-005)."""
     identity = get_jwt_identity()
     from radar.database import db
     row = db.user_settings_get(identity)
     if not row:
         return jsonify({"error": "Settings not found"}), 404
     return jsonify({
-        "core": row["core"],
-        "pins": json.loads(row["pins"]),
-        "correlates": json.loads(row["correlates"]),
-        "adversaries": json.loads(row["adversaries"]),
+        "focused_scenario": row["focused_scenario"],
         "muted": json.loads(row["muted"]),
         "lang": row["lang"],
     })
@@ -263,7 +250,7 @@ def get_settings():
 @bp.route("/settings", methods=["PUT"])
 @jwt_required()
 def update_settings():
-    """Update current user's theater settings."""
+    """Update current user's scenario-centric settings (ADR-005)."""
     identity = get_jwt_identity()
     data = request.get_json(silent=True) or {}
 
@@ -272,8 +259,7 @@ def update_settings():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    allowed = {"core": str, "pins": list, "correlates": list,
-               "adversaries": list, "muted": list, "lang": str}
+    allowed = {"focused_scenario": str, "muted": list, "lang": str}
     updates = {}
     for field, expected_type in allowed.items():
         if field in data:
@@ -283,7 +269,7 @@ def update_settings():
                     return jsonify({"error": f"{field} must be a list"}), 400
                 updates[field] = json.dumps(val)
             else:
-                updates[field] = str(val)
+                updates[field] = None if val is None else str(val)
 
     if not updates:
         return jsonify({"error": "No valid fields provided"}), 400

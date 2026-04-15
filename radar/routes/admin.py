@@ -391,6 +391,23 @@ def api_cooccurrence():
 
 # ── Scenario management (Phase 4) ──────────────────────────────────────────
 
+def _scenario_reload_and_invalidate_cache() -> None:
+    """Reload scenario_store from sources and force the next /api/threat_data
+    request to rescore. Called after any mutation so that the scoring cache
+    (SCORE_REFRESH_SEC gated) does not serve stale scenario definitions.
+    """
+    from radar.scenarios import scenario_store
+    from radar import state as _st
+    from radar.state import _global_cache_lock
+    scenario_store.reload()
+    # Zero out the cache timestamp so the next scoring pass runs immediately
+    # regardless of SCORE_REFRESH_SEC. We keep the cache contents so in-flight
+    # readers still see valid (if slightly stale) data until rescoring finishes.
+    with _global_cache_lock:
+        if isinstance(_st.global_cache, dict):
+            _st.global_cache["time"] = 0
+
+
 @bp.route("/api/admin/scenarios", methods=["GET"])
 def api_admin_scenario_list():
     auth_err = _require_admin()
@@ -440,7 +457,7 @@ def api_admin_scenario_create():
 
     user = get_jwt_identity()
     _db.scenario_upsert(scenario_id, data, changed_by=user)
-    scenario_store.reload()
+    _scenario_reload_and_invalidate_cache()
     return jsonify({"ok": True, "id": scenario_id}), 201
 
 
@@ -450,22 +467,32 @@ def api_admin_scenario_update(scenario_id: str):
     if auth_err: return auth_err
     data = request.get_json(silent=True) or {}
 
-    from radar.scenarios import scenario_store, ScenarioValidationError, validate_participant, validate_state
+    from radar.scenarios import scenario_store, ScenarioValidationError, validate_participant
     sc = scenario_store.get(scenario_id)
     if not sc:
         return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
 
+    # PUT is the "edit scenario definition" endpoint. State transitions
+    # are governed by ADR-011 and must go through POST /<id>/state so that
+    # the transition machine (active→paused→archived→purge, or restore)
+    # is enforced. Silently accepting "state" here would let a client jump
+    # active→archived directly, bypassing the hysteresis that gives
+    # analysts a "paused" buffer to recover from accidental deletes.
+    if "state" in data:
+        return jsonify({
+            "error": "state changes are not allowed via PUT; "
+                     "use POST /api/admin/scenarios/<id>/state (ADR-011)"
+        }), 400
+
     merged = sc.to_dict()
     for key in ("name_en", "name_ja", "description_en", "description_ja",
-                "core_country", "state", "enabled", "tier"):
+                "core_country", "enabled", "tier"):
         if key in data:
             merged[key] = data[key]
     if "participants" in data:
         merged["participants"] = data["participants"]
 
     try:
-        if "state" in data:
-            validate_state(data["state"], scenario_id)
         for cc, pdata in merged["participants"].items():
             validate_participant(cc, pdata, scenario_id)
     except ScenarioValidationError as e:
@@ -473,7 +500,7 @@ def api_admin_scenario_update(scenario_id: str):
 
     user = get_jwt_identity()
     _db.scenario_upsert(scenario_id, merged, changed_by=user)
-    scenario_store.reload()
+    _scenario_reload_and_invalidate_cache()
     return jsonify({"ok": True, "id": scenario_id})
 
 
@@ -486,6 +513,27 @@ def api_admin_scenario_delete(scenario_id: str):
     purge = request.args.get("purge", "false").lower() == "true"
     user = get_jwt_identity()
 
+    # Delete (active→paused) and purge (archived→hard delete) both require
+    # a DB row. Preset-only scenarios (Layer 1) have no DB row until a
+    # user mutates them. For delete, materialize the preset into DB so the
+    # state-transition machine has a row to operate on. Purge cannot apply
+    # to a preset-only scenario (it must first be deleted then archived).
+    sc = scenario_store.get(scenario_id)
+    if sc is None:
+        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+
+    _db_rows = {r["id"] for r in _db.scenario_list()}
+    if scenario_id not in _db_rows:
+        if purge:
+            return jsonify({
+                "error": f"Scenario '{scenario_id}' is a preset with no DB row; "
+                         f"it cannot be purged. Delete it first (active→paused), "
+                         f"then archive (paused→archived), then purge."
+            }), 409
+        # Materialize the preset as an "active" DB row so scenario_delete
+        # can transition it to paused. This preserves ADR-011 semantics.
+        _db.scenario_upsert(scenario_id, sc.to_dict(), changed_by=user)
+
     if purge:
         ok, err = _db.scenario_purge(scenario_id, changed_by=user)
     else:
@@ -495,7 +543,7 @@ def api_admin_scenario_delete(scenario_id: str):
             return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
         return jsonify({"error": err}), 409
 
-    scenario_store.reload()
+    _scenario_reload_and_invalidate_cache()
     return jsonify({"ok": True, "action": "purge" if purge else "delete"})
 
 
@@ -513,12 +561,21 @@ def api_admin_scenario_state(scenario_id: str):
         return jsonify({"error": str(e)}), 400
 
     user = get_jwt_identity()
+    # Materialize preset-only scenarios into DB so the state machine has
+    # a row to operate on (see DELETE endpoint rationale).
+    sc = scenario_store.get(scenario_id)
+    if sc is None:
+        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+    _db_rows = {r["id"] for r in _db.scenario_list()}
+    if scenario_id not in _db_rows:
+        _db.scenario_upsert(scenario_id, sc.to_dict(), changed_by=user)
+
     ok, err = _db.scenario_update_state(scenario_id, new_state, changed_by=user)
     if not ok:
         if err == "not_found":
             return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
         return jsonify({"error": err}), 409
-    scenario_store.reload()
+    _scenario_reload_and_invalidate_cache()
     return jsonify({"ok": True, "state": new_state})
 
 
@@ -531,10 +588,16 @@ def api_admin_scenario_enabled(scenario_id: str):
 
     user = get_jwt_identity()
     from radar.scenarios import scenario_store
+    sc = scenario_store.get(scenario_id)
+    if sc is None:
+        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
+    _db_rows = {r["id"] for r in _db.scenario_list()}
+    if scenario_id not in _db_rows:
+        _db.scenario_upsert(scenario_id, sc.to_dict(), changed_by=user)
     ok = _db.scenario_set_enabled(scenario_id, enabled, changed_by=user)
     if not ok:
         return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
-    scenario_store.reload()
+    _scenario_reload_and_invalidate_cache()
     return jsonify({"ok": True, "enabled": enabled})
 
 
@@ -546,7 +609,7 @@ def api_admin_scenario_reset(scenario_id: str):
     from radar.scenarios import scenario_store
     user = get_jwt_identity()
     _db.scenario_reset(scenario_id, changed_by=user)
-    scenario_store.reload()
+    _scenario_reload_and_invalidate_cache()
     sc = scenario_store.get(scenario_id)
     if not sc:
         return jsonify({"error": f"Scenario '{scenario_id}' has no preset to reset to"}), 404

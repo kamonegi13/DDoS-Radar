@@ -351,8 +351,10 @@ class ScenarioStore:
     def reload(self) -> None:
         if not self._loaded:
             return
-        from radar.config import GEO_DATA
-        self.load(GEO_DATA)
+        # _raw_geo is the source-of-truth geo dict exposed by radar.config
+        # (matches what radar/__init__.py passes to load() at startup).
+        from radar.config import _raw_geo
+        self.load(_raw_geo)
 
     @property
     def loaded(self) -> bool:
@@ -360,3 +362,49 @@ class ScenarioStore:
 
 
 scenario_store = ScenarioStore()
+
+
+# ── Helpers: derive legacy-compatible country lists from a scenario ─────────
+# ADR-005 supersedes core_theater with focused_scenario; ADR-014 merges adversaries
+# into participants[role=ADVERSARY]. These helpers collapse the mapping into a
+# single definition point so per-country sensor pipelines, HOD baseline, and
+# scheduler fetch targets can all be driven from the same scenario source.
+
+def derive_country_context(focused: "Scenario") -> dict:
+    """Derive per-country context lists from a focused Scenario.
+
+    Returns a dict with:
+      - core_theater: focused.core_country (Optional[str], ADR-009)
+      - correlate_targets: participants with non-adversary role, excluding core
+      - adversary_states: participants with role=ADVERSARY
+      - strategic_theaters: all participant countries (superset)
+    """
+    core = focused.core_country
+    parts = focused.participants
+    adversaries = [cc for cc, p in parts.items() if p.role == Role.ADVERSARY]
+    correlates = [cc for cc, p in parts.items()
+                  if p.role != Role.ADVERSARY and cc != core]
+    return {
+        "core_theater": core,
+        "correlate_targets": sorted(correlates),
+        "adversary_states": sorted(adversaries),
+        "strategic_theaters": sorted(parts.keys()),
+    }
+
+
+def derive_global_fetch_targets() -> dict:
+    """Union of all scorable scenarios' participants, for global fetch targets.
+
+    Used by scheduler/HOD baseline/situation.py where we want to cover every
+    country any enabled scenario cares about, not just the focused one.
+    """
+    all_participants: set[str] = set()
+    all_adversaries: set[str] = set()
+    for sc in scenario_store.scorable():
+        all_participants |= set(sc.participants.keys())
+        all_adversaries |= {cc for cc, p in sc.participants.items()
+                            if p.role == Role.ADVERSARY}
+    return {
+        "all_participant_countries": sorted(all_participants),
+        "all_adversary_countries": sorted(all_adversaries),
+    }

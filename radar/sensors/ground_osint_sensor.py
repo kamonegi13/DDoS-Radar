@@ -5,7 +5,7 @@ attack declarations from Telegram channels, then correlating with live
 sensor data to provide:
   1. Pre-attack warning: declaration before Cloudflare/CheckHost detect impact
   2. Attribution: links observed DDoS traffic to declared actor/group
-  3. Coverage gap: catches attacks on targets NOT in DEFAULT_PINS
+  3. Coverage gap: catches attacks on targets outside the focused scenario
 
 Compared to HacktiivistIntelSensor (which does general intent analysis),
 GroundOsintSensor focuses specifically on:

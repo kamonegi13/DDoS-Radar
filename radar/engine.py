@@ -101,16 +101,6 @@ class WeightedConvergenceEngine:
         else:
             bonus = raw_bonus
         return score + bonus, bonus, level
-    def compute_threat_level(self, score: int, tl1_hard: bool, active_domains: int = 0) -> int:
-        if score >= 9 and tl1_hard: return 1
-        # TL2 requires DUAL_DOMAIN convergence (≥2 active domains) to prevent
-        # single-domain (Cyber-only) escalation from triggering Heightened status.
-        # TL1 is already gated by core_degraded (Physical) via tl1_hard.
-        if score >= 6 and active_domains >= 2: return 2
-        if score >= 4: return 3
-        if score >= 2: return 4
-        return 5
-
     @staticmethod
     def compute_tl_proximity(score: float, current_tl: int) -> dict:
         """
@@ -163,13 +153,6 @@ class WeightedConvergenceEngine:
                     domain_confs[entry.domain].append(entry.confidence)
         return {d: round(sum(cs) / len(cs), 3) if cs else 1.0 for d, cs in domain_confs.items()}
 
-    def apply_hysteresis(self, new_tl: int, history: list) -> tuple:
-        if not history: return new_tl, False
-        last_tl = history[-1][1]
-        if new_tl > last_tl:
-            held = min(new_tl, last_tl + 1)
-            return held, (held != new_tl)
-        return new_tl, False
     def build_system_note(self, threat_level: int, domain_scores: dict, convergence_level: str, rationale: list, noise_filters: list, tl_held: bool = False) -> str:
         fired = [e for e in rationale if isinstance(e, RationaleEntry) and e.status == "FIRED"]
         suppressed = [e for e in rationale if isinstance(e, RationaleEntry) and e.suppressed]

@@ -211,7 +211,10 @@ class MilitaryExerciseSensor(BaseSensor):
             self.log_fetch(True, 0, 0, 0, "llm_unavailable")
             return {"military_exercise": {"llm_offline": True}}
 
-        strategic_theaters = set(context.get("strategic_theaters", []))
+        # LLM sensor covers every participant country across all scorable
+        # scenarios (ADR-004).
+        strategic_theaters = set(context.get("all_participant_countries")
+                                  or context.get("strategic_theaters", []))
         t0 = time.time()
         submitted = 0
 

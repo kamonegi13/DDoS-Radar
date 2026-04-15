@@ -13,7 +13,6 @@ from radar.config import (
     CF_HEADERS, GLOBAL_PROXIES, SSL_VERIFY, CURRENT_DATE_RANGE,
     BASELINE_DATE_RANGE, CACHE_EXPIRY,
     HOD_BASELINE_DAYS, HOD_MIN_SAME_HOUR, HOD_MAX_ENTRIES,
-    DEFAULT_CORE, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES, DEFAULT_PINS,
     ADAPTIVE_ZSCORE_ENABLED, ADAPTIVE_ZSCORE_MIN_SAMPLES, ADAPTIVE_ZSCORE_SENSITIVITY,
     STATE_ASNS, COUNTRY_COORDS, CHOKEPOINTS,
 )
@@ -66,7 +65,9 @@ class Signal:
         return d
 
 
-def rationale_to_signal(rat, source_country: str = "", observed_at: float = 0.0) -> Optional[Signal]:
+def rationale_to_signal(rat, source_country: str = "", observed_at: float = 0.0,
+                        evidence_url: str | None = None,
+                        llm_reasoning: str | None = None) -> Optional[Signal]:
     """Convert a legacy RationaleEntry to a Signal for scenario scoring.
 
     Skips suppressed/non-FIRED rationale entries. Determines countries
@@ -84,8 +85,8 @@ def rationale_to_signal(rat, source_country: str = "", observed_at: float = 0.0)
         country_weights={source_country: 1.0} if source_country else {},
         raw_score=float(rat.score),
         value_display=str(rat.value),
-        evidence_url=None,
-        llm_reasoning=None,
+        evidence_url=evidence_url or None,
+        llm_reasoning=llm_reasoning or None,
     )
 
 
@@ -99,6 +100,11 @@ def register_sequence_event(theater: str, event_type: str, meta: dict = None,
         (e.g. RSS + Telegram) fire the same event type in the same scoring cycle.
     scenario_id: optional scenario association (ADR-020).
     """
+    if not theater:
+        # No country to anchor the event to (e.g. focused scenario has no
+        # core_country per ADR-009). Skip rather than pollute seq_events
+        # with an empty-theater row that can't be correlated later.
+        return
     now = time.time()
     # Dedup: skip if the same event type was registered within the dedup window
     dedup_cutoff = now - dedup_window
@@ -802,18 +808,18 @@ def compute_spatial_context(sensor_name: str, theater: str,
 def compute_target_context(sensor_name: str, theater: str,
                            source_country: str = "",
                            adversary_states: list = None,
-                           strategic_theaters: list = None) -> dict:
+                           strategic_theaters: list = None,
+                           core_country: str = "") -> dict:
     """Compute target context: relationship between signal and monitored target.
 
     Returns dict with:
     - target_relevance: DIRECT / INDIRECT / AMBIENT
-    - is_core_theater: boolean
+    - is_core_theater: boolean (theater == focused scenario's core_country)
     - adversary_involvement: boolean
-    - multi_target: boolean (signal affects multiple strategic theaters)
     """
     adversary_states = adversary_states or []
     strategic_theaters = strategic_theaters or []
-    is_core = theater == (strategic_theaters[0] if strategic_theaters else "")
+    is_core = bool(core_country) and theater == core_country
     is_adversary = source_country in adversary_states if source_country else False
 
     # Direct: signal specifically targets this theater
@@ -925,6 +931,20 @@ def derive_tl(total_score: float, active_domains: list[str],
     if total_score >= 2:
         return 4
     return 5
+
+
+def apply_hysteresis_to_tl(new_tl: Optional[int],
+                           prev_tl: Optional[int]) -> tuple[Optional[int], bool]:
+    """Scenario TL hysteresis: de-escalation (higher TL#) is limited to one
+    step per observation. Escalation (lower TL#) is immediate.
+    Returns (possibly-held-tl, held_flag).
+    """
+    if new_tl is None or prev_tl is None:
+        return new_tl, False
+    if new_tl > prev_tl:  # de-escalating (higher number = lower threat)
+        held = min(new_tl, prev_tl + 1)
+        return held, (held != new_tl)
+    return new_tl, False
 
 
 def dedup_by_source_country_max(

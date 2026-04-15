@@ -4,7 +4,7 @@ import logging
 import time
 import threading
 from radar.config import (
-    DEFAULT_CORE, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES, DEFAULT_PINS,
+    DEFAULT_FOCUSED_SCENARIO,
     CF_HEADERS, OWM_API_KEY,
     GDELT_TONE_ALERT_THRESHOLD, GDELT_HISTORY_WINDOW,
     CACHE_EXPIRY, SEQUENCE_WINDOW,
@@ -17,11 +17,35 @@ from radar.scoring import _asn_cache
 log = logging.getLogger("radar")
 
 def _build_default_context() -> dict:
-    """Build sensor context based on default config. Used by the background scheduler."""
+    """Build sensor context from the focused scenario + all enabled scenarios
+    (ADR-005). Per-country sensors target the focused scenario's participants;
+    LLM sensors receive the union across all scorable scenarios."""
+    from radar.scenarios import (
+        scenario_store, derive_country_context, derive_global_fetch_targets,
+    )
+    focused = (
+        scenario_store.get(DEFAULT_FOCUSED_SCENARIO)
+        or (scenario_store.scorable()[0] if scenario_store.scorable() else None)
+    )
+    if focused is None:
+        # Store not yet loaded — return minimal context; scheduler will pick
+        # up real targets on the next cycle.
+        return {
+            "all_targets": [], "strategic_theaters": [], "adversary_states": [],
+            "all_participant_countries": [],
+            "cf_headers": CF_HEADERS, "owm_api_key": OWM_API_KEY,
+            "weather_conditions": {},
+            "gdelt_tone_threshold": GDELT_TONE_ALERT_THRESHOLD,
+            "gdelt_history_window": GDELT_HISTORY_WINDOW,
+        }
+    ctx = derive_country_context(focused)
+    global_targets = derive_global_fetch_targets()
+    all_targets = set(ctx["strategic_theaters"]) | set(ctx["adversary_states"])
     return {
-        "all_targets":         sorted(set([DEFAULT_CORE] + DEFAULT_CORRELATES + DEFAULT_PINS)),
-        "strategic_theaters":  sorted(set([DEFAULT_CORE] + DEFAULT_CORRELATES)),
-        "adversary_states":    DEFAULT_ADVERSARIES,
+        "all_targets":         sorted(all_targets),
+        "strategic_theaters":  ctx["strategic_theaters"],
+        "adversary_states":    ctx["adversary_states"],
+        "all_participant_countries": global_targets["all_participant_countries"],
         "cf_headers":          CF_HEADERS,
         "owm_api_key":         OWM_API_KEY,
         "weather_conditions":  {},

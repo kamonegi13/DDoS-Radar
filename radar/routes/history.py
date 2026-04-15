@@ -5,9 +5,19 @@ import json
 import datetime
 from flask import jsonify, request, Response
 from radar.state import ALERT_TIMELINE_MAX
-from radar.config import DEFAULT_CORE, DEFAULT_CORRELATES, DEFAULT_PINS
 from radar.database import db as _db
 from radar.routes import bp, _require_admin
+from radar.scenarios import scenario_store
+
+
+def _resolve_default_theater() -> str:
+    """Pick a sensible default ISO country code from the first scorable scenario."""
+    for sc in scenario_store.scorable():
+        if sc.core_country:
+            return sc.core_country.upper()
+        if sc.participants:
+            return next(iter(sc.participants.keys())).upper()
+    return ""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Historical Analysis API
@@ -15,11 +25,14 @@ from radar.routes import bp, _require_admin
 
 @bp.route("/api/history/theaters", methods=["GET"])
 def api_history_theaters():
-    """Return all configured + historically recorded theaters."""
+    """Return all configured + historically recorded theaters.
+
+    Configured set = union of participants across all scorable scenarios.
+    """
     db_theaters = set(_db.ts_distinct_theaters())
-    cfg_theaters = set(DEFAULT_PINS) | set(DEFAULT_CORRELATES)
-    if DEFAULT_CORE:
-        cfg_theaters.add(DEFAULT_CORE)
+    cfg_theaters: set[str] = set()
+    for sc in scenario_store.scorable():
+        cfg_theaters |= set(sc.participants.keys())
     return jsonify({"theaters": sorted(db_theaters | cfg_theaters)})
 
 
@@ -28,7 +41,9 @@ def api_history_timeseries():
     """Return time-series data for a theater.
     GET /api/history/timeseries?theater=TW&hours=168&series=combined,l3,l7
     """
-    theater = request.args.get("theater", "TW").upper()
+    theater = (request.args.get("theater") or _resolve_default_theater()).upper()
+    if not theater:
+        return jsonify({"error": "theater required"}), 400
     try:
         hours = min(int(request.args.get("hours", "168")), 720)  # max 30 days
     except (ValueError, TypeError):
@@ -58,7 +73,9 @@ def api_history_hod_baseline():
     """Return HOD baseline data for a theater.
     GET /api/history/hod_baseline?theater=TW&type=hod_baseline
     """
-    theater = request.args.get("theater", "TW").upper()
+    theater = (request.args.get("theater") or _resolve_default_theater()).upper()
+    if not theater:
+        return jsonify({"error": "theater required"}), 400
     table = request.args.get("type", "hod_baseline")
     if table not in ("hod_baseline", "checkhost_hod", "bgp_hod"):
         return jsonify({"error": "Invalid type"}), 400
@@ -166,7 +183,9 @@ def api_history_export():
     if auth_err:
         return auth_err
 
-    theater = request.args.get("theater", "TW").upper()
+    theater = (request.args.get("theater") or _resolve_default_theater()).upper()
+    if not theater:
+        return jsonify({"error": "theater required"}), 400
 
     export = {
         "theater": theater,

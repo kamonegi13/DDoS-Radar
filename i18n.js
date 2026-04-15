@@ -136,7 +136,7 @@ const LANG = {
     // Panel — Target Visibility
     // ══════════════════════════════════════════════════════════════
     'panel.target.title':             'Target Visibility',
-    'panel.target.hint':              'Toggle pinned targets on/off.',
+    'panel.target.hint':              'Participants of the focused scenario. Edit via Admin → Scenarios.',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Live Threat Telemetry
@@ -158,9 +158,6 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     'modal.settings.title':           'Master Configuration',
     'modal.settings.close':           '[ X ] Close',
-    'modal.settings.tab.strategy':    'Strategy Scope',
-    'modal.settings.tab.actors':      'Threat Actors',
-    'modal.settings.tab.pins':        'Quick Pins',
     'modal.settings.tab.sensors':     'Sensors',
     'modal.settings.tab.fetchlog':    'Fetch Log',
     'modal.settings.tab.sysconfig':   'System',
@@ -169,18 +166,9 @@ const LANG = {
     // ── System Config tab ──────────────────────────────────────────────
     'sysconfig.help':                 'Edit <span class="code-block">config.env</span> settings. Changes are written to disk immediately. <span class="cfg-live-badge">live</span> settings take effect instantly; <span class="cfg-restart-badge">restart</span> settings require <code>docker compose restart</code>.',
     'sysconfig.section.api_keys':     'API Keys',
-    'sysconfig.section.scope':        'Default Scope',
-    'sysconfig.scope.desc':           'Startup defaults for the STRATEGY SCOPE and THREAT ACTORS panels. These can always be changed at runtime from the main UI.',
-    'sysconfig.field.core':           'Core Theater',
-    'sysconfig.scope.adversaries':    'Adversaries',
-    'sysconfig.scope.correlates':     'Correlates',
-    'sysconfig.scope.correlates_desc':'allied nations to monitor',
-    'sysconfig.scope.correlates_label':'Correlates <small>(allied nations to monitor)</small>',
-    'sysconfig.scope.pins':           'Quick Pins',
-    'sysconfig.scope.pins_desc':      'target visibility panel',
-    'sysconfig.scope.pins_label':     'Quick Pins <small>(target visibility panel)</small>',
-    'sysconfig.scope.none_selected':  'None selected',
-    'sysconfig.scope.search':         'Search countries\u2026',
+    'sysconfig.section.scope':        'Default Focus',
+    'sysconfig.scope.desc':           'Startup default for the focused scenario. Participants and adversaries are managed in the Scenarios tab.',
+    'sysconfig.field.default_focused_scenario': 'Default Focused Scenario',
     'sysconfig.adv_toggle':           '\u25b6 Advanced Settings',
     'sysconfig.adv_toggle_open':      '\u25bc Advanced Settings',
     'sysconfig.adv_warning':          '\u26a0 Incorrect values may cause system malfunction. Change only if you understand the impact.',
@@ -257,20 +245,8 @@ const LANG = {
     'sysconfig.llm.fetch_error':      '\u2717 {msg}',
     'sysconfig.llm.model_hint':       'Click "Fetch Models" to load from Ollama, or type manually.',
 
-    'modal.strategy.help_core':       '<b>Epicenter (Core):</b> The primary focal point of a contingency scenario.',
-    'modal.strategy.help_link':       '<b>Correlate (Link):</b> Allied nations to monitor for coordinated attacks originating from the same botnets.',
-    'modal.strategy.search':          'Filter countries...',
-    'modal.strategy.th_core':         'Core',
-    'modal.strategy.th_core_tooltip': 'Epicenter (Primary Focus)',
-    'modal.strategy.th_link':         'Link',
-    'modal.strategy.th_link_tooltip': 'Calculate Correlation',
-    'modal.strategy.th_country':      'Country / Region',
 
-    'modal.actors.help':              '<b>Adversary State:</b> Nation-states conducting systematic cyber operations. Alerts trigger when adversary domestic infrastructure is used directly for attacks.',
-    'modal.actors.help_auto_src':     'Narrative sources are automatically selected to match the adversary bloc.',
 
-    'modal.pins.help':                '<b>Quick Pin:</b> Select countries to appear in the "Target Visibility" panel on the main screen for rapid on/off switching.',
-    'modal.pins.search':              'Filter countries...',
 
     'modal.sensors.help':             'Enable or disable individual sensor modules. <b>Cyber</b> = network threats, <b>Physical</b> = infrastructure & airspace, <b>Info</b> = information & influence operations.',
     'modal.sensors.help_graceful':    'Disabled sensors contribute zero to their domain score (Graceful Degradation).',
@@ -283,9 +259,8 @@ const LANG = {
 
     'modal.minimap.region_preview':   'Region Preview',
     'modal.minimap.legend.core':      '◆ Core',
-    'modal.minimap.legend.link':      '◆ Link',
+    'modal.minimap.legend.link':      '◆ Participant',
     'modal.minimap.legend.adversary': '◆ Adversary',
-    'modal.minimap.legend.pin':       '◆ Pin',
 
     // ══════════════════════════════════════════════════════════════
     // Country Intel modal
@@ -670,7 +645,7 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     // Dashboard empty states
     // ══════════════════════════════════════════════════════════════
-    'dash.no_active_pins':            'No targets active in Scope or Pins.',
+    'dash.no_active_pins':            'No scenario focused. Select a scenario in Admin → Scenarios.',
 
     // ══════════════════════════════════════════════════════════════
     // Survival HUD (JS-generated tooltips)
@@ -984,8 +959,8 @@ const LANG = {
     'panel.usermgr.ph.select_user':   '-- Select user --',
     'panel.usermgr.err.select_user':  'Select a user first',
     'panel.usermgr.roles_header':     'ROLES',
-    'panel.usermgr.role_desc.admin':  'Full system access. User management, system configuration, strategy settings, and all operational features.',
-    'panel.usermgr.role_desc.analyst':'Operational access. Strategy scope, threat actors, quick pins, sensor configuration, and monitoring features.',
+    'panel.usermgr.role_desc.admin':  'Full system access. User management, system configuration, scenario management, and all operational features.',
+    'panel.usermgr.role_desc.analyst':'Operational access. Scenario focus switching, sensor configuration, intel review, and monitoring features.',
     'panel.usermgr.role_desc.viewer': 'Read-only access. View dashboards, fetch logs, and change own password only.',
 
     // ══════════════════════════════════════════════════════════════
@@ -1277,11 +1252,39 @@ const LANG = {
     'scenario.mgr.cancel':           'Cancel',
     'scenario.mgr.enabled':          'Enabled',
     'scenario.mgr.disabled':         'Disabled',
+    'scenario.mgr.enable':           'Enable',
+    'scenario.mgr.disable':          'Disable',
+    'scenario.mgr.bloc_all':         'ALL',
+    'scenario.mgr.bloc_selected':    'SELECTED',
+    'scenario.mgr.ph_search':        'Filter by country name or code...',
+    'scenario.mgr.err.no_participants': 'At least one participant is required',
     'scenario.mgr.source_preset':    'Preset',
     'scenario.mgr.source_db':        'Custom',
     'scenario.mgr.changelog':        'Change Log',
     'scenario.mgr.no_changes':       'No changes recorded.',
     'scenario.tab.scenarios':        'Scenarios',
+    // Phase 5: detail panel
+    'scenario.badge.lite_warn':      'BIAS',
+    'scenario.detail.score':         'Score',
+    'scenario.detail.contributions': 'Contributions',
+    'scenario.detail.no_contributions': 'No contributions recorded.',
+    'scenario.detail.col_sensor':    'Sensor',
+    'scenario.detail.col_country':   'Country',
+    'scenario.detail.col_role':      'Role',
+    'scenario.detail.col_raw':       'Raw',
+    'scenario.detail.col_llm_w':     'LLM W',
+    'scenario.detail.col_part_w':    'Part W',
+    'scenario.detail.col_contrib':   'Contrib',
+    'scenario.detail.col_evidence':  'Src',
+    'scenario.detail.col_whatif':    'What-If',
+    'scenario.detail.value':         'Value',
+    'scenario.detail.llm_reasoning': 'LLM Reasoning',
+    'scenario.detail.observed':      'Observed',
+    'scenario.detail.lite_bias':     'LITE mode: LLM intel and global signals only. Physical and per-country cyber signals are NOT observed. This scenario\'s score under-counts non-English and non-textual events. Do not compare directly to the focused TL.',
+    'scenario.detail.whatif_result': 'What-If Result:',
+    'scenario.detail.whatif_reset':  'Reset What-If',
+    'scenario.detail.indicators':    'Indicators',
+    'scenario.detail.active_countries': 'Active',
 
   },
 
@@ -1404,7 +1407,7 @@ const LANG = {
     // Panel — Target Visibility
     // ══════════════════════════════════════════════════════════════
     'panel.target.title':             'ターゲット可視性',
-    'panel.target.hint':              '固定ターゲットのオン/オフを切り替え。',
+    'panel.target.hint':              '焦点シナリオの参加国。編集は管理画面 → Scenarios から。',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Live Threat Telemetry
@@ -1426,9 +1429,6 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     'modal.settings.title':           'マスター設定',
     'modal.settings.close':           '[ X ] 閉じる',
-    'modal.settings.tab.strategy':    '戦略スコープ',
-    'modal.settings.tab.actors':      '脅威アクター',
-    'modal.settings.tab.pins':        'クイックピン',
     'modal.settings.tab.sensors':     'センサー',
     'modal.settings.tab.fetchlog':    'フェッチログ',
     'modal.settings.tab.sysconfig':   'システム',
@@ -1438,17 +1438,8 @@ const LANG = {
     'sysconfig.help':                 '<span class="code-block">config.env</span> の設定を編集します。変更は即座にディスクに書き込まれます。<span class="cfg-live-badge">ライブ</span> の設定は即時反映、<span class="cfg-restart-badge">再起動</span> の設定は <code>docker compose restart</code> が必要です。',
     'sysconfig.section.api_keys':     'API キー',
     'sysconfig.section.scope':        'デフォルトスコープ',
-    'sysconfig.scope.desc':           'STRATEGY SCOPE・THREAT ACTORS パネルの起動時デフォルト設定。メインUIからいつでも変更できます。',
-    'sysconfig.field.core':           'コアシアター',
-    'sysconfig.scope.adversaries':    '脅威アクター',
-    'sysconfig.scope.correlates':     '連携国',
-    'sysconfig.scope.correlates_desc':'監視対象の同盟国',
-    'sysconfig.scope.correlates_label':'連携国 <small>（監視対象の同盟国）</small>',
-    'sysconfig.scope.pins':           'クイックピン',
-    'sysconfig.scope.pins_desc':      'ターゲット可視化パネル',
-    'sysconfig.scope.pins_label':     'クイックピン <small>（ターゲット可視化パネル）</small>',
-    'sysconfig.scope.none_selected':  '未選択',
-    'sysconfig.scope.search':         '国を検索\u2026',
+    'sysconfig.scope.desc':           '起動時のフォーカスシナリオのデフォルト。参加国や敵対国はシナリオタブで管理します。',
+    'sysconfig.field.default_focused_scenario': 'デフォルトフォーカスシナリオ',
     'sysconfig.adv_toggle':           '\u25b6 詳細設定',
     'sysconfig.adv_toggle_open':      '\u25bc 詳細設定',
     'sysconfig.adv_warning':          '\u26a0 不適切な値を設定するとシステムが正常に動作しなくなる可能性があります。影響を理解した上で変更してください。',
@@ -1525,20 +1516,8 @@ const LANG = {
     'sysconfig.llm.fetch_error':      '\u2717 {msg}',
     'sysconfig.llm.model_hint':       '「モデル取得」でOllamaから読み込み、または手動入力。',
 
-    'modal.strategy.help_core':       '<b>震源地（コア）:</b> シナリオの主要焦点国。',
-    'modal.strategy.help_link':       '<b>連携（リンク）:</b> 同一ボットネットからの協調攻撃を監視する同盟国。',
-    'modal.strategy.search':          '国でフィルター...',
-    'modal.strategy.th_core':         'コア',
-    'modal.strategy.th_core_tooltip': '震源地（主要焦点）',
-    'modal.strategy.th_link':         'リンク',
-    'modal.strategy.th_link_tooltip': '相関を計算',
-    'modal.strategy.th_country':      '国 / 地域',
 
-    'modal.actors.help':              '<b>敵対国家:</b> 組織的サイバー作戦を実施する国家。敵対国の国内インフラが直接攻撃に使用されるとアラートが発生。',
-    'modal.actors.help_auto_src':     'ナラティブソースは敵対ブロックに合わせて自動選択されます。',
 
-    'modal.pins.help':                '<b>クイックピン:</b> メイン画面の「ターゲット可視性」パネルに表示し、素早くオン/オフ切り替えできる国を選択。',
-    'modal.pins.search':              '国でフィルター...',
 
     'modal.sensors.help':             '個別センサーモジュールの有効/無効を切り替え。<b>サイバー</b>=ネットワーク脅威、<b>物理</b>=インフラ・空域、<b>情報</b>=情報・影響工作。',
     'modal.sensors.help_graceful':    '無効化されたセンサーはドメインスコアへの寄与がゼロになります（グレースフルデグラデーション）。',
@@ -1551,9 +1530,8 @@ const LANG = {
 
     'modal.minimap.region_preview':   '地域プレビュー',
     'modal.minimap.legend.core':      '◆ コア',
-    'modal.minimap.legend.link':      '◆ リンク',
+    'modal.minimap.legend.link':      '◆ 参加国',
     'modal.minimap.legend.adversary': '◆ 敵対国',
-    'modal.minimap.legend.pin':       '◆ ピン',
 
     // ══════════════════════════════════════════════════════════════
     // Country Intel modal
@@ -1932,7 +1910,7 @@ const LANG = {
     // ══════════════════════════════════════════════════════════════
     // Dashboard empty states
     // ══════════════════════════════════════════════════════════════
-    'dash.no_active_pins':            'スコープまたはピンにアクティブなターゲットがありません。',
+    'dash.no_active_pins':            '焦点シナリオがありません。管理画面 → Scenarios で選択してください。',
 
     // ══════════════════════════════════════════════════════════════
     // Survival HUD
@@ -2246,8 +2224,8 @@ const LANG = {
     'panel.usermgr.ph.select_user':   '-- ユーザーを選択 --',
     'panel.usermgr.err.select_user':  'ユーザーを選択してください',
     'panel.usermgr.roles_header':     'ロール一覧',
-    'panel.usermgr.role_desc.admin':  'フルアクセス。ユーザー管理、システム設定、戦略設定、全ての運用機能を利用可能。',
-    'panel.usermgr.role_desc.analyst':'運用アクセス。戦略スコープ、脅威アクター、クイックピン、センサー設定、監視機能を利用可能。',
+    'panel.usermgr.role_desc.admin':  'フルアクセス。ユーザー管理、システム設定、シナリオ管理、全ての運用機能を利用可能。',
+    'panel.usermgr.role_desc.analyst':'運用アクセス。シナリオフォーカス切替、センサー設定、インテルレビュー、監視機能を利用可能。',
     'panel.usermgr.role_desc.viewer': '閲覧専用。ダッシュボード閲覧、フェッチログ確認、自身のパスワード変更のみ。',
 
     // ══════════════════════════════════════════════════════════════
@@ -2539,11 +2517,39 @@ const LANG = {
     'scenario.mgr.cancel':           'キャンセル',
     'scenario.mgr.enabled':          '有効',
     'scenario.mgr.disabled':         '無効',
+    'scenario.mgr.enable':           '有効化',
+    'scenario.mgr.disable':          '無効化',
+    'scenario.mgr.bloc_all':         'すべて',
+    'scenario.mgr.bloc_selected':    '選択済み',
+    'scenario.mgr.ph_search':        '国名またはコードでフィルタ...',
+    'scenario.mgr.err.no_participants': '少なくとも1つのparticipantが必要です',
     'scenario.mgr.source_preset':    'プリセット',
     'scenario.mgr.source_db':        'カスタム',
     'scenario.mgr.changelog':        '変更履歴',
     'scenario.mgr.no_changes':       '変更履歴なし',
     'scenario.tab.scenarios':        'シナリオ',
+    // Phase 5: detail panel
+    'scenario.badge.lite_warn':      '偏り注意',
+    'scenario.detail.score':         'スコア',
+    'scenario.detail.contributions': '寄与一覧',
+    'scenario.detail.no_contributions': '寄与は記録されていません。',
+    'scenario.detail.col_sensor':    'センサー',
+    'scenario.detail.col_country':   '国',
+    'scenario.detail.col_role':      '役割',
+    'scenario.detail.col_raw':       '原値',
+    'scenario.detail.col_llm_w':     'LLM重み',
+    'scenario.detail.col_part_w':    '参加重み',
+    'scenario.detail.col_contrib':   '寄与',
+    'scenario.detail.col_evidence':  '原典',
+    'scenario.detail.col_whatif':    '仮定',
+    'scenario.detail.value':         '観測値',
+    'scenario.detail.llm_reasoning': 'LLM根拠',
+    'scenario.detail.observed':      '観測時刻',
+    'scenario.detail.lite_bias':     'LITEモード: LLMインテルとグローバルシグナルのみ使用。物理センサーおよび国別サイバーシグナルは取得されていません。非英語・非テキスト事象はスコアに反映されません。フォーカス中シナリオのTLと直接比較しないでください。',
+    'scenario.detail.whatif_result': 'What-If結果:',
+    'scenario.detail.whatif_reset':  'リセット',
+    'scenario.detail.indicators':    'インジケータ',
+    'scenario.detail.active_countries': 'アクティブ国',
 
   },
 };
@@ -2648,13 +2654,6 @@ function setLang(lang) {
   if (typeof renderSaluteBoard === 'function') renderSaluteBoard();
   if (typeof renderNbLog === 'function') renderNbLog();
   if (typeof renderGnLog === 'function') renderGnLog();
-  // Re-render scope tag pickers (translates "None selected" text)
-  if (typeof _buildTagPicker === 'function' && typeof _envScope !== 'undefined') {
-    const corEl = document.getElementById('ec-correlates-tags');
-    const pinEl = document.getElementById('ec-pins-tags');
-    if (corEl) corEl.querySelectorAll('.scope-tags-empty').forEach(el => { el.textContent = _t('sysconfig.scope.none_selected'); });
-    if (pinEl) pinEl.querySelectorAll('.scope-tags-empty').forEach(el => { el.textContent = _t('sysconfig.scope.none_selected'); });
-  }
 }
 
 // Apply static translations and init lang buttons on first load

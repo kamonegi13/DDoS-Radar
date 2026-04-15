@@ -161,19 +161,21 @@ class SituationEngine:
         country_intel = strategic.get("country_intel", {})
         target_details = global_cache.get("data", {})
 
-        # Use the active theater set from the scoring loop (reflects Target Visibility)
-        active_list = global_cache.get("active_theaters", [])
+        # Use the active theater set from the scoring loop (derived from the
+        # focused scenario's participants — ADR-005). Fallback: union of all
+        # scorable scenarios' participants; last resort: cache keys.
+        active_list = strategic.get("active_theaters", [])
         if active_list:
             configured_theaters = set(active_list)
         else:
-            # Fallback to config.env defaults
             try:
-                from radar.config import DEFAULT_CORE, DEFAULT_CORRELATES, DEFAULT_ADVERSARIES, DEFAULT_PINS
-                configured_theaters = {DEFAULT_CORE}
-                configured_theaters.update(DEFAULT_CORRELATES)
-                configured_theaters.update(DEFAULT_ADVERSARIES)
-                configured_theaters.update(DEFAULT_PINS)
+                from radar.scenarios import derive_global_fetch_targets
+                configured_theaters = set(
+                    derive_global_fetch_targets()["all_participant_countries"]
+                )
             except Exception:
+                configured_theaters = set()
+            if not configured_theaters:
                 configured_theaters = set(country_intel.keys()) | set(target_details.keys())
 
         theaters = set()

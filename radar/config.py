@@ -153,12 +153,9 @@ SERVER_PORT                = int(os.getenv("SERVER_PORT", "8000"))
 FLASK_DEBUG                = os.getenv("FLASK_DEBUG", "false").lower() in ("true", "1", "yes")
 
 
-DEFAULT_CORE        = os.getenv("DEFAULT_CORE", "TW")
-DEFAULT_CORRELATES  = [x.strip() for x in os.getenv("DEFAULT_CORRELATES", "JP,US").split(",") if x.strip()]
-DEFAULT_ADVERSARIES = [x.strip() for x in os.getenv("DEFAULT_ADVERSARIES", "CN,RU,KP").split(",") if x.strip()]
-DEFAULT_PINS        = [x.strip() for x in os.getenv("DEFAULT_PINS", "TW,JP,US").split(",") if x.strip()]
-
-# Scenario-centric scoring (Phase 1)
+# Scenario-centric scoring (ADR-005/P1). All per-country lists are derived
+# from the focused scenario's participants at request time; legacy
+# DEFAULT_CORE/CORRELATES/ADVERSARIES/PINS env vars have been removed.
 DEFAULT_FOCUSED_SCENARIO = os.getenv("DEFAULT_FOCUSED_SCENARIO", "taiwan_contingency")
 GLOBAL_SIGNAL_WEIGHT     = float(os.getenv("GLOBAL_SIGNAL_WEIGHT", "0.5"))
 DOMAIN_CAP               = float(os.getenv("DOMAIN_CAP", "6.0"))

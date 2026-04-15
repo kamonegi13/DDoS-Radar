@@ -27,7 +27,10 @@ from radar.sensors.telegram import TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD, Telegram
 import radar.routes as _routes
 from radar.routes import bp
 from radar.engine import WeightedConvergenceEngine
-from radar.scenarios import SensorTier
+from radar.scenarios import (
+    SensorTier, scenario_store,
+    derive_country_context, derive_global_fetch_targets,
+)
 
 _prev_focused_id: str | None = None
 
@@ -40,28 +43,9 @@ _FOCUSED_ONLY_SENSOR_NAMES = frozenset({
 @bp.route("/api/app_config", methods=["GET"])
 def app_config():
     return jsonify({
-        "default_core": DEFAULT_CORE,
-        "default_correlates": DEFAULT_CORRELATES,
-        "default_adversaries": DEFAULT_ADVERSARIES,
-        "default_pins": DEFAULT_PINS,
+        "default_focused_scenario": DEFAULT_FOCUSED_SCENARIO,
         "strategic_blocs": STRATEGIC_BLOCS,
         "country_bloc_tags": COUNTRY_BLOC_TAGS,
-        # Adversary options: hostile state actors monitored from a Western/allied-nation perspective.
-        # Scope is intentionally limited to states formally designated as threats by US/EU/Japan/Five Eyes:
-        # RU (Russia), CN (China), IR (Iran), KP (North Korea), BY (Belarus/RU proxy).
-        # States with offensive cyber capability that are allies or partners (US, UK, IL, AU, etc.)
-        # are excluded by design — this system monitors threats TO the allied network, not FROM it.
-        # Proxy adversaries (e.g. BY under RUSSIA) are declared in geo_data.json under
-        # their parent bloc's "proxy_adversaries" field to keep schema and code in sync.
-        "adversary_options": [
-            {"code": bloc["adversary"], "bloc": bloc_key, "label": bloc["label"], "color": bloc["color"]}
-            for bloc_key, bloc in STRATEGIC_BLOCS.items()
-            if "adversary" in bloc
-        ] + [
-            {"code": p["code"], "bloc": bloc_key, "label": p["label"], "color": p["color"]}
-            for bloc_key, bloc in STRATEGIC_BLOCS.items()
-            for p in bloc.get("proxy_adversaries", [])
-        ],
         "available_countries": [
             {"code": code, "name": info["name"], "region": COUNTRY_REGIONS.get(code, "Other"),
              "lat": info["lat"], "lng": info["lng"]}
@@ -109,24 +93,45 @@ def scenario_breakdown(scenario_id: str):
 @bp.route("/api/threat_data", methods=["GET"])
 def get_threat_data():
     current_time = time.time()
-    targets_param  = request.args.get("targets", ",".join(DEFAULT_PINS)); requested_targets = [t.strip().upper() for t in targets_param.split(",") if t.strip()]
-    correlates_param = request.args.get("correlates", ",".join(DEFAULT_CORRELATES)); correlate_targets = [t.strip().upper() for t in correlates_param.split(",") if t.strip()]
-    adv_param = request.args.get("adversaries", ",".join(DEFAULT_ADVERSARIES)); adversary_states = [a.strip().upper() for a in adv_param.split(",") if a.strip()]
-    core_theater = request.args.get("core", DEFAULT_CORE).strip().upper()
+    # ADR-005/P1: scoring is scenario-driven. All per-country lists are derived
+    # from the focused scenario's participants and roles. Legacy ?core=/?correlates=/
+    # ?adversaries=/?targets= URL params are no longer accepted.
+    focused_id = (request.args.get("focus") or DEFAULT_FOCUSED_SCENARIO).strip()
+    focused_scenario_obj = scenario_store.get(focused_id)
+    if not focused_scenario_obj or not focused_scenario_obj.is_scorable:
+        # Fall back to DEFAULT_FOCUSED_SCENARIO, then to any scorable scenario.
+        focused_scenario_obj = (
+            scenario_store.get(DEFAULT_FOCUSED_SCENARIO)
+            or (scenario_store.scorable()[0] if scenario_store.scorable() else None)
+        )
+        if focused_scenario_obj is None:
+            return jsonify({"error": "No scorable scenario available"}), 503
+        focused_id = focused_scenario_obj.id
+
+    _ctx = derive_country_context(focused_scenario_obj)
+    core_theater = (_ctx["core_theater"] or "").upper()
+    correlate_targets = list(_ctx["correlate_targets"])
+    adversary_states = list(_ctx["adversary_states"])
+    strategic_theaters_set = set(_ctx["strategic_theaters"])
+
+    # Union of all scorable scenarios — used for cross-scenario sensor coverage
+    # (LLM sensors, HOD sampling scope, etc. — ADR-004).
+    _global_targets = derive_global_fetch_targets()
+    all_participant_countries = list(_global_targets["all_participant_countries"])
+
     force_sync   = request.args.get("force", "false").lower() == "true"
-    
+
     # HITL Analyst MUTE parameters
     muted_sensors = [s.strip() for s in request.args.get("muted", "").split(",") if s.strip()]
 
-    required_keys = set(requested_targets + correlate_targets)
+    required_keys = set(correlate_targets)
     if core_theater: required_keys.add(core_theater)
 
-    strategic_theaters_set = set([core_theater] + correlate_targets)
-    
     sensor_context = {
-        "all_targets": list(required_keys),
-        "strategic_theaters": list(strategic_theaters_set),
+        "all_targets": sorted(required_keys),
+        "strategic_theaters": sorted(strategic_theaters_set),
         "adversary_states": adversary_states,
+        "all_participant_countries": all_participant_countries,
         "cf_headers": CF_HEADERS, "owm_api_key": OWM_API_KEY,
         "weather_conditions": {}, "gdelt_tone_threshold": float(os.getenv("GDELT_TONE_ALERT_THRESHOLD", "-15.0")),
         "gdelt_history_window": int(os.getenv("GDELT_HISTORY_WINDOW", "28"))
@@ -153,9 +158,17 @@ def get_threat_data():
         finally:
             executor.shutdown(wait=False, cancel_futures=False)
 
+    # Cache invalidation must also consider the focus parameter: scenario
+    # scoring depends on focus (full vs lite mode, threat_level derivation),
+    # so two requests within SCORE_REFRESH_SEC with different focus must
+    # each trigger a fresh scoring pass — otherwise a focus change would
+    # surface stale is_focused / tl / threat_level for up to 60s.
+    _req_focus = focused_id
     with _global_cache_lock:
         _cache_ts = st.global_cache.get("time", 0)
-    if (current_time - _cache_ts > SCORE_REFRESH_SEC) or force_sync:
+        _cache_focus = st.global_cache.get("focus")
+    _focus_changed = (_cache_focus is not None and _cache_focus != _req_focus)
+    if (current_time - _cache_ts > SCORE_REFRESH_SEC) or force_sync or _focus_changed:
         # Extract required states from caches
         cf_sensor = _routes.registry.get("cloudflare_radar")
         _cf_cache = cf_sensor.get_cache() if cf_sensor else {}
@@ -471,7 +484,8 @@ def get_threat_data():
             _target = compute_target_context(sensor, core_theater,
                                               source_country=source_country,
                                               adversary_states=adversary_states,
-                                              strategic_theaters=list(strategic_theaters_set))
+                                              strategic_theaters=list(strategic_theaters_set),
+                                              core_country=focused_scenario_obj.core_country or "")
             rationale.append(RationaleEntry(
                 sensor=sensor, domain=domain, status=status, value=value,
                 score=score, fired_reason=fired_reason,
@@ -661,7 +675,8 @@ def get_threat_data():
                     confidence=_sensor_conf(rss_narrative_sensor))
             if narrative_burst and _narr_active:
                 register_sequence_event(core_theater, "NARRATIVE_BURST",
-                                        {"z_score": narrative_z, "status": narrative_status})
+                                        {"z_score": narrative_z, "status": narrative_status},
+                                        scenario_id=focused_id)
 
         # ISR hotspot surge
         core_isr = isr_data.get(core_theater, {})
@@ -676,7 +691,8 @@ def get_threat_data():
                     confidence=_sensor_conf(isr_hotspot_sensor))
             if isr_surge and _isr_active:
                 register_sequence_event(core_theater, "ISR_SURGE",
-                                        {"count": isr_count, "hotspots": core_isr.get("hotspots", [])})
+                                        {"count": isr_count, "hotspots": core_isr.get("hotspots", [])},
+                                        scenario_id=focused_id)
 
         # AIS maritime anomaly
         if ais_maritime_sensor and ais_maritime_sensor.enabled:
@@ -692,18 +708,21 @@ def get_threat_data():
                     confidence=_sensor_conf(ais_maritime_sensor))
             if ais_fired and _ais_active:
                 register_sequence_event(core_theater, "AIS_DARK_GAP",
-                                        {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)})
+                                        {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)},
+                                        scenario_id=focused_id)
 
         # FIRMS → register Sequence Event (gated by add_rat suppression check)
         if has_firms_core and _firms_active:
             register_sequence_event(core_theater, "FIRMS_ANOMALY",
-                                    {"hotspots": [f for f in nasa_firms_data if f.get("code") == core_theater]})
+                                    {"hotspots": [f for f in nasa_firms_data if f.get("code") == core_theater]},
+                                    scenario_id=focused_id)
 
         # Sync DDoS detection → register Sequence Event (gated by add_rat suppression checks)
         if is_coordinated and high_correlation and _coord_active and _overlap_active:
             register_sequence_event(core_theater, "SYNC_DDOS",
                                     {"coordinated_theaters": elevated_theaters,
-                                     "max_overlap": max(correlations.values(), default=0.0)})
+                                     "max_overlap": max(correlations.values(), default=0.0)},
+                                    scenario_id=focused_id)
 
         # ── v9 sensor rationale ────────────────────────────────────────────────
 
@@ -746,7 +765,7 @@ def get_threat_data():
                     "source": "telegram_mirror", "channels": telegram_active_ch,
                     "targets": core_telegram.get("target_urls", [])[:5],
                     "z_score": telegram_z,
-                })
+                }, scenario_id=focused_id)
 
         # Check-Host (Physical Domain)
         core_checkhost   = checkhost_data.get(core_theater, {})
@@ -988,7 +1007,8 @@ def get_threat_data():
             _tor_entry.fired_reason += " — Censorship chain: IHR disconnection concurrent with Tor relay drop"
             _tor_entry.confidence = 1.0
             register_sequence_event(core_theater, "CENSORSHIP_DETECTED",
-                                    {"tor_status": _tor_core_status, "ihr_status": _ihr_core_status})
+                                    {"tor_status": _tor_core_status, "ihr_status": _ihr_core_status},
+                                    scenario_id=focused_id)
 
         # ── Phase C: S1 NOTAM Anomaly rationale ──────────────────────────────
         _notam_core = notam_data.get(core_theater, {})
@@ -1007,7 +1027,8 @@ def get_threat_data():
                     confidence=_sensor_conf(notam_sensor))
             if _notam_fired and _notam_active:
                 register_sequence_event(core_theater, "NOTAM_SURGE",
-                                        {"total": _notam_total, "military": _notam_mil})
+                                        {"total": _notam_total, "military": _notam_mil},
+                                        scenario_id=focused_id)
 
         # ── Phase C: S2 Travel Advisory rationale ────────────────────────────
         _travel_core = travel_advisories.get(core_theater, {})
@@ -1061,7 +1082,8 @@ def get_threat_data():
                     confidence=_sensor_conf(ooni_sensor))
             if _ooni_heavy and _ooni_active:
                 register_sequence_event(core_theater, "CENSORSHIP_DETECTED",
-                                        {"source": "ooni", "anomaly_rate": _ooni_anomaly_rate})
+                                        {"source": "ooni", "anomaly_rate": _ooni_anomaly_rate},
+                                        scenario_id=focused_id)
 
         # ── Phase C: S4 USGS Seismic rationale ──────────────────────────────
         _seismic_cable = seismic_data.get("has_cable_threat", False)
@@ -1118,7 +1140,8 @@ def get_threat_data():
                     confidence=_sensor_conf(mil_air_sensor))
             if _mil_fired and _mil_active:
                 register_sequence_event(core_theater, "MIL_AIR_SURGE",
-                                        {"tanker": _mil_tanker, "transport": _mil_transport, "awacs": _mil_awacs})
+                                        {"tanker": _mil_tanker, "transport": _mil_transport, "awacs": _mil_awacs},
+                                        scenario_id=focused_id)
 
         # ── Phase C: S6 GPS Jamming rationale ────────────────────────────────
         _gps_core = gps_jam_data.get(core_theater, {})
@@ -1139,7 +1162,8 @@ def get_threat_data():
                     confidence=_sensor_conf(gps_jam_sensor))
             if _gps_fired and _gps_active:
                 register_sequence_event(core_theater, "GPS_JAMMING",
-                                        {"max_level": _gps_max, "is_critical": _gps_critical})
+                                        {"max_level": _gps_max, "is_critical": _gps_critical},
+                                        scenario_id=focused_id)
 
         # ── Phase C: S7 CT Log Certificate rationale ─────────────────────────
         _ct_core = ct_data.get(core_theater, {})
@@ -1262,14 +1286,184 @@ def get_threat_data():
         _routes.engine.record_theater_score(core_theater, score_with_bonus)
         theater_baseline = _routes.engine.compute_theater_zscore(core_theater, score_with_bonus)
 
-        tl_raw = _routes.engine.compute_threat_level(score_with_bonus, tl1_hard, active_domains)
+        # ── Scenario scoring — single source of truth for threat_level ────
+        # This block computes all scenario scores AND drives the legacy
+        # `threat_level` value so that HUD top TL == focused scenario TL.
+        # Sequence and temporal bonuses are folded into the focused scenario
+        # score before TL derivation; hysteresis is applied to the focused
+        # scenario TL (not to a separate legacy timeseries).
+        _focused_id = focused_id
+        _scenario_results: dict = {}
+        _focused_tl: int | None = None
+        _focused_tl_raw: int | None = None
+        _tl_held_focused = False
+        try:
+            from radar.scoring import (
+                rationale_to_signal, compute_scenario_score, Signal,
+                derive_tl, apply_hysteresis_to_tl,
+            )
+
+            _signals: list[Signal] = []
+            for rat in rationale:
+                if rat.signal_source == "llm_intel":
+                    continue
+                # FOCUSED_ONLY sensors observe the focused scenario's core country
+                # (scenario.core_country, ADR-009), not a UI-configured theater.
+                _src_country = (focused_scenario_obj.core_country or "") \
+                    if rat.sensor in _FOCUSED_ONLY_SENSOR_NAMES else ""
+                sig = rationale_to_signal(rat, source_country=_src_country,
+                                          observed_at=current_time)
+                if sig is not None:
+                    _signals.append(sig)
+            try:
+                from radar.intel_queue import intel_queue as _iq_sc
+                for _lr in _iq_sc.get_active_rationale():
+                    if _lr.get("score", 0) <= 0:
+                        continue
+                    _signals.append(Signal(
+                        signal_source="llm_intel",
+                        sensor="llm_intel",
+                        observed_at=current_time,
+                        domain=_lr.get("domain", "info"),
+                        countries=_lr.get("countries", []),
+                        country_weights=_lr.get("country_weights", {}),
+                        raw_score=float(_lr["score"]),
+                        value_display=_lr.get("detail", ""),
+                        evidence_url=_lr.get("raw_url", "") or None,
+                        llm_reasoning=_lr.get("llm_reasoning", "") or None,
+                    ))
+            except Exception:
+                pass
+
+            _scorable = scenario_store.scorable()
+            _sc_participants_map = {
+                sc.id: set(sc.participants.keys())
+                for sc in _scorable if sc.id != _focused_id
+            }
+            _intel_24h = _db.intel_count_24h_by_scenario(_sc_participants_map) if _sc_participants_map else {}
+
+            for _sc in _scorable:
+                _is_focused = (_sc.id == _focused_id)
+                _state = compute_scenario_score(
+                    _sc, _signals, _is_focused,
+                    global_signal_weight=GLOBAL_SIGNAL_WEIGHT,
+                    domain_cap=DOMAIN_CAP,
+                )
+
+                if _is_focused:
+                    # Fold sequence + temporal bonuses into focused scenario
+                    # score, then re-derive TL. Sequence bonus is scoped to
+                    # the scenario's core_country; temporal bonus is
+                    # cross-theater coherence (scenario-agnostic).
+                    _scenario_bonus = 0
+                    if _sc.core_country:
+                        _sc_seq_b, _, _ = compute_sequence_bonus(_sc.core_country)
+                        _scenario_bonus += _sc_seq_b
+                    _scenario_bonus += temporal_bonus
+                    if _scenario_bonus > 0:
+                        _state.score += _scenario_bonus
+                        _active_doms = [d for d, s in _state.domains.items() if s > 0]
+                        _state.tl = derive_tl(
+                            _state.score, _active_doms,
+                            _state.domains.get("physical", 0),
+                        )
+                    _focused_tl_raw = _state.tl
+                    _prev_sc_tl = _db.scenario_tl_last(_sc.id)
+                    _held_tl, _was_held = apply_hysteresis_to_tl(_state.tl, _prev_sc_tl)
+                    _state.tl = _held_tl
+                    _tl_held_focused = _was_held
+                    _focused_tl = _state.tl
+
+                _sd = _state.to_dict()
+                _sd["name_en"] = _sc.name_en
+                _sd["name_ja"] = _sc.name_ja
+                if not _is_focused:
+                    _sd["lite_bias_warning"] = (
+                        "LITE mode: LLM intel + global signals only. "
+                        "Physical and per-country cyber signals are not observed."
+                    )
+                    if "indicators" in _sd:
+                        _sd["indicators"]["llm_intel_24h"] = _intel_24h.get(_sc.id, 0)
+                else:
+                    _sd["tl_raw"] = _focused_tl_raw
+                    _sd["tl_held"] = _tl_held_focused
+                _scenario_results[_sc.id] = _sd
+
+                try:
+                    _db.tl_observation_append(
+                        scenario_id=_sc.id,
+                        observed_at=current_time,
+                        score=_state.score,
+                        tl=_state.tl,
+                        cyber=_state.domains.get("cyber", 0),
+                        physical=_state.domains.get("physical", 0),
+                        info=_state.domains.get("info", 0),
+                        convergence_bonus=_state.convergence_bonus,
+                        scoring_mode=_state.scoring_mode,
+                        active_countries=_state.active_countries,
+                    )
+                except Exception:
+                    pass
+
+            # Focus switch detection (Section 9.3.1).
+            # is_miss is a C-medium migration indicator: it flags cases where
+            # LITE mode underestimated a scenario that subsequently reveals
+            # material signal on promotion to FULL. The measurement must
+            # compare the SAME scenario's pre-switch LITE score to its
+            # post-switch FULL score — not two different scenarios'
+            # current-cycle scores.
+            global _prev_focused_id
+            if _prev_focused_id is not None and _prev_focused_id != _focused_id:
+                _new_sd = _scenario_results.get(_focused_id, {})
+                if _new_sd:
+                    _full_score = _new_sd.get("score", 0)
+                    _prev_lite = _db.scenario_prev_lite_score(
+                        _focused_id, current_time)
+                    _lite_score = _prev_lite if _prev_lite is not None else 0.0
+                    _delta = abs(_full_score - _lite_score)
+                    try:
+                        _db.focus_switch_append(
+                            scenario_id=_focused_id,
+                            switched_at=current_time,
+                            lite_score=_lite_score,
+                            full_score=_full_score,
+                            delta=_delta,
+                            is_miss=(_delta >= 1.0),
+                        )
+                    except Exception:
+                        pass
+            _prev_focused_id = _focused_id
+        except Exception as _sc_err:
+            log.warning("[Scoring] Scenario scoring failed: %s", _sc_err)
+
+        # Derive legacy threat_level from focused scenario TL.
+        # This is the single source of truth — HUD top TL and scenario card
+        # TL now always agree. Fallback to TL5 (normal) only if no focused
+        # scenario is available (should not happen with DEFAULT_FOCUSED_SCENARIO).
+        if _focused_tl is not None:
+            threat_level = _focused_tl
+            tl_raw = _focused_tl_raw if _focused_tl_raw is not None else _focused_tl
+            tl_held = _tl_held_focused
+        else:
+            threat_level = 5
+            tl_raw = 5
+            tl_held = False
         prev_threat = _db.threat_last()
         prev_threat_level = prev_threat[1] if prev_threat else 5
-        threat_level, tl_held = _routes.engine.apply_hysteresis(tl_raw, _db.threat_list())
         _db.threat_append(current_time, threat_level)
 
-        # TL Proximity: how close the current score is to TL boundaries
-        tl_proximity = _routes.engine.compute_tl_proximity(score_with_bonus, threat_level)
+        # TL Proximity: distance to the TL thresholds from the score that
+        # actually drove the TL. Must use the focused scenario's post-bonus
+        # score (same one passed to derive_tl above) — not the legacy
+        # rationale-based score_with_bonus, which measures a different
+        # quantity and would contradict the HUD's TL badge.
+        _prox_score = (
+            _scenario_results.get(_focused_id, {}).get("score")
+            if _focused_tl is not None else score_with_bonus
+        )
+        if _prox_score is None:
+            _prox_score = score_with_bonus
+        tl_proximity = _routes.engine.compute_tl_proximity(_prox_score, threat_level)
 
         # ── CAC Phase D: Forecast recording & resolution ──────────────────
         _escalation = _routes.engine.compute_escalation_progress(
@@ -1545,6 +1739,7 @@ def get_threat_data():
 
         _new_cache = {
             "time": current_time,
+            "focus": _req_focus,
             "data": target_details,
             "strategic": {
                 "core_theater": core_theater, "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
@@ -1618,100 +1813,21 @@ def get_threat_data():
                 "analytics": deep_analytics,
             },
         }
-        # Store the active theater set for Situation Board filtering
+        # Active theater set for frontend target filtering (Target Visibility,
+        # Live Threat Telemetry) and Situation Board. Derived entirely from the
+        # focused scenario's participants (ADR-005). Exposed under strategic_alert
+        # so the frontend can read it as strat.active_theaters.
         _active_theaters = set()
-        _active_theaters.add(core_theater)
-        _active_theaters.update(requested_targets)
+        if core_theater:
+            _active_theaters.add(core_theater)
         _active_theaters.update(correlate_targets)
         _active_theaters.update(adversary_states)
-        _new_cache["active_theaters"] = sorted(_active_theaters)
+        _new_cache["strategic"]["active_theaters"] = sorted(_active_theaters)
+        _new_cache["focused_scenario"] = _focused_id
 
-        # ── Scenario scoring (Phase 2) ──────────────────────────────────
-        # Computed inside the cache-gated block so that:
-        #   - rationale (defined at line ~435) is in scope
-        #   - tl_observation_append only runs when data actually changes
-        #   - results are cached for inter-refresh requests
-        _scenario_results = {}
-        try:
-            from radar.scenarios import scenario_store
-            from radar.scoring import (
-                rationale_to_signal, compute_scenario_score, Signal,
-            )
-            _focused_id = request.args.get("focus", DEFAULT_FOCUSED_SCENARIO)
-
-            _signals: list[Signal] = []
-            for rat in rationale:
-                _src_country = core_theater if rat.sensor in _FOCUSED_ONLY_SENSOR_NAMES else ""
-                sig = rationale_to_signal(rat, source_country=_src_country,
-                                          observed_at=current_time)
-                if sig is not None:
-                    _signals.append(sig)
-
-            _scorable = scenario_store.scorable()
-            _sc_participants = {
-                sc.id: set(sc.participants.keys())
-                for sc in _scorable if sc.id != _focused_id
-            }
-            _intel_24h = _db.intel_count_24h_by_scenario(_sc_participants) if _sc_participants else {}
-
-            for _sc in _scorable:
-                _is_focused = (_sc.id == _focused_id)
-                _state = compute_scenario_score(
-                    _sc, _signals, _is_focused,
-                    global_signal_weight=GLOBAL_SIGNAL_WEIGHT,
-                    domain_cap=DOMAIN_CAP,
-                )
-                _sd = _state.to_dict()
-                _sd["name_en"] = _sc.name_en
-                _sd["name_ja"] = _sc.name_ja
-                if not _is_focused:
-                    _sd["lite_bias_warning"] = (
-                        "LITE mode: LLM intel + global signals only. "
-                        "Physical and per-country cyber signals are not observed."
-                    )
-                    if "indicators" in _sd:
-                        _sd["indicators"]["llm_intel_24h"] = _intel_24h.get(_sc.id, 0)
-                _scenario_results[_sc.id] = _sd
-
-                try:
-                    _db.tl_observation_append(
-                        scenario_id=_sc.id,
-                        observed_at=current_time,
-                        score=_state.score,
-                        tl=_state.tl,
-                        cyber=_state.domains.get("cyber", 0),
-                        physical=_state.domains.get("physical", 0),
-                        info=_state.domains.get("info", 0),
-                        convergence_bonus=_state.convergence_bonus,
-                        scoring_mode=_state.scoring_mode,
-                        active_countries=_state.active_countries,
-                    )
-                except Exception:
-                    pass
-            # Focus switch detection (Section 9.3.1)
-            global _prev_focused_id
-            if _prev_focused_id is not None and _prev_focused_id != _focused_id:
-                _new_sd = _scenario_results.get(_focused_id, {})
-                _old_sd = _scenario_results.get(_prev_focused_id, {})
-                if _new_sd:
-                    _full_score = _new_sd.get("score", 0)
-                    _lite_score = _old_sd.get("score", 0) if _old_sd else 0
-                    _delta = abs(_full_score - _lite_score)
-                    try:
-                        _db.focus_switch_append(
-                            scenario_id=_focused_id,
-                            switched_at=current_time,
-                            lite_score=_lite_score,
-                            full_score=_full_score,
-                            delta=_delta,
-                            is_miss=(_delta >= 1.0),
-                        )
-                    except Exception:
-                        pass
-            _prev_focused_id = _focused_id
-
-        except Exception as _sc_err:
-            log.warning("[Scoring] Scenario scoring failed: %s", _sc_err)
+        # Scenario results are computed upstream (see scenario scoring block
+        # earlier in this function — it drives `threat_level` as the single
+        # source of truth). Here we just propagate to cache.
         _new_cache["scenarios"] = _scenario_results
         _new_cache["scenario_history_starts_at"] = _db.scenario_history_start()
 
@@ -1767,7 +1883,8 @@ def get_threat_data():
     results = []
     _degraded_raw = _snap_strategic.get("degraded_theaters_raw", [])
     _degraded_eff = _snap_strategic.get("degraded_theaters", [])
-    for t in requested_targets:
+    # Targets panel: show all focused scenario participants (ADR-005).
+    for t in sorted(strategic_theaters_set):
         t_info = COUNTRY_COORDS.get(t, {"lat": 0, "lng": 0, "name": t})
         data = _snap_data.get(t, {"global_share": 0, "global_share_l3": 0, "global_share_l7": 0, "is_vector_shift": False, "shift_actors": [], "sources": []})
 
@@ -1804,15 +1921,23 @@ def get_threat_data():
         _sr["data_freshness_sec"] = _cache_age
         _scenario_results[_sk] = _sr
 
-    return jsonify({
+    _resp = jsonify({
         "timestamp":       datetime.datetime.now().isoformat(),
         "sensor_health":   _routes.registry.health_report(),
         "strategic_alert": _snap_strategic,
         "targets":         results,
         "threat_history":  _db.threat_list(),
         "climate_gauge":   _climate_gauge,
-        "focused_scenario": request.args.get("focus", DEFAULT_FOCUSED_SCENARIO),
+        "focused_scenario": focused_id,
         "scenarios":       _scenario_results,
         "scenario_history_starts_at": _cache_snap.get("scenario_history_starts_at"),
     })
+    _resp.headers["Deprecation"] = "true"
+    _resp.headers["Sunset"] = "2026-10-01"
+    _resp.headers["X-Deprecation-Notice"] = (
+        "Fields 'targets', 'strategic_alert', 'threat_history' are deprecated. "
+        "Use 'scenarios' for scenario-centric data. "
+        "These fields will be removed after 2026-10-01."
+    )
+    return _resp
 

@@ -95,6 +95,8 @@
     let mapCenterMode = 'atlantic';
     let _lastRenderSig = ''; // P4-Opt: diff signature cache
     window._resetRenderSig = () => { _lastRenderSig = ''; };
+    // Legacy config shape retained for compatibility with forceDataSync diff logic;
+    // under scenario-unit mode these fields are driven by the focused scenario.
     let lastSyncedConfig = { core: "", correlates: [], adversaries: [], displays: [] };
     let lastSyncedTimeText = "System Initializing...";
     let isFirstLoad = true;
@@ -1136,8 +1138,8 @@
         if (tabBtn) tabBtn.classList.add('active');
         document.getElementById(`tab-${tabId}`).classList.add('active');
         const mapPanel = document.getElementById('modal-map-panel');
-        const showMap  = ['strategy', 'actors', 'pins'].includes(tabId) && tabId !== 'sysconfig';
-        if (mapPanel) mapPanel.style.display = showMap ? 'flex' : 'none';
+        const showMap  = false;
+        if (mapPanel) mapPanel.style.display = 'none';
         if (showMap) {
             _initMinimap();
             _minimapFlyTo(_activeRegion);
@@ -1712,19 +1714,21 @@
     function _updateMinimap() {
         if (!_minimap || !_minimapMarkers) return;
         _minimapMarkers.clearLayers();
-        const coreVal  = document.querySelector('.radio-core:checked')?.value;
-        const linkVals = new Set([...document.querySelectorAll('.check-correlate:checked')].map(c => c.value));
-        const advVals  = new Set([...document.querySelectorAll('.check-adversary:checked')].map(c => c.value));
-        const pinVals  = new Set([...document.querySelectorAll('.check-pin:checked')].map(c => c.value));
+        // Scope is now scenario-driven: participants come from the focused
+        // scenario's strategic_alert payload, not from DOM toggles.
+        const strat = (latestData || {}).strategic_alert || {};
+        const coreVal = strat.core_theater || '';
+        const advSet  = new Set(strat.adversary_states || []);
+        const partSet = new Set(strat.active_theaters || []);
+        if (coreVal) partSet.add(coreVal);
 
         THEATERS.forEach(t => {
             if (t.lat == null || t.lng == null) return;
             let color, radius, fillOpacity, weight, opacity;
-            if (t.code === coreVal)         { color = '#00ffff'; radius = 7; fillOpacity = 0.9; weight = 2;   opacity = 1.0; }
-            else if (linkVals.has(t.code))  { color = '#ffaa00'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
-            else if (advVals.has(t.code))   { color = '#ff5555'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
-            else if (pinVals.has(t.code))   { color = '#55ee77'; radius = 4; fillOpacity = 0.7; weight = 1.5; opacity = 1.0; }
-            else                            { color = '#334455'; radius = 2; fillOpacity = 0.5; weight = 0;   opacity = 0.5; }
+            if (t.code === coreVal)        { color = '#00ffff'; radius = 7; fillOpacity = 0.9; weight = 2;   opacity = 1.0; }
+            else if (advSet.has(t.code))   { color = '#ff5555'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
+            else if (partSet.has(t.code))  { color = '#ffaa00'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
+            else                           { color = '#334455'; radius = 2; fillOpacity = 0.5; weight = 0;   opacity = 0.5; }
 
             L.circleMarker([t.lat, t.lng], { radius, color, fillColor: color, fillOpacity, weight, opacity })
              .bindTooltip(`${t.name} (${t.code})`, { sticky: true, className: 'minimap-tooltip' })
@@ -1757,342 +1761,64 @@
         'IRAN':   [[ 10, 28], [42,  72]],
         'DPRK':   [[ 33,120], [45, 135]],
     };
-    let _activeBloc = '';  // independent filter state for strategy tab
+    let _activeBloc = '';  // retained for region pill state (Pins tab removed)
 
     function buildTheaterUI() {
-        const strategyTbody = document.getElementById('strategy-tbody');
-        const actorsGrid    = document.getElementById('actors-grid');
-        const pinsGrid      = document.getElementById('pins-grid');
-        strategyTbody.innerHTML = '';
-        actorsGrid.innerHTML    = '';
-        pinsGrid.innerHTML      = '';
-
-        // ── Strategy table: multi-placement (country can appear in multiple blocs) ──
-
-        // Theater lookup by code
-        const theaterMap = {};
-        THEATERS.forEach(t => { theaterMap[t.code] = t; });
-
-        // Primary bloc per country: COUNTRY_BLOC_TAGS[0] takes precedence,
-        // otherwise first bloc encountered in STRATEGIC_BLOCS order.
-        const primaryBlocForCountry = {};
-        Object.entries(STRATEGIC_BLOCS_DATA).forEach(([blocKey, info]) => {
-            const cats = info.categories || (info.theaters ? [{theaters: info.theaters}] : []);
-            cats.forEach(cat => {
-                (cat.theaters || []).forEach(code => {
-                    if (!primaryBlocForCountry[code]) primaryBlocForCountry[code] = blocKey;
-                });
-            });
-        });
-        Object.entries(COUNTRY_BLOC_TAGS).forEach(([code, blocs]) => {
-            if (blocs && blocs.length > 0) primaryBlocForCountry[code] = blocs[0];
-        });
-
-        // Track all countries assigned to at least one bloc (for OTHER bucket)
-        const countryInAnyBloc = new Set();
-        Object.values(STRATEGIC_BLOCS_DATA).forEach(info => {
-            const cats = info.categories || (info.theaters ? [{theaters: info.theaters}] : []);
-            cats.forEach(cat => { (cat.theaters || []).forEach(code => countryInAnyBloc.add(code)); });
-        });
-
-        // Helper: bloc abbreviation
-        function blocAbbr(b) {
-            return b === 'RUSSIA' ? 'RU' : b === 'CHINA' ? 'CN' : b === 'IRAN' ? 'IR' : b === 'DPRK' ? 'KP' : b.slice(0, 2);
-        }
-
-        // Helper: bloc badges — primaryBloc (permanent primary threat) gets filled badge
-        function makeBlocBadges(allBlocs, primaryBloc) {
-            return allBlocs.map(b => {
-                const c = (STRATEGIC_BLOCS_DATA[b] || {}).color || '#888';
-                const abbr = blocAbbr(b);
-                const isPrimary = b === primaryBloc;
-                const style = isPrimary
-                    ? `background:${c};color:#111;border:1px solid ${c};`
-                    : `background:transparent;color:${c};border:1px solid ${c}88;`;
-                return `<span title="${b}" style="display:inline-block;font-size:9px;font-weight:bold;padding:1px 4px;border-radius:2px;margin-left:3px;vertical-align:middle;line-height:14px;${style}">${abbr}</span>`;
-            }).join('');
-        }
-
-        // Emit bloc header → subcat header → country rows (one row per country-bloc placement)
-        const blocsWithRows = new Set();
-        Object.entries(STRATEGIC_BLOCS_DATA).forEach(([blocKey, blocInfo]) => {
-            const cats = blocInfo.categories || (blocInfo.theaters ? [{key:'_', label:'', theaters: blocInfo.theaters}] : []);
-            const hasAny = cats.some(cat => (cat.theaters || []).some(code => theaterMap[code]));
-            if (!hasAny) return;
-            blocsWithRows.add(blocKey);
-
-            const hdr = document.createElement('tr');
-            hdr.className = 'bloc-header';
-            hdr.dataset.bloc = blocKey;
-            hdr.innerHTML = `<td colspan="3" style="padding:4px 6px;background:${blocInfo.color}18;border-top:1px solid ${blocInfo.color}44;border-bottom:1px solid ${blocInfo.color}22;">` +
-                `<span style="color:${blocInfo.color};font-size:10px;font-weight:bold;letter-spacing:1px;">▲ ${blocInfo.label.toUpperCase()}</span></td>`;
-            strategyTbody.appendChild(hdr);
-
-            cats.forEach(cat => {
-                const catCodes = (cat.theaters || []).filter(code => theaterMap[code]);
-                if (!catCodes.length) return;
-
-                if (cat.label) {
-                    const subHdr = document.createElement('tr');
-                    subHdr.className = 'subcat-header';
-                    subHdr.dataset.bloc = blocKey;
-                    subHdr.innerHTML = `<td colspan="3" style="padding:2px 6px 2px 14px;background:${blocInfo.color}0c;border-bottom:1px solid ${blocInfo.color}18;">` +
-                        `<span style="color:${blocInfo.color}bb;font-size:9px;letter-spacing:0.5px;">◆ ${cat.label.toUpperCase()}</span></td>`;
-                    strategyTbody.appendChild(subHdr);
-                }
-
-                catCodes.forEach(code => {
-                    const t = theaterMap[code];
-                    const primaryBloc = primaryBlocForCountry[code] || blocKey;
-                    const isPrimary = primaryBloc === blocKey;
-                    const allBlocs = COUNTRY_BLOC_TAGS[code] || [blocKey];
-                    const tr = document.createElement('tr');
-                    tr.dataset.name = t.name.toLowerCase();
-                    tr.dataset.bloc = blocKey;
-                    tr.dataset.blocs = allBlocs.join(' ');
-                    tr.dataset.primary = isPrimary ? '1' : '0';
-                    const blocBadges = makeBlocBadges(allBlocs, primaryBloc);
-                    tr.innerHTML = `<td class="center"><input type="radio" name="core_theater" value="${t.code}" class="radio-core"></td>` +
-                        `<td class="center"><input type="checkbox" class="check-correlate" value="${t.code}"></td>` +
-                        `<td><div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">` +
-                        `<label style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.name} <span style="color:#555;font-size:10px;">${t.code}</span></label>` +
-                        `<div style="display:flex;gap:2px;flex-shrink:0;">${blocBadges}</div>` +
-                        `</div></td>`;
-                    strategyTbody.appendChild(tr);
-                });
-            });
-        });
-
-        // OTHER bucket (countries not in any bloc)
-        const otherTheaters = THEATERS.filter(t => !countryInAnyBloc.has(t.code));
-        if (otherTheaters.length) {
-            const hdr = document.createElement('tr');
-            hdr.className = 'bloc-header';
-            hdr.dataset.bloc = 'OTHER';
-            hdr.innerHTML = `<td colspan="3" style="padding:4px 6px;background:#33333318;border-top:1px solid #44444444;border-bottom:1px solid #33333322;">` +
-                `<span style="color:#888;font-size:10px;font-weight:bold;letter-spacing:1px;">▲ OTHER</span></td>`;
-            strategyTbody.appendChild(hdr);
-            otherTheaters.forEach(t => {
-                const tr = document.createElement('tr');
-                tr.dataset.name = t.name.toLowerCase();
-                tr.dataset.bloc = 'OTHER';
-                tr.dataset.blocs = 'OTHER';
-                tr.dataset.primary = '1';
-                tr.innerHTML = `<td class="center"><input type="radio" name="core_theater" value="${t.code}" class="radio-core"></td>` +
-                    `<td class="center"><input type="checkbox" class="check-correlate" value="${t.code}"></td>` +
-                    `<td><label>${t.name} <span style="color:#555;font-size:10px;">${t.code}</span></label></td>`;
-                strategyTbody.appendChild(tr);
-            });
-        }
-
-        // ── Actors grid: adversary states only ──────────────────────────────
-        const advopts = ADVERSARY_OPTIONS.length ? ADVERSARY_OPTIONS
-            : Object.entries(STRATEGIC_BLOCS_DATA).map(([k, v]) => ({code: v.adversary, bloc: k, label: v.label, color: v.color}));
-        advopts.forEach(opt => {
-            const lbl = document.createElement('label');
-            lbl.style.cssText = `display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid ${opt.color}44;border-radius:3px;cursor:pointer;`;
-            lbl.innerHTML = `<input type="checkbox" class="check-adversary" value="${opt.code}">` +
-                `<span style="color:${opt.color};font-weight:bold;min-width:26px;">${opt.code}</span>` +
-                `<span style="color:#aaa;font-size:11px;">${opt.label}</span>`;
-            actorsGrid.appendChild(lbl);
-        });
-
-        // ── Pins grid: all countries (region-grouped) ───────────────────────
-        THEATERS.forEach(t => {
-            const pinLabel = document.createElement('label');
-            pinLabel.dataset.name   = t.name.toLowerCase();
-            pinLabel.dataset.region = t.region || 'Other';
-            pinLabel.innerHTML = `<input type="checkbox" class="check-pin" value="${t.code}"> ${t.name}`;
-            pinsGrid.appendChild(pinLabel);
-        });
-
-        // ── Strategy: bloc pills ─────────────────────────────────────────────
-        function buildBlocPills(containerId) {
-            const c = document.getElementById(containerId);
-            if (!c) return c;
-            const allBlocs = Object.entries(STRATEGIC_BLOCS_DATA).filter(([k]) => blocsWithRows.has(k));
-            c.innerHTML = `<button class="region-pill${_activeBloc === '' ? ' active' : ''}" data-bloc="">ALL</button>` +
-                allBlocs.map(([k, v]) =>
-                    `<button class="region-pill${k === _activeBloc ? ' active' : ''}" data-bloc="${k}" style="border-color:${v.color}55;color:${_activeBloc===k?'#111':v.color}">${v.label}</button>`
-                ).join('') +
-                (otherTheaters.length ? `<button class="region-pill${_activeBloc==='OTHER'?' active':''}" data-bloc="OTHER" style="border-color:#44444455;color:#888">Other</button>` : '');
-            return c;
-        }
-
-        // ── Pins: region pills (unchanged) ───────────────────────────────────
-        const allRegions = [...new Set(THEATERS.map(t => t.region || 'Other'))];
-        allRegions.sort((a, b) => {
-            const ia = REGION_ORDER.indexOf(a), ib = REGION_ORDER.indexOf(b);
-            if (ia < 0 && ib < 0) return a.localeCompare(b);
-            if (ia < 0) return 1; if (ib < 0) return -1;
-            return ia - ib;
-        });
-        function buildRegionPills(containerId) {
-            const c = document.getElementById(containerId);
-            if (!c) return c;
-            c.innerHTML = `<button class="region-pill${_activeRegion === '' ? ' active' : ''}" data-region="">ALL</button>` +
-                allRegions.map(r => `<button class="region-pill${r === _activeRegion ? ' active' : ''}" data-region="${r}">${r}</button>`).join('');
-            return c;
-        }
-
-        // Sync visual active state independently for each tab type
-        _syncPillsVisual = () => {
-            const sc = document.getElementById('pills-strategy');
-            if (sc) sc.querySelectorAll('.region-pill').forEach(p => {
-                p.classList.toggle('active', (p.dataset.bloc || '') === _activeBloc);
-                if (p.dataset.bloc && STRATEGIC_BLOCS_DATA[p.dataset.bloc]) {
-                    p.style.color = p.classList.contains('active') ? '#111' : STRATEGIC_BLOCS_DATA[p.dataset.bloc].color;
-                }
-            });
-            ['pills-pins'].forEach(id => {
-                const c = document.getElementById(id);
-                if (!c) return;
-                c.querySelectorAll('.region-pill').forEach(p => {
-                    p.classList.toggle('active', (p.dataset.region || '') === _activeRegion);
-                });
-            });
-        };
-
-        // Strategy bloc filter
-        function makeBlocFilter(pillContainer, searchInputId, getRows) {
-            if (!pillContainer) return () => {};
-            let searchText = '';
-            function apply() {
-                getRows().forEach(r => {
-                    if (r.classList.contains('bloc-header')) {
-                        r.style.display = (!_activeBloc || r.dataset.bloc === _activeBloc) ? '' : 'none';
-                        return;
-                    }
-                    if (r.classList.contains('subcat-header')) {
-                        // Sub-category headers only appear when a specific bloc is filtered
-                        r.style.display = (_activeBloc && r.dataset.bloc === _activeBloc) ? '' : 'none';
-                        return;
-                    }
-                    const nm = !searchText || (r.dataset.name || '').includes(searchText);
-                    let bm;
-                    if (_activeBloc) {
-                        // Bloc filter: show all rows in this bloc's section (includes cross-bloc countries)
-                        bm = r.dataset.bloc === _activeBloc;
-                    } else {
-                        // ALL view: flat list — show only each country's primary occurrence
-                        bm = r.dataset.primary === '1';
-                    }
-                    r.style.display = (bm && nm) ? '' : 'none';
-                });
-            }
-            pillContainer.addEventListener('click', e => {
-                if (!e.target.classList.contains('region-pill')) return;
-                _activeBloc = e.target.dataset.bloc || '';
-                _syncPillsVisual();
-                _reapplyFilters();
-                // Fly minimap to bloc bounds
-                if (!_activeBloc) {
-                    _minimapFlyTo('');
-                } else {
-                    const b = BLOC_BOUNDS[_activeBloc];
-                    if (_minimap && b) _minimap.flyToBounds(b, {padding:[8,8], maxZoom:5, animate:true, duration:0.4});
-                }
-            });
-            const el = document.getElementById(searchInputId);
-            if (el) el.addEventListener('input', () => { searchText = el.value.toLowerCase(); apply(); });
-            return apply;
-        }
-
-        // Region filter (pins)
-        function makeRegionFilter(pillContainer, searchInputId, getRows) {
-            if (!pillContainer) return () => {};
-            let searchText = '';
-            function apply() {
-                getRows().forEach(r => {
-                    const rm = !_activeRegion || r.dataset.region === _activeRegion;
-                    const nm = !searchText || (r.dataset.name || '').includes(searchText);
-                    r.style.display = (rm && nm) ? '' : 'none';
-                });
-            }
-            pillContainer.addEventListener('click', e => {
-                if (!e.target.classList.contains('region-pill')) return;
-                _activeRegion = e.target.dataset.region;
-                _syncPillsVisual();
-                _reapplyFilters();
-                _minimapFlyTo(_activeRegion);
-            });
-            const el = document.getElementById(searchInputId);
-            if (el) el.addEventListener('input', () => { searchText = el.value.toLowerCase(); apply(); });
-            return apply;
-        }
-
-        const applyS = makeBlocFilter(buildBlocPills('pills-strategy'),  'search-strategy', () => strategyTbody.querySelectorAll('tr'));
-        const applyP = makeRegionFilter(buildRegionPills('pills-pins'),  'search-pins',     () => pinsGrid.querySelectorAll('label'));
-        _reapplyFilters = () => { applyS(); applyP(); };
-
-        _reapplyFilters();
-
-        [strategyTbody, actorsGrid, pinsGrid].forEach(container => {
-            container.addEventListener('change', () => _updateMinimap());
-        });
+        // Strategy / Actors / Pins tabs were removed — scope is now driven by
+        // the focused scenario's participants (see Scenario Manager admin tab).
+        _reapplyFilters = () => {};
+        _syncPillsVisual = () => {};
     }
 
     function renderQuickToggles() {
+        // Quick Pins grid was removed. The active country set is derived from
+        // the focused scenario's participants as published in strategic_alert.
         const displayGrid = document.getElementById('display-checkboxes');
-        const currentChecked = Array.from(document.querySelectorAll('.check-display:checked')).map(cb => cb.value);
-        
-        const pinnedCodes = new Set();
-        document.querySelectorAll('.check-pin:checked').forEach(cb => pinnedCodes.add(cb.value));
-        const coreVal = document.querySelector('.radio-core:checked')?.value;
-        if (coreVal) pinnedCodes.add(coreVal);
-        document.querySelectorAll('.check-correlate:checked').forEach(cb => pinnedCodes.add(cb.value));
-
-        displayGrid.innerHTML = ''; 
-        
-        Array.from(pinnedCodes).forEach(code => {
+        if (!displayGrid) return;
+        const strat = (latestData || {}).strategic_alert || {};
+        const active = new Set(strat.active_theaters || []);
+        if (strat.core_theater) active.add(strat.core_theater);
+        displayGrid.innerHTML = '';
+        Array.from(active).forEach(code => {
             const t = THEATERS.find(theater => theater.code === code);
             if (!t) return;
-            const isChecked = currentChecked.includes(code) ? 'checked' : '';
             const lbl = document.createElement('label');
-            lbl.innerHTML = `<input type="checkbox" class="check-display" value="${code}" ${isChecked}> ${t.name}`;
+            lbl.innerHTML = `<input type="checkbox" class="check-display" value="${code}" checked disabled> ${t.name}`;
             displayGrid.appendChild(lbl);
         });
-
-        if(displayGrid.innerHTML === '') displayGrid.innerHTML = `<div style="color:#888; font-size:11px;">${_t('dash.no_active_pins')}</div>`;
+        if (displayGrid.innerHTML === '') {
+            displayGrid.innerHTML = `<div style="color:#888; font-size:11px;">${_t('dash.no_active_pins')}</div>`;
+        }
     }
 
     function updateUIConsistency() {
-        document.querySelectorAll('#strategy-tbody tr').forEach(tr => {
-            const coreRadio = tr.querySelector('.radio-core'); const corrCb = tr.querySelector('.check-correlate');
-            if (!coreRadio || !corrCb) return;
-            if (coreRadio.checked) { corrCb.disabled = true; corrCb.checked = false; } else { corrCb.disabled = false; }
-        });
+        // No-op: Strategy table was removed.
     }
 
     function getCurrentConfig() {
+        // Scope is now derived from the focused scenario server-side; the URL
+        // only needs to carry the focus id. Preserve the shape for legacy callers.
+        const strat = (latestData || {}).strategic_alert || {};
+        const active = new Set(strat.active_theaters || []);
+        if (strat.core_theater) active.add(strat.core_theater);
         return {
-            core: document.querySelector('input[name="core_theater"]:checked')?.value || '',
-            correlates: Array.from(document.querySelectorAll('.check-correlate:checked')).map(cb => cb.value),
-            adversaries: Array.from(document.querySelectorAll('.check-adversary:checked')).map(cb => cb.value),
-            displays: Array.from(document.querySelectorAll('.check-display:checked')).map(cb => cb.value)
+            core: strat.core_theater || '',
+            correlates: [],
+            adversaries: [],
+            displays: Array.from(active)
         };
     }
 
     function checkPendingState() {
-        const curr = getCurrentConfig();
-        let needsApiSync = false;
-
-        if (curr.core !== lastSyncedConfig.core) needsApiSync = true;
-        if (curr.correlates.sort().join(',') !== lastSyncedConfig.correlates.sort().join(',')) needsApiSync = true;
-        if (curr.adversaries.sort().join(',') !== lastSyncedConfig.adversaries.sort().join(',')) needsApiSync = true;
-
-        const fetchedCountries = new Set([
-            lastSyncedConfig.core, 
-            ...lastSyncedConfig.correlates, 
-            ...lastSyncedConfig.displays
-        ].filter(Boolean));
-
-        const hasUnfetchedDisplay = curr.displays.some(code => !fetchedCountries.has(code));
-        if (hasUnfetchedDisplay) needsApiSync = true;
+        // Pending-sync state is only driven by explicit SYNC presses now; the
+        // scope picker UI was removed. Keep the function for callers but treat
+        // state as always "in sync" after the most recent fetch.
+        const needsApiSync = false;
 
         const syncBtnTop = document.getElementById('btn-sync-top');
         const syncBtnSide = document.getElementById('btn-sync-side');
         const updateTimeEl = document.getElementById('update-time');
+        if (!syncBtnTop || !syncBtnSide || !updateTimeEl) return;
 
         if (needsApiSync) {
             updateTimeEl.innerHTML = `<span style="color:#ffaa00;">Changes pending. Press SYNC.</span>`;
@@ -2118,17 +1844,10 @@
     window.forceDataSync = forceDataSync;
 
     async function fetchDDoSData(force = false) {
-        const curr = getCurrentConfig();
-        
-        const fetchSet = new Set(curr.displays);
-        if (curr.core) fetchSet.add(curr.core);
-        curr.correlates.forEach(c => fetchSet.add(c));
-        const fetchTargets = Array.from(fetchSet).join(',');
-
-        const selectedCorrelates = curr.correlates.join(',');
-        const selectedAdversaries = curr.adversaries.join(',');
-        const coreTheater = curr.core;
+        // Under scenario-unit mode the server derives scope from the focused
+        // scenario; only focus + muted + force are passed.
         const mutedList = Array.from(mutedSensors).join(',');
+        const coreTheater = ((latestData || {}).strategic_alert || {}).core_theater || '';
 
         const syncBtnTop = document.getElementById('btn-sync-top');
         const syncBtnSide = document.getElementById('btn-sync-side');
@@ -2141,8 +1860,6 @@
         try {
             const _focusParam = _getScenarioFocus();
             const _params = new URLSearchParams({
-                targets: fetchTargets, core: coreTheater,
-                correlates: selectedCorrelates, adversaries: selectedAdversaries,
                 muted: mutedList, force: force,
                 focus: _focusParam
             });
@@ -2218,6 +1935,10 @@
         if (window._updateSitBoardFromPoll) window._updateSitBoardFromPoll();
         if (window._updateTgSigintFromPoll) window._updateTgSigintFromPoll(data);
         if (window._updateLlmIntelFromPoll) window._updateLlmIntelFromPoll();
+
+        // Repopulate the Target Visibility panel from the latest focused scenario.
+        // Scope is scenario-driven now, so this must re-render each poll.
+        renderQuickToggles();
 
         const curr = getCurrentConfig();
         const displayTargets = curr.displays;
@@ -2543,7 +2264,7 @@
         );
 
         if (displayTargets.length === 0) {
-            originHtml = "<div style='color:grey; padding: 10px;'>No targets active. Turn on toggles in Target Visibility panel.</div>";
+            originHtml = `<div style='color:grey; padding: 10px;'>${_t('dash.no_active_pins')}</div>`;
         } else if (data.targets && data.targets.length > 0) {
             const vecShareKey = currentVector === 'l3' ? 'global_share_l3' : currentVector === 'l7' ? 'global_share_l7' : 'global_share';
             data.targets.sort((a, b) => (b[vecShareKey] || 0) - (a[vecShareKey] || 0)).forEach(t => {
@@ -3108,9 +2829,6 @@
 
     function saveLocalState() {
         const stateObj = getCurrentConfig();
-        stateObj.pins = {};
-        document.querySelectorAll('.check-pin').forEach(cb => stateObj.pins[cb.value] = cb.checked);
-
         stateObj.layout = {};
         ALL_DOCKABLE_PANELS.forEach(({ id, ph }) => {
             const panel = document.getElementById(id);
@@ -3203,31 +2921,9 @@
             if (!stateObj.layoutVersion || stateObj.layoutVersion < LAYOUT_VERSION) {
                 delete stateObj.layout;
             }
-            document.querySelectorAll('#strategy-tbody tr').forEach(tr => {
-                const coreRadio = tr.querySelector('.radio-core'); const corrCb = tr.querySelector('.check-correlate');
-                if (coreRadio && stateObj.core === coreRadio.value) coreRadio.checked = true;
-                if (corrCb && stateObj.correlates && Array.isArray(stateObj.correlates)) {
-                    corrCb.checked = stateObj.correlates.includes(corrCb.value);
-                }
-            });
-            document.querySelectorAll('.check-adversary').forEach(cb => { 
-                if (stateObj.adversaries && Array.isArray(stateObj.adversaries)) {
-                    cb.checked = stateObj.adversaries.includes(cb.value);
-                } 
-            });
-            document.querySelectorAll('.check-pin').forEach(cb => { 
-                if (stateObj.pins && stateObj.pins[cb.value] !== undefined) {
-                    cb.checked = stateObj.pins[cb.value]; 
-                }
-            });
-            
+
             renderQuickToggles();
-            document.querySelectorAll('.check-display').forEach(cb => { 
-                if (stateObj.displays && Array.isArray(stateObj.displays)) {
-                    cb.checked = stateObj.displays.includes(cb.value); 
-                }
-            });
-            
+
             if (stateObj.layout) restoreLayoutState(stateObj.layout);
             if (stateObj.sidebarOrder) {
                 _sidebarOrder = stateObj.sidebarOrder;
@@ -3240,13 +2936,7 @@
                 mapCenterMode = stateObj.ui.mapCenter || 'pacific';
             }
         } else {
-            const defaultCore = document.querySelector(`.radio-core[value="${defaults.default_core}"]`); if(defaultCore) defaultCore.checked = true;
-            defaults.default_correlates.forEach(c => { const cb = document.querySelector(`.check-correlate[value="${c}"]`); if(cb) cb.checked = true; });
-            defaults.default_adversaries.forEach(c => { const cb = document.querySelector(`.check-adversary[value="${c}"]`); if(cb) cb.checked = true; });
-            defaults.default_pins.forEach(c => { const cb = document.querySelector(`.check-pin[value="${c}"]`); if(cb) cb.checked = true; });
-            
             renderQuickToggles();
-            document.querySelectorAll('.check-display').forEach(cb => cb.checked = true);
         }
         
         mapCenterMode = 'atlantic';
@@ -3262,16 +2952,10 @@
     }
 
     document.addEventListener('change', (e) => {
-        if (e.target.matches('.check-pin, .radio-core, .check-correlate')) {
-            renderQuickToggles();
-        }
-        if (e.target.matches('.check-pin, .radio-core, .check-correlate, .check-adversary, .check-display')) {
-            updateUIConsistency();
+        // Scope pickers were removed; only display-layer toggles (if any) still fire here.
+        if (e.target.matches('.check-display')) {
             saveLocalState();
-            checkPendingState();
-        }
-        if (e.target.matches('.check-display') && latestData) {
-            renderTelemetry(latestData);
+            if (latestData) renderTelemetry(latestData);
         }
     });
 
@@ -3285,10 +2969,7 @@
         }
 
         let defaults = {
-            default_core: "TW",
-            default_correlates: ["JP", "US"],
-            default_adversaries: ["CN", "RU", "KP"],
-            default_pins: ["TW", "JP", "US"]
+            default_focused_scenario: "taiwan_contingency"
         };
         try {
             const res = await fetch(`/api/app_config`);
@@ -3318,7 +2999,8 @@
                 _wsSocket = io({ transports: ['websocket', 'polling'], query: { token: _wsToken } });
                 _wsSocket.on('connect', () => {
                     _wsConnected = true;
-                    const core = getCurrentConfig().core || 'TW';
+                    const core = getCurrentConfig().core || '';
+                    if (!core) return;
                     _wsSubscribedTheater = core;
                     _wsSocket.emit('subscribe_theater', core);
                     console.log('[WS] Connected, subscribed to', core);
@@ -4723,18 +4405,14 @@
             const res = await fetch(`/api/env_config`, { headers: _adminHeaders() });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const cfg = await res.json();
-            // Populate plain inputs (skip picker-managed hidden inputs)
-            const pickerKeys = new Set(['DEFAULT_CORE','DEFAULT_ADVERSARIES','DEFAULT_CORRELATES','DEFAULT_PINS']);
             document.querySelectorAll('[id^="ec-"]').forEach(el => {
                 const key = el.id.replace('ec-', '');
                 if (key === 'LLM_MODEL_manual') return; // skip manual fallback field
-                if (!pickerKeys.has(key) && cfg[key] !== undefined) {
+                if (cfg[key] !== undefined) {
                     el.value = cfg[key];
                     if (key === 'LLM_MODEL') el.dataset.current = cfg[key];
                 }
             });
-            // Populate scope pickers
-            await populateEnvScopePickers(cfg);
             const st = document.getElementById('env-status');
             if (st) { st.textContent = ''; }
             // Auto-fetch Ollama models so the Model select shows the current selection
@@ -4745,133 +4423,7 @@
         }
     }
 
-    // Scope picker state
-    const _envScope = { adversaries: new Set(), correlates: new Set(), pins: new Set() };
-
-    async function populateEnvScopePickers(cfg) {
-        // Init state from config values
-        _envScope.adversaries = new Set((cfg.DEFAULT_ADVERSARIES || '').split(',').map(s => s.trim()).filter(Boolean));
-        _envScope.correlates  = new Set((cfg.DEFAULT_CORRELATES  || '').split(',').map(s => s.trim()).filter(Boolean));
-        _envScope.pins        = new Set((cfg.DEFAULT_PINS        || '').split(',').map(s => s.trim()).filter(Boolean));
-
-        let appCfg;
-        try {
-            const r = await fetch(`/api/app_config`);
-            if (!r.ok) return;
-            appCfg = await r.json();
-        } catch(e) { return; }
-
-        const countries   = appCfg.available_countries || [];
-        const adversaries = appCfg.adversary_options   || [];
-
-        // Core Theater: <select>
-        const coreSelect = document.getElementById('ec-DEFAULT_CORE');
-        if (coreSelect) {
-            coreSelect.innerHTML = '<option value="">— none —</option>';
-            countries.forEach(c => {
-                const opt = new Option(`${c.code}  –  ${c.name}`, c.code);
-                coreSelect.appendChild(opt);
-            });
-            coreSelect.value = cfg.DEFAULT_CORE || '';
-        }
-
-        // Adversaries: toggle cards
-        const advPicker = document.getElementById('ec-DEFAULT_ADVERSARIES-picker');
-        if (advPicker) {
-            advPicker.innerHTML = '';
-            adversaries.forEach(a => {
-                const code = typeof a === 'object' ? a.code : a;
-                const name = typeof a === 'object' ? (a.name || a.code) : a;
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'adv-bloc-btn' + (_envScope.adversaries.has(code) ? ' active' : '');
-                btn.innerHTML = `<span class="adv-bloc-code">${code}</span><span class="adv-bloc-name">${name}</span>`;
-                btn.onclick = () => {
-                    if (_envScope.adversaries.has(code)) {
-                        _envScope.adversaries.delete(code);
-                        btn.classList.remove('active');
-                    } else {
-                        _envScope.adversaries.add(code);
-                        btn.classList.add('active');
-                    }
-                };
-                advPicker.appendChild(btn);
-            });
-        }
-
-        // Correlates + Pins: tag pickers
-        _buildTagPicker('ec-correlates-list', 'ec-correlates-tags', 'ec-search-correlates', _envScope.correlates, countries);
-        _buildTagPicker('ec-pins-list',       'ec-pins-tags',       'ec-search-pins',       _envScope.pins,       countries);
-    }
-
-    function _buildTagPicker(listId, tagsId, searchId, selectedSet, countries) {
-        const listEl   = document.getElementById(listId);
-        const tagsEl   = document.getElementById(tagsId);
-        const searchEl = document.getElementById(searchId);
-        if (!listEl || !tagsEl) return;
-
-        function renderTags() {
-            tagsEl.innerHTML = '';
-            const codes = [...selectedSet].sort();
-            if (codes.length === 0) {
-                tagsEl.innerHTML = `<span class="scope-tags-empty">${_t('sysconfig.scope.none_selected')}</span>`;
-                return;
-            }
-            codes.forEach(code => {
-                const tag = document.createElement('span');
-                tag.className = 'scope-tag';
-                const rm = document.createElement('button');
-                rm.type = 'button';
-                rm.className = 'scope-tag-remove';
-                rm.textContent = '×';
-                rm.title = 'Remove';
-                rm.onclick = () => {
-                    selectedSet.delete(code);
-                    renderTags();
-                    renderList(searchEl ? searchEl.value : '');
-                };
-                tag.appendChild(document.createTextNode(code + ' '));
-                tag.appendChild(rm);
-                tagsEl.appendChild(tag);
-            });
-        }
-
-        function renderList(filter) {
-            listEl.innerHTML = '';
-            const f = (filter || '').toLowerCase().trim();
-            countries
-                .filter(c => !f || c.code.toLowerCase().includes(f) || c.name.toLowerCase().includes(f))
-                .forEach(c => {
-                    const item = document.createElement('div');
-                    const sel  = selectedSet.has(c.code);
-                    item.className = 'scope-list-item' + (sel ? ' selected' : '');
-                    item.innerHTML = `<span class="scope-item-code">${c.code}</span><span class="scope-item-name">${c.name}</span>${sel ? '<span class="scope-item-check">✓</span>' : ''}`;
-                    item.onclick = () => {
-                        if (selectedSet.has(c.code)) selectedSet.delete(c.code);
-                        else selectedSet.add(c.code);
-                        renderTags();
-                        renderList(searchEl ? searchEl.value : '');
-                    };
-                    listEl.appendChild(item);
-                });
-        }
-
-        renderTags();
-        renderList('');
-        if (searchEl) searchEl.oninput = () => renderList(searchEl.value);
-    }
-
-    function syncEnvScopePickersToInputs() {
-        const a = document.getElementById('ec-DEFAULT_ADVERSARIES');
-        if (a) a.value = [..._envScope.adversaries].join(',');
-        const c = document.getElementById('ec-DEFAULT_CORRELATES');
-        if (c) c.value = [..._envScope.correlates].join(',');
-        const p = document.getElementById('ec-DEFAULT_PINS');
-        if (p) p.value = [..._envScope.pins].join(',');
-    }
-
     async function saveEnvConfig() {
-        syncEnvScopePickersToInputs();
         const updates = {};
         const _skipKeys = new Set(['LLM_MODEL_manual']);
         document.querySelectorAll('[id^="ec-"]').forEach(el => {
@@ -7340,6 +6892,9 @@
         return (window._lastThreatData || {}).focused_scenario || '';
     }
 
+    let _scenarioDetailOpen = null;
+    let _scenarioWhatIfExcluded = new Set();
+
     function renderScenarioBar(data) {
         const container = document.getElementById('scenario-cards');
         if (!container) return;
@@ -7366,7 +6921,6 @@
             const domains = sc.domains || {};
 
             const cardClass = isFocused ? 'sc-card sc-card-focused' : 'sc-card';
-            const onclick = isFocused ? '' : ` onclick="switchScenarioFocus('${sid}')"`;
             const badge = isFocused
                 ? `<span class="sc-badge sc-badge-focused">${_t('scenario.badge.focused')}</span>`
                 : `<span class="sc-badge sc-badge-lite">${_t('scenario.badge.lite')}</span>`;
@@ -7381,9 +6935,7 @@
             const infoActive  = (domains.info || 0) > 0 ? 'sc-domain-active' : 'sc-domain-inactive';
 
             let tooltip = '';
-            if (!isFocused && sc.lite_bias_warning) {
-                tooltip = ` data-tooltip="${_escHtml(sc.lite_bias_warning)}"`;
-            } else if (isFocused) {
+            if (isFocused) {
                 const parts = [
                     `Score: ${score}`,
                     `Cyber: ${(domains.cyber||0).toFixed(2)}`,
@@ -7395,7 +6947,9 @@
                 tooltip = ` data-tooltip="${_escHtml(parts.join('\n'))}"`;
             }
 
-            html += `<div class="${cardClass}"${onclick}${tooltip}>`;
+            const detailBtn = ` onclick="toggleScenarioDetail('${sid}')"`;
+
+            html += `<div class="${cardClass}"${detailBtn}${tooltip}>`;
             html += badge;
             html += `<span class="sc-name">${_escHtml(name)}</span>`;
             html += tlHtml;
@@ -7405,13 +6959,201 @@
             html += `<span class="sc-domain-dot sc-domain-physical ${physActive}">P</span>`;
             html += `<span class="sc-domain-dot sc-domain-info ${infoActive}">I</span>`;
             html += `</span>`;
+            if (!isFocused && sc.lite_bias_warning) {
+                html += `<span class="sc-lite-tag">${_t('scenario.badge.lite_warn')}</span>`;
+            }
             html += `</div>`;
         }
         container.innerHTML = html;
+
+        if (_scenarioDetailOpen && scenarios[_scenarioDetailOpen]) {
+            _renderScenarioDetail(scenarios[_scenarioDetailOpen], _scenarioDetailOpen);
+        }
     }
+
+    window.toggleScenarioDetail = function(scenarioId) {
+        const panel = document.getElementById('scenario-detail-panel');
+        if (!panel) return;
+        if (_scenarioDetailOpen === scenarioId) {
+            panel.style.display = 'none';
+            _scenarioDetailOpen = null;
+            return;
+        }
+        _scenarioDetailOpen = scenarioId;
+        _scenarioWhatIfExcluded = new Set();
+        const data = window._lastThreatData;
+        if (!data || !data.scenarios || !data.scenarios[scenarioId]) return;
+        _renderScenarioDetail(data.scenarios[scenarioId], scenarioId);
+        panel.style.display = '';
+    };
+
+    function _renderScenarioDetail(sc, scenarioId) {
+        const panel = document.getElementById('scenario-detail-panel');
+        if (!panel) return;
+        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
+        const name = lang === 'ja' ? (sc.name_ja || sc.name_en || scenarioId) : (sc.name_en || scenarioId);
+        const isFocused = sc.is_focused;
+        const contributions = sc.contributions || [];
+        const domains = sc.domains || {};
+
+        let html = `<div class="sc-detail-header">`;
+        html += `<span class="sc-detail-title">${_escHtml(name)}</span>`;
+        html += `<span class="sc-detail-mode ${isFocused ? 'sc-mode-full' : 'sc-mode-lite'}">${sc.scoring_mode || 'lite'}</span>`;
+        if (sc.tl != null) html += `<span class="sc-tl sc-tl-${sc.tl}">TL${sc.tl}</span>`;
+        html += `<span class="sc-detail-score">${_t('scenario.detail.score')}: ${(sc.score||0).toFixed(2)}</span>`;
+        html += `<span class="sc-detail-close" onclick="toggleScenarioDetail('${scenarioId}')">✕</span>`;
+        html += `</div>`;
+
+        if (!isFocused && sc.lite_bias_warning) {
+            html += `<div class="sc-bias-warning">`;
+            html += `<span class="sc-bias-icon">⚠</span> `;
+            html += `<span>${_t('scenario.detail.lite_bias')}</span>`;
+            html += `</div>`;
+        }
+
+        html += `<div class="sc-detail-domains">`;
+        for (const d of ['cyber', 'physical', 'info']) {
+            const v = (domains[d] || 0).toFixed(2);
+            const cls = parseFloat(v) > 0 ? `sc-dom-bar sc-dom-${d}` : `sc-dom-bar sc-dom-${d} sc-dom-zero`;
+            html += `<div class="${cls}"><span class="sc-dom-label">${d.charAt(0).toUpperCase()}</span> <span class="sc-dom-val">${v}</span></div>`;
+        }
+        if (sc.convergence_bonus) {
+            html += `<div class="sc-dom-bar sc-dom-conv"><span class="sc-dom-label">+</span> <span class="sc-dom-val">${sc.convergence_bonus.toFixed(2)}</span></div>`;
+        }
+        html += `</div>`;
+
+        if (contributions.length > 0) {
+            const whatIfResult = _computeWhatIf(sc, contributions);
+
+            if (_scenarioWhatIfExcluded.size > 0 && whatIfResult) {
+                html += `<div class="sc-whatif-result">`;
+                html += `<span class="sc-whatif-label">${_t('scenario.detail.whatif_result')}</span> `;
+                html += `<span class="sc-whatif-score">${whatIfResult.score.toFixed(2)}</span>`;
+                if (whatIfResult.tl != null) html += ` <span class="sc-tl sc-tl-${whatIfResult.tl}">TL${whatIfResult.tl}</span>`;
+                html += ` <span class="sc-whatif-delta">(${whatIfResult.delta >= 0 ? '+' : ''}${whatIfResult.delta.toFixed(2)})</span>`;
+                html += `</div>`;
+            }
+
+            html += `<div class="sc-contrib-header">`;
+            html += `<span>${_t('scenario.detail.contributions')} (${contributions.length})</span>`;
+            if (isFocused) html += ` <button class="btn-tactical sc-whatif-btn" onclick="scResetWhatIf()">${_t('scenario.detail.whatif_reset')}</button>`;
+            html += `</div>`;
+            html += `<table class="sc-contrib-table"><thead><tr>`;
+            html += `<th>${_t('scenario.detail.col_sensor')}</th>`;
+            html += `<th>${_t('scenario.detail.col_country')}</th>`;
+            html += `<th>${_t('scenario.detail.col_role')}</th>`;
+            html += `<th>${_t('scenario.detail.col_raw')}</th>`;
+            html += `<th>${_t('scenario.detail.col_llm_w')}</th>`;
+            html += `<th>${_t('scenario.detail.col_part_w')}</th>`;
+            html += `<th>${_t('scenario.detail.col_contrib')}</th>`;
+            html += `<th>${_t('scenario.detail.col_evidence')}</th>`;
+            if (isFocused) html += `<th>${_t('scenario.detail.col_whatif')}</th>`;
+            html += `</tr></thead><tbody>`;
+            for (let i = 0; i < contributions.length; i++) {
+                const c = contributions[i];
+                const s = c.signal || {};
+                const excluded = _scenarioWhatIfExcluded.has(i);
+                const rowCls = excluded ? 'sc-contrib-excluded' : '';
+                html += `<tr class="${rowCls}" onclick="scToggleContribDetail(${i})" style="cursor:pointer;">`;
+                html += `<td class="sc-td-sensor"><span class="sc-sensor-domain sc-sensor-${s.domain || 'info'}">${(s.domain||'?')[0].toUpperCase()}</span> ${_escHtml(s.sensor || '')}</td>`;
+                html += `<td class="sc-td-cc">${_escHtml(c.contributing_country)}</td>`;
+                html += `<td class="sc-td-role">${_t('scenario.role.' + c.participant_role)}</td>`;
+                html += `<td class="sc-td-num">${(s.raw_score || 0).toFixed(1)}</td>`;
+                html += `<td class="sc-td-num">${c.llm_country_weight.toFixed(2)}</td>`;
+                html += `<td class="sc-td-num">${c.participant_weight.toFixed(2)}</td>`;
+                html += `<td class="sc-td-num sc-td-contrib">${c.final_contribution.toFixed(2)}</td>`;
+                html += `<td class="sc-td-link">`;
+                if (s.evidence_url) {
+                    html += `<a href="${_escHtml(s.evidence_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${_escHtml(s.evidence_url)}">🔗</a>`;
+                }
+                html += `</td>`;
+                if (isFocused) {
+                    html += `<td class="sc-td-whatif"><button class="btn-tactical sc-whatif-toggle ${excluded ? 'sc-whatif-on' : ''}" onclick="event.stopPropagation();scToggleWhatIf(${i})">${excluded ? '✓' : '✕'}</button></td>`;
+                }
+                html += `</tr>`;
+                html += `<tr class="sc-contrib-detail" id="sc-contrib-detail-${i}" style="display:none;"><td colspan="${isFocused ? 9 : 8}">`;
+                html += `<div class="sc-detail-expand">`;
+                html += `<div class="sc-formula">${_escHtml(c.formula_trace)}</div>`;
+                if (s.value_display) html += `<div class="sc-val-display">${_t('scenario.detail.value')}: ${_escHtml(s.value_display)}</div>`;
+                if (s.llm_reasoning) html += `<div class="sc-llm-reason">${_t('scenario.detail.llm_reasoning')}: ${_escHtml(s.llm_reasoning)}</div>`;
+                if (s.observed_at) html += `<div class="sc-obs-time">${_t('scenario.detail.observed')}: ${new Date(s.observed_at * 1000).toLocaleString()}</div>`;
+                if (s.evidence_url) html += `<div class="sc-evidence"><a href="${_escHtml(s.evidence_url)}" target="_blank" rel="noopener">${_escHtml(s.evidence_url)}</a></div>`;
+                html += `</div></td></tr>`;
+            }
+            html += `</tbody></table>`;
+        } else {
+            html += `<div class="sc-no-contrib">${_t('scenario.detail.no_contributions')}</div>`;
+        }
+
+        if (!isFocused && sc.indicators) {
+            const ind = sc.indicators;
+            html += `<div class="sc-indicators">`;
+            html += `<span class="sc-ind-label">${_t('scenario.detail.indicators')}:</span> `;
+            html += `LLM 24h: ${ind.llm_intel_24h || 0} `;
+            html += `| ${_t('scenario.detail.active_countries')}: ${ind.active_countries || 0} `;
+            const dsc = ind.domain_signal_counts || {};
+            html += `| C:${dsc.cyber||0} P:${dsc.physical||0} I:${dsc.info||0}`;
+            html += `</div>`;
+        }
+
+        panel.innerHTML = html;
+    }
+
+    function _computeWhatIf(sc, contributions) {
+        if (_scenarioWhatIfExcluded.size === 0) return null;
+        const domains = { cyber: 0, physical: 0, info: 0 };
+        for (let i = 0; i < contributions.length; i++) {
+            if (_scenarioWhatIfExcluded.has(i)) continue;
+            const c = contributions[i];
+            const d = (c.signal || {}).domain || 'info';
+            if (d in domains) domains[d] += c.final_contribution;
+        }
+        const DOMAIN_CAP = 6.0;
+        for (const d in domains) domains[d] = Math.min(domains[d], DOMAIN_CAP);
+        const activeDomains = Object.values(domains).filter(v => v > 0).length;
+        let convBonus = 0;
+        if (activeDomains >= 3) convBonus = 2.0;
+        else if (activeDomains >= 2) convBonus = 1.0;
+        const score = Object.values(domains).reduce((a, b) => a + b, 0) + convBonus;
+        let tl = null;
+        if (sc.is_focused) {
+            if (score >= 9 && domains.physical >= 3.0) tl = 1;
+            else if (score >= 6 && activeDomains >= 2) tl = 2;
+            else if (score >= 4) tl = 3;
+            else if (score >= 2) tl = 4;
+            else tl = 5;
+        }
+        return { score, tl, delta: score - (sc.score || 0) };
+    }
+
+    window.scToggleWhatIf = function(idx) {
+        if (_scenarioWhatIfExcluded.has(idx)) _scenarioWhatIfExcluded.delete(idx);
+        else _scenarioWhatIfExcluded.add(idx);
+        const data = window._lastThreatData;
+        if (data && data.scenarios && _scenarioDetailOpen) {
+            _renderScenarioDetail(data.scenarios[_scenarioDetailOpen], _scenarioDetailOpen);
+        }
+    };
+
+    window.scResetWhatIf = function() {
+        _scenarioWhatIfExcluded = new Set();
+        const data = window._lastThreatData;
+        if (data && data.scenarios && _scenarioDetailOpen) {
+            _renderScenarioDetail(data.scenarios[_scenarioDetailOpen], _scenarioDetailOpen);
+        }
+    };
+
+    window.scToggleContribDetail = function(idx) {
+        const row = document.getElementById('sc-contrib-detail-' + idx);
+        if (!row) return;
+        row.style.display = row.style.display === 'none' ? '' : 'none';
+    };
 
     window.switchScenarioFocus = function(scenarioId) {
         _scenarioFocusId = scenarioId;
+        _scenarioDetailOpen = null;
+        _scenarioWhatIfExcluded = new Set();
+        document.getElementById('scenario-detail-panel').style.display = 'none';
         fetchData(true);
     };
 
@@ -7440,107 +7182,275 @@
     function _scMgrRenderList(scenarios, container) {
         const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
         if (!scenarios.length) {
-            container.innerHTML = '<div style="color:#666;font-size:10px;">No scenarios found.</div>';
+            container.innerHTML = '<div style="color:#666;font-size:11px;">No scenarios found.</div>';
             return;
         }
-        let html = '<table style="width:100%;border-collapse:collapse;font-size:10px;font-family:monospace;">';
-        html += '<thead><tr style="color:#888;border-bottom:1px solid #333;">';
-        html += '<th style="text-align:left;padding:4px;">ID</th>';
-        html += `<th style="text-align:left;padding:4px;">${_t('scenario.mgr.name_en')}</th>`;
-        html += '<th style="padding:4px;">State</th>';
-        html += '<th style="padding:4px;">Source</th>';
-        html += '<th style="padding:4px;">Participants</th>';
-        html += '<th style="padding:4px;">Actions</th>';
-        html += '</tr></thead><tbody>';
+        let html = '';
         for (const sc of scenarios) {
-            const name = lang === 'ja' ? (sc.name_ja || sc.name_en) : sc.name_en;
-            const stateColor = sc.state === 'active' ? '#00ff88' : sc.state === 'paused' ? '#ffaa00' : '#888';
-            const enabledDot = sc.enabled ? '🟢' : '🔴';
+            const primaryName = lang === 'ja' ? (sc.name_ja || sc.name_en) : (sc.name_en || sc.name_ja);
+            const altName     = lang === 'ja' ? (sc.name_en || '')         : (sc.name_ja || '');
             const pCount = Object.keys(sc.participants || {}).length;
-            const srcBadge = sc.source === 'preset'
-                ? `<span style="color:#00ffff;font-size:8px;">${_t('scenario.mgr.source_preset')}</span>`
-                : `<span style="color:#ffaa00;font-size:8px;">${_t('scenario.mgr.source_db')}</span>`;
+            const core = sc.core_country ? sc.core_country.toUpperCase() : '—';
+            const stateLabel = _t('scenario.state.' + sc.state);
+            const srcLabel   = sc.source === 'preset' ? _t('scenario.mgr.source_preset') : _t('scenario.mgr.source_db');
+            const cardClasses = [
+                'scmgr-card',
+                `state-${sc.state}`,
+                sc.enabled ? '' : 'disabled',
+            ].filter(Boolean).join(' ');
 
-            html += `<tr style="border-bottom:1px solid #222;">`;
-            html += `<td style="padding:4px;color:#ccc;">${_escHtml(sc.id)}</td>`;
-            html += `<td style="padding:4px;color:#eee;">${_escHtml(name)}</td>`;
-            html += `<td style="padding:4px;text-align:center;color:${stateColor};">${enabledDot} ${_t('scenario.state.' + sc.state)}</td>`;
-            html += `<td style="padding:4px;text-align:center;">${srcBadge}</td>`;
-            html += `<td style="padding:4px;text-align:center;color:#999;">${pCount}</td>`;
-            html += `<td style="padding:4px;text-align:center;">`;
-            html += `<button class="btn-tactical" onclick="scMgrShowEdit('${sc.id}')" style="font-size:9px;padding:2px 6px;">${_t('scenario.mgr.edit')}</button> `;
+            html += `<div class="${cardClasses}">`;
+            html += `  <div class="scmgr-state-badge scmgr-state-${sc.state}">${_escHtml(stateLabel)}</div>`;
+            html += `  <div class="scmgr-head">`;
+            html += `    <div class="scmgr-head-row">`;
+            html += `      <span class="scmgr-id">${_escHtml(sc.id)}</span>`;
+            html += `      <span class="scmgr-name">${_escHtml(primaryName)}</span>`;
+            if (altName) {
+                html += `      <span style="font-size:11px;color:#888;">${_escHtml(altName)}</span>`;
+            }
+            html += `    </div>`;
+            html += `    <div class="scmgr-meta">`;
+            html += `      <span><b>${_t('scenario.mgr.core_country')}:</b> ${_escHtml(core)}</span>`;
+            html += `      <span><b>${_t('scenario.mgr.participants')}:</b> ${pCount}</span>`;
+            html += `      <span><b>Enabled:</b> ${sc.enabled ? 'yes' : 'no'}</span>`;
+            html += `    </div>`;
+            html += `  </div>`;
+            html += `  <span class="scmgr-src-pill scmgr-src-${sc.source}">${_escHtml(srcLabel)}</span>`;
+
+            html += `  <div class="scmgr-actions">`;
+            html += `    <button class="btn-tactical" onclick="scMgrShowEdit('${sc.id}')">${_t('scenario.mgr.edit')}</button>`;
             if (sc.state === 'active') {
-                html += `<button class="btn-tactical" onclick="scMgrArchive('${sc.id}')" style="font-size:9px;padding:2px 6px;color:#ffaa00;">${_t('scenario.mgr.archive')}</button> `;
+                html += `    <button class="btn-tactical" style="color:#ffaa00;" onclick="scMgrArchive('${sc.id}')">${_t('scenario.mgr.archive')}</button>`;
             } else if (sc.state === 'archived') {
-                html += `<button class="btn-tactical" onclick="scMgrRestore('${sc.id}')" style="font-size:9px;padding:2px 6px;color:#00ff88;">${_t('scenario.mgr.restore')}</button> `;
+                html += `    <button class="btn-tactical" style="color:#00ff88;" onclick="scMgrRestore('${sc.id}')">${_t('scenario.mgr.restore')}</button>`;
             }
             if (sc.source === 'db') {
-                html += `<button class="btn-tactical" onclick="scMgrPurge('${sc.id}')" style="font-size:9px;padding:2px 6px;color:#ff2a2a;">${_t('scenario.mgr.purge')}</button> `;
+                html += `    <button class="btn-tactical" style="color:#ff2a2a;" onclick="scMgrPurge('${sc.id}')">${_t('scenario.mgr.purge')}</button>`;
             } else {
-                html += `<button class="btn-tactical" onclick="scMgrReset('${sc.id}')" style="font-size:9px;padding:2px 6px;color:#888;">${_t('scenario.mgr.reset')}</button> `;
+                html += `    <button class="btn-tactical" style="color:#888;" onclick="scMgrReset('${sc.id}')">${_t('scenario.mgr.reset')}</button>`;
             }
-            if (!sc.enabled) {
-                html += `<button class="btn-tactical" onclick="scMgrToggleEnabled('${sc.id}', true)" style="font-size:9px;padding:2px 6px;color:#00ff88;">Enable</button>`;
+            if (sc.enabled) {
+                html += `    <button class="btn-tactical" style="color:#ff6666;" onclick="scMgrToggleEnabled('${sc.id}', false)">${_t('scenario.mgr.disable')}</button>`;
             } else {
-                html += `<button class="btn-tactical" onclick="scMgrToggleEnabled('${sc.id}', false)" style="font-size:9px;padding:2px 6px;color:#ff6666;">Disable</button>`;
+                html += `    <button class="btn-tactical" style="color:#00ff88;" onclick="scMgrToggleEnabled('${sc.id}', true)">${_t('scenario.mgr.enable')}</button>`;
             }
-            html += `</td></tr>`;
+            html += `  </div>`;
+            html += `</div>`;
         }
-        html += '</tbody></table>';
         container.innerHTML = html;
     }
 
+    // Build the editor UI. Designed like the legacy Strategy Scope tab:
+    // browse the full country list with bloc filter pills + text search,
+    // toggle checkboxes to mark participants, set role/weight inline.
     function _scMgrEditorHtml(sc, isNew) {
-        const title = isNew ? _t('scenario.mgr.create') : _t('scenario.mgr.edit');
-        const sid = sc.id || '';
+        const title = isNew ? _t('scenario.mgr.create') : `${_t('scenario.mgr.edit')}: ${_escHtml(sc.id || '')}`;
         const participants = sc.participants || {};
-        let html = `<div style="border:1px solid #444;padding:10px;margin-top:8px;background:#111;border-radius:4px;">`;
-        html += `<div style="font-weight:bold;color:#00ffff;margin-bottom:8px;">${title}</div>`;
+        const coreCountry = (sc.core_country || '').toUpperCase();
+
+        let html = '<div class="scmgr-editor">';
+
+        // Header: title + save/cancel actions
+        html += '<div class="scmgr-editor-header">';
+        html += `  <div class="scmgr-editor-title">${title}</div>`;
+        html += '  <div class="scmgr-editor-actions">';
+        html += `    <button class="btn-tactical btn-action" onclick="scMgrSave(${isNew})">${_t('scenario.mgr.save')}</button>`;
+        html += `    <button class="btn-tactical" style="color:#888;" onclick="scMgrCancelEdit()">${_t('scenario.mgr.cancel')}</button>`;
+        html += '    <span id="scmgr-status"></span>';
+        html += '  </div>';
+        html += '</div>';
+
+        // Form fields
+        html += '<div class="scmgr-form">';
         if (isNew) {
-            html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">ID:</label> <input id="scmgr-id" value="${_escHtml(sid)}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-family:monospace;font-size:10px;width:200px;"></div>`;
+            html += `  <label class="scmgr-form-full">ID <input id="scmgr-id" value="" placeholder="taiwan_contingency" style="font-family:'Courier New',monospace;"></label>`;
         }
-        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.name_en')}:</label> <input id="scmgr-name-en" value="${_escHtml(sc.name_en||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:250px;"></div>`;
-        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.name_ja')}:</label> <input id="scmgr-name-ja" value="${_escHtml(sc.name_ja||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:250px;"></div>`;
-        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.desc_en')}:</label> <input id="scmgr-desc-en" value="${_escHtml(sc.description_en||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:350px;"></div>`;
-        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.desc_ja')}:</label> <input id="scmgr-desc-ja" value="${_escHtml(sc.description_ja||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:350px;"></div>`;
-        html += `<div style="margin-bottom:6px;"><label style="color:#888;font-size:10px;">${_t('scenario.mgr.core_country')}:</label> <input id="scmgr-core" value="${_escHtml(sc.core_country||'')}" style="background:#222;color:#fff;border:1px solid #444;padding:2px 6px;font-size:10px;width:60px;text-transform:uppercase;"></div>`;
+        html += `  <label>${_t('scenario.mgr.name_en')} <input id="scmgr-name-en" value="${_escHtml(sc.name_en||'')}"></label>`;
+        html += `  <label>${_t('scenario.mgr.name_ja')} <input id="scmgr-name-ja" value="${_escHtml(sc.name_ja||'')}"></label>`;
+        html += `  <label>${_t('scenario.mgr.desc_en')} <input id="scmgr-desc-en" value="${_escHtml(sc.description_en||'')}"></label>`;
+        html += `  <label>${_t('scenario.mgr.desc_ja')} <input id="scmgr-desc-ja" value="${_escHtml(sc.description_ja||'')}"></label>`;
+        // Core country is a dropdown populated from currently-selected participants.
+        html += `  <label>${_t('scenario.mgr.core_country')} <select id="scmgr-core-sel"><option value="">(none)</option></select></label>`;
+        html += '</div>';
 
-        html += `<div style="margin-top:8px;margin-bottom:4px;color:#888;font-size:10px;font-weight:bold;">${_t('scenario.mgr.participants')}</div>`;
-        html += `<table id="scmgr-participants" style="width:100%;border-collapse:collapse;font-size:10px;font-family:monospace;">`;
-        html += `<thead><tr style="color:#666;"><th style="text-align:left;padding:2px;">${_t('scenario.mgr.country')}</th><th style="padding:2px;">${_t('scenario.mgr.weight')}</th><th style="padding:2px;">${_t('scenario.mgr.role')}</th><th></th></tr></thead>`;
-        html += `<tbody id="scmgr-p-body">`;
-        for (const [cc, p] of Object.entries(participants)) {
-            html += _scMgrParticipantRow(cc, p.weight, p.role);
+        // Country picker: bloc filter pills, search, full country list
+        html += '<div class="scmgr-picker">';
+        html += '  <div class="scmgr-picker-header">';
+        html += `    <span class="scmgr-picker-title">${_t('scenario.mgr.participants')}</span>`;
+        html += '    <span class="scmgr-picker-count" id="scmgr-picker-count">0 / 0</span>';
+        html += '  </div>';
+        html += '  <div class="scmgr-picker-filters">';
+        html += `    <button type="button" class="scmgr-bloc-pill active" data-bloc="ALL" onclick="scMgrSetBloc(this)">${_t('scenario.mgr.bloc_all')}</button>`;
+        html += `    <button type="button" class="scmgr-bloc-pill" data-bloc="SELECTED" onclick="scMgrSetBloc(this)">${_t('scenario.mgr.bloc_selected')}</button>`;
+        for (const blocKey of ['RUSSIA','CHINA','IRAN','DPRK']) {
+            const meta = (STRATEGIC_BLOCS_DATA || {})[blocKey] || {};
+            const label = meta.label || blocKey;
+            html += `    <button type="button" class="scmgr-bloc-pill" data-bloc="${blocKey}" onclick="scMgrSetBloc(this)">▲ ${_escHtml(label)}</button>`;
         }
-        html += `</tbody></table>`;
-        html += `<button class="btn-tactical" onclick="scMgrAddParticipant()" style="font-size:9px;padding:2px 8px;margin-top:4px;">${_t('scenario.mgr.add_participant')}</button>`;
+        html += `    <input type="search" id="scmgr-picker-search" placeholder="${_t('scenario.mgr.ph_search')}" oninput="scMgrApplyFilter()">`;
+        html += '  </div>';
 
-        html += `<div style="margin-top:10px;display:flex;gap:8px;">`;
-        html += `<button class="btn-tactical btn-action" onclick="scMgrSave(${isNew})" style="font-size:10px;padding:4px 16px;">${_t('scenario.mgr.save')}</button>`;
-        html += `<button class="btn-tactical" onclick="scMgrCancelEdit()" style="font-size:10px;padding:4px 12px;color:#888;">${_t('scenario.mgr.cancel')}</button>`;
-        html += `<span id="scmgr-status" style="font-size:10px;color:#888;align-self:center;"></span>`;
-        html += `</div></div>`;
+        // Table of all countries
+        html += '  <div class="scmgr-picker-scroll"><table class="scmgr-picker-table">';
+        html += '    <thead><tr>';
+        html += '      <th style="width:28px;"></th>';
+        html += `      <th style="width:50px;">${_t('scenario.mgr.country')}</th>`;
+        html += '      <th>Name</th>';
+        html += '      <th style="width:110px;">Bloc</th>';
+        html += `      <th style="width:165px;">${_t('scenario.mgr.role')}</th>`;
+        html += `      <th style="width:80px;">${_t('scenario.mgr.weight')}</th>`;
+        html += '    </tr></thead>';
+        html += '    <tbody id="scmgr-picker-body">';
+        const sortedTheaters = (THEATERS || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+        if (sortedTheaters.length === 0) {
+            html += '<tr><td colspan="6" class="scmgr-p-empty">Country list not loaded.</td></tr>';
+        } else {
+            for (const t of sortedTheaters) {
+                const sel = participants[t.code];
+                html += _scMgrCountryRow(t, sel, coreCountry);
+            }
+        }
+        html += '    </tbody></table></div>';
+        html += '</div>';
+
+        html += '</div>'; // /.scmgr-editor
         return html;
     }
 
-    function _scMgrParticipantRow(cc, weight, role) {
+    function _scMgrCountryRow(theater, selected, coreCountry) {
+        const cc = theater.code;
+        const isSel = !!selected;
+        const weight = isSel ? selected.weight : 0.5;
+        const role   = isSel ? selected.role   : 'secondary_party';
+        const blocs  = (COUNTRY_BLOC_TAGS || {})[cc] || [];
+        const isCore = (cc === coreCountry);
+
         const roleOpts = _ROLE_OPTIONS.map(r =>
             `<option value="${r}"${r===role?' selected':''}>${_t('scenario.role.'+r)}</option>`
         ).join('');
-        return `<tr style="border-bottom:1px solid #222;">` +
-            `<td style="padding:2px;"><input class="scmgr-p-cc" value="${_escHtml(cc)}" style="background:#222;color:#fff;border:1px solid #444;padding:1px 4px;font-size:10px;width:40px;text-transform:uppercase;"></td>` +
-            `<td style="padding:2px;text-align:center;"><input class="scmgr-p-wt" type="number" min="0" max="1" step="0.1" value="${weight}" style="background:#222;color:#fff;border:1px solid #444;padding:1px 4px;font-size:10px;width:50px;"></td>` +
-            `<td style="padding:2px;"><select class="scmgr-p-role" style="background:#222;color:#fff;border:1px solid #444;font-size:9px;padding:1px;">${roleOpts}</select></td>` +
-            `<td style="padding:2px;"><button class="btn-tactical" onclick="this.closest('tr').remove()" style="font-size:9px;padding:1px 4px;color:#ff6666;">✕</button></td></tr>`;
+
+        const blocBadges = blocs.map(b =>
+            `<span class="scmgr-bloc-badge" data-bloc="${b}">${(STRATEGIC_BLOCS_DATA[b]||{}).adversary||b}</span>`
+        ).join('');
+
+        const blocDataAttr = blocs.join(',');
+        const rowClass = ['scmgr-p-row'];
+        if (isSel) rowClass.push('selected');
+        const disabledAttr = isSel ? '' : 'disabled';
+
+        return `<tr class="${rowClass.join(' ')}" data-cc="${cc}" data-blocs="${blocDataAttr}" data-name="${_escHtml(theater.name.toLowerCase())}">
+            <td class="scmgr-p-chk"><input type="checkbox" ${isSel?'checked':''} onchange="scMgrToggleParticipant('${cc}', this.checked)"></td>
+            <td class="scmgr-p-code">${cc}</td>
+            <td class="scmgr-p-name${isCore?' core-flag':''}">${_escHtml(theater.name)}</td>
+            <td><div class="scmgr-p-blocs">${blocBadges}</div></td>
+            <td class="scmgr-p-role"><select ${disabledAttr}>${roleOpts}</select></td>
+            <td class="scmgr-p-weight"><input type="number" min="0" max="1" step="0.05" value="${weight}" ${disabledAttr}></td>
+        </tr>`;
     }
 
+    // ── Editor interaction helpers ─────────────────────────────────────
     let _scMgrEditId = null;
+    let _scMgrBlocFilter = 'ALL';
+
+    window.scMgrSetBloc = function(btn) {
+        _scMgrBlocFilter = btn.getAttribute('data-bloc') || 'ALL';
+        document.querySelectorAll('.scmgr-bloc-pill').forEach(el => el.classList.remove('active'));
+        btn.classList.add('active');
+        scMgrApplyFilter();
+    };
+
+    window.scMgrApplyFilter = function() {
+        const searchEl = document.getElementById('scmgr-picker-search');
+        const q = (searchEl?.value || '').trim().toLowerCase();
+        const rows = document.querySelectorAll('#scmgr-picker-body .scmgr-p-row');
+        rows.forEach(row => {
+            const cc = (row.getAttribute('data-cc') || '').toLowerCase();
+            const name = row.getAttribute('data-name') || '';
+            const blocs = (row.getAttribute('data-blocs') || '').split(',').filter(Boolean);
+            const selected = row.classList.contains('selected');
+
+            let blocMatch = true;
+            if (_scMgrBlocFilter === 'SELECTED') {
+                blocMatch = selected;
+            } else if (_scMgrBlocFilter !== 'ALL') {
+                blocMatch = blocs.includes(_scMgrBlocFilter);
+            }
+            const textMatch = !q || name.includes(q) || cc.includes(q);
+            row.classList.toggle('hidden', !(blocMatch && textMatch));
+        });
+    };
+
+    // Toggle a participant row; enable/disable its inline controls, refresh
+    // core country dropdown and selection counter.
+    window.scMgrToggleParticipant = function(cc, checked) {
+        const row = document.querySelector(`#scmgr-picker-body .scmgr-p-row[data-cc="${cc}"]`);
+        if (!row) return;
+        row.classList.toggle('selected', checked);
+        const roleSel   = row.querySelector('.scmgr-p-role select');
+        const weightInp = row.querySelector('.scmgr-p-weight input');
+        if (roleSel)   roleSel.disabled   = !checked;
+        if (weightInp) weightInp.disabled = !checked;
+        _scMgrRefreshCoreOptions();
+        _scMgrUpdatePickerCount();
+        if (_scMgrBlocFilter === 'SELECTED') scMgrApplyFilter();
+    };
+
+    function _scMgrGetSelectedRows() {
+        return document.querySelectorAll('#scmgr-picker-body .scmgr-p-row.selected');
+    }
+
+    function _scMgrUpdatePickerCount() {
+        const countEl = document.getElementById('scmgr-picker-count');
+        if (!countEl) return;
+        const total = document.querySelectorAll('#scmgr-picker-body .scmgr-p-row').length;
+        const selN  = _scMgrGetSelectedRows().length;
+        countEl.textContent = `${selN} / ${total}`;
+    }
+
+    // Core country dropdown = currently selected participants only; this keeps
+    // the scenario well-formed (core_country must be one of participants).
+    function _scMgrRefreshCoreOptions() {
+        const sel = document.getElementById('scmgr-core-sel');
+        if (!sel) return;
+        const current = sel.value;
+        const opts = ['<option value="">(none)</option>'];
+        _scMgrGetSelectedRows().forEach(row => {
+            const cc = row.getAttribute('data-cc');
+            const name = row.querySelector('.scmgr-p-name')?.textContent || cc;
+            const isSelected = cc === current ? ' selected' : '';
+            opts.push(`<option value="${cc}"${isSelected}>${cc} — ${name.replace(' ★ CORE','')}</option>`);
+        });
+        sel.innerHTML = opts.join('');
+    }
+
+    // Open the editor and run post-render initializers: populate the core
+    // dropdown from the current selection set, update the counter, and scroll
+    // the first selected row into view.
+    function _scMgrOpenEditor(sc, isNew) {
+        _scMgrBlocFilter = 'ALL';
+        const editor = document.getElementById('scenario-mgr-editor');
+        editor.innerHTML = _scMgrEditorHtml(sc, isNew);
+        editor.style.display = '';
+        // After DOM insert, wire up core dropdown + counter against the
+        // initially-selected rows. Preserve the scenario's existing core
+        // country selection if it matches a participant.
+        const coreSel = document.getElementById('scmgr-core-sel');
+        if (coreSel && sc.core_country) coreSel.dataset.initial = sc.core_country.toUpperCase();
+        _scMgrRefreshCoreOptions();
+        if (coreSel && coreSel.dataset.initial) {
+            coreSel.value = coreSel.dataset.initial;
+        }
+        _scMgrUpdatePickerCount();
+        // Scroll the editor into view so it's reachable inside the settings
+        // modal's scrollable tab pane.
+        requestAnimationFrame(() => {
+            editor.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
+    }
 
     window.scMgrShowCreate = function() {
         _scMgrEditId = null;
-        const editor = document.getElementById('scenario-mgr-editor');
-        editor.innerHTML = _scMgrEditorHtml({}, true);
-        editor.style.display = '';
+        _scMgrOpenEditor({}, true);
     };
 
     window.scMgrShowEdit = async function(sid) {
@@ -7551,9 +7461,7 @@
             const data = await resp.json();
             const sc = (data.scenarios || []).find(s => s.id === sid);
             if (!sc) return;
-            const editor = document.getElementById('scenario-mgr-editor');
-            editor.innerHTML = _scMgrEditorHtml(sc, false);
-            editor.style.display = '';
+            _scMgrOpenEditor(sc, false);
         } catch (e) { console.error(e); }
     };
 
@@ -7562,12 +7470,6 @@
         editor.style.display = 'none';
         editor.innerHTML = '';
         _scMgrEditId = null;
-    };
-
-    window.scMgrAddParticipant = function() {
-        const tbody = document.getElementById('scmgr-p-body');
-        if (!tbody) return;
-        tbody.insertAdjacentHTML('beforeend', _scMgrParticipantRow('', 0.5, 'secondary_party'));
     };
 
     window.scMgrSave = async function(isNew) {
@@ -7581,18 +7483,23 @@
             name_ja: document.getElementById('scmgr-name-ja')?.value || '',
             description_en: document.getElementById('scmgr-desc-en')?.value || '',
             description_ja: document.getElementById('scmgr-desc-ja')?.value || '',
-            core_country: (document.getElementById('scmgr-core')?.value || '').toUpperCase(),
+            core_country: (document.getElementById('scmgr-core-sel')?.value || '').toUpperCase(),
             state: 'active',
             enabled: true,
             participants: {},
         };
 
-        const rows = document.querySelectorAll('#scmgr-p-body tr');
-        for (const row of rows) {
-            const cc = (row.querySelector('.scmgr-p-cc')?.value || '').toUpperCase().trim();
-            const wt = parseFloat(row.querySelector('.scmgr-p-wt')?.value || '0');
-            const role = row.querySelector('.scmgr-p-role')?.value || 'secondary_party';
-            if (cc) payload.participants[cc] = { weight: wt, role: role };
+        for (const row of _scMgrGetSelectedRows()) {
+            const cc = (row.getAttribute('data-cc') || '').toUpperCase();
+            if (!cc) continue;
+            const wt = parseFloat(row.querySelector('.scmgr-p-weight input')?.value || '0');
+            const role = row.querySelector('.scmgr-p-role select')?.value || 'secondary_party';
+            payload.participants[cc] = { weight: wt, role: role };
+        }
+
+        if (Object.keys(payload.participants).length === 0) {
+            if (status) status.textContent = _t('scenario.mgr.err.no_participants');
+            return;
         }
 
         const url = isNew ? '/api/admin/scenarios' : `/api/admin/scenarios/${sid}`;

@@ -188,6 +188,18 @@ class RssNarrativeSensor(BaseSensor):
 
         return articles
 
+    # Narrative type enum — shared between parse & scoring
+    _NARRATIVE_TYPES: frozenset = frozenset({
+        "pre-operation_conditioning", "threat_escalation",
+        "response_to_incident", "propaganda_routine", "unknown",
+    })
+    _URGENCY_TYPES: frozenset = frozenset({"critical", "high", "medium", "low"})
+
+    # Max articles fed to LLM per burst. 6 gives clustering headroom without
+    # exploding token cost. With 2 articles/source cap, this lets up to 3
+    # distinct sources contribute to a cluster decision.
+    _LLM_POOL_CAP: int = 6
+
     def _submit_narrative_burst_to_llm(
         self,
         theater: str,
@@ -196,8 +208,16 @@ class RssNarrativeSensor(BaseSensor):
         sources_used: list[str],
         status: str,
     ) -> int:
-        """Analyze narrative burst articles with LLM and submit to intel_queue.
-        Returns number of items submitted (0 or 1).
+        """Analyze narrative burst articles with LLM, split into thematically
+        coherent clusters, and submit each coherent cluster as a separate intel
+        item. Returns total number of clusters submitted to intel_queue.
+
+        Clustering addresses the failure mode where a single burst pools
+        articles across sources that match tactical keywords but cover
+        unrelated topics (e.g. naval port call + AI scholar + destroyer drill).
+        The legacy single-synthesis flow was forced to fabricate a common
+        narrative; the cluster flow separates them so each intel item is
+        thematically coherent and the analyst can accept/reject per-theme.
         """
         if not burst_articles or not LLM_ENABLED:
             return 0
@@ -211,99 +231,215 @@ class RssNarrativeSensor(BaseSensor):
         if not llm_available():
             return 0
 
-        # Dedup key: theater + day bucket (one intel item per theater per day per burst level)
+        # Burst-level dedup: prevent re-calling LLM on same burst within a day.
+        # Per-cluster dedup is handled downstream by intel_queue's Jaccard check.
         day_bucket = int(time.time() // 86400)
-        dedup_key = hashlib.md5(f"narrative-{theater}-{status}-{day_bucket}".encode()).hexdigest()
-        if dedup_key in _burst_submitted:
+        burst_dedup = hashlib.md5(
+            f"narrative-burst-{theater}-{status}-{day_bucket}".encode()
+        ).hexdigest()
+        if burst_dedup in _burst_submitted:
             return 0
 
         from radar.llm_client import sanitize_llm_input, today_str
+        pool = burst_articles[:self._LLM_POOL_CAP]
         articles_text = "\n\n".join(
             f"[{i+1}] {sanitize_llm_input(a['title'], 120)}\n{sanitize_llm_input(a['summary'], 200)}"
-            for i, a in enumerate(burst_articles[:4])
+            for i, a in enumerate(pool)
         )
-        total_matched = len(burst_articles)
         sources_str = ", ".join(sources_used)
 
         system_prompt = (
-            "You are a strategic intelligence analyst specializing in information warfare "
-            "and pre-conflict narrative patterns. "
-            "Analyze these adversary media articles that triggered a statistical keyword burst "
-            "and classify the narrative type. "
+            "You are a strategic intelligence analyst specializing in "
+            "information warfare and pre-conflict narrative patterns. "
+            "Analyze adversary media articles that triggered a statistical "
+            "keyword burst. Group the articles by thematic coherence: "
+            "articles on unrelated topics MUST go in separate clusters. "
+            "NEVER fabricate a common narrative across unrelated articles. "
             "Respond ONLY with a JSON object, no explanation."
         )
         user_prompt = (
             f"Today's date: {today_str()}\n"
             f"Theater: {theater}\n"
-            f"Z-score: {z_score:.2f} (statistical keyword burst; {total_matched} articles matched)\n"
-            f"Sources: {sources_str}\n"
-            f"Sample articles (showing {min(4, total_matched)} of {total_matched}):\n\n"
-            f"{articles_text}\n\n"
+            f"Z-score: {z_score:.2f} (statistical keyword burst; {len(pool)} articles)\n"
+            f"Sources: {sources_str}\n\n"
+            f"Articles:\n\n{articles_text}\n\n"
             "Return a JSON object:\n"
             "{\n"
-            '  "headline": "One-sentence summary of the narrative shift (max 100 chars)",\n'
-            '  "narrative_type": "pre-operation_conditioning|threat_escalation|response_to_incident|propaganda_routine|unknown",\n'
-            '  "dominant_theme": "Key theme across articles (e.g. sovereignty, military threat, sanctions)",\n'
-            '  "escalation_signal": true or false,\n'
-            '  "countries": ["ISO codes of ALL countries explicitly addressed in this narrative burst"],\n'
-            '  "country_weights": {"ISO": 0.0-1.0 relevance weight per country},\n'
-            '  "urgency": "critical|high|medium|low",\n'
-            '  "confidence": 0.0\n'
-            "}\n"
+            '  "clusters": [\n'
+            "    {\n"
+            '      "article_indices": [1, 3],\n'
+            '      "headline": "One-sentence summary of THIS cluster\'s narrative (max 100 chars)",\n'
+            '      "narrative_type": "pre-operation_conditioning|threat_escalation|response_to_incident|propaganda_routine|unknown",\n'
+            '      "dominant_theme": "Key theme of THIS cluster only",\n'
+            '      "escalation_signal": true or false,\n'
+            '      "countries": ["ISO codes addressed in this cluster"],\n'
+            '      "country_weights": {"ISO": 0.0-1.0},\n'
+            '      "urgency": "critical|high|medium|low",\n'
+            '      "confidence": 0.0-1.0\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "Clustering rules:\n"
+            "- ONE cluster if all articles share a coherent theme.\n"
+            "- MULTIPLE clusters when articles cover distinctly different topics\n"
+            "  (e.g. some about naval activity, others about diplomatic pressure).\n"
+            "- article_indices are 1-based and must reference articles listed above.\n"
+            "- An article may belong to multiple clusters only when it genuinely\n"
+            "  bridges themes; otherwise assign to exactly one cluster.\n"
+            "- Off-topic articles that do NOT support any narrative theme should\n"
+            "  be omitted from all clusters rather than forced into one.\n\n"
             "narrative_type guide:\n"
-            "- pre-operation_conditioning: Preparing audience for imminent military action (new, escalating tone)\n"
-            "- threat_escalation: Adversary responding to or amplifying a genuine, current escalation\n"
+            "- pre-operation_conditioning: Preparing audience for imminent military action\n"
+            "- threat_escalation: Adversary amplifying a genuine current escalation\n"
             "- response_to_incident: Reactive coverage of an already-occurred incident\n"
-            "- propaganda_routine: Content matching the source's normal publishing frequency and framing\n"
-            "  with no new trigger, specific threat, or escalation language beyond the baseline pattern.\n"
-            "  Classify based on whether the content departs from baseline patterns, not based on origin country.\n"
-            "Confidence guide:\n"
-            "- 0.75+: Strong pre-operation conditioning language with a specific, new triggering event\n"
+            "- propaganda_routine: Matches source's baseline framing with no new trigger.\n"
+            "  Classify by departure from baseline patterns, not origin country.\n\n"
+            "Confidence (per cluster):\n"
+            "- 0.75+: Strong pre-operation conditioning with specific new trigger\n"
             "- 0.60-0.74: Elevated narrative with clear new escalatory framing\n"
-            "- <0.55: Routine burst with no new specific trigger — set escalation_signal=false"
+            "- <0.55: Routine burst, no new trigger — set escalation_signal=false"
         )
 
-        result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
+        result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=512)
+
+        # Mark burst processed regardless of LLM outcome — prevents repeat
+        # LLM calls on the same burst across the day (next fetch cycle).
+        _burst_submitted[burst_dedup] = None
+        if len(_burst_submitted) > _MAX_BURST_SUBMITTED:
+            for k in list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]:
+                _burst_submitted.pop(k, None)
+
         if not result["ok"]:
             return 0
 
-        from radar.llm_client import safe_float, safe_enum
-        data = result["data"]
-        confidence = safe_float(data.get("confidence"), default=0.0)
-
-        _NARRATIVE_TYPES = {
-            "pre-operation_conditioning", "threat_escalation",
-            "response_to_incident", "propaganda_routine", "unknown",
-        }
-        narrative_type = safe_enum(data.get("narrative_type"), _NARRATIVE_TYPES, "unknown")
-
-        # Parse multi-country output (Phase 3)
-        raw_countries = data.get("countries") or []
-        raw_weights = data.get("country_weights") or {}
-        countries = [c.strip().upper() for c in raw_countries
-                     if isinstance(c, str) and len(c.strip()) == 2]
-        country_weights = {}
-        for c in countries:
-            w = raw_weights.get(c, raw_weights.get(c.lower(), 1.0))
-            country_weights[c] = max(0.0, min(1.0, safe_float(w, default=1.0)))
-        if theater not in countries:
-            countries = [theater] + countries
-            country_weights.setdefault(theater, 1.0)
-
-        if not data.get("escalation_signal", False) or confidence < 0.35:
-            # Mark dedup even for non-escalation bursts to avoid spamming LLM every cycle
-            _burst_submitted[dedup_key] = None
-            if len(_burst_submitted) > _MAX_BURST_SUBMITTED:
-                for k in list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]:
-                    _burst_submitted.pop(k, None)
+        clusters = self._parse_narrative_clusters(result["data"], pool, theater)
+        if not clusters:
             from radar.llm_client import record_sensor_drop
-            record_sensor_drop("no_escalation_signal" if not data.get("escalation_signal") else "below_floor")
+            record_sensor_drop("no_valid_clusters")
             return 0
 
-        # Additive scoring: type_base + urgency_bonus (max = 3.0, no multiplicative inflation)
-        urgency = safe_enum(
-            data.get("urgency"), {"critical", "high", "medium", "low"}, "medium"
+        submitted = 0
+        for cluster in clusters:
+            if self._submit_narrative_cluster(
+                cluster, pool, theater, z_score, sources_str, status, intel_queue
+            ):
+                submitted += 1
+        return submitted
+
+    @classmethod
+    def _parse_narrative_clusters(
+        cls, data: dict, pool: list[dict], theater: str
+    ) -> list[dict]:
+        """Normalize LLM output into a list of validated cluster dicts.
+
+        Accepts both:
+          - New format: {"clusters": [{article_indices, headline, ...}, ...]}
+          - Legacy format: flat {headline, narrative_type, ...} — treated as
+            one cluster covering all pool articles (backward compat path so a
+            model that ignores the new schema still produces usable output).
+        """
+        from radar.llm_client import safe_float, safe_enum
+
+        raw_clusters = data.get("clusters")
+        legacy_fallback = False
+        if not isinstance(raw_clusters, list) or not raw_clusters:
+            raw_clusters = [data]
+            legacy_fallback = True
+            log.debug("[RssNarrative] LLM returned no clusters; using legacy single-synthesis fallback")
+
+        out: list[dict] = []
+        for rc in raw_clusters:
+            if not isinstance(rc, dict):
+                continue
+
+            raw_idx = rc.get("article_indices") or []
+            idx_set: set[int] = set()
+            for v in raw_idx:
+                try:
+                    i = int(v) - 1
+                    if 0 <= i < len(pool):
+                        idx_set.add(i)
+                except (TypeError, ValueError):
+                    continue
+            if not idx_set:
+                if legacy_fallback:
+                    idx_set = set(range(min(len(pool), 4)))
+                else:
+                    continue  # cluster with no valid indices — discard
+
+            narrative_type = safe_enum(rc.get("narrative_type"),
+                                       cls._NARRATIVE_TYPES, "unknown")
+            confidence = safe_float(rc.get("confidence"), default=0.0)
+            escalation_signal = bool(rc.get("escalation_signal", False))
+            urgency = safe_enum(rc.get("urgency"), cls._URGENCY_TYPES, "medium")
+            dominant_theme = str(rc.get("dominant_theme") or "")[:100]
+            headline = str(rc.get("headline") or "")[:100]
+            if not headline:
+                headline = f"Narrative burst: {theater} — {dominant_theme[:60]}"
+
+            raw_countries = rc.get("countries") or []
+            raw_weights = rc.get("country_weights") or {}
+            countries = [c.strip().upper() for c in raw_countries
+                         if isinstance(c, str) and len(c.strip()) == 2]
+            country_weights: dict[str, float] = {}
+            for c in countries:
+                w = raw_weights.get(c, raw_weights.get(c.lower(), 1.0))
+                country_weights[c] = max(0.0, min(1.0, safe_float(w, default=1.0)))
+            if theater not in countries:
+                countries = [theater] + countries
+                country_weights.setdefault(theater, 1.0)
+
+            out.append({
+                "indices":           sorted(idx_set),
+                "narrative_type":    narrative_type,
+                "confidence":        confidence,
+                "escalation_signal": escalation_signal,
+                "urgency":           urgency,
+                "dominant_theme":    dominant_theme,
+                "headline":          headline,
+                "countries":         countries,
+                "country_weights":   country_weights,
+            })
+        return out
+
+    @staticmethod
+    def _submit_narrative_cluster(
+        cluster: dict,
+        pool: list[dict],
+        theater: str,
+        z_score: float,
+        sources_str: str,
+        status: str,
+        intel_queue,
+    ) -> bool:
+        """Submit one validated cluster to intel_queue. Returns True if accepted."""
+        from radar.llm_client import sanitize_llm_input, record_sensor_drop
+
+        confidence = cluster["confidence"]
+        narrative_type = cluster["narrative_type"]
+
+        # Drop non-escalatory or below-floor clusters (spam prevention).
+        # intel_queue also re-checks confidence floor; we pre-filter here to
+        # avoid the sensor_drop metric double-counting.
+        if not cluster["escalation_signal"]:
+            record_sensor_drop("no_escalation_signal")
+            return False
+        if confidence < 0.35:
+            record_sensor_drop("below_floor")
+            return False
+
+        # Build raw_text from this cluster's supporting articles ONLY.
+        # Numbered [1..N] within the cluster so the analyst sees just the
+        # articles that support this headline.
+        supporting = [pool[i] for i in cluster["indices"]]
+        if not supporting:
+            return False
+        articles_text = "\n\n".join(
+            f"[{j+1}] {sanitize_llm_input(a['title'], 120)}\n{sanitize_llm_input(a['summary'], 200)}"
+            for j, a in enumerate(supporting)
         )
+        raw_url = supporting[0].get("link", "")
+
         type_base = {
             "pre-operation_conditioning": 2.5,
             "threat_escalation":          2.0,
@@ -311,44 +447,43 @@ class RssNarrativeSensor(BaseSensor):
             "propaganda_routine":         0.5,
             "unknown":                    1.0,
         }.get(narrative_type, 1.0)
-        urgency_bonus = {"critical": 0.5, "high": 0.2, "medium": 0.0, "low": 0.0}.get(urgency, 0.0)
+        urgency_bonus = {"critical": 0.5, "high": 0.2,
+                         "medium": 0.0, "low": 0.0}.get(cluster["urgency"], 0.0)
         score_delta = round(type_base + urgency_bonus, 1)
 
         item = {
-            "source_type":  "narrative",
-            "source_id":    f"narrative_{theater.lower()}",
-            "theater":      theater,
-            "countries":    countries,
-            "country_weights": country_weights,
-            "ts":           time.time(),
-            "confidence":   round(confidence, 3),
-            "raw_text":     articles_text[:1000],
-            "raw_url":      burst_articles[0].get("link", "") if burst_articles else "",
-            "headline":     data.get("headline", f"Narrative burst: {theater} z={z_score:.1f}")[:100],
+            "source_type":     "narrative",
+            "source_id":       f"narrative_{theater.lower()}",
+            "theater":         theater,
+            "countries":       cluster["countries"],
+            "country_weights": cluster["country_weights"],
+            "ts":              time.time(),
+            "confidence":      round(confidence, 3),
+            "raw_text":        articles_text[:1000],
+            "raw_url":         raw_url,
+            "headline":        cluster["headline"],
             "llm_fields": {
-                "narrative_type":  narrative_type,
-                "dominant_theme":  data.get("dominant_theme", ""),
-                "z_score":         round(z_score, 2),
-                "burst_status":    status,
-                "sources":         sources_str,
+                "narrative_type":    narrative_type,
+                "dominant_theme":    cluster["dominant_theme"],
+                "z_score":           round(z_score, 2),
+                "burst_status":      status,
+                "sources":           sources_str,
                 "escalation_signal": True,
+                "article_count":     len(supporting),
             },
-            "score_delta":  score_delta,
-            "domain":       "info",
+            "score_delta":     score_delta,
+            "domain":          "info",
         }
 
         item_id = intel_queue.submit(item)
         if item_id:
-            _burst_submitted[dedup_key] = None
-            if len(_burst_submitted) > _MAX_BURST_SUBMITTED:
-                for k in list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]:
-                    _burst_submitted.pop(k, None)
             log.info(
-                f"[RssNarrative] LLM burst submitted: {item['headline'][:60]} "
-                f"(theater={theater}, type={narrative_type}, z={z_score:.2f}, conf={confidence:.2f})"
+                f"[RssNarrative] LLM cluster submitted: {cluster['headline'][:60]} "
+                f"(theater={theater}, type={narrative_type}, n={len(supporting)}, "
+                f"z={z_score:.2f}, conf={confidence:.2f})"
             )
-            return 1
-        return 0
+            return True
+        return False
 
     def _compute_zscore(self, theater: str, today_normalized: float) -> tuple:
         """
@@ -379,7 +514,11 @@ class RssNarrativeSensor(BaseSensor):
             bl["last_updated"] = time.time()
 
     def fetch(self, context: dict) -> dict:
-        theaters        = context.get("strategic_theaters", [])
+        # Narrative baseline is per-country. We cover every participant country
+        # across all scorable scenarios so background scenarios receive intel
+        # signal too (ADR-004).
+        theaters        = (context.get("all_participant_countries")
+                           or context.get("strategic_theaters", []))
         adversary_states = context.get("adversary_states", [])
         results: dict = {}
         t0 = time.time()

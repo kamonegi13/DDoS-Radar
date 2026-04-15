@@ -343,6 +343,7 @@
 <div id="scenario-bar">
     <div id="scenario-cards"></div>
 </div>
+<div id="scenario-detail-panel" style="display:none;"></div>
 
 <!-- ── Domain Drilldown Panel ─────────────────────────────────────────── -->
 <div id="domain-drilldown-panel">
@@ -402,7 +403,7 @@
                     </div>
                 </div>
                 <div id="target-content" class="panel-content">
-                    <div style="font-size: 11px; color: #888; margin-bottom: 5px;" data-i18n="panel.target.hint">Toggle pinned targets on/off.</div>
+                    <div style="font-size: 11px; color: #888; margin-bottom: 5px;" data-i18n="panel.target.hint">Participants of the focused scenario. Edit via Admin → Scenarios.</div>
                     <div class="target-grid" id="display-checkboxes"></div>
                 </div>
             </div>
@@ -444,10 +445,7 @@
         <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()" data-i18n="modal.settings.close">[ X ] Close</button>
     </div>
     <div class="tabs">
-        <div class="tab active" onclick="switchTab('strategy')" data-i18n="modal.settings.tab.strategy" data-role-min="analyst">Strategy Scope</div>
-        <div class="tab" onclick="switchTab('actors')" data-i18n="modal.settings.tab.actors" data-role-min="analyst">Threat Actors</div>
-        <div class="tab" onclick="switchTab('pins')" data-i18n="modal.settings.tab.pins" data-role-min="analyst">Quick Pins</div>
-        <div class="tab" onclick="switchTab('sensors'); loadSensorConfig()" data-i18n="modal.settings.tab.sensors" data-role-min="analyst">Sensors</div>
+        <div class="tab active" onclick="switchTab('sensors'); loadSensorConfig()" data-i18n="modal.settings.tab.sensors" data-role-min="analyst">Sensors</div>
         <div class="tab" onclick="switchTab('fetchlog'); loadFetchLog()" data-i18n="modal.settings.tab.fetchlog">Fetch Log</div>
         <div class="tab" onclick="switchTab('sysconfig'); loadEnvConfig()" data-i18n="modal.settings.tab.sysconfig" data-role-min="admin">System</div>
         <div class="tab" onclick="switchTab('users'); umgrLoadUsers()" data-i18n="modal.settings.tab.users">Users</div>
@@ -455,40 +453,7 @@
     </div>
     <div class="modal-main-area">
         <div class="modal-content-panel">
-            <div id="tab-strategy" class="tab-content active">
-                <div class="help-text" data-i18n-html="modal.strategy.help_core">
-                    <b style="color:#00ffff">Epicenter (Core):</b> The primary focal point of a contingency scenario.<br>
-                    <b style="color:#ffaa00">Correlate (Link):</b> Allied nations to monitor for coordinated attacks originating from the same botnets.
-                </div>
-                <div class="region-pills" id="pills-strategy"></div>
-                <input type="text" class="search-country" id="search-strategy" placeholder="Filter countries..." data-i18n-ph="modal.strategy.search">
-                <div class="country-scroll">
-                    <table class="theater-table">
-                        <thead><tr>
-                            <th data-tooltip="Epicenter (Primary Focus)" data-i18n="modal.strategy.th_core" data-i18n-tip="modal.strategy.th_core_tooltip">Core</th>
-                            <th data-tooltip="Calculate Correlation" data-i18n="modal.strategy.th_link" data-i18n-tip="modal.strategy.th_link_tooltip">Link</th>
-                            <th style="text-align: left; padding-left: 8px;" data-i18n="modal.strategy.th_country">Country / Region</th>
-                        </tr></thead>
-                        <tbody id="strategy-tbody"></tbody>
-                    </table>
-                </div>
-            </div>
-            <div id="tab-actors" class="tab-content">
-                <div class="help-text" data-i18n-html="modal.actors.help">
-                    <b style="color:#ff2a2a">Adversary State:</b> Nation-states conducting systematic cyber operations. Alerts trigger when adversary domestic infrastructure is used directly for attacks.<br>
-                    <span style="color:#888;font-size:10px;" data-i18n="modal.actors.help_auto_src">Narrative sources are automatically selected to match the adversary bloc.</span>
-                </div>
-                <div class="grid-scroll"><div class="modal-grid" id="actors-grid"></div></div>
-            </div>
-            <div id="tab-pins" class="tab-content">
-                <div class="help-text" data-i18n-html="modal.pins.help">
-                    <b style="color:#66ff66">Quick Pin:</b> Select countries to appear in the "Target Visibility" panel on the main screen for rapid on/off switching.
-                </div>
-                <div class="region-pills" id="pills-pins"></div>
-                <input type="text" class="search-country" id="search-pins" placeholder="Filter countries..." data-i18n-ph="modal.pins.search">
-                <div class="grid-scroll"><div class="modal-grid" id="pins-grid"></div></div>
-            </div>
-            <div id="tab-sensors" class="tab-content">
+            <div id="tab-sensors" class="tab-content active">
                 <div class="help-text" data-i18n-html="modal.sensors.help">
                     Enable or disable individual sensor modules. <b style="color:#00ffff">Cyber</b> = network threats, <b style="color:#ffaa00">Physical</b> = infrastructure &amp; airspace, <b style="color:#cc66ff">Info</b> = information &amp; influence operations.<br>
                     <span data-i18n="modal.sensors.help_graceful">Disabled sensors contribute zero to their domain score (Graceful Degradation).</span>
@@ -514,7 +479,7 @@
             <div id="tab-sysconfig" class="tab-content">
                 <!-- ── General Settings ─────────────────────────────── -->
                 <div style="flex:1;min-height:0;overflow-y:auto;padding-right:4px;" id="sysconfig-scroll">
-                <div class="help-text" style="margin-bottom:10px;font-size:13px;" data-i18n-html="sysconfig.help">
+                <div class="help-text" data-i18n-html="sysconfig.help">
                     Edit <span class="code-block">config.env</span> settings. Changes are written to disk and take effect after server restart.
                 </div>
 
@@ -557,40 +522,12 @@
                     <input class="env-input secret-field" id="ec-OPENSKY_CLIENT_SECRET" type="text" autocomplete="off" data-1p-ignore>
                 </div>
 
-                <div class="env-section-title" data-i18n="sysconfig.section.scope">Default Scope <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
-                <div style="font-size:12px;color:#556;margin-bottom:14px;" data-i18n="sysconfig.scope.desc">Startup defaults for the STRATEGY SCOPE and THREAT ACTORS panels. These can always be changed at runtime from the main UI.</div>
+                <div class="env-section-title" data-i18n="sysconfig.section.scope">Default Focus <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
+                <div style="font-size:12px;color:#556;margin-bottom:14px;" data-i18n="sysconfig.scope.desc">Startup default for the focused scenario. Participants and adversaries are managed in the Scenarios tab.</div>
 
-                <!-- Core Theater -->
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.core">Core Theater</label>
-                    <select class="env-input" id="ec-DEFAULT_CORE" style="max-width:280px;">
-                        <option value="">— none —</option>
-                    </select>
-                </div>
-
-                <!-- Adversaries: toggle cards -->
-                <div style="margin-bottom:14px;">
-                    <div class="scope-label" data-i18n="sysconfig.scope.adversaries">Adversaries</div>
-                    <div class="adv-bloc-picker" id="ec-DEFAULT_ADVERSARIES-picker"></div>
-                    <input type="hidden" id="ec-DEFAULT_ADVERSARIES">
-                </div>
-
-                <!-- Correlates + Quick Pins: two-column tag pickers -->
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
-                    <div>
-                        <div class="scope-label" data-i18n-html="sysconfig.scope.correlates_label">Correlates <small>(allied nations to monitor)</small></div>
-                        <div class="scope-tags" id="ec-correlates-tags"><span class="scope-tags-empty" data-i18n="sysconfig.scope.none_selected">None selected</span></div>
-                        <input type="hidden" id="ec-DEFAULT_CORRELATES">
-                        <input type="text" class="scope-search" id="ec-search-correlates" placeholder="Search countries…" data-i18n-ph="sysconfig.scope.search">
-                        <div class="scope-list" id="ec-correlates-list"></div>
-                    </div>
-                    <div>
-                        <div class="scope-label" data-i18n-html="sysconfig.scope.pins_label">Quick Pins <small>(target visibility panel)</small></div>
-                        <div class="scope-tags" id="ec-pins-tags"><span class="scope-tags-empty" data-i18n="sysconfig.scope.none_selected">None selected</span></div>
-                        <input type="hidden" id="ec-DEFAULT_PINS">
-                        <input type="text" class="scope-search" id="ec-search-pins" placeholder="Search countries…" data-i18n-ph="sysconfig.scope.search">
-                        <div class="scope-list" id="ec-pins-list"></div>
-                    </div>
+                    <label data-i18n="sysconfig.field.default_focused_scenario">Default Focused Scenario</label>
+                    <input class="env-input" id="ec-DEFAULT_FOCUSED_SCENARIO" type="text" placeholder="taiwan_contingency" style="max-width:280px;">
                 </div>
 
                 <!-- ── LLM Intelligence Settings ────────────────────── -->
@@ -913,75 +850,70 @@
             </div><!-- /tab-sysconfig -->
 
             <div id="tab-users" class="tab-content">
-                <div style="flex:1;min-height:0;overflow-y:auto;padding-right:4px;">
+                <div class="cfg-scroll">
                     <!-- Role Descriptions -->
-                    <div style="border:1px solid #222;border-radius:4px;padding:10px;margin-bottom:12px;background:#0a0a0a;">
-                        <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:8px;" data-i18n="panel.usermgr.roles_header">ROLES</div>
-                        <div style="font-size:10px;line-height:1.6;color:#999;">
-                            <div style="margin-bottom:4px;"><span style="color:#ff2a2a;font-weight:bold;">admin</span> — <span data-i18n="panel.usermgr.role_desc.admin">Full system access. User management, system configuration, strategy settings, and all operational features.</span></div>
-                            <div style="margin-bottom:4px;"><span style="color:#ffaa00;font-weight:bold;">analyst</span> — <span data-i18n="panel.usermgr.role_desc.analyst">Operational access. Strategy scope, threat actors, quick pins, sensor configuration, and monitoring features.</span></div>
-                            <div><span style="color:#66ccff;font-weight:bold;">viewer</span> — <span data-i18n="panel.usermgr.role_desc.viewer">Read-only access. View dashboards, fetch logs, and change own password only.</span></div>
+                    <div class="cfg-section">
+                        <div class="cfg-section-title" data-i18n="panel.usermgr.roles_header">ROLES</div>
+                        <div style="font-size:11px;line-height:1.7;color:#aaa;">
+                            <div style="margin-bottom:4px;"><span class="cfg-role-admin">admin</span> — <span data-i18n="panel.usermgr.role_desc.admin">Full system access. User management, system configuration, scenario management, and all operational features.</span></div>
+                            <div style="margin-bottom:4px;"><span class="cfg-role-analyst">analyst</span> — <span data-i18n="panel.usermgr.role_desc.analyst">Operational access. Scenario focus switching, sensor configuration, intel review, and monitoring features.</span></div>
+                            <div><span class="cfg-role-viewer">viewer</span> — <span data-i18n="panel.usermgr.role_desc.viewer">Read-only access. View dashboards, fetch logs, and change own password only.</span></div>
                         </div>
                     </div>
                     <!-- Add User Form (admin only) -->
-                    <div id="usrmgr-add-section" data-role-min="admin" style="border:1px solid #222;border-radius:4px;padding:10px;margin-bottom:12px;background:#0a0a0a;">
-                        <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.add_header">ADD USER</div>
-                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                            <input type="text" id="usrmgr-new-user" placeholder="Username" data-i18n-ph="panel.usermgr.ph.username"
-                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:140px;">
-                            <input type="text" class="secret-field" id="usrmgr-new-pass" placeholder="Password" data-i18n-ph="panel.usermgr.ph.password" autocomplete="off" data-1p-ignore
-                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:140px;">
-                            <select id="usrmgr-new-role"
-                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 6px;border-radius:3px;font-size:10px;cursor:pointer;">
+                    <div id="usrmgr-add-section" data-role-min="admin" class="cfg-section">
+                        <div class="cfg-section-title" data-i18n="panel.usermgr.add_header">ADD USER</div>
+                        <div class="cfg-row">
+                            <input type="text" id="usrmgr-new-user" class="cfg-input" placeholder="Username" data-i18n-ph="panel.usermgr.ph.username" style="width:160px;">
+                            <input type="text" class="cfg-input secret-field" id="usrmgr-new-pass" placeholder="Password" data-i18n-ph="panel.usermgr.ph.password" autocomplete="off" data-1p-ignore style="width:160px;">
+                            <select id="usrmgr-new-role" class="cfg-select">
                                 <option value="viewer">viewer</option>
                                 <option value="analyst">analyst</option>
                                 <option value="admin">admin</option>
                             </select>
-                            <button class="btn-tactical btn-action" onclick="umgrAddUser()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.add">ADD</button>
+                            <button class="btn-tactical btn-action" onclick="umgrAddUser()" data-i18n="panel.usermgr.btn.add">ADD</button>
                         </div>
                     </div>
                     <!-- Change Own Password -->
-                    <div style="border:1px solid #222;border-radius:4px;padding:10px;margin-bottom:12px;background:#0a0a0a;">
-                        <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.change_pw_header">CHANGE PASSWORD</div>
-                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                            <input type="text" class="secret-field" id="usrmgr-old-pw" placeholder="Current password" data-i18n-ph="panel.usermgr.ph.old_password" autocomplete="off" data-1p-ignore
-                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:140px;">
-                            <input type="text" class="secret-field" id="usrmgr-change-pw" placeholder="New password (6+ chars)" data-i18n-ph="panel.usermgr.ph.new_password" autocomplete="off" data-1p-ignore
-                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:140px;">
-                            <button class="btn-tactical btn-action" onclick="umgrChangePw()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.change_pw">CHANGE</button>
-                            <span id="usrmgr-changepw-status" style="font-size:10px;"></span>
+                    <div class="cfg-section">
+                        <div class="cfg-section-title" data-i18n="panel.usermgr.change_pw_header">CHANGE PASSWORD</div>
+                        <div class="cfg-row">
+                            <input type="text" class="cfg-input secret-field" id="usrmgr-old-pw" placeholder="Current password" data-i18n-ph="panel.usermgr.ph.old_password" autocomplete="off" data-1p-ignore style="width:160px;">
+                            <input type="text" class="cfg-input secret-field" id="usrmgr-change-pw" placeholder="New password (6+ chars)" data-i18n-ph="panel.usermgr.ph.new_password" autocomplete="off" data-1p-ignore style="width:180px;">
+                            <button class="btn-tactical btn-action" onclick="umgrChangePw()" data-i18n="panel.usermgr.btn.change_pw">CHANGE</button>
+                            <span id="usrmgr-changepw-status" class="cfg-status"></span>
                         </div>
                     </div>
                     <!-- User List (admin only) -->
-                    <div id="usrmgr-list-section" data-role-min="admin">
-                        <div style="font-size:9px;color:#666;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.registered">REGISTERED USERS</div>
+                    <div id="usrmgr-list-section" data-role-min="admin" class="cfg-section">
+                        <div class="cfg-section-title" data-i18n="panel.usermgr.registered">REGISTERED USERS</div>
                         <div id="usrmgr-list" style="max-height:400px;overflow-y:auto;"></div>
                     </div>
                     <!-- Password Reset (admin only) -->
-                    <div id="usrmgr-reset-section" data-role-min="admin" style="border:1px solid #332200;border-radius:4px;padding:10px;margin-top:10px;background:#0c0800;">
-                        <div style="font-size:9px;color:#664400;letter-spacing:1px;margin-bottom:6px;" data-i18n="panel.usermgr.reset_header">RESET PASSWORD</div>
-                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                            <select id="usrmgr-reset-target-select"
-                                style="background:#111;border:1px solid #333;color:#ffaa00;padding:4px 6px;border-radius:3px;font-size:10px;cursor:pointer;min-width:120px;">
+                    <div id="usrmgr-reset-section" data-role-min="admin" class="cfg-section danger">
+                        <div class="cfg-section-title" data-i18n="panel.usermgr.reset_header">RESET PASSWORD</div>
+                        <div class="cfg-row">
+                            <select id="usrmgr-reset-target-select" class="cfg-select" style="min-width:140px; color:#ffaa00;">
                                 <option value="" data-i18n="panel.usermgr.ph.select_user">-- Select user --</option>
                             </select>
-                            <input type="text" class="secret-field" id="usrmgr-reset-pw" placeholder="New password (6+ chars)" data-i18n-ph="panel.usermgr.ph.new_password" autocomplete="off" data-1p-ignore
-                                style="background:#111;border:1px solid #333;color:#ccc;padding:4px 8px;border-radius:3px;font-size:11px;width:160px;">
-                            <button class="btn-tactical btn-action" onclick="umgrResetPw()" style="font-size:10px;padding:4px 12px;" data-i18n="panel.usermgr.btn.reset">RESET</button>
-                            <span id="usrmgr-reset-status" style="font-size:10px;"></span>
+                            <input type="text" class="cfg-input secret-field" id="usrmgr-reset-pw" placeholder="New password (6+ chars)" data-i18n-ph="panel.usermgr.ph.new_password" autocomplete="off" data-1p-ignore style="width:180px;">
+                            <button class="btn-tactical btn-action" onclick="umgrResetPw()" data-i18n="panel.usermgr.btn.reset">RESET</button>
+                            <span id="usrmgr-reset-status" class="cfg-status"></span>
                         </div>
                     </div>
                 </div>
             </div><!-- /tab-users -->
             <div id="tab-scenarios" class="tab-content">
-                <div class="help-text" style="margin-bottom:8px;">
-                    <b style="color:#00ffff" data-i18n="scenario.mgr.title">Scenario Manager</b>
+                <div class="cfg-scroll" id="scmgr-scroll">
+                    <div class="help-text">
+                        <b style="color:#00ffff" data-i18n="scenario.mgr.title">Scenario Manager</b>
+                    </div>
+                    <div style="margin-bottom:10px;">
+                        <button class="btn-tactical btn-action" onclick="scMgrShowCreate()" data-i18n="scenario.mgr.create">Create Scenario</button>
+                    </div>
+                    <div id="scenario-mgr-list"></div>
+                    <div id="scenario-mgr-editor" style="display:none;"></div>
                 </div>
-                <div style="margin-bottom:8px;">
-                    <button class="btn-tactical btn-action" onclick="scMgrShowCreate()" style="font-size:10px;padding:4px 12px;" data-i18n="scenario.mgr.create">Create Scenario</button>
-                </div>
-                <div id="scenario-mgr-list"></div>
-                <div id="scenario-mgr-editor" style="display:none;"></div>
             </div><!-- /tab-scenarios -->
         </div><!-- /modal-content-panel -->
         <!-- Region Preview mini-map (hidden for Sensors/Fetchlog tabs) -->
@@ -990,9 +922,8 @@
             <div id="modal-minimap"></div>
             <div class="minimap-legend">
                 <span data-i18n="modal.minimap.legend.core"><span style="color:#00ffff;">◆</span> Core</span>
-                <span data-i18n="modal.minimap.legend.link"><span style="color:#ffaa00;">◆</span> Link</span>
+                <span data-i18n="modal.minimap.legend.link"><span style="color:#ffaa00;">◆</span> Participant</span>
                 <span data-i18n="modal.minimap.legend.adversary"><span style="color:#ff5555;">◆</span> Adversary</span>
-                <span data-i18n="modal.minimap.legend.pin"><span style="color:#55ee77;">◆</span> Pin</span>
             </div>
         </div>
     </div>
@@ -2041,52 +1972,26 @@
         <h4>7. Config &amp; Monitoring Management</h4>
         <p>Open the master settings modal via the <span class="code-block">Config</span> button in the toolbar. It consists of five tabs.</p>
         <ul>
-            <li><b>Strategy Scope</b>: <b>Epicenter (Core)</b> is the primary focus theater (single selection). Nearly all sensors and the convergence score are computed relative to Core. <b>Correlate (Link)</b> selects allied nations monitored for coordinated attacks from the same botnet.
-                <br><br>
-                Countries are organized by <b>Strategic Bloc</b> — the four active adversary blocs in contemporary geopolitics:
-                <ul style="margin-top:6px; line-height:2.0;">
-                    <li><span style="color:#ff4444;font-weight:bold;">▲ RUSSIA / CSTO</span> — Eastern Front (UA, MD) · CSTO/Post-Soviet (BY, GE, AM, AZ, KZ, KG, TJ, UZ) · NATO Eastern Flank (PL, LT, LV, EE, FI, NO, SE, DK) · Western Europe/EU · North America (US, CA) · <b>Far East/Pacific (JP, KR)</b> · Africa/Wagner (LY, ML, SD)</li>
-                    <li><span style="color:#ff8800;font-weight:bold;">▲ CHINA / PRC</span> — Taiwan Strait/1st Island Chain (TW, JP, PH, US, AU, KR) · South China Sea (VN, MY, SG, ID) · Indo-Pacific/QUAD (IN, NZ) · BRI/Continental (PK, BD, KH, LA, MM, MN, AF, HK, TH)</li>
-                    <li><span style="color:#aa44ff;font-weight:bold;">▲ IRAN / Resistance Axis</span> — Levant (IL, LB, SY, JO) · Gulf (SA, AE, BH, QA, OM, YE, IQ, IR, US)</li>
-                    <li><span style="color:#44aaff;font-weight:bold;">▲ DPRK</span> — Korean Peninsula (KR, US, JP)</li>
-                </ul>
-                <br>
-                <b>Multi-threat countries</b> (e.g., US, JP, KR, IL) appear in multiple blocs and are marked with <b>bloc badges</b>: the filled badge (solid background) indicates the country's <b>primary threat actor</b>; outline badges indicate secondary targeting relationships. Example: US displays <span style="background:#ff4444;color:#111;font-size:10px;padding:1px 4px;border-radius:2px;">RU</span> <span style="color:#ff8800;border:1px solid #ff880088;font-size:10px;padding:1px 4px;border-radius:2px;">CN</span> <span style="color:#aa44ff;border:1px solid #aa44ff88;font-size:10px;padding:1px 4px;border-radius:2px;">IR</span> <span style="color:#44aaff;border:1px solid #44aaff88;font-size:10px;padding:1px 4px;border-radius:2px;">KP</span>.
-                <br><br>
-                <b>Bloc Filter behavior:</b> <i>ALL</i> shows each country once under its primary bloc (flat overview). Selecting a specific bloc (e.g., CHINA/PRC) reveals contextual sub-categories with all relevant cross-bloc countries — for instance, US, AU, and KR appear under Taiwan Strait when the CHINA filter is active.
-            </li>
-            <li><b>Threat Actors</b>: Select from 5 adversary nation-states that conduct systematic cyber operations: <b>RU</b> (Russia), <b>CN</b> (China), <b>IR</b> (Iran), <b>KP</b> (North Korea), <b>BY</b> (Belarus / RU proxy). Selection drives both state-attribution badge display and RSS narrative source selection — only feeds relevant to the active adversary bloc are polled.</li>
-            <li><b>Quick Pins</b>: Select countries to appear as quick-toggle buttons in the "Target Visibility" panel on the main screen.</li>
-            <li><b>Sensors</b>: Enable or disable individual 33 sensors. A disabled sensor contributes zero to the score (graceful degradation). Sensor fleet: 12 original + 3 v9 (telegram_mirror, check_host, greynoise) + 1 Phase 2 (space_weather) + 3 Phase 4 (ihr, ripe_atlas, tor_metrics) + 7 CAC (notam, travel_advisory, ooni, usgs_seismic, mil_support_air, gps_jamming, ct_log) + 6 LLM Intel (hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news) + 1 meta (convergence_tracker).</li>
-            <li><b>Fetch Log</b>: Displays the last fetch result for each sensor (success/failure/cache age). Cache older than 3× the polling interval is flagged as STALE.</li>
+            <li><b>Sensors</b>: Enable or disable individual 33 sensors. A disabled sensor contributes zero to its domain score (graceful degradation). Sensor fleet: 12 original + 3 v9 (telegram_mirror, check_host, greynoise) + 1 Phase 2 (space_weather) + 3 Phase 4 (ihr, ripe_atlas, tor_metrics) + 7 CAC (notam, travel_advisory, ooni, usgs_seismic, mil_support_air, gps_jamming, ct_log) + 6 LLM Intel (hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news) + 1 meta (convergence_tracker).</li>
+            <li><b>Fetch Log</b>: Displays the last fetch result for each sensor (success / failure / cache age). Cache older than 3× the polling interval is flagged as STALE.</li>
+            <li><b>System</b> (admin only): Edit <span class="code-block">config.env</span> settings — server bind host/port, API keys, LLM/Ollama settings, intel queue thresholds, notification webhooks, cache &amp; polling intervals, threat-scoring thresholds, DDoS acceleration parameters, JWT auth, plugin sensors. The <b>Default Focus</b> field sets the scenario that becomes focused on startup (defaults to <span class="code-block">taiwan_contingency</span>).</li>
+            <li><b>Users</b>: Manage operator accounts with roles <b>admin</b> (full access) / <b>analyst</b> (operational access) / <b>viewer</b> (read-only). Password reset via admin-initiated temporary token.</li>
+            <li><b>Scenarios</b> (admin only): Create / edit / archive / restore / purge conflict scenarios. Each scenario defines its own <b>participants</b> (countries with role + coupling weight 0.0–1.0) and <b>core_country</b> (optional focus anchor). Exactly one scenario is <i>focused</i> at a time; all other enabled scenarios are scored in <b>C-lite</b> background mode (LLM intel + global signals only, no per-country sensors). See §8 for the scenario HUD and §9 for the scenario state machine.</li>
         </ul>
-        <p style="color:#888; font-size:11px;"><b>Bloc Filter (Strategy tab):</b> Filter pills at the top of the Strategy Scope tab filter by strategic bloc. Selecting a bloc zooms the Region Preview mini-map to the bloc's geographic bounds and shows all theaters relevant to that adversary's campaign — including cross-bloc countries that wouldn't appear in the ALL view. <b>Region Filter (Quick Pins tab):</b> Filters by geographic region (East Asia / SE Asia / Middle East, etc., across 16 regions). Both filters display current selections as color-coded dot markers on the mini-map: Core (cyan) / Link (amber) / Adversary (red) / Pin (green).</p>
+        <p style="color:#888; font-size:11px;"><b>Scope is scenario-driven, not tab-driven.</b> The legacy Strategy / Threat Actors / Quick Pins tabs were removed when the system migrated from country-unit to scenario-unit scoring (see <span class="code-block">docs/design/scenario-refactor.md</span>). All per-country lists — participants, adversaries, correlate targets — are now derived from the focused scenario's <span class="code-block">participants</span> map, which is managed in the Scenarios tab.</p>
 
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>7. 設定 &amp; 監視管理</h4>
         <p>ツールバーの <span class="code-block">Config</span> ボタンからマスター設定モーダルを開く。5つのタブで構成される。</p>
         <ul>
-            <li><b>戦略スコープ</b>: <b>震源地（コア）</b>は主要フォーカスシアター（単一選択）。ほぼすべてのセンサーと収束スコアはコアを基準に算出される。<b>相関（リンク）</b>は同一ボットネットからの協調攻撃を監視する同盟国を選択する。
-                <br><br>
-                国は<b>戦略ブロック</b>で整理 — 現代地政学における4つのアクティブな敵対ブロック:
-                <ul style="margin-top:6px; line-height:2.0;">
-                    <li><span style="color:#ff4444;font-weight:bold;">▲ ロシア / CSTO</span> — 東部戦線（UA, MD）· CSTO/旧ソ連（BY, GE, AM, AZ, KZ, KG, TJ, UZ）· NATO 東方フランク（PL, LT, LV, EE, FI, NO, SE, DK）· 西欧/EU · 北米（US, CA）· <b>極東/太平洋（JP, KR）</b> · アフリカ/ワグネル（LY, ML, SD）</li>
-                    <li><span style="color:#ff8800;font-weight:bold;">▲ 中国 / PRC</span> — 台湾海峡/第一列島線（TW, JP, PH, US, AU, KR）· 南シナ海（VN, MY, SG, ID）· インド太平洋/QUAD（IN, NZ）· 一帯一路/大陸（PK, BD, KH, LA, MM, MN, AF, HK, TH）</li>
-                    <li><span style="color:#aa44ff;font-weight:bold;">▲ イラン / 抵抗の枢軸</span> — レバント（IL, LB, SY, JO）· 湾岸（SA, AE, BH, QA, OM, YE, IQ, IR, US）</li>
-                    <li><span style="color:#44aaff;font-weight:bold;">▲ 北朝鮮</span> — 朝鮮半島（KR, US, JP）</li>
-                </ul>
-                <br>
-                <b>複数脅威国</b>（例: US, JP, KR, IL）は複数のブロックに出現し、<b>ブロックバッジ</b>でマーク: 塗りつぶしバッジ（実背景）は国の<b>主要脅威アクター</b>を示し、アウトラインバッジは二次的な標的関係を示す。例: US は <span style="background:#ff4444;color:#111;font-size:10px;padding:1px 4px;border-radius:2px;">RU</span> <span style="color:#ff8800;border:1px solid #ff880088;font-size:10px;padding:1px 4px;border-radius:2px;">CN</span> <span style="color:#aa44ff;border:1px solid #aa44ff88;font-size:10px;padding:1px 4px;border-radius:2px;">IR</span> <span style="color:#44aaff;border:1px solid #44aaff88;font-size:10px;padding:1px 4px;border-radius:2px;">KP</span> を表示。
-                <br><br>
-                <b>ブロックフィルターの動作:</b> <i>ALL</i> では各国を主要ブロック下に一度だけ表示（フラット概観）。特定ブロック（例: CHINA/PRC）を選択すると、すべての関連クロスブロック国を含むコンテキスト別サブカテゴリが表示 — 例えば、CHINA フィルターがアクティブな場合、US、AU、KR が台湾海峡の下に表示される。
-            </li>
-            <li><b>脅威アクター</b>: 組織的サイバー作戦を実施する5つの敵対国家から選択: <b>RU</b>（ロシア）、<b>CN</b>（中国）、<b>IR</b>（イラン）、<b>KP</b>（北朝鮮）、<b>BY</b>（ベラルーシ / RU プロキシ）。選択により、国家帰属バッジ表示と RSS ナラティブソース選択の両方が駆動 — アクティブな敵対ブロックに関連するフィードのみがポーリングされる。</li>
-            <li><b>クイックピン</b>: メイン画面の「ターゲット表示」パネルにクイックトグルボタンとして表示する国を選択。</li>
-            <li><b>センサー</b>: 全33個のセンサーを個別に有効/無効切替。無効化されたセンサーのスコア貢献はゼロ（グレースフルデグラデーション）。センサー構成: オリジナル12 + v9 3（telegram_mirror, check_host, greynoise）+ Phase 2 1（space_weather）+ Phase 4 3（ihr, ripe_atlas, tor_metrics）+ CAC 7（notam, travel_advisory, ooni, usgs_seismic, mil_support_air, gps_jamming, ct_log）+ LLM Intel 6（hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news）+ meta 1（convergence_tracker）。</li>
-            <li><b>フェッチログ</b>: 各センサーの最終フェッチ結果（成功/失敗/キャッシュ経過時間）を表示。ポーリング間隔の3倍より古いキャッシュは STALE としてフラグ。</li>
+            <li><b>センサー</b>: 全33個のセンサーを個別に有効/無効切替。無効化されたセンサーのドメインスコア貢献はゼロ（グレースフルデグラデーション）。センサー構成: オリジナル12 + v9 3（telegram_mirror, check_host, greynoise）+ Phase 2 1（space_weather）+ Phase 4 3（ihr, ripe_atlas, tor_metrics）+ CAC 7（notam, travel_advisory, ooni, usgs_seismic, mil_support_air, gps_jamming, ct_log）+ LLM Intel 6（hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news）+ meta 1（convergence_tracker）。</li>
+            <li><b>フェッチログ</b>: 各センサーの最終フェッチ結果（成功 / 失敗 / キャッシュ経過時間）を表示。ポーリング間隔の3倍より古いキャッシュは STALE としてフラグ。</li>
+            <li><b>System</b>（admin のみ）: <span class="code-block">config.env</span> を編集 — サーバー Listen ホスト/ポート、API キー、LLM/Ollama 設定、インテルキュー閾値、通知 Webhook、キャッシュ &amp; ポーリング間隔、脅威スコアリング閾値、DDoS アクセラレーションパラメータ、JWT 認証、プラグインセンサー。<b>Default Focus</b> 欄は起動時に focused になるシナリオを指定（既定は <span class="code-block">taiwan_contingency</span>）。</li>
+            <li><b>ユーザー</b>: オペレータアカウントの管理。ロールは <b>admin</b>（完全アクセス）/ <b>analyst</b>（運用アクセス）/ <b>viewer</b>（閲覧のみ）。管理者発行の一時トークンによるパスワードリセットに対応。</li>
+            <li><b>Scenarios</b>（admin のみ）: 紛争シナリオの作成 / 編集 / アーカイブ / 復元 / 完全削除。各シナリオは独自の <b>participants</b>（役割と結合重み 0.0–1.0 を持つ国）と <b>core_country</b>（任意のフォーカス基準）を定義。常に1つのシナリオだけが <i>focused</i>、他の有効なシナリオは <b>C-lite</b> バックグラウンドモードで採点される（LLM インテル + グローバル信号のみ、per-country センサーは走らない）。シナリオ HUD は §8、状態機械は §9 を参照。</li>
         </ul>
-        <p style="color:#888; font-size:11px;"><b>ブロックフィルター（戦略タブ）:</b> 戦略スコープタブ上部のフィルターピルで戦略ブロックをフィルタリング。ブロックを選択すると、地域プレビューミニマップがそのブロックの地理的境界にズームし、当該敵対者のキャンペーンに関連するすべてのシアターを表示 — ALL ビューでは表示されないクロスブロック国も含む。<b>地域フィルター（クイックピンタブ）:</b> 地理的地域（東アジア / 東南アジア / 中東など、16地域）でフィルタリング。両フィルターとも現在の選択をミニマップ上の色分けドットマーカーとして表示: コア（シアン）/ リンク（琥珀）/ 敵対者（赤）/ ピン（緑）。</p>
+        <p style="color:#888; font-size:11px;"><b>スコープはタブではなくシナリオ駆動。</b> 国単位採点からシナリオ単位採点への移行により、旧 Strategy / Threat Actors / Quick Pins タブは撤去された（<span class="code-block">docs/design/scenario-refactor.md</span> 参照）。participants / adversaries / correlate targets など per-country リストはすべて focused シナリオの <span class="code-block">participants</span> マップから導出され、Scenarios タブで管理する。</p>
 
         </div>
         </div><!-- /guide-ch-7 -->
@@ -2306,8 +2211,8 @@
 
         <p><b>VIII. Target Visibility Panel</b> — <span class="code-block">TOOLS ▾</span> → Target Visibility (CORE)</p>
         <ul>
-            <li><b>Purpose:</b> Quick toggle panel for selecting which countries/regions to display on the main map and in the Live Threat Telemetry panel. Only countries configured in Settings → Quick Pins appear here.</li>
-            <li><b>Controls:</b> Grid of checkboxes — one per pinned country. Toggle on/off to show/hide that country's threat data on the map and in telemetry. State is persisted to localStorage across sessions.</li>
+            <li><b>Purpose:</b> Quick toggle panel for selecting which countries/regions to display on the main map and in the Live Threat Telemetry panel. Countries are derived from the focused scenario's participants (Settings → Scenarios).</li>
+            <li><b>Controls:</b> Grid of checkboxes — one per participant country of the focused scenario. Toggle on/off to show/hide that country's threat data on the map and in telemetry. State is persisted to localStorage across sessions.</li>
             <li><b>Dockable:</b> Can be docked to the left sidebar or used as a floating panel.</li>
         </ul>
 
@@ -2659,8 +2564,8 @@
 
         <p><b>VIII. ターゲット可視性パネル</b> — <span class="code-block">TOOLS ▾</span> → Target Visibility（CORE）</p>
         <ul>
-            <li><b>目的:</b> マップおよびリアルタイム脅威テレメトリパネルに表示する国/地域をトグル選択するクイック操作パネル。設定 → Quick Pins で設定した国のみ表示。</li>
-            <li><b>操作:</b> ピン留め国ごとのチェックボックスグリッド。オン/オフでその国の脅威データをマップ・テレメトリ上に表示/非表示。状態はlocalStorageにセッション間で保持。</li>
+            <li><b>目的:</b> マップおよびリアルタイム脅威テレメトリパネルに表示する国/地域をトグル選択するクイック操作パネル。表示対象国はフォーカス中シナリオの participants から導出される（設定 → Scenarios）。</li>
+            <li><b>操作:</b> フォーカス中シナリオの参加国ごとのチェックボックスグリッド。オン/オフでその国の脅威データをマップ・テレメトリ上に表示/非表示。状態はlocalStorageにセッション間で保持。</li>
             <li><b>ドッキング対応:</b> 左サイドバーにドッキングまたはフローティングパネルとして使用可能。</li>
         </ul>
 
@@ -2800,8 +2705,31 @@
         <ul>
             <li><b>Scenario cards</b> appear as a horizontal strip below the HUD. Each registered scenario has a card showing its name, score, TL (for focused), and domain activity dots (C/P/I).</li>
             <li><b>Focused scenario</b> (cyan border, FOCUSED badge): receives signals from all 33 sensors — full scoring fidelity. TL1–5 threat level is computed.</li>
-            <li><b>Background scenarios</b> (LITE badge): scored using LLM intel and global-only signals. TL is not computed. Hover for bias warning.</li>
-            <li><b>Click</b> a background card to switch focus. The data re-fetches with the new focus applied.</li>
+            <li><b>Background scenarios</b> (LITE badge): scored using LLM intel and global-only signals. TL is not computed. A <b>BIAS</b> tag is shown when the scenario is affected by C-lite sampling bias (ADR-008).</li>
+            <li><b>Click</b> a scenario card to open the <b>Scenario Detail Panel</b> (below the scenario bar). To switch focus, use the focus-switch action inside the panel or the scenario focus selector.</li>
+        </ul>
+
+        <h5>I. Scenario Detail Panel &amp; Rationale Verification</h5>
+        <ul>
+            <li><b>Purpose (P4 traceability):</b> Every rationale must be traceable back to the source evidence. The detail panel is the analyst's primary tool for verifying why a scenario score has its current value, down to the individual sensor contribution and LLM reasoning.</li>
+            <li><b>Bias warning banner:</b> For background scenarios, an orange warning banner is shown at the top of the panel stating that the score is derived from LLM intel + global signals only, and that per-country sensor signals are not being sampled (ADR-008). Do not compare background scores directly with the focused scenario score.</li>
+            <li><b>Domain bars:</b> Cyber / Physical / Information domain scores are shown as horizontal bars. The sum (capped per domain at DOMAIN_CAP=6.0) plus convergence bonus produces the scenario score.</li>
+            <li><b>Contribution table columns:</b>
+                <ul>
+                    <li><b>Sensor</b> — the sensor that produced the signal, with a colored tag indicating its domain.</li>
+                    <li><b>Country</b> — ISO2 code of the country the signal is attributed to (or GLOBAL).</li>
+                    <li><b>Role</b> — the country's role in the scenario (primary_target, forward_base, primary_ally, etc).</li>
+                    <li><b>Raw</b> — raw sensor score before weighting.</li>
+                    <li><b>LLM w</b> — LLM-assigned country weight (0.0–1.0), present only for LLM-analyzed signals.</li>
+                    <li><b>Part w</b> — participant weight configured for the country within this scenario (0.0–1.0).</li>
+                    <li><b>Contrib</b> — final contribution to domain score: <span class="code-block">raw × llm_w × part_w × global_discount</span>.</li>
+                    <li><b>Evidence</b> — clickable link to the source URL (opens in a new tab).</li>
+                    <li><b>What-if</b> — toggle (focused scenarios only) to exclude this contribution from the recomputation.</li>
+                </ul>
+            </li>
+            <li><b>Row expansion:</b> Click any row to expand it and see: <span class="code-block">formula_trace</span> (canonical calculation string — this is the authoritative explanation per P4), <span class="code-block">value_display</span> (human-readable raw value), <span class="code-block">llm_reasoning</span> (the LLM's stated reason for the country weighting), <span class="code-block">observed_at</span> (UTC timestamp), and the evidence URL.</li>
+            <li><b>What-if recomputation (focused only):</b> Click the what-if toggle on one or more rows to exclude those contributions. The panel header shows the recomputed domain scores, convergence bonus, total score, and derived TL (using the same rules as the server engine: TL1≥9+physical≥3, TL2≥6+active_domains≥2, TL3≥4, TL4≥2, TL5&lt;2). Use this to sanity-check whether the score would still hold if a questionable signal were removed. Click <b>Reset</b> to clear all exclusions.</li>
+            <li><b>When to use:</b> (a) before escalating an alert — verify formula_trace and evidence; (b) when an LLM-derived country weight looks suspicious — inspect llm_reasoning; (c) when you suspect a single noisy sensor is driving the score — use what-if to confirm.</li>
         </ul>
 
         </div>
@@ -2810,8 +2738,31 @@
         <ul>
             <li><b>シナリオカード</b>はHUD下部に水平バーとして表示されます。登録済みの各シナリオが名称、スコア、TL（フォーカス時）、ドメイン活動ドット(C/P/I)と共にカード表示されます。</li>
             <li><b>フォーカスシナリオ</b>（シアンの枠、FOCUSEDバッジ）: 全33センサーからの信号を受信し、完全なスコアリング精度でTL1–5の脅威レベルが算出されます。</li>
-            <li><b>バックグラウンドシナリオ</b>（LITEバッジ）: LLMインテルとグローバル信号のみでスコアリングされます。TLは算出されません。ホバーでバイアス警告が表示されます。</li>
-            <li><b>クリック</b>でバックグラウンドカードにフォーカスを切り替え。新しいフォーカスでデータが再取得されます。</li>
+            <li><b>バックグラウンドシナリオ</b>（LITEバッジ）: LLMインテルとグローバル信号のみでスコアリングされます。TLは算出されません。C-liteサンプリングバイアスの影響を受けている場合は<b>BIAS</b>タグが表示されます（ADR-008）。</li>
+            <li><b>クリック</b>でシナリオカードを開き、<b>シナリオ詳細パネル</b>（シナリオバー下部）が表示されます。フォーカスを切り替えるには、パネル内のフォーカス切替アクションまたはシナリオフォーカスセレクタを使用します。</li>
+        </ul>
+
+        <h5>I. シナリオ詳細パネル / 根拠検証</h5>
+        <ul>
+            <li><b>目的（P4: 追跡可能性）:</b> 全ての根拠はソース証拠まで追跡可能でなければなりません。詳細パネルは、シナリオスコアが現在の値に至った理由を、個々のセンサー寄与度とLLM推論レベルまで検証するためのアナリストの主要ツールです。</li>
+            <li><b>バイアス警告バナー:</b> バックグラウンドシナリオでは、パネル上部にオレンジ色の警告バナーが表示され、スコアはLLMインテル + グローバル信号のみから導出されており、国別センサー信号はサンプリングされていないこと（ADR-008）を明示します。バックグラウンドスコアをフォーカスシナリオのスコアと直接比較しないでください。</li>
+            <li><b>ドメインバー:</b> Cyber / Physical / Information の各ドメインスコアが水平バーで表示されます。合計（ドメインごとに DOMAIN_CAP=6.0 でキャップ）+ 収斂ボーナスがシナリオスコアとなります。</li>
+            <li><b>寄与度テーブル列:</b>
+                <ul>
+                    <li><b>Sensor</b> — 信号を発生させたセンサー。ドメインを示すカラータグ付き。</li>
+                    <li><b>Country</b> — 信号が帰属する国のISO2コード（または GLOBAL）。</li>
+                    <li><b>Role</b> — シナリオにおけるその国の役割（primary_target, forward_base, primary_ally 等）。</li>
+                    <li><b>Raw</b> — 重み付け前の生センサースコア。</li>
+                    <li><b>LLM w</b> — LLMが割り当てた国重み（0.0–1.0）。LLM解析済み信号のみに付与されます。</li>
+                    <li><b>Part w</b> — このシナリオ内でその国に設定された参加者重み（0.0–1.0）。</li>
+                    <li><b>Contrib</b> — ドメインスコアへの最終寄与: <span class="code-block">raw × llm_w × part_w × global_discount</span>。</li>
+                    <li><b>Evidence</b> — ソースURLへのクリック可能リンク（新しいタブで開きます）。</li>
+                    <li><b>What-if</b> — 再計算からこの寄与を除外するトグル（フォーカスシナリオのみ）。</li>
+                </ul>
+            </li>
+            <li><b>行展開:</b> 任意の行をクリックすると展開され、以下が表示されます: <span class="code-block">formula_trace</span>（正準的な計算式文字列 — P4 に基づく唯一の権威ある説明）、<span class="code-block">value_display</span>（人間可読の生値）、<span class="code-block">llm_reasoning</span>（LLMが国重み付けの理由として提示したもの）、<span class="code-block">observed_at</span>（UTCタイムスタンプ）、および証拠URL。</li>
+            <li><b>What-if 再計算（フォーカス時のみ）:</b> 1つ以上の行でWhat-ifトグルをクリックすると、それらの寄与が除外されます。パネルヘッダには再計算されたドメインスコア、収斂ボーナス、合計スコア、導出TLが表示されます（サーバーエンジンと同じルール: TL1≥9+physical≥3, TL2≥6+active_domains≥2, TL3≥4, TL4≥2, TL5&lt;2）。疑わしい信号を除去してもスコアが維持されるかのサニティチェックに使用します。<b>Reset</b> で全除外をクリア。</li>
+            <li><b>使用タイミング:</b> (a) アラートをエスカレーションする前 — formula_trace と証拠を検証する; (b) LLM導出の国重みが疑わしい場合 — llm_reasoning を確認する; (c) 単一のノイジーなセンサーがスコアを牽引している疑いがある場合 — What-if で確認する。</li>
         </ul>
 
         </div>

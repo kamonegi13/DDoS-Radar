@@ -328,7 +328,10 @@ class AptIntelSensor(BaseSensor):
             self.log_fetch(True, 0, 0, 0, "llm_unavailable")
             return {"apt_intel": {"llm_offline": True}}
 
-        strategic_theaters = set(context.get("strategic_theaters", []))
+        # LLM intel covers every country any scorable scenario cares about
+        # (ADR-004: LLM tags countries, scoring engine maps to scenarios).
+        strategic_theaters = set(context.get("all_participant_countries")
+                                  or context.get("strategic_theaters", []))
         t0 = time.time()
         submitted = 0
 
