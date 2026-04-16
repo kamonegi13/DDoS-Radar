@@ -767,6 +767,9 @@
         if (modalId === 'settings-modal') {
             _applyRoleVisibility(modal);
             requestAnimationFrame(() => { _initMinimap(); _minimapFlyTo(_activeRegion); _updateMinimap(); });
+            // Auto-load the active tab's data on first open
+            const activeTab = modal.querySelector('.tab.active');
+            if (activeTab) activeTab.click();
         }
     }
     function switchGuideChapter(n) {
@@ -955,11 +958,12 @@
         const mskAlert = document.getElementById('hud-discrepancy-alert');
         const hudEl    = document.getElementById('top-hud');
         const mskNow   = (p8.maskirovka || {}).detected;
-        if (mskAlert) mskAlert.style.display = mskNow ? 'block' : 'none';
+        if (mskAlert) mskAlert.style.display = mskNow ? 'inline-flex' : 'none';
         if (hudEl) {
             if (mskNow) hudEl.classList.add('hud-discrepancy-border');
             else        hudEl.classList.remove('hud-discrepancy-border');
         }
+        _refreshExceptionBar();
 
         // ── v9: C2 Temporal Coherence ──────────────────────────────────────────
         const c2El = document.getElementById('hud-c2sync');
@@ -1958,7 +1962,7 @@
         _lastRenderSig = _sig;
 
         const threatEl = document.getElementById('hud-threat');
-        const epicenterEl = document.getElementById('hud-epicenter');
+        const scenarioNameEl = document.getElementById('hud-scenario-name');
         const overlapEl = document.getElementById('hud-overlap');
         const shiftEl = document.getElementById('hud-vector-shift');
         const strikesEl = document.getElementById('hud-strikes');
@@ -2035,16 +2039,23 @@
             if (ds && dirWrap && dirEl) {
                 const dom = ds.dominant_direction || 'UNKNOWN';
                 const short = { 'ADVERSARY_OFFENSIVE': '⚔ ADV', 'FRIENDLY_DEFENSIVE': '🛡 FRD', 'TARGET_IMPACT': '⚡ TGT', 'UNKNOWN': '? UNK' };
-                const dirColors = { 'ADVERSARY_OFFENSIVE': '#ff2a2a', 'FRIENDLY_DEFENSIVE': '#00cc66', 'TARGET_IMPACT': '#ffaa00', 'UNKNOWN': '#555' };
                 dirEl.textContent = short[dom] || dom;
-                dirEl.style.color = dirColors[dom] || '#888';
                 dirEl.setAttribute('data-tooltip', `${_t('hud.tooltip.direction')}\nADV:${ds.adversary_offensive} FRD:${ds.friendly_defensive} TGT:${ds.target_impact} UNK:${ds.unknown}\nClarity: ${((ds.direction_clarity || 0) * 100).toFixed(0)}%`);
-                dirWrap.style.display = (ds.adversary_offensive > 0 || ds.target_impact > 0) ? '' : 'none';
+                dirWrap.style.display = (ds.adversary_offensive > 0 || ds.target_impact > 0) ? 'inline-flex' : 'none';
             } else if (dirWrap) {
                 dirWrap.style.display = 'none';
             }
+            _refreshExceptionBar();
 
-            epicenterEl.innerText = strat.core_theater || 'None';
+            // Scenario chip — show focused scenario name (replaces Epicenter)
+            if (scenarioNameEl) {
+                const focusedId = data.focused_scenario || '';
+                const sc = (data.scenarios || {})[focusedId];
+                const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
+                let dispName = focusedId || _t('hud.scenario.none');
+                if (sc) dispName = lang === 'ja' ? (sc.name_ja || sc.name_en || focusedId) : (sc.name_en || focusedId);
+                scenarioNameEl.textContent = dispName;
+            }
 
             if (strat.correlations && Object.keys(strat.correlations).length > 0) {
                 const maxEntry = Object.entries(strat.correlations).reduce((a, b) => b[1] > a[1] ? b : a, ['—', 0]);
@@ -2133,9 +2144,9 @@
                 else if (v < -0.0001) { velEl.style.color='#66ffaa'; arrowEl.textContent='↓'; arrowEl.style.color='#66ffaa'; }
                 else                  { velEl.style.color='#aaa';    arrowEl.textContent='→'; arrowEl.style.color='#aaa'; }
             }
-            // Ambush Alert
+            // Ambush Alert (exception banner item)
             const ambushWrap = document.getElementById('hud-ambush-wrap');
-            if (ambushWrap) ambushWrap.style.display = p8.is_ambush ? 'flex' : 'none';
+            if (ambushWrap) ambushWrap.style.display = p8.is_ambush ? 'inline-flex' : 'none';
 
             // Blockade Index
             const blockadeEl   = document.getElementById('hud-blockade');
@@ -2160,21 +2171,23 @@
             // Update Evidence Chain Panel
             updateChainPanel(strat);
 
-            // A3: Triangulation indicator
+            // A3: Triangulation indicator (exception banner)
             const triEl = document.getElementById('hud-triangulation');
-            if (triEl) triEl.style.display = p8.triangulation?.is_triangulated ? 'flex' : 'none';
+            if (triEl) triEl.style.display = p8.triangulation?.is_triangulated ? 'inline-flex' : 'none';
 
-            // A1: Silent Divergence indicator
+            // A1: Silent Divergence indicator (exception banner)
             const sdEl = document.getElementById('hud-silent-div');
             const sdText = document.getElementById('hud-silent-text');
             if (sdEl && p8.silent_divergence) {
                 const sd = p8.silent_divergence;
-                sdEl.style.display = sd.detected ? 'flex' : 'none';
+                sdEl.style.display = sd.detected ? 'inline-flex' : 'none';
                 if (sdText && sd.detected) {
                     sdText.textContent = sd.confidence;
-                    sdText.style.color = sd.confidence === 'HIGH' ? '#ff2200' : sd.confidence === 'MEDIUM' ? '#ff8800' : '#ffaa00';
                 }
+            } else if (sdEl) {
+                sdEl.style.display = 'none';
             }
+            _refreshExceptionBar();
 
             // A2: Theater Baseline Z-score
             const baseZEl = document.getElementById('hud-baseline-z');
@@ -2189,6 +2202,9 @@
                     baseZEl.style.color = '#555';
                 }
             }
+
+            // ── HUD additions: TL duration / ETA / HOD-Z / INTEL / domain split ──
+            _updateNewHudChips(data, strat, p8);
 
             // ── v9 new sensor panel update ───────────────────────────────
             const gnEl = document.getElementById('gn-panel');
@@ -2960,12 +2976,16 @@
     });
 
     async function initApp() {
-        // Display logged-in username in HUD
+        // Display logged-in username + role in the hamburger user section
         const _storedUser = localStorage.getItem('radar_username');
         const _storedRole = localStorage.getItem('radar_role');
         if (_storedUser) {
-            const el = document.getElementById('hud-username');
-            if (el) el.textContent = `${_storedUser} (${_storedRole || 'viewer'})`;
+            const nameEl = document.getElementById('hud-username');
+            const roleEl = document.getElementById('hud-user-role');
+            const avEl   = document.getElementById('hud-user-avatar');
+            if (nameEl) nameEl.textContent = _storedUser;
+            if (roleEl) roleEl.textContent = _storedRole || 'viewer';
+            if (avEl)   avEl.textContent = (_storedUser[0] || '?').toUpperCase();
         }
 
         let defaults = {
@@ -4175,31 +4195,217 @@
     }
 
     // ── G. Radio Silence Indicator ────────────────────────────────────
-    // All sensors abnormally quiet: possible sensor suppression or pre-operation comms blackout
+    // Sensors abnormally quiet: possible sensor suppression or pre-op comms blackout.
+    // Now lives in the exception banner — only rendered when quiet anomaly fires
+    // (no neutral "LIVE" badge consumes HUD real estate).
     function updateRadioSilence(p8, strat) {
         const wrap = document.getElementById('hud-radio-silence');
-        const dot  = wrap ? wrap.querySelector('.rs-dot') : null;
         const txt  = document.getElementById('hud-rs-text');
-        if (!wrap || !dot || !txt) return;
+        if (!wrap || !txt) return;
 
         const velocity = p8 ? Math.abs(p8.velocity || 0) : 0;
         const score    = strat ? ((strat.threat_breakdown || {}).total_score || 0) : 0;
-        // "Quiet anomaly": score at or above significance level but velocity is zero
         const isQuiet  = velocity < 0.00005 && score >= 3;
 
-        wrap.classList.add('active');
+        wrap.style.display = isQuiet ? 'inline-flex' : 'none';
         if (isQuiet) {
-            dot.className = 'rs-dot rs-dot-quiet';
-            txt.textContent  = _t('rs.quiet_text');
-            txt.style.color  = '#ff8800';
+            txt.textContent = _t('rs.quiet_text');
             wrap.setAttribute('data-tooltip', _t('rs.tooltip.quiet'));
-        } else {
-            dot.className = 'rs-dot rs-dot-live';
-            txt.textContent  = _t('rs.live_text');
-            txt.style.color  = '#00ff88';
-            wrap.setAttribute('data-tooltip', _t('rs.tooltip.live'));
         }
+        _refreshExceptionBar();
     }
+
+    // ── HUD chip updates introduced with the 3-row redesign ──────────
+    // Reads fields the API now exposes (tl_duration_sec, intel_active_24h,
+    // intel_new_1h, hod_z, eta_to_next_tl_sec, domain_split, scenarios[id]
+    // .indicators.score_delta_1h) and renders the new chip group.
+    function _formatDuration(sec) {
+        if (sec == null || !isFinite(sec) || sec <= 0) return '';
+        const m = Math.round(sec / 60);
+        if (m < 60) return m + 'm';
+        const h = Math.floor(m / 60), rm = m % 60;
+        if (h < 24) return rm > 0 ? `${h}h${rm}m` : `${h}h`;
+        const d = Math.floor(h / 24), rh = h % 24;
+        return rh > 0 ? `${d}d${rh}h` : `${d}d`;
+    }
+
+    function _updateNewHudChips(data, strat, p8) {
+        if (!strat) return;
+        const ana = strat.analytics || {};
+        const focusedId = data.focused_scenario || '';
+        const focusedSc = (data.scenarios || {})[focusedId] || {};
+        // Backend writes A1/A3/A5 fields at the scenario top level (not under .indicators)
+        const ind       = focusedSc;
+
+        // ── A1: TL duration (combats normalcy bias) ──────────────────
+        const tlDurEl = document.getElementById('hud-tl-duration');
+        if (tlDurEl) {
+            const sec = ind.tl_duration_sec;
+            if (sec != null && sec > 60) {
+                tlDurEl.textContent = '· ' + _formatDuration(sec);
+                tlDurEl.classList.toggle('long', sec >= 7200);
+                tlDurEl.setAttribute('data-tooltip',
+                    _t('hud.tooltip.tl_duration') + '\n' + _formatDuration(sec));
+            } else {
+                tlDurEl.textContent = '';
+                tlDurEl.classList.remove('long');
+            }
+        }
+
+        // ── ETA chip (proximity points + projected time) ─────────────
+        const etaChip = document.getElementById('hud-eta-chip');
+        const etaTime = document.getElementById('hud-eta-time');
+        const tlp     = ana.tl_proximity;
+        const eta     = ana.eta_to_next_tl_sec;
+        if (etaChip && etaTime && tlp) {
+            const lbl = tlp.proximity_label;
+            etaChip.classList.remove('escalating', 'deescalating');
+            if (eta && (lbl === 'NEAR_ESCALATION' || lbl === 'NEAR_DE_ESCALATION')) {
+                const dir   = eta.direction || '';
+                const isUp  = dir === 'escalating';
+                etaChip.classList.add(isUp ? 'escalating' : 'deescalating');
+                etaTime.textContent = '~' + _formatDuration(eta.eta_sec);
+                etaTime.style.display = '';
+                etaChip.style.display = '';
+                etaChip.setAttribute('data-tooltip',
+                    _t('hud.tooltip.eta') + '\n' +
+                    (isUp
+                        ? _t('hud.eta.tooltip_up',   {pts: tlp.distance_up,   tl: tlp.next_tl_up,   eta: _formatDuration(eta.eta_sec)})
+                        : _t('hud.eta.tooltip_down', {pts: tlp.distance_down, tl: tlp.next_tl_down, eta: _formatDuration(eta.eta_sec)})));
+            } else if (lbl === 'NEAR_ESCALATION' || lbl === 'NEAR_DE_ESCALATION') {
+                // proximity present but velocity too small for ETA
+                etaTime.textContent = '';
+                etaTime.style.display = 'none';
+                etaChip.style.display = '';
+            } else {
+                etaChip.style.display = 'none';
+            }
+        } else if (etaChip) {
+            etaChip.style.display = 'none';
+        }
+
+        // ── HOD Z-score chip (current hour vs same-hour baseline) ────
+        const hodChip = document.getElementById('hud-hod-chip');
+        const hodEl   = document.getElementById('hud-hod-z');
+        if (hodChip && hodEl) {
+            const z = ana.hod_z;
+            const n = ana.hod_n || 0;
+            if (z != null && n >= 7) {
+                const az = Math.abs(z);
+                hodEl.textContent = (z >= 0 ? '+' : '') + z.toFixed(1) + 'σ';
+                hodEl.className = 'hud-chip-value ' + (
+                    az >= 2.5 ? 'hod-critical' :
+                    az >= 1.5 ? 'hod-warning'  :
+                    az >= 1.0 ? 'hod-elevated' : 'hod-normal');
+                hodChip.classList.toggle('hod-active', az >= 1.5);
+                hodChip.style.display = '';
+                hodChip.setAttribute('data-tooltip',
+                    _t('hud.tooltip.hod_z') + '\n' +
+                    _t('hud.hod_z.detail', {z: z.toFixed(2), n: n}));
+            } else {
+                hodChip.style.display = 'none';
+            }
+        }
+
+        // ── INTEL corroboration chip ─────────────────────────────────
+        const intelEl    = document.getElementById('hud-intel-active');
+        const intelNew   = document.getElementById('hud-intel-new');
+        const intelChip  = document.getElementById('hud-intel-chip');
+        if (intelEl && intelChip) {
+            const active = ind.intel_active_24h;
+            const fresh  = ind.intel_new_1h;
+            if (active != null) {
+                intelEl.textContent = String(active);
+                intelChip.style.display = '';
+                if (intelNew) {
+                    if (fresh != null && fresh > 0) {
+                        intelNew.textContent = '+' + fresh;
+                        intelNew.classList.add('fresh');
+                    } else {
+                        intelNew.textContent = '';
+                        intelNew.classList.remove('fresh');
+                    }
+                }
+                intelChip.setAttribute('data-tooltip',
+                    _t('hud.tooltip.intel_corrob') + '\n' +
+                    _t('hud.intel.detail', {active: active, fresh: fresh || 0}));
+                intelChip.onclick = () => {
+                    if (typeof toggleLlmIntelPanel === 'function') toggleLlmIntelPanel();
+                };
+            } else {
+                intelChip.style.display = 'none';
+            }
+        }
+
+        // ── Per-domain ADV/TGT split tags (Row 2) ────────────────────
+        const split = ind.domain_split || {};
+        ['cyber', 'physical', 'info'].forEach(d => {
+            const tagEl = document.getElementById('split-' + d);
+            if (!tagEl) return;
+            const sd = split[d] || {};
+            const adv = +(sd.adversary || 0);
+            const tgt = +(sd.target    || 0);
+            if (adv + tgt < 0.05) {
+                tagEl.style.display = 'none';
+                tagEl.textContent = '';
+                return;
+            }
+            tagEl.innerHTML =
+                `<span class="split-adv">${adv.toFixed(1)}</span>` +
+                `<span class="split-sep">/</span>` +
+                `<span class="split-tgt">${tgt.toFixed(1)}</span>`;
+            tagEl.style.display = '';
+            tagEl.setAttribute('data-tooltip',
+                _t('hud.tooltip.split_tag', {adv: adv.toFixed(2), tgt: tgt.toFixed(2)}));
+        });
+
+        // ── Background scenario alert (BG rising fast) ───────────────
+        const bgAlert = document.getElementById('hud-bg-alert');
+        const bgText  = document.getElementById('hud-bg-alert-text');
+        if (bgAlert && bgText) {
+            let bestId = null, bestDelta = 0, bestName = '';
+            const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
+            const allSc = data.scenarios || {};
+            Object.entries(allSc).forEach(([sid, sc]) => {
+                if (sid === focusedId) return;
+                const d = sc.score_delta_1h;
+                if (d != null && d > bestDelta && d >= 1.0) {
+                    bestDelta = d;
+                    bestId = sid;
+                    bestName = (lang === 'ja' ? sc.name_ja : sc.name_en) || sid;
+                }
+            });
+            if (bestId) {
+                bgText.textContent = `${bestName} +${bestDelta.toFixed(1)}`;
+                bgAlert.style.display = 'inline-flex';
+                bgAlert.setAttribute('data-tooltip',
+                    _t('hud.tooltip.bg_alert') + '\n' +
+                    _t('hud.bg_alert.detail', {name: bestName, delta: bestDelta.toFixed(2)}));
+                bgAlert.onclick = () => {
+                    if (typeof window.switchScenarioFocus === 'function') window.switchScenarioFocus(bestId);
+                    else if (typeof focusScenarioBar === 'function') focusScenarioBar();
+                };
+            } else {
+                bgAlert.style.display = 'none';
+                bgAlert.onclick = null;
+            }
+        }
+        _refreshExceptionBar();
+    }
+
+    // Show the exception banner only when at least one anomaly is active.
+    function _refreshExceptionBar() {
+        const bar = document.getElementById('hud-exception-bar');
+        if (!bar) return;
+        const ids = ['hud-ambush-wrap', 'hud-triangulation', 'hud-silent-div',
+                     'hud-discrepancy-alert', 'hud-bg-alert'];
+        const anyActive = ids.some(id => {
+            const el = document.getElementById(id);
+            return el && el.style.display && el.style.display !== 'none';
+        });
+        bar.style.display = anyActive ? 'flex' : 'none';
+    }
+    window._refreshExceptionBar = _refreshExceptionBar;
 
     // ── H. Threat Terrain Overlay ─────────────────────────────────────
     // Visualize per-country threat intensity with Leaflet Circles (choropleth-style)
@@ -4980,36 +5186,27 @@
     function _updateSensorHealthHUD(healthMap) {
         if (!healthMap) return;
         _sensorHealthCache = healthMap;
-        const dotsEl = document.getElementById('hud-sensor-dots');
-        const summaryEl = document.getElementById('hud-sensor-summary');
-        if (!dotsEl) return;
-        const entries = Object.entries(healthMap);
+        const dotsEl  = document.getElementById('hud-sensor-dots');
+        const sysChip = document.getElementById('hud-sys-chip');
+        const entries = Object.entries(healthMap).sort((a, b) => a[0].localeCompare(b[0]));
         let ok = 0, stale = 0, err = 0, disabled = 0;
-        entries.forEach(([, v]) => {
-            // Support both old format (string) and new format ({status, domain, ...})
+        const errNames = [], staleNames = [];
+        const dots = [];
+        entries.forEach(([name, v]) => {
             const st = typeof v === 'string' ? v : (v.status || 'DISABLED');
-            if (st === 'OK') ok++;
-            else if (st === 'DEGRADED' || st === 'STALE') stale++;
-            else if (st === 'ERROR' || st === 'CIRCUIT_OPEN' || st === 'CIRCUIT_OPEN_PERSISTENT') err++;
+            let cls = 'hud-sdot-off';
+            if (st === 'OK') { ok++; cls = 'hud-sdot-ok'; }
+            else if (st === 'DEGRADED' || st === 'STALE') { stale++; staleNames.push(name); cls = 'hud-sdot-stale'; }
+            else if (st === 'ERROR' || st === 'CIRCUIT_OPEN' || st === 'CIRCUIT_OPEN_PERSISTENT') { err++; errNames.push(name); cls = 'hud-sdot-err'; }
             else disabled++;
+            dots.push(`<span class="hud-sensor-dot ${cls}" title="${name}: ${st}"></span>`);
         });
-        const total = entries.length;
-        // Dots
-        dotsEl.innerHTML = entries.map(([name, v]) => {
-            const st = typeof v === 'string' ? v : (v.status || 'DISABLED');
-            const color = _SENSOR_STATUS_COLOR[st] || '#444';
-            const tip = st === 'CIRCUIT_OPEN_PERSISTENT'
-                ? `${name}: ${_t('sensor.health.circuit_open_persistent')}`
-                : st === 'CIRCUIT_OPEN'
-                ? `${name}: ${_t('sensor.health.circuit_open')}`
-                : `${name}: ${st}`;
-            return `<span style="width:6px;height:6px;border-radius:50%;background:${color};display:inline-block;" title="${_escAttr(tip)}"></span>`;
-        }).join('');
-        // Summary text
-        if (summaryEl) {
-            if (err > 0) { summaryEl.textContent = `${ok}/${total}`; summaryEl.style.color = '#ff2222'; }
-            else if (stale > 0) { summaryEl.textContent = `${ok}/${total}`; summaryEl.style.color = '#ffaa00'; }
-            else { summaryEl.textContent = `${ok}/${total}`; summaryEl.style.color = '#00ff88'; }
+        if (dotsEl) dotsEl.innerHTML = dots.join('');
+        if (sysChip) {
+            const lines = [`OK: ${ok}  STALE: ${stale}  ERR: ${err}  OFF: ${disabled}`];
+            if (errNames.length)   lines.push('ERR: ' + errNames.join(', '));
+            if (staleNames.length) lines.push('STALE: ' + staleNames.join(', '));
+            sysChip.setAttribute('data-tooltip', lines.join('\n'));
         }
     }
 
@@ -6044,26 +6241,76 @@
         body.innerHTML = html;
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // Phase 3: Collapsible HUD secondary row
-    // ═══════════════════════════════════════════════════════════════
-    function toggleHudSecondary() {
-        const sec = document.getElementById('hud-bottom-secondary');
-        const btn = document.getElementById('hud-expand-toggle');
-        if (!sec) return;
-        const collapsed = sec.style.display === 'none';
-        sec.style.display = collapsed ? 'flex' : 'none';
-        if (btn) btn.textContent = collapsed ? '▴' : '▾';
-        localStorage.setItem('hud_secondary_collapsed', collapsed ? '0' : '1');
+    // ── HUD dropdowns + scenario-chip focus ─────────────────────────
+    function focusScenarioBar() {
+        const bar = document.getElementById('scenario-bar');
+        if (!bar) return;
+        bar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        bar.classList.add('scenario-bar-flash');
+        setTimeout(() => bar.classList.remove('scenario-bar-flash'), 1200);
     }
-    window.toggleHudSecondary = toggleHudSecondary;
-    // Restore collapsed state from localStorage
-    if (localStorage.getItem('hud_secondary_collapsed') === '1') {
-        const sec = document.getElementById('hud-bottom-secondary');
-        const btn = document.getElementById('hud-expand-toggle');
-        if (sec) sec.style.display = 'none';
-        if (btn) btn.textContent = '▾';
+    window.focusScenarioBar = focusScenarioBar;
+
+    function _toggleHudMenu(menuId) {
+        const menu = document.getElementById(menuId);
+        if (!menu) return;
+        const isOpen = menu.classList.contains('open');
+        document.querySelectorAll('.hud-dropdown.open').forEach(el => el.classList.remove('open'));
+        if (!isOpen) menu.classList.add('open');
     }
+    function toggleReportMenu()    { _toggleHudMenu('report-menu'); }
+    function closeReportMenu()     { const m = document.getElementById('report-menu'); if (m) m.classList.remove('open'); }
+    function toggleSettingsMenu()  { _toggleHudMenu('settings-menu'); }
+    function closeSettingsMenu()   { const m = document.getElementById('settings-menu'); if (m) m.classList.remove('open'); }
+    window.toggleReportMenu   = toggleReportMenu;
+    window.closeReportMenu    = closeReportMenu;
+    window.toggleSettingsMenu = toggleSettingsMenu;
+    window.closeSettingsMenu  = closeSettingsMenu;
+
+    // Click outside any HUD dropdown to close
+    document.addEventListener('click', (ev) => {
+        if (ev.target.closest('.hud-menu-wrap')) return;
+        document.querySelectorAll('.hud-dropdown.open').forEach(el => el.classList.remove('open'));
+    });
+
+    // ── Hamburger control panel (right-side slide-out) ─────────────
+    // Holds every operational control. Backdrop click + ESC also close.
+    function toggleHudHamburger() {
+        const panel = document.getElementById('hud-hamburger-panel');
+        const btn   = document.getElementById('hud-hamburger-btn');
+        if (!panel) return;
+        const isOpen = panel.style.display !== 'none';
+        if (isOpen) {
+            closeHudHamburger();
+        } else {
+            panel.style.display = 'flex';
+            if (btn) btn.classList.add('open');
+            // Insert backdrop only if missing
+            if (!document.getElementById('hud-hh-backdrop')) {
+                const bd = document.createElement('div');
+                bd.id = 'hud-hh-backdrop';
+                bd.className = 'hh-backdrop';
+                bd.onclick = closeHudHamburger;
+                document.body.appendChild(bd);
+            }
+        }
+    }
+    function closeHudHamburger() {
+        const panel = document.getElementById('hud-hamburger-panel');
+        const btn   = document.getElementById('hud-hamburger-btn');
+        const bd    = document.getElementById('hud-hh-backdrop');
+        if (panel) panel.style.display = 'none';
+        if (btn)   btn.classList.remove('open');
+        if (bd)    bd.remove();
+        // Also collapse any nested tools menu
+        const tm = document.getElementById('tools-menu');
+        if (tm) tm.classList.remove('open');
+    }
+    window.toggleHudHamburger = toggleHudHamburger;
+    window.closeHudHamburger  = closeHudHamburger;
+    document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') closeHudHamburger();
+    });
 
     // ═══════════════════════════════════════════════════════════════
     // Phase 3: Sync countdown timer
@@ -6885,7 +7132,7 @@
     };
 
     // ── Scenario Bar (Phase 4) ─────────────────────────────────────────
-    let _scenarioFocusId = null;
+    let _scenarioFocusId = localStorage.getItem('radar_focused_scenario') || null;
 
     function _getScenarioFocus() {
         if (_scenarioFocusId) return _scenarioFocusId;
@@ -7151,6 +7398,7 @@
 
     window.switchScenarioFocus = function(scenarioId) {
         _scenarioFocusId = scenarioId;
+        localStorage.setItem('radar_focused_scenario', scenarioId);
         _scenarioDetailOpen = null;
         _scenarioWhatIfExcluded = new Set();
         document.getElementById('scenario-detail-panel').style.display = 'none';

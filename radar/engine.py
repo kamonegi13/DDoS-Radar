@@ -141,6 +141,47 @@ class WeightedConvergenceEngine:
         }
 
     @staticmethod
+    def compute_eta_to_next_tl(tl_proximity: dict,
+                               velocity_pt_per_sec: float) -> dict | None:
+        """Project seconds until the score crosses the next TL boundary.
+
+        Combines pt-distance (from compute_tl_proximity) with current
+        velocity (pts/second, as produced by compute_velocity) to produce
+        a time estimate. Direction is implicit in the sign of velocity:
+          velocity > 0 → uses distance_up, projects escalation ETA
+          velocity < 0 → uses distance_down, projects de-escalation ETA
+          velocity ≈ 0 → returns None (no meaningful ETA)
+
+        Returns: {eta_sec, direction, target_tl} or None if not projectable.
+        ETAs longer than 7 days are also suppressed as analytically useless.
+        """
+        if not tl_proximity or velocity_pt_per_sec is None:
+            return None
+        # Anything below ~0.0001 pt/s aligns with the existing "stable"
+        # threshold used for the velocity arrow display, and prevents
+        # divide-by-noise blowups on flat lines.
+        if abs(velocity_pt_per_sec) < 0.0001:
+            return None
+        if velocity_pt_per_sec > 0:
+            dist = tl_proximity.get("distance_up")
+            target = tl_proximity.get("next_tl_up")
+            direction = "escalating"
+        else:
+            dist = tl_proximity.get("distance_down")
+            target = tl_proximity.get("next_tl_down")
+            direction = "deescalating"
+        if dist is None or target is None:
+            return None
+        eta_sec = dist / abs(velocity_pt_per_sec)
+        if eta_sec > 7 * 86400:
+            return None
+        return {
+            "eta_sec":   round(eta_sec),
+            "direction": direction,
+            "target_tl": target,
+        }
+
+    @staticmethod
     def compute_domain_confidences(rationale: list) -> dict:
         """
         Compute average confidence per domain from fired rationale entries.

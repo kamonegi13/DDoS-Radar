@@ -92,251 +92,266 @@
 </div>
 
 <div id="top-hud">
-    <div class="hud-top-row">
-        <div id="hud-threat" class="threat-hud threat-5-hud" data-tooltip="Click to view Analytic Rationale">THREAT Lv 5: NORMAL</div>
-        <div class="hud-item" data-tooltip="Threat Level History (last 24 hours / 288 cycles)" data-i18n-tip="hud.tooltip.threat_24h">
-            <span class="hud-label" data-i18n="hud.label.threat_24h">THREAT 24h:</span>
-            <canvas id="hud-threat-spark" width="200" height="20" style="vertical-align:middle; margin-left:4px; cursor:help; border-radius:2px;"></canvas>
+    <!-- ─── ROW 1: SITUATION — Where am I? Where am I going? ────────
+         Holds: TL pill + duration since last transition,
+                Scenario chip (focused),
+                24h sparkline,
+                ETA chip (pts→min to next TL boundary),
+                Velocity,
+                DIR (when meaningful),
+                + right-anchored controls (vec/sync/tools/report/settings/lang/user). -->
+    <div class="hud-row hud-row-situation">
+        <div class="hud-tl-group">
+            <div id="hud-threat" class="threat-hud threat-5-hud" data-tooltip="Click to view Analytic Rationale">THREAT Lv 5: NORMAL</div>
+            <span id="hud-tl-duration" class="hud-tl-duration" data-i18n-tip="hud.tooltip.tl_duration"></span>
         </div>
-        <div id="hud-tl-proximity-wrap" class="hud-item" style="display:none;">
-            <span class="hud-label" data-i18n="hud.label.tl_proximity">ESCALATION:</span>
-            <span id="hud-tl-proximity" class="hud-value tl-prox-stable" data-i18n-tip="hud.tooltip.tl_proximity"></span>
+
+        <!-- 24h sparkline -->
+        <div class="hud-chip hud-chip-spark" data-i18n-tip="hud.tooltip.threat_24h">
+            <span class="hud-chip-label" data-i18n="hud.label.threat_24h">24H</span>
+            <canvas id="hud-threat-spark" width="160" height="18"></canvas>
         </div>
-        <div class="hud-item"><span class="hud-label" data-i18n="hud.label.epicenter">Epicenter:</span> <span id="hud-epicenter" class="hud-value" style="color:#00ffff;">-</span></div>
-        <div class="hud-item">
-            <span id="hud-convergence" class="conv-NONE" data-tooltip="Multi-Domain Convergence Level">CONVERGENCE: —</span>
+
+        <!-- ETA: pt + projected time to next TL boundary -->
+        <div class="hud-chip" id="hud-eta-chip" style="display:none;" data-i18n-tip="hud.tooltip.eta">
+            <span class="hud-chip-label" data-i18n="hud.label.eta">ETA</span>
+            <span id="hud-tl-proximity" class="tl-prox-stable hud-chip-value"></span>
+            <span id="hud-eta-time" class="hud-eta-time"></span>
         </div>
-        <div class="hud-item" id="hud-cac-wrap" style="display:none;">
-            <span class="hud-label" data-i18n="hud.label.context_align">CTX:</span>
-            <span id="hud-cac-score" class="hud-value cac-low" data-i18n-tip="hud.tooltip.context_align">—</span>
+
+        <!-- Velocity (rate of change in threat score) -->
+        <div class="hud-chip" data-i18n-tip="hud.tooltip.velocity">
+            <span class="hud-chip-label" data-i18n="hud.label.velocity">VEL</span>
+            <span id="hud-velocity-arrow" class="hud-vel-arrow">→</span>
+            <span id="hud-velocity" class="hud-chip-value">—</span>
         </div>
-        <div class="hud-item" id="hud-direction-wrap" style="display:none;">
-            <span class="hud-label" data-i18n="hud.label.direction">DIR:</span>
-            <span id="hud-direction" class="hud-value" data-i18n-tip="hud.tooltip.direction">—</span>
+
+        <!-- DIR: dominant direction (only when meaningful) -->
+        <div class="hud-chip" id="hud-direction-wrap" style="display:none;" data-i18n-tip="hud.tooltip.direction">
+            <span class="hud-chip-label" data-i18n="hud.label.direction">DIR</span>
+            <span id="hud-direction" class="hud-chip-value">—</span>
         </div>
-        <span class="hud-climate-badge" id="hud-climate-badge" onclick="toggleClimatePanel()" data-i18n-tip="hud.tooltip.climate">
-            <span class="hud-climate-dot" id="hud-climate-dot" data-level="COOL"></span>
-            <span id="hud-climate-text" style="color:#666;">CLIMATE: —</span>
-        </span>
 
         <div style="flex-grow: 1;"></div>
-        
-        <div class="vec-toggle-group">
-            <button id="vec-btn-all" class="vec-btn active-all" onclick="switchVector('all')" data-i18n="hud.vec.all">ALL VECTORS</button>
-            <button id="vec-btn-l3"  class="vec-btn"            onclick="switchVector('l3')" data-i18n="hud.vec.l3">L3 VOLUMETRIC</button>
-            <button id="vec-btn-l7"  class="vec-btn"            onclick="switchVector('l7')" data-i18n="hud.vec.l7">L7 APPLICATION</button>
-        </div>
-        <span id="ws-status-dot" class="ws-dot ws-dot-disconnected" data-i18n-tip="hud.tooltip.ws_status"></span>
-        <button id="btn-sync-top" class="btn-tactical btn-sync" onclick="forceDataSync()" data-i18n="hud.btn.sync">SYNC</button>
-        <button class="btn-tactical btn-action" onclick="toggleChainPanel()" data-tooltip="Evidence Chain Timeline — Escalation Sequence Viewer" data-i18n="hud.btn.chain" data-i18n-tip="hud.tooltip.chain">CHAIN</button>
-        <div class="tools-dropdown-wrap" data-tooltip="Intuition Tools — RPD Analysis Panels">
-            <button class="btn-tactical btn-action" id="tools-dropdown-btn" onclick="toggleToolsMenu()" data-i18n="hud.btn.tools">TOOLS ▾</button>
-            <div id="tools-menu" class="tools-menu">
-                <div class="tools-menu-section-header" data-i18n="tools.section.core">CORE</div>
-                <div class="tools-menu-item" id="tm-item-tgt"  onclick="handleToolToggle('target-panel',    toggleTargetPanel,    'tm-dot-tgt',   'tm-item-tgt')">
-                    <span class="tools-menu-icon">🎯</span>
-                    <span class="tools-menu-label" data-i18n="tools.target_visibility">Target Visibility</span>
-                    <span class="tools-menu-dot" id="tm-dot-tgt"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-dash" onclick="handleToolToggle('dashboard-panel', toggleDashboardPanel, 'tm-dot-dash',  'tm-item-dash')">
-                    <span class="tools-menu-icon">📡</span>
-                    <span class="tools-menu-label" data-i18n="tools.live_threat_telemetry">Live Threat Telemetry</span>
-                    <span class="tools-menu-dot" id="tm-dot-dash"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-chain" onclick="handleToolToggle('chain-panel',    toggleChainPanel,     'tm-dot-chain', 'tm-item-chain')">
-                    <span class="tools-menu-icon">🔗</span>
-                    <span class="tools-menu-label" data-i18n="tools.evidence_chain">Evidence Chain</span>
-                    <span class="tools-menu-dot" id="tm-dot-chain"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-tg"   onclick="handleToolToggle('tg-sigint-panel', toggleTgSigint,       'tm-dot-tg',    'tm-item-tg')">
-                    <span class="tools-menu-icon">📻</span>
-                    <span class="tools-menu-label" data-i18n="tools.telegram_sigint">Telegram SIGINT</span>
-                    <span class="tools-menu-dot" id="tm-dot-tg"></span>
-                </div>
-                <div class="tools-menu-section-header" data-i18n="tools.section.analytics">ANALYTICS</div>
-                <div class="tools-menu-item" id="tm-item-climate" onclick="handleToolToggle('climate-panel', toggleClimatePanel, 'tm-dot-climate', 'tm-item-climate')">
-                    <span class="tools-menu-icon">🌡</span>
-                    <span class="tools-menu-label" data-i18n="tools.strategic_climate">Strategic Climate</span>
-                    <span class="tools-menu-dot" id="tm-dot-climate"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-sitboard" onclick="handleToolToggle('sitboard-panel', toggleSitBoard, 'tm-dot-sitboard', 'tm-item-sitboard')">
-                    <span class="tools-menu-icon">📋</span>
-                    <span class="tools-menu-label" data-i18n="tools.situation_board">Situation Board</span>
-                    <span class="tools-menu-dot" id="tm-dot-sitboard"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-pulse" onclick="handleToolToggle('pulse-panel', togglePulseDisplay, 'tm-dot-pulse', 'tm-item-pulse')">
-                    <span class="tools-menu-icon">💓</span>
-                    <span class="tools-menu-label" data-i18n="tools.threat_pulse">Threat Pulse</span>
-                    <span class="tools-menu-dot" id="tm-dot-pulse"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-wx"  onclick="handleToolToggle('weather-brief-panel', toggleWeatherBrief,  'tm-dot-wx',  'tm-item-wx')">
-                    <span class="tools-menu-icon">⛈</span>
-                    <span class="tools-menu-label" data-i18n="tools.weather_brief">Weather Brief</span>
-                    <span class="tools-menu-dot" id="tm-dot-wx"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-ha"  onclick="handleToolToggle('hist-analog-panel',     toggleHistAnalog,  'tm-dot-ha',  'tm-item-ha')">
-                    <span class="tools-menu-icon">📊</span>
-                    <span class="tools-menu-label" data-i18n="tools.historical_analog">Historical Analog</span>
-                    <span class="tools-menu-dot" id="tm-dot-ha"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-clk" onclick="handleToolToggle('op-clock-panel',        toggleOpClock,     'tm-dot-clk', 'tm-item-clk')">
-                    <span class="tools-menu-icon">⏱</span>
-                    <span class="tools-menu-label" data-i18n="tools.ops_clock">Ops Clock</span>
-                    <span class="tools-menu-dot" id="tm-dot-clk"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-gn"  onclick="handleToolToggle('gn-panel',       toggleGnPanel,   'tm-dot-gn',  'tm-item-gn')">
-                    <span class="tools-menu-icon">🔍</span>
-                    <span class="tools-menu-label" data-i18n="tools.greynoise">GreyNoise</span>
-                    <span class="tools-menu-dot" id="tm-dot-gn"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-hist" onclick="handleToolToggle('history-panel', toggleHistoryPanel, 'tm-dot-hist', 'tm-item-hist')">
-                    <span class="tools-menu-icon">📊</span>
-                    <span class="tools-menu-label" data-i18n="tools.history_analysis">History Analysis</span>
-                    <span class="tools-menu-dot" id="tm-dot-hist"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-nb"  onclick="handleToolToggle('notebook-panel', toggleNotebook,  'tm-dot-nb',  'tm-item-nb')">
-                    <span class="tools-menu-icon">📝</span>
-                    <span class="tools-menu-label" data-i18n="tools.analyst_notebook">Analyst Notebook</span>
-                    <span class="tools-menu-dot" id="tm-dot-nb"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-llm" onclick="handleToolToggle('llm-intel-panel', toggleLlmIntelPanel, 'tm-dot-llm', 'tm-item-llm')">
-                    <span class="tools-menu-icon">🤖</span>
-                    <span class="tools-menu-label" data-i18n="tools.llm_intelligence">LLM Intelligence</span>
-                    <span class="tools-menu-dot" id="tm-dot-llm"></span>
-                </div>
-                <div class="tools-menu-section-header" data-i18n="tools.section.simulation">SIMULATION</div>
-                <div class="tools-menu-item" id="tm-item-wif" onclick="handleToolToggle('whatif-panel', toggleWhatIfPanel, 'tm-dot-wif', 'tm-item-wif')">
-                    <span class="tools-menu-icon">🧪</span>
-                    <span class="tools-menu-label" data-i18n="tools.whatif_sim">What-If Sim</span>
-                    <span class="tools-menu-dot" id="tm-dot-wif"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-spof" onclick="handleToolToggle('spof-panel', toggleSpofPanel, 'tm-dot-spof', 'tm-item-spof')">
-                    <span class="tools-menu-icon">🔗</span>
-                    <span class="tools-menu-label" data-i18n="tools.spof_analysis">SPOF Analysis</span>
-                    <span class="tools-menu-dot" id="tm-dot-spof"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-ap" onclick="handleToolToggle('actionplan-panel', toggleActionPlanPanel, 'tm-dot-ap', 'tm-item-ap')">
-                    <span class="tools-menu-icon">📑</span>
-                    <span class="tools-menu-label" data-i18n="tools.action_plan">Action Plan</span>
-                    <span class="tools-menu-dot" id="tm-dot-ap"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-phase" onclick="handleToolToggle('attack-phase-panel', toggleAttackPhasePanel, 'tm-dot-phase', 'tm-item-phase')">
-                    <span class="tools-menu-icon">⚔</span>
-                    <span class="tools-menu-label" data-i18n="tools.phase_escalation">Phase & Escalation</span>
-                    <span class="tools-menu-dot" id="tm-dot-phase"></span>
-                </div>
-                <div class="tools-menu-item" id="tm-item-corr" onclick="handleToolToggle('corr-heatmap-panel', toggleCorrHeatmap, 'tm-dot-corr', 'tm-item-corr')">
-                    <span class="tools-menu-icon">🌡</span>
-                    <span class="tools-menu-label" data-i18n="tools.corr_heatmap">Sensor Heatmap</span>
-                    <span class="tools-menu-dot" id="tm-dot-corr"></span>
-                </div>
-                <div class="tools-menu-section-header" data-i18n="tools.section.admin">ADMIN</div>
-                <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();">
-                    <span class="tools-menu-icon">👤</span>
-                    <span class="tools-menu-label" data-i18n="tools.user_management">User Management</span>
-                </div>
-            </div>
-        </div>
-        <span class="hud-report-group">
-            <button class="btn-tactical btn-report" onclick="openSitrep()" data-i18n="hud.btn.sitrep" data-i18n-tip="hud.tooltip.sitrep">SITREP</button>
-            <button class="btn-tactical btn-report" onclick="openEvidenceFromHud()" data-i18n="hud.btn.evidence" data-i18n-tip="hud.tooltip.evidence">EVIDENCE</button>
-            <button class="btn-tactical btn-report" onclick="openSaluteModal()" data-i18n="hud.btn.salute" data-i18n-tip="hud.tooltip.salute">SALUTE</button>
-        </span>
-        <button class="btn-tactical btn-action" onclick="openModal('help-modal')" data-i18n="hud.btn.intel_guide" style="min-width:86px;text-align:center;">Intel Guide</button>
-        <button class="btn-tactical btn-action" onclick="openModal('settings-modal')" data-i18n="hud.btn.config" style="min-width:56px;text-align:center;">Config</button>
-        <span style="display:inline-flex;margin-left:8px;border:1px solid #00ffff33;border-radius:3px;overflow:hidden;">
-            <button id="lang-btn-en" class="btn-tactical btn-lang" onclick="setLang('en')" data-tooltip="Switch to English" style="margin-left:0;border:none;border-radius:0;border-right:1px solid #00ffff22;min-width:32px;">EN</button>
-            <button id="lang-btn-ja" class="btn-tactical btn-lang" onclick="setLang('ja')" data-tooltip="日本語に切替" style="margin-left:0;border:none;border-radius:0;min-width:32px;">JP</button>
-        </span>
-        <span id="hud-user-info" style="display:inline-flex;align-items:center;margin-left:8px;font-size:10px;color:#66ccff;">
-            <span id="hud-username" style="margin-right:6px;letter-spacing:0.5px;"></span>
-            <button class="btn-tactical" onclick="umgrLogout()" style="color:#ff6666;border-color:#ff666644;" data-i18n="panel.usermgr.btn.logout">LOGOUT</button>
-        </span>
+
+        <!-- Single entry point for ALL UI controls — keeps Row 1 information-only.
+             Click ☰ to open a right-side slide-out panel containing vec toggle,
+             sync, tools, reports, settings, language, and user/logout. -->
+        <button id="hud-hamburger-btn" class="hud-hamburger-btn"
+                onclick="toggleHudHamburger()" data-i18n-tip="hud.tooltip.hamburger"
+                aria-label="Controls Menu">☰</button>
     </div>
-    
-    <div class="hud-bottom-row">
-        <!-- Primary metrics (always visible) -->
-        <div class="hud-bottom-primary">
-            <!-- Velocity Meter -->
-            <div class="hud-item" data-tooltip="Rate of Escalation (1st derivative of threat score). Destroys Normalcy Bias by showing DIRECTION of change." data-i18n-tip="hud.tooltip.velocity">
-                <span class="hud-label" data-i18n="hud.label.velocity">VELOCITY:</span>
-                <span id="hud-velocity" class="hud-value" style="font-weight:bold;">—</span>
-                <span id="hud-velocity-arrow" style="margin-left:2px;font-size:13px;">→</span>
-            </div>
-            <!-- Ambush Alert -->
-            <div class="hud-item" id="hud-ambush-wrap" data-tooltip="Ambush Pattern: 2nd derivative Z-Score spike indicating exponential escalation." style="display:none;" data-i18n-tip="hud.tooltip.ambush">
-                <span id="hud-ambush" style="color:#ff2200;font-weight:bold;animation:blink 0.7s step-end infinite;" data-i18n="hud.ambush.text">⚡ AMBUSH</span>
-            </div>
-            <!-- v9: Temporal Coherence — C2 sync -->
-            <div class="hud-item" data-tooltip="C2 SYNC: Multiple theater attack onsets converge within 60 s → evidence of nation-state command and control" data-i18n-tip="hud.tooltip.c2sync">
-                <span class="hud-label" data-i18n="hud.label.c2sync">C2-SYNC:</span>
-                <span id="hud-c2sync" class="hud-value" style="font-size:10px;">—</span>
-            </div>
-            <!-- v9: Survival HUD -->
-            <div class="hud-item" id="hud-survival-item" data-tooltip="SURVIVAL: Check-Host.net real liveness check for key infrastructure. OK=all nodes reachable / PARTIAL=partial outage / BLACKOUT=all nodes unreachable" data-i18n-tip="hud.tooltip.survival">
-                <span class="hud-label" data-i18n="hud.label.survival">SURVIVAL:</span>
-                <span id="hud-survival" class="hud-value" style="font-weight:700;letter-spacing:1px;">—</span>
-                <span id="hud-survival-icon" style="margin-left:4px;font-size:12px;"></span>
-                <span id="hud-survival-nodes" style="margin-left:4px;display:inline-flex;align-items:center;"></span>
-            </div>
-            <!-- Domain bars -->
-            <div class="hud-item" style="gap:4px; padding-right:12px; border-right:none;" id="hud-domains-wrap" onclick="toggleDrilldown()" data-tooltip="Click to expand sensor score breakdown" data-i18n-tip="hud.tooltip.domain_expand">
-                <div id="hud-domain-cyber"    class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_cyber"><span class="domain-label" data-i18n="hud.domain.cyber">Cyber</span><div id="bar-cyber"    class="domain-bar domain-cyber"    style="width:0px;"></div><span id="status-cyber"    class="domain-status NORMAL">-</span></div>
-                <div id="hud-domain-physical" class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_physical"><span class="domain-label" data-i18n="hud.domain.physical">Physical</span><div id="bar-physical" class="domain-bar domain-physical" style="width:0px;"></div><span id="status-physical" class="domain-status NORMAL">-</span></div>
-                <div id="hud-domain-info"     class="domain-bar-row" data-i18n-tip="hud.tooltip.domain_info"><span class="domain-label" data-i18n="hud.domain.info">Info</span><div id="bar-info"     class="domain-bar domain-info"     style="width:0px;"></div><span id="status-info"     class="domain-status NORMAL">-</span></div>
-                <span id="dd-toggle-hint" style="font-size:8px; color:#333; font-family:'Courier New',monospace; align-self:flex-end; line-height:1;">▾</span>
-            </div>
-            <button id="hud-expand-toggle" class="hud-expand-btn" onclick="toggleHudSecondary()" data-i18n-tip="hud.tooltip.expand_secondary">▾</button>
+
+    <!-- ─── ROW 2: DRIVERS — What is pushing the score up? ─────────
+         Holds: 3 domain bars, each with adversary-vs-target split tag,
+                + cross-domain coupling indicators (CONV, C2-SYNC, CHAIN).
+         Click anywhere on the bars → opens domain drilldown. -->
+    <div class="hud-row hud-row-drivers" id="hud-domains-wrap" onclick="toggleDrilldown()" data-i18n-tip="hud.tooltip.domain_expand">
+        <div id="hud-domain-cyber" class="hud-domain-bar-row" data-i18n-tip="hud.tooltip.domain_cyber">
+            <span class="hud-domain-label" data-i18n="hud.domain.cyber">CYBER</span>
+            <div class="hud-domain-track"><div id="bar-cyber" class="hud-domain-fill domain-cyber"></div></div>
+            <span id="status-cyber" class="hud-domain-status NORMAL">—</span>
+            <span id="split-cyber" class="hud-split-tag" style="display:none;"></span>
         </div>
-        <!-- Secondary metrics (collapsible) -->
-        <div class="hud-bottom-secondary" id="hud-bottom-secondary">
-            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.overlap">Overlap:</span> <span id="hud-overlap" class="hud-value">-</span></div>
-            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.l7_shift">L7 Shift:</span> <span id="hud-vector-shift" class="hud-value">-</span></div>
-            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.strikes">Strikes:</span> <span id="hud-strikes" class="hud-value">-</span></div>
-            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.bgp">BGP:</span> <span id="hud-outages" class="hud-value">-</span></div>
-            <div class="hud-item"><span class="hud-label" data-i18n="hud.label.multi_front">Multi-Front:</span> <span id="hud-coordinated" class="hud-value">-</span></div>
-            <!-- Blockade Index -->
-            <div class="hud-item" data-tooltip="Blockade Index = DDoS Intensity / Network Reachability. Distinguishes Political Noise from Real Infrastructure Neutralization." data-i18n-tip="hud.tooltip.blockade">
-                <span class="hud-label" data-i18n="hud.label.blockade">BLOCKADE:</span>
-                <span id="hud-blockade" class="hud-value">—</span>
-                <span id="hud-blockade-bar" style="display:inline-block;width:40px;height:8px;background:#333;border-radius:3px;margin-left:4px;vertical-align:middle;"><span id="hud-blockade-fill" style="display:block;height:100%;width:0%;background:#ff6600;border-radius:3px;transition:width 0.5s;"></span></span>
+        <div id="hud-domain-physical" class="hud-domain-bar-row" data-i18n-tip="hud.tooltip.domain_physical">
+            <span class="hud-domain-label" data-i18n="hud.domain.physical">PHYSICAL</span>
+            <div class="hud-domain-track"><div id="bar-physical" class="hud-domain-fill domain-physical"></div></div>
+            <span id="status-physical" class="hud-domain-status NORMAL">—</span>
+            <span id="split-physical" class="hud-split-tag" style="display:none;"></span>
+        </div>
+        <div id="hud-domain-info" class="hud-domain-bar-row" data-i18n-tip="hud.tooltip.domain_info">
+            <span class="hud-domain-label" data-i18n="hud.domain.info">INFO</span>
+            <div class="hud-domain-track"><div id="bar-info" class="hud-domain-fill domain-info"></div></div>
+            <span id="status-info" class="hud-domain-status NORMAL">—</span>
+            <span id="split-info" class="hud-split-tag" style="display:none;"></span>
+        </div>
+        <div class="hud-driver-coupling" onclick="event.stopPropagation();">
+            <div class="hud-chip hud-chip-conv">
+                <span class="hud-chip-label" data-i18n="hud.label.convergence_short">CONV</span>
+                <span id="hud-convergence" class="conv-NONE" data-tooltip="Multi-Domain Convergence Level">—</span>
             </div>
-            <!-- Sequence Chain -->
-            <div class="hud-item" data-tooltip="Escalation Sequence Chain: Evidence chain of Narrative→ISR→DDoS→Kinetic within 24h window." data-i18n-tip="hud.tooltip.chain_hud">
-                <span class="hud-label" data-i18n="hud.label.chain">CHAIN:</span>
-                <span id="hud-chain" class="hud-value" style="font-size:10px;">—</span>
+            <div class="hud-chip" data-i18n-tip="hud.tooltip.c2sync">
+                <span class="hud-chip-label" data-i18n="hud.label.c2sync">C2</span>
+                <span id="hud-c2sync" class="hud-chip-value">—</span>
             </div>
-            <!-- A3: Triangulation -->
-            <div class="hud-item" id="hud-triangulation" data-tooltip="TRIANGULATION: All 3 domains (Cyber/Physical/Info) independently confirm anomalous activity — highest confidence convergence." data-i18n-tip="hud.tooltip.triangulation" style="display:none;">
-                <span class="hud-label" data-i18n="hud.label.triangulation">TRI:</span>
-                <span id="hud-tri-text" class="hud-value" style="font-size:10px; color:#ff4444; font-weight:bold;">CONFIRMED</span>
-            </div>
-            <!-- A1: Silent Divergence -->
-            <div class="hud-item" id="hud-silent-div" data-tooltip="SILENT DIVERGENCE: Cyber+Physical domains active but Info domain silent — possible pre-conflict reconnaissance/preparation." data-i18n-tip="hud.tooltip.silent_div" style="display:none;">
-                <span class="hud-label" data-i18n="hud.label.silent_div">SILENT:</span>
-                <span id="hud-silent-text" class="hud-value" style="font-size:10px; color:#ff8800; font-weight:bold;">—</span>
-            </div>
-            <!-- A2: Theater Baseline -->
-            <div class="hud-item" data-tooltip="BASELINE: Theater-specific Z-score showing how current score compares to 30-day historical average for this theater." data-i18n-tip="hud.tooltip.baseline">
-                <span class="hud-label" data-i18n="hud.label.baseline">BASE-Z:</span>
-                <span id="hud-baseline-z" class="hud-value" style="font-size:10px;">—</span>
-            </div>
-            <!-- Intuition UI: Radio Silence -->
-            <div class="hud-item" id="hud-radio-silence" data-tooltip="COMMS: GREEN=All sensors live / ORANGE=Abnormal silence detected — possible sensor suppression or pre-op comms blackout" data-i18n-tip="hud.tooltip.comms">
-                <div class="rs-dot rs-dot-live"></div>
-                <span class="hud-label" style="margin-left:4px;" data-i18n="hud.label.comms">COMMS:</span>
-                <span id="hud-rs-text" class="hud-value" style="font-size:10px; color:#00ff88;">LIVE</span>
-            </div>
-            <!-- Sensor Fleet Health -->
-            <div class="hud-item" id="hud-sensor-health" data-tooltip="Sensor fleet health: green=OK, orange=STALE, red=ERROR, grey=DISABLED" data-i18n-tip="hud.tooltip.sensor_health">
-                <span class="hud-label" data-i18n="hud.label.sensors">SENSORS</span>
-                <span id="hud-sensor-dots" style="display:inline-flex;gap:2px;margin-left:4px;"></span>
-                <span id="hud-sensor-summary" class="hud-value" style="font-size:9px;margin-left:3px;">—</span>
+            <div class="hud-chip" data-i18n-tip="hud.tooltip.chain_hud">
+                <span class="hud-chip-label" data-i18n="hud.label.chain">CHAIN</span>
+                <span id="hud-chain" class="hud-chip-value">—</span>
             </div>
         </div>
     </div>
-    <!-- Discrepancy / Maskirovka full-width alert bar -->
-    <div id="hud-discrepancy-alert">! DISCREPANCY DETECTED: POSSIBLE MASKIROVKA</div>
+
+    <!-- ─── ROW 3: REALITY & TRUST — Is the threat real? Is the
+                  system reliable? ──────────────────────────────────
+         Holds: physical reality (SURVIVAL, BLOCKADE),
+                statistical confidence (BASE-Z, HOD, CTX),
+                intel cross-validation (INTEL count + recent additions),
+                sensor trust (SYS, COMMS, CLIMATE).
+         All chips are always visible — they answer "can I trust the
+         number above?" at a glance. -->
+    <div class="hud-row hud-row-trust" id="hud-bottom-secondary">
+        <!-- Physical reality -->
+        <div class="hud-chip" id="hud-survival-item" data-i18n-tip="hud.tooltip.survival">
+            <span class="hud-chip-label" data-i18n="hud.label.survival">SURVIVAL</span>
+            <span id="hud-survival" class="hud-chip-value">—</span>
+            <span id="hud-survival-icon" class="hud-survival-icon"></span>
+            <span id="hud-survival-nodes" class="hud-survival-nodes"></span>
+        </div>
+        <div class="hud-chip" data-i18n-tip="hud.tooltip.blockade">
+            <span class="hud-chip-label" data-i18n="hud.label.blockade">BLOCKADE</span>
+            <span id="hud-blockade" class="hud-chip-value">—</span>
+            <span id="hud-blockade-bar" class="hud-blockade-bar"><span id="hud-blockade-fill" class="hud-blockade-fill"></span></span>
+        </div>
+
+        <!-- Statistical confidence -->
+        <div class="hud-chip" data-i18n-tip="hud.tooltip.baseline">
+            <span class="hud-chip-label" data-i18n="hud.label.baseline">Z-30D</span>
+            <span id="hud-baseline-z" class="hud-chip-value">—</span>
+        </div>
+        <div class="hud-chip" id="hud-hod-chip" style="display:none;" data-i18n-tip="hud.tooltip.hod_z">
+            <span class="hud-chip-label" data-i18n="hud.label.hod_z">Z-HOD</span>
+            <span id="hud-hod-z" class="hud-chip-value">—</span>
+        </div>
+        <div class="hud-chip" id="hud-cac-wrap" style="display:none;">
+            <span class="hud-chip-label" data-i18n="hud.label.context_align">ALIGN</span>
+            <span id="hud-cac-score" class="hud-chip-value cac-low" data-i18n-tip="hud.tooltip.context_align">—</span>
+        </div>
+
+        <!-- Intel cross-validation -->
+        <div class="hud-chip" id="hud-intel-chip" data-i18n-tip="hud.tooltip.intel_corrob">
+            <span class="hud-chip-label" data-i18n="hud.label.intel">INTEL</span>
+            <span id="hud-intel-active" class="hud-chip-value">—</span>
+            <span id="hud-intel-new" class="hud-intel-new"></span>
+        </div>
+
+        <div class="hud-chip hud-sensor-chip" id="hud-sys-chip" data-i18n-tip="hud.tooltip.sys_chip">
+            <span class="hud-chip-label" data-i18n="hud.label.sys">SENSOR</span>
+            <span id="ws-status-dot" class="ws-dot ws-dot-disconnected" data-i18n-tip="hud.tooltip.ws_status"></span>
+            <span id="hud-sensor-dots" class="hud-sensor-dots"></span>
+        </div>
+        <div class="hud-chip" id="hud-radio-silence" data-i18n-tip="hud.tooltip.comms">
+            <span class="hud-chip-label" data-i18n="hud.label.comms">COMMS</span>
+            <span id="hud-rs-text" class="hud-chip-value">LIVE</span>
+        </div>
+        <div class="hud-chip hud-climate-chip" id="hud-climate-badge" onclick="toggleClimatePanel()" data-i18n-tip="hud.tooltip.climate">
+            <span class="hud-chip-label" data-i18n="hud.label.climate">CLIMATE</span>
+            <span class="hud-climate-dot" id="hud-climate-dot" data-level="COOL"></span>
+            <span id="hud-climate-text" class="hud-chip-value">—</span>
+        </div>
+    </div>
+
+    <!-- ─── EXCEPTION BANNER — only renders when something fires ───
+         AMBUSH (acceleration), TRIANGULATION (3-domain), SILENT DIV
+         (info-domain silent while cyber+phys active), DISCREPANCY
+         (Maskirovka), and BG-SCENARIO ALERT (background scenario
+         rising fast — focus-switch hint). The banner itself is
+         display:none until any child fires. -->
+    <div class="hud-exception-bar" id="hud-exception-bar" style="display:none;">
+        <div class="hud-exception-item ex-ambush" id="hud-ambush-wrap" style="display:none;" data-i18n-tip="hud.tooltip.ambush">
+            <span id="hud-ambush" data-i18n="hud.ambush.text">⚡ AMBUSH DETECTED</span>
+        </div>
+        <div class="hud-exception-item ex-tri" id="hud-triangulation" style="display:none;" data-i18n-tip="hud.tooltip.triangulation">
+            <span class="ex-label" data-i18n="hud.label.triangulation">TRIANGULATION</span>
+            <span id="hud-tri-text" class="ex-value">CONFIRMED</span>
+        </div>
+        <div class="hud-exception-item ex-silent" id="hud-silent-div" style="display:none;" data-i18n-tip="hud.tooltip.silent_div">
+            <span class="ex-label" data-i18n="hud.label.silent_div">SILENT DIVERGENCE</span>
+            <span id="hud-silent-text" class="ex-value">—</span>
+        </div>
+        <div class="hud-exception-item ex-discrepancy" id="hud-discrepancy-alert" style="display:none;" data-i18n="hud.discrepancy_alert">! DISCREPANCY DETECTED: POSSIBLE MASKIROVKA</div>
+        <div class="hud-exception-item ex-bg" id="hud-bg-alert" style="display:none;" data-i18n-tip="hud.tooltip.bg_alert">
+            <span class="ex-label" data-i18n="hud.label.bg_alert">BG</span>
+            <span id="hud-bg-alert-text" class="ex-value">—</span>
+        </div>
+    </div>
+</div>
+
+<!-- ─── HAMBURGER CONTROL PANEL — at body level so stacking context is root.
+     Slide-out from the right edge. z-index 6000 must beat everything. ──── -->
+<div id="hud-hamburger-panel" class="hud-hamburger-panel" style="display:none;">
+    <div class="hh-header">
+        <div class="hh-title" data-i18n="hud.hh.title">CONTROLS</div>
+        <button class="hh-close" onclick="closeHudHamburger()" aria-label="Close">&times;</button>
+    </div>
+    <div class="hh-body">
+        <div class="hh-section hh-user-section" id="hud-user-info">
+            <div class="hh-user-row">
+                <div id="hud-user-avatar" class="hh-user-avatar">?</div>
+                <div class="hh-user-meta">
+                    <div id="hud-username" class="hh-user-name">&mdash;</div>
+                    <div id="hud-user-role" class="hh-user-role">viewer</div>
+                </div>
+                <button class="hh-action hh-logout-btn" onclick="umgrLogout()" data-i18n="panel.usermgr.btn.logout">LOGOUT</button>
+            </div>
+        </div>
+        <div class="hh-section">
+            <div class="hh-section-label" data-i18n="hud.hh.section.vector">VIEW VECTOR</div>
+            <div class="vec-toggle-group">
+                <button id="vec-btn-all" class="vec-btn active-all" onclick="switchVector('all')" data-i18n="hud.vec.all">ALL VECTORS</button>
+                <button id="vec-btn-l3"  class="vec-btn"            onclick="switchVector('l3')" data-i18n="hud.vec.l3">L3 VOLUMETRIC</button>
+                <button id="vec-btn-l7"  class="vec-btn"            onclick="switchVector('l7')" data-i18n="hud.vec.l7">L7 APPLICATION</button>
+            </div>
+        </div>
+        <div class="hh-section">
+            <div class="hh-section-label" data-i18n="hud.hh.section.data">DATA</div>
+            <button id="btn-sync-top" class="btn-tactical btn-sync hh-action-wide" onclick="forceDataSync(); closeHudHamburger();" data-i18n="hud.btn.sync">SYNC</button>
+        </div>
+        <div class="hh-section">
+            <div class="hh-section-label" data-i18n="hud.hh.section.reports">REPORTS</div>
+            <div class="hh-action-row">
+                <button class="hh-action" onclick="openSitrep(); closeHudHamburger();" data-i18n="hud.btn.sitrep">SITREP</button>
+                <button class="hh-action" onclick="openEvidenceFromHud(); closeHudHamburger();" data-i18n="hud.btn.evidence">EVIDENCE</button>
+                <button class="hh-action" onclick="openSaluteModal(); closeHudHamburger();" data-i18n="hud.btn.salute">SALUTE</button>
+                <button class="hh-action" onclick="toggleChainPanel(); closeHudHamburger();" data-i18n="hud.btn.chain">CHAIN</button>
+            </div>
+        </div>
+        <div class="hh-section">
+            <div class="hh-section-label" data-i18n="hud.hh.section.settings">SETTINGS</div>
+            <div class="hh-action-row">
+                <button class="hh-action" onclick="openModal('help-modal'); closeHudHamburger();" data-i18n="hud.btn.intel_guide">Intel Guide</button>
+                <button class="hh-action" onclick="openModal('settings-modal'); closeHudHamburger();" data-i18n="hud.btn.config">Config</button>
+            </div>
+        </div>
+        <div class="hh-section">
+            <div class="hh-section-label" data-i18n="hud.hh.section.language">LANGUAGE</div>
+            <span class="hud-lang-group">
+                <button id="lang-btn-en" class="btn-tactical btn-lang" onclick="setLang('en')" data-tooltip="Switch to English">EN</button>
+                <button id="lang-btn-ja" class="btn-tactical btn-lang" onclick="setLang('ja')" data-tooltip="日本語に切替">JP</button>
+            </span>
+        </div>
+        <div class="hh-section hh-tools-section">
+            <div class="hh-section-label" data-i18n="hud.hh.section.tools">TOOLS &amp; PANELS</div>
+            <div class="tools-dropdown-wrap">
+                <button class="btn-tactical btn-action hh-action-wide" id="tools-dropdown-btn" onclick="toggleToolsMenu()" data-i18n="hud.btn.tools">TOOLS &#x25BE;</button>
+                <div id="tools-menu" class="tools-menu">
+                    <div class="tools-menu-section-header" data-i18n="tools.section.core">CORE</div>
+                    <div class="tools-menu-item" id="tm-item-tgt"  onclick="handleToolToggle('target-panel',    toggleTargetPanel,    'tm-dot-tgt',   'tm-item-tgt')"><span class="tools-menu-icon">&#x1F3AF;</span><span class="tools-menu-label" data-i18n="tools.target_visibility">Target Visibility</span><span class="tools-menu-dot" id="tm-dot-tgt"></span></div>
+                    <div class="tools-menu-item" id="tm-item-dash" onclick="handleToolToggle('dashboard-panel', toggleDashboardPanel, 'tm-dot-dash',  'tm-item-dash')"><span class="tools-menu-icon">&#x1F4E1;</span><span class="tools-menu-label" data-i18n="tools.live_threat_telemetry">Live Threat Telemetry</span><span class="tools-menu-dot" id="tm-dot-dash"></span></div>
+                    <div class="tools-menu-item" id="tm-item-chain" onclick="handleToolToggle('chain-panel',    toggleChainPanel,     'tm-dot-chain', 'tm-item-chain')"><span class="tools-menu-icon">&#x1F517;</span><span class="tools-menu-label" data-i18n="tools.evidence_chain">Evidence Chain</span><span class="tools-menu-dot" id="tm-dot-chain"></span></div>
+                    <div class="tools-menu-item" id="tm-item-tg"   onclick="handleToolToggle('tg-sigint-panel', toggleTgSigint,       'tm-dot-tg',    'tm-item-tg')"><span class="tools-menu-icon">&#x1F4FB;</span><span class="tools-menu-label" data-i18n="tools.telegram_sigint">Telegram SIGINT</span><span class="tools-menu-dot" id="tm-dot-tg"></span></div>
+                    <div class="tools-menu-section-header" data-i18n="tools.section.analytics">ANALYTICS</div>
+                    <div class="tools-menu-item" id="tm-item-climate" onclick="handleToolToggle('climate-panel', toggleClimatePanel, 'tm-dot-climate', 'tm-item-climate')"><span class="tools-menu-icon">&#x1F321;</span><span class="tools-menu-label" data-i18n="tools.strategic_climate">Strategic Climate</span><span class="tools-menu-dot" id="tm-dot-climate"></span></div>
+                    <div class="tools-menu-item" id="tm-item-sitboard" onclick="handleToolToggle('sitboard-panel', toggleSitBoard, 'tm-dot-sitboard', 'tm-item-sitboard')"><span class="tools-menu-icon">&#x1F4CB;</span><span class="tools-menu-label" data-i18n="tools.situation_board">Situation Board</span><span class="tools-menu-dot" id="tm-dot-sitboard"></span></div>
+                    <div class="tools-menu-item" id="tm-item-pulse" onclick="handleToolToggle('pulse-panel', togglePulseDisplay, 'tm-dot-pulse', 'tm-item-pulse')"><span class="tools-menu-icon">&#x1F493;</span><span class="tools-menu-label" data-i18n="tools.threat_pulse">Threat Pulse</span><span class="tools-menu-dot" id="tm-dot-pulse"></span></div>
+                    <div class="tools-menu-item" id="tm-item-wx"  onclick="handleToolToggle('weather-brief-panel', toggleWeatherBrief,  'tm-dot-wx',  'tm-item-wx')"><span class="tools-menu-icon">&#x26C8;</span><span class="tools-menu-label" data-i18n="tools.weather_brief">Weather Brief</span><span class="tools-menu-dot" id="tm-dot-wx"></span></div>
+                    <div class="tools-menu-item" id="tm-item-ha"  onclick="handleToolToggle('hist-analog-panel',     toggleHistAnalog,  'tm-dot-ha',  'tm-item-ha')"><span class="tools-menu-icon">&#x1F4CA;</span><span class="tools-menu-label" data-i18n="tools.historical_analog">Historical Analog</span><span class="tools-menu-dot" id="tm-dot-ha"></span></div>
+                    <div class="tools-menu-item" id="tm-item-clk" onclick="handleToolToggle('op-clock-panel',        toggleOpClock,     'tm-dot-clk', 'tm-item-clk')"><span class="tools-menu-icon">&#x23F1;</span><span class="tools-menu-label" data-i18n="tools.ops_clock">Ops Clock</span><span class="tools-menu-dot" id="tm-dot-clk"></span></div>
+                    <div class="tools-menu-item" id="tm-item-gn"  onclick="handleToolToggle('gn-panel',       toggleGnPanel,   'tm-dot-gn',  'tm-item-gn')"><span class="tools-menu-icon">&#x1F50D;</span><span class="tools-menu-label" data-i18n="tools.greynoise">GreyNoise</span><span class="tools-menu-dot" id="tm-dot-gn"></span></div>
+                    <div class="tools-menu-item" id="tm-item-hist" onclick="handleToolToggle('history-panel', toggleHistoryPanel, 'tm-dot-hist', 'tm-item-hist')"><span class="tools-menu-icon">&#x1F4CA;</span><span class="tools-menu-label" data-i18n="tools.history_analysis">History Analysis</span><span class="tools-menu-dot" id="tm-dot-hist"></span></div>
+                    <div class="tools-menu-item" id="tm-item-nb"  onclick="handleToolToggle('notebook-panel', toggleNotebook,  'tm-dot-nb',  'tm-item-nb')"><span class="tools-menu-icon">&#x1F4DD;</span><span class="tools-menu-label" data-i18n="tools.analyst_notebook">Analyst Notebook</span><span class="tools-menu-dot" id="tm-dot-nb"></span></div>
+                    <div class="tools-menu-item" id="tm-item-llm" onclick="handleToolToggle('llm-intel-panel', toggleLlmIntelPanel, 'tm-dot-llm', 'tm-item-llm')"><span class="tools-menu-icon">&#x1F916;</span><span class="tools-menu-label" data-i18n="tools.llm_intelligence">LLM Intelligence</span><span class="tools-menu-dot" id="tm-dot-llm"></span></div>
+                    <div class="tools-menu-section-header" data-i18n="tools.section.simulation">SIMULATION</div>
+                    <div class="tools-menu-item" id="tm-item-wif" onclick="handleToolToggle('whatif-panel', toggleWhatIfPanel, 'tm-dot-wif', 'tm-item-wif')"><span class="tools-menu-icon">&#x1F9EA;</span><span class="tools-menu-label" data-i18n="tools.whatif_sim">What-If Sim</span><span class="tools-menu-dot" id="tm-dot-wif"></span></div>
+                    <div class="tools-menu-item" id="tm-item-spof" onclick="handleToolToggle('spof-panel', toggleSpofPanel, 'tm-dot-spof', 'tm-item-spof')"><span class="tools-menu-icon">&#x1F517;</span><span class="tools-menu-label" data-i18n="tools.spof_analysis">SPOF Analysis</span><span class="tools-menu-dot" id="tm-dot-spof"></span></div>
+                    <div class="tools-menu-item" id="tm-item-ap" onclick="handleToolToggle('actionplan-panel', toggleActionPlanPanel, 'tm-dot-ap', 'tm-item-ap')"><span class="tools-menu-icon">&#x1F4D1;</span><span class="tools-menu-label" data-i18n="tools.action_plan">Action Plan</span><span class="tools-menu-dot" id="tm-dot-ap"></span></div>
+                    <div class="tools-menu-item" id="tm-item-phase" onclick="handleToolToggle('attack-phase-panel', toggleAttackPhasePanel, 'tm-dot-phase', 'tm-item-phase')"><span class="tools-menu-icon">&#x2694;</span><span class="tools-menu-label" data-i18n="tools.phase_escalation">Phase &amp; Escalation</span><span class="tools-menu-dot" id="tm-dot-phase"></span></div>
+                    <div class="tools-menu-item" id="tm-item-corr" onclick="handleToolToggle('corr-heatmap-panel', toggleCorrHeatmap, 'tm-dot-corr', 'tm-item-corr')"><span class="tools-menu-icon">&#x1F321;</span><span class="tools-menu-label" data-i18n="tools.corr_heatmap">Sensor Heatmap</span><span class="tools-menu-dot" id="tm-dot-corr"></span></div>
+                    <div class="tools-menu-section-header" data-i18n="tools.section.admin">ADMIN</div>
+                    <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();"><span class="tools-menu-icon">&#x1F464;</span><span class="tools-menu-label" data-i18n="tools.user_management">User Management</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- ── Scenario Bar ──────────────────────────────────────────────────── -->
@@ -355,6 +370,14 @@
                 <span class="dd-domain-score" id="dd-score-cyber">—</span>
             </div>
             <div id="dd-sensors-cyber"></div>
+            <!-- Cyber sub-metrics (moved from HUD secondary row) -->
+            <div class="dd-submetrics">
+                <div class="dd-submetric"><span class="dd-submetric-label" data-i18n="hud.label.overlap">Overlap</span><span id="hud-overlap" class="dd-submetric-value">—</span></div>
+                <div class="dd-submetric"><span class="dd-submetric-label" data-i18n="hud.label.l7_shift">L7 Shift</span><span id="hud-vector-shift" class="dd-submetric-value">—</span></div>
+                <div class="dd-submetric"><span class="dd-submetric-label" data-i18n="hud.label.strikes">Strikes</span><span id="hud-strikes" class="dd-submetric-value">—</span></div>
+                <div class="dd-submetric"><span class="dd-submetric-label" data-i18n="hud.label.bgp">BGP</span><span id="hud-outages" class="dd-submetric-value">—</span></div>
+                <div class="dd-submetric"><span class="dd-submetric-label" data-i18n="hud.label.multi_front">Multi-Front</span><span id="hud-coordinated" class="dd-submetric-value">—</span></div>
+            </div>
         </div>
         <div class="dd-domain-col">
             <div class="dd-domain-header">
@@ -447,9 +470,9 @@
     <div class="tabs">
         <div class="tab active" onclick="switchTab('sensors'); loadSensorConfig()" data-i18n="modal.settings.tab.sensors" data-role-min="analyst">Sensors</div>
         <div class="tab" onclick="switchTab('fetchlog'); loadFetchLog()" data-i18n="modal.settings.tab.fetchlog">Fetch Log</div>
+        <div class="tab" onclick="switchTab('scenarios'); loadScenarioManager()" data-i18n="scenario.tab.scenarios" data-role-min="admin">Scenarios</div>
         <div class="tab" onclick="switchTab('sysconfig'); loadEnvConfig()" data-i18n="modal.settings.tab.sysconfig" data-role-min="admin">System</div>
         <div class="tab" onclick="switchTab('users'); umgrLoadUsers()" data-i18n="modal.settings.tab.users">Users</div>
-        <div class="tab" onclick="switchTab('scenarios'); loadScenarioManager()" data-i18n="scenario.tab.scenarios" data-role-min="admin">Scenarios</div>
     </div>
     <div class="modal-main-area">
         <div class="modal-content-panel">

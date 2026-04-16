@@ -1384,9 +1384,58 @@ def get_threat_data():
                     )
                     if "indicators" in _sd:
                         _sd["indicators"]["llm_intel_24h"] = _intel_24h.get(_sc.id, 0)
+                    # B1: background score delta over last 1h, for surfacing
+                    # rising background scenarios in the HUD exception bar.
+                    try:
+                        _prev_bg = _db.scenario_score_at_or_before(
+                            _sc.id, current_time - 3600)
+                        _sd["score_delta_1h"] = (
+                            round(_state.score - _prev_bg, 2)
+                            if _prev_bg is not None else None
+                        )
+                    except Exception:
+                        _sd["score_delta_1h"] = None
                 else:
                     _sd["tl_raw"] = _focused_tl_raw
                     _sd["tl_held"] = _tl_held_focused
+
+                    # A1: TL duration — seconds at current TL since last transition.
+                    try:
+                        _sd["tl_duration_sec"] = _db.scenario_tl_duration_sec(
+                            _sc.id, _state.tl)
+                    except Exception:
+                        _sd["tl_duration_sec"] = None
+
+                    # A3: Intel corroboration — confirmed LLM intel touching
+                    # any participant country, in 24h and last 1h windows.
+                    try:
+                        _focused_parts = set(_sc.participants.keys())
+                        _sd["intel_active_24h"] = _db.intel_count_for_scenario_window(
+                            _focused_parts, current_time - 86400)
+                        _sd["intel_new_1h"] = _db.intel_count_for_scenario_window(
+                            _focused_parts, current_time - 3600)
+                    except Exception:
+                        _sd["intel_active_24h"] = 0
+                        _sd["intel_new_1h"] = 0
+
+                    # A5: Adversary vs Target contribution split per domain.
+                    # ADVERSARY + PROXY_FRONT are attacker-side; everything else
+                    # is target-side (allies, forward bases, deterrence, etc.).
+                    _adv_roles = {"adversary", "proxy_front"}
+                    _split = {
+                        "cyber":    {"adversary": 0.0, "target": 0.0},
+                        "physical": {"adversary": 0.0, "target": 0.0},
+                        "info":     {"adversary": 0.0, "target": 0.0},
+                    }
+                    for _c in _state.contributions:
+                        _side = "adversary" if _c.participant_role in _adv_roles else "target"
+                        _dom = _c.signal.domain
+                        if _dom in _split:
+                            _split[_dom][_side] += _c.final_contribution
+                    _sd["domain_split"] = {
+                        _d: {_k: round(_v, 2) for _k, _v in _s.items()}
+                        for _d, _s in _split.items()
+                    }
                 _scenario_results[_sc.id] = _sd
 
                 try:
@@ -1649,6 +1698,19 @@ def get_threat_data():
                 "min_confidence": round(min(domain_confidences.values()), 3) if domain_confidences else 1.0,
             },
             "tl_proximity": tl_proximity,
+            # A2: Projected ETA to next TL boundary, in seconds. Computed
+            # from velocity and TL distance — converts pt-based proximity
+            # into a time the analyst can act on. Direction matches sign of
+            # velocity: positive eta = escalating, negative eta = de-escalating.
+            "eta_to_next_tl_sec": (
+                _routes.engine.compute_eta_to_next_tl(tl_proximity, velocity_val)
+                if tl_proximity else None
+            ),
+            # A4: HOD anomaly Z-score for the focused theater's cyber spike,
+            # measuring deviation from the 28-day same-hour-of-day baseline.
+            # Distinguishes "anomalous for this hour" from "anomalous overall".
+            "hod_z": round(hod_z, 2) if hod_valid else None,
+            "hod_n": hod_n,
             # CAC: Context-Aware Convergence
             "context_alignment": context_alignment,
             "direction_summary": direction_summary,

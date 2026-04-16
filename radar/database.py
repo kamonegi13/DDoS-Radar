@@ -1167,6 +1167,65 @@ class RadarDB:
         ).fetchone()
         return row["tl"] if row else None
 
+    def scenario_tl_duration_sec(self, scenario_id: str,
+                                 current_tl: int | None) -> float | None:
+        """Return seconds the scenario has been at current_tl, by walking
+        scenario_tl_observation backwards from the latest until TL changes
+        or the timeseries ends. Returns None if current_tl is None or no
+        observations exist. Used to surface "TL3 for 4h12m" — combats
+        normalcy bias by showing trajectory persistence."""
+        if current_tl is None:
+            return None
+        rows = self._get_conn().execute(
+            "SELECT observed_at, tl FROM scenario_tl_observation "
+            "WHERE scenario_id=? "
+            "ORDER BY observed_at DESC LIMIT 2000",
+            (scenario_id,),
+        ).fetchall()
+        if not rows:
+            return None
+        latest_ts = rows[0]["observed_at"]
+        earliest_same = latest_ts
+        for r in rows:
+            if r["tl"] == current_tl:
+                earliest_same = r["observed_at"]
+            else:
+                break
+        return max(0.0, latest_ts - earliest_same)
+
+    def intel_count_for_scenario_window(self, participants: set[str],
+                                        since_ts: float) -> int:
+        """Count confirmed/auto_confirmed LLM intel touching any participant
+        country since since_ts. Single-scenario variant of the bulk method
+        intel_count_24h_by_scenario, suitable for arbitrary time windows."""
+        if not participants:
+            return 0
+        rows = self._get_conn().execute(
+            "SELECT countries FROM llm_intel "
+            "WHERE ts > ? AND status IN ('confirmed', 'auto_confirmed')",
+            (since_ts,),
+        ).fetchall()
+        n = 0
+        for row in rows:
+            try:
+                if set(json.loads(row["countries"])) & participants:
+                    n += 1
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return n
+
+    def scenario_score_at_or_before(self, scenario_id: str,
+                                    target_ts: float) -> float | None:
+        """Return the most recent observed score at or before target_ts.
+        Used to compute background-scenario delta over a time window."""
+        row = self._get_conn().execute(
+            "SELECT score FROM scenario_tl_observation "
+            "WHERE scenario_id=? AND observed_at <= ? "
+            "ORDER BY observed_at DESC LIMIT 1",
+            (scenario_id, target_ts),
+        ).fetchone()
+        return row["score"] if row else None
+
     def scenario_prev_lite_score(self, scenario_id: str,
                                  before_ts: float) -> float | None:
         """Return the most recent lite-mode score for a scenario strictly
