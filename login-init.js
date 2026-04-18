@@ -62,6 +62,11 @@
     }
   };
 
+  // Bind login button (replaces inline onclick)
+  document.getElementById('login-btn').addEventListener('click', function () {
+    window._doLogin();
+  });
+
   // Allow Enter key to submit
   document.addEventListener('keydown', function (e) {
     if (

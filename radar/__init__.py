@@ -43,7 +43,7 @@ def _security_headers(response):
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' https://unpkg.com https://cdn.socket.io; "
+        "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.socket.io; "
         "style-src 'self' 'unsafe-inline' https://unpkg.com; "
         "img-src 'self' data: https:; "
         "connect-src 'self'; "
