@@ -22,8 +22,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import threading
 import time
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from email.utils import parsedate_to_datetime
 
 import requests
@@ -53,7 +54,7 @@ _MILITARY_SOURCES = {
         "theaters": ["TW", "UA", "KP", "JP", "IL", "IR"],
     },
     "PLA_DAILY": {
-        "url": "http://eng.chinamil.com.cn/rss/rss.xml",
+        "url": "https://eng.chinamil.com.cn/rss/rss.xml",
         "org": "PLA",
         "theaters": ["TW", "JP", "PH", "IN"],
     },
@@ -88,6 +89,7 @@ _EXERCISE_KEYWORDS = [
 ]
 
 _processed: dict[str, None] = {}
+_processed_lock = threading.Lock()
 _MAX_PROCESSED = 1000
 
 
@@ -105,7 +107,7 @@ def _theater_names(theaters: list[str]) -> list[str]:
 def _article_hash(source_name: str, title: str) -> str:
     """Hash keyed on article identity only (not theater) to prevent duplicate submissions."""
     raw = f"mil-{source_name}-{title[:60]}"
-    return hashlib.md5(raw.encode()).hexdigest()
+    return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
 
 
 def _fetch_rss(url: str) -> str:
@@ -217,6 +219,7 @@ class MilitaryExerciseSensor(BaseSensor):
                                   or context.get("strategic_theaters", []))
         t0 = time.time()
         submitted = 0
+        any_feed_ok = False
 
         for source_name, meta in _MILITARY_SOURCES.items():
             theaters = [t for t in meta["theaters"] if t in strategic_theaters or not strategic_theaters]
@@ -224,6 +227,8 @@ class MilitaryExerciseSensor(BaseSensor):
                 continue
 
             xml_text = _fetch_rss(meta["url"])
+            if xml_text:
+                any_feed_ok = True
             t_names = _theater_names(theaters)
             articles = _parse_articles(xml_text, theater_names=t_names)
             if not articles:
@@ -235,13 +240,13 @@ class MilitaryExerciseSensor(BaseSensor):
             # Process each article independently for precise per-article theater assignment
             for art in articles:
                 key = _article_hash(source_name, art["title"])
-                if key in _processed:
-                    continue
-                _processed[key] = None
-
-                if len(_processed) > _MAX_PROCESSED:
-                    for k in list(_processed)[:_MAX_PROCESSED // 2]:
-                        _processed.pop(k, None)
+                with _processed_lock:
+                    if key in _processed:
+                        continue
+                    _processed[key] = None
+                    if len(_processed) > _MAX_PROCESSED:
+                        for k in list(_processed)[:_MAX_PROCESSED // 2]:
+                            _processed.pop(k, None)
 
                 safe_title   = sanitize_llm_input(art["title"], 120)
                 safe_summary = sanitize_llm_input(art["summary"], 400)
@@ -424,7 +429,7 @@ class MilitaryExerciseSensor(BaseSensor):
                     )
 
         duration_ms = round((time.time() - t0) * 1000)
-        self.log_fetch(True, duration_ms, 0, submitted)
+        self.log_fetch(any_feed_ok, duration_ms, 0, submitted)
         result_data = {"military_exercise": {"submitted": submitted}}
         self.set_cache(result_data)
         return result_data

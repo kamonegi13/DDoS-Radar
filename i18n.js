@@ -1325,6 +1325,36 @@ const LANG = {
     'scenario.clite.rec_consider_c_medium':  'Consider C-MEDIUM — background miss rate exceeds 15%',
     'scenario.clite.rec_insufficient_data':  'Insufficient data — more focus switches needed for evaluation',
 
+    // ══════════════════════════════════════════════════════════════
+    // Login gate
+    // ══════════════════════════════════════════════════════════════
+    'login.error.required':            'Username and password required',
+    'login.error.failed':              'Login failed',
+    'login.error.connection':          'Connection error',
+
+    // ══════════════════════════════════════════════════════════════
+    // Common UI labels
+    // ══════════════════════════════════════════════════════════════
+    'ui.loading':                      'Loading...',
+    'ui.waiting_api':                  'Waiting for API telemetry...',
+    'ui.api_unavailable':              'API unavailable',
+    'ui.none':                         'None',
+    'ui.saving':                       'Saving...',
+    'ui.saved':                        'Saved!',
+    'ui.error':                        'Error',
+
+    // ══════════════════════════════════════════════════════════════
+    // Sync / Dashboard
+    // ══════════════════════════════════════════════════════════════
+    'dash.changes_pending':            'Changes pending. Press SYNC.',
+    'climate.badge_prefix':            'CLIMATE',
+
+    // ══════════════════════════════════════════════════════════════
+    // Scenario Manager
+    // ══════════════════════════════════════════════════════════════
+    'scenario.mgr.no_scenarios':       'No scenarios found.',
+    'scenario.mgr.err.id_required':    'ID required',
+
   },
 
   // ============================================================
@@ -1752,7 +1782,7 @@ const LANG = {
     'gn.tier.no_key':                 'NO KEY',
     'gn.suppress.active':             '⚡ サイバースコア抑制中',
     'gn.querying':                    'GreyNoise に照会中...',
-    'gn.remaining':                   'Remaining today: {n}/50',
+    'gn.remaining':                   '本日残り: {n}/50',
     'gn.result.noise':                '■ NOISE',
     'gn.result.targeted':             '■ TARGETED',
     'gn.result.riot':                 '■ RIOT (benign infra)',
@@ -2630,6 +2660,36 @@ const LANG = {
     'scenario.clite.rec_consider_c_medium':  'C-MEDIUMを検討 — バックグラウンドのミス率が15%超過',
     'scenario.clite.rec_insufficient_data':  'データ不足 — 評価には更なるフォーカス切替が必要',
 
+    // ══════════════════════════════════════════════════════════════
+    // Login gate
+    // ══════════════════════════════════════════════════════════════
+    'login.error.required':            'ユーザー名とパスワードを入力してください',
+    'login.error.failed':              'ログインに失敗しました',
+    'login.error.connection':          '接続エラー',
+
+    // ══════════════════════════════════════════════════════════════
+    // Common UI labels
+    // ══════════════════════════════════════════════════════════════
+    'ui.loading':                      '読み込み中...',
+    'ui.waiting_api':                  'APIテレメトリを待機中...',
+    'ui.api_unavailable':              'API利用不可',
+    'ui.none':                         'なし',
+    'ui.saving':                       '保存中...',
+    'ui.saved':                        '保存完了!',
+    'ui.error':                        'エラー',
+
+    // ══════════════════════════════════════════════════════════════
+    // Sync / Dashboard
+    // ══════════════════════════════════════════════════════════════
+    'dash.changes_pending':            '変更あり。SYNCを押してください。',
+    'climate.badge_prefix':            'CLIMATE',
+
+    // ══════════════════════════════════════════════════════════════
+    // Scenario Manager
+    // ══════════════════════════════════════════════════════════════
+    'scenario.mgr.no_scenarios':       'シナリオが見つかりません。',
+    'scenario.mgr.err.id_required':    'IDが必要です',
+
   },
 };
 
@@ -2699,6 +2759,7 @@ function _applyStaticTranslations() {
 function setLang(lang) {
   if (!LANG[lang]) return;
   _currentLang = lang;
+  document.documentElement.lang = lang;
   localStorage.setItem('ddos_radar_lang', lang);
 
   // Update EN/JP lang selector buttons

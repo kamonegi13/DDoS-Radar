@@ -29,7 +29,9 @@ from radar.models import (
 from radar.sensors.base import BaseSensor
 
 class SensorRegistry:
-    def __init__(self): self._sensors: dict[str, BaseSensor] = {}; self._lock = threading.Lock()
+    def __init__(self):
+        self._sensors: dict[str, BaseSensor] = {}
+        self._lock = threading.Lock()
     def register(self, sensor: BaseSensor):
         with self._lock: self._sensors[sensor.name] = sensor
     def get(self, name: str) -> Optional[BaseSensor]: return self._sensors.get(name)
@@ -37,8 +39,12 @@ class SensorRegistry:
         with self._lock:
             if name in self._sensors: self._sensors[name].enabled = enabled
     def health_report(self) -> dict:
+        # Sensors are registered once at startup; the dict is append-only after
+        # init, so snapshot under _lock is sufficient for iteration safety.
+        with self._lock:
+            snapshot = list(self._sensors.items())
         result = {}
-        for name, s in self._sensors.items():
+        for name, s in snapshot:
             h = s.health  # Already lock-protected
             with s._lock:
                 cache_time = s._cache_time
@@ -49,7 +55,10 @@ class SensorRegistry:
                 "cb_state": cb_state,
             }
         return result
-    def config_list(self) -> list: return [s.to_config_dict() for s in self._sensors.values()]
+    def config_list(self) -> list:
+        with self._lock:
+            snapshot = list(self._sensors.values())
+        return [s.to_config_dict() for s in snapshot]
 
 class WeightedConvergenceEngine:
     @property

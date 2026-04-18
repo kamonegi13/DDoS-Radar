@@ -8,12 +8,12 @@ import datetime
 import time as _time
 from flask import jsonify, request
 from flask_jwt_extended import get_jwt_identity
-from radar.config import PERSISTENCE_STATE_FILE
+from radar.config import PERSISTENCE_DIR, PERSISTENCE_STATE_FILE
 from radar.database import db as _db
 from radar.persistence import save_state
 from radar.sensors.telegram import TelegramMirrorSensor
 import radar.routes as _routes
-from radar.routes import bp, _require_admin
+from radar.routes import bp, _require_admin, _safe_int
 
 # -- Secret masking for GET /api/env_config -----------------------------------
 _SECRET_PATTERNS = ("SECRET", "PASSWORD", "TOKEN", "WEBHOOK", "API_KEY")
@@ -266,11 +266,15 @@ def api_persist_save():
     if auth_err: return auth_err
     try:
         save_state()
-        stat = os.stat(PERSISTENCE_STATE_FILE)
+        db_path = os.path.join(PERSISTENCE_DIR, "radar.db")
+        size_kb = None
+        if os.path.exists(db_path):
+            stat = os.stat(db_path)
+            size_kb = round(stat.st_size / 1024, 1)
         return jsonify({
             "ok":        True,
-            "file":      PERSISTENCE_STATE_FILE,
-            "size_kb":   round(stat.st_size / 1024, 1),
+            "file":      db_path,
+            "size_kb":   size_kb,
             "saved_at":  datetime.datetime.now().isoformat(),
         })
     except Exception as exc:
@@ -301,7 +305,15 @@ def api_noise_exclusion_add():
     if reason not in valid_reasons:
         return jsonify({"error": f"reason must be one of: {valid_reasons}"}), 400
     expires_hours = body.get("expires_hours")
-    expires_at = _time.time() + float(expires_hours) * 3600 if expires_hours else None
+    expires_at = None
+    if expires_hours is not None:
+        try:
+            expires_h = float(expires_hours)
+            if expires_h <= 0 or expires_h > 8760:
+                return jsonify({"error": "expires_hours must be between 0 and 8760"}), 400
+            expires_at = _time.time() + expires_h * 3600
+        except (ValueError, TypeError):
+            return jsonify({"error": "expires_hours must be a number"}), 400
     rule_id = _db.noise_excl_add(
         sensor=sensor,
         theater=body.get("theater", ""),
@@ -346,7 +358,13 @@ def api_confirmed_threats_add():
     valid_cls = ("exercise", "maintenance", "confirmed_threat", "false_positive")
     if classification not in valid_cls:
         return jsonify({"error": f"classification must be one of: {valid_cls}"}), 400
-    ts = body.get("timestamp", _time.time())
+    try:
+        ts = float(body.get("timestamp", _time.time()))
+    except (TypeError, ValueError):
+        ts = _time.time()
+    now = _time.time()
+    if ts < now - 30 * 86400 or ts > now + 60:
+        ts = now
     ct_id = _db.confirmed_threat_add(
         theater=theater,
         ts=ts,
@@ -620,7 +638,7 @@ def api_admin_scenario_reset(scenario_id: str):
 def api_admin_scenario_changelog(scenario_id: str):
     auth_err = _require_admin()
     if auth_err: return auth_err
-    limit = int(request.args.get("limit", "50"))
+    limit = _safe_int(request.args.get("limit", "50"), 50, min_val=1, max_val=500)
     logs = _db.scenario_change_log(scenario_id, limit=limit)
     return jsonify({"scenario_id": scenario_id, "changes": logs})
 

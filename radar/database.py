@@ -23,7 +23,7 @@ log = logging.getLogger("radar")
 # ── Schema SQL ────────────────────────────────────────────────────────────────
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
-PRAGMA synchronous = FULL;
+PRAGMA synchronous = NORMAL;
 PRAGMA wal_autocheckpoint = 1000;
 
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -334,14 +334,16 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
 );
 """
 
-# Column name mapping for parameterized HOD methods
-_VALUE_COL = {
+# Column name mapping for parameterized HOD methods.
+# SAFETY: table/col names used in f-string SQL interpolation are restricted
+# to this allowlist — no user input reaches these identifiers.
+_VALUE_COL: dict[str, str] = {
     "hod_baseline":  "avg_spike",
     "checkhost_hod": "success_rate",
     "bgp_hod":       "prefix_count",
 }
 
-_HOD_TABLES = set(_VALUE_COL.keys())
+_HOD_TABLES: frozenset[str] = frozenset(_VALUE_COL.keys())
 
 
 _WRITE_SQL_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "BEGIN", "PRAGMA")
@@ -394,7 +396,13 @@ class _CooperativeConn:
         if not self._holding:
             self._wlock.acquire()
             self._holding = True
-        return self._conn.executescript(sql)
+        try:
+            return self._conn.executescript(sql)
+        except Exception:
+            if self._holding:
+                self._holding = False
+                self._wlock.release()
+            raise
 
     def commit(self):
         try:
@@ -487,7 +495,7 @@ class RadarDB:
             os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
             raw = sqlite3.connect(self._db_path, timeout=5)
             raw.execute("PRAGMA journal_mode = WAL")
-            raw.execute("PRAGMA synchronous = FULL")
+            raw.execute("PRAGMA synchronous = NORMAL")
             raw.row_factory = sqlite3.Row
             conn = _CooperativeConn(raw, self._write_lock)
             self._local.conn = conn
@@ -687,9 +695,12 @@ class RadarDB:
             conn.execute("DROP TABLE user_settings"),
             conn.execute("ALTER TABLE user_settings_new RENAME TO user_settings"),
         ]),
+        (9, "Add invalidate_tokens_before column to users for session revocation", lambda conn: [
+            conn.execute("ALTER TABLE users ADD COLUMN invalidate_tokens_before REAL"),
+        ]),
     ]
 
-    def _run_migrations(self, conn: sqlite3.Connection):
+    def _run_migrations(self, conn: "_CooperativeConn"):
         """Apply any pending schema migrations in order."""
         current = self.schema_version()
 
@@ -2546,7 +2557,8 @@ class RadarDB:
 
     def user_get(self, username: str) -> Optional[dict]:
         row = self._get_conn().execute(
-            "SELECT id, username, password_hash, salt, role, created_at, last_login "
+            "SELECT id, username, password_hash, salt, role, created_at, last_login, "
+            "invalidate_tokens_before "
             "FROM users WHERE username=?", (username,)
         ).fetchone()
         return dict(row) if row else None
@@ -2587,10 +2599,11 @@ class RadarDB:
 
     def user_update_password(self, user_id: int, password_hash: str, salt: str):
         conn = self._get_conn()
+        now = time.time()
         with conn.writing():
             conn.execute(
-                "UPDATE users SET password_hash=?, salt=? WHERE id=?",
-                (password_hash, salt, user_id),
+                "UPDATE users SET password_hash=?, salt=?, invalidate_tokens_before=? WHERE id=?",
+                (password_hash, salt, now, user_id),
             )
 
     def user_delete(self, user_id: int):
@@ -2624,6 +2637,7 @@ class RadarDB:
                 (user_id, focused_scenario, muted, lang, updated_at),
             )
 
+    # SAFETY: column names used in f-string SQL are restricted to this allowlist
     _USER_SETTINGS_COLS = frozenset({"focused_scenario", "muted", "lang", "updated_at"})
 
     def user_settings_update(self, user_id: int, updates: dict):
@@ -2651,6 +2665,16 @@ class RadarDB:
             "SELECT 1 FROM revoked_tokens WHERE jti=?", (jti,)
         ).fetchone()
         return row is not None
+
+    def user_get_invalidate_ts(self, username: str) -> Optional[float]:
+        """Return the invalidate_tokens_before timestamp for a user, or None."""
+        row = self._get_conn().execute(
+            "SELECT invalidate_tokens_before FROM users WHERE username=?",
+            (username,),
+        ).fetchone()
+        if row and row[0] is not None:
+            return float(row[0])
+        return None
 
     # ── Utility ─────────────────────────────────────────────────────────────
     def close(self):

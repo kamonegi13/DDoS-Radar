@@ -54,7 +54,7 @@
     const pass = document.getElementById('login-pass').value;
     const errEl = document.getElementById('login-error');
     errEl.style.display = 'none';
-    if (!user || !pass) { errEl.textContent = 'Username and password required'; errEl.style.display = ''; return; }
+    if (!user || !pass) { errEl.textContent = _t('login.error.required'); errEl.style.display = ''; return; }
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -62,7 +62,7 @@
         body: JSON.stringify({ username: user, password: pass })
       });
       const data = await res.json();
-      if (!res.ok) { errEl.textContent = data.error || 'Login failed'; errEl.style.display = ''; return; }
+      if (!res.ok) { errEl.textContent = data.error || _t('login.error.failed'); errEl.style.display = ''; return; }
       localStorage.setItem('radar_access_token', data.access_token);
       localStorage.setItem('radar_refresh_token', data.refresh_token);
       localStorage.setItem('radar_username', data.username);
@@ -71,7 +71,7 @@
       // Reload page — initApp will run with valid token in localStorage
       location.reload();
     } catch (e) {
-      errEl.textContent = 'Connection error'; errEl.style.display = '';
+      errEl.textContent = _t('login.error.connection'); errEl.style.display = '';
     }
   };
   // Allow Enter key to submit
@@ -444,7 +444,7 @@
                 </div>
                 <div id="dashboard-content" class="panel-content">
                     <div id="origin-list-container">
-                        <div style='color:grey;'>Waiting for API telemetry...</div>
+                        <div style='color:grey;' data-i18n="ui.waiting_api">Waiting for API telemetry...</div>
                     </div>
                 </div>
             </div>
@@ -1017,7 +1017,7 @@
     </div>
     <div class="panel-content">
         <div class="wb-body">
-            <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+            <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;" data-i18n="ui.loading">Loading...</div>
         </div>
         <div class="wb-summary"></div>
     </div>
@@ -1035,7 +1035,7 @@
         <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeSaluteModal()" data-i18n="panel.salute.btn_close">[ X ] Close</button>
     </div>
     <div class="salute-body" style="overflow-y:auto; flex-grow:1; padding:12px;">
-        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">Loading...</div>
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="ui.loading">Loading...</div>
     </div>
     <div style="display:flex; gap:8px; justify-content:flex-end; padding:10px 16px; border-top:1px solid #333; flex-shrink:0;">
         <button onclick="copySaluteReport()" class="btn-tactical" style="font-size:10px; padding:5px 12px;" data-i18n="panel.salute.btn_copy">Copy</button>
@@ -1055,7 +1055,7 @@
         </div>
     </div>
     <div class="panel-content ha-body">
-        <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;">Loading...</div>
+        <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;" data-i18n="ui.loading">Loading...</div>
     </div>
 </div>
 
@@ -1071,7 +1071,7 @@
         </div>
     </div>
     <div class="panel-content whatif-body" style="max-height:520px; overflow-y:auto;">
-        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">Loading...</div>
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="ui.loading">Loading...</div>
     </div>
 </div>
 
@@ -1087,7 +1087,7 @@
         </div>
     </div>
     <div class="panel-content spof-body" style="max-height:420px; overflow-y:auto;">
-        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">Loading...</div>
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="ui.loading">Loading...</div>
     </div>
 </div>
 
@@ -1103,7 +1103,7 @@
         </div>
     </div>
     <div class="panel-content actionplan-body" style="max-height:480px; overflow-y:auto;">
-        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">Loading...</div>
+        <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="ui.loading">Loading...</div>
     </div>
 </div>
 

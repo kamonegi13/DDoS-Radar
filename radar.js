@@ -104,7 +104,10 @@
     let isFirstLoad = true;
     let loaderLogInterval;
     let _nodeOkRetryTimer = null; // One-shot retry when CheckHost hasn't initialized yet
-    const _panelCallbacks = {}; // per-panel onShow/onHide hooks keyed by panelId
+    // Per-panel onShow/onHide hooks keyed by panelId.
+    // Entries persist for the app lifetime because panels are static DOM elements
+    // that are shown/hidden (never destroyed). No cleanup needed on panel close.
+    const _panelCallbacks = {};
     let STRATEGIC_BLOCS_DATA = {};  // { RUSSIA: {label, color, adversary, theaters[]}, ... }
     let ADVERSARY_OPTIONS    = [];  // [ {code, bloc, label, color}, ... ]
     let COUNTRY_BLOC_TAGS    = {};  // { "US": ["RUSSIA","CHINA","IRAN","DPRK"], ... }
@@ -1305,12 +1308,14 @@
                 document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
                 panel.classList.add('active');
                 pos3 = e.clientX; pos4 = e.clientY;
-                document.onmouseup = function() { document.onmouseup = null; document.onmousemove = null; saveLocalState(); };
-                document.onmousemove = function(me) {
+                const onMove = function(me) {
                     me.preventDefault();
                     pos1 = pos3 - me.clientX; pos2 = pos4 - me.clientY; pos3 = me.clientX; pos4 = me.clientY;
                     panel.style.top = (panel.offsetTop - pos2) + 'px'; panel.style.left = (panel.offsetLeft - pos1) + 'px';
                 };
+                const onUp = function() { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); saveLocalState(); };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
             };
         }
     }
@@ -1401,8 +1406,8 @@
             updateSidebarVisibility();
             if (currentE) {
                 pos3 = currentE.clientX; pos4 = currentE.clientY;
-                document.onmouseup = closeDragElement;
-                document.onmousemove = elementDrag;
+                document.addEventListener('mousemove', elementDrag);
+                document.addEventListener('mouseup', closeDragElement);
             }
         }
 
@@ -1443,7 +1448,8 @@
                     movedOutside = true;
                     panel.classList.remove('sb-dragging');
                     if (indicator.parentElement) indicator.parentElement.removeChild(indicator);
-                    document.onmousemove = null; document.onmouseup = null;
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
                     undockAndFloat(startE, me);
                     return;
                 }
@@ -1453,7 +1459,8 @@
             }
 
             function onUp() {
-                document.onmousemove = null; document.onmouseup = null;
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
                 panel.classList.remove('sb-dragging');
                 if (indicator.parentElement) indicator.parentElement.removeChild(indicator);
                 if (hasMoved && !movedOutside) {
@@ -1474,8 +1481,8 @@
                 }
             }
 
-            document.onmousemove = onMove;
-            document.onmouseup = onUp;
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
         }
 
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -1501,7 +1508,8 @@
             document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
             panel.classList.add('active');
             pos3 = e.clientX; pos4 = e.clientY;
-            document.onmouseup = closeDragElement; document.onmousemove = elementDrag;
+            document.addEventListener('mousemove', elementDrag);
+            document.addEventListener('mouseup', closeDragElement);
         };
 
         function elementDrag(e) {
@@ -1510,7 +1518,8 @@
         }
 
         function closeDragElement(e) {
-            document.onmouseup = null; document.onmousemove = null;
+            document.removeEventListener('mousemove', elementDrag);
+            document.removeEventListener('mouseup', closeDragElement);
             if (e && panel.classList.contains('floating')) {
                 const SNAP = 80;
                 const atLeft  = e.clientX < SNAP;
@@ -1829,7 +1838,7 @@
         if (!syncBtnTop || !syncBtnSide || !updateTimeEl) return;
 
         if (needsApiSync) {
-            updateTimeEl.innerHTML = `<span style="color:#ffaa00;">Changes pending. Press SYNC.</span>`;
+            updateTimeEl.innerHTML = `<span style="color:#ffaa00;">${_t('dash.changes_pending')}</span>`;
             syncBtnTop.classList.add("pending");
             syncBtnSide.classList.add("pending");
         } else {
@@ -2417,7 +2426,7 @@
                 overlapEl.innerHTML = `<span style="color:${color}">${maxEntry[0]}: ${maxPct.toFixed(0)}%</span>`;
                 overlapEl.setAttribute('data-tooltip', Object.entries(strat.correlations).map(([k,v]) => `${k}: ${v.toFixed(1)}%`).join('\n') + '\n(see map: Origin Overlap layer)');
             } else {
-                overlapEl.innerHTML = 'None';
+                overlapEl.innerHTML = _t('ui.none');
             }
             
             if (strat.vector_shifts && strat.vector_shifts.length > 0) {
@@ -3066,7 +3075,7 @@
         if (typeof io !== 'undefined') {
             try {
                 const _wsToken = localStorage.getItem('radar_access_token') || '';
-                _wsSocket = io({ transports: ['websocket', 'polling'], query: { token: _wsToken } });
+                _wsSocket = io({ transports: ['websocket', 'polling'], auth: { token: _wsToken } });
                 _wsSocket.on('connect', () => {
                     _wsConnected = true;
                     const core = getCurrentConfig().core || '';
@@ -4050,7 +4059,7 @@
             }).join('');
             if (sumEl) sumEl.textContent = wb.summary || '';
         } catch(e) {
-            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API unavailable</div>';
+            bodyEl.innerHTML = `<div style="color:#666;font-size:10px;text-align:center;">${_t('ui.api_unavailable')}</div>`;
         }
     }
 
@@ -4098,7 +4107,7 @@
                 (sal.cross_ref ? `<div class="s-crossref"><span class="s-crossref-label">${_t('panel.salute.cross_ref')}</span> ${esc(sal.cross_ref)}</div>` : '') +
                 (sal.assessment ? `<div class="s-assess">${esc(sal.assessment)}</div>` : '');
         } catch(e) {
-            bodyEl.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;">API unavailable</div>';
+            bodyEl.innerHTML = `<div style="color:#666;font-size:10px;text-align:center;">${_t('ui.api_unavailable')}</div>`;
         }
     }
 
@@ -4789,7 +4798,7 @@
             if (sel && sel.style.display === 'none') {
                 // Ensure the manual value will be picked up by saveEnvConfig via the select
                 // We repurpose the select by adding an option matching the typed value
-                sel.innerHTML = `<option value="${e.target.value}" selected>${e.target.value}</option>`;
+                sel.innerHTML = `<option value="${esc(e.target.value)}" selected>${esc(e.target.value)}</option>`;
             }
         }
     });
@@ -6368,7 +6377,8 @@
     // ═══════════════════════════════════════════════════════════════
     // Phase 3: Sync countdown timer
     // ═══════════════════════════════════════════════════════════════
-    setInterval(() => {
+    if (window._syncCountdownInterval) clearInterval(window._syncCountdownInterval);
+    window._syncCountdownInterval = setInterval(() => {
         if (!_lastSyncTime) return;
         const elapsed = Date.now() - _lastSyncTime;
         const remaining = Math.max(0, _POLL_INTERVAL_MS - elapsed);
@@ -6899,7 +6909,7 @@
         const color = colors[level] || '#666';
 
         dot.setAttribute('data-level', level);
-        text.textContent = 'CLIMATE: ' + level;
+        text.textContent = _t('climate.badge_prefix') + ': ' + level;
         text.style.color = color;
         badge.style.borderColor = color + '44';
 
@@ -6968,6 +6978,9 @@
         return iso || '';
     }
 
+    // Semantic aliases for esc() — _escHtml for element text content,
+    // _escAttr for attribute values. Both delegate to the same esc() sanitizer;
+    // separate names exist for readability at call sites.
     function _escHtml(s) { return esc(s); }
     function _escAttr(s) { return esc(s); }
 
@@ -7002,7 +7015,7 @@
                 _buildSitBoardChips(data);
                 _renderSitBoard(data);
             })
-            .catch(e => log.warn('[SitBoard] fetch error:', e));
+            .catch(e => console.warn('[SitBoard] fetch error:', e));
     }
 
     function _buildSitBoardChips(data) {
@@ -7503,10 +7516,10 @@
     window.loadScenarioManager = async function() {
         const listEl = document.getElementById('scenario-mgr-list');
         if (!listEl) return;
-        listEl.innerHTML = '<div style="color:#666;font-size:10px;">Loading...</div>';
+        listEl.innerHTML = `<div style="color:#666;font-size:10px;">${_t('ui.loading')}</div>`;
         try {
             const resp = await fetch('/api/admin/scenarios');
-            if (!resp.ok) { listEl.innerHTML = `<div style="color:red;">Error ${resp.status}</div>`; return; }
+            if (!resp.ok) { listEl.innerHTML = `<div style="color:red;">${_t('ui.error')} ${resp.status}</div>`; return; }
             const data = await resp.json();
             _scMgrRenderList(data.scenarios || [], listEl);
         } catch (e) {
@@ -7523,7 +7536,7 @@
     function _scMgrRenderList(scenarios, container) {
         const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
         if (!scenarios.length) {
-            container.innerHTML = '<div style="color:#666;font-size:11px;">No scenarios found.</div>';
+            container.innerHTML = `<div style="color:#666;font-size:11px;">${_t('scenario.mgr.no_scenarios')}</div>`;
             return;
         }
         let html = '';
@@ -7816,7 +7829,7 @@
     window.scMgrSave = async function(isNew) {
         const status = document.getElementById('scmgr-status');
         const sid = isNew ? (document.getElementById('scmgr-id')?.value || '').trim().toLowerCase() : _scMgrEditId;
-        if (!sid) { if (status) status.textContent = 'ID required'; return; }
+        if (!sid) { if (status) status.textContent = _t('scenario.mgr.err.id_required'); return; }
 
         const payload = {
             id: sid,
@@ -7846,16 +7859,16 @@
         const url = isNew ? '/api/admin/scenarios' : `/api/admin/scenarios/${sid}`;
         const method = isNew ? 'POST' : 'PUT';
         try {
-            if (status) status.textContent = 'Saving...';
+            if (status) status.textContent = _t('ui.saving');
             const resp = await fetch(url, {
                 method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
             });
             const result = await resp.json();
             if (!resp.ok) {
-                if (status) status.textContent = result.error || 'Error';
+                if (status) status.textContent = result.error || _t('ui.error');
                 return;
             }
-            if (status) status.textContent = 'Saved!';
+            if (status) status.textContent = _t('ui.saved');
             scMgrCancelEdit();
             loadScenarioManager();
         } catch (e) {
@@ -7902,10 +7915,10 @@
     window.loadCliteEvaluation = async function() {
         const panel = document.getElementById('clite-eval-panel');
         if (!panel) return;
-        panel.innerHTML = '<div style="color:#666;font-size:10px;">Loading...</div>';
+        panel.innerHTML = `<div style="color:#666;font-size:10px;">${_t('ui.loading')}</div>`;
         try {
             const resp = await fetch('/api/analytics/clite_evaluation?days=28');
-            if (!resp.ok) { panel.innerHTML = `<div style="color:red;">Error ${resp.status}</div>`; return; }
+            if (!resp.ok) { panel.innerHTML = `<div style="color:red;">${_t('ui.error')} ${resp.status}</div>`; return; }
             const d = await resp.json();
             const missRatePct = (d.miss_rate * 100).toFixed(1);
             const recCls = d.recommendation === 'CONSIDER_C_MEDIUM'

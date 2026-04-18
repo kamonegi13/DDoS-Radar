@@ -531,7 +531,7 @@ def track_entropy_change(theater: str, current_entropy: float) -> dict:
 
 
 def get_fallback_coord(code: str) -> dict:
-    h = int(hashlib.md5((code or "Unknown").encode()).hexdigest(), 16)
+    h = int(hashlib.md5((code or "Unknown").encode(), usedforsecurity=False).hexdigest(), 16)
     return {"lat": (h % 100) - 50, "lng": ((h // 100) % 360) - 180, "name": f"Origin: {code}"}
 
 # Minimum interval between live CF API calls to avoid burst rate-limiting.
@@ -628,7 +628,8 @@ def fetch_asn_origins(target_code: str) -> dict:
             with _asn_cache_lock:
                 _asn_cache[target_code] = {"time": now, "data": data}
             return data
-    except Exception: pass
+    except Exception as e:
+        log.debug("[ASN] Cloudflare ASN fetch failed for %s: %s", target_code, e)
     return {}
 
 def compute_confidence(spike_factor: float, code: str, is_new_actor: bool, is_state_asn: bool) -> str:

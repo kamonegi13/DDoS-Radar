@@ -41,6 +41,17 @@ def _security_headers(response):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' https://unpkg.com https://cdn.socket.io; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self'; "
+        "font-src 'self'; "
+        "frame-src 'none'; "
+        "object-src 'none'; "
+        "base-uri 'self'"
+    )
     if not app.debug:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
@@ -140,8 +151,11 @@ def _enforce_jwt():
         return None
     try:
         verify_jwt_in_request()
-    except (NoAuthorizationError, PyJWTError, Exception):
+    except (NoAuthorizationError, PyJWTError):
         return _jsonify({"error": "Authentication required"}), 401
+    except Exception:
+        log.exception("[Auth] Unexpected error during JWT verification")
+        return _jsonify({"error": "Internal server error"}), 500
 
 # ── Routes ──
 from radar import routes as _routes_mod  # noqa: E402

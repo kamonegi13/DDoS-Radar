@@ -7,7 +7,7 @@ import re
 import requests
 import threading
 import time
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 import os as _os
 
 # Stop-words to drop when extracting atomic terms from multi-word phrases.
@@ -57,6 +57,7 @@ log = logging.getLogger("radar")
 
 # Track narrative burst items already submitted to intel_queue (dedup across cycles)
 _burst_submitted: dict[str, None] = {}
+_burst_submitted_lock = threading.Lock()
 _MAX_BURST_SUBMITTED = 500
 
 class RssNarrativeSensor(BaseSensor):
@@ -235,10 +236,16 @@ class RssNarrativeSensor(BaseSensor):
         # Per-cluster dedup is handled downstream by intel_queue's Jaccard check.
         day_bucket = int(time.time() // 86400)
         burst_dedup = hashlib.md5(
-            f"narrative-burst-{theater}-{status}-{day_bucket}".encode()
+            f"narrative-burst-{theater}-{status}-{day_bucket}".encode(),
+            usedforsecurity=False,
         ).hexdigest()
-        if burst_dedup in _burst_submitted:
-            return 0
+        with _burst_submitted_lock:
+            if burst_dedup in _burst_submitted:
+                return 0
+            _burst_submitted[burst_dedup] = None
+            if len(_burst_submitted) > _MAX_BURST_SUBMITTED:
+                for k in list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]:
+                    _burst_submitted.pop(k, None)
 
         from radar.llm_client import sanitize_llm_input, today_str
         pool = burst_articles[:self._LLM_POOL_CAP]
@@ -301,13 +308,6 @@ class RssNarrativeSensor(BaseSensor):
         )
 
         result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=512)
-
-        # Mark burst processed regardless of LLM outcome — prevents repeat
-        # LLM calls on the same burst across the day (next fetch cycle).
-        _burst_submitted[burst_dedup] = None
-        if len(_burst_submitted) > _MAX_BURST_SUBMITTED:
-            for k in list(_burst_submitted)[:_MAX_BURST_SUBMITTED // 2]:
-                _burst_submitted.pop(k, None)
 
         if not result["ok"]:
             return 0

@@ -31,7 +31,7 @@
         .hist-stat { flex:1; text-align:center; padding:2px 4px; border-right:1px solid #1a1a1a; }
         .hist-stat:last-child { border-right:none; }
         .hist-stat-label { display:block; font-size:7px; color:#555; letter-spacing:1px; margin-bottom:2px; }
-        .hist-stat-value { display:block; font-size:13px; font-weight:bold; color:#0ff; font-family:monospace; }
+        .hist-stat-value { display:block; font-size:13px; font-weight:bold; color:var(--color-accent); font-family:monospace; }
         .hist-tl-badge { display:inline-block; padding:1px 5px; border-radius:2px; font-size:9px; font-weight:bold; font-family:monospace; min-width:28px; text-align:center; }
         .hist-seq-item { display:flex; align-items:flex-start; gap:8px; margin-bottom:1px; padding:3px 0; }
         .hist-seq-line { border-left:1px solid #222; margin-left:3px; padding-left:10px; }
@@ -123,9 +123,9 @@
         .hud-sensor-chip { white-space: normal; }
         .hud-sensor-dots { display: inline-flex; flex-wrap: wrap; gap: 1px; max-width: 130px; vertical-align: middle; }
         .hud-sensor-dot { width: 5px; height: 5px; border-radius: 1px; flex-shrink: 0; }
-        .hud-sdot-ok    { background: #00ff88; }
-        .hud-sdot-stale { background: #ffaa00; }
-        .hud-sdot-err   { background: #ff2222; }
+        .hud-sdot-ok    { background: var(--color-ok); }
+        .hud-sdot-stale { background: var(--color-warning); }
+        .hud-sdot-err   { background: var(--color-critical); }
         .hud-sdot-off   { background: #555; }
         .hud-chip-label { color: var(--color-muted); font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px; }
         .hud-chip-value { color: #ddd; font-weight: bold; font-family: 'Courier New', monospace; }
@@ -677,19 +677,17 @@
         
         .country-label { background: transparent; border: none; box-shadow: none; color: #eeeeee; font-weight: bold; font-size: 11px; text-shadow: 0 0 5px #000, 0 0 2px #000; text-transform: uppercase; letter-spacing: 1px; }
 
-        .domain-bar-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; cursor: help; }
+        .domain-bar-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; cursor: pointer; }
         .domain-label  { font-size: 10px; color: var(--color-muted); width: 55px; text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
         .domain-bar    { height: 6px; border-radius: 3px; transition: width 0.4s; will-change: width; }
-        .domain-cyber    { background: #00ffff; }
-        .domain-physical { background: #ffaa00; }
+        .domain-cyber    { background: var(--color-accent); }
+        .domain-physical { background: var(--color-warning); }
         .domain-info     { background: #cc66ff; }
         .domain-status   { font-size: 10px; font-weight: bold; }
         .domain-status.CRITICAL { color: var(--color-critical); }
         .domain-status.ELEVATED { color: var(--color-warning); }
         .domain-status.WATCH    { color: var(--color-elevated); }
         .domain-status.NORMAL   { color: #777; }
-        .domain-bar-row { cursor: pointer; }
-
         /* ── Theater Halo (SVG circle animation) ── */
         @keyframes halo-pulse {
             0%, 100% { stroke-opacity: 0.85; }

@@ -13,30 +13,35 @@ from radar.database import db as _db
 from radar.models import RationaleEntry
 from radar.scoring import compute_sequence_bonus, derive_tl
 import radar.routes as _routes
-from radar.routes import bp
+from radar.routes import bp, _safe_int
 
 @bp.route("/api/data_status", methods=["GET"])
 def data_status():
     now = time.time(); sensors_status = []
     for s in _routes.registry._sensors.values():
         log = s.get_fetch_log()
+        # Sanitize last_error: strip stack traces, truncate to 100 chars
+        err = s._last_error or ""
+        if "\n" in err:
+            err = err.split("\n")[0]
+        err = err[:100]
         sensors_status.append({
             "sensor": s.name, "domain": s.domain, "enabled": s.enabled, "health": s.health,
             "poll_interval_sec": s.poll_interval, "cache_age_sec": round(now - s._cache_time) if s._cache_time else None,
-            "cache_size_chars": len(str(s._cache)), "last_error": s._last_error, "last_fetch": log[-1] if log else None, "fetch_log": log,
+            "cache_size_chars": len(str(s._cache)), "last_error": err or None, "last_fetch": log[-1] if log else None, "fetch_log": log,
         })
     return jsonify({"ts": datetime.datetime.now().isoformat(), "sensors": sensors_status})
 
 @bp.route("/api/sensor_reliability", methods=["GET"])
 def sensor_reliability():
     """Per-sensor fetch reliability over a given time window (default 24h, max 168h)."""
-    hours = min(int(request.args.get("hours", 24)), 168)
+    hours = _safe_int(request.args.get("hours", 24), 24, min_val=1, max_val=168)
     rows = _db.fetch_log_reliability(hours=hours)
     return jsonify({"ts": datetime.datetime.now().isoformat(), "hours": hours, "sensors": rows})
 
 @bp.route("/api/alert_timeline", methods=["GET"])
 def api_alert_timeline():
-    limit = min(int(request.args.get("limit", 288)), 288)
+    limit = _safe_int(request.args.get("limit", 288), 288, min_val=1, max_val=288)
     return jsonify({"ts": datetime.datetime.now().isoformat(), "count": _db.alert_count(), "timeline": _db.alert_list(limit)})
 
 
@@ -977,7 +982,7 @@ def adaptive_zscore_status():
 @bp.route("/api/analytics/focus_switches", methods=["GET"])
 def api_focus_switch_stats():
     """C-medium migration metric: focus switch miss rate (Section 9.3.1)."""
-    days = int(request.args.get("days", "28"))
+    days = _safe_int(request.args.get("days", "28"), 28, min_val=1, max_val=365)
     return jsonify(_db.focus_switch_stats(days=days))
 
 
@@ -988,14 +993,14 @@ def api_clite_evaluation():
     Returns miss rate, delta distribution, per-scenario breakdown, and a
     recommendation (LITE_SUFFICIENT / CONSIDER_C_MEDIUM / INSUFFICIENT_DATA).
     """
-    days = min(max(int(request.args.get("days", "28")), 1), 365)
+    days = _safe_int(request.args.get("days", "28"), 28, min_val=1, max_val=365)
     return jsonify(_db.focus_switch_detailed(days=days))
 
 
 @bp.route("/api/scenario/<scenario_id>/timeseries", methods=["GET"])
 def api_scenario_timeseries(scenario_id):
     """Return TL observation timeseries for a scenario (ADR-010)."""
-    hours = int(request.args.get("hours", "72"))
+    hours = _safe_int(request.args.get("hours", "72"), 72, min_val=1, max_val=720)
     return jsonify({
         "scenario_id": scenario_id,
         "hours": hours,
@@ -1007,7 +1012,7 @@ def api_scenario_timeseries(scenario_id):
 def api_scenario_country_timeseries(scenario_id, country):
     """Return TL observation timeseries filtered to a specific country's
     active periods within a scenario (ADR-010)."""
-    hours = int(request.args.get("hours", "72"))
+    hours = _safe_int(request.args.get("hours", "72"), 72, min_val=1, max_val=720)
     country = country.upper()
     return jsonify({
         "scenario_id": scenario_id,

@@ -25,6 +25,20 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 _login_attempts: dict[str, list[float]] = {}
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW_SEC = 300
+_LOGIN_MAX_IPS = 1000
+
+# Only trust X-Forwarded-For when explicitly enabled (behind a trusted reverse proxy).
+# Without this guard, any client can spoof their IP via the XFF header.
+_TRUST_XFF = os.getenv("TRUST_PROXY_XFF", "").lower() in ("1", "true", "yes")
+
+
+def _get_client_ip() -> str:
+    """Extract client IP.  Only reads X-Forwarded-For when TRUST_PROXY_XFF is enabled."""
+    if _TRUST_XFF:
+        xff = request.headers.get("X-Forwarded-For", "")
+        if xff:
+            return xff.split(",")[0].strip()
+    return request.remote_addr or "unknown"
 
 
 def _check_login_rate(ip: str) -> bool:
@@ -33,6 +47,16 @@ def _check_login_rate(ip: str) -> bool:
     attempts = _login_attempts.get(ip, [])
     attempts = [t for t in attempts if now - t < _LOGIN_WINDOW_SEC]
     _login_attempts[ip] = attempts
+    # Evict oldest entries if dict exceeds max IPs to prevent memory exhaustion
+    if len(_login_attempts) > _LOGIN_MAX_IPS:
+        # Prune IPs with empty attempt lists first (already expired)
+        empty_ips = [k for k, v in _login_attempts.items() if not v]
+        if empty_ips:
+            for k in empty_ips:
+                _login_attempts.pop(k, None)
+        else:
+            oldest_ip = min(_login_attempts, key=lambda k: _login_attempts[k][-1])
+            _login_attempts.pop(oldest_ip, None)
     return len(attempts) < _LOGIN_MAX_ATTEMPTS
 
 
@@ -57,10 +81,17 @@ def _get_or_create_jwt_secret() -> str:
         return env_key
     # Auto-generate on first run and persist
     generated = secrets.token_hex(32)
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _config_path = os.path.join(_project_root, "config.env")
     persisted = False
     try:
-        with open("config.env", "a", encoding="utf-8") as f:
+        with open(_config_path, "a", encoding="utf-8") as f:
             f.write(f"\nJWT_SECRET_KEY={generated}\n")
+        # Restrict file permissions to owner-only (ignored on Windows)
+        try:
+            os.chmod(_config_path, 0o600)
+        except OSError:
+            pass
         persisted = True
     except OSError as e:
         log.error("[Auth] CRITICAL: Could not persist JWT_SECRET_KEY to config.env: %s", e)
@@ -87,11 +118,19 @@ def init_auth(app):
     if db.user_count() == 0:
         _create_default_admin(db)
 
-    # Token revocation check
+    # Token revocation check — per-JTI revocation + per-user session invalidation
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(jwt_header, jwt_payload):
         from radar.database import db as _db
-        return _db.token_is_revoked(jwt_payload["jti"])
+        if _db.token_is_revoked(jwt_payload["jti"]):
+            return True
+        # Check if user's password was changed after this token was issued
+        invalidate_ts = _db.user_get_invalidate_ts(jwt_payload.get("sub", ""))
+        if invalidate_ts is not None:
+            token_iat = jwt_payload.get("iat", 0)
+            if token_iat < invalidate_ts:
+                return True
+        return False
 
 
 def _create_default_admin(db):
@@ -165,7 +204,7 @@ def register():
 @bp.route("/login", methods=["POST"])
 def login():
     """Authenticate and return JWT tokens."""
-    ip = request.remote_addr or "unknown"
+    ip = _get_client_ip()
     if not _check_login_rate(ip):
         return jsonify({"error": "Too many login attempts. Try again later."}), 429
 
@@ -182,12 +221,14 @@ def login():
         _record_login_attempt(ip)
         return jsonify({"error": "Invalid credentials"}), 401
 
-    if _hash_password(password, user["salt"]) != user["password_hash"]:
+    if not secrets.compare_digest(
+        _hash_password(password, user["salt"]), user["password_hash"]
+    ):
         _record_login_attempt(ip)
         return jsonify({"error": "Invalid credentials"}), 401
 
-    # Clear rate-limit tracking on success
-    _login_attempts.pop(ip, None)
+    # Reset attempt count on success but keep the IP entry for tracking
+    _login_attempts[ip] = []
     db.user_update_last_login(user["id"], time.time())
 
     from flask import current_app
@@ -358,9 +399,11 @@ def admin_reset_password(username):
 
     new_salt = secrets.token_hex(16)
     new_hash = _hash_password(new_pw, new_salt)
+    # user_update_password sets invalidate_tokens_before, revoking all of the
+    # target user's sessions.  The admin's own session is unaffected.
     db.user_update_password(user["id"], new_hash, new_salt)
     log.info(f"[Auth] Password reset: {username} (by {caller})")
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "note": "User should re-login with new password"})
 
 
 @bp.route("/password", methods=["PUT"])
@@ -380,10 +423,14 @@ def change_password():
     user = db.user_get(identity)
     if not user:
         return jsonify({"error": "User not found"}), 404
-    if _hash_password(old_pw, user["salt"]) != user["password_hash"]:
+    if not secrets.compare_digest(
+        _hash_password(old_pw, user["salt"]), user["password_hash"]
+    ):
         return jsonify({"error": "Invalid current password"}), 401
 
     new_salt = secrets.token_hex(16)
     new_hash = _hash_password(new_pw, new_salt)
+    # user_update_password sets invalidate_tokens_before, which revokes all
+    # existing sessions (access + refresh) for this user via the blocklist loader.
     db.user_update_password(user["id"], new_hash, new_salt)
     return jsonify({"status": "ok"})

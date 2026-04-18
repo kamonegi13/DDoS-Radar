@@ -22,9 +22,15 @@ class BaseSensor(ABC):
     tier: SensorTier = SensorTier.GLOBAL
 
     def __init__(self, name: str, domain: str, poll_interval: int):
-        self.name = name; self.domain = domain; self.poll_interval = poll_interval; self.enabled = True
-        self._cache: dict = {}; self._cache_time: float = 0.0; self._last_error: str = ""
-        self._lock = threading.Lock(); self._fetch_log: list = []
+        self.name = name
+        self.domain = domain
+        self.poll_interval = poll_interval
+        self.enabled = True
+        self._cache: dict = {}
+        self._cache_time: float = 0.0
+        self._last_error: str = ""
+        self._lock = threading.Lock()
+        self._fetch_log: list = []
         # Circuit breaker state
         self._cb_state: str = "CLOSED"
         self._cb_fail_count: int = 0

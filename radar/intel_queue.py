@@ -25,6 +25,7 @@ import threading
 import time
 import uuid
 from typing import Optional
+from urllib.parse import urlparse, urlencode, parse_qs
 from radar.config import LLM_ENABLED
 from radar.database import db
 
@@ -128,7 +129,6 @@ _XTYPE_JACCARD_THRESHOLD = 0.70     # stricter threshold for cross-source-type d
 
 def _normalize_url(url: str) -> str:
     """Minimal URL normalization for dedup comparison."""
-    from urllib.parse import urlparse, urlencode, parse_qs
     if not url:
         return ""
     try:

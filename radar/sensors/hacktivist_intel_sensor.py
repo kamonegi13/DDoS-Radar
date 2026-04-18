@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import threading
 import time
 
 from radar.sensors.base import BaseSensor
@@ -29,13 +30,14 @@ _POLL_INTERVAL = int(os.getenv("HACKTIVIST_INTEL_POLL_INTERVAL", "1800"))  # 30 
 
 # Track processed entries: set of (ts_str, channel) tuples to avoid re-processing
 _processed: dict[str, None] = {}
+_processed_lock = threading.Lock()
 _MAX_PROCESSED = 1000  # prevent unbounded growth
 
 
 def _entry_key(entry: dict) -> str:
     """Stable dedup key for an intercept log entry."""
     raw = f"{entry.get('ts','')}-{entry.get('channel','')}-{entry.get('theater','')}"
-    return hashlib.md5(raw.encode()).hexdigest()
+    return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
 
 
 class HacktiivistIntelSensor(BaseSensor):
@@ -66,8 +68,13 @@ class HacktiivistIntelSensor(BaseSensor):
 
         for entry in entries:
             key = _entry_key(entry)
-            if key in _processed:
-                continue
+            with _processed_lock:
+                if key in _processed:
+                    continue
+                _processed[key] = None
+                if len(_processed) > _MAX_PROCESSED:
+                    for k in list(_processed)[:_MAX_PROCESSED // 2]:
+                        _processed.pop(k, None)
 
             theater      = entry.get("theater", "")
             channel      = entry.get("channel", "")
@@ -80,7 +87,6 @@ class HacktiivistIntelSensor(BaseSensor):
             # Use snippet if available (keyword-matched context), fall back to full excerpt
             text_content = snippet or text_excerpt
             if not text_content:
-                _processed[key] = None
                 continue
 
             # Build LLM prompt
@@ -129,12 +135,6 @@ class HacktiivistIntelSensor(BaseSensor):
             )
 
             result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
-            _processed[key] = None
-
-            # Prune processed dict if too large (evict oldest entries)
-            if len(_processed) > _MAX_PROCESSED:
-                for k in list(_processed)[:_MAX_PROCESSED // 2]:
-                    _processed.pop(k, None)
 
             if not result["ok"]:
                 log.debug(f"[HacktiivistIntel] LLM parse failed for {channel}: {result.get('error')}")

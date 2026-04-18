@@ -381,21 +381,19 @@ def get_threat_data():
     # (At startup, background threads are fetching in parallel; waiting for sync would
     #  block for minutes on slow sensors like PeeringDB/AIS).
     if force_sync:
-        executor = ThreadPoolExecutor(max_workers=4)
-        futures = [executor.submit(sensor.fetch, sensor_context)
-                   for sensor in _routes.registry._sensors.values() if sensor.enabled]
-        try:
-            for future in as_completed(futures, timeout=60):
-                try:
-                    future.result()
-                except Exception:
-                    pass
-        except TimeoutError:
-            # Use cached data for timed-out sensors.
-            # Let them complete in the background and update the cache.
-            pass
-        finally:
-            executor.shutdown(wait=False, cancel_futures=False)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(sensor.fetch, sensor_context)
+                       for sensor in _routes.registry._sensors.values() if sensor.enabled]
+            try:
+                for future in as_completed(futures, timeout=60):
+                    try:
+                        future.result()
+                    except Exception:
+                        pass
+            except TimeoutError:
+                # Use cached data for timed-out sensors.
+                # Let them complete in the background and update the cache.
+                pass
 
     # Cache invalidation must also consider the focus parameter: scenario
     # scoring depends on focus (full vs lite mode, threat_level derivation),

@@ -23,6 +23,7 @@ LLM fields extracted:
 from __future__ import annotations
 import logging
 import os
+import threading
 import time
 
 from radar.sensors.base import BaseSensor
@@ -41,13 +42,14 @@ _ONGOING_KEYWORDS = {
 
 # Processed entry keys (same dedup logic as HacktiivistIntelSensor)
 _processed: dict[str, None] = {}
+_processed_lock = threading.Lock()
 _MAX_PROCESSED = 500
 
 
 def _entry_key(entry: dict) -> str:
     import hashlib
     raw = f"gnd-{entry.get('ts','')}-{entry.get('channel','')}-{entry.get('theater','')}"
-    return hashlib.md5(raw.encode()).hexdigest()
+    return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
 
 
 def _has_ongoing_signal(snippet: str, targets: list) -> bool:
@@ -139,8 +141,13 @@ class GroundOsintSensor(BaseSensor):
                 continue
 
             key = _entry_key(entry)
-            if key in _processed:
-                continue
+            with _processed_lock:
+                if key in _processed:
+                    continue
+                _processed[key] = None
+                if len(_processed) > _MAX_PROCESSED:
+                    for k in list(_processed)[:_MAX_PROCESSED // 2]:
+                        _processed.pop(k, None)
 
             theater = entry.get("theater", "")
             channel = entry.get("channel", "")
@@ -154,18 +161,21 @@ class GroundOsintSensor(BaseSensor):
             corroborates = cf_active or ch_degraded
 
             safe_snippet = sanitize_llm_input(snippet, 400)
+            safe_channel = sanitize_llm_input(channel, 80)
+            safe_group = sanitize_llm_input(group_hint, 80)
+            safe_theater = sanitize_llm_input(theater, 10)
             raw_text = (
-                f"[Ground OSINT — Telegram: {channel} ({group_hint})]\n"
-                f"Theater: {theater}\n"
+                f"[Ground OSINT — Telegram: {safe_channel} ({safe_group})]\n"
+                f"Theater: {safe_theater}\n"
                 f"Status: {status}\n"
                 f"Target URLs: {', '.join(targets[:5])}\n"
-                f"Snippet: {snippet}\n"
+                f"Snippet: {safe_snippet}\n"
                 f"CF active attack detected: {cf_active}\n"
                 f"CheckHost degraded: {ch_degraded}"
             )
             llm_raw = (
-                f"[Ground OSINT — Telegram: {channel} ({group_hint})]\n"
-                f"Theater: {theater}\n"
+                f"[Ground OSINT — Telegram: {safe_channel} ({safe_group})]\n"
+                f"Theater: {safe_theater}\n"
                 f"Status: {status}\n"
                 f"Target URLs: {', '.join(targets[:5])}\n"
                 f"Snippet: {safe_snippet}\n"
@@ -201,11 +211,6 @@ class GroundOsintSensor(BaseSensor):
             )
 
             result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
-            _processed[key] = None
-
-            if len(_processed) > _MAX_PROCESSED:
-                for k in list(_processed)[:_MAX_PROCESSED // 2]:
-                    _processed.pop(k, None)
 
             if not result["ok"]:
                 log.debug(f"[GroundOsint] LLM parse failed for {channel}: {result.get('error')}")

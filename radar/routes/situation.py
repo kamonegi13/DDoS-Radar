@@ -2,6 +2,7 @@
 from __future__ import annotations
 import radar.routes as _routes
 from flask import jsonify, request
+from radar.routes import _safe_int
 
 bp = _routes.bp
 
@@ -19,5 +20,5 @@ def situation_wire():
     """Factual wire items, optionally filtered by theater."""
     from radar.situation_state import situation_engine
     theater = request.args.get("theater", "")
-    limit = min(int(request.args.get("limit", "50")), 200)
+    limit = _safe_int(request.args.get("limit", "50"), 50, min_val=1, max_val=200)
     return jsonify({"wire": situation_engine.get_wire(theater=theater, limit=limit)})

@@ -61,6 +61,7 @@ def discover_plugins(plugin_dir: str, enabled: str = "*",
             continue
 
         filepath = os.path.join(plugin_dir, filename)
+        log.warning("[Plugins] Loading plugin %s — ensure this file is from a trusted source", filepath)
         try:
             # Load module dynamically
             spec = importlib.util.spec_from_file_location(f"radar_plugin_{name}", filepath)
@@ -110,7 +111,8 @@ def load_and_register_plugins(registry, plugin_dir: str = None):
         plugin_dir = os.getenv("PLUGIN_DIR",
                                os.path.join(_project_root, "plugins"))
 
-    enabled = os.getenv("PLUGIN_ENABLED", "*")
+    # Default to empty (opt-in): set PLUGIN_ENABLED="*" to load all plugins
+    enabled = os.getenv("PLUGIN_ENABLED", "")
     disabled = os.getenv("PLUGIN_DISABLED", "")
 
     sensors = discover_plugins(plugin_dir, enabled, disabled)

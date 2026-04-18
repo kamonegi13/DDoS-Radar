@@ -38,8 +38,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import threading
 import time
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from email.utils import parsedate_to_datetime
 
 import requests
@@ -154,6 +155,7 @@ _NOISE_TITLE_PREFIXES = [
 
 # Processed article hashes to avoid reprocessing
 _processed: dict[str, None] = {}
+_processed_lock = threading.Lock()
 _MAX_PROCESSED = 1000
 
 
@@ -170,7 +172,7 @@ def _theater_names(theaters: list[str]) -> list[str]:
 
 def _article_hash(source_name: str, title: str) -> str:
     raw = f"cert-{source_name}-{title[:60]}"
-    return hashlib.md5(raw.encode()).hexdigest()
+    return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
 
 
 # CISA fronts its feeds behind Akamai, which 403s any UA that looks like a
@@ -334,6 +336,7 @@ class AptIntelSensor(BaseSensor):
                                   or context.get("strategic_theaters", []))
         t0 = time.time()
         submitted = 0
+        any_feed_ok = False
 
         for source_name, meta in _CERT_SOURCES.items():
             # Theater hints: used only to inform LLM context, NOT for forced assignment
@@ -341,6 +344,8 @@ class AptIntelSensor(BaseSensor):
                              if not strategic_theaters or t in strategic_theaters]
 
             xml_text = _fetch_rss(meta["url"])
+            if xml_text:
+                any_feed_ok = True
             t_names = _theater_names(theater_hints)
             articles = _parse_articles(xml_text, theater_names=t_names)
             if not articles:
@@ -350,13 +355,13 @@ class AptIntelSensor(BaseSensor):
 
             for art in articles:
                 key = _article_hash(source_name, art["title"])
-                if key in _processed:
-                    continue
-                _processed[key] = None
-
-                if len(_processed) > _MAX_PROCESSED:
-                    for k in list(_processed)[:_MAX_PROCESSED // 2]:
-                        _processed.pop(k, None)
+                with _processed_lock:
+                    if key in _processed:
+                        continue
+                    _processed[key] = None
+                    if len(_processed) > _MAX_PROCESSED:
+                        for k in list(_processed)[:_MAX_PROCESSED // 2]:
+                            _processed.pop(k, None)
 
                 safe_title   = sanitize_llm_input(art["title"], 120)
                 safe_summary = sanitize_llm_input(art["summary"], 500)
@@ -544,7 +549,7 @@ class AptIntelSensor(BaseSensor):
                     )
 
         duration_ms = round((time.time() - t0) * 1000)
-        self.log_fetch(True, duration_ms, 0, submitted)
+        self.log_fetch(any_feed_ok, duration_ms, 0, submitted)
         result_data = {"apt_intel": {"submitted": submitted}}
         self.set_cache(result_data)
         return result_data

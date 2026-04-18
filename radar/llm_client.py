@@ -94,24 +94,23 @@ def sanitize_llm_input(text: str, max_len: int = 1000) -> str:
 
 def today_str() -> str:
     """Return today's UTC date as ISO string for inclusion in LLM prompts."""
-    return date.today().isoformat()
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def _infer_caller() -> str:
     """Infer the immediate caller module name for observability logging.
 
-    Walks the stack until it finds the first frame outside radar/llm_client.py
+    Uses inspect.stack() to find the first frame outside radar/llm_client.py
     and returns its module's short name (e.g. "hacktivist_intel_sensor").
     Returns "unknown" if inference fails.
     """
+    import inspect
     try:
-        frame = sys._getframe(2)  # skip _infer_caller and llm_analyze_json
-        while frame is not None:
-            mod = frame.f_globals.get("__name__", "")
+        for frame_info in inspect.stack()[2:]:
+            mod = frame_info.frame.f_globals.get("__name__", "")
             if mod and not mod.endswith("llm_client"):
-                # Use only the leaf module name to keep storage compact
                 return mod.rsplit(".", 1)[-1]
-            frame = frame.f_back
     except Exception:
         pass
     return "unknown"

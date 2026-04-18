@@ -32,6 +32,14 @@ def init_routes(reg: SensorRegistry, eng: WeightedConvergenceEngine):
     engine = eng
 
 
+def _safe_int(val, default: int, *, min_val: int = 0, max_val: int = 99999) -> int:
+    """Safely convert a query parameter to a bounded int."""
+    try:
+        return max(min_val, min(int(val), max_val))
+    except (ValueError, TypeError):
+        return default
+
+
 def _require_admin():
     """Check admin authorization via DB role lookup. Returns None if authorized, or a Flask response tuple on failure."""
     from flask_jwt_extended import get_jwt_identity

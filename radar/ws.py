@@ -24,26 +24,45 @@ socketio: SocketIO | None = None
 def init_socketio(app, **kwargs) -> SocketIO:
     """Create and configure the SocketIO instance on the Flask app."""
     global socketio
-    _cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*")
-    _cors_list = (
-        [o.strip() for o in _cors_origins.split(",")]
-        if _cors_origins != "*" else "*"
-    )
+    _cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    if _cors_origins == "*":
+        _cors_list = "*"
+    elif _cors_origins:
+        _cors_list = [o.strip() for o in _cors_origins.split(",")]
+    else:
+        # Default: same-origin only (no cross-origin WebSocket connections)
+        _cors_list = []
     socketio = SocketIO(app, cors_allowed_origins=_cors_list, async_mode="gevent", **kwargs)
 
     @socketio.on("connect")
-    def on_connect():
-        # Verify JWT token passed via auth query parameter
-        token = _flask_request.args.get("token", "")
+    def on_connect(auth=None):
+        # Accept token from Socket.IO auth dict (preferred) or query param (legacy)
+        token = ""
+        if auth and isinstance(auth, dict):
+            token = auth.get("token", "")
+        if not token:
+            token = _flask_request.args.get("token", "")
+            if token:
+                log.debug("[WS] Token received via query param (deprecated); use auth dict")
         if not token:
             log.warning("[WS] Connection rejected: no token")
             disconnect()
             return False
         try:
             from flask_jwt_extended import decode_token
-            decode_token(token)
+            decoded = decode_token(token)
+        except Exception as e:
+            log.warning("[WS] Connection rejected: invalid token (%s)", type(e).__name__)
+            disconnect()
+            return False
+        try:
+            from radar.database import db as _ws_db
+            if _ws_db.token_is_revoked(decoded.get("jti", "")):
+                log.warning("[WS] Connection rejected: revoked token")
+                disconnect()
+                return False
         except Exception:
-            log.warning("[WS] Connection rejected: invalid token")
+            log.error("[WS] DB error during token revocation check", exc_info=True)
             disconnect()
             return False
         log.info("[WS] Client connected (authenticated)")

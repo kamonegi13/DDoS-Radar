@@ -2,6 +2,7 @@
 from __future__ import annotations
 import radar.routes as _routes
 from flask import jsonify, request
+from radar.routes import _safe_int
 
 bp = _routes.bp
 
@@ -18,5 +19,5 @@ def climate_feed():
     """Filtered climate feed events."""
     from radar.climate_state import climate_engine
     axis = request.args.get("axis", "")
-    limit = min(int(request.args.get("limit", "50")), 200)
+    limit = _safe_int(request.args.get("limit", "50"), 50, min_val=1, max_val=200)
     return jsonify({"feed": climate_engine.get_feed(axis=axis, limit=limit)})
