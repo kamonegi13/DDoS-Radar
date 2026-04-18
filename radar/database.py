@@ -792,7 +792,8 @@ class RadarDB:
     # ── HOD baselines (parameterized by table name) ─────────────────────────
     def hod_record(self, table: str, theater: str, hour_bucket: int, value: float,
                    max_entries: int = 672):
-        assert table in _HOD_TABLES, f"Invalid HOD table: {table}"
+        if table not in _HOD_TABLES:
+            raise ValueError(f"Invalid HOD table: {table!r}")
         col = _VALUE_COL[table]
         conn = self._get_conn()
         with conn.writing():
@@ -812,7 +813,8 @@ class RadarDB:
     def hod_record_many(self, table: str, theater: str,
                         entries: list[tuple[int, float]], max_entries: int = 672):
         """Bulk insert for migration. entries = [(hour_bucket, value), ...]"""
-        assert table in _HOD_TABLES
+        if table not in _HOD_TABLES:
+            raise ValueError(f"Invalid HOD table: {table!r}")
         col = _VALUE_COL[table]
         conn = self._get_conn()
         with conn.writing():
@@ -831,7 +833,8 @@ class RadarDB:
     def hod_same_hour(self, table: str, theater: str,
                       target_hod: int, before_bucket: int) -> list[float]:
         """Values where hour-of-day matches and bucket < before_bucket."""
-        assert table in _HOD_TABLES
+        if table not in _HOD_TABLES:
+            raise ValueError(f"Invalid HOD table: {table!r}")
         col = _VALUE_COL[table]
         rows = self._get_conn().execute(
             f"SELECT {col} FROM {table} "
@@ -841,7 +844,8 @@ class RadarDB:
         return [r[0] for r in rows]
 
     def hod_last_bucket(self, table: str, theater: str) -> Optional[int]:
-        assert table in _HOD_TABLES
+        if table not in _HOD_TABLES:
+            raise ValueError(f"Invalid HOD table: {table!r}")
         row = self._get_conn().execute(
             f"SELECT MAX(hour_bucket) FROM {table} WHERE theater=?",
             (theater,),
@@ -850,7 +854,8 @@ class RadarDB:
 
     def hod_all_entries(self, table: str, theater: str) -> list[tuple[int, float]]:
         """Return [(hour_bucket, value), ...] ordered by hour_bucket."""
-        assert table in _HOD_TABLES
+        if table not in _HOD_TABLES:
+            raise ValueError(f"Invalid HOD table: {table!r}")
         col = _VALUE_COL[table]
         rows = self._get_conn().execute(
             f"SELECT hour_bucket, {col} FROM {table} "
@@ -860,7 +865,8 @@ class RadarDB:
         return [(r[0], r[1]) for r in rows]
 
     def hod_existing_buckets(self, table: str, theater: str) -> set[int]:
-        assert table in _HOD_TABLES
+        if table not in _HOD_TABLES:
+            raise ValueError(f"Invalid HOD table: {table!r}")
         rows = self._get_conn().execute(
             f"SELECT hour_bucket FROM {table} WHERE theater=?",
             (theater,),
@@ -868,7 +874,8 @@ class RadarDB:
         return {r[0] for r in rows}
 
     def hod_distinct_hours(self, table: str, theater: str) -> int:
-        assert table in _HOD_TABLES
+        if table not in _HOD_TABLES:
+            raise ValueError(f"Invalid HOD table: {table!r}")
         row = self._get_conn().execute(
             f"SELECT COUNT(DISTINCT (hour_bucket/3600)%24) FROM {table} WHERE theater=?",
             (theater,),
@@ -876,12 +883,14 @@ class RadarDB:
         return row[0] if row else 0
 
     def hod_total_points(self, table: str) -> int:
-        assert table in _HOD_TABLES
+        if table not in _HOD_TABLES:
+            raise ValueError(f"Invalid HOD table: {table!r}")
         row = self._get_conn().execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         return row[0] if row else 0
 
     def hod_total_points_theater(self, table: str, theater: str) -> int:
-        assert table in _HOD_TABLES
+        if table not in _HOD_TABLES:
+            raise ValueError(f"Invalid HOD table: {table!r}")
         row = self._get_conn().execute(
             f"SELECT COUNT(*) FROM {table} WHERE theater=?", (theater,)
         ).fetchone()
@@ -2094,6 +2103,52 @@ class RadarDB:
         deleted["llm_intel"] = cur.rowcount
         conn.commit()
 
+        # scenario_tl_observation: highest-volume table (~1440 rows/day/scenario).
+        # Real-time queries use at most 72h; 42 days covers two §7.3.1 calibration
+        # cycles plus monthly TL2 frequency validation.
+        _tl_obs_days = int(_os.getenv("TL_OBSERVATION_RETENTION_DAYS", "42"))
+        cutoff_tl_obs = now - _tl_obs_days * 86400
+        cur = conn.execute(
+            "DELETE FROM scenario_tl_observation WHERE observed_at < ?",
+            (cutoff_tl_obs,))
+        deleted["scenario_tl_observation"] = cur.rowcount
+        conn.commit()
+
+        # focus_switch_log: C-medium migration evaluation (§9.3.1).
+        # 180 days gives 6 months of operational context for permanent migration decision.
+        _fsw_days = int(_os.getenv("FOCUS_SWITCH_RETENTION_DAYS", "180"))
+        cutoff_fsw = now - _fsw_days * 86400
+        cur = conn.execute(
+            "DELETE FROM focus_switch_log WHERE switched_at < ?",
+            (cutoff_fsw,))
+        deleted["focus_switch_log"] = cur.rowcount
+        conn.commit()
+
+        # daily_summary: long-term analytical memory at 1 row/day/theater.
+        # 730 days (2 years) enables year-over-year comparison at negligible cost.
+        _ds_days = int(_os.getenv("DAILY_SUMMARY_RETENTION_DAYS", "730"))
+        cutoff_ds = now - _ds_days * 86400
+        cutoff_ds_bucket = int(cutoff_ds // 86400) * 86400
+        cur = conn.execute(
+            "DELETE FROM daily_summary WHERE day_bucket < ?",
+            (cutoff_ds_bucket,))
+        deleted["daily_summary"] = cur.rowcount
+        conn.commit()
+
+        # forecast_log: prediction accuracy tracking.
+        # 365 days because forecast_accuracy_summary() aggregates all rows;
+        # shorter retention silently converts overall accuracy into a rolling window.
+        _fc_days = int(_os.getenv("FORECAST_RETENTION_DAYS", "365"))
+        cutoff_fc = now - _fc_days * 86400
+        cur = conn.execute("DELETE FROM forecast_log WHERE ts < ?", (cutoff_fc,))
+        deleted["forecast_log"] = cur.rowcount
+        conn.commit()
+
+        # NOTE: scenario_change_log and confirmed_threats are intentionally
+        # excluded from automatic cleanup. scenario_change_log is an audit trail
+        # (~4 MB/decade); confirmed_threats is human-generated ground truth
+        # (~3 KB/year). Both have increasing analytical value over time.
+
         return deleted
 
     # ── Climate Events ─────────────────────────────────────────────────────
@@ -2254,6 +2309,19 @@ class RadarDB:
         q += " ORDER BY ts DESC LIMIT ?"
         params.append(limit)
         rows = self._get_conn().execute(q, params).fetchall()
+        return [self._intel_row_to_dict(r) for r in rows]
+
+    def intel_find_by_raw_url(self, raw_url: str, since_ts: float = 0,
+                              limit: int = 5) -> list[dict]:
+        """Find intel items with matching raw_url across all source_types."""
+        rows = self._get_conn().execute(
+            "SELECT id, source_type, source_id, theater, ts, status, confidence, "
+            "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
+            "confirmed_by, confirmed_at, override_at, created_at, "
+            "countries, country_weights FROM llm_intel "
+            "WHERE raw_url=? AND ts >= ? ORDER BY ts DESC LIMIT ?",
+            (raw_url, since_ts, limit),
+        ).fetchall()
         return [self._intel_row_to_dict(r) for r in rows]
 
     def intel_status_counts(self) -> dict[str, int]:
@@ -2493,7 +2561,12 @@ class RadarDB:
                 (user_id, focused_scenario, muted, lang, updated_at),
             )
 
+    _USER_SETTINGS_COLS = frozenset({"focused_scenario", "muted", "lang", "updated_at"})
+
     def user_settings_update(self, user_id: int, updates: dict):
+        bad = set(updates.keys()) - self._USER_SETTINGS_COLS
+        if bad:
+            raise ValueError(f"Disallowed user_settings columns: {bad}")
         conn = self._get_conn()
         set_clause = ", ".join(f"{k}=?" for k in updates)
         with conn.writing():

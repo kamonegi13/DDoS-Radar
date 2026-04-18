@@ -85,6 +85,11 @@
       "lng": -51.9253,
       "name": "Brazil"
     },
+    "BT": {
+      "lat": 27.5142,
+      "lng": 90.4336,
+      "name": "Bhutan"
+    },
     "BY": {
       "lat": 53.7098,
       "lng": 27.9534,
@@ -214,6 +219,11 @@
       "lat": 15.7835,
       "lng": -90.2308,
       "name": "Guatemala"
+    },
+    "GU": {
+      "lat": 13.4443,
+      "lng": 144.7937,
+      "name": "Guam"
     },
     "HK": {
       "lat": 22.3193,
@@ -414,6 +424,11 @@
       "lat": 4.2105,
       "lng": 101.9758,
       "name": "Malaysia"
+    },
+    "MZ": {
+      "lat": -18.6657,
+      "lng": 35.5296,
+      "name": "Mozambique"
     },
     "NG": {
       "lat": 9.082,
@@ -785,6 +800,11 @@
       "airport": "SYD",
       "lat": -33.9399,
       "lng": 151.1753
+    },
+    "GU": {
+      "airport": "GUM",
+      "lat": 13.4834,
+      "lng": 144.796
     },
     "NZ": {
       "airport": "AKL",
@@ -2195,7 +2215,7 @@
       "name": "Guam Strategic Defense Perimeter",
       "lat": 13.444,
       "lng": 144.793,
-      "theater": "US",
+      "theater": "GU",
       "radius_km": 200
     },
     {

@@ -122,7 +122,30 @@ _HEADLINE_STOPWORDS = frozenset({
 })
 
 _DEDUP_WINDOW_SECONDS = 48 * 3600   # 48-hour dedup window
-_JACCARD_THRESHOLD = 0.50           # headline similarity threshold for same-event dedup
+_JACCARD_THRESHOLD = 0.60           # headline similarity threshold for same-event dedup
+_XTYPE_JACCARD_THRESHOLD = 0.70     # stricter threshold for cross-source-type dedup
+
+
+def _normalize_url(url: str) -> str:
+    """Minimal URL normalization for dedup comparison."""
+    from urllib.parse import urlparse, urlencode, parse_qs
+    if not url:
+        return ""
+    try:
+        p = urlparse(url)
+        # Normalize scheme to https
+        scheme = "https"
+        # Strip tracking params
+        qs = parse_qs(p.query, keep_blank_values=False)
+        for k in list(qs):
+            if k.startswith("utm_") or k in ("ref", "source", "fbclid", "gclid"):
+                del qs[k]
+        clean_q = urlencode(sorted(qs.items()), doseq=True)
+        # Strip trailing slash from path
+        path = p.path.rstrip("/") or "/"
+        return f"{scheme}://{p.netloc}{path}{'?' + clean_q if clean_q else ''}"
+    except Exception:
+        return url
 
 
 def _headline_tokens(headline: str) -> frozenset:
@@ -146,7 +169,7 @@ class IntelQueue:
     def _record_verdict(self, source_type: str, verdict: str,
                         confidence: float, headline: str) -> None:
         """Update the most recent llm_call_log row for this source_type with
-        the queue verdict (auto_confirmed/pending/discarded_low_conf/discarded_dedup).
+        the queue verdict (auto_confirmed/pending/discarded_low_conf/discarded_dedup/discarded_dedup_xtype).
 
         Best-effort: never raises. The llm_client already wrote a row with empty
         verdict — we patch it in place via db.llm_call_patch_verdict() which
@@ -215,9 +238,34 @@ class IntelQueue:
             self._record_verdict(source_type, "discarded_low_conf", confidence, headline)
             return None
 
+        # ── Layer 0: Cross-source-type raw_url dedup ──────────────────────────
+        # Same URL = same article regardless of source_type.  Fastest and
+        # most reliable dedup — runs before any Jaccard computation.
+        raw_url = item.get("raw_url", "")
+        norm_url = _normalize_url(raw_url)
+        if norm_url and len(norm_url) > 15:
+            since = time.time() - _DEDUP_WINDOW_SECONDS
+            url_matches = db.intel_find_by_raw_url(norm_url, since_ts=since)
+            # Also check original URL in case normalization changed it
+            if not url_matches and norm_url != raw_url:
+                url_matches = db.intel_find_by_raw_url(raw_url, since_ts=since)
+            if url_matches:
+                ex = url_matches[0]
+                ex_llm = ex.get("llm_fields", {})
+                corroborators: list = ex_llm.get("corroborating_sources", [])
+                if source_id not in corroborators and source_id != ex.get("source_id"):
+                    corroborators.append(source_id)
+                    db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
+                log.info(
+                    f"[Intel] Cross-type URL dedup: discarded {source_type}/{source_id!r} "
+                    f"(URL matches existing {ex['source_type']}/{ex['source_id']!r})"
+                )
+                self._record_verdict(source_type, "discarded_dedup_xtype", confidence, headline)
+                return None
+
         # ── Intra-source-type dedup: discard wire-service echo chambers ──────────
         # Within the same source_type with overlapping countries, check if we
-        # already have a recent item (48h) with a similar headline (Jaccard ≥ 0.50
+        # already have a recent item (48h) with a similar headline (Jaccard >= 0.60
         # on significant words). If so, this is most likely the same event reported
         # by multiple outlets citing the same underlying source.
         #
@@ -306,6 +354,42 @@ class IntelQueue:
                     )
                     self._record_verdict(source_type, "discarded_dedup", confidence, headline)
                     return None  # don't create a new item either way
+        # ─────────────────────────────────────────────────────────────────────────
+
+        # ── Layer 2: Cross-source-type headline Jaccard dedup ────────────────
+        # Catches duplicates where raw_url differs or is empty, but headlines
+        # are substantially similar across different source_types.
+        # Stricter threshold (0.70) because different LLM prompts naturally
+        # produce more divergent headlines for the same article.
+        if headline:
+            _xt_tokens = _headline_tokens(headline)
+            _xt_countries = set(countries)
+            since = time.time() - _DEDUP_WINDOW_SECONDS
+            xtype_existing = db.intel_list(source_type=None, limit=80, since_ts=since)
+            for ex in xtype_existing:
+                if ex.get("source_type") == source_type:
+                    continue  # already checked in intra-source-type pass
+                ex_countries_set = set(ex.get("countries", []))
+                if not ex_countries_set and ex.get("theater"):
+                    ex_countries_set = {ex["theater"]}
+                if _xt_countries and ex_countries_set and not (_xt_countries & ex_countries_set):
+                    continue  # non-overlapping regions — distinct events
+                ex_tokens = _headline_tokens(ex.get("headline", ""))
+                jacc = _jaccard(_xt_tokens, ex_tokens)
+                if jacc < _XTYPE_JACCARD_THRESHOLD:
+                    continue
+                # Cross-source-type match — record corroboration and discard
+                ex_llm = ex.get("llm_fields", {})
+                corroborators: list = ex_llm.get("corroborating_sources", [])
+                if source_id not in corroborators and source_id != ex.get("source_id"):
+                    corroborators.append(source_id)
+                    db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
+                log.info(
+                    f"[Intel] Cross-type headline dedup: discarded {source_type}/{source_id!r} "
+                    f"(Jaccard={jacc:.2f} vs {ex['source_type']}/{ex['source_id']!r})"
+                )
+                self._record_verdict(source_type, "discarded_dedup_xtype", confidence, headline)
+                return None
         # ─────────────────────────────────────────────────────────────────────────
 
         # Seed archetype credibility on first sight. After this, intel_source

@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Strategic MDO Radar (C4ISR)</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
     <script src="i18n.js"></script>
-    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="radar.css" />
 </head>
 <body>
@@ -109,7 +109,7 @@
         <!-- 24h sparkline -->
         <div class="hud-chip hud-chip-spark" data-i18n-tip="hud.tooltip.threat_24h">
             <span class="hud-chip-label" data-i18n="hud.label.threat_24h">24H</span>
-            <canvas id="hud-threat-spark" width="160" height="18"></canvas>
+            <canvas id="hud-threat-spark" width="290" height="18"></canvas>
         </div>
 
         <!-- ETA: pt + projected time to next TL boundary -->
@@ -590,7 +590,7 @@
                 </div>
                 <div class="env-field">
                     <label data-i18n="sysconfig.field.llm_min_confidence">Min Confidence</label>
-                    <input class="env-input" id="ec-LLM_CONFIDENCE_MIN" type="number" min="0.1" max="0.9" step="0.05" placeholder="0.55" style="max-width:80px;">
+                    <input class="env-input" id="ec-LLM_CONFIDENCE_MIN" type="number" min="0.1" max="0.9" step="0.05" placeholder="0.35" style="max-width:80px;">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.llm_min_confidence">Items below this are silently discarded</div>
                 </div>
                 <div class="env-field">
@@ -1721,7 +1721,7 @@
                 <br>  [3] SYNC_DDOS        — Coordinated DDoS from ≥2 theaters (high botnet overlap)
                 <br>  [4] FIRMS_ANOMALY    — Thermal/kinetic event from NASA EONET</li>
             <li>4/4 confirmed (within 24 hr) → SEQUENCE_FULL_BONUS = +3 pt</li>
-            <li>3/4 confirmed (within 24 hr) → SEQUENCE_PARTIAL_BONUS = +1 pt</li>
+            <li>3/4 confirmed (within 24 hr) → SEQUENCE_PARTIAL_BONUS = +2 pt</li>
             <li>&lt;3 events → No bonus (insufficient pattern)</li>
         </ul>
 
@@ -1850,7 +1850,7 @@
                 <br>  [3] SYNC_DDOS        — ≥2シアターからの協調 DDoS（高いボットネット重複）
                 <br>  [4] FIRMS_ANOMALY    — NASA EONET からの熱異常/運動学的イベント</li>
             <li>4/4 確認（24時間以内）→ SEQUENCE_FULL_BONUS = +3 pt</li>
-            <li>3/4 確認（24時間以内）→ SEQUENCE_PARTIAL_BONUS = +1 pt</li>
+            <li>3/4 確認（24時間以内）→ SEQUENCE_PARTIAL_BONUS = +2 pt</li>
             <li>&lt;3 イベント → ボーナスなし（パターン不十分）</li>
         </ul>
 

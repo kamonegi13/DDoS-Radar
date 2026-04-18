@@ -61,6 +61,14 @@ def intel_stats():
     return jsonify(stats)
 
 
+def _invalidate_scoring_cache():
+    """Reset scoring cache timestamp so the next /api/threat_data re-scores."""
+    import radar.state as _st
+    from radar.state import _global_cache_lock
+    with _global_cache_lock:
+        _st.global_cache["time"] = 0
+
+
 @bp.route("/api/intel/<item_id>/confirm", methods=["POST"])
 @require_role("admin", "analyst")
 def intel_confirm(item_id: str):
@@ -71,6 +79,7 @@ def intel_confirm(item_id: str):
     ok = intel_queue.confirm(item_id, analyst=analyst)
     if not ok:
         return jsonify({"error": "Item not found or not in pending state"}), 400
+    _invalidate_scoring_cache()
     return jsonify({"ok": True, "item_id": item_id, "status": "confirmed"})
 
 
@@ -84,6 +93,7 @@ def intel_reject(item_id: str):
     ok = intel_queue.reject(item_id, analyst=analyst)
     if not ok:
         return jsonify({"error": "Item not found or not in pending state"}), 400
+    _invalidate_scoring_cache()
     return jsonify({"ok": True, "item_id": item_id, "status": "rejected"})
 
 
@@ -97,6 +107,7 @@ def intel_revert(item_id: str):
     ok = intel_queue.revert(item_id, analyst=analyst)
     if not ok:
         return jsonify({"error": "Item not found or not in confirmed/rejected state"}), 400
+    _invalidate_scoring_cache()
     return jsonify({"ok": True, "item_id": item_id, "status": "pending"})
 
 
@@ -110,6 +121,7 @@ def intel_override(item_id: str):
     ok = intel_queue.override(item_id, analyst=analyst)
     if not ok:
         return jsonify({"error": "Item not found, not auto_confirmed, or override window expired"}), 400
+    _invalidate_scoring_cache()
     return jsonify({"ok": True, "item_id": item_id, "status": "overridden"})
 
 
@@ -153,9 +165,44 @@ def llm_models():
     auth_err = _require_admin()
     if auth_err:
         return auth_err
+    import logging as _logging
     import requests as _req
+    import ipaddress as _ipaddr
+    import socket as _socket
+    import urllib.parse as _urlparse
     from radar.config import LLM_HOST
     host = request.args.get("host", LLM_HOST).rstrip("/")
+    # SSRF guard: reject private/link-local/loopback IPs (except configured LLM_HOST)
+    if host != LLM_HOST.rstrip("/"):
+        try:
+            parsed = _urlparse.urlparse(host)
+            hostname = parsed.hostname or ""
+            if parsed.scheme not in ("http", "https"):
+                return jsonify({"ok": False, "models": [], "error": "Only http/https allowed"}), 400
+            # Resolve hostname to IP(s) to catch DNS rebinding (e.g. domain→127.0.0.1)
+            def _is_blocked(addr):
+                return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or not addr.is_global
+            try:
+                addr = _ipaddr.ip_address(hostname)
+                addrs = [addr]
+            except ValueError:
+                # Not a raw IP — resolve via DNS; check ALL results
+                try:
+                    resolved = _socket.getaddrinfo(hostname, None, _socket.AF_UNSPEC, _socket.SOCK_STREAM)
+                    addrs = []
+                    for r in resolved:
+                        try:
+                            addrs.append(_ipaddr.ip_address(r[4][0]))
+                        except (ValueError, IndexError):
+                            pass
+                    if not addrs:
+                        raise OSError("no addresses")
+                except (OSError, IndexError, ValueError):
+                    return jsonify({"ok": False, "models": [], "error": "Cannot resolve hostname"}), 400
+            if any(_is_blocked(a) for a in addrs):
+                return jsonify({"ok": False, "models": [], "error": "Private/internal addresses not allowed"}), 400
+        except Exception:
+            return jsonify({"ok": False, "models": [], "error": "Invalid host URL"}), 400
     try:
         resp = _req.get(f"{host}/api/tags", timeout=5)
         if not resp.ok:
@@ -165,4 +212,5 @@ def llm_models():
         models = [m["name"] for m in data.get("models", []) if m.get("name")]
         return jsonify({"ok": True, "models": sorted(models)})
     except Exception as e:
-        return jsonify({"ok": False, "models": [], "error": str(e)}), 200
+        _logging.getLogger(__name__).warning("LLM host probe failed: %s", e)
+        return jsonify({"ok": False, "models": [], "error": "Failed to connect to LLM host"}), 200

@@ -327,6 +327,16 @@ class ScenarioStore:
             "[Scenarios] Store ready: %d total, %d scorable",
             len(merged), len(scorable),
         )
+        # Validate that all participant country codes have coordinates
+        from radar.config import COUNTRY_COORDS
+        for sc in merged.values():
+            missing = [c for c in sc.participants if c not in COUNTRY_COORDS]
+            if missing:
+                log.warning(
+                    "[Scenarios] %s has participants missing from COUNTRY_COORDS: %s "
+                    "— map markers will use fallback coordinates",
+                    sc.id, ", ".join(missing),
+                )
 
     def get(self, scenario_id: str) -> Optional[Scenario]:
         return self._scenarios.get(scenario_id)

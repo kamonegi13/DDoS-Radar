@@ -3,7 +3,10 @@ from __future__ import annotations
 import time
 import datetime
 from flask import jsonify, request
-from radar.config import *  # noqa: F403
+from radar.config import (
+    ADAPTIVE_ZSCORE_ENABLED, ADAPTIVE_ZSCORE_MIN_SAMPLES,
+    HISTORICAL_EVENTS, SEQUENCE_WINDOW,
+)
 from radar import state as st
 from radar.state import _global_cache_lock, ALERT_TIMELINE_MAX
 from radar.database import db as _db

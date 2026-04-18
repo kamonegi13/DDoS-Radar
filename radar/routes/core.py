@@ -1,11 +1,20 @@
 """radar.routes.core -- Main API endpoints: app_config and threat_data scoring loop."""
 from __future__ import annotations
+import logging
 import os
 import time
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import jsonify, request
-from radar.config import *  # noqa: F403
+from flask_jwt_extended import get_jwt_identity
+from radar.config import (  # noqa: E501
+    AIRSPACE_WINDOW, BASELINE_DATE_RANGE, CABLE_ROUTES, CF_HEADERS,
+    CHOKEPOINTS, COUNTRY_BLOC_TAGS, COUNTRY_COORDS, COUNTRY_REGIONS,
+    CURRENT_DATE_RANGE, DEFAULT_FOCUSED_SCENARIO, DOMAIN_CAP,
+    GDELT_HISTORY_WINDOW, GDELT_TONE_ALERT_THRESHOLD, GLOBAL_SIGNAL_WEIGHT,
+    HOD_BASELINE_DAYS, HOD_MIN_SAME_HOUR, ISR_HOTSPOTS, OWM_API_KEY,
+    SCORE_REFRESH_SEC, STATE_ASNS, STRATEGIC_BLOCS,
+)
 from radar.models import RationaleEntry
 from radar import state as st
 from radar.state import _global_cache_lock
@@ -31,6 +40,8 @@ from radar.scenarios import (
     SensorTier, scenario_store,
     derive_country_context, derive_global_fetch_targets,
 )
+
+log = logging.getLogger("radar")
 
 _prev_focused_id: str | None = None
 
@@ -90,6 +101,218 @@ def scenario_breakdown(scenario_id: str):
         "participants": breakdown,
     })
 
+def _compute_airspace_status(airspace_data, weather_conditions, current_time,
+                             db, airspace_window, hod_baseline_days, hod_min_same_hour):
+    """Compute airspace anomaly status and noise filters.
+
+    Returns (enriched_airspace, airspace_anomalies, noise_filters) where
+    enriched_airspace is a new dict with status/drop_pct/hod_z added per airport.
+    The original airspace_data is not mutated.
+    """
+    enriched = {}
+    airspace_anomalies = []
+    noise_filters = []
+
+    for code, _raw in airspace_data.items():
+        ainfo = dict(_raw)  # shallow copy — don't mutate sensor cache
+        enriched[code] = ainfo
+        count = ainfo.get("count", -1)
+        if count < 0:
+            ainfo["status"] = "ERROR"
+            continue
+        bl = db.airspace_get(code)
+        if not bl:
+            bl = {"readings": [], "avg": 0.0}
+        bl["readings"] = bl.get("readings", [])
+        bl["readings"].append(count)
+        bl["readings"] = bl["readings"][-airspace_window:]
+        n = len(bl["readings"])
+        bl["avg"] = sum(bl["readings"]) / n if n > 0 else 0.0
+        ainfo["baseline_avg"] = round(bl["avg"], 1)
+        ainfo["baseline_n"] = n
+
+        # HOD tracking: record one entry per UTC hour bucket per airport
+        _as_hour_bucket = int(current_time // 3600) * 3600
+        if "hod" not in bl:
+            bl["hod"] = []
+        _as_hod_entries = bl["hod"]
+        if not _as_hod_entries or _as_hod_entries[-1][0] != _as_hour_bucket:
+            _as_hod_entries.append((_as_hour_bucket, count))
+            bl["hod"] = _as_hod_entries[-(hod_baseline_days * 24):]
+        _cur_as_hod = (_as_hour_bucket // 3600) % 24
+        _as_same_hour = [c for (ts, c) in bl["hod"]
+                         if (ts // 3600) % 24 == _cur_as_hod and ts < _as_hour_bucket]
+        db.airspace_set(code, bl)
+
+        if n < 3 or bl["avg"] < 1:
+            ainfo["status"] = "BASELINE_BUILDING"
+            ainfo["drop_pct"] = 0.0
+            continue
+
+        drop_ratio = max(0.0, (bl["avg"] - count) / bl["avg"])
+        ainfo["drop_pct"] = round(drop_ratio * 100, 1)
+        weather_suppressed = weather_conditions.get(code, {}).get("is_severe", False)
+
+        # HOD Z-score severity when enough same-hour samples exist
+        _n_as_hod = len(_as_same_hour)
+        if _n_as_hod >= hod_min_same_hour:
+            _ah_mean = sum(_as_same_hour) / _n_as_hod
+            _ah_std = max((sum((x - _ah_mean)**2 for x in _as_same_hour) / _n_as_hod) ** 0.5, 0.5)
+            _ah_z = (count - _ah_mean) / _ah_std
+            ainfo["hod_z"] = round(_ah_z, 2)
+            ainfo["hod_n"] = _n_as_hod
+            severity = "CLOSURE" if _ah_z < -3.0 else "ANOMALY" if _ah_z < -2.0 else "NORMAL"
+        else:
+            ainfo["hod_z"] = None
+            ainfo["hod_n"] = _n_as_hod
+            severity = (
+                "CLOSURE" if drop_ratio >= (1.0 - float(os.getenv("AIRSPACE_CLOSURE_THRESHOLD", "0.05")))
+                else "ANOMALY" if drop_ratio >= (1.0 - float(os.getenv("AIRSPACE_ANOMALY_THRESHOLD", "0.40")))
+                else "NORMAL"
+            )
+
+        if severity in ("CLOSURE", "ANOMALY"):
+            if weather_suppressed:
+                ainfo["status"] = "WEATHER_NOISE"
+                noise_filters.append(f"weather_noise@{code}: airspace {severity.lower()} suppressed")
+            else:
+                ainfo["status"] = severity
+                airspace_anomalies.append({
+                    "code": code, "airport": ainfo.get("airport", code),
+                    "count": count, "baseline": ainfo["baseline_avg"],
+                    "drop_pct": ainfo["drop_pct"], "severity": severity,
+                    "lat": ainfo.get("lat"), "lng": ainfo.get("lng"),
+                })
+        else:
+            ainfo["status"] = "NORMAL"
+
+    return enriched, airspace_anomalies, noise_filters
+
+
+def _read_sensor_caches(registry):
+    """Extract all sensor cache data into a flat dict.
+
+    Pure read-only operation — no side effects, no DB writes.
+    Returns a dict keyed by logical field names.
+    """
+    def _get(name, key, default=None):
+        s = registry.get(name)
+        if not s:
+            return (s, default if default is not None else {})
+        c = s.get_cache()
+        return (s, c.get(key, default if default is not None else {}))
+
+    cf_sensor = registry.get("cloudflare_radar")
+    _cf_cache = cf_sensor.get_cache() if cf_sensor else {}
+
+    ioda_sensor = registry.get("ioda_bgp")
+    _ioda_cache = ioda_sensor.get_cache() if ioda_sensor else {}
+
+    owm_sensor = registry.get("openweather")
+    opensky_sensor = registry.get("opensky")
+    gdelt_sensor = registry.get("gdelt")
+    peeringdb_sensor = registry.get("peeringdb_ixp")
+    bgp_routing_sensor = registry.get("ripe_bgp")
+    nasa_firms_sensor = registry.get("nasa_firms")
+    threatfox_sensor = registry.get("threatfox")
+    rss_narrative_sensor = registry.get("rss_narrative")
+    isr_hotspot_sensor = registry.get("isr_hotspot")
+    ais_maritime_sensor = registry.get("ais_maritime")
+    telegram_mirror_sensor = registry.get("telegram_mirror")
+    check_host_sensor = registry.get("check_host")
+    greynoise_sensor = registry.get("greynoise")
+    space_weather_sensor = registry.get("space_weather")
+
+    ihr_sensor = registry.get("ihr_health")
+    _ihr_cache = ihr_sensor.get_cache() if ihr_sensor else {}
+    atlas_sensor = registry.get("ripe_atlas")
+    _atlas_cache = atlas_sensor.get_cache() if atlas_sensor else {}
+    tor_sensor = registry.get("tor_metrics")
+    _tor_cache = tor_sensor.get_cache() if tor_sensor else {}
+
+    notam_sensor = registry.get("notam")
+    _notam_cache = notam_sensor.get_cache() if notam_sensor else {}
+    travel_adv_sensor = registry.get("travel_advisory")
+    _travel_cache = travel_adv_sensor.get_cache() if travel_adv_sensor else {}
+    ooni_sensor = registry.get("ooni_censorship")
+    _ooni_cache = ooni_sensor.get_cache() if ooni_sensor else {}
+    usgs_sensor = registry.get("usgs_seismic")
+    _usgs_cache = usgs_sensor.get_cache() if usgs_sensor else {}
+    mil_air_sensor = registry.get("mil_support_air")
+    _mil_air_cache = mil_air_sensor.get_cache() if mil_air_sensor else {}
+    gps_jam_sensor = registry.get("gps_jamming")
+    _gps_cache = gps_jam_sensor.get_cache() if gps_jam_sensor else {}
+    ct_log_sensor = registry.get("ct_log")
+    _ct_cache = ct_log_sensor.get_cache() if ct_log_sensor else {}
+
+    _sw_cache = space_weather_sensor.get_cache().get("space_weather", {}) if space_weather_sensor else {}
+    _ais_cache = ais_maritime_sensor.get_cache() if ais_maritime_sensor else {}
+
+    return {
+        # Sensor objects (needed for .enabled / .compute_confidence checks)
+        "sensors": {
+            "cf": cf_sensor, "ioda": ioda_sensor, "owm": owm_sensor,
+            "opensky": opensky_sensor, "gdelt": gdelt_sensor,
+            "peeringdb": peeringdb_sensor, "bgp_routing": bgp_routing_sensor,
+            "nasa_firms": nasa_firms_sensor, "threatfox": threatfox_sensor,
+            "rss_narrative": rss_narrative_sensor, "isr_hotspot": isr_hotspot_sensor,
+            "ais_maritime": ais_maritime_sensor, "telegram_mirror": telegram_mirror_sensor,
+            "check_host": check_host_sensor, "greynoise": greynoise_sensor,
+            "space_weather": space_weather_sensor, "ihr": ihr_sensor,
+            "atlas": atlas_sensor, "tor": tor_sensor,
+            "notam": notam_sensor, "travel_adv": travel_adv_sensor,
+            "ooni": ooni_sensor, "usgs": usgs_sensor,
+            "mil_air": mil_air_sensor, "gps_jam": gps_jam_sensor,
+            "ct_log": ct_log_sensor,
+        },
+        # Cache data
+        "cf_bgp_hijacks": _cf_cache.get("bgp_hijacks", []),
+        "cf_bgp_leaks": _cf_cache.get("bgp_leaks", []),
+        "ioda_data": _ioda_cache.get("statuses", {}),
+        "ioda_details": _ioda_cache.get("ioda_details", {}),
+        "ioda_source": _ioda_cache.get("source", "unknown"),
+        "weather_conditions": owm_sensor.get_cache().get("conditions", {}) if owm_sensor else {},
+        "airspace_data": opensky_sensor.get_cache().get("airports", {}) if opensky_sensor else {},
+        "gdelt_tones": gdelt_sensor.get_cache().get("gdelt_tones", {}) if gdelt_sensor else {},
+        "ixp_data": peeringdb_sensor.get_cache().get("ixp_data", {}) if peeringdb_sensor else {},
+        "bgp_routing_data": bgp_routing_sensor.get_cache().get("routing_stats", {}) if bgp_routing_sensor else {},
+        "nasa_firms_data": nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else [],
+        "threatfox_data": threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {},
+        "narrative_data": rss_narrative_sensor.get_cache().get("narratives", {}) if rss_narrative_sensor else {},
+        "isr_data": isr_hotspot_sensor.get_cache().get("isr_data", {}) if isr_hotspot_sensor else {},
+        "ais_dark_gaps": _ais_cache.get("dark_gaps", []),
+        "ais_stationary": _ais_cache.get("stationary_anomalies", []),
+        "ais_has_anomaly": _ais_cache.get("has_anomaly", False),
+        "telegram_data": telegram_mirror_sensor.get_cache().get("telegram", {}) if telegram_mirror_sensor else {},
+        "checkhost_data": check_host_sensor.get_cache().get("check_host", {}) if check_host_sensor else {},
+        "greynoise_data": greynoise_sensor.get_cache().get("greynoise", {}) if greynoise_sensor else {},
+        "space_weather_data": _sw_cache,
+        "sw_suppress": _sw_cache.get("suppress_physical", False),
+        "ihr_disco": _ihr_cache.get("disconnections", {}),
+        "ihr_hegemony": _ihr_cache.get("hegemony_alarms", {}),
+        "ihr_delay": _ihr_cache.get("delay_alarms", {}),
+        "ihr_country_status": _ihr_cache.get("country_status", {}),
+        "atlas_probes": _atlas_cache.get("probe_counts", {}),
+        "atlas_latency": _atlas_cache.get("latency", {}),
+        "atlas_country_status": _atlas_cache.get("country_status", {}),
+        "tor_relays": _tor_cache.get("relay_counts", {}),
+        "tor_clients": _tor_cache.get("client_estimates", {}),
+        "tor_country_status": _tor_cache.get("country_status", {}),
+        "notam_data": _notam_cache.get("notam_data", {}),
+        "notam_country_status": _notam_cache.get("country_status", {}),
+        "travel_advisories": _travel_cache.get("advisories", {}),
+        "ooni_data": _ooni_cache.get("censorship_data", {}),
+        "ooni_country_status": _ooni_cache.get("country_status", {}),
+        "seismic_data": _usgs_cache.get("seismic", {}),
+        "seismic_suppress": _usgs_cache.get("seismic", {}).get("suppress_physical", False),
+        "mil_air_data": _mil_air_cache.get("mil_air_data", {}),
+        "gps_jam_data": _gps_cache.get("jamming_data", {}),
+        "gps_country_status": _gps_cache.get("country_status", {}),
+        "ct_data": _ct_cache.get("ct_data", {}),
+        "ct_country_status": _ct_cache.get("country_status", {}),
+    }
+
+
 @bp.route("/api/threat_data", methods=["GET"])
 def get_threat_data():
     current_time = time.time()
@@ -119,7 +342,17 @@ def get_threat_data():
     _global_targets = derive_global_fetch_targets()
     all_participant_countries = list(_global_targets["all_participant_countries"])
 
-    force_sync   = request.args.get("force", "false").lower() == "true"
+    _force_param = request.args.get("force", "false").lower() == "true"
+    # Restrict force_sync to analyst/admin roles to prevent quota exhaustion
+    force_sync = False
+    if _force_param:
+        try:
+            _identity = get_jwt_identity()
+            _role = _db.user_get_role(_identity) if _identity else "viewer"
+            if _role in ("admin", "analyst"):
+                force_sync = True
+        except Exception as _e:
+            log.warning("force_sync role check failed: %s", _e)
 
     # HITL Analyst MUTE parameters
     muted_sensors = [s.strip() for s in request.args.get("muted", "").split(",") if s.strip()]
@@ -169,148 +402,52 @@ def get_threat_data():
         _cache_focus = st.global_cache.get("focus")
     _focus_changed = (_cache_focus is not None and _cache_focus != _req_focus)
     if (current_time - _cache_ts > SCORE_REFRESH_SEC) or force_sync or _focus_changed:
-        # Extract required states from caches
-        cf_sensor = _routes.registry.get("cloudflare_radar")
-        _cf_cache = cf_sensor.get_cache() if cf_sensor else {}
-        cf_bgp_hijacks = _cf_cache.get("bgp_hijacks", [])
-        cf_bgp_leaks = _cf_cache.get("bgp_leaks", [])
-        ioda_sensor = _routes.registry.get("ioda_bgp")
-        _ioda_cache = ioda_sensor.get_cache() if ioda_sensor else {}
-        ioda_data = _ioda_cache.get("statuses", {})
-        ioda_details = _ioda_cache.get("ioda_details", {})
-        ioda_source = _ioda_cache.get("source", "unknown")
-        owm_sensor = _routes.registry.get("openweather")
-        weather_conditions = owm_sensor.get_cache().get("conditions", {}) if owm_sensor else {}
-        opensky_sensor = _routes.registry.get("opensky")
-        airspace_data = opensky_sensor.get_cache().get("airports", {}) if opensky_sensor else {}
-        gdelt_sensor = _routes.registry.get("gdelt")
-        gdelt_tones = gdelt_sensor.get_cache().get("gdelt_tones", {}) if gdelt_sensor else {}
-        peeringdb_sensor = _routes.registry.get("peeringdb_ixp")
-        ixp_data = peeringdb_sensor.get_cache().get("ixp_data", {}) if peeringdb_sensor else {}
-        bgp_routing_sensor = _routes.registry.get("ripe_bgp")
-        bgp_routing_data = bgp_routing_sensor.get_cache().get("routing_stats", {}) if bgp_routing_sensor else {}
-        nasa_firms_sensor = _routes.registry.get("nasa_firms")
-        nasa_firms_data = nasa_firms_sensor.get_cache().get("anomalies", []) if nasa_firms_sensor else []
-        threatfox_sensor = _routes.registry.get("threatfox")
-        threatfox_data = threatfox_sensor.get_cache().get("hits", {}) if threatfox_sensor else {}
-        # Fetch additional sensor data (v8)
-        rss_narrative_sensor = _routes.registry.get("rss_narrative")
-        narrative_data = rss_narrative_sensor.get_cache().get("narratives", {}) if rss_narrative_sensor else {}
-        isr_hotspot_sensor = _routes.registry.get("isr_hotspot")
-        isr_data = isr_hotspot_sensor.get_cache().get("isr_data", {}) if isr_hotspot_sensor else {}
-        ais_maritime_sensor = _routes.registry.get("ais_maritime")
-        ais_dark_gaps        = ais_maritime_sensor.get_cache().get("dark_gaps", []) if ais_maritime_sensor else []
-        ais_stationary       = ais_maritime_sensor.get_cache().get("stationary_anomalies", []) if ais_maritime_sensor else []
-        ais_has_anomaly      = ais_maritime_sensor.get_cache().get("has_anomaly", False) if ais_maritime_sensor else False
-        # Fetch additional sensor data (v9)
-        telegram_mirror_sensor = _routes.registry.get("telegram_mirror")
-        telegram_data          = telegram_mirror_sensor.get_cache().get("telegram", {}) if telegram_mirror_sensor else {}
-        check_host_sensor      = _routes.registry.get("check_host")
-        checkhost_data         = check_host_sensor.get_cache().get("check_host", {}) if check_host_sensor else {}
-        greynoise_sensor       = _routes.registry.get("greynoise")
-        greynoise_data         = greynoise_sensor.get_cache().get("greynoise", {}) if greynoise_sensor else {}
-        # Phase 2: Space Weather sensor
-        space_weather_sensor   = _routes.registry.get("space_weather")
-        space_weather_data     = space_weather_sensor.get_cache().get("space_weather", {}) if space_weather_sensor else {}
-        sw_suppress            = space_weather_data.get("suppress_physical", False)
-        # Phase 4: IHR, RIPE Atlas, Tor Metrics sensors
-        ihr_sensor             = _routes.registry.get("ihr_health")
-        _ihr_cache             = ihr_sensor.get_cache() if ihr_sensor else {}
-        ihr_disco              = _ihr_cache.get("disconnections", {})
-        ihr_hegemony           = _ihr_cache.get("hegemony_alarms", {})
-        ihr_delay              = _ihr_cache.get("delay_alarms", {})
-        ihr_country_status     = _ihr_cache.get("country_status", {})
-        atlas_sensor           = _routes.registry.get("ripe_atlas")
-        _atlas_cache           = atlas_sensor.get_cache() if atlas_sensor else {}
-        atlas_probes           = _atlas_cache.get("probe_counts", {})
-        atlas_latency          = _atlas_cache.get("latency", {})
-        atlas_country_status   = _atlas_cache.get("country_status", {})
-        tor_sensor             = _routes.registry.get("tor_metrics")
-        _tor_cache             = tor_sensor.get_cache() if tor_sensor else {}
-        tor_relays             = _tor_cache.get("relay_counts", {})
-        tor_clients            = _tor_cache.get("client_estimates", {})
-        tor_country_status     = _tor_cache.get("country_status", {})
+        # Read all sensor caches (extracted for readability)
+        _sc = _read_sensor_caches(_routes.registry)
+        _sensors = _sc["sensors"]
+        cf_sensor = _sensors["cf"]; ioda_sensor = _sensors["ioda"]
+        owm_sensor = _sensors["owm"]; opensky_sensor = _sensors["opensky"]
+        gdelt_sensor = _sensors["gdelt"]; peeringdb_sensor = _sensors["peeringdb"]
+        bgp_routing_sensor = _sensors["bgp_routing"]; nasa_firms_sensor = _sensors["nasa_firms"]
+        threatfox_sensor = _sensors["threatfox"]; rss_narrative_sensor = _sensors["rss_narrative"]
+        isr_hotspot_sensor = _sensors["isr_hotspot"]; ais_maritime_sensor = _sensors["ais_maritime"]
+        telegram_mirror_sensor = _sensors["telegram_mirror"]; check_host_sensor = _sensors["check_host"]
+        greynoise_sensor = _sensors["greynoise"]; space_weather_sensor = _sensors["space_weather"]
+        ihr_sensor = _sensors["ihr"]; atlas_sensor = _sensors["atlas"]; tor_sensor = _sensors["tor"]
+        notam_sensor = _sensors["notam"]; travel_adv_sensor = _sensors["travel_adv"]
+        ooni_sensor = _sensors["ooni"]; usgs_sensor = _sensors["usgs"]
+        mil_air_sensor = _sensors["mil_air"]; gps_jam_sensor = _sensors["gps_jam"]
+        ct_log_sensor = _sensors["ct_log"]
 
-        # Phase C: New sensors (S1-S7) cache reads
-        notam_sensor           = _routes.registry.get("notam")
-        _notam_cache           = notam_sensor.get_cache() if notam_sensor else {}
-        notam_data             = _notam_cache.get("notam_data", {})
-        notam_country_status   = _notam_cache.get("country_status", {})
-        travel_adv_sensor      = _routes.registry.get("travel_advisory")
-        _travel_cache          = travel_adv_sensor.get_cache() if travel_adv_sensor else {}
-        travel_advisories      = _travel_cache.get("advisories", {})
-        ooni_sensor            = _routes.registry.get("ooni_censorship")
-        _ooni_cache            = ooni_sensor.get_cache() if ooni_sensor else {}
-        ooni_data              = _ooni_cache.get("censorship_data", {})
-        ooni_country_status    = _ooni_cache.get("country_status", {})
-        usgs_sensor            = _routes.registry.get("usgs_seismic")
-        _usgs_cache            = usgs_sensor.get_cache() if usgs_sensor else {}
-        seismic_data           = _usgs_cache.get("seismic", {})
-        mil_air_sensor         = _routes.registry.get("mil_support_air")
-        _mil_air_cache         = mil_air_sensor.get_cache() if mil_air_sensor else {}
-        mil_air_data           = _mil_air_cache.get("mil_air_data", {})
-        gps_jam_sensor         = _routes.registry.get("gps_jamming")
-        _gps_cache             = gps_jam_sensor.get_cache() if gps_jam_sensor else {}
-        gps_jam_data           = _gps_cache.get("jamming_data", {})
-        gps_country_status     = _gps_cache.get("country_status", {})
-        ct_log_sensor          = _routes.registry.get("ct_log")
-        _ct_cache              = ct_log_sensor.get_cache() if ct_log_sensor else {}
-        ct_data                = _ct_cache.get("ct_data", {})
-        ct_country_status      = _ct_cache.get("country_status", {})
+        cf_bgp_hijacks = _sc["cf_bgp_hijacks"]; cf_bgp_leaks = _sc["cf_bgp_leaks"]
+        ioda_data = _sc["ioda_data"]; ioda_details = _sc["ioda_details"]; ioda_source = _sc["ioda_source"]
+        weather_conditions = _sc["weather_conditions"]; airspace_data = _sc["airspace_data"]
+        gdelt_tones = _sc["gdelt_tones"]; ixp_data = _sc["ixp_data"]
+        bgp_routing_data = _sc["bgp_routing_data"]; nasa_firms_data = _sc["nasa_firms_data"]
+        threatfox_data = _sc["threatfox_data"]; narrative_data = _sc["narrative_data"]
+        isr_data = _sc["isr_data"]
+        ais_dark_gaps = _sc["ais_dark_gaps"]; ais_stationary = _sc["ais_stationary"]
+        ais_has_anomaly = _sc["ais_has_anomaly"]
+        telegram_data = _sc["telegram_data"]; checkhost_data = _sc["checkhost_data"]
+        greynoise_data = _sc["greynoise_data"]
+        space_weather_data = _sc["space_weather_data"]; sw_suppress = _sc["sw_suppress"]
+        ihr_disco = _sc["ihr_disco"]; ihr_hegemony = _sc["ihr_hegemony"]
+        ihr_delay = _sc["ihr_delay"]; ihr_country_status = _sc["ihr_country_status"]
+        atlas_probes = _sc["atlas_probes"]; atlas_latency = _sc["atlas_latency"]
+        atlas_country_status = _sc["atlas_country_status"]
+        tor_relays = _sc["tor_relays"]; tor_clients = _sc["tor_clients"]
+        tor_country_status = _sc["tor_country_status"]
+        notam_data = _sc["notam_data"]; notam_country_status = _sc["notam_country_status"]
+        travel_advisories = _sc["travel_advisories"]
+        ooni_data = _sc["ooni_data"]; ooni_country_status = _sc["ooni_country_status"]
+        seismic_data = _sc["seismic_data"]; seismic_suppress = _sc["seismic_suppress"]
+        mil_air_data = _sc["mil_air_data"]
+        gps_jam_data = _sc["gps_jam_data"]; gps_country_status = _sc["gps_country_status"]
+        ct_data = _sc["ct_data"]; ct_country_status = _sc["ct_country_status"]
 
-        # USGS seismic noise suppression (major earthquake near cables)
-        seismic_suppress       = seismic_data.get("suppress_physical", False)
-
-        airspace_anomalies, noise_filters_applied = [], []
-        for code, ainfo in airspace_data.items():
-            count = ainfo.get("count", -1)
-            if count < 0: ainfo["status"] = "ERROR"; continue
-            bl = _db.airspace_get(code)
-            if not bl: bl = {"readings": [], "avg": 0.0}
-            bl["readings"] = bl.get("readings", [])
-            bl["readings"].append(count); bl["readings"] = bl["readings"][-AIRSPACE_WINDOW:]
-            n = len(bl["readings"])
-            bl["avg"] = sum(bl["readings"]) / n if n > 0 else 0.0
-            ainfo["baseline_avg"] = round(bl["avg"], 1); ainfo["baseline_n"] = n
-
-            # HOD tracking: record one entry per UTC hour bucket per airport
-            _as_hour_bucket = int(current_time // 3600) * 3600
-            if "hod" not in bl: bl["hod"] = []
-            _as_hod_entries = bl["hod"]
-            if not _as_hod_entries or _as_hod_entries[-1][0] != _as_hour_bucket:
-                _as_hod_entries.append((_as_hour_bucket, count))
-                bl["hod"] = _as_hod_entries[-(HOD_BASELINE_DAYS * 24):]
-            _cur_as_hod = (_as_hour_bucket // 3600) % 24
-            _as_same_hour = [c for (ts, c) in bl["hod"]
-                             if (ts // 3600) % 24 == _cur_as_hod and ts < _as_hour_bucket]
-            _db.airspace_set(code, bl)
-
-            if n < 3 or bl["avg"] < 1:
-                ainfo["status"] = "BASELINE_BUILDING"; ainfo["drop_pct"] = 0.0; continue
-
-            drop_ratio = max(0.0, (bl["avg"] - count) / bl["avg"]); ainfo["drop_pct"] = round(drop_ratio * 100, 1)
-            weather_suppressed = weather_conditions.get(code, {}).get("is_severe", False)
-
-            # HOD Z-score severity when enough same-hour samples exist
-            _n_as_hod = len(_as_same_hour)
-            if _n_as_hod >= HOD_MIN_SAME_HOUR:
-                _ah_mean = sum(_as_same_hour) / _n_as_hod
-                _ah_std  = max((sum((x - _ah_mean)**2 for x in _as_same_hour) / _n_as_hod) ** 0.5, 0.5)
-                _ah_z    = (count - _ah_mean) / _ah_std
-                ainfo["hod_z"] = round(_ah_z, 2); ainfo["hod_n"] = _n_as_hod
-                severity = "CLOSURE" if _ah_z < -3.0 else "ANOMALY" if _ah_z < -2.0 else "NORMAL"
-            else:
-                ainfo["hod_z"] = None; ainfo["hod_n"] = _n_as_hod
-                severity = "CLOSURE" if drop_ratio >= (1.0 - float(os.getenv("AIRSPACE_CLOSURE_THRESHOLD", "0.05"))) else \
-                           "ANOMALY" if drop_ratio >= (1.0 - float(os.getenv("AIRSPACE_ANOMALY_THRESHOLD", "0.40"))) else "NORMAL"
-
-            if severity in ("CLOSURE", "ANOMALY"):
-                if weather_suppressed:
-                    ainfo["status"] = "WEATHER_NOISE"; noise_filters_applied.append(f"weather_noise@{code}: airspace {severity.lower()} suppressed")
-                else:
-                    ainfo["status"] = severity
-                    airspace_anomalies.append({"code": code, "airport": ainfo.get("airport", code), "count": count, "baseline": ainfo["baseline_avg"], "drop_pct": ainfo["drop_pct"], "severity": severity, "lat": ainfo.get("lat"), "lng": ainfo.get("lng")})
-            else: ainfo["status"] = "NORMAL"
+        airspace_data, airspace_anomalies, noise_filters_applied = _compute_airspace_status(
+            airspace_data, weather_conditions, current_time,
+            _db, AIRSPACE_WINDOW, HOD_BASELINE_DAYS, HOD_MIN_SAME_HOUR)
 
         degraded_targets_raw, degraded_targets_effective = [], []
         g_l3 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer3/top/locations/target", {"dateRange": CURRENT_DATE_RANGE, "format": "json"}))
@@ -1315,6 +1452,27 @@ def get_threat_data():
                                           observed_at=current_time)
                 if sig is not None:
                     _signals.append(sig)
+            # IODA per-country signal injection: IODA fetches all countries
+            # (GLOBAL coverage) but the rationale only covers core_theater.
+            # Inject per-country signals for non-core BGP_OUTAGE countries
+            # so background scenarios see IODA outages for their participants.
+            _ioda_core = focused_scenario_obj.core_country or ""
+            for _ioda_cc, _ioda_st in ioda_data.items():
+                if _ioda_st != "BGP_OUTAGE" or _ioda_cc == _ioda_core:
+                    continue
+                # Apply weather suppression consistently
+                if weather_conditions.get(_ioda_cc, {}).get("is_severe", False):
+                    continue
+                _signals.append(Signal(
+                    signal_source="bgp",
+                    sensor="ioda_bgp",
+                    observed_at=current_time,
+                    domain="physical",
+                    countries=[_ioda_cc],
+                    raw_score=1.0,
+                    value_display=f"BGP_OUTAGE [{ioda_source}]",
+                ))
+
             try:
                 from radar.intel_queue import intel_queue as _iq_sc
                 for _lr in _iq_sc.get_active_rationale():
@@ -1945,17 +2103,29 @@ def get_threat_data():
     results = []
     _degraded_raw = _snap_strategic.get("degraded_theaters_raw", [])
     _degraded_eff = _snap_strategic.get("degraded_theaters", [])
+    # Participant role lookup from the focused scenario (for map marker differentiation).
+    _focused_participants = focused_scenario_obj.participants if focused_scenario_obj else {}
     # Targets panel: show all focused scenario participants (ADR-005).
     for t in sorted(strategic_theaters_set):
-        t_info = COUNTRY_COORDS.get(t, {"lat": 0, "lng": 0, "name": t})
+        t_info = COUNTRY_COORDS.get(t)
+        if t_info is None:
+            log.warning("COUNTRY_COORDS missing for participant %s — using fallback", t)
+            _fb = get_fallback_coord(t)
+            t_info = {"lat": _fb["lat"], "lng": _fb["lng"], "name": t}
         data = _snap_data.get(t, {"global_share": 0, "global_share_l3": 0, "global_share_l7": 0, "is_vector_shift": False, "shift_actors": [], "sources": []})
 
         # Compute velocity and acceleration per target
         ts_series_t = _db.ts_get(t)
         t_vel = _routes.engine.compute_velocity(ts_series_t)
         t_ambush, t_ambush_z, _, _ = _routes.engine.detect_ambush_pattern(ts_series_t)
+        # Participant role and weight from focused scenario
+        _part = _focused_participants.get(t)
+        _t_role = _part.role.value if _part else ""
+        _t_weight = _part.weight if _part else 0.5
         results.append({
             "lat": t_info["lat"], "lng": t_info["lng"], "info": t_info["name"], "code": t,
+            "role": _t_role,
+            "participant_weight": _t_weight,
             "global_share": data.get("global_share", 0.0), "global_share_l3": data.get("global_share_l3", 0.0), "global_share_l7": data.get("global_share_l7", 0.0),
             "is_bgp_outage": t in _degraded_raw,
             "is_bgp_effective": t in _degraded_eff,
@@ -1983,6 +2153,24 @@ def get_threat_data():
         _sr["data_freshness_sec"] = _cache_age
         _scenario_results[_sk] = _sr
 
+    # Build participant map for map rendering (all participants with coordinates).
+    # This enables the frontend to show non-active participants as role-colored
+    # markers even when they have no active sensor signals.
+    _active_codes = {r["code"] for r in results}
+    _participant_map = {}
+    for _pc, _pp in _focused_participants.items():
+        _pc_coord = COUNTRY_COORDS.get(_pc)
+        if _pc_coord is None:
+            continue
+        _participant_map[_pc] = {
+            "lat": _pc_coord["lat"],
+            "lng": _pc_coord["lng"],
+            "name": _pc_coord["name"],
+            "role": _pp.role.value,
+            "weight": _pp.weight,
+            "active": _pc in _active_codes,
+        }
+
     _resp = jsonify({
         "timestamp":       datetime.datetime.now().isoformat(),
         "sensor_health":   _routes.registry.health_report(),
@@ -1993,6 +2181,7 @@ def get_threat_data():
         "focused_scenario": focused_id,
         "scenarios":       _scenario_results,
         "scenario_history_starts_at": _cache_snap.get("scenario_history_starts_at"),
+        "participants":    _participant_map,
     })
     _resp.headers["Deprecation"] = "true"
     _resp.headers["Sunset"] = "2026-10-01"

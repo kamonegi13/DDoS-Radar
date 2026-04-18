@@ -160,7 +160,7 @@ def compute_sequence_bonus(theater: str) -> tuple:
         decayed_bonus = round(raw_bonus * avg_weight)
         return max(1, decayed_bonus), f"FULL_CHAIN_CONFIRMED [{timespan_h}h span, decay={avg_weight:.2f}]", found_in_chain
     elif found_count >= 3:
-        raw_bonus = int(_os.getenv("SEQUENCE_PARTIAL_BONUS", "1"))
+        raw_bonus = int(_os.getenv("SEQUENCE_PARTIAL_BONUS", "2"))
         decayed_bonus = round(raw_bonus * avg_weight)
         return max(1, decayed_bonus), f"PARTIAL_CHAIN ({found_count}/4, decay={avg_weight:.2f}): {found_in_chain}", found_in_chain
     else:

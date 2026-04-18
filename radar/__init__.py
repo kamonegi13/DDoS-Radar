@@ -25,9 +25,25 @@ _uretry.Retry.DEFAULT = _uretry.Retry(total=1, backoff_factor=0)
 
 # ── App ──
 app = Flask(__name__)
-_cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*")
-_cors_list = [o.strip() for o in _cors_origins.split(",")] if _cors_origins != "*" else "*"
-CORS(app, resources={r"/api/*": {"origins": _cors_list}})
+_cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+if _cors_origins and _cors_origins != "*":
+    _cors_list = [o.strip() for o in _cors_origins.split(",")]
+else:
+    # Default: allow same-origin only (no CORS header sent → browser blocks cross-origin)
+    _cors_list = []
+if _cors_list:
+    CORS(app, resources={r"/api/*": {"origins": _cors_list}})
+
+# ── Security headers ──
+@app.after_request
+def _security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if not app.debug:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 # ── Config (triggers _load_env) ──
 from radar import config  # noqa: E402
@@ -73,7 +89,7 @@ for _s in [
 # Default tier on BaseSensor is GLOBAL. Override per-country sensors to FOCUSED_ONLY.
 from radar.scenarios import SensorTier  # noqa: E402
 _FOCUSED_ONLY_SENSORS = frozenset({
-    "cloudflare_radar", "ioda_bgp", "ripe_bgp", "openweather",
+    "cloudflare_radar", "ripe_bgp", "openweather",
     "check_host", "opensky", "notam", "ripe_atlas",
     "ais_maritime", "isr_hotspot", "nasa_firms", "mil_support_air",
 })

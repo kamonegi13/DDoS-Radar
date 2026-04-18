@@ -13,6 +13,11 @@
             --color-bg:          #0f0f0f;  /* Base background */
             --color-surface:     #0a0a0a;  /* Panel/card background */
             --color-border:      #222222;  /* Default border */
+            /* NATO-aligned role colors */
+            --role-hostile:      #ff2a2a;  /* Red — adversary */
+            --role-friendly:     #4488ff;  /* Blue — allied / support */
+            --role-volatile:     #ffaa00;  /* Amber — proxy / spillover */
+            --role-observer:     #667788;  /* Gray — observer / regional */
             --color-text:        #ffffff;  /* Primary text */
             --color-text-dim:    #aaaaaa;  /* Secondary text */
         }
@@ -104,7 +109,7 @@
              Row 3 DIAGNOSTICS: collapsible chip strip (CTX/BASE-Z/...)
              Exception banner:  AMBUSH/TRI/SILENT/DIR/COMMS — only when active
            ══════════════════════════════════════════════════════════════ */
-        #top-hud { width: 100vw; background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #444; z-index: 4000; display: flex; flex-direction: column; padding: 4px 12px 2px; box-sizing: border-box; box-shadow: 0 2px 15px rgba(0,0,0,0.8); flex-shrink: 0; }
+        #top-hud { position: relative; width: 100vw; background: rgba(15, 15, 15, 0.95); border-bottom: 2px solid #444; z-index: 4000; display: flex; flex-direction: column; padding: 4px 12px 2px; box-sizing: border-box; box-shadow: 0 2px 15px rgba(0,0,0,0.8); flex-shrink: 0; }
 
         /* Generic row — tight packing. flex-wrap OFF on Row 1 to prevent hamburger wrap. */
         .hud-row { display: flex; width: 100%; align-items: center; box-sizing: border-box; }
@@ -202,7 +207,7 @@
         @keyframes hud-intel-pulse { 0%,100% { opacity: 1.0; } 50% { opacity: 0.55; } }
 
         /* ── Exception banner ─────────────────────────────────────── */
-        .hud-exception-bar { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; padding: 2px 0 1px; margin-top: 2px; border-top: 1px solid #2a1a1a; }
+        .hud-exception-bar { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; padding: 2px 12px 3px; border-top: 1px solid #2a1a1a; position: absolute; left: 0; bottom: 0; transform: translateY(100%); background: rgba(15, 15, 15, 0.92); box-sizing: border-box; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
         .hud-exception-item { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 3px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
         .hud-exception-item .ex-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.85; }
         .hud-exception-item .ex-value { font-family: 'Courier New', monospace; }
@@ -627,6 +632,42 @@
         @keyframes coreCritical { from { transform: scale(0.8); } to { transform: scale(1.5); } }
         @keyframes pulsateCritical { 0% { transform: scale(0.1); opacity: 1; border-width: 6px; } 100% { transform: scale(1.6); opacity: 0; border-width: 1px; } }
         @keyframes flashCrit { 0%, 100% { opacity: 1; background: #ff0000; } 50% { opacity: 0.5; background: #330000; } }
+
+        /* ── Role-based marker overrides (NATO color convention) ────────── */
+        /* HOSTILE (adversary) — red ring + core */
+        .role-hostile .ddos-core { background-color: var(--role-hostile); box-shadow: 0 0 15px var(--role-hostile); }
+        .role-hostile .ddos-ring { border-color: var(--role-hostile); border-width: 3px; animation: pulsateHostile 1.0s ease-out infinite; }
+        .role-hostile.target-degraded .ddos-core { animation: coreCritical 0.5s alternate infinite; }
+        @keyframes pulsateHostile { 0% { transform: scale(0.1); opacity: 1; border-width: 4px; } 100% { transform: scale(1.4); opacity: 0; border-width: 1px; } }
+
+        /* FRIENDLY (ally / forward_base / support) — blue ring + core */
+        .role-friendly .ddos-core { background-color: var(--role-friendly); box-shadow: 0 0 12px var(--role-friendly); }
+        .role-friendly .ddos-ring { border-color: var(--role-friendly); border-width: 2px; animation: pulsateFriendly 2.2s ease-out infinite; }
+        @keyframes pulsateFriendly { 0% { transform: scale(0.3); opacity: 0.8; border-width: 2px; } 100% { transform: scale(1.1); opacity: 0; border-width: 1px; } }
+
+        /* VOLATILE (proxy / spillover / secondary_party) — amber ring */
+        .role-volatile .ddos-core { background-color: var(--role-volatile); box-shadow: 0 0 10px var(--role-volatile); }
+        .role-volatile .ddos-ring { border-color: var(--role-volatile); border-width: 2px; animation: pulsateVolatile 1.8s ease-out infinite; }
+        @keyframes pulsateVolatile { 0% { transform: scale(0.15); opacity: 0.9; border-width: 3px; } 50% { opacity: 0.4; } 100% { transform: scale(1.2); opacity: 0; border-width: 1px; } }
+
+        /* OBSERVER (strategic_observer / regional_power) — gray, no ring animation */
+        .role-observer .ddos-core { background-color: var(--role-observer); box-shadow: 0 0 6px var(--role-observer); }
+        .role-observer .ddos-ring { border-color: var(--role-observer); border-width: 1px; opacity: 0.3; animation: none; }
+
+        /* ── Participant base markers (non-active scenario members) ─────── */
+        .participant-marker { position: relative; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 2px solid; opacity: 0.7; }
+        .participant-marker .pm-label { position: absolute; font-size: 8px; font-weight: bold; letter-spacing: 0.5px; font-family: 'Courier New', monospace; color: #fff; text-shadow: 0 0 3px #000, 0 0 1px #000; white-space: nowrap; }
+        .participant-marker .pm-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .pm-hostile  { border-color: var(--role-hostile); }
+        .pm-hostile  .pm-dot { background: var(--role-hostile); box-shadow: 0 0 6px var(--role-hostile); }
+        .pm-target   { border-color: var(--color-normal); }
+        .pm-target   .pm-dot { background: var(--color-normal); box-shadow: 0 0 6px var(--color-normal); }
+        .pm-friendly { border-color: var(--role-friendly); }
+        .pm-friendly .pm-dot { background: var(--role-friendly); box-shadow: 0 0 6px var(--role-friendly); }
+        .pm-volatile { border-color: var(--role-volatile); }
+        .pm-volatile .pm-dot { background: var(--role-volatile); box-shadow: 0 0 6px var(--role-volatile); }
+        .pm-observer { border-color: var(--role-observer); }
+        .pm-observer .pm-dot { background: var(--role-observer); box-shadow: 0 0 4px var(--role-observer); }
 
         .attack-curve { stroke-linecap: round; fill: none; }
         /* Firefly dots: animation-name + keyframe only. dasharray/duration set by JS for pixel-accurate sizing. */

@@ -1,5 +1,7 @@
     // HTML escape utility — prevents XSS when inserting external API strings into innerHTML
     const esc = s => { s = String(s ?? ''); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); };
+    // URL scheme guard — prevents javascript: / data: URI injection in href attributes
+    const safeHref = u => { try { const p = new URL(u); return (p.protocol === 'https:' || p.protocol === 'http:') ? esc(u) : '#'; } catch { return '#'; } };
 
     // ── Auth: wrap fetch to include JWT and handle 401 ──
     const _origFetch = window.fetch.bind(window);
@@ -528,7 +530,7 @@
             const snippet  = h.snippet
                 ? `<div class="tgsig-snippet">${esc(h.snippet)}</div>` : '';
             const srcLink  = h.channel_url
-                ? `<a href="${esc(h.channel_url)}" target="_blank" class="tgsig-src-link">↗SRC</a>` : '';
+                ? `<a href="${safeHref(h.channel_url)}" target="_blank" class="tgsig-src-link">↗SRC</a>` : '';
             return `<div class="tgsig-entry ${cls}">
                 <div class="tgsig-entry-hdr">
                     <span><span style="color:#aaa;">${esc(h.channel||'?')}</span>&nbsp;·&nbsp;${ts}&nbsp;·&nbsp;${esc(h.theater||'')}</span>
@@ -1083,11 +1085,11 @@
             if (reviewNeeded.length > 0) {
                 llmIntelEl.textContent = `⚠ ${reviewNeeded.length} ${_t('chain.llm_intel.review')}`;
                 llmIntelEl.style.color = '#ff8800';
-                llmIntelEl.dataset.tooltip = reviewNeeded.map(i => i.headline).join('\n');
+                llmIntelEl.dataset.tooltip = reviewNeeded.map(i => esc(i.headline)).join('\n');
             } else if (active.length > 0) {
                 llmIntelEl.textContent = `● ${active.length} ${_t('chain.llm_intel.active')}`;
                 llmIntelEl.style.color = '#aa88ff';
-                llmIntelEl.dataset.tooltip = active.map(i => i.headline).join('\n');
+                llmIntelEl.dataset.tooltip = active.map(i => esc(i.headline)).join('\n');
             } else {
                 llmIntelEl.textContent = _t('chain.llm_intel.none');
                 llmIntelEl.style.color = '#555';
@@ -1617,8 +1619,10 @@
     const haloLayer         = L.layerGroup().addTo(map);
     const sensorMarkerLayer = L.layerGroup().addTo(map);
     const coordLinkLayer    = L.layerGroup().addTo(map);  // Constellation links
+    const participantLayer  = L.layerGroup().addTo(map);  // Scenario participant role markers
 
     const overlayLayers = {
+        "Participants":      participantLayer,
         "Target Nodes":      targetLayer,
         "Cyber Strikes":     lineLayer,
         "Attack Origins":    sourceLayer,
@@ -1659,7 +1663,7 @@
     function getCurvePoints(startLat, startLng, endLat, endLng) {
         const key = `${startLat},${startLng},${endLat},${endLng}`;
         if (_curveCache.has(key)) return _curveCache.get(key);
-        const points = []; const numPoints = 20; // 50→20: no visible difference, 60% less computation
+        const points = []; const numPoints = 20;
         const midLat = (startLat + endLat) / 2; const midLng = (startLng + endLng) / 2;
         const diffLat = endLat - startLat; const diffLng = endLng - startLng;
         const ctrlLat = midLat - diffLng * 0.2; const ctrlLng = midLng + diffLat * 0.2;
@@ -1929,6 +1933,355 @@
                 isFirstLoad = false;
             }
         }
+    }
+
+    // ── Map overlay sub-renderers (extracted from renderTelemetry) ─────
+    function buildRouteSegments(waypoints) {
+        const pts = waypoints.map(w => [w.lat, shiftLng(w.lng)]);
+        if (mapCenterMode === 'pacific') return [pts]; // shiftLng already resolved
+        const segments = [];
+        let seg = [pts[0]];
+        for (let i = 1; i < pts.length; i++) {
+            const prev = seg[seg.length - 1];
+            const curr = pts[i];
+            const dLng = curr[1] - prev[1];
+            if (Math.abs(dLng) > 180) {
+                const fromEast  = prev[1] > 0;
+                const edgeA     = fromEast ?  180 : -180;
+                const edgeB     = fromEast ? -180 :  180;
+                const totalDist = fromEast
+                    ? (180 - prev[1]) + (curr[1] + 180)
+                    : (prev[1] + 180) + (180 - curr[1]);
+                const frac      = fromEast
+                    ? (180 - prev[1]) / totalDist
+                    : (prev[1] + 180) / totalDist;
+                const crossLat  = prev[0] + frac * (curr[0] - prev[0]);
+                seg.push([crossLat, edgeA]);
+                if (seg.length >= 2) segments.push(seg);
+                seg = [[crossLat, edgeB], curr];
+            } else {
+                seg.push(curr);
+            }
+        }
+        if (seg.length >= 2) segments.push(seg);
+        return segments;
+    }
+
+    function _renderSignalOverlays(overlays, targetCodesSet) {
+        (overlays.ioda_outages || []).forEach(o => {
+            if (targetCodesSet.has(o.code)) return;
+            const lngS = shiftLng(o.lng);
+            const icon = L.divIcon({
+                className: '',
+                html: `<div style="width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:18px solid #ff2a2a;filter:drop-shadow(0 0 6px #ff2a2a);"></div>`,
+                iconSize: [18, 18], iconAnchor: [9, 18],
+            });
+            L.marker([o.lat, lngS], { icon })
+             .bindPopup(`<b>${esc(o.name)}</b><br><span style="color:#ff2a2a;">${_t('map.popup.bgp_outage')}</span>`)
+             .on('click', () => openCountryDetail(o.code))
+             .addTo(iodaLayer);
+        });
+
+        (overlays.airspace_anomaly || []).forEach(a => {
+            const lngS = shiftLng(a.lng);
+            const isClosure = a.severity === 'CLOSURE';
+            const col  = isClosure ? '#ff2a2a' : '#ffaa00';
+            const glow = isClosure ? 'drop-shadow(0 0 8px #ff2a2a)' : 'drop-shadow(0 0 5px #ffaa00)';
+            const icon = L.divIcon({
+                className: '',
+                html: `<div style="font-size:18px;line-height:1;filter:${glow}; cursor:help;" data-tooltip="${_t('map.tooltip.airspace', {airport: esc(a.airport), pct: a.drop_pct, count: a.count, base: a.baseline})}">✈</div>`,
+                iconSize: [20, 20], iconAnchor: [10, 10],
+            });
+            L.marker([a.lat, lngS], { icon })
+             .bindPopup(
+                `<b>${esc(a.airport)} (${esc(a.code)})</b><br>` +
+                `<span style="color:${col};font-weight:bold;">${esc(a.severity)}</span><br>` +
+                `${_t('map.popup.airspace_aircraft', {count: a.count, base: a.baseline})}<br>` +
+                `${_t('map.popup.airspace_drop', {pct: a.drop_pct})}`
+             )
+             .addTo(airspaceLayer);
+        });
+
+        (overlays.weather_events || []).forEach(w => {
+            const lngS = shiftLng(w.lng);
+            const isSevere = w.is_severe;
+            const col   = isSevere ? '#ff6600' : '#aaaaaa';
+            const emoji = isSevere ? '⛈' : '🌧';
+            const icon  = L.divIcon({
+                className: '',
+                html: `<div style="font-size:16px;line-height:1;filter:drop-shadow(0 0 4px ${col}); cursor:help;" data-tooltip="${esc(w.description)} — wind ${esc(w.wind_speed)}m/s">${emoji}</div>`,
+                iconSize: [18, 18], iconAnchor: [-16, 34],
+            });
+            L.marker([w.lat, lngS], { icon })
+             .bindPopup(
+                `<b>Weather: ${esc(w.code)}</b><br>` +
+                `<span style="color:${col};">${esc(w.description)}</span><br>` +
+                `Severity: ${esc(w.severity)} | Wind: ${esc(w.wind_speed)} m/s` +
+                (isSevere ? '<br><i style="color:#ffaa00;">Noise filter active: suppresses BGP/Airspace alerts</i>' : '')
+             )
+             .addTo(weatherLayer);
+        });
+
+        (overlays.gdelt_events || []).forEach(g => {
+            const lngS   = shiftLng(g.lng);
+            const isAlert = g.is_alert;
+            const col    = isAlert ? '#cc44ff' : '#8855aa';
+            const glow   = isAlert ? 'drop-shadow(0 0 8px #cc44ff)' : 'drop-shadow(0 0 4px #8855aa)';
+            const deltaStr = g.delta != null ? `Δ${g.delta > 0 ? '+' : ''}${g.delta.toFixed(1)}` : 'Δ N/A';
+            const icon = L.divIcon({
+                className: '',
+                html: `<div style="width:22px;height:22px;border-radius:50%;border:3px solid ${col};background:${col}33;filter:${glow};box-sizing:border-box;"></div>`,
+                iconSize: [22, 22], iconAnchor: [36, 36],
+            });
+            const baseStr = g.tone_baseline != null ? g.tone_baseline.toFixed(1) : 'N/A';
+            L.marker([g.lat, lngS], { icon })
+             .bindPopup(
+                `<b>${_t('map.popup.gdelt_title', {name: esc(g.name)})}</b><br>` +
+                `<span style="color:${col};">` +
+                (g.tone_current != null ? _t('map.popup.gdelt_tone', {val: g.tone_current.toFixed(1)}) : _t('map.popup.gdelt_tone_na')) +
+                `</span><br>` +
+                `${_t('map.popup.gdelt_baseline', {base: baseStr, delta: deltaStr})}<br>` +
+                `${_t('map.popup.gdelt_status', {status: esc(g.status)})}` +
+                (g.status === 'WEATHER_NOISE' ? `<br><i style="color:#ffaa00;">${_t('map.popup.gdelt_noise_note')}</i>` : '')
+             )
+             .addTo(gdeltLayer);
+        });
+
+        const ixpByCountry = {};
+        (overlays.critical_nodes || []).forEach(n => {
+            if (targetCodesSet.has(n.country)) return;
+            if (!ixpByCountry[n.country]) ixpByCountry[n.country] = { lat: n.lat, lng: n.lng, ixps: [] };
+            ixpByCountry[n.country].ixps.push(n.name);
+        });
+        Object.entries(ixpByCountry).forEach(([country, info]) => {
+            const lngS  = shiftLng(info.lng);
+            const count = info.ixps.length;
+            const col   = '#ffee44';
+            const icon  = L.divIcon({
+                className: '',
+                html: `<div style="position:relative;width:10px;height:10px;transform:rotate(45deg);background:${col}33;border:2px solid ${col};filter:drop-shadow(0 0 3px ${col});box-sizing:border-box;"></div>`,
+                iconSize: [10, 10], iconAnchor: [5, 5],
+            });
+            const nameList = info.ixps.slice(0, 5).map(n => esc(n)).join('<br>') + (count > 5 ? `<br>…and ${count-5} more` : '');
+            L.marker([info.lat, lngS], { icon })
+             .bindPopup(`<b style="color:${col};">IXP [${esc(country)}]</b> × ${count}<br><span style="font-size:11px;color:#aaa;">${nameList}</span>`)
+             .on('click', () => openCountryDetail(country))
+             .addTo(criticalNodesLayer);
+        });
+    }
+
+    function _renderPhysicalInfraOverlays(overlays) {
+        // NASA FIRMS Anomalies
+        (overlays.firms_anomalies || []).forEach(f => {
+            const lngS = shiftLng(f.lng);
+            const icon = L.divIcon({
+                html: `<div style="font-size:20px; filter:drop-shadow(0 0 10px #ff2a2a); cursor:help;" data-tooltip="${_t('tooltip.thermal_anomaly')}">🔥</div>`,
+                className: '',
+                iconSize: [20,20]
+            });
+            L.marker([f.lat, lngS], {icon})
+             .bindPopup(`<b>${_t('map.popup.firms_title')}</b><br>${_t('map.popup.firms_code', {code: esc(f.code)})}<br><span style="color:#ff2a2a; font-weight:bold;">${_t('map.popup.firms_sub')}</span>`)
+             .addTo(firmsLayer);
+        });
+
+        // Cable Routes (static polylines with anti-meridian splitting)
+        (overlays.cable_routes || []).forEach(route => {
+            const segs = buildRouteSegments(route.waypoints || []);
+            if (!segs.length) return;
+            const popupHtml = `
+                <div style="min-width:220px;padding:10px 12px 8px;">
+                    <div style="color:#5ab8cc;font-weight:bold;font-size:12px;letter-spacing:0.5px;margin-bottom:2px;">▬ ${esc(route.name)}</div>
+                    <div style="color:#335566;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">SUBMARINE CABLE ROUTE</div>
+                    <div style="color:#889;font-size:10px;margin-bottom:6px;">${esc(route.description || '')}</div>
+                    ${route.connects && route.connects.length ? `<div style="color:#446677;font-size:9px;border-top:1px solid #1a2e3a;padding-top:5px;line-height:1.7;">CONNECTS:<br><span style="color:#667;">${route.connects.map(c => esc(c)).join(' → ')}</span></div>` : ''}
+                </div>
+            `;
+            segs.forEach(pts => {
+                L.polyline(pts, {
+                    color: '#5ab8cc',
+                    weight: 1.5,
+                    opacity: 0.25,
+                    lineJoin: 'round'
+                }).bindPopup(popupHtml).addTo(cableRoutesLayer);
+            });
+        });
+
+        // Cable Chokepoints (enhanced)
+        (overlays.chokepoints || []).forEach(c => {
+            const lngS  = shiftLng(c.lng);
+            const status = c.status  || 'normal';
+            const cpType = c.type    || 'cable_landing';
+
+            const BASE_COLOR = {
+                cable_landing:   '#00ffff',
+                maritime_strait: '#ffaa00',
+                nato_corridor:   '#4488ff',
+            };
+            const STATUS_COLOR = {
+                dark_gap:   '#ff3300',
+                stationary: '#ff9900',
+                normal:     BASE_COLOR[cpType] || '#00ffff',
+            };
+            const color = STATUS_COLOR[status];
+
+            // AIS surveillance zone circle (55 km)
+            const zoneAlpha = status === 'dark_gap' ? 0.18 : status === 'stationary' ? 0.10 : 0.04;
+            L.circle([c.lat, lngS], {
+                radius:      55000,
+                color:       color,
+                weight:      status === 'dark_gap' ? 1.5 : 0.8,
+                opacity:     status !== 'normal'   ? 0.65 : 0.25,
+                fillColor:   color,
+                fillOpacity: zoneAlpha,
+                interactive: false,
+                dashArray:   status === 'normal' ? '4 6' : null,
+            }).addTo(chokepointsLayer);
+
+            // Type icon
+            const ICON_CHAR = { cable_landing:'◆', maritime_strait:'⬡', nato_corridor:'⬟' };
+            const iconChar  = ICON_CHAR[cpType] || '◆';
+            const fontSize  = cpType === 'maritime_strait' ? 16 : 14;
+            const pulseStyle = status === 'dark_gap' ? 'animation:cp-pulse 1s infinite;' : '';
+
+            const icon = L.divIcon({
+                html: `<div style="color:${color};font-size:${fontSize}px;filter:drop-shadow(0 0 6px ${color});cursor:help;${pulseStyle}">${iconChar}</div>`,
+                className: '',
+                iconSize:   [16, 16],
+                iconAnchor: [8, 8],
+            });
+
+            // Rich popup
+            const TYPE_LABEL = {
+                cable_landing:   'Cable Landing Station',
+                maritime_strait: 'Maritime Chokepoint',
+                nato_corridor:   'NATO Cable Corridor',
+            };
+            const STATUS_BADGE = {
+                dark_gap:   `<span style="color:#ff3300;font-weight:bold;">⚠ AIS DARK GAP DETECTED</span>`,
+                stationary: `<span style="color:#ff9900;font-weight:bold;">⚓ STATIONARY ANOMALY</span>`,
+                normal:     `<span style="color:#00cc66;">● NORMAL</span>`,
+            };
+            const cablesHtml = (c.cables && c.cables.length)
+                ? `<div style="margin-top:5px;color:#aaa;font-size:9px;">CABLES: ${c.cables.map(cb => esc(cb)).join(', ')}</div>`
+                : '';
+
+            L.marker([c.lat, lngS], {icon})
+             .bindPopup(`
+                <div style="min-width:220px;padding:10px 12px 8px;">
+                    <div style="color:${color};font-weight:bold;font-size:12px;letter-spacing:0.5px;margin-bottom:2px;">${iconChar} ${esc(c.name)}</div>
+                    <div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">${TYPE_LABEL[cpType]||esc(cpType)} &nbsp;·&nbsp; ${esc(c.country)}</div>
+                    <div style="margin-bottom:6px;">${STATUS_BADGE[status]||STATUS_BADGE.normal}</div>
+                    ${cablesHtml}
+                    <div style="margin-top:7px;color:#334455;font-size:9px;letter-spacing:0.5px;">AIS MONITOR RADIUS: 55 km</div>
+                </div>
+             `, { maxWidth: 280 })
+             .addTo(chokepointsLayer);
+        });
+    }
+
+    function _renderMilitaryTrackOverlays(overlays) {
+        // ISR Hotspot Zones
+        (overlays.isr_hotspots || []).forEach(hs => {
+            const lngS   = shiftLng(hs.lng);
+            const isSurge = hs.is_surge;
+            const col    = isSurge ? '#ff4400' : '#ffaa00';
+            // Monitoring radius circle
+            L.circle([hs.lat, lngS], {
+                radius:      (hs.radius_km || 200) * 1000,
+                color:       col,
+                weight:      isSurge ? 1.5 : 0.8,
+                opacity:     isSurge ? 0.65 : 0.25,
+                fillColor:   col,
+                fillOpacity: isSurge ? 0.10 : 0.03,
+                interactive: false,
+                dashArray:   isSurge ? null : '6 10',
+            }).addTo(isrZoneLayer);
+            // Center marker
+            const icon = L.divIcon({
+                html: `<div style="color:${col};font-size:12px;filter:drop-shadow(0 0 5px ${col});${isSurge ? 'animation:cp-pulse 1s infinite;' : ''}">✦</div>`,
+                className: '', iconSize: [12, 12], iconAnchor: [6, 6],
+            });
+            L.marker([hs.lat, lngS], { icon })
+             .bindPopup(
+                `<div style="min-width:200px;padding:8px 10px 6px;">` +
+                `<div style="color:${col};font-weight:bold;font-size:12px;">✦ ${esc(hs.name)}</div>` +
+                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">ISR HOTSPOT ZONE · ${esc(hs.theater)}</div>` +
+                `<div>ISR Aircraft: <b style="color:${col};">${esc(hs.isr_count)}</b></div>` +
+                `<div>Status: <b style="color:${col};">${isSurge ? '⚡ SURGE' : '● NORMAL'}</b></div>` +
+                `<div style="color:#555;font-size:9px;margin-top:4px;">Radius: ${esc(hs.radius_km || 200)} km</div>` +
+                `</div>`
+             )
+             .addTo(isrZoneLayer);
+        });
+
+        // ISR Aircraft (individual tracks)
+        (overlays.isr_hotspots || []).forEach(hs => {
+            (hs.tracks || []).forEach(ac => {
+                if (ac.lat == null || ac.lon == null) return;
+                const lngS  = shiftLng(ac.lon);
+                const hdg   = ac.heading || 0;
+                const isMil = ac.squawk === '7777';
+                const col   = isMil ? '#ff2200' : '#ffaa00';
+                const altKm = (ac.alt_m / 1000).toFixed(1);
+                const velKt = Math.round((ac.vel_ms || 0) * 1.944);
+                const icon  = L.divIcon({
+                    html: `<div style="color:${col};font-size:14px;line-height:1;transform:rotate(${hdg}deg);filter:drop-shadow(0 0 6px ${col});">▲</div>`,
+                    className: '', iconSize: [14, 14], iconAnchor: [7, 7],
+                });
+                L.marker([ac.lat, lngS], { icon })
+                 .bindPopup(
+                    `<div style="min-width:180px;padding:8px 10px 6px;">` +
+                    `<div style="color:${col};font-weight:bold;font-size:12px;">${_t('map.popup.isr_track')}</div>` +
+                    `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">${esc(hs.name)}</div>` +
+                    `<div>${_t('map.popup.isr_callsign', {cs: esc(ac.callsign || ac.icao24 || '—')})}</div>` +
+                    `<div>${_t('map.popup.isr_alt_speed', {alt: altKm, spd: velKt})}</div>` +
+                    (ac.squawk ? `<div>${_t('map.popup.isr_squawk', {sq: `<b style="color:${col};">${esc(ac.squawk)}</b>`})}</div>` : '') +
+                    `</div>`
+                 )
+                 .addTo(isrAircraftLayer);
+            });
+        });
+
+        // AIS Vessels (dark gaps + stationary anomalies)
+        (overlays.ais_dark_gaps || []).forEach(v => {
+            if (v.lat == null || v.lng == null) return;
+            const lngS = shiftLng(v.lng);
+            const icon = L.divIcon({
+                html: `<div style="color:#ff3300;font-size:18px;line-height:1;filter:drop-shadow(0 0 7px #ff3300);animation:cp-pulse 1s infinite;">⚓</div>`,
+                className: '', iconSize: [18, 18], iconAnchor: [9, 9],
+            });
+            L.marker([v.lat, lngS], { icon })
+             .bindPopup(
+                `<div style="min-width:200px;padding:8px 10px 6px;">` +
+                `<div style="color:#ff3300;font-weight:bold;font-size:12px;">⚓ AIS DARK GAP</div>` +
+                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">EMCON / TRANSPONDER SILENT</div>` +
+                `<div>Vessel: <b>${esc(v.name || v.mmsi)}</b></div>` +
+                `<div>Silent: <b style="color:#ff3300;">${esc(v.gap_hours)} h</b></div>` +
+                `<div>Chokepoint: ${esc(v.chokepoint)}</div>` +
+                `<div>Distance: ${esc(v.dist_km)} km</div>` +
+                `</div>`
+             )
+             .addTo(aisVesselLayer);
+        });
+        (overlays.ais_stationary || []).forEach(v => {
+            if (v.lat == null || v.lng == null) return;
+            const lngS = shiftLng(v.lng);
+            const icon = L.divIcon({
+                html: `<div style="color:#ff9900;font-size:18px;line-height:1;filter:drop-shadow(0 0 5px #ff9900);">⚓</div>`,
+                className: '', iconSize: [18, 18], iconAnchor: [9, 9],
+            });
+            L.marker([v.lat, lngS], { icon })
+             .bindPopup(
+                `<div style="min-width:200px;padding:8px 10px 6px;">` +
+                `<div style="color:#ff9900;font-weight:bold;font-size:12px;">⚓ STATIONARY ANOMALY</div>` +
+                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">NON-COMMERCIAL VESSEL ANCHORED</div>` +
+                `<div>Vessel: <b>${esc(v.name || v.mmsi)}</b></div>` +
+                `<div>Chokepoint: ${esc(v.chokepoint)}</div>` +
+                `<div>Distance: ${esc(v.dist_km)} km</div>` +
+                `</div>`
+             )
+             .addTo(aisVesselLayer);
+        });
     }
 
     function renderTelemetry(data) {
@@ -2262,7 +2615,38 @@
 
         const originContainer = document.getElementById('origin-list-container');
         targetLayer.clearLayers(); sourceLayer.clearLayers(); lineLayer.clearLayers(); iodaLayer.clearLayers();
+        participantLayer.clearLayers();
         let originHtml = "";
+
+        // ── Role-based participant markers ──────────────────────────────
+        // Role → visual class mapping (NATO convention)
+        const _ROLE_CLASS = {
+            'primary_target': 'target', 'principal_belligerent': 'target',
+            'adversary': 'hostile',
+            'primary_ally': 'friendly', 'forward_base': 'friendly',
+            'secondary_ally': 'friendly', 'extended_deterrence': 'friendly',
+            'force_projection': 'friendly',
+            'proxy_front': 'volatile', 'spillover_risk': 'volatile',
+            'secondary_party': 'volatile',
+            'strategic_observer': 'observer', 'regional_power': 'observer',
+        };
+        const _participants = data.participants || {};
+        Object.keys(_participants).forEach(cc => {
+            const p = _participants[cc];
+            if (p.active) return; // active countries get full target markers below
+            const cls = _ROLE_CLASS[p.role] || 'observer';
+            // Size: 20-32px based on weight
+            const sz = Math.round(20 + (p.weight || 0.5) * 12);
+            const icon = L.divIcon({
+                className: '',
+                html: `<div class="participant-marker pm-${cls}" style="width:${sz}px;height:${sz}px;"><div class="pm-dot"></div><div class="pm-label">${cc}</div></div>`,
+                iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2],
+            });
+            L.marker([p.lat, shiftLng(p.lng)], { icon: icon, interactive: true })
+                .bindTooltip(`<b>${p.name}</b> — ${_t('scenario.role.' + p.role)}`, { direction: 'top' })
+                .on('click', () => openCountryDetail(cc))
+                .addTo(participantLayer);
+        });
 
         const drawnLabels = new Set();
 
@@ -2293,6 +2677,9 @@
                 if (isOutage) {
                     targetClass = isEffOutage ? "target-degraded" : "target-weather";
                 }
+
+                // Role-based marker class (NATO color convention)
+                const roleClass = t.role ? ('role-' + (_ROLE_CLASS[t.role] || 'observer')) : '';
 
                 const intel = ((data.strategic_alert || {}).country_intel || {})[t.code] || {};
                 const iodaSt = intel.ioda_status || "NORMAL";
@@ -2330,18 +2717,24 @@
                     }
                 }
 
+                // Scale marker by participant weight (0.0-1.0 → 56-80px)
+                const _pw = t.participant_weight || 1.0;
+                const _mSize = Math.round(56 + _pw * 24);
+                const _mHalf = Math.round(_mSize / 2);
+                const _ringOff = Math.round((_mSize - 80) / 2);  // offset for ring centering
                 const dynamicIcon = L.divIcon({
                     className: '',
-                    html: `<div class="target-marker-wrapper ${targetClass}"><div class="ddos-ring"></div><div class="ddos-core"></div>${badges ? `<div class="tm-badges-wrap">${badges}</div>` : ''}</div>`,
-                    iconSize: [80, 80], iconAnchor: [40, 40], popupAnchor: [0, -40]
+                    html: `<div class="target-marker-wrapper ${targetClass} ${roleClass}" style="width:${_mSize}px;height:${_mSize}px;"><div class="ddos-ring" style="width:${_mSize}px;height:${_mSize}px;"></div><div class="ddos-core" style="top:${_mHalf - 5}px;left:${_mHalf - 5}px;"></div>${badges ? `<div class="tm-badges-wrap">${badges}</div>` : ''}</div>`,
+                    iconSize: [_mSize, _mSize], iconAnchor: [_mHalf, _mHalf], popupAnchor: [0, -_mHalf]
                 });
 
                 let targetLngShifted = shiftLng(t.lng);
                 
                 const netStatusTextTip = isOutage ? (isEffOutage ? _t('map.net.tooltip_outage') : _t('map.net.tooltip_wx')) : _t('map.net.tooltip_ok');
 
+                const _roleTip = t.role ? ` [${_t('scenario.role.' + t.role)}]` : '';
                 L.marker([t.lat, targetLngShifted], { icon: dynamicIcon })
-                 .bindTooltip(`<b>${t.info}</b> — ${netStatusTextTip}`, { direction: 'top', sticky: false })
+                 .bindTooltip(`<b>${t.info}</b>${_roleTip} — ${netStatusTextTip}`, { direction: 'top', sticky: false })
                  .on('click', () => openCountryDetail(t.code))
                  .addTo(targetLayer);
 
@@ -2434,9 +2827,11 @@
                         // Base opacity per severity
                         const trackOpacity = { 'flow-fast': 0.38, 'flow-medium': 0.26, 'flow-slow': 0.15 }[speedClass] || 0.20;
                         // Layer 1: base track — 2px wider than dot layer for visible rail
-                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 2, opacity: trackOpacity, interactive: false }).addTo(lineLayer);
+                        // noClip: prevent Leaflet from clipping the SVG path to the viewport,
+                        // which would shorten getTotalLength() and distort dot size / speed.
+                        L.polyline(curvePoints, { color: lineColor, weight: dynamicLineWidth + 2, opacity: trackOpacity, interactive: false, noClip: true }).addTo(lineLayer);
                         // Layer 2: firefly dots — fixed 8px dot size and constant px/s speed regardless of arc length
-                        const pl = L.polyline(curvePoints, { className: `attack-curve ${speedClass}`, color: lineColor, weight: dynamicLineWidth, opacity: lineOpacity, interactive: false }).addTo(lineLayer);
+                        const pl = L.polyline(curvePoints, { className: `attack-curve ${speedClass}`, color: lineColor, weight: dynamicLineWidth, opacity: lineOpacity, interactive: false, noClip: true }).addTo(lineLayer);
                         const el = pl.getElement();
                         if (el) {
                             const pxLen = el.getTotalLength();
@@ -2468,354 +2863,9 @@
 
         const overlays = data.strategic_alert && data.strategic_alert.map_overlays;
         if (overlays) {
-            (overlays.ioda_outages || []).forEach(o => {
-                if (targetCodesSet.has(o.code)) return;
-                const lngS = shiftLng(o.lng);
-                const icon = L.divIcon({
-                    className: '',
-                    html: `<div style="width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:18px solid #ff2a2a;filter:drop-shadow(0 0 6px #ff2a2a);"></div>`,
-                    iconSize: [18, 18], iconAnchor: [9, 18],
-                });
-                L.marker([o.lat, lngS], { icon })
-                 .bindPopup(`<b>${o.name}</b><br><span style="color:#ff2a2a;">${_t('map.popup.bgp_outage')}</span>`)
-                 .on('click', () => openCountryDetail(o.code))
-                 .addTo(iodaLayer);
-            });
-
-            (overlays.airspace_anomaly || []).forEach(a => {
-                const lngS = shiftLng(a.lng);
-                const isClosure = a.severity === 'CLOSURE';
-                const col  = isClosure ? '#ff2a2a' : '#ffaa00';
-                const glow = isClosure ? 'drop-shadow(0 0 8px #ff2a2a)' : 'drop-shadow(0 0 5px #ffaa00)';
-                const icon = L.divIcon({
-                    className: '',
-                    html: `<div style="font-size:18px;line-height:1;filter:${glow}; cursor:help;" data-tooltip="${_t('map.tooltip.airspace', {airport: a.airport, pct: a.drop_pct, count: a.count, base: a.baseline})}">✈</div>`,
-                    iconSize: [20, 20], iconAnchor: [10, 10],
-                });
-                L.marker([a.lat, lngS], { icon })
-                 .bindPopup(
-                    `<b>${a.airport} (${a.code})</b><br>` +
-                    `<span style="color:${col};font-weight:bold;">${a.severity}</span><br>` +
-                    `${_t('map.popup.airspace_aircraft', {count: a.count, base: a.baseline})}<br>` +
-                    `${_t('map.popup.airspace_drop', {pct: a.drop_pct})}`
-                 )
-                 .addTo(airspaceLayer);
-            });
-
-            (overlays.weather_events || []).forEach(w => {
-                const lngS = shiftLng(w.lng);
-                const isSevere = w.is_severe;
-                const col   = isSevere ? '#ff6600' : '#aaaaaa';
-                const emoji = isSevere ? '⛈' : '🌧';
-                const icon  = L.divIcon({
-                    className: '',
-                    html: `<div style="font-size:16px;line-height:1;filter:drop-shadow(0 0 4px ${col}); cursor:help;" data-tooltip="${w.description} — wind ${w.wind_speed}m/s">${emoji}</div>`,
-                    iconSize: [18, 18], iconAnchor: [-16, 34],
-                });
-                L.marker([w.lat, lngS], { icon })
-                 .bindPopup(
-                    `<b>Weather: ${w.code}</b><br>` +
-                    `<span style="color:${col};">${w.description}</span><br>` +
-                    `Severity: ${w.severity} | Wind: ${w.wind_speed} m/s` +
-                    (isSevere ? '<br><i style="color:#ffaa00;">Noise filter active: suppresses BGP/Airspace alerts</i>' : '')
-                 )
-                 .addTo(weatherLayer);
-            });
-
-            (overlays.gdelt_events || []).forEach(g => {
-                const lngS   = shiftLng(g.lng);
-                const isAlert = g.is_alert;
-                const col    = isAlert ? '#cc44ff' : '#8855aa';
-                const glow   = isAlert ? 'drop-shadow(0 0 8px #cc44ff)' : 'drop-shadow(0 0 4px #8855aa)';
-                const deltaStr = g.delta != null ? `Δ${g.delta > 0 ? '+' : ''}${g.delta.toFixed(1)}` : 'Δ N/A';
-                const icon = L.divIcon({
-                    className: '',
-                    html: `<div style="width:22px;height:22px;border-radius:50%;border:3px solid ${col};background:${col}33;filter:${glow};box-sizing:border-box;"></div>`,
-                    iconSize: [22, 22], iconAnchor: [36, 36],
-                });
-                const baseStr = g.tone_baseline != null ? g.tone_baseline.toFixed(1) : 'N/A';
-                L.marker([g.lat, lngS], { icon })
-                 .bindPopup(
-                    `<b>${_t('map.popup.gdelt_title', {name: g.name})}</b><br>` +
-                    `<span style="color:${col};">` +
-                    (g.tone_current != null ? _t('map.popup.gdelt_tone', {val: g.tone_current.toFixed(1)}) : _t('map.popup.gdelt_tone_na')) +
-                    `</span><br>` +
-                    `${_t('map.popup.gdelt_baseline', {base: baseStr, delta: deltaStr})}<br>` +
-                    `${_t('map.popup.gdelt_status', {status: g.status})}` +
-                    (g.status === 'WEATHER_NOISE' ? `<br><i style="color:#ffaa00;">${_t('map.popup.gdelt_noise_note')}</i>` : '')
-                 )
-                 .addTo(gdeltLayer);
-            });
-
-            const ixpByCountry = {};
-            (overlays.critical_nodes || []).forEach(n => {
-                if (targetCodesSet.has(n.country)) return;
-                if (!ixpByCountry[n.country]) ixpByCountry[n.country] = { lat: n.lat, lng: n.lng, ixps: [] };
-                ixpByCountry[n.country].ixps.push(n.name);
-            });
-            Object.entries(ixpByCountry).forEach(([country, info]) => {
-                const lngS  = shiftLng(info.lng);
-                const count = info.ixps.length;
-                const col   = '#ffee44';
-                const icon  = L.divIcon({
-                    className: '',
-                    html: `<div style="position:relative;width:10px;height:10px;transform:rotate(45deg);background:${col}33;border:2px solid ${col};filter:drop-shadow(0 0 3px ${col});box-sizing:border-box;"></div>`,
-                    iconSize: [10, 10], iconAnchor: [5, 5],
-                });
-                const nameList = info.ixps.slice(0, 5).join('<br>') + (count > 5 ? `<br>…and ${count-5} more` : '');
-                L.marker([info.lat, lngS], { icon })
-                 .bindPopup(`<b style="color:${col};">IXP [${country}]</b> × ${count}<br><span style="font-size:11px;color:#aaa;">${nameList}</span>`)
-                 .on('click', () => openCountryDetail(country))
-                 .addTo(criticalNodesLayer);
-            });
-
-            // Render NASA FIRMS Anomalies
-            (overlays.firms_anomalies || []).forEach(f => {
-                const lngS = shiftLng(f.lng);
-                const icon = L.divIcon({ 
-                    html: `<div style="font-size:20px; filter:drop-shadow(0 0 10px #ff2a2a); cursor:help;" data-tooltip="${_t('tooltip.thermal_anomaly')}">🔥</div>`,
-                    className: '',
-                    iconSize: [20,20]
-                });
-                L.marker([f.lat, lngS], {icon})
-                 .bindPopup(`<b>${_t('map.popup.firms_title')}</b><br>${_t('map.popup.firms_code', {code: f.code})}<br><span style="color:#ff2a2a; font-weight:bold;">${_t('map.popup.firms_sub')}</span>`)
-                 .addTo(firmsLayer);
-            });
-
-            // ── Render Cable Routes (static polylines) ──────────────────
-            // Anti-meridian segment splitting + endpoint interpolation:
-            // Detect segments where |ΔLng|>180, linearly interpolate the exact latitude
-            // at the map edge (±180°), and snap segment endpoints to ±180° exactly.
-            // This ensures the map cut and the cable line cut coincide.
-            function buildRouteSegments(waypoints) {
-                const pts = waypoints.map(w => [w.lat, shiftLng(w.lng)]);
-                if (mapCenterMode === 'pacific') return [pts]; // shiftLng already resolved
-                const segments = [];
-                let seg = [pts[0]];
-                for (let i = 1; i < pts.length; i++) {
-                    const prev = seg[seg.length - 1];
-                    const curr = pts[i];
-                    const dLng = curr[1] - prev[1];
-                    if (Math.abs(dLng) > 180) {
-                        // Segment crossing the anti-meridian (±180°): interpolate the crossing point
-                        const fromEast  = prev[1] > 0; // crossing from the +180 side?
-                        const edgeA     = fromEast ?  180 : -180; // end longitude of this segment
-                        const edgeB     = fromEast ? -180 :  180; // start longitude of next segment
-                        // actual angular distance crossed (always positive)
-                        const totalDist = fromEast
-                            ? (180 - prev[1]) + (curr[1] + 180)
-                            : (prev[1] + 180) + (180 - curr[1]);
-                        const frac      = fromEast
-                            ? (180 - prev[1]) / totalDist
-                            : (prev[1] + 180) / totalDist;
-                        const crossLat  = prev[0] + frac * (curr[0] - prev[0]);
-                        seg.push([crossLat, edgeA]);
-                        if (seg.length >= 2) segments.push(seg);
-                        seg = [[crossLat, edgeB], curr];
-                    } else {
-                        seg.push(curr);
-                    }
-                }
-                if (seg.length >= 2) segments.push(seg);
-                return segments;
-            }
-
-            (overlays.cable_routes || []).forEach(route => {
-                const segs = buildRouteSegments(route.waypoints || []);
-                if (!segs.length) return;
-                const popupHtml = `
-                    <div style="min-width:220px;padding:10px 12px 8px;">
-                        <div style="color:#5ab8cc;font-weight:bold;font-size:12px;letter-spacing:0.5px;margin-bottom:2px;">▬ ${route.name}</div>
-                        <div style="color:#335566;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">SUBMARINE CABLE ROUTE</div>
-                        <div style="color:#889;font-size:10px;margin-bottom:6px;">${route.description || ''}</div>
-                        ${route.connects && route.connects.length ? `<div style="color:#446677;font-size:9px;border-top:1px solid #1a2e3a;padding-top:5px;line-height:1.7;">CONNECTS:<br><span style="color:#667;">${route.connects.join(' → ')}</span></div>` : ''}
-                    </div>
-                `;
-                segs.forEach(pts => {
-                    L.polyline(pts, {
-                        color: '#5ab8cc',
-                        weight: 1.5,
-                        opacity: 0.25,
-                        lineJoin: 'round'
-                    }).bindPopup(popupHtml).addTo(cableRoutesLayer);
-                });
-            });
-
-            // ── Render Cable Chokepoints (enhanced) ──────────────────────
-            (overlays.chokepoints || []).forEach(c => {
-                const lngS  = shiftLng(c.lng);
-                const status = c.status  || 'normal';
-                const cpType = c.type    || 'cable_landing';
-
-                // Color by status and type
-                const BASE_COLOR = {
-                    cable_landing:   '#00ffff',
-                    maritime_strait: '#ffaa00',
-                    nato_corridor:   '#4488ff',
-                };
-                const STATUS_COLOR = {
-                    dark_gap:   '#ff3300',
-                    stationary: '#ff9900',
-                    normal:     BASE_COLOR[cpType] || '#00ffff',
-                };
-                const color = STATUS_COLOR[status];
-
-                // AIS surveillance zone circle (55 km)
-                const zoneAlpha = status === 'dark_gap' ? 0.18 : status === 'stationary' ? 0.10 : 0.04;
-                L.circle([c.lat, lngS], {
-                    radius:      55000,
-                    color:       color,
-                    weight:      status === 'dark_gap' ? 1.5 : 0.8,
-                    opacity:     status !== 'normal'   ? 0.65 : 0.25,
-                    fillColor:   color,
-                    fillOpacity: zoneAlpha,
-                    interactive: false,
-                    dashArray:   status === 'normal' ? '4 6' : null,
-                }).addTo(chokepointsLayer);
-
-                // Type icon
-                const ICON_CHAR = { cable_landing:'◆', maritime_strait:'⬡', nato_corridor:'⬟' };
-                const iconChar  = ICON_CHAR[cpType] || '◆';
-                const fontSize  = cpType === 'maritime_strait' ? 16 : 14;
-                const pulseStyle = status === 'dark_gap' ? 'animation:cp-pulse 1s infinite;' : '';
-
-                const icon = L.divIcon({
-                    html: `<div style="color:${color};font-size:${fontSize}px;filter:drop-shadow(0 0 6px ${color});cursor:help;${pulseStyle}">${iconChar}</div>`,
-                    className: '',
-                    iconSize:   [16, 16],
-                    iconAnchor: [8, 8],
-                });
-
-                // Rich popup
-                const TYPE_LABEL = {
-                    cable_landing:   'Cable Landing Station',
-                    maritime_strait: 'Maritime Chokepoint',
-                    nato_corridor:   'NATO Cable Corridor',
-                };
-                const STATUS_BADGE = {
-                    dark_gap:   `<span style="color:#ff3300;font-weight:bold;">⚠ AIS DARK GAP DETECTED</span>`,
-                    stationary: `<span style="color:#ff9900;font-weight:bold;">⚓ STATIONARY ANOMALY</span>`,
-                    normal:     `<span style="color:#00cc66;">● NORMAL</span>`,
-                };
-                const cablesHtml = (c.cables && c.cables.length)
-                    ? `<div style="margin-top:5px;color:#aaa;font-size:9px;">CABLES: ${c.cables.join(', ')}</div>`
-                    : '';
-
-                L.marker([c.lat, lngS], {icon})
-                 .bindPopup(`
-                    <div style="min-width:220px;padding:10px 12px 8px;">
-                        <div style="color:${color};font-weight:bold;font-size:12px;letter-spacing:0.5px;margin-bottom:2px;">${iconChar} ${c.name}</div>
-                        <div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">${TYPE_LABEL[cpType]||cpType} &nbsp;·&nbsp; ${c.country}</div>
-                        <div style="margin-bottom:6px;">${STATUS_BADGE[status]||STATUS_BADGE.normal}</div>
-                        ${cablesHtml}
-                        <div style="margin-top:7px;color:#334455;font-size:9px;letter-spacing:0.5px;">AIS MONITOR RADIUS: 55 km</div>
-                    </div>
-                 `, { maxWidth: 280 })
-                 .addTo(chokepointsLayer);
-            });
-            // ── ISR Hotspot Zones ─────────────────────────────────────────
-            (overlays.isr_hotspots || []).forEach(hs => {
-                const lngS   = shiftLng(hs.lng);
-                const isSurge = hs.is_surge;
-                const col    = isSurge ? '#ff4400' : '#ffaa00';
-                // Monitoring radius circle
-                L.circle([hs.lat, lngS], {
-                    radius:      (hs.radius_km || 200) * 1000,
-                    color:       col,
-                    weight:      isSurge ? 1.5 : 0.8,
-                    opacity:     isSurge ? 0.65 : 0.25,
-                    fillColor:   col,
-                    fillOpacity: isSurge ? 0.10 : 0.03,
-                    interactive: false,
-                    dashArray:   isSurge ? null : '6 10',
-                }).addTo(isrZoneLayer);
-                // Center marker
-                const icon = L.divIcon({
-                    html: `<div style="color:${col};font-size:12px;filter:drop-shadow(0 0 5px ${col});${isSurge ? 'animation:cp-pulse 1s infinite;' : ''}">✦</div>`,
-                    className: '', iconSize: [12, 12], iconAnchor: [6, 6],
-                });
-                L.marker([hs.lat, lngS], { icon })
-                 .bindPopup(
-                    `<div style="min-width:200px;padding:8px 10px 6px;">` +
-                    `<div style="color:${col};font-weight:bold;font-size:12px;">✦ ${hs.name}</div>` +
-                    `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">ISR HOTSPOT ZONE · ${hs.theater}</div>` +
-                    `<div>ISR Aircraft: <b style="color:${col};">${hs.isr_count}</b></div>` +
-                    `<div>Status: <b style="color:${col};">${isSurge ? '⚡ SURGE' : '● NORMAL'}</b></div>` +
-                    `<div style="color:#555;font-size:9px;margin-top:4px;">Radius: ${hs.radius_km || 200} km</div>` +
-                    `</div>`
-                 )
-                 .addTo(isrZoneLayer);
-            });
-
-            // ── ISR Aircraft (individual tracks) ─────────────────────────
-            (overlays.isr_hotspots || []).forEach(hs => {
-                (hs.tracks || []).forEach(ac => {
-                    if (ac.lat == null || ac.lon == null) return;
-                    const lngS  = shiftLng(ac.lon);
-                    const hdg   = ac.heading || 0;
-                    const isMil = ac.squawk === '7777';
-                    const col   = isMil ? '#ff2200' : '#ffaa00';
-                    const altKm = (ac.alt_m / 1000).toFixed(1);
-                    const velKt = Math.round((ac.vel_ms || 0) * 1.944);
-                    const icon  = L.divIcon({
-                        html: `<div style="color:${col};font-size:14px;line-height:1;transform:rotate(${hdg}deg);filter:drop-shadow(0 0 6px ${col});">▲</div>`,
-                        className: '', iconSize: [14, 14], iconAnchor: [7, 7],
-                    });
-                    L.marker([ac.lat, lngS], { icon })
-                     .bindPopup(
-                        `<div style="min-width:180px;padding:8px 10px 6px;">` +
-                        `<div style="color:${col};font-weight:bold;font-size:12px;">${_t('map.popup.isr_track')}</div>` +
-                        `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">${hs.name}</div>` +
-                        `<div>${_t('map.popup.isr_callsign', {cs: ac.callsign || ac.icao24 || '—'})}</div>` +
-                        `<div>${_t('map.popup.isr_alt_speed', {alt: altKm, spd: velKt})}</div>` +
-                        (ac.squawk ? `<div>${_t('map.popup.isr_squawk', {sq: `<b style="color:${col};">${ac.squawk}</b>`})}</div>` : '') +
-                        `</div>`
-                     )
-                     .addTo(isrAircraftLayer);
-                });
-            });
-
-            // ── AIS Vessels (dark gaps + stationary anomalies) ────────────
-            (overlays.ais_dark_gaps || []).forEach(v => {
-                if (v.lat == null || v.lng == null) return;
-                const lngS = shiftLng(v.lng);
-                const icon = L.divIcon({
-                    html: `<div style="color:#ff3300;font-size:18px;line-height:1;filter:drop-shadow(0 0 7px #ff3300);animation:cp-pulse 1s infinite;">⚓</div>`,
-                    className: '', iconSize: [18, 18], iconAnchor: [9, 9],
-                });
-                L.marker([v.lat, lngS], { icon })
-                 .bindPopup(
-                    `<div style="min-width:200px;padding:8px 10px 6px;">` +
-                    `<div style="color:#ff3300;font-weight:bold;font-size:12px;">⚓ AIS DARK GAP</div>` +
-                    `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">EMCON / TRANSPONDER SILENT</div>` +
-                    `<div>Vessel: <b>${esc(v.name || v.mmsi)}</b></div>` +
-                    `<div>Silent: <b style="color:#ff3300;">${v.gap_hours} h</b></div>` +
-                    `<div>Chokepoint: ${esc(v.chokepoint)}</div>` +
-                    `<div>Distance: ${v.dist_km} km</div>` +
-                    `</div>`
-                 )
-                 .addTo(aisVesselLayer);
-            });
-            (overlays.ais_stationary || []).forEach(v => {
-                if (v.lat == null || v.lng == null) return;
-                const lngS = shiftLng(v.lng);
-                const icon = L.divIcon({
-                    html: `<div style="color:#ff9900;font-size:18px;line-height:1;filter:drop-shadow(0 0 5px #ff9900);">⚓</div>`,
-                    className: '', iconSize: [18, 18], iconAnchor: [9, 9],
-                });
-                L.marker([v.lat, lngS], { icon })
-                 .bindPopup(
-                    `<div style="min-width:200px;padding:8px 10px 6px;">` +
-                    `<div style="color:#ff9900;font-weight:bold;font-size:12px;">⚓ STATIONARY ANOMALY</div>` +
-                    `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">NON-COMMERCIAL VESSEL ANCHORED</div>` +
-                    `<div>Vessel: <b>${esc(v.name || v.mmsi)}</b></div>` +
-                    `<div>Chokepoint: ${esc(v.chokepoint)}</div>` +
-                    `<div>Distance: ${v.dist_km} km</div>` +
-                    `</div>`
-                 )
-                 .addTo(aisVesselLayer);
-            });
-
+            _renderSignalOverlays(overlays, targetCodesSet);
+            _renderPhysicalInfraOverlays(overlays);
+            _renderMilitaryTrackOverlays(overlays);
         }
 
         originContainer.innerHTML = originHtml;
@@ -3154,12 +3204,12 @@
                 iodaSubHtml = srcEntries.map(([ds, info]) => {
                     const lvl = info.level || 'normal';
                     const col = lvl === 'critical' ? '#ff4444' : lvl === 'warning' ? '#ffaa00' : '#555';
-                    return `<span style="color:${col};font-size:10px;">${ds}: ${lvl}</span>`;
+                    return `<span style="color:${col};font-size:10px;">${esc(ds)}: ${esc(lvl)}</span>`;
                 }).join(' · ');
             }
         }
         if (intel.ioda_source) {
-            const srcLabel = intel.ioda_source === 'ioda_proper' ? 'IODA' : intel.ioda_source === 'cf_fallback' ? 'CF Radar' : intel.ioda_source;
+            const srcLabel = intel.ioda_source === 'ioda_proper' ? 'IODA' : intel.ioda_source === 'cf_fallback' ? 'CF Radar' : esc(intel.ioda_source);
             iodaSubHtml = (iodaSubHtml ? iodaSubHtml + '<br>' : '') + `<span style="color:#888;font-size:10px;">src: ${srcLabel}</span>`;
         }
 
@@ -3167,21 +3217,21 @@
             .sort((a, b) => b.spike_factor - a.spike_factor)).slice(0, 5);
         const srcHtml = sortedSrc.length
             ? `<ul class="cip-sources-list">${sortedSrc.map(s =>
-                `<li><span>${s.name} [${s.code}]${s.is_state_asn ? ` <b style="color:#ff4444">${_t('cip.state_asn_badge')}</b>` : ''}</span>
+                `<li><span>${esc(s.name)} [${esc(s.code)}]${s.is_state_asn ? ` <b style="color:#ff4444">${_t('cip.state_asn_badge')}</b>` : ''}</span>
                 <span style="color:#ffaa00">${_t('cip.spike_label', {n: s.spike_factor})}</span></li>`
               ).join('')}</ul>`
             : `<span style="color:#555;font-size:12px;">${_t('cip.no_sources')}</span>`;
 
         const wx     = intel.weather || {};
         const wxTxt  = wx.condition
-            ? `${wx.condition} — ${wx.description || ''} (wind ${wx.wind_speed || 0}m/s)`
+            ? `${esc(wx.condition)} — ${esc(wx.description || '')} (wind ${esc(String(wx.wind_speed || 0))}m/s)`
             : '—';
         const wxSev  = wx.severity || 'NORMAL';
         const wxCol  = wxSev === 'SEVERE' ? 'cip-alert' : wxSev === 'MODERATE' ? 'cip-warn' : 'cip-ok';
 
         const air    = intel.airspace || {};
         const airTxt = air.status
-            ? `${air.airport || '?'}: ${_t('unit.aircraft', {n: air.count != null ? air.count : '?'})} (base ${air.baseline_avg != null ? air.baseline_avg : '?'})`
+            ? `${esc(air.airport || '?')}: ${_t('unit.aircraft', {n: air.count != null ? air.count : '?'})} (base ${air.baseline_avg != null ? air.baseline_avg : '?'})`
             : '—';
         const airCol = (air.status === 'CLOSURE' || air.status === 'ANOMALY') ? 'cip-alert'
                      : air.status === 'WEATHER_NOISE' ? 'cip-warn' : 'cip-ok';
@@ -3196,7 +3246,7 @@
         if (bgpR.prefix_trend) {
             const trendCol = bgpR.prefix_trend === 'WITHDRAWING' ? '#ff4444' : bgpR.prefix_trend === 'GROWING' ? '#00ff88' : '#888';
             const trendPct = bgpR.prefix_trend_pct != null ? ` (${bgpR.prefix_trend_pct > 0 ? '+' : ''}${bgpR.prefix_trend_pct.toFixed(1)}%)` : '';
-            bgpLbl += ` <span style="color:${trendCol};font-size:10px;">${bgpR.prefix_trend}${trendPct}</span>`;
+            bgpLbl += ` <span style="color:${trendCol};font-size:10px;">${esc(bgpR.prefix_trend)}${trendPct}</span>`;
         }
 
         const gdelt  = intel.gdelt || {};
@@ -3656,13 +3706,14 @@
                 const toggleTxt = s.enabled ? _t('sensor.toggle.enabled') : _t('sensor.toggle.disabled');
                 const pollMin   = Math.round(s.poll_interval_sec / 60);
                 return `<div class="sensor-row">
-                    <span class="sensor-name">${s.name}</span>
-                    <span class="sensor-domain-tag sensor-domain-${s.domain}">${s.domain}</span>
-                    <span class="sensor-health ${healthCls}">${s.health}</span>
+                    <span class="sensor-name">${esc(s.name)}</span>
+                    <span class="sensor-domain-tag sensor-domain-${esc(s.domain)}">${esc(s.domain)}</span>
+                    <span class="sensor-health ${healthCls}">${esc(s.health)}</span>
                     <span style="font-size:10px; color:#555;">${pollMin}min</span>
                     ${phaseNote}
                     <button class="sensor-toggle ${toggleCls}"
-                        onclick="toggleSensor('${s.name}', ${!s.enabled}, this)">
+                        data-sensor="${esc(s.name)}" data-enable="${!s.enabled}"
+                        onclick="toggleSensor(this.dataset.sensor, this.dataset.enable==='true', this)">
                         ${toggleTxt}
                     </button>
                 </div>`;
@@ -3783,17 +3834,19 @@
         const W = canvas.width, H = canvas.height;
         ctx.clearRect(0, 0, W, H);
 
-
-        const n    = threatHistory.length;
+        // Cap displayed entries: each bar = 2px min + 1px gap
+        const maxBars = Math.floor(W / 3);
+        const visible = threatHistory.length > maxBars ? threatHistory.slice(-maxBars) : threatHistory;
+        const n    = visible.length;
         const barW = Math.floor(W / n);
-        const gap  = Math.max(1, Math.round(barW * 0.3));
+        const gap  = 1;
         const bw   = barW - gap;
         const offset = Math.floor((W - barW * n) / 2); // center bars
         const threatColors = { 1: '#ff0000', 2: '#ff2a2a', 3: '#ffaa00', 4: '#ffff00', 5: '#66ff66' };
 
         // severity = 6-d so that Lv1 CRITICAL=5 (tallest), Lv5 NORMAL=1 (shortest)
         // Minimum bar height is 3px so NORMAL state is always visible
-        threatHistory.forEach(([, d], i) => {
+        visible.forEach(([, d], i) => {
             const x   = offset + i * barW;
             const severity = 6 - d;  // 1→5, 2→4, 3→3, 4→2, 5→1
             const barH = Math.max(3, Math.round((severity / 5) * H));
@@ -5517,7 +5570,7 @@
                 const key = Object.keys(colorMap).find(k => e.type.includes(k)) || '';
                 const color = colorMap[key] || '#0ff';
                 const icon = iconMap[key] || '◇';
-                const meta = e.meta ? `<span style="color:#444;margin-left:4px;">${typeof e.meta === 'string' ? e.meta : JSON.stringify(e.meta).slice(0,60)}</span>` : '';
+                const meta = e.meta ? `<span style="color:#444;margin-left:4px;">${typeof e.meta === 'string' ? esc(e.meta) : esc(JSON.stringify(e.meta).slice(0,60))}</span>` : '';
                 html += `<div class="hist-seq-item">` +
                        `<span style="color:${color};font-size:10px;">${icon}</span>` +
                        `<div><span style="color:#555;font-size:8px;">${timeStr}</span> ` +
@@ -6682,21 +6735,21 @@
     window._llmConfirm = function(itemId) {
         fetch('/api/intel/' + encodeURIComponent(itemId) + '/confirm', { method: 'POST' })
             .then(r => r.json())
-            .then(() => _fetchLlmIntel())
+            .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
             .catch(() => {});
     };
 
     window._llmReject = function(itemId) {
         fetch('/api/intel/' + encodeURIComponent(itemId) + '/reject', { method: 'POST' })
             .then(r => r.json())
-            .then(() => _fetchLlmIntel())
+            .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
             .catch(() => {});
     };
 
     window._llmRevert = function(itemId) {
         fetch('/api/intel/' + encodeURIComponent(itemId) + '/revert', { method: 'POST' })
             .then(r => r.json())
-            .then(() => _fetchLlmIntel())
+            .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
             .catch(() => {});
     };
 
@@ -7311,7 +7364,7 @@
                 html += `<td class="sc-td-num sc-td-contrib">${c.final_contribution.toFixed(2)}</td>`;
                 html += `<td class="sc-td-link">`;
                 if (s.evidence_url) {
-                    html += `<a href="${_escHtml(s.evidence_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${_escHtml(s.evidence_url)}">🔗</a>`;
+                    html += `<a href="${safeHref(s.evidence_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${esc(s.evidence_url)}">🔗</a>`;
                 }
                 html += `</td>`;
                 if (isFocused) {
@@ -7324,7 +7377,7 @@
                 if (s.value_display) html += `<div class="sc-val-display">${_t('scenario.detail.value')}: ${_escHtml(s.value_display)}</div>`;
                 if (s.llm_reasoning) html += `<div class="sc-llm-reason">${_t('scenario.detail.llm_reasoning')}: ${_escHtml(s.llm_reasoning)}</div>`;
                 if (s.observed_at) html += `<div class="sc-obs-time">${_t('scenario.detail.observed')}: ${new Date(s.observed_at * 1000).toLocaleString()}</div>`;
-                if (s.evidence_url) html += `<div class="sc-evidence"><a href="${_escHtml(s.evidence_url)}" target="_blank" rel="noopener">${_escHtml(s.evidence_url)}</a></div>`;
+                if (s.evidence_url) html += `<div class="sc-evidence"><a href="${safeHref(s.evidence_url)}" target="_blank" rel="noopener">${esc(s.evidence_url)}</a></div>`;
                 html += `</div></td></tr>`;
             }
             html += `</tbody></table>`;
@@ -7402,7 +7455,7 @@
         _scenarioDetailOpen = null;
         _scenarioWhatIfExcluded = new Set();
         document.getElementById('scenario-detail-panel').style.display = 'none';
-        fetchData(true);
+        fetchDDoSData(true);
     };
 
     // ── Scenario Manager (Phase 4 Admin) ───────────────────────────────

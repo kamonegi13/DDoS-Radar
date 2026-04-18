@@ -93,7 +93,7 @@ COUNTRY_REGIONS: dict[str, str] = {
     "CR": "Caribbean", "PA": "Caribbean", "NI": "Caribbean",
     # Oceania
     "AU": "Oceania", "NZ": "Oceania", "MU": "Oceania", "FJ": "Oceania",
-    "PG": "Oceania",
+    "PG": "Oceania", "GU": "Oceania",
 }
 ISR_HOTSPOTS: list = []
 ADVERSARY_NARRATIVE_SOURCES: dict = {}   # keyed by adversary country code (RU/CN/IR/KP/BY)
@@ -203,7 +203,7 @@ NARRATIVE_POLL_INTERVAL   = int(os.getenv("NARRATIVE_POLL_INTERVAL", "1800"))
 # C. Sequence Scorer
 SEQUENCE_WINDOW          = int(os.getenv("SEQUENCE_WINDOW", "86400"))
 SEQUENCE_FULL_BONUS      = int(os.getenv("SEQUENCE_FULL_BONUS", "3"))
-SEQUENCE_PARTIAL_BONUS   = int(os.getenv("SEQUENCE_PARTIAL_BONUS", "1"))
+SEQUENCE_PARTIAL_BONUS   = int(os.getenv("SEQUENCE_PARTIAL_BONUS", "2"))
 # D. Maritime / ISR
 AIS_DARK_GAP_THRESHOLD   = int(os.getenv("AIS_DARK_GAP_THRESHOLD", "3600"))
 AIS_ANCHOR_RADIUS_KM     = float(os.getenv("AIS_ANCHOR_RADIUS_KM", "50"))
@@ -275,7 +275,7 @@ LLM_HOST                  = os.getenv("LLM_HOST", "http://localhost:11434")
 LLM_MODEL                 = os.getenv("LLM_MODEL", "llama3.2:3b")
 LLM_TIMEOUT               = int(os.getenv("LLM_TIMEOUT", "30"))
 LLM_AUTO_CONFIRM_THRESHOLD = float(os.getenv("LLM_AUTO_CONFIRM_THRESHOLD", "0.80"))
-LLM_CONFIDENCE_MIN        = float(os.getenv("LLM_CONFIDENCE_MIN", "0.55"))
+LLM_CONFIDENCE_MIN        = float(os.getenv("LLM_CONFIDENCE_MIN", "0.35"))
 LLM_PENDING_AUTO_REJECT_HOURS  = float(os.getenv("LLM_PENDING_AUTO_REJECT_HOURS", "24"))
 INTEL_RETENTION_DAYS           = int(os.getenv("INTEL_RETENTION_DAYS", "7"))
 # How long a confirmed/auto_confirmed intel item contributes to the threat score.
