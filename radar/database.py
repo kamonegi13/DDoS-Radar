@@ -1144,6 +1144,57 @@ class RadarDB:
             "misses": rows["misses"] or 0,
         }
 
+    def focus_switch_detailed(self, days: int = 28) -> dict:
+        """Extended focus_switch_stats with delta distribution and per-scenario
+        breakdown for the C-lite evaluation endpoint."""
+        conn = self._get_conn()
+        cutoff = time.time() - days * 86400
+        rows = conn.execute(
+            "SELECT scenario_id, switched_at, lite_score, full_score, "
+            "  delta, is_miss "
+            "FROM focus_switch_log WHERE switched_at > ? "
+            "ORDER BY switched_at DESC",
+            (cutoff,),
+        ).fetchall()
+        total = len(rows)
+        misses = sum(1 for r in rows if r["is_miss"])
+        deltas = [r["delta"] for r in rows]
+        avg_delta = round(sum(deltas) / total, 2) if total else 0.0
+        max_delta = round(max(deltas), 2) if deltas else 0.0
+        miss_rate = round(misses / total, 3) if total else 0.0
+        # Per-scenario breakdown
+        by_scenario: dict[str, dict] = {}
+        for r in rows:
+            sid = r["scenario_id"]
+            if sid not in by_scenario:
+                by_scenario[sid] = {"switches": 0, "misses": 0,
+                                    "deltas": []}
+            by_scenario[sid]["switches"] += 1
+            by_scenario[sid]["deltas"].append(r["delta"])
+            if r["is_miss"]:
+                by_scenario[sid]["misses"] += 1
+        for v in by_scenario.values():
+            v["avg_delta"] = round(sum(v["deltas"]) / len(v["deltas"]), 2)
+            v["max_delta"] = round(max(v["deltas"]), 2)
+            del v["deltas"]
+        # Recommendation
+        if total < 3:
+            recommendation = "INSUFFICIENT_DATA"
+        elif miss_rate > 0.15:
+            recommendation = "CONSIDER_C_MEDIUM"
+        else:
+            recommendation = "LITE_SUFFICIENT"
+        return {
+            "period_days": days,
+            "total_switches": total,
+            "misses": misses,
+            "miss_rate": miss_rate,
+            "avg_delta": avg_delta,
+            "max_delta": max_delta,
+            "recommendation": recommendation,
+            "by_scenario": by_scenario,
+        }
+
     def intel_count_24h_by_scenario(self, scenario_participants: dict[str, set[str]]) -> dict[str, int]:
         """Count LLM intel items (confirmed/auto_confirmed) in the last 24h per scenario.
         scenario_participants: {scenario_id: set_of_participant_country_codes}"""
@@ -1222,6 +1273,18 @@ class RadarDB:
             except (json.JSONDecodeError, TypeError):
                 continue
         return n
+
+    def scenario_score_series(self, scenario_id: str,
+                              limit: int = 20) -> list[tuple[float, float]]:
+        """Return recent (observed_at, score) pairs for velocity computation.
+        Ordered oldest-first for regression input."""
+        rows = self._get_conn().execute(
+            "SELECT observed_at, score FROM scenario_tl_observation "
+            "WHERE scenario_id=? "
+            "ORDER BY observed_at DESC LIMIT ?",
+            (scenario_id, limit),
+        ).fetchall()
+        return [(r["observed_at"], r["score"]) for r in reversed(rows)]
 
     def scenario_score_at_or_before(self, scenario_id: str,
                                     target_ts: float) -> float | None:

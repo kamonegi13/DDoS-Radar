@@ -7259,6 +7259,46 @@
             html += `<span class="sc-domain-dot sc-domain-physical ${physActive}">P</span>`;
             html += `<span class="sc-domain-dot sc-domain-info ${infoActive}">I</span>`;
             html += `</span>`;
+
+            // Phase A: Velocity trend arrow
+            const vTrend = sc.velocity_trend || 'stable';
+            const vPtsH = sc.velocity_pts_per_hour;
+            const trendCls = vTrend === 'rising' ? 'sc-trend-rising'
+                           : vTrend === 'falling' ? 'sc-trend-falling'
+                           : 'sc-trend-stable';
+            const trendIcon = vTrend === 'rising' ? '▲'
+                            : vTrend === 'falling' ? '▼' : '—';
+            const trendTip = vPtsH != null
+                ? `${vPtsH > 0 ? '+' : ''}${vPtsH.toFixed(1)} pts/h`
+                : vTrend;
+            html += `<span class="sc-trend ${trendCls}" title="${_escHtml(trendTip)}">${trendIcon}</span>`;
+
+            // Phase B: Pattern warning badges (focused only)
+            if (isFocused && sc.patterns) {
+                if (sc.patterns.silent_divergence && sc.patterns.silent_divergence.detected) {
+                    html += `<span class="sc-pattern-badge sc-pattern-silent-div" `
+                         + `title="${_t('scenario.pattern.silent_div_tip')}">`
+                         + `${_t('scenario.pattern.silent_div')}</span>`;
+                }
+                if (sc.patterns.context_alignment && sc.patterns.context_alignment.score >= 3) {
+                    const axLabel = sc.patterns.context_alignment.label || 'HIGH';
+                    html += `<span class="sc-pattern-badge sc-pattern-ctx-align" `
+                         + `title="${_t('scenario.pattern.ctx_align_tip')}">`
+                         + `${_escHtml(axLabel)}</span>`;
+                }
+            }
+
+            // Phase A: ETA display (focused only)
+            if (isFocused && sc.eta_to_next_tl) {
+                const eta = sc.eta_to_next_tl;
+                const etaH = Math.round(eta.eta_sec / 3600);
+                const etaDir = eta.direction === 'escalating' ? '↑' : '↓';
+                const etaLabel = etaH >= 1
+                    ? `ETA ${etaDir}TL${eta.target_tl}: ~${etaH}h`
+                    : `ETA ${etaDir}TL${eta.target_tl}: <1h`;
+                html += `<span class="sc-eta" title="${_t('scenario.eta_tip')}">${_escHtml(etaLabel)}</span>`;
+            }
+
             if (!isFocused && sc.lite_bias_warning) {
                 html += `<span class="sc-lite-tag">${_t('scenario.badge.lite_warn')}</span>`;
             }
@@ -7856,4 +7896,54 @@
             body: JSON.stringify({ enabled })
         });
         loadScenarioManager();
+    };
+
+    // Phase D: C-lite evaluation panel
+    window.loadCliteEvaluation = async function() {
+        const panel = document.getElementById('clite-eval-panel');
+        if (!panel) return;
+        panel.innerHTML = '<div style="color:#666;font-size:10px;">Loading...</div>';
+        try {
+            const resp = await fetch('/api/analytics/clite_evaluation?days=28');
+            if (!resp.ok) { panel.innerHTML = `<div style="color:red;">Error ${resp.status}</div>`; return; }
+            const d = await resp.json();
+            const missRatePct = (d.miss_rate * 100).toFixed(1);
+            const recCls = d.recommendation === 'CONSIDER_C_MEDIUM'
+                ? 'clite-rec-warn' : 'clite-rec-ok';
+            let html = '<div class="clite-eval">';
+            html += `<div class="clite-eval-title">${_t('scenario.clite.title')}</div>`;
+            html += '<div class="clite-eval-stats">';
+            html += `<div class="clite-stat"><span class="clite-stat-value">${d.total_switches}</span>`;
+            html += `<span class="clite-stat-label">${_t('scenario.clite.switches')}</span></div>`;
+            html += `<div class="clite-stat"><span class="clite-stat-value">${d.misses}</span>`;
+            html += `<span class="clite-stat-label">${_t('scenario.clite.misses')}</span></div>`;
+            html += `<div class="clite-stat"><span class="clite-stat-value">${missRatePct}%</span>`;
+            html += `<span class="clite-stat-label">${_t('scenario.clite.miss_rate')}</span></div>`;
+            html += `<div class="clite-stat"><span class="clite-stat-value">${d.avg_delta.toFixed(1)}</span>`;
+            html += `<span class="clite-stat-label">${_t('scenario.clite.avg_delta')}</span></div>`;
+            html += `<div class="clite-stat"><span class="clite-stat-value">${d.max_delta.toFixed(1)}</span>`;
+            html += `<span class="clite-stat-label">${_t('scenario.clite.max_delta')}</span></div>`;
+            html += '</div>';
+            html += `<div class="clite-recommendation ${recCls}">`;
+            html += `${_t('scenario.clite.rec_' + d.recommendation.toLowerCase())}</div>`;
+            // Per-scenario breakdown
+            const byScen = d.by_scenario || {};
+            const sids = Object.keys(byScen);
+            if (sids.length > 0) {
+                html += `<div class="clite-breakdown-title">${_t('scenario.clite.by_scenario')}</div>`;
+                html += '<table class="clite-breakdown-table"><thead><tr>';
+                html += `<th>${_t('scenario.clite.scenario')}</th><th>${_t('scenario.clite.switches')}</th>`;
+                html += `<th>${_t('scenario.clite.misses')}</th><th>${_t('scenario.clite.avg_delta')}</th></tr></thead><tbody>`;
+                for (const sid of sids) {
+                    const s = byScen[sid];
+                    html += `<tr><td>${_escHtml(sid)}</td><td>${s.switches}</td>`;
+                    html += `<td>${s.misses}</td><td>${s.avg_delta.toFixed(1)}</td></tr>`;
+                }
+                html += '</tbody></table>';
+            }
+            html += '</div>';
+            panel.innerHTML = html;
+        } catch (e) {
+            panel.innerHTML = `<div style="color:red;">${_escHtml(e.message)}</div>`;
+        }
     };

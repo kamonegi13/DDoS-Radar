@@ -1605,6 +1605,135 @@
     margin-left: 4px;
 }
 
+/* Phase A: Velocity trend arrow */
+.sc-trend {
+    font-size: 9px;
+    font-weight: 700;
+    margin-left: 3px;
+    letter-spacing: 0;
+}
+.sc-trend-rising  { color: #ff4444; }
+.sc-trend-falling { color: #44cc66; }
+.sc-trend-stable  { color: #666; }
+
+/* Phase A: ETA display */
+.sc-eta {
+    font-size: 7px;
+    color: #99aacc;
+    margin-left: 4px;
+    white-space: nowrap;
+    font-family: var(--font-mono, monospace);
+}
+
+/* Phase B: Pattern warning badges */
+.sc-pattern-badge {
+    font-size: 7px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+.sc-pattern-silent-div {
+    background: rgba(255, 100, 0, 0.2);
+    color: #ff8800;
+    border: 1px solid rgba(255, 100, 0, 0.4);
+    animation: sc-pattern-pulse 1.8s ease-in-out infinite;
+}
+.sc-pattern-ctx-align {
+    background: rgba(255, 0, 60, 0.2);
+    color: #ff3366;
+    border: 1px solid rgba(255, 0, 60, 0.4);
+}
+@keyframes sc-pattern-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+/* ── C-lite Evaluation Panel (Phase D) ──────────────────────────────── */
+.clite-eval {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 12px;
+}
+.clite-eval-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #00ffff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+}
+.clite-eval-stats {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.clite-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 55px;
+}
+.clite-stat-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: #eee;
+    font-family: var(--font-mono, monospace);
+}
+.clite-stat-label {
+    font-size: 8px;
+    color: #777;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.clite-recommendation {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 6px 10px;
+    border-radius: 4px;
+    text-align: center;
+    margin-bottom: 10px;
+}
+.clite-rec-ok {
+    background: rgba(0, 255, 136, 0.1);
+    color: #00ff88;
+    border: 1px solid rgba(0, 255, 136, 0.3);
+}
+.clite-rec-warn {
+    background: rgba(255, 170, 0, 0.1);
+    color: #ffaa00;
+    border: 1px solid rgba(255, 170, 0, 0.3);
+}
+.clite-breakdown-title {
+    font-size: 9px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+.clite-breakdown-table {
+    width: 100%;
+    font-size: 9px;
+    border-collapse: collapse;
+}
+.clite-breakdown-table th {
+    color: #888;
+    text-align: left;
+    padding: 3px 6px;
+    border-bottom: 1px solid #333;
+}
+.clite-breakdown-table td {
+    color: #ccc;
+    padding: 3px 6px;
+    border-bottom: 1px solid #222;
+    font-family: var(--font-mono, monospace);
+}
+
 /* ── Scenario Manager (Admin tab) ───────────────────────────────────── */
 #scenario-mgr-list {
     display: flex;

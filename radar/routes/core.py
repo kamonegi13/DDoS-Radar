@@ -30,7 +30,10 @@ from radar.scoring import (
     compute_spatial_context, compute_target_context,
 )
 from radar.ws import emit_threat_update, emit_ambush_alert, emit_sequence_event
-from radar.notifications import notify_threat_level_change, notify_sequence_complete
+from radar.notifications import (
+    notify_threat_level_change, notify_sequence_complete,
+    notify_scenario_tl_change,
+)
 from radar.sensors.checkhost import CHECKHOST_NODES
 from radar.sensors.telegram import TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD, TelegramMirrorSensor
 import radar.routes as _routes
@@ -44,6 +47,9 @@ from radar.scenarios import (
 log = logging.getLogger("radar")
 
 _prev_focused_id: str | None = None
+# Phase C: what-changed tracking — guarded by _global_cache_lock
+_prev_scenario_domains: dict[str, dict[str, float]] = {}
+_prev_scenario_signals: dict[str, set[str]] = {}
 
 _FOCUSED_ONLY_SENSOR_NAMES = frozenset({
     "cloudflare_radar", "ioda_bgp", "ripe_bgp", "openweather",
@@ -1438,6 +1444,10 @@ def get_threat_data():
             from radar.scoring import (
                 rationale_to_signal, compute_scenario_score, Signal,
                 derive_tl, apply_hysteresis_to_tl,
+                compute_scenario_velocity, compute_scenario_acceleration,
+                compute_velocity_bonus,
+                SILENT_DIVERGENCE_BONUS, CONTEXT_ALIGNMENT_BONUS,
+                CONTEXT_ALIGNMENT_THRESHOLD,
             )
 
             _signals: list[Signal] = []
@@ -1509,17 +1519,50 @@ def get_threat_data():
                 )
 
                 if _is_focused:
-                    # Fold sequence + temporal bonuses into focused scenario
-                    # score, then re-derive TL. Sequence bonus is scoped to
-                    # the scenario's core_country; temporal bonus is
-                    # cross-theater coherence (scenario-agnostic).
-                    _scenario_bonus = 0
+                    # Fold sequence + temporal + velocity + pattern bonuses
+                    # into focused scenario score, then re-derive TL.
+                    _scenario_bonus = 0.0
                     if _sc.core_country:
                         _sc_seq_b, _, _ = compute_sequence_bonus(_sc.core_country)
                         _scenario_bonus += _sc_seq_b
                     _scenario_bonus += temporal_bonus
-                    if _scenario_bonus > 0:
+
+                    # Phase A: Velocity & acceleration bonuses from score trend
+                    _sc_series = _db.scenario_score_series(_sc.id, limit=20)
+                    _sc_velocity = compute_scenario_velocity(_sc_series)
+                    _sc_acceleration = compute_scenario_acceleration(_sc_series)
+                    _vel_bonus, _acc_bonus = compute_velocity_bonus(
+                        _sc_velocity, _sc_acceleration)
+                    _scenario_bonus += _vel_bonus + _acc_bonus
+
+                    # Phase B: Silent Divergence — cyber+physical active,
+                    # info silent. Most dangerous pre-conflict indicator.
+                    _sc_silent_div = False
+                    _sc_silent_div_conf = "NONE"
+                    if (_state.domains.get("cyber", 0) >= 1.0
+                            and _state.domains.get("physical", 0) >= 1.0
+                            and _state.domains.get("info", 0) == 0):
+                        _sc_silent_div = True
+                        _cp_total = (_state.domains["cyber"]
+                                     + _state.domains["physical"])
+                        _sc_silent_div_conf = (
+                            "HIGH" if _cp_total >= 6 else
+                            "MEDIUM" if _cp_total >= 3 else "LOW"
+                        )
+                        _scenario_bonus += SILENT_DIVERGENCE_BONUS
+
+                    # Phase B: Context Alignment — when 3+ axes converge,
+                    # the signal pattern is too coherent to be noise.
+                    _sc_ctx_bonus = 0.0
+                    _ctx_score = (context_alignment.get("alignment_score", 0)
+                                  if context_alignment else 0)
+                    if _ctx_score >= CONTEXT_ALIGNMENT_THRESHOLD:
+                        _sc_ctx_bonus = CONTEXT_ALIGNMENT_BONUS
+                        _scenario_bonus += _sc_ctx_bonus
+
+                    if _scenario_bonus != 0:
                         _state.score += _scenario_bonus
+                        _state.score = max(_state.score, 0)  # floor at 0
                         _active_doms = [d for d, s in _state.domains.items() if s > 0]
                         _state.tl = derive_tl(
                             _state.score, _active_doms,
@@ -1542,20 +1585,64 @@ def get_threat_data():
                     )
                     if "indicators" in _sd:
                         _sd["indicators"]["llm_intel_24h"] = _intel_24h.get(_sc.id, 0)
-                    # B1: background score delta over last 1h, for surfacing
-                    # rising background scenarios in the HUD exception bar.
-                    try:
-                        _prev_bg = _db.scenario_score_at_or_before(
-                            _sc.id, current_time - 3600)
-                        _sd["score_delta_1h"] = (
-                            round(_state.score - _prev_bg, 2)
-                            if _prev_bg is not None else None
-                        )
-                    except Exception:
-                        _sd["score_delta_1h"] = None
+                    # B1: background score deltas over multiple windows
+                    for _dkey, _dsec in (("score_delta_1h", 3600),
+                                         ("score_delta_6h", 21600),
+                                         ("score_delta_24h", 86400)):
+                        try:
+                            _prev_s = _db.scenario_score_at_or_before(
+                                _sc.id, current_time - _dsec)
+                            _sd[_dkey] = (round(_state.score - _prev_s, 2)
+                                          if _prev_s is not None else None)
+                        except Exception:
+                            _sd[_dkey] = None
+                    # Background scenario velocity for trend display
+                    _bg_series = _db.scenario_score_series(_sc.id, limit=10)
+                    _bg_vel = compute_scenario_velocity(_bg_series)
+                    _sd["velocity"] = round(_bg_vel, 6)
+                    _vel_h = _bg_vel * 3600
+                    _sd["velocity_trend"] = (
+                        "rising" if _vel_h > 0.1 else
+                        "falling" if _vel_h < -0.1 else "stable"
+                    )
                 else:
                     _sd["tl_raw"] = _focused_tl_raw
                     _sd["tl_held"] = _tl_held_focused
+
+                    # Phase A: Scenario velocity, acceleration, trend, ETA
+                    _sd["velocity"] = round(_sc_velocity, 6)
+                    _sd["acceleration"] = round(_sc_acceleration, 8)
+                    _sd["velocity_bonus"] = _vel_bonus
+                    _sd["acceleration_bonus"] = _acc_bonus
+                    _vel_pts_h = _sc_velocity * 3600
+                    _sd["velocity_trend"] = (
+                        "rising" if _vel_pts_h > 0.1 else
+                        "falling" if _vel_pts_h < -0.1 else "stable"
+                    )
+                    _sd["velocity_pts_per_hour"] = round(_vel_pts_h, 3)
+                    # ETA to next TL boundary
+                    _sd["eta_to_next_tl"] = (
+                        _routes.engine.compute_eta_to_next_tl(
+                            tl_proximity, _sc_velocity)
+                        if tl_proximity else None
+                    )
+
+                    # Phase B: Pattern detection results
+                    _sd["patterns"] = {
+                        "silent_divergence": {
+                            "detected": _sc_silent_div,
+                            "confidence": _sc_silent_div_conf,
+                            "bonus": SILENT_DIVERGENCE_BONUS if _sc_silent_div else 0,
+                        },
+                        "context_alignment": {
+                            "score": _ctx_score,
+                            "label": (context_alignment.get("label", "LOW")
+                                      if context_alignment else "LOW"),
+                            "bonus": _sc_ctx_bonus,
+                            "axes": (context_alignment.get("axes", {})
+                                     if context_alignment else {}),
+                        },
+                    }
 
                     # A1: TL duration — seconds at current TL since last transition.
                     try:
@@ -1577,8 +1664,6 @@ def get_threat_data():
                         _sd["intel_new_1h"] = 0
 
                     # A5: Adversary vs Target contribution split per domain.
-                    # ADVERSARY + PROXY_FRONT are attacker-side; everything else
-                    # is target-side (allies, forward bases, deterrence, etc.).
                     _adv_roles = {"adversary", "proxy_front"}
                     _split = {
                         "cyber":    {"adversary": 0.0, "target": 0.0},
@@ -2051,8 +2136,37 @@ def get_threat_data():
         _new_cache["scenarios"] = _scenario_results
         _new_cache["scenario_history_starts_at"] = _db.scenario_history_start()
 
+        # ── Phase C: What-changed diff (under lock with cache swap) ────────
+        global _prev_scenario_domains, _prev_scenario_signals
+        _what_changed = None
         with _global_cache_lock:
             st.global_cache = _new_cache
+            if _focused_id and _focused_id in _scenario_results:
+                _cur_doms = _scenario_results[_focused_id].get("domains", {})
+                _cur_sigs = set()
+                for _c in (_scenario_results[_focused_id]
+                           .get("contributions", [])):
+                    if isinstance(_c, dict):
+                        _s = _c.get("signal", {})
+                        _cur_sigs.add(_s.get("sensor", ""))
+                _prev_doms = _prev_scenario_domains.get(_focused_id, {})
+                _prev_sigs = _prev_scenario_signals.get(_focused_id, set())
+                if _prev_doms:
+                    _dom_deltas = {
+                        d: round(_cur_doms.get(d, 0) - _prev_doms.get(d, 0), 2)
+                        for d in ("cyber", "physical", "info")
+                        if abs(_cur_doms.get(d, 0) - _prev_doms.get(d, 0)) > 0.01
+                    }
+                    _new_sigs = sorted(_cur_sigs - _prev_sigs - {""})
+                    _lost_sigs = sorted(_prev_sigs - _cur_sigs - {""})
+                    if _dom_deltas or _new_sigs or _lost_sigs:
+                        _what_changed = {
+                            "domain_deltas": _dom_deltas,
+                            "new_signals": _new_sigs[:5],
+                            "removed_signals": _lost_sigs[:5],
+                        }
+                _prev_scenario_domains[_focused_id] = dict(_cur_doms)
+                _prev_scenario_signals[_focused_id] = _cur_sigs
 
         _db.alert_append({
             "ts": current_time, "threat_level": threat_level, "threat_raw": tl_raw, "threat_held": tl_held, "score": total_score, "score_with_bonus": score_with_bonus,
@@ -2083,6 +2197,15 @@ def get_threat_data():
         emit_threat_update(core_theater, _new_cache["strategic"])
         if threat_level != prev_threat_level:
             notify_threat_level_change(core_theater, prev_threat_level, threat_level, score_with_bonus)
+            # Phase C: scenario-aware notification with what-changed
+            if _focused_id:
+                _sc_name = _scenario_results.get(
+                    _focused_id, {}).get("name_en", _focused_id)
+                notify_scenario_tl_change(
+                    _focused_id, _sc_name,
+                    prev_threat_level, threat_level,
+                    score_with_bonus, _what_changed,
+                )
         if is_ambush:
             emit_ambush_alert(core_theater, {
                 "z_score": ambush_z, "acceleration": acceleration_val,

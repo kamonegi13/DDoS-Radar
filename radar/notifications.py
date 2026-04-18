@@ -180,6 +180,46 @@ def notify_threat_level_change(theater: str, old_level: int, new_level: int,
               color_slack=color, color_teams=color.replace("#", ""))
 
 
+def notify_scenario_tl_change(scenario_id: str, scenario_name: str,
+                               old_level: int, new_level: int,
+                               score: float,
+                               what_changed: dict | None = None):
+    """Notify when a scenario's threat level changes, with what-changed diff."""
+    alert_key = f"sc_tl_change:{scenario_id}"
+    if not _should_send(alert_key):
+        return
+
+    direction = "ESCALATED" if new_level < old_level else "DE-ESCALATED"
+    color = "#ff0000" if new_level <= 2 else "#ff9900" if new_level <= 3 else "#36a64f"
+    title = f"Scenario {direction}: {scenario_name}"
+    text = (f"Scenario **{scenario_name}** (`{scenario_id}`): "
+            f"TL{old_level} → TL{new_level} (score: {score:.1f})")
+
+    # Append what-changed summary
+    if what_changed:
+        deltas = what_changed.get("domain_deltas", {})
+        if deltas:
+            parts = [f"{d.upper()}: {v:+.1f}" for d, v in deltas.items()]
+            text += f"\nDomain changes: {', '.join(parts)}"
+        new_sigs = what_changed.get("new_signals", [])
+        if new_sigs:
+            text += f"\nNew signals: {', '.join(new_sigs)}"
+        lost_sigs = what_changed.get("removed_signals", [])
+        if lost_sigs:
+            text += f"\nRemoved: {', '.join(lost_sigs)}"
+
+    data = {
+        "scenario_id": scenario_id, "scenario_name": scenario_name,
+        "old_level": old_level, "new_level": new_level,
+        "score": score, "direction": direction,
+        "what_changed": what_changed,
+    }
+
+    log.info(f"[Notify] {title} — {text}")
+    _dispatch("scenario_tl_change", title, text, data,
+              color_slack=color, color_teams=color.replace("#", ""))
+
+
 def notify_ambush_alert(theater: str, alert_data: dict):
     """Notify on ambush pattern detection."""
     alert_key = f"ambush:{theater}"

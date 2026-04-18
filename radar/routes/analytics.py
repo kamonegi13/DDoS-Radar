@@ -981,6 +981,17 @@ def api_focus_switch_stats():
     return jsonify(_db.focus_switch_stats(days=days))
 
 
+@bp.route("/api/analytics/clite_evaluation", methods=["GET"])
+def api_clite_evaluation():
+    """Comprehensive C-lite vs C-medium evaluation dashboard.
+
+    Returns miss rate, delta distribution, per-scenario breakdown, and a
+    recommendation (LITE_SUFFICIENT / CONSIDER_C_MEDIUM / INSUFFICIENT_DATA).
+    """
+    days = min(max(int(request.args.get("days", "28")), 1), 365)
+    return jsonify(_db.focus_switch_detailed(days=days))
+
+
 @bp.route("/api/scenario/<scenario_id>/timeseries", methods=["GET"])
 def api_scenario_timeseries(scenario_id):
     """Return TL observation timeseries for a scenario (ADR-010)."""

@@ -911,6 +911,96 @@ class ScenarioState:
         return d
 
 
+# ── Scenario velocity & acceleration (Phase A: temporal analysis) ──────────
+
+# Velocity bonus caps — prevents feedback loops while allowing trend influence.
+# ±1.5 pt is ~17% of the TL3→TL2 threshold gap (6pt), meaningful but not dominant.
+VELOCITY_BONUS_CAP = 1.5
+ACCELERATION_BONUS_MAX = 0.5
+# Minimum observations to compute meaningful velocity
+VELOCITY_MIN_OBSERVATIONS = 4
+
+
+def _linear_regression_slope(xs: list[float], ys: list[float]) -> float:
+    """Least-squares slope (shared with engine.py)."""
+    n = len(xs)
+    if n < 2:
+        return 0.0
+    sx = sum(xs)
+    sy = sum(ys)
+    sxy = sum(x * y for x, y in zip(xs, ys))
+    sxx = sum(x * x for x in xs)
+    denom = n * sxx - sx * sx
+    return (n * sxy - sx * sy) / denom if denom != 0 else 0.0
+
+
+def compute_scenario_velocity(score_series: list[tuple[float, float]]) -> float:
+    """Compute scenario score velocity (pts/sec) from recent observations.
+
+    score_series: [(observed_at, score), ...] ordered oldest-first.
+    Returns smoothed velocity via linear regression slope.
+    """
+    if len(score_series) < VELOCITY_MIN_OBSERVATIONS:
+        return 0.0
+    t0 = score_series[0][0]
+    xs = [p[0] - t0 for p in score_series]
+    ys = [p[1] for p in score_series]
+    return round(_linear_regression_slope(xs, ys), 6)
+
+
+def compute_scenario_acceleration(score_series: list[tuple[float, float]]) -> float:
+    """Compute scenario score acceleration (pts/sec²) from consecutive
+    velocity estimates over the observation window."""
+    if len(score_series) < 8:
+        return 0.0
+    # Build velocity series from consecutive pairs
+    velocities: list[tuple[float, float]] = []
+    for i in range(1, len(score_series)):
+        dt = score_series[i][0] - score_series[i - 1][0]
+        if dt > 0:
+            v = (score_series[i][1] - score_series[i - 1][1]) / dt
+            velocities.append((score_series[i][0], v))
+    if len(velocities) < 2:
+        return 0.0
+    t0 = velocities[0][0]
+    xs = [v[0] - t0 for v in velocities]
+    ys = [v[1] for v in velocities]
+    return round(_linear_regression_slope(xs, ys), 8)
+
+
+def compute_velocity_bonus(velocity: float, acceleration: float) -> tuple[float, float]:
+    """Compute scoring bonuses from scenario velocity and acceleration.
+
+    Returns (velocity_bonus, acceleration_bonus).
+    velocity_bonus: capped at ±VELOCITY_BONUS_CAP. Converts pts/sec to pts/hour
+        and scales by 0.5 to produce a meaningful but bounded bonus.
+    acceleration_bonus: 0.5 when rapid positive acceleration detected (ambush
+        pattern at scenario level).
+    """
+    vel_bonus = 0.0
+    if abs(velocity) > 0.0001:
+        vel_pts_per_hour = velocity * 3600
+        vel_bonus = max(-VELOCITY_BONUS_CAP,
+                        min(vel_pts_per_hour * 0.5, VELOCITY_BONUS_CAP))
+        vel_bonus = round(vel_bonus, 2)
+
+    acc_bonus = 0.0
+    if acceleration > 0:
+        acc_pts_per_hour2 = acceleration * 3600 * 3600
+        if acc_pts_per_hour2 > 0.1:
+            acc_bonus = min(round(acc_pts_per_hour2 * 0.3, 2),
+                            ACCELERATION_BONUS_MAX)
+
+    return vel_bonus, acc_bonus
+
+
+# Silent Divergence and Context Alignment bonuses (Phase B: pattern detection)
+SILENT_DIVERGENCE_BONUS = 0.5
+CONTEXT_ALIGNMENT_BONUS = 0.5
+# Minimum context alignment score (out of 4 axes) to award bonus
+CONTEXT_ALIGNMENT_THRESHOLD = 3
+
+
 def compute_convergence_bonus_scenario(active_domains: list[str]) -> float:
     n = len(active_domains)
     if n >= 3:

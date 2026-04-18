@@ -936,6 +936,11 @@
                     </div>
                     <div id="scenario-mgr-list"></div>
                     <div id="scenario-mgr-editor" style="display:none;"></div>
+                    <!-- Phase D: C-lite evaluation panel -->
+                    <div style="margin-top:16px;border-top:1px solid #333;padding-top:12px;">
+                        <button class="btn-tactical" onclick="loadCliteEvaluation()" data-i18n="scenario.clite.load_btn">Load C-lite Evaluation</button>
+                        <div id="clite-eval-panel" style="margin-top:8px;"></div>
+                    </div>
                 </div>
             </div><!-- /tab-scenarios -->
         </div><!-- /modal-content-panel -->
@@ -2729,6 +2734,14 @@
             <li><b>Scenario cards</b> appear as a horizontal strip below the HUD. Each registered scenario has a card showing its name, score, TL (for focused), and domain activity dots (C/P/I).</li>
             <li><b>Focused scenario</b> (cyan border, FOCUSED badge): receives signals from all 33 sensors — full scoring fidelity. TL1–5 threat level is computed.</li>
             <li><b>Background scenarios</b> (LITE badge): scored using LLM intel and global-only signals. TL is not computed. A <b>BIAS</b> tag is shown when the scenario is affected by C-lite sampling bias (ADR-008).</li>
+            <li><b>Velocity trend arrow</b>: Each card displays a directional arrow — <span style="color:#ff4444;">▲ rising</span> (score increasing over recent observations), <span style="color:#66ff66;">▼ falling</span>, or <span style="color:#888;">— stable</span>. Velocity is computed via linear regression over the last 20 scenario_tl_observations. The velocity bonus (capped at ±1.5 pts) and acceleration bonus (0.5 max) are applied to the scenario score before TL derivation.</li>
+            <li><b>Pattern warning badges</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span style="color:#ff4444;font-weight:bold;">SILENT DIV</span> (pulsing) — Silent Divergence detected: cyber ≥ 1.0 AND physical ≥ 1.0 AND information = 0. This is a classic pre-conflict indicator — kinetic and cyber preparations are visible but media/information channels are silent, suggesting deliberate suppression. Adds +0.5 to scenario score.</li>
+                    <li><span style="color:#ffaa00;font-weight:bold;">CTX ALIGN</span> — Context Alignment: 3+ of 4 axes (temporal, spatial, target, direction) are converging, meaning signals are correlated rather than coincidental. Adds +0.5 to scenario score.</li>
+                </ul>
+            </li>
+            <li><b>ETA indicator</b> (focused only): When velocity is positive, shows estimated time to reach the next TL threshold (e.g., "ETA 2.3h"). Helps analysts anticipate escalation timing.</li>
             <li><b>Click</b> a scenario card to open the <b>Scenario Detail Panel</b> (below the scenario bar). To switch focus, use the focus-switch action inside the panel or the scenario focus selector.</li>
         </ul>
 
@@ -2762,6 +2775,14 @@
             <li><b>シナリオカード</b>はHUD下部に水平バーとして表示されます。登録済みの各シナリオが名称、スコア、TL（フォーカス時）、ドメイン活動ドット(C/P/I)と共にカード表示されます。</li>
             <li><b>フォーカスシナリオ</b>（シアンの枠、FOCUSEDバッジ）: 全33センサーからの信号を受信し、完全なスコアリング精度でTL1–5の脅威レベルが算出されます。</li>
             <li><b>バックグラウンドシナリオ</b>（LITEバッジ）: LLMインテルとグローバル信号のみでスコアリングされます。TLは算出されません。C-liteサンプリングバイアスの影響を受けている場合は<b>BIAS</b>タグが表示されます（ADR-008）。</li>
+            <li><b>速度トレンド矢印</b>: 各カードに方向矢印が表示されます — <span style="color:#ff4444;">▲ 上昇</span>（直近の観測でスコアが増加中）、<span style="color:#66ff66;">▼ 下降</span>、<span style="color:#888;">— 安定</span>。速度は過去20回の scenario_tl_observation に対する線形回帰で算出されます。速度ボーナス（±1.5pt上限）と加速度ボーナス（0.5上限）がTL導出前にシナリオスコアに加算されます。</li>
+            <li><b>パターン警告バッジ</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span style="color:#ff4444;font-weight:bold;">サイレント乖離</span>（点滅表示）— サイレント乖離検出: サイバー ≥ 1.0 かつ 物理 ≥ 1.0 かつ 情報 = 0。典型的な開戦前兆パターン — 動的・サイバー面の準備は可視化されているが、メディア/情報チャネルは沈黙しており、意図的な抑制を示唆。スコアに+0.5加算。</li>
+                    <li><span style="color:#ffaa00;font-weight:bold;">CTX ALIGN</span> — コンテキスト整合: 4軸（時間・空間・対象・方向）中3軸以上が収斂。信号が偶然ではなく相関していることを示す。スコアに+0.5加算。</li>
+                </ul>
+            </li>
+            <li><b>ETA表示</b>（フォーカスシナリオのみ）: 速度が正の場合、次のTL閾値到達までの推定時間を表示（例: "ETA 2.3h"）。エスカレーションのタイミング予測に活用。</li>
             <li><b>クリック</b>でシナリオカードを開き、<b>シナリオ詳細パネル</b>（シナリオバー下部）が表示されます。フォーカスを切り替えるには、パネル内のフォーカス切替アクションまたはシナリオフォーカスセレクタを使用します。</li>
         </ul>
 
@@ -2852,6 +2873,8 @@
             <li><span class="code-block">GET /api/daily_summary?theater=TW&amp;days=90</span> — <span style="color:#66ffcc;">[CAC]</span> Daily summary snapshots (avg/max score, min/max TL, fired sensors, domain scores, context alignment).</li>
             <li><span class="code-block">GET /api/forecast_accuracy?theater=TW</span> — <span style="color:#66ffcc;">[CAC Phase D]</span> Forecast accuracy summary (total forecasts, resolved, average accuracy).</li>
             <li><span class="code-block">GET /api/cooccurrence?theater=TW</span> — <span style="color:#66ffcc;">[CAC Phase D]</span> Co-occurrence statistics for sensor pairs (co_count, solo counts, used for sensitivity boost).</li>
+            <li><span class="code-block">GET /api/analytics/clite_evaluation?days=28</span> — <span style="color:#66ffcc;">[Scenario]</span> C-lite mode evaluation. Aggregates focus_switch_log data to determine whether LITE mode is sufficient or C-MEDIUM upgrade should be considered. Returns total_switches, misses (background TL rise missed), miss_rate, avg_delta, max_delta, recommendation (LITE_SUFFICIENT / CONSIDER_C_MEDIUM / INSUFFICIENT_DATA), and per-scenario breakdown. Miss rate &gt; 15% triggers CONSIDER_C_MEDIUM recommendation.</li>
+            <li><span class="code-block">GET /api/analytics/focus_switches?days=28</span> — <span style="color:#66ffcc;">[Scenario]</span> Focus switch history for C-medium migration evaluation (Section 9.3.1).</li>
         </ul>
         <p><b>Response Field Additions</b> <span style="color:#66ffcc;">[Engine Enhancement]</span></p>
         <ul style="font-size: 11px; line-height: 1.8;">
@@ -2861,6 +2884,22 @@
             <li><span class="code-block">analytics.tl_proximity.distance_up</span> — Points needed to escalate to next TL (null if at TL1).</li>
             <li><span class="code-block">analytics.tl_proximity.distance_down</span> — Points to drop below current TL threshold (null if at TL5).</li>
             <li><span class="code-block">analytics.tl_proximity.proximity_label</span> — <span class="code-block">NEAR_ESCALATION</span> / <span class="code-block">NEAR_DE_ESCALATION</span> / <span class="code-block">STABLE</span></li>
+        </ul>
+        <p><b>Scenario Response Field Additions</b> <span style="color:#66ffcc;">[Scenario Scoring Enhancement]</span></p>
+        <ul style="font-size: 11px; line-height: 1.8;">
+            <li><span class="code-block">focused_scenario.velocity</span> — Linear regression slope over recent observations (pts/observation). Positive = escalating, negative = de-escalating.</li>
+            <li><span class="code-block">focused_scenario.acceleration</span> — Second derivative of velocity. Non-zero values indicate changing rate of escalation.</li>
+            <li><span class="code-block">focused_scenario.velocity_bonus</span> — Score bonus applied from velocity (capped ±1.5).</li>
+            <li><span class="code-block">focused_scenario.acceleration_bonus</span> — Score bonus applied from acceleration (max 0.5).</li>
+            <li><span class="code-block">focused_scenario.velocity_trend</span> — <span class="code-block">rising</span> / <span class="code-block">falling</span> / <span class="code-block">stable</span></li>
+            <li><span class="code-block">focused_scenario.velocity_pts_per_hour</span> — Velocity converted to points per hour for human interpretation.</li>
+            <li><span class="code-block">focused_scenario.eta_to_next_tl</span> — Estimated hours to reach next TL threshold at current velocity (null if stable/falling).</li>
+            <li><span class="code-block">focused_scenario.patterns.silent_divergence</span> — <span class="code-block">{detected: bool, bonus: float, cyber: float, physical: float, info: float}</span>. Silent Divergence: cyber+physical active, info silent — classic pre-conflict indicator.</li>
+            <li><span class="code-block">focused_scenario.patterns.context_alignment</span> — <span class="code-block">{detected: bool, bonus: float, axes_aligned: int, threshold: int}</span>. Context Alignment: 3+ axes converging.</li>
+            <li><span class="code-block">background_scenarios[].velocity</span> — Same as focused, computed from observation history.</li>
+            <li><span class="code-block">background_scenarios[].velocity_trend</span> — <span class="code-block">rising</span> / <span class="code-block">falling</span> / <span class="code-block">stable</span></li>
+            <li><span class="code-block">background_scenarios[].score_delta_6h</span> — Score change over the last 6 hours.</li>
+            <li><span class="code-block">background_scenarios[].score_delta_24h</span> — Score change over the last 24 hours.</li>
         </ul>
         </div>
         <div class="guide-lang-ja" style="display:none;">
@@ -2924,6 +2963,8 @@
             <li><span class="code-block">GET /api/daily_summary?theater=TW&amp;days=90</span> — <span style="color:#66ffcc;">[CAC]</span> 日次サマリースナップショット（平均/最大スコア、最小/最大TL、発火センサー、ドメインスコア、コンテキストアライメント）。</li>
             <li><span class="code-block">GET /api/forecast_accuracy?theater=TW</span> — <span style="color:#66ffcc;">[CAC Phase D]</span> 予測精度サマリー（総予測数、解決済み、平均精度）。</li>
             <li><span class="code-block">GET /api/cooccurrence?theater=TW</span> — <span style="color:#66ffcc;">[CAC Phase D]</span> センサーペアの共起統計（co_count、solo counts、感度ブーストに使用）。</li>
+            <li><span class="code-block">GET /api/analytics/clite_evaluation?days=28</span> — <span style="color:#66ffcc;">[シナリオ]</span> C-liteモード評価。focus_switch_logデータを集約し、LITEモードで十分か、C-MEDIUMへのアップグレードを検討すべきかを判定。total_switches、misses（見逃したバックグラウンドTL上昇）、miss_rate、avg_delta、max_delta、recommendation（LITE_SUFFICIENT / CONSIDER_C_MEDIUM / INSUFFICIENT_DATA）、シナリオ別内訳を返す。ミス率 &gt; 15%で CONSIDER_C_MEDIUM を推奨。</li>
+            <li><span class="code-block">GET /api/analytics/focus_switches?days=28</span> — <span style="color:#66ffcc;">[シナリオ]</span> C-medium移行評価用フォーカス切替履歴（Section 9.3.1）。</li>
         </ul>
         <p><b>レスポンスフィールド追加</b> <span style="color:#66ffcc;">[エンジン強化]</span></p>
         <ul style="font-size: 11px; line-height: 1.8;">
@@ -2933,6 +2974,22 @@
             <li><span class="code-block">analytics.tl_proximity.distance_up</span> — 次のTLへのエスカレーションに必要なポイント数（TL1の場合null）。</li>
             <li><span class="code-block">analytics.tl_proximity.distance_down</span> — 現在のTL閾値を下回るまでのポイント数（TL5の場合null）。</li>
             <li><span class="code-block">analytics.tl_proximity.proximity_label</span> — <span class="code-block">NEAR_ESCALATION</span> / <span class="code-block">NEAR_DE_ESCALATION</span> / <span class="code-block">STABLE</span></li>
+        </ul>
+        <p><b>シナリオレスポンスフィールド追加</b> <span style="color:#66ffcc;">[シナリオスコアリング強化]</span></p>
+        <ul style="font-size: 11px; line-height: 1.8;">
+            <li><span class="code-block">focused_scenario.velocity</span> — 直近の観測に対する線形回帰傾き（pts/observation）。正＝エスカレーション中、負＝デエスカレーション中。</li>
+            <li><span class="code-block">focused_scenario.acceleration</span> — 速度の2次微分。ゼロ以外はエスカレーション速度が変化中。</li>
+            <li><span class="code-block">focused_scenario.velocity_bonus</span> — 速度から適用されたスコアボーナス（±1.5上限）。</li>
+            <li><span class="code-block">focused_scenario.acceleration_bonus</span> — 加速度から適用されたスコアボーナス（0.5上限）。</li>
+            <li><span class="code-block">focused_scenario.velocity_trend</span> — <span class="code-block">rising</span> / <span class="code-block">falling</span> / <span class="code-block">stable</span></li>
+            <li><span class="code-block">focused_scenario.velocity_pts_per_hour</span> — 人間向けにポイント/時に変換された速度。</li>
+            <li><span class="code-block">focused_scenario.eta_to_next_tl</span> — 現在の速度での次のTL閾値到達推定時間（安定/下降時はnull）。</li>
+            <li><span class="code-block">focused_scenario.patterns.silent_divergence</span> — <span class="code-block">{detected: bool, bonus: float, cyber: float, physical: float, info: float}</span>。サイレント乖離: サイバー+物理が活発だが情報は沈黙 — 典型的な開戦前兆パターン。</li>
+            <li><span class="code-block">focused_scenario.patterns.context_alignment</span> — <span class="code-block">{detected: bool, bonus: float, axes_aligned: int, threshold: int}</span>。コンテキスト整合: 3軸以上が収斂。</li>
+            <li><span class="code-block">background_scenarios[].velocity</span> — フォーカスと同様、観測履歴から算出。</li>
+            <li><span class="code-block">background_scenarios[].velocity_trend</span> — <span class="code-block">rising</span> / <span class="code-block">falling</span> / <span class="code-block">stable</span></li>
+            <li><span class="code-block">background_scenarios[].score_delta_6h</span> — 過去6時間のスコア変化量。</li>
+            <li><span class="code-block">background_scenarios[].score_delta_24h</span> — 過去24時間のスコア変化量。</li>
         </ul>
         </div>
         </div><!-- /guide-ch-9 -->
@@ -3002,6 +3059,29 @@
             <li><b>Change Log</b>: All modifications are recorded in scenario_change_log with timestamps and diff.</li>
         </ul>
 
+        <p><b>H. C-lite Evaluation</b> — Config → Scenarios tab → "Load C-lite Evaluation" button</p>
+        <ul>
+            <li><b>Purpose</b>: Determines whether the current C-lite mode (focused scenario = full sensors, background = LLM + global only) is adequate, or whether upgrading to C-medium (background scenarios also receive per-country sensor data at reduced frequency) should be considered.</li>
+            <li><b>Data Source</b>: Aggregates <span class="code-block">focus_switch_log</span> entries over a configurable window (default 28 days). Each focus switch records old/new scenario IDs, TL at switch time, and score delta.</li>
+            <li><b>Key Metrics</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Switches</b>: Total focus switches in the evaluation period.</li>
+                    <li><b>Misses</b>: Switches where the background scenario's score had risen significantly (delta &gt; threshold) before the analyst noticed and switched — indicating a missed escalation while the scenario was in LITE mode.</li>
+                    <li><b>Miss Rate</b>: misses / switches. The primary decision metric.</li>
+                    <li><b>Avg Delta</b>: Average score delta at time of switch. Higher values indicate larger blind spots in LITE mode.</li>
+                    <li><b>Max Delta</b>: Worst-case score delta observed.</li>
+                </ul>
+            </li>
+            <li><b>Recommendation</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span style="color:#66ff66;">LITE_SUFFICIENT</span> — Miss rate ≤ 15%. Background scenarios are adequately covered by LLM + global signals.</li>
+                    <li><span style="color:#ffaa00;">CONSIDER_C_MEDIUM</span> — Miss rate &gt; 15%. Background scenarios have significant blind spots; consider upgrading to C-medium for more comprehensive coverage.</li>
+                    <li><span style="color:#888;">INSUFFICIENT_DATA</span> — Fewer than 3 focus switches recorded. Cannot draw conclusions yet.</li>
+                </ul>
+            </li>
+            <li><b>Per-Scenario Breakdown</b>: Table showing switches, misses, and avg_delta for each scenario that was the target of a focus switch. Identifies which specific scenarios are most affected by LITE mode limitations.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3066,6 +3146,29 @@
             <li><b>リセット</b>: プリセットベースのシナリオについて、Layer 2 のすべてのオーバーライドを削除し、geo_data.json のデフォルトに復帰。</li>
             <li><b>パージ</b>: カスタム（DB のみ）シナリオと関連データを完全削除。確認ダイアログが必要。</li>
             <li><b>変更ログ</b>: すべての変更は scenario_change_log にタイムスタンプと差分とともに記録。</li>
+        </ul>
+
+        <p><b>H. C-lite 評価</b> — Config → Scenarios タブ → 「C-lite評価を読み込む」ボタン</p>
+        <ul>
+            <li><b>目的</b>: 現在の C-lite モード（フォーカスシナリオ＝全センサー、バックグラウンド＝LLM + グローバルのみ）が適切か、C-medium（バックグラウンドシナリオも低頻度で国別センサーデータを受信）へのアップグレードを検討すべきかを判定。</li>
+            <li><b>データソース</b>: 設定可能な期間（デフォルト28日間）の <span class="code-block">focus_switch_log</span> エントリを集約。各フォーカス切替は旧/新シナリオID、切替時のTL、スコアデルタを記録。</li>
+            <li><b>主要メトリクス</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>切替回数</b>: 評価期間中の総フォーカス切替回数。</li>
+                    <li><b>ミス</b>: バックグラウンドシナリオのスコアがアナリストが気づいて切り替える前に大幅に上昇していた（デルタ＞閾値）切替 — LITE モードでのエスカレーション見逃しを示す。</li>
+                    <li><b>ミス率</b>: ミス / 切替回数。主要な判断指標。</li>
+                    <li><b>平均Δ</b>: 切替時の平均スコアデルタ。高い値はLITEモードのブラインドスポットが大きいことを示す。</li>
+                    <li><b>最大Δ</b>: 観測された最悪ケースのスコアデルタ。</li>
+                </ul>
+            </li>
+            <li><b>推奨</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span style="color:#66ff66;">LITE_SUFFICIENT</span> — ミス率 ≤ 15%。バックグラウンドシナリオはLLM + グローバル信号で十分にカバー。</li>
+                    <li><span style="color:#ffaa00;">CONSIDER_C_MEDIUM</span> — ミス率 &gt; 15%。バックグラウンドシナリオに重大なブラインドスポットあり。より包括的なカバレッジのためC-mediumへのアップグレードを検討。</li>
+                    <li><span style="color:#888;">INSUFFICIENT_DATA</span> — フォーカス切替記録が3回未満。結論を出すにはデータ不足。</li>
+                </ul>
+            </li>
+            <li><b>シナリオ別内訳</b>: フォーカス切替の対象となった各シナリオの切替回数、ミス、平均Δを表示するテーブル。LITEモードの制約により最も影響を受けているシナリオを特定。</li>
         </ul>
 
         </div>
