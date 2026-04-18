@@ -18,6 +18,7 @@ COPY radar_api.py    .
 COPY wsgi.py         .
 COPY geo_data.json   .
 COPY i18n.js         .
+COPY login-init.js   .
 COPY radar.js        .
 COPY radar.css       .
 COPY index.html      .
