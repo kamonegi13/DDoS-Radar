@@ -1622,11 +1622,14 @@ def get_threat_data():
                         "falling" if _vel_pts_h < -0.1 else "stable"
                     )
                     _sd["velocity_pts_per_hour"] = round(_vel_pts_h, 3)
-                    # ETA to next TL boundary
+                    # ETA to next TL boundary (compute tl_proximity inline
+                    # since the focused scenario's score/tl are already final)
+                    _focused_prox = _routes.engine.compute_tl_proximity(
+                        _state.score, _state.tl)
                     _sd["eta_to_next_tl"] = (
                         _routes.engine.compute_eta_to_next_tl(
-                            tl_proximity, _sc_velocity)
-                        if tl_proximity else None
+                            _focused_prox, _sc_velocity)
+                        if _focused_prox else None
                     )
 
                     # Phase B: Pattern detection results
