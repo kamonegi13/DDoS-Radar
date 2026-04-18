@@ -1501,6 +1501,10 @@ def get_threat_data():
             except Exception:
                 pass
 
+            # Compute context alignment early so scenario scoring can use it
+            context_alignment = _routes.engine.compute_context_alignment(rationale)
+            direction_summary = _routes.engine.compute_direction_summary(rationale)
+
             _scorable = scenario_store.scorable()
             _sc_participants_map = {
                 sc.id: set(sc.participants.keys())
@@ -1777,10 +1781,6 @@ def get_threat_data():
                             f"(mean={theater_baseline['baseline_mean']:.1f}, "
                             f"std={theater_baseline['baseline_std']:.1f}, "
                             f"n={theater_baseline['samples']})")
-
-        # ── CAC: Context Alignment & Direction Summary ─────────────────────────
-        context_alignment = _routes.engine.compute_context_alignment(rationale)
-        direction_summary = _routes.engine.compute_direction_summary(rationale)
 
         # ── CAC: Daily summary recording ──────────────────────────────────────
         _day_bucket = int(current_time // 86400) * 86400
