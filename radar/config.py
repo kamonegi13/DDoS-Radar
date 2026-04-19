@@ -100,6 +100,7 @@ ADVERSARY_NARRATIVE_SOURCES: dict = {}   # keyed by adversary country code (RU/C
 STRATEGIC_BLOCS: dict = {}               # bloc definitions for UI grouping
 COUNTRY_BLOC_TAGS: dict = {}             # country -> list of blocs (multi-threat countries)
 TACTICAL_KEYWORDS: dict = {}
+NARRATIVE_GEO_TERMS: dict = {}
 HISTORICAL_EVENTS: list = []
 CABLE_ROUTES: list = []
 THREAT_ACTOR_MAPPING:  dict = {}
@@ -118,6 +119,7 @@ try:
         STRATEGIC_BLOCS     = geo_data.get("STRATEGIC_BLOCS", {})
         COUNTRY_BLOC_TAGS   = geo_data.get("COUNTRY_BLOC_TAGS", {})
         TACTICAL_KEYWORDS   = geo_data.get("TACTICAL_KEYWORDS", {})
+        NARRATIVE_GEO_TERMS = geo_data.get("NARRATIVE_GEO_TERMS", {})
         HISTORICAL_EVENTS   = geo_data.get("HISTORICAL_EVENTS", [])
         CABLE_ROUTES        = geo_data.get("CABLE_ROUTES", [])
         THREAT_ACTOR_MAPPING   = geo_data.get("THREAT_ACTOR_MAPPING", {})

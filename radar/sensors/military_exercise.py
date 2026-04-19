@@ -59,9 +59,11 @@ _MILITARY_SOURCES = {
         "theaters": ["TW", "JP", "PH", "IN"],
     },
     "TASS_MILITARY": {
+        # TASS covers Russian military globally, not just Ukraine.
+        # Restricting to ["UA"] forced Iran/ME articles into UA theater.
         "url": "https://tass.com/rss/v2.xml",
         "org": "TASS",
-        "theaters": ["UA"],
+        "theaters": ["UA", "IR", "IL", "SY", "KP"],
     },
     "JANES": {
         "url": "https://www.janes.com/feeds/news",
@@ -284,6 +286,8 @@ class MilitaryExerciseSensor(BaseSensor):
                     "- Does the article NAME a location within the theater, or am I INFERRING a connection?\n"
                     "- Would an analyst in that theater consider this a local event, or a distant one?\n"
                     "- 'Signals deterrence globally' or 'demonstrates alliance commitment' is NOT a direct theater link.\n"
+                    "- If the event is in a DIFFERENT region (e.g. Iran/Middle East vs Ukraine), "
+                    "do NOT force it into the closest available theater — set theater=null instead.\n"
                     "Set theater_link='direct' ONLY when forces are physically in/near the theater.\n"
                     "Set theater_link='indirect' if the connection is strategic inference only — confidence will be reduced.\n"
                     "Set theater=null and theater_link='none' if no specific theater is relevant.\n\n"

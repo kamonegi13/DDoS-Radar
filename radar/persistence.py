@@ -123,6 +123,9 @@ def restore_state() -> None:
         promoted = intel_queue.promote_pending_after_reseed()
         if promoted:
             log.info(f"[Persist] Credibility bootstrap: promoted {promoted} pending items")
+        floored = intel_queue.enforce_archetype_floor()
+        if floored:
+            log.info(f"[Persist] Archetype floor: raised {floored} sources to minimum credibility")
     except Exception as exc:
         log.warning(f"[Persist] Credibility reseed failed: {exc}")
 

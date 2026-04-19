@@ -905,9 +905,16 @@ class ScenarioState:
                 if key not in seen:
                     seen.add(key)
                     domain_counts[c.signal.domain] = domain_counts.get(c.signal.domain, 0) + 1
+            # Domain coverage analysis: identify blind spots in background
+            # scenarios so the UI can flag degraded observability.
+            _all_domains = {"cyber", "physical", "info"}
+            _active_domains = {d_ for d_, cnt in domain_counts.items() if cnt > 0}
+            _blind = sorted(_all_domains - _active_domains)
             d["indicators"] = {
                 "active_countries": len(self.active_countries),
                 "domain_signal_counts": domain_counts,
+                "blind_domains": _blind,
+                "coverage_completeness": round(len(_active_domains) / 3.0, 2),
             }
         return d
 

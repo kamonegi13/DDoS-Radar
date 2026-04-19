@@ -206,10 +206,6 @@
             <span id="hud-silent-text" class="ex-value">—</span>
         </div>
         <div class="hud-exception-item ex-discrepancy" id="hud-discrepancy-alert" style="display:none;" data-i18n="hud.discrepancy_alert">! DISCREPANCY DETECTED: POSSIBLE MASKIROVKA</div>
-        <div class="hud-exception-item ex-bg" id="hud-bg-alert" style="display:none;" data-i18n-tip="hud.tooltip.bg_alert">
-            <span class="ex-label" data-i18n="hud.label.bg_alert">BG</span>
-            <span id="hud-bg-alert-text" class="ex-value">—</span>
-        </div>
     </div>
 </div>
 
@@ -286,7 +282,7 @@
                     <div class="tools-menu-item" id="tm-item-gn"  onclick="handleToolToggle('gn-panel',       toggleGnPanel,   'tm-dot-gn',  'tm-item-gn')"><span class="tools-menu-icon">&#x1F50D;</span><span class="tools-menu-label" data-i18n="tools.greynoise">GreyNoise</span><span class="tools-menu-dot" id="tm-dot-gn"></span></div>
                     <div class="tools-menu-item" id="tm-item-hist" onclick="handleToolToggle('history-panel', toggleHistoryPanel, 'tm-dot-hist', 'tm-item-hist')"><span class="tools-menu-icon">&#x1F4CA;</span><span class="tools-menu-label" data-i18n="tools.history_analysis">History Analysis</span><span class="tools-menu-dot" id="tm-dot-hist"></span></div>
                     <div class="tools-menu-item" id="tm-item-nb"  onclick="handleToolToggle('notebook-panel', toggleNotebook,  'tm-dot-nb',  'tm-item-nb')"><span class="tools-menu-icon">&#x1F4DD;</span><span class="tools-menu-label" data-i18n="tools.analyst_notebook">Analyst Notebook</span><span class="tools-menu-dot" id="tm-dot-nb"></span></div>
-                    <div class="tools-menu-item" id="tm-item-llm" onclick="handleToolToggle('llm-intel-panel', toggleLlmIntelPanel, 'tm-dot-llm', 'tm-item-llm')"><span class="tools-menu-icon">&#x1F916;</span><span class="tools-menu-label" data-i18n="tools.llm_intelligence">LLM Intelligence</span><span class="tools-menu-dot" id="tm-dot-llm"></span></div>
+                    <div class="tools-menu-item" id="tm-item-llm" onclick="handleToolToggle('llm-intel-panel', toggleLlmIntelPanel, 'tm-dot-llm', 'tm-item-llm')"><span class="tools-menu-icon">&#x1F916;</span><span class="tools-menu-label" data-i18n="tools.llm_intelligence">LLM Intelligence</span><span class="tm-triage-badge" id="tm-triage-badge-llm" hidden data-i18n-tip="panel.llm_intel.pulse_tip" title="">0</span><span class="tools-menu-dot" id="tm-dot-llm"></span></div>
                     <div class="tools-menu-section-header" data-i18n="tools.section.simulation">SIMULATION</div>
                     <div class="tools-menu-item" id="tm-item-wif" onclick="handleToolToggle('whatif-panel', toggleWhatIfPanel, 'tm-dot-wif', 'tm-item-wif')"><span class="tools-menu-icon">&#x1F9EA;</span><span class="tools-menu-label" data-i18n="tools.whatif_sim">What-If Sim</span><span class="tools-menu-dot" id="tm-dot-wif"></span></div>
                     <div class="tools-menu-item" id="tm-item-spof" onclick="handleToolToggle('spof-panel', toggleSpofPanel, 'tm-dot-spof', 'tm-item-spof')"><span class="tools-menu-icon">&#x1F517;</span><span class="tools-menu-label" data-i18n="tools.spof_analysis">SPOF Analysis</span><span class="tools-menu-dot" id="tm-dot-spof"></span></div>
@@ -359,6 +355,12 @@
 
     <div id="map-wrapper">
         <div id="map"></div>
+        <!-- BG scenario alert — floating notification on map top.
+             Appears when a background scenario's score rises fast (focus-switch hint). -->
+        <div class="map-bg-alert" id="hud-bg-alert" style="display:none;" data-i18n-tip="hud.tooltip.bg_alert">
+            <span class="ex-label" data-i18n="hud.label.bg_alert">BG</span>
+            <span id="hud-bg-alert-text" class="ex-value">—</span>
+        </div>
     </div>
 
     <div id="sidebar">
@@ -1092,7 +1094,8 @@
         </div>
         <!-- Source filter -->
         <div class="llm-filter-row">
-            <button class="llm-filter-btn llm-filter-active" data-src="all"        onclick="_llmFilter('all')"        data-i18n="panel.llm_intel.filter_all">ALL</button>
+            <button class="llm-filter-btn llm-filter-active" data-src="triage"     onclick="_llmFilter('triage')"     data-i18n="panel.llm_intel.filter_triage">TRIAGE</button>
+            <button class="llm-filter-btn" data-src="all"                          onclick="_llmFilter('all')"        data-i18n="panel.llm_intel.filter_all">ALL</button>
             <button class="llm-filter-btn" data-src="hacktivist"                   onclick="_llmFilter('hacktivist')" data-i18n="panel.llm_intel.filter_hacktivist">HACKTIVIST</button>
             <button class="llm-filter-btn" data-src="diplomatic"                   onclick="_llmFilter('diplomatic')" data-i18n="panel.llm_intel.filter_diplo">DIPLO</button>
             <button class="llm-filter-btn" data-src="military"                     onclick="_llmFilter('military')"   data-i18n="panel.llm_intel.filter_military">MILITARY</button>
@@ -2681,6 +2684,8 @@
             <li><b>Scenario cards</b> appear as a horizontal strip below the HUD. Each registered scenario has a card showing its name, score, TL (for focused), and domain activity dots (C/P/I).</li>
             <li><b>Focused scenario</b> (cyan border, FOCUSED badge): receives signals from all 33 sensors — full scoring fidelity. TL1–5 threat level is computed.</li>
             <li><b>Background scenarios</b> (LITE badge): scored using LLM intel and global-only signals. TL is not computed. A <b>BIAS</b> tag is shown when the scenario is affected by C-lite sampling bias (ADR-008).</li>
+            <li><b>LITE-INS badge</b> (in place of the TL number): shown when observable coverage is insufficient — only 0 or 1 of the 3 domains (Cyber/Physical/Information) has any data. The score exists but is not interpretable as a threat level. Treat the scenario as unobservable and switch focus if you need a real TL.</li>
+            <li><b>TRIAGE filter &amp; pulse</b>: The LLM Intelligence panel opens to a TRIAGE view that ranks pending items by <code>confidence × max_scenario_coupling × age_decay</code>. When stale high-priority pending items accumulate (priority ≥ 0.50, age ≥ 4h by default), the LLM Intelligence menu item softly pulses amber and shows a count badge — non-disruptive and never auto-opens the panel. Tune via <code>INTEL_PULSE_PRIORITY</code> and <code>INTEL_PULSE_MIN_AGE_HOURS</code>.</li>
             <li><b>Velocity trend arrow</b>: Each card displays a directional arrow — <span style="color:#ff4444;">▲ rising</span> (score increasing over recent observations), <span style="color:#66ff66;">▼ falling</span>, or <span style="color:#888;">— stable</span>. Velocity is computed via linear regression over the last 20 scenario_tl_observations. The velocity bonus (capped at ±1.5 pts) and acceleration bonus (0.5 max) are applied to the scenario score before TL derivation.</li>
             <li><b>Pattern warning badges</b>:
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
@@ -2689,12 +2694,13 @@
                 </ul>
             </li>
             <li><b>ETA indicator</b> (focused only): When velocity is positive, shows estimated time to reach the next TL threshold (e.g., "ETA 2.3h"). Helps analysts anticipate escalation timing.</li>
-            <li><b>Click</b> a scenario card to open the <b>Scenario Detail Panel</b> (below the scenario bar). To switch focus, use the focus-switch action inside the panel or the scenario focus selector.</li>
+            <li><b>Click</b> a scenario card to open the <b>Scenario Detail Panel</b> (below the scenario bar). Background cards also display a <b>◎</b> focus-switch button at the right edge — click it to promote that scenario to FOCUSED mode (full 33-sensor scoring). The focused card does not show this button.</li>
         </ul>
 
         <h5>I. Scenario Detail Panel &amp; Rationale Verification</h5>
         <ul>
             <li><b>Purpose (P4 traceability):</b> Every rationale must be traceable back to the source evidence. The detail panel is the analyst's primary tool for verifying why a scenario score has its current value, down to the individual sensor contribution and LLM reasoning.</li>
+            <li><b>Switch Focus button:</b> For background scenarios, a <b>SWITCH FOCUS</b> button appears in the detail panel header. Clicking it promotes this scenario to FOCUSED mode (full 33-sensor scoring). This button is not shown when viewing the already-focused scenario.</li>
             <li><b>Bias warning banner:</b> For background scenarios, an orange warning banner is shown at the top of the panel stating that the score is derived from LLM intel + global signals only, and that per-country sensor signals are not being sampled (ADR-008). Do not compare background scores directly with the focused scenario score.</li>
             <li><b>Domain bars:</b> Cyber / Physical / Information domain scores are shown as horizontal bars. The sum (capped per domain at DOMAIN_CAP=6.0) plus convergence bonus produces the scenario score.</li>
             <li><b>Contribution table columns:</b>
@@ -2722,6 +2728,8 @@
             <li><b>シナリオカード</b>はHUD下部に水平バーとして表示されます。登録済みの各シナリオが名称、スコア、TL（フォーカス時）、ドメイン活動ドット(C/P/I)と共にカード表示されます。</li>
             <li><b>フォーカスシナリオ</b>（シアンの枠、FOCUSEDバッジ）: 全33センサーからの信号を受信し、完全なスコアリング精度でTL1–5の脅威レベルが算出されます。</li>
             <li><b>バックグラウンドシナリオ</b>（LITEバッジ）: LLMインテルとグローバル信号のみでスコアリングされます。TLは算出されません。C-liteサンプリングバイアスの影響を受けている場合は<b>BIAS</b>タグが表示されます（ADR-008）。</li>
+            <li><b>LITE-INS（観測不足）バッジ</b>（TL番号の代わりに表示）: 観測可能なカバレッジが不足している場合に表示されます — 3ドメイン（サイバー/物理/情報）のうち0〜1ドメインしかデータがない状態。スコアは存在しますが脅威レベルとしての解釈はできません。実質的に「観測不能」として扱い、TLが必要なら focus を切り替えてください。</li>
+            <li><b>TRIAGEフィルタ &amp; パルス</b>: LLMインテリジェンスパネルは <code>confidence × max_scenario_coupling × age_decay</code> でランク付けする TRIAGE ビューで開きます。高優先度の滞留審査待ち（既定: 優先度 ≥ 0.50 かつ経過 ≥ 4h）が溜まると、LLMインテリジェンスのメニュー項目が琥珀色に静かに点滅し件数バッジを表示します。非破壊的でパネルを自動展開しません。<code>INTEL_PULSE_PRIORITY</code> と <code>INTEL_PULSE_MIN_AGE_HOURS</code> で調整可能。</li>
             <li><b>速度トレンド矢印</b>: 各カードに方向矢印が表示されます — <span style="color:#ff4444;">▲ 上昇</span>（直近の観測でスコアが増加中）、<span style="color:#66ff66;">▼ 下降</span>、<span style="color:#888;">— 安定</span>。速度は過去20回の scenario_tl_observation に対する線形回帰で算出されます。速度ボーナス（±1.5pt上限）と加速度ボーナス（0.5上限）がTL導出前にシナリオスコアに加算されます。</li>
             <li><b>パターン警告バッジ</b>:
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
@@ -2730,12 +2738,13 @@
                 </ul>
             </li>
             <li><b>ETA表示</b>（フォーカスシナリオのみ）: 速度が正の場合、次のTL閾値到達までの推定時間を表示（例: "ETA 2.3h"）。エスカレーションのタイミング予測に活用。</li>
-            <li><b>クリック</b>でシナリオカードを開き、<b>シナリオ詳細パネル</b>（シナリオバー下部）が表示されます。フォーカスを切り替えるには、パネル内のフォーカス切替アクションまたはシナリオフォーカスセレクタを使用します。</li>
+            <li><b>クリック</b>でシナリオカードを開き、<b>シナリオ詳細パネル</b>（シナリオバー下部）が表示されます。バックグラウンドカードには右端に<b>◎</b>フォーカス切替ボタンが表示されます — クリックするとそのシナリオをFOCUSEDモード（全33センサースコアリング）に昇格します。フォーカス中のカードにはこのボタンは表示されません。</li>
         </ul>
 
         <h5>I. シナリオ詳細パネル / 根拠検証</h5>
         <ul>
             <li><b>目的（P4: 追跡可能性）:</b> 全ての根拠はソース証拠まで追跡可能でなければなりません。詳細パネルは、シナリオスコアが現在の値に至った理由を、個々のセンサー寄与度とLLM推論レベルまで検証するためのアナリストの主要ツールです。</li>
+            <li><b>フォーカス切替ボタン:</b> バックグラウンドシナリオの場合、詳細パネルヘッダーに<b>フォーカス切替</b>ボタンが表示されます。クリックするとこのシナリオがFOCUSEDモード（全33センサースコアリング）に昇格します。既にフォーカス中のシナリオを閲覧中はこのボタンは表示されません。</li>
             <li><b>バイアス警告バナー:</b> バックグラウンドシナリオでは、パネル上部にオレンジ色の警告バナーが表示され、スコアはLLMインテル + グローバル信号のみから導出されており、国別センサー信号はサンプリングされていないこと（ADR-008）を明示します。バックグラウンドスコアをフォーカスシナリオのスコアと直接比較しないでください。</li>
             <li><b>ドメインバー:</b> Cyber / Physical / Information の各ドメインスコアが水平バーで表示されます。合計（ドメインごとに DOMAIN_CAP=6.0 でキャップ）+ 収斂ボーナスがシナリオスコアとなります。</li>
             <li><b>寄与度テーブル列:</b>
@@ -2811,7 +2820,8 @@
             <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns escalation analysis: current TL, duration, velocity, score trend, pattern classification (STABLE/ESCALATING/DE-ESCALATING/OSCILLATING), predicted next TL, and transition history.</li>
             <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> Returns per-sensor/per-theater adaptive Z-score statistics: sample count, running mean, standard deviation, and whether adaptive mode is active.</li>
             <li><span class="code-block">GET /api/sensor_reliability?hours=24</span> — <span style="color:#66ffcc;">[Phase 3]</span> Returns per-sensor fetch reliability over the given time window (default 24h, max 168h). Includes total fetches, success rate, average response time, and first/last seen timestamps.</li>
-            <li><span class="code-block">GET /api/intel/llm_call_stats?hours=24</span> — <span style="color:#aa88ff;">[LLM Obs]</span> Per-caller LLM observability aggregated over the window (max 168h). For each LLM-driven sensor returns total/ok/parse_failed/http_error/timeout counts plus verdict tallies: <span class="code-block">auto_confirmed</span>, <span class="code-block">pending</span>, <span class="code-block">discarded_low_conf</span>, <span class="code-block">discarded_dedup</span>, <span class="code-block">sensor_filtered</span> (dropped by the sensor before submit), plus avg_confidence and avg_duration_ms. Also returns <span class="code-block">sensor_filter_breakdown</span> — (caller, reason, count) rows showing exactly why each sensor-layer filter fired (e.g. <span class="code-block">stage1_not_active</span>, <span class="code-block">theater_mismatch</span>, <span class="code-block">no_escalation_signal</span>). Surfaced in the LLM Intelligence panel's Diagnostics section.</li>
+            <li><span class="code-block">GET /api/intel/llm_call_stats?hours=24</span> — <span style="color:#aa88ff;">[LLM Obs]</span> Per-caller LLM observability aggregated over the window (max 168h). For each LLM-driven sensor returns total/ok/parse_failed/http_error/timeout counts plus verdict tallies: <span class="code-block">auto_confirmed</span>, <span class="code-block">pending</span>, <span class="code-block">discarded_low_conf</span>, <span class="code-block">discarded_dedup</span>, <span class="code-block">sensor_filtered</span> (dropped by the sensor before submit), <span class="code-block">pre_filter</span> (sensor decided not to call LLM at all), plus avg_confidence and avg_duration_ms. Also returns <span class="code-block">sensor_filter_breakdown</span> — (caller, reason, count) rows showing exactly why each sensor-layer filter fired (e.g. <span class="code-block">stage1_not_active</span>, <span class="code-block">theater_mismatch</span>, <span class="code-block">no_escalation_signal</span>, <span class="code-block">all_feeds_dead</span>, <span class="code-block">no_burst_this_cycle</span>). Surfaced in the LLM Intelligence panel's Diagnostics section.</li>
+            <li><span class="code-block">GET /api/intel/pending/triage?limit=50&amp;min_pr=0</span> — <span style="color:#aa88ff;">[Triage]</span> Pending intel ranked by triage priority. <span class="code-block">priority = confidence × max_scenario_coupling × age_decay</span> (12h e-folding decay). Each item is enriched with <span class="code-block">priority</span>, <span class="code-block">gate_reason</span> (low_confidence / low_source_credibility / ecosystem_blocked / ecosystem_unclassified / manual_review), <span class="code-block">source_credibility</span>, <span class="code-block">ecosystem</span>, <span class="code-block">corroboration_count</span>, <span class="code-block">corroborating_sources</span>, <span class="code-block">corroborating_ecosystems</span>, <span class="code-block">top_scenario</span> (best-matching scenario with coupling weight) and <span class="code-block">matched_scenarios</span> (all matches). Sorted by priority descending. The default view of the LLM Intelligence panel.</li>
             <li><span class="code-block">GET /api/noise_exclusion?sensor=X&amp;theater=TW</span> — <span style="color:#66ffcc;">[CAC]</span> List active noise exclusion rules. Optional filter by sensor/theater.</li>
             <li><span class="code-block">POST /api/noise_exclusion</span> — <span style="color:#66ffcc;">[CAC]</span> Add noise exclusion rule. Body: <span class="code-block">{"sensor":"X","theater":"TW","pattern":"...","reason":"exercise|maintenance|known_noise|false_positive","expires_hours":24}</span></li>
             <li><span class="code-block">DELETE /api/noise_exclusion/{id}</span> — <span style="color:#66ffcc;">[CAC]</span> Remove a noise exclusion rule.</li>
@@ -2901,7 +2911,8 @@
             <li><span class="code-block">GET /api/escalation_progress</span> — <span style="color:#66ffcc;">[Phase 2]</span> エスカレーション分析を返す: 現在のTL、持続時間、速度、スコアトレンド、パターン分類（STABLE/ESCALATING/DE-ESCALATING/OSCILLATING）、予測次TL、遷移履歴。</li>
             <li><span class="code-block">GET /api/adaptive_zscore_status</span> — <span style="color:#66ffcc;">[Phase 2]</span> センサー/シアター別の適応型Zスコア統計を返す: サンプル数、移動平均、標準偏差、適応モードのアクティブ状態。</li>
             <li><span class="code-block">GET /api/sensor_reliability?hours=24</span> — <span style="color:#66ffcc;">[Phase 3]</span> 指定時間ウィンドウ（デフォルト24h、最大168h）のセンサー別フェッチ信頼性を返す。総フェッチ数、成功率、平均応答時間、初回/最終確認タイムスタンプを含む。</li>
-            <li><span class="code-block">GET /api/intel/llm_call_stats?hours=24</span> — <span style="color:#aa88ff;">[LLM 可観測性]</span> 指定ウィンドウ（最大168h）のLLM呼び出し統計をセンサー別に集約。各LLM駆動センサーについて total/ok/parse_failed/http_error/timeout と、判定内訳（<span class="code-block">auto_confirmed</span>、<span class="code-block">pending</span>、<span class="code-block">discarded_low_conf</span>、<span class="code-block">discarded_dedup</span>、<span class="code-block">sensor_filtered</span>＝センサー層で submit 前にドロップ）、平均 confidence、平均 duration_ms を返す。<span class="code-block">sensor_filter_breakdown</span> フィールドには各センサー層フィルタが発火した理由（例: <span class="code-block">stage1_not_active</span>、<span class="code-block">theater_mismatch</span>、<span class="code-block">no_escalation_signal</span>）と件数を (caller, reason, count) 行で返す。LLM Intelligence パネルの「診断」セクションで可視化。</li>
+            <li><span class="code-block">GET /api/intel/llm_call_stats?hours=24</span> — <span style="color:#aa88ff;">[LLM 可観測性]</span> 指定ウィンドウ（最大168h）のLLM呼び出し統計をセンサー別に集約。各LLM駆動センサーについて total/ok/parse_failed/http_error/timeout と、判定内訳（<span class="code-block">auto_confirmed</span>、<span class="code-block">pending</span>、<span class="code-block">discarded_low_conf</span>、<span class="code-block">discarded_dedup</span>、<span class="code-block">sensor_filtered</span>＝センサー層で submit 前にドロップ、<span class="code-block">pre_filter</span>＝センサーがLLMを呼ばずに事前ドロップ）、平均 confidence、平均 duration_ms を返す。<span class="code-block">sensor_filter_breakdown</span> フィールドには各センサー層フィルタが発火した理由（例: <span class="code-block">stage1_not_active</span>、<span class="code-block">theater_mismatch</span>、<span class="code-block">no_escalation_signal</span>、<span class="code-block">all_feeds_dead</span>、<span class="code-block">no_burst_this_cycle</span>）と件数を (caller, reason, count) 行で返す。LLM Intelligence パネルの「診断」セクションで可視化。</li>
+            <li><span class="code-block">GET /api/intel/pending/triage?limit=50&amp;min_pr=0</span> — <span style="color:#aa88ff;">[トリアージ]</span> 審査待ちインテルをトリアージ優先度でランク付け。<span class="code-block">priority = confidence × max_scenario_coupling × age_decay</span>（12h e-folding 減衰）。各アイテムに <span class="code-block">priority</span>、<span class="code-block">gate_reason</span>（low_confidence / low_source_credibility / ecosystem_blocked / ecosystem_unclassified / manual_review）、<span class="code-block">source_credibility</span>、<span class="code-block">ecosystem</span>、<span class="code-block">corroboration_count</span>、<span class="code-block">corroborating_sources</span>、<span class="code-block">corroborating_ecosystems</span>、<span class="code-block">top_scenario</span>（最適マッチシナリオと結合重み）、<span class="code-block">matched_scenarios</span>（全マッチ）を付与。priority 降順。LLM Intelligence パネルのデフォルトビュー。</li>
             <li><span class="code-block">GET /api/noise_exclusion?sensor=X&amp;theater=TW</span> — <span style="color:#66ffcc;">[CAC]</span> アクティブなノイズ除外ルール一覧。sensor/theater でフィルタ可能。</li>
             <li><span class="code-block">POST /api/noise_exclusion</span> — <span style="color:#66ffcc;">[CAC]</span> ノイズ除外ルール追加。ボディ: <span class="code-block">{"sensor":"X","theater":"TW","pattern":"...","reason":"exercise|maintenance|known_noise|false_positive","expires_hours":24}</span></li>
             <li><span class="code-block">DELETE /api/noise_exclusion/{id}</span> — <span style="color:#66ffcc;">[CAC]</span> ノイズ除外ルール削除。</li>

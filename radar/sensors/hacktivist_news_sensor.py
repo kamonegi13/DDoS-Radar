@@ -221,12 +221,13 @@ class HacktivistNewsSensor(BaseSensor):
 
         from radar.intel_queue import intel_queue
         from radar.llm_client import (
-            llm_analyze_json, llm_available, record_sensor_drop,
+            llm_analyze_json, llm_available, record_sensor_drop, record_sensor_skip,
             safe_float, safe_enum, sanitize_llm_input, today_str,
         )
 
         if not llm_available():
             log.debug("[HackNews] LLM not available — skipping")
+            record_sensor_skip("llm_unavailable", caller="hacktivist_news")
             self.log_fetch(True, 0, 0, 0, "llm_unavailable")
             return {"hacktivist_news": {"llm_offline": True}}
 
@@ -237,16 +238,25 @@ class HacktivistNewsSensor(BaseSensor):
         t0 = time.time()
         submitted = 0
         any_feed_ok = False
+        feeds_dead = 0
+        feeds_no_articles = 0
 
         for source_name, meta in _NEWS_SOURCES.items():
             xml_text = _fetch_rss(meta["url"])
             if xml_text:
                 any_feed_ok = True
+            else:
+                feeds_dead += 1
+                record_sensor_skip(f"feed_fetch_failed:{source_name}", caller="hacktivist_news")
             articles = _parse_articles(xml_text)
             if not articles:
+                if xml_text:
+                    feeds_no_articles += 1
+                    record_sensor_skip(f"no_articles_post_filter:{source_name}", caller="hacktivist_news")
                 continue
 
             org = meta["org"]
+            new_articles_this_feed = 0
 
             for art in articles:
                 key = _article_hash(source_name, art["title"])
@@ -257,6 +267,7 @@ class HacktivistNewsSensor(BaseSensor):
                     if len(_processed) > _MAX_PROCESSED:
                         for k in list(_processed)[:_MAX_PROCESSED // 2]:
                             _processed.pop(k, None)
+                new_articles_this_feed += 1
 
                 safe_title = sanitize_llm_input(art["title"], 120)
                 safe_summary = sanitize_llm_input(art["summary"], 500)
@@ -293,6 +304,11 @@ class HacktivistNewsSensor(BaseSensor):
                     "ONGOING or RECENT (within 48h) hacktivist campaign — not a "
                     "historical retrospective or generic trend piece.\n"
                     "theater must be null if no specific target country is named.\n"
+                    "IMPORTANT: The 'active strategic theaters' list is for CONTEXT only. "
+                    "Do NOT force-assign a theater from that list. Assign theater based "
+                    "solely on the country ACTUALLY targeted in the article. If the "
+                    "targeted country is not in the list, still return its ISO code — "
+                    "the system will handle filtering.\n"
                     "Confidence guide:\n"
                     "- 0.80-0.95: Named group + named target + confirmed ongoing attack\n"
                     "- 0.65-0.79: Named group + target country, attack reported\n"
@@ -415,6 +431,9 @@ class HacktivistNewsSensor(BaseSensor):
                         f"group={data.get('group_name', '?')}, "
                         f"conf={confidence:.2f})"
                     )
+
+            if articles and new_articles_this_feed == 0:
+                record_sensor_skip(f"all_dedup:{source_name}", caller="hacktivist_news")
 
         duration_ms = round((time.time() - t0) * 1000)
         self.log_fetch(any_feed_ok, duration_ms, 0, submitted)

@@ -117,7 +117,8 @@ class CtLogSensor(BaseSensor):
                     elif res.status_code == 200:
                         try:
                             certs = res.json()
-                        except Exception:
+                        except Exception as e:
+                            log.warning(f"[CTLog] JSON parse error for {code} ({domain_pattern}): {e}")
                             certs = []
 
                         if isinstance(certs, list):

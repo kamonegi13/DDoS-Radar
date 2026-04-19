@@ -195,6 +195,23 @@ def _cache_cleanup_worker(registry=None):
             from radar.intel_queue import intel_queue as _iq
             _iq.auto_reject_stale()
 
+            # LLM pipeline health summary (hourly visibility)
+            try:
+                from radar.config import LLM_ENABLED
+                stats = _iq.stats()
+                llm_calls = _db.llm_call_stats(hours=1)
+                total_calls = llm_calls.get("total", 0)
+                log.info(
+                    f"[LLM-Health] enabled={LLM_ENABLED} "
+                    f"calls_1h={total_calls} "
+                    f"intel(pending={stats.get('pending',0)} "
+                    f"auto={stats.get('auto_confirmed',0)} "
+                    f"confirmed={stats.get('confirmed',0)} "
+                    f"total={stats.get('total',0)})"
+                )
+            except Exception:
+                pass  # non-critical diagnostic
+
             # Hourly: WAL checkpoint (flush WAL to main DB file)
             _db.wal_checkpoint()
 

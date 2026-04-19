@@ -385,17 +385,36 @@ def derive_country_context(focused: "Scenario") -> dict:
 
     Returns a dict with:
       - core_theater: focused.core_country (Optional[str], ADR-009)
-      - correlate_targets: participants with non-adversary role, excluding core
+      - effective_cores: list of countries that act as scoring cores.
+        When core_country is set, this is [core_country].
+        When core_country is null (dual-core, e.g. middle_east), this is
+        the sorted list of PRINCIPAL_BELLIGERENT participants with weight >= 0.9.
+      - correlate_targets: participants with non-adversary role, excluding
+        core and effective_cores
       - adversary_states: participants with role=ADVERSARY
       - strategic_theaters: all participant countries (superset)
     """
     core = focused.core_country
     parts = focused.participants
     adversaries = [cc for cc, p in parts.items() if p.role == Role.ADVERSARY]
+
+    # ADR-009 extension: when core_country is null, derive effective
+    # cores from principal_belligerent participants (weight >= 0.9).
+    if core is None:
+        effective_cores = sorted(
+            cc for cc, p in parts.items()
+            if p.role == Role.PRINCIPAL_BELLIGERENT and p.weight >= 0.9
+        )
+    else:
+        effective_cores = [core]
+
+    ec_set = set(effective_cores)
     correlates = [cc for cc, p in parts.items()
-                  if p.role != Role.ADVERSARY and cc != core]
+                  if p.role != Role.ADVERSARY and cc != core
+                  and cc not in ec_set]
     return {
         "core_theater": core,
+        "effective_cores": effective_cores,
         "correlate_targets": sorted(correlates),
         "adversary_states": sorted(adversaries),
         "strategic_theaters": sorted(parts.keys()),

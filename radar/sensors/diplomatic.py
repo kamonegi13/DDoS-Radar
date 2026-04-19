@@ -34,6 +34,12 @@ _POLL_INTERVAL = int(os.getenv("DIPLOMATIC_POLL_INTERVAL", "3600"))  # 1 hour
 
 # Official diplomatic RSS sources, each mapped to relevant theaters.
 # Sources that report on multiple theaters are listed with all relevant ones.
+#
+# Feed audit 2026-04-18:
+#   Working: US_STATE, TW_MOFA, KCNA_WATCH
+#   Dead:   JP_MOFA (WAF 403), CN_MFA (RSS discontinued, domain→mfa.gov.cn),
+#           RU_MFA (404), NATO (RSS discontinued, 301→HTML)
+#   Dead feeds are kept for retry from different network environments.
 _DIPLOMATIC_SOURCES = {
     "US_STATE": {
         "url": "https://www.state.gov/press-releases/feed/",
@@ -41,11 +47,15 @@ _DIPLOMATIC_SOURCES = {
         "theaters": ["TW", "UA", "KP", "IR", "IL", "JP", "PH"],
     },
     "JP_MOFA": {
+        # 2026-04-18: returns 403 from all UAs (aggressive WAF). May work
+        # from data-center IPs — keep for Docker environments.
         "url": "https://www.mofa.go.jp/rss/rss.xml",
         "country": "JP",
         "theaters": ["TW", "JP", "KP", "CN"],
     },
     "CN_MFA": {
+        # 2026-04-18: RSS discontinued. Domain moved to mfa.gov.cn, no RSS.
+        # 302 → HTML page. Kept in case they restore the feed.
         "url": "https://www.fmprc.gov.cn/mfa_eng/rss.xml",
         "country": "CN",
         "theaters": ["TW", "JP", "PH", "IN"],
@@ -56,9 +66,12 @@ _DIPLOMATIC_SOURCES = {
         "theaters": ["TW"],
     },
     "RU_MFA": {
+        # 2026-04-18: returns 404. Site restructured or geo-blocked.
+        # Russia MFA issues statements on Iran, N.Korea, Syria etc. —
+        # restricting to ["UA"] forced non-Ukraine topics into UA theater.
         "url": "https://mid.ru/en/rss.xml",
         "country": "RU",
-        "theaters": ["UA"],
+        "theaters": ["UA", "IR", "IL", "SY", "KP"],
     },
     "KCNA_WATCH": {
         "url": "https://kcnawatch.org/feed/",
@@ -66,6 +79,7 @@ _DIPLOMATIC_SOURCES = {
         "theaters": ["KP", "JP"],
     },
     "NATO": {
+        # 2026-04-18: RSS discontinued, 301 → HTML news page.
         "url": "https://www.nato.int/cps/en/natolive/news.htm?rss=y",
         "country": "NATO",
         "theaters": ["UA"],
@@ -96,20 +110,30 @@ def _article_hash(source_name: str, title: str) -> str:
     return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
 
 
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/rss+xml, application/xml, text/xml, */*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
+}
+
+
 def _fetch_rss(url: str) -> str:
     """Fetch RSS feed text. Returns empty string on failure."""
     try:
         resp = requests.get(
             url, timeout=15,
             proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
-            headers={"User-Agent": "Mozilla/5.0 (OSINT-Radar/8.0)"},
+            headers=_BROWSER_HEADERS,
         )
         if resp.status_code == 200:
             return resp.text
-        if resp.status_code == 429:
-            log.debug(f"[Diplomatic] 429 rate-limited: {url}")
+        log.info(f"[Diplomatic] HTTP {resp.status_code} from {url}")
     except Exception as e:
-        log.debug(f"[Diplomatic] Fetch failed {url}: {e}")
+        log.info(f"[Diplomatic] Fetch failed {url}: {e}")
     return ""
 
 
@@ -127,9 +151,11 @@ def _theater_names(theaters: list[str]) -> list[str]:
 def _parse_articles(xml_text: str, max_age_h: int = 48,
                     theater_names: list[str] | None = None) -> list[dict]:
     """Parse RSS XML and return recent articles as dicts with title, summary, pub_ts.
-    Two-slot system:
+    Three-slot system:
       Slot 1: up to 5 articles matching escalation keywords
       Slot 2: up to 2 articles matching only theater names (no keyword match)
+      Slot 3: 1 most-recent article as fallback when slots 1+2 are both empty
+              (ensures LLM sees something even when keyword/theater filters miss)
     """
     if not xml_text:
         return []
@@ -142,6 +168,7 @@ def _parse_articles(xml_text: str, max_age_h: int = 48,
     cutoff = time.time() - max_age_h * 3600
     keyword_articles = []
     theater_only_articles = []
+    fallback_article = None  # most-recent article for slot 3
     seen_titles: set[str] = set()
 
     for item in root.iter("item"):
@@ -177,6 +204,10 @@ def _parse_articles(xml_text: str, max_age_h: int = 48,
         art = {"title": title, "summary": summary[:400], "pub_ts": pub_ts, "link": link}
         text_lower = (title + " " + summary).lower()
 
+        # Track most-recent article for slot 3 fallback
+        if fallback_article is None or pub_ts > fallback_article.get("pub_ts", 0):
+            fallback_article = art
+
         # Slot 1: escalation keyword match (up to 5)
         if any(kw in text_lower for kw in _ESC_KEYWORDS):
             if len(keyword_articles) < 5:
@@ -191,7 +222,13 @@ def _parse_articles(xml_text: str, max_age_h: int = 48,
         if len(keyword_articles) >= 5 and len(theater_only_articles) >= 2:
             break
 
-    return keyword_articles + theater_only_articles
+    result = keyword_articles + theater_only_articles
+    # Slot 3: if both primary slots are empty, send the most-recent article
+    # as a fallback so the LLM can assess it. This prevents total blindness
+    # when keyword/theater name filters miss non-English diplomatic statements.
+    if not result and fallback_article and fallback_article.get("title"):
+        result = [fallback_article]
+    return result
 
 
 class DiplomaticSensor(BaseSensor):
@@ -206,10 +243,11 @@ class DiplomaticSensor(BaseSensor):
             return {"diplomatic": {"llm_disabled": True}}
 
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available, record_sensor_drop, safe_float, safe_enum, sanitize_llm_input, today_str
+        from radar.llm_client import llm_analyze_json, llm_available, record_sensor_drop, record_sensor_skip, safe_float, safe_enum, sanitize_llm_input, today_str
 
         if not llm_available():
             log.debug("[Diplomatic] LLM not available — skipping")
+            record_sensor_skip("llm_unavailable", caller="diplomatic")
             self.log_fetch(True, 0, 0, 0, "llm_unavailable")
             return {"diplomatic": {"llm_offline": True}}
 
@@ -221,23 +259,36 @@ class DiplomaticSensor(BaseSensor):
         submitted = 0
         any_feed_ok = False
 
+        feeds_tried = 0
+        feeds_ok = 0
+        total_articles = 0
+
         for source_name, meta in _DIPLOMATIC_SOURCES.items():
             theaters = [t for t in meta["theaters"] if t in strategic_theaters or not strategic_theaters]
             if not theaters:
                 continue
 
+            feeds_tried += 1
             xml_text = _fetch_rss(meta["url"])
             if xml_text:
                 any_feed_ok = True
+                feeds_ok += 1
+            else:
+                record_sensor_skip(f"feed_fetch_failed:{source_name}", caller="diplomatic")
             t_names = _theater_names(theaters)
             articles = _parse_articles(xml_text, theater_names=t_names)
+            total_articles += len(articles)
             if not articles:
+                if xml_text:
+                    log.info(f"[Diplomatic] {source_name}: feed OK but 0 articles after filter")
+                    record_sensor_skip(f"no_articles_post_filter:{source_name}", caller="diplomatic")
                 continue
 
             country = meta["country"]
             theaters_str = ", ".join(theaters)
 
             # Process each article independently for precise per-article theater assignment
+            new_articles_this_feed = 0
             for art in articles:
                 key = _article_hash(source_name, art["title"])
                 with _processed_lock:
@@ -247,6 +298,7 @@ class DiplomaticSensor(BaseSensor):
                     if len(_processed) > _MAX_PROCESSED:
                         for k in list(_processed)[:_MAX_PROCESSED // 2]:
                             _processed.pop(k, None)
+                new_articles_this_feed += 1
 
                 safe_title   = sanitize_llm_input(art["title"], 120)
                 safe_summary = sanitize_llm_input(art["summary"], 400)
@@ -381,7 +433,14 @@ class DiplomaticSensor(BaseSensor):
                         f"(src={source_name}, theater={theater}, conf={confidence:.2f}, urgency={urgency})"
                     )
 
+            if articles and new_articles_this_feed == 0:
+                record_sensor_skip(f"all_dedup:{source_name}", caller="diplomatic")
+
         duration_ms = round((time.time() - t0) * 1000)
+        log.info(
+            f"[Diplomatic] Cycle done: feeds={feeds_ok}/{feeds_tried} "
+            f"articles={total_articles} submitted={submitted} ({duration_ms}ms)"
+        )
         self.log_fetch(any_feed_ok, duration_ms, 0, submitted)
         result_data = {"diplomatic": {"submitted": submitted}}
         self.set_cache(result_data)

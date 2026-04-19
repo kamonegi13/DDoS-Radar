@@ -50,6 +50,7 @@ def _expand_keywords(keywords: list) -> tuple[list[str], list[str]]:
     return phrases, sorted(atomic)
 from radar.config import (
     ADVERSARY_NARRATIVE_SOURCES, TACTICAL_KEYWORDS, GLOBAL_PROXIES, SSL_VERIFY, LLM_ENABLED,
+    NARRATIVE_GEO_TERMS,
 )
 from radar.sensors.base import BaseSensor
 
@@ -58,6 +59,63 @@ log = logging.getLogger("radar")
 # Track narrative burst items already submitted to intel_queue (dedup across cycles)
 _burst_submitted: dict[str, None] = {}
 _burst_submitted_lock = threading.Lock()
+
+# ── Geographic relevance filter ─────────────────────────────────────────────
+# Pre-compiled regex cache for NARRATIVE_GEO_TERMS per theater.
+_geo_regex_cache: dict[str, re.Pattern] = {}
+_geo_regex_lock = threading.Lock()
+
+
+def _get_geo_regex(theater: str, terms: list[str]) -> re.Pattern | None:
+    """Get or compile a regex matching any geo term for a theater."""
+    if not terms:
+        return None
+    with _geo_regex_lock:
+        if theater not in _geo_regex_cache:
+            parts = []
+            for t in terms:
+                t_lower = t.lower().strip()
+                if not t_lower:
+                    continue
+                # Multi-word or long terms: substring match (low false-positive risk)
+                # Short single words: word-boundary to prevent partial matches
+                if " " in t_lower or len(t_lower) >= 6:
+                    parts.append(re.escape(t_lower))
+                else:
+                    parts.append(r"\b" + re.escape(t_lower) + r"\b")
+            if not parts:
+                return None
+            _geo_regex_cache[theater] = re.compile("|".join(parts))
+        return _geo_regex_cache.get(theater)
+
+
+def _classify_article_geo(
+    text_lower: str,
+    current_theater: str,
+    all_geo_terms: dict[str, list[str]],
+) -> str:
+    """Classify an article's geographic relevance to a theater.
+
+    Returns:
+        "match"   — article mentions this theater's geography
+        "other"   — article mentions another monitored theater but NOT this one
+        "generic" — no monitored theater geography detected (global/ambiguous)
+    """
+    # Check current theater first
+    current_terms = all_geo_terms.get(current_theater, [])
+    current_re = _get_geo_regex(current_theater, current_terms)
+    if current_re and current_re.search(text_lower):
+        return "match"
+
+    # Check all other theaters
+    for code, terms in all_geo_terms.items():
+        if code == current_theater:
+            continue
+        other_re = _get_geo_regex(code, terms)
+        if other_re and other_re.search(text_lower):
+            return "other"
+
+    return "generic"
 _MAX_BURST_SUBMITTED = 500
 
 class RssNarrativeSensor(BaseSensor):
@@ -87,12 +145,22 @@ class RssNarrativeSensor(BaseSensor):
         return ""
 
     @staticmethod
-    def _count_keywords_in_rss(xml_text: str, keywords: list) -> tuple:
+    def _count_keywords_in_rss(
+        xml_text: str,
+        keywords: list,
+        current_theater: str = "",
+        all_geo_terms: dict[str, list[str]] | None = None,
+    ) -> tuple:
         """
         Parse RSS XML and return keyword hit count and article count.
         Two-tier matching: phrase substring (high precision) + atomic word boundary (high recall).
         An article counts as a hit if it matches at least one phrase or two atomic terms,
         preventing single-word matches from inflating the baseline.
+
+        Geographic filter (when all_geo_terms is provided):
+        - Articles about another monitored theater are excluded from keyword_hits
+        - article_count is NEVER filtered (denominator stays total for Z-score stability)
+
         Returns: (keyword_hits: int, article_count: int)
         """
         if not xml_text:
@@ -109,6 +177,7 @@ class RssNarrativeSensor(BaseSensor):
             r"\b(?:" + "|".join(re.escape(t) for t in atomic) + r")\b"
         ) if atomic else None
 
+        use_geo = bool(all_geo_terms and current_theater)
         titles_seen: set = set()
         keyword_hits, article_count = 0, 0
 
@@ -125,7 +194,15 @@ class RssNarrativeSensor(BaseSensor):
             if title_key:
                 titles_seen.add(title_key)
 
+            # article_count always increments (unfiltered denominator)
             article_count += 1
+
+            # Geographic relevance: skip keyword counting for other-theater articles
+            if use_geo:
+                geo = _classify_article_geo(text, current_theater, all_geo_terms)
+                if geo == "other":
+                    continue
+
             # Tier 1: phrase match (high precision)
             if any(p in text for p in phrases):
                 keyword_hits += 1
@@ -139,11 +216,18 @@ class RssNarrativeSensor(BaseSensor):
         return keyword_hits, article_count
 
     @staticmethod
-    def _get_burst_articles(xml_text: str, keywords: list, max_articles: int = 4) -> list[dict]:
+    def _get_burst_articles(
+        xml_text: str,
+        keywords: list,
+        max_articles: int = 4,
+        current_theater: str = "",
+        all_geo_terms: dict[str, list[str]] | None = None,
+    ) -> list[dict]:
         """Extract matched articles from RSS XML for LLM burst analysis.
         Uses the same two-tier matching as _count_keywords_in_rss to stay
         consistent with hit counts (otherwise burst-detected articles could
         appear empty when only atomic terms matched).
+        Geographic filter: excludes articles about other monitored theaters.
         """
         if not xml_text:
             return []
@@ -158,6 +242,7 @@ class RssNarrativeSensor(BaseSensor):
             r"\b(?:" + "|".join(re.escape(t) for t in atomic) + r")\b"
         ) if atomic else None
 
+        use_geo = bool(all_geo_terms and current_theater)
         titles_seen: set = set()
         articles = []
 
@@ -176,6 +261,13 @@ class RssNarrativeSensor(BaseSensor):
                 titles_seen.add(title_key)
 
             text_lower = (title + " " + desc).lower()
+
+            # Geographic filter: skip articles about other monitored theaters
+            if use_geo:
+                geo = _classify_article_geo(text_lower, current_theater, all_geo_terms)
+                if geo == "other":
+                    continue
+
             phrase_hit = any(p in text_lower for p in phrases)
             atomic_hits = len(set(atomic_re.findall(text_lower))) if atomic_re else 0
             if phrase_hit or atomic_hits >= 2:
@@ -225,11 +317,12 @@ class RssNarrativeSensor(BaseSensor):
 
         try:
             from radar.intel_queue import intel_queue
-            from radar.llm_client import llm_analyze_json, llm_available
+            from radar.llm_client import llm_analyze_json, llm_available, record_sensor_skip
         except Exception:
             return 0
 
         if not llm_available():
+            record_sensor_skip("llm_unavailable", caller="rss_narrative")
             return 0
 
         # Burst-level dedup: prevent re-calling LLM on same burst within a day.
@@ -241,6 +334,7 @@ class RssNarrativeSensor(BaseSensor):
         ).hexdigest()
         with _burst_submitted_lock:
             if burst_dedup in _burst_submitted:
+                record_sensor_skip(f"burst_dedup_24h:{theater}", caller="rss_narrative")
                 return 0
             _burst_submitted[burst_dedup] = None
             if len(_burst_submitted) > _MAX_BURST_SUBMITTED:
@@ -301,6 +395,10 @@ class RssNarrativeSensor(BaseSensor):
             "- response_to_incident: Reactive coverage of an already-occurred incident\n"
             "- propaganda_routine: Matches source's baseline framing with no new trigger.\n"
             "  Classify by departure from baseline patterns, not origin country.\n\n"
+            "IMPORTANT: The 'Theater' label above is for CONTEXT only. "
+            "Assign 'countries' based on the article content, NOT the Theater label. "
+            "If articles discuss a DIFFERENT region than the labeled Theater, "
+            "set countries to that region's ISO codes.\n\n"
             "Confidence (per cluster):\n"
             "- 0.75+: Strong pre-operation conditioning with specific new trigger\n"
             "- 0.60-0.74: Elevated narrative with clear new escalatory framing\n"
@@ -523,6 +621,23 @@ class RssNarrativeSensor(BaseSensor):
         results: dict = {}
         t0 = time.time()
         total_hits = 0
+        bursts_this_cycle = 0
+        feeds_dead_this_cycle = 0
+        from radar.llm_client import record_sensor_skip
+
+        # Warn once for theaters that have TACTICAL_KEYWORDS but no GEO_TERMS
+        if not hasattr(self, "_geo_warned"):
+            self._geo_warned: set = set()
+        for theater in theaters:
+            if (theater not in NARRATIVE_GEO_TERMS
+                    and theater in TACTICAL_KEYWORDS
+                    and theater not in self._geo_warned):
+                log.warning(
+                    f"[RssNarrative] Theater {theater} has TACTICAL_KEYWORDS "
+                    f"but no NARRATIVE_GEO_TERMS — geo filter will pass "
+                    f"generic articles only"
+                )
+                self._geo_warned.add(theater)
 
         # Select sources from configured adversary blocs.
         # Merging by dict-key deduplicates overlapping sources (e.g. BY reuses TASS).
@@ -548,11 +663,17 @@ class RssNarrativeSensor(BaseSensor):
             for source_name, rss_url in sources.items():
                 xml_text = self._fetch_rss_text(rss_url)
                 xml_texts[source_name] = xml_text
-                hits, articles = self._count_keywords_in_rss(xml_text, keywords)
+                hits, articles = self._count_keywords_in_rss(
+                    xml_text, keywords,
+                    current_theater=theater,
+                    all_geo_terms=NARRATIVE_GEO_TERMS,
+                )
                 combined_hits    += hits
                 combined_articles += articles
                 if xml_text:
                     fetched_sources.append(source_name)
+                else:
+                    feeds_dead_this_cycle += 1
 
             # Normalize by total article count (prevent division by zero)
             normalized = combined_hits / max(combined_articles, 1)
@@ -572,14 +693,21 @@ class RssNarrativeSensor(BaseSensor):
             # The intel_queue has its own dedup/confidence/auto_confirm pipeline.
             # Sequence event registration is handled by the scoring layer (core.py).
             if status in ("BURST", "CRITICAL_BURST"):
+                bursts_this_cycle += 1
                 for source_name, xml_text in xml_texts.items():
                     burst_article_pool.extend(
-                        self._get_burst_articles(xml_text, keywords, max_articles=2)
+                        self._get_burst_articles(
+                            xml_text, keywords, max_articles=2,
+                            current_theater=theater,
+                            all_geo_terms=NARRATIVE_GEO_TERMS,
+                        )
                     )
                 if burst_article_pool:
                     self._submit_narrative_burst_to_llm(
                         theater, burst_article_pool, z_score, fetched_sources, status
                     )
+                else:
+                    record_sensor_skip(f"burst_no_pool_articles:{theater}", caller="rss_narrative")
 
             results[theater] = {
                 "z_score":            z_score,
@@ -593,6 +721,16 @@ class RssNarrativeSensor(BaseSensor):
                 "keywords_monitored": keywords[:5],
             }
             total_hits += combined_hits
+
+        # Cycle-level diagnostics: distinguish 'all theaters normal' (expected
+        # silence) from 'all feeds dead' (broken pipeline).
+        if theaters and bursts_this_cycle == 0:
+            if feeds_dead_this_cycle and not any(
+                results[t].get("article_count", 0) > 0 for t in results
+            ):
+                record_sensor_skip("all_feeds_dead", caller="rss_narrative")
+            else:
+                record_sensor_skip("no_burst_this_cycle", caller="rss_narrative")
 
         self.log_fetch(True, round((time.time() - t0) * 1000), 200, total_hits)
         result = {"narratives": results}

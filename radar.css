@@ -207,7 +207,7 @@
         @keyframes hud-intel-pulse { 0%,100% { opacity: 1.0; } 50% { opacity: 0.55; } }
 
         /* ── Exception banner ─────────────────────────────────────── */
-        .hud-exception-bar { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; padding: 2px 12px 3px; border-top: 1px solid #2a1a1a; position: absolute; left: 0; bottom: 0; transform: translateY(100%); background: rgba(15, 15, 15, 0.92); box-sizing: border-box; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+        .hud-exception-bar { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; padding: 2px 12px 3px; border-top: 1px solid #2a1a1a; background: rgba(15, 15, 15, 0.92); box-sizing: border-box; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
         .hud-exception-item { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 3px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
         .hud-exception-item .ex-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.85; }
         .hud-exception-item .ex-value { font-family: 'Courier New', monospace; }
@@ -217,8 +217,22 @@
         .ex-direction { background: rgba(255,170,0,0.08); border: 1px solid #ffaa0044; color: #ffcc66; }
         .ex-comms     { background: rgba(255,136,0,0.10); border: 1px solid #ff880066; color: #ffa044; }
         .ex-discrepancy { background: rgba(255,0,0,0.18); border: 1px solid #ff2200; color: var(--color-critical); animation: blink 0.8s step-end infinite; will-change: opacity; }
-        .ex-bg        { background: rgba(0,255,255,0.08); border: 1px solid #00ffff66; color: var(--color-accent); cursor: pointer; }
-        .ex-bg:hover  { background: rgba(0,255,255,0.14); }
+        /* ── BG scenario alert — floating on map top ──────────────── */
+        .map-bg-alert {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            z-index: 500; display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 14px; border-radius: 4px;
+            background: rgba(0,20,30,0.92); border: 1px solid var(--color-accent);
+            color: var(--color-accent); cursor: pointer;
+            font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 12px rgba(0,255,255,0.25), 0 0 20px rgba(0,0,0,0.6);
+            animation: mapBgPulse 3s ease-in-out infinite;
+        }
+        .map-bg-alert:hover { background: rgba(0,40,50,0.95); border-color: #fff; }
+        .map-bg-alert .ex-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.85; }
+        .map-bg-alert .ex-value { font-family: 'Courier New', monospace; }
+        @keyframes mapBgPulse { 0%,100% { box-shadow: 0 2px 12px rgba(0,255,255,0.25), 0 0 20px rgba(0,0,0,0.6); } 50% { box-shadow: 0 2px 16px rgba(0,255,255,0.45), 0 0 24px rgba(0,0,0,0.6); } }
 
         /* ── Settings/Report dropdown menus ───────────────────────── */
         .hud-menu-wrap { position: relative; display: inline-block; }
@@ -1047,6 +1061,12 @@
         .tools-menu-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; border: 1px solid #333; background: transparent; transition: all 0.2s; }
         .tools-menu-dot.on { background: #00ffff; border-color: var(--color-accent); box-shadow: 0 0 5px #00ffff88; }
         #tools-dropdown-btn.tools-active { color: var(--color-accent); border-color: #00ffff66; }
+        /* Triage stale-pending pulse on the LLM Intelligence menu item (non-disruptive) */
+        .tools-menu-item.tm-pulse { animation: tmTriagePulse 2.6s ease-in-out infinite; }
+        .tools-menu-item.tm-pulse .tools-menu-dot { background: var(--color-warning); border-color: #ffaa00; box-shadow: 0 0 6px #ffaa0099; }
+        @keyframes tmTriagePulse { 0%,100% { background: transparent; } 50% { background: rgba(255,170,0,0.10); } }
+        .tm-triage-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 14px; padding: 0 4px; border-radius: 7px; background: var(--color-warning); color: #1a1000; font-size: 9px; font-weight: bold; letter-spacing: 0; margin-left: auto; }
+        .tm-triage-badge[hidden] { display: none; }
 
         /* ── Intuition UI: Radio Silence Indicator ── */
         #hud-radio-silence { display: none; }
@@ -1321,8 +1341,10 @@
 .llm-btn-raw      { border-color: #333; color: #556; }
 .llm-btn-confirm  { border-color: #44cc6644; color: #44cc66; }
 .llm-btn-confirm:hover { background: #0a2a15; }
-.llm-btn-reject   { border-color: #ff444444; color: #ff6644; }
-.llm-btn-reject:hover  { background: #2a0a0a; }
+.llm-btn-reject   { border-color: #88888844; color: #999; }
+.llm-btn-reject:hover  { background: #1a1a1a; }
+.llm-btn-false-pos { border-color: #ff444444; color: #ff6644; }
+.llm-btn-false-pos:hover { background: #2a0a0a; }
 .llm-btn-override { border-color: #ff880044; color: #ff8800; }
 .llm-btn-override:hover { background: #2a1500; }
 .llm-btn-revert   { border-color: #8888cc44; color: #aaaaee; }
@@ -1333,6 +1355,29 @@
 .llm-item-status-confirmed { border-left: 3px solid #44aaff; }
 .llm-item-status-rejected  { border-left: 3px solid #333; opacity: 0.6; }
 .llm-item-status-overridden { border-left: 3px solid #555; opacity: 0.5; }
+/* ── Triage View (P1-A) ───────────────────────────────── */
+.llm-triage-summary { font-size: 9px; color: #888; padding: 6px 10px 4px; border-bottom: 1px solid #222; letter-spacing: 0.5px; }
+.llm-item-triage { border-left: 3px solid #ffaa00; }
+.llm-tri-bar { position: relative; height: 6px; margin-bottom: 6px; background: #1a1a1a; border-radius: 2px; overflow: hidden; }
+.llm-tri-bar-fill { position: absolute; top: 0; left: 0; height: 100%; transition: width 0.3s; }
+.llm-tri-bar-fill.llm-pr-hi  { background: linear-gradient(90deg, #ff6644, #ff8866); }
+.llm-tri-bar-fill.llm-pr-mid { background: linear-gradient(90deg, #ffaa00, #ffcc44); }
+.llm-tri-bar-fill.llm-pr-lo  { background: linear-gradient(90deg, #4488aa, #66aacc); }
+.llm-tri-bar-label { position: absolute; right: 4px; top: -2px; font-size: 8px; color: #ccc; font-weight: bold; letter-spacing: 0.5px; text-shadow: 0 0 2px #000; }
+.llm-tri-scenario { font-size: 9px; color: #aaa; margin: 4px 0; padding: 3px 6px; background: rgba(68, 170, 255, 0.06); border-left: 2px solid #44aaff; }
+.llm-tri-scenario-label { color: #44aaff; font-weight: bold; letter-spacing: 0.5px; }
+.llm-tri-scenario-name  { color: #ddd; }
+.llm-tri-coupling { color: #66ccaa; margin-left: 6px; cursor: help; }
+.llm-tri-no-scenario { background: rgba(255, 100, 100, 0.06); border-left-color: #ff6666; color: #ff8888; }
+.llm-tri-meta { display: flex; gap: 8px; margin-top: 4px; font-size: 9px; flex-wrap: wrap; }
+.llm-tri-cred { color: #888; cursor: help; }
+.llm-tri-corr { color: #66ccaa; margin-left: auto; cursor: help; }
+.llm-tri-gate { padding: 1px 6px; border-radius: 2px; font-weight: bold; letter-spacing: 0.3px; cursor: help; }
+.llm-tri-gate-low_confidence       { color: #ffaa00; background: rgba(255, 170, 0, 0.10); }
+.llm-tri-gate-low_source_credibility { color: #ff8866; background: rgba(255, 100, 50, 0.10); }
+.llm-tri-gate-ecosystem_blocked    { color: #ff6644; background: rgba(255, 80, 60, 0.12); }
+.llm-tri-gate-ecosystem_unclassified { color: #999;  background: rgba(150, 150, 150, 0.10); }
+.llm-tri-gate-manual_review        { color: #aaaaee; background: rgba(120, 120, 200, 0.10); }
 .llm-status-label-auto     { font-size: 8px; color: #44cc66; letter-spacing: 0.5px; }
 .llm-status-label-pending  { font-size: 8px; color: #ffaa00; letter-spacing: 0.5px; }
 .llm-status-label-review   { font-size: 8px; color: #ff4444; letter-spacing: 0.5px; }
@@ -1567,6 +1612,14 @@
 .sc-tl-3 { color: var(--color-warning); }
 .sc-tl-4 { color: var(--color-elevated); }
 .sc-tl-5 { color: var(--color-normal); }
+.sc-tl-lite-insufficient {
+    color: #888;
+    background: rgba(136, 136, 136, 0.12);
+    border: 1px dashed #666;
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    cursor: help;
+}
 .sc-score { color: #999; font-size: 9px; }
 .sc-domains {
     display: inline-flex;
@@ -1601,6 +1654,19 @@
     color: var(--color-warning);
     font-style: italic;
     margin-left: 4px;
+}
+.sc-focus-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 16px;
+    font-size: 11px; line-height: 1;
+    border: 1px solid #555; border-radius: 2px;
+    background: transparent; color: #888; cursor: pointer;
+    margin-left: 4px; flex-shrink: 0;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.sc-focus-btn:hover {
+    color: var(--color-accent); border-color: var(--color-accent);
+    background: rgba(0,255,255,0.08);
 }
 
 /* Phase A: Velocity trend arrow */
@@ -2107,6 +2173,16 @@
     padding: 0 4px;
 }
 .sc-detail-close:hover { color: var(--color-critical); }
+.sc-detail-focus-btn {
+    font-size: 9px; padding: 2px 8px; letter-spacing: 0.5px;
+    border: 1px solid #00ffff66; color: var(--color-accent); background: transparent;
+    cursor: pointer; border-radius: 2px; text-transform: uppercase; font-weight: bold;
+    font-family: 'Courier New', monospace;
+    transition: background 0.15s, border-color 0.15s;
+}
+.sc-detail-focus-btn:hover {
+    background: rgba(0,255,255,0.15); border-color: var(--color-accent);
+}
 
 .sc-bias-warning {
     background: rgba(255, 170, 0, 0.1);

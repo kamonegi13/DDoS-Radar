@@ -1022,3 +1022,190 @@ def api_scenario_country_timeseries(scenario_id, country):
             scenario_id, country, hours=hours),
     })
 
+
+@bp.route("/api/analytics/tl_calibration", methods=["GET"])
+def api_tl_calibration():
+    """TL threshold recalibration monitoring (Section 7.3.1).
+
+    Returns per-TL distribution, score ranges, and observation counts.
+    Use ?scenario_id=... to filter to a specific scenario, or omit for
+    aggregate across all scorable scenarios.
+    """
+    scenario_id = request.args.get("scenario_id")
+    hours = _safe_int(request.args.get("hours", "168"), 168, min_val=1, max_val=720)
+    return jsonify(_db.tl_calibration_stats(
+        scenario_id=scenario_id, hours=hours))
+
+
+@bp.route("/api/analytics/scenarios/compare", methods=["GET"])
+def api_scenario_compare():
+    """Side-by-side scenario comparison: latest TL, score trend, and domain
+    breakdown for all scorable scenarios.  Designed for multi-scenario
+    situational awareness dashboards."""
+    from radar.scenarios import scenario_store
+    hours = _safe_int(request.args.get("hours", "24"), 24, min_val=1, max_val=720)
+    results = []
+    for sc in scenario_store.scorable():
+        series = _db.scenario_tl_timeseries(sc.id, hours=hours, limit=100)
+        scores = [o["score"] for o in series]
+        latest = series[-1] if series else {}
+        results.append({
+            "scenario_id": sc.id,
+            "label": sc.label,
+            "core_country": sc.core_country,
+            "state": sc.state,
+            "enabled": sc.enabled,
+            "latest_tl": latest.get("tl"),
+            "latest_score": latest.get("score"),
+            "scoring_mode": latest.get("scoring_mode"),
+            "domains": {
+                "cyber": latest.get("cyber", 0),
+                "physical": latest.get("physical", 0),
+                "info": latest.get("info", 0),
+            },
+            "trend": {
+                "min": round(min(scores), 2) if scores else None,
+                "max": round(max(scores), 2) if scores else None,
+                "avg": round(sum(scores) / len(scores), 2) if scores else None,
+                "observations": len(scores),
+            },
+        })
+    return jsonify({"hours": hours, "scenarios": results})
+
+
+@bp.route("/api/analytics/source_credibility", methods=["GET"])
+def api_source_credibility():
+    """Source credibility overview: current weights, analyst feedback counts,
+    and ecosystem classification for all known LLM intel sources."""
+    from radar.intel_queue import classify_ecosystem
+    sources = _db.intel_source_list()
+    for src in sources:
+        src["ecosystem"] = classify_ecosystem(src["source_id"])
+        src["is_state_media"] = src["ecosystem"].endswith("_state")
+    return jsonify({"sources": sources})
+
+
+@bp.route("/api/analytics/calibration_advisory", methods=["GET"])
+def api_calibration_advisory():
+    """Weight calibration advisory: analyzes scenario participant weight
+    distribution and suggests adjustments based on observed signal patterns.
+
+    Also surfaces cross-scenario signal overlap — signals that contribute
+    to multiple scenarios simultaneously, indicating shared threat vectors.
+    """
+    from radar.scenarios import scenario_store, derive_country_context, Role
+    hours = _safe_int(request.args.get("hours", "168"), 168, min_val=1, max_val=720)
+    cutoff = time.time() - hours * 3600
+
+    advisories = []
+    cross_scenario_countries: dict[str, list[str]] = {}  # country -> [scenario_ids]
+
+    for sc in scenario_store.scorable():
+        for cc in sc.participants:
+            cross_scenario_countries.setdefault(cc, []).append(sc.id)
+
+        # Analyze weight distribution for imbalances
+        weights = [p.weight for p in sc.participants.values()
+                   if p.role != Role.ADVERSARY]
+        if not weights:
+            continue
+        max_w = max(weights)
+        min_w = min(weights)
+
+        # Check for zero-weight participants (dead weight)
+        zero_weight = [cc for cc, p in sc.participants.items()
+                       if p.weight == 0 and p.role != Role.ADVERSARY]
+
+        # Check for extreme weight concentration
+        if len(weights) >= 3 and max_w > 0:
+            concentration = max_w / (sum(weights) / len(weights))
+            if concentration > 3.0:
+                advisories.append({
+                    "scenario_id": sc.id,
+                    "severity": "MEDIUM",
+                    "type": "weight_concentration",
+                    "detail": (f"Top participant weight ({max_w:.2f}) is "
+                               f"{concentration:.1f}x the average — scoring "
+                               f"is heavily dominated by one country"),
+                })
+
+        if zero_weight:
+            advisories.append({
+                "scenario_id": sc.id,
+                "severity": "LOW",
+                "type": "zero_weight_participant",
+                "detail": (f"Participants {zero_weight} have weight=0 — "
+                           f"their signals will not contribute to scoring"),
+            })
+
+        # Check if any non-adversary participant has no recent TL observations
+        obs = _db.scenario_tl_timeseries(sc.id, hours=hours, limit=5)
+        if not obs:
+            advisories.append({
+                "scenario_id": sc.id,
+                "severity": "LOW",
+                "type": "no_observations",
+                "detail": f"No TL observations in last {hours}h",
+            })
+
+    # Cross-scenario overlap: countries appearing in 2+ scenarios
+    overlap = {cc: sids for cc, sids in cross_scenario_countries.items()
+               if len(sids) >= 2}
+
+    return jsonify({
+        "hours": hours,
+        "advisories": advisories,
+        "cross_scenario_overlap": overlap,
+    })
+
+
+@bp.route("/api/analytics/confidence_distribution", methods=["GET"])
+def api_confidence_distribution():
+    """LLM intel confidence distribution for pipeline tuning.
+
+    Shows how confidence values are distributed across all LLM intel items
+    and what fraction would qualify for auto_confirm under current thresholds.
+    Use this to diagnose why intel is stuck pending — if most items are in the
+    0.60-0.79 range, the LLM prompts need adjustment, not the thresholds.
+    """
+    hours = _safe_int(request.args.get("hours", "168"), 168, min_val=1, max_val=720)
+    return jsonify(_db.intel_confidence_distribution(hours=hours))
+
+
+@bp.route("/api/analytics/scenario_phases", methods=["GET"])
+def api_scenario_phases():
+    """Scenario implementation phase annotation for operational awareness.
+
+    Returns each scenario's current state with calibration and migration
+    readiness indicators based on observation history.
+    """
+    from radar.scenarios import scenario_store
+    history_start = _db.scenario_history_start()
+    results = []
+    for sc in scenario_store.all():
+        obs_count = len(_db.scenario_tl_timeseries(sc.id, hours=720, limit=500))
+        latest_tl = _db.scenario_tl_last(sc.id)
+
+        # Determine operational readiness
+        if obs_count == 0:
+            phase = "uncalibrated"
+        elif obs_count < 100:
+            phase = "warmup"
+        else:
+            phase = "operational"
+
+        results.append({
+            "scenario_id": sc.id,
+            "label": sc.label,
+            "state": sc.state,
+            "enabled": sc.enabled,
+            "is_scorable": sc.is_scorable,
+            "tier": sc.tier.value if sc.tier else None,
+            "phase": phase,
+            "observation_count": obs_count,
+            "latest_tl": latest_tl,
+            "history_starts_at": history_start,
+        })
+    return jsonify({"scenarios": results})
+
+

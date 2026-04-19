@@ -53,23 +53,29 @@ class HacktiivistIntelSensor(BaseSensor):
 
         from radar.sensors.telegram import TelegramMirrorSensor
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available, record_sensor_drop
+        from radar.llm_client import llm_analyze_json, llm_available, record_sensor_drop, record_sensor_skip
 
         if not llm_available():
             log.debug("[HacktiivistIntel] LLM not available — skipping")
+            record_sensor_skip("llm_unavailable", caller="hacktivist_intel")
             self.log_fetch(True, 0, 0, 0, "llm_unavailable")
             return {"hacktivist_intel": {"llm_offline": True}}
 
         t0 = time.time()
         submitted = 0
+        entries_seen = 0
+        entries_dedup = 0
+        entries_empty_text = 0
 
         with TelegramMirrorSensor._intercept_lock:
             entries = list(TelegramMirrorSensor._intercept_log)
 
         for entry in entries:
+            entries_seen += 1
             key = _entry_key(entry)
             with _processed_lock:
                 if key in _processed:
+                    entries_dedup += 1
                     continue
                 _processed[key] = None
                 if len(_processed) > _MAX_PROCESSED:
@@ -87,6 +93,7 @@ class HacktiivistIntelSensor(BaseSensor):
             # Use snippet if available (keyword-matched context), fall back to full excerpt
             text_content = snippet or text_excerpt
             if not text_content:
+                entries_empty_text += 1
                 continue
 
             # Build LLM prompt
@@ -218,6 +225,14 @@ class HacktiivistIntelSensor(BaseSensor):
                 submitted += 1
                 log.info(f"[HacktiivistIntel] Submitted: {item['headline'][:60]} "
                          f"(conf={confidence:.2f}, theater={theater})")
+
+        # Cycle-level diagnostics so silent state is explainable
+        if entries_seen == 0:
+            record_sensor_skip("no_telegram_entries", caller="hacktivist_intel")
+        elif entries_dedup == entries_seen:
+            record_sensor_skip("all_dedup", caller="hacktivist_intel")
+        elif entries_empty_text and entries_empty_text == (entries_seen - entries_dedup):
+            record_sensor_skip("all_empty_text", caller="hacktivist_intel")
 
         duration_ms = round((time.time() - t0) * 1000)
         self.log_fetch(True, duration_ms, 0, submitted)

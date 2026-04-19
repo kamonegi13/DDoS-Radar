@@ -89,6 +89,55 @@ _CREDIBILITY_BOOTSTRAP: list[tuple[tuple[str, ...], float]] = [
 ]
 
 
+# ── Media ecosystem classification ───────────────────────────────────────────
+# Used to determine corroboration independence: sources within the same
+# ecosystem cannot corroborate each other (TASS + Sputnik = same ecosystem).
+# State media ecosystems end with "_state" and are never auto-confirmed.
+_MEDIA_ECOSYSTEMS: list[tuple[str, str]] = [
+    # Russian state media
+    ("military_tass_military", "ru_state"),
+    ("military_sputnik", "ru_state"),
+    ("military_ria_novosti", "ru_state"),
+    ("military_rt_", "ru_state"),
+    # Chinese state media
+    ("military_pla_daily", "cn_state"),
+    ("military_xinhua", "cn_state"),
+    ("military_global_times", "cn_state"),
+    ("military_cctv", "cn_state"),
+    # Iranian state media
+    ("military_press_tv", "ir_state"),
+    ("military_fars_news", "ir_state"),
+    ("military_tasnim", "ir_state"),
+    # US government sources (not state propaganda but government-published)
+    ("military_pacom_news", "us_gov"),
+    ("military_stars_stripes", "us_gov"),
+    # Independent defense reporting
+    ("military_usni_news", "independent"),
+    ("military_defense_news", "independent"),
+    ("military_janes", "independent"),
+    # CERTs (independent by nature — each country's CERT is separate)
+    ("cert_", "cert"),
+    # Hacktivist channels (independent per channel but low credibility)
+    ("hacktivist_", "hacktivist"),
+]
+
+
+def classify_ecosystem(source_id: str) -> str:
+    """Classify a source_id into its media ecosystem.
+
+    Longest-prefix match wins, matching the same strategy as
+    _initial_credibility(). Returns empty string for unclassified sources.
+    """
+    sid = (source_id or "").lower()
+    best_len = 0
+    best_eco = ""
+    for prefix, eco in _MEDIA_ECOSYSTEMS:
+        if sid.startswith(prefix) and len(prefix) > best_len:
+            best_len = len(prefix)
+            best_eco = eco
+    return best_eco
+
+
 def _initial_credibility(source_id: str) -> float:
     """Return the seed credibility weight for a newly-seen source_id.
 
@@ -328,6 +377,11 @@ class IntelQueue:
                         corroborators.append(old_src)
                     merged_llm = new_llm.copy()
                     merged_llm["corroborating_sources"] = corroborators
+                    # Track ecosystem diversity for independent corroboration
+                    _eco_set = {classify_ecosystem(s) for s in corroborators}
+                    _eco_set.add(classify_ecosystem(ex.get("source_id", "")))
+                    _eco_set.add(classify_ecosystem(source_id))
+                    merged_llm["corroborating_ecosystems"] = sorted(_eco_set - {""})
                     db.intel_update_llm_fields(ex["id"], merged_llm)
                     db.intel_update_core_fields(
                         ex["id"],
@@ -346,7 +400,13 @@ class IntelQueue:
                     corroborators = ex_llm.get("corroborating_sources", [])
                     if source_id not in corroborators:
                         corroborators.append(source_id)
-                        db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
+                        _eco_set = {classify_ecosystem(s) for s in corroborators}
+                        _eco_set.add(classify_ecosystem(ex.get("source_id", "")))
+                        _update = {
+                            "corroborating_sources": corroborators,
+                            "corroborating_ecosystems": sorted(_eco_set - {""}),
+                        }
+                        db.intel_update_llm_fields(ex["id"], _update)
                     log.debug(
                         f"[Intel] Intra-type dedup: discarded {source_id!r} "
                         f"(Jaccard={jacc:.2f} vs {ex['source_id']!r}, "
@@ -405,16 +465,37 @@ class IntelQueue:
         item_id = item.get("id") or str(uuid.uuid4())
         now = time.time()
 
-        # Determine initial status
-        if confidence >= _auto_confirm_threshold() and credibility >= 0.75:
+        # Determine initial status via staged auto_confirm with state media gate.
+        # Fail-closed: only sources with a known-trusted ecosystem classification
+        # are eligible for auto-confirm. State media and unclassified sources are
+        # always held for analyst review.
+        _ecosystem = classify_ecosystem(source_id)
+        _AUTO_CONFIRM_ELIGIBLE = {"independent", "cert", "us_gov"}
+        _is_auto_eligible = _ecosystem in _AUTO_CONFIRM_ELIGIBLE
+
+        if not _is_auto_eligible:
+            # Non-eligible ecosystem: always pending (fail-closed)
+            status = "pending"
+            log.info(f"[Intel] ECOSYSTEM_GATE: {source_id!r} "
+                     f"(eco={_ecosystem!r}) held for analyst review "
+                     f"despite conf={confidence:.2f}/cred={credibility:.2f}")
+        elif confidence >= 0.85 and credibility >= 0.80:
+            # Tier 1 (strict): high confidence + high credibility
             status = "auto_confirmed"
             with _active_lock:
                 _active_item_ids.add(item_id)
-            log.info(f"[Intel] AUTO-CONFIRMED: {item.get('headline', '')[:80]} "
+            log.info(f"[Intel] AUTO-CONFIRMED (tier1): {headline[:80]} "
+                     f"(conf={confidence:.2f}, cred={credibility:.2f})")
+        elif confidence >= _auto_confirm_threshold() and credibility >= 0.75:
+            # Tier 2 (standard): original threshold, non-state media only
+            status = "auto_confirmed"
+            with _active_lock:
+                _active_item_ids.add(item_id)
+            log.info(f"[Intel] AUTO-CONFIRMED (tier2): {headline[:80]} "
                      f"(conf={confidence:.2f}, cred={credibility:.2f})")
         else:
             status = "pending"
-            log.info(f"[Intel] PENDING review: {item.get('headline', '')[:80]} "
+            log.info(f"[Intel] PENDING review: {headline[:80]} "
                      f"(conf={confidence:.2f}, cred={credibility:.2f})")
         self._record_verdict(source_type, status, confidence, headline)
 
@@ -468,8 +549,16 @@ class IntelQueue:
         log.info(f"[Intel] CONFIRMED by {analyst}: {item.get('headline', '')[:80]}")
         return True
 
-    def reject(self, item_id: str, analyst: str = "analyst") -> bool:
-        """Reject a PENDING item. Returns True if successful."""
+    def reject(self, item_id: str, analyst: str = "analyst",
+               classification: str = "irrelevant") -> bool:
+        """Reject a PENDING item. Returns True if successful.
+
+        classification:
+            "irrelevant"     — accurate report but not relevant to the scenario.
+                               No credibility penalty (source is not at fault).
+            "false_positive" — inaccurate or misleading information.
+                               Credibility penalty applied (-0.10).
+        """
         item = db.intel_get(item_id)
         if not item or item["status"] != "pending":
             return False
@@ -477,9 +566,10 @@ class IntelQueue:
                                confirmed_by=analyst, confirmed_at=time.time())
         with _active_lock:
             _active_item_ids.discard(item_id)
-        if item.get("source_id"):
+        if item.get("source_id") and classification == "false_positive":
             db.intel_source_record_outcome(item["source_id"], confirmed=False)
-        log.info(f"[Intel] REJECTED by {analyst}: {item.get('headline', '')[:80]}")
+        tag = "FALSE_POS" if classification == "false_positive" else "IRRELEVANT"
+        log.info(f"[Intel] REJECTED ({tag}) by {analyst}: {item.get('headline', '')[:80]}")
         return True
 
     def revert(self, item_id: str, analyst: str = "analyst") -> bool:
@@ -487,6 +577,12 @@ class IntelQueue:
         This undoes a manual confirm/reject decision so the analyst can re-decide.
         Not applicable to auto_confirmed items (use override() for those).
         Returns True if successful.
+
+        Credibility handling:
+          - Reverting a CONFIRMED item undoes the +0.05 credit (applies -0.05).
+          - Reverting a REJECTED item has no credibility effect (the original
+            reject may or may not have applied a penalty depending on its
+            classification; that decision stands until the analyst re-decides).
         """
         item = db.intel_get(item_id)
         if not item or item["status"] not in ("confirmed", "rejected"):
@@ -498,7 +594,8 @@ class IntelQueue:
             with _active_lock:
                 _active_item_ids.discard(item_id)
             if item.get("source_id"):
-                db.intel_source_record_outcome(item["source_id"], confirmed=False)
+                # Undo the +0.05 from the original confirm — not a false positive.
+                db.intel_source_update_credibility(item["source_id"], -0.05)
         log.info(f"[Intel] REVERTED to pending by {analyst}: {item.get('headline', '')[:80]}")
         return True
 
@@ -660,6 +757,37 @@ class IntelQueue:
                 updated += 1
         return updated
 
+    def enforce_archetype_floor(self) -> int:
+        """Raise credibility back to archetype floor for sources that have
+        decayed below it.  The floor is bootstrap_value - 0.20, ensuring
+        that established defense reporting (bootstrap 0.75) can never drop
+        below 0.55, and state propaganda (bootstrap 0.60) cannot drop below
+        0.40.  This prevents the death-spiral where noisy-but-accurate sources
+        are permanently locked out of auto-confirm.
+
+        Unlike reseed_existing_credibility(), this runs even on sources with
+        analyst feedback — that's the point: prior "irrelevant" rejects were
+        incorrectly penalising credibility, and this corrects the baseline.
+
+        Called once at startup, after reseed_existing_credibility().
+        """
+        updated = 0
+        for row in db.intel_source_list():
+            seed = _initial_credibility(row["source_id"])
+            floor = max(seed - 0.20, 0.30)
+            if row["credibility_weight"] < floor - 1e-6:
+                db.intel_source_update_credibility(
+                    row["source_id"],
+                    floor - row["credibility_weight"],
+                )
+                log.info(
+                    f"[Intel] Archetype floor applied: {row['source_id']} "
+                    f"{row['credibility_weight']:.2f} → {floor:.2f} "
+                    f"(bootstrap={seed:.2f})"
+                )
+                updated += 1
+        return updated
+
     def promote_pending_after_reseed(self) -> int:
         """Sweep pending items that would now qualify for auto-confirm under the
         current credibility table. Exists because the reseed retroactively
@@ -682,6 +810,10 @@ class IntelQueue:
                 continue
             sid = item.get("source_id", "")
             if creds.get(sid, 0.0) < 0.75:
+                continue
+            # Ecosystem gate (fail-closed): only promote sources with
+            # known-trusted ecosystem classification
+            if classify_ecosystem(sid) not in {"independent", "cert", "us_gov"}:
                 continue
             now = time.time()
             db.intel_update_status(

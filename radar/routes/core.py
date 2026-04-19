@@ -46,7 +46,9 @@ from radar.scenarios import (
 
 log = logging.getLogger("radar")
 
-_prev_focused_id: str | None = None
+# Initialize to DEFAULT_FOCUSED_SCENARIO so the first scoring cycle can
+# detect if the user immediately switches focus away from the default.
+_prev_focused_id: str | None = DEFAULT_FOCUSED_SCENARIO
 # Phase C: what-changed tracking — guarded by _global_cache_lock
 _prev_scenario_domains: dict[str, dict[str, float]] = {}
 _prev_scenario_signals: dict[str, set[str]] = {}
@@ -339,6 +341,7 @@ def get_threat_data():
 
     _ctx = derive_country_context(focused_scenario_obj)
     core_theater = (_ctx["core_theater"] or "").upper()
+    effective_cores = [ec.upper() for ec in _ctx["effective_cores"]]
     correlate_targets = list(_ctx["correlate_targets"])
     adversary_states = list(_ctx["adversary_states"])
     strategic_theaters_set = set(_ctx["strategic_theaters"])
@@ -364,7 +367,10 @@ def get_threat_data():
     muted_sensors = [s.strip() for s in request.args.get("muted", "").split(",") if s.strip()]
 
     required_keys = set(correlate_targets)
-    if core_theater: required_keys.add(core_theater)
+    if core_theater:
+        required_keys.add(core_theater)
+    # Dual-core: ensure all effective cores are in the fetch target set
+    required_keys.update(effective_cores)
 
     sensor_context = {
         "all_targets": sorted(required_keys),
@@ -403,7 +409,7 @@ def get_threat_data():
     _req_focus = focused_id
     with _global_cache_lock:
         _cache_ts = st.global_cache.get("time", 0)
-        _cache_focus = st.global_cache.get("focus")
+        _cache_focus = st.global_cache.get("focused_scenario")
     _focus_changed = (_cache_focus is not None and _cache_focus != _req_focus)
     if (current_time - _cache_ts > SCORE_REFRESH_SEC) or force_sync or _focus_changed:
         # Read all sensor caches (extracted for readability)
@@ -566,7 +572,7 @@ def get_threat_data():
         # Compute all pairwise correlations (not just core vs correlates)
         _corr_seen = set()
         _corr_theaters = []
-        for t in [core_theater] + correlate_targets:
+        for t in (effective_cores if not core_theater else [core_theater]) + correlate_targets:
             if t in origin_distributions and t not in _corr_seen:
                 _corr_theaters.append(t)
                 _corr_seen.add(t)
@@ -580,9 +586,37 @@ def get_threat_data():
         elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
         is_coordinated = len(elevated_theaters) >= 2
 
-        core_spike     = target_details.get(core_theater, {}).get("avg_spike", 0)
-        core_degraded  = core_theater in degraded_targets_effective
-        core_shifted   = core_theater in vector_shifts
+        # Dual-core MAX aggregation: for scenarios with multiple effective
+        # cores (e.g. middle_east: IL+IR), take worst-case across all cores.
+        # primary_ec is the effective core driving the highest spike — used as
+        # the single-country reference for sequence events, HOD baseline, etc.
+        if effective_cores and not core_theater:
+            # Dual-core scenario (core_country=null)
+            core_spike = max(
+                (target_details.get(ec, {}).get("avg_spike", 0) for ec in effective_cores),
+                default=0,
+            )
+            core_degraded = any(ec in degraded_targets_effective for ec in effective_cores)
+            core_shifted = any(ec in vector_shifts for ec in effective_cores)
+            primary_ec = max(
+                effective_cores,
+                key=lambda ec: target_details.get(ec, {}).get("avg_spike", 0),
+            ) if effective_cores else ""
+        else:
+            # Single-core scenario (standard path)
+            core_spike = target_details.get(core_theater, {}).get("avg_spike", 0)
+            core_degraded = core_theater in degraded_targets_effective
+            core_shifted = core_theater in vector_shifts
+            primary_ec = core_theater
+
+        # For dual-core scenarios (core_country=null), promote primary_ec
+        # to core_theater so that ALL downstream per-country sensor lookups,
+        # sequence events, and baseline computations use a valid country code.
+        # Preserve the original for the API response (backward compat).
+        _original_core_theater = core_theater
+        if not core_theater and primary_ec:
+            core_theater = primary_ec
+
         # State-directed coordinated ops typically show 20–35% overlap. 45%+ indicates large civilian botnet.
         high_correlation = any(v > 30.0 for v in correlations.values())
         major_adversary  = len(adversary_strikes) > 0
@@ -604,8 +638,8 @@ def get_threat_data():
             Callers should use this to gate sequence event registration."""
             _is_muted = (sensor in muted_sensors) or is_suppressed
             _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
-            # Check noise exclusion rules
-            _noise_rule = _db.noise_excl_match(sensor, core_theater, value)
+            # Check noise exclusion rules (use primary_ec for dual-core)
+            _noise_rule = _db.noise_excl_match(sensor, primary_ec, value)
             if _noise_rule and not _is_muted:
                 _is_muted = True
                 _s_reason = f"Noise exclusion: {_noise_rule['reason']} (rule #{_noise_rule['id']})"
@@ -613,20 +647,20 @@ def get_threat_data():
             # CAC direction classification
             _dir, _dir_conf = classify_direction(
                 sensor, domain, source_country=source_country,
-                target_country=core_theater,
+                target_country=primary_ec,
                 adversary_states=adversary_states,
                 strategic_theaters=list(strategic_theaters_set),
                 **cac_kwargs)
             # CAC context computation
-            _temporal = compute_temporal_context(sensor, current_time, core_theater)
-            _spatial = compute_spatial_context(sensor, core_theater,
+            _temporal = compute_temporal_context(sensor, current_time, primary_ec)
+            _spatial = compute_spatial_context(sensor, primary_ec,
                                                source_country=source_country,
                                                adversary_states=adversary_states)
-            _target = compute_target_context(sensor, core_theater,
+            _target = compute_target_context(sensor, primary_ec,
                                               source_country=source_country,
                                               adversary_states=adversary_states,
                                               strategic_theaters=list(strategic_theaters_set),
-                                              core_country=focused_scenario_obj.core_country or "")
+                                              core_country=primary_ec)
             rationale.append(RationaleEntry(
                 sensor=sensor, domain=domain, status=status, value=value,
                 score=score, fired_reason=fired_reason,
@@ -645,7 +679,7 @@ def get_threat_data():
         else:
             # HOD-normalized Z-score spike detection.
             # During warmup (<7 same-hour samples) fall back to raw ratio thresholds.
-            hod_z, hod_valid, hod_n = compute_hod_zscore(core_theater, core_spike, current_time)
+            hod_z, hod_valid, hod_n = compute_hod_zscore(primary_ec, core_spike, current_time)
             if hod_valid:
                 # Z-score thresholds: 1.5σ / 2.5σ / 3.5σ  → +1 / +2 / +3
                 spike_score = (1 if hod_z > 1.5 else 0) + (1 if hod_z > 2.5 else 0) + (1 if hod_z > 3.5 else 0)
@@ -660,7 +694,7 @@ def get_threat_data():
                 spike_reason = f"Core theater spike exceeds 2x baseline (HOD warmup)" if spike_fired else None
             # Phase 2: Adaptive Z-score tracking (update running statistics)
             az_score, az_adaptive, az_threshold, az_n = compute_adaptive_zscore(
-                "cf_spike_core", core_theater, core_spike, fallback_threshold=2.0)
+                "cf_spike_core", primary_ec, core_spike, fallback_threshold=2.0)
             if az_adaptive and spike_value:
                 spike_value += f" [AZ={az_score:.2f} n={az_n}]"
             _cf_conf = _sensor_conf(cf_sensor, sample_count=hod_n, baseline_samples=hod_n)
@@ -668,8 +702,8 @@ def get_threat_data():
             max_overlap = max(correlations.values(), default=0.0)
             _overlap_active = add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None, confidence=_cf_conf)
             # Graduated L3→L7 vector shift scoring: moderate +1, severe +2
-            _core_l7s = target_details.get(core_theater, {}).get("avg_l7_spike", 0)
-            _core_l3s = target_details.get(core_theater, {}).get("avg_l3_spike", 0)
+            _core_l7s = target_details.get(primary_ec, {}).get("avg_l7_spike", 0)
+            _core_l3s = target_details.get(primary_ec, {}).get("avg_l3_spike", 0)
             _shift_severe = core_shifted and _core_l7s >= 5.0 and _core_l7s > _core_l3s * 2.0
             _shift_score = 2 if _shift_severe else (1 if core_shifted else 0)
             _shift_reason = (f"Severe L7 escalation (L7={_core_l7s:.1f}x vs L3={_core_l3s:.1f}x)" if _shift_severe
@@ -1353,12 +1387,27 @@ def get_threat_data():
         # Inject confirmed/auto_confirmed LLM intel items as scored rationale entries.
         # This makes LLM signals visible in the evidence matrix and contributes to
         # domain scores, exactly like any other sensor.
+        # Relevance filter: an LLM intel item is relevant to the current scenario if
+        # ANY of these hold:
+        #   1. theater field matches core_theater (legacy compat)
+        #   2. countries list has overlap with strategic_theaters_set (Phase 3)
+        #   3. theater field is empty AND countries list is empty (global signal)
         try:
             from radar.intel_queue import intel_queue as _iq
             for _llm_entry in _iq.get_active_rationale():
                 _llm_theater = _llm_entry.get("theater", "")
-                # Only inject entries relevant to the current core theater
-                if _llm_theater and _llm_theater != core_theater:
+                _llm_countries = set(_llm_entry.get("countries", []))
+                _is_relevant = False
+                if not _llm_theater and not _llm_countries:
+                    # Global signal — always relevant
+                    _is_relevant = True
+                elif _llm_countries & strategic_theaters_set:
+                    # Country overlap with scenario participants
+                    _is_relevant = True
+                elif _llm_theater and _llm_theater in strategic_theaters_set:
+                    # Legacy theater field matches any participant
+                    _is_relevant = True
+                if not _is_relevant:
                     continue
                 add_rat(
                     _llm_entry["sensor"],
@@ -1453,8 +1502,9 @@ def get_threat_data():
                 if rat.signal_source == "llm_intel":
                     continue
                 # FOCUSED_ONLY sensors observe the focused scenario's core country
-                # (scenario.core_country, ADR-009), not a UI-configured theater.
-                _src_country = (focused_scenario_obj.core_country or "") \
+                # (scenario.core_country, ADR-009). For dual-core scenarios
+                # (core_country=null), use primary_ec as the observation country.
+                _src_country = (focused_scenario_obj.core_country or primary_ec) \
                     if rat.sensor in _FOCUSED_ONLY_SENSOR_NAMES else ""
                 sig = rationale_to_signal(rat, source_country=_src_country,
                                           observed_at=current_time)
@@ -1524,8 +1574,10 @@ def get_threat_data():
                     # Fold sequence + temporal + velocity + pattern bonuses
                     # into focused scenario score, then re-derive TL.
                     _scenario_bonus = 0.0
-                    if _sc.core_country:
-                        _sc_seq_b, _, _ = compute_sequence_bonus(_sc.core_country)
+                    # For dual-core, use primary_ec; for single-core, use core_country
+                    _sc_seq_theater = _sc.core_country or primary_ec
+                    if _sc_seq_theater:
+                        _sc_seq_b, _, _ = compute_sequence_bonus(_sc_seq_theater)
                         _scenario_bonus += _sc_seq_b
                     _scenario_bonus += temporal_bonus
 
@@ -2048,7 +2100,10 @@ def get_threat_data():
             "focus": _req_focus,
             "data": target_details,
             "strategic": {
-                "core_theater": core_theater, "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
+                "core_theater": _original_core_theater or core_theater,
+                "effective_cores": effective_cores,
+                "primary_ec": primary_ec,
+                "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
                 "correlations": correlations, "correlations_l3": correlations_l3, "correlations_l7": correlations_l7,
                 "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
                 "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
@@ -2174,7 +2229,7 @@ def get_threat_data():
             "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
             "sequence_bonus": seq_bonus, "sequence_status": seq_status,
             "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
-            "core_theater": core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+            "core_theater": _original_core_theater or core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
             "is_coordinated": is_coordinated, "system_note": system_note,
             "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
             "blockade_index": deep_analytics["blockade_index"],

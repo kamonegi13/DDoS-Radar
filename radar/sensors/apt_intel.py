@@ -199,12 +199,9 @@ def _fetch_rss(url: str) -> str:
         )
         if resp.status_code == 200:
             return resp.text
-        if resp.status_code == 429:
-            log.debug(f"[AptIntel] 429 rate-limited: {url}")
-        elif resp.status_code == 403:
-            log.debug(f"[AptIntel] 403 blocked: {url}")
+        log.info(f"[AptIntel] HTTP {resp.status_code} from {url}")
     except Exception as e:
-        log.debug(f"[AptIntel] Fetch failed {url}: {e}")
+        log.info(f"[AptIntel] Fetch failed {url}: {e}")
     return ""
 
 
@@ -338,17 +335,26 @@ class AptIntelSensor(BaseSensor):
         submitted = 0
         any_feed_ok = False
 
+        feeds_tried = 0
+        feeds_ok = 0
+        total_articles = 0
+
         for source_name, meta in _CERT_SOURCES.items():
             # Theater hints: used only to inform LLM context, NOT for forced assignment
             theater_hints = [t for t in meta["theater_hints"]
                              if not strategic_theaters or t in strategic_theaters]
 
+            feeds_tried += 1
             xml_text = _fetch_rss(meta["url"])
             if xml_text:
                 any_feed_ok = True
+                feeds_ok += 1
             t_names = _theater_names(theater_hints)
             articles = _parse_articles(xml_text, theater_names=t_names)
+            total_articles += len(articles)
             if not articles:
+                if xml_text:
+                    log.info(f"[AptIntel] {source_name}: feed OK but 0 articles after filter")
                 continue
 
             authority = meta["authority"]
@@ -370,11 +376,17 @@ class AptIntelSensor(BaseSensor):
                 hints_str = ", ".join(theater_hints) if theater_hints else "any"
 
                 # ── Stage 1: Gate check ───────────────────────────────────────
+                # Strategically relevant = anything on the pre-conflict TTP
+                # spectrum (active exploitation, pre-positioning, espionage,
+                # supply chain compromise, sustained reconnaissance). Pure
+                # CVE-publication advisories without named targeting are still
+                # filtered by has_geographic_target.
                 gate_system = (
-                    "You are a cyber threat intelligence triage analyst. "
-                    "Evaluate whether a government advisory describes an ACTIVE, ONGOING "
-                    "state-sponsored threat with EXPLICIT targeting of a specific country, "
-                    "region, or critical sector. "
+                    "You are a strategic cyber threat intelligence triage analyst. "
+                    "Evaluate whether a government advisory describes a strategically "
+                    "relevant state-actor threat — including pre-positioning, espionage, "
+                    "supply chain compromise, or active exploitation — with EXPLICIT "
+                    "targeting of a specific country, region, or critical sector. "
                     "Respond ONLY with a JSON object."
                 )
                 gate_prompt = (
@@ -383,27 +395,44 @@ class AptIntelSensor(BaseSensor):
                     f"Advisory text:\n{llm_article}\n\n"
                     "Answer these two questions with a JSON object:\n"
                     "{\n"
-                    '  "is_active_threat": true or false,\n'
+                    '  "is_strategically_relevant": true or false,\n'
                     '  "has_geographic_target": true or false,\n'
                     '  "reason": "one sentence"\n'
                     "}\n"
-                    "is_active_threat = true ONLY if the advisory describes a CURRENTLY ACTIVE or ONGOING "
-                    "threat (not a resolved/patched/historical incident).\n"
-                    "has_geographic_target = true ONLY if the advisory EXPLICITLY names a specific country, "
-                    "region, sector, or infrastructure type as the target (not just the issuing country).\n"
-                    "If the advisory is generic (e.g. 'patch this CVE', global supply chain, "
-                    "no named victim country): has_geographic_target = false."
+                    "is_strategically_relevant = true if the advisory describes ANY of:\n"
+                    "  - Active exploitation by a state actor (currently ongoing)\n"
+                    "  - Pre-positioning / dormant access (e.g. Volt Typhoon-style intrusions held for future use)\n"
+                    "  - Espionage / intelligence collection by a state actor\n"
+                    "  - Supply chain compromise attributable to a state actor\n"
+                    "  - Sustained reconnaissance against critical infrastructure\n"
+                    "  - Sabotage or disruption capability development\n"
+                    "is_strategically_relevant = false ONLY if the advisory is a routine CVE "
+                    "publication with no actor attribution, no targeting context, and no "
+                    "indication of state-actor involvement.\n"
+                    "has_geographic_target = true if ANY of the following:\n"
+                    "  - The advisory names a specific country/region as a target\n"
+                    "  - The advisory names a specific APT group with KNOWN state sponsorship "
+                    "(e.g. Volt Typhoon→CN, APT28→RU, Lazarus→KP, Charming Kitten→IR) — "
+                    "the actor's known targeting implies geographic relevance\n"
+                    "  - The advisory names a specific critical sector being targeted "
+                    "(e.g. 'US water treatment facilities', 'defense contractors')\n"
+                    "has_geographic_target = false ONLY if the advisory is truly generic "
+                    "(e.g. 'patch this CVE', global supply chain with no actor, no named sector)."
                 )
 
-                gate_result = llm_analyze_json(gate_prompt, system=gate_system, max_tokens=120)
+                gate_result = llm_analyze_json(gate_prompt, system=gate_system, max_tokens=140)
                 if not gate_result["ok"]:
                     log.debug(f"[AptIntel] Stage1 parse failed {source_name}: {gate_result.get('error')}")
                     continue
 
                 gate_data = gate_result["data"]
-                if not gate_data.get("is_active_threat", False):
-                    log.debug(f"[AptIntel] Stage1 DISCARD (not active): {art['title'][:60]}")
-                    record_sensor_drop("stage1_not_active")
+                # Backward-compat: accept legacy is_active_threat key from
+                # cached LLM responses or models that ignore the new schema.
+                _is_relevant = (gate_data.get("is_strategically_relevant",
+                                              gate_data.get("is_active_threat", False)))
+                if not _is_relevant:
+                    log.debug(f"[AptIntel] Stage1 DISCARD (not strategically relevant): {art['title'][:60]}")
+                    record_sensor_drop("stage1_not_strategic")
                     continue
                 if not gate_data.get("has_geographic_target", False):
                     log.debug(f"[AptIntel] Stage1 DISCARD (no geo target): {art['title'][:60]}")
@@ -549,6 +578,10 @@ class AptIntelSensor(BaseSensor):
                     )
 
         duration_ms = round((time.time() - t0) * 1000)
+        log.info(
+            f"[AptIntel] Cycle done: feeds={feeds_ok}/{feeds_tried} "
+            f"articles={total_articles} submitted={submitted} ({duration_ms}ms)"
+        )
         self.log_fetch(any_feed_ok, duration_ms, 0, submitted)
         result_data = {"apt_intel": {"submitted": submitted}}
         self.set_cache(result_data)

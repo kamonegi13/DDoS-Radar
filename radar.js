@@ -2953,8 +2953,8 @@
                 }
             }
 
-            // Docked panels are always visible; floating panels use saved visibility (default: true)
-            const isVisible = state.docked ? true : (state.visible !== false);
+            // Respect saved visibility for both docked and floating panels
+            const isVisible = state.visible !== false;
             if (state.docked && placeholder) {
                 placeholder.appendChild(panel);
                 panel.classList.remove('floating', 'active'); panel.classList.add('docked');
@@ -2964,12 +2964,19 @@
             } else {
                 document.body.appendChild(panel);
                 panel.classList.remove('docked'); panel.classList.add('floating');
+                if (isVisible) panel.classList.add('active');
                 panel.style.top   = state.top   || '';
                 panel.style.left  = state.left  || '';
                 panel.style.width = state.width || '';
                 panel.style.height = state.height || '';
                 panel.style.display = isVisible ? 'flex' : 'none';
                 if (dockBtn) dockBtn.style.display = 'inline-block';
+            }
+
+            // Fire onShow callback so restored panels load their data
+            if (isVisible) {
+                const cb = _panelCallbacks[id];
+                if (cb && cb.onShow) cb.onShow();
             }
         });
         updateSidebarVisibility();
@@ -4444,7 +4451,7 @@
                     _t('hud.tooltip.bg_alert') + '\n' +
                     _t('hud.bg_alert.detail', {name: bestName, delta: bestDelta.toFixed(2)}));
                 bgAlert.onclick = () => {
-                    if (typeof window.switchScenarioFocus === 'function') window.switchScenarioFocus(bestId);
+                    if (typeof window.toggleScenarioDetail === 'function') window.toggleScenarioDetail(bestId);
                     else if (typeof focusScenarioBar === 'function') focusScenarioBar();
                 };
             } else {
@@ -4460,7 +4467,7 @@
         const bar = document.getElementById('hud-exception-bar');
         if (!bar) return;
         const ids = ['hud-ambush-wrap', 'hud-triangulation', 'hud-silent-div',
-                     'hud-discrepancy-alert', 'hud-bg-alert'];
+                     'hud-discrepancy-alert'];
         const anyActive = ids.some(id => {
             const el = document.getElementById(id);
             return el && el.style.display && el.style.display !== 'none';
@@ -6610,46 +6617,163 @@
     // ═══════════════════════════════════════════════════════════════════════════
     // LLM INTELLIGENCE PANEL
     // ═══════════════════════════════════════════════════════════════════════════
-    let _llmActiveFilter = 'all';
+    let _llmActiveFilter = 'triage';
     let _llmItems = [];
 
     const toggleLlmIntelPanel = _createPanelToggle('llm-intel-panel', { onShow: _fetchLlmIntel });
     window.toggleLlmIntelPanel = toggleLlmIntelPanel;
 
     function _fetchLlmIntel() {
-        const src = _llmActiveFilter === 'all' ? '' : _llmActiveFilter;
-        fetch('/api/intel' + (src ? '?source_type=' + src : ''))
+        const isTriage = _llmActiveFilter === 'triage';
+        const url = isTriage
+            ? '/api/intel/pending/triage?limit=50'
+            : '/api/intel' + (_llmActiveFilter === 'all' ? '' : '?source_type=' + _llmActiveFilter);
+        fetch(url)
             .then(r => r.json())
             .then(data => {
                 _llmItems = data.items || [];
-                _renderLlmStats(data.stats || {});
-                _renderLlmItems(_llmItems);
+                if (!isTriage) _renderLlmStats(data.stats || {});
+                if (isTriage) _renderTriageItems(_llmItems, data);
+                else _renderLlmItems(_llmItems);
             })
             .catch(e => console.debug('[Intel] fetch failed:', e));
-        // Also refresh status indicator
         fetch('/api/intel/stats')
             .then(r => r.json())
-            .then(s => _renderLlmStatusBar(s))
+            .then(s => { _renderLlmStatusBar(s); _renderLlmStats(s); })
             .catch(e => console.debug('[Intel] stats fetch failed:', e));
+    }
+
+    function _renderTriageItems(items, payload) {
+        const list = document.getElementById('llm-intel-list');
+        if (!list) return;
+        if (!items || items.length === 0) {
+            list.innerHTML = '<div class="llm-empty">' + _t('panel.llm_intel.triage_empty') + '</div>';
+            return;
+        }
+        const summary = '<div class="llm-triage-summary">'
+            + _t('panel.llm_intel.triage_showing') + ' '
+            + (payload.shown || items.length) + ' / ' + (payload.total_pending || items.length)
+            + '</div>';
+        list.innerHTML = summary + items.map(_renderTriageItem).join('');
+    }
+
+    function _renderTriageItem(item) {
+        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
+        const conf = item.confidence || 0;
+        const confPct = Math.round(conf * 100) + '%';
+        const confClass = conf >= 0.80 ? 'llm-item-conf-hi' : conf >= 0.65 ? 'llm-item-conf-mid' : 'llm-item-conf-lo';
+        const priority = item.priority || 0;
+        const prPct = Math.min(100, Math.round(priority * 100));
+        const prClass = priority >= 0.5 ? 'llm-pr-hi' : priority >= 0.25 ? 'llm-pr-mid' : 'llm-pr-lo';
+        const ageStr = (item.age_hours != null) ? item.age_hours.toFixed(1) + 'h' : '—';
+        const badgeClass = 'llm-badge-' + (item.source_type || 'unknown');
+        const badgeLabel = _escHtml((item.source_type || '').toUpperCase());
+        const scoreStr = item.score_delta > 0 ? ' +' + item.score_delta + ' ' + _escHtml((item.domain || '').toUpperCase()) : '';
+
+        let scenarioLine = '';
+        if (item.top_scenario) {
+            const sc = item.top_scenario;
+            const scName = lang === 'ja' ? (sc.name_ja || sc.name_en) : sc.name_en;
+            scenarioLine = '<div class="llm-tri-scenario">'
+                + '<span class="llm-tri-scenario-label">' + _t('panel.llm_intel.triage_scenario') + ':</span> '
+                + '<span class="llm-tri-scenario-name">' + _escHtml(scName) + '</span> '
+                + '<span class="llm-tri-coupling" title="' + _t('panel.llm_intel.triage_coupling_tip') + '">'
+                + '⊗ ' + sc.coupling.toFixed(2) + ' (' + _escHtml(sc.country) + ')</span>'
+                + '</div>';
+        } else if (item.matched_scenarios && item.matched_scenarios.length === 0) {
+            scenarioLine = '<div class="llm-tri-scenario llm-tri-no-scenario">'
+                + '<span>⚠ ' + _t('panel.llm_intel.triage_no_scenario') + '</span>'
+                + '</div>';
+        }
+
+        let corrLine = '';
+        if (item.corroboration_count > 0) {
+            const ecos = item.corroborating_ecosystems || [];
+            corrLine = '<span class="llm-tri-corr" title="' + _escHtml((item.corroborating_sources || []).join(', ')) + '">'
+                     + '✦ ' + _t('panel.llm_intel.triage_corroborated') + ' ×' + item.corroboration_count
+                     + (ecos.length > 1 ? ' [' + _escHtml(ecos.join('/')) + ']' : '')
+                     + '</span>';
+        }
+
+        const gateReason = item.gate_reason || 'manual_review';
+        const gateLabel = _t('panel.llm_intel.gate.' + gateReason.split(':')[0]) || gateReason;
+        const gateExtra = gateReason.includes(':') ? ' (' + _escHtml(gateReason.split(':')[1]) + ')' : '';
+        const gateTip = _t('panel.llm_intel.gate.' + gateReason.split(':')[0] + '_tip') || gateReason;
+        const gateLine = '<span class="llm-tri-gate llm-tri-gate-' + _escHtml(gateReason.split(':')[0]) + '" '
+                       + 'title="' + _escHtml(gateTip) + '">'
+                       + '⊘ ' + _escHtml(gateLabel) + gateExtra
+                       + '</span>';
+
+        const credLine = '<span class="llm-tri-cred" title="' + _t('panel.llm_intel.triage_cred_tip') + '">'
+                       + 'CRED ' + (item.source_credibility || 0).toFixed(2)
+                       + '</span>';
+
+        let actions = '<button class="llm-btn llm-btn-raw" onclick="_llmToggleRaw(\'' + _escHtml(item.id) + '\')">' + _t('panel.llm_intel.btn_raw') + '</button>';
+        actions += '<button class="llm-btn llm-btn-confirm" onclick="_llmConfirm(\'' + _escHtml(item.id) + '\')">'
+                 + _t('panel.llm_intel.btn_confirm') + (scoreStr ? ' ' + scoreStr : '') + '</button>';
+        actions += '<button class="llm-btn llm-btn-reject" onclick="_llmReject(\'' + _escHtml(item.id) + '\')">' + _t('panel.llm_intel.btn_dismiss') + '</button>';
+        actions += '<button class="llm-btn llm-btn-false-pos" onclick="_llmRejectFP(\'' + _escHtml(item.id) + '\')">' + _t('panel.llm_intel.btn_false_pos') + '</button>';
+
+        return `<div class="llm-item llm-item-triage" id="llm-item-${_escHtml(item.id)}">
+            <div class="llm-tri-bar">
+                <div class="llm-tri-bar-fill ${prClass}" style="width:${prPct}%"></div>
+                <span class="llm-tri-bar-label">PR ${priority.toFixed(2)}</span>
+            </div>
+            <div class="llm-item-header">
+                <span class="llm-item-badge ${badgeClass}">${badgeLabel}</span>
+                <span class="llm-item-time">${ageStr}</span>
+                <span class="llm-item-theater">${_escHtml(item.theater || '')}</span>
+                <span class="${confClass}">${confPct}</span>
+                ${credLine}
+                ${corrLine}
+            </div>
+            <div class="llm-item-headline">${_escHtml(item.headline || '')}</div>
+            ${scenarioLine}
+            <div class="llm-tri-meta">${gateLine}</div>
+            <div class="llm-item-raw" id="llm-raw-${_escHtml(item.id)}">${_escHtml(item.raw_text || '')}</div>
+            <div class="llm-item-actions">${actions}</div>
+        </div>`;
     }
 
     function _renderLlmStatusBar(stats) {
         const dot  = document.getElementById('llm-status-dot');
         const text = document.getElementById('llm-status-text');
         const mdl  = document.getElementById('llm-status-model');
-        if (!dot) return;
-        if (!stats.llm_enabled) {
-            dot.className  = 'llm-status-dot offline';
-            text.textContent = _t('panel.llm_intel.status_disabled');
-            mdl.textContent  = '';
-        } else if (stats.llm_online) {
-            dot.className  = 'llm-status-dot online';
-            text.textContent = _t('panel.llm_intel.status_online');
-            mdl.textContent  = '';
+        if (dot) {
+            if (!stats.llm_enabled) {
+                dot.className  = 'llm-status-dot offline';
+                text.textContent = _t('panel.llm_intel.status_disabled');
+                mdl.textContent  = '';
+            } else if (stats.llm_online) {
+                dot.className  = 'llm-status-dot online';
+                text.textContent = _t('panel.llm_intel.status_online');
+                mdl.textContent  = '';
+            } else {
+                dot.className  = 'llm-status-dot offline';
+                text.textContent = _t('panel.llm_intel.status_offline');
+                mdl.textContent  = '';
+            }
+        }
+        _applyTriagePulse(stats && stats.triage_pulse);
+    }
+
+    // Q3: non-disruptive pulse on LLM Intelligence menu item when stale high-priority pending exists.
+    function _applyTriagePulse(pulse) {
+        const item  = document.getElementById('tm-item-llm');
+        const badge = document.getElementById('tm-triage-badge-llm');
+        if (!item) return;
+        const count = (pulse && typeof pulse.count === 'number') ? pulse.count : 0;
+        if (count > 0) {
+            item.classList.add('tm-pulse');
+            if (badge) {
+                badge.hidden = false;
+                badge.textContent = count > 99 ? '99+' : String(count);
+                const oldest = pulse.oldest_stale_hours != null ? pulse.oldest_stale_hours.toFixed(1) : '?';
+                badge.title = _t('panel.llm_intel.pulse_tip', { n: count, h: oldest });
+            }
         } else {
-            dot.className  = 'llm-status-dot offline';
-            text.textContent = _t('panel.llm_intel.status_offline');
-            mdl.textContent  = '';
+            item.classList.remove('tm-pulse');
+            if (badge) { badge.hidden = true; badge.title = ''; }
         }
     }
 
@@ -6707,7 +6831,8 @@
         if (isPending) {
             actions += '<button class="llm-btn llm-btn-confirm" onclick="_llmConfirm(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_confirm">'
                      + _t('panel.llm_intel.btn_confirm') + (scoreStr ? ' ' + scoreStr : '') + '</button>';
-            actions += '<button class="llm-btn llm-btn-reject" onclick="_llmReject(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_reject">' + _t('panel.llm_intel.btn_reject') + '</button>';
+            actions += '<button class="llm-btn llm-btn-reject" onclick="_llmReject(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_dismiss">' + _t('panel.llm_intel.btn_dismiss') + '</button>';
+            actions += '<button class="llm-btn llm-btn-false-pos" onclick="_llmRejectFP(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_false_pos">' + _t('panel.llm_intel.btn_false_pos') + '</button>';
         } else if (isAuto) {
             actions += '<button class="llm-btn llm-btn-override" onclick="_llmOverride(\'' + _escHtml(item.id) + '\')" data-i18n="panel.llm_intel.btn_override">' + _t('panel.llm_intel.btn_override') + '</button>';
         } else if (item.status === 'confirmed' || item.status === 'rejected') {
@@ -6750,7 +6875,22 @@
     };
 
     window._llmReject = function(itemId) {
-        fetch('/api/intel/' + encodeURIComponent(itemId) + '/reject', { method: 'POST' })
+        fetch('/api/intel/' + encodeURIComponent(itemId) + '/reject', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ classification: 'irrelevant' }),
+        })
+            .then(r => r.json())
+            .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
+            .catch(() => {});
+    };
+
+    window._llmRejectFP = function(itemId) {
+        fetch('/api/intel/' + encodeURIComponent(itemId) + '/reject', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ classification: 'false_positive' }),
+        })
             .then(r => r.json())
             .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
             .catch(() => {});
@@ -7238,8 +7378,13 @@
                 ? `<span class="sc-badge sc-badge-focused">${_t('scenario.badge.focused')}</span>`
                 : `<span class="sc-badge sc-badge-lite">${_t('scenario.badge.lite')}</span>`;
 
+            const liteInsufficient = _isLiteInsufficient(sc, isFocused);
             let tlHtml = '';
-            if (tl != null) {
+            if (liteInsufficient) {
+                tlHtml = `<span class="sc-tl sc-tl-lite-insufficient" `
+                       + `title="${_t('scenario.tl.lite_insufficient_tip')}">`
+                       + `${_t('scenario.tl.lite_insufficient')}</span>`;
+            } else if (tl != null) {
                 tlHtml = `<span class="sc-tl sc-tl-${tl}">TL${tl}</span>`;
             }
 
@@ -7260,7 +7405,8 @@
                 tooltip = ` data-tooltip="${_escHtml(parts.join('\n'))}"`;
             }
 
-            const detailBtn = ` onclick="toggleScenarioDetail('${sid}')"`;
+            const safeSid = _escHtml(sid);
+            const detailBtn = ` onclick="toggleScenarioDetail('${safeSid}')"`;
 
             html += `<div class="${cardClass}"${detailBtn}${tooltip}>`;
             html += badge;
@@ -7315,6 +7461,11 @@
             if (!isFocused && sc.lite_bias_warning) {
                 html += `<span class="sc-lite-tag">${_t('scenario.badge.lite_warn')}</span>`;
             }
+            if (!isFocused) {
+                html += `<span class="sc-focus-btn" `
+                     + `onclick="event.stopPropagation();window.switchScenarioFocus('${safeSid}')" `
+                     + `title="${_t('scenario.btn.switch_focus_tip')}">◎</span>`;
+            }
             html += `</div>`;
         }
         container.innerHTML = html;
@@ -7351,10 +7502,23 @@
 
         let html = `<div class="sc-detail-header">`;
         html += `<span class="sc-detail-title">${_escHtml(name)}</span>`;
-        html += `<span class="sc-detail-mode ${isFocused ? 'sc-mode-full' : 'sc-mode-lite'}">${sc.scoring_mode || 'lite'}</span>`;
-        if (sc.tl != null) html += `<span class="sc-tl sc-tl-${sc.tl}">TL${sc.tl}</span>`;
+        const safeScenarioId = _escHtml(scenarioId);
+        html += `<span class="sc-detail-mode ${isFocused ? 'sc-mode-full' : 'sc-mode-lite'}">${_escHtml(sc.scoring_mode || 'lite')}</span>`;
+        const detailLiteInsufficient = _isLiteInsufficient(sc, isFocused);
+        if (detailLiteInsufficient) {
+            html += `<span class="sc-tl sc-tl-lite-insufficient" `
+                 + `title="${_t('scenario.tl.lite_insufficient_tip')}">`
+                 + `${_t('scenario.tl.lite_insufficient')}</span>`;
+        } else if (sc.tl != null) {
+            html += `<span class="sc-tl sc-tl-${sc.tl}">TL${sc.tl}</span>`;
+        }
         html += `<span class="sc-detail-score">${_t('scenario.detail.score')}: ${(sc.score||0).toFixed(2)}</span>`;
-        html += `<span class="sc-detail-close" onclick="toggleScenarioDetail('${scenarioId}')">✕</span>`;
+        if (!isFocused) {
+            html += `<button class="sc-detail-focus-btn" `
+                 + `onclick="event.stopPropagation();window.switchScenarioFocus('${safeScenarioId}')">`
+                 + `${_t('scenario.btn.switch_focus')}</button>`;
+        }
+        html += `<span class="sc-detail-close" onclick="toggleScenarioDetail('${safeScenarioId}')">✕</span>`;
         html += `</div>`;
 
         if (!isFocused && sc.lite_bias_warning) {
@@ -7450,6 +7614,15 @@
         }
 
         panel.innerHTML = html;
+    }
+
+    function _isLiteInsufficient(sc, isFocused) {
+        if (isFocused) return false;
+        const ind = sc && sc.indicators;
+        if (!ind) return false;
+        const cov = ind.coverage_completeness;
+        if (cov == null) return false;
+        return cov < 0.34;
     }
 
     function _computeWhatIf(sc, contributions) {

@@ -4498,6 +4498,125 @@
       "neutral policy"
     ]
   },
+  "NARRATIVE_GEO_TERMS": {
+    "UA": [
+      "ukraine", "ukrainian", "kyiv", "kiev", "kharkiv", "kharkov",
+      "odesa", "odessa", "zaporizhzhia", "zaporozhye", "crimea",
+      "donbas", "donbass", "donetsk", "luhansk", "lugansk",
+      "kherson", "mariupol", "dnipro", "dnepr", "lviv", "lvov",
+      "azov", "black sea", "sumy", "mykolaiv", "nikolaev",
+      "chernihiv", "chernigov", "poltava", "vinnytsia"
+    ],
+    "TW": [
+      "taiwan", "taiwanese", "taipei", "kaohsiung", "taichung",
+      "tainan", "hsinchu", "taiwan strait", "formosa",
+      "penghu", "kinmen", "matsu", "median line"
+    ],
+    "IL": [
+      "israel", "israeli", "tel aviv", "jerusalem", "haifa",
+      "negev", "golan", "west bank", "gaza", "idf",
+      "iron dome", "hezbollah", "hamas", "beersheba",
+      "ashkelon", "netanyahu"
+    ],
+    "IR": [
+      "iran", "iranian", "tehran", "isfahan", "natanz", "fordow",
+      "strait of hormuz", "persian gulf", "irgc",
+      "revolutionary guard", "bushehr", "khamenei", "raisi"
+    ],
+    "KR": [
+      "south korea", "korean peninsula", "seoul", "busan",
+      "incheon", "dmz", "demilitarized zone", "panmunjom",
+      "rok army", "rok navy"
+    ],
+    "KP": [
+      "north korea", "pyongyang", "dprk", "kim jong",
+      "hwasong", "yongbyon"
+    ],
+    "PH": [
+      "philippines", "filipino", "manila", "south china sea",
+      "scarborough", "spratly", "kalayaan", "subic",
+      "west philippine sea", "mindanao"
+    ],
+    "PL": [
+      "poland", "polish", "warsaw", "gdansk",
+      "suwalki gap", "eastern flank", "rzeszow"
+    ],
+    "JP": [
+      "japan", "japanese", "tokyo", "okinawa", "senkaku",
+      "diaoyu", "east china sea", "yokosuka", "sasebo",
+      "misawa", "kadena", "jsdf", "hokkaido"
+    ],
+    "CN": [
+      "china", "chinese", "beijing", "shanghai", "pla",
+      "people's liberation army", "south china sea",
+      "east china sea", "hainan", "fujian", "zhuhai",
+      "guangdong", "shenzhen", "nanjing"
+    ],
+    "RU": [
+      "russia", "russian", "moscow", "kremlin", "kaliningrad",
+      "murmansk", "sevastopol", "vladivostok",
+      "black sea fleet", "northern fleet", "pacific fleet",
+      "putin", "shoigu"
+    ],
+    "US": [
+      "united states", "pentagon", "washington",
+      "us military", "us navy", "centcom", "indopacom",
+      "pacific command", "homeland security"
+    ],
+    "DE": [
+      "germany", "german", "berlin", "bundeswehr", "ramstein"
+    ],
+    "FR": [
+      "france", "french", "paris", "elysee", "macron"
+    ],
+    "GB": [
+      "britain", "british", "united kingdom", "london", "gchq"
+    ],
+    "IN": [
+      "india", "indian", "new delhi", "ladakh", "kashmir",
+      "line of control", "doklam"
+    ],
+    "SA": [
+      "saudi", "riyadh", "aramco", "jeddah"
+    ],
+    "SY": [
+      "syria", "syrian", "damascus", "aleppo", "idlib",
+      "latakia", "tartus"
+    ],
+    "YE": [
+      "yemen", "houthi", "sanaa", "aden", "red sea"
+    ],
+    "LB": [
+      "lebanon", "lebanese", "beirut"
+    ],
+    "EE": [
+      "estonia", "estonian", "tallinn", "narva"
+    ],
+    "LV": [
+      "latvia", "latvian", "riga"
+    ],
+    "LT": [
+      "lithuania", "lithuanian", "vilnius", "suwalki corridor"
+    ],
+    "FI": [
+      "finland", "finnish", "helsinki", "lapland"
+    ],
+    "NO": [
+      "norway", "norwegian", "oslo", "svalbard", "giuk gap"
+    ],
+    "SE": [
+      "sweden", "swedish", "stockholm", "gotland"
+    ],
+    "BY": [
+      "belarus", "belarusian", "minsk", "lukashenko"
+    ],
+    "MD": [
+      "moldova", "moldovan", "chisinau", "transnistria"
+    ],
+    "GE": [
+      "georgia", "georgian", "tbilisi", "south ossetia", "abkhazia"
+    ]
+  },
   "SCHEDULED_EVENTS": [
     {
       "year": 2026,

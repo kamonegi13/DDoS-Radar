@@ -1374,6 +1374,57 @@ class RadarDB:
         result.reverse()
         return result
 
+    def tl_calibration_stats(self, scenario_id: str | None = None,
+                             hours: int = 168) -> dict:
+        """TL calibration monitoring data (Section 7.3.1).
+
+        Returns per-TL distribution, score ranges per TL, and time-at-each-TL
+        for recalibration analysis.  When scenario_id is None, aggregates
+        across all scenarios.
+        """
+        conn = self._get_conn()
+        cutoff = time.time() - hours * 3600
+        if scenario_id:
+            rows = conn.execute(
+                "SELECT tl, score, observed_at FROM scenario_tl_observation "
+                "WHERE scenario_id=? AND observed_at>? AND tl IS NOT NULL "
+                "ORDER BY observed_at",
+                (scenario_id, cutoff),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT tl, score, observed_at FROM scenario_tl_observation "
+                "WHERE observed_at>? AND tl IS NOT NULL "
+                "ORDER BY observed_at",
+                (cutoff,),
+            ).fetchall()
+
+        tl_counts: dict[int, int] = {}
+        tl_scores: dict[int, list[float]] = {}
+        for r in rows:
+            tl = r["tl"]
+            tl_counts[tl] = tl_counts.get(tl, 0) + 1
+            tl_scores.setdefault(tl, []).append(r["score"])
+
+        total = sum(tl_counts.values())
+        distribution = {}
+        for tl in sorted(tl_counts.keys()):
+            scores = tl_scores[tl]
+            distribution[f"TL{tl}"] = {
+                "count": tl_counts[tl],
+                "pct": round(tl_counts[tl] / total * 100, 1) if total else 0,
+                "score_min": round(min(scores), 2),
+                "score_max": round(max(scores), 2),
+                "score_avg": round(sum(scores) / len(scores), 2),
+            }
+
+        return {
+            "hours": hours,
+            "scenario_id": scenario_id,
+            "total_observations": total,
+            "distribution": distribution,
+        }
+
     # ── scenario CRUD (Phase 4) ──────────────────────────────────────────────
 
     def scenario_get(self, scenario_id: str) -> dict | None:
@@ -1716,14 +1767,15 @@ class RadarDB:
             "SUM(CASE WHEN outcome='http_error' THEN 1 ELSE 0 END) AS http_error, "
             "SUM(CASE WHEN outcome='timeout' THEN 1 ELSE 0 END) AS timeout_, "
             "SUM(CASE WHEN outcome='exception' THEN 1 ELSE 0 END) AS exception_, "
+            "SUM(CASE WHEN outcome='pre_filter' THEN 1 ELSE 0 END) AS pre_filter, "
             "SUM(CASE WHEN verdict='auto_confirmed' THEN 1 ELSE 0 END) AS auto_confirmed, "
             "SUM(CASE WHEN verdict='pending' THEN 1 ELSE 0 END) AS pending, "
             "SUM(CASE WHEN verdict='discarded_low_conf' THEN 1 ELSE 0 END) AS discarded_low, "
             "SUM(CASE WHEN verdict='discarded_dedup' THEN 1 ELSE 0 END) AS discarded_dedup, "
             "SUM(CASE WHEN verdict LIKE 'sensor_filtered:%' THEN 1 ELSE 0 END) AS sensor_filtered, "
             "SUM(CASE WHEN verdict='' THEN 1 ELSE 0 END) AS verdict_empty, "
-            "AVG(duration_ms) AS avg_ms, "
-            "AVG(confidence) AS avg_conf, "
+            "AVG(CASE WHEN outcome != 'pre_filter' THEN duration_ms END) AS avg_ms, "
+            "AVG(CASE WHEN outcome = 'ok' THEN confidence END) AS avg_conf, "
             "MAX(ts) AS last_ts "
             "FROM llm_call_log WHERE ts>=? GROUP BY caller ORDER BY caller",
             (cutoff,),
@@ -1733,14 +1785,15 @@ class RadarDB:
                 "caller": r[0], "total": r[1] or 0, "ok": r[2] or 0,
                 "parse_failed": r[3] or 0, "http_error": r[4] or 0,
                 "timeout": r[5] or 0, "exception": r[6] or 0,
-                "auto_confirmed": r[7] or 0, "pending": r[8] or 0,
-                "discarded_low_conf": r[9] or 0,
-                "discarded_dedup": r[10] or 0,
-                "sensor_filtered": r[11] or 0,
-                "verdict_empty": r[12] or 0,
-                "avg_duration_ms": round(r[13]) if r[13] else 0,
-                "avg_confidence": round(r[14], 3) if r[14] else 0.0,
-                "last_seen": r[15],
+                "pre_filter": r[7] or 0,
+                "auto_confirmed": r[8] or 0, "pending": r[9] or 0,
+                "discarded_low_conf": r[10] or 0,
+                "discarded_dedup": r[11] or 0,
+                "sensor_filtered": r[12] or 0,
+                "verdict_empty": r[13] or 0,
+                "avg_duration_ms": round(r[14]) if r[14] else 0,
+                "avg_confidence": round(r[15], 3) if r[15] else 0.0,
+                "last_seen": r[16],
             }
             for r in rows
         ]
@@ -2548,6 +2601,42 @@ class RadarDB:
                 (credibility_weight, time.time(), source_id),
             )
             return cur.rowcount > 0
+
+    def intel_confidence_distribution(self, hours: int = 168) -> dict:
+        """Confidence distribution of LLM intel items for pipeline tuning.
+
+        Returns histogram buckets (0.0-0.1, 0.1-0.2, ..., 0.9-1.0),
+        per-status breakdown, and auto_confirm threshold analysis.
+        """
+        cutoff = time.time() - hours * 3600
+        rows = self._get_conn().execute(
+            "SELECT confidence, status FROM llm_intel WHERE ts > ?",
+            (cutoff,),
+        ).fetchall()
+
+        buckets: dict[str, int] = {}
+        status_counts: dict[str, int] = {}
+        auto_confirmable = 0
+        total = 0
+        for r in rows:
+            conf = r["confidence"]
+            st = r["status"]
+            # Bucket by 0.1 intervals
+            bucket_idx = min(int(conf * 10), 9)
+            label = f"{bucket_idx * 0.1:.1f}-{(bucket_idx + 1) * 0.1:.1f}"
+            buckets[label] = buckets.get(label, 0) + 1
+            status_counts[st] = status_counts.get(st, 0) + 1
+            if conf >= 0.80:
+                auto_confirmable += 1
+            total += 1
+
+        return {
+            "hours": hours,
+            "total": total,
+            "buckets": buckets,
+            "status_counts": status_counts,
+            "auto_confirmable_pct": round(auto_confirmable / total * 100, 1) if total else 0,
+        }
 
     # ── Auth ───────────────────────────────────────────────────────────────
 

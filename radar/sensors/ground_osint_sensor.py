@@ -110,15 +110,19 @@ class GroundOsintSensor(BaseSensor):
 
         from radar.sensors.telegram import TelegramMirrorSensor
         from radar.intel_queue import intel_queue
-        from radar.llm_client import llm_analyze_json, llm_available, record_sensor_drop, safe_float, safe_enum, sanitize_llm_input, today_str
+        from radar.llm_client import llm_analyze_json, llm_available, record_sensor_drop, record_sensor_skip, safe_float, safe_enum, sanitize_llm_input, today_str
 
         if not llm_available():
             log.debug("[GroundOsint] LLM not available — skipping")
+            record_sensor_skip("llm_unavailable", caller="ground_osint")
             self.log_fetch(True, 0, 0, 0, "llm_unavailable")
             return {"ground_osint": {"llm_offline": True}}
 
         t0 = time.time()
         submitted = 0
+        entries_seen = 0
+        entries_status_match = 0
+        entries_dedup = 0
 
         # Get live sensor snapshot for correlation
         registry = context.get("_registry")
@@ -130,6 +134,7 @@ class GroundOsintSensor(BaseSensor):
             entries = list(TelegramMirrorSensor._intercept_log)
 
         for entry in entries:
+            entries_seen += 1
             # Ground OSINT focuses on entries with actual target URLs (more concrete)
             targets = entry.get("target_urls", [])
             snippet = entry.get("snippet", "")
@@ -140,9 +145,11 @@ class GroundOsintSensor(BaseSensor):
             if not targets and not _has_ongoing_signal(snippet, targets):
                 continue
 
+            entries_status_match += 1
             key = _entry_key(entry)
             with _processed_lock:
                 if key in _processed:
+                    entries_dedup += 1
                     continue
                 _processed[key] = None
                 if len(_processed) > _MAX_PROCESSED:
@@ -274,6 +281,14 @@ class GroundOsintSensor(BaseSensor):
                     f"[GroundOsint] Submitted: {item['headline'][:60]} "
                     f"(conf={confidence:.2f}, ongoing={is_ongoing}, corr={corr_sensor})"
                 )
+
+        # Cycle-level diagnostics so operators can tell why no LLM calls fired
+        if entries_seen == 0:
+            record_sensor_skip("no_telegram_entries", caller="ground_osint")
+        elif entries_status_match == 0:
+            record_sensor_skip("no_status_match", caller="ground_osint")
+        elif entries_dedup == entries_status_match:
+            record_sensor_skip("all_dedup", caller="ground_osint")
 
         duration_ms = round((time.time() - t0) * 1000)
         self.log_fetch(True, duration_ms, 0, submitted)

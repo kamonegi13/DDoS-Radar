@@ -150,6 +150,33 @@ def record_sensor_drop(reason: str, caller: str = "") -> None:
         pass  # observability must never break the main flow
 
 
+def record_sensor_skip(reason: str, caller: str = "", headline: str = "") -> None:
+    """Record a pre-LLM skip event — when a sensor decides not to call the LLM at all.
+
+    Distinct from record_sensor_drop, which patches a real LLM call's verdict.
+    Use this at the natural pre-LLM drop points (feed fetch failed, no articles
+    after filter, all candidates dedup'd, no country hints matched).
+
+    Inserts a synthetic row with outcome='pre_filter' and verdict='sensor_filtered:
+    <reason>' so llm_call_stats surfaces silent sensors with reason breakdowns
+    instead of leaving operators to grep logs.
+    """
+    try:
+        from radar.database import db
+        if not caller:
+            caller = _infer_caller()
+        db.llm_call_log_append(
+            caller=caller, model=LLM_MODEL, duration_ms=0,
+            outcome="pre_filter",
+            verdict=f"sensor_filtered:{reason}",
+            confidence=0.0,
+            headline=headline,
+            error="",
+        )
+    except Exception:
+        pass  # observability must never break the main flow
+
+
 # ── Core API functions ────────────────────────────────────────────────────────
 
 def llm_available() -> bool:
