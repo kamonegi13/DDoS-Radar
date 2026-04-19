@@ -1,11 +1,25 @@
 """radar.routes.intel -- LLM Intelligence API endpoints."""
 from __future__ import annotations
+import os as _os
 import time
 import radar.routes as _routes
 from flask import jsonify, request
 from radar.auth import require_role
 
 bp = _routes.bp
+
+
+def _safe_float_env(name: str, default: float) -> float:
+    """Read float env var; return default on missing or non-numeric value.
+
+    Prevents a single misconfigured operator override from 500-ing endpoints
+    polled by the HUD on every refresh.
+    """
+    try:
+        raw = _os.getenv(name)
+        return float(raw) if raw is not None else default
+    except (ValueError, TypeError):
+        return default
 
 
 @bp.route("/api/intel")
@@ -35,9 +49,12 @@ def intel_list():
     # Filter out stale terminal-state items from UI display.
     # Rejected/overridden items older than the display TTL are noise.
     # Active/pending items use INTEL_ITEM_TTL (24h) from intel_queue.
-    import os as _os
     now = time.time()
-    _TERMINAL_DISPLAY_TTL = int(_os.getenv("INTEL_TERMINAL_DISPLAY_HOURS", "8")) * 3600
+    try:
+        _terminal_hours = int(_os.getenv("INTEL_TERMINAL_DISPLAY_HOURS", "8"))
+    except (ValueError, TypeError):
+        _terminal_hours = 8
+    _TERMINAL_DISPLAY_TTL = _terminal_hours * 3600
     filtered = []
     for it in items:
         age = now - it.get("created_at", it.get("ts", 0))
@@ -72,109 +89,37 @@ def intel_pending_triage():
         limit  : max items to return (default 50, max 200)
         min_pr : minimum priority threshold (default 0.0)
     """
-    import math
     from radar.intel_queue import intel_queue, classify_ecosystem
     from radar.scenarios import scenario_store
+    from radar.triage import enrich_pending
 
     try:
-        limit = min(int(request.args.get("limit", "50")), 200)
+        limit = max(1, min(int(request.args.get("limit", "50")), 200))
     except (ValueError, TypeError):
         limit = 50
     try:
         min_priority = float(request.args.get("min_pr", "0"))
     except (ValueError, TypeError):
         min_priority = 0.0
+    # Clamp negative or out-of-range thresholds — values outside [0,1] make
+    # no sense for the priority formula.
+    min_priority = max(0.0, min(min_priority, 1.0))
 
     pending = intel_queue.list_items(status="pending", limit=200)
     sources = {s["source_id"]: s for s in intel_queue.list_sources()}
     scenarios = scenario_store.scorable()
 
-    auto_confirm_threshold = float(__import__("os").getenv(
-        "LLM_AUTO_CONFIRM_THRESHOLD", "0.80"))
-    credibility_floor = 0.75
-    allowed_ecosystems = {"independent", "cert", "us_gov"}
-    age_tau_seconds = 12.0 * 3600.0  # 12h half-life-ish decay constant
-
     now = time.time()
-    enriched = []
-    for it in pending:
-        countries = it.get("countries") or []
-        if not countries and it.get("theater"):
-            theater = it["theater"]
-            if "-" in theater:
-                countries = [c.strip().upper() for c in theater.split("-") if c.strip()]
-            else:
-                countries = [theater.upper()]
+    enriched = enrich_pending(
+        pending,
+        sources,
+        scenarios,
+        now=now,
+        auto_confirm_threshold=_safe_float_env("LLM_AUTO_CONFIRM_THRESHOLD", 0.80),
+        classify_ecosystem=classify_ecosystem,
+    )
+    enriched = [e for e in enriched if e["priority"] >= min_priority]
 
-        max_coupling = 0.0
-        top_scenario = None
-        matched = []
-        for sc in scenarios:
-            for cc in countries:
-                p = sc.participants.get(cc)
-                if not p:
-                    continue
-                matched.append({
-                    "country": cc,
-                    "scenario_id": sc.id,
-                    "weight": p.weight,
-                    "role": p.role.value,
-                })
-                if p.weight > max_coupling:
-                    max_coupling = p.weight
-                    top_scenario = {
-                        "id": sc.id,
-                        "name_en": sc.name_en,
-                        "name_ja": sc.name_ja,
-                        "coupling": p.weight,
-                        "country": cc,
-                        "role": p.role.value,
-                    }
-
-        confidence = float(it.get("confidence") or 0.0)
-        age_sec = max(0.0, now - float(it.get("ts") or it.get("created_at") or now))
-        age_decay = math.exp(-age_sec / age_tau_seconds)
-        coupling_factor = max_coupling if max_coupling > 0 else 0.30
-        priority = confidence * coupling_factor * age_decay
-
-        source_id = it.get("source_id", "")
-        cred = sources.get(source_id, {}).get("credibility_weight", 0.70)
-        eco = classify_ecosystem(source_id)
-        if confidence < auto_confirm_threshold:
-            gate_reason = "low_confidence"
-        elif cred < credibility_floor:
-            gate_reason = "low_source_credibility"
-        elif eco and eco not in allowed_ecosystems:
-            gate_reason = f"ecosystem_blocked:{eco}"
-        elif not eco:
-            gate_reason = "ecosystem_unclassified"
-        else:
-            gate_reason = "manual_review"
-
-        llm_fields = it.get("llm_fields") or {}
-        corroborators = llm_fields.get("corroborating_sources") or []
-        corroborating_ecosystems = llm_fields.get("corroborating_ecosystems") or []
-
-        if priority < min_priority:
-            continue
-
-        enriched.append({
-            **it,
-            "priority": round(priority, 4),
-            "gate_reason": gate_reason,
-            "source_credibility": round(cred, 3),
-            "ecosystem": eco,
-            "corroboration_count": len(corroborators),
-            "corroborating_sources": corroborators,
-            "corroborating_ecosystems": corroborating_ecosystems,
-            "top_scenario": top_scenario,
-            "matched_scenarios": matched,
-            "age_hours": round(age_sec / 3600.0, 2),
-            "age_decay": round(age_decay, 4),
-            "max_scenario_coupling": round(max_coupling, 3),
-        })
-
-    enriched.sort(key=lambda x: x["priority"], reverse=True)
     return jsonify({
         "items": enriched[:limit],
         "total_pending": len(pending),
@@ -191,60 +136,31 @@ def intel_stats():
     are high-priority AND aged past the analyst review SLA. The HUD uses this
     to drive a non-disruptive pulse indicator.
     """
-    import math
-    import os as _os
-    from radar.intel_queue import intel_queue, classify_ecosystem
+    from radar.intel_queue import intel_queue
     from radar.llm_client import llm_available
     from radar.scenarios import scenario_store
+    from radar.triage import compute_pulse
 
     stats = intel_queue.stats()
     stats["llm_online"] = llm_available()
 
-    pulse_threshold = float(_os.getenv("INTEL_PULSE_PRIORITY", "0.50"))
-    pulse_min_age_h = float(_os.getenv("INTEL_PULSE_MIN_AGE_HOURS", "4.0"))
-    pulse_min_age_sec = pulse_min_age_h * 3600.0
-    age_tau_seconds = 12.0 * 3600.0
+    pulse_threshold = _safe_float_env("INTEL_PULSE_PRIORITY", 0.50)
+    pulse_min_age_h = _safe_float_env("INTEL_PULSE_MIN_AGE_HOURS", 4.0)
 
     pending = intel_queue.list_items(status="pending", limit=200)
     scenarios = scenario_store.scorable() if scenario_store.loaded else []
 
-    pulse_count = 0
-    max_priority = 0.0
-    oldest_age_h = 0.0
-    now = time.time()
-    for it in pending:
-        countries = it.get("countries") or []
-        if not countries and it.get("theater"):
-            theater = it["theater"]
-            countries = (
-                [c.strip().upper() for c in theater.split("-") if c.strip()]
-                if "-" in theater else [theater.upper()]
-            )
-        max_coupling = 0.0
-        for sc in scenarios:
-            for cc in countries:
-                p = sc.participants.get(cc)
-                if p and p.weight > max_coupling:
-                    max_coupling = p.weight
-        coupling_factor = max_coupling if max_coupling > 0 else 0.30
-        confidence = float(it.get("confidence") or 0.0)
-        age_sec = max(0.0, now - float(it.get("ts") or it.get("created_at") or now))
-        age_decay = math.exp(-age_sec / age_tau_seconds)
-        priority = confidence * coupling_factor * age_decay
-        if priority > max_priority:
-            max_priority = priority
-        age_h = age_sec / 3600.0
-        if priority >= pulse_threshold and age_sec >= pulse_min_age_sec:
-            pulse_count += 1
-            if age_h > oldest_age_h:
-                oldest_age_h = age_h
-
+    pulse = compute_pulse(
+        pending,
+        scenarios,
+        now=time.time(),
+        threshold=pulse_threshold,
+        min_age_sec=pulse_min_age_h * 3600.0,
+    )
     stats["triage_pulse"] = {
-        "count": pulse_count,
+        **pulse,
         "threshold": pulse_threshold,
         "min_age_hours": pulse_min_age_h,
-        "max_priority": round(max_priority, 4),
-        "oldest_stale_hours": round(oldest_age_h, 2),
     }
     return jsonify(stats)
 

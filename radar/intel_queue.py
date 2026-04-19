@@ -138,6 +138,24 @@ def classify_ecosystem(source_id: str) -> str:
     return best_eco
 
 
+def _corroboration_payload(corroborators: list, *source_ids: str) -> dict:
+    """Build the dict written to llm_fields for corroboration tracking.
+
+    Always returns BOTH `corroborating_sources` and `corroborating_ecosystems`
+    so the two never drift apart — the triage UI relies on ecosystem diversity
+    to flag independent corroboration. `*source_ids` are extra source IDs
+    whose ecosystems should be included beyond the corroborator list itself
+    (typically the previously-stored primary source and the incoming source).
+    """
+    eco_set = {classify_ecosystem(s) for s in corroborators}
+    for sid in source_ids:
+        eco_set.add(classify_ecosystem(sid))
+    return {
+        "corroborating_sources": list(corroborators),
+        "corroborating_ecosystems": sorted(eco_set - {""}),
+    }
+
+
 def _initial_credibility(source_id: str) -> float:
     """Return the seed credibility weight for a newly-seen source_id.
 
@@ -371,17 +389,12 @@ class IntelQueue:
                 # ── Confidence-based replacement ──
                 if confidence > ex.get("confidence", 0):
                     # New item is better — replace existing analysis, keep provenance
-                    corroborators: list = ex_llm.get("corroborating_sources", [])
+                    corroborators: list = list(ex_llm.get("corroborating_sources") or [])
                     old_src = ex.get("source_id", "")
                     if old_src and old_src not in corroborators:
                         corroborators.append(old_src)
                     merged_llm = new_llm.copy()
-                    merged_llm["corroborating_sources"] = corroborators
-                    # Track ecosystem diversity for independent corroboration
-                    _eco_set = {classify_ecosystem(s) for s in corroborators}
-                    _eco_set.add(classify_ecosystem(ex.get("source_id", "")))
-                    _eco_set.add(classify_ecosystem(source_id))
-                    merged_llm["corroborating_ecosystems"] = sorted(_eco_set - {""})
+                    merged_llm.update(_corroboration_payload(corroborators, old_src, source_id))
                     db.intel_update_llm_fields(ex["id"], merged_llm)
                     db.intel_update_core_fields(
                         ex["id"],
@@ -397,16 +410,13 @@ class IntelQueue:
                     )
                 else:
                     # Existing is same or better — just record corroborator
-                    corroborators = ex_llm.get("corroborating_sources", [])
+                    corroborators = list(ex_llm.get("corroborating_sources") or [])
                     if source_id not in corroborators:
                         corroborators.append(source_id)
-                        _eco_set = {classify_ecosystem(s) for s in corroborators}
-                        _eco_set.add(classify_ecosystem(ex.get("source_id", "")))
-                        _update = {
-                            "corroborating_sources": corroborators,
-                            "corroborating_ecosystems": sorted(_eco_set - {""}),
-                        }
-                        db.intel_update_llm_fields(ex["id"], _update)
+                        db.intel_update_llm_fields(
+                            ex["id"],
+                            _corroboration_payload(corroborators, ex.get("source_id", "")),
+                        )
                     log.debug(
                         f"[Intel] Intra-type dedup: discarded {source_id!r} "
                         f"(Jaccard={jacc:.2f} vs {ex['source_id']!r}, "
@@ -440,10 +450,13 @@ class IntelQueue:
                     continue
                 # Cross-source-type match — record corroboration and discard
                 ex_llm = ex.get("llm_fields", {})
-                corroborators: list = ex_llm.get("corroborating_sources", [])
+                corroborators: list = list(ex_llm.get("corroborating_sources") or [])
                 if source_id not in corroborators and source_id != ex.get("source_id"):
                     corroborators.append(source_id)
-                    db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
+                    db.intel_update_llm_fields(
+                        ex["id"],
+                        _corroboration_payload(corroborators, ex.get("source_id", "")),
+                    )
                 log.info(
                     f"[Intel] Cross-type headline dedup: discarded {source_type}/{source_id!r} "
                     f"(Jaccard={jacc:.2f} vs {ex['source_type']}/{ex['source_id']!r})"
