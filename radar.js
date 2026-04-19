@@ -7408,17 +7408,6 @@
             const safeSid = _escHtml(sid);
             const detailBtn = ` onclick="toggleScenarioDetail('${safeSid}')"`;
 
-            html += `<div class="${cardClass}"${detailBtn}${tooltip}>`;
-            html += badge;
-            html += `<span class="sc-name">${_escHtml(name)}</span>`;
-            html += tlHtml;
-            html += `<span class="sc-score">${score}</span>`;
-            html += `<span class="sc-domains">`;
-            html += `<span class="sc-domain-dot sc-domain-cyber ${cyberActive}">C</span>`;
-            html += `<span class="sc-domain-dot sc-domain-physical ${physActive}">P</span>`;
-            html += `<span class="sc-domain-dot sc-domain-info ${infoActive}">I</span>`;
-            html += `</span>`;
-
             // Phase A: Velocity trend arrow
             const vTrend = sc.velocity_trend || 'stable';
             const vPtsH = sc.velocity_pts_per_hour;
@@ -7430,24 +7419,25 @@
             const trendTip = vPtsH != null
                 ? `${vPtsH > 0 ? '+' : ''}${vPtsH.toFixed(1)} pts/h`
                 : vTrend;
-            html += `<span class="sc-trend ${trendCls}" title="${_escHtml(trendTip)}">${trendIcon}</span>`;
 
-            // Phase B: Pattern warning badges (focused only)
+            // Pattern warning badges (focused only) — row1 right
+            let patternHtml = '';
             if (isFocused && sc.patterns) {
                 if (sc.patterns.silent_divergence && sc.patterns.silent_divergence.detected) {
-                    html += `<span class="sc-pattern-badge sc-pattern-silent-div" `
+                    patternHtml += `<span class="sc-pattern-badge sc-pattern-silent-div" `
                          + `title="${_t('scenario.pattern.silent_div_tip')}">`
                          + `${_t('scenario.pattern.silent_div')}</span>`;
                 }
                 if (sc.patterns.context_alignment && sc.patterns.context_alignment.score >= 3) {
                     const axLabel = sc.patterns.context_alignment.label || 'HIGH';
-                    html += `<span class="sc-pattern-badge sc-pattern-ctx-align" `
+                    patternHtml += `<span class="sc-pattern-badge sc-pattern-ctx-align" `
                          + `title="${_t('scenario.pattern.ctx_align_tip')}">`
                          + `${_escHtml(axLabel)}</span>`;
                 }
             }
 
-            // Phase A: ETA display (focused only)
+            // ETA display (focused only) — row2 right
+            let etaHtml = '';
             if (isFocused && sc.eta_to_next_tl) {
                 const eta = sc.eta_to_next_tl;
                 const etaH = Math.round(eta.eta_sec / 3600);
@@ -7455,17 +7445,45 @@
                 const etaLabel = etaH >= 1
                     ? `ETA ${etaDir}TL${eta.target_tl}: ~${etaH}h`
                     : `ETA ${etaDir}TL${eta.target_tl}: <1h`;
-                html += `<span class="sc-eta" title="${_t('scenario.eta_tip')}">${_escHtml(etaLabel)}</span>`;
+                etaHtml = `<span class="sc-eta" title="${_t('scenario.eta_tip')}">${_escHtml(etaLabel)}</span>`;
             }
 
+            // Lite bias warning tag (background cards only) — row2
+            let liteTagHtml = '';
             if (!isFocused && sc.lite_bias_warning) {
-                html += `<span class="sc-lite-tag">${_t('scenario.badge.lite_warn')}</span>`;
+                liteTagHtml = `<span class="sc-lite-tag">${_t('scenario.badge.lite_warn')}</span>`;
             }
+
+            // Focus switch button (background cards only) — row1 right
+            let focusBtnHtml = '';
             if (!isFocused) {
-                html += `<span class="sc-focus-btn" `
+                focusBtnHtml = `<span class="sc-focus-btn" `
                      + `onclick="event.stopPropagation();window.switchScenarioFocus('${safeSid}')" `
                      + `title="${_t('scenario.btn.switch_focus_tip')}">◎</span>`;
             }
+
+            // ── Render: 2-row layout ─────────────────────────────────────
+            // row1 (primary): TL | name (ellipsis, fills) | pattern + ◎
+            // row2 (meta):    badge • score • C/P/I dots • trend • ETA [• lite-tag]
+            html += `<div class="${cardClass}"${detailBtn}${tooltip}>`;
+            html += `<div class="sc-row-primary">`;
+            html += tlHtml;
+            html += `<span class="sc-name" title="${_escHtml(name)}">${_escHtml(name)}</span>`;
+            html += patternHtml;
+            html += focusBtnHtml;
+            html += `</div>`;
+            html += `<div class="sc-row-meta">`;
+            html += badge;
+            html += `<span class="sc-score">${score}</span>`;
+            html += `<span class="sc-domains">`;
+            html += `<span class="sc-domain-dot sc-domain-cyber ${cyberActive}">C</span>`;
+            html += `<span class="sc-domain-dot sc-domain-physical ${physActive}">P</span>`;
+            html += `<span class="sc-domain-dot sc-domain-info ${infoActive}">I</span>`;
+            html += `</span>`;
+            html += `<span class="sc-trend ${trendCls}" title="${_escHtml(trendTip)}">${trendIcon}</span>`;
+            html += etaHtml;
+            html += liteTagHtml;
+            html += `</div>`;
             html += `</div>`;
         }
         container.innerHTML = html;
