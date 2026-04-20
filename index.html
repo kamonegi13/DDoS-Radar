@@ -1252,33 +1252,33 @@
         <div id="chain-events" style="margin-top:10px;"></div>
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid #222;">
             <div style="color:#555;font-size:9px;text-align:center;" data-i18n="panel.chain.24h_window">24h WINDOW — LOOSELY ORDERED</div>
-            <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+            <div class="chain-metric" data-chain-type="NARRATIVE_BURST" style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;padding:2px 4px;border-radius:3px;">
                 <span style="color:#cc66ff;font-size:10px;" data-i18n="panel.chain.narrative_z">Narrative Z</span>
                 <span id="ev-narrative-z" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
             </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+            <div class="chain-metric" data-chain-type="ISR_SURGE" style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:2px 4px;border-radius:3px;">
                 <span style="color:#ffaa00;font-size:10px;" data-i18n="panel.chain.isr_aircraft">ISR Aircraft</span>
                 <span id="ev-isr-count" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
             </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+            <div class="chain-metric" data-chain-type="AIS_DARK_GAP" style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:2px 4px;border-radius:3px;">
                 <span style="color:#44aaff;font-size:10px;" data-i18n="panel.chain.ais_dark_gaps">AIS Dark Gaps</span>
                 <span id="ev-ais-gaps" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
             </div>
             <!-- v9 metrics -->
             <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1a1a1a;">
                 <div style="color:#444;font-size:9px;margin-bottom:4px;" data-i18n="panel.chain.v9_intel">── v9 INTELLIGENCE ──</div>
-                <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div class="chain-metric" data-chain-type="TELEGRAM_INTENT" style="display:flex;justify-content:space-between;align-items:center;padding:2px 4px;border-radius:3px;">
                     <span style="color:#ff66cc;font-size:10px;" data-i18n="panel.chain.telegram_mirror">Telegram Mirror</span>
                     <span style="display:flex;align-items:center;gap:6px;">
                         <span id="ev-telegram-intent" style="color:#555;font-size:11px;font-weight:bold;">—</span>
                         <span class="icon-btn" onclick="openTgSigint()" data-tooltip="Open SIGINT Panel" style="font-size:9px;color:#ff66cc66;padding:1px 5px;border-color:#ff66cc33;" data-i18n="panel.chain.sigint_open" data-i18n-tip="panel.chain.sigint_tooltip">SIGINT↗</span>
                     </span>
                 </div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                <div class="chain-metric" data-chain-type="INFRA_BLACKOUT" style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:2px 4px;border-radius:3px;">
                     <span style="color:#00ff88;font-size:10px;" data-i18n="panel.chain.infra_survival">Infra Survival</span>
                     <span id="ev-checkhost-status" style="color:#555;font-size:11px;font-weight:bold;">—</span>
                 </div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                <div class="chain-metric" data-chain-type="C2_SYNC" style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:2px 4px;border-radius:3px;">
                     <span style="color:#ffffff;font-size:10px;" data-i18n="panel.chain.c2_sync">C2 Sync</span>
                     <span id="ev-c2sync-detail" style="color:#555;font-size:11px;font-weight:bold;">—</span>
                 </div>

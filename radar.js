@@ -117,6 +117,22 @@
     try { mutedSensors = new Set(JSON.parse(localStorage.getItem('mutedSensors') || '[]')); }
     catch (e) { console.warn('[MUTE] localStorage parse error — reset to empty:', e); mutedSensors = new Set(); }
 
+    // Evidence Rationale Matrix: collapsed domain groups (persisted)
+    let _evCollapsedDomains;
+    try { _evCollapsedDomains = new Set(JSON.parse(localStorage.getItem('evCollapsedDomains') || '[]')); }
+    catch (e) { _evCollapsedDomains = new Set(); }
+    window.toggleEvDomain = function(domain) {
+        if (_evCollapsedDomains.has(domain)) _evCollapsedDomains.delete(domain);
+        else _evCollapsedDomains.add(domain);
+        try { localStorage.setItem('evCollapsedDomains', JSON.stringify([..._evCollapsedDomains])); } catch (e) {}
+        // Toggle row visibility in-place to avoid full re-render flash
+        document.querySelectorAll(`tr[data-ev-domain="${domain}"]`).forEach(tr => {
+            tr.style.display = _evCollapsedDomains.has(domain) ? 'none' : '';
+        });
+        const caret = document.querySelector(`[data-ev-caret="${domain}"]`);
+        if (caret) caret.textContent = _evCollapsedDomains.has(domain) ? '▸' : '▾';
+    };
+
     window.toggleMute = function(sensorName) {
         if (mutedSensors.has(sensorName)) {
             mutedSensors.delete(sensorName);
@@ -708,6 +724,20 @@
         }
     });
 
+    // CHAIN event ↔ bottom metric bidirectional highlight
+    document.addEventListener('mouseover', e => {
+        const el = e.target.closest('[data-chain-type]');
+        if (!el) return;
+        const t = el.getAttribute('data-chain-type');
+        if (!t) return;
+        document.querySelectorAll(`[data-chain-type="${t}"]`).forEach(n => n.classList.add('chain-highlighted'));
+    });
+    document.addEventListener('mouseout', e => {
+        const el = e.target.closest('[data-chain-type]');
+        if (!el) return;
+        document.querySelectorAll('.chain-highlighted').forEach(n => n.classList.remove('chain-highlighted'));
+    });
+
     const loaderLogs = [
         "> Polling Cloudflare L3/L7 Telemetry...",
         "> Fetching IODA BGP Outage Data...",
@@ -1125,7 +1155,7 @@
                     const dt     = new Date(ev.ts * 1000);
                     const _lang  = (localStorage.getItem('ddos_radar_lang') || 'en') === 'ja' ? 'ja-JP' : 'en-US';
                     const timeStr = dt.toLocaleTimeString(_lang, {hour:'2-digit', minute:'2-digit'});
-                    html += `<div class="chain-event">
+                    html += `<div class="chain-event" data-chain-type="${ev.type}">
                         <div style="display:flex;flex-direction:column;align-items:center;">
                             <div class="chain-dot chain-dot-${ev.type}" style="background:${color};"></div>
                             ${idx < events.length - 1 ? '<div class="chain-line"></div>' : ''}
@@ -3515,9 +3545,28 @@
             if (ds && ds.dominant_direction !== 'UNKNOWN') {
                 const dirLabels = { 'ADVERSARY_OFFENSIVE': _t('dir.adversary'), 'FRIENDLY_DEFENSIVE': _t('dir.friendly'), 'TARGET_IMPACT': _t('dir.target'), 'UNKNOWN': _t('dir.unknown') };
                 const dirColors = { 'ADVERSARY_OFFENSIVE': '#ff2a2a', 'FRIENDLY_DEFENSIVE': '#00cc66', 'TARGET_IMPACT': '#ffaa00', 'UNKNOWN': '#555' };
+                const adv = ds.adversary_offensive || 0;
+                const frd = ds.friendly_defensive || 0;
+                const tgt = ds.target_impact || 0;
+                const total = adv + frd + tgt;
                 convHtml += `<div class="convergence-item" style="margin-left:8px; border-left:2px solid #555; padding-left:8px;">`;
                 convHtml += `<span style="color:${dirColors[ds.dominant_direction]}">${_t('evidence.direction')}: ${dirLabels[ds.dominant_direction]} (${(ds.direction_clarity * 100).toFixed(0)}%)</span>`;
-                convHtml += ` <span style="color:#666; font-size:10px;">${_t('evidence.dir_counter_label', {adv: ds.adversary_offensive, frd: ds.friendly_defensive, tgt: ds.target_impact})}</span>`;
+                if (total > 0) {
+                    const advPct = (adv / total * 100).toFixed(1);
+                    const frdPct = (frd / total * 100).toFixed(1);
+                    const tgtPct = (tgt / total * 100).toFixed(1);
+                    convHtml += `<div class="dir-bar" style="display:flex;height:10px;margin-top:4px;border-radius:2px;overflow:hidden;background:#1a1a1a;border:1px solid #333;"
+                        data-tooltip="${_t('dir.adversary')}: ${adv} (${advPct}%) / ${_t('dir.friendly')}: ${frd} (${frdPct}%) / ${_t('dir.target')}: ${tgt} (${tgtPct}%)">`;
+                    if (adv > 0) convHtml += `<div style="width:${advPct}%;background:#ff2a2a;" title="${_t('dir.adversary')}: ${adv}"></div>`;
+                    if (frd > 0) convHtml += `<div style="width:${frdPct}%;background:#00cc66;" title="${_t('dir.friendly')}: ${frd}"></div>`;
+                    if (tgt > 0) convHtml += `<div style="width:${tgtPct}%;background:#ffaa00;" title="${_t('dir.target')}: ${tgt}"></div>`;
+                    convHtml += `</div>`;
+                    convHtml += `<div style="display:flex;justify-content:space-between;font-size:9px;color:#888;margin-top:2px;">
+                        <span style="color:#ff2a2a;">${_t('dir.adversary')} ${adv}</span>
+                        <span style="color:#00cc66;">${_t('dir.friendly')} ${frd}</span>
+                        <span style="color:#ffaa00;">${_t('dir.target')} ${tgt}</span>
+                    </div>`;
+                }
                 convHtml += `</div>`;
             }
             convEl.innerHTML = convHtml;
@@ -3534,7 +3583,18 @@
 
         const tbody = document.getElementById('evidence-tbody');
         if (strat.rationale_matrix && strat.rationale_matrix.length > 0) {
-            tbody.innerHTML = strat.rationale_matrix.map(e => {
+            // Group by domain: cyber → physical → info → others
+            const _domainOrder = ['cyber', 'physical', 'info'];
+            const _grouped = {};
+            for (const e of strat.rationale_matrix) {
+                const d = e.domain || 'other';
+                (_grouped[d] = _grouped[d] || []).push(e);
+            }
+            const _orderedDomains = [
+                ..._domainOrder.filter(d => _grouped[d]),
+                ...Object.keys(_grouped).filter(d => !_domainOrder.includes(d)).sort(),
+            ];
+            const _renderRow = e => {
                 const scoreHtml = e.score > 0
                     ? `<span class="rat-score-pos">+${e.score}</span>`
                     : `<span class="rat-score-zero">0</span>`;
@@ -3568,7 +3628,9 @@
                     ? `<button onclick="openNoiseClassify('${esc(e.sensor)}','${esc(e.value)}','${esc(e.domain)}')" class="btn-classify" data-tooltip="${_escAttr(_t('evidence.btn.classify_tip'))}">📋</button>`
                     : '';
 
-                return `<tr>
+                const _domain = e.domain || 'other';
+                const _hidden = _evCollapsedDomains.has(_domain);
+                return `<tr data-ev-domain="${esc(_domain)}"${_hidden ? ' style="display:none;"' : ''}>
                     <td style="font-family:monospace; font-size:11px; color:#ccc;">${esc(e.sensor)} ${muteBtn}${classifyBtn}</td>
                     <td><span class="rat-domain-${esc(e.domain)}">${esc(e.domain)}</span></td>
                     <td><span class="rat-status-${esc(e.status)}">${esc(e.status)}</span></td>
@@ -3578,7 +3640,23 @@
                     <td style="text-align:center;">${dirHtml}</td>
                     <td style="font-size:11px; color:#aaa;">${reasonText}</td>
                 </tr>`;
-            }).join('');
+            };
+            const _renderHeader = (domain, entries) => {
+                const firedCount = entries.filter(x => x.status === 'FIRED' && !x.suppressed).length;
+                const total = entries.reduce((s, x) => s + (x.score || 0), 0);
+                const caret = _evCollapsedDomains.has(domain) ? '▸' : '▾';
+                const domLabel = _t('evidence.domain.' + domain) || domain.toUpperCase();
+                return `<tr class="ev-group-header" onclick="toggleEvDomain('${esc(domain)}')">
+                    <td colspan="8" style="cursor:pointer; user-select:none; background:rgba(255,255,255,0.03); padding:4px 8px; border-top:1px solid #222;">
+                        <span data-ev-caret="${esc(domain)}" style="color:#888; display:inline-block; width:14px;">${caret}</span>
+                        <span class="rat-domain-${esc(domain)}" style="font-weight:bold; font-size:11px; letter-spacing:0.5px;">${esc(domLabel)}</span>
+                        <span style="color:#666; font-size:10px; margin-left:8px;">${_t('evidence.group.count', {fired: firedCount, total: entries.length})} · ${_t('evidence.group.total', {n: total})}</span>
+                    </td>
+                </tr>`;
+            };
+            tbody.innerHTML = _orderedDomains.map(d =>
+                _renderHeader(d, _grouped[d]) + _grouped[d].map(_renderRow).join('')
+            ).join('');
         } else {
             tbody.innerHTML = `<tr><td colspan="8" style="color:#555; text-align:center;">${_t('evidence.no_data')}</td></tr>`;
         }
@@ -3599,11 +3677,13 @@
                     const pct = (eff / totalWithBonus) * 100;
                     if (pct < 1) continue;
                     const color = domainColors[e.domain] || '#888';
-                    wfHtml += `<div class="wf-segment" style="width:${pct.toFixed(1)}%;background:${color}; cursor:help;" data-tooltip="${_escAttr(e.sensor)}: ${eff.toFixed(1)}pt (${pct.toFixed(0)}%) [${_escAttr(e.domain)}]"></div>`;
+                    const label = pct >= 8 ? `<span class="wf-label">${_escHtml(e.sensor)}</span>` : '';
+                    wfHtml += `<div class="wf-segment" style="width:${pct.toFixed(1)}%;background:${color}; cursor:help;" data-tooltip="${_escAttr(e.sensor)}: ${eff.toFixed(1)}pt (${pct.toFixed(0)}%) [${_escAttr(e.domain)}]">${label}</div>`;
                 }
                 if (bonus > 0) {
                     const bPct = (bonus / totalWithBonus) * 100;
-                    wfHtml += `<div class="wf-segment wf-bonus" style="width:${bPct.toFixed(1)}%; cursor:help;" data-tooltip="${_escAttr(_t('evidence.wf_bonus'))}: +${bonus}pt (${bPct.toFixed(0)}%)"></div>`;
+                    const bLabel = bPct >= 8 ? `<span class="wf-label">+${bonus}</span>` : '';
+                    wfHtml += `<div class="wf-segment wf-bonus" style="width:${bPct.toFixed(1)}%; cursor:help;" data-tooltip="${_escAttr(_t('evidence.wf_bonus'))}: +${bonus}pt (${bPct.toFixed(0)}%)">${bLabel}</div>`;
                 }
                 wfHtml += '</div>';
                 wfHtml += `<div class="wf-legend"><span class="wf-leg-item" style="color:var(--color-accent,#00ffff);">● ${_t('evidence.wf_legend.cyber')}</span><span class="wf-leg-item" style="color:var(--color-warning,#ffaa00);">● ${_t('evidence.wf_legend.phys')}</span><span class="wf-leg-item" style="color:#cc66ff;">● ${_t('evidence.wf_legend.info')}</span>`;

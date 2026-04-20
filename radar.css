@@ -816,6 +816,9 @@
         .rat-domain-info     { color: #cc66ff; }
         .rat-score-pos { color: var(--color-critical); font-weight: bold; }
         .rat-score-zero { color: #444; }
+        /* Rationale Matrix: collapsible domain group header */
+        .ev-group-header td { transition: background 0.15s; }
+        .ev-group-header:hover td { background: rgba(0,255,255,0.06) !important; }
         /* Confidence badge in evidence table (scoped to .ev- to avoid clash with LLM Intel .conf-badge) */
         .ev-conf-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: bold; }
         .ev-conf-high { color: #66ffaa; background: rgba(102,255,170,0.1); }
@@ -880,6 +883,10 @@
         .chain-dot-MASKIROVKA      { background: #ff8800; }
         .chain-dot-C2_SYNC         { background: #ffffff; border: 1px solid #888; box-sizing: border-box; }
         .chain-dot-INFRA_BLACKOUT  { background: #ff2200; }
+        /* CHAIN event ↔ metric bidirectional highlight */
+        .chain-event[data-chain-type] { padding: 2px 4px; border-radius: 3px; transition: background 0.12s, box-shadow 0.12s; cursor: pointer; }
+        .chain-highlighted { background: rgba(0,255,255,0.08) !important; box-shadow: 0 0 0 1px rgba(0,255,255,0.35) inset; }
+        .chain-metric { cursor: pointer; transition: background 0.12s, box-shadow 0.12s; }
         .chain-line { flex: 0 0 1px; background: #333; width: 1px; min-height: 20px; margin: 4px auto; }
         .chain-text { flex: 1; }
         .chain-type { font-weight: bold; color: #ddd; font-size: 10px; }
@@ -1482,8 +1489,9 @@
 
 /* ── Contribution Waterfall ── */
 .wf-bar { display: flex; height: 22px; border-radius: 3px; overflow: hidden; margin: 6px 0 4px; border: 1px solid var(--color-border); }
-.wf-segment { height: 100%; transition: opacity 0.2s; cursor: pointer; min-width: 2px; }
-.wf-segment:hover { opacity: 0.7; }
+.wf-segment { height: 100%; transition: opacity 0.2s; cursor: pointer; min-width: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.wf-segment:hover { opacity: 0.75; }
+.wf-segment .wf-label { font-size: 9px; color: #000; font-weight: bold; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; padding: 0 3px; pointer-events: none; letter-spacing: 0.3px; }
 .wf-bonus { background: #44ff88; }
 .wf-legend { display: flex; gap: 12px; font-size: 9px; padding: 0 2px; margin-bottom: 8px; }
 .wf-leg-item { display: flex; align-items: center; gap: 2px; }
