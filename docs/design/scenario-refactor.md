@@ -242,13 +242,15 @@ class Role(Enum):
 
 ### ADR-005: focused_scenario が core_theater を置き換える
 
-**Status**: Accepted (2026-04-11)
+**Status**: Accepted (2026-04-11) — フロント側の段階的移行を 2026-04-21 に開始
 **Context**: 既存の `core_theater` は「最高スコアの国を選ぶロジック」と「アナリストが宣言した主要対象国」の2つの意味で混在使用されていた。
 **Decision**: `core_theater` を廃止し、`focused_scenario` に置き換える。意味は「アナリストが現在フォーカスしているシナリオ ID」。
 **Consequences**:
 - ✅ 概念が明確になる
 - ⚠️ API パラメータ `?core=TW` が `?focus=taiwan_contingency` に変わる
 - ⚠️ 既存 UI コードの core 参照を全て書き換える
+
+**Implementation note (2026-04-21)**: CHAIN パネルは `resolveChainTargetCountry(strat)` ヘルパー経由で `participants[role=primary_target]` を解決するように切替済み。`core_theater` は API で引き続き送出されているため、フォールバックとして残置。残りの UI 参照(map renderer / SITREP / scenario context indicator など 14 箇所)は API の Sunset (2026-10-01) までに同ヘルパー経由へ移行する必要あり。
 
 ### ADR-006: シナリオ編集の権限モデル
 
@@ -1868,6 +1870,7 @@ Phase N の完了時に、その Phase で実装された **疑似コード・SQ
 | 2026-04-12 | 1.3.0 | 数理・一貫性修正。formula_trace 数値修正、enabled/state 意味論確定、ADR-021(domain weight 廃止)、ADR-022(global signal 規約 + DOMAIN_CAP) | `a03f628` |
 | 2026-04-12 | 1.3.1 | 文書保守性改善。ルール 8(実装完了→実コード参照に圧縮)、ルール 9(正規定義箇所の一元化)追加。改訂履歴を圧縮、冗長箇所を正規定義への参照に置換(約 30 行削減) | — |
 | 2026-04-20 | 1.6.0 | ADR-023(LLM intel age-decay τ=12h 指数関数減衰)追加。confirm cliff / TTL cliff 解消。TTL 48h に延長、cap は decayed score でランク | — |
+| 2026-04-21 | 1.6.1 | EVIDENCE/CHAIN UI 改善 (Phase A/B/C-1)。CHAIN パネルを `resolveChainTargetCountry(strat)` 経由に切替、ADR-005 で deprecated 指定された `core_theater` への直接依存を除去。フロント単独の小変更で、API は引き続き両フィールドを送出(Sunset 2026-10-01)。`test_ui_integrity.py` 追加で i18n キー欠落を CI で検知 | `ef77580`, `4cc5a9e`, `49e9490` |
 
 ---
 

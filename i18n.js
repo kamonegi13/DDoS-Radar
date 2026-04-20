@@ -29,6 +29,7 @@ const LANG = {
     'hud.btn.config':                 'Config',
     'hud.diag.label':                 'DIAG',
     'hud.tooltip.settings_menu':      'Settings — Intel Guide / Config',
+    'hud.discrepancy_alert':          '! DISCREPANCY DETECTED: POSSIBLE MASKIROVKA',
 
     // ── scenario chip (Row 1 SITUATION) ───────────────────────────
     'hud.scenario.label':             'SCENARIO',
@@ -1418,6 +1419,7 @@ const LANG = {
     'hud.btn.config':                 '設定',
     'hud.diag.label':                 '診断',
     'hud.tooltip.settings_menu':      '設定 — インテルガイド / Config',
+    'hud.discrepancy_alert':          '! 矛盾検知: マスキロフカ (欺瞞工作) の可能性',
 
     // ── scenario chip (Row 1 SITUATION) ───────────────────────────
     'hud.scenario.label':             'シナリオ',
