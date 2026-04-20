@@ -206,17 +206,33 @@
         #hud-intel-chip .hud-intel-new.fresh { display: inline-block; color: #00ff88; background: rgba(0,255,136,0.15); animation: hud-intel-pulse 2s ease-in-out infinite; }
         @keyframes hud-intel-pulse { 0%,100% { opacity: 1.0; } 50% { opacity: 0.55; } }
 
-        /* ── Exception banner ─────────────────────────────────────── */
-        .hud-exception-bar { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; padding: 2px 12px 3px; border-top: 1px solid #2a1a1a; background: rgba(15, 15, 15, 0.92); box-sizing: border-box; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-        .hud-exception-item { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 3px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
-        .hud-exception-item .ex-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.85; }
-        .hud-exception-item .ex-value { font-family: 'Courier New', monospace; }
-        .ex-ambush    { background: rgba(255,34,0,0.15);  border: 1px solid #ff2200; color: #ff4400; animation: blink 0.7s step-end infinite; will-change: opacity; }
-        .ex-tri       { background: rgba(255,68,68,0.12); border: 1px solid #ff444466; color: #ff6666; }
-        .ex-silent    { background: rgba(255,136,0,0.10); border: 1px solid #ff880066; color: #ffa044; }
-        .ex-direction { background: rgba(255,170,0,0.08); border: 1px solid #ffaa0044; color: #ffcc66; }
-        .ex-comms     { background: rgba(255,136,0,0.10); border: 1px solid #ff880066; color: #ffa044; }
-        .ex-discrepancy { background: rgba(255,0,0,0.18); border: 1px solid #ff2200; color: var(--color-critical); animation: blink 0.8s step-end infinite; will-change: opacity; }
+        /* ── Global anomaly stack — floating on map top-left ──────── */
+        .map-anomaly-stack {
+            position: absolute; top: 10px; left: 14px;
+            z-index: 500; display: flex; flex-direction: column; gap: 4px;
+            pointer-events: none;
+        }
+        .map-anomaly {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 4px 10px; border-radius: 3px;
+            min-width: 120px; max-width: 240px;
+            background: rgba(15,15,15,0.92);
+            font-family: 'Courier New', monospace;
+            font-size: 11px; font-weight: bold; letter-spacing: 0.5px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.55);
+            pointer-events: auto;
+        }
+        .map-anomaly .ex-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.85; }
+        .map-anomaly .ex-value { font-family: 'Courier New', monospace; }
+        .map-anomaly--discrepancy { background: rgba(15,15,15,0.92); border: 1px solid #ff2200; color: var(--color-critical); animation: blink 0.8s step-end infinite; will-change: opacity; animation-delay: 0s; }
+        .map-anomaly--ambush      { border: 1px solid #ff2200; color: #ff4400; animation: blink 0.8s step-end infinite; will-change: opacity; animation-delay: 0s; }
+        .map-anomaly--tri         { border: 1px solid #ff444466; color: #ff6666; }
+        .map-anomaly--silent      { border: 1px solid #ff880066; color: #ffa044; }
+        @media (max-width: 768px) {
+            #hud-bg-alert { top: 132px; }
+        }
+
         /* ── BG scenario alert — floating on map top ──────────────── */
         .map-bg-alert {
             position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
@@ -344,7 +360,7 @@
         @keyframes hh-fade-in { from { opacity: 0; } to { opacity: 1; } }
         .warn-text { color: var(--color-critical); font-weight: bold; animation: blink 1.5s infinite; will-change: opacity; }
         .alert-text { color: var(--color-warning); font-weight: bold; }
-        /* Discrepancy / Maskirovka HUD border highlight (alert chip itself is in .ex-discrepancy) */
+        /* Discrepancy / Maskirovka HUD border highlight (alert chip itself is .map-anomaly--discrepancy) */
         .hud-discrepancy-border { outline:2px solid #ff2200 !important; box-shadow:0 0 12px rgba(255,34,0,0.5) !important; animation:hud-border-blink 0.8s step-end infinite !important; }
         @keyframes hud-border-blink { 0%,100%{box-shadow:0 0 12px rgba(255,34,0,0.6);outline-color:#ff2200;} 50%{box-shadow:none;outline-color:transparent;} }
         /* Node status dots — 8px colored squares, compact replacement for text chips */

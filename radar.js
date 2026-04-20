@@ -968,7 +968,6 @@
             if (mskNow) hudEl.classList.add('hud-discrepancy-border');
             else        hudEl.classList.remove('hud-discrepancy-border');
         }
-        _refreshExceptionBar();
 
         // ── v9: C2 Temporal Coherence ──────────────────────────────────────────
         const c2El = document.getElementById('hud-c2sync');
@@ -2407,7 +2406,6 @@
             } else if (dirWrap) {
                 dirWrap.style.display = 'none';
             }
-            _refreshExceptionBar();
 
             // Scenario chip — show focused scenario name (replaces Epicenter)
             if (scenarioNameEl) {
@@ -2549,7 +2547,6 @@
             } else if (sdEl) {
                 sdEl.style.display = 'none';
             }
-            _refreshExceptionBar();
 
             // A2: Theater Baseline Z-score
             const baseZEl = document.getElementById('hud-baseline-z');
@@ -4281,7 +4278,6 @@
             txt.textContent = _t('rs.quiet_text');
             wrap.setAttribute('data-tooltip', _t('rs.tooltip.quiet'));
         }
-        _refreshExceptionBar();
     }
 
     // ── HUD chip updates introduced with the 3-row redesign ──────────
@@ -4459,22 +4455,7 @@
                 bgAlert.onclick = null;
             }
         }
-        _refreshExceptionBar();
     }
-
-    // Show the exception banner only when at least one anomaly is active.
-    function _refreshExceptionBar() {
-        const bar = document.getElementById('hud-exception-bar');
-        if (!bar) return;
-        const ids = ['hud-ambush-wrap', 'hud-triangulation', 'hud-silent-div',
-                     'hud-discrepancy-alert'];
-        const anyActive = ids.some(id => {
-            const el = document.getElementById(id);
-            return el && el.style.display && el.style.display !== 'none';
-        });
-        bar.style.display = anyActive ? 'flex' : 'none';
-    }
-    window._refreshExceptionBar = _refreshExceptionBar;
 
     // ── H. Threat Terrain Overlay ─────────────────────────────────────
     // Visualize per-country threat intensity with Leaflet Circles (choropleth-style)

@@ -187,26 +187,6 @@
         </div>
     </div>
 
-    <!-- ─── EXCEPTION BANNER — only renders when something fires ───
-         AMBUSH (acceleration), TRIANGULATION (3-domain), SILENT DIV
-         (info-domain silent while cyber+phys active), DISCREPANCY
-         (Maskirovka), and BG-SCENARIO ALERT (background scenario
-         rising fast — focus-switch hint). The banner itself is
-         display:none until any child fires. -->
-    <div class="hud-exception-bar" id="hud-exception-bar" style="display:none;">
-        <div class="hud-exception-item ex-ambush" id="hud-ambush-wrap" style="display:none;" data-i18n-tip="hud.tooltip.ambush">
-            <span id="hud-ambush" data-i18n="hud.ambush.text">⚡ AMBUSH DETECTED</span>
-        </div>
-        <div class="hud-exception-item ex-tri" id="hud-triangulation" style="display:none;" data-i18n-tip="hud.tooltip.triangulation">
-            <span class="ex-label" data-i18n="hud.label.triangulation">TRIANGULATION</span>
-            <span id="hud-tri-text" class="ex-value">CONFIRMED</span>
-        </div>
-        <div class="hud-exception-item ex-silent" id="hud-silent-div" style="display:none;" data-i18n-tip="hud.tooltip.silent_div">
-            <span class="ex-label" data-i18n="hud.label.silent_div">SILENT DIVERGENCE</span>
-            <span id="hud-silent-text" class="ex-value">—</span>
-        </div>
-        <div class="hud-exception-item ex-discrepancy" id="hud-discrepancy-alert" style="display:none;" data-i18n="hud.discrepancy_alert">! DISCREPANCY DETECTED: POSSIBLE MASKIROVKA</div>
-    </div>
 </div>
 
 <!-- ─── HAMBURGER CONTROL PANEL — at body level so stacking context is root.
@@ -355,11 +335,28 @@
 
     <div id="map-wrapper">
         <div id="map"></div>
-        <!-- BG scenario alert — floating notification on map top.
+        <!-- BG scenario alert — floating notification on map top-center.
              Appears when a background scenario's score rises fast (focus-switch hint). -->
         <div class="map-bg-alert" id="hud-bg-alert" style="display:none;" data-i18n-tip="hud.tooltip.bg_alert">
             <span class="ex-label" data-i18n="hud.label.bg_alert">BG</span>
             <span id="hud-bg-alert-text" class="ex-value">—</span>
+        </div>
+        <!-- Global anomaly stack — floating chips on map top-left, severity ordered.
+             Each child toggles display:none individually; the stack itself is always
+             present so HUD row count never varies with alert state. -->
+        <div class="map-anomaly-stack" id="map-anomaly-stack">
+            <div class="map-anomaly map-anomaly--discrepancy" id="hud-discrepancy-alert" style="display:none;" data-i18n="hud.discrepancy_alert">! DISCREPANCY DETECTED: POSSIBLE MASKIROVKA</div>
+            <div class="map-anomaly map-anomaly--ambush" id="hud-ambush-wrap" style="display:none;" data-i18n-tip="hud.tooltip.ambush">
+                <span id="hud-ambush" data-i18n="hud.ambush.text">⚡ AMBUSH DETECTED</span>
+            </div>
+            <div class="map-anomaly map-anomaly--tri" id="hud-triangulation" style="display:none;" data-i18n-tip="hud.tooltip.triangulation">
+                <span class="ex-label" data-i18n="hud.label.triangulation">TRIANGULATION</span>
+                <span id="hud-tri-text" class="ex-value">CONFIRMED</span>
+            </div>
+            <div class="map-anomaly map-anomaly--silent" id="hud-silent-div" style="display:none;" data-i18n-tip="hud.tooltip.silent_div">
+                <span class="ex-label" data-i18n="hud.label.silent_div">SILENT DIVERGENCE</span>
+                <span id="hud-silent-text" class="ex-value">—</span>
+            </div>
         </div>
     </div>
 
