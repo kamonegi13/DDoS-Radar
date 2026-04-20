@@ -282,11 +282,20 @@ LLM_PENDING_AUTO_REJECT_HOURS  = float(os.getenv("LLM_PENDING_AUTO_REJECT_HOURS"
 INTEL_RETENTION_DAYS           = int(os.getenv("INTEL_RETENTION_DAYS", "7"))
 # How long a confirmed/auto_confirmed intel item contributes to the threat score.
 # After this TTL the item is still in the DB but excluded from active rationale.
-INTEL_ITEM_TTL_HOURS           = float(os.getenv("INTEL_ITEM_TTL_HOURS", "24"))
+# Extended to 48h to pair with exponential age-decay (tau=12h default); a hard
+# TTL alone caused a cliff effect (full score for 24h, then zero).
+INTEL_ITEM_TTL_HOURS           = float(os.getenv("INTEL_ITEM_TTL_HOURS", "48"))
 # Max number of active intel items per (source_type, theater) that contribute to score.
 # Prevents a single noisy sensor from dominating the total score via accumulation.
-# Top N items ranked by score_delta are kept; the rest are excluded from active rationale.
+# Top N items ranked by decayed score are kept; the rest are excluded from active rationale.
 INTEL_MAX_ITEMS_PER_SOURCE_THEATER = int(os.getenv("INTEL_MAX_ITEMS_PER_SOURCE_THEATER", "2"))
+
+# ── Intel Age-Decay (ADR-023) ──────────────────────────────────────────────
+# Exponential decay: effective_score = score_delta * exp(-age_sec / (tau_hours * 3600))
+# Smooths the binary TTL cliff. At age=tau the weight is e^-1 ≈ 0.37; at age=2*tau ≈ 0.14.
+# Per-source_type override: INTEL_AGE_DECAY_TAU_HOURS_<SOURCE> (e.g. ..._DIPLOMATIC=6).
+INTEL_AGE_DECAY_ENABLED   = os.getenv("INTEL_AGE_DECAY_ENABLED", "true").lower() in ("true", "1", "yes")
+INTEL_AGE_DECAY_TAU_HOURS = float(os.getenv("INTEL_AGE_DECAY_TAU_HOURS", "12"))
 
 # Cross-source corroboration: how far back to look for signals from independent sources
 CORROBORATION_WINDOW_HOURS    = float(os.getenv("CORROBORATION_WINDOW_HOURS", "8"))

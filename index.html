@@ -553,6 +553,19 @@
                     <label data-i18n="sysconfig.field.intel_retention">Intel Retention (days)</label>
                     <input class="env-input" id="ec-INTEL_RETENTION_DAYS" type="number" min="1" max="90" placeholder="7" style="max-width:80px;">
                 </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.intel_age_decay_enabled">Age-Decay Enabled (ADR-023)</label>
+                    <select class="env-input" id="ec-INTEL_AGE_DECAY_ENABLED" style="max-width:120px;">
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                    </select>
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.intel_age_decay_enabled">Exponentially decay confirmed intel contributions by age (smooths confirm/TTL cliffs)</div>
+                </div>
+                <div class="env-field">
+                    <label data-i18n="sysconfig.field.intel_age_decay_tau">Age-Decay τ (hours)</label>
+                    <input class="env-input" id="ec-INTEL_AGE_DECAY_TAU_HOURS" type="number" min="1" max="72" step="0.5" placeholder="12" style="max-width:80px;">
+                    <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.intel_age_decay_tau">Time constant: weight=1/e at age=τ, ~0.14 at 2·τ, ~0.05 at 3·τ. Default 12h ≈ 1 work cycle</div>
+                </div>
 
                 <!-- ── Advanced Settings (collapsed) ────────────────── -->
                 <hr style="border:none;border-top:1px solid #ff660033;margin:16px 0 8px;">
@@ -1921,6 +1934,7 @@
             <li><b>Interpreting the SURVIVAL HUD (v9).</b> Shows real-time reachability of critical national infrastructure (government, central bank, energy grid) from global nodes. <span style="color:#66ff66;font-weight:bold;">OK</span> = infrastructure reachable. <span style="color:#ffaa00;font-weight:bold;">PARTIAL</span> = some nodes report failure — possible DDoS effect or localized disruption. <span style="color:#ff2a2a;font-weight:bold;">BLACKOUT</span> = critical infrastructure unreachable from multiple global vantage points simultaneously. BLACKOUT + high Blockade Index = likely pre-invasion blackout scenario.</li>
             <li><b>Interpreting C2-SYNC (v9).</b> Displays whether attacks across multiple theaters started within 60 seconds (C2 SYNC CONFIRMED) or 5 minutes (PARTIAL). Tight temporal synchronization across geographically separated theaters is the hallmark of nation-state integrated C2 (command and control) rather than loosely coordinated hacktivist activity.</li>
             <li><b>Maskirovka detection (v9).</b> If physical outage is confirmed (IODA degraded or Check-Host <b>BLACKOUT</b>) while all narrative channels are simultaneously silent (no RSS burst, no Telegram intent), the system flags a potential <b>Maskirovka</b> (Russian military deception doctrine). PARTIAL Check-Host status alone does not trigger this — only full BLACKOUT, reducing false positives from localized node failures. Physical disruption without accompanying narrative amplification may indicate a genuine kinetic operation rather than a hacktivist campaign — hacktivist groups typically announce targets loudly before and during attacks.</li>
+            <li><b>Confirmed intel decays exponentially (ADR-023).</b> When you confirm an LLM intel item, its contribution to the scenario score is no longer full-strength for 24h then zero — it enters at full weight and decays as <span class="code-block">exp(-age / τ)</span> with τ=12h. Practical meaning: at age 12h the item contributes ~37%, at 24h ~14%, at 36h ~5%, fully removed at 48h. <b>TL does not rise abruptly the moment you click CONFIRM</b>; fresh confirms dominate the cap, stale items fade naturally. If you need a legacy binary-TTL comparison for calibration, set <span class="code-block">INTEL_AGE_DECAY_ENABLED=false</span> in Config. Per-source τ override (e.g. fast-moving diplomatic signals) via <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_DIPLOMATIC=6</span>. The Evidence Panel shows <span class="code-block">(age X.Xh, w=Y.YY)</span> beside each confirmed item so you can see decayed vs. raw weight at a glance.</li>
         </ul>
 
         </div>
@@ -1938,6 +1952,7 @@
             <li><b>SURVIVAL HUD の解釈（v9）。</b> グローバルノードからの重要な国家インフラ（政府、中央銀行、電力網）のリアルタイム到達可能性を表示。<span style="color:#66ff66;font-weight:bold;">OK</span> = インフラ到達可能。<span style="color:#ffaa00;font-weight:bold;">PARTIAL</span> = 一部のノードが障害を報告 — DDoS 影響または局所的障害の可能性。<span style="color:#ff2a2a;font-weight:bold;">BLACKOUT</span> = 複数のグローバル拠点から同時に重要インフラへの到達不能。BLACKOUT + 高い封鎖インデックス = 侵攻前ブラックアウトシナリオの可能性が高い。</li>
             <li><b>C2-SYNC の解釈（v9）。</b> 複数シアターへの攻撃が60秒以内（C2 SYNC CONFIRMED）または5分以内（PARTIAL）に開始されたかどうかを表示。地理的に離れたシアター間での厳密な時間的同期は、緩やかに協調されたハクティビスト活動ではなく、国家が統合した C2（指揮統制）の特徴。</li>
             <li><b>Maskirovka 検出（v9）。</b> 物理的障害が確認され（IODA 劣化または Check-Host <b>BLACKOUT</b>）、すべてのナラティブチャンネルが同時に沈黙している場合（RSS バーストなし、Telegram 意図なし）、システムは潜在的な <b>Maskirovka</b>（ロシア軍事欺瞞ドクトリン）にフラグを立てる。Check-Host の PARTIAL 単独ではトリガーされない — ノードの局所的障害による誤検知を削減するため、BLACKOUT のみが対象。ナラティブ増幅を伴わない物理的障害は、ハクティビストキャンペーンではなく真の運動学的作戦を示す可能性がある — ハクティビストグループは通常、攻撃の前後に標的を大声で告知する。</li>
+            <li><b>confirm済みインテルは指数関数的に減衰（ADR-023）。</b> LLMインテルを confirm しても、シナリオスコアへの寄与は「24h フル強度 → 以降ゼロ」ではない。confirm 直後にフル重みで入り、<span class="code-block">exp(-age / τ)</span>（τ=12h）で減衰する。実用値: age=12h で約37%、24h で約14%、36h で約5%、48h で完全除去。<b>CONFIRM クリック直後に TL が急上昇することはない。</b> 新鮮な confirm が容量上限（cap）を占有し、古いアイテムは自然にフェードアウト。キャリブレーション目的で従来の二値TTL挙動と比較したい場合は、Config 画面で <span class="code-block">INTEL_AGE_DECAY_ENABLED=false</span> に設定。ソースタイプ別のτ上書き（例: 動きの速い外交シグナル）は <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_DIPLOMATIC=6</span> のように環境変数で指定。エビデンスパネルは各 confirm 済みアイテムの横に <span class="code-block">(age X.Xh, w=Y.YY)</span> を表示し、減衰後の重みが一目で確認可能。</li>
         </ul>
 
         </div>
@@ -2855,6 +2870,15 @@
             <li><span class="code-block">background_scenarios[].score_delta_6h</span> — Score change over the last 6 hours.</li>
             <li><span class="code-block">background_scenarios[].score_delta_24h</span> — Score change over the last 24 hours.</li>
         </ul>
+        <p><b>LLM Intel Age-Decay Fields</b> <span style="color:#aa88ff;">[ADR-023]</span></p>
+        <ul style="font-size: 11px; line-height: 1.8;">
+            <li><span class="code-block">rationale_matrix[].score</span> — Effective (decayed) score contribution used in scoring: <span class="code-block">score_raw × age_weight</span>.</li>
+            <li><span class="code-block">rationale_matrix[].score_raw</span> — Raw confirmed intel score before age-decay is applied. Preserved for audit so analysts can see the original LLM-assessed magnitude.</li>
+            <li><span class="code-block">rationale_matrix[].age_hours</span> — Age of the confirmed intel item in hours, measured from <span class="code-block">confirmed_at</span> (or first-seen when auto-confirmed).</li>
+            <li><span class="code-block">rationale_matrix[].age_weight</span> — Decay multiplier applied: <span class="code-block">exp(-age_sec / (τ · 3600))</span>. At age=τ (default 12h) weight=1/e≈0.37; at 2·τ≈0.14; at 3·τ≈0.05.</li>
+            <li><span class="code-block">rationale_matrix[].detail</span> — Suffixed with <span class="code-block">(age X.Xh, w=Y.YY)</span> when decay is active, so the decayed contribution is visible at a glance in the Evidence Panel.</li>
+        </ul>
+        <p style="font-size: 11px;">These fields appear only when <span class="code-block">INTEL_AGE_DECAY_ENABLED=true</span> (default). Set to <span class="code-block">false</span> to revert to binary TTL behavior for regression testing. Per-source τ override via <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_&lt;SOURCE_TYPE&gt;</span> environment variables (e.g. <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_DIPLOMATIC=6</span>).</p>
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>9. API リファレンス（アナリスト / 統合エンドポイント）</h4>
@@ -2946,6 +2970,15 @@
             <li><span class="code-block">background_scenarios[].score_delta_6h</span> — 過去6時間のスコア変化量。</li>
             <li><span class="code-block">background_scenarios[].score_delta_24h</span> — 過去24時間のスコア変化量。</li>
         </ul>
+        <p><b>LLMインテル経時減衰フィールド</b> <span style="color:#aa88ff;">[ADR-023]</span></p>
+        <ul style="font-size: 11px; line-height: 1.8;">
+            <li><span class="code-block">rationale_matrix[].score</span> — スコアリングに使用される実効（減衰済み）寄与値: <span class="code-block">score_raw × age_weight</span>。</li>
+            <li><span class="code-block">rationale_matrix[].score_raw</span> — 経時減衰適用前の生スコア。アナリストが元のLLM評価強度を監査できるよう保持。</li>
+            <li><span class="code-block">rationale_matrix[].age_hours</span> — confirm済みインテルの経過時間（時間単位）。<span class="code-block">confirmed_at</span>（自動confirmの場合は初回検出時刻）からの経過。</li>
+            <li><span class="code-block">rationale_matrix[].age_weight</span> — 適用された減衰係数: <span class="code-block">exp(-age_sec / (τ · 3600))</span>。age=τ（既定 12h）で重み=1/e≈0.37、2·τで≈0.14、3·τで≈0.05。</li>
+            <li><span class="code-block">rationale_matrix[].detail</span> — 減衰が有効な場合、<span class="code-block">(age X.Xh, w=Y.YY)</span> の接尾辞が付与され、エビデンスパネルで減衰後の寄与値が一目で確認可能。</li>
+        </ul>
+        <p style="font-size: 11px;">これらのフィールドは <span class="code-block">INTEL_AGE_DECAY_ENABLED=true</span>（既定）の場合のみ出力。<span class="code-block">false</span> にすると二値TTL挙動に戻す（回帰試験用）。ソースタイプ別にτを上書きする場合は環境変数 <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_&lt;SOURCE_TYPE&gt;</span> を使用（例: <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_DIPLOMATIC=6</span>）。</p>
         </div>
         </div><!-- /guide-ch-9 -->
         <div class="guide-chapter" id="guide-ch-10">

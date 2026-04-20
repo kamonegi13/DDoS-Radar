@@ -15,7 +15,7 @@
 |------|-----|
 | **現バージョン** | 1.5.1 |
 | **作成日** | 2026-04-11 |
-| **最終更新** | 2026-04-14 |
+| **最終更新** | 2026-04-20 |
 | **現在のフェーズ** | **Phase 5 実装完了（TL 閾値再校正と ADR-015 dual-weight 評価は運用データ蓄積待ち）** |
 | **採用方針** | **C-lite** で開始、運用知見をもとに **C-medium** へ進化 |
 | **責任者** | kamonegi13(@juzo1192) |
@@ -583,6 +583,60 @@ for domain in domains:
 - ✅ per-domain cap で異常な単一ドメイン偏重を防止
 - ⚠️ 全 global sensor の `countries` 出力を空リストに統一する Phase 2 の作業が必要
 - ⚠️ `GLOBAL_SIGNAL_WEIGHT` と `DOMAIN_CAP` の初期値は保守的に設定し、運用で校正
+
+---
+
+### ADR-023: LLM intel の age-decay による contribution 時系列平滑化
+
+**Status**: Accepted (2026-04-20)
+
+**Context**:
+`get_active_rationale()` は confirmed / auto_confirmed な LLM intel を TTL（24h）が切れるまで **full score_delta のまま** contribution に注入していた。この実装には 2 つの cliff effect があった:
+
+1. **confirm cliff**: アナリストが pending intel を confirm した瞬間、contribution が 0 から full（例: 2.0〜3.0）に飛ぶ。1 件の confirm で TL が step-up する事例が実運用で発生（2026-04-20、Iran 関連 intel を confirm → TL2 → TL1）。
+2. **TTL cliff**: 24h+1s で急に 0 になる。同じ intel が 24h では full weight、25h では無寄与、という二値挙動。
+
+センサー側では `participant_weight × llm_country_weight` で「空間的重要度」は表現できていたが、**時間的減衰**は表現できていなかった。
+
+**Decision**:
+LLM intel の contribution に指数関数的 age-decay を適用する:
+
+```
+effective_score = score_delta × exp(-age_sec / (τ × 3600))
+```
+
+- **τ（time constant）** = 12h（デフォルト）
+- age = τ で weight ≈ 0.37（= 1/e）
+- age = 2τ で weight ≈ 0.14
+- age = 3τ で weight ≈ 0.05
+- TTL（48h に延長）は **hard floor** として残し、τ で自然減衰したあと最終的にドロップ
+
+**Implementation points**:
+- `get_active_rationale()` は各 item の decayed score を前段で算出
+- `(source_type, theater)` cap（ADR-019）は **decayed score で降順ランク**する。raw ランクだと stale high-raw が cap を占有し、fresh low-raw が排除される不具合を防ぐ
+- Per-source_type オーバーライド: `INTEL_AGE_DECAY_TAU_HOURS_<SOURCE_TYPE>`（例: `..._DIPLOMATIC=6` で外交 signal をより短寿命に）
+- 無効化: `INTEL_AGE_DECAY_ENABLED=false` or `INTEL_AGE_DECAY_TAU_HOURS=0`
+
+**τ=12h を選んだ根拠**:
+- 短すぎ（τ=3h 等）→ 有効な intel が数時間で消え、センサー・収集間隔と噛み合わない
+- 長すぎ（τ=36h 等）→ cliff effect を解消しない
+- 12h は 1 業務サイクル（日中→深夜）相当で、「前のシフトが見た intel が次のシフトでは半減する」感覚と整合
+- Phase C で DB 実データに対してシミュレーション: τ=12h で active intel の合計 contribution が **10.40 → 3.48（-66.6%）**、stale item（>24h）は実質 0、fresh item（<6h）は原寄与の 80〜95% を保持
+
+**Signal 露出 (observability)**:
+contribution dict に `score_raw`, `age_hours`, `age_weight` を追加。`detail` 文字列に `(age X.Xh, w=Y.YY)` を付与。Intel Panel / API で decayed / raw / weight を確認できる。
+
+**Consequences**:
+- ✅ Confirm 時の TL step-up を平滑化（confirm 直後でも低スコアから漸増）
+- ✅ 24h TTL cliff の二値挙動を排除
+- ✅ Cap ランキングが fresh signal を優先し、stale signal を自動的に追い出す（persistence 整理が不要）
+- ✅ TL 閾値（ADR 未変更）との整合を保ったまま、運用感度を調整可能
+- ⚠️ 全体的な intel contribution は -65% 程度に低下。Phase 2 ベースライン計測（§7.3.1）に影響する可能性があり、TL 閾値を追随調整する必要があるかは再計測で判断
+- ⚠️ 感度優先（CLAUDE.md 基本方針）との緊張: stale item の寄与が急速に 0 に近づくため、「数日前の intel が徐々に残らなくなる」特性になる。fresh intel が複数コンファームされている限り補償される想定だが、長期監視では要注視
+
+**Open Questions**:
+- τ を source_type ごとに分離する場合の推奨値（例: hacktivist は短め、cert_* は長め？）— 運用知見を蓄積してから ADR 追記
+- Raw score と decayed score を UI で並列表示すべきか？（現状は `score_raw` フィールドで露出のみ）
 
 ---
 
@@ -1813,6 +1867,7 @@ Phase N の完了時に、その Phase で実装された **疑似コード・SQ
 | 2026-04-12 | 1.2.0 | 批判的レビュー。ADR-015 リスク注記、TL 再校正計画(7.3.1)、C-medium 見逃し定義(9.3.1)、工数現実化、OQ-5 追加 | `198a0c2` |
 | 2026-04-12 | 1.3.0 | 数理・一貫性修正。formula_trace 数値修正、enabled/state 意味論確定、ADR-021(domain weight 廃止)、ADR-022(global signal 規約 + DOMAIN_CAP) | `a03f628` |
 | 2026-04-12 | 1.3.1 | 文書保守性改善。ルール 8(実装完了→実コード参照に圧縮)、ルール 9(正規定義箇所の一元化)追加。改訂履歴を圧縮、冗長箇所を正規定義への参照に置換(約 30 行削減) | — |
+| 2026-04-20 | 1.6.0 | ADR-023(LLM intel age-decay τ=12h 指数関数減衰)追加。confirm cliff / TTL cliff 解消。TTL 48h に延長、cap は decayed score でランク | — |
 
 ---
 

@@ -20,6 +20,7 @@ Usage (from routes):
 """
 from __future__ import annotations
 import logging
+import math
 import os
 import threading
 import time
@@ -37,8 +38,10 @@ def _confidence_min() -> float:
     return float(os.getenv("LLM_CONFIDENCE_MIN", "0.35"))
 
 def _item_ttl_seconds() -> float:
-    """How long (seconds) a confirmed item contributes to active rationale."""
-    return float(os.getenv("INTEL_ITEM_TTL_HOURS", "24")) * 3600
+    """How long (seconds) a confirmed item contributes to active rationale.
+    Acts as a hard floor; age-decay (ADR-023) usually zeroes contribution
+    well before this TTL is reached."""
+    return float(os.getenv("INTEL_ITEM_TTL_HOURS", "48")) * 3600
 
 def _max_items_per_source_theater() -> int:
     """Max active items per (source_type, theater) in rationale. Prevents score inflation."""
@@ -49,7 +52,64 @@ def _pending_auto_reject_hours() -> float:
     Set to 0 to disable auto-reject."""
     return float(os.getenv("LLM_PENDING_AUTO_REJECT_HOURS", "24"))
 
+def _decay_enabled() -> bool:
+    """Whether to apply age-decay to confirmed intel contributions (ADR-023)."""
+    return os.getenv("INTEL_AGE_DECAY_ENABLED", "true").strip().lower() not in (
+        "false", "0", "no", "off", ""
+    )
+
+def _decay_tau_hours(source_type: str = "") -> float:
+    """Decay time constant τ (hours) for exponential age-decay.
+
+    Per-source override via INTEL_AGE_DECAY_TAU_HOURS_<SOURCE_TYPE_UPPER>;
+    falls back to INTEL_AGE_DECAY_TAU_HOURS (default 12h).
+    Returning 0 or negative disables decay (weight stays 1.0).
+    """
+    if source_type:
+        per_source = os.getenv(
+            f"INTEL_AGE_DECAY_TAU_HOURS_{source_type.upper()}", ""
+        ).strip()
+        if per_source:
+            try:
+                return float(per_source)
+            except ValueError:
+                pass
+    return float(os.getenv("INTEL_AGE_DECAY_TAU_HOURS", "12"))
+
+def _age_weight(age_sec: float, source_type: str = "") -> float:
+    """Exponential age-decay weight applied to LLM intel contributions.
+
+    Fresh intel (age=0) gets full weight 1.0; weight falls to 1/e ≈ 0.37
+    at age=τ, to 0.14 at age=2τ. Binary TTL cut-off is preserved as a hard
+    safety floor (enforced elsewhere by _item_ttl_seconds()).
+
+    Design intent (ADR-023): eliminate the cliff effect where analyst
+    confirmation flipped contribution from 0 to full in one step, and the
+    24h→24h+1s TTL boundary dropped an active item to 0 instantly. Score now
+    reflects both analyst validation AND recency.
+    """
+    if not _decay_enabled():
+        return 1.0
+    tau_hours = _decay_tau_hours(source_type)
+    if tau_hours <= 0:
+        return 1.0
+    age_clamped = max(0.0, float(age_sec))
+    return math.exp(-age_clamped / (tau_hours * 3600.0))
+
 log = logging.getLogger("radar")
+
+# ── Age-decay startup log (ADR-023) ───────────────────────────────────────────
+# Emit once at import so operators can confirm active decay settings without
+# reading env files. Per-source τ overrides are logged lazily on first use.
+if _decay_enabled():
+    log.info(
+        "[IntelAgeDecay] ADR-023 active: tau=%.1fh (w=e^-1 at age=tau, "
+        "w=0.14 at 2*tau). TTL floor: %.1fh",
+        _decay_tau_hours(),
+        float(os.getenv("INTEL_ITEM_TTL_HOURS", "48")),
+    )
+else:
+    log.info("[IntelAgeDecay] DISABLED via INTEL_AGE_DECAY_ENABLED=false — using binary TTL only")
 
 # ── Source credibility bootstrap ──────────────────────────────────────────────
 # Analyst feedback is the only path to adjust credibility upward after creation,
@@ -688,10 +748,16 @@ class IntelQueue:
         """Return rationale entries for all currently confirmed/auto_confirmed items.
         These are injected into the WeightedConvergenceEngine as llm_intel signals.
 
+        Age-decay (ADR-023): each item's contribution is weighted by
+        exp(-age_sec / τ) where τ is per-source configurable (default 12h).
+        This smooths the confirm→full-weight cliff and lets older intel fade
+        naturally rather than dropping at the TTL boundary. TTL is retained as
+        a hard floor (default 48h).
+
         Score accumulation cap: at most INTEL_MAX_ITEMS_PER_SOURCE_THEATER items per
-        (source_type, theater) pair contribute to the score. Items are ranked by
-        score_delta descending so the highest-signal items are always included.
-        This prevents a single noisy sensor from accumulating unbounded score.
+        (source_type, theater) pair contribute. Ranking is by *decayed* score so
+        fresh high-signal items dominate the cap, and stale items exit the cap
+        even if their raw score_delta was high.
         """
         if not LLM_ENABLED:
             return []
@@ -702,39 +768,51 @@ class IntelQueue:
         cap = _max_items_per_source_theater()
         now = time.time()
 
-        # Filter to active items within TTL
+        # Filter to active items within TTL; compute decayed score upfront so
+        # both ranking and Signal payload reuse the same value.
         active = []
         for item in items_ac + items_c:
             if item.get("override_at"):
                 continue
-            if now - item["ts"] > ttl:
+            age_sec = now - item["ts"]
+            if age_sec > ttl:
                 continue
-            active.append(item)
+            weight = _age_weight(age_sec, item.get("source_type", ""))
+            decayed = float(item["score_delta"]) * weight
+            active.append((item, age_sec, weight, decayed))
 
-        # Second pass: apply per-(source_type, theater) cap ranked by score_delta
-        # Group and sort descending; keep top `cap` items per group
+        # Second pass: apply per-(source_type, theater) cap ranked by decayed score.
         from collections import defaultdict
         groups: dict = defaultdict(list)
-        for item in active:
+        for tup in active:
+            item = tup[0]
             key = (item["source_type"], item.get("theater", ""))
-            groups[key].append(item)
+            groups[key].append(tup)
 
         result = []
-        for key, group_items in groups.items():
-            # Sort descending by score_delta; ties broken by confidence
-            group_items.sort(key=lambda x: (x["score_delta"], x["confidence"]), reverse=True)
-            for item in group_items[:cap]:
+        for key, group_tuples in groups.items():
+            # Sort descending by decayed score; ties broken by confidence
+            group_tuples.sort(key=lambda t: (t[3], t[0]["confidence"]), reverse=True)
+            for item, age_sec, weight, decayed in group_tuples[:cap]:
+                age_h = age_sec / 3600.0
+                detail = (
+                    f"[{item['source_type'].upper()}] {item['headline']} "
+                    f"(age {age_h:.1f}h, w={weight:.2f})"
+                )
                 result.append({
                     "sensor":           "llm_intel",
                     "signal_source":    "llm_intel",
-                    "score":            item["score_delta"],
+                    "score":            decayed,
+                    "score_raw":        float(item["score_delta"]),
+                    "age_hours":        age_h,
+                    "age_weight":       weight,
                     "confidence":       item["confidence"],
                     "domain":           item["domain"],
                     "theater":          item.get("theater", ""),
                     "countries":        item.get("countries", []),
                     "country_weights":  item.get("country_weights", {}),
                     "status":           "FIRED",
-                    "detail":           f"[{item['source_type'].upper()}] {item['headline']}",
+                    "detail":           detail,
                     "suppressed":       False,
                     "raw_url":          item.get("raw_url", ""),
                     "llm_reasoning":    item.get("llm_fields", {}).get("gate_reason", ""),
