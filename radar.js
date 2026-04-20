@@ -235,7 +235,7 @@
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-                theater: strat.core_theater,
+                theater: resolveChainTargetCountry(strat),
                 classification: classification,
                 sensors_active: firedSensors,
                 threat_level: strat.threat_level,
@@ -1786,7 +1786,7 @@
         // Scope is now scenario-driven: participants come from the focused
         // scenario's strategic_alert payload, not from DOM toggles.
         const strat = (latestData || {}).strategic_alert || {};
-        const coreVal = strat.core_theater || '';
+        const coreVal = resolveChainTargetCountry(strat);
         const advSet  = new Set(strat.adversary_states || []);
         const partSet = new Set(strat.active_theaters || []);
         if (coreVal) partSet.add(coreVal);
@@ -1846,7 +1846,8 @@
         if (!displayGrid) return;
         const strat = (latestData || {}).strategic_alert || {};
         const active = new Set(strat.active_theaters || []);
-        if (strat.core_theater) active.add(strat.core_theater);
+        const _coreVal = resolveChainTargetCountry(strat);
+        if (_coreVal) active.add(_coreVal);
         displayGrid.innerHTML = '';
         Array.from(active).forEach(code => {
             const t = THEATERS.find(theater => theater.code === code);
@@ -1869,9 +1870,10 @@
         // only needs to carry the focus id. Preserve the shape for legacy callers.
         const strat = (latestData || {}).strategic_alert || {};
         const active = new Set(strat.active_theaters || []);
-        if (strat.core_theater) active.add(strat.core_theater);
+        const _coreVal = resolveChainTargetCountry(strat);
+        if (_coreVal) active.add(_coreVal);
         return {
-            core: strat.core_theater || '',
+            core: _coreVal,
             correlates: [],
             adversaries: [],
             displays: Array.from(active)
@@ -1916,7 +1918,7 @@
         // Under scenario-unit mode the server derives scope from the focused
         // scenario; only focus + muted + force are passed.
         const mutedList = Array.from(mutedSensors).join(',');
-        const coreTheater = ((latestData || {}).strategic_alert || {}).core_theater || '';
+        const coreTheater = resolveChainTargetCountry((latestData || {}).strategic_alert || {});
 
         const syncBtnTop = document.getElementById('btn-sync-top');
         const syncBtnSide = document.getElementById('btn-sync-side');
@@ -2640,7 +2642,7 @@
             recordSignificantEvent(strat.threat_level);
 
             // ── Threat Situation Map (TSM) ──────────────────────────────
-            const coreCode  = strat.core_theater;
+            const coreCode  = resolveChainTargetCountry(strat);
             const coreTgt   = (data.targets || []).find(t => t.code === coreCode);
             const coreCoord = coreTgt ? {lat: coreTgt.lat, lng: coreTgt.lng} : null;
             updateThreatHalo(strat, coreCoord);
@@ -3239,7 +3241,7 @@
         const strat   = latestData.strategic_alert || {};
         const intel   = (strat.country_intel || {})[code] || {};
         const tgtData = (latestData.targets || []).find(t => t.code === code) || {};
-        const coordName = (strat.core_theater === code ? _t('cip.role.core') : _t('cip.role.link'));
+        const coordName = (resolveChainTargetCountry(strat) === code ? _t('cip.role.core') : _t('cip.role.link'));
 
         document.getElementById('country-modal-title').textContent = _t('cip.modal_title', {name: tgtData.info || code, code: code});
 
@@ -3471,7 +3473,7 @@
 
         ${(function() {
             const p8 = strat.analytics || {};
-            const p8Theater = strat.core_theater || '—';
+            const p8Theater = resolveChainTargetCountry(strat) || '—';
             const velRaw = p8.velocity;
             const velColor = velRaw > 0.0005 ? '#ff4444' : velRaw > 0.0001 ? '#ffaa00' : '#00ff88';
             const velTxt  = velRaw !== undefined
@@ -6357,7 +6359,7 @@
         }
 
         // LLM Intel section (confirmed items for this theater)
-        const phaseTheater = strat.core_theater || '';
+        const phaseTheater = resolveChainTargetCountry(strat);
         const activeIntel = _llmItems.filter(i =>
             (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
             (!phaseTheater || i.theater === phaseTheater)
@@ -6512,7 +6514,7 @@
         }},
         { name: 'check_host', lbl: 'CH',  domain: 'cyber',    extract: (_i, _td, code, sa) => {
             const ch = (sa.analytics || {}).check_host || {};
-            if (sa.core_theater !== code) return {level:-1, label:'—', tip:'Core only'};
+            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'Core only'};
             const sr = ch.theater_success_rate;
             return sr != null && sr < 0.5 ? {level:2, label:Math.round(sr*100)+'%', tip:'Reachability '+Math.round(sr*100)+'%'}
                  : sr != null && sr < 0.9 ? {level:1, label:Math.round(sr*100)+'%', tip:'Partial: '+Math.round(sr*100)+'%'}
@@ -6556,14 +6558,14 @@
         }},
         { name: 'isr_hotspot', lbl: 'ISR', domain: 'physical', extract: (_i, _td, code, sa) => {
             const isr = (sa.analytics || {}).isr || {};
-            if (sa.core_theater !== code) return {level:-1, label:'—', tip:'Core only'};
+            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'Core only'};
             return isr.is_surge ? {level:2, label:isr.count, tip:'ISR surge: '+isr.count+' aircraft'}
                  : isr.count > 0 ? {level:0, label:isr.count, tip:isr.count+' aircraft'}
                  : {level:0, label:'0', tip:'No ISR activity'};
         }},
         { name: 'ais_maritime', lbl: 'AIS', domain: 'physical', extract: (_i, _td, code, sa) => {
             const ais = (sa.analytics || {}).ais || {};
-            if (sa.core_theater !== code) return {level:-1, label:'—', tip:'Core only'};
+            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'Core only'};
             return ais.has_anomaly ? {level:2, label:ais.dark_gaps+'gap', tip:'Dark gaps: '+ais.dark_gaps}
                  : {level:0, label:'OK', tip:'Normal'};
         }},
@@ -6584,7 +6586,7 @@
         }},
         { name: 'telegram_mirror', lbl: 'TG', domain: 'info', extract: (_i, _td, code, sa) => {
             const tg = (sa.analytics || {}).telegram_mirror || {};
-            if (sa.core_theater !== code) return {level:-1, label:'—', tip:'Core only'};
+            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'Core only'};
             return tg.has_intent ? {level:2, label:'INTENT', tip:'Telegram intent detected'}
                  : tg.status === 'TARGETS_FOUND' ? {level:1, label:'TGT', tip:'Targets found'}
                  : {level:0, label:tg.status||'—', tip:tg.status||'Pending'};
@@ -6647,8 +6649,9 @@
 
         // Header row: theater codes
         html += `<div class="corr-corner"></div>`;
+        const _coreCode = resolveChainTargetCountry(sa);
         theaters.forEach(t => {
-            const isCore = t === sa.core_theater;
+            const isCore = t === _coreCode;
             html += `<div class="corr-col-label" style="${isCore ? 'color:#00ffff;font-weight:bold;' : ''}">${t}</div>`;
         });
 
