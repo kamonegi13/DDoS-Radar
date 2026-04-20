@@ -816,11 +816,11 @@
         .rat-domain-info     { color: #cc66ff; }
         .rat-score-pos { color: var(--color-critical); font-weight: bold; }
         .rat-score-zero { color: #444; }
-        /* Confidence badge in evidence table */
-        .conf-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: bold; }
-        .conf-high { color: #66ffaa; background: rgba(102,255,170,0.1); }
-        .conf-mid  { color: #ffaa00; background: rgba(255,170,0,0.1); }
-        .conf-low  { color: #ff4444; background: rgba(255,68,68,0.1); }
+        /* Confidence badge in evidence table (scoped to .ev- to avoid clash with LLM Intel .conf-badge) */
+        .ev-conf-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: bold; }
+        .ev-conf-high { color: #66ffaa; background: rgba(102,255,170,0.1); }
+        .ev-conf-mid  { color: #ffaa00; background: rgba(255,170,0,0.1); }
+        .ev-conf-low  { color: #ff4444; background: rgba(255,68,68,0.1); }
         /* TL Proximity indicator in HUD (hud-item style) */
         .tl-prox-up   { color: #ff4444; }
         .tl-prox-down { color: #66ffaa; }
@@ -875,6 +875,11 @@
         .chain-dot-SYNC_DDOS       { background: #00ffff; }
         .chain-dot-FIRMS_ANOMALY   { background: #ff4444; }
         .chain-dot-AIS_DARK_GAP    { background: #44aaff; }
+        /* v9 events */
+        .chain-dot-TELEGRAM_INTENT { background: #ff66cc; }
+        .chain-dot-MASKIROVKA      { background: #ff8800; }
+        .chain-dot-C2_SYNC         { background: #ffffff; border: 1px solid #888; box-sizing: border-box; }
+        .chain-dot-INFRA_BLACKOUT  { background: #ff2200; }
         .chain-line { flex: 0 0 1px; background: #333; width: 1px; min-height: 20px; margin: 4px auto; }
         .chain-text { flex: 1; }
         .chain-type { font-weight: bold; color: #ddd; font-size: 10px; }

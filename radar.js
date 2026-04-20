@@ -1123,7 +1123,8 @@
                     const color  = EVENT_COLORS[ev.type] || '#888';
                     const label  = EVENT_LABELS[ev.type] || ev.type;
                     const dt     = new Date(ev.ts * 1000);
-                    const timeStr = dt.toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'});
+                    const _lang  = (localStorage.getItem('ddos_radar_lang') || 'en') === 'ja' ? 'ja-JP' : 'en-US';
+                    const timeStr = dt.toLocaleTimeString(_lang, {hour:'2-digit', minute:'2-digit'});
                     html += `<div class="chain-event">
                         <div style="display:flex;flex-direction:column;align-items:center;">
                             <div class="chain-dot chain-dot-${ev.type}" style="background:${color};"></div>
@@ -3490,7 +3491,7 @@
                 `<div class="convergence-item"><span class="rat-domain-${d}">${d.toUpperCase()}</span>: <span class="conv-val">${info.score}pt</span> × ${info.weight} = <b style="color:#fff">${info.weighted}</b></div>`
             ).join('');
             if (strat.convergence_score !== undefined) {
-                convHtml += `<div class="convergence-item" style="margin-left:8px; border-left:2px solid #555; padding-left:8px;">Convergence Score: <span class="conv-val">${strat.convergence_score}</span></div>`;
+                convHtml += `<div class="convergence-item" style="margin-left:8px; border-left:2px solid #555; padding-left:8px;">${_t('evidence.convergence_score')}: <span class="conv-val">${strat.convergence_score}</span></div>`;
             }
             // CAC: Context Alignment display
             const ca = (strat.analytics || {}).context_alignment;
@@ -3503,7 +3504,7 @@
                     for (const [axis, info] of Object.entries(ca.axes)) {
                         const dot = info.aligned ? '●' : '○';
                         const axisColor = info.aligned ? '#00ffff' : '#444';
-                        convHtml += `<span style="color:${axisColor}; margin-right:8px;" title="${info.detail}">${dot} ${_t('cac.axis.' + axis)}</span>`;
+                        convHtml += `<span style="color:${axisColor}; margin-right:8px; cursor:help;" data-tooltip="${_escAttr(info.detail || '')}">${dot} ${_t('cac.axis.' + axis)}</span>`;
                     }
                     convHtml += `</div>`;
                 }
@@ -3516,7 +3517,7 @@
                 const dirColors = { 'ADVERSARY_OFFENSIVE': '#ff2a2a', 'FRIENDLY_DEFENSIVE': '#00cc66', 'TARGET_IMPACT': '#ffaa00', 'UNKNOWN': '#555' };
                 convHtml += `<div class="convergence-item" style="margin-left:8px; border-left:2px solid #555; padding-left:8px;">`;
                 convHtml += `<span style="color:${dirColors[ds.dominant_direction]}">${_t('evidence.direction')}: ${dirLabels[ds.dominant_direction]} (${(ds.direction_clarity * 100).toFixed(0)}%)</span>`;
-                convHtml += ` <span style="color:#666; font-size:10px;">ADV:${ds.adversary_offensive} FRD:${ds.friendly_defensive} TGT:${ds.target_impact}</span>`;
+                convHtml += ` <span style="color:#666; font-size:10px;">${_t('evidence.dir_counter_label', {adv: ds.adversary_offensive, frd: ds.friendly_defensive, tgt: ds.target_impact})}</span>`;
                 convHtml += `</div>`;
             }
             convEl.innerHTML = convHtml;
@@ -3529,7 +3530,7 @@
 
         const nf = strat.noise_filters_applied;
         document.getElementById('evidence-noise-filters').textContent =
-            (nf && nf.length > 0) ? nf.join(', ') : 'None';
+            (nf && nf.length > 0) ? nf.join(', ') : _t('evidence.none');
 
         const tbody = document.getElementById('evidence-tbody');
         if (strat.rationale_matrix && strat.rationale_matrix.length > 0) {
@@ -3547,10 +3548,10 @@
                 const muteBtnStyle = isMuted ? 'color:#ffaa00; border-color:#ffaa00;' : 'color:#555; border-color:#555;';
                 const muteBtn = `<button onclick="toggleMute('${esc(e.sensor)}')" style="background:transparent; border:1px solid; border-radius:3px; font-size:9px; cursor:pointer; margin-left:8px; transition:0.2s; ${muteBtnStyle}">${muteBtnTxt}</button>`;
 
-                // Confidence badge: color-coded by level
+                // Confidence badge: color-coded by level (Evidence-scoped classes to avoid cascade clash)
                 const conf = e.confidence != null ? e.confidence : 1.0;
-                const confClass = conf >= 0.8 ? 'conf-high' : conf >= 0.5 ? 'conf-mid' : 'conf-low';
-                const confHtml = `<span class="conf-badge ${confClass}">${(conf * 100).toFixed(0)}%</span>`;
+                const confClass = conf >= 0.8 ? 'ev-conf-high' : conf >= 0.5 ? 'ev-conf-mid' : 'ev-conf-low';
+                const confHtml = `<span class="ev-conf-badge ${confClass}">${(conf * 100).toFixed(0)}%</span>`;
 
                 // CAC: Direction badge
                 const dirBadgeColors = { 'ADVERSARY_OFFENSIVE': '#ff2a2a', 'FRIENDLY_DEFENSIVE': '#00cc66', 'TARGET_IMPACT': '#ffaa00', 'UNKNOWN': '#333' };
@@ -3559,12 +3560,12 @@
                 const dirConf = e.direction_confidence != null ? e.direction_confidence : 0;
                 const dirColor = dirBadgeColors[dir] || '#333';
                 const dirHtml = dir !== 'UNKNOWN'
-                    ? `<span class="dir-badge" style="color:${dirColor}; border-color:${dirColor};" title="${dir} (${(dirConf*100).toFixed(0)}%)">${dirBadgeShort[dir]}</span>`
+                    ? `<span class="dir-badge" style="color:${dirColor}; border-color:${dirColor};" data-tooltip="${_escAttr(dir)} (${(dirConf*100).toFixed(0)}%)">${dirBadgeShort[dir]}</span>`
                     : '<span class="dir-badge" style="color:#333;">—</span>';
 
                 // CAC: Noise classification button (only for FIRED entries)
                 const classifyBtn = (e.status === 'FIRED' && !e.suppressed)
-                    ? `<button onclick="openNoiseClassify('${esc(e.sensor)}','${esc(e.value)}','${esc(e.domain)}')" class="btn-classify" title="${_t('evidence.btn.classify_tip')}">📋</button>`
+                    ? `<button onclick="openNoiseClassify('${esc(e.sensor)}','${esc(e.value)}','${esc(e.domain)}')" class="btn-classify" data-tooltip="${_escAttr(_t('evidence.btn.classify_tip'))}">📋</button>`
                     : '';
 
                 return `<tr>
@@ -3598,15 +3599,15 @@
                     const pct = (eff / totalWithBonus) * 100;
                     if (pct < 1) continue;
                     const color = domainColors[e.domain] || '#888';
-                    wfHtml += `<div class="wf-segment" style="width:${pct.toFixed(1)}%;background:${color};" title="${_escAttr(e.sensor)}: ${eff.toFixed(1)}pt (${pct.toFixed(0)}%) [${_escAttr(e.domain)}]"></div>`;
+                    wfHtml += `<div class="wf-segment" style="width:${pct.toFixed(1)}%;background:${color}; cursor:help;" data-tooltip="${_escAttr(e.sensor)}: ${eff.toFixed(1)}pt (${pct.toFixed(0)}%) [${_escAttr(e.domain)}]"></div>`;
                 }
                 if (bonus > 0) {
                     const bPct = (bonus / totalWithBonus) * 100;
-                    wfHtml += `<div class="wf-segment wf-bonus" style="width:${bPct.toFixed(1)}%;" title="${_t('evidence.wf_bonus')}: +${bonus}pt (${bPct.toFixed(0)}%)"></div>`;
+                    wfHtml += `<div class="wf-segment wf-bonus" style="width:${bPct.toFixed(1)}%; cursor:help;" data-tooltip="${_escAttr(_t('evidence.wf_bonus'))}: +${bonus}pt (${bPct.toFixed(0)}%)"></div>`;
                 }
                 wfHtml += '</div>';
-                wfHtml += `<div class="wf-legend"><span class="wf-leg-item" style="color:var(--color-accent,#00ffff);">● CYBER</span><span class="wf-leg-item" style="color:var(--color-warning,#ffaa00);">● PHYS</span><span class="wf-leg-item" style="color:#cc66ff;">● INFO</span>`;
-                if (bonus > 0) wfHtml += `<span class="wf-leg-item" style="color:#44ff88;">● BONUS</span>`;
+                wfHtml += `<div class="wf-legend"><span class="wf-leg-item" style="color:var(--color-accent,#00ffff);">● ${_t('evidence.wf_legend.cyber')}</span><span class="wf-leg-item" style="color:var(--color-warning,#ffaa00);">● ${_t('evidence.wf_legend.phys')}</span><span class="wf-leg-item" style="color:#cc66ff;">● ${_t('evidence.wf_legend.info')}</span>`;
+                if (bonus > 0) wfHtml += `<span class="wf-leg-item" style="color:#44ff88;">● ${_t('evidence.wf_legend.bonus')}</span>`;
                 wfHtml += `</div>`;
                 wfEl.innerHTML = wfHtml;
                 wfEl.style.display = 'block';
@@ -3654,7 +3655,7 @@
             if (counters.length > 0) {
                 csHtml += `<div class="cs-section"><div class="cs-header cs-ok">${_t('evidence.counter_signals')} (${counters.length})</div>`;
                 csHtml += counters.map(e =>
-                    `<span class="cs-chip cs-chip-ok" title="${_escAttr(e.sensor)}: ${_escAttr(e.value || 'OK')}"><span class="rat-domain-${_escAttr(e.domain || '?')}">${(e.domain || '?')[0].toUpperCase()}</span> ${_escHtml(e.sensor)}</span>`
+                    `<span class="cs-chip cs-chip-ok" data-tooltip="${_escAttr(e.sensor)}: ${_escAttr(e.value || 'OK')}"><span class="rat-domain-${_escAttr(e.domain || '?')}">${(e.domain || '?')[0].toUpperCase()}</span> ${_escHtml(e.sensor)}</span>`
                 ).join('');
                 csHtml += '</div>';
             }
@@ -3663,7 +3664,7 @@
                 csHtml += gaps.map(g => {
                     const age = g.last_fetch_ts ? _formatAge(g.last_fetch_ts) : _t('evidence.gap_never');
                     const icon = g.health_status === 'CIRCUIT_OPEN' ? '⏸' : g.health_status === 'DISABLED' ? '○' : '✕';
-                    return `<span class="cs-chip cs-chip-gap" title="${_escAttr(g.sensor)}: ${_escAttr(g.health_status)} — ${_t('evidence.gap_last_data')}: ${_escAttr(age)}">${icon} <span class="rat-domain-${_escAttr(g.domain || '?')}">${(g.domain || '?')[0].toUpperCase()}</span> ${_escHtml(g.sensor)}</span>`;
+                    return `<span class="cs-chip cs-chip-gap" data-tooltip="${_escAttr(g.sensor)}: ${_escAttr(g.health_status)} — ${_escAttr(_t('evidence.gap_last_data'))}: ${_escAttr(age)}">${icon} <span class="rat-domain-${_escAttr(g.domain || '?')}">${(g.domain || '?')[0].toUpperCase()}</span> ${_escHtml(g.sensor)}</span>`;
                 }).join('');
                 csHtml += '</div>';
             }
