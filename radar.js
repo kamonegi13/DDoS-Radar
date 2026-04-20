@@ -117,6 +117,28 @@
     try { mutedSensors = new Set(JSON.parse(localStorage.getItem('mutedSensors') || '[]')); }
     catch (e) { console.warn('[MUTE] localStorage parse error — reset to empty:', e); mutedSensors = new Set(); }
 
+    // Resolve the "target country" for CHAIN fetch / LLM intel filter.
+    // Prefer scenario participants[role=primary_target], fall back to the legacy
+    // strat.core_theater field while backend deprecation (sunset 2026-10-01) is in flight.
+    function resolveChainTargetCountry(strat) {
+        if (!strat) return '';
+        const parts = strat.participants;
+        if (parts && typeof parts === 'object') {
+            let primary = '';
+            let bestWeight = -1;
+            for (const [code, p] of Object.entries(parts)) {
+                if (!p || typeof p !== 'object') continue;
+                if (p.role === 'primary_target') return String(code).toUpperCase();
+                if (p.role && p.role !== 'adversary' && (p.weight || 0) > bestWeight) {
+                    primary = String(code).toUpperCase();
+                    bestWeight = p.weight || 0;
+                }
+            }
+            if (primary) return primary;
+        }
+        return (strat.core_theater || '').toUpperCase();
+    }
+
     // Evidence Rationale Matrix: collapsed domain groups (persisted)
     let _evCollapsedDomains;
     try { _evCollapsedDomains = new Set(JSON.parse(localStorage.getItem('evCollapsedDomains') || '[]')); }
@@ -1108,7 +1130,7 @@
         // ev-llm-intel (chain panel — LLM confirmed intel count for this theater)
         const llmIntelEl = document.getElementById('ev-llm-intel');
         if (llmIntelEl) {
-            const curTheater = strat.core_theater || '';
+            const curTheater = resolveChainTargetCountry(strat);
             const active = _llmItems.filter(i =>
                 (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
                 (!curTheater || i.theater === curTheater)
@@ -1130,7 +1152,7 @@
         }
 
         // Async: fetch sequence event list and render
-        const theater = strat.core_theater || '';
+        const theater = resolveChainTargetCountry(strat);
         if (!theater) return;
         fetch(`/api/sequence_chain?theater=${encodeURIComponent(theater)}`)
             .then(r => r.json())
