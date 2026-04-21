@@ -13,7 +13,7 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 1.5.1 |
+| **現バージョン** | 1.6.5 |
 | **作成日** | 2026-04-11 |
 | **最終更新** | 2026-04-21 |
 | **現在のフェーズ** | **Phase 5 実装完了（TL 閾値再校正と ADR-015 dual-weight 評価は運用データ蓄積待ち）** |
@@ -1874,6 +1874,7 @@ Phase N の完了時に、その Phase で実装された **疑似コード・SQ
 | 2026-04-21 | 1.6.2 | フロント側の `core_theater` 直参照 全 15 箇所(minimap / quick toggles / config / WS resub / TSM / CIP / SITREP / LLM intel / heatmap × 4 / corr-matrix / classify submit)を `resolveChainTargetCountry(strat)` 経由に統一移行。ADR-005 deprecation のフロント単独移行は完了、残るは API Sunset (2026-10-01) でヘルパー内フォールバック除去のみ | TBD |
 | 2026-04-21 | 1.6.3 | P1/P2 observability 実装: `/api/analytics/cmedium_recommendation` / `tl_recalibration_advisory` / `dual_weight_evaluation` 追加、session overlay (X-Scenario-Overlay)、SHOW_BACKGROUND_TL、scheduler が active focus を参照、FOCUSED_ONLY 全 12 センサーに SensorTier 宣言。UI: HUD/シナリオ詳細パネルをオーバーレイ化し地図の下方シフトを解消、外クリックで自動クローズ。rss_narrative: flat-zero baseline での第一信号消失を修正(NARRATIVE_ZSCORE_FIRST_SIGNAL) | `018f099`, `8396c76`, `566103c`, `8e5bf36` |
 | 2026-04-21 | 1.6.4 | geo_data.json に NARRATIVE_GEO_TERMS 7 シナリオ参加国を追加 (AU, GU, IQ, MY, RO, SK, VN)。これらの国は TACTICAL_KEYWORDS は定義済みだが geo 辞書が空で、rss_narrative が起動毎に警告を出しクロスシアター誤帰属を起こしていた。scenario participant 全員の地理語彙を完備し、rss_narrative の信号が scenario scoring へ正しく寄与できるようにした | `efd47f2` |
+| 2026-04-21 | 1.6.5 | (1) CTLog self-healing: 10s タイムアウトを 3s に短縮、3 サイクル連続失敗で degraded モード(fetch 間隔 4h に延長、1 パターンのみプローブ、ログ DEBUG 降格)に自動遷移、一度でも成功すれば復帰。`upstream_health()` API を `/api/data_status` で公開。crt.sh の 502/timeout 嵐で毎サイクル WARNING が溢れる問題を解消。(2) Layer 3 session overlay UI 実装(ADR-003 完全実装): シナリオ詳細パネルに participant weight スライダー群、Apply/Reset ボタン、ACTIVE バッジ、analyst/admin ロールゲート、sessionStorage による非永続保存、`X-Scenario-Overlay` ヘッダ送信。バックエンドでは overlay 適用後の `focused_scenario_obj` をスコアリングループに渡す修正も含む(以前は apply されていたが scoring に反映されない既存バグ)。/api/threat_data レスポンスに `participants.weight` と `base_weight` を追加 | TBD |
 
 ---
 
