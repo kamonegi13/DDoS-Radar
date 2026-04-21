@@ -15,7 +15,7 @@
 |------|-----|
 | **現バージョン** | 1.5.1 |
 | **作成日** | 2026-04-11 |
-| **最終更新** | 2026-04-20 |
+| **最終更新** | 2026-04-21 |
 | **現在のフェーズ** | **Phase 5 実装完了（TL 閾値再校正と ADR-015 dual-weight 評価は運用データ蓄積待ち）** |
 | **採用方針** | **C-lite** で開始、運用知見をもとに **C-medium** へ進化 |
 | **責任者** | kamonegi13(@juzo1192) |
@@ -1872,6 +1872,7 @@ Phase N の完了時に、その Phase で実装された **疑似コード・SQ
 | 2026-04-20 | 1.6.0 | ADR-023(LLM intel age-decay τ=12h 指数関数減衰)追加。confirm cliff / TTL cliff 解消。TTL 48h に延長、cap は decayed score でランク | — |
 | 2026-04-21 | 1.6.1 | EVIDENCE/CHAIN UI 改善 (Phase A/B/C-1)。CHAIN パネルを `resolveChainTargetCountry(strat)` 経由に切替、ADR-005 で deprecated 指定された `core_theater` への直接依存を除去。フロント単独の小変更で、API は引き続き両フィールドを送出(Sunset 2026-10-01)。`test_ui_integrity.py` 追加で i18n キー欠落を CI で検知 | `ef77580`, `4cc5a9e`, `49e9490` |
 | 2026-04-21 | 1.6.2 | フロント側の `core_theater` 直参照 全 15 箇所(minimap / quick toggles / config / WS resub / TSM / CIP / SITREP / LLM intel / heatmap × 4 / corr-matrix / classify submit)を `resolveChainTargetCountry(strat)` 経由に統一移行。ADR-005 deprecation のフロント単独移行は完了、残るは API Sunset (2026-10-01) でヘルパー内フォールバック除去のみ | TBD |
+| 2026-04-21 | 1.6.3 | P1/P2 observability 実装: `/api/analytics/cmedium_recommendation` / `tl_recalibration_advisory` / `dual_weight_evaluation` 追加、session overlay (X-Scenario-Overlay)、SHOW_BACKGROUND_TL、scheduler が active focus を参照、FOCUSED_ONLY 全 12 センサーに SensorTier 宣言。UI: HUD/シナリオ詳細パネルをオーバーレイ化し地図の下方シフトを解消、外クリックで自動クローズ。rss_narrative: flat-zero baseline での第一信号消失を修正(NARRATIVE_ZSCORE_FIRST_SIGNAL) | `018f099`, `8396c76`, `566103c`, `8e5bf36` |
 
 ---
 
