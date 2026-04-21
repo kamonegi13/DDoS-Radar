@@ -6,6 +6,10 @@ from flask import jsonify, request
 from radar.config import (
     ADAPTIVE_ZSCORE_ENABLED, ADAPTIVE_ZSCORE_MIN_SAMPLES,
     HISTORICAL_EVENTS, SEQUENCE_WINDOW,
+    C_MEDIUM_WINDOW_DAYS, C_MEDIUM_MISS_THRESHOLD,
+    C_MEDIUM_DELTA_MISS, C_MEDIUM_MIN_SWITCHES,
+    TL_RECALIBRATION_MIN_OBS, TL_RECALIBRATION_SKEW_THRESHOLD_PCT,
+    SHOW_BACKGROUND_TL,
 )
 from radar import state as st
 from radar.state import _global_cache_lock, ALERT_TIMELINE_MAX
@@ -997,6 +1001,130 @@ def api_clite_evaluation():
     return jsonify(_db.focus_switch_detailed(days=days))
 
 
+@bp.route("/api/analytics/cmedium_recommendation", methods=["GET"])
+def api_cmedium_recommendation():
+    """Per-scenario C-medium migration recommendation (scenario-refactor §9.3.1).
+
+    Honors C_MEDIUM_* config knobs:
+      - WINDOW_DAYS: observation window
+      - DELTA_MISS: |full_score - lite_score| above which a switch counts as a miss
+      - MISS_THRESHOLD: miss_rate above which CONSIDER_C_MEDIUM fires
+      - MIN_SWITCHES: minimum switch count before any recommendation is meaningful
+    """
+    from radar.scenarios import scenario_store
+    days = _safe_int(
+        request.args.get("days", str(C_MEDIUM_WINDOW_DAYS)),
+        C_MEDIUM_WINDOW_DAYS, min_val=1, max_val=365,
+    )
+    lang = request.args.get("lang")
+    detailed = _db.focus_switch_detailed(days=days)
+    by_sid = detailed.get("by_scenario", {})
+
+    per_scenario = []
+    for sc in scenario_store.scorable():
+        stats = by_sid.get(sc.id, {})
+        switches = stats.get("switches", 0)
+        misses = stats.get("misses", 0)
+        max_delta = stats.get("max_delta", 0.0)
+        avg_delta = stats.get("avg_delta", 0.0)
+        miss_rate = round(misses / switches, 3) if switches else 0.0
+
+        if switches < C_MEDIUM_MIN_SWITCHES:
+            status = "INSUFFICIENT_DATA"
+            reason = (f"only {switches} focus switches in last {days}d "
+                      f"(need >= {C_MEDIUM_MIN_SWITCHES})")
+        elif miss_rate > C_MEDIUM_MISS_THRESHOLD:
+            status = "CONSIDER_C_MEDIUM"
+            reason = (f"miss_rate {miss_rate:.1%} exceeds threshold "
+                      f"{C_MEDIUM_MISS_THRESHOLD:.1%} "
+                      f"(|delta| > {C_MEDIUM_DELTA_MISS} on "
+                      f"{misses}/{switches} switches)")
+        else:
+            status = "LITE_SUFFICIENT"
+            reason = (f"miss_rate {miss_rate:.1%} within threshold "
+                      f"{C_MEDIUM_MISS_THRESHOLD:.1%}")
+
+        per_scenario.append({
+            "scenario_id": sc.id,
+            "label": _scenario_label(sc, lang),
+            "switches": switches,
+            "misses": misses,
+            "miss_rate": miss_rate,
+            "avg_delta": avg_delta,
+            "max_delta": max_delta,
+            "status": status,
+            "reason": reason,
+        })
+
+    return jsonify({
+        "period_days": days,
+        "config": {
+            "delta_miss": C_MEDIUM_DELTA_MISS,
+            "miss_threshold": C_MEDIUM_MISS_THRESHOLD,
+            "min_switches": C_MEDIUM_MIN_SWITCHES,
+        },
+        "scenarios": per_scenario,
+    })
+
+
+@bp.route("/api/analytics/tl_recalibration_advisory", methods=["GET"])
+def api_tl_recalibration_advisory():
+    """TL threshold recalibration trigger advisory (scenario-refactor §7.3.1).
+
+    For each scorable scenario, examines the recent TL distribution and
+    flags any scenario whose observations cluster in <=2 buckets (TL skew),
+    indicating thresholds are over- or under-tuned. Operators use this to
+    decide when to recompute TL bands per scenario.
+    """
+    from radar.scenarios import scenario_store
+    hours = _safe_int(request.args.get("hours", "168"), 168, min_val=1, max_val=720)
+    lang = request.args.get("lang")
+    advisories = []
+    for sc in scenario_store.scorable():
+        stats = _db.tl_calibration_stats(scenario_id=sc.id, hours=hours)
+        dist = stats.get("distribution") or {}
+        total = sum(dist.values()) if dist else 0
+        if total < TL_RECALIBRATION_MIN_OBS:
+            advisories.append({
+                "scenario_id": sc.id,
+                "label": _scenario_label(sc, lang),
+                "status": "INSUFFICIENT_DATA",
+                "observations": total,
+                "min_required": TL_RECALIBRATION_MIN_OBS,
+                "distribution": dist,
+            })
+            continue
+        # Find the dominant TL bucket and its share
+        max_bucket, max_count = max(dist.items(), key=lambda kv: kv[1])
+        skew_pct = round(max_count * 100.0 / total, 1)
+        if skew_pct >= TL_RECALIBRATION_SKEW_THRESHOLD_PCT:
+            status = "RECALIBRATION_DUE"
+            reason = (f"{skew_pct:.1f}% of {total} observations in TL"
+                      f"{max_bucket} (>= {TL_RECALIBRATION_SKEW_THRESHOLD_PCT:.0f}% threshold)")
+        else:
+            status = "BALANCED"
+            reason = (f"max bucket TL{max_bucket} holds {skew_pct:.1f}% of "
+                      f"{total} observations")
+        advisories.append({
+            "scenario_id": sc.id,
+            "label": _scenario_label(sc, lang),
+            "status": status,
+            "observations": total,
+            "dominant_tl": max_bucket,
+            "dominant_pct": skew_pct,
+            "distribution": dist,
+            "reason": reason,
+        })
+    return jsonify({
+        "hours": hours,
+        "config": {
+            "min_observations": TL_RECALIBRATION_MIN_OBS,
+            "skew_threshold_pct": TL_RECALIBRATION_SKEW_THRESHOLD_PCT,
+        },
+        "scenarios": advisories,
+    })
+
+
 @bp.route("/api/scenario/<scenario_id>/timeseries", methods=["GET"])
 def api_scenario_timeseries(scenario_id):
     """Return TL observation timeseries for a scenario (ADR-010)."""
@@ -1037,6 +1165,17 @@ def api_tl_calibration():
         scenario_id=scenario_id, hours=hours))
 
 
+def _scenario_label(sc, lang: str | None = None) -> str:
+    """Return the localized display label for a scenario.
+
+    Scenario dataclass holds name_en/name_ja directly; default to English
+    when no language preference is supplied.
+    """
+    if lang == "ja":
+        return sc.name_ja or sc.name_en or sc.id
+    return sc.name_en or sc.name_ja or sc.id
+
+
 @bp.route("/api/analytics/scenarios/compare", methods=["GET"])
 def api_scenario_compare():
     """Side-by-side scenario comparison: latest TL, score trend, and domain
@@ -1044,6 +1183,7 @@ def api_scenario_compare():
     situational awareness dashboards."""
     from radar.scenarios import scenario_store
     hours = _safe_int(request.args.get("hours", "24"), 24, min_val=1, max_val=720)
+    lang = request.args.get("lang")
     results = []
     for sc in scenario_store.scorable():
         series = _db.scenario_tl_timeseries(sc.id, hours=hours, limit=100)
@@ -1051,7 +1191,7 @@ def api_scenario_compare():
         latest = series[-1] if series else {}
         results.append({
             "scenario_id": sc.id,
-            "label": sc.label,
+            "label": _scenario_label(sc, lang),
             "core_country": sc.core_country,
             "state": sc.state,
             "enabled": sc.enabled,
@@ -1083,6 +1223,71 @@ def api_source_credibility():
         src["ecosystem"] = classify_ecosystem(src["source_id"])
         src["is_state_media"] = src["ecosystem"].endswith("_state")
     return jsonify({"sources": sources})
+
+
+@bp.route("/api/analytics/dual_weight_evaluation", methods=["GET"])
+def api_dual_weight_evaluation():
+    """Dual-weight observability (ADR-015): compare LLM-emitted country_weights
+    against static scenario participant weights.
+
+    For each scenario participant, reports:
+      - participant_weight: the static weight from geo_data.json
+      - llm_mean: average country_weight across active intel items in window
+      - ratio: llm_mean / participant_weight (>1.2 or <0.8 = drift signal)
+      - samples: number of LLM items informing the mean
+      - status: ALIGNED / LLM_HIGHER / LLM_LOWER / INSUFFICIENT_DATA
+
+    Operators use this to decide whether static participant weights need
+    re-tuning or whether the LLM prompts are drifting.
+    """
+    from radar.scenarios import scenario_store, Role
+    hours = _safe_int(request.args.get("hours", "168"), 168, min_val=1, max_val=720)
+    lang = request.args.get("lang")
+    llm_agg = _db.intel_country_weight_aggregate(hours=hours)
+    min_samples = 3
+
+    results = []
+    for sc in scenario_store.scorable():
+        participants_out = []
+        for cc, p in sc.participants.items():
+            if p.role == Role.ADVERSARY:
+                continue
+            agg = llm_agg.get(cc.upper(), {})
+            samples = agg.get("samples", 0)
+            llm_mean = agg.get("mean", 0.0)
+            if samples < min_samples or p.weight <= 0:
+                status = "INSUFFICIENT_DATA"
+                ratio = None
+            else:
+                ratio = round(llm_mean / p.weight, 2)
+                if ratio >= 1.2:
+                    status = "LLM_HIGHER"
+                elif ratio <= 0.8:
+                    status = "LLM_LOWER"
+                else:
+                    status = "ALIGNED"
+            participants_out.append({
+                "country": cc,
+                "role": p.role.value,
+                "participant_weight": p.weight,
+                "llm_mean": llm_mean,
+                "llm_min": agg.get("min", 0.0),
+                "llm_max": agg.get("max", 0.0),
+                "samples": samples,
+                "ratio": ratio,
+                "status": status,
+            })
+        results.append({
+            "scenario_id": sc.id,
+            "label": _scenario_label(sc, lang),
+            "participants": participants_out,
+        })
+
+    return jsonify({
+        "hours": hours,
+        "config": {"min_samples": min_samples},
+        "scenarios": results,
+    })
 
 
 @bp.route("/api/analytics/calibration_advisory", methods=["GET"])
@@ -1181,8 +1386,9 @@ def api_scenario_phases():
     """
     from radar.scenarios import scenario_store
     history_start = _db.scenario_history_start()
+    lang = request.args.get("lang")
     results = []
-    for sc in scenario_store.all():
+    for sc in scenario_store.all().values():
         obs_count = len(_db.scenario_tl_timeseries(sc.id, hours=720, limit=500))
         latest_tl = _db.scenario_tl_last(sc.id)
 
@@ -1196,11 +1402,11 @@ def api_scenario_phases():
 
         results.append({
             "scenario_id": sc.id,
-            "label": sc.label,
+            "label": _scenario_label(sc, lang),
             "state": sc.state,
             "enabled": sc.enabled,
             "is_scorable": sc.is_scorable,
-            "tier": sc.tier.value if sc.tier else None,
+            "tier": sc.tier,
             "phase": phase,
             "observation_count": obs_count,
             "latest_tl": latest_tl,

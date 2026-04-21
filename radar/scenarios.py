@@ -52,6 +52,18 @@ class SensorTier(Enum):
     BACKGROUND_ELIGIBLE = "background_eligible"
 
 
+# Single source of truth for the FOCUSED_ONLY sensor names (ADR-002, §6).
+# Per-country sensors that target the focused scenario's participants only.
+# Keep this in sync with `tier = SensorTier.FOCUSED_ONLY` declarations on
+# each sensor class; a startup assertion in radar/__init__.py verifies
+# that no sensor has a different tier than what this set implies.
+FOCUSED_ONLY_SENSOR_NAMES: frozenset[str] = frozenset({
+    "cloudflare_radar", "ioda_bgp", "ripe_bgp", "openweather",
+    "check_host", "opensky", "notam", "ripe_atlas",
+    "ais_maritime", "isr_hotspot", "nasa_firms", "mil_support_air",
+})
+
+
 @dataclass
 class Participant:
     country: str
@@ -103,6 +115,59 @@ class Scenario:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
+
+
+# ── Layer 3 session override (ADR-003, ADR-011) ─────────────────────────────
+
+def apply_session_overlay(
+    scenario: "Scenario",
+    weight_overrides: dict[str, float],
+) -> "Scenario":
+    """Apply a stateless Layer 3 weight overlay to a scenario.
+
+    Returns a new Scenario with participant weights replaced per
+    `weight_overrides`. Override values outside [0.0, 1.0] are silently
+    clamped (per ADR-011 edge-case table: in-memory overrides with
+    out-of-range values are rejected from scoring).  Unknown countries
+    in the overlay are ignored.
+
+    The source scenario is not mutated.
+    """
+    if not weight_overrides:
+        return scenario
+    new_parts: dict[str, Participant] = {}
+    for cc, p in scenario.participants.items():
+        ov = weight_overrides.get(cc.upper())
+        if ov is None:
+            new_parts[cc] = p
+            continue
+        try:
+            ov_val = float(ov)
+        except (TypeError, ValueError):
+            new_parts[cc] = p
+            continue
+        if not (0.0 <= ov_val <= 1.0):
+            # Out of range → keep original per ADR-011 reject rule.
+            new_parts[cc] = p
+            continue
+        new_parts[cc] = Participant(
+            country=p.country, weight=ov_val, role=p.role)
+    # dataclasses.replace-style clone without importing dataclasses.replace
+    return Scenario(
+        id=scenario.id,
+        name_en=scenario.name_en,
+        name_ja=scenario.name_ja,
+        description_en=scenario.description_en,
+        description_ja=scenario.description_ja,
+        core_country=scenario.core_country,
+        state=scenario.state,
+        enabled=scenario.enabled,
+        tier=scenario.tier,
+        participants=new_parts,
+        created_at=scenario.created_at,
+        updated_at=scenario.updated_at,
+        updated_by=scenario.updated_by,
+    )
 
 
 # ── Validation ──────────────────────────────────────────────────────────────

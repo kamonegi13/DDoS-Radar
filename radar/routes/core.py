@@ -13,7 +13,7 @@ from radar.config import (  # noqa: E501
     CURRENT_DATE_RANGE, DEFAULT_FOCUSED_SCENARIO, DOMAIN_CAP,
     GDELT_HISTORY_WINDOW, GDELT_TONE_ALERT_THRESHOLD, GLOBAL_SIGNAL_WEIGHT,
     HOD_BASELINE_DAYS, HOD_MIN_SAME_HOUR, ISR_HOTSPOTS, OWM_API_KEY,
-    SCORE_REFRESH_SEC, STATE_ASNS, STRATEGIC_BLOCS,
+    SCORE_REFRESH_SEC, SHOW_BACKGROUND_TL, STATE_ASNS, STRATEGIC_BLOCS,
 )
 from radar.models import RationaleEntry
 from radar import state as st
@@ -42,6 +42,7 @@ from radar.engine import WeightedConvergenceEngine
 from radar.scenarios import (
     SensorTier, scenario_store,
     derive_country_context, derive_global_fetch_targets,
+    FOCUSED_ONLY_SENSOR_NAMES as _FOCUSED_ONLY_SENSOR_NAMES,
 )
 
 log = logging.getLogger("radar")
@@ -52,12 +53,6 @@ _prev_focused_id: str | None = DEFAULT_FOCUSED_SCENARIO
 # Phase C: what-changed tracking — guarded by _global_cache_lock
 _prev_scenario_domains: dict[str, dict[str, float]] = {}
 _prev_scenario_signals: dict[str, set[str]] = {}
-
-_FOCUSED_ONLY_SENSOR_NAMES = frozenset({
-    "cloudflare_radar", "ioda_bgp", "ripe_bgp", "openweather",
-    "check_host", "opensky", "notam", "ripe_atlas",
-    "ais_maritime", "isr_hotspot", "nasa_firms", "mil_support_air",
-})
 
 @bp.route("/api/app_config", methods=["GET"])
 def app_config():
@@ -339,10 +334,57 @@ def get_threat_data():
             return jsonify({"error": "No scorable scenario available"}), 503
         focused_id = focused_scenario_obj.id
 
+    # Register analyst focus so the scheduler's per-country sensors follow
+    # the user's selection rather than the static DEFAULT_FOCUSED_SCENARIO
+    # (scenario-refactor §8.1, P0-3).
+    st.touch_active_focus(focused_id)
+
+    # Layer 3 session overlay (ADR-003, P2-2): analysts/admins may pass a
+    # JSON weight override through `X-Scenario-Overlay` to test hypotheses
+    # without persisting changes.  Example header value:
+    #   {"TW": 1.0, "PH": 0.4}
+    # Silently ignored for viewer role or on parse error.
+    _overlay_raw = request.headers.get("X-Scenario-Overlay", "").strip()
+    if _overlay_raw:
+        try:
+            _role = _db.user_get_role(get_jwt_identity() or "") or "viewer"
+        except Exception:
+            _role = "viewer"
+        if _role in ("admin", "analyst"):
+            try:
+                import json as _json
+                from radar.scenarios import apply_session_overlay
+                _overrides = _json.loads(_overlay_raw)
+                if isinstance(_overrides, dict):
+                    _clean = {str(k).upper(): v for k, v in _overrides.items()}
+                    focused_scenario_obj = apply_session_overlay(
+                        focused_scenario_obj, _clean)
+            except (ValueError, TypeError) as _e:
+                log.warning("scenario overlay parse failed: %s", _e)
+
     _ctx = derive_country_context(focused_scenario_obj)
     core_theater = (_ctx["core_theater"] or "").upper()
     effective_cores = [ec.upper() for ec in _ctx["effective_cores"]]
     correlate_targets = list(_ctx["correlate_targets"])
+
+    # Dual-core sequence event helper (ADR-009, P2-1).
+    # When core_theater is empty (dual-core scenario such as middle_east),
+    # register the event once per effective core so the escalation chain
+    # accrues against each principal_belligerent instead of the empty
+    # string that a legacy `_seq_fire(core_theater, ...)`
+    # call would produce.  Accepts the legacy (theater, event_type, ...)
+    # signature so existing call sites need only the name change.
+    def _seq_fire(_legacy_theater: str, event_type: str,
+                  meta: dict | None = None, *,
+                  dedup_window: int = 300,
+                  scenario_id: str | None = None):
+        targets = [core_theater] if core_theater else effective_cores
+        for t in targets:
+            if not t:
+                continue
+            register_sequence_event(t, event_type, meta,
+                                    dedup_window=dedup_window,
+                                    scenario_id=scenario_id or focused_id)
     adversary_states = list(_ctx["adversary_states"])
     strategic_theaters_set = set(_ctx["strategic_theaters"])
 
@@ -849,7 +891,7 @@ def get_threat_data():
                     f"Narrative Burst Z={narrative_z:.2f}" if narrative_burst else None,
                     confidence=_sensor_conf(rss_narrative_sensor))
             if narrative_burst and _narr_active:
-                register_sequence_event(core_theater, "NARRATIVE_BURST",
+                _seq_fire(core_theater, "NARRATIVE_BURST",
                                         {"z_score": narrative_z, "status": narrative_status},
                                         scenario_id=focused_id)
 
@@ -865,7 +907,7 @@ def get_threat_data():
                     f"ISR surge: {isr_count} aircraft" if isr_surge else None,
                     confidence=_sensor_conf(isr_hotspot_sensor))
             if isr_surge and _isr_active:
-                register_sequence_event(core_theater, "ISR_SURGE",
+                _seq_fire(core_theater, "ISR_SURGE",
                                         {"count": isr_count, "hotspots": core_isr.get("hotspots", [])},
                                         scenario_id=focused_id)
 
@@ -882,19 +924,19 @@ def get_threat_data():
                     "AIS Dark Gap / Stationary Anomaly at chokepoint" if ais_fired else None,
                     confidence=_sensor_conf(ais_maritime_sensor))
             if ais_fired and _ais_active:
-                register_sequence_event(core_theater, "AIS_DARK_GAP",
+                _seq_fire(core_theater, "AIS_DARK_GAP",
                                         {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)},
                                         scenario_id=focused_id)
 
         # FIRMS → register Sequence Event (gated by add_rat suppression check)
         if has_firms_core and _firms_active:
-            register_sequence_event(core_theater, "FIRMS_ANOMALY",
+            _seq_fire(core_theater, "FIRMS_ANOMALY",
                                     {"hotspots": [f for f in nasa_firms_data if f.get("code") == core_theater]},
                                     scenario_id=focused_id)
 
         # Sync DDoS detection → register Sequence Event (gated by add_rat suppression checks)
         if is_coordinated and high_correlation and _coord_active and _overlap_active:
-            register_sequence_event(core_theater, "SYNC_DDOS",
+            _seq_fire(core_theater, "SYNC_DDOS",
                                     {"coordinated_theaters": elevated_theaters,
                                      "max_overlap": max(correlations.values(), default=0.0)},
                                     scenario_id=focused_id)
@@ -936,7 +978,7 @@ def get_threat_data():
                     "Target URLs found in Telegram channels" if telegram_status == "TARGETS_FOUND" else None,
                     confidence=_sensor_conf(telegram_mirror_sensor))
             if _tg_active and telegram_burst:
-                register_sequence_event(core_theater, "NARRATIVE_BURST", {
+                _seq_fire(core_theater, "NARRATIVE_BURST", {
                     "source": "telegram_mirror", "channels": telegram_active_ch,
                     "targets": core_telegram.get("target_urls", [])[:5],
                     "z_score": telegram_z,
@@ -1181,7 +1223,7 @@ def get_threat_data():
         if _tor_entry and _ihr_disco_entry:
             _tor_entry.fired_reason += " — Censorship chain: IHR disconnection concurrent with Tor relay drop"
             _tor_entry.confidence = 1.0
-            register_sequence_event(core_theater, "CENSORSHIP_DETECTED",
+            _seq_fire(core_theater, "CENSORSHIP_DETECTED",
                                     {"tor_status": _tor_core_status, "ihr_status": _ihr_core_status},
                                     scenario_id=focused_id)
 
@@ -1201,7 +1243,7 @@ def get_threat_data():
                     _notam_value, _notam_score, _notam_reason,
                     confidence=_sensor_conf(notam_sensor))
             if _notam_fired and _notam_active:
-                register_sequence_event(core_theater, "NOTAM_SURGE",
+                _seq_fire(core_theater, "NOTAM_SURGE",
                                         {"total": _notam_total, "military": _notam_mil},
                                         scenario_id=focused_id)
 
@@ -1256,7 +1298,7 @@ def get_threat_data():
                     _ooni_value, _ooni_score, _ooni_reason,
                     confidence=_sensor_conf(ooni_sensor))
             if _ooni_heavy and _ooni_active:
-                register_sequence_event(core_theater, "CENSORSHIP_DETECTED",
+                _seq_fire(core_theater, "CENSORSHIP_DETECTED",
                                         {"source": "ooni", "anomaly_rate": _ooni_anomaly_rate},
                                         scenario_id=focused_id)
 
@@ -1314,7 +1356,7 @@ def get_threat_data():
                     _mil_value, _mil_score, _mil_reason,
                     confidence=_sensor_conf(mil_air_sensor))
             if _mil_fired and _mil_active:
-                register_sequence_event(core_theater, "MIL_AIR_SURGE",
+                _seq_fire(core_theater, "MIL_AIR_SURGE",
                                         {"tanker": _mil_tanker, "transport": _mil_transport, "awacs": _mil_awacs},
                                         scenario_id=focused_id)
 
@@ -1336,7 +1378,7 @@ def get_threat_data():
                     _gps_value, _gps_score, _gps_reason,
                     confidence=_sensor_conf(gps_jam_sensor))
             if _gps_fired and _gps_active:
-                register_sequence_event(core_theater, "GPS_JAMMING",
+                _seq_fire(core_theater, "GPS_JAMMING",
                                         {"max_level": _gps_max, "is_critical": _gps_critical},
                                         scenario_id=focused_id)
 
@@ -1637,6 +1679,12 @@ def get_threat_data():
                         "LITE mode: LLM intel + global signals only. "
                         "Physical and per-country cyber signals are not observed."
                     )
+                    # P2-3: hide TL for background scenarios by default.
+                    # TL is only meaningful when the full sensor stack runs
+                    # (focused mode).  Operators may opt-in to show lite TL
+                    # via SHOW_BACKGROUND_TL=true.
+                    if not SHOW_BACKGROUND_TL:
+                        _sd.pop("tl", None)
                     if "indicators" in _sd:
                         _sd["indicators"]["llm_intel_24h"] = _intel_24h.get(_sc.id, 0)
                     # B1: background score deltas over multiple windows

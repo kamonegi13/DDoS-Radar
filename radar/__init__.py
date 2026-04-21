@@ -16,6 +16,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+log = logging.getLogger("radar")
 
 # ── Limit urllib3 connection retries ──
 # Without this, SSL errors cause Max-Retries loops that block greenlets
@@ -96,17 +97,29 @@ for _s in [
 ]:
     registry.register(_s)
 
-# ── Sensor Tier assignment (scenario-refactor §8.2) ──
-# Default tier on BaseSensor is GLOBAL. Override per-country sensors to FOCUSED_ONLY.
-from radar.scenarios import SensorTier  # noqa: E402
-_FOCUSED_ONLY_SENSORS = frozenset({
-    "cloudflare_radar", "ripe_bgp", "openweather",
-    "check_host", "opensky", "notam", "ripe_atlas",
-    "ais_maritime", "isr_hotspot", "nasa_firms", "mil_support_air",
-})
-for _sname, _sensor in registry._sensors.items():
-    if _sname in _FOCUSED_ONLY_SENSORS:
-        _sensor.tier = SensorTier.FOCUSED_ONLY
+# ── Sensor Tier consistency check (scenario-refactor §6, §8.2) ──
+# FOCUSED_ONLY_SENSOR_NAMES in radar/scenarios.py is the single source of truth.
+# Each sensor class declares its own `tier`; this assertion catches drift between
+# the canonical set and the class-level declarations.
+from radar.scenarios import SensorTier, FOCUSED_ONLY_SENSOR_NAMES  # noqa: E402
+_declared_focused = {
+    _sname for _sname, _sensor in registry._sensors.items()
+    if _sensor.tier == SensorTier.FOCUSED_ONLY
+}
+_missing = FOCUSED_ONLY_SENSOR_NAMES - _declared_focused
+_extra = _declared_focused - FOCUSED_ONLY_SENSOR_NAMES
+if _missing or _extra:
+    _log_init = logging.getLogger("radar")
+    if _missing:
+        _log_init.warning(
+            "[Startup] FOCUSED_ONLY sensors missing tier declaration: %s",
+            sorted(_missing),
+        )
+    if _extra:
+        _log_init.warning(
+            "[Startup] Sensors declaring FOCUSED_ONLY not in canonical set: %s",
+            sorted(_extra),
+        )
 
 # ── Plugin Sensors (dynamic loading from plugins/ directory) ──
 from radar.plugin_loader import load_and_register_plugins  # noqa: E402
@@ -127,7 +140,9 @@ app.register_blueprint(_auth_bp)
 # ── Global JWT enforcement on /api/* routes ──
 from flask import request as _req, jsonify as _jsonify  # noqa: E402
 from flask_jwt_extended import verify_jwt_in_request  # noqa: E402
-from flask_jwt_extended.exceptions import NoAuthorizationError  # noqa: E402
+from flask_jwt_extended.exceptions import (  # noqa: E402
+    JWTExtendedException, NoAuthorizationError,
+)
 from jwt.exceptions import PyJWTError  # noqa: E402
 
 # Public routes that do NOT require authentication
@@ -151,7 +166,8 @@ def _enforce_jwt():
         return None
     try:
         verify_jwt_in_request()
-    except (NoAuthorizationError, PyJWTError):
+    except (NoAuthorizationError, PyJWTError, JWTExtendedException):
+        # Includes RevokedTokenError, ExpiredSignatureError, etc.
         return _jsonify({"error": "Authentication required"}), 401
     except Exception:
         log.exception("[Auth] Unexpected error during JWT verification")

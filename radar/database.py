@@ -2638,6 +2638,42 @@ class RadarDB:
             "auto_confirmable_pct": round(auto_confirmable / total * 100, 1) if total else 0,
         }
 
+    def intel_country_weight_aggregate(self, hours: int = 168) -> dict:
+        """Aggregate LLM-emitted country_weights across active intel items.
+
+        Returns per-country mean/samples for auto_confirmed+confirmed items
+        within the window. Used by the dual-weight observability endpoint
+        (ADR-015) to compare LLM-derived weights against static scenario
+        participant weights.
+        """
+        cutoff = time.time() - hours * 3600
+        rows = self._get_conn().execute(
+            "SELECT country_weights FROM llm_intel "
+            "WHERE status IN ('auto_confirmed', 'confirmed') AND ts > ? "
+            "AND country_weights != '{}'",
+            (cutoff,),
+        ).fetchall()
+        per_country: dict[str, list[float]] = {}
+        for r in rows:
+            try:
+                cw = json.loads(r[0]) if r[0] else {}
+            except (ValueError, TypeError):
+                continue
+            for cc, w in cw.items():
+                try:
+                    per_country.setdefault(cc.upper(), []).append(float(w))
+                except (ValueError, TypeError):
+                    continue
+        return {
+            cc: {
+                "samples": len(ws),
+                "mean": round(sum(ws) / len(ws), 3) if ws else 0.0,
+                "min": round(min(ws), 3) if ws else 0.0,
+                "max": round(max(ws), 3) if ws else 0.0,
+            }
+            for cc, ws in per_country.items()
+        }
+
     # ── Auth ───────────────────────────────────────────────────────────────
 
     def user_count(self) -> int:

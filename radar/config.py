@@ -162,6 +162,26 @@ DEFAULT_FOCUSED_SCENARIO = os.getenv("DEFAULT_FOCUSED_SCENARIO", "taiwan_conting
 GLOBAL_SIGNAL_WEIGHT     = float(os.getenv("GLOBAL_SIGNAL_WEIGHT", "0.5"))
 DOMAIN_CAP               = float(os.getenv("DOMAIN_CAP", "6.0"))
 
+# C-lite → C-medium migration evaluation (scenario-refactor §9.3.1).
+# A focus switch is a "miss" when |full_score - lite_score| > C_MEDIUM_DELTA_MISS.
+# If the miss-rate over a C_MEDIUM_WINDOW_DAYS window exceeds
+# C_MEDIUM_MISS_THRESHOLD, the evaluator recommends migrating that scenario
+# to C-medium (per-country low-frequency fetches for background participants).
+C_MEDIUM_WINDOW_DAYS    = int(os.getenv("C_MEDIUM_WINDOW_DAYS", "28"))
+C_MEDIUM_MISS_THRESHOLD = float(os.getenv("C_MEDIUM_MISS_THRESHOLD", "0.15"))
+C_MEDIUM_DELTA_MISS     = float(os.getenv("C_MEDIUM_DELTA_MISS", "2.0"))
+C_MEDIUM_MIN_SWITCHES   = int(os.getenv("C_MEDIUM_MIN_SWITCHES", "10"))
+
+# TL recalibration advisory (scenario-refactor §7.3.1). Operator-facing
+# flag surfaced through /api/analytics/tl_recalibration_advisory.
+TL_RECALIBRATION_MIN_OBS            = int(os.getenv("TL_RECALIBRATION_MIN_OBS", "100"))
+TL_RECALIBRATION_SKEW_THRESHOLD_PCT = float(os.getenv("TL_RECALIBRATION_SKEW_THRESHOLD_PCT", "70.0"))
+
+# Background TL display (scenario-refactor Phase 5 extension).
+# When False, the scenario bar renders only a score for background scenarios
+# (TL is only shown for focused). When True, background scenarios also show TL.
+SHOW_BACKGROUND_TL = os.getenv("SHOW_BACKGROUND_TL", "false").lower() in ("true", "1", "yes")
+
 CF_HEADERS = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
 
 AIRSPACE_WINDOW             = int(os.getenv("AIRSPACE_WINDOW", "20"))
