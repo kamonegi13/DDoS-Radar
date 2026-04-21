@@ -8,6 +8,7 @@ from radar.config import (
     INFRASTRUCTURE_URLS, GLOBAL_PROXIES, SSL_VERIFY, HOD_MIN_SAME_HOUR, HOD_MAX_ENTRIES,
 )
 from radar.sensors.base import BaseSensor
+from radar.scenarios import SensorTier
 from radar.database import db as _db
 import os
 
@@ -26,6 +27,7 @@ class CheckHostSensor(BaseSensor):
     """
     CHECK_HOST_API = "https://check-host.net/check-http"
     RESULT_API     = "https://check-host.net/check-result/{request_id}"
+    tier = SensorTier.FOCUSED_ONLY
     # Per-URL cooldown: only re-check a URL if ≥ 5 min has elapsed since last poll
     _URL_COOLDOWN_SEC = 300
     _url_last_poll: dict = {}   # url → unix timestamp of last successful check

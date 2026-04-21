@@ -19,15 +19,29 @@ log = logging.getLogger("radar")
 def _build_default_context() -> dict:
     """Build sensor context from the focused scenario + all enabled scenarios
     (ADR-005). Per-country sensors target the focused scenario's participants;
-    LLM sensors receive the union across all scorable scenarios."""
+    LLM sensors receive the union across all scorable scenarios.
+
+    The "focused" set is the union of analyst-active focuses recorded in
+    `radar.state._active_focus` (TTL-bounded) plus DEFAULT_FOCUSED_SCENARIO.
+    This keeps FOCUSED_ONLY sensors in sync with the analyst's current view
+    (scenario-refactor §8.1, P0-3)."""
     from radar.scenarios import (
         scenario_store, derive_country_context, derive_global_fetch_targets,
     )
-    focused = (
-        scenario_store.get(DEFAULT_FOCUSED_SCENARIO)
-        or (scenario_store.scorable()[0] if scenario_store.scorable() else None)
-    )
-    if focused is None:
+    from radar.state import get_active_focus_ids
+
+    # Collect the analyst-active focuses, falling back to the default.
+    _focus_ids = list(get_active_focus_ids())
+    if DEFAULT_FOCUSED_SCENARIO not in _focus_ids:
+        _focus_ids.append(DEFAULT_FOCUSED_SCENARIO)
+
+    focused_scenarios = [sc for sc in (scenario_store.get(sid) for sid in _focus_ids) if sc]
+    if not focused_scenarios:
+        _fallback = scenario_store.scorable()
+        if _fallback:
+            focused_scenarios = [_fallback[0]]
+
+    if not focused_scenarios:
         # Store not yet loaded — return minimal context; scheduler will pick
         # up real targets on the next cycle.
         return {
@@ -38,13 +52,20 @@ def _build_default_context() -> dict:
             "gdelt_tone_threshold": GDELT_TONE_ALERT_THRESHOLD,
             "gdelt_history_window": GDELT_HISTORY_WINDOW,
         }
-    ctx = derive_country_context(focused)
+
+    # Union per-country targets across every active focus.
+    strategic: set[str] = set()
+    adversaries: set[str] = set()
+    for sc in focused_scenarios:
+        ctx = derive_country_context(sc)
+        strategic |= set(ctx["strategic_theaters"])
+        adversaries |= set(ctx["adversary_states"])
+
     global_targets = derive_global_fetch_targets()
-    all_targets = set(ctx["strategic_theaters"]) | set(ctx["adversary_states"])
     return {
-        "all_targets":         sorted(all_targets),
-        "strategic_theaters":  ctx["strategic_theaters"],
-        "adversary_states":    ctx["adversary_states"],
+        "all_targets":         sorted(strategic | adversaries),
+        "strategic_theaters":  sorted(strategic),
+        "adversary_states":    sorted(adversaries),
         "all_participant_countries": global_targets["all_participant_countries"],
         "cf_headers":          CF_HEADERS,
         "owm_api_key":         OWM_API_KEY,

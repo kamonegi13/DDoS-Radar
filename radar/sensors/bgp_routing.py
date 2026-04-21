@@ -11,6 +11,7 @@ from radar.config import (
     GLOBAL_PROXIES, SSL_VERIFY, HOD_MIN_SAME_HOUR, HOD_MAX_ENTRIES,
 )
 from radar.sensors.base import BaseSensor
+from radar.scenarios import SensorTier
 from radar.database import db as _db
 
 # Minimum stats entries required for trend computation
@@ -21,6 +22,7 @@ class BgpRoutingSensor(BaseSensor):
     BGP_DROP_THRESHOLD = 0.15
     BGP_HOD_MIN        = HOD_MIN_SAME_HOUR
     BGP_HOD_MAX        = HOD_MAX_ENTRIES
+    tier = SensorTier.FOCUSED_ONLY
     def __init__(self):
         super().__init__("ripe_bgp", "cyber", 1800); self._baseline: dict = {}
     def fetch(self, context: dict) -> dict:

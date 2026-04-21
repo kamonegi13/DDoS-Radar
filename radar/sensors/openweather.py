@@ -6,8 +6,10 @@ from radar.config import (
     COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY, SEVERE_WEATHER_IDS,
 )
 from radar.sensors.base import BaseSensor
+from radar.scenarios import SensorTier
 
 class OpenWeatherSensor(BaseSensor):
+    tier = SensorTier.FOCUSED_ONLY
     def __init__(self): super().__init__("openweather", "physical", 1800)
     def fetch(self, context: dict) -> dict:
         # Weather noise check for strategic_theaters only (all_targets is too large, risks API quota exhaustion)

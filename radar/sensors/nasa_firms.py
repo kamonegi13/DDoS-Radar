@@ -6,11 +6,13 @@ from radar.config import (
     COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY,
 )
 from radar.sensors.base import BaseSensor
+from radar.scenarios import SensorTier
 
 class NasaFirmsSensor(BaseSensor):
     """Switched from NASA FIRMS to NASA EONET Wildfires API (FIRMS server unreachable).
     No API key required. eonet.gsfc.nasa.gov verified reachable in corporate proxy environments.
     """
+    tier = SensorTier.FOCUSED_ONLY
     EONET_URL = "https://eonet.gsfc.nasa.gov/api/v3/events"
     # Adaptive radius per theater size. Small countries (TW, IL) use tight
     # radius to avoid overwhelming false positives from neighboring countries'

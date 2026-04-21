@@ -12,6 +12,7 @@ from radar.config import (
     GLOBAL_PROXIES, SSL_VERIFY, CF_HEADERS, CURRENT_DATE_RANGE,
 )
 from radar.sensors.base import BaseSensor
+from radar.scenarios import SensorTier
 from radar.state import _cf_scoring_cache, _cf_cache_lock
 
 log = logging.getLogger("radar")
@@ -21,6 +22,7 @@ BGP_EVENT_MIN_CONFIDENCE = 50
 
 
 class CloudflareSensor(BaseSensor):
+    tier = SensorTier.FOCUSED_ONLY
     def __init__(self): super().__init__("cloudflare_radar", "cyber", 900)
     def fetch(self, context: dict) -> dict:
         t0 = time.time()

@@ -7,6 +7,7 @@ from radar.config import (
     CHOKEPOINTS, GLOBAL_PROXIES, SSL_VERIFY, AIS_DARK_GAP_THRESHOLD, AIS_ANCHOR_RADIUS_KM,
 )
 from radar.sensors.base import BaseSensor
+from radar.scenarios import SensorTier
 
 class AisMaritimeSensor(BaseSensor):
     """
@@ -18,6 +19,7 @@ class AisMaritimeSensor(BaseSensor):
     No-auth endpoint / rate-limited (60s/request)
     Fallback: MarineTraffic public data (when available)
     """
+    tier = SensorTier.FOCUSED_ONLY
     AISHUB_URL = "http://data.aishub.net/ws.php"
     # Non-commercial / non-fishing vessel types (AIS Ship Type codes)
     # 30-35: Fishing, 60-69: Passenger, 70-79: Cargo, 80-89: Tanker

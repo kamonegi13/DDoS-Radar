@@ -6,8 +6,10 @@ from radar.config import (
 )
 from radar.sensors.base import BaseSensor
 from radar.sensors.opensky_auth import _opensky_get
+from radar.scenarios import SensorTier
 
 class OpenSkySensor(BaseSensor):
+    tier = SensorTier.FOCUSED_ONLY
     def __init__(self): super().__init__("opensky", "physical", 1800)
     def fetch(self, context: dict) -> dict:
         theaters = context.get("strategic_theaters", []); results: dict = {}; delta = 0.5

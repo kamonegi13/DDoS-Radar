@@ -16,6 +16,7 @@ import time
 from radar.config import ISR_HOTSPOTS, GLOBAL_PROXIES, SSL_VERIFY
 from radar.sensors.base import BaseSensor
 from radar.sensors.opensky_auth import _opensky_get
+from radar.scenarios import SensorTier
 
 log = logging.getLogger("radar")
 
@@ -57,6 +58,7 @@ _ALL_MIL_PREFIXES = _TANKER_PREFIXES + _TRANSPORT_PREFIXES + _AWACS_PREFIXES
 class MilSupportAirSensor(BaseSensor):
     """Military support aircraft sensor (physical domain)."""
 
+    tier = SensorTier.FOCUSED_ONLY
     # 200km radius like ISR sensor
     RADIUS_DEG = 1.8
 

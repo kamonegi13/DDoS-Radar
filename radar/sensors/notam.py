@@ -15,6 +15,7 @@ import logging
 import time
 import requests
 from radar.sensors.base import BaseSensor
+from radar.scenarios import SensorTier
 from radar.config import (
     COUNTRY_COORDS, AIRPORT_BOXES, GLOBAL_PROXIES, SSL_VERIFY,
     NOTAM_SURGE_THRESHOLD, NOTAM_MILITARY_KEYWORDS,
@@ -40,6 +41,8 @@ def _decimal_to_dms(deg: float) -> tuple[int, int, int]:
 
 class NotamSensor(BaseSensor):
     """FAA/ICAO NOTAM anomaly sensor (physical domain)."""
+
+    tier = SensorTier.FOCUSED_ONLY
 
     def __init__(self):
         super().__init__("notam", "physical", 1800)

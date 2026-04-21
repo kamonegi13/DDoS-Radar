@@ -5,6 +5,7 @@ import time
 from radar.config import ISR_HOTSPOTS
 from radar.sensors.base import BaseSensor
 from radar.sensors.opensky_auth import _opensky_get
+from radar.scenarios import SensorTier
 
 class IsrHotspotSensor(BaseSensor):
     """
@@ -12,6 +13,7 @@ class IsrHotspotSensor(BaseSensor):
     within 200km of ISR_HOTSPOTS. Operates independently from OpenSkySensor (civilian airport monitoring).
     Identifies ISR pattern as high-altitude (>9000m) and low-speed (<160 m/s) aircraft.
     """
+    tier = SensorTier.FOCUSED_ONLY
     # 200km ≈ 1.8° (latitude)
     RADIUS_DEG = 1.8
 

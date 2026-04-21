@@ -17,6 +17,7 @@ from radar.config import (
     COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY,
 )
 from radar.sensors.base import BaseSensor
+from radar.scenarios import SensorTier
 
 log = logging.getLogger("radar")
 
@@ -35,6 +36,7 @@ class IodaSensor(BaseSensor):
     """
 
     IODA_API_BASE = "https://api.ioda.inetintel.cc.gatech.edu/v2"
+    tier = SensorTier.FOCUSED_ONLY
 
     def __init__(self):
         super().__init__("ioda_bgp", "physical", 300)

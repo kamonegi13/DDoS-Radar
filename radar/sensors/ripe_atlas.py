@@ -16,6 +16,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from radar.config import COUNTRY_COORDS, GLOBAL_PROXIES, SSL_VERIFY
 from radar.sensors.base import BaseSensor
+from radar.scenarios import SensorTier
 
 log = logging.getLogger("radar")
 
@@ -35,6 +36,8 @@ _MAX_WORKERS = 5
 
 class RipeAtlasSensor(BaseSensor):
     """RIPE Atlas sensor: probe availability and public measurement RTT."""
+
+    tier = SensorTier.FOCUSED_ONLY
 
     def __init__(self):
         super().__init__("ripe_atlas", "physical", 600)
