@@ -4615,6 +4615,35 @@
     ],
     "GE": [
       "georgia", "georgian", "tbilisi", "south ossetia", "abkhazia"
+    ],
+    "AU": [
+      "australia", "australian", "canberra", "sydney", "melbourne",
+      "perth", "darwin", "brisbane", "aukus", "adf",
+      "royal australian navy", "ran ", "tindal"
+    ],
+    "GU": [
+      "guam", "apra", "andersen", "marianas", "tinian"
+    ],
+    "IQ": [
+      "iraq", "iraqi", "baghdad", "mosul", "basra",
+      "erbil", "kurdistan", "al-asad", "ain al-asad"
+    ],
+    "MY": [
+      "malaysia", "malaysian", "kuala lumpur", "putrajaya",
+      "sarawak", "sabah", "labuan", "beting patinggi ali",
+      "luconia"
+    ],
+    "RO": [
+      "romania", "romanian", "bucharest", "constanta",
+      "mihail kogalniceanu", "deveselu", "black sea"
+    ],
+    "SK": [
+      "slovakia", "slovak", "bratislava", "sliac", "malacky"
+    ],
+    "VN": [
+      "vietnam", "vietnamese", "hanoi", "ho chi minh city",
+      "da nang", "cam ranh", "spratly", "paracel",
+      "south china sea"
     ]
   },
   "SCHEDULED_EVENTS": [
