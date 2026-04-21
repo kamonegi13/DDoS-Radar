@@ -54,11 +54,25 @@ class CtLogSensor(BaseSensor):
     # Minimum history entries before Z-score is valid
     _MIN_HISTORY = 4
 
+    # Upstream self-healing: crt.sh suffers chronic 502/timeout storms.
+    # After this many consecutive cycles with zero successful queries we
+    # switch to degraded mode (long interval, probe-only requests,
+    # DEBUG-level logging).  A single successful fetch clears the flag.
+    _UPSTREAM_FAIL_THRESHOLD = 3
+    _NORMAL_INTERVAL = 3600          # 1h
+    _DEGRADED_INTERVAL = 14400       # 4h (probe cadence while crt.sh is down)
+    _REQUEST_TIMEOUT_NORMAL = 3      # crt.sh answers in 2-5s or never
+    _REQUEST_TIMEOUT_DEGRADED = 3    # same; shortened from legacy 10s
+
     def __init__(self):
-        super().__init__("ct_log", "cyber", 3600)
+        super().__init__("ct_log", "cyber", self._NORMAL_INTERVAL)
         self._prev_counts: dict[str, int] = {}
         # Rolling history for Z-score computation: country -> [count, ...]
         self._count_history: dict[str, list[int]] = {}
+        # Upstream health tracking (crt.sh).  Exposed for Health API.
+        self._consecutive_failures: int = 0
+        self._upstream_status: str = "unknown"  # healthy | degraded | unknown
+        self._last_success_ts: float = 0.0
 
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
@@ -89,7 +103,20 @@ class CtLogSensor(BaseSensor):
                 wildcard_count = 0
                 recent_certs = []
 
-                for domain_pattern in [f"%.{g}" for g in gov_tlds]:
+                # During degraded mode we still probe — but only one pattern
+                # per country, to detect upstream recovery without hammering.
+                patterns = [f"%.{g}" for g in gov_tlds]
+                if self._upstream_status == "degraded":
+                    patterns = patterns[:1]
+
+                _req_timeout = (self._REQUEST_TIMEOUT_DEGRADED
+                                if self._upstream_status == "degraded"
+                                else self._REQUEST_TIMEOUT_NORMAL)
+                _log_level = (logging.DEBUG
+                              if self._upstream_status == "degraded"
+                              else logging.WARNING)
+
+                for domain_pattern in patterns:
                     try:
                         res = requests.get(
                             _CRTSH_URL,
@@ -99,16 +126,17 @@ class CtLogSensor(BaseSensor):
                                 "exclude": "expired",
                             },
                             # crt.sh either responds in 2-5s or hangs.
-                            # 10s timeout caps a full-cycle worst case at
-                            # ~27 countries × 10s ≈ 4.5min instead of ~14min.
-                            timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+                            # 3s timeout caps a full-cycle worst case at
+                            # ~27 countries × 3s ≈ 1.5min instead of ~14min
+                            # while still catching healthy responses.
+                            timeout=_req_timeout, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
                             headers={"Accept": "application/json"},
                         )
                     except requests.exceptions.Timeout:
-                        log.warning(f"[CTLog] Timeout for {code} ({domain_pattern})")
+                        log.log(_log_level, f"[CTLog] Timeout for {code} ({domain_pattern})")
                         continue
                     except requests.exceptions.ConnectionError:
-                        log.warning(f"[CTLog] Connection error for {code}")
+                        log.log(_log_level, f"[CTLog] Connection error for {code}")
                         continue
 
                     if res.status_code == 429:
@@ -215,6 +243,28 @@ class CtLogSensor(BaseSensor):
         self.log_fetch(any_success, duration, 0,
                        sum(d["total_recent"] for d in ct_data.values()), combined_error)
 
+        # Self-healing: track upstream crt.sh health.  Adjust fetch cadence
+        # to reduce noise while degraded, and restore normal cadence the
+        # moment a single query succeeds.
+        if any_success:
+            if self._consecutive_failures or self._upstream_status != "healthy":
+                log.info(f"[CTLog] Upstream crt.sh recovered after {self._consecutive_failures} failed cycles")
+            self._consecutive_failures = 0
+            self._upstream_status = "healthy"
+            self._last_success_ts = time.time()
+            self.poll_interval = self._NORMAL_INTERVAL
+        else:
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= self._UPSTREAM_FAIL_THRESHOLD \
+                    and self._upstream_status != "degraded":
+                self._upstream_status = "degraded"
+                self.poll_interval = self._DEGRADED_INTERVAL
+                log.warning(
+                    f"[CTLog] Upstream crt.sh appears down "
+                    f"({self._consecutive_failures} consecutive fail cycles) — "
+                    f"entering degraded mode, probing every {self._DEGRADED_INTERVAL // 60}min"
+                )
+
         result = {"ct_data": ct_data, "country_status": country_status}
         if any_success:
             self.set_cache(result)
@@ -222,4 +272,13 @@ class CtLogSensor(BaseSensor):
         return self.get_cache() or {
             "ct_data": {},
             "country_status": {c: "NORMAL" for c in all_targets},
+        }
+
+    def upstream_health(self) -> dict:
+        """Return crt.sh upstream health state for Health/Diagnostics APIs."""
+        return {
+            "status": self._upstream_status,
+            "consecutive_failures": self._consecutive_failures,
+            "last_success_ts": self._last_success_ts,
+            "current_interval_sec": self.poll_interval,
         }

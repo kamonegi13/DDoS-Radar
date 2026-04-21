@@ -29,11 +29,18 @@ def data_status():
         if "\n" in err:
             err = err.split("\n")[0]
         err = err[:100]
-        sensors_status.append({
+        entry = {
             "sensor": s.name, "domain": s.domain, "enabled": s.enabled, "health": s.health,
             "poll_interval_sec": s.poll_interval, "cache_age_sec": round(now - s._cache_time) if s._cache_time else None,
             "cache_size_chars": len(str(s._cache)), "last_error": err or None, "last_fetch": log[-1] if log else None, "fetch_log": log,
-        })
+        }
+        # Optional per-sensor upstream health (e.g. CtLogSensor crt.sh probe state)
+        if hasattr(s, "upstream_health") and callable(getattr(s, "upstream_health")):
+            try:
+                entry["upstream"] = s.upstream_health()
+            except Exception:
+                pass
+        sensors_status.append(entry)
     return jsonify({"ts": datetime.datetime.now().isoformat(), "sensors": sensors_status})
 
 @bp.route("/api/sensor_reliability", methods=["GET"])
