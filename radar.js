@@ -879,6 +879,27 @@
         }
     });
 
+    // Close overlay detail panels when clicking outside (panel itself or trigger are safe)
+    document.addEventListener('click', e => {
+        const t = e.target;
+
+        // Domain drilldown: trigger = #hud-domains-wrap; panel = #domain-drilldown-panel
+        const ddPanel = document.getElementById('domain-drilldown-panel');
+        if (ddPanel && ddPanel.style.display === 'block'
+            && !t.closest('#domain-drilldown-panel')
+            && !t.closest('#hud-domains-wrap')) {
+            if (typeof window.toggleDrilldown === 'function') window.toggleDrilldown();
+        }
+
+        // Scenario detail: trigger = .sc-card; panel = #scenario-detail-panel
+        const scPanel = document.getElementById('scenario-detail-panel');
+        if (scPanel && scPanel.style.display !== 'none'
+            && !t.closest('#scenario-detail-panel')
+            && !t.closest('.sc-card')) {
+            if (typeof window._closeScenarioDetail === 'function') window._closeScenarioDetail();
+        }
+    });
+
     function handleToolToggle(panelId, toggleFn, dotId, itemId) {
         toggleFn();
         syncToolsMenuState();
@@ -5066,6 +5087,13 @@
         _drilldownOpen = !_drilldownOpen;
         const panel   = document.getElementById('domain-drilldown-panel');
         const hint    = document.getElementById('dd-toggle-hint');
+        if (_drilldownOpen) {
+            const hud = document.getElementById('top-hud');
+            if (hud) {
+                const bottom = hud.getBoundingClientRect().bottom;
+                document.documentElement.style.setProperty('--top-hud-height', `${bottom}px`);
+            }
+        }
         if (panel) panel.style.display = _drilldownOpen ? 'block' : 'none';
         if (hint)  hint.textContent = _drilldownOpen ? '▴' : '▾';
         if (_drilldownOpen && _drilldownStrat) _updateDrilldownContent(_drilldownStrat);
@@ -7580,6 +7608,12 @@
         }
     }
 
+    window._closeScenarioDetail = function() {
+        const panel = document.getElementById('scenario-detail-panel');
+        if (panel) panel.style.display = 'none';
+        _scenarioDetailOpen = null;
+    };
+
     window.toggleScenarioDetail = function(scenarioId) {
         const panel = document.getElementById('scenario-detail-panel');
         if (!panel) return;
@@ -7593,6 +7627,11 @@
         const data = window._lastThreatData;
         if (!data || !data.scenarios || !data.scenarios[scenarioId]) return;
         _renderScenarioDetail(data.scenarios[scenarioId], scenarioId);
+        const scBar = document.getElementById('scenario-bar');
+        if (scBar) {
+            const bottom = scBar.getBoundingClientRect().bottom;
+            document.documentElement.style.setProperty('--scenario-detail-top', `${bottom + 4}px`);
+        }
         panel.style.display = '';
     };
 

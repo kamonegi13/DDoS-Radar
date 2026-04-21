@@ -760,12 +760,20 @@
         .halo-tl-label.tl3 { color: #ff8800; border: 1px solid #ff880099; background: rgba(255,136,0,0.15); }
         .halo-tl-label.tl4 { color: #ffcc00; border: 1px solid #ffcc0099; background: rgba(255,204,0,0.15); }
 
-        /* ── Domain Drilldown Panel ── */
+        /* ── Domain Drilldown Panel (overlay — does not displace map/panels) ── */
         #domain-drilldown-panel {
-            display: none; width: 100%; background: rgba(12,12,12,0.98);
-            border-bottom: 1px solid #333; z-index: 3900;
-            padding: 10px 18px 12px; box-sizing: border-box; position: relative;
-            flex-shrink: 0;
+            display: none;
+            position: absolute;
+            top: var(--top-hud-height, 88px);
+            left: 0; right: 0;
+            background: rgba(12,12,12,0.98);
+            border-bottom: 1px solid #333;
+            z-index: 3900;
+            padding: 10px 18px 12px;
+            box-sizing: border-box;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.7);
+            max-height: calc(100vh - var(--top-hud-height, 88px) - 40px);
+            overflow-y: auto;
         }
         #dd-close-btn {
             position: absolute; top: 8px; right: 14px; cursor: pointer;
@@ -2191,16 +2199,21 @@
     font-style: italic;
 }
 
-/* ── Phase 5: Scenario Detail Panel ─────────────────────────────────── */
+/* ── Phase 5: Scenario Detail Panel (overlay — does not displace map/panels) ── */
 #scenario-detail-panel {
-    background: rgba(0, 0, 0, 0.85);
+    position: absolute;
+    top: var(--scenario-detail-top, 120px);
+    left: 10px;
+    right: 10px;
+    z-index: 3800;
+    background: rgba(0, 0, 0, 0.92);
     border: 1px solid var(--color-accent-dim);
     border-radius: 4px;
     padding: 8px 10px;
-    margin: 6px 0;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.7);
     font-family: 'Courier New', monospace;
     font-size: 10px;
-    max-height: 500px;
+    max-height: calc(100vh - var(--scenario-detail-top, 120px) - 40px);
     overflow-y: auto;
 }
 .sc-detail-header {
