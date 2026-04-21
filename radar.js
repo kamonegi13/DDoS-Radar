@@ -56,12 +56,37 @@
         if (gate) gate.style.display = 'flex';
     }
 
+    // Layer 3 session overlay (ADR-003): weight hypothesis testing via
+    // in-memory per-scenario overrides.  Stored in sessionStorage so it
+    // is cleared when the tab closes — this is deliberate per the ADR
+    // (stateless, non-persistent).  Backend reads `X-Scenario-Overlay`.
+    function _scGetOverlay(scenarioId) {
+        if (!scenarioId) return null;
+        try {
+            const raw = sessionStorage.getItem('sc_overlay:' + scenarioId);
+            if (!raw) return null;
+            const o = JSON.parse(raw);
+            return (o && typeof o === 'object') ? o : null;
+        } catch { return null; }
+    }
+
     window.fetch = function(url, opts = {}) {
         const token = localStorage.getItem('radar_access_token');
         if (token && typeof url === 'string' && url.startsWith('/api/')) {
             opts.headers = opts.headers || {};
             if (!opts.headers['Authorization']) {
                 opts.headers['Authorization'] = 'Bearer ' + token;
+            }
+        }
+        // Inject Layer 3 overlay for /api/threat_data requests with ?focus=
+        if (typeof url === 'string' && url.indexOf('/api/threat_data') === 0) {
+            const m = url.match(/[?&]focus=([^&]+)/);
+            if (m) {
+                const ov = _scGetOverlay(decodeURIComponent(m[1]));
+                if (ov && Object.keys(ov).length > 0) {
+                    opts.headers = opts.headers || {};
+                    opts.headers['X-Scenario-Overlay'] = JSON.stringify(ov);
+                }
             }
         }
         return _origFetch(url, opts).then(res => {
@@ -7683,6 +7708,56 @@
         }
         html += `</div>`;
 
+        // Layer 3 session overlay UI (ADR-003) — focused scenario, analyst+ only
+        if (isFocused) {
+            const _scRole = localStorage.getItem('radar_role') || 'viewer';
+            const _scLevel = _ROLE_LEVEL[_scRole] ?? 0;
+            if (_scLevel >= 1) {
+                const ov = _scGetOverlay(scenarioId) || {};
+                const ovActive = Object.keys(ov).length > 0;
+                const parts = sc.participants || {};
+                const editing = _scOverlayEditOpen.has(scenarioId);
+                html += `<div class="sc-overlay-section${ovActive ? ' sc-overlay-active' : ''}">`;
+                html += `<div class="sc-overlay-header">`;
+                html += `<span class="sc-overlay-title">${_t('scenario.overlay.title')}</span>`;
+                if (ovActive) html += ` <span class="sc-overlay-badge">${_t('scenario.overlay.active_badge')}</span>`;
+                html += ` <button class="btn-tactical sc-overlay-toggle" onclick="event.stopPropagation();scToggleOverlayEdit('${safeScenarioId}')">${editing ? '▾' : '▸'} ${_t('scenario.overlay.edit')}</button>`;
+                if (ovActive) {
+                    html += ` <button class="btn-tactical sc-overlay-reset-btn" onclick="event.stopPropagation();scResetOverlay('${safeScenarioId}')">${_t('scenario.overlay.reset')}</button>`;
+                }
+                html += `</div>`;
+                if (editing) {
+                    html += `<div class="sc-overlay-help">${_t('scenario.overlay.help')}</div>`;
+                    html += `<div class="sc-overlay-grid">`;
+                    for (const cc of Object.keys(parts)) {
+                        const p = parts[cc] || {};
+                        const baseW = (p.base_weight != null ? p.base_weight
+                                      : (p.weight != null ? p.weight : 0.5));
+                        const curW = (ov[cc] != null) ? ov[cc]
+                                    : (p.weight != null ? p.weight : baseW);
+                        const changed = (ov[cc] != null) && Math.abs(ov[cc] - baseW) > 1e-6;
+                        html += `<div class="sc-overlay-row${changed ? ' sc-overlay-row-changed' : ''}">`;
+                        html += `<span class="sc-overlay-cc">${_escHtml(cc)}</span>`;
+                        html += `<span class="sc-overlay-role">${_t('scenario.role.' + p.role)}</span>`;
+                        html += `<input type="range" class="sc-overlay-range" min="0" max="1" step="0.05" `
+                             + `value="${curW}" `
+                             + `data-sc-id="${safeScenarioId}" data-sc-cc="${_escHtml(cc)}" data-sc-base="${baseW}" `
+                             + `oninput="scOnOverlayInput(this)" `
+                             + `onclick="event.stopPropagation();">`;
+                        html += `<span class="sc-overlay-val" id="sc-ov-val-${_escHtml(cc)}">${curW.toFixed(2)}</span>`;
+                        html += `<span class="sc-overlay-base">(${baseW.toFixed(2)})</span>`;
+                        html += `</div>`;
+                    }
+                    html += `</div>`;
+                    html += `<div class="sc-overlay-actions">`;
+                    html += `<button class="btn-tactical sc-overlay-apply-btn" onclick="event.stopPropagation();scApplyOverlay('${safeScenarioId}')">${_t('scenario.overlay.apply')}</button>`;
+                    html += `<button class="btn-tactical" onclick="event.stopPropagation();scToggleOverlayEdit('${safeScenarioId}')">${_t('scenario.overlay.close')}</button>`;
+                    html += `</div>`;
+                }
+                html += `</div>`;
+            }
+        }
+
         if (contributions.length > 0) {
             const whatIfResult = _computeWhatIf(sc, contributions);
 
@@ -7759,6 +7834,71 @@
 
         panel.innerHTML = html;
     }
+
+    // Layer 3 overlay editor state: which scenarios have the editor open
+    const _scOverlayEditOpen = new Set();
+    // Pending (un-applied) edits: { [scenarioId]: { [cc]: weight } }
+    const _scOverlayPending = {};
+
+    window.scToggleOverlayEdit = function(scenarioId) {
+        if (_scOverlayEditOpen.has(scenarioId)) _scOverlayEditOpen.delete(scenarioId);
+        else _scOverlayEditOpen.add(scenarioId);
+        if (latestData && latestData.scenarios) {
+            const sc = latestData.scenarios[scenarioId];
+            if (sc) _renderScenarioDetail(sc, scenarioId);
+        }
+    };
+
+    window.scOnOverlayInput = function(inputEl) {
+        const sid = inputEl.getAttribute('data-sc-id');
+        const cc = inputEl.getAttribute('data-sc-cc');
+        const v = parseFloat(inputEl.value);
+        if (!sid || !cc || !isFinite(v)) return;
+        _scOverlayPending[sid] = _scOverlayPending[sid] || {};
+        _scOverlayPending[sid][cc] = v;
+        const valEl = document.getElementById('sc-ov-val-' + cc);
+        if (valEl) valEl.textContent = v.toFixed(2);
+        const row = inputEl.closest('.sc-overlay-row');
+        if (row) {
+            const base = parseFloat(inputEl.getAttribute('data-sc-base') || '0');
+            row.classList.toggle('sc-overlay-row-changed', Math.abs(v - base) > 1e-6);
+        }
+    };
+
+    window.scApplyOverlay = function(scenarioId) {
+        const sc = latestData && latestData.scenarios && latestData.scenarios[scenarioId];
+        if (!sc) return;
+        const parts = sc.participants || {};
+        const pending = _scOverlayPending[scenarioId] || {};
+        const existing = _scGetOverlay(scenarioId) || {};
+        const merged = { ...existing, ...pending };
+        const clean = {};
+        for (const cc of Object.keys(merged)) {
+            const p = parts[cc];
+            if (!p) continue;
+            const v = parseFloat(merged[cc]);
+            if (!isFinite(v) || v < 0 || v > 1) continue;
+            const base = (p.base_weight != null ? p.base_weight
+                         : (p.weight != null ? p.weight : 0.5));
+            if (Math.abs(v - base) < 1e-6) continue;
+            clean[cc] = Math.round(v * 100) / 100;
+        }
+        if (Object.keys(clean).length === 0) {
+            sessionStorage.removeItem('sc_overlay:' + scenarioId);
+        } else {
+            sessionStorage.setItem('sc_overlay:' + scenarioId, JSON.stringify(clean));
+        }
+        delete _scOverlayPending[scenarioId];
+        _scOverlayEditOpen.delete(scenarioId);
+        if (typeof forceDataSync === 'function') forceDataSync();
+        else if (typeof window._resetRenderSig === 'function') window._resetRenderSig();
+    };
+
+    window.scResetOverlay = function(scenarioId) {
+        sessionStorage.removeItem('sc_overlay:' + scenarioId);
+        delete _scOverlayPending[scenarioId];
+        if (typeof forceDataSync === 'function') forceDataSync();
+    };
 
     function _isLiteInsufficient(sc, isFocused) {
         if (isFocused) return false;

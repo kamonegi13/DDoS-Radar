@@ -3038,7 +3038,7 @@
         <p><b>G. Scenario Manager</b> — Config → Scenarios tab (Admin only)</p>
         <ul>
             <li><b>Scenario Architecture</b>: DDoS-Radar scores threats per scenario (e.g., "Taiwan Contingency"), not per country. Each scenario defines participants (countries) with coupling weights (0.0–1.0) and roles (primary_target, adversary, primary_ally, etc.).</li>
-            <li><b>3-Layer Design</b>: Layer 1 = presets from geo_data.json (read-only). Layer 2 = admin customizations stored in SQLite (overrides presets). Layer 3 = session overrides (future).</li>
+            <li><b>3-Layer Design</b>: Layer 1 = presets from geo_data.json (read-only). Layer 2 = admin customizations stored in SQLite (overrides presets). Layer 3 = session overrides (see H).</li>
             <li><b>Create</b>: New custom scenarios with unique ID (lowercase, 3–30 chars), bilingual names, core country, and participant table.</li>
             <li><b>Edit</b>: Modify names, descriptions, core country, and participant weights/roles. Changes are written to Layer 2 (DB), preserving the original preset.</li>
             <li><b>State Management</b>: Active → Paused → Archived lifecycle. Only active+enabled scenarios are scored. Paused scenarios retain data but don't contribute to scores.</li>
@@ -3047,7 +3047,17 @@
             <li><b>Change Log</b>: All modifications are recorded in scenario_change_log with timestamps and diff.</li>
         </ul>
 
-        <p><b>H. C-lite Evaluation</b> — Config → Scenarios tab → "Load C-lite Evaluation" button</p>
+        <p><b>H. Layer 3 Session Overlay</b> — Scenario detail panel → "Weights" button (Analyst &amp; Admin only)</p>
+        <ul>
+            <li><b>Purpose</b>: Stateless, session-only participant weight overrides for hypothesis testing. Lets analysts ask "what if Japan's coupling to this scenario were 0.8 instead of 0.5?" without touching Layer 2 (DB) or Layer 1 (geo_data.json).</li>
+            <li><b>Scope</b>: Applies only to the currently focused scenario. Background scenarios always use their stored (Layer 1 + Layer 2) weights.</li>
+            <li><b>Persistence</b>: Stored in <span class="code-block">sessionStorage</span> — cleared when the browser tab closes. Deliberately non-persistent per ADR-003 to prevent accidental long-term biasing of the scoring model.</li>
+            <li><b>Transport</b>: The UI sends the overlay to the backend as JSON in the <span class="code-block">X-Scenario-Overlay</span> HTTP header on <span class="code-block">/api/threat_data</span> requests. The backend validates role and weight range, then applies it through <span class="code-block">apply_session_overlay()</span> before scoring.</li>
+            <li><b>Validation</b>: Values outside [0.0, 1.0] are silently dropped. Unknown country codes are ignored. Viewers cannot apply overlays (the header is discarded server-side).</li>
+            <li><b>UI Cues</b>: The overlay section shows an <b>ACTIVE</b> badge when any override is in effect, and each modified row has an amber border. The baseline weight is displayed in parentheses next to the slider for comparison.</li>
+        </ul>
+
+        <p><b>I. C-lite Evaluation</b> — Config → Scenarios tab → "Load C-lite Evaluation" button</p>
         <ul>
             <li><b>Purpose</b>: Determines whether the current C-lite mode (focused scenario = full sensors, background = LLM + global only) is adequate, or whether upgrading to C-medium (background scenarios also receive per-country sensor data at reduced frequency) should be considered.</li>
             <li><b>Data Source</b>: Aggregates <span class="code-block">focus_switch_log</span> entries over a configurable window (default 28 days). Each focus switch records old/new scenario IDs, TL at switch time, and score delta.</li>
@@ -3127,7 +3137,7 @@
         <p><b>G. シナリオマネージャー</b> — Config → Scenarios タブ（Admin のみ）</p>
         <ul>
             <li><b>シナリオアーキテクチャ</b>: DDoS-Radar は国単位ではなくシナリオ単位（例: 「台湾有事」）で脅威をスコアリング。各シナリオは参加国（participants）をカップリングウェイト（0.0–1.0）とロール（primary_target、adversary、primary_ally 等）で定義。</li>
-            <li><b>3層設計</b>: Layer 1 = geo_data.json のプリセット（読み取り専用）。Layer 2 = SQLite に保存された管理者カスタマイズ（プリセットを上書き）。Layer 3 = セッションオーバーライド（将来実装予定）。</li>
+            <li><b>3層設計</b>: Layer 1 = geo_data.json のプリセット（読み取り専用）。Layer 2 = SQLite に保存された管理者カスタマイズ（プリセットを上書き）。Layer 3 = セッションオーバーライド（下記 H 参照）。</li>
             <li><b>作成</b>: 一意の ID（小文字、3–30文字）、日英バイリンガル名、コア国、参加国テーブルを指定してカスタムシナリオを新規作成。</li>
             <li><b>編集</b>: 名前、説明、コア国、参加国のウェイト/ロールを変更可能。変更は Layer 2（DB）に書き込まれ、元のプリセットは保持。</li>
             <li><b>状態管理</b>: Active → Paused → Archived のライフサイクル。スコアリング対象は active かつ enabled のシナリオのみ。Paused シナリオはデータを保持するがスコアに寄与しない。</li>
@@ -3136,7 +3146,17 @@
             <li><b>変更ログ</b>: すべての変更は scenario_change_log にタイムスタンプと差分とともに記録。</li>
         </ul>
 
-        <p><b>H. C-lite 評価</b> — Config → Scenarios タブ → 「C-lite評価を読み込む」ボタン</p>
+        <p><b>H. Layer 3 セッションオーバーライド</b> — シナリオ詳細パネル → 「重み調整」ボタン（Analyst および Admin のみ）</p>
+        <ul>
+            <li><b>目的</b>: 仮説検証用のセッション限定な参加国重み上書き。「もし日本のカップリングが 0.5 ではなく 0.8 だったら？」という問いを、Layer 2（DB）や Layer 1（geo_data.json）に触れずに試せる。</li>
+            <li><b>スコープ</b>: 現在フォーカス中のシナリオのみに適用。バックグラウンドシナリオは常に保存済みの（Layer 1 + Layer 2）重みを使用。</li>
+            <li><b>永続化</b>: <span class="code-block">sessionStorage</span> に保存 — タブを閉じるとクリア。ADR-003 に従い、スコアリングモデルの意図しない長期的バイアスを防ぐため意図的に非永続化されている。</li>
+            <li><b>通信</b>: UI は <span class="code-block">/api/threat_data</span> リクエストの <span class="code-block">X-Scenario-Overlay</span> HTTP ヘッダに JSON でオーバーレイを送信。バックエンドはロールと重み範囲を検証後、<span class="code-block">apply_session_overlay()</span> 経由でスコアリング前に適用する。</li>
+            <li><b>バリデーション</b>: [0.0, 1.0] の範囲外の値は黙って破棄。未知の国コードは無視。Viewer はオーバーレイを適用できない（ヘッダはサーバ側で破棄される）。</li>
+            <li><b>UI 表示</b>: オーバーレイが有効なときはセクションに <b>適用中</b> バッジが表示され、変更された行にはアンバーのボーダーがつく。スライダーの横に基準値（括弧内）が表示され、比較しやすい。</li>
+        </ul>
+
+        <p><b>I. C-lite 評価</b> — Config → Scenarios タブ → 「C-lite評価を読み込む」ボタン</p>
         <ul>
             <li><b>目的</b>: 現在の C-lite モード（フォーカスシナリオ＝全センサー、バックグラウンド＝LLM + グローバルのみ）が適切か、C-medium（バックグラウンドシナリオも低頻度で国別センサーデータを受信）へのアップグレードを検討すべきかを判定。</li>
             <li><b>データソース</b>: 設定可能な期間（デフォルト28日間）の <span class="code-block">focus_switch_log</span> エントリを集約。各フォーカス切替は旧/新シナリオID、切替時のTL、スコアデルタを記録。</li>

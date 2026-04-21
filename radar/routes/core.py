@@ -1606,8 +1606,13 @@ def get_threat_data():
 
             for _sc in _scorable:
                 _is_focused = (_sc.id == _focused_id)
+                # Use the overlay-applied Scenario object for the focused
+                # scenario so Layer 3 weight overrides actually influence
+                # scoring (ADR-003). Background scenarios use their
+                # store-backed baseline.
+                _sc_for_score = focused_scenario_obj if _is_focused and focused_scenario_obj else _sc
                 _state = compute_scenario_score(
-                    _sc, _signals, _is_focused,
+                    _sc_for_score, _signals, _is_focused,
                     global_signal_weight=GLOBAL_SIGNAL_WEIGHT,
                     domain_cap=DOMAIN_CAP,
                 )
@@ -1674,6 +1679,19 @@ def get_threat_data():
                 _sd = _state.to_dict()
                 _sd["name_en"] = _sc.name_en
                 _sd["name_ja"] = _sc.name_ja
+                # Expose participant weights so the Layer 3 overlay UI
+                # (ADR-003) can show effective weights and offer editing.
+                # `weight` is the effective value (post-overlay for focused),
+                # `base_weight` is always the store-backed baseline so the UI
+                # can display the delta.
+                _sd["participants"] = {}
+                for _pcc, _pp in _sc_for_score.participants.items():
+                    _base_p = _sc.participants.get(_pcc) if _sc is not _sc_for_score else _pp
+                    _sd["participants"][_pcc] = {
+                        "weight": round(_pp.weight, 3),
+                        "base_weight": round(_base_p.weight if _base_p else _pp.weight, 3),
+                        "role": _pp.role.value,
+                    }
                 if not _is_focused:
                     _sd["lite_bias_warning"] = (
                         "LITE mode: LLM intel + global signals only. "

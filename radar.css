@@ -2379,6 +2379,115 @@
     color: #000;
 }
 
+/* ── Layer 3 overlay UI (ADR-003) ─────────────────────────────── */
+.sc-overlay-section {
+    border: 1px solid var(--color-accent-dim);
+    background: rgba(20, 30, 50, 0.35);
+    padding: 6px 10px;
+    margin: 8px 0;
+    font-size: 11px;
+}
+.sc-overlay-section.sc-overlay-active {
+    border-color: var(--color-warning);
+    background: rgba(60, 50, 10, 0.35);
+}
+.sc-overlay-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.sc-overlay-title {
+    color: var(--color-accent);
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.sc-overlay-badge {
+    background: var(--color-warning);
+    color: #000;
+    font-size: 9px;
+    font-weight: bold;
+    padding: 1px 5px;
+    border-radius: 2px;
+    letter-spacing: 0.5px;
+}
+.sc-overlay-toggle,
+.sc-overlay-reset-btn,
+.sc-overlay-apply-btn {
+    font-size: 10px;
+    padding: 2px 8px;
+}
+.sc-overlay-apply-btn {
+    background: var(--color-warning);
+    color: #000;
+    font-weight: bold;
+}
+.sc-overlay-reset-btn {
+    background: rgba(255, 255, 255, 0.08);
+}
+.sc-overlay-help {
+    color: #888;
+    font-size: 10px;
+    margin: 6px 0;
+    font-style: italic;
+}
+.sc-overlay-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 6px 0;
+    max-height: 280px;
+    overflow-y: auto;
+}
+.sc-overlay-row {
+    display: grid;
+    grid-template-columns: 36px 1fr 140px 40px 50px;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px;
+    background: rgba(0, 0, 0, 0.25);
+    border-left: 2px solid transparent;
+}
+.sc-overlay-row.sc-overlay-row-changed {
+    border-left-color: var(--color-warning);
+    background: rgba(60, 50, 10, 0.25);
+}
+.sc-overlay-cc {
+    font-weight: bold;
+    color: var(--color-accent);
+    font-family: 'Courier New', monospace;
+}
+.sc-overlay-role {
+    color: #aaa;
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sc-overlay-range {
+    width: 100%;
+    cursor: pointer;
+    accent-color: var(--color-warning);
+}
+.sc-overlay-val {
+    font-family: 'Courier New', monospace;
+    color: #fff;
+    text-align: right;
+    font-weight: bold;
+}
+.sc-overlay-base {
+    font-family: 'Courier New', monospace;
+    color: #777;
+    font-size: 10px;
+    text-align: right;
+}
+.sc-overlay-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+
 .sc-detail-expand {
     background: rgba(0, 0, 0, 0.3);
     padding: 6px 10px;
