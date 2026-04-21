@@ -598,7 +598,16 @@ class RssNarrativeSensor(BaseSensor):
         mean = sum(daily) / n
         variance = sum((x - mean) ** 2 for x in daily) / n
         std = math.sqrt(variance) if variance > 0 else 0.0
-        z = (today_normalized - mean) / std if std > 0 else 0.0
+        if std > 0:
+            z = (today_normalized - mean) / std
+        elif today_normalized > 0 and mean == 0:
+            # Baseline is a flat stream of zeros — first non-zero activity is
+            # itself a burst signal. Without this branch, the first signal
+            # against a silent baseline is silently reported as z=0
+            # (sensitivity/recall is prioritized over precision per design).
+            z = float(_os.getenv("NARRATIVE_ZSCORE_FIRST_SIGNAL", "3.0"))
+        else:
+            z = 0.0
         return round(z, 3), round(mean, 4), round(std, 4)
 
     def _update_baseline(self, theater: str, today_normalized: float):
