@@ -304,16 +304,23 @@ CT_LOG_SURGE_THRESHOLD        = int(os.getenv("CT_LOG_SURGE_THRESHOLD", "100"))
 CT_LOG_WARMUP_DAYS                  = int(os.getenv("CT_LOG_WARMUP_DAYS", "14"))
 # How far back the sensor looks for newly-issued certs at each poll.
 CT_LOG_OBSERVATION_WINDOW_HOURS     = int(os.getenv("CT_LOG_OBSERVATION_WINDOW_HOURS", "24"))
-# Hard cap on watched-domain queries per fetch (per theater). crt.sh is rate-
-# limited and identity-match queries take ~5-15s each; without a cap a country
-# with 13 watched domains would blow the 60s scheduler budget in cold-cache
-# scenarios. Domains are queried round-robin across cycles to ensure all are
-# covered over time.
-CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv("CT_LOG_MAX_QUERIES_PER_THEATER", "8"))
+# Hard cap on watched-domain queries per fetch (per theater). crt.sh enforces
+# an aggressive unauthenticated rate limit (empirically ~5-10 req/min); the v1
+# default of 8 queries × N theaters with 0.4s pacing was rate-limited on >75%
+# of requests. Round-robin across cycles ensures all domains in the watched
+# set are covered over time — at 2/cycle on a 9-domain set the full sweep
+# completes every ~5 hours, which is well within the relevance window of the
+# CA-anomaly signal we are measuring.
+CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv("CT_LOG_MAX_QUERIES_PER_THEATER", "2"))
 # Per-domain query timeout. crt.sh ?Identity= queries return in 1-15s normally
 # but spike to 30s+ on overloaded responses (which usually 502). Cap at 10s and
 # treat as a transient miss.
 CT_LOG_QUERY_TIMEOUT_SEC            = int(os.getenv("CT_LOG_QUERY_TIMEOUT_SEC", "10"))
+# Pacing between successive crt.sh queries within a cycle. crt.sh prefers
+# polite serial clients; 4s gives us a sustainable ~15 req/min upper bound
+# across all theaters, comfortably under the unauthenticated rate limit even
+# when multiple theaters fire in the same cycle.
+CT_LOG_INTER_QUERY_SLEEP_SEC        = float(os.getenv("CT_LOG_INTER_QUERY_SLEEP_SEC", "4.0"))
 
 # Watched domains by theater — loaded from geo_data.json above.
 CT_LOG_WATCHED_DOMAINS: dict[str, list[str]] = {

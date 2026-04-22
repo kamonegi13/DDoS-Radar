@@ -52,6 +52,7 @@ from radar.config import (
     CT_LOG_OBSERVATION_WINDOW_HOURS,
     CT_LOG_MAX_QUERIES_PER_THEATER,
     CT_LOG_QUERY_TIMEOUT_SEC,
+    CT_LOG_INTER_QUERY_SLEEP_SEC,
 )
 from radar import database as _db_mod
 
@@ -164,6 +165,11 @@ class CtLogSensor(BaseSensor):
             "wildcard_tld": 0,
             "warmup_recorded": 0,
         }
+        # Per-cycle rate-limit guard. Set when crt.sh returns 429; the active
+        # fetch() loop checks this between domains and aborts early to avoid
+        # hammering the upstream further. Reset at the top of each fetch().
+        self._rate_limited_this_cycle: bool = False
+        self._last_retry_after_sec: int = 0
 
     # ── Identity-match query (fast crt.sh path) ───────────────────────────
     def _fetch_identity(self, domain: str, log_level: int) -> list[dict] | None:
@@ -218,7 +224,18 @@ class CtLogSensor(BaseSensor):
 
             if res.status_code == 429:
                 self._failure_modes["http_4xx"] += 1
-                log.warning(f"[CTLog] Rate limited (429) for {domain}, skipping")
+                # Honor Retry-After if present; otherwise cap at 60s.
+                retry_after = res.headers.get("Retry-After", "")
+                try:
+                    retry_sec = min(60, int(float(retry_after))) if retry_after else 0
+                except ValueError:
+                    retry_sec = 0
+                self._rate_limited_this_cycle = True
+                self._last_retry_after_sec = retry_sec
+                log.warning(
+                    f"[CTLog] Rate limited (429) for {domain}; "
+                    f"retry_after={retry_sec}s — aborting remainder of cycle"
+                )
                 return None
             if 400 <= res.status_code < 500:
                 self._failure_modes["http_4xx"] += 1
@@ -396,6 +413,11 @@ class CtLogSensor(BaseSensor):
     # ── Main fetch loop ───────────────────────────────────────────────────
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
+        # Reset per-cycle rate-limit guard. If crt.sh starts 429ing mid-cycle
+        # we abort the remainder rather than burn the rest of our budget on
+        # rejected requests.
+        self._rate_limited_this_cycle = False
+        self._last_retry_after_sec = 0
         theaters = context.get("strategic_theaters", []) or []
         adversaries = context.get("adversary_states", []) or []
         all_targets = sorted(set(theaters + adversaries))
@@ -436,6 +458,11 @@ class CtLogSensor(BaseSensor):
                 warmup_any = False
 
                 for domain in domains:
+                    if self._rate_limited_this_cycle:
+                        # Stop hammering crt.sh as soon as it 429s. The
+                        # remaining domains will be picked up by the round-
+                        # robin selector on the next cycle.
+                        break
                     certs = self._fetch_identity(domain, log_level)
                     if certs is None:
                         # Transport failure — already counted in failure_modes
@@ -472,9 +499,14 @@ class CtLogSensor(BaseSensor):
 
                     # Mild pacing — crt.sh is happier with serial requests
                     # than with parallel ones from the same client IP.
-                    time.sleep(0.4)
+                    time.sleep(CT_LOG_INTER_QUERY_SLEEP_SEC)
 
                 any_success = any_success or any_real_response
+
+                if self._rate_limited_this_cycle:
+                    # Skip remaining theaters too — the rate-limit window
+                    # applies to our client IP, not per-domain.
+                    break
 
                 # Trim to top events for transport
                 untrusted_top = aggregate_untrusted[:10]
@@ -578,4 +610,7 @@ class CtLogSensor(BaseSensor):
             "warmup_days": CT_LOG_WARMUP_DAYS,
             "observation_window_hours": CT_LOG_OBSERVATION_WINDOW_HOURS,
             "queries_per_theater_per_cycle": CT_LOG_MAX_QUERIES_PER_THEATER,
+            "inter_query_sleep_sec": CT_LOG_INTER_QUERY_SLEEP_SEC,
+            "rate_limited_last_cycle": self._rate_limited_this_cycle,
+            "last_retry_after_sec": self._last_retry_after_sec,
         }
