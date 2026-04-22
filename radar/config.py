@@ -312,10 +312,13 @@ CT_LOG_OBSERVATION_WINDOW_HOURS     = int(os.getenv("CT_LOG_OBSERVATION_WINDOW_H
 # completes every ~5 hours, which is well within the relevance window of the
 # CA-anomaly signal we are measuring.
 CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv("CT_LOG_MAX_QUERIES_PER_THEATER", "2"))
-# Per-domain query timeout. crt.sh ?Identity= queries return in 1-15s normally
-# but spike to 30s+ on overloaded responses (which usually 502). Cap at 10s and
-# treat as a transient miss.
-CT_LOG_QUERY_TIMEOUT_SEC            = int(os.getenv("CT_LOG_QUERY_TIMEOUT_SEC", "10"))
+# Per-domain query timeout. Phase 2 raised the floor from 10s → 30s after
+# production telemetry showed crt.sh response times routinely fall in the
+# 7-30s band even when the upstream eventually delivers a 200 — clipping at
+# 10s was the dominant driver of the chronic-silence symptom that started
+# this whole rework. Certspotter typically completes in <3s, so the bump
+# only affects crt.sh fallback latency, not the fast path.
+CT_LOG_QUERY_TIMEOUT_SEC            = int(os.getenv("CT_LOG_QUERY_TIMEOUT_SEC", "30"))
 # Pacing between successive crt.sh queries within a cycle. crt.sh prefers
 # polite serial clients; 4s gives us a sustainable ~15 req/min upper bound
 # across all theaters, comfortably under the unauthenticated rate limit even
@@ -331,6 +334,14 @@ CT_LOG_BUFFER_MAX_OBS               = int(os.getenv("CT_LOG_BUFFER_MAX_OBS", "50
 # Degraded-mode poll interval. Triggered after _UPSTREAM_FAIL_THRESHOLD
 # consecutive zero-data cycles; resets to _NORMAL_INTERVAL on first success.
 CT_LOG_DEGRADED_INTERVAL_SEC        = int(os.getenv("CT_LOG_DEGRADED_INTERVAL_SEC", "14400"))
+# Certspotter primary source (Phase 2). Optional API token raises the free
+# tier's 30 req/hr cap substantially when provisioned; without one the
+# token-bucket caps local issuance at CT_LOG_CERTSPOTTER_RATE_LIMIT_CALLS
+# per CT_LOG_CERTSPOTTER_RATE_LIMIT_WINDOW_SEC. Defaults sized for the
+# free tier with headroom.
+CERTSPOTTER_API_TOKEN               = os.getenv("CERTSPOTTER_API_TOKEN", "").strip()
+CT_LOG_CERTSPOTTER_RATE_LIMIT_CALLS      = int(os.getenv("CT_LOG_CERTSPOTTER_RATE_LIMIT_CALLS", "25"))
+CT_LOG_CERTSPOTTER_RATE_LIMIT_WINDOW_SEC = int(os.getenv("CT_LOG_CERTSPOTTER_RATE_LIMIT_WINDOW_SEC", "3600"))
 
 # Watched domains by theater — loaded from geo_data.json above.
 CT_LOG_WATCHED_DOMAINS: dict[str, list[str]] = {

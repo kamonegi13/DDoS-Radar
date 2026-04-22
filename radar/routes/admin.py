@@ -13,7 +13,7 @@ from radar.database import db as _db
 from radar.persistence import save_state
 from radar.sensors.telegram import TelegramMirrorSensor
 import radar.routes as _routes
-from radar.routes import bp, _require_admin, _safe_int
+from radar.routes import bp, _require_admin, _require_analyst, _safe_int
 
 # -- Secret masking for GET /api/env_config -----------------------------------
 _SECRET_PATTERNS = ("SECRET", "PASSWORD", "TOKEN", "WEBHOOK", "API_KEY")
@@ -644,4 +644,97 @@ def api_admin_scenario_changelog(scenario_id: str):
     limit = _safe_int(request.args.get("limit", "50"), 50, min_val=1, max_val=500)
     logs = _db.scenario_change_log(scenario_id, limit=limit)
     return jsonify({"scenario_id": scenario_id, "changes": logs})
+
+
+@bp.route("/api/admin/sensor_health", methods=["GET"])
+def api_admin_sensor_health():
+    """Aggregate per-sensor health for the operator diagnostics panel.
+
+    Three data sources are merged per sensor:
+      1. live introspection from the registry (health enum, CB state,
+         last_error, cache age) via to_config_dict()
+      2. historical reliability over the requested window from
+         sensor_fetch_log (success rate, avg duration)
+      3. optional sensor-specific upstream telemetry from
+         upstream_health() — duck-typed; only CtLogSensor exposes it
+         today and ships ADR-024 failure_modes counters
+
+    Without aggregation operators have to grep three separate panels to
+    answer "is sensor X actually getting data?". The summary block at the
+    bottom is for at-a-glance fleet status.
+    """
+    auth_err = _require_analyst()
+    if auth_err: return auth_err
+    hours = _safe_int(request.args.get("hours", "24"), 24, min_val=1, max_val=168)
+
+    if _routes.registry is None:
+        return jsonify({"error": "registry not initialized"}), 503
+
+    reliability_rows = _db.fetch_log_reliability(hours=hours) or []
+    reliability_by_name = {r["sensor_name"]: r for r in reliability_rows}
+
+    with _routes.registry._lock:
+        sensors_snapshot = list(_routes.registry._sensors.values())
+
+    out_sensors = []
+    summary = {
+        "total": 0, "ok": 0, "degraded": 0, "stale": 0,
+        "error": 0, "circuit_open": 0, "disabled": 0, "initializing": 0,
+    }
+    for s in sensors_snapshot:
+        cfg = s.to_config_dict()
+        name = cfg.get("name")
+        rel = reliability_by_name.get(name, {})
+        upstream = None
+        if hasattr(s, "upstream_health"):
+            try:
+                upstream = s.upstream_health()
+            except Exception as e:
+                upstream = {"error": f"upstream_health() raised: {type(e).__name__}: {e}"}
+        out_sensors.append({
+            "name": name,
+            "domain": cfg.get("domain"),
+            "enabled": cfg.get("enabled"),
+            "health": cfg.get("health"),
+            "poll_interval_sec": cfg.get("poll_interval_sec"),
+            "cache_age_sec": cfg.get("cache_age_sec"),
+            "last_fetch_ts": cfg.get("last_fetch_ts"),
+            "last_error": cfg.get("last_error"),
+            "cb_state": cfg.get("cb_state"),
+            "cb_fail_count": cfg.get("cb_fail_count"),
+            "reliability": {
+                "window_hours": hours,
+                "total_fetches": rel.get("total_fetches", 0),
+                "success_rate": rel.get("success_rate", 0.0),
+                "avg_duration_ms": rel.get("avg_duration_ms", 0),
+                "first_seen": rel.get("first_seen"),
+                "last_seen": rel.get("last_seen"),
+            },
+            "upstream": upstream,
+        })
+
+        summary["total"] += 1
+        h = (cfg.get("health") or "").lower()
+        if not cfg.get("enabled"):
+            summary["disabled"] += 1
+        elif cfg.get("cb_state") == "OPEN":
+            summary["circuit_open"] += 1
+        elif h == "ok":
+            summary["ok"] += 1
+        elif h == "degraded":
+            summary["degraded"] += 1
+        elif h == "stale":
+            summary["stale"] += 1
+        elif h == "error":
+            summary["error"] += 1
+        elif h == "initializing":
+            summary["initializing"] += 1
+
+    out_sensors.sort(key=lambda x: (x["name"] or ""))
+    return jsonify({
+        "ts": _time.time(),
+        "window_hours": hours,
+        "summary": summary,
+        "sensors": out_sensors,
+    })
 

@@ -205,6 +205,46 @@ def test_empty_response_arms_warmup_marker(testdb, monkeypatch):
     assert sensor._buffer.stats()["observations_in_buffer"] == 0
 
 
+def test_alive_response_with_only_out_of_window_certs_arms_marker(testdb, monkeypatch):
+    """Phase 2B regression: certspotter's first call to a domain returns
+    at most one historical issuance. When that issuance is older than the
+    24h observation window, the orchestrator's drain filters it out — but
+    we still know upstream sees the domain, so the warm-up marker MUST be
+    armed. Prior behavior gated marker arming on `not got_data`, leaving
+    those domains stuck in 'never observed' forever and never converging
+    onto a known-CA baseline."""
+    from radar.config import CT_LOG_WATCHED_DOMAINS, CT_LOG_OBSERVATION_WINDOW_HOURS
+    fresh_domains = [d for d in CT_LOG_WATCHED_DOMAINS["TW"]
+                     if testdb.ct_log_first_observed(d) is None]
+    assert fresh_domains, "fixture invariant"
+
+    # Inject one observation per polled domain that is older than the
+    # observation window — drain will filter it out at scoring time.
+    out_of_window_offset = -((CT_LOG_OBSERVATION_WINDOW_HOURS + 1) * 3600)
+    sensor = CtLogSensor()
+    sensor._pull_sources = [FakePullSource(default=[
+        [_obs("placeholder.example", not_before_offset_sec=out_of_window_offset)]
+    ])]
+    # Patch the obs construction so domain matches whatever the orchestrator
+    # asked about — easier than threading per-domain queues for this test.
+    real_fetch = sensor._pull_sources[0].fetch_domain
+
+    def fetch_with_matching_domain(domain):
+        rs = real_fetch(domain)
+        if isinstance(rs, list) and rs:
+            patched = [_obs(domain, not_before_offset_sec=out_of_window_offset)]
+            return patched
+        return rs
+
+    sensor._pull_sources[0].fetch_domain = fetch_with_matching_domain
+
+    sensor.fetch({"strategic_theaters": ["TW"], "adversary_states": []})
+
+    after = [d for d in fresh_domains if testdb.ct_log_first_observed(d) is not None]
+    assert after, ("first_observed must arm even when the response carried "
+                   "only out-of-window certs — alive=True is the signal")
+
+
 # ── Multi-source idempotency ─────────────────────────────────────────────
 
 def test_duplicate_observation_across_sources_fires_once(warm_taiwan_ctx, testdb):
@@ -295,6 +335,148 @@ def test_upstream_health_aggregates_per_source():
     # capacity_used_pct without conditional UI.
     assert "buffer" in health
     assert "observations_in_buffer" in health["buffer"]
+
+
+# ── sensor_fetch_log.error source-degradation summary ───────────────────
+
+class _DegradedFakeSource(BaseCtLogPullSource):
+    """Pull source whose health() reports specific degradation flags.
+
+    Used to assert the orchestrator's _summarize_source_state composes the
+    sensor_fetch_log.error tag correctly. fetch_domain returns None so the
+    orchestrator treats the source as transport-failing this cycle.
+    """
+
+    def __init__(self, name: str, health_payload: dict):
+        self.name = name
+        self._health = health_payload
+
+    def fetch_domain(self, domain):
+        return None
+
+    def health(self) -> dict:
+        return self._health
+
+
+def test_summarize_source_state_silent_when_all_healthy():
+    sensor = CtLogSensor()
+    sensor._pull_sources = [_DegradedFakeSource("foo", {
+        "status": "healthy",
+        "consecutive_failures": 0,
+        "mode_counters": {"timeout": 0},
+        "source_specific": {"cb_open": False, "rate_limited": False},
+    })]
+    assert sensor._summarize_source_state() == ""
+
+
+def test_summarize_source_state_flags_cb_open_and_rate_limited():
+    sensor = CtLogSensor()
+    sensor._pull_sources = [
+        _DegradedFakeSource("certspotter", {
+            "status": "healthy",
+            "consecutive_failures": 0,
+            "mode_counters": {},
+            "source_specific": {
+                "cb_open": False,
+                "rate_limited": True,
+                "rate_limited_remaining_sec": 71,
+            },
+        }),
+        _DegradedFakeSource("crtsh", {
+            "status": "healthy",
+            "consecutive_failures": 0,
+            "mode_counters": {},
+            "source_specific": {
+                "cb_open": True,
+                "cb_open_remaining_sec": 300,
+                "rate_limited": False,
+            },
+        }),
+    ]
+    summary = sensor._summarize_source_state()
+    assert "certspotter=rate_limited(71s)" in summary
+    assert "crtsh=cb_open(300s)" in summary
+
+
+def test_summarize_source_state_includes_dead_with_top_modes():
+    sensor = CtLogSensor()
+    sensor._pull_sources = [_DegradedFakeSource("crtsh", {
+        "status": "dead",
+        "consecutive_failures": 8,
+        "mode_counters": {"timeout": 5, "http_5xx": 3, "conn_error": 1},
+        "source_specific": {"cb_open": False, "rate_limited": False},
+    })]
+    summary = sensor._summarize_source_state()
+    assert "crtsh=dead:cf=8" in summary
+    # Top-2 most frequent failure modes.
+    assert "timeout=5" in summary
+    assert "http_5xx=3" in summary
+    # Lower-frequency mode is not promoted.
+    assert "conn_error" not in summary
+
+
+def test_summarize_source_state_handles_health_exception():
+    class _BrokenHealth(BaseCtLogPullSource):
+        name = "broken"
+
+        def fetch_domain(self, d):
+            return None
+
+        def health(self):
+            raise RuntimeError("boom")
+
+    sensor = CtLogSensor()
+    sensor._pull_sources = [_BrokenHealth()]
+    assert sensor._summarize_source_state() == "broken=health_err:RuntimeError"
+
+
+def test_fetch_log_error_combines_country_and_source_degradation(
+    warm_taiwan_ctx, testdb, monkeypatch
+):
+    """End-to-end: when a source reports degradation AND a per-country
+    scoring branch raises, the sensor_fetch_log error field should carry
+    both signals so an operator reading /api/admin/sensor_fetch_log sees
+    the full picture without cross-checking /api/admin/sensor_health."""
+    ctx, domain = warm_taiwan_ctx
+
+    # Active fake delivers a normal cert so drain has an entry → the per-
+    # country branch enters _inspect_domain and the patched exception
+    # surfaces from the per-country try/except, not the outer drain.
+    active_fake = FakePullSource(default=[[_obs(domain)]])
+    # Degraded fake reports rate_limit; orchestrator skips it because
+    # the active fake's response stops the fallback chain. Its health()
+    # is what the summary helper picks up.
+    degraded = _DegradedFakeSource("certspotter", {
+        "status": "healthy",
+        "consecutive_failures": 0,
+        "mode_counters": {},
+        "source_specific": {
+            "cb_open": False,
+            "rate_limited": True,
+            "rate_limited_remaining_sec": 120,
+        },
+    })
+
+    sensor = CtLogSensor()
+    sensor._pull_sources = [active_fake, degraded]
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("inspect failure")
+
+    monkeypatch.setattr(sensor, "_inspect_domain", _boom)
+
+    captured: dict = {}
+
+    def _capture_log(success, duration_ms, items_found, items_fresh, error):
+        captured["error"] = error
+
+    monkeypatch.setattr(sensor, "log_fetch", _capture_log)
+    sensor.fetch(ctx)
+
+    err = captured.get("error", "")
+    assert "errors(TW)" in err
+    assert "src(" in err
+    assert "certspotter=rate_limited(120s)" in err
 
 
 # ── Parity: legacy single-cycle flow vs orchestrator drain ───────────────

@@ -46,6 +46,9 @@ from radar.config import (
     CT_LOG_INTER_QUERY_SLEEP_SEC,
     CT_LOG_BUFFER_MAX_OBS,
     CT_LOG_DEGRADED_INTERVAL_SEC,
+    CERTSPOTTER_API_TOKEN,
+    CT_LOG_CERTSPOTTER_RATE_LIMIT_CALLS,
+    CT_LOG_CERTSPOTTER_RATE_LIMIT_WINDOW_SEC,
 )
 from radar.sensors.ct_log_sources import (
     CertObservation,
@@ -53,6 +56,7 @@ from radar.sensors.ct_log_sources import (
     BaseCtLogPushSource,
     ObservationBuffer,
 )
+from radar.sensors.ct_log_sources.certspotter import CertspotterSource
 from radar.sensors.ct_log_sources.crtsh import CrtshSource
 from radar import database as _db_mod
 
@@ -117,15 +121,28 @@ class CtLogSensor(BaseSensor):
         # per-cycle budget allows.
         self._query_cursor: dict[str, int] = {}
 
-        # Multi-source pipeline. Phase 1: crt.sh REST only. Phase 2 will
-        # prepend a CertstreamSource so the buffer is fed even when crt.sh
-        # is dead; the orchestrator does not need to change to consume
-        # additional sources.
+        # Multi-source pipeline. Phase 2 promotes CertspotterSource to
+        # primary after the root-cause investigation showed crt.sh's
+        # chronic instability — 7-30s response times against the prior
+        # 10s timeout, plus 404s on apex-only ?Identity= queries — was
+        # the underlying driver of the chronic-silence symptom that
+        # started this rework. Certspotter's `include_subdomains=true`
+        # query collapses what previously needed N round-robin
+        # subdomain queries per theater into one fast call. CrtshSource
+        # stays as fallback for the cases certspotter rejects (some
+        # ccTLD gov domains 403 from certspotter — see Phase 2D audit).
         self._buffer = ObservationBuffer(
             max_obs=CT_LOG_BUFFER_MAX_OBS,
             window_hours=CT_LOG_OBSERVATION_WINDOW_HOURS,
         )
-        self._pull_sources: list[BaseCtLogPullSource] = [CrtshSource()]
+        self._pull_sources: list[BaseCtLogPullSource] = [
+            CertspotterSource(
+                api_token=CERTSPOTTER_API_TOKEN,
+                rate_limit_calls=CT_LOG_CERTSPOTTER_RATE_LIMIT_CALLS,
+                rate_limit_window_sec=CT_LOG_CERTSPOTTER_RATE_LIMIT_WINDOW_SEC,
+            ),
+            CrtshSource(),
+        ]
         self._push_sources: list[BaseCtLogPushSource] = []
 
         # Aggregate self-healing — driven by "any source delivered any
@@ -324,28 +341,58 @@ class CtLogSensor(BaseSensor):
             for domain in domains:
                 alive = False
                 got_data = False
+                # Fallback semantics: pull sources are tried in priority
+                # order; subsequent sources fire only when the prior one
+                # returns None (hard failure / CB-open / rate-limited).
+                # A 200-empty from the primary is a successful response
+                # and stops the fallback chain — the buffer's idempotency
+                # key already collapses cross-source duplicates, but
+                # avoiding the redundant call saves budget on the
+                # rate-limited free-tier sources (certspotter at 25 req/hr
+                # local, 30 req/hr upstream).
                 for source in self._pull_sources:
                     any_pull_attempt = True
                     obs_list = source.fetch_domain(domain)
                     if obs_list is None:
                         # Source skipped (CB open / rate-limited) or hard
                         # failure. Already counted in source's failure_modes.
+                        # Keep walking the chain.
                         continue
                     alive = True
                     if obs_list:
                         got_data = True
                         for obs in obs_list:
                             self._buffer.record(obs)
-                    # Mild pacing — crt.sh is happier with serial requests
-                    # than with parallel ones from the same client IP.
-                    time.sleep(CT_LOG_INTER_QUERY_SLEEP_SEC)
+                    # Stop on first source that responded — even an empty
+                    # 200 is authoritative ("upstream confirms no recent
+                    # certs for this domain"). Fallback is for transport
+                    # failures only.
+                    break
 
                 if alive:
                     any_real_response = True
-                    if not got_data and db.ct_log_first_observed(domain) is None:
-                        # 200-empty confirms upstream knows the domain;
-                        # arm the warm-up marker on first contact.
+                    if db.ct_log_first_observed(domain) is None:
+                        # Any 200 response (data or empty) confirms upstream
+                        # knows about this watched domain — arm the warm-up
+                        # marker on first contact. We previously gated this
+                        # on `not got_data` so the in-window observation
+                        # path could record the marker via _inspect_domain,
+                        # but Phase 2 surfaced a corner case: certspotter's
+                        # first call to a domain returns at most one
+                        # historical issuance, which is then filtered out
+                        # by the 24h observation window at drain time. The
+                        # marker never armed, the domain never warmed up,
+                        # and the watched-list never converged. Arming on
+                        # any alive response handles both 200-empty and
+                        # 200+old-cert uniformly. _inspect_domain still
+                        # arms it for the 200+in-window-cert path on first
+                        # contact, which is idempotent.
                         db.ct_log_set_first_observed(domain, now)
+                # Mild pacing between domains — keeps the orchestrator
+                # polite to whichever source ended up answering. Applied
+                # outside the source loop so unused fallback budget isn't
+                # eaten by sleep cycles.
+                time.sleep(CT_LOG_INTER_QUERY_SLEEP_SEC)
 
         # Push sources may have written into the buffer asynchronously;
         # they contribute to "real response" via buffer source-freshness.
@@ -442,7 +489,19 @@ class CtLogSensor(BaseSensor):
                 log.warning(f"[CTLog] Error for {code}: {e}")
 
         duration = round((time.time() - t0) * 1000)
-        combined_error = f"errors({','.join(error_countries)})" if error_countries else ""
+        # Compose the fetch_log error field so /api/admin/sensor_fetch_log
+        # tells an operator at a glance whether silence is from per-country
+        # scoring exceptions, source-level degradation (CB-open / rate-
+        # limited / persistent failure mode), or both. Without the source
+        # tag, a quiet cycle looked indistinguishable from a healthy cycle
+        # whose theaters happened to have no fresh certs.
+        src_summary = self._summarize_source_state()
+        err_parts: list[str] = []
+        if error_countries:
+            err_parts.append(f"errors({','.join(error_countries)})")
+        if src_summary:
+            err_parts.append(f"src({src_summary})")
+        combined_error = "; ".join(err_parts)
         self.log_fetch(any_real_response, duration, 0,
                        sum(d.get("total_recent", 0) for d in ct_data.values()),
                        combined_error)
@@ -479,6 +538,48 @@ class CtLogSensor(BaseSensor):
             "ct_data": {},
             "country_status": {c: "NORMAL" for c in all_targets},
         }
+
+    def _summarize_source_state(self) -> str:
+        """Compact one-line summary of per-source degradation, for the
+        sensor_fetch_log.error field.
+
+        Only sources actively blocking work are mentioned: CB-open, rate-
+        limited, or status=="dead". A healthy/unknown source with zero
+        failure-mode counts is silent so the field stays empty on normal
+        cycles. The companion structured view lives in upstream_health()
+        / /api/admin/sensor_health for the full per-source dict.
+        """
+        parts: list[str] = []
+        for src in self._pull_sources:
+            try:
+                h = src.health()
+            except Exception as e:
+                parts.append(f"{src.name}=health_err:{type(e).__name__}")
+                continue
+            ss = h.get("source_specific", {})
+            flags: list[str] = []
+            if ss.get("cb_open"):
+                r = ss.get("cb_open_remaining_sec", 0)
+                flags.append(f"cb_open({int(r)}s)")
+            if ss.get("rate_limited"):
+                r = ss.get("rate_limited_remaining_sec", 0)
+                flags.append(f"rate_limited({int(r)}s)")
+            status = h.get("status", "unknown")
+            if status == "dead":
+                cf = h.get("consecutive_failures", 0)
+                top_modes = sorted(
+                    ((k, v) for k, v in h.get("mode_counters", {}).items()
+                     if v),
+                    key=lambda kv: -kv[1],
+                )[:2]
+                tag = f"dead:cf={cf}"
+                if top_modes:
+                    tag += "(" + ",".join(
+                        f"{k}={v}" for k, v in top_modes) + ")"
+                flags.append(tag)
+            if flags:
+                parts.append(f"{src.name}=" + "+".join(flags))
+        return ";".join(parts)
 
     def upstream_health(self) -> dict:
         """Return upstream health for the /api/admin/sensor_health endpoint.

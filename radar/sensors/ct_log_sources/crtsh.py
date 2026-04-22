@@ -23,6 +23,12 @@ from radar.sensors.ct_log_sources.base import (
     CertObservation,
 )
 from radar.sensors.ct_log_sources.buffer import make_observation
+from radar.sensors.ct_log_sources.issuer_parse import parse_issuer
+
+# Backward-compat alias — tests imported this name when the parser still
+# lived in this module. Keeping the symbol stable means the parser move
+# is invisible to callers.
+_parse_issuer = parse_issuer
 
 log = logging.getLogger("radar")
 
@@ -37,33 +43,6 @@ _FAILURE_MODES_INIT = {
     "json_error": 0,
     "empty_result": 0,
 }
-
-
-def _parse_issuer(issuer_name: str) -> tuple[str, str]:
-    """Return (normalized_for_dedup, raw_for_display).
-
-    Mirror of the function previously living inside CtLogSensor. Kept
-    here so the crt.sh source can construct properly-keyed
-    CertObservations without importing back into ct_log.py (avoids the
-    orchestrator → source → orchestrator import cycle).
-    """
-    if not issuer_name:
-        return ("unknown", "unknown")
-    raw = issuer_name.strip()
-    parsed_o = None
-    for part in raw.split(","):
-        s = part.strip()
-        if s.upper().startswith("O="):
-            parsed_o = s[2:].strip().strip('"').strip("'")
-            break
-    if not parsed_o:
-        for part in raw.split(","):
-            s = part.strip()
-            if s.upper().startswith("CN="):
-                parsed_o = s[3:].strip().strip('"').strip("'")
-                break
-    canonical = (parsed_o or raw).lower().strip()
-    return (canonical, raw)
 
 
 class CrtshSource(BaseCtLogPullSource):
@@ -118,7 +97,7 @@ class CrtshSource(BaseCtLogPullSource):
         out: list[CertObservation] = []
         for cert in certs[:200]:
             issuer = (cert.get("issuer_name") or "").strip()
-            ca_norm, ca_raw = _parse_issuer(issuer)
+            ca_norm, ca_raw = parse_issuer(issuer)
             if ca_norm == "unknown":
                 continue
             cn = (cert.get("common_name") or cert.get("name_value") or "").strip()
