@@ -289,8 +289,63 @@ USGS_CABLE_RADIUS_KM          = float(os.getenv("USGS_CABLE_RADIUS_KM", "200"))
 GPS_JAM_THRESHOLD             = float(os.getenv("GPS_JAM_THRESHOLD", "3.0"))
 GPS_JAM_CRITICAL_THRESHOLD    = float(os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "7.0"))
 
-# S7: CT Log
+# S7: CT Log (signal-model redesign — see ADR-024)
+# Legacy CT_LOG_SURGE_THRESHOLD retained for backward compat in admin UI but no
+# longer used by the new identity-match scoring path.
 CT_LOG_SURGE_THRESHOLD        = int(os.getenv("CT_LOG_SURGE_THRESHOLD", "100"))
+# New domain warm-up window: a domain whose first observation is younger than
+# this is treated as "learning" — every CA seen is recorded into the known-CA
+# table without firing an anomaly. Without a warm-up the very first poll would
+# fire UNTRUSTED_CA_DETECTED for every CA the project has never recorded
+# before, even when those CAs are perfectly normal for that domain. 14 days
+# typically covers a full ACME renewal cycle (LE = 90d but most enterprises
+# rotate every 60-90d; 14d is the floor that still catches multi-CA enterprise
+# setups visible only at renewal time).
+CT_LOG_WARMUP_DAYS                  = int(os.getenv("CT_LOG_WARMUP_DAYS", "14"))
+# How far back the sensor looks for newly-issued certs at each poll.
+CT_LOG_OBSERVATION_WINDOW_HOURS     = int(os.getenv("CT_LOG_OBSERVATION_WINDOW_HOURS", "24"))
+# Hard cap on watched-domain queries per fetch (per theater). crt.sh is rate-
+# limited and identity-match queries take ~5-15s each; without a cap a country
+# with 13 watched domains would blow the 60s scheduler budget in cold-cache
+# scenarios. Domains are queried round-robin across cycles to ensure all are
+# covered over time.
+CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv("CT_LOG_MAX_QUERIES_PER_THEATER", "8"))
+# Per-domain query timeout. crt.sh ?Identity= queries return in 1-15s normally
+# but spike to 30s+ on overloaded responses (which usually 502). Cap at 10s and
+# treat as a transient miss.
+CT_LOG_QUERY_TIMEOUT_SEC            = int(os.getenv("CT_LOG_QUERY_TIMEOUT_SEC", "10"))
+
+# Watched domains by theater — loaded from geo_data.json above.
+CT_LOG_WATCHED_DOMAINS: dict[str, list[str]] = {
+    k: v for k, v in (_raw_geo.get("CT_LOG_WATCHED_DOMAINS", {}) or {}).items()
+    if k != "_comment" and isinstance(v, list)
+}
+
+# Globally-trusted CA name substrings. A cert whose issuer name contains any of
+# these substrings (case-insensitive) is considered "trusted" and never fires
+# an anomaly, regardless of per-domain history. The list is intentionally
+# weighted toward CAs that gov entities legitimately use across the full set
+# of monitored countries (LE/ACME ecosystem, major commercial CAs, EU-trusted
+# QWAC issuers). State-aligned CAs from monitored adversary nations are
+# DELIBERATELY ABSENT — a Russian gov domain suddenly issued by a Russian-
+# state CA when its history shows DigiCert is exactly the anomaly we want to
+# detect. Per-domain known-CA history is the second allow-channel for those
+# legitimate cases.
+CT_LOG_TRUSTED_CAS_GLOBAL: tuple[str, ...] = (
+    # ACME / ISRG ecosystem (dominates gov domain issuance worldwide)
+    "let's encrypt", "isrg root", "r3", "r10", "r11", "r12", "r13", "r14",
+    "e1", "e5", "e6", "e7", "e8",
+    # Major commercial roots
+    "digicert", "sectigo", "comodo", "globalsign", "entrust", "identrust",
+    "godaddy", "starfield", "ssl.com", "amazon", "microsoft", "google trust",
+    "gts ca", "cloudflare", "verisign", "thawte", "geotrust", "usertrust",
+    "aaa certificate", "baltimore cybertrust", "quovadis",
+    # EU eIDAS / national QWACs commonly used by gov entities outside the
+    # adversary set
+    "swisssign", "actalis", "harica", "buypass", "zerossl", "d-trust",
+    "telia", "atos trustcenter", "trustwave",
+)
+
 # ── LLM Intelligence ──────────────────────────────────────────────────────────
 LLM_ENABLED               = os.getenv("LLM_ENABLED", "false").lower() in ("true", "1", "yes")
 LLM_HOST                  = os.getenv("LLM_HOST", "http://localhost:11434")

@@ -642,53 +642,88 @@ contribution dict に `score_raw`, `age_hours`, `age_weight` を追加。`detail
 
 ---
 
-### ADR-024: CTLog sensor の上流耐障害性 — REST 単一上流のまま強化
+### ADR-024: CTLog sensor — シグナルモデル再設計（identity-match × untrusted-CA 検出）
 
 **Status**: Accepted (2026-04-21)
+**Revised**: Superseded by signal-model redesign (2026-04-22). Original transport-only hardening was insufficient — see "Why the v1 hardening was wrong" below.
 
 **Context**:
-CTLog センサー（`radar/sensors/ct_log.py`）は crt.sh の REST 上流（`https://crt.sh/?q=...&output=json`）を唯一のデータ源としているが、この上流は慢性的に不安定で、本セッション中の実測でも **15 秒タイムアウトで 1 バイトも返らない** 完全停止状態を確認した（`502 Bad Gateway` だけでなく接続レベルのハング）。既存実装には以下の問題があった:
+CTLog センサー（`radar/sensors/ct_log.py`）は crt.sh の REST 上流を唯一のデータ源としているが、本セッション中の実測で 4 層にわたる根本問題を確認した:
 
-1. `2xx` 以外の HTTP ステータス（502/503/504）を **明示的に判定するブランチが無く**、サイレントに失敗扱いになっていた
-2. リクエストタイムアウトが 3 秒固定で、crt.sh のウォームアップ時応答（6〜10 秒）を全部殺していた
-3. 失敗時の telemetry が `success/failure` 2 値のみで、「タイムアウト」「502」「JSON パース失敗」「空配列」が区別できず、運用者は **「データが取れない理由」を判別できない**
+| Layer | 症状 | 根本原因 |
+|-------|------|---------|
+| **L1: Transport** | `/?q=%.gov.tw&output=json` が **nginx 502 を 1.5 秒で返す**（タイムアウト前にエッジで蹴られる） | 上流 crt.sh は volunteer 運営の不安定サービスで、ピーク時に backend pool が枯渇する |
+| **L2: Query shape** | 同じ上流に `?Identity=mofa.gov.tw` を投げると **200 OK で約 10 秒**で正常応答 | `name_value ILIKE '%.gov.xx'` は PostgreSQL の trigram GIN index 上で leading-wildcard が効かず、**最遅コードパス**を踏む。30s `statement_timeout` を必ず超過し nginx 層で 502 になる。`?Identity=` は btree exact-match で別系統 |
+| **L3: Signal-to-noise** | gov-TLD ワイルドカードクエリは Let's Encrypt の自動更新で常に数千件返る — **ノイズ床が高すぎる** | gov ドメイン全体に対する「件数サージ」は LE 普及により事実上恒常状態 |
+| **L4: Purpose misfit** | スコアが「count surge」を測っていたが、本来検出したい脅威は「**普段と異なる CA が gov ドメインに発行している**」事象 | 件数の増減ではなく **発行者(issuer)の異常**こそが MITM 準備や DNS hijacking の前兆 |
 
-ユーザー指示「DISABLE では問題が解決しない、なぜ取れないのか深く考えるべき」に従い、根本原因と現実的なフォールバック先を順に検証した。
+**Why the v1 hardening was wrong**:
+2026-04-21 の最初の修正は L1 のみを対象とし、タイムアウト緩和・5xx リトライ・failure-mode 細分化を入れた。しかし L2 が真因のため、`%.gov.xx` クエリは **どれだけリトライしても 502 を返す**。さらに L3/L4 を放置したため、仮に上流が安定しても「LE による日常的更新を毎サイクル誤検知する」設計のままだった。ユーザーの指摘「DISABLE では問題が解決しない、なぜ取れないのか深く考えるべき」を 4 層で受け止め直した結果、シグナルモデル自体を再設計する判断に至った。
 
 **Decision**:
-**REST を唯一の上流として残しつつ、REST パスを強化する**。代替上流の追加は、検証の結果いずれも本ツールの query pattern には適合しなかったため見送る。
+4 つの設計変更を一括導入する:
 
-**検証した代替上流（すべて却下）**:
+1. **クエリ形態の刷新（L1+L2 解決）**: `%wildcard%` を捨て `?Identity=<exact_domain>` に切り替え。`CT_LOG_WATCHED_DOMAINS`（`geo_data.json`、27 ヶ国 × 約 9 ドメイン = 計 238）を curated set として保持し、各 watched domain を順番にプローブ
+2. **per-domain CA 履歴（L4 解決）**: DB v11 マイグレーションで `ct_log_known_ca_per_domain` と `ct_log_domain_first_observed` を追加。各 watched domain について「過去観測した CA の集合」を保持し、新規 CA 出現時のみアラート
+3. **2 段階トラスト判定（L3+L4 解決）**:
+   - **グローバルトラスト**: `CT_LOG_TRUSTED_CAS_GLOBAL`（LE/DigiCert/Sectigo/GlobalSign/SwissSign/HARICA など 43 substrings）に substring マッチする issuer は常に許可（履歴更新のみ）
+   - **per-domain トラスト**: グローバル不一致でも、当該 domain の known-CA 履歴に既登録の CA は許可
+4. **Warm-up window（false-positive 抑制）**: `CT_LOG_WARMUP_DAYS=14`。新規 watched domain は 14 日間あらゆる CA を「暗黙に学習」（履歴登録のみ、アラートは出さない）。これにより監視開始時点の **bootstrap 偽陽性**を回避
 
-| 候補 | 検証結果 | 却下理由 |
-|------|---------|---------|
-| **crt.sh PostgreSQL（`crt.sh:5432`, db=`certwatch`, user=`guest`）** | 接続は可能。ただし `name_value ILIKE '%.gov.xx'` の 24h ウィンドウクエリが **30 秒の `statement_timeout` を超過**（`certificate_identity` は FTS index に置換済みで、`identities()` の GIN index は TLD パターン検索に対して粒度が粗すぎる） | クエリ shape が我々のニーズに合わない |
-| **SSLMate certspotter API** | エンドポイント自体は健全（200ms〜1.5s 応答）。だが無料プランは **eTLD 配下の specific subdomain のみ**を許可し、`gov.tw` / `gov.ph` / `mil.kr` / `go.jp` / US の `gov` `mil` などをすべて 403 拒否（`not_allowed_by_plan: not beneath an eTLD available for public registration`） | 我々が必要とする gov-TLD パターンクエリには使えない |
-| **Cloudflare/Google/Let's Encrypt CT logs（RFC 6962 直接アクセス）** | 仕様上は domain-search 不可、entry index による反復が必須 | アーキテクチャが異なり、個別実装の工数に見合わない |
+加えて、検査中に `*.gov.xx` 等 gov-TLD レベルのワイルドカード証明書を観測した場合は issuer によらず `WILDCARD_TLD_DETECTED` を fire（rare かつ高シグナル）。
 
-**REST パス強化の中身**:
+**Curation rationale（重要 — ユーザー指示「初期セットなどの妥当性については、深く考えたうえで実装してください」）**:
 
-1. **タイムアウトを 3 秒 → 8 秒に拡大**（degraded 時のみ 5 秒）。crt.sh のウォームアップ時応答（6〜10 秒）を救う
-2. **5xx ステータスに対して 1 回だけ in-cycle リトライ**（1.5s sleep）。crt.sh の edge は数秒で復旧することが多い
-3. **失敗モードを 6 種類に細分化**（`timeout` / `conn_error` / `http_5xx` / `http_4xx` / `json_error` / `empty_result`）し、`upstream_health()` で各カウンタを露出
-4. **JSON parse 失敗時に response body の先頭 80 バイトをログ出力**（crt.sh は時々 200 status で HTML エラーページを返す）
-5. **`empty_result` を独立した状態として記録**（HTTP 200 で空配列が返るケース — 「本当に該当 cert が無い」と「上流負荷で空が返った」の両方が混在しうる）
+watched domain set は以下の原則で選定:
+- 各国の **head of state（大統領府/首相府）/ MoFA / MoD / parliament / central bank / security agency** を必ず含める（attestation 価値が最も高い entities）
+- ISR2 コードキー、FQDN 値（`?Identity=` 直接照合用）。サブドメインは原則含めない（sub-namespace の cert は単体監視対象外）
+- 27 ヶ国（TW/JP/KR/CN/RU/UA/IR/IL/US/GB/DE/FR/PH/VN/IN/PK/BY/GE/PL/EE/LV/LT/FI/SE/NO/RO/AU）×8〜13 ドメイン。crt.sh 1 query あたり最悪 10 秒として、`CT_LOG_MAX_QUERIES_PER_THEATER=8`、theater あたり最大 80 秒。アクティブ theater が 8 ヶ国の時 worst-case 10 分／cycle、1 時間 poll 間隔に対して許容範囲
+
+trusted CA allowlist は以下の原則で選定:
+- **ACME / ISRG ecosystem** を網羅（LE は世界の gov domain で最大シェア）
+- **西側商用 CA（DigiCert/Sectigo/GlobalSign/Entrust/IdenTrust など）** を網羅
+- **EU eIDAS QWAC 発行者（SwissSign/HARICA/D-TRUST/Buypass など）** を含める（EU gov の正規 CA）
+- **意図的に除外**: ロシア・中国・イランの state-aligned CA（GDCA、Russian Trusted CA、IRCA など）。これにより「敵対国 CA が NATO 加盟国 MoFA に発行する」という攻撃シグネチャに **非対称な検出感度**を与える。逆に当該国自身が自国 CA を正規に使っている場合は per-domain history が learning して許可するので false-positive にはならない
+
+**スコアリング**:
+- `untrusted_ca_count > 0` → score 3、status `UNTRUSTED_CA_DETECTED`、TL3 級の signal
+- `wildcard_tld_detected = True` → score 2、status `WILDCARD_TLD_DETECTED`、TL3 級の signal
+- それ以外 → score 0、status `NORMAL` または `WARMUP`
+
+**後方互換**:
+ct_data の legacy フィールド（`total_recent`, `gov_count`, `wildcard_count`, `is_surge`, `recent_certs`）は全て保持。新フィールド（`untrusted_ca_count`, `untrusted_ca_events`, `wildcard_tld_detected`, `wildcard_tld_events`, `watched_domains`, `observed_domains`, `warmup_active`, `scoring_model`）を追加。`gov_count` は常に 0（旧概念は廃止）。`is_surge` は意味を変更し「anomaly が fire したか」を表す。
+
+**自己治癒機構の保持**:
+3 サイクル連続無応答で `degraded` モード（4h interval、theater あたり 1 ドメインのみプローブ）。1 cycle 成功で即時復帰。`upstream_health()` は T1.B sensor_health endpoint がポーリングする。
 
 **運用上の意味**:
-- crt.sh が落ちている時 CTLog がデータ無しになるのは **正常動作**。このツールが「OSINT 公開ソースに依存する」設計である以上、上流停止時は honest にデータ無しを表明するのが正しい挙動
-- Health/Diagnostics パネルで `failure_modes` カウンタを見れば、上流が落ちているのか・スロットリングされているのか・JSON が壊れているのかを **オペレータが切り分け可能**
-- 慢性的な crt.sh 停止に対しては既存の自己治癒機構（3 サイクル連続失敗で `degraded` モードに移行、4 時間プローブ間隔）がそのまま機能
+- crt.sh が落ちている間 CTLog がデータ無しになるのは正常動作（OSINT 依存設計の honest behavior）
+- Health panel で `failure_modes` と `anomaly_counts` を観察すれば、上流障害・スロットル・実 anomaly fire を区別可能
+- 14 日 warm-up 中は false-positive がほぼ 0 になる代わりに、true-positive も同期間遅延する。trade-off として受容
 
 **Consequences**:
-- ✅ サイレント失敗を排除。失敗の理由が telemetry で判別可能
-- ✅ Transient な 502 を回復可能になる（1 リトライで救える）
-- ✅ ウォームアップ時応答を殺さなくなった（タイムアウト緩和）
-- ✅ 余計な依存（`psycopg2-binary`）を導入しなかった
-- ⚠️ 上流が完全に死んでいる時はデータが取れない、という根本制約は残る。これは設計上受け入れる
-- ⚠️ 1 country あたり最大 8s × 2 attempts × N patterns に増えうる。ただし degraded 時は probe-only（1 pattern）で全体時間を抑制
+- ✅ L1〜L4 すべての層に対処。データが取れる + シグナルが正しい
+- ✅ false-positive レート激減（LE 自動更新を全シグナルから除外）
+- ✅ true-positive シグナルの semantic value 上昇（issuer 異常 = MITM 準備の直接指標）
+- ✅ 既存 consumer（`core.py` rationale, `climate.py` ClimateEvent）は backward-compat フィールドで動作継続。新シグナルは新フィールド経由で受け取る
+- ⚠️ `warmup_days=14` 期間中の検出感度は意図的に 0。watched domain 追加時は warm-up 終了まで signal が出ないことを運用者に明示する必要あり
+- ⚠️ adversary 国 CA を allowlist から除外する非対称設計は、ロシア／中国／イラン側の正規 gov 通信を「未学習なら anomaly」と扱う。warm-up + per-domain history で吸収するが、新規ドメイン追加時は意図的に偽陽性が出る可能性あり
+- ⚠️ crt.sh の per-query 待ち時間はそのまま（10s × 8 query × 8 theater = 最悪 10 分／cycle）。1 時間 poll 間隔に対して budget 内だが、theater 数が増える場合は `CT_LOG_MAX_QUERIES_PER_THEATER` の調整を要する
+
+**Test coverage**:
+`test_ct_log_redesign.py` で 21 ケース:
+- DB v11 テーブル作成・helpers 冪等性
+- issuer parser（O= 抽出 / CN= フォールバック / quoted handling）
+- グローバル trust マッチング（LE/DigiCert pass、RU/CN state CA reject）
+- トラスト決定木（trusted CA pass / known per-domain pass / warm-up suppress / out-of-warmup fire / 同サイクル重複 non-refire）
+- ワイルドカード TLD 検出（`*.gov.tw` fire、`*.api.mofa.gov.tw` no-fire）
+- round-robin domain selection（13 ドメイン × budget 8 を 2 cycle で完全網羅）
+- `upstream_health()` redesign metadata 露出
 
 **Open Questions**:
-- 将来 `cert_log_entry` ベースの直接 CT log scrape を独立ソースとして追加する余地はあるか？ — Phase 6 以降で検討
+- watched domain set の continuous curation: 加盟国増減・新規 ministry 設立に追従する運用プロセスをどう設計するか — Phase 6 で検討
+- trusted CA allowlist の review cadence: 年 1 回程度のレビューを Phase 5 完了後に確立
+- per-domain CA 履歴のディスク使用量: 238 domain × 5 CA average × 200B = 約 240KB。長期では SBR 検討
 
 ---
 

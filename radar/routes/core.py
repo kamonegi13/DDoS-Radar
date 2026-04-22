@@ -1382,19 +1382,51 @@ def get_threat_data():
                                         {"max_level": _gps_max, "is_critical": _gps_critical},
                                         scenario_id=focused_id)
 
-        # ── Phase C: S7 CT Log Certificate rationale ─────────────────────────
+        # ── Phase C: S7 CT Log Certificate rationale (ADR-024 redesign) ──────
+        # Scoring shifted from "count surge" (legacy, low signal) to
+        # "anomalous CA issuance on watched gov domains" (high signal).
+        # Score 3: untrusted CA detected on a watched authoritative domain
+        #         out of warm-up (e.g. CN-state CA suddenly issues for a
+        #         monitored EU MoFA host whose history was DigiCert-only).
+        # Score 2: wildcard cert issued at country gov-TLD level
+        #         (e.g. *.gov.tw) — rare and uniformly suspicious.
+        # Score 0: NORMAL or WARMUP — no anomaly fired.
         _ct_core = ct_data.get(core_theater, {})
-        _ct_surge = _ct_core.get("is_surge", False)
         _ct_total = _ct_core.get("total_recent", 0)
-        _ct_gov = _ct_core.get("gov_count", 0)
-        _ct_wildcard = _ct_core.get("wildcard_count", 0)
+        _ct_untrusted_count = _ct_core.get("untrusted_ca_count", 0)
+        _ct_untrusted_events = _ct_core.get("untrusted_ca_events", []) or []
+        _ct_wildcard_tld = bool(_ct_core.get("wildcard_tld_detected", False))
+        _ct_wildcard_count = _ct_core.get("wildcard_count", 0)
+        _ct_warmup = bool(_ct_core.get("warmup_active", False))
+        _ct_status_label = ct_country_status.get(core_theater, "NORMAL")
         if ct_log_sensor and ct_log_sensor.enabled:
-            _ct_fired = _ct_surge
-            _ct_score = 2 if (_ct_surge and _ct_gov >= 5) else (1 if _ct_surge else 0)
-            _ct_value = f"certs={_ct_total} gov={_ct_gov} wildcard={_ct_wildcard}"
-            _ct_status_label = ct_country_status.get(core_theater, "NORMAL")
-            _ct_reason = (f"CT Log: Certificate surge ({_ct_total} certs, {_ct_gov} gov) [{_ct_status_label}]"
-                          if _ct_fired else None)
+            _ct_fired = (_ct_untrusted_count > 0) or _ct_wildcard_tld
+            if _ct_untrusted_count > 0:
+                _ct_score = 3
+            elif _ct_wildcard_tld:
+                _ct_score = 2
+            else:
+                _ct_score = 0
+            _ct_value = (f"untrusted_ca={_ct_untrusted_count} "
+                         f"wildcard_tld={_ct_wildcard_count} "
+                         f"obs_certs={_ct_total}")
+            if _ct_untrusted_count > 0:
+                _ev = _ct_untrusted_events[0] if _ct_untrusted_events else {}
+                _dom = _ev.get("domain", "?")
+                _ca = _ev.get("ca_raw", "?")[:60]
+                _ct_reason = (
+                    f"CT Log: untrusted CA issued for {_dom} (issuer={_ca}) "
+                    f"[{_ct_status_label}]"
+                )
+            elif _ct_wildcard_tld:
+                _ct_reason = (
+                    f"CT Log: wildcard certificate at gov-TLD level "
+                    f"({_ct_wildcard_count} subj) [{_ct_status_label}]"
+                )
+            elif _ct_warmup:
+                _ct_reason = None  # warm-up is informational, no rationale entry
+            else:
+                _ct_reason = None
             add_rat("ct_log", "cyber",
                     "FIRED" if _ct_fired else "OK",
                     _ct_value, _ct_score, _ct_reason,

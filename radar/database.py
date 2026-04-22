@@ -351,6 +351,23 @@ CREATE INDEX IF NOT EXISTS idx_shadow_eval_log_sid
     ON shadow_eval_log (scenario_id, sampled_at DESC);
 CREATE INDEX IF NOT EXISTS idx_shadow_eval_log_variant
     ON shadow_eval_log (shadow_variant, sampled_at DESC);
+
+-- ADR-024 redesign: per-domain known-CA history for CT log anomaly detection
+CREATE TABLE IF NOT EXISTS ct_log_known_ca_per_domain (
+    domain          TEXT NOT NULL,
+    ca_normalized   TEXT NOT NULL,
+    ca_raw          TEXT NOT NULL,
+    first_seen      REAL NOT NULL,
+    last_seen       REAL NOT NULL,
+    cert_count      INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (domain, ca_normalized)
+);
+CREATE INDEX IF NOT EXISTS idx_ct_known_ca_domain
+    ON ct_log_known_ca_per_domain (domain);
+CREATE TABLE IF NOT EXISTS ct_log_domain_first_observed (
+    domain          TEXT PRIMARY KEY,
+    first_observed  REAL NOT NULL
+);
 """
 
 # Column name mapping for parameterized HOD methods.
@@ -739,6 +756,40 @@ class RadarDB:
                 ON shadow_eval_log (scenario_id, sampled_at DESC)"""),
             conn.execute("""CREATE INDEX IF NOT EXISTS idx_shadow_eval_log_variant
                 ON shadow_eval_log (shadow_variant, sampled_at DESC)"""),
+        ]),
+        (11, "Add ct_log per-domain known-CA history (ADR-024 redesign)", lambda conn: [
+            # Per-domain CA fingerprint history — the heart of the
+            # signal-model redesign. Each row records that we have observed
+            # the named domain being issued a cert by the named CA at least
+            # once. The presence of a row means "this CA is known-good for
+            # this domain" and silences future detections.
+            #
+            # The design choice to dedup-by-(domain, ca_normalized) rather
+            # than store every cert is deliberate: we don't need per-cert
+            # forensic detail, only the set of issuers per domain. crt.sh
+            # is the durable source of truth for cert-level forensics.
+            conn.execute("""CREATE TABLE IF NOT EXISTS ct_log_known_ca_per_domain (
+                domain          TEXT NOT NULL,
+                ca_normalized   TEXT NOT NULL,
+                ca_raw          TEXT NOT NULL,
+                first_seen      REAL NOT NULL,
+                last_seen       REAL NOT NULL,
+                cert_count      INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (domain, ca_normalized)
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_ct_known_ca_domain
+                ON ct_log_known_ca_per_domain (domain)"""),
+            # Per-domain first-observation timestamp — used to gate
+            # warm-up. Without this we cannot distinguish "this CA is
+            # genuinely new" from "we just started monitoring this domain
+            # and have no history yet". Separate table from
+            # ct_log_known_ca_per_domain because we want the warm-up
+            # timestamp to be set on the very first poll regardless of
+            # whether any CA was observed (e.g. crt.sh returned empty).
+            conn.execute("""CREATE TABLE IF NOT EXISTS ct_log_domain_first_observed (
+                domain          TEXT PRIMARY KEY,
+                first_observed  REAL NOT NULL
+            )"""),
         ]),
     ]
 
@@ -1985,6 +2036,74 @@ class RadarDB:
             "per_caller": per_caller,
             "sensor_filter_breakdown": sensor_filter_breakdown,
         }
+
+    # ── CT Log per-domain known-CA history (ADR-024) ──────────────────────
+    def ct_log_known_cas(self, domain: str) -> set[str]:
+        """Return the set of normalized CA names previously observed for a domain.
+
+        Empty set means we have no history for this domain (callers should
+        check ct_log_first_observed() to distinguish "new domain" from
+        "monitored but no CAs ever recorded").
+        """
+        if not domain:
+            return set()
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT ca_normalized FROM ct_log_known_ca_per_domain WHERE domain=?",
+            (domain,),
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    def ct_log_record_ca(self, domain: str, ca_normalized: str,
+                         ca_raw: str, now: float) -> None:
+        """Insert or refresh the (domain, ca) observation row.
+
+        On first observation: inserts with first_seen=last_seen=now,
+        cert_count=1. On repeat: bumps last_seen and cert_count. Treat as
+        idempotent — caller can invoke for every observed cert without
+        deduping.
+        """
+        if not domain or not ca_normalized:
+            return
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO ct_log_known_ca_per_domain "
+                "  (domain, ca_normalized, ca_raw, first_seen, last_seen, cert_count) "
+                "VALUES (?, ?, ?, ?, ?, 1) "
+                "ON CONFLICT(domain, ca_normalized) DO UPDATE SET "
+                "  last_seen = excluded.last_seen, "
+                "  cert_count = cert_count + 1",
+                (domain, ca_normalized, ca_raw or ca_normalized, now, now),
+            )
+
+    def ct_log_first_observed(self, domain: str) -> float | None:
+        """Return the timestamp at which we first started monitoring this domain.
+
+        None means we have never recorded a first-observation marker; the
+        sensor should set one immediately and treat the current poll as
+        warm-up regardless of what CAs were observed.
+        """
+        if not domain:
+            return None
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT first_observed FROM ct_log_domain_first_observed WHERE domain=?",
+            (domain,),
+        ).fetchone()
+        return float(row[0]) if row else None
+
+    def ct_log_set_first_observed(self, domain: str, now: float) -> None:
+        """Mark a domain as monitored starting at `now`. No-op if already set."""
+        if not domain:
+            return
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR IGNORE INTO ct_log_domain_first_observed "
+                "  (domain, first_observed) VALUES (?, ?)",
+                (domain, now),
+            )
 
     def llm_call_patch_verdict(self, callers: tuple, verdict: str,
                                window_sec: int = 60) -> bool:

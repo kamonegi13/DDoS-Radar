@@ -5047,5 +5047,35 @@
         }
       }
     }
+  },
+  "CT_LOG_WATCHED_DOMAINS": {
+    "_comment": "Per-country authoritative state domains monitored for anomalous CA issuance via Certificate Transparency logs. Curated to favor head-of-state, MoFA, MoD, parliament, central bank, and security agencies — entities whose cert issuers should be predictable. Used by ct_log sensor with crt.sh ?Identity= exact-match queries (fast path, avoids the %wildcard% PostgreSQL trigram timeout that previously caused chronic 502s).",
+    "TW": ["president.gov.tw", "ey.gov.tw", "mofa.gov.tw", "mnd.gov.tw", "moi.gov.tw", "moj.gov.tw", "nsb.gov.tw", "mac.gov.tw", "ly.gov.tw", "mof.gov.tw"],
+    "JP": ["kantei.go.jp", "mod.go.jp", "mofa.go.jp", "npa.go.jp", "moj.go.jp", "meti.go.jp", "mof.go.jp", "shugiin.go.jp", "sangiin.go.jp", "boj.or.jp"],
+    "KR": ["president.go.kr", "korea.kr", "mofa.go.kr", "mnd.go.kr", "moef.go.kr", "nis.go.kr", "police.go.kr", "assembly.go.kr", "bok.or.kr"],
+    "CN": ["gov.cn", "fmprc.gov.cn", "mod.gov.cn", "npc.gov.cn", "mps.gov.cn", "mof.gov.cn", "moa.gov.cn", "safe.gov.cn", "pbc.gov.cn"],
+    "RU": ["kremlin.ru", "government.ru", "mid.ru", "mil.ru", "mvd.ru", "council.gov.ru", "duma.gov.ru", "ksrf.ru", "minfin.gov.ru", "fsb.ru"],
+    "UA": ["president.gov.ua", "kmu.gov.ua", "mfa.gov.ua", "mod.gov.ua", "mvs.gov.ua", "ssu.gov.ua", "rada.gov.ua", "bank.gov.ua", "minfin.gov.ua"],
+    "IR": ["president.ir", "mfa.gov.ir", "moi.ir", "cbi.ir", "judiciary.ir", "parliran.ir", "gov.ir", "mporg.ir"],
+    "IL": ["gov.il", "mfa.gov.il", "idf.il", "pmo.gov.il", "knesset.gov.il", "mod.gov.il", "police.gov.il", "shabak.gov.il", "bankisrael.gov.il", "justice.gov.il"],
+    "US": ["whitehouse.gov", "state.gov", "defense.gov", "justice.gov", "treasury.gov", "dhs.gov", "senate.gov", "house.gov", "congress.gov", "supremecourt.gov", "federalreserve.gov", "cia.gov", "fbi.gov"],
+    "GB": ["gov.uk", "mod.uk", "fcdo.gov.uk", "parliament.uk", "royal.uk", "bankofengland.co.uk", "mi5.gov.uk", "sis.gov.uk", "supremecourt.uk", "gchq.gov.uk"],
+    "DE": ["bundesregierung.de", "bmvg.de", "auswaertiges-amt.de", "bundestag.de", "bundesrat.de", "bmi.bund.de", "bundesbank.de", "bsi.bund.de", "bmwk.de"],
+    "FR": ["elysee.fr", "gouvernement.fr", "diplomatie.gouv.fr", "defense.gouv.fr", "assemblee-nationale.fr", "senat.fr", "justice.gouv.fr", "interieur.gouv.fr", "banque-france.fr"],
+    "PH": ["op.gov.ph", "dfa.gov.ph", "dnd.gov.ph", "afp.mil.ph", "congress.gov.ph", "senate.gov.ph", "bsp.gov.ph", "gov.ph", "doj.gov.ph"],
+    "VN": ["chinhphu.vn", "mod.gov.vn", "mofa.gov.vn", "mps.gov.vn", "mof.gov.vn", "moit.gov.vn", "sbv.gov.vn", "na.gov.vn"],
+    "IN": ["india.gov.in", "mod.gov.in", "mea.gov.in", "mha.gov.in", "pib.gov.in", "pmindia.gov.in", "rbi.org.in", "sansad.nic.in", "finmin.nic.in"],
+    "PK": ["pakistan.gov.pk", "mofa.gov.pk", "mod.gov.pk", "na.gov.pk", "senate.gov.pk", "pid.gov.pk", "finance.gov.pk", "interior.gov.pk", "sbp.org.pk", "ispr.gov.pk"],
+    "BY": ["president.gov.by", "government.by", "mfa.gov.by", "mod.mil.by", "mvd.gov.by", "council.gov.by", "house.gov.by", "nbrb.by"],
+    "GE": ["president.gov.ge", "gov.ge", "mfa.gov.ge", "mod.gov.ge", "moia.gov.ge", "parliament.ge", "nbg.gov.ge", "mof.ge"],
+    "PL": ["prezydent.pl", "premier.gov.pl", "gov.pl", "msz.gov.pl", "mon.gov.pl", "mswia.gov.pl", "sejm.gov.pl", "senat.gov.pl", "nbp.pl"],
+    "EE": ["president.ee", "valitsus.ee", "vm.ee", "kaitseministeerium.ee", "riigikogu.ee", "siseministeerium.ee", "eesti.ee", "ria.ee"],
+    "LV": ["president.lv", "mk.gov.lv", "mfa.gov.lv", "mod.gov.lv", "saeima.lv", "iem.gov.lv", "bank.lv", "fm.gov.lv"],
+    "LT": ["lrp.lt", "lrv.lt", "urm.lt", "kam.lt", "lrs.lt", "lrm.lt", "vrm.lt", "lb.lt"],
+    "FI": ["tpk.fi", "valtioneuvosto.fi", "um.fi", "defmin.fi", "puolustusvoimat.fi", "intermin.fi", "eduskunta.fi", "suomenpankki.fi"],
+    "SE": ["regeringen.se", "government.se", "forsvarsmakten.se", "riksdagen.se", "polisen.se", "riksbank.se", "sapo.se"],
+    "NO": ["regjeringen.no", "forsvaret.no", "stortinget.no", "politiet.no", "norges-bank.no", "pst.no"],
+    "RO": ["presidency.ro", "gov.ro", "mae.ro", "mapn.ro", "mai.gov.ro", "cdep.ro", "senat.ro", "bnr.ro"],
+    "AU": ["pm.gov.au", "defence.gov.au", "dfat.gov.au", "ag.gov.au", "aph.gov.au", "afp.gov.au", "asio.gov.au", "rba.gov.au"]
   }
 }

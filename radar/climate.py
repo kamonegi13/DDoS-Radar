@@ -646,46 +646,55 @@ class DomainLookalikeAnalyzer:
         ct_data = cache.get("ct_data", {})
         status_map = cache.get("country_status", {})
 
+        # ADR-024 redesign — climate analyzer surfaces the new anomaly
+        # signals (untrusted CA / wildcard TLD) as O1 events. Legacy
+        # GOV_CERT_SURGE / CERT_SURGE statuses are no longer emitted by the
+        # sensor; their handlers are removed.
         for country, data in ct_data.items():
             status = status_map.get(country, "NORMAL")
-
-            gov_count = data.get("gov_count", 0)
+            untrusted_count = data.get("untrusted_ca_count", 0)
+            untrusted_events = data.get("untrusted_ca_events", []) or []
+            wildcard_tld = bool(data.get("wildcard_tld_detected", False))
             wildcard_count = data.get("wildcard_count", 0)
-            surge_pct = data.get("surge_pct", 0)
+            wildcard_events = data.get("wildcard_tld_events", []) or []
             total = data.get("total_recent", 0)
-            recent_certs = data.get("recent_certs", [])
 
-            if status == "GOV_CERT_SURGE":
-                cert_names = [c["name"] for c in recent_certs[:3]]
+            if status == "UNTRUSTED_CA_DETECTED" and untrusted_count > 0:
+                first = untrusted_events[0] if untrusted_events else {}
+                domain = first.get("domain", "?")
+                ca_raw = first.get("ca_raw", "?")[:80]
                 events.append(ClimateEvent(
                     ts=now, indicator="O1", axis=AXIS_TARGET,
-                    headline=f"Gov domain cert surge: {country}",
-                    detail=f"{gov_count} government domain certs for {country} ({wildcard_count} wildcards). Recent: {', '.join(cert_names)}",
+                    headline=f"Untrusted CA on watched gov domain: {country}",
+                    detail=(f"{untrusted_count} cert(s) issued by untrusted CA(s) "
+                            f"for {country} watched domains. First: {domain} via {ca_raw}"),
+                    # Severity 3 — anomalous CA on an authoritative domain is
+                    # the signal we redesigned this sensor to detect.
+                    severity=3,
+                    theater=country,
+                    meta={
+                        "untrusted_ca_count": untrusted_count,
+                        "events": untrusted_events[:5],
+                        "watched_domain_count": len(data.get("watched_domains", [])),
+                    },
+                ))
+            elif status == "WILDCARD_TLD_DETECTED" and wildcard_tld:
+                first = wildcard_events[0] if wildcard_events else {}
+                subj = first.get("wildcard_subject", "?")
+                events.append(ClimateEvent(
+                    ts=now, indicator="O1", axis=AXIS_TARGET,
+                    headline=f"Wildcard cert at gov-TLD: {country}",
+                    detail=(f"Wildcard certificate covering an entire gov namespace "
+                            f"({wildcard_count} subject(s) e.g. {subj})."),
                     severity=2,
                     theater=country,
-                    meta={"gov_count": gov_count, "wildcard_count": wildcard_count,
-                          "total": total, "recent_certs": cert_names},
+                    meta={
+                        "wildcard_count": wildcard_count,
+                        "events": wildcard_events[:5],
+                    },
                 ))
-            elif status == "CERT_SURGE":
-                sev = 1 if surge_pct > 0.5 else 0
-                events.append(ClimateEvent(
-                    ts=now, indicator="O1", axis=AXIS_TARGET,
-                    headline=f"Certificate issuance surge: {country}",
-                    detail=f"{total} certs for {country} domains (+{surge_pct:.0%} vs previous cycle)",
-                    severity=sev,
-                    theater=country,
-                    meta={"total": total, "surge_pct": round(surge_pct, 2)},
-                ))
-            elif gov_count > 0 and status != "NORMAL":
-                # Any government cert activity worth noting
-                events.append(ClimateEvent(
-                    ts=now, indicator="O1", axis=AXIS_TARGET,
-                    headline=f"Gov domain cert activity: {country}",
-                    detail=f"{gov_count} government domain certs detected for {country}",
-                    severity=0,
-                    theater=country,
-                    meta={"gov_count": gov_count, "total": total},
-                ))
+            # NORMAL and WARMUP intentionally produce no climate event —
+            # the new model is binary anomaly/no-anomaly per domain.
 
         return events
 
