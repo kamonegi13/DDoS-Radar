@@ -23,13 +23,43 @@ os.environ.setdefault("DEFAULT_ADMIN_PASSWORD", "testpass")
 from radar.database import RadarDB
 from radar.sensors.ct_log import (
     CtLogSensor,
-    _parse_issuer,
     _is_globally_trusted,
 )
+from radar.sensors.ct_log_sources.crtsh import _parse_issuer
+from radar.sensors.ct_log_sources.base import CertObservation
 from radar.config import (
     CT_LOG_WARMUP_DAYS,
     CT_LOG_MAX_QUERIES_PER_THEATER,
 )
+
+
+def _obs_from_cert(cert: dict) -> CertObservation:
+    """Translate the legacy crt.sh-shaped dict the redesign tests build into
+    a CertObservation. Mirrors what CrtshSource.fetch_domain produces so
+    _inspect_domain assertions remain semantically faithful to the field
+    layout the orchestrator now sees."""
+    from datetime import datetime, timezone
+    issuer = (cert.get("issuer_name") or "").strip()
+    norm, raw = _parse_issuer(issuer)
+    name_value = cert.get("name_value") or ""
+    sans = tuple(s for s in name_value.split("\n") if s) if name_value else ()
+    nb_iso = cert.get("not_before") or ""
+    try:
+        clean = nb_iso.replace("T", " ").split(".")[0].rstrip("Z").strip()
+        nb_ts = datetime.fromisoformat(clean).replace(tzinfo=timezone.utc).timestamp()
+    except (ValueError, TypeError):
+        nb_ts = time.time()
+    return CertObservation(
+        domain=(cert.get("common_name") or "").lower(),
+        issuer_norm=norm,
+        issuer_raw=raw,
+        common_name=cert.get("common_name") or "",
+        subject_alt_names=sans,
+        not_before_ts=nb_ts,
+        serial=str(cert.get("serial_number") or ""),
+        source_name="test",
+        observed_at_ts=time.time(),
+    )
 
 
 @pytest.fixture
@@ -132,20 +162,20 @@ def test_globally_trusted_rejects_state_aligned_cas():
 
 # ── Trust decision tree (the heart of the redesign) ──────────────────────
 
-def _le_cert(now_iso: str, name: str = "mofa.gov.tw") -> dict:
-    return {
+def _le_cert(now_iso: str, name: str = "mofa.gov.tw") -> CertObservation:
+    return _obs_from_cert({
         "common_name": name,
         "issuer_name": "C=US, O=Let's Encrypt, CN=R3",
         "not_before": now_iso,
-    }
+    })
 
 
-def _untrusted_cert(now_iso: str, name: str = "mofa.gov.tw") -> dict:
-    return {
+def _untrusted_cert(now_iso: str, name: str = "mofa.gov.tw") -> CertObservation:
+    return _obs_from_cert({
         "common_name": name,
         "issuer_name": "C=RU, O=Russian Trusted Certificate Authority, CN=Russian Trusted Sub CA",
         "not_before": now_iso,
-    }
+    })
 
 
 def _now_iso(offset_sec: float = 0) -> str:
@@ -255,12 +285,12 @@ def test_wildcard_at_gov_tld_fires(testdb):
     now = time.time()
     testdb.ct_log_set_first_observed(domain, now - (CT_LOG_WARMUP_DAYS + 5) * 86400)
 
-    cert = {
+    obs = _obs_from_cert({
         "common_name": "*.gov.tw",
         "issuer_name": "C=US, O=Let's Encrypt, CN=R3",  # even from LE
         "not_before": _now_iso(),
-    }
-    summary = sensor._inspect_domain(domain, "TW", [cert], now, testdb)
+    })
+    summary = sensor._inspect_domain(domain, "TW", [obs], now, testdb)
     assert summary["wildcard_count"] >= 1
     assert len(summary["wildcard_events"]) >= 1
     assert summary["wildcard_events"][0]["wildcard_subject"] == "*.gov.tw"
@@ -274,12 +304,12 @@ def test_wildcard_at_subdomain_does_not_fire(testdb):
     now = time.time()
     testdb.ct_log_set_first_observed(domain, now - (CT_LOG_WARMUP_DAYS + 5) * 86400)
 
-    cert = {
+    obs = _obs_from_cert({
         "common_name": "*.api.mofa.gov.tw",
         "issuer_name": "C=US, O=Let's Encrypt, CN=R3",
         "not_before": _now_iso(),
-    }
-    summary = sensor._inspect_domain(domain, "TW", [cert], now, testdb)
+    })
+    summary = sensor._inspect_domain(domain, "TW", [obs], now, testdb)
     assert summary["wildcard_count"] == 0
 
 
@@ -327,7 +357,11 @@ def test_round_robin_unknown_country_returns_empty():
 # ── Status / scoring shape ────────────────────────────────────────────────
 
 def test_upstream_health_exposes_redesign_metadata():
-    """T1.B sensor_health endpoint relies on these keys being present."""
+    """T1.B sensor_health endpoint relies on these keys being present.
+
+    After the multi-source refactor (Phase 1), per-source failure_modes
+    moved under `sources.<source_name>.mode_counters`; the orchestrator
+    aggregate exposes `sources`, `buffer`, `source_freshness`."""
     sensor = CtLogSensor()
     health = sensor.upstream_health()
     assert health["scoring_model"] == "adr_024_signal_redesign"
@@ -336,6 +370,12 @@ def test_upstream_health_exposes_redesign_metadata():
     assert health["warmup_days"] == CT_LOG_WARMUP_DAYS
     assert "queries_per_theater_per_cycle" in health
     assert health["queries_per_theater_per_cycle"] == CT_LOG_MAX_QUERIES_PER_THEATER
-    assert set(health["failure_modes"].keys()) == {
+    # Multi-source aggregate
+    assert "sources" in health
+    assert "crtsh" in health["sources"]
+    crtsh_health = health["sources"]["crtsh"]
+    assert set(crtsh_health["mode_counters"].keys()) == {
         "timeout", "conn_error", "http_5xx", "http_4xx", "json_error", "empty_result"
     }
+    assert "buffer" in health
+    assert "source_freshness" in health

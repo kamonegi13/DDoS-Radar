@@ -321,6 +321,16 @@ CT_LOG_QUERY_TIMEOUT_SEC            = int(os.getenv("CT_LOG_QUERY_TIMEOUT_SEC", 
 # across all theaters, comfortably under the unauthenticated rate limit even
 # when multiple theaters fire in the same cycle.
 CT_LOG_INTER_QUERY_SLEEP_SEC        = float(os.getenv("CT_LOG_INTER_QUERY_SLEEP_SEC", "4.0"))
+# Multi-source pipeline (Phase 1 of the post-ADR-024 transport rework — see
+# docs/design/scenario-refactor.md). Sources (crt.sh REST, certstream ws,
+# certspotter REST) write into an ObservationBuffer; the orchestrator drains
+# it at score time. Buffer cap protects against memory blow-up under a
+# certstream burst; it should be larger than the realistic peak of cert
+# matches in a single observation window (matches/sec × window_sec).
+CT_LOG_BUFFER_MAX_OBS               = int(os.getenv("CT_LOG_BUFFER_MAX_OBS", "5000"))
+# Degraded-mode poll interval. Triggered after _UPSTREAM_FAIL_THRESHOLD
+# consecutive zero-data cycles; resets to _NORMAL_INTERVAL on first success.
+CT_LOG_DEGRADED_INTERVAL_SEC        = int(os.getenv("CT_LOG_DEGRADED_INTERVAL_SEC", "14400"))
 
 # Watched domains by theater — loaded from geo_data.json above.
 CT_LOG_WATCHED_DOMAINS: dict[str, list[str]] = {
