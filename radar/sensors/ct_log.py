@@ -11,6 +11,21 @@ from unusual CAs for a country's TLD may indicate:
 
 API: https://crt.sh/ (public PostgreSQL interface via REST)
 No API key required.
+
+ADR-024: Multi-source fallback investigation (concluded REST-only).
+  - crt.sh PostgreSQL (crt.sh:5432, user=guest): reachable but the canonical
+    domain-pattern queries (`name_value ILIKE '%.gov.xx'` over 24h window)
+    consistently exceed 30s server-side statement_timeout because the FTS
+    GIN index on identities() is too coarse for our query shape. Not viable.
+  - SSLMate certspotter: blocks free-plan lookups on regulated TLDs we
+    actually need (gov.tw, gov.ph, mil.kr, go.jp, US `gov`/`mil`); only
+    eTLD+1 subdomains are queryable. Not viable as a TLD-pattern fallback.
+  - Direct CT log clients (Cloudflare/Google/Let's Encrypt RFC 6962): not
+    domain-searchable; require entry-index iteration. Out of scope.
+  Decision: harden the REST path (longer timeout, log non-200 statuses,
+  one transient retry) and accept that crt.sh outages cause the sensor
+  to legitimately degrade — the "no data" state is an honest signal that
+  upstream is down, not a silent bug.
 """
 from __future__ import annotations
 import logging
@@ -61,8 +76,15 @@ class CtLogSensor(BaseSensor):
     _UPSTREAM_FAIL_THRESHOLD = 3
     _NORMAL_INTERVAL = 3600          # 1h
     _DEGRADED_INTERVAL = 14400       # 4h (probe cadence while crt.sh is down)
-    _REQUEST_TIMEOUT_NORMAL = 3      # crt.sh answers in 2-5s or never
-    _REQUEST_TIMEOUT_DEGRADED = 3    # same; shortened from legacy 10s
+    # crt.sh typically answers in 2-5s when healthy, but during recovery
+    # responses arrive 6-10s in. The previous 3s cap was too aggressive
+    # and silently killed valid responses on warm-up.
+    _REQUEST_TIMEOUT_NORMAL = 8
+    _REQUEST_TIMEOUT_DEGRADED = 5    # tighter while degraded — probe only
+    # Single in-cycle retry on transient nginx failures (502/503/504).
+    # crt.sh's edge often recovers within 1-2s of a bad-gateway response.
+    _RETRY_STATUSES = (502, 503, 504)
+    _RETRY_DELAY_SEC = 1.5
 
     def __init__(self):
         super().__init__("ct_log", "cyber", self._NORMAL_INTERVAL)
@@ -73,6 +95,104 @@ class CtLogSensor(BaseSensor):
         self._consecutive_failures: int = 0
         self._upstream_status: str = "unknown"  # healthy | degraded | unknown
         self._last_success_ts: float = 0.0
+        # Per-failure-mode observability so operators can distinguish
+        # "crt.sh is timing out" from "crt.sh returned a 502" from
+        # "crt.sh returned an empty list" — all three look identical
+        # without per-mode counters.
+        self._failure_modes: dict[str, int] = {
+            "timeout": 0,
+            "conn_error": 0,
+            "http_5xx": 0,
+            "http_4xx": 0,
+            "json_error": 0,
+            "empty_result": 0,
+        }
+        self._success_count: int = 0
+
+    def _fetch_one_pattern(
+        self, code: str, domain_pattern: str, req_timeout: int, log_level: int,
+    ) -> list[dict] | None:
+        """Fetch one (country, gov-TLD) pattern from crt.sh with one retry on
+        transient nginx 5xx.
+
+        Returns:
+          list[dict] — parsed cert array on success (may be empty)
+          None      — hard failure (timeout, conn error, 4xx, JSON parse,
+                      or 5xx after retry); the caller should not treat the
+                      pattern as having delivered data.
+
+        Side effects: increments per-mode failure counters so operators
+        can distinguish "crt.sh is timing out" from "crt.sh returned a 502"
+        from "crt.sh returned an empty list" — all three look identical
+        without per-mode counters and used to be silently lumped together.
+        """
+        last_status = None
+        for attempt in (1, 2):
+            try:
+                res = requests.get(
+                    _CRTSH_URL,
+                    params={
+                        "q": domain_pattern,
+                        "output": "json",
+                        "exclude": "expired",
+                    },
+                    timeout=req_timeout,
+                    proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+                    headers={"Accept": "application/json"},
+                )
+            except requests.exceptions.Timeout:
+                self._failure_modes["timeout"] += 1
+                log.log(log_level, f"[CTLog] Timeout for {code} ({domain_pattern}) attempt={attempt}")
+                return None
+            except requests.exceptions.ConnectionError as e:
+                self._failure_modes["conn_error"] += 1
+                log.log(log_level, f"[CTLog] Connection error for {code} ({domain_pattern}): {e}")
+                return None
+
+            last_status = res.status_code
+            if res.status_code == 200:
+                try:
+                    parsed = res.json()
+                except Exception as e:
+                    self._failure_modes["json_error"] += 1
+                    # crt.sh sometimes returns an HTML error page with 200 —
+                    # log the first 80 bytes so the cause is visible.
+                    snippet = (res.text or "")[:80].replace("\n", " ")
+                    log.warning(
+                        f"[CTLog] JSON parse error for {code} ({domain_pattern}): "
+                        f"{e} body[:80]={snippet!r}"
+                    )
+                    return None
+                return parsed if isinstance(parsed, list) else []
+
+            if res.status_code in self._RETRY_STATUSES and attempt == 1:
+                # crt.sh's edge often recovers within ~1-2s of a bad-gateway.
+                log.log(log_level,
+                        f"[CTLog] Transient {res.status_code} for {code} "
+                        f"({domain_pattern}); retrying in {self._RETRY_DELAY_SEC}s")
+                time.sleep(self._RETRY_DELAY_SEC)
+                continue
+
+            if res.status_code == 429:
+                self._failure_modes["http_4xx"] += 1
+                log.warning(f"[CTLog] Rate limited (429) for {code}, skipping pattern")
+                return None
+            if 400 <= res.status_code < 500:
+                self._failure_modes["http_4xx"] += 1
+                log.log(log_level, f"[CTLog] HTTP {res.status_code} for {code} ({domain_pattern})")
+                return None
+            if 500 <= res.status_code < 600:
+                # Either second attempt or an unretried 5xx — give up on this pattern.
+                self._failure_modes["http_5xx"] += 1
+                log.log(log_level,
+                        f"[CTLog] HTTP {res.status_code} for {code} ({domain_pattern}) "
+                        f"after {attempt} attempt(s)")
+                return None
+
+        # Defensive: shouldn't reach here, but if we do, count it as a 5xx.
+        self._failure_modes["http_5xx"] += 1
+        log.warning(f"[CTLog] Exhausted retries for {code} ({domain_pattern}) last_status={last_status}")
+        return None
 
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
@@ -117,72 +237,52 @@ class CtLogSensor(BaseSensor):
                               else logging.WARNING)
 
                 for domain_pattern in patterns:
-                    try:
-                        res = requests.get(
-                            _CRTSH_URL,
-                            params={
-                                "q": domain_pattern,
-                                "output": "json",
-                                "exclude": "expired",
-                            },
-                            # crt.sh either responds in 2-5s or hangs.
-                            # 3s timeout caps a full-cycle worst case at
-                            # ~27 countries × 3s ≈ 1.5min instead of ~14min
-                            # while still catching healthy responses.
-                            timeout=_req_timeout, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
-                            headers={"Accept": "application/json"},
-                        )
-                    except requests.exceptions.Timeout:
-                        log.log(_log_level, f"[CTLog] Timeout for {code} ({domain_pattern})")
+                    certs = self._fetch_one_pattern(
+                        code, domain_pattern, _req_timeout, _log_level
+                    )
+                    if certs is None:
                         continue
-                    except requests.exceptions.ConnectionError:
-                        log.log(_log_level, f"[CTLog] Connection error for {code}")
+                    if not certs:
+                        # 200 but empty list — distinct failure mode from
+                        # transport errors; could be "no recent certs" OR
+                        # "crt.sh returned [] under load" — count it.
+                        self._failure_modes["empty_result"] += 1
+                        any_success = True  # endpoint did respond
                         continue
 
-                    if res.status_code == 429:
-                        log.warning(f"[CTLog] Rate limited for {code}, skipping")
-                        break
-                    elif res.status_code == 200:
-                        try:
-                            certs = res.json()
-                        except Exception as e:
-                            log.warning(f"[CTLog] JSON parse error for {code} ({domain_pattern}): {e}")
-                            certs = []
+                    any_success = True
+                    self._success_count += 1
+                    age_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+                    for cert in certs[:100]:
+                        name = cert.get("common_name", "") or cert.get("name_value", "")
+                        issuer = cert.get("issuer_name", "")
+                        not_before = cert.get("not_before", "")
+                        is_recent = False
+                        if not_before:
+                            try:
+                                nb = datetime.fromisoformat(
+                                    not_before.replace("T", " ").split(".")[0]
+                                ).replace(tzinfo=timezone.utc)
+                                is_recent = nb >= age_cutoff
+                            except (ValueError, TypeError):
+                                pass
+                        if not is_recent:
+                            continue
+                        total_recent += 1
+                        if name.startswith("*."):
+                            wildcard_count += 1
+                        for g in gov_tlds:
+                            if g in name.lower():
+                                gov_count += 1
+                                break
+                        if len(recent_certs) < 5:
+                            recent_certs.append({
+                                "name": name[:100],
+                                "issuer": issuer[:100],
+                                "not_before": not_before,
+                            })
 
-                        if isinstance(certs, list):
-                            any_success = True
-                            age_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-                            for cert in certs[:100]:
-                                name = cert.get("common_name", "") or cert.get("name_value", "")
-                                issuer = cert.get("issuer_name", "")
-                                # Only count certs issued in the last 24h
-                                not_before = cert.get("not_before", "")
-                                is_recent = False
-                                if not_before:
-                                    try:
-                                        nb = datetime.fromisoformat(
-                                            not_before.replace("T", " ").split(".")[0]
-                                        ).replace(tzinfo=timezone.utc)
-                                        is_recent = nb >= age_cutoff
-                                    except (ValueError, TypeError):
-                                        pass
-                                if not is_recent:
-                                    continue
-                                total_recent += 1
-                                if name.startswith("*."):
-                                    wildcard_count += 1
-                                for g in gov_tlds:
-                                    if g in name.lower():
-                                        gov_count += 1
-                                        break
-                                if len(recent_certs) < 5:
-                                    recent_certs.append({
-                                        "name": name[:100],
-                                        "issuer": issuer[:100],
-                                        "not_before": not_before,
-                                    })
-
-                    time.sleep(0.3)  # Rate limit crt.sh — 0.3s is enough; the bottleneck is the 30s timeout, not throughput
+                    time.sleep(0.3)  # Mild pacing between patterns within a country
 
                 prev = self._prev_counts.get(code, total_recent)
                 surge_pct = ((total_recent - prev) / max(prev, 1)
@@ -275,10 +375,20 @@ class CtLogSensor(BaseSensor):
         }
 
     def upstream_health(self) -> dict:
-        """Return crt.sh upstream health state for Health/Diagnostics APIs."""
+        """Return crt.sh upstream health state for Health/Diagnostics APIs.
+
+        ADR-024 telemetry: failure-mode counters distinguish the four ways
+        crt.sh "doesn't return data" — timeout, connection error, HTTP 5xx,
+        HTTP 4xx, JSON parse error, and empty result. Without these, an
+        operator looking at the Health panel sees only "0 successes" and
+        cannot tell if crt.sh is down, throttling us, returning HTML
+        instead of JSON, or simply has no recent gov certs to report.
+        """
         return {
             "status": self._upstream_status,
             "consecutive_failures": self._consecutive_failures,
             "last_success_ts": self._last_success_ts,
             "current_interval_sec": self.poll_interval,
+            "success_count": self._success_count,
+            "failure_modes": dict(self._failure_modes),
         }

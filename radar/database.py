@@ -332,6 +332,25 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti         TEXT PRIMARY KEY,
     revoked_at  REAL NOT NULL
 );
+
+-- Tier 1 calibration: shadow scoring log (ADR-015 dual-weight evaluation)
+CREATE TABLE IF NOT EXISTS shadow_eval_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    sampled_at      REAL NOT NULL,
+    scenario_id     TEXT NOT NULL,
+    shadow_variant  TEXT NOT NULL,
+    actual_score    REAL NOT NULL,
+    actual_tl       INTEGER,
+    shadow_score    REAL NOT NULL,
+    shadow_tl       INTEGER,
+    delta           REAL NOT NULL,
+    active_countries TEXT NOT NULL DEFAULT '[]',
+    notes           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_shadow_eval_log_sid
+    ON shadow_eval_log (scenario_id, sampled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_shadow_eval_log_variant
+    ON shadow_eval_log (shadow_variant, sampled_at DESC);
 """
 
 # Column name mapping for parameterized HOD methods.
@@ -697,6 +716,29 @@ class RadarDB:
         ]),
         (9, "Add invalidate_tokens_before column to users for session revocation", lambda conn: [
             conn.execute("ALTER TABLE users ADD COLUMN invalidate_tokens_before REAL"),
+        ]),
+        (10, "Add shadow_eval_log for ADR-015 dual-weight evaluation (Tier 1)", lambda conn: [
+            # Records side-by-side scoring: actual (current dual-weight formula)
+            # vs shadow (variant under evaluation, e.g. flat country_weight = 1.0).
+            # Used to quantify whether the LLM country_weight is over-fitting
+            # (R10/R13) before deciding to keep, tune, or drop ADR-015.
+            conn.execute("""CREATE TABLE IF NOT EXISTS shadow_eval_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                sampled_at      REAL NOT NULL,
+                scenario_id     TEXT NOT NULL,
+                shadow_variant  TEXT NOT NULL,
+                actual_score    REAL NOT NULL,
+                actual_tl       INTEGER,
+                shadow_score    REAL NOT NULL,
+                shadow_tl       INTEGER,
+                delta           REAL NOT NULL,
+                active_countries TEXT NOT NULL DEFAULT '[]',
+                notes           TEXT
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_shadow_eval_log_sid
+                ON shadow_eval_log (scenario_id, sampled_at DESC)"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_shadow_eval_log_variant
+                ON shadow_eval_log (shadow_variant, sampled_at DESC)"""),
         ]),
     ]
 
@@ -1202,6 +1244,129 @@ class RadarDB:
             "miss_rate": miss_rate,
             "avg_delta": avg_delta,
             "max_delta": max_delta,
+            "recommendation": recommendation,
+            "by_scenario": by_scenario,
+        }
+
+    # ── shadow_eval_log (Tier 1: ADR-015 dual-weight evaluation) ───────────
+    def shadow_eval_record(self, scenario_id: str, sampled_at: float,
+                           shadow_variant: str,
+                           actual_score: float, actual_tl: int | None,
+                           shadow_score: float, shadow_tl: int | None,
+                           active_countries: list[str],
+                           notes: str | None = None) -> None:
+        """Append a shadow evaluation sample.
+
+        Records the divergence between the live (dual-weight) score and a
+        shadow variant (e.g. flat country_weight = 1.0). The accumulated
+        delta distribution is what the Tier 1 calibration endpoint reports
+        on, and is the empirical basis for keeping or revising ADR-015.
+        """
+        delta = round(shadow_score - actual_score, 4)
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO shadow_eval_log "
+                "(sampled_at, scenario_id, shadow_variant, actual_score, "
+                " actual_tl, shadow_score, shadow_tl, delta, "
+                " active_countries, notes) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (sampled_at, scenario_id, shadow_variant,
+                 round(actual_score, 4),
+                 int(actual_tl) if actual_tl is not None else None,
+                 round(shadow_score, 4),
+                 int(shadow_tl) if shadow_tl is not None else None,
+                 delta,
+                 json.dumps(sorted(set(active_countries))),
+                 notes),
+            )
+
+    def shadow_eval_summary(self, days: int = 14,
+                            shadow_variant: str | None = None) -> dict:
+        """Return aggregated shadow-eval statistics for the calibration endpoint.
+
+        Output shape mirrors focus_switch_detailed() so the UI can reuse
+        the same rendering primitives. Recommendation thresholds:
+          - <30 samples → INSUFFICIENT_DATA
+          - |avg_delta| > 1.5 OR tl_disagree_rate > 0.20 → REVIEW_DUAL_WEIGHT
+          - otherwise → DUAL_WEIGHT_STABLE
+        """
+        conn = self._get_conn()
+        cutoff = time.time() - days * 86400
+        if shadow_variant:
+            rows = conn.execute(
+                "SELECT scenario_id, sampled_at, actual_score, actual_tl, "
+                "  shadow_score, shadow_tl, delta, shadow_variant "
+                "FROM shadow_eval_log "
+                "WHERE sampled_at > ? AND shadow_variant = ? "
+                "ORDER BY sampled_at DESC",
+                (cutoff, shadow_variant),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT scenario_id, sampled_at, actual_score, actual_tl, "
+                "  shadow_score, shadow_tl, delta, shadow_variant "
+                "FROM shadow_eval_log "
+                "WHERE sampled_at > ? "
+                "ORDER BY sampled_at DESC",
+                (cutoff,),
+            ).fetchall()
+        total = len(rows)
+        if total == 0:
+            return {
+                "period_days": days,
+                "shadow_variant": shadow_variant,
+                "total_samples": 0,
+                "recommendation": "INSUFFICIENT_DATA",
+                "by_scenario": {},
+            }
+        deltas = [r["delta"] for r in rows]
+        abs_deltas = [abs(d) for d in deltas]
+        avg_delta = round(sum(deltas) / total, 3)
+        avg_abs_delta = round(sum(abs_deltas) / total, 3)
+        max_abs_delta = round(max(abs_deltas), 3)
+        tl_disagree = sum(
+            1 for r in rows
+            if r["actual_tl"] is not None
+            and r["shadow_tl"] is not None
+            and r["actual_tl"] != r["shadow_tl"]
+        )
+        tl_disagree_rate = round(tl_disagree / total, 3)
+        by_scenario: dict[str, dict] = {}
+        for r in rows:
+            sid = r["scenario_id"]
+            slot = by_scenario.setdefault(sid, {
+                "samples": 0,
+                "tl_disagreements": 0,
+                "_deltas": [],
+            })
+            slot["samples"] += 1
+            slot["_deltas"].append(r["delta"])
+            if (r["actual_tl"] is not None
+                    and r["shadow_tl"] is not None
+                    and r["actual_tl"] != r["shadow_tl"]):
+                slot["tl_disagreements"] += 1
+        for slot in by_scenario.values():
+            d = slot.pop("_deltas")
+            slot["avg_delta"] = round(sum(d) / len(d), 3)
+            slot["avg_abs_delta"] = round(
+                sum(abs(x) for x in d) / len(d), 3)
+            slot["max_abs_delta"] = round(max(abs(x) for x in d), 3)
+        if total < 30:
+            recommendation = "INSUFFICIENT_DATA"
+        elif avg_abs_delta > 1.5 or tl_disagree_rate > 0.20:
+            recommendation = "REVIEW_DUAL_WEIGHT"
+        else:
+            recommendation = "DUAL_WEIGHT_STABLE"
+        return {
+            "period_days": days,
+            "shadow_variant": shadow_variant,
+            "total_samples": total,
+            "avg_delta": avg_delta,
+            "avg_abs_delta": avg_abs_delta,
+            "max_abs_delta": max_abs_delta,
+            "tl_disagreements": tl_disagree,
+            "tl_disagree_rate": tl_disagree_rate,
             "recommendation": recommendation,
             "by_scenario": by_scenario,
         }

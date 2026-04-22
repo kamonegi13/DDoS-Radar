@@ -13,7 +13,7 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 1.6.5 |
+| **現バージョン** | 1.6.6 |
 | **作成日** | 2026-04-11 |
 | **最終更新** | 2026-04-21 |
 | **現在のフェーズ** | **Phase 5 実装完了（TL 閾値再校正と ADR-015 dual-weight 評価は運用データ蓄積待ち）** |
@@ -639,6 +639,56 @@ contribution dict に `score_raw`, `age_hours`, `age_weight` を追加。`detail
 **Open Questions**:
 - τ を source_type ごとに分離する場合の推奨値（例: hacktivist は短め、cert_* は長め？）— 運用知見を蓄積してから ADR 追記
 - Raw score と decayed score を UI で並列表示すべきか？（現状は `score_raw` フィールドで露出のみ）
+
+---
+
+### ADR-024: CTLog sensor の上流耐障害性 — REST 単一上流のまま強化
+
+**Status**: Accepted (2026-04-21)
+
+**Context**:
+CTLog センサー（`radar/sensors/ct_log.py`）は crt.sh の REST 上流（`https://crt.sh/?q=...&output=json`）を唯一のデータ源としているが、この上流は慢性的に不安定で、本セッション中の実測でも **15 秒タイムアウトで 1 バイトも返らない** 完全停止状態を確認した（`502 Bad Gateway` だけでなく接続レベルのハング）。既存実装には以下の問題があった:
+
+1. `2xx` 以外の HTTP ステータス（502/503/504）を **明示的に判定するブランチが無く**、サイレントに失敗扱いになっていた
+2. リクエストタイムアウトが 3 秒固定で、crt.sh のウォームアップ時応答（6〜10 秒）を全部殺していた
+3. 失敗時の telemetry が `success/failure` 2 値のみで、「タイムアウト」「502」「JSON パース失敗」「空配列」が区別できず、運用者は **「データが取れない理由」を判別できない**
+
+ユーザー指示「DISABLE では問題が解決しない、なぜ取れないのか深く考えるべき」に従い、根本原因と現実的なフォールバック先を順に検証した。
+
+**Decision**:
+**REST を唯一の上流として残しつつ、REST パスを強化する**。代替上流の追加は、検証の結果いずれも本ツールの query pattern には適合しなかったため見送る。
+
+**検証した代替上流（すべて却下）**:
+
+| 候補 | 検証結果 | 却下理由 |
+|------|---------|---------|
+| **crt.sh PostgreSQL（`crt.sh:5432`, db=`certwatch`, user=`guest`）** | 接続は可能。ただし `name_value ILIKE '%.gov.xx'` の 24h ウィンドウクエリが **30 秒の `statement_timeout` を超過**（`certificate_identity` は FTS index に置換済みで、`identities()` の GIN index は TLD パターン検索に対して粒度が粗すぎる） | クエリ shape が我々のニーズに合わない |
+| **SSLMate certspotter API** | エンドポイント自体は健全（200ms〜1.5s 応答）。だが無料プランは **eTLD 配下の specific subdomain のみ**を許可し、`gov.tw` / `gov.ph` / `mil.kr` / `go.jp` / US の `gov` `mil` などをすべて 403 拒否（`not_allowed_by_plan: not beneath an eTLD available for public registration`） | 我々が必要とする gov-TLD パターンクエリには使えない |
+| **Cloudflare/Google/Let's Encrypt CT logs（RFC 6962 直接アクセス）** | 仕様上は domain-search 不可、entry index による反復が必須 | アーキテクチャが異なり、個別実装の工数に見合わない |
+
+**REST パス強化の中身**:
+
+1. **タイムアウトを 3 秒 → 8 秒に拡大**（degraded 時のみ 5 秒）。crt.sh のウォームアップ時応答（6〜10 秒）を救う
+2. **5xx ステータスに対して 1 回だけ in-cycle リトライ**（1.5s sleep）。crt.sh の edge は数秒で復旧することが多い
+3. **失敗モードを 6 種類に細分化**（`timeout` / `conn_error` / `http_5xx` / `http_4xx` / `json_error` / `empty_result`）し、`upstream_health()` で各カウンタを露出
+4. **JSON parse 失敗時に response body の先頭 80 バイトをログ出力**（crt.sh は時々 200 status で HTML エラーページを返す）
+5. **`empty_result` を独立した状態として記録**（HTTP 200 で空配列が返るケース — 「本当に該当 cert が無い」と「上流負荷で空が返った」の両方が混在しうる）
+
+**運用上の意味**:
+- crt.sh が落ちている時 CTLog がデータ無しになるのは **正常動作**。このツールが「OSINT 公開ソースに依存する」設計である以上、上流停止時は honest にデータ無しを表明するのが正しい挙動
+- Health/Diagnostics パネルで `failure_modes` カウンタを見れば、上流が落ちているのか・スロットリングされているのか・JSON が壊れているのかを **オペレータが切り分け可能**
+- 慢性的な crt.sh 停止に対しては既存の自己治癒機構（3 サイクル連続失敗で `degraded` モードに移行、4 時間プローブ間隔）がそのまま機能
+
+**Consequences**:
+- ✅ サイレント失敗を排除。失敗の理由が telemetry で判別可能
+- ✅ Transient な 502 を回復可能になる（1 リトライで救える）
+- ✅ ウォームアップ時応答を殺さなくなった（タイムアウト緩和）
+- ✅ 余計な依存（`psycopg2-binary`）を導入しなかった
+- ⚠️ 上流が完全に死んでいる時はデータが取れない、という根本制約は残る。これは設計上受け入れる
+- ⚠️ 1 country あたり最大 8s × 2 attempts × N patterns に増えうる。ただし degraded 時は probe-only（1 pattern）で全体時間を抑制
+
+**Open Questions**:
+- 将来 `cert_log_entry` ベースの直接 CT log scrape を独立ソースとして追加する余地はあるか？ — Phase 6 以降で検討
 
 ---
 
@@ -1875,6 +1925,7 @@ Phase N の完了時に、その Phase で実装された **疑似コード・SQ
 | 2026-04-21 | 1.6.3 | P1/P2 observability 実装: `/api/analytics/cmedium_recommendation` / `tl_recalibration_advisory` / `dual_weight_evaluation` 追加、session overlay (X-Scenario-Overlay)、SHOW_BACKGROUND_TL、scheduler が active focus を参照、FOCUSED_ONLY 全 12 センサーに SensorTier 宣言。UI: HUD/シナリオ詳細パネルをオーバーレイ化し地図の下方シフトを解消、外クリックで自動クローズ。rss_narrative: flat-zero baseline での第一信号消失を修正(NARRATIVE_ZSCORE_FIRST_SIGNAL) | `018f099`, `8396c76`, `566103c`, `8e5bf36` |
 | 2026-04-21 | 1.6.4 | geo_data.json に NARRATIVE_GEO_TERMS 7 シナリオ参加国を追加 (AU, GU, IQ, MY, RO, SK, VN)。これらの国は TACTICAL_KEYWORDS は定義済みだが geo 辞書が空で、rss_narrative が起動毎に警告を出しクロスシアター誤帰属を起こしていた。scenario participant 全員の地理語彙を完備し、rss_narrative の信号が scenario scoring へ正しく寄与できるようにした | `efd47f2` |
 | 2026-04-21 | 1.6.5 | (1) CTLog self-healing: 10s タイムアウトを 3s に短縮、3 サイクル連続失敗で degraded モード(fetch 間隔 4h に延長、1 パターンのみプローブ、ログ DEBUG 降格)に自動遷移、一度でも成功すれば復帰。`upstream_health()` API を `/api/data_status` で公開。crt.sh の 502/timeout 嵐で毎サイクル WARNING が溢れる問題を解消。(2) Layer 3 session overlay UI 実装(ADR-003 完全実装): シナリオ詳細パネルに participant weight スライダー群、Apply/Reset ボタン、ACTIVE バッジ、analyst/admin ロールゲート、sessionStorage による非永続保存、`X-Scenario-Overlay` ヘッダ送信。バックエンドでは overlay 適用後の `focused_scenario_obj` をスコアリングループに渡す修正も含む(以前は apply されていたが scoring に反映されない既存バグ)。/api/threat_data レスポンスに `participants.weight` と `base_weight` を追加 | TBD |
+| 2026-04-21 | 1.6.6 | ADR-024 追加: CTLog 上流耐障害性。crt.sh REST が 15s+ 完全無応答状態を本セッションで実測。代替上流 (crt.sh:5432 PG / certspotter / 直接 CT log) を検証したが、いずれも query shape が我々のニーズに合わず却下。REST パスを強化(タイムアウト 3s→8s、5xx に 1 回 in-cycle リトライ、失敗モードを 6 種類 (`timeout`/`conn_error`/`http_5xx`/`http_4xx`/`json_error`/`empty_result`) に細分化、`upstream_health()` で全カウンタ露出、JSON parse 失敗時に response body 先頭 80B をログ)。サイレント 5xx 失敗バグを修正(従来 `200/429` のみ判定で 502/503/504 が黙殺されていた)。Tier 1 基盤も追加: `_require_analyst()` (analyst-or-admin ロールゲート)、SQLite migration v10 (shadow_eval_log)、`shadow_eval_record()` / `shadow_eval_summary()` ヘルパ。`shadow_eval_log` を baseline `_SCHEMA_SQL` にも追加 (fresh DB の `current==0` ショートカット対策) | TBD |
 
 ---
 

@@ -56,5 +56,26 @@ def _require_admin():
         return jsonify({"error": "Authentication required"}), 401
 
 
+def _require_analyst():
+    """Check analyst-or-admin authorization via DB role lookup.
+
+    Used by Tier 1 calibration / shadow-eval / health endpoints which
+    should be visible to analysts but not to read-only viewers.
+    Returns None if authorized, or a Flask response tuple on failure.
+    """
+    from flask_jwt_extended import get_jwt_identity
+    from radar.database import db
+    try:
+        identity = get_jwt_identity()
+        if not identity:
+            return jsonify({"error": "Authentication required"}), 401
+        role = db.user_get_role(identity)
+        if role not in ("admin", "analyst"):
+            return jsonify({"error": "Analyst access required"}), 403
+        return None
+    except Exception:
+        return jsonify({"error": "Authentication required"}), 401
+
+
 # ── Register all sub-module routes on the shared Blueprint ──────────────────
 from radar.routes import static, core, admin, analytics, history, climate, situation, intel  # noqa: E402,F401
