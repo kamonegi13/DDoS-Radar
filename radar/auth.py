@@ -124,11 +124,15 @@ def init_auth(app):
         from radar.database import db as _db
         if _db.token_is_revoked(jwt_payload["jti"]):
             return True
-        # Check if user's password was changed after this token was issued
+        # Check if user's password was changed after this token was issued.
+        # JWT iat is integer seconds, but invalidate_ts is float (sub-second).
+        # Floor invalidate_ts to int so a token issued in the same wall-clock
+        # second as the password change is honored (its iat == cutoff second is
+        # logically "issued at the same time", not "issued before").
         invalidate_ts = _db.user_get_invalidate_ts(jwt_payload.get("sub", ""))
         if invalidate_ts is not None:
             token_iat = jwt_payload.get("iat", 0)
-            if token_iat < invalidate_ts:
+            if token_iat < int(invalidate_ts):
                 return True
         return False
 
