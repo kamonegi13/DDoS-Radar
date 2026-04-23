@@ -347,13 +347,32 @@ CT_LOG_CERTSPOTTER_RATE_LIMIT_WINDOW_SEC = int(os.getenv("CT_LOG_CERTSPOTTER_RAT
 # back to pull-only operation. Liveness budget: a healthy ws should write
 # into the buffer at least once every CT_LOG_CERTSTREAM_LIVENESS_SEC; missed
 # budgets surface in upstream_health() but do not by themselves trigger CB.
-CT_LOG_CERTSTREAM_ENABLED       = os.getenv("CT_LOG_CERTSTREAM_ENABLED", "true").lower() != "false"
+# Default DISABLED as of 2026-04-23: live verification confirmed
+# wss://certstream.calidog.io/* accepts connections, sends zero messages
+# (no certs, no heartbeats), and the server closes with normal-closure
+# code 1000 at exactly ~60s. Reproduced with bare websocket-client outside
+# gevent and with a browser-like User-Agent — it is the upstream, not us.
+# Pull sources (certspotter + crt.sh) carry the CT load until Calidog's
+# stream is restored or an alternative push feed is identified.
+# Set CT_LOG_CERTSTREAM_ENABLED=true to opt back in for live monitoring
+# (e.g. once Calidog is fixed).
+CT_LOG_CERTSTREAM_ENABLED       = os.getenv("CT_LOG_CERTSTREAM_ENABLED", "false").lower() == "true"
 CT_LOG_CERTSTREAM_URL           = os.getenv("CT_LOG_CERTSTREAM_URL", "wss://certstream.calidog.io/full-stream")
 CT_LOG_CERTSTREAM_LIVENESS_SEC  = int(os.getenv("CT_LOG_CERTSTREAM_LIVENESS_SEC", "900"))
-# ws ping/pong cadence — RFC 6455 control frames. Calidog responds to pings;
-# a missed pong inside the timeout closes the socket and triggers reconnect.
-CT_LOG_CERTSTREAM_PING_INTERVAL = int(os.getenv("CT_LOG_CERTSTREAM_PING_INTERVAL", "30"))
-CT_LOG_CERTSTREAM_PING_TIMEOUT  = int(os.getenv("CT_LOG_CERTSTREAM_PING_TIMEOUT", "10"))
+# ws ping/pong cadence — RFC 6455 control frames. Default DISABLED
+# (ping_interval=0) because under gevent monkey-patching, websocket-client's
+# ping thread races the recv loop's pong handler and falsely trips
+# ping_timeout every ~60s, churning the connection. Liveness is instead
+# enforced by an in-worker watchdog that reconnects when no Calidog
+# heartbeat has arrived within CT_LOG_CERTSTREAM_HEARTBEAT_BUDGET_SEC.
+# Set CT_LOG_CERTSTREAM_PING_INTERVAL > 0 only to re-enable the RFC 6455
+# path for non-gevent deployments.
+CT_LOG_CERTSTREAM_PING_INTERVAL = int(os.getenv("CT_LOG_CERTSTREAM_PING_INTERVAL", "0"))
+CT_LOG_CERTSTREAM_PING_TIMEOUT  = int(os.getenv("CT_LOG_CERTSTREAM_PING_TIMEOUT", "0"))
+# Application-layer liveness watchdog. Calidog emits heartbeat frames every
+# ~30s; 120s (4× period) tolerates network jitter without waiting on OS TCP
+# keepalive (~2h default).
+CT_LOG_CERTSTREAM_HEARTBEAT_BUDGET_SEC = int(os.getenv("CT_LOG_CERTSTREAM_HEARTBEAT_BUDGET_SEC", "120"))
 # Reconnect backoff bounds. Capped exponential: 1s, 2s, 4s, ... up to ceiling.
 CT_LOG_CERTSTREAM_RECONNECT_MAX_SEC = int(os.getenv("CT_LOG_CERTSTREAM_RECONNECT_MAX_SEC", "60"))
 

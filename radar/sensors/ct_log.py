@@ -54,6 +54,7 @@ from radar.config import (
     CT_LOG_CERTSTREAM_LIVENESS_SEC,
     CT_LOG_CERTSTREAM_PING_INTERVAL,
     CT_LOG_CERTSTREAM_PING_TIMEOUT,
+    CT_LOG_CERTSTREAM_HEARTBEAT_BUDGET_SEC,
     CT_LOG_CERTSTREAM_RECONNECT_MAX_SEC,
 )
 from radar.sensors.ct_log_sources import (
@@ -192,7 +193,12 @@ class CtLogSensor(BaseSensor):
         having to install websocket-client.
         """
         if not CT_LOG_CERTSTREAM_ENABLED:
-            log.info("[CTLog] certstream push source disabled by config")
+            log.info(
+                "[CTLog] certstream push source disabled by config "
+                "(Calidog upstream broken since 2026-04-23: 60s server-close, "
+                "no messages). Pull sources (certspotter + crt.sh) carry CT "
+                "coverage. Set CT_LOG_CERTSTREAM_ENABLED=true to retry."
+            )
             return
         all_watched = sorted({
             d for ds in CT_LOG_WATCHED_DOMAINS.values() for d in ds
@@ -214,6 +220,7 @@ class CtLogSensor(BaseSensor):
                 ping_timeout=CT_LOG_CERTSTREAM_PING_TIMEOUT,
                 reconnect_max_sec=CT_LOG_CERTSTREAM_RECONNECT_MAX_SEC,
                 liveness_sec=CT_LOG_CERTSTREAM_LIVENESS_SEC,
+                heartbeat_budget_sec=CT_LOG_CERTSTREAM_HEARTBEAT_BUDGET_SEC,
             )
             cs.start()
             self._push_sources.append(cs)

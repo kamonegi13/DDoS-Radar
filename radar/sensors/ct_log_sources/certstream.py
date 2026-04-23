@@ -21,9 +21,9 @@ mandates free OSINT; this source is the only push CT feed that fits.
 
 Failure modes addressed:
   * ws disconnect          → capped exponential reconnect (1s → 60s ceiling).
-  * ws hang / pong missed  → ping_interval=30s + ping_timeout=10s causes
-                              websocket-client to close the socket; the
-                              outer loop reconnects.
+  * ws hang                → an in-thread watchdog fires ws.close() when
+                              (now - last_message_ts) exceeds the heartbeat
+                              budget, and the outer loop reconnects.
   * malformed message      → caught and counted (mode_counters['parse_error']),
                               never propagated.
   * Calidog operator drops feed    → reconnect attempts age out into status="dead",
@@ -31,6 +31,16 @@ Failure modes addressed:
                               three layers.
   * Buffer overflow under burst    → ObservationBuffer's _evict_oldest_locked
                               policy already protects memory.
+
+Liveness model (gevent caveat):
+  RFC 6455 ping/pong via websocket-client's `ping_interval` argument
+  proved unreliable under gevent monkey-patching — the ping thread races
+  the recv loop reading the pong frame and falsely trips ping_timeout
+  every ~60s, churning the connection. We disable the client-side ping
+  (ping_interval=0) and rely on Calidog's application-layer heartbeat
+  frames (≈30s cadence) as the liveness signal. A watchdog thread in
+  this module forces a reconnect when no message has arrived for
+  `heartbeat_budget_sec` (default 120s, 4× the heartbeat period).
 
 Subdomain match: certspotter pulls use `include_subdomains=true`, so the
 push side mirrors that semantics. A cert for `attacker.kantei.go.jp`
@@ -130,10 +140,11 @@ class CertstreamSource(BaseCtLogPushSource):
         buffer: ObservationBuffer,
         watched_domains: Iterable[str],
         ws_url: str,
-        ping_interval: int = 30,
-        ping_timeout: int = 10,
+        ping_interval: int = 0,
+        ping_timeout: int = 0,
         reconnect_max_sec: int = 60,
         liveness_sec: int = 900,
+        heartbeat_budget_sec: int = 120,
     ):
         self._buffer = buffer
         self._watched: set[str] = {
@@ -141,10 +152,17 @@ class CertstreamSource(BaseCtLogPushSource):
         }
         self._suffix_set: set[str] = _build_suffix_set(self._watched)
         self._ws_url = ws_url
-        self._ping_interval = max(5, int(ping_interval))
-        self._ping_timeout = max(1, int(ping_timeout))
+        # ping_interval=0 disables websocket-client's RFC 6455 ping/pong loop.
+        # See module docstring "Liveness model (gevent caveat)" for why.
+        self._ping_interval = max(0, int(ping_interval))
+        self._ping_timeout = max(0, int(ping_timeout))
         self._reconnect_max_sec = max(1, int(reconnect_max_sec))
         self._liveness_sec = max(60, int(liveness_sec))
+        # Watchdog: if no ws message (Calidog sends heartbeats every ~30s)
+        # for this many seconds, force-close the socket and let the outer
+        # loop reconnect. 4× the heartbeat period gives room for network
+        # jitter without waiting on OS-level TCP keepalive (~2h default).
+        self._heartbeat_budget_sec = max(30, int(heartbeat_budget_sec))
 
         self._failure_modes: dict[str, int] = dict(_FAILURE_MODES_INIT)
         self._matches_total: int = 0
@@ -159,6 +177,7 @@ class CertstreamSource(BaseCtLogPushSource):
         self._stop_event = threading.Event()
         self._worker: threading.Thread | None = None
         self._ws = None  # WebSocketApp instance, set by worker
+        self._watchdog_stop: threading.Event | None = None
         self._lock = threading.Lock()
 
     # ── Lifecycle ─────────────────────────────────────────────────────
@@ -235,6 +254,7 @@ class CertstreamSource(BaseCtLogPushSource):
                 "liveness_breached": liveness_breached,
                 "ping_interval_sec": self._ping_interval,
                 "ping_timeout_sec": self._ping_timeout,
+                "heartbeat_budget_sec": self._heartbeat_budget_sec,
                 "running": bool(self._worker and self._worker.is_alive()),
             },
         }
@@ -393,7 +413,7 @@ class CertstreamSource(BaseCtLogPushSource):
         """Capped exponential reconnect loop. Runs in worker thread under
         gevent monkey-patch (the spike confirmed interop). Outer loop owns
         backoff and shutdown signal; inner WebSocketApp.run_forever() owns
-        the socket and ping/pong handling.
+        the socket; a sibling watchdog thread owns liveness detection.
         """
         try:
             from websocket import WebSocketApp  # type: ignore[import-not-found]
@@ -406,6 +426,12 @@ class CertstreamSource(BaseCtLogPushSource):
 
         backoff = 1.0
         while not self._stop_event.is_set():
+            watchdog = threading.Thread(
+                target=self._watchdog_loop,
+                name="certstream-watchdog",
+                daemon=True,
+            )
+            watchdog_stop = threading.Event()
             try:
                 ws = WebSocketApp(
                     self._ws_url,
@@ -417,19 +443,30 @@ class CertstreamSource(BaseCtLogPushSource):
                 )
                 with self._lock:
                     self._ws = ws
-                # ping_interval / ping_timeout drive RFC 6455 control frames;
-                # a missed pong closes the socket and we reconnect via the
-                # outer loop. This is the transport-level liveness backstop.
+                    self._watchdog_stop = watchdog_stop
+                watchdog.start()
+                # ping_interval=0 disables websocket-client's RFC 6455 ping
+                # thread. Under gevent that thread races the recv loop's
+                # pong handler and falsely trips ping_timeout every ~60s.
+                # The watchdog thread below is the liveness backstop: it
+                # calls ws.close() if no Calidog heartbeat (or cert msg)
+                # arrives within heartbeat_budget_sec.
                 ws.run_forever(
                     ping_interval=self._ping_interval,
-                    ping_timeout=self._ping_timeout,
+                    ping_timeout=self._ping_timeout or None,
                 )
             except Exception as e:
                 self._failure_modes["ws_open_failed"] += 1
                 log.warning(f"[CTLog/certstream] ws loop exception: {e}")
             finally:
+                watchdog_stop.set()
                 with self._lock:
                     self._ws = None
+                    self._watchdog_stop = None
+                try:
+                    watchdog.join(timeout=2)
+                except Exception:
+                    pass
 
             if self._stop_event.is_set():
                 break
@@ -439,6 +476,40 @@ class CertstreamSource(BaseCtLogPushSource):
             backoff = min(self._reconnect_max_sec, backoff * 2.0)
             self._consecutive_failures += 1
         log.info("[CTLog/certstream] Worker exiting.")
+
+    def _watchdog_loop(self) -> None:
+        """Force-close the ws if no message has arrived within the budget.
+
+        Calidog sends an application-layer heartbeat every ~30s. Going
+        longer than `heartbeat_budget_sec` (default 120s, 4× period) means
+        the ws is effectively dead — reconnect via the outer loop.
+        """
+        with self._lock:
+            stop = self._watchdog_stop
+        if stop is None:
+            return
+        # Prime last_message_ts to now so the budget starts counting from
+        # the moment the watchdog started, not from the previous session.
+        grace_start = time.time()
+        while not stop.is_set() and not self._stop_event.is_set():
+            if stop.wait(timeout=5):
+                return
+            now = time.time()
+            last = self._last_message_ts or grace_start
+            if (now - last) > self._heartbeat_budget_sec:
+                log.info(
+                    "[CTLog/certstream] watchdog: no message for %.0fs "
+                    "(budget=%ds), forcing reconnect",
+                    now - last, self._heartbeat_budget_sec,
+                )
+                try:
+                    with self._lock:
+                        ws = self._ws
+                    if ws is not None:
+                        ws.close()
+                except Exception as e:
+                    log.debug(f"[CTLog/certstream] watchdog close raised: {e}")
+                return
 
     def _on_message_safe(self, raw) -> None:
         try:

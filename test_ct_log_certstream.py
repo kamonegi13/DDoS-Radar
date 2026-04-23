@@ -285,3 +285,35 @@ def test_update_watched_drops_stale_apex():
     src.update_watched(["mofa.gov.tw"])  # drop kantei
     raw = _calidog_msg(sans=["foo.kantei.go.jp"])
     assert src.process_message(raw) == 0
+
+
+# ── ping/watchdog defaults ───────────────────────────────────────────────
+
+def test_default_ping_disabled_under_gevent():
+    """Defaults must disable RFC 6455 ping (=0). See module docstring
+    'Liveness model (gevent caveat)'.
+    """
+    src = _make_source()
+    assert src._ping_interval == 0
+    assert src._ping_timeout == 0
+    # Watchdog budget is the actual liveness signal — must be > 0.
+    assert src._heartbeat_budget_sec >= 30
+
+
+def test_health_surfaces_heartbeat_budget():
+    src = _make_source()
+    h = src.health()
+    assert "heartbeat_budget_sec" in h["source_specific"]
+    assert h["source_specific"]["heartbeat_budget_sec"] == src._heartbeat_budget_sec
+
+
+def test_watchdog_clamps_below_minimum():
+    """heartbeat_budget_sec floors at 30 to avoid pathological churn."""
+    buf = ObservationBuffer(max_obs=10, window_hours=24)
+    src = CertstreamSource(
+        buffer=buf,
+        watched_domains=["mofa.gov.tw"],
+        ws_url="wss://example/test",
+        heartbeat_budget_sec=5,
+    )
+    assert src._heartbeat_budget_sec == 30
