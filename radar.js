@@ -4799,6 +4799,147 @@
         }
     }
 
+    // ── Upstream Sources panel (CT log multi-source coverage) ────────────────────
+    function _fmtAge(sec) {
+        if (sec == null) return '—';
+        if (sec < 60) return `${Math.round(sec)}s`;
+        if (sec < 3600) return `${Math.round(sec/60)}m`;
+        if (sec < 86400) return `${Math.round(sec/3600)}h`;
+        return `${Math.round(sec/86400)}d`;
+    }
+
+    function _statusColor(status) {
+        return ({
+            healthy: '#66ff66', ok: '#66ff66',
+            degraded: '#ff8800',
+            dead: '#ff4444', error: '#ff4444',
+            unknown: '#888888',
+        }[(status || '').toLowerCase()] || '#888');
+    }
+
+    function _renderUpstreamSource(srcName, h) {
+        const sCol  = _statusColor(h.status);
+        const spec  = h.source_specific || {};
+        const modes = h.mode_counters || {};
+        const lastMsgAge = spec.last_message_age_sec;
+        const ageStr = (lastMsgAge != null) ? _fmtAge(lastMsgAge) : '—';
+        const kindBadge = spec.kind ? `<span style="font-size:10px;padding:1px 6px;border-radius:10px;background:#222;color:#aaa;border:1px solid #333;text-transform:uppercase;">${esc(spec.kind)}</span>` : '';
+        const modeRows = Object.entries(modes)
+            .filter(([_, v]) => v > 0)
+            .map(([k, v]) => `<span style="display:inline-block;padding:1px 5px;margin:1px 2px;background:#1a0a0a;color:#ff8800;border:1px solid #553;border-radius:3px;font-size:10px;">${esc(k)}: ${v}</span>`)
+            .join('') || `<span style="color:#555;font-size:10px;">${_t('upstreams.no_failures')}</span>`;
+
+        let kvRows = '';
+        const kvSpec = [
+            ['url',                  'URL'],
+            ['running',              _t('upstreams.field.running')],
+            ['messages_total',       _t('upstreams.field.messages_total')],
+            ['matches_total',        _t('upstreams.field.matches_total')],
+            ['connect_count',        _t('upstreams.field.connect_count')],
+            ['watched_domains',      _t('upstreams.field.watched_domains')],
+            ['heartbeat_budget_sec', _t('upstreams.field.heartbeat_budget_sec')],
+            ['liveness_budget_sec',  _t('upstreams.field.liveness_budget_sec')],
+            ['observation_count_24h', _t('upstreams.field.observation_count_24h')],
+            ['queries_made',         _t('upstreams.field.queries_made')],
+            ['rate_limit_remaining', _t('upstreams.field.rate_limit_remaining')],
+        ];
+        for (const [k, label] of kvSpec) {
+            if (spec[k] !== undefined && spec[k] !== null && spec[k] !== '') {
+                kvRows += `<div><span style="color:#666;">${esc(label)}:</span> <b style="color:#ccc;">${esc(String(spec[k]))}</b></div>`;
+            }
+        }
+
+        return `
+        <div style="margin:6px 0;padding:8px 10px;background:#0d0d0d;border:1px solid #222;border-left:3px solid ${sCol};border-radius:3px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <span style="font-size:12px;font-weight:bold;color:#eee;">${esc(srcName)}</span>
+                ${kindBadge}
+                <span style="font-size:11px;padding:1px 6px;border-radius:3px;color:${sCol};border:1px solid ${sCol}55;">${esc(h.status || 'unknown')}</span>
+                <span style="margin-left:auto;font-size:11px;color:#555;">
+                    ${_t('upstreams.last_msg')}: <b style="color:#ccc;">${ageStr}</b>
+                </span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:2px 12px;font-size:11px;">${kvRows}</div>
+            <div style="margin-top:6px;font-size:11px;color:#666;">${_t('upstreams.mode_counters')}:</div>
+            <div style="margin-top:2px;">${modeRows}</div>
+        </div>`;
+    }
+
+    function _renderCoverageBar(coverage) {
+        if (!coverage) return '';
+        const obs24 = coverage.observed_24h || 0;
+        const obs72 = coverage.observed_72h || 0;
+        const total = coverage.total_watched || 0;
+        const pct24 = total ? (100 * obs24 / total) : 0;
+        const pct72 = total ? (100 * obs72 / total) : 0;
+        const stalest = (coverage.stalest_apexes || []).slice(0, 10);
+        const stalestRows = stalest.map(a => {
+            const last = a.last_observed_ts ? _fmtAge((Date.now()/1000) - a.last_observed_ts) : _t('upstreams.never');
+            return `<div style="display:flex;justify-content:space-between;font-size:11px;color:#999;padding:1px 0;border-bottom:1px solid #1a1a1a;"><span>${esc(a.domain || a)}</span><span style="color:#777;">${esc(last)}</span></div>`;
+        }).join('') || `<div style="color:#555;font-size:11px;">${_t('upstreams.coverage.no_data')}</div>`;
+
+        return `
+        <div style="margin-top:8px;padding:8px;background:#0d0d0d;border:1px solid #222;border-radius:3px;">
+            <div style="font-size:11px;color:#aaa;margin-bottom:6px;">${_t('upstreams.coverage.title')}: <b style="color:#eee;">${obs24}/${total}</b> (24h, ${pct24.toFixed(1)}%) — <b style="color:#eee;">${obs72}/${total}</b> (72h, ${pct72.toFixed(1)}%)</div>
+            <div style="height:6px;background:#1a1a1a;border-radius:3px;overflow:hidden;margin-bottom:8px;">
+                <div style="height:100%;width:${pct72}%;background:linear-gradient(90deg,#66ff66 0%,#66ff66 ${pct24/Math.max(pct72,0.001)*100}%,#ff8800 ${pct24/Math.max(pct72,0.001)*100}%,#ff8800 100%);"></div>
+            </div>
+            <div style="font-size:11px;color:#888;margin-bottom:4px;">${_t('upstreams.coverage.stalest')}:</div>
+            ${stalestRows}
+        </div>`;
+    }
+
+    async function loadUpstreams() {
+        const container = document.getElementById('upstreams-container');
+        const tsEl      = document.getElementById('upstreams-ts');
+        try {
+            const res = await fetch(`/api/admin/sensor_health`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            tsEl.textContent = _t('upstreams.last_refreshed', {time: new Date().toLocaleTimeString()});
+
+            const withUpstream = (data.sensors || []).filter(s => s.upstream && !s.upstream.error);
+            if (!withUpstream.length) {
+                container.innerHTML = `<div style="color:#555;font-size:13px;">${_t('upstreams.empty')}</div>`;
+                return;
+            }
+
+            container.innerHTML = withUpstream.map(s => {
+                const u = s.upstream || {};
+                const sCol = _statusColor(u.status);
+                const sources = u.sources || {};
+                const sourceCards = Object.entries(sources)
+                    .map(([n, h]) => _renderUpstreamSource(n, h))
+                    .join('');
+                const coverageHtml = _renderCoverageBar(u.coverage);
+                const buf = u.buffer || {};
+                const bufLine = (buf.size != null) ? `<span style="color:#666;">${_t('upstreams.buffer')}:</span> <b style="color:#ccc;">${buf.size}/${buf.max_obs || '?'}</b> (${buf.window_hours || '?'}h)` : '';
+                const anomalies = u.anomaly_counts || {};
+                const anomalyLine = Object.entries(anomalies)
+                    .map(([k, v]) => `<span style="color:#666;">${esc(k)}:</span> <b style="color:#${v>0?'ff8800':'ccc'};">${v}</b>`)
+                    .join(' &nbsp; ');
+                return `
+                <div style="margin-bottom:14px;padding:10px;background:#111;border:1px solid #222;border-left:3px solid ${sCol};border-radius:4px;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                        <span style="font-size:14px;font-weight:bold;color:#eee;">${esc(s.name)}</span>
+                        <span style="font-size:11px;padding:2px 6px;border-radius:3px;color:${sCol};border:1px solid ${sCol}55;">${esc(u.status || 'unknown')}</span>
+                        <span style="margin-left:auto;font-size:11px;color:#666;">
+                            ${_t('upstreams.poll')}: <b style="color:#ccc;">${Math.round((u.current_interval_sec||0)/60)}min</b>
+                        </span>
+                    </div>
+                    <div style="display:flex;gap:14px;font-size:11px;color:#888;margin-bottom:8px;">
+                        <div>${bufLine}</div>
+                        <div>${anomalyLine}</div>
+                    </div>
+                    ${sourceCards}
+                    ${coverageHtml}
+                </div>`;
+            }).join('');
+        } catch (e) {
+            container.innerHTML = `<div style="color:#ff2a2a;">${_t('upstreams.load_error', {msg: e.message})}</div>`;
+        }
+    }
+
     // ── Admin headers helper ─────────────────────────────────────────────────────
     function _adminHeaders(extra = {}) {
         return { ...extra };
