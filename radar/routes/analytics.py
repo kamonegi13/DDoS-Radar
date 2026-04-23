@@ -1074,24 +1074,66 @@ def api_cmedium_recommendation():
     })
 
 
+# scenario-refactor §10.5: TL recalibration evaluation is anchored at
+# Phase 5 completion 2026-04-14 + 14d = 2026-04-28, with one 14d extension
+# permitted → final hard deadline 2026-05-12.
+TL_RECALIBRATION_DEADLINE_TS        = datetime.datetime(2026, 4, 28, tzinfo=datetime.timezone.utc).timestamp()
+TL_RECALIBRATION_EXTENDED_DEADLINE_TS = datetime.datetime(2026, 5, 12, tzinfo=datetime.timezone.utc).timestamp()
+# §10.5 criterion (b) frequency targets, normalized to per-week expectations
+# to match the default 168h advisory window. TL2: 1-2/month ≈ 0.23-0.46/week.
+# TL1: 1/quarter ≈ 0.077/week. Multiply by hours/168 for the active window.
+TL2_TARGET_PER_WEEK_MAX = 2.0 / 4.0     # 2/month upper bound
+TL1_TARGET_PER_WEEK_MAX = 1.0 / 13.0    # 1/quarter
+
+
 @bp.route("/api/analytics/tl_recalibration_advisory", methods=["GET"])
 def api_tl_recalibration_advisory():
-    """TL threshold recalibration trigger advisory (scenario-refactor §7.3.1).
+    """TL threshold recalibration trigger advisory (scenario-refactor §7.3.1 / §10.5).
 
     For each scorable scenario, examines the recent TL distribution and
     flags any scenario whose observations cluster in <=2 buckets (TL skew),
-    indicating thresholds are over- or under-tuned. Operators use this to
-    decide when to recompute TL bands per scenario.
+    indicating thresholds are over- or under-tuned.
+
+    The `decision` block implements §10.5's criterion (b) frequency test
+    and surfaces days-remaining until the 2026-04-28 evaluation deadline
+    (extendable once to 2026-05-12). Criterion (a) — TL3+ firing vs
+    country-unit baseline at 2x — is not machine-measurable because the
+    country-unit historical TL was retired during Phase 2, so it is
+    returned as `manual_review_needed`.
     """
     from radar.scenarios import scenario_store
     hours = _safe_int(request.args.get("hours", "168"), 168, min_val=1, max_val=720)
     lang = request.args.get("lang")
+    now_ts = time.time()
     advisories = []
     for sc in scenario_store.scorable():
         stats = _db.tl_calibration_stats(scenario_id=sc.id, hours=hours)
-        dist = stats.get("distribution") or {}
-        total = sum(dist.values()) if dist else 0
+        dist = stats.get("distribution") or {}  # {"TL1": {"count":..., ...}, ...}
+        # Normalize distribution -> {tl_int: count} for bucket arithmetic.
+        counts_by_tl: dict[int, int] = {}
+        for key, bucket in dist.items():
+            if not isinstance(bucket, dict):
+                continue
+            try:
+                tl = int(key[2:])  # "TL1" -> 1
+            except (ValueError, IndexError):
+                continue
+            counts_by_tl[tl] = int(bucket.get("count", 0))
+        total = sum(counts_by_tl.values())
+
+        # §10.5 criterion (b): per-week TL2 and TL1 firing rate vs targets.
+        weeks = max(hours / 168.0, 1e-6)
+        tl2_per_week = counts_by_tl.get(2, 0) / weeks
+        tl1_per_week = counts_by_tl.get(1, 0) / weeks
+        tl3plus_count = sum(v for k, v in counts_by_tl.items() if k <= 3)
+        tl3plus_pct = round(tl3plus_count * 100.0 / total, 1) if total else 0.0
+
         if total < TL_RECALIBRATION_MIN_OBS:
+            decision = {
+                "recommendation": "EXTEND_OR_WAIT",
+                "reason": (f"sample size {total} below min {TL_RECALIBRATION_MIN_OBS} "
+                           f"— per §10.5(c) one 14d extension permitted"),
+            }
             advisories.append({
                 "scenario_id": sc.id,
                 "label": _scenario_label(sc, lang),
@@ -1099,10 +1141,12 @@ def api_tl_recalibration_advisory():
                 "observations": total,
                 "min_required": TL_RECALIBRATION_MIN_OBS,
                 "distribution": dist,
+                "decision": decision,
             })
             continue
-        # Find the dominant TL bucket and its share
-        max_bucket, max_count = max(dist.items(), key=lambda kv: kv[1])
+
+        # Skew detection (original logic, fixed).
+        max_bucket, max_count = max(counts_by_tl.items(), key=lambda kv: kv[1])
         skew_pct = round(max_count * 100.0 / total, 1)
         if skew_pct >= TL_RECALIBRATION_SKEW_THRESHOLD_PCT:
             status = "RECALIBRATION_DUE"
@@ -1112,6 +1156,38 @@ def api_tl_recalibration_advisory():
             status = "BALANCED"
             reason = (f"max bucket TL{max_bucket} holds {skew_pct:.1f}% of "
                       f"{total} observations")
+
+        # §10.5 decision: TL2/TL1 frequency within targets → accept current
+        # thresholds; otherwise recommend raising thresholds.
+        tl2_ok = tl2_per_week <= TL2_TARGET_PER_WEEK_MAX
+        tl1_ok = tl1_per_week <= TL1_TARGET_PER_WEEK_MAX
+        if tl2_ok and tl1_ok:
+            rec = "ACCEPT_CURRENT"
+            rec_reason = (f"TL2 {tl2_per_week:.2f}/week <= {TL2_TARGET_PER_WEEK_MAX:.2f}, "
+                          f"TL1 {tl1_per_week:.2f}/week <= {TL1_TARGET_PER_WEEK_MAX:.2f} "
+                          f"— §10.5(b) frequency targets met")
+        else:
+            rec = "RAISE_THRESHOLDS"
+            rec_reason = (f"TL2 {tl2_per_week:.2f}/week "
+                          f"(target <= {TL2_TARGET_PER_WEEK_MAX:.2f}), "
+                          f"TL1 {tl1_per_week:.2f}/week "
+                          f"(target <= {TL1_TARGET_PER_WEEK_MAX:.2f})")
+
+        decision = {
+            "recommendation": rec,
+            "reason": rec_reason,
+            "manual_review_needed": (
+                "§10.5(a) TL3+ firing rate vs country-unit 2x baseline: "
+                "country-unit TL observations retired in Phase 2, "
+                f"compare TL3+ pct ({tl3plus_pct}%) to archived baseline manually"
+            ),
+            "measured": {
+                "tl2_per_week": round(tl2_per_week, 3),
+                "tl1_per_week": round(tl1_per_week, 3),
+                "tl3plus_pct": tl3plus_pct,
+            },
+        }
+
         advisories.append({
             "scenario_id": sc.id,
             "label": _scenario_label(sc, lang),
@@ -1121,12 +1197,26 @@ def api_tl_recalibration_advisory():
             "dominant_pct": skew_pct,
             "distribution": dist,
             "reason": reason,
+            "decision": decision,
         })
+
+    days_remaining = (TL_RECALIBRATION_DEADLINE_TS - now_ts) / 86400.0
+    days_remaining_extended = (TL_RECALIBRATION_EXTENDED_DEADLINE_TS - now_ts) / 86400.0
     return jsonify({
         "hours": hours,
         "config": {
             "min_observations": TL_RECALIBRATION_MIN_OBS,
             "skew_threshold_pct": TL_RECALIBRATION_SKEW_THRESHOLD_PCT,
+            "tl2_target_per_week_max": TL2_TARGET_PER_WEEK_MAX,
+            "tl1_target_per_week_max": TL1_TARGET_PER_WEEK_MAX,
+        },
+        "deadline": {
+            "primary": "2026-04-28",
+            "extended_hard": "2026-05-12",
+            "days_remaining": round(days_remaining, 1),
+            "days_remaining_extended": round(days_remaining_extended, 1),
+            "past_primary": days_remaining < 0,
+            "past_extended": days_remaining_extended < 0,
         },
         "scenarios": advisories,
     })
@@ -1232,28 +1322,46 @@ def api_source_credibility():
     return jsonify({"sources": sources})
 
 
+# scenario-refactor §10.5: ADR-015 dual-weight evaluation is anchored at
+# Phase 5 completion 2026-04-14 + 28d = 2026-05-12, with one 14d extension
+# permitted → final hard deadline 2026-05-26.
+DUAL_WEIGHT_DEADLINE_TS          = datetime.datetime(2026, 5, 12, tzinfo=datetime.timezone.utc).timestamp()
+DUAL_WEIGHT_EXTENDED_DEADLINE_TS = datetime.datetime(2026, 5, 26, tzinfo=datetime.timezone.utc).timestamp()
+# §10.5 ADR-015 rollback triggers.
+# (a) country_weight standard deviation above this → LLM non-determinism too high
+DUAL_WEIGHT_SD_ROLLBACK_THRESHOLD   = 0.20
+# (b) share of contributions with country_weight < 0.5 above this → noise-dominated
+DUAL_WEIGHT_LOW_WEIGHT_PCT_THRESHOLD = 30.0
+
+
 @bp.route("/api/analytics/dual_weight_evaluation", methods=["GET"])
 def api_dual_weight_evaluation():
-    """Dual-weight observability (ADR-015): compare LLM-emitted country_weights
-    against static scenario participant weights.
+    """Dual-weight observability (ADR-015 / scenario-refactor §10.5).
 
     For each scenario participant, reports:
       - participant_weight: the static weight from geo_data.json
-      - llm_mean: average country_weight across active intel items in window
+      - llm_mean / llm_sd: average and standard deviation of country_weight
+        across active intel items in window
       - ratio: llm_mean / participant_weight (>1.2 or <0.8 = drift signal)
       - samples: number of LLM items informing the mean
       - status: ALIGNED / LLM_HIGHER / LLM_LOWER / INSUFFICIENT_DATA
 
-    Operators use this to decide whether static participant weights need
-    re-tuning or whether the LLM prompts are drifting.
+    The top-level `decision` block implements §10.5's criteria (a)/(b)
+    rollback triggers and surfaces days-remaining until the 2026-05-12
+    evaluation deadline (extendable once to 2026-05-26). Criterion (c)
+    — analyst-reject-share — is not machine-measurable without a
+    "rejected-because-country-tag-weak" label flow, so it is surfaced
+    as `manual_review_needed`.
     """
     from radar.scenarios import scenario_store, Role
     hours = _safe_int(request.args.get("hours", "168"), 168, min_val=1, max_val=720)
     lang = request.args.get("lang")
     llm_agg = _db.intel_country_weight_aggregate(hours=hours)
     min_samples = 3
+    now_ts = time.time()
 
     results = []
+    all_samples: list[dict] = []  # pooled for fleet-level decision
     for sc in scenario_store.scorable():
         participants_out = []
         for cc, p in sc.participants.items():
@@ -1262,6 +1370,8 @@ def api_dual_weight_evaluation():
             agg = llm_agg.get(cc.upper(), {})
             samples = agg.get("samples", 0)
             llm_mean = agg.get("mean", 0.0)
+            llm_sd   = agg.get("sd", 0.0)
+            low_pct  = agg.get("low_weight_pct", 0.0)
             if samples < min_samples or p.weight <= 0:
                 status = "INSUFFICIENT_DATA"
                 ratio = None
@@ -1273,13 +1383,18 @@ def api_dual_weight_evaluation():
                     status = "LLM_LOWER"
                 else:
                     status = "ALIGNED"
+                all_samples.append({
+                    "sd": llm_sd, "low_pct": low_pct, "samples": samples,
+                })
             participants_out.append({
                 "country": cc,
                 "role": p.role.value,
                 "participant_weight": p.weight,
                 "llm_mean": llm_mean,
+                "llm_sd": llm_sd,
                 "llm_min": agg.get("min", 0.0),
                 "llm_max": agg.get("max", 0.0),
+                "low_weight_pct": low_pct,
                 "samples": samples,
                 "ratio": ratio,
                 "status": status,
@@ -1290,9 +1405,67 @@ def api_dual_weight_evaluation():
             "participants": participants_out,
         })
 
+    # Fleet-level §10.5 decision: sample-weighted SD and pooled low-weight pct.
+    total_samples = sum(s["samples"] for s in all_samples) or 0
+    if total_samples < 20:
+        decision = {
+            "recommendation": "EXTEND_OR_WAIT",
+            "reason": (f"total pooled samples {total_samples} < 20 — "
+                       "§10.5 one 14d extension permitted to 2026-05-26"),
+            "measured": {"total_samples": total_samples},
+        }
+    else:
+        wsd = sum(s["sd"] * s["samples"] for s in all_samples) / total_samples
+        wlow = sum(s["low_pct"] * s["samples"] for s in all_samples) / total_samples
+        trip_a = wsd > DUAL_WEIGHT_SD_ROLLBACK_THRESHOLD
+        trip_b = wlow > DUAL_WEIGHT_LOW_WEIGHT_PCT_THRESHOLD
+        if trip_a or trip_b:
+            rec = "ROLLBACK_TO_SINGLE_WEIGHT"
+            triggers = []
+            if trip_a:
+                triggers.append(f"(a) SD {wsd:.3f} > {DUAL_WEIGHT_SD_ROLLBACK_THRESHOLD}")
+            if trip_b:
+                triggers.append(f"(b) low-weight share {wlow:.1f}% > "
+                                f"{DUAL_WEIGHT_LOW_WEIGHT_PCT_THRESHOLD}%")
+            reason = " and ".join(triggers)
+        else:
+            rec = "ACCEPT_CURRENT"
+            reason = (f"SD {wsd:.3f} <= {DUAL_WEIGHT_SD_ROLLBACK_THRESHOLD}, "
+                      f"low-weight share {wlow:.1f}% <= "
+                      f"{DUAL_WEIGHT_LOW_WEIGHT_PCT_THRESHOLD}% "
+                      "— §10.5(a)(b) both below rollback thresholds")
+        decision = {
+            "recommendation": rec,
+            "reason": reason,
+            "manual_review_needed": (
+                "§10.5(c) analyst-reject share: compare manually in intel queue "
+                "panel — rejected-because-country-tag-weak items vs confirm count"
+            ),
+            "measured": {
+                "sample_weighted_sd": round(wsd, 3),
+                "pooled_low_weight_pct": round(wlow, 1),
+                "total_samples": total_samples,
+            },
+        }
+
+    days_remaining          = (DUAL_WEIGHT_DEADLINE_TS - now_ts) / 86400.0
+    days_remaining_extended = (DUAL_WEIGHT_EXTENDED_DEADLINE_TS - now_ts) / 86400.0
     return jsonify({
         "hours": hours,
-        "config": {"min_samples": min_samples},
+        "config": {
+            "min_samples": min_samples,
+            "sd_rollback_threshold": DUAL_WEIGHT_SD_ROLLBACK_THRESHOLD,
+            "low_weight_pct_rollback_threshold": DUAL_WEIGHT_LOW_WEIGHT_PCT_THRESHOLD,
+        },
+        "deadline": {
+            "primary": "2026-05-12",
+            "extended_hard": "2026-05-26",
+            "days_remaining": round(days_remaining, 1),
+            "days_remaining_extended": round(days_remaining_extended, 1),
+            "past_primary": days_remaining < 0,
+            "past_extended": days_remaining_extended < 0,
+        },
+        "decision": decision,
         "scenarios": results,
     })
 

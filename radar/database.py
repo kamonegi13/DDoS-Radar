@@ -2925,10 +2925,12 @@ class RadarDB:
     def intel_country_weight_aggregate(self, hours: int = 168) -> dict:
         """Aggregate LLM-emitted country_weights across active intel items.
 
-        Returns per-country mean/samples for auto_confirmed+confirmed items
-        within the window. Used by the dual-weight observability endpoint
-        (ADR-015) to compare LLM-derived weights against static scenario
-        participant weights.
+        Returns per-country mean / sd / low_weight_pct / samples for
+        auto_confirmed+confirmed items within the window. Used by the
+        dual-weight observability endpoint (ADR-015 / scenario-refactor
+        §10.5) to compare LLM-derived weights against static scenario
+        participant weights and to evaluate §10.5 rollback criteria
+        (a) SD threshold and (b) low-weight contribution share.
         """
         cutoff = time.time() - hours * 3600
         rows = self._get_conn().execute(
@@ -2948,15 +2950,24 @@ class RadarDB:
                     per_country.setdefault(cc.upper(), []).append(float(w))
                 except (ValueError, TypeError):
                     continue
-        return {
-            cc: {
-                "samples": len(ws),
-                "mean": round(sum(ws) / len(ws), 3) if ws else 0.0,
-                "min": round(min(ws), 3) if ws else 0.0,
-                "max": round(max(ws), 3) if ws else 0.0,
+        out: dict[str, dict] = {}
+        for cc, ws in per_country.items():
+            n = len(ws)
+            if n == 0:
+                continue
+            mean = sum(ws) / n
+            var = sum((w - mean) ** 2 for w in ws) / n if n > 1 else 0.0
+            sd = var ** 0.5
+            low = sum(1 for w in ws if w < 0.5)
+            out[cc] = {
+                "samples": n,
+                "mean": round(mean, 3),
+                "sd": round(sd, 3),
+                "min": round(min(ws), 3),
+                "max": round(max(ws), 3),
+                "low_weight_pct": round(low * 100.0 / n, 1),
             }
-            for cc, ws in per_country.items()
-        }
+        return out
 
     # ── Auth ───────────────────────────────────────────────────────────────
 
