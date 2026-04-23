@@ -139,13 +139,10 @@ const LANG = {
     'tools.live_threat_telemetry':    'Live Threat Telemetry',
     'tools.evidence_chain':           'Evidence Chain',
     'tools.telegram_sigint':          'Telegram SIGINT',
-    'tools.threat_pulse':             'Threat Pulse',
     'tools.weather_brief':            'Weather Brief',
     'tools.salute_export':            'SALUTE Export',
     'tools.historical_analog':        'Historical Analog',
-    'tools.ops_clock':                'Ops Clock',
     'tools.greynoise':                'GreyNoise',
-    'tools.analyst_notebook':         'Analyst Notebook',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — common
@@ -371,13 +368,6 @@ const LANG = {
     'modal.help.ch11':                '11. Limitations',
 
     // ══════════════════════════════════════════════════════════════
-    // Panel — Operational Clock
-    // ══════════════════════════════════════════════════════════════
-    'panel.clock.title':              'OPERATIONAL CLOCK',
-    'clock.local_prefix':             'LOCAL: ',
-    'clock.last_event':               'LAST EVENT: {m}m {s}s ago',
-
-    // ══════════════════════════════════════════════════════════════
     // Panel — Weather Brief
     // ══════════════════════════════════════════════════════════════
     'panel.weather.title':            'OPS WEATHER BRIEF',
@@ -389,7 +379,6 @@ const LANG = {
     'panel.salute.btn_close':         '[ X ] Close',
     'panel.salute.btn_copy':          'Copy',
     'panel.salute.btn_download':      'Download',
-    'panel.salute.copied':            'SALUTE report copied to clipboard',
     'panel.salute.cross_ref':         'CROSS-REF',
 
     // ══════════════════════════════════════════════════════════════
@@ -398,11 +387,6 @@ const LANG = {
     'panel.ha.title':                 'HISTORICAL ANALOG',
     'ha.accumulating':                'Accumulating data...',
     'ha.note':                        'PEARSON R — LAST 20 CYCLES vs KNOWN EVENTS',
-
-    // ══════════════════════════════════════════════════════════════
-    // Panel — Threat Pulse
-    // ══════════════════════════════════════════════════════════════
-    'panel.pulse.title':              'THREAT PULSE',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Evidence Chain
@@ -489,26 +473,9 @@ const LANG = {
     'gn.no_theater_data':             'No theater data',
 
     // ══════════════════════════════════════════════════════════════
-    // Analyst Notebook
-    // ══════════════════════════════════════════════════════════════
-    'notebook.no_entries':            'No entries yet.\nYour assessments, IP lookups, and sensor mutes are recorded here automatically.',
-    'notebook.export.header':         '=== ANALYST NOTEBOOK EXPORT ===',
-    'notebook.export.generated':      'Generated: {iso}',
-    'notebook.export.assessment':     'Assessment: {a} | Confidence: {c}',
-    'notebook.export.watch_for':      'WATCH FOR: {text}',
-    'notebook.export.shift_log':      '--- SHIFT LOG ---',
-    'notebook.export.copied':         'COPIED!',
-    'notebook.confirm.clear':         'Clear all notebook entries? This cannot be undone.',
-    'notebook.entry.sensor_unmuted':  'Sensor unmuted: {name}',
-    'notebook.entry.sensor_muted':    'Sensor muted: {name}',
-    'notebook.entry.ip_noise':        'NOISE',
-    'notebook.entry.ip_targeted':     'TARGETED',
-    'notebook.entry.defcon':          'Threat Level {dir} {from} → {to} (score: {score})',
-
-    // ══════════════════════════════════════════════════════════════
     // Sensor config / mute
     // ══════════════════════════════════════════════════════════════
-    'sensor.mute.prompt':             'Muting sensor: {name}\nReason (optional — recorded in Analyst Notebook):',
+    'sensor.mute.prompt':             'Muting sensor: {name}\nReason (optional):',
     'sensor.toggle.enabled':          'Enabled',
     'sensor.toggle.disabled':         'Disabled',
     'sensor.no_sensors':              'No sensors registered.',
@@ -715,7 +682,6 @@ const LANG = {
     'tools.user_management':          'User Management',
     'tools.whatif_sim':               'What-If Sim',
     'tools.spof_analysis':            'SPOF Analysis',
-    'tools.action_plan':              'Action Plan',
 
     // ══════════════════════════════════════════════════════════════
     // What-If Simulation panel
@@ -747,63 +713,6 @@ const LANG = {
     'panel.spof.score_impact':        'Score impact',
     'panel.spof.domain_lost':         'Domain deactivated',
     'panel.spof.no_spof':             'All sensors nominal — no critical dependencies.',
-
-    // ══════════════════════════════════════════════════════════════
-    // Action Plan panel
-    // ══════════════════════════════════════════════════════════════
-    'panel.ap.title':                 'ACTION PLAN',
-    'panel.ap.current':               'CURRENT',
-    'panel.ap.all_clear':             'All clear — review escalation procedures below for readiness.',
-    'panel.ap.llm_context':           'LLM Intel Context',
-    'ap.intel.theater_prefix':        '[{t}]',
-    'panel.ap.tl5.monitor':           'Maintain routine OSINT monitoring cycle',
-    'panel.ap.tl5.baseline':          'Verify HOD baseline data collection is active',
-    'panel.ap.tl5.review':            'Review sensor health dashboard weekly',
-    'panel.ap.tl4.watch':             'Increase monitoring frequency to 15-min intervals',
-    'panel.ap.tl4.analytics':         'Review Deep Analytics for anomaly confirmation',
-    'panel.ap.tl4.notify':            'Notify on-duty analyst of elevated status',
-    'panel.ap.tl4.log':               'Begin logging observations in Analyst Notebook',
-    'panel.ap.tl3.rate_limit':        'Enforce CDN rate limiting on critical endpoints',
-    'panel.ap.tl3.cdn':               'Verify CDN/WAF rules are up to date',
-    'panel.ap.tl3.increase_polling':  'Switch to 5-min polling (SYNC mode)',
-    'panel.ap.tl3.soc_alert':         'Alert SOC team and begin active monitoring',
-    'panel.ap.tl3.backup_dns':        'Activate backup DNS configuration',
-    'panel.ap.tl2.failover':          'Prepare infrastructure failover (standby activation)',
-    'panel.ap.tl2.escalate':          'Escalate to senior leadership / duty officer',
-    'panel.ap.tl2.lockdown':          'Enable enhanced access controls on critical systems',
-    'panel.ap.tl2.coordinate':        'Coordinate with ISP / upstream providers',
-    'panel.ap.tl2.ir_prep':           'Stage incident response team and playbook',
-    'panel.ap.tl2.geo_block':         'Consider geo-blocking adversary origin ASNs',
-    'panel.ap.tl1.ir_activate':       'ACTIVATE incident response procedure',
-    'panel.ap.tl1.report':            'Report to CERT / relevant authorities',
-    'panel.ap.tl1.isolate':           'Isolate compromised network segments',
-    'panel.ap.tl1.backup_comm':       'Switch to backup communication channels',
-    'panel.ap.tl1.evidence':          'Begin forensic evidence preservation',
-    'panel.ap.tl1.full_staff':        'Full SOC staffing — all hands on deck',
-    'panel.ap.tl1.null_route':        'Deploy null-route / blackhole for attack traffic',
-
-    // ══════════════════════════════════════════════════════════════
-    // Escalation Tracker panel (Phase 2)
-    // ══════════════════════════════════════════════════════════════
-    'tools.phase_escalation':         'Phase & Escalation',
-    'panel.esc.title':                'ESCALATION TRACKER',
-    'panel.esc.loading':              'Loading escalation data...',
-    'panel.esc.api_error':            'No threat data available yet.',
-    'panel.esc.current_tl':           'Current TL',
-    'panel.esc.duration':             'Duration',
-    'panel.esc.velocity':             'Velocity',
-    'panel.esc.trend':                'Score Trend',
-    'panel.esc.pattern':              'Pattern',
-    'panel.esc.pattern.STABLE':       'STABLE',
-    'panel.esc.pattern.ESCALATING':   'ESCALATING',
-    'panel.esc.pattern.DE_ESCALATING':'DE-ESCALATING',
-    'panel.esc.pattern.OSCILLATING':  'OSCILLATING',
-    'panel.esc.prediction':           'Prediction',
-    'panel.esc.predicted_tl':         'Next TL → {tl}',
-    'panel.esc.predicted_time':       'ETA: {time}',
-    'panel.esc.no_prediction':        'Insufficient data for prediction',
-    'panel.esc.transitions':          'TL Transitions',
-    'panel.esc.no_transitions':       'No transitions recorded',
 
     // ══════════════════════════════════════════════════════════════
     // Phase 2 badges (HUD / Deep Analytics)
@@ -1210,36 +1119,12 @@ const LANG = {
     'noise.known_noise':              'Known Noise Source',
     'noise.false_positive':           'False Positive',
     'noise.expires_prompt':           'Auto-expire after hours (blank = permanent):',
-    'notebook.entry.noise_excluded':  'Noise exclusion added: {sensor} → {reason}',
     'threat_cls.prompt':              'Classify current threat situation:',
     'threat_cls.exercise':            'Exercise / Drill',
     'threat_cls.maintenance':         'Scheduled Maintenance',
     'threat_cls.confirmed_threat':    'Confirmed Threat',
     'threat_cls.false_positive':      'False Positive',
     'threat_cls.notes_prompt':        'Additional notes (optional):',
-    'notebook.entry.threat_classified': 'Threat classified: {cls}',
-    'notebook.entry.llm_credibility_adjusted': 'LLM source credibility adjusted ({cls}) — check Intel panel for review items',
-
-    // Attack Phase Panel
-    'panel.phase.title':              'PHASE & ESCALATION',
-    'panel.phase.escalation':         'Escalation Status',
-    'panel.phase.loading':            'Analyzing attack phase...',
-    'panel.phase.no_data':            'No threat data available.',
-    'panel.phase.context_alignment':  'Context Alignment',
-    'panel.phase.direction':          'Signal Direction',
-    'panel.phase.trend':              'Escalation Trend',
-    'panel.phase.btn_classify':       'Classify Threat',
-    'panel.phase.llm_intel':          'LLM Intelligence',
-    'phase.0.label':                  'PHASE 0: NORMAL',
-    'phase.0.desc':                   'No significant indicators. Routine monitoring.',
-    'phase.1.label':                  'PHASE 1: WATCH',
-    'phase.1.desc':                   'Early indicators detected. Single-domain activity.',
-    'phase.2.label':                  'PHASE 2: ELEVATED',
-    'phase.2.desc':                   'Multi-domain signals converging. Possible preparation.',
-    'phase.3.label':                  'PHASE 3: HEIGHTENED',
-    'phase.3.desc':                   'Strong adversary offensive pattern. Dual-domain convergence.',
-    'phase.4.label':                  'PHASE 4: CRITICAL',
-    'phase.4.desc':                   'Full convergence with infrastructure degradation. Imminent threat.',
 
     // ══════════════════════════════════════════════════════════════
     // Phase C: New Sensors S1-S7
@@ -1577,13 +1462,10 @@ const LANG = {
     'tools.live_threat_telemetry':    'リアルタイム脅威テレメトリ',
     'tools.evidence_chain':           '証拠チェーン',
     'tools.telegram_sigint':          'Telegram SIGINT',
-    'tools.threat_pulse':             '脅威パルス',
     'tools.weather_brief':            '気象ブリーフィング',
     'tools.salute_export':            'SALUTEエクスポート',
     'tools.historical_analog':        '歴史的パターン類推',
-    'tools.ops_clock':                '作戦時計',
     'tools.greynoise':                'GreyNoise',
-    'tools.analyst_notebook':         'アナリストノートブック',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — common
@@ -1809,13 +1691,6 @@ const LANG = {
     'modal.help.ch11':                '11. 限界と方向性',
 
     // ══════════════════════════════════════════════════════════════
-    // Panel — Operational Clock
-    // ══════════════════════════════════════════════════════════════
-    'panel.clock.title':              '作戦時計',
-    'clock.local_prefix':             '現地時刻: ',
-    'clock.last_event':               '最終イベント: {m}分 {s}秒前',
-
-    // ══════════════════════════════════════════════════════════════
     // Panel — Weather Brief
     // ══════════════════════════════════════════════════════════════
     'panel.weather.title':            '作戦気象ブリーフ',
@@ -1827,7 +1702,6 @@ const LANG = {
     'panel.salute.btn_close':         '[ X ] 閉じる',
     'panel.salute.btn_copy':          'コピー',
     'panel.salute.btn_download':      'ダウンロード',
-    'panel.salute.copied':            'SALUTE報告書をクリップボードにコピーしました',
     'panel.salute.cross_ref':         '相互参照',
 
     // ══════════════════════════════════════════════════════════════
@@ -1836,11 +1710,6 @@ const LANG = {
     'panel.ha.title':                 '歴史的パターン類推',
     'ha.accumulating':                'データ蓄積中...',
     'ha.note':                        'ピアソン相関係数 — 直近20サイクル vs 既知イベント',
-
-    // ══════════════════════════════════════════════════════════════
-    // Panel — Threat Pulse
-    // ══════════════════════════════════════════════════════════════
-    'panel.pulse.title':              '脅威パルス',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Evidence Chain
@@ -1923,26 +1792,9 @@ const LANG = {
     'gn.no_theater_data':             'シアターデータなし',
 
     // ══════════════════════════════════════════════════════════════
-    // Analyst Notebook
-    // ══════════════════════════════════════════════════════════════
-    'notebook.no_entries':            'エントリなし。\nアセスメント、IPルックアップ、センサーミュートは自動記録されます。',
-    'notebook.export.header':         '=== アナリストノートブック エクスポート ===',
-    'notebook.export.generated':      '生成日時: {iso}',
-    'notebook.export.assessment':     'アセスメント: {a} | 確信度: {c}',
-    'notebook.export.watch_for':      '監視対象: {text}',
-    'notebook.export.shift_log':      '--- シフトログ ---',
-    'notebook.export.copied':         'コピー済み',
-    'notebook.confirm.clear':         'ノートブックの全エントリを消去しますか？この操作は取り消せません。',
-    'notebook.entry.sensor_unmuted':  'センサーミュート解除: {name}',
-    'notebook.entry.sensor_muted':    'センサーミュート: {name}',
-    'notebook.entry.ip_noise':        'ノイズ',
-    'notebook.entry.ip_targeted':     '標的',
-    'notebook.entry.defcon':          '脅威レベル {dir} {from} → {to} (スコア: {score})',
-
-    // ══════════════════════════════════════════════════════════════
     // Sensor config / mute
     // ══════════════════════════════════════════════════════════════
-    'sensor.mute.prompt':             'センサーをミュート: {name}\n理由（任意 — アナリストノートブックに記録されます）:',
+    'sensor.mute.prompt':             'センサーをミュート: {name}\n理由（任意）:',
     'sensor.toggle.enabled':          '有効',
     'sensor.toggle.disabled':         '無効',
     'sensor.no_sensors':              '登録済みセンサーなし。',
@@ -2147,7 +1999,6 @@ const LANG = {
     'tools.user_management':          'ユーザー管理',
     'tools.whatif_sim':               'What-Ifシミュレーション',
     'tools.spof_analysis':            'SPOF分析',
-    'tools.action_plan':              'アクションプラン',
 
     // ══════════════════════════════════════════════════════════════
     // What-If Simulation panel
@@ -2179,63 +2030,6 @@ const LANG = {
     'panel.spof.score_impact':        'スコア影響',
     'panel.spof.domain_lost':         'ドメイン無効化',
     'panel.spof.no_spof':             '全センサー正常 — 重大な依存関係なし。',
-
-    // ══════════════════════════════════════════════════════════════
-    // Action Plan panel
-    // ══════════════════════════════════════════════════════════════
-    'panel.ap.title':                 'アクションプラン',
-    'panel.ap.current':               '現在',
-    'panel.ap.all_clear':             '異常なし — 以下のエスカレーション手順を確認してください。',
-    'panel.ap.llm_context':           'LLMインテルコンテキスト',
-    'ap.intel.theater_prefix':        '[{t}]',
-    'panel.ap.tl5.monitor':           '通常のOSINT監視サイクルを維持',
-    'panel.ap.tl5.baseline':          'HODベースラインデータ収集が有効か確認',
-    'panel.ap.tl5.review':            '週次でセンサー健全性ダッシュボードをレビュー',
-    'panel.ap.tl4.watch':             '監視頻度を15分間隔に増加',
-    'panel.ap.tl4.analytics':         'Deep Analyticsで異常を確認',
-    'panel.ap.tl4.notify':            '当直アナリストに状態変化を通知',
-    'panel.ap.tl4.log':               'アナリストノートブックに観察記録を開始',
-    'panel.ap.tl3.rate_limit':        '重要エンドポイントにCDNレート制限を適用',
-    'panel.ap.tl3.cdn':               'CDN/WAFルールが最新か確認',
-    'panel.ap.tl3.increase_polling':  '5分間隔ポーリングに切替（SYNCモード）',
-    'panel.ap.tl3.soc_alert':         'SOCチームに警戒態勢を通知',
-    'panel.ap.tl3.backup_dns':        'バックアップDNS設定を有効化',
-    'panel.ap.tl2.failover':          'インフラのフェイルオーバー準備（スタンバイ起動）',
-    'panel.ap.tl2.escalate':          '上級幹部/当直責任者にエスカレーション',
-    'panel.ap.tl2.lockdown':          '重要システムのアクセス制御を強化',
-    'panel.ap.tl2.coordinate':        'ISP/上流プロバイダと連携',
-    'panel.ap.tl2.ir_prep':           'インシデントレスポンスチームとプレイブックを待機',
-    'panel.ap.tl2.geo_block':         '敵対国ASNのジオブロッキングを検討',
-    'panel.ap.tl1.ir_activate':       'インシデントレスポンス手順を発動',
-    'panel.ap.tl1.report':            'CERT/関係当局に報告',
-    'panel.ap.tl1.isolate':           '侵害されたネットワークセグメントを隔離',
-    'panel.ap.tl1.backup_comm':       'バックアップ通信チャネルに切替',
-    'panel.ap.tl1.evidence':          'フォレンジック証拠保全を開始',
-    'panel.ap.tl1.full_staff':        'SOC全員召集 — 総員配置',
-    'panel.ap.tl1.null_route':        '攻撃トラフィックのnull-route/ブラックホール展開',
-
-    // ══════════════════════════════════════════════════════════════
-    // Escalation Tracker panel (Phase 2)
-    // ══════════════════════════════════════════════════════════════
-    'tools.phase_escalation':         'フェーズ＆エスカレーション',
-    'panel.esc.title':                'エスカレーショントラッカー',
-    'panel.esc.loading':              'エスカレーションデータを読み込み中...',
-    'panel.esc.api_error':            '脅威データがまだありません。',
-    'panel.esc.current_tl':           '現在のTL',
-    'panel.esc.duration':             '持続時間',
-    'panel.esc.velocity':             '速度',
-    'panel.esc.trend':                'スコアトレンド',
-    'panel.esc.pattern':              'パターン',
-    'panel.esc.pattern.STABLE':       '安定',
-    'panel.esc.pattern.ESCALATING':   'エスカレーション中',
-    'panel.esc.pattern.DE_ESCALATING':'デエスカレーション中',
-    'panel.esc.pattern.OSCILLATING':  '振動',
-    'panel.esc.prediction':           '予測',
-    'panel.esc.predicted_tl':         '次のTL → {tl}',
-    'panel.esc.predicted_time':       '予想到達: {time}',
-    'panel.esc.no_prediction':        '予測に必要なデータが不足',
-    'panel.esc.transitions':          'TL遷移履歴',
-    'panel.esc.no_transitions':       '遷移記録なし',
 
     // ══════════════════════════════════════════════════════════════
     // Phase 2 badges (HUD / Deep Analytics)
@@ -2642,36 +2436,12 @@ const LANG = {
     'noise.known_noise':              '既知ノイズ源',
     'noise.false_positive':           '誤検知',
     'noise.expires_prompt':           '自動失効までの時間（空欄=永続）:',
-    'notebook.entry.noise_excluded':  'ノイズ除外追加: {sensor} → {reason}',
     'threat_cls.prompt':              '現在の脅威状況を分類:',
     'threat_cls.exercise':            '演習 / 訓練',
     'threat_cls.maintenance':         '定期保守',
     'threat_cls.confirmed_threat':    '確認済み脅威',
     'threat_cls.false_positive':      '誤検知',
     'threat_cls.notes_prompt':        '追加メモ（任意）:',
-    'notebook.entry.threat_classified': '脅威分類: {cls}',
-    'notebook.entry.llm_credibility_adjusted': 'LLMソース信頼度更新 ({cls}) — Intelパネルで要確認アイテムを確認してください',
-
-    // Attack Phase Panel
-    'panel.phase.title':              'フェーズ＆エスカレーション',
-    'panel.phase.escalation':         'エスカレーション状況',
-    'panel.phase.loading':            '攻撃フェーズを分析中...',
-    'panel.phase.no_data':            '脅威データなし',
-    'panel.phase.context_alignment':  '文脈整合度',
-    'panel.phase.direction':          'シグナル方向性',
-    'panel.phase.trend':              'エスカレーション傾向',
-    'panel.phase.btn_classify':       '脅威を分類',
-    'panel.phase.llm_intel':          'LLMインテリジェンス',
-    'phase.0.label':                  'フェーズ0: 通常',
-    'phase.0.desc':                   '有意な兆候なし。通常監視。',
-    'phase.1.label':                  'フェーズ1: 注意',
-    'phase.1.desc':                   '初期兆候を検出。単一ドメインの活動。',
-    'phase.2.label':                  'フェーズ2: 警戒',
-    'phase.2.desc':                   '複数ドメインのシグナルが収束。準備段階の可能性。',
-    'phase.3.label':                  'フェーズ3: 高脅威',
-    'phase.3.desc':                   '強い敵性攻勢パターン。二重ドメイン収束。',
-    'phase.4.label':                  'フェーズ4: 危機',
-    'phase.4.desc':                   '完全収束とインフラ劣化。脅威が差し迫っている。',
 
     // ══════════════════════════════════════════════════════════════
     // Phase C: 新規センサー S1-S7

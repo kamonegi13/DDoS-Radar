@@ -855,22 +855,6 @@
         }
         .btn-classify:hover { border-color: var(--color-accent); }
 
-        /* ── CAC: Attack Phase Panel ── */
-        .phase-bar { display: flex; gap: 2px; margin: 8px 0; }
-        .phase-step {
-            flex: 1; text-align: center; padding: 4px 2px;
-            border: 1px solid #333; border-radius: 3px;
-            transition: all 0.3s;
-        }
-        .phase-active { box-shadow: 0 0 6px rgba(255,255,255,0.1); }
-        .phase-section-label { font-size: 8px; color: #555; margin: 10px 0 4px 0; letter-spacing: 1px; text-transform: uppercase; }
-        .phase-axes { display: flex; gap: 4px; }
-        .phase-axis {
-            flex: 1; text-align: center; padding: 4px;
-            border: 1px solid #222; border-radius: 3px;
-            transition: all 0.3s;
-        }
-        .phase-axis-on { border-color: var(--color-accent); background: rgba(0,255,255,0.05); }
         .tl-prox-stable { color: var(--color-muted); }
         @keyframes tl-prox-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
         .evidence-system-note { font-size: 11px; color: var(--color-text-dim); background: rgba(255,255,255,0.04); border-left: 3px solid #555; padding: 8px 12px; border-radius: 0 4px 4px 0; margin: 12px 0 8px; line-height: 1.6; }
@@ -985,22 +969,6 @@
         body.atm-severe   { animation: ambientSevere 3s ease-in-out infinite alternate; }
         body.atm-high     { animation: ambientHigh   5s ease-in-out infinite alternate; }
 
-        /* ── Intuition UI: Pulse Display panel ── */
-        #pulse-panel .panel-content { background: rgba(8,10,12,0.88); padding: 0; position: relative; width: 100%; }
-        #pulse-panel canvas { width: 100% !important; }
-        #pulse-panel canvas { display: block; }
-        .pulse-meta { display: flex; justify-content: space-between; align-items: center; padding: 3px 7px 1px; }
-        .pulse-meta-lbl { font-size: 8px; color: #446688; font-family: 'Courier New', monospace; letter-spacing: 1px; text-transform: uppercase; }
-        #pulse-threat-lv { font-size: 11px; font-weight: bold; font-family: 'Courier New', monospace; }
-        #pulse-bpm { font-size: 10px; color: #7799bb; font-family: 'Courier New', monospace; font-weight: bold; }
-
-        /* ── Intuition UI: Operational Clock ── */
-        #op-clock-panel .panel-content { font-family: 'Courier New', monospace; padding: 8px 14px; }
-        #clock-zulu  { font-size: 22px; color: var(--color-ok); font-weight: bold; letter-spacing: 3px; line-height: 1; }
-        #clock-local { font-size: 10px; color: #7ab87a; margin-top: 4px; }
-        #clock-date  { font-size: 9px; color: #5d7a5d; margin-top: 2px; }
-        #clock-since { font-size: 9px; color: #8a9a8a; margin-top: 6px; padding-top: 4px; border-top: 1px solid #2a3a2a; }
-
         /* ── Intuition UI: Operational Weather Brief ── */
         #weather-brief-panel .panel-content { padding: 10px 12px; }
         .wb-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
@@ -1075,14 +1043,12 @@
         .sb-dragging { opacity: 0.45; pointer-events: none; }
 
         /* ── Floating color overrides for new panels ── */
-        #op-clock-panel.floating      { background: rgba(8,10,12,0.96) !important; border-color: #1a2a1a !important; }
         #weather-brief-panel.floating { background: rgba(8,10,16,0.97) !important; border-color: #1a2a3a !important; }
         #hist-analog-panel.floating   { background: rgba(8,10,12,0.97) !important; border-color: #2a1a00 !important; }
-        #pulse-panel.floating         { background: rgba(8,10,12,0.88) !important; border-color: #1a1a1a !important; }
 
         /* ── Left Sidebar ── */
         #left-sidebar { width: 280px; flex-shrink: 0; background: #121212; border-right: 1px solid #444; display: none; flex-direction: column; z-index: 10; box-shadow: 5px 0 20px rgba(0,0,0,0.5); overflow-y: auto; }
-        #lsb-ph-pulse, #lsb-ph-wx, #lsb-ph-ha, #lsb-ph-clk, #lsb-ph-phase { flex-shrink: 0; }
+        #lsb-ph-wx, #lsb-ph-ha { flex-shrink: 0; }
 
         /* ── Intuition UI: TOOLS Dropdown Menu ── */
         .tools-dropdown-wrap { position: relative; margin-left: 8px; }
@@ -1134,26 +1100,6 @@
         .gn-result-riot       { color:#00aaff; }
         .gn-result-unknown    { color: var(--color-muted); }
 
-        /* ── Analyst Notebook Panel ── */
-        #notebook-panel.floating { background: rgba(8,6,0,0.97) !important; border-color: #2a2000 !important; }
-        .nb-dot { cursor:pointer; font-size:11px; transition:color 0.15s; user-select:none; }
-        .nb-dot-on  { color: var(--color-warning); }
-        .nb-dot-off { color:#333; }
-        .nb-log-entry { padding:5px 0; border-bottom:1px solid #1a1a00; font-size:10px; line-height:1.5; }
-        .nb-log-entry:last-child { border-bottom:none; }
-        .nb-ts    { color:#555; font-size:9px; font-family:'Courier New',monospace; }
-        .nb-type-ANALYST { color:#ffcc44; }
-        .nb-type-DEFCON  { color:#ff6644; }
-        .nb-type-IP_CHECK { color:#44aaff; font-family:'Courier New',monospace; }
-        .nb-type-MUTE    { color: var(--color-muted); font-style:italic; }
-        .nb-type-UNMUTE  { color: var(--color-muted); font-style:italic; }
-        .nb-assessment-badge { display:inline-block; font-size:8px; font-weight:bold; letter-spacing:1px; padding:1px 5px; border-radius:2px; vertical-align:middle; margin-left:4px; }
-        .nb-assess-NOMINAL  { background:rgba(0,255,136,0.1);  color: var(--color-ok); }
-        .nb-assess-WATCHFUL { background:rgba(255,255,0,0.08); color:#ffff44; }
-        .nb-assess-CONCERNED{ background:rgba(255,170,0,0.1);  color: var(--color-warning); }
-        .nb-assess-CRITICAL { background:rgba(255,42,42,0.12); color: var(--color-severe); }
-        .nb-assess-HOSTILE  { background:rgba(255,0,0,0.2);    color:#ff0000; font-weight:bold; }
-
         /* ── CheckHost URL grid (in chain panel) ── */
         .ch-url-row { display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px solid #0d0d0d; font-size:9px; }
         .ch-url-row:last-child { border-bottom:none; }
@@ -1184,7 +1130,7 @@
         .tgsig-src-link:hover { color:#6699aa; }
 
 /* ══════════════════════════════════════════════════════════════
-   Phase 1: What-If Simulation / SPOF Analysis / Action Plan
+   Phase 1: What-If Simulation / SPOF Analysis
    ══════════════════════════════════════════════════════════════ */
 
 /* ── What-If Panel ─────────────────────────────────────────── */
@@ -1221,33 +1167,6 @@
 .spof-crit-badge { font-size:8px; font-weight:bold; letter-spacing:0.5px; min-width:55px; }
 .spof-entry-detail { display:flex; gap:8px; padding-left:2px; }
 .spof-entry-health { display:flex; gap:6px; padding-left:2px; }
-
-/* ── Action Plan Panel ─────────────────────────────────────── */
-.ap-level-block { background:#060606; border:1px solid #1a1a1a; border-radius:3px; padding:6px 8px; margin:4px 0; transition:all 0.2s; }
-.ap-level-block.ap-current { background:#0a0a0a; border-width:2px; }
-.ap-level-header { font-size:10px; font-weight:bold; letter-spacing:0.5px; padding-bottom:4px; border-bottom:1px solid #1a1a1a; margin-bottom:4px; display:flex; align-items:center; gap:8px; }
-.ap-current-tag { font-size:7px; background:#ffffff11; border:1px solid #ffffff22; padding:1px 5px; border-radius:2px; color:#aaa; letter-spacing:1px; }
-.ap-items { display:flex; flex-direction:column; gap:2px; }
-.ap-item { display:flex; align-items:flex-start; gap:6px; padding:2px 0; }
-.ap-icon { font-size:10px; min-width:16px; text-align:center; }
-.ap-text { font-size:9px; color:#999; line-height:1.4; }
-.ap-note { font-size:9px; color:#44aa44; text-align:center; padding:8px; background:#44aa4408; border:1px solid #44aa4422; border-radius:3px; margin-top:6px; }
-
-/* ── Escalation Tracker Panel ─────────────────────────────── */
-.esc-status-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-bottom:6px; }
-.esc-stat-card { background:#060606; border:1px solid #1a1a1a; border-radius:3px; padding:6px 8px; text-align:center; }
-.esc-stat-label { font-size:8px; color:#666; letter-spacing:1px; text-transform:uppercase; margin-bottom:2px; }
-.esc-stat-value { font-size:13px; font-weight:bold; color:#ccc; font-family:monospace; }
-.esc-pattern-bar { background:#060606; border:1px solid #1a1a1a; border-radius:3px; padding:6px 10px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
-.esc-pattern-label { font-size:8px; color:#666; letter-spacing:1px; text-transform:uppercase; }
-.esc-pattern-value { font-size:11px; font-weight:bold; letter-spacing:0.5px; }
-.esc-prediction-block { background:#060606; border:1px solid #1a1a1a; border-radius:3px; padding:6px 10px; margin-bottom:6px; }
-.esc-section-title { font-size:8px; color:#666; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; border-bottom:1px solid #111; padding-bottom:3px; }
-.esc-pred-row { font-size:10px; color:#aaa; padding:2px 0; }
-.esc-transitions-block { background:#060606; border:1px solid #1a1a1a; border-radius:3px; padding:6px 10px; }
-.esc-transition-row { display:flex; align-items:center; gap:6px; padding:2px 0; font-size:10px; font-family:monospace; }
-.esc-trans-time { color:#555; min-width:42px; font-size:9px; }
-.esc-trans-arrow { color:#444; }
 
 /* ── Phase 3: TOOLS menu section headers ─────────────────── */
 .tools-menu-section-header {

@@ -946,25 +946,6 @@ def spof_analysis():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ── Phase 2: Escalation Progress API
-# ─────────────────────────────────────────────────────────────────────────────
-
-@bp.route("/api/escalation_progress", methods=["GET"])
-def escalation_progress():
-    """
-    Analyze TL escalation patterns and predict time to next TL change.
-    Returns velocity, score trend, predicted next TL, transition history, and pattern.
-    """
-    history = _db.threat_list()
-    timeline = _db.alert_list(limit=100)
-    result = _routes.engine.compute_escalation_progress(history, timeline)
-    return jsonify({
-        "ts": datetime.datetime.now().isoformat(),
-        **result,
-    })
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # ── Phase 2: Adaptive Z-score Status API
 # ─────────────────────────────────────────────────────────────────────────────
 

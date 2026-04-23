@@ -183,12 +183,10 @@
     window.toggleMute = function(sensorName) {
         if (mutedSensors.has(sensorName)) {
             mutedSensors.delete(sensorName);
-            addNotebookEntry('UNMUTE', _t('notebook.entry.sensor_unmuted', {name: sensorName}));
         } else {
-            // Reason input dialog (optional)
-            const reason = prompt(_t('sensor.mute.prompt', {name: sensorName}), '') ?? '';
+            // Reason prompt kept so the analyst still records intent at the click site
+            prompt(_t('sensor.mute.prompt', {name: sensorName}), '');
             mutedSensors.add(sensorName);
-            addNotebookEntry('MUTE', _t('notebook.entry.sensor_muted', {name: sensorName}) + (reason ? ' — ' + reason : ''));
         }
         localStorage.setItem('mutedSensors', JSON.stringify([...mutedSensors]));
         forceDataSync(); // Trigger immediate recalculation
@@ -228,7 +226,6 @@
         .then(r => r.json())
         .then(d => {
             if (d.ok) {
-                addNotebookEntry('NOISE_EXCL', _t('notebook.entry.noise_excluded', {sensor: sensorName, reason: reason}));
                 forceDataSync();
             } else {
                 alert(d.error || 'Failed');
@@ -271,13 +268,8 @@
         .then(r => r.json())
         .then(d => {
             if (d.ok) {
-                addNotebookEntry('THREAT_CLS', _t('notebook.entry.threat_classified', {cls: classification}));
                 // Refresh LLM Intel panel so review_needed items become visible
                 if (typeof _fetchLlmIntel === 'function') _fetchLlmIntel();
-                // Notify analyst if this classification affects LLM intel credibility
-                if (classification === 'false_positive' || classification === 'exercise') {
-                    addNotebookEntry('LLM_CRED', _t('notebook.entry.llm_credibility_adjusted', {cls: classification}));
-                }
             }
         })
         .catch(e => console.warn('[ThreatClassify]', e));
@@ -360,9 +352,6 @@
                 if (_gnLog.length > 20) _gnLog = _gnLog.slice(0, 20);
                 localStorage.setItem('gnLookupLog', JSON.stringify(_gnLog));
                 renderGnLog();
-                // Notebook auto-entry
-                addNotebookEntry('IP_CHECK',
-                    `IP ${d.ip}: ${d.noise ? _t('notebook.entry.ip_noise') : _t('notebook.entry.ip_targeted')} | ${classStr} | ${nameStr}`);
             })
             .catch(e => {
                 if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Network error: ${esc(e.message)}</span>`;
@@ -423,7 +412,6 @@
                     'weather-brief-panel': typeof renderWeatherBrief === 'function' ? renderWeatherBrief : null,
                     'hist-analog-panel': typeof renderHistoricalAnalog === 'function' ? renderHistoricalAnalog : null,
                     'corr-heatmap-panel': typeof renderCorrHeatmap === 'function' ? renderCorrHeatmap : null,
-                    'attack-phase-panel': typeof renderAttackPhasePanel === 'function' ? renderAttackPhasePanel : null,
                     'gn-panel': typeof updateGreyNoisePanel === 'function' ? () => updateGreyNoisePanel(window._lastThreatData) : null,
                 };
                 if (_dirtyMap[panelId]) _dirtyMap[panelId]();
@@ -631,116 +619,6 @@
         if (rc) { rc.style.display='none'; rc.innerHTML=''; }
     }
 
-    // ── Analyst Notebook ───────────────────────────────────────────────────────
-    let _nbLog = [];
-    try { _nbLog = JSON.parse(localStorage.getItem('nbLog') || '[]'); } catch(e) { /* corrupted localStorage */ }
-    let _nbConfidence = parseInt(localStorage.getItem('nbConfidence')   || '3');
-    let _nbAssessment = localStorage.getItem('nbAssessment')            || 'NOMINAL';
-    let _lastDefconLevel = null;   // for DEFCON auto-log
-
-    const toggleNotebook = _createPanelToggle('notebook-panel', {
-        defaultLeftFn: () => window.innerWidth - 340, defaultTop: 150,
-        onShow: () => { restoreNbState(); renderNbLog(); },
-    });
-
-    function restoreNbState() {
-        const sel = document.getElementById('nb-assessment');
-        if (sel) sel.value = _nbAssessment;
-        const hf = document.getElementById('nb-handoff');
-        if (hf) hf.value = localStorage.getItem('nbHandoff') || '';
-        renderNbConfidence();
-    }
-
-    function saveNbState() {
-        const sel = document.getElementById('nb-assessment');
-        if (sel) { _nbAssessment = sel.value; localStorage.setItem('nbAssessment', _nbAssessment); }
-        const hf = document.getElementById('nb-handoff');
-        if (hf) localStorage.setItem('nbHandoff', hf.value);
-    }
-
-    function setNbConfidence(level) {
-        _nbConfidence = level;
-        localStorage.setItem('nbConfidence', String(level));
-        renderNbConfidence();
-    }
-
-    function renderNbConfidence() {
-        const row = document.getElementById('nb-confidence-row');
-        if (!row) return;
-        row.querySelectorAll('.nb-dot').forEach((dot, i) => {
-            dot.className = 'nb-dot ' + (i < _nbConfidence ? 'nb-dot-on' : 'nb-dot-off');
-        });
-    }
-
-    function addNotebookEntry(type, content) {
-        const sel = document.getElementById('nb-assessment');
-        const assessment = sel ? sel.value : _nbAssessment;
-        const entry = {
-            ts:         Date.now(),
-            type:       type,
-            content:    content,
-            assessment: assessment,
-            confidence: _nbConfidence,
-        };
-        _nbLog.unshift(entry);
-        if (_nbLog.length > 200) _nbLog = _nbLog.slice(0, 200);
-        localStorage.setItem('nbLog', JSON.stringify(_nbLog));
-        renderNbLog();
-    }
-
-    function addManualNote() {
-        const ta = document.getElementById('nb-text');
-        const text = ta ? ta.value.trim() : '';
-        if (!text) return;
-        saveNbState();
-        addNotebookEntry('ANALYST', text);
-        if (ta) ta.value = '';
-    }
-
-    function renderNbLog() {
-        const container = document.getElementById('nb-log-container');
-        if (!container) return;
-        if (!_nbLog.length) { container.innerHTML = `<div style="color:#333;font-size:9px;text-align:center;">${_t('notebook.no_entries').replace('\n', '<br>')}</div>`; return; }
-        container.innerHTML = _nbLog.map(e => {
-            const t = new Date(e.ts).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-            const typeClass = `nb-type-${e.type}`;
-            const assessBadge = e.assessment && e.type === 'ANALYST'
-                ? `<span class="nb-assessment-badge nb-assess-${e.assessment}">${e.assessment}</span>`
-                : '';
-            const confStr = e.type === 'ANALYST' && e.confidence
-                ? `<span style="color:#554400;font-size:9px;"> conf:${'●'.repeat(e.confidence)}${'○'.repeat(5-e.confidence)}</span>`
-                : '';
-            return `<div class="nb-log-entry">
-                <div class="nb-ts">${t} <span class="${typeClass}">[${e.type}]</span>${assessBadge}${confStr}</div>
-                <div style="color:#aaa;font-size:10px;margin-top:1px;">${esc(e.content)}</div>
-            </div>`;
-        }).join('');
-    }
-
-    function exportNotebook() {
-        const handoff = (document.getElementById('nb-handoff') || {}).value || '';
-        let text = `=== ANALYST NOTEBOOK EXPORT ===\n`;
-        text += `Generated: ${new Date().toISOString()}\n`;
-        text += `Assessment: ${_nbAssessment} | Confidence: ${'●'.repeat(_nbConfidence)}${'○'.repeat(5-_nbConfidence)}\n`;
-        if (handoff) text += `WATCH FOR: ${handoff}\n`;
-        text += `\n--- SHIFT LOG ---\n`;
-        _nbLog.forEach(e => {
-            const t = new Date(e.ts).toISOString().replace('T',' ').slice(0,19) + 'Z';
-            text += `[${t}] [${e.type}] ${e.content}\n`;
-        });
-        navigator.clipboard.writeText(text).then(() => {
-            const btn = document.querySelector('#notebook-panel button[onclick="exportNotebook()"]');
-            if (btn) { const orig = btn.textContent; btn.textContent = _t('notebook.export.copied'); setTimeout(() => btn.textContent = orig, 1500); }
-        }).catch(() => { prompt('Copy the notebook export:', text); });
-    }
-
-    function clearNotebook() {
-        if (!confirm(_t('notebook.confirm.clear'))) return;
-        _nbLog = [];
-        localStorage.setItem('nbLog', '[]');
-        renderNbLog();
-    }
-
     // ── Custom Tooltip Logic ──
     const tooltip = document.getElementById('custom-tooltip');
     document.addEventListener('mouseover', e => {
@@ -872,17 +750,12 @@
         { panelId: 'dashboard-panel',      dotId: 'tm-dot-dash',  itemId: 'tm-item-dash'  },
         { panelId: 'chain-panel',          dotId: 'tm-dot-chain', itemId: 'tm-item-chain' },
         { panelId: 'tg-sigint-panel',      dotId: 'tm-dot-tg',    itemId: 'tm-item-tg'    },
-        { panelId: 'pulse-panel',          dotId: 'tm-dot-pulse', itemId: 'tm-item-pulse' },
         { panelId: 'weather-brief-panel',  dotId: 'tm-dot-wx',    itemId: 'tm-item-wx'    },
         { panelId: 'hist-analog-panel',    dotId: 'tm-dot-ha',    itemId: 'tm-item-ha'    },
-        { panelId: 'op-clock-panel',       dotId: 'tm-dot-clk',   itemId: 'tm-item-clk'  },
         { panelId: 'gn-panel',             dotId: 'tm-dot-gn',    itemId: 'tm-item-gn'    },
-        { panelId: 'notebook-panel',       dotId: 'tm-dot-nb',    itemId: 'tm-item-nb'    },
         { panelId: 'history-panel',        dotId: 'tm-dot-hist',  itemId: 'tm-item-hist'  },
         { panelId: 'whatif-panel',         dotId: 'tm-dot-wif',   itemId: 'tm-item-wif'   },
         { panelId: 'spof-panel',           dotId: 'tm-dot-spof',  itemId: 'tm-item-spof'  },
-        { panelId: 'actionplan-panel',     dotId: 'tm-dot-ap',    itemId: 'tm-item-ap'    },
-        { panelId: 'attack-phase-panel', dotId: 'tm-dot-phase', itemId: 'tm-item-phase' },
         { panelId: 'corr-heatmap-panel', dotId: 'tm-dot-corr', itemId: 'tm-item-corr'  },
         { panelId: 'climate-panel',      dotId: 'tm-dot-climate', itemId: 'tm-item-climate' },
         { panelId: 'sitboard-panel',     dotId: 'tm-dot-sitboard', itemId: 'tm-item-sitboard' },
@@ -1261,15 +1134,11 @@
         { id: 'target-panel',         ph: 'target-placeholder'    },
         { id: 'dashboard-panel',      ph: 'dashboard-placeholder' },
         { id: 'chain-panel',          ph: 'chain-placeholder'     },
-        { id: 'pulse-panel',          ph: 'lsb-ph-pulse'          },
         { id: 'weather-brief-panel',  ph: 'lsb-ph-wx'             },
         { id: 'hist-analog-panel',    ph: 'lsb-ph-ha'             },
-        { id: 'op-clock-panel',       ph: 'lsb-ph-clk'            },
         { id: 'gn-panel',            ph: 'lsb-ph-gn'             },
-        { id: 'notebook-panel',       ph: 'lsb-ph-nb'             },
         { id: 'tg-sigint-panel',      ph: 'lsb-ph-tg'             },
         { id: 'history-panel',        ph: 'lsb-ph-hist'           },
-        { id: 'attack-phase-panel',  ph: 'lsb-ph-phase'          },
         { id: 'corr-heatmap-panel',  ph: 'lsb-ph-corr'           },
         { id: 'climate-panel',       ph: 'lsb-ph-climate'        },
         { id: 'sitboard-panel',      ph: 'lsb-ph-sitboard'       },
@@ -1277,13 +1146,12 @@
         // Floating-only panels (no sidebar placeholder)
         { id: 'whatif-panel',        ph: null                     },
         { id: 'spof-panel',         ph: null                     },
-        { id: 'actionplan-panel',   ph: null                     },
     ];
 
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
     let _sidebarOrder = {
         'sidebar':      ['target-panel', 'dashboard-panel', 'chain-panel'],
-        'left-sidebar': ['sitboard-panel', 'climate-panel', 'llm-intel-panel', 'pulse-panel', 'weather-brief-panel', 'hist-analog-panel', 'op-clock-panel', 'gn-panel', 'notebook-panel', 'tg-sigint-panel', 'history-panel', 'attack-phase-panel', 'corr-heatmap-panel']
+        'left-sidebar': ['sitboard-panel', 'climate-panel', 'llm-intel-panel', 'weather-brief-panel', 'hist-analog-panel', 'gn-panel', 'tg-sigint-panel', 'history-panel', 'corr-heatmap-panel']
     };
 
     // Re-order placeholder divs within a sidebar to match _sidebarOrder
@@ -1654,19 +1522,14 @@
     setupDockablePanel('target-panel',        'target-placeholder',    340);
     setupDockablePanel('dashboard-panel',     'dashboard-placeholder', 400);
     setupDockablePanel('chain-panel',         'chain-placeholder',     300);
-    setupDockablePanel('pulse-panel',         'lsb-ph-pulse',          260);
     setupDockablePanel('weather-brief-panel', 'lsb-ph-wx',             420);
-    setupDockablePanel('op-clock-panel',      'lsb-ph-clk',            340);
     // Floating-only panels (on-demand tools)
     setupFloatingOnlyPanel('hist-analog-panel');
     setupFloatingOnlyPanel('gn-panel');
-    setupFloatingOnlyPanel('notebook-panel');
     setupFloatingOnlyPanel('tg-sigint-panel');
     setupFloatingOnlyPanel('history-panel');
     setupFloatingOnlyPanel('whatif-panel');
     setupFloatingOnlyPanel('spof-panel');
-    setupFloatingOnlyPanel('actionplan-panel');
-    setupDockablePanel('attack-phase-panel', 'lsb-ph-phase',          380);
     setupDockablePanel('corr-heatmap-panel', 'lsb-ph-corr',           340);
     setupDockablePanel('climate-panel',      'lsb-ph-climate',        380);
     setupDockablePanel('sitboard-panel',     'lsb-ph-sitboard',       420);
@@ -2674,18 +2537,9 @@
             } else if (gnEl) {
                 gnEl.dataset.dirty = '1';
             }
-            // Auto-log DEFCON changes to Analyst Notebook
-            const newLevel = strat.threat_level;
-            if (_lastDefconLevel !== null && _lastDefconLevel !== newLevel) {
-                addNotebookEntry('DEFCON',
-                    _t('notebook.entry.defcon', {dir: _lastDefconLevel > newLevel ? '▼' : '▲', from: _lastDefconLevel, to: newLevel, score: strat.threat_score || '?'}));
-            }
-            _lastDefconLevel = newLevel;
-
             // ── Intuition UI integrated call ───────────────────────────
             applyAmbientAtmosphere(strat.threat_level);
             updateRadioSilence(p8, strat);
-            recordSignificantEvent(strat.threat_level);
 
             // ── Threat Situation Map (TSM) ──────────────────────────────
             const coreCode  = resolveChainTargetCountry(strat);
@@ -2700,7 +2554,6 @@
                 ['weather-brief-panel', renderWeatherBrief],
                 ['hist-analog-panel', renderHistoricalAnalog],
                 ['corr-heatmap-panel', renderCorrHeatmap],
-                ['attack-phase-panel', renderAttackPhasePanel],
             ];
             for (const [pid, fn] of _panelRenders) {
                 const el = document.getElementById(pid);
@@ -2977,8 +2830,7 @@
 
         originContainer.innerHTML = originHtml;
 
-        // ── Intuition UI: Pulse Display + Threat Terrain + Overlap Links ──
-        updatePulseDisplay(data.threat_history || []);
+        // ── Intuition UI: Threat Terrain + Overlap Links ──
         updateThreatTerrain(data);
         updateCoordinationIndex(data);
 
@@ -4024,9 +3876,6 @@
     //  Eight UI elements that appeal to the analyst's heuristics and intuition
     // ══════════════════════════════════════════════════════════════════════
 
-    let _pulseHistory   = []; // [{ts, threat_level}] — EKG pulse history
-    let _lastEventTs    = Date.now(); // timestamp of the last significant event
-    let _clockInterval  = null;
     let _histEvents     = []; // geo_data HISTORICAL_EVENTS cache
 
     // ── A. Ambient Atmosphere ──────────────────────────────────────────
@@ -4037,114 +3886,6 @@
         if      (threatLevel === 1) body.classList.add('atm-critical');
         else if (threatLevel === 2) body.classList.add('atm-severe');
         else if (threatLevel === 3) body.classList.add('atm-high');
-    }
-
-    // ── B. Pulse Display ──────────────────────────────────────────────
-    // Scrolling EKG waveform — visualize threat score time series as a heartbeat graph
-    function updatePulseDisplay(threatHistory) {
-        if (!threatHistory || !threatHistory.length) return;
-        _pulseHistory = threatHistory.slice(-60);
-        drawPulseCanvas();
-    }
-
-    function drawPulseCanvas() {
-        const canvas = document.getElementById('pulse-canvas');
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        const W = canvas.width, H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-        if (!_pulseHistory.length) return;
-
-        // Faint grid lines
-        ctx.strokeStyle = '#1c1c1c';
-        ctx.lineWidth = 0.5;
-        for (let i = 0; i <= 4; i++) {
-            const y = (i / 4) * (H - 6) + 3;
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-        }
-
-        const n   = _pulseHistory.length;
-        const col = { 1:'#ff0000', 2:'#ff2a2a', 3:'#ffaa00', 4:'#ffff00', 5:'#66ff66' };
-        const lastDef = _pulseHistory[_pulseHistory.length - 1][1];
-        const lineCol = col[lastDef] || '#00ffff';
-
-        // threat_level: 1(critical, top)→5(normal, bottom). y = top→bottom
-        const pts = _pulseHistory.map(([, d], i) => {
-            const x = (i / Math.max(n - 1, 1)) * (W - 4) + 2;
-            const y = ((d - 1) / 4) * (H - 8) + 4;
-            return [x, y];
-        });
-
-        // Fill area
-        ctx.beginPath();
-        ctx.moveTo(pts[0][0], H);
-        pts.forEach(([x, y]) => ctx.lineTo(x, y));
-        ctx.lineTo(pts[pts.length - 1][0], H);
-        ctx.closePath();
-        ctx.fillStyle = lineCol + '14';
-        ctx.fill();
-
-        // Line
-        ctx.beginPath();
-        pts.forEach(([x, y], i) => { if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
-        ctx.strokeStyle = lineCol + 'cc';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Latest dot
-        const [lx, ly] = pts[pts.length - 1];
-        ctx.beginPath();
-        ctx.arc(lx, ly, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = lineCol;
-        ctx.fill();
-
-        // Threat rate (transitions/hour) + current Threat Lv indicator
-        const bpmEl = document.getElementById('pulse-bpm');
-        const tlEl  = document.getElementById('pulse-threat-lv');
-        if (bpmEl) {
-            const changes = _pulseHistory.slice(1).filter(([,d], i) => d !== _pulseHistory[i][1]).length;
-            const spanH   = (_pulseHistory.length * 15) / 3600;
-            const rate    = spanH > 0 ? Math.round(changes / spanH) : 0;
-            bpmEl.textContent = rate + ' /h';
-        }
-        if (tlEl) {
-            const THREAT_COL = { 1:'#ff0000', 2:'#ff4444', 3:'#ffaa00', 4:'#ffff00', 5:'#66ff66' };
-            tlEl.textContent = lastDef;
-            tlEl.style.color = THREAT_COL[lastDef] || '#ccc';
-        }
-    }
-
-    // ── C. Operational Clock ──────────────────────────────────────────
-    // Real-time Zulu time + elapsed time since last significant event
-    const togglePulseDisplay = _createPanelToggle('pulse-panel');
-
-    const toggleOpClock = _createPanelToggle('op-clock-panel', {
-        onShow: () => { tickClock(); if (!_clockInterval) _clockInterval = setInterval(tickClock, 1000); },
-        onHide: () => { if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; } },
-    });
-
-    function tickClock() {
-        const zEl = document.getElementById('clock-zulu');
-        const lEl = document.getElementById('clock-local');
-        const dEl = document.getElementById('clock-date');
-        const sEl = document.getElementById('clock-since');
-        if (!zEl) return;
-
-        const now  = new Date();
-        const pad  = n => String(n).padStart(2, '0');
-        const zulu = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())}Z`;
-        zEl.textContent = zulu;
-        if (lEl) lEl.textContent = _t('clock.local_prefix') + now.toLocaleTimeString();
-        if (dEl) {
-            const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-            dEl.textContent = `${now.getUTCDate()} ${months[now.getUTCMonth()]} ${now.getUTCFullYear()} UTC`;
-        }
-        if (sEl) {
-            const ms   = Date.now() - _lastEventTs;
-            const mins = Math.floor(ms / 60000);
-            const secs = Math.floor((ms % 60000) / 1000);
-            sEl.textContent = _t('clock.last_event', {m: mins, s: secs});
-        }
     }
 
     // ── D. Operational Weather Brief ──────────────────────────────────
@@ -4295,9 +4036,7 @@
     function copySaluteReport() {
         const text = _saluteToText();
         if (!text) return;
-        navigator.clipboard.writeText(text).then(() => {
-            addNotebookEntry('SALUTE', _t('panel.salute.copied'));
-        });
+        navigator.clipboard.writeText(text);
     }
 
     function downloadSaluteReport() {
@@ -4739,11 +4478,6 @@
                 L.marker([pos.lat, pos.lng], {icon: dIcon, interactive: false}).addTo(coordLinkLayer);
             }
         }
-    }
-
-    // ── Significant event detected → reset operational tempo timer ────
-    function recordSignificantEvent(threatLevel) {
-        if (threatLevel <= 3) _lastEventTs = Date.now();
     }
 
     async function loadFetchLog() {
@@ -6267,325 +6001,6 @@
         } else {
             html += `<div style="color:#44aa44;text-align:center;font-size:10px;padding:12px;">${_t('panel.spof.no_spof')}</div>`;
         }
-
-        body.innerHTML = html;
-    }
-
-
-    // ── I. Action Plan Panel ─────────────────────────────────────────────────
-    // Static TL-level runbook — no API call needed
-    const toggleActionPlanPanel = _createPanelToggle('actionplan-panel', { onShow: renderActionPlan });
-
-    function renderActionPlan() {
-        const panel = document.getElementById('actionplan-panel');
-        if (!panel || panel.style.display === 'none') return;
-        const body = panel.querySelector('.actionplan-body');
-        if (!body) return;
-
-        // Determine current TL from the HUD
-        const tlEl = document.querySelector('.threat-badge');
-        const currentTl = tlEl ? parseInt(tlEl.textContent.replace(/\D/g, '')) || 5 : 5;
-
-        const plans = {
-            5: {
-                label: 'TL5 — NORMAL',
-                color: '#44aa44',
-                items: [
-                    { icon: '📡', text: _t('panel.ap.tl5.monitor') },
-                    { icon: '🔄', text: _t('panel.ap.tl5.baseline') },
-                    { icon: '📋', text: _t('panel.ap.tl5.review') },
-                ],
-            },
-            4: {
-                label: 'TL4 — GUARDED',
-                color: '#88aa22',
-                items: [
-                    { icon: '👁', text: _t('panel.ap.tl4.watch') },
-                    { icon: '📊', text: _t('panel.ap.tl4.analytics') },
-                    { icon: '🔔', text: _t('panel.ap.tl4.notify') },
-                    { icon: '📝', text: _t('panel.ap.tl4.log') },
-                ],
-            },
-            3: {
-                label: 'TL3 — ELEVATED',
-                color: '#ffcc00',
-                items: [
-                    { icon: '🛡', text: _t('panel.ap.tl3.rate_limit') },
-                    { icon: '🌐', text: _t('panel.ap.tl3.cdn') },
-                    { icon: '📡', text: _t('panel.ap.tl3.increase_polling') },
-                    { icon: '👥', text: _t('panel.ap.tl3.soc_alert') },
-                    { icon: '🔄', text: _t('panel.ap.tl3.backup_dns') },
-                ],
-            },
-            2: {
-                label: 'TL2 — HEIGHTENED',
-                color: '#ff8800',
-                items: [
-                    { icon: '⚡', text: _t('panel.ap.tl2.failover') },
-                    { icon: '🚨', text: _t('panel.ap.tl2.escalate') },
-                    { icon: '🔒', text: _t('panel.ap.tl2.lockdown') },
-                    { icon: '📞', text: _t('panel.ap.tl2.coordinate') },
-                    { icon: '📋', text: _t('panel.ap.tl2.ir_prep') },
-                    { icon: '🌍', text: _t('panel.ap.tl2.geo_block') },
-                ],
-            },
-            1: {
-                label: 'TL1 — CRITICAL',
-                color: '#ff2222',
-                items: [
-                    { icon: '🚨', text: _t('panel.ap.tl1.ir_activate') },
-                    { icon: '📞', text: _t('panel.ap.tl1.report') },
-                    { icon: '🔌', text: _t('panel.ap.tl1.isolate') },
-                    { icon: '📡', text: _t('panel.ap.tl1.backup_comm') },
-                    { icon: '📋', text: _t('panel.ap.tl1.evidence') },
-                    { icon: '👥', text: _t('panel.ap.tl1.full_staff') },
-                    { icon: '🛡', text: _t('panel.ap.tl1.null_route') },
-                ],
-            },
-        };
-
-        let html = '';
-        // Show from current TL upward (more severe)
-        for (let tl = currentTl; tl >= 1; tl--) {
-            const plan = plans[tl];
-            if (!plan) continue;
-            const isCurrent = tl === currentTl;
-            html += `<div class="ap-level-block ${isCurrent ? 'ap-current' : ''}" style="border-color:${plan.color}33">`;
-            html += `<div class="ap-level-header" style="color:${plan.color}">`;
-            html += `${plan.label}`;
-            if (isCurrent) html += ` <span class="ap-current-tag">${_t('panel.ap.current')}</span>`;
-            html += `</div>`;
-            html += `<div class="ap-items">`;
-            plan.items.forEach(item => {
-                html += `<div class="ap-item"><span class="ap-icon">${item.icon}</span><span class="ap-text">${item.text}</span></div>`;
-            });
-            html += `</div></div>`;
-        }
-
-        // If current TL is 5 (normal), also show lower levels collapsed
-        if (currentTl === 5) {
-            html += `<div class="ap-note">${_t('panel.ap.all_clear')}</div>`;
-        }
-
-        // LLM Intel context: show active diplomatic/hacktivist items as additional context
-        const apIntel = _llmItems.filter(i =>
-            (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
-            ['diplomatic', 'hacktivist', 'ground_osint', 'apt_intel', 'narrative', 'convergence', 'military'].includes(i.source_type)
-        );
-        if (apIntel.length > 0) {
-            html += `<div style="margin-top:10px; border-top:1px solid #1a1a1a; padding-top:8px;">`;
-            html += `<div style="font-size:9px; color:#aa88ff; letter-spacing:1px; margin-bottom:5px;">${_t('panel.ap.llm_context')}</div>`;
-            const byType = { diplomatic: [], hacktivist: [], ground_osint: [], apt_intel: [], narrative: [], convergence: [], military: [] };
-            for (const item of apIntel) {
-                if (byType[item.source_type]) byType[item.source_type].push(item);
-            }
-            for (const [type, items] of Object.entries(byType)) {
-                if (!items.length) continue;
-                const typeLabel = { diplomatic: '🏛', hacktivist: '⚡', ground_osint: '📡', apt_intel: '🕵', narrative: '📰', convergence: '🔴', military: '⚔', corroborated: '🔗' }[type] || '●';
-                html += `<div style="margin-bottom:4px;">`;
-                html += `<div style="font-size:9px; color:#665588; margin-bottom:2px;">${typeLabel} ${type.toUpperCase().replace('_', ' ')}</div>`;
-                for (const item of items.slice(0, 2)) {
-                    html += `<div style="font-size:9px; color:#888; padding-left:8px; margin:1px 0;">${_t('ap.intel.theater_prefix', {t: item.theater})} ${(item.headline || '').slice(0, 70)}</div>`;
-                }
-                html += `</div>`;
-            }
-            html += `</div>`;
-        }
-
-        body.innerHTML = html;
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // Phase & Escalation (merged panel — attack phase + escalation tracker)
-    // ═══════════════════════════════════════════════════════════════
-    const toggleAttackPhasePanel = _createPanelToggle('attack-phase-panel', { floating: false, onShow: renderAttackPhasePanel });
-
-    async function renderAttackPhasePanel() {
-        const panel = document.getElementById('attack-phase-panel');
-        if (!panel || (panel.style.display === 'none' && !panel.closest('#left-sidebar'))) return;
-        const body = panel.querySelector('.attack-phase-body');
-        if (!body) return;
-
-        const data = window._lastThreatData;
-        if (!data || !data.strategic_alert) {
-            body.innerHTML = `<div style="color:#666; font-size:10px; text-align:center; padding:10px 0;">${_t('panel.phase.no_data')}</div>`;
-            return;
-        }
-
-        const strat = data.strategic_alert;
-        const analytics = strat.analytics || {};
-        const ca = analytics.context_alignment || {};
-        const ds = analytics.direction_summary || {};
-        const tl = strat.threat_level || 5;
-
-        const tlColors = { 1: '#ff2222', 2: '#ff8800', 3: '#ffcc00', 4: '#88aa22', 5: '#44aa44' };
-
-        // Determine attack phase based on TL
-        const phases = [
-            { id: 'PHASE_0', label: _t('phase.0.label'), desc: _t('phase.0.desc'), color: '#66ff66', min_tl: 5, max_tl: 5 },
-            { id: 'PHASE_1', label: _t('phase.1.label'), desc: _t('phase.1.desc'), color: '#ffff00', min_tl: 4, max_tl: 4 },
-            { id: 'PHASE_2', label: _t('phase.2.label'), desc: _t('phase.2.desc'), color: '#ffaa00', min_tl: 3, max_tl: 3 },
-            { id: 'PHASE_3', label: _t('phase.3.label'), desc: _t('phase.3.desc'), color: '#ff4444', min_tl: 2, max_tl: 2 },
-            { id: 'PHASE_4', label: _t('phase.4.label'), desc: _t('phase.4.desc'), color: '#ff0000', min_tl: 1, max_tl: 1 },
-        ];
-        const currentPhase = phases.find(p => tl >= p.min_tl && tl <= p.max_tl) || phases[0];
-
-        let html = '';
-
-        // ── Phase indicator bar ──
-        html += `<div class="phase-bar">`;
-        for (const p of phases) {
-            const active = p.id === currentPhase.id;
-            html += `<div class="phase-step ${active ? 'phase-active' : ''}" style="border-color:${active ? p.color : '#333'}; ${active ? `background:${p.color}22;` : ''}">`;
-            html += `<div style="font-size:8px; color:${active ? p.color : '#555'}; font-weight:bold;">${p.label}</div>`;
-            html += `</div>`;
-        }
-        html += `</div>`;
-
-        // Current phase detail
-        html += `<div style="padding:8px; border:1px solid ${currentPhase.color}33; border-radius:4px; margin:8px 0;">`;
-        html += `<div style="color:${currentPhase.color}; font-weight:bold; font-size:12px;">${currentPhase.label}</div>`;
-        html += `<div style="color:#aaa; font-size:10px; margin-top:4px;">${currentPhase.desc}</div>`;
-        html += `</div>`;
-
-        // Context Alignment summary
-        html += `<div class="phase-section-label">${_t('panel.phase.context_alignment')}</div>`;
-        html += `<div class="phase-axes">`;
-        const axes = ca.axes || {};
-        for (const [axis, info] of Object.entries(axes)) {
-            const on = info.aligned;
-            html += `<div class="phase-axis ${on ? 'phase-axis-on' : ''}" title="${info.detail}">`;
-            html += `<div style="font-size:8px; color:${on ? '#0ff' : '#444'};">${_t('cac.axis.' + axis)}</div>`;
-            html += `<div style="font-size:12px;">${on ? '●' : '○'}</div>`;
-            html += `</div>`;
-        }
-        html += `</div>`;
-
-        // Direction summary
-        html += `<div class="phase-section-label">${_t('panel.phase.direction')}</div>`;
-        const dirCounts = [
-            { key: 'adversary_offensive', label: 'ADV', color: '#ff2a2a', count: ds.adversary_offensive || 0 },
-            { key: 'friendly_defensive', label: 'FRD', color: '#00cc66', count: ds.friendly_defensive || 0 },
-            { key: 'target_impact', label: 'TGT', color: '#ffaa00', count: ds.target_impact || 0 },
-        ];
-        html += `<div style="display:flex; gap:6px;">`;
-        for (const d of dirCounts) {
-            if (d.count > 0) {
-                html += `<span class="dir-badge" style="color:${d.color}; border-color:${d.color};">${d.label}: ${d.count}</span>`;
-            }
-        }
-        html += `</div>`;
-
-        // ── Escalation section (fetched from API) ──
-        html += `<div class="phase-section-label" style="margin-top:10px;">${_t('panel.phase.escalation')}</div>`;
-        try {
-            const resp = await fetch('/api/escalation_progress');
-            if (!resp.ok) throw new Error('API error');
-            const escData = await resp.json();
-
-            const tlColor = tlColors[escData.current_tl] || '#666';
-            const patternRaw = (escData.pattern || 'STABLE').replace('-', '_');
-            const patternKey = 'panel.esc.pattern.' + patternRaw;
-            const patternColors = { ESCALATING: '#ff4444', 'DE-ESCALATING': '#44aa44', STABLE: '#666', OSCILLATING: '#ffaa00' };
-            const patternColor = patternColors[escData.pattern] || '#666';
-
-            const durSec = escData.tl_duration_sec || 0;
-            const durMin = Math.floor(durSec / 60);
-            const durH = Math.floor(durMin / 60);
-            const durStr = durH > 0 ? `${durH}h ${durMin % 60}m` : `${durMin}m`;
-
-            const vel = escData.escalation_velocity || 0;
-            const velSign = vel > 0 ? '+' : '';
-            const velColor = vel > 0.5 ? '#ff4444' : vel < -0.5 ? '#44aa44' : '#888';
-
-            const trend = escData.score_trend || 0;
-            const trendSign = trend > 0 ? '▲' : trend < 0 ? '▼' : '—';
-            const trendColor = trend > 0 ? '#ff4444' : trend < 0 ? '#44aa44' : '#888';
-
-            // Status grid
-            html += `<div class="esc-status-grid">`;
-            html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.duration')}</div><div class="esc-stat-value">${durStr}</div></div>`;
-            html += `<div class="esc-stat-card"><div class="esc-stat-label">${_t('panel.esc.velocity')}</div><div class="esc-stat-value" style="color:${velColor}">${velSign}${vel.toFixed(2)}/cyc</div></div>`;
-            html += `</div>`;
-
-            // Pattern + Trend inline
-            html += `<div class="esc-pattern-bar" style="border-color:${patternColor}33">`;
-            html += `<span class="esc-pattern-label">${_t('panel.esc.pattern')}</span>`;
-            html += `<span class="esc-pattern-value" style="color:${patternColor}">${_t(patternKey)}</span>`;
-            html += `<span style="color:${trendColor}; font-size:10px; margin-left:auto;">${trendSign} ${Math.abs(trend).toFixed(2)}</span>`;
-            html += `</div>`;
-
-            // Prediction
-            if (escData.predicted_next_tl) {
-                const predColor = tlColors[escData.predicted_next_tl] || '#666';
-                const predSec = escData.predicted_time_sec || 0;
-                const predMin = Math.floor(predSec / 60);
-                const predH = Math.floor(predMin / 60);
-                const predStr = predH > 0 ? `${predH}h ${predMin % 60}m` : `${predMin}m`;
-                html += `<div class="esc-prediction-block">`;
-                html += `<div class="esc-pred-row"><span style="color:${predColor}">${_t('panel.esc.predicted_tl', { tl: escData.predicted_next_tl })}</span>`;
-                html += ` <span style="color:#888; font-size:9px;">(${_t('panel.esc.predicted_time', { time: predStr })})</span></div>`;
-                html += `</div>`;
-            }
-
-            // Transition history (compact — last 5)
-            const transitions = escData.tl_transitions || [];
-            if (transitions.length > 0) {
-                html += `<div class="esc-transitions-block">`;
-                html += `<div class="esc-section-title">${_t('panel.esc.transitions')}</div>`;
-                const recent = transitions.slice(-5).reverse();
-                recent.forEach(t => {
-                    const fromColor = tlColors[t.from] || '#666';
-                    const toColor = tlColors[t.to] || '#666';
-                    const ts = new Date(t.ts * 1000);
-                    const timeStr = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    html += `<div class="esc-transition-row">`;
-                    html += `<span class="esc-trans-time">${timeStr}</span>`;
-                    html += `<span style="color:${fromColor}">TL${t.from}</span>`;
-                    html += `<span class="esc-trans-arrow">→</span>`;
-                    html += `<span style="color:${toColor}">TL${t.to}</span>`;
-                    html += `</div>`;
-                });
-                html += `</div>`;
-            }
-        } catch (e) {
-            html += `<div style="color:#555; font-size:9px; text-align:center; padding:4px;">${_t('panel.esc.api_error')}</div>`;
-        }
-
-        // LLM Intel section (confirmed items for this theater)
-        const phaseTheater = resolveChainTargetCountry(strat);
-        const activeIntel = _llmItems.filter(i =>
-            (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
-            (!phaseTheater || i.theater === phaseTheater)
-        );
-        const reviewIntel = _llmItems.filter(i =>
-            i.status === 'review_needed' &&
-            (!phaseTheater || i.theater === phaseTheater)
-        );
-        if (activeIntel.length > 0 || reviewIntel.length > 0) {
-            html += `<div class="phase-section-label" style="margin-top:10px; color:#aa88ff;">${_t('panel.phase.llm_intel')}</div>`;
-            for (const item of reviewIntel.slice(0, 2)) {
-                const src = (item.source_type || '').toUpperCase();
-                html += `<div style="padding:4px 6px; margin:2px 0; background:#1a0e00; border:1px solid #ff880044; border-radius:3px; font-size:9px;">`;
-                html += `<span style="color:#ff8800; font-weight:bold;">[${src}] ⚠ REVIEW</span> `;
-                html += `<span style="color:#aaa;">${(item.headline || '').slice(0, 80)}</span>`;
-                html += `</div>`;
-            }
-            for (const item of activeIntel.slice(0, 3)) {
-                const src = (item.source_type || '').toUpperCase();
-                const confPct = Math.round((item.confidence || 0) * 100) + '%';
-                html += `<div style="padding:4px 6px; margin:2px 0; background:#0e0a18; border:1px solid #aa88ff33; border-radius:3px; font-size:9px;">`;
-                html += `<span style="color:#aa88ff; font-weight:bold;">[${src}]</span> `;
-                html += `<span style="color:#aaa;">${(item.headline || '').slice(0, 80)}</span> `;
-                html += `<span style="color:#665588; float:right;">${confPct}</span>`;
-                html += `</div>`;
-            }
-        }
-
-        // Classify button
-        html += `<div style="margin-top:10px; text-align:center;">`;
-        html += `<button onclick="openThreatClassify()" class="btn-tactical" style="font-size:10px; padding:4px 12px;">${_t('panel.phase.btn_classify')}</button>`;
-        html += `</div>`;
 
         body.innerHTML = html;
     }
