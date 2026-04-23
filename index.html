@@ -747,10 +747,6 @@
                     <input class="env-input" id="ec-GPS_JAM_CRITICAL_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
                 </div>
                 <div class="env-field">
-                    <label data-i18n="sysconfig.field.ct_log_surge">CT Log Surge Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
-                    <input class="env-input" id="ec-CT_LOG_SURGE_THRESHOLD" type="number" step="0.1" style="max-width:90px;">
-                </div>
-                <div class="env-field">
                     <label data-i18n="sysconfig.field.usgs_mag">USGS Min Magnitude <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-USGS_MIN_MAGNITUDE" type="number" step="0.1" style="max-width:90px;">
                 </div>
@@ -1645,7 +1641,7 @@
             <li style="color:#88ccff;">[Physical] usgs_seismic:        Nuclear test detector: shallow (&lt;10km) M4.0+ earthquake in adversary territory → +3. Dual role: earthquake near submarine cable = noise suppressor (suppresses physical domain alerts) [CAC]</li>
             <li style="color:#88ccff;">[Physical] mil_support_air:     Military support aircraft (tankers KC-135/TEXAC/SHELL, transports C-17/REACH, AWACS E-3/SENTRY) via OpenSky. Surge threshold per type. AWACS active + tanker surge → +2, else +1 [CAC]</li>
             <li style="color:#88ccff;">[Physical] gps_jamming:         GPSJam crowdsourced ADS-B interference data. Jamming level ≥ 3.0 → +1; critical ≥ 7.0 → +2. Registers GPS_JAMMING event [CAC]</li>
-            <li style="color:#88ccff;">[Cyber]    ct_log:              Certificate Transparency (crt.sh) surge ≥ CT_LOG_SURGE_THRESHOLD (100). Government TLD match bonus: ≥5 gov certs → +2, else +1 [CAC]</li>
+            <li style="color:#88ccff;">[Cyber]    ct_log:              Certificate Transparency identity-match (ADR-024). Untrusted CA issued for a watched government domain → +3 (highest CT signal). Wildcard certificate at gov-TLD level (e.g. *.gov.tw) → +2. Surge-volume scoring removed — replaced by anomalous-issuance detection on monitored authoritative domains [CAC]</li>
         </ul>
         <p style="font-size:11px; color:#888;"><span style="color:#66ffcc;">■</span> = v9 additions. <span style="color:#ffaa44;">■</span> = detailed logic for sensors originally listed above. <span style="color:#88ccff;">■</span> = CAC Phase C additions.</p>
 
@@ -1774,7 +1770,7 @@
             <li style="color:#88ccff;">[Physical] usgs_seismic:        核実験検出器: 浅発（&lt;10km）M4.0+地震（敵対国領域）→ +3。二重役割: 海底ケーブル近傍の地震 = ノイズ抑制器（物理ドメインアラートを抑制）[CAC]</li>
             <li style="color:#88ccff;">[Physical] mil_support_air:     軍事支援機（空中給油機 KC-135/TEXAC/SHELL、輸送機 C-17/REACH、AWACS E-3/SENTRY）OpenSky 経由。タイプ別サージ閾値。AWACS 活動中 + 給油機サージ → +2、それ以外 → +1 [CAC]</li>
             <li style="color:#88ccff;">[Physical] gps_jamming:         GPSJam クラウドソース ADS-B 干渉データ。妨害レベル ≥ 3.0 → +1；クリティカル ≥ 7.0 → +2。GPS_JAMMING イベントを登録 [CAC]</li>
-            <li style="color:#88ccff;">[Cyber]    ct_log:              Certificate Transparency (crt.sh) サージ ≥ CT_LOG_SURGE_THRESHOLD (100)。政府TLD一致ボーナス: gov 証明書 ≥5 → +2、それ以外 → +1 [CAC]</li>
+            <li style="color:#88ccff;">[Cyber]    ct_log:              Certificate Transparency アイデンティティ一致型（ADR-024）。監視対象政府ドメインに対する未信頼CAの発行 → +3（CT 信号最高位）。政府TLDレベルのワイルドカード証明書（例: *.gov.tw）→ +2。サージ件数によるスコアリングは廃止 — 監視対象の権威ドメインに対する異常な発行検知に置き換え [CAC]</li>
         </ul>
         <p style="font-size:11px; color:#888;"><span style="color:#66ffcc;">■</span> = v9 追加項目。<span style="color:#ffaa44;">■</span> = 上記リスト済みセンサーの詳細ロジック。<span style="color:#88ccff;">■</span> = CAC Phase C 追加項目。</p>
 
@@ -2190,7 +2186,7 @@
             <li><b>S4 USGS Seismic (<code>usgs_seismic</code>):</b> Earthquake monitoring near submarine cables/chokepoints. Acts as noise suppressor (earthquakes explain physical disruptions). Also detects nuclear test signatures (shallow M4.0+ in adversary territory). Domain: Physical. Poll: 15 min.</li>
             <li><b>S5 Military Support Aircraft (<code>mil_support_air</code>):</b> Tracks tankers (KC-135 etc.), transports (C-17, C-130), and AWACS (E-3, E-7) via OpenSky. Tanker surge + AWACS = force projection indicator. Domain: Physical. Poll: 30 min. Rationale: <code>mil_support_air</code> (+1/+2pt).</li>
             <li><b>S6 GPS Jamming (<code>gps_jamming</code>):</b> GPS interference detection via GPSJam crowd-sourced data. Critical jamming = electronic warfare indicator. Domain: Physical. Poll: 30 min. Rationale: <code>gps_jamming</code> (+1/+2pt). Cross-correlates with ISR surge for EW pattern detection.</li>
-            <li><b>S7 CT Log (<code>ct_log</code>):</b> Certificate Transparency log monitoring via crt.sh. Certificate surge (especially government domains) may indicate MITM preparation or pre-disruption cert renewal. Domain: Cyber. Poll: 1 hr. Rationale: <code>ct_log</code> (+1/+2pt).</li>
+            <li><b>S7 CT Log (<code>ct_log</code>):</b> Certificate Transparency identity-match (ADR-024). Multi-source pipeline: Certstream (push, sub-second) + Certspotter (pull, 25/hr unauthenticated) + crt.sh (fallback). Watches authoritative government domains; fires on (a) untrusted CA issuing for a watched domain (e.g. CN-state CA suddenly issues for an EU MoFA host whose history was DigiCert-only) → +3, or (b) wildcard certificate at gov-TLD level (e.g. *.gov.tw) → +2. Surge-volume scoring removed. Domain: Cyber.</li>
         </ul>
 
         <p><b>VII. Forecast & Co-occurrence Learning</b> <span style="color:#66ffcc;">[Phase D]</span></p>
@@ -2316,7 +2312,7 @@
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
                     <li><b>TIME (⏱)</b> — T2: State media publication tempo anomaly (surge or silence); T4: Google Trends crisis keyword spikes in target countries</li>
                     <li><b>SPACE (📍)</b> — S1: Civilian aviation route deviation (airlines self-rerouting); S2: Commercial shipping dark gaps (EMCON/rerouting); S3: Currency stress and correlation breakdown</li>
-                    <li><b>TARGET (🎯)</b> — O1: Domain lookalike certificate surge (phishing prep); O3: Narrative target shift (who state media is demonizing)</li>
+                    <li><b>TARGET (🎯)</b> — O1: Untrusted CA issuance / wildcard at gov-TLD on watched authoritative domains (ADR-024 identity-match); O3: Narrative target shift (who state media is demonizing)</li>
                     <li><b>CAL (📅)</b> — Historical anniversary matching (±2 days), diplomatic deadline convergence</li>
                 </ul>
             </li>
@@ -2543,7 +2539,7 @@
             <li><b>S4 USGS地震 (<code>usgs_seismic</code>):</b> 海底ケーブル/チョークポイント付近の地震監視。ノイズ抑制機能（地震が物理的障害を説明）。また核実験シグネチャ検知（敵国領内の浅発M4.0+）。ドメイン: Physical。ポーリング: 15分。</li>
             <li><b>S5 軍事支援航空機 (<code>mil_support_air</code>):</b> OpenSky経由で空中給油機（KC-135等）、輸送機（C-17、C-130）、AWACS（E-3、E-7）を追跡。給油機急増＋AWACS = 戦力投射指標。ドメイン: Physical。ポーリング: 30分。Rationale: <code>mil_support_air</code>（+1/+2pt）。</li>
             <li><b>S6 GPSジャミング (<code>gps_jamming</code>):</b> GPSJamクラウドソースデータによるGPS妨害検知。重大ジャミング = 電子戦指標。ドメイン: Physical。ポーリング: 30分。Rationale: <code>gps_jamming</code>（+1/+2pt）。ISR急増との電子戦パターン検知。</li>
-            <li><b>S7 CTログ (<code>ct_log</code>):</b> crt.sh経由の証明書透明性ログ監視。証明書急増（特に政府ドメイン）はMITM準備や障害前の証明書更新を示唆。ドメイン: Cyber。ポーリング: 1時間。Rationale: <code>ct_log</code>（+1/+2pt）。</li>
+            <li><b>S7 CTログ (<code>ct_log</code>):</b> 証明書透明性ログ アイデンティティ一致型監視（ADR-024）。マルチソース構成: Certstream（Push型、サブ秒遅延）+ Certspotter（Pull型、25回/時 無認証枠）+ crt.sh（フォールバック）。監視対象政府ドメインに対して以下を発報: (a) 未信頼CAによる発行（例: 過去DigiCertのみだったEU外務省ドメインに対し中国国営CAが突然発行）→ +3、(b) 政府TLDレベルのワイルドカード証明書（例: *.gov.tw）→ +2。サージ件数によるスコアリングは廃止。ドメイン: Cyber。</li>
         </ul>
 
         <p><b>VII. 予測精度＆共起学習</b> <span style="color:#66ffcc;">[Phase D]</span></p>
@@ -2669,7 +2665,7 @@
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
                     <li><b>時間 (⏱)</b> — T2: 国営メディア発信テンポ異常（急増または沈黙）、T4: 対象国でのGoogle Trends危機キーワードスパイク</li>
                     <li><b>空間 (📍)</b> — S1: 民間航空路の暗黙回避（航空会社の自主迂回）、S2: 商船のAISダークギャップ（EMCON/迂回）、S3: 通貨ストレスと相関崩壊</li>
-                    <li><b>対象 (🎯)</b> — O1: ドメイン偽装証明書急増（フィッシング準備）、O3: ナラティブ標的の移動（国営メディアの敵対対象変化）</li>
+                    <li><b>対象 (🎯)</b> — O1: 監視対象政府ドメインに対する未信頼CA発行 / 政府TLDレベルのワイルドカード証明書（ADR-024 アイデンティティ一致型）、O3: ナラティブ標的の移動（国営メディアの敵対対象変化）</li>
                     <li><b>暦 (📅)</b> — 歴史的記念日の一致（±2日）、外交デッドラインの収束</li>
                 </ul>
             </li>
@@ -3215,7 +3211,7 @@
         <h5>11.4 Signal Deduplication &amp; Double-Counting</h5>
         <ul>
             <li><b>BGP signal grouping</b>: IODA, RIPE BGP, and IHR disconnection sensors all measure BGP routing anomalies. The engine groups these by <code>signal_source="bgp"</code> and takes max() instead of sum to prevent triple-counting the same physical event.</li>
-            <li><b>Remaining overlaps</b>: Certificate Transparency surges may correlate with BGP hijacking events (DNS+BGP attacks often co-occur). These are NOT currently deduplicated because the underlying phenomena are distinct even if tactically coordinated.</li>
+            <li><b>Remaining overlaps</b>: Certificate Transparency anomalies (untrusted CA issuance, gov-TLD wildcards) may correlate with BGP hijacking events (DNS+BGP attacks often co-occur). These are NOT currently deduplicated because the underlying phenomena are distinct even if tactically coordinated.</li>
         </ul>
 
         <h5>11.5 Operator Responsibilities</h5>

@@ -7,6 +7,7 @@ python-dotenv>=1.0
 gunicorn>=21.0
 gevent>=24.0
 gevent-websocket>=0.10
+websocket-client>=1.7
 h3>=3.7
 defusedxml>=0.7
 pytrends>=4.9

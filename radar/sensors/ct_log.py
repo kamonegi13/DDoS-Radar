@@ -49,6 +49,12 @@ from radar.config import (
     CERTSPOTTER_API_TOKEN,
     CT_LOG_CERTSPOTTER_RATE_LIMIT_CALLS,
     CT_LOG_CERTSPOTTER_RATE_LIMIT_WINDOW_SEC,
+    CT_LOG_CERTSTREAM_ENABLED,
+    CT_LOG_CERTSTREAM_URL,
+    CT_LOG_CERTSTREAM_LIVENESS_SEC,
+    CT_LOG_CERTSTREAM_PING_INTERVAL,
+    CT_LOG_CERTSTREAM_PING_TIMEOUT,
+    CT_LOG_CERTSTREAM_RECONNECT_MAX_SEC,
 )
 from radar.sensors.ct_log_sources import (
     CertObservation,
@@ -58,6 +64,8 @@ from radar.sensors.ct_log_sources import (
 )
 from radar.sensors.ct_log_sources.certspotter import CertspotterSource
 from radar.sensors.ct_log_sources.crtsh import CrtshSource
+# CertstreamSource is imported lazily below — see _maybe_start_certstream() — so
+# test suites that don't touch certstream don't pull in websocket-client.
 from radar import database as _db_mod
 
 log = logging.getLogger("radar")
@@ -113,6 +121,16 @@ class CtLogSensor(BaseSensor):
     # enough to keep aggregate health green.
     _UPSTREAM_FAIL_THRESHOLD = 3
     _NORMAL_INTERVAL = 3600
+    # Per-source park policy: a pull source that returns None on
+    # PARK_AFTER_FAILURES consecutive cycles AND has at least one healthy
+    # peer is parked via mark_dead(PARK_COOLDOWN_SEC). The cooldown floor
+    # is 30 minutes — long enough to let upstream recovery happen, short
+    # enough that a transient outage doesn't sideline the source for the
+    # rest of the day. The "healthy peer" gate is critical: if all sources
+    # are failing the orchestrator's own degraded mode handles it; parking
+    # the last live source would silence the sensor entirely.
+    _PARK_AFTER_FAILURES = 5
+    _PARK_COOLDOWN_SEC = 1800
 
     def __init__(self):
         super().__init__("ct_log", "cyber", self._NORMAL_INTERVAL)
@@ -144,6 +162,7 @@ class CtLogSensor(BaseSensor):
             CrtshSource(),
         ]
         self._push_sources: list[BaseCtLogPushSource] = []
+        self._maybe_start_certstream()
 
         # Aggregate self-healing — driven by "any source delivered any
         # response (data or 200-empty) this cycle", not per-source health.
@@ -159,6 +178,58 @@ class CtLogSensor(BaseSensor):
             "wildcard_tld": 0,
             "warmup_recorded": 0,
         }
+
+    # ── Push-source bootstrap & shutdown ──────────────────────────────────
+    def _maybe_start_certstream(self) -> None:
+        """Conditionally instantiate and start CertstreamSource.
+
+        Skipped silently when:
+          * CT_LOG_CERTSTREAM_ENABLED is false (operator opt-out)
+          * the watched-domain map is empty (nothing to filter for)
+          * websocket-client is not installed (logged once by the source)
+
+        Lazy import keeps test runs that don't touch certstream from
+        having to install websocket-client.
+        """
+        if not CT_LOG_CERTSTREAM_ENABLED:
+            log.info("[CTLog] certstream push source disabled by config")
+            return
+        all_watched = sorted({
+            d for ds in CT_LOG_WATCHED_DOMAINS.values() for d in ds
+        })
+        if not all_watched:
+            log.info("[CTLog] No watched domains; certstream push source not started")
+            return
+        try:
+            from radar.sensors.ct_log_sources import CertstreamSource
+        except Exception as e:
+            log.warning(f"[CTLog] CertstreamSource import failed: {e}")
+            return
+        try:
+            cs = CertstreamSource(
+                buffer=self._buffer,
+                watched_domains=all_watched,
+                ws_url=CT_LOG_CERTSTREAM_URL,
+                ping_interval=CT_LOG_CERTSTREAM_PING_INTERVAL,
+                ping_timeout=CT_LOG_CERTSTREAM_PING_TIMEOUT,
+                reconnect_max_sec=CT_LOG_CERTSTREAM_RECONNECT_MAX_SEC,
+                liveness_sec=CT_LOG_CERTSTREAM_LIVENESS_SEC,
+            )
+            cs.start()
+            self._push_sources.append(cs)
+        except Exception as e:
+            log.warning(f"[CTLog] CertstreamSource start failed: {e}")
+
+    def shutdown(self) -> None:
+        """Stop all push sources cleanly. Called via atexit/SIGTERM hook in
+        radar/__init__.py. Idempotent — re-entry on already-stopped sources
+        is a no-op inside each source's stop().
+        """
+        for src in self._push_sources:
+            try:
+                src.stop()
+            except Exception as e:
+                log.warning(f"[CTLog] push source {src.name} stop failed: {e}")
 
     # ── Per-domain inspection ─────────────────────────────────────────────
     def _inspect_domain(
@@ -399,8 +470,11 @@ class CtLogSensor(BaseSensor):
         push_freshness = self._buffer.source_freshness()
         for src in self._push_sources:
             ts = push_freshness.get(src.name, 0.0)
-            # Anything in the last cycle counts as live.
-            if ts and (now - ts) < (2 * self._NORMAL_INTERVAL):
+            # Honour the push source's own data-level liveness budget so
+            # "ws connected but silent" eventually flips the orchestrator
+            # off "any_real_response". A push source matched a watched
+            # domain inside the last liveness window → counts as alive.
+            if ts and (now - ts) < CT_LOG_CERTSTREAM_LIVENESS_SEC:
                 any_real_response = True
 
         # ── Phase B: drain the shared buffer ──────────────────────────────
@@ -530,6 +604,12 @@ class CtLogSensor(BaseSensor):
                     f"degraded mode, probing every {CT_LOG_DEGRADED_INTERVAL_SEC // 60}min"
                 )
 
+        # Per-source park policy. Run AFTER the aggregate self-heal so the
+        # decision sees the latest health snapshots; only act on pull sources
+        # since push sources don't need orchestrator-driven CB parking
+        # (their reconnect loop handles transient ws drops on its own).
+        self._park_chronically_failing_sources()
+
         result = {"ct_data": ct_data, "country_status": country_status}
         if any_real_response:
             self.set_cache(result)
@@ -538,6 +618,47 @@ class CtLogSensor(BaseSensor):
             "ct_data": {},
             "country_status": {c: "NORMAL" for c in all_targets},
         }
+
+    def _park_chronically_failing_sources(self) -> None:
+        """Park pull sources that have failed _PARK_AFTER_FAILURES cycles
+        in a row, but only when at least one peer pull source is healthy.
+
+        Without this, a chronically-broken source (e.g. crt.sh during one
+        of its multi-hour outages) gets re-tried every cycle, wastes the
+        per-cycle budget, and pollutes the operator panel with the same
+        timeout flood. With this, the orchestrator parks it for 30 min
+        and the healthy peer absorbs the load. After cooldown the parked
+        source is re-tried — if upstream is still broken its CB re-opens
+        within seconds; if recovered, it slots back in.
+        """
+        snapshots = []
+        for src in self._pull_sources:
+            try:
+                snapshots.append((src, src.health()))
+            except Exception:
+                continue
+        any_healthy = any(
+            h.get("status") == "healthy" for _, h in snapshots
+        )
+        if not any_healthy:
+            return  # don't park the last live source — let degraded mode handle it
+        for src, h in snapshots:
+            if h.get("status") == "dead":
+                continue  # already parked
+            cf = h.get("consecutive_failures", 0)
+            if cf < self._PARK_AFTER_FAILURES:
+                continue
+            if not hasattr(src, "mark_dead"):
+                continue
+            try:
+                src.mark_dead(self._PARK_COOLDOWN_SEC)
+                log.warning(
+                    f"[CTLog] Parking {src.name} for "
+                    f"{self._PARK_COOLDOWN_SEC // 60}min after "
+                    f"{cf} consecutive failures (healthy peer present)"
+                )
+            except Exception as e:
+                log.warning(f"[CTLog] mark_dead({src.name}) raised: {e}")
 
     def _summarize_source_state(self) -> str:
         """Compact one-line summary of per-source degradation, for the
@@ -585,9 +706,11 @@ class CtLogSensor(BaseSensor):
         """Return upstream health for the /api/admin/sensor_health endpoint.
 
         Aggregates per-source health under `sources`, plus orchestrator-
-        level state (current interval, consecutive failures) and buffer
-        statistics. Phase 2 will add push-source freshness here so the
-        operator can spot "certstream silent for 2h" at a glance.
+        level state (current interval, consecutive failures), buffer
+        statistics, and the watched-domain coverage report — observed_24h /
+        72h plus the 10 stalest watched apexes — so the operator can
+        answer "are we actually getting cert observations for the things
+        we care about?" at a glance.
         """
         per_source = {}
         for src in self._pull_sources + self._push_sources:
@@ -595,6 +718,9 @@ class CtLogSensor(BaseSensor):
                 per_source[src.name] = src.health()
             except Exception as e:
                 per_source[src.name] = {"status": "error", "error": str(e)}
+        all_watched = sorted({
+            d for ds in CT_LOG_WATCHED_DOMAINS.values() for d in ds
+        })
         return {
             "status": self._upstream_status,
             "consecutive_failures": self._consecutive_failures,
@@ -609,4 +735,5 @@ class CtLogSensor(BaseSensor):
             "source_freshness": self._buffer.source_freshness(),
             "sources": per_source,
             "anomaly_counts": dict(self._anomaly_counts),
+            "coverage": self._buffer.coverage_report(all_watched),
         }

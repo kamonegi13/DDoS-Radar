@@ -290,9 +290,8 @@ GPS_JAM_THRESHOLD             = float(os.getenv("GPS_JAM_THRESHOLD", "3.0"))
 GPS_JAM_CRITICAL_THRESHOLD    = float(os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "7.0"))
 
 # S7: CT Log (signal-model redesign — see ADR-024)
-# Legacy CT_LOG_SURGE_THRESHOLD retained for backward compat in admin UI but no
-# longer used by the new identity-match scoring path.
-CT_LOG_SURGE_THRESHOLD        = int(os.getenv("CT_LOG_SURGE_THRESHOLD", "100"))
+# Legacy CT_LOG_SURGE_THRESHOLD removed: the surge-volume scoring path was
+# replaced by identity-match scoring (untrusted CA / wildcard at gov-TLD).
 # New domain warm-up window: a domain whose first observation is younger than
 # this is treated as "learning" — every CA seen is recorded into the known-CA
 # table without firing an anomaly. Without a warm-up the very first poll would
@@ -342,6 +341,21 @@ CT_LOG_DEGRADED_INTERVAL_SEC        = int(os.getenv("CT_LOG_DEGRADED_INTERVAL_SE
 CERTSPOTTER_API_TOKEN               = os.getenv("CERTSPOTTER_API_TOKEN", "").strip()
 CT_LOG_CERTSPOTTER_RATE_LIMIT_CALLS      = int(os.getenv("CT_LOG_CERTSPOTTER_RATE_LIMIT_CALLS", "25"))
 CT_LOG_CERTSPOTTER_RATE_LIMIT_WINDOW_SEC = int(os.getenv("CT_LOG_CERTSPOTTER_RATE_LIMIT_WINDOW_SEC", "3600"))
+# Certstream push source (Phase 2 second-half). Calidog's free public ws is
+# the only push-side CT log feed that fits the project's free-OSINT mandate.
+# Disable via CT_LOG_CERTSTREAM_ENABLED=false if the operator wants to fall
+# back to pull-only operation. Liveness budget: a healthy ws should write
+# into the buffer at least once every CT_LOG_CERTSTREAM_LIVENESS_SEC; missed
+# budgets surface in upstream_health() but do not by themselves trigger CB.
+CT_LOG_CERTSTREAM_ENABLED       = os.getenv("CT_LOG_CERTSTREAM_ENABLED", "true").lower() != "false"
+CT_LOG_CERTSTREAM_URL           = os.getenv("CT_LOG_CERTSTREAM_URL", "wss://certstream.calidog.io/full-stream")
+CT_LOG_CERTSTREAM_LIVENESS_SEC  = int(os.getenv("CT_LOG_CERTSTREAM_LIVENESS_SEC", "900"))
+# ws ping/pong cadence — RFC 6455 control frames. Calidog responds to pings;
+# a missed pong inside the timeout closes the socket and triggers reconnect.
+CT_LOG_CERTSTREAM_PING_INTERVAL = int(os.getenv("CT_LOG_CERTSTREAM_PING_INTERVAL", "30"))
+CT_LOG_CERTSTREAM_PING_TIMEOUT  = int(os.getenv("CT_LOG_CERTSTREAM_PING_TIMEOUT", "10"))
+# Reconnect backoff bounds. Capped exponential: 1s, 2s, 4s, ... up to ceiling.
+CT_LOG_CERTSTREAM_RECONNECT_MAX_SEC = int(os.getenv("CT_LOG_CERTSTREAM_RECONNECT_MAX_SEC", "60"))
 
 # Watched domains by theater — loaded from geo_data.json above.
 CT_LOG_WATCHED_DOMAINS: dict[str, list[str]] = {
@@ -409,15 +423,6 @@ CORROBORATION_MIN_SOURCES     = int(os.getenv("CORROBORATION_MIN_SOURCES", "2"))
 # Minimum pairwise source independence score (0.0=same stream, 1.0=fully independent)
 CORROBORATION_MIN_INDEPENDENCE = float(os.getenv("CORROBORATION_MIN_INDEPENDENCE", "0.70"))
 
-CT_LOG_GOV_TLDS: dict[str, list] = {
-    "TW": ["gov.tw", "mil.tw"],
-    "JP": ["go.jp", "mod.go.jp"],
-    "KR": ["go.kr", "mil.kr"],
-    "CN": ["gov.cn", "mil.cn"],
-    "RU": ["gov.ru", "mil.ru"],
-    "UA": ["gov.ua", "mil.gov.ua"],
-    "IR": ["gov.ir", "ir"],
-    "IL": ["gov.il", "idf.il"],
-    "US": ["gov", "mil"],
-    "PH": ["gov.ph"],
-}
+# CT_LOG_GOV_TLDS removed — last used by the legacy `gov_count` metric the
+# ADR-024 redesign deprecated. The wildcard-TLD detector now uses the
+# canonical _GOV_TLD_WILDCARD_TARGETS frozenset in radar/sensors/ct_log.py.

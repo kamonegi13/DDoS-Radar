@@ -76,7 +76,10 @@ def api_env_config_get():
         "ISR_SURGE_THRESHOLD":           str(_cfg.ISR_SURGE_THRESHOLD),
         "GPS_JAM_THRESHOLD":             str(_cfg.GPS_JAM_THRESHOLD),
         "GPS_JAM_CRITICAL_THRESHOLD":    str(_cfg.GPS_JAM_CRITICAL_THRESHOLD),
-        "CT_LOG_SURGE_THRESHOLD":        str(_cfg.CT_LOG_SURGE_THRESHOLD),
+        # CT_LOG_SURGE_THRESHOLD intentionally omitted — ADR-024 redesign
+        # replaced surge-based detection (cert volume) with trust-class
+        # signals (untrusted CA / wildcard TLD) so the legacy threshold
+        # has no operator effect. Hidden from the admin SYSCONFIG panel.
         "USGS_MIN_MAGNITUDE":            str(_cfg.USGS_MIN_MAGNITUDE),
         "LLM_AUTO_CONFIRM_THRESHOLD":    str(_cfg.LLM_AUTO_CONFIRM_THRESHOLD),
         "LLM_CONFIDENCE_MIN":            str(_cfg.LLM_CONFIDENCE_MIN),
@@ -190,7 +193,7 @@ _RELOADABLE_KEYS = frozenset({
     # Sensor thresholds
     "ISR_SURGE_THRESHOLD",
     "GPS_JAM_THRESHOLD", "GPS_JAM_CRITICAL_THRESHOLD",
-    "CT_LOG_SURGE_THRESHOLD",
+    # CT_LOG_SURGE_THRESHOLD removed — see ADR-024; surge-based scoring is gone.
     "USGS_MIN_MAGNITUDE",
     # Domain weights
     "DOMAIN_WEIGHT_CYBER", "DOMAIN_WEIGHT_PHYSICAL", "DOMAIN_WEIGHT_INFO",

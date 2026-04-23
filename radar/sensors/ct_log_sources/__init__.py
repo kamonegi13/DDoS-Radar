@@ -31,4 +31,15 @@ __all__ = [
     "BaseCtLogPullSource",
     "BaseCtLogPushSource",
     "ObservationBuffer",
+    "CertstreamSource",
 ]
+
+
+def __getattr__(name):
+    # Lazy import: CertstreamSource pulls in websocket-client, which is an
+    # optional runtime dep. Loading lazily lets test suites that don't touch
+    # certstream skip the import entirely.
+    if name == "CertstreamSource":
+        from radar.sensors.ct_log_sources.certstream import CertstreamSource
+        return CertstreamSource
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

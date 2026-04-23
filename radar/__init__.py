@@ -188,6 +188,19 @@ atexit.register(save_state)
 from radar.database import db as _shutdown_db  # noqa: E402
 atexit.register(_shutdown_db.shutdown)
 
+# Stop any push-source worker threads (e.g. CertstreamSource ws subscriber)
+# before the interpreter tears down. Daemon threads exit on their own, but
+# a clean ws close avoids a noisy server-side disconnect.
+def _shutdown_sensors_with_workers():
+    _log_sd = logging.getLogger("radar")
+    for _sname, _sensor in registry._sensors.items():
+        if hasattr(_sensor, "shutdown"):
+            try:
+                _sensor.shutdown()
+            except Exception as e:
+                _log_sd.warning(f"[Shutdown] sensor {_sname} shutdown failed: {e}")
+atexit.register(_shutdown_sensors_with_workers)
+
 # SIGTERM handler: docker stop sends SIGTERM, then SIGKILL after grace period.
 # atexit is NOT guaranteed to run on SIGTERM, so we handle it explicitly.
 def _sigterm_handler(signum, frame):
@@ -201,6 +214,10 @@ def _sigterm_handler(signum, frame):
         _shutdown_db.shutdown()
     except Exception as e:
         _log_sig.warning(f"[Shutdown] DB shutdown failed: {e}")
+    try:
+        _shutdown_sensors_with_workers()
+    except Exception as e:
+        _log_sig.warning(f"[Shutdown] sensor workers shutdown failed: {e}")
     _log_sig.info("[Shutdown] Graceful shutdown complete")
     raise SystemExit(0)
 
