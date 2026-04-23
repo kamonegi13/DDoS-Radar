@@ -13,10 +13,10 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 1.6.6 |
+| **現バージョン** | 1.6.7 |
 | **作成日** | 2026-04-11 |
-| **最終更新** | 2026-04-21 |
-| **現在のフェーズ** | **Phase 5 実装完了（TL 閾値再校正と ADR-015 dual-weight 評価は運用データ蓄積待ち）** |
+| **最終更新** | 2026-04-23 |
+| **現在のフェーズ** | **Phase 5 実装完了（TL 閾値再校正は 2026-04-28 期限、ADR-015 dual-weight 評価は 2026-05-12 期限）** |
 | **採用方針** | **C-lite** で開始、運用知見をもとに **C-medium** へ進化 |
 | **責任者** | kamonegi13(@juzo1192) |
 | **想定総工数** | 約 22-28 日(Phase 1〜5、v1.2 で現実化)|
@@ -1717,16 +1717,21 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 - ✅ evidence URL のクリックで原典が新タブで開く — `target="_blank" rel="noopener"` 付きのリンクで実装
 - ✅ 旧 country-level API の deprecation ヘッダ — `/api/threat_data` に `Deprecation: true`, `Sunset: 2026-10-01`, `X-Deprecation-Notice` を付与
 - ✅ `/api/scenario/{id}/timeseries` / `/api/scenario/{id}/country/{cc}/timeseries` エンドポイント（ADR-010 drill-down）を analytics.py に追加、database.py に `scenario_tl_timeseries` / `scenario_country_timeseries` を実装
-- ⏳ **TL 閾値の再校正(v1.2 追加)**: 7.3.1 節の校正手順に基づく評価は運用データ蓄積待ち(Phase 5 実装完了後、2 週間以上の `scenario_tl_observation` 蓄積を経てから判断)。現閾値を維持。
-- ⏳ **ADR-015 dual-weight 評価(v1.2 追加)**: LLM country_weights の観察指標(分散、極端値比率、多国割当率)も運用データ蓄積待ち。現方式(LLM × participant の dual-weight)を継続。
+- ⏳ **TL 閾値の再校正(v1.2 追加)**: 7.3.1 節の校正手順に基づく評価は運用データ蓄積待ち(Phase 5 実装完了後、2 週間以上の `scenario_tl_observation` 蓄積を経てから判断)。現閾値を維持。**評価期限: 2026-04-28**(Phase 5 完了 2026-04-14 + 14d)。
+- ⏳ **ADR-015 dual-weight 評価(v1.2 追加)**: LLM country_weights の観察指標(分散、極端値比率、多国割当率)も運用データ蓄積待ち。現方式(LLM × participant の dual-weight)を継続。**評価期限: 2026-05-12**(Phase 5 完了 2026-04-14 + 28d)。
 
 **依存**: Phase 4
 
 **テスト結果**: `python -m pytest test_engine.py -v` → 164 passed (2026-04-14)
 
-**依然として Phase 5 完了後に再評価する項目**:
-- TL 閾値(§7.3.1) — 2 週間分の TL 分布を見てから ADR-023 で確定
-- ADR-015 dual-weight — 観察指標がリスク閾値を超えた場合 ADR で single-weight にロールバック
+**依然として Phase 5 完了後に再評価する項目(絶対期限付き)**:
+
+| 項目 | 評価期限 | 観察ウィンドウ | 決定基準 → アクション |
+|------|---------|--------------|--------------------|
+| **TL 閾値再校正(§7.3.1)** | **2026-04-28** | Phase 5 完了(2026-04-14)から 14 日 | (a) `scenario_tl_observation` で TL3 以上の発火が country 単位の同期間比 2x 以上 → ADR-023 で閾値を引き上げ。 (b) TL2 が 月 1-2 回 / TL1 が 四半期 1 回以下に収まっていれば → 現閾値を確定として ADR-023 にコミット。 (c) サンプル不足(scenario あたり TL2 以上の事例が 5 件未満) → 期限を 2026-05-12 まで延長し再評価。 |
+| **ADR-015 dual-weight 評価** | **2026-05-12** | Phase 5 完了(2026-04-14)から 28 日 | (a) 同一 LLM intel の再分析で `country_weights` の標準偏差が 0.20 を超える(標本 ≥ 20) → ADR-024 で single-weight にロールバック。 (b) `country_weights < 0.5` の寄与が全寄与件数の 30% 超 → 同上。 (c) アナリストが「country tag の根拠が弱い」として reject した intel が同期間の confirm 件数の 20% 超 → 同上。 (d) 上記 3 つすべてを下回れば → 現方式(LLM × participant)を確定として ADR-024 で Accepted のまま固定。 |
+
+両方とも、評価期限を 1 度だけ 14 日延長することを許容(理由: 観察期間中に該当事象が発生しなかった場合のみ)。延長は本ドキュメントに「延長理由 + 新期限」として記録すること。
 
 ---
 
@@ -1961,6 +1966,7 @@ Phase N の完了時に、その Phase で実装された **疑似コード・SQ
 | 2026-04-21 | 1.6.4 | geo_data.json に NARRATIVE_GEO_TERMS 7 シナリオ参加国を追加 (AU, GU, IQ, MY, RO, SK, VN)。これらの国は TACTICAL_KEYWORDS は定義済みだが geo 辞書が空で、rss_narrative が起動毎に警告を出しクロスシアター誤帰属を起こしていた。scenario participant 全員の地理語彙を完備し、rss_narrative の信号が scenario scoring へ正しく寄与できるようにした | `efd47f2` |
 | 2026-04-21 | 1.6.5 | (1) CTLog self-healing: 10s タイムアウトを 3s に短縮、3 サイクル連続失敗で degraded モード(fetch 間隔 4h に延長、1 パターンのみプローブ、ログ DEBUG 降格)に自動遷移、一度でも成功すれば復帰。`upstream_health()` API を `/api/data_status` で公開。crt.sh の 502/timeout 嵐で毎サイクル WARNING が溢れる問題を解消。(2) Layer 3 session overlay UI 実装(ADR-003 完全実装): シナリオ詳細パネルに participant weight スライダー群、Apply/Reset ボタン、ACTIVE バッジ、analyst/admin ロールゲート、sessionStorage による非永続保存、`X-Scenario-Overlay` ヘッダ送信。バックエンドでは overlay 適用後の `focused_scenario_obj` をスコアリングループに渡す修正も含む(以前は apply されていたが scoring に反映されない既存バグ)。/api/threat_data レスポンスに `participants.weight` と `base_weight` を追加 | TBD |
 | 2026-04-21 | 1.6.6 | ADR-024 追加: CTLog 上流耐障害性。crt.sh REST が 15s+ 完全無応答状態を本セッションで実測。代替上流 (crt.sh:5432 PG / certspotter / 直接 CT log) を検証したが、いずれも query shape が我々のニーズに合わず却下。REST パスを強化(タイムアウト 3s→8s、5xx に 1 回 in-cycle リトライ、失敗モードを 6 種類 (`timeout`/`conn_error`/`http_5xx`/`http_4xx`/`json_error`/`empty_result`) に細分化、`upstream_health()` で全カウンタ露出、JSON parse 失敗時に response body 先頭 80B をログ)。サイレント 5xx 失敗バグを修正(従来 `200/429` のみ判定で 502/503/504 が黙殺されていた)。Tier 1 基盤も追加: `_require_analyst()` (analyst-or-admin ロールゲート)、SQLite migration v10 (shadow_eval_log)、`shadow_eval_record()` / `shadow_eval_summary()` ヘルパ。`shadow_eval_log` を baseline `_SCHEMA_SQL` にも追加 (fresh DB の `current==0` ショートカット対策) | TBD |
+| 2026-04-23 | 1.6.7 | TL 閾値再校正と ADR-015 dual-weight 評価に絶対期限と決定基準を付与。10.5 節に評価期限テーブルを追加(TL 再校正: 2026-04-28 / dual-weight: 2026-05-12)。各評価の判定 trigger を a/b/c/d の具体的な数値しきい値で記述し、サンプル不足時の 14 日延長ルールも明示。Phase E (open issue cleanup) として実施。Calidog certstream upstream の 60s 強制 close を 2026-04-23 に live で確認、`CT_LOG_CERTSTREAM_ENABLED` を既定 false に変更し watchdog (heartbeat budget 120s) を防御的に追加。CT 多ソース運用状況を可視化する Upstreams 管理タブを実装(EN/JA i18n、Help Guide Ch.7 反映) | TBD |
 
 ---
 
