@@ -8558,3 +8558,185 @@
             panel.innerHTML = `<div style="color:red;">${_escHtml(e.message)}</div>`;
         }
     };
+
+    // ── §10.5 Pending Decisions ────────────────────────────────────────
+    // Shared helpers for the admin panel (detailed) and dashboard pin (compact).
+    function _pdRecClass(rec) {
+        if (rec === 'ACCEPT_CURRENT')          return 'rec-accept';
+        if (rec === 'ROLLBACK_TO_SINGLE_WEIGHT')return 'rec-rollback';
+        if (rec === 'RAISE_THRESHOLDS')        return 'rec-raise';
+        return 'rec-extend';
+    }
+    function _pdDeadlineSeverity(days, past) {
+        if (past) return 'overdue';
+        if (days <= 7) return 'soon';
+        return 'ok';
+    }
+    function _pdRecI18n(rec) {
+        const key = 'scenario.pending.rec_' + rec.toLowerCase();
+        return _t(key);
+    }
+    window.openScenarioMgrTab = function () {
+        openModal('settings-modal');
+        switchTab('scenarios');
+    };
+    async function _fetchPendingDecisions() {
+        const [tlResp, dwResp] = await Promise.all([
+            fetch('/api/analytics/tl_recalibration_advisory'),
+            fetch('/api/analytics/dual_weight_evaluation'),
+        ]);
+        if (!tlResp.ok || !dwResp.ok) {
+            throw new Error(`HTTP ${tlResp.status}/${dwResp.status}`);
+        }
+        return {
+            tl: await tlResp.json(),
+            dw: await dwResp.json(),
+        };
+    }
+    function _renderPendingDecisionCard(name, deadline, decision, bodyHtml) {
+        const sev = _pdDeadlineSeverity(deadline.days_remaining, deadline.past_primary);
+        const recCls = _pdRecClass(decision.recommendation);
+        const daysLabel = deadline.past_primary
+            ? _t('scenario.pending.overdue_by', { n: Math.abs(deadline.days_remaining).toFixed(1) })
+            : _t('scenario.pending.days_remaining', { n: deadline.days_remaining.toFixed(1) });
+        const extLabel = deadline.past_extended
+            ? _t('scenario.pending.extended_past')
+            : _t('scenario.pending.extended_hard', { d: _escHtml(deadline.extended_hard) });
+        let html = `<div class="pending-decision-card pd-${sev}">`;
+        html += `<div class="pending-decision-head">`;
+        html += `<span class="pending-decision-name">${_escHtml(name)}</span>`;
+        html += `<span class="pending-decision-deadline pd-${sev}">`;
+        html += `${_escHtml(deadline.primary)} · ${_escHtml(daysLabel)}`;
+        html += `</span></div>`;
+        html += `<div class="pending-decision-rec ${recCls}">${_escHtml(_pdRecI18n(decision.recommendation))}</div>`;
+        if (decision.reason) {
+            html += `<div class="pending-decision-reason">${_escHtml(decision.reason)}</div>`;
+        }
+        html += bodyHtml || '';
+        html += `<div class="pending-decision-meta">${_escHtml(extLabel)}</div>`;
+        if (decision.manual_review_needed) {
+            html += `<div class="pending-decision-manual">${_escHtml(decision.manual_review_needed)}</div>`;
+        }
+        html += `</div>`;
+        return html;
+    }
+    window.loadPendingDecisions = async function () {
+        const panel = document.getElementById('pending-decisions-panel');
+        if (!panel) return;
+        panel.innerHTML = `<div style="color:#666;font-size:10px;">${_t('ui.loading')}</div>`;
+        try {
+            const { tl, dw } = await _fetchPendingDecisions();
+            let html = `<div class="pending-decisions">`;
+            html += `<div class="pending-decisions-title">${_t('scenario.pending.title')}</div>`;
+
+            // Dual-weight (fleet-level decision)
+            {
+                const m         = dw.decision.measured || {};
+                const sdPct     = (m.sample_weighted_sd || 0).toFixed(3);
+                const lowPct    = (m.pooled_low_weight_pct || 0).toFixed(1);
+                const samples   = m.total_samples || 0;
+                let body = `<div class="pending-decision-meta">`;
+                body += `<b>SD:</b> ${sdPct} &nbsp; `;
+                body += `<b>${_t('scenario.pending.low_weight_pct')}:</b> ${lowPct}% &nbsp; `;
+                body += `<b>${_t('scenario.pending.samples')}:</b> ${samples}`;
+                body += `</div>`;
+                html += _renderPendingDecisionCard(
+                    _t('scenario.pending.dual_weight_name'),
+                    dw.deadline, dw.decision, body);
+            }
+
+            // TL recalibration (per-scenario with roll-up)
+            {
+                const dueCount = (tl.scenarios || []).filter(
+                    s => s.decision && s.decision.recommendation === 'RAISE_THRESHOLDS').length;
+                const extCount = (tl.scenarios || []).filter(
+                    s => s.decision && s.decision.recommendation === 'EXTEND_OR_WAIT').length;
+                const acceptCount = (tl.scenarios || []).filter(
+                    s => s.decision && s.decision.recommendation === 'ACCEPT_CURRENT').length;
+                const rollupDecision = {
+                    recommendation: dueCount > 0 ? 'RAISE_THRESHOLDS'
+                                   : extCount > 0 ? 'EXTEND_OR_WAIT'
+                                   : 'ACCEPT_CURRENT',
+                    reason: _t('scenario.pending.tl_rollup', {
+                        raise: dueCount, extend: extCount, accept: acceptCount,
+                    }),
+                    manual_review_needed:
+                        (tl.scenarios[0] && tl.scenarios[0].decision &&
+                         tl.scenarios[0].decision.manual_review_needed) || '',
+                };
+                let body = '<div class="pending-decision-scenarios">';
+                for (const s of (tl.scenarios || [])) {
+                    const rec = (s.decision && s.decision.recommendation) || 'EXTEND_OR_WAIT';
+                    const m = s.decision && s.decision.measured;
+                    const label = s.label || s.scenario_id;
+                    body += `<div class="pd-sc-row">`;
+                    body += `<span>${_escHtml(label)}</span>`;
+                    if (m) {
+                        body += `<span>obs ${s.observations} · TL2 ${m.tl2_per_week}/wk · TL1 ${m.tl1_per_week}/wk · ${_escHtml(rec)}</span>`;
+                    } else {
+                        body += `<span>obs ${s.observations}/${s.min_required} · ${_escHtml(rec)}</span>`;
+                    }
+                    body += `</div>`;
+                }
+                body += '</div>';
+                html += _renderPendingDecisionCard(
+                    _t('scenario.pending.tl_recal_name'),
+                    tl.deadline, rollupDecision, body);
+            }
+
+            html += `</div>`;
+            panel.innerHTML = html;
+        } catch (e) {
+            panel.innerHTML = `<div style="color:red;">${_escHtml(e.message)}</div>`;
+        }
+    };
+
+    // Dashboard pin: auto-loads once on boot and every hour; hides when no
+    // deadline is soon/overdue. Click → opens Scenario Manager tab.
+    async function _refreshPendingDecisionsPin() {
+        const pin = document.getElementById('pending-decisions-pin');
+        if (!pin) return;
+        try {
+            const { tl, dw } = await _fetchPendingDecisions();
+            const items = [
+                { name: _t('scenario.pending.tl_recal_name'),
+                  deadline: tl.deadline, rec: _pickTlRollupRec(tl) },
+                { name: _t('scenario.pending.dual_weight_name'),
+                  deadline: dw.deadline, rec: dw.decision.recommendation },
+            ];
+            const visible = items.filter(it =>
+                it.deadline.past_primary || it.deadline.days_remaining <= 14
+                || it.rec === 'ROLLBACK_TO_SINGLE_WEIGHT'
+                || it.rec === 'RAISE_THRESHOLDS');
+            if (visible.length === 0) { pin.style.display = 'none'; return; }
+            const overdueAny = visible.some(it => it.deadline.past_primary);
+            pin.className = overdueAny ? 'pd-pin-overdue' : 'pd-pin-soon';
+            let html = `<span class="pd-pin-label">${_t('scenario.pending.pin_label')}</span>`;
+            for (const it of visible) {
+                const daysCls = it.deadline.past_primary ? 'pd-overdue' : '';
+                const daysTxt = it.deadline.past_primary
+                    ? _t('scenario.pending.overdue_by', { n: Math.abs(it.deadline.days_remaining).toFixed(0) })
+                    : _t('scenario.pending.days_remaining', { n: it.deadline.days_remaining.toFixed(0) });
+                html += `<span class="pd-pin-item">`;
+                html += `<span class="pd-pin-item-name">${_escHtml(it.name)}:</span>`;
+                html += `<span class="pd-pin-item-days ${daysCls}">${_escHtml(daysTxt)}</span>`;
+                html += `<span class="pd-pin-item-rec">· ${_escHtml(_pdRecI18n(it.rec))}</span>`;
+                html += `</span>`;
+            }
+            pin.innerHTML = html;
+            pin.style.display = 'flex';
+        } catch (e) {
+            pin.style.display = 'none';
+        }
+    }
+    function _pickTlRollupRec(tl) {
+        const scs = tl.scenarios || [];
+        if (scs.some(s => s.decision && s.decision.recommendation === 'RAISE_THRESHOLDS'))
+            return 'RAISE_THRESHOLDS';
+        if (scs.some(s => s.decision && s.decision.recommendation === 'EXTEND_OR_WAIT'))
+            return 'EXTEND_OR_WAIT';
+        return 'ACCEPT_CURRENT';
+    }
+    // Kick off once after initial boot, then refresh hourly.
+    setTimeout(_refreshPendingDecisionsPin, 12000);
+    setInterval(_refreshPendingDecisionsPin, 3600 * 1000);

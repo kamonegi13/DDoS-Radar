@@ -1403,6 +1403,25 @@ const LANG = {
     'scenario.clite.rec_consider_c_medium':  'Consider C-MEDIUM — background miss rate exceeds 15%',
     'scenario.clite.rec_insufficient_data':  'Insufficient data — more focus switches needed for evaluation',
 
+    // §10.5 Pending Decisions (TL recalibration + ADR-015 dual-weight)
+    'scenario.pending.title':               'Pending Decisions (§10.5)',
+    'scenario.pending.load_btn':            'Load Pending Decisions',
+    'scenario.pending.tl_recal_name':       'TL Recalibration (§7.3.1)',
+    'scenario.pending.dual_weight_name':    'ADR-015 Dual-Weight',
+    'scenario.pending.pin_label':           'Pending Decisions',
+    'scenario.pending.pin_tip':             'Click to open Scenario Manager — §10.5 evaluation deadlines approaching',
+    'scenario.pending.days_remaining':      '{n} d remaining',
+    'scenario.pending.overdue_by':          'overdue by {n} d',
+    'scenario.pending.extended_hard':       'Hard deadline (one 14d extension): {d}',
+    'scenario.pending.extended_past':       'Extension window also exhausted — decision mandatory',
+    'scenario.pending.samples':             'Samples',
+    'scenario.pending.low_weight_pct':      'Low-Weight %',
+    'scenario.pending.tl_rollup':           '{raise} scenario(s) recommend RAISE, {extend} waiting for more data, {accept} balanced',
+    'scenario.pending.rec_accept_current':         'ACCEPT CURRENT — thresholds/weights are aligned',
+    'scenario.pending.rec_rollback_to_single_weight': 'ROLLBACK to single-weight — LLM country_weight noise exceeds §10.5 thresholds',
+    'scenario.pending.rec_raise_thresholds':       'RAISE TL thresholds — TL2/TL1 firing too frequently',
+    'scenario.pending.rec_extend_or_wait':          'EXTEND OR WAIT — insufficient samples for a confident call',
+
     // ══════════════════════════════════════════════════════════════
     // Login gate
     // ══════════════════════════════════════════════════════════════
@@ -2815,6 +2834,25 @@ const LANG = {
     'scenario.clite.rec_lite_sufficient':    'LITEモードで十分 — バックグラウンドのミス率は低い',
     'scenario.clite.rec_consider_c_medium':  'C-MEDIUMを検討 — バックグラウンドのミス率が15%超過',
     'scenario.clite.rec_insufficient_data':  'データ不足 — 評価には更なるフォーカス切替が必要',
+
+    // §10.5 判定待ち（TL再較正 + ADR-015 二重重み）
+    'scenario.pending.title':               '判定待ち（§10.5）',
+    'scenario.pending.load_btn':            '判定待ち事項を読み込む',
+    'scenario.pending.tl_recal_name':       'TL再較正（§7.3.1）',
+    'scenario.pending.dual_weight_name':    'ADR-015 二重重み',
+    'scenario.pending.pin_label':           '判定待ち',
+    'scenario.pending.pin_tip':             'クリックでシナリオマネージャを開く — §10.5評価期限が接近中',
+    'scenario.pending.days_remaining':      '残り{n}日',
+    'scenario.pending.overdue_by':          '{n}日超過',
+    'scenario.pending.extended_hard':       '最終期限（14日延長含む）: {d}',
+    'scenario.pending.extended_past':       '延長枠も消化済み — 判定必須',
+    'scenario.pending.samples':             'サンプル数',
+    'scenario.pending.low_weight_pct':      '低重み比率',
+    'scenario.pending.tl_rollup':           '{raise}件が閾値引き上げ推奨、{extend}件がデータ待ち、{accept}件が均衡',
+    'scenario.pending.rec_accept_current':         '現状維持 — 閾値・重みは整合',
+    'scenario.pending.rec_rollback_to_single_weight': '単一重みへロールバック — LLM country_weight のばらつきが§10.5基準超過',
+    'scenario.pending.rec_raise_thresholds':       'TL閾値を引き上げ — TL2/TL1の発火頻度が目標超過',
+    'scenario.pending.rec_extend_or_wait':          '延長または待機 — 確信を持った判定にはサンプル不足',
 
     // ══════════════════════════════════════════════════════════════
     // Login gate

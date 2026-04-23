@@ -1867,6 +1867,139 @@
     font-family: var(--font-mono, monospace);
 }
 
+/* ── §10.5 Pending Decisions panel ──────────────────────────────────── */
+.pending-decisions {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 12px;
+}
+.pending-decisions-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #00ffff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+}
+.pending-decision-card {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid #2a2a2a;
+    border-left: 3px solid #555;
+    border-radius: 3px;
+    padding: 10px;
+    margin-bottom: 10px;
+}
+.pending-decision-card.pd-overdue { border-left-color: #ff4444; }
+.pending-decision-card.pd-soon    { border-left-color: #ffaa00; }
+.pending-decision-card.pd-ok      { border-left-color: #00ff88; }
+.pending-decision-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+.pending-decision-name {
+    font-size: 11px;
+    font-weight: 700;
+    color: #eee;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.pending-decision-deadline {
+    font-size: 10px;
+    color: #aaa;
+    font-family: var(--font-mono, monospace);
+}
+.pending-decision-deadline.pd-overdue { color: #ff6666; font-weight: 700; }
+.pending-decision-deadline.pd-soon    { color: #ffaa00; font-weight: 700; }
+.pending-decision-rec {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 8px;
+    border-radius: 3px;
+    margin: 6px 0;
+    font-family: var(--font-mono, monospace);
+}
+.pending-decision-rec.rec-accept   { background: rgba(0,255,136,0.10); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }
+.pending-decision-rec.rec-rollback { background: rgba(255,68,68,0.10);  color: #ff6666; border: 1px solid rgba(255,68,68,0.3); }
+.pending-decision-rec.rec-raise    { background: rgba(255,170,0,0.10);  color: #ffaa00; border: 1px solid rgba(255,170,0,0.3); }
+.pending-decision-rec.rec-extend   { background: rgba(120,160,200,0.10);color: #88aacc; border: 1px solid rgba(120,160,200,0.3); }
+.pending-decision-reason {
+    font-size: 10px;
+    color: #999;
+    line-height: 1.4;
+    margin-bottom: 4px;
+}
+.pending-decision-meta {
+    font-size: 9px;
+    color: #666;
+    font-family: var(--font-mono, monospace);
+    line-height: 1.5;
+}
+.pending-decision-meta b { color: #aaa; font-weight: 600; }
+.pending-decision-manual {
+    font-size: 9px;
+    color: #c8a96a;
+    background: rgba(200,169,106,0.06);
+    border: 1px dashed rgba(200,169,106,0.3);
+    border-radius: 3px;
+    padding: 4px 6px;
+    margin-top: 6px;
+    line-height: 1.4;
+}
+.pending-decision-scenarios {
+    margin-top: 6px;
+    font-size: 9px;
+    color: #888;
+    font-family: var(--font-mono, monospace);
+}
+.pending-decision-scenarios .pd-sc-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+    border-bottom: 1px dotted #2a2a2a;
+}
+
+/* ── §10.5 deadline pin (dashboard) ─────────────────────────────────── */
+#pending-decisions-pin {
+    margin: 4px 12px 0 12px;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid #444;
+    border-left: 3px solid #ffaa00;
+    border-radius: 3px;
+    font-size: 10px;
+    color: #ddd;
+    font-family: var(--font-mono, monospace);
+    cursor: pointer;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    transition: background 0.15s ease;
+}
+#pending-decisions-pin:hover { background: rgba(0, 0, 0, 0.65); }
+#pending-decisions-pin.pd-pin-overdue { border-left-color: #ff4444; }
+#pending-decisions-pin.pd-pin-soon    { border-left-color: #ffaa00; }
+.pd-pin-label {
+    color: #00ffff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+    font-size: 9px;
+}
+.pd-pin-item {
+    display: inline-flex;
+    gap: 5px;
+    align-items: baseline;
+}
+.pd-pin-item-name { color: #aaa; }
+.pd-pin-item-days { color: #ffaa00; font-weight: 700; }
+.pd-pin-item-days.pd-overdue { color: #ff6666; }
+.pd-pin-item-rec { color: #ddd; }
+
 /* ── Scenario Manager (Admin tab) ───────────────────────────────────── */
 #scenario-mgr-list {
     display: flex;

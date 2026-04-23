@@ -281,6 +281,8 @@
 <div id="scenario-bar">
     <div id="scenario-cards"></div>
 </div>
+<!-- §10.5 deadline pin: shown only when a deadline is approaching/past -->
+<div id="pending-decisions-pin" style="display:none;" onclick="openScenarioMgrTab()" data-i18n-tip="scenario.pending.pin_tip"></div>
 <div id="scenario-detail-panel" style="display:none;"></div>
 
 <!-- ── Domain Drilldown Panel ─────────────────────────────────────────── -->
@@ -908,6 +910,11 @@
                     <div style="margin-top:16px;border-top:1px solid #333;padding-top:12px;">
                         <button class="btn-tactical" onclick="loadCliteEvaluation()" data-i18n="scenario.clite.load_btn">Load C-lite Evaluation</button>
                         <div id="clite-eval-panel" style="margin-top:8px;"></div>
+                    </div>
+                    <!-- §10.5 Pending Decisions panel (TL recal + dual-weight) -->
+                    <div style="margin-top:16px;border-top:1px solid #333;padding-top:12px;">
+                        <button class="btn-tactical" onclick="loadPendingDecisions()" data-i18n="scenario.pending.load_btn">Load Pending Decisions</button>
+                        <div id="pending-decisions-panel" style="margin-top:8px;"></div>
                     </div>
                 </div>
             </div><!-- /tab-scenarios -->
