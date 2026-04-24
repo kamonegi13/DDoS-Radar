@@ -843,6 +843,7 @@ const LANG = {
 
     // ── Tradecraft panel (F4-F14 analyst surface) ──────────────────────
     'panel.tradecraft.title':                    'Analyst Tradecraft',
+    'panel.tradecraft.scenario_label':            'Scenario',
     'panel.tradecraft.loading':                  'Loading…',
     'panel.tradecraft.tab.hidden':               'Hidden Signals',
     'panel.tradecraft.tab.coverage':             'Coverage',
@@ -2261,6 +2262,7 @@ const LANG = {
 
     // ── Tradecraft panel (F4-F14 アナリスト面) ─────────────────────────
     'panel.tradecraft.title':                    'アナリスト・トレードクラフト',
+    'panel.tradecraft.scenario_label':            'シナリオ',
     'panel.tradecraft.loading':                  '読み込み中…',
     'panel.tradecraft.tab.hidden':               '隠れシグナル',
     'panel.tradecraft.tab.coverage':             'カバレッジ',

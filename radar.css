@@ -422,8 +422,15 @@
         #target-placeholder { flex-shrink: 0; border-bottom: 2px solid #000; }
         #dashboard-placeholder { display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
 
+        /* Shared panel chrome — title bar rendered inside every floating/dockable panel.
+           Font properties are declared explicitly here so per-panel stylesheets that set
+           font-* on the panel root (e.g. #tradecraft-panel { font-family: Courier }) do
+           NOT cascade into the chrome. This is the cascade firewall: chrome owns its own
+           typography. Per-panel CSS should only style .{panel}-body wrappers, never the
+           panel root. */
         .panel-header-unified {
             display: flex; justify-content: space-between; align-items: center;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
             font-size: 13px; color: #fff; text-transform: uppercase; letter-spacing: 1px; font-weight: bold;
             border-bottom: 1px solid #555;
         }
@@ -444,7 +451,9 @@
         .floating .panel-content { padding: 0; display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
         #dashboard-panel.floating { resize: both; min-height: 250px; min-width: 300px; max-height: 80vh; }
 
-        .icon-btn { cursor: pointer; padding: 2px 6px; font-weight: bold; color: var(--color-text-dim); background: rgba(255,255,255,0.1); border-radius: 3px; font-size: 12px; margin-left: 5px; transition: 0.2s; border: 1px solid transparent;}
+        /* Shared icon button — also gets an explicit font-family for the same cascade
+           firewall reason as .panel-header-unified above. */
+        .icon-btn { cursor: pointer; padding: 2px 6px; font-family: 'Segoe UI', Tahoma, sans-serif; font-weight: bold; color: var(--color-text-dim); background: rgba(255,255,255,0.1); border-radius: 3px; font-size: 12px; margin-left: 5px; transition: 0.2s; border: 1px solid transparent;}
         .icon-btn:hover { color: #fff; background: rgba(255,255,255,0.2); border-color: #777;}
         .dock-btn { color: var(--color-accent); }
         .dock-btn:hover { background: rgba(0,255,255,0.2); border-color: var(--color-accent);}

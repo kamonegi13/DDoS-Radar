@@ -1,0 +1,97 @@
+# Panel Chrome Contract
+
+> Floating & dockable panel rules for DDoS-Radar frontend.
+> Last updated: 2026-04-24
+
+## Why this exists
+
+The app has ~15 floating/dockable panels (GreyNoise, History, LLM Intel, Tradecraft, SPOF, etc.). All of them share the same visible chrome — a title bar with uppercase bold text, minimize/close icon buttons, drag handle, and a dark-translucent body.
+
+Originally the chrome markup was copy-pasted from panel to panel in `index.html`. This drifted: the Tradecraft panel declared `font-family: Courier New` at the panel root (ID specificity), which cascaded into the shared `.panel-header-unified` header and `.icon-btn` buttons, making them render with a monospace typeface one size smaller than every other panel.
+
+The fix was two-layered:
+1. **Cascade firewall** — the shared chrome CSS now declares `font-family` explicitly so per-panel CSS cannot leak into it.
+2. **Markup factory** — `createFloatingPanel()` in `radar.js` generates the standard header block so new panels cannot author it incorrectly.
+
+This document is the contract that keeps the shared chrome actually shared.
+
+## Shared chrome primitives
+
+| Layer | Location | Purpose |
+|---|---|---|
+| CSS — header styling | `radar.css` `.panel-header-unified`, `.icon-btn`, `.dock-btn` | Typography, colors, button sizing |
+| CSS — panel shell | `radar.css` `.floating`, `.draggable-panel`, `.drag-handle`, `.docked` | Positioning, borders, shadows |
+| JS — toggle/close/drag | `radar.js` `_createPanelToggle()`, `_panelClose()`, `setupFloatingOnlyPanel()`, `setupDockablePanel()` | Show/hide, drag, close button wiring, sidebar/tool-menu sync |
+| JS — markup generation | `radar.js` `createFloatingPanel()` | Generates the standard header block so panels can't author it wrong |
+
+## Contract for new panels
+
+### ✅ Required
+
+- **Use `createFloatingPanel()`**: new panels must call it to generate their chrome. Do not hand-author the `.panel-header-unified` `<div>` block.
+- **Title via `titleKey`**: pass an i18n key to `createFloatingPanel({ titleKey: 'panel.foo.title', ... })`. Add EN/JA translations to `i18n.js`.
+- **Body content in HTML**: author the panel body as a plain `<div id="foo-panel" style="display:none;">...body...</div>` in `index.html`. The factory wraps its children in `.panel-content` at startup.
+- **Body-scoped CSS class**: per-panel CSS must target a `.{panel-name}-body` class passed via `createFloatingPanel({ bodyClass: 'foo-panel-body', ... })`. Never style the panel root (`#foo-panel`).
+
+### ❌ Forbidden
+
+- ID-root cascade leaks: `#foo-panel { font-family: ...; font-size: ...; color: ...; letter-spacing: ...; padding: ... }`. These inherit into chrome children and break the shared look.
+- Inline `style="..."` on the panel root for layout/sizing. Pass `defaultLeft`, `defaultTop`, `width` to the factory instead.
+- Custom toggle functions. Use the toggle returned by `createFloatingPanel()` (or `_createPanelToggle()` for panels whose chrome is already authored).
+- Application-level controls (`<select>`, action buttons, etc.) in the header chrome. Put them in the body with a `.{panel-name}-scenario-bar` or similar sub-block.
+
+## Audit command
+
+Before committing frontend changes, run:
+
+```bash
+grep -nE '^#[a-z][a-z-]*-panel\s*\{[^}]*(font-|letter-spacing)' *.css
+```
+
+Expected output: only `#scenario-detail-panel` (which uses its own custom markup, not `.panel-header-unified`). Any other match is a cascade-leak bug.
+
+## Example: migrating a panel to `createFloatingPanel()`
+
+Before (`index.html`):
+```html
+<div id="foo-panel" class="draggable-panel floating" style="display:none; left:200px; top:100px;">
+    <div class="drag-handle panel-header-unified">
+        <span data-i18n="panel.foo.title">Foo</span>
+        <div>
+            <span class="icon-btn toggle-btn">−</span>
+            <span class="icon-btn" onclick="_panelClose('foo-panel')">✕</span>
+        </div>
+    </div>
+    <div class="panel-content foo-body">
+        <!-- body -->
+    </div>
+</div>
+```
+
+After (`index.html`):
+```html
+<div id="foo-panel" style="display:none;">
+    <!-- body content only -->
+</div>
+```
+
+After (`foo.js` init):
+```js
+createFloatingPanel({
+    id: 'foo-panel',
+    titleKey: 'panel.foo.title',
+    titleFallback: 'Foo',
+    defaultLeft: 200,
+    defaultTop: 100,
+    bodyClass: 'foo-body',
+    onShow: () => { /* render logic */ },
+});
+```
+
+## Migration policy
+
+Existing panels do **not** need to migrate eagerly. Leave working panels alone — they use the shared CSS chrome (`.panel-header-unified`) even with hand-authored markup. When a panel is touched for another reason, migrate it to `createFloatingPanel()` as a side-effect. New panels must use the factory from day one.
+
+## Tradecraft as reference implementation
+
+The Tradecraft panel (`tradecraft.js`, `tradecraft.css`, `index.html` §Tradecraft) is the canonical example — its body is authored in HTML, chrome is generated by `createFloatingPanel()` in `boot()`, and all body typography is scoped to `.tc-panel-body`. Copy that pattern for new panels.

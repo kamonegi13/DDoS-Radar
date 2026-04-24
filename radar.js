@@ -434,6 +434,114 @@
         saveLocalState();
     }
 
+    // Expose panel factory + close helper so out-of-file panel scripts
+    // (e.g. tradecraft.js) can reuse the standard floating-panel chrome.
+    window._createPanelToggle = _createPanelToggle;
+    window._panelClose = _panelClose;
+
+    /**
+     * Standard floating-panel builder — generates the shared chrome (drag handle,
+     * title with data-i18n, minimize/close buttons), wraps existing panel body
+     * content in a .panel-content container, registers the panel with
+     * setupFloatingOnlyPanel, applies i18n, and returns a toggle function.
+     *
+     * Why this exists: panel chrome (title typography, icon buttons, drag/close
+     * wiring) was authored by copy-paste in index.html across ~15 panels. This
+     * factory makes the chrome a real component — every panel that uses it is
+     * guaranteed to render identical typography/buttons and participate in the
+     * same drag/close/clamp behavior. New panels should use this instead of
+     * hand-authoring the .panel-header-unified header block.
+     *
+     * Usage: author the panel body in index.html as:
+     *     <div id="foo-panel" style="display:none;"><!-- body content --></div>
+     * then at startup call:
+     *     createFloatingPanel({ id: 'foo-panel', titleKey: 'panel.foo.title', ... })
+     *
+     * @param {Object}  opts
+     * @param {string}  opts.id              - existing panel div id (its current
+     *                                         children become the body)
+     * @param {string}  opts.titleKey        - data-i18n key for the title
+     * @param {string}  [opts.titleFallback] - text to show until i18n applies
+     * @param {number}  [opts.defaultLeft]   - initial left offset
+     * @param {number}  [opts.defaultTop]    - initial top offset
+     * @param {number}  [opts.width]         - fixed width in px
+     * @param {boolean} [opts.minimizable]   - show − button (default true)
+     * @param {boolean} [opts.closable]      - show ✕ button (default true)
+     * @param {string}  [opts.bodyClass]     - extra class on .panel-content
+     * @param {Function}[opts.onShow]
+     * @param {Function}[opts.onHide]
+     * @returns {Function} toggle function (call to show/hide)
+     */
+    window.createFloatingPanel = function createFloatingPanel(opts) {
+        const {
+            id, titleKey, titleFallback = '',
+            defaultLeft, defaultTop = 130, width,
+            minimizable = true, closable = true,
+            bodyClass,
+            onShow, onHide,
+        } = opts || {};
+        if (!id || !titleKey) {
+            console.warn('createFloatingPanel: id and titleKey are required');
+            return null;
+        }
+        const panel = document.getElementById(id);
+        if (!panel) {
+            console.warn(`createFloatingPanel: #${id} not found in DOM`);
+            return null;
+        }
+        // Capture existing body content (authored in index.html)
+        const existingChildren = Array.from(panel.childNodes);
+        const content = document.createElement('div');
+        content.className = 'panel-content' + (bodyClass ? ' ' + bodyClass : '');
+        for (const child of existingChildren) content.appendChild(child);
+        // Build standard chrome header
+        const header = document.createElement('div');
+        header.className = 'drag-handle panel-header-unified';
+        const titleSpan = document.createElement('span');
+        titleSpan.setAttribute('data-i18n', titleKey);
+        titleSpan.textContent = titleFallback || titleKey;
+        header.appendChild(titleSpan);
+        const btnGroup = document.createElement('div');
+        if (minimizable) {
+            const minBtn = document.createElement('span');
+            minBtn.className = 'icon-btn toggle-btn';
+            minBtn.setAttribute('data-tooltip', 'Minimize');
+            minBtn.setAttribute('data-i18n-tip', 'panel.common.minimize_tooltip');
+            minBtn.textContent = '−';
+            btnGroup.appendChild(minBtn);
+        }
+        if (closable) {
+            const closeBtn = document.createElement('span');
+            closeBtn.className = 'icon-btn';
+            closeBtn.setAttribute('data-tooltip', 'Close');
+            closeBtn.setAttribute('data-i18n-tip', 'panel.common.close_tooltip');
+            closeBtn.style.color = '#ff444488';
+            closeBtn.textContent = '✕';
+            closeBtn.addEventListener('click', () => _panelClose(id));
+            btnGroup.appendChild(closeBtn);
+        }
+        header.appendChild(btnGroup);
+        // Reset panel root and assemble
+        panel.className = 'draggable-panel floating';
+        panel.style.display = 'none';
+        if (defaultLeft != null) panel.style.left = defaultLeft + 'px';
+        if (defaultTop != null)  panel.style.top  = defaultTop  + 'px';
+        if (width != null)       panel.style.width = width + 'px';
+        panel.innerHTML = '';
+        panel.appendChild(header);
+        panel.appendChild(content);
+        // Register drag/minimize behavior
+        setupFloatingOnlyPanel(id);
+        // Apply i18n translations for the new data-i18n nodes
+        if (typeof _applyStaticTranslations === 'function') _applyStaticTranslations();
+        // Return toggle function (participates in _panelCallbacks / clamp / sync)
+        return _createPanelToggle(id, {
+            floating: true,
+            defaultLeft, defaultTop,
+            onShow, onHide,
+        });
+    };
+
     const toggleTargetPanel    = _createPanelToggle('target-panel',    { floating: false });
     const toggleDashboardPanel = _createPanelToggle('dashboard-panel', { floating: false });
     const toggleTgSigint       = _createPanelToggle('tg-sigint-panel', { floating: true, onShow: () => {
@@ -1524,6 +1632,8 @@
     setupFloatingOnlyPanel('history-panel');
     setupFloatingOnlyPanel('whatif-panel');
     setupFloatingOnlyPanel('spof-panel');
+    // 'tradecraft-panel' is registered inside createFloatingPanel() in
+    // tradecraft.js boot(), so it is intentionally NOT listed here.
     setupDockablePanel('corr-heatmap-panel', 'lsb-ph-corr',           340);
     setupDockablePanel('climate-panel',      'lsb-ph-climate',        380);
     setupDockablePanel('llm-intel-panel',   'lsb-ph-llm',            440);

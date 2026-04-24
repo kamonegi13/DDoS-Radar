@@ -1,9 +1,52 @@
 /* tradecraft.css — styling for the Analyst Tradecraft panel (F4-F14) */
 
+/* IMPORTANT: do NOT put font-size / font-family on #tradecraft-panel.
+   That would cascade into the shared .panel-header-unified / .icon-btn
+   chrome and make the title and min/close buttons render differently
+   from every other panel. Panel-wide text color is fine because the
+   shared header overrides color explicitly (#fff). Monospace font and
+   the smaller body font-size belong on .tc-panel-body so they only
+   scope the tradecraft body, not the standard chrome. */
 #tradecraft-panel {
     color: #cde;
+}
+
+/* Panel body — applied to .panel-content so the standard panel chrome
+   still owns padding/background, but the tradecraft-specific flex
+   layout, height cap, and body typography live here instead of on the
+   panel root. */
+.tc-panel-body {
+    display: flex;
+    flex-direction: column;
+    max-height: 760px;
     font-family: 'Courier New', monospace;
     font-size: 11px;
+}
+
+/* Scenario selector row — moved out of the panel header so the header
+   holds only standard chrome (title + minimize + close), matching every
+   other panel in the app. */
+.tc-scenario-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 10px;
+    color: #779;
+    letter-spacing: 1px;
+}
+.tc-scenario-bar label {
+    text-transform: uppercase;
+}
+.tc-scenario-bar select {
+    flex: 1;
+    background: #111;
+    border: 1px solid #333;
+    color: var(--color-accent);
+    padding: 3px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-family: 'Courier New', monospace;
 }
 
 /* Tabs */

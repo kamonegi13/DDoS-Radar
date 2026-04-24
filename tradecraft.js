@@ -92,6 +92,12 @@
     function boot() {
         const panel = document.getElementById('tradecraft-panel');
         if (!panel) return;
+        // Wrap body content with shared panel chrome (header + buttons + drag).
+        // Must run BEFORE bindTabs() because the factory moves existing children
+        // into .panel-content, so we need to re-select #tradecraft-tabs etc.
+        // after wrapping — but document.querySelector paths still work because
+        // ids and classes are preserved inside the new wrapper.
+        if (!toggleTradecraftPanel) toggleTradecraftPanel = _buildTradecraftPanel();
         bindTabs();
         loadScenariosInto(document.getElementById('tradecraft-scenario'));
         const sel = document.getElementById('tradecraft-scenario');
@@ -969,27 +975,37 @@
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
-    function toggleTradecraftPanel() {
-        const p = document.getElementById('tradecraft-panel');
-        if (!p) return;
-        if (p.style.display === 'none' || !p.style.display) {
-            if (!p.classList.contains('docked') && p.parentElement !== document.body) document.body.appendChild(p);
-            p.style.display = 'flex';
-            p.classList.add('floating', 'active');
-            setTimeout(() => p.classList.remove('active'), 1000);
-            if (typeof window.updateSidebarVisibility === 'function') window.updateSidebarVisibility();
-            if (typeof window.syncToolsMenuState === 'function') window.syncToolsMenuState();
-            if (typeof window.saveLocalState === 'function') window.saveLocalState();
-            if (STATE.scenarioId) renderActiveTab();
-        } else {
-            p.style.display = 'none';
-            if (typeof window.updateSidebarVisibility === 'function') window.updateSidebarVisibility();
-            if (typeof window.syncToolsMenuState === 'function') window.syncToolsMenuState();
-            if (typeof window.saveLocalState === 'function') window.saveLocalState();
+    // Build the panel via the shared factory: generates standard chrome (title,
+    // minimize, close), wraps body content in .panel-content.tc-panel-body,
+    // registers drag/clamp/dirty-rerender behavior, and returns a toggle fn.
+    // This makes tradecraft's chrome byte-identical to every other panel.
+    function _buildTradecraftPanel() {
+        if (typeof window.createFloatingPanel === 'function') {
+            return window.createFloatingPanel({
+                id: 'tradecraft-panel',
+                titleKey: 'panel.tradecraft.title',
+                titleFallback: 'Analyst Tradecraft',
+                defaultLeft: 380, defaultTop: 80, width: 760,
+                bodyClass: 'tc-panel-body',
+                onShow: () => { if (STATE.scenarioId) renderActiveTab(); },
+            });
         }
+        // Fallback if createFloatingPanel is unavailable (older radar.js)
+        return function () {
+            const p = document.getElementById('tradecraft-panel');
+            if (!p) return;
+            p.style.display = (p.style.display === 'none' || !p.style.display) ? 'flex' : 'none';
+        };
     }
 
-    window.toggleTradecraftPanel = toggleTradecraftPanel;
+    let toggleTradecraftPanel = null;
+    // Expose a stable wrapper immediately — the real toggle is wired in boot()
+    // after createFloatingPanel runs, so any caller that fires before init
+    // (e.g. tool-menu click) still works after re-invocation.
+    window.toggleTradecraftPanel = function () {
+        if (!toggleTradecraftPanel) toggleTradecraftPanel = _buildTradecraftPanel();
+        return toggleTradecraftPanel && toggleTradecraftPanel();
+    };
     window._tradecraftSessionId = _sessionId;
 
     if (document.readyState === 'loading') {
