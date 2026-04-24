@@ -849,6 +849,203 @@ class RadarDB:
                 last_delta       REAL
             )"""),
         ]),
+        (14, "Phase B: noise/discard visibility log (F4 Hidden Negative Signals)", lambda conn: [
+            # Records every signal/intel item that was filtered before reaching
+            # the score so analysts can audit the "what got hidden" question.
+            # Source events: noise_exclusion match, low-confidence intel discard,
+            # dedup eviction, sensor circuit-breaker open.
+            conn.execute("""CREATE TABLE IF NOT EXISTS hidden_signal_log (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                logged_at    REAL NOT NULL,
+                scenario_id  TEXT,
+                country      TEXT,
+                sensor       TEXT NOT NULL,
+                domain       TEXT NOT NULL DEFAULT '',
+                hide_reason  TEXT NOT NULL,
+                detail_json  TEXT NOT NULL DEFAULT '{}'
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_hidden_signal_log_time
+                ON hidden_signal_log (logged_at DESC)"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_hidden_signal_log_scenario
+                ON hidden_signal_log (scenario_id, logged_at DESC)"""),
+        ]),
+        (15, "Phase B: scenario sensor coverage + disconfirming evidence (F5/F6)", lambda conn: [
+            # Per-scenario per-sensor health snapshot for coverage-gap UI.
+            # Updated on each scoring cycle from sensor circuit-breaker state
+            # and last-fetch timestamps.
+            conn.execute("""CREATE TABLE IF NOT EXISTS scenario_sensor_coverage (
+                scenario_id    TEXT NOT NULL,
+                sensor         TEXT NOT NULL,
+                domain         TEXT NOT NULL DEFAULT '',
+                last_success   REAL,
+                last_attempt   REAL,
+                state          TEXT NOT NULL DEFAULT 'unknown'
+                    CHECK (state IN ('healthy', 'stale', 'failing', 'disabled', 'unknown')),
+                consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                updated_at     REAL NOT NULL,
+                PRIMARY KEY (scenario_id, sensor)
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_scenario_sensor_coverage_state
+                ON scenario_sensor_coverage (state, scenario_id)"""),
+            # Analyst-tagged disconfirming evidence — signals that contradict
+            # the scenario's threat hypothesis. Stored separately from the
+            # normal score path so it doesn't influence TL but stays visible.
+            conn.execute("""CREATE TABLE IF NOT EXISTS disconfirming_evidence (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id  TEXT NOT NULL,
+                tagged_at    REAL NOT NULL,
+                tagged_by    TEXT NOT NULL,
+                source_kind  TEXT NOT NULL
+                    CHECK (source_kind IN ('intel_item', 'rationale', 'manual_note')),
+                source_ref   TEXT,
+                summary      TEXT NOT NULL,
+                strength     INTEGER NOT NULL DEFAULT 2
+                    CHECK (strength BETWEEN 1 AND 5),
+                retracted_at REAL,
+                retracted_by TEXT
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_disconf_evidence_sid
+                ON disconfirming_evidence (scenario_id, tagged_at DESC)"""),
+        ]),
+        (16, "Phase C: ACH matrix + dissenting view (F8/F13)", lambda conn: [
+            # Analysis of Competing Hypotheses (Heuer): N hypotheses x M evidence.
+            # ach_matrices is the analyst-defined working matrix per scenario;
+            # ach_hypotheses and ach_evidence are the rows/columns;
+            # ach_scores is the cell consistency rating.
+            conn.execute("""CREATE TABLE IF NOT EXISTS ach_matrices (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id  TEXT NOT NULL,
+                title        TEXT NOT NULL,
+                created_by   TEXT NOT NULL,
+                created_at   REAL NOT NULL,
+                updated_at   REAL NOT NULL,
+                archived_at  REAL
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_ach_matrices_sid
+                ON ach_matrices (scenario_id, updated_at DESC)"""),
+            conn.execute("""CREATE TABLE IF NOT EXISTS ach_hypotheses (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                matrix_id    INTEGER NOT NULL REFERENCES ach_matrices(id) ON DELETE CASCADE,
+                ord          INTEGER NOT NULL DEFAULT 0,
+                text         TEXT NOT NULL,
+                is_null_hypothesis INTEGER NOT NULL DEFAULT 0
+            )"""),
+            conn.execute("""CREATE TABLE IF NOT EXISTS ach_evidence (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                matrix_id    INTEGER NOT NULL REFERENCES ach_matrices(id) ON DELETE CASCADE,
+                ord          INTEGER NOT NULL DEFAULT 0,
+                text         TEXT NOT NULL,
+                source_ref   TEXT,
+                credibility  INTEGER NOT NULL DEFAULT 3
+                    CHECK (credibility BETWEEN 1 AND 5),
+                relevance    INTEGER NOT NULL DEFAULT 3
+                    CHECK (relevance BETWEEN 1 AND 5)
+            )"""),
+            # consistency: -2=strongly inconsistent, -1=inconsistent, 0=neutral,
+            # 1=consistent, 2=strongly consistent (Heuer scale)
+            conn.execute("""CREATE TABLE IF NOT EXISTS ach_scores (
+                hypothesis_id INTEGER NOT NULL REFERENCES ach_hypotheses(id) ON DELETE CASCADE,
+                evidence_id   INTEGER NOT NULL REFERENCES ach_evidence(id) ON DELETE CASCADE,
+                consistency   INTEGER NOT NULL DEFAULT 0
+                    CHECK (consistency BETWEEN -2 AND 2),
+                note          TEXT,
+                PRIMARY KEY (hypothesis_id, evidence_id)
+            )"""),
+            # Dissenting views: structured devil's-advocate channel per scenario.
+            # Kept separate from the consensus rationale path.
+            conn.execute("""CREATE TABLE IF NOT EXISTS dissenting_views (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id     TEXT NOT NULL,
+                created_at      REAL NOT NULL,
+                created_by      TEXT NOT NULL,
+                title           TEXT NOT NULL,
+                body            TEXT NOT NULL,
+                argues_for_tl   INTEGER,
+                resolved_at     REAL,
+                resolved_by     TEXT,
+                resolution_note TEXT
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_dissenting_views_sid
+                ON dissenting_views (scenario_id, created_at DESC)"""),
+        ]),
+        (17, "Phase D: assumptions + premortem + decision ledger (F10/F11/F14)", lambda conn: [
+            # Key Assumptions Check (KAC): per-scenario list of hypotheses
+            # the analysis depends on. is_locked=1 means admin has frozen
+            # the assumption as "team consensus"; analysts can still add
+            # new ones and dispute via dissenting_views.
+            conn.execute("""CREATE TABLE IF NOT EXISTS key_assumptions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id     TEXT NOT NULL,
+                created_at      REAL NOT NULL,
+                created_by      TEXT NOT NULL,
+                updated_at      REAL NOT NULL,
+                updated_by      TEXT,
+                statement       TEXT NOT NULL,
+                rationale       TEXT,
+                confidence      TEXT NOT NULL DEFAULT 'medium'
+                    CHECK (confidence IN ('low', 'medium', 'high')),
+                is_locked       INTEGER NOT NULL DEFAULT 0,
+                locked_at       REAL,
+                locked_by       TEXT,
+                invalidated_at  REAL,
+                invalidated_by  TEXT,
+                invalidation_note TEXT
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_key_assumptions_sid
+                ON key_assumptions (scenario_id, created_at DESC)"""),
+            conn.execute("""CREATE TABLE IF NOT EXISTS key_assumption_change_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                assumption_id   INTEGER NOT NULL REFERENCES key_assumptions(id) ON DELETE CASCADE,
+                changed_at      REAL NOT NULL,
+                changed_by      TEXT NOT NULL,
+                change_type     TEXT NOT NULL
+                    CHECK (change_type IN ('create', 'edit', 'lock', 'unlock',
+                                           'invalidate', 'reinstate', 'delete')),
+                before_json     TEXT,
+                after_json      TEXT,
+                note            TEXT
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_assumption_change_log_aid
+                ON key_assumption_change_log (assumption_id, changed_at DESC)"""),
+            # Pre-mortem entries: "if this scenario assessment turned out to
+            # be wrong six months from now, what would have caused that?"
+            # (Klein 2007). Analysts capture failure modes proactively.
+            conn.execute("""CREATE TABLE IF NOT EXISTS premortem_entries (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id     TEXT NOT NULL,
+                created_at      REAL NOT NULL,
+                created_by      TEXT NOT NULL,
+                failure_mode    TEXT NOT NULL
+                    CHECK (failure_mode IN ('false_positive', 'false_negative', 'cognitive_bias')),
+                imagined_outcome TEXT NOT NULL,
+                root_cause      TEXT NOT NULL,
+                early_warning   TEXT,
+                mitigation      TEXT,
+                resolved_at     REAL,
+                resolved_by     TEXT
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_premortem_sid
+                ON premortem_entries (scenario_id, created_at DESC)"""),
+            # Decision Ledger: per-tab session log of analyst judgments.
+            # session_id is browser-tab UUID stored in sessionStorage (F14).
+            conn.execute("""CREATE TABLE IF NOT EXISTS decision_ledger (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                logged_at       REAL NOT NULL,
+                user_id         INTEGER REFERENCES users(id),
+                username        TEXT NOT NULL DEFAULT '',
+                session_id      TEXT NOT NULL,
+                scenario_id     TEXT,
+                decision_type   TEXT NOT NULL,
+                summary         TEXT NOT NULL,
+                detail_json     TEXT NOT NULL DEFAULT '{}'
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_decision_ledger_session
+                ON decision_ledger (session_id, logged_at DESC)"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_decision_ledger_scenario
+                ON decision_ledger (scenario_id, logged_at DESC)"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_decision_ledger_user
+                ON decision_ledger (user_id, logged_at DESC)"""),
+        ]),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -3223,6 +3420,489 @@ class RadarDB:
         if row and row[0] is not None:
             return float(row[0])
         return None
+
+    # ── F4 Hidden Negative Signals ──────────────────────────────────────────
+    def hidden_signal_log(
+        self, scenario_id: Optional[str], country: Optional[str],
+        sensor: str, domain: str, hide_reason: str,
+        detail: Optional[dict] = None,
+    ):
+        import json as _json
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO hidden_signal_log "
+                "(logged_at, scenario_id, country, sensor, domain, hide_reason, detail_json) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (time.time(), scenario_id, country, sensor, domain,
+                 hide_reason, _json.dumps(detail or {})),
+            )
+
+    def hidden_signal_list(
+        self, scenario_id: Optional[str] = None,
+        since: Optional[float] = None, limit: int = 100,
+    ) -> list[dict]:
+        import json as _json
+        sql = ("SELECT id, logged_at, scenario_id, country, sensor, domain, "
+               "hide_reason, detail_json FROM hidden_signal_log WHERE 1=1")
+        params: list = []
+        if scenario_id:
+            sql += " AND scenario_id = ?"
+            params.append(scenario_id)
+        if since is not None:
+            sql += " AND logged_at >= ?"
+            params.append(since)
+        sql += " ORDER BY logged_at DESC LIMIT ?"
+        params.append(int(limit))
+        rows = self._get_conn().execute(sql, params).fetchall()
+        out = []
+        for r in rows:
+            try:
+                detail = _json.loads(r["detail_json"] or "{}")
+            except Exception:
+                detail = {}
+            out.append({
+                "id": r["id"], "logged_at": r["logged_at"],
+                "scenario_id": r["scenario_id"], "country": r["country"],
+                "sensor": r["sensor"], "domain": r["domain"],
+                "hide_reason": r["hide_reason"], "detail": detail,
+            })
+        return out
+
+    # ── F5 Coverage Gap ─────────────────────────────────────────────────────
+    def coverage_upsert(
+        self, scenario_id: str, sensor: str, domain: str,
+        last_success: Optional[float], last_attempt: Optional[float],
+        state: str, consecutive_failures: int,
+    ):
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO scenario_sensor_coverage "
+                "(scenario_id, sensor, domain, last_success, last_attempt, state, "
+                " consecutive_failures, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?) "
+                "ON CONFLICT (scenario_id, sensor) DO UPDATE SET "
+                "domain=excluded.domain, last_success=excluded.last_success, "
+                "last_attempt=excluded.last_attempt, state=excluded.state, "
+                "consecutive_failures=excluded.consecutive_failures, "
+                "updated_at=excluded.updated_at",
+                (scenario_id, sensor, domain, last_success, last_attempt,
+                 state, int(consecutive_failures), time.time()),
+            )
+
+    def coverage_list(self, scenario_id: str) -> list[dict]:
+        rows = self._get_conn().execute(
+            "SELECT sensor, domain, last_success, last_attempt, state, "
+            "consecutive_failures, updated_at "
+            "FROM scenario_sensor_coverage WHERE scenario_id=? "
+            "ORDER BY state DESC, sensor ASC",
+            (scenario_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── F6 Disconfirming Evidence ───────────────────────────────────────────
+    def disconf_add(
+        self, scenario_id: str, tagged_by: str, source_kind: str,
+        source_ref: Optional[str], summary: str, strength: int,
+    ) -> int:
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO disconfirming_evidence "
+                "(scenario_id, tagged_at, tagged_by, source_kind, source_ref, "
+                " summary, strength) VALUES (?,?,?,?,?,?,?)",
+                (scenario_id, time.time(), tagged_by, source_kind,
+                 source_ref, summary, max(1, min(5, int(strength)))),
+            )
+            return int(cur.lastrowid or 0)
+
+    def disconf_list(self, scenario_id: str, include_retracted: bool = False) -> list[dict]:
+        sql = ("SELECT id, tagged_at, tagged_by, source_kind, source_ref, "
+               "summary, strength, retracted_at, retracted_by "
+               "FROM disconfirming_evidence WHERE scenario_id=?")
+        if not include_retracted:
+            sql += " AND retracted_at IS NULL"
+        sql += " ORDER BY tagged_at DESC"
+        rows = self._get_conn().execute(sql, (scenario_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def disconf_retract(self, item_id: int, retracted_by: str) -> bool:
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "UPDATE disconfirming_evidence SET retracted_at=?, retracted_by=? "
+                "WHERE id=? AND retracted_at IS NULL",
+                (time.time(), retracted_by, int(item_id)),
+            )
+            return cur.rowcount > 0
+
+    # ── F8 ACH Matrix ───────────────────────────────────────────────────────
+    def ach_matrix_create(self, scenario_id: str, title: str, created_by: str) -> int:
+        now = time.time()
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO ach_matrices (scenario_id, title, created_by, "
+                "created_at, updated_at) VALUES (?,?,?,?,?)",
+                (scenario_id, title, created_by, now, now),
+            )
+            return int(cur.lastrowid or 0)
+
+    def ach_matrix_list(self, scenario_id: str, include_archived: bool = False) -> list[dict]:
+        sql = ("SELECT id, scenario_id, title, created_by, created_at, "
+               "updated_at, archived_at FROM ach_matrices WHERE scenario_id=?")
+        if not include_archived:
+            sql += " AND archived_at IS NULL"
+        sql += " ORDER BY updated_at DESC"
+        rows = self._get_conn().execute(sql, (scenario_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def ach_matrix_get(self, matrix_id: int) -> Optional[dict]:
+        conn = self._get_conn()
+        m = conn.execute(
+            "SELECT id, scenario_id, title, created_by, created_at, "
+            "updated_at, archived_at FROM ach_matrices WHERE id=?",
+            (int(matrix_id),),
+        ).fetchone()
+        if not m:
+            return None
+        hyps = conn.execute(
+            "SELECT id, ord, text, is_null_hypothesis FROM ach_hypotheses "
+            "WHERE matrix_id=? ORDER BY ord ASC, id ASC",
+            (int(matrix_id),),
+        ).fetchall()
+        evs = conn.execute(
+            "SELECT id, ord, text, source_ref, credibility, relevance "
+            "FROM ach_evidence WHERE matrix_id=? ORDER BY ord ASC, id ASC",
+            (int(matrix_id),),
+        ).fetchall()
+        scores = conn.execute(
+            "SELECT s.hypothesis_id, s.evidence_id, s.consistency, s.note "
+            "FROM ach_scores s JOIN ach_hypotheses h ON h.id = s.hypothesis_id "
+            "WHERE h.matrix_id=?",
+            (int(matrix_id),),
+        ).fetchall()
+        return {
+            **dict(m),
+            "hypotheses": [dict(r) for r in hyps],
+            "evidence": [dict(r) for r in evs],
+            "scores": [dict(r) for r in scores],
+        }
+
+    def ach_hypothesis_add(self, matrix_id: int, text: str,
+                           is_null: bool = False, ord_: int = 0) -> int:
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO ach_hypotheses (matrix_id, ord, text, is_null_hypothesis) "
+                "VALUES (?,?,?,?)",
+                (int(matrix_id), int(ord_), text, 1 if is_null else 0),
+            )
+            conn.execute("UPDATE ach_matrices SET updated_at=? WHERE id=?",
+                         (time.time(), int(matrix_id)))
+            return int(cur.lastrowid or 0)
+
+    def ach_evidence_add(self, matrix_id: int, text: str,
+                         source_ref: Optional[str] = None,
+                         credibility: int = 3, relevance: int = 3,
+                         ord_: int = 0) -> int:
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO ach_evidence (matrix_id, ord, text, source_ref, "
+                "credibility, relevance) VALUES (?,?,?,?,?,?)",
+                (int(matrix_id), int(ord_), text, source_ref,
+                 max(1, min(5, int(credibility))),
+                 max(1, min(5, int(relevance)))),
+            )
+            conn.execute("UPDATE ach_matrices SET updated_at=? WHERE id=?",
+                         (time.time(), int(matrix_id)))
+            return int(cur.lastrowid or 0)
+
+    def ach_score_set(self, matrix_id: int, hypothesis_id: int,
+                      evidence_id: int, consistency: int,
+                      note: Optional[str] = None):
+        c = max(-2, min(2, int(consistency)))
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO ach_scores (hypothesis_id, evidence_id, consistency, note) "
+                "VALUES (?,?,?,?) "
+                "ON CONFLICT (hypothesis_id, evidence_id) DO UPDATE SET "
+                "consistency=excluded.consistency, note=excluded.note",
+                (int(hypothesis_id), int(evidence_id), c, note),
+            )
+            conn.execute("UPDATE ach_matrices SET updated_at=? WHERE id=?",
+                         (time.time(), int(matrix_id)))
+
+    # ── F13 Dissenting Views ────────────────────────────────────────────────
+    def dissent_add(self, scenario_id: str, created_by: str, title: str,
+                    body: str, argues_for_tl: Optional[int]) -> int:
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO dissenting_views (scenario_id, created_at, created_by, "
+                "title, body, argues_for_tl) VALUES (?,?,?,?,?,?)",
+                (scenario_id, time.time(), created_by, title, body,
+                 int(argues_for_tl) if argues_for_tl is not None else None),
+            )
+            return int(cur.lastrowid or 0)
+
+    def dissent_list(self, scenario_id: str, include_resolved: bool = False) -> list[dict]:
+        sql = ("SELECT id, created_at, created_by, title, body, argues_for_tl, "
+               "resolved_at, resolved_by, resolution_note "
+               "FROM dissenting_views WHERE scenario_id=?")
+        if not include_resolved:
+            sql += " AND resolved_at IS NULL"
+        sql += " ORDER BY created_at DESC"
+        rows = self._get_conn().execute(sql, (scenario_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def dissent_resolve(self, view_id: int, resolved_by: str,
+                        resolution_note: Optional[str]) -> bool:
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "UPDATE dissenting_views SET resolved_at=?, resolved_by=?, "
+                "resolution_note=? WHERE id=? AND resolved_at IS NULL",
+                (time.time(), resolved_by, resolution_note, int(view_id)),
+            )
+            return cur.rowcount > 0
+
+    # ── F10 Key Assumptions ─────────────────────────────────────────────────
+    def assumption_add(self, scenario_id: str, created_by: str,
+                       statement: str, rationale: Optional[str],
+                       confidence: str) -> int:
+        if confidence not in ("low", "medium", "high"):
+            confidence = "medium"
+        now = time.time()
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO key_assumptions (scenario_id, created_at, created_by, "
+                "updated_at, updated_by, statement, rationale, confidence) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (scenario_id, now, created_by, now, created_by,
+                 statement, rationale, confidence),
+            )
+            aid = int(cur.lastrowid or 0)
+            self._assumption_log(conn, aid, created_by, "create", None, {
+                "statement": statement, "rationale": rationale,
+                "confidence": confidence,
+            }, None)
+            return aid
+
+    def _assumption_log(self, conn, assumption_id: int, changed_by: str,
+                        change_type: str, before: Optional[dict],
+                        after: Optional[dict], note: Optional[str]):
+        import json as _json
+        conn.execute(
+            "INSERT INTO key_assumption_change_log (assumption_id, changed_at, "
+            "changed_by, change_type, before_json, after_json, note) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (int(assumption_id), time.time(), changed_by, change_type,
+             _json.dumps(before) if before is not None else None,
+             _json.dumps(after) if after is not None else None,
+             note),
+        )
+
+    def assumption_list(self, scenario_id: str,
+                        include_invalidated: bool = True) -> list[dict]:
+        sql = ("SELECT id, scenario_id, created_at, created_by, updated_at, "
+               "updated_by, statement, rationale, confidence, is_locked, "
+               "locked_at, locked_by, invalidated_at, invalidated_by, "
+               "invalidation_note FROM key_assumptions WHERE scenario_id=?")
+        if not include_invalidated:
+            sql += " AND invalidated_at IS NULL"
+        sql += " ORDER BY is_locked DESC, created_at DESC"
+        rows = self._get_conn().execute(sql, (scenario_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def assumption_get(self, assumption_id: int) -> Optional[dict]:
+        row = self._get_conn().execute(
+            "SELECT * FROM key_assumptions WHERE id=?", (int(assumption_id),),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def assumption_update(self, assumption_id: int, changed_by: str,
+                          fields: dict, is_admin: bool) -> bool:
+        a = self.assumption_get(assumption_id)
+        if not a:
+            return False
+        if a.get("is_locked") and not is_admin:
+            raise PermissionError("locked assumption — admin only")
+        allowed = {"statement", "rationale", "confidence"}
+        bad = set(fields.keys()) - allowed
+        if bad:
+            raise ValueError(f"disallowed assumption fields: {bad}")
+        if "confidence" in fields and fields["confidence"] not in ("low", "medium", "high"):
+            raise ValueError("confidence must be low|medium|high")
+        before = {k: a.get(k) for k in allowed if k in fields}
+        set_clause = ", ".join(f"{k}=?" for k in fields)
+        params = [*fields.values(), time.time(), changed_by, int(assumption_id)]
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                f"UPDATE key_assumptions SET {set_clause}, updated_at=?, updated_by=? "
+                f"WHERE id=?", params,
+            )
+            self._assumption_log(conn, assumption_id, changed_by, "edit",
+                                 before, dict(fields), None)
+            return cur.rowcount > 0
+
+    def assumption_lock(self, assumption_id: int, locked_by: str,
+                        is_admin: bool, lock: bool = True) -> bool:
+        if not is_admin:
+            raise PermissionError("lock/unlock requires admin")
+        conn = self._get_conn()
+        with conn.writing():
+            if lock:
+                cur = conn.execute(
+                    "UPDATE key_assumptions SET is_locked=1, locked_at=?, locked_by=?, "
+                    "updated_at=?, updated_by=? WHERE id=? AND is_locked=0",
+                    (time.time(), locked_by, time.time(), locked_by, int(assumption_id)),
+                )
+                action = "lock"
+            else:
+                cur = conn.execute(
+                    "UPDATE key_assumptions SET is_locked=0, locked_at=NULL, "
+                    "locked_by=NULL, updated_at=?, updated_by=? WHERE id=? AND is_locked=1",
+                    (time.time(), locked_by, int(assumption_id)),
+                )
+                action = "unlock"
+            if cur.rowcount > 0:
+                self._assumption_log(conn, assumption_id, locked_by, action,
+                                     None, None, None)
+            return cur.rowcount > 0
+
+    def assumption_invalidate(self, assumption_id: int, by: str,
+                              note: Optional[str]) -> bool:
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "UPDATE key_assumptions SET invalidated_at=?, invalidated_by=?, "
+                "invalidation_note=?, updated_at=?, updated_by=? "
+                "WHERE id=? AND invalidated_at IS NULL",
+                (time.time(), by, note, time.time(), by, int(assumption_id)),
+            )
+            if cur.rowcount > 0:
+                self._assumption_log(conn, assumption_id, by, "invalidate",
+                                     None, None, note)
+            return cur.rowcount > 0
+
+    def assumption_change_log(self, assumption_id: int) -> list[dict]:
+        import json as _json
+        rows = self._get_conn().execute(
+            "SELECT id, changed_at, changed_by, change_type, before_json, "
+            "after_json, note FROM key_assumption_change_log "
+            "WHERE assumption_id=? ORDER BY changed_at DESC",
+            (int(assumption_id),),
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            for k in ("before_json", "after_json"):
+                try:
+                    d[k.replace("_json", "")] = (
+                        _json.loads(d.pop(k)) if d.get(k) else None)
+                except Exception:
+                    d[k.replace("_json", "")] = None
+                    d.pop(k, None)
+            out.append(d)
+        return out
+
+    # ── F11 Pre-Mortem ──────────────────────────────────────────────────────
+    def premortem_add(self, scenario_id: str, created_by: str,
+                      failure_mode: str, imagined_outcome: str,
+                      root_cause: str, early_warning: Optional[str],
+                      mitigation: Optional[str]) -> int:
+        if failure_mode not in ("false_positive", "false_negative", "cognitive_bias"):
+            raise ValueError("failure_mode must be false_positive|false_negative|cognitive_bias")
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO premortem_entries (scenario_id, created_at, created_by, "
+                "failure_mode, imagined_outcome, root_cause, early_warning, mitigation) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (scenario_id, time.time(), created_by, failure_mode,
+                 imagined_outcome, root_cause, early_warning, mitigation),
+            )
+            return int(cur.lastrowid or 0)
+
+    def premortem_list(self, scenario_id: str,
+                       include_resolved: bool = False) -> list[dict]:
+        sql = ("SELECT id, scenario_id, created_at, created_by, failure_mode, "
+               "imagined_outcome, root_cause, early_warning, mitigation, "
+               "resolved_at, resolved_by FROM premortem_entries WHERE scenario_id=?")
+        if not include_resolved:
+            sql += " AND resolved_at IS NULL"
+        sql += " ORDER BY created_at DESC"
+        rows = self._get_conn().execute(sql, (scenario_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def premortem_resolve(self, entry_id: int, resolved_by: str) -> bool:
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "UPDATE premortem_entries SET resolved_at=?, resolved_by=? "
+                "WHERE id=? AND resolved_at IS NULL",
+                (time.time(), resolved_by, int(entry_id)),
+            )
+            return cur.rowcount > 0
+
+    # ── F14 Decision Ledger ─────────────────────────────────────────────────
+    def decision_log(self, user_id: Optional[int], username: str,
+                     session_id: str, scenario_id: Optional[str],
+                     decision_type: str, summary: str,
+                     detail: Optional[dict] = None) -> int:
+        import json as _json
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO decision_ledger (logged_at, user_id, username, "
+                "session_id, scenario_id, decision_type, summary, detail_json) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (time.time(), user_id, username or "", session_id,
+                 scenario_id, decision_type, summary,
+                 _json.dumps(detail or {})),
+            )
+            return int(cur.lastrowid or 0)
+
+    def decision_list(self, session_id: Optional[str] = None,
+                      scenario_id: Optional[str] = None,
+                      user_id: Optional[int] = None,
+                      since: Optional[float] = None,
+                      limit: int = 200) -> list[dict]:
+        import json as _json
+        sql = ("SELECT id, logged_at, user_id, username, session_id, scenario_id, "
+               "decision_type, summary, detail_json FROM decision_ledger WHERE 1=1")
+        params: list = []
+        if session_id:
+            sql += " AND session_id=?"
+            params.append(session_id)
+        if scenario_id:
+            sql += " AND scenario_id=?"
+            params.append(scenario_id)
+        if user_id is not None:
+            sql += " AND user_id=?"
+            params.append(int(user_id))
+        if since is not None:
+            sql += " AND logged_at >= ?"
+            params.append(since)
+        sql += " ORDER BY logged_at DESC LIMIT ?"
+        params.append(int(limit))
+        rows = self._get_conn().execute(sql, params).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["detail"] = _json.loads(d.pop("detail_json", "{}") or "{}")
+            except Exception:
+                d["detail"] = {}
+                d.pop("detail_json", None)
+            out.append(d)
+        return out
 
     # ── Utility ─────────────────────────────────────────────────────────────
     def close(self):

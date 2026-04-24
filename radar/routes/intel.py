@@ -61,6 +61,20 @@ def intel_list():
         if it["status"] in ("rejected", "overridden") and age > _TERMINAL_DISPLAY_TTL:
             continue
         filtered.append(it)
+    # F3 Source Reliability Indicator — enrich each item with the current
+    # credibility_weight of its source so the UI can render a reliability
+    # badge inline. Cheap one-shot dict lookup keyed by source_id.
+    try:
+        _src_creds = {
+            s["source_id"]: float(s.get("credibility_weight", 0.7))
+            for s in intel_queue.list_sources()
+        }
+    except Exception:
+        _src_creds = {}
+    for it in filtered:
+        sid = it.get("source_id", "")
+        if sid in _src_creds:
+            it["source_credibility"] = round(_src_creds[sid], 3)
     return jsonify({
         "items": filtered,
         "stats": intel_queue.stats(),

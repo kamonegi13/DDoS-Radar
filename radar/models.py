@@ -44,6 +44,13 @@ class RationaleEntry:
     spatial_context: dict = field(default_factory=dict)
     # Target context: relationship between signal source and monitored targets
     target_context: dict = field(default_factory=dict)
+    # ── Provenance trail (F1) — analyst verifiability per design constraint ④
+    # Each field is optional so existing add_rat() callsites compile unchanged.
+    raw_value: Optional[str] = None       # underlying numeric/text observation
+    observed_at: Optional[float] = None   # unix ts of the source measurement
+    evidence_url: Optional[str] = None    # link to upstream artifact (CT log, RSS item, ...)
+    llm_reasoning: Optional[str] = None   # raw LLM rationale for LLM-derived signals
+    sensor_chain: list = field(default_factory=list)  # corroborating sensors (signal_source group)
 
     def to_dict(self) -> dict:
         d = {
@@ -54,12 +61,25 @@ class RationaleEntry:
             "direction": self.direction,
             "direction_confidence": round(self.direction_confidence, 3),
         }
+        if self.signal_source:
+            d["signal_source"] = self.signal_source
         if self.temporal_context:
             d["temporal_context"] = self.temporal_context
         if self.spatial_context:
             d["spatial_context"] = self.spatial_context
         if self.target_context:
             d["target_context"] = self.target_context
+        # Provenance fields — emit only when present to keep payload lean.
+        if self.raw_value is not None:
+            d["raw_value"] = self.raw_value
+        if self.observed_at is not None:
+            d["observed_at"] = self.observed_at
+        if self.evidence_url:
+            d["evidence_url"] = self.evidence_url
+        if self.llm_reasoning:
+            d["llm_reasoning"] = self.llm_reasoning
+        if self.sensor_chain:
+            d["sensor_chain"] = self.sensor_chain
         return d
 
 

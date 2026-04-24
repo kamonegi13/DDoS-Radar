@@ -78,4 +78,4 @@ def _require_analyst():
 
 
 # ── Register all sub-module routes on the shared Blueprint ──────────────────
-from radar.routes import static, core, admin, analytics, history, climate, intel  # noqa: E402,F401
+from radar.routes import static, core, admin, analytics, history, climate, intel, analyst  # noqa: E402,F401

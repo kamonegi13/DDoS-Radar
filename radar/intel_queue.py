@@ -363,6 +363,17 @@ class IntelQueue:
         if confidence < _confidence_min():
             log.debug(f"[Intel] Discarded low-confidence item ({confidence:.2f}) from {source_id}")
             self._record_verdict(source_type, "discarded_low_conf", confidence, headline)
+            try:
+                db.hidden_signal_log(
+                    scenario_id=None,
+                    country=(countries[0] if countries else theater) or None,
+                    sensor=source_type, domain=item.get("domain", "info"),
+                    hide_reason=f"intel_low_confidence ({confidence:.2f} < {_confidence_min():.2f})",
+                    detail={"headline": headline, "source_id": source_id,
+                            "confidence": confidence},
+                )
+            except Exception:
+                pass
             return None
 
         # ── Layer 0: Cross-source-type raw_url dedup ──────────────────────────
@@ -816,6 +827,13 @@ class IntelQueue:
                     "suppressed":       False,
                     "raw_url":          item.get("raw_url", ""),
                     "llm_reasoning":    item.get("llm_fields", {}).get("gate_reason", ""),
+                    # Provenance (F1): expose source ts + headline so the
+                    # downstream rationale entry carries an analyst-verifiable trail.
+                    "ts":               item["ts"],
+                    "headline":         item.get("headline", ""),
+                    "raw_text":         item.get("raw_text", ""),
+                    "source_type":      item["source_type"],
+                    "source_id":        item.get("source_id", ""),
                 })
         return result
 

@@ -54,6 +54,17 @@ _prev_focused_id: str | None = DEFAULT_FOCUSED_SCENARIO
 _prev_scenario_domains: dict[str, dict[str, float]] = {}
 _prev_scenario_signals: dict[str, set[str]] = {}
 
+# F9 What-If Weight Slider — snapshot of the most recent scoring cycle's
+# signals, captured at end of the scenario scoring loop. The snapshot is
+# replayed by /api/scenarios/<id>/whatif_weights with overlaid participant
+# weights so analysts can stress-test scenarios without invoking the live
+# pipeline. Guarded by _global_cache_lock.
+_LATEST_SIGNALS_SNAPSHOT: dict = {
+    "signals": [],
+    "captured_at": 0.0,
+    "scenario_baselines": {},  # scenario_id -> {"score": float, "tl": int|None}
+}
+
 @bp.route("/api/app_config", methods=["GET"])
 def app_config():
     return jsonify({
@@ -78,6 +89,129 @@ def list_scenarios():
             sid: s.to_dict() for sid, s in sorted(scenarios.items())
         },
     })
+
+
+@bp.route("/api/scenarios/compare", methods=["GET"])
+def scenarios_compare():
+    """F7 Scenario Comparison — side-by-side snapshot of N scenarios using
+    the most recent signal snapshot. Each scenario is rescored in LITE
+    (background) mode for fair comparison; the focused scenario's TL is
+    derived as if it were focused.
+
+    Query: ?ids=taiwan_contingency,korean_peninsula,...
+    """
+    from radar.scenarios import scenario_store
+    from radar.scoring import compute_scenario_score
+
+    ids_raw = (request.args.get("ids") or "").strip()
+    if not ids_raw:
+        return jsonify({"error": "ids query param required (comma-separated)"}), 400
+    ids = [s.strip() for s in ids_raw.split(",") if s.strip()][:10]
+    if not ids:
+        return jsonify({"error": "no valid ids"}), 400
+
+    with _global_cache_lock:
+        snapshot_signals = list(_LATEST_SIGNALS_SNAPSHOT.get("signals") or [])
+        captured_at = _LATEST_SIGNALS_SNAPSHOT.get("captured_at", 0.0)
+        baselines = dict(_LATEST_SIGNALS_SNAPSHOT.get("scenario_baselines", {}))
+
+    if not snapshot_signals:
+        return jsonify({"error": "no signal snapshot available"}), 503
+
+    out = []
+    for sid in ids:
+        sc = scenario_store.get(sid)
+        if sc is None:
+            out.append({"scenario_id": sid, "error": "unknown"})
+            continue
+        # Re-derive both LITE and FULL scoring for direct comparison.
+        lite = compute_scenario_score(
+            sc, snapshot_signals, is_focused=False,
+            global_signal_weight=GLOBAL_SIGNAL_WEIGHT, domain_cap=DOMAIN_CAP)
+        full = compute_scenario_score(
+            sc, snapshot_signals, is_focused=True,
+            global_signal_weight=GLOBAL_SIGNAL_WEIGHT, domain_cap=DOMAIN_CAP)
+        baseline = baselines.get(sid, {})
+        out.append({
+            "scenario_id": sid,
+            "name_en": sc.name_en, "name_ja": sc.name_ja,
+            "lite": lite.to_dict(),
+            "full": full.to_dict(),
+            "baseline_score": baseline.get("score"),
+            "baseline_tl": baseline.get("tl"),
+        })
+    return jsonify({
+        "snapshot_age_sec": (round(time.time() - captured_at, 1)
+                             if captured_at else None),
+        "scenarios": out,
+    })
+
+
+@bp.route("/api/scenarios/<scenario_id>/whatif_weights", methods=["POST"])
+def scenario_whatif_weights(scenario_id: str):
+    """F9 What-If Weight Slider — recompute scenario score with overlaid
+    participant weights against the most recent signal snapshot.
+
+    Body: {"weights": {"TW": 1.0, "US": 0.5, ...}}  (values 0.0-1.0)
+    Returns: ScenarioState with delta vs the live baseline.
+    """
+    from radar.scenarios import scenario_store, apply_session_overlay
+    from radar.scoring import compute_scenario_score
+
+    sc = scenario_store.get(scenario_id)
+    if sc is None:
+        return jsonify({"error": f"unknown scenario_id: {scenario_id}"}), 404
+
+    body = request.get_json(force=True, silent=True) or {}
+    weights = body.get("weights", {})
+    if not isinstance(weights, dict):
+        return jsonify({"error": "weights must be object"}), 400
+
+    cleaned: dict[str, float] = {}
+    for cc, w in weights.items():
+        try:
+            wf = float(w)
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= wf <= 1.0:
+            cleaned[str(cc).upper()] = wf
+
+    with _global_cache_lock:
+        snapshot_signals = list(_LATEST_SIGNALS_SNAPSHOT.get("signals") or [])
+        captured_at = _LATEST_SIGNALS_SNAPSHOT.get("captured_at", 0.0)
+        baseline = (_LATEST_SIGNALS_SNAPSHOT.get("scenario_baselines", {})
+                    .get(scenario_id, {}))
+
+    if not snapshot_signals:
+        return jsonify({
+            "error": "no signal snapshot available — wait for one scoring cycle",
+            "scenario_id": scenario_id,
+        }), 503
+
+    overlaid = apply_session_overlay(sc, cleaned)
+    is_focused = (scenario_id == DEFAULT_FOCUSED_SCENARIO)
+    state = compute_scenario_score(
+        overlaid, snapshot_signals, is_focused,
+        global_signal_weight=GLOBAL_SIGNAL_WEIGHT,
+        domain_cap=DOMAIN_CAP,
+    )
+
+    sd = state.to_dict()
+    sd["scenario_id"] = scenario_id
+    sd["snapshot_age_sec"] = (round(time.time() - captured_at, 1)
+                              if captured_at else None)
+    sd["baseline_score"] = baseline.get("score")
+    sd["baseline_tl"] = baseline.get("tl")
+    if baseline.get("score") is not None:
+        sd["delta_score"] = round(sd.get("score", 0) - baseline["score"], 2)
+    sd["applied_weights"] = {
+        cc: {
+            "applied": round(p.weight, 3),
+            "base": round(sc.participants[cc].weight, 3) if cc in sc.participants else None,
+        }
+        for cc, p in overlaid.participants.items()
+    }
+    return jsonify(sd)
 
 @bp.route("/api/scenario/<scenario_id>/breakdown", methods=["GET"])
 def scenario_breakdown(scenario_id: str):
@@ -674,10 +808,21 @@ def get_threat_data():
 
         def add_rat(sensor, domain, status, value, score, fired_reason,
                     is_suppressed=False, suppress_reason=None, confidence=1.0,
-                    source_country="", signal_source="", **cac_kwargs):
+                    source_country="", signal_source="", **kwargs):
             """Add a rationale entry. Returns True if the entry is effectively
             active (FIRED and not suppressed/muted), False otherwise.
-            Callers should use this to gate sequence event registration."""
+            Callers should use this to gate sequence event registration.
+
+            Provenance kwargs (F1, design constraint ④ analyst-verifiability):
+              raw_value, observed_at, evidence_url, llm_reasoning, sensor_chain
+            Remaining kwargs are forwarded to classify_direction() (CAC).
+            """
+            # Pull provenance fields off before forwarding remaining to CAC.
+            _raw_value     = kwargs.pop("raw_value", None)
+            _observed_at   = kwargs.pop("observed_at", None)
+            _evidence_url  = kwargs.pop("evidence_url", None)
+            _llm_reasoning = kwargs.pop("llm_reasoning", None)
+            _sensor_chain  = kwargs.pop("sensor_chain", None) or []
             _is_muted = (sensor in muted_sensors) or is_suppressed
             _s_reason = "Analyst Muted (HITL)" if (sensor in muted_sensors) else suppress_reason
             # Check noise exclusion rules (use primary_ec for dual-core)
@@ -692,7 +837,7 @@ def get_threat_data():
                 target_country=primary_ec,
                 adversary_states=adversary_states,
                 strategic_theaters=list(strategic_theaters_set),
-                **cac_kwargs)
+                **kwargs)
             # CAC context computation
             _temporal = compute_temporal_context(sensor, current_time, primary_ec)
             _spatial = compute_spatial_context(sensor, primary_ec,
@@ -711,7 +856,23 @@ def get_threat_data():
                 signal_source=signal_source,
                 direction=_dir, direction_confidence=_dir_conf,
                 temporal_context=_temporal, spatial_context=_spatial,
-                target_context=_target))
+                target_context=_target,
+                raw_value=_raw_value, observed_at=_observed_at,
+                evidence_url=_evidence_url, llm_reasoning=_llm_reasoning,
+                sensor_chain=list(_sensor_chain)))
+            # F4: log suppressed FIRED signals to hidden_signal_log so the
+            # analyst surface can show what's being filtered out.
+            if status == "FIRED" and _is_muted:
+                try:
+                    _db.hidden_signal_log(
+                        scenario_id=focused_id, country=primary_ec,
+                        sensor=sensor, domain=domain,
+                        hide_reason=_s_reason or "suppressed",
+                        detail={"value": str(value), "score": score,
+                                "fired_reason": fired_reason or ""},
+                    )
+                except Exception:
+                    pass
             return status == "FIRED" and not _is_muted
 
         _overlap_active = False
@@ -1492,9 +1653,27 @@ def get_threat_data():
                     _llm_entry["detail"],
                     confidence=_llm_entry["confidence"],
                     signal_source="llm_intel",
+                    # Provenance (F1): keep evidence_url + observed_at + reasoning
+                    # so the analyst can verify upstream the LLM's claim.
+                    evidence_url=_llm_entry.get("raw_url") or None,
+                    observed_at=_llm_entry.get("ts"),
+                    llm_reasoning=_llm_entry.get("llm_reasoning") or _llm_entry.get("raw_text") or None,
+                    raw_value=_llm_entry.get("headline") or None,
                 )
         except Exception as _llm_err:
             log.debug(f"[LLM Intel] rationale injection error: {_llm_err}")
+
+        # ── F1 provenance: populate sensor_chain from signal_source groups ──
+        # An entry whose signal_source is shared with other FIRED entries lists
+        # those siblings so the analyst can see what corroborates the claim.
+        from collections import defaultdict as _dd_chain
+        _ss_groups: dict[str, list[str]] = _dd_chain(list)
+        for _e in rationale:
+            if _e.signal_source and _e.status == "FIRED" and not _e.suppressed:
+                _ss_groups[_e.signal_source].append(_e.sensor)
+        for _e in rationale:
+            if _e.signal_source and _e.signal_source in _ss_groups:
+                _e.sensor_chain = sorted(set(_ss_groups[_e.signal_source]) - {_e.sensor})
 
         domain_scores = _routes.engine.compute_domain_scores(rationale)
 
@@ -1892,6 +2071,21 @@ def get_threat_data():
                     _focused_id, _signals, current_time)
             except Exception:
                 pass
+
+            # F9: snapshot signals + baselines for the What-If Weight Slider.
+            try:
+                _baselines = {}
+                for _sid, _sd_b in _scenario_results.items():
+                    _baselines[_sid] = {
+                        "score": _sd_b.get("score", 0.0),
+                        "tl": _sd_b.get("tl"),
+                    }
+                with _global_cache_lock:
+                    _LATEST_SIGNALS_SNAPSHOT["signals"] = list(_signals)
+                    _LATEST_SIGNALS_SNAPSHOT["captured_at"] = current_time
+                    _LATEST_SIGNALS_SNAPSHOT["scenario_baselines"] = _baselines
+            except Exception:
+                pass
         except Exception as _sc_err:
             log.warning("[Scoring] Scenario scoring failed: %s", _sc_err)
 
@@ -1910,6 +2104,14 @@ def get_threat_data():
         prev_threat = _db.threat_last()
         prev_threat_level = prev_threat[1] if prev_threat else 5
         _db.threat_append(current_time, threat_level)
+
+        # F5: snapshot sensor coverage for the focused scenario so the
+        # /api/analyst/coverage endpoint reflects current health.
+        try:
+            from radar.routes.analyst import update_coverage_for_scenario
+            update_coverage_for_scenario(focused_id, _routes.registry)
+        except Exception:
+            pass
 
         # TL Proximity: distance to the TL thresholds from the score that
         # actually drove the TL. Must use the focused scenario's post-bonus
