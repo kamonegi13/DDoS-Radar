@@ -9,6 +9,7 @@
     <script src="i18n.js"></script>
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="radar.css" />
+    <link rel="stylesheet" href="tradecraft.css" />
 </head>
 <body>
 
@@ -262,6 +263,8 @@
                     <div class="tools-menu-item" id="tm-item-wif" onclick="handleToolToggle('whatif-panel', toggleWhatIfPanel, 'tm-dot-wif', 'tm-item-wif')"><span class="tools-menu-icon">&#x1F9EA;</span><span class="tools-menu-label" data-i18n="tools.whatif_sim">What-If Sim</span><span class="tools-menu-dot" id="tm-dot-wif"></span></div>
                     <div class="tools-menu-item" id="tm-item-spof" onclick="handleToolToggle('spof-panel', toggleSpofPanel, 'tm-dot-spof', 'tm-item-spof')"><span class="tools-menu-icon">&#x1F517;</span><span class="tools-menu-label" data-i18n="tools.spof_analysis">SPOF Analysis</span><span class="tools-menu-dot" id="tm-dot-spof"></span></div>
                     <div class="tools-menu-item" id="tm-item-corr" onclick="handleToolToggle('corr-heatmap-panel', toggleCorrHeatmap, 'tm-dot-corr', 'tm-item-corr')"><span class="tools-menu-icon">&#x1F321;</span><span class="tools-menu-label" data-i18n="tools.corr_heatmap">Sensor Heatmap</span><span class="tools-menu-dot" id="tm-dot-corr"></span></div>
+                    <div class="tools-menu-section-header" data-i18n="tools.section.tradecraft">TRADECRAFT</div>
+                    <div class="tools-menu-item" id="tm-item-tc" onclick="handleToolToggle('tradecraft-panel', toggleTradecraftPanel, 'tm-dot-tc', 'tm-item-tc')"><span class="tools-menu-icon">&#x1F4D6;</span><span class="tools-menu-label" data-i18n="tools.tradecraft">Analyst Tradecraft</span><span class="tools-menu-dot" id="tm-dot-tc"></span></div>
                     <div class="tools-menu-section-header" data-i18n="tools.section.admin">ADMIN</div>
                     <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();"><span class="tools-menu-icon">&#x1F464;</span><span class="tools-menu-label" data-i18n="tools.user_management">User Management</span></div>
                 </div>
@@ -1265,6 +1268,7 @@
             <button class="guide-ch-btn" data-ch="9" onclick="switchGuideChapter(9)" data-i18n="modal.help.ch9">9. API Ref</button>
             <button class="guide-ch-btn" data-ch="10" onclick="switchGuideChapter(10)" data-i18n="modal.help.ch10">10. Admin</button>
             <button class="guide-ch-btn" data-ch="11" onclick="switchGuideChapter(11)" data-i18n="modal.help.ch11">11. Limitations</button>
+            <button class="guide-ch-btn" data-ch="12" onclick="switchGuideChapter(12)" data-i18n="modal.help.ch12">12. Tradecraft</button>
         </div>
 
         <div class="guide-chapter active" id="guide-ch-1">
@@ -3034,6 +3038,134 @@
         </div>
         </div><!-- /guide-ch-11 -->
 
+        <div class="guide-chapter" id="guide-ch-12">
+        <div class="guide-lang-en">
+        <h4>12. Analyst Tradecraft</h4>
+
+        <p>The <b>Analyst Tradecraft</b> panel (<code>TOOLS &rarr; TRADECRAFT &rarr; Analyst Tradecraft</code>) bundles 10 structured-analytic-technique (SAT) surfaces that supplement the automated scoring with deliberate cognitive checks. The panel is scoped to the current focused scenario — switching the focused scenario refreshes the active tab.</p>
+
+        <p><b>Why this exists.</b> The convergence engine is good at <em>fusing</em> signals; it is bad at telling you when its own picture is wrong. These tabs deliberately surface the failure modes of the upstream pipeline: hidden negative evidence, single-source dominance, plausible alternative hypotheses, and analyst assumptions that quietly become load-bearing.</p>
+
+        <h5>12.1 Three failure modes the panel is designed to catch</h5>
+        <ul>
+            <li><b>False positive (FP)</b> — convergence fires on coincidental signals. Tabs: <i>Hidden Signals</i>, <i>Coverage Gaps</i>, <i>Disconfirming</i>.</li>
+            <li><b>False negative (FN)</b> — real escalation is missed because filters/floors discarded it. Tabs: <i>Hidden Signals</i> (noise/discard log), <i>Coverage Gaps</i> (broken sensors).</li>
+            <li><b>Cognitive bias</b> — anchoring on the first plausible story. Tabs: <i>Compare</i>, <i>ACH Matrix</i>, <i>Dissent</i>, <i>Assumptions</i>, <i>Pre-Mortem</i>.</li>
+        </ul>
+
+        <h5>12.2 Tab reference</h5>
+        <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr style="background:#14181e;color:#889;"><th style="text-align:left;padding:4px 6px;">Tab</th><th style="text-align:left;padding:4px 6px;">Purpose</th><th style="text-align:left;padding:4px 6px;">Use when…</th></tr></thead>
+        <tbody>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>Hidden Signals</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Lists items the pipeline filtered out (mute, noise exclusion, confidence floor, dedup).</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Scenario looks oddly quiet, or you suspect the floor is too high.</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>Coverage Gaps</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Per-scenario sensor coverage (active / muted / circuit-broken / disabled).</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Before drawing a conclusion — confirms which sensors actually contributed.</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>Disconfirming</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Surfaces evidence that <em>contradicts</em> the current scenario thesis (de-escalation cues, contrary diplomatic signals).</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Always before raising TL conclusions — counters confirmation bias.</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>Compare</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Side-by-side scenario comparison (TL, top contributors, recent rationale).</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Same signal could fit multiple scenarios — pick the better-fit one.</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>ACH Matrix</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Heuer Analysis of Competing Hypotheses. Score each piece of evidence against each hypothesis (-2 .. +2), weighted by diagnosticity.</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">High-stakes assessment where attribution / intent matters. Forces you to weigh evidence against alternatives, not just the favored one.</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>Dissent</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Devil's-advocate log: register a contrarian view against a published assessment.</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">You disagree with the consensus call — record it, don't lose it.</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>Assumptions</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Key Assumptions Check (KAC). Make implicit assumptions explicit; lock the load-bearing ones; invalidate when broken.</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">At the start of a scenario watch, and any time the situation pivots.</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>Pre-Mortem</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Klein 2007 pre-mortem: assume the assessment is wrong, list how. Severity: low / medium / high.</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Before publishing a high-confidence assessment.</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>Decisions</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Decision ledger — what was changed (threshold, weight, classification, intel verdict), by whom, with what justification.</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Audit trail. Auto-stamped with tab session_id.</td></tr>
+        <tr><td style="padding:3px 6px;"><b>What-If</b></td><td style="padding:3px 6px;">Slider-driven re-scoring with adjusted participant coupling weights. Snapshot replay — does not re-run sensors.</td><td style="padding:3px 6px;">Sensitivity analysis: "if Japan's coupling were 0.5 instead of 0.8, would TL still trigger?"</td></tr>
+        </tbody>
+        </table>
+
+        <h5>12.3 When to use which technique</h5>
+        <ul>
+            <li><b>Routine watch</b> &rarr; Coverage Gaps + Disconfirming. Cheap habit checks before signing off on a TL.</li>
+            <li><b>Anomaly spike</b> &rarr; Hidden Signals (was it really an anomaly, or did the floor change?) + Compare (does another scenario fit better?).</li>
+            <li><b>High-stakes call</b> (TL≤2, public assessment) &rarr; ACH Matrix + Pre-Mortem + Assumptions lock. The three-step CIA Tradecraft Primer minimum.</li>
+            <li><b>Disagreement with team</b> &rarr; Dissent (record the view) + ACH (show the matrix that supports it).</li>
+            <li><b>Threshold tuning request</b> &rarr; What-If first (does the change actually move TL?) + Decisions log (what changed, why).</li>
+        </ul>
+
+        <h5>12.4 Permission model</h5>
+        <ul>
+            <li><b>Read</b>: any logged-in analyst.</li>
+            <li><b>Write</b> (create/edit/resolve cards, score ACH, lock assumptions): <code>analyst</code> or <code>admin</code> role.</li>
+            <li><b>Admin lock</b>: certain assumptions can be marked <code>locked</code> by an admin; analysts can still log invalidations against them but cannot delete the row. The full edit history is in the per-row change log.</li>
+            <li><b>Decision ledger</b> entries are append-only — they cannot be deleted, only superseded.</li>
+        </ul>
+
+        <h5>12.5 Session boundary (F14)</h5>
+        <p>Every write from this panel is stamped with a <code>session_id</code>. The session is <b>per browser tab</b>: opening a new tab gets a fresh UUID, closing the tab clears it (<code>sessionStorage</code>). Reloading the same tab preserves the id.</p>
+        <p>This lets the decision ledger group "everything one analyst did in one sitting" without conflating it with parallel work in other tabs by the same user.</p>
+
+        <h5>12.6 Relationship to scoring</h5>
+        <p>The Tradecraft surface is <b>read-mostly with respect to the scoring engine</b>. None of these tabs change live TL output. The exceptions:</p>
+        <ul>
+            <li><b>What-If</b> returns a simulated TL/score, but it is rendered as a side-panel comparison and does NOT overwrite the live scenario state.</li>
+            <li><b>Pre-Mortem &amp; Assumptions</b> can be elevated by admin to influence threshold tuning via the Admin panel — that path is explicit and audited, not automatic.</li>
+            <li><b>Hidden Signals / Coverage Gaps</b> read from existing pipeline logs (noise exclusion, mute, circuit breaker state); they do not gate scoring themselves.</li>
+        </ul>
+
+        <p style="color:#779;font-size:10px;margin-top:12px;">Methodological background: Heuer R.J., <i>Psychology of Intelligence Analysis</i> (1999, ACH Ch.8); CIA <i>Tradecraft Primer</i> (2009, KAC + ACH + Pre-Mortem); Klein G., <i>Performing a Project Premortem</i> (HBR 2007). The names "Key Assumptions Check" and "Devil's Advocacy" are used in the standard SAT sense from the Primer.</p>
+        </div>
+
+        <div class="guide-lang-ja" style="display:none;">
+        <h4>12. アナリスト・トレードクラフト</h4>
+
+        <p><b>アナリスト・トレードクラフト</b>パネル（<code>TOOLS → TRADECRAFT → Analyst Tradecraft</code>）は、自動スコアリングを補完する10種類の構造化分析技法（SAT: Structured Analytic Techniques）の作業面をまとめたものです。パネルは現在 focus 中のシナリオにスコープされており、focus シナリオを切り替えるとアクティブタブが再描画されます。</p>
+
+        <p><b>このパネルが存在する理由。</b>収斂エンジンはシグナルの<em>融合</em>は得意ですが、自分自身の出した像が間違っているときにそれを教えてくれません。これらのタブは、上流パイプラインの失敗モード — 隠れた反証、単一ソース依存、もっともらしい代替仮説、いつのまにか前提となっているアナリストの思い込み — を意図的に表に出します。</p>
+
+        <h5>12.1 パネルが捕捉する3つの失敗モード</h5>
+        <ul>
+            <li><b>偽陽性（FP）</b> — 偶然のシグナルで収斂が発火する。タブ：<i>隠れシグナル</i> / <i>カバレッジ</i> / <i>反証証拠</i>。</li>
+            <li><b>偽陰性（FN）</b> — フィルタ・閾値で実際のエスカレーションが捨てられている。タブ：<i>隠れシグナル</i>（ノイズ/破棄ログ）/ <i>カバレッジ</i>（壊れたセンサー）。</li>
+            <li><b>認知バイアス</b> — 最初に思いついたストーリーへのアンカリング。タブ：<i>シナリオ比較</i> / <i>ACH</i> / <i>少数意見</i> / <i>前提条件</i> / <i>プリモーテム</i>。</li>
+        </ul>
+
+        <h5>12.2 タブリファレンス</h5>
+        <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr style="background:#14181e;color:#889;"><th style="text-align:left;padding:4px 6px;">タブ</th><th style="text-align:left;padding:4px 6px;">目的</th><th style="text-align:left;padding:4px 6px;">使うタイミング</th></tr></thead>
+        <tbody>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>隠れシグナル</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">パイプラインがフィルタアウトした項目を一覧（mute、ノイズ除外、信頼度フロア、重複排除）。</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">シナリオが妙に静かに見えるとき、フロアが高すぎる疑いがあるとき。</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>カバレッジ</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">シナリオごとのセンサーカバレッジ（active / muted / circuit-broken / disabled）。</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">結論を出す前に — どのセンサーが実際に寄与したかを確認する。</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>反証証拠</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">現在のシナリオ仮説に<em>反する</em>証拠を提示（デエスカレーション兆候、対立する外交シグナル）。</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">TL の引き上げ判断を出す前に必ず — 確証バイアス対策。</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>シナリオ比較</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">シナリオの横並び比較（TL、トップ寄与、最近の根拠）。</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">同じシグナルが複数のシナリオに当てはまり得るとき — フィットの良い方を選ぶ。</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>ACH</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Heuer の競合仮説分析。各証拠を各仮説に対して -2 〜 +2 で採点し、診断性で重み付け。</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">帰属・意図が問われる重要評価のとき。お気に入りの仮説だけでなく代替仮説に対しても証拠を量る作業を強制する。</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>少数意見</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Devil's Advocate ログ：公表された評価に対する反対意見を記録する。</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">コンセンサス判断に反対のとき — 失わないために記録する。</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>前提条件</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Key Assumptions Check（KAC）。暗黙の前提を顕在化し、要となる前提を lock し、崩れたら invalidate する。</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">シナリオ監視の開始時、および状況が変わった都度。</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>プリモーテム</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">Klein 2007 のプリモーテム：評価が間違っていると仮定して、その理由を列挙。重大度：低 / 中 / 高。</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">高い確信度の評価を発出する前に。</td></tr>
+        <tr><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;"><b>決定台帳</b></td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">何が変更されたか（閾値、重み、分類、インテル裁定）を、誰が、どの根拠で行ったかの台帳。</td><td style="padding:3px 6px;border-bottom:1px solid #1a1f25;">監査証跡。タブ session_id 自動付与。</td></tr>
+        <tr><td style="padding:3px 6px;"><b>What-If</b></td><td style="padding:3px 6px;">スライダによる participant 結合重みの調整→再採点。スナップショット再生 — センサー再実行はなし。</td><td style="padding:3px 6px;">感度分析：「日本の結合が 0.8 ではなく 0.5 だったら TL は出るか？」</td></tr>
+        </tbody>
+        </table>
+
+        <h5>12.3 どの技法をいつ使うか</h5>
+        <ul>
+            <li><b>日常監視</b> → カバレッジ + 反証証拠。TL を確定する前の安価な習慣的チェック。</li>
+            <li><b>異常スパイク</b> → 隠れシグナル（本当に異常か、フロアが変わっただけか？）+ シナリオ比較（別のシナリオの方がフィットするか？）。</li>
+            <li><b>重要判断</b>（TL≤2、対外公表評価）→ ACH + プリモーテム + 前提条件 lock。CIA Tradecraft Primer の最低3点セット。</li>
+            <li><b>チームと意見が割れたとき</b> → 少数意見（記録）+ ACH（その立場を支える行列を提示）。</li>
+            <li><b>閾値調整リクエスト</b> → まず What-If（変更で TL は本当に動くか？）+ 決定台帳（何を、なぜ変更したか）。</li>
+        </ul>
+
+        <h5>12.4 権限モデル</h5>
+        <ul>
+            <li><b>読み取り</b>：ログイン中の任意のアナリスト。</li>
+            <li><b>書き込み</b>（カードの作成・編集・解決、ACH 採点、前提の lock）：<code>analyst</code> または <code>admin</code> ロール。</li>
+            <li><b>Admin lock</b>：特定の前提は admin が <code>locked</code> マークでき、analyst は invalidate ログは追加できますが行の削除はできません。編集履歴は行ごとの change log に残ります。</li>
+            <li><b>決定台帳</b>のエントリは append-only — 削除不可、後続エントリで上書き（supersede）するのみ。</li>
+        </ul>
+
+        <h5>12.5 セッション境界（F14）</h5>
+        <p>このパネルからの全書き込みには <code>session_id</code> が付与されます。セッションは<b>ブラウザタブ単位</b>です：新しいタブを開くと新しい UUID が発行され、タブを閉じるとクリアされます（<code>sessionStorage</code>）。同一タブのリロードでは id は維持されます。</p>
+        <p>これにより決定台帳は「1人のアナリストが1セッションで行ったこと」を、同一ユーザーが別タブで並行して行った作業と混同せずグループ化できます。</p>
+
+        <h5>12.6 スコアリングとの関係</h5>
+        <p>トレードクラフト面はスコアリングエンジンに対して<b>基本的に読み取り専用</b>です。ライブ TL 出力を変更するタブはありません。例外：</p>
+        <ul>
+            <li><b>What-If</b> はシミュレートされた TL/スコアを返しますが、サイドパネル比較として描画されるのみで、ライブのシナリオ状態には書き戻しません。</li>
+            <li><b>プリモーテム/前提条件</b>は admin の判断で Admin パネル経由の閾値チューニングに昇格できますが、その経路は明示的かつ監査対象であり、自動ではありません。</li>
+            <li><b>隠れシグナル/カバレッジ</b>は既存のパイプラインログ（ノイズ除外、mute、サーキットブレーカー状態）から読み出すだけで、それ自体が採点をゲートすることはありません。</li>
+        </ul>
+
+        <p style="color:#779;font-size:10px;margin-top:12px;">方法論的背景: Heuer R.J., <i>Psychology of Intelligence Analysis</i>（1999, ACH 第8章）; CIA <i>Tradecraft Primer</i>（2009, KAC + ACH + プリモーテム）; Klein G., <i>Performing a Project Premortem</i>（HBR 2007）。「Key Assumptions Check」「Devil's Advocacy」の名称はいずれも Primer の SAT 標準の意味で用いています。</p>
+        </div>
+        </div><!-- /guide-ch-12 -->
+
     </div>
 </div>
 
@@ -3180,7 +3312,46 @@
     </div>
 </div>
 
+<!-- ── Tradecraft Panel (F4-F14 analyst surface) ─────────────────────────── -->
+<div id="tradecraft-panel" class="draggable-panel floating" style="display:none; left:380px; top:80px; width:760px;">
+    <div class="drag-handle panel-header-unified">
+        <span data-i18n="panel.tradecraft.title">Analyst Tradecraft</span>
+        <div>
+            <select id="tradecraft-scenario" style="background:#111;border:1px solid #333;color:#0ff;padding:2px 6px;border-radius:3px;font-size:10px;margin-right:6px;"></select>
+            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
+            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('tradecraft-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
+        </div>
+    </div>
+    <div class="panel-content" style="display:flex;flex-direction:column;max-height:760px;">
+        <div id="tradecraft-tabs" class="tc-tabs">
+            <button class="tc-tab active" data-tc-tab="hidden" data-i18n="panel.tradecraft.tab.hidden">Hidden Signals</button>
+            <button class="tc-tab" data-tc-tab="coverage" data-i18n="panel.tradecraft.tab.coverage">Coverage</button>
+            <button class="tc-tab" data-tc-tab="disconf" data-i18n="panel.tradecraft.tab.disconf">Disconfirming</button>
+            <button class="tc-tab" data-tc-tab="compare" data-i18n="panel.tradecraft.tab.compare">Compare</button>
+            <button class="tc-tab" data-tc-tab="ach" data-i18n="panel.tradecraft.tab.ach">ACH</button>
+            <button class="tc-tab" data-tc-tab="dissent" data-i18n="panel.tradecraft.tab.dissent">Dissent</button>
+            <button class="tc-tab" data-tc-tab="assumptions" data-i18n="panel.tradecraft.tab.assumptions">Assumptions</button>
+            <button class="tc-tab" data-tc-tab="premortem" data-i18n="panel.tradecraft.tab.premortem">Pre-Mortem</button>
+            <button class="tc-tab" data-tc-tab="decisions" data-i18n="panel.tradecraft.tab.decisions">Decisions</button>
+            <button class="tc-tab" data-tc-tab="whatif" data-i18n="panel.tradecraft.tab.whatif">What-If Weights</button>
+        </div>
+        <div id="tradecraft-body" style="flex:1;overflow-y:auto;padding-top:8px;">
+            <div id="tc-pane-hidden" class="tc-pane"></div>
+            <div id="tc-pane-coverage" class="tc-pane" style="display:none;"></div>
+            <div id="tc-pane-disconf" class="tc-pane" style="display:none;"></div>
+            <div id="tc-pane-compare" class="tc-pane" style="display:none;"></div>
+            <div id="tc-pane-ach" class="tc-pane" style="display:none;"></div>
+            <div id="tc-pane-dissent" class="tc-pane" style="display:none;"></div>
+            <div id="tc-pane-assumptions" class="tc-pane" style="display:none;"></div>
+            <div id="tc-pane-premortem" class="tc-pane" style="display:none;"></div>
+            <div id="tc-pane-decisions" class="tc-pane" style="display:none;"></div>
+            <div id="tc-pane-whatif" class="tc-pane" style="display:none;"></div>
+        </div>
+    </div>
+</div>
+
 <script src="radar.js"></script>
+<script src="tradecraft.js"></script>
 
 </body>
 </html>
