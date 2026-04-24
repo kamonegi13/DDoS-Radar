@@ -45,6 +45,42 @@ def _identity_role() -> tuple[str, str, int | None]:
     return username, role, user_id
 
 
+def _autolog(
+    *, decision_type: str, summary: str, scenario_id: str | None,
+    detail: dict | None, session_id: str | None,
+    username: str, user_id: int | None,
+) -> None:
+    """Best-effort write-through into decision_ledger (F14).
+
+    Tradecraft write endpoints (F6/F8/F10/F11/F13) call this after their
+    primary DB write succeeds so every analyst action lands in one audit
+    trail. Failures here never propagate — the primary write already
+    succeeded; the ledger entry is supplementary."""
+    try:
+        sid = (session_id or "").strip() or f"auto:{decision_type}"
+        detail_with_marker = dict(detail or {})
+        detail_with_marker.setdefault("auto", True)
+        _db.decision_log(
+            user_id=user_id, username=username, session_id=sid,
+            scenario_id=scenario_id,
+            decision_type=decision_type, summary=summary,
+            detail=detail_with_marker,
+        )
+    except Exception as e:
+        log.debug("[F14] autolog failed for %s: %s", decision_type, e)
+
+
+def _ach_scenario_id(matrix_id: int) -> str | None:
+    """Look up a matrix's scenario_id for autolog tagging."""
+    try:
+        m = _db.ach_matrix_get(matrix_id)
+        if m:
+            return m.get("scenario_id")
+    except Exception:
+        pass
+    return None
+
+
 # ─── F4 Hidden Negative Signals ────────────────────────────────────────────
 @bp.route("/api/analyst/hidden_signals", methods=["GET"])
 @jwt_required()
@@ -109,11 +145,23 @@ def disconf_add():
     source_kind = body.get("source_kind", "manual_note")
     if source_kind not in ("intel_item", "rationale", "manual_note"):
         return jsonify({"error": "invalid source_kind"}), 400
-    username, _, _ = _identity_role()
+    username, _, user_id = _identity_role()
+    strength = int(body.get("strength", 2))
     new_id = _db.disconf_add(
         scenario_id=scenario_id, tagged_by=username,
         source_kind=source_kind, source_ref=body.get("source_ref"),
-        summary=summary, strength=int(body.get("strength", 2)),
+        summary=summary, strength=strength,
+    )
+    _autolog(
+        decision_type="disconf_add",
+        summary=f"Added disconfirming evidence: {summary[:80]}",
+        scenario_id=scenario_id,
+        detail={
+            "disconf_id": new_id, "source_kind": source_kind,
+            "source_ref": body.get("source_ref"), "strength": strength,
+        },
+        session_id=body.get("session_id"),
+        username=username, user_id=user_id,
     )
     return jsonify({"id": new_id})
 
@@ -124,8 +172,18 @@ def disconf_retract(item_id: int):
     err = _require_analyst()
     if err:
         return err
-    username, _, _ = _identity_role()
+    body = request.get_json(force=True, silent=True) or {}
+    username, _, user_id = _identity_role()
     ok = _db.disconf_retract(item_id, username)
+    if ok:
+        _autolog(
+            decision_type="disconf_retract",
+            summary=f"Retracted disconfirming evidence #{item_id}",
+            scenario_id=body.get("scenario_id"),
+            detail={"disconf_id": item_id},
+            session_id=body.get("session_id"),
+            username=username, user_id=user_id,
+        )
     return jsonify({"ok": ok})
 
 
@@ -153,8 +211,16 @@ def ach_create():
     title = (body.get("title") or "").strip()
     if not scenario_id or not title:
         return jsonify({"error": "scenario_id and title required"}), 400
-    username, _, _ = _identity_role()
+    username, _, user_id = _identity_role()
     mid = _db.ach_matrix_create(scenario_id, title, username)
+    _autolog(
+        decision_type="ach_create",
+        summary=f"Created ACH matrix: {title[:80]}",
+        scenario_id=scenario_id,
+        detail={"matrix_id": mid, "title": title},
+        session_id=body.get("session_id"),
+        username=username, user_id=user_id,
+    )
     return jsonify({"id": mid})
 
 
@@ -180,10 +246,21 @@ def ach_add_hypothesis(matrix_id: int):
     text = (body.get("text") or "").strip()
     if not text:
         return jsonify({"error": "text required"}), 400
+    is_null = bool(body.get("is_null_hypothesis", False))
     new_id = _db.ach_hypothesis_add(
         matrix_id, text,
-        is_null=bool(body.get("is_null_hypothesis", False)),
+        is_null=is_null,
         ord_=int(body.get("ord", 0)),
+    )
+    username, _, user_id = _identity_role()
+    _autolog(
+        decision_type="ach_hypothesis_add",
+        summary=f"Added {'null ' if is_null else ''}hypothesis to ACH #{matrix_id}: {text[:80]}",
+        scenario_id=_ach_scenario_id(matrix_id),
+        detail={"matrix_id": matrix_id, "hypothesis_id": new_id,
+                "is_null": is_null, "text": text},
+        session_id=body.get("session_id"),
+        username=username, user_id=user_id,
     )
     return jsonify({"id": new_id})
 
@@ -198,11 +275,24 @@ def ach_add_evidence(matrix_id: int):
     text = (body.get("text") or "").strip()
     if not text:
         return jsonify({"error": "text required"}), 400
+    credibility = int(body.get("credibility", 3))
+    relevance = int(body.get("relevance", 3))
     new_id = _db.ach_evidence_add(
         matrix_id, text, source_ref=body.get("source_ref"),
-        credibility=int(body.get("credibility", 3)),
-        relevance=int(body.get("relevance", 3)),
+        credibility=credibility,
+        relevance=relevance,
         ord_=int(body.get("ord", 0)),
+    )
+    username, _, user_id = _identity_role()
+    _autolog(
+        decision_type="ach_evidence_add",
+        summary=f"Added evidence to ACH #{matrix_id}: {text[:80]}",
+        scenario_id=_ach_scenario_id(matrix_id),
+        detail={"matrix_id": matrix_id, "evidence_id": new_id,
+                "credibility": credibility, "relevance": relevance,
+                "source_ref": body.get("source_ref"), "text": text},
+        session_id=body.get("session_id"),
+        username=username, user_id=user_id,
     )
     return jsonify({"id": new_id})
 
@@ -221,6 +311,17 @@ def ach_set_score(matrix_id: int):
     except (KeyError, TypeError, ValueError):
         return jsonify({"error": "hypothesis_id, evidence_id, consistency required"}), 400
     _db.ach_score_set(matrix_id, hyp_id, ev_id, consistency, body.get("note"))
+    username, _, user_id = _identity_role()
+    _autolog(
+        decision_type="ach_score_set",
+        summary=f"ACH #{matrix_id} H{hyp_id}/E{ev_id} consistency={consistency:+d}",
+        scenario_id=_ach_scenario_id(matrix_id),
+        detail={"matrix_id": matrix_id, "hypothesis_id": hyp_id,
+                "evidence_id": ev_id, "consistency": consistency,
+                "note": body.get("note")},
+        session_id=body.get("session_id"),
+        username=username, user_id=user_id,
+    )
     return jsonify({"ok": True})
 
 
@@ -256,8 +357,17 @@ def dissent_add():
             argues = max(1, min(5, int(argues)))
         except (TypeError, ValueError):
             argues = None
-    username, _, _ = _identity_role()
+    username, _, user_id = _identity_role()
     new_id = _db.dissent_add(scenario_id, username, title, body_text, argues)
+    _autolog(
+        decision_type="dissent_add",
+        summary=f"Filed dissenting view: {title[:80]}",
+        scenario_id=scenario_id,
+        detail={"view_id": new_id, "title": title,
+                "argues_for_tl": argues},
+        session_id=body.get("session_id"),
+        username=username, user_id=user_id,
+    )
     return jsonify({"id": new_id})
 
 
@@ -268,8 +378,18 @@ def dissent_resolve(view_id: int):
     if err:
         return err
     body = request.get_json(force=True, silent=True) or {}
-    username, _, _ = _identity_role()
-    ok = _db.dissent_resolve(view_id, username, body.get("note"))
+    username, _, user_id = _identity_role()
+    note = body.get("resolution_note") or body.get("note")
+    ok = _db.dissent_resolve(view_id, username, note)
+    if ok:
+        _autolog(
+            decision_type="dissent_resolve",
+            summary=f"Resolved dissenting view #{view_id}",
+            scenario_id=body.get("scenario_id"),
+            detail={"view_id": view_id, "note": note},
+            session_id=body.get("session_id"),
+            username=username, user_id=user_id,
+        )
     return jsonify({"ok": ok})
 
 
@@ -298,11 +418,22 @@ def assumption_add():
     statement = (body.get("statement") or "").strip()
     if not scenario_id or not statement:
         return jsonify({"error": "scenario_id and statement required"}), 400
-    username, _, _ = _identity_role()
+    username, _, user_id = _identity_role()
+    confidence = body.get("confidence", "medium")
     new_id = _db.assumption_add(
         scenario_id, username, statement,
         body.get("rationale"),
-        body.get("confidence", "medium"),
+        confidence,
+    )
+    _autolog(
+        decision_type="assumption_add",
+        summary=f"Added key assumption: {statement[:80]}",
+        scenario_id=scenario_id,
+        detail={"assumption_id": new_id, "statement": statement,
+                "confidence": confidence,
+                "rationale": body.get("rationale")},
+        session_id=body.get("session_id"),
+        username=username, user_id=user_id,
     )
     return jsonify({"id": new_id})
 
@@ -325,6 +456,16 @@ def assumption_edit(aid: int):
         return jsonify({"error": str(e)}), 403
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    if ok:
+        _, _, user_id = _identity_role()
+        _autolog(
+            decision_type="assumption_edit",
+            summary=f"Edited key assumption #{aid}",
+            scenario_id=body.get("scenario_id"),
+            detail={"assumption_id": aid, "fields": fields},
+            session_id=body.get("session_id"),
+            username=username, user_id=user_id,
+        )
     return jsonify({"ok": ok})
 
 
@@ -334,13 +475,22 @@ def assumption_lock(aid: int):
     err = _require_admin()
     if err:
         return err
-    username, _, _ = _identity_role()
+    username, _, user_id = _identity_role()
     body = request.get_json(force=True, silent=True) or {}
     lock = bool(body.get("lock", True))
     try:
         ok = _db.assumption_lock(aid, username, is_admin=True, lock=lock)
     except PermissionError as e:
         return jsonify({"error": str(e)}), 403
+    if ok:
+        _autolog(
+            decision_type="assumption_lock" if lock else "assumption_unlock",
+            summary=f"{'Locked' if lock else 'Unlocked'} key assumption #{aid}",
+            scenario_id=body.get("scenario_id"),
+            detail={"assumption_id": aid, "lock": lock},
+            session_id=body.get("session_id"),
+            username=username, user_id=user_id,
+        )
     return jsonify({"ok": ok})
 
 
@@ -351,8 +501,18 @@ def assumption_invalidate(aid: int):
     if err:
         return err
     body = request.get_json(force=True, silent=True) or {}
-    username, _, _ = _identity_role()
-    ok = _db.assumption_invalidate(aid, username, body.get("note"))
+    username, _, user_id = _identity_role()
+    note = body.get("note")
+    ok = _db.assumption_invalidate(aid, username, note)
+    if ok:
+        _autolog(
+            decision_type="assumption_invalidate",
+            summary=f"Invalidated key assumption #{aid}",
+            scenario_id=body.get("scenario_id"),
+            detail={"assumption_id": aid, "note": note},
+            session_id=body.get("session_id"),
+            username=username, user_id=user_id,
+        )
     return jsonify({"ok": ok})
 
 
@@ -392,7 +552,7 @@ def premortem_add():
     root_cause = (body.get("root_cause") or "").strip()
     if not scenario_id or not imagined or not root_cause:
         return jsonify({"error": "scenario_id, imagined_outcome, root_cause required"}), 400
-    username, _, _ = _identity_role()
+    username, _, user_id = _identity_role()
     try:
         new_id = _db.premortem_add(
             scenario_id, username, failure_mode, imagined, root_cause,
@@ -400,6 +560,17 @@ def premortem_add():
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    _autolog(
+        decision_type="premortem_add",
+        summary=f"Pre-mortem [{failure_mode}]: {imagined[:80]}",
+        scenario_id=scenario_id,
+        detail={"premortem_id": new_id, "failure_mode": failure_mode,
+                "imagined_outcome": imagined, "root_cause": root_cause,
+                "early_warning": body.get("early_warning"),
+                "mitigation": body.get("mitigation")},
+        session_id=body.get("session_id"),
+        username=username, user_id=user_id,
+    )
     return jsonify({"id": new_id})
 
 
@@ -409,8 +580,19 @@ def premortem_resolve(eid: int):
     err = _require_analyst()
     if err:
         return err
-    username, _, _ = _identity_role()
-    return jsonify({"ok": _db.premortem_resolve(eid, username)})
+    body = request.get_json(force=True, silent=True) or {}
+    username, _, user_id = _identity_role()
+    ok = _db.premortem_resolve(eid, username)
+    if ok:
+        _autolog(
+            decision_type="premortem_resolve",
+            summary=f"Resolved pre-mortem #{eid}",
+            scenario_id=body.get("scenario_id"),
+            detail={"premortem_id": eid},
+            session_id=body.get("session_id"),
+            username=username, user_id=user_id,
+        )
+    return jsonify({"ok": ok})
 
 
 # ─── F14 Decision Ledger ───────────────────────────────────────────────────

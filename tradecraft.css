@@ -116,6 +116,27 @@
 .tc-row-warn { background: rgba(255, 170, 0, 0.05); }
 .tc-row-warn td { color: var(--color-warning); }
 .tc-row-retracted { opacity: 0.45; text-decoration: line-through; }
+.tc-row-auto { background: rgba(0, 255, 255, 0.025); }
+.tc-row-auto td { color: #99aabb; }
+
+.tc-filter-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 10px; color: #99a;
+    padding: 4px 6px; margin-bottom: 4px;
+    cursor: pointer; user-select: none;
+}
+.tc-filter-toggle input[type="checkbox"] { margin: 0; cursor: pointer; }
+.tc-filter-toggle:hover { color: var(--color-accent); }
+
+.tc-badge-auto {
+    display: inline-block; margin-left: 4px;
+    padding: 0 4px; border-radius: 2px;
+    font-size: 9px; font-weight: bold;
+    background: rgba(0, 255, 255, 0.12);
+    color: var(--color-accent);
+    border: 1px solid var(--color-accent-dim);
+    cursor: help;
+}
 
 .tc-detail { color: #667; font-size: 9.5px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .tc-mini-meta { color: #678; font-size: 9.5px; margin-top: 2px; }

@@ -3099,6 +3099,11 @@
             <li><b>Hidden Signals / Coverage Gaps</b> read from existing pipeline logs (noise exclusion, mute, circuit breaker state); they do not gate scoring themselves.</li>
         </ul>
 
+        <h5>12.7 Auto-logged tradecraft actions in the Decision Ledger</h5>
+        <p>Every tradecraft write (disconf / ACH / assumptions / pre-mortem / dissent — and their resolve/lock variants) is automatically appended to the <b>Decision Ledger</b> (F14) with a <code>detail.auto = true</code> marker. That means the ledger is a single, complete audit trail for the panel — you do not need to remember to log each action manually.</p>
+        <p>Auto-logged rows display an <code>auto</code> badge next to the decision type. The <b>Decisions</b> tab has a <i>Show auto-logged tradecraft actions</i> checkbox at the top: uncheck it to see only manually-entered decisions (threshold changes, weight overrides, intel actions, report publishes, etc.). Manual ledger entries posted directly to the Decisions form are <em>not</em> marked <code>auto</code>.</p>
+        <p>Auto rows carry the same <code>session_id</code> as the originating tab, so filtering the ledger by a session still groups every action (manual + auto) that one analyst performed in one sitting.</p>
+
         <p style="color:#779;font-size:10px;margin-top:12px;">Methodological background: Heuer R.J., <i>Psychology of Intelligence Analysis</i> (1999, ACH Ch.8); CIA <i>Tradecraft Primer</i> (2009, KAC + ACH + Pre-Mortem); Klein G., <i>Performing a Project Premortem</i> (HBR 2007). The names "Key Assumptions Check" and "Devil's Advocacy" are used in the standard SAT sense from the Primer.</p>
         </div>
 
@@ -3161,6 +3166,11 @@
             <li><b>プリモーテム/前提条件</b>は admin の判断で Admin パネル経由の閾値チューニングに昇格できますが、その経路は明示的かつ監査対象であり、自動ではありません。</li>
             <li><b>隠れシグナル/カバレッジ</b>は既存のパイプラインログ（ノイズ除外、mute、サーキットブレーカー状態）から読み出すだけで、それ自体が採点をゲートすることはありません。</li>
         </ul>
+
+        <h5>12.7 決定台帳への自動記録</h5>
+        <p>トレードクラフトパネルでの書き込み操作（反証 / ACH / 前提条件 / プリモーテム / 反対意見 ― およびその解決・ロック系の操作）はすべて、<b>決定台帳</b>(F14) に <code>detail.auto = true</code> マーカー付きで自動的に追記されます。これにより、台帳はパネル全体の完全な監査証跡となり、各操作を手動でログに残す必要はありません。</p>
+        <p>自動記録された行は決定タイプの隣に <code>auto</code> バッジを表示します。<b>決定</b>タブ上部の <i>自動記録されたトレードクラフト操作を表示</i> チェックボックスをオフにすると、手動で入力された決定（閾値変更、重みオーバーライド、インテル操作、レポート発行など）のみが表示されます。決定フォームから直接投稿された手動の台帳エントリには <code>auto</code> マークは<em>付きません</em>。</p>
+        <p>自動記録行は発行元タブと同じ <code>session_id</code> を引き継ぐため、セッションで台帳をフィルタすれば、1人のアナリストが1セッションで行った操作（手動 + 自動）をすべてグループ化できます。</p>
 
         <p style="color:#779;font-size:10px;margin-top:12px;">方法論的背景: Heuer R.J., <i>Psychology of Intelligence Analysis</i>（1999, ACH 第8章）; CIA <i>Tradecraft Primer</i>（2009, KAC + ACH + プリモーテム）; Klein G., <i>Performing a Project Premortem</i>（HBR 2007）。「Key Assumptions Check」「Devil's Advocacy」の名称はいずれも Primer の SAT 標準の意味で用いています。</p>
         </div>
