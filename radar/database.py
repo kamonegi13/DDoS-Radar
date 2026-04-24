@@ -779,7 +779,7 @@ class RadarDB:
                 first_observed  REAL NOT NULL
             )"""),
         ]),
-        (9, "Drop situation_wire table (Situation Board backend removed)", lambda conn: [
+        (12, "Drop situation_wire table (Situation Board backend removed)", lambda conn: [
             conn.execute("DROP TABLE IF EXISTS situation_wire"),
         ]),
     ]
