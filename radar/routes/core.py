@@ -1876,10 +1876,22 @@ def get_threat_data():
                             full_score=_full_score,
                             delta=_delta,
                             is_miss=(_delta >= 1.0),
+                            source="analyst",
                         )
                     except Exception:
                         pass
             _prev_focused_id = _focused_id
+
+            # Shadow sampling (ADR-025): synthesise a (lite, full) pair for one
+            # background scenario per cycle so the C-medium recommendation has
+            # data without depending on analyst focus rotation. Wrapped so any
+            # failure here cannot break the focused scoring path.
+            try:
+                from radar.shadow_sampler import shadow_sampler
+                shadow_sampler.record_shadow_sample(
+                    _focused_id, _signals, current_time)
+            except Exception:
+                pass
         except Exception as _sc_err:
             log.warning("[Scoring] Scenario scoring failed: %s", _sc_err)
 

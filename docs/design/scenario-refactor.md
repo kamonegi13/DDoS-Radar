@@ -13,9 +13,9 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 1.6.7 |
+| **現バージョン** | 1.7.0 |
 | **作成日** | 2026-04-11 |
-| **最終更新** | 2026-04-23 |
+| **最終更新** | 2026-04-24 |
 | **現在のフェーズ** | **Phase 5 実装完了（TL 閾値再校正は 2026-04-28 期限、ADR-015 dual-weight 評価は 2026-05-12 期限）** |
 | **採用方針** | **C-lite** で開始、運用知見をもとに **C-medium** へ進化 |
 | **責任者** | kamonegi13(@juzo1192) |
@@ -724,6 +724,91 @@ ct_data の legacy フィールド（`total_recent`, `gov_count`, `wildcard_coun
 - watched domain set の continuous curation: 加盟国増減・新規 ministry 設立に追従する運用プロセスをどう設計するか — Phase 6 で検討
 - trusted CA allowlist の review cadence: 年 1 回程度のレビューを Phase 5 完了後に確立
 - per-domain CA 履歴のディスク使用量: 238 domain × 5 CA average × 200B = 約 240KB。長期では SBR 検討
+
+### ADR-025: Shadow Sampling — focus 切替に依存しない C-medium 評価データ生成
+
+**Status**: Accepted (2026-04-24)
+
+**Context**:
+§9.3.1 で定義した `focus_switch_log` ベースの C-medium 移行判定は **構造的欠陥** を抱えていた:
+
+- `focus_switch_log` への書き込みはアナリストが background → focused に切替えた瞬間にしか発生しない
+- 単独アナリスト + 既定 focused scenario の継続運用では、この切替が長期間発生しない
+- 結果として `cmedium_recommendation` は半永久的に `INSUFFICIENT_DATA` を返す
+- 「移行すべきか否か」という判定は、移行を判断するための観測機構そのものが動かないため永遠に保留される
+
+これは P5（観察可能性 > 自動化）に反する: ツールが提供すべき観察データを、アナリストの操作待ちにしてしまっていた。
+
+**Decision**:
+focused scoring サイクルに **piggyback する形で** background scenario の (lite, full) スコアペアを合成し、`focus_switch_log` に `source='shadow_sampler'` として記録する。これにより analyst の focus 切替に依存せず C-medium 評価データが蓄積される。
+
+設計の核心は **「signal を再取得しない」** こと:
+1. focused サイクルが既に収集した `_signals` リストをそのまま借用
+2. 同一の signal 集合に対し `compute_scenario_score(target, _signals, is_focused=False)` と `compute_scenario_score(target, _signals, is_focused=True)` を計算
+3. 前者が **lite_score**（background scoring path 相当）、後者が **full_score**（focused scoring path 相当）
+4. 差分を `focus_switch_log` に書く
+
+これは新規 I/O を発生させない。LLM 呼び出しもセンサー fetch も増えない。CPU コストはサイクルあたり scenario 1 件の追加スコアリング 2 回（数 ms）のみ。
+
+scenario の選択は **round-robin LRU**: 直近サンプリング時刻が最も古い候補を選ぶ。これによりすべての background scenario が公平にカバーされる。
+
+**Invariants（実装で必ず守る 7 つの不変条件）**:
+
+| ID | 不変条件 | 担保箇所 |
+|----|---------|---------|
+| **I-1** | TL 値は shadow score から導出されない（focus_switch_log のスコア欄のみ） | `shadow_sampler.py` は `derive_tl()` を呼ばない |
+| **I-2** | shadow scoring から sequence_event を発火させない | `compute_scenario_score()` 経路のみ通り、`register_sequence_event()` は呼ばれない |
+| **I-3** | intel queue を一切汚染しない | shadow path は `intel_queue.submit()` を呼ばない |
+| **I-4** | provenance を保存する（analyst rows と shadow rows を区別可能） | `focus_switch_log.source` カラム必須 |
+| **I-5** | 決定論的等価性: 同一 signal set に対し shadow_lite == background-mode score、shadow_full == focused-mode score | `compute_scenario_score()` は純関数 |
+| **I-6** | 並行性安全: 複数 worker greenlet が同時に同一 scenario を選ばない | `ShadowSampler._lock` で selection を直列化 |
+| **I-7** | signal が空のサイクルでは記録しない（ゼロ-ゼロ row を作らない） | `_record_inner()` で early-return |
+
+**Schema 変更（migration v13）**:
+```sql
+ALTER TABLE focus_switch_log ADD COLUMN source TEXT NOT NULL DEFAULT 'analyst';
+ALTER TABLE focus_switch_log ADD COLUMN shadow_score_kind TEXT;
+CREATE INDEX idx_focus_switch_log_source_time
+  ON focus_switch_log (source, switched_at DESC);
+
+CREATE TABLE shadow_sampler_state (
+  scenario_id      TEXT PRIMARY KEY,
+  last_sampled_at  REAL NOT NULL,
+  sample_count     INTEGER NOT NULL DEFAULT 0,
+  last_lite_score  REAL,
+  last_full_score  REAL,
+  last_delta       REAL
+);
+```
+
+`source='analyst'` の DEFAULT により既存行は無変更で analyst 起源として扱える（破壊的変更ではない）。
+
+**Config knobs（既定値の根拠）**:
+| 変数 | 既定 | 根拠 |
+|------|------|-----|
+| `SHADOW_SAMPLING_ENABLED` | `true` | 当機能は本 ADR の主目的そのもの。off にする理由は debug／A/B 比較のみ |
+| `SHADOW_SAMPLING_INTERVAL_SEC` | `0` | 0 = piggyback。dedicated cadence は本 v1 では不実装（将来拡張枠） |
+| `SHADOW_SAMPLING_MIN_GAP_SEC` | `300` | 同一 scenario の連続再選択を抑止。HUD poll 間隔 5 分と整合 |
+| `SHADOW_SAMPLING_MAX_PER_DAY` | `200` | 5 scenario × 24h × 60min / 5min ≒ 1440 上限の 14% に抑え focus_switch_log 肥大化を防ぐ |
+| `SHADOW_SAMPLING_REQUIRE_OVERLAP` | `false` | 既定 off。on にすると参加国オーバーラップが無い scenario はスキップされ、global signal のみで評価される lite_score の偏りを排除可能だが、サンプル機会を大きく削る |
+| `SHADOW_SAMPLING_WARMUP_SEC` | `600` | プロセス起動直後はベースラインが未収束のため最初の 10 分はスキップ |
+| `C_MEDIUM_DELTA_MISS_SHADOW` | `1.4` | analyst 起源の `C_MEDIUM_DELTA_MISS=2.0` より保守的。shadow は同一 signal 集合で比較するため delta は構造的に小さい(global signal のみで lite が動かないケースが頻出) |
+
+**API への影響**:
+- `/api/analytics/focus_switches`、`clite_evaluation`、`cmedium_recommendation` に `?source=` クエリパラメータを追加(`all`/`analyst`/`shadow_sampler`、既定 `all`)
+- レスポンスに `source` フィールドを含めて起源を明示
+- `cmedium_recommendation.config` に `delta_miss_shadow` を追加
+
+**Verification**:
+- migration v13 適用後、既存行が `source='analyst'` でラベル付けされていること
+- `scorable()` が N シナリオを返す環境で N-1 サイクル走らせると、N-1 番目までに全 background scenario が 1 度ずつサンプリングされること(round-robin の公平性)
+- lite_score と full_score の差分が 0 になるサンプル(全 signal が global)が観測されること(I-5 の側面検証)
+- `SHADOW_SAMPLING_ENABLED=false` で起動した場合に `shadow_sampler` 由来行が 1 件も増えないこと
+
+**Open Questions**:
+- `INTERVAL_SEC > 0` の dedicated cadence をいつ実装するか — focused サイクルが極端に長い(>5min)環境で背景観測が薄くなる場合のみ意味がある。現状は要否不明
+- `REQUIRE_PARTICIPANT_OVERLAP=true` を既定にすべきか — 数週間の運用データを見て判断
+- C-medium 移行判定での analyst rows と shadow rows の重み付け — 現状は単純合算。将来は kind ごとに別系列で表示する可能性
 
 ---
 
@@ -1527,6 +1612,54 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 ```
 
 **reporting**: `/api/analytics/focus_switches` で過去 N 日間の miss 件数を返す。C-medium 移行判定は **このエンドポイントの出力を根拠** とする。
+
+### 9.3.2 Shadow Sampling — focus 切替に依存しない観測（ADR-025, v1.7.0 追記）
+
+§9.3.1 の判定機構は **アナリストが focus を切り替えた瞬間にのみ** データが生まれる構造であり、単独アナリスト運用では半永久的に `INSUFFICIENT_DATA` から抜け出せない構造的欠陥を抱えていた。この節は、その欠陥を埋めるために追加された background harness の仕様を記述する。
+
+**目的**:
+focused scoring サイクルが既に収集した `_signals` を再利用し、非-focused scenario のうち 1 件を per-cycle で選んで (lite, full) スコアペアを合成、`focus_switch_log` に `source='shadow_sampler'` として記録する。これにより:
+
+- 新規 I/O ゼロ（LLM もセンサーも追加で叩かない）
+- analyst の focus 切替に依存せず C-medium 評価データが蓄積される
+- analyst 起源の行と区別可能（provenance 保存）
+
+**選択アルゴリズム**:
+1. `scenario_store.scorable()` から focused を除外した候補集合を作る
+2. `SHADOW_SAMPLING_REQUIRE_OVERLAP=true` の場合、focused との participant 国オーバーラップ 0 の scenario を除外
+3. `SHADOW_SAMPLING_MIN_GAP_SEC` 以内に既にサンプリングされている scenario を除外
+4. 残った候補から `shadow_sampler_state.last_sampled_at` が最も古い scenario を選ぶ（未サンプル scenario は `-inf` 扱いで最優先）
+
+これにより background scenario 全てが長期的には公平にカバーされる（round-robin LRU）。
+
+**スコア計算（signal-identity invariant）**:
+```python
+lite_state = compute_scenario_score(target, signals, is_focused=False, ...)
+full_state = compute_scenario_score(target, signals, is_focused=True,  ...)
+```
+
+`compute_scenario_score()` は純関数であり、同一入力に対し同一出力を返す。`is_focused` フラグは per-country 処理のみを変えるため、global signal だけで成立する scenario では `lite == full` となり delta=0 が観測される。この「delta=0 サンプル」自体が C-lite 十分性の有力な証拠となる（per-country signal の差分が無いため full 化しても見えるものが無い）。
+
+**Miss 判定**:
+`is_miss = delta >= C_MEDIUM_DELTA_MISS_SHADOW` (既定 1.4)。analyst 起源の `C_MEDIUM_DELTA_MISS` (既定 2.0) とは別閾値: shadow は analyst 起源のような「後追い full fetch」を経ずに signal set を共有しているため、同一条件下での delta は構造的に小さい。
+
+**provenance カラム**:
+- `source = 'analyst' | 'shadow_sampler'` — 起源を必ず保存
+- `shadow_score_kind = 'piggyback'` — shadow の場合、今後 dedicated cadence 等が追加されたときの識別子枠
+
+**Reporting**:
+`/api/analytics/focus_switches`、`clite_evaluation`、`cmedium_recommendation` に `?source=` クエリパラメータを追加し、`all`（既定、混合）/`analyst`/`shadow_sampler` で絞り込める。UI 側が「shadow のみ表示」「analyst のみ表示」を切り替えられるようにする設計余地を残した。
+
+**ADR-025 Invariants の実装マッピング**:
+| Invariant | 実装上の担保 |
+|-----------|-------------|
+| I-1 TL 不変 | `shadow_sampler.py` は `derive_tl()` を import していない |
+| I-2 sequence 不発火 | shadow path は `register_sequence_event()` を呼ばない |
+| I-3 intel queue 不汚染 | shadow path は `intel_queue.submit()` / `.override_*()` を呼ばない |
+| I-4 provenance 保存 | `focus_switch_log.source` NOT NULL, `DEFAULT 'analyst'` |
+| I-5 決定論的等価性 | `compute_scenario_score()` は純関数 |
+| I-6 並行性安全 | `ShadowSampler._lock: threading.Lock` で selection + insert を直列化 |
+| I-7 stale 時 degraded | `if not signals: return None` で空サイクルをスキップ |
 
 ### 9.4 段階移行の手順
 

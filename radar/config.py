@@ -170,6 +170,32 @@ C_MEDIUM_MISS_THRESHOLD = float(os.getenv("C_MEDIUM_MISS_THRESHOLD", "0.15"))
 C_MEDIUM_DELTA_MISS     = float(os.getenv("C_MEDIUM_DELTA_MISS", "2.0"))
 C_MEDIUM_MIN_SWITCHES   = int(os.getenv("C_MEDIUM_MIN_SWITCHES", "10"))
 
+# Shadow Sampling (ADR-025). Background harness that synthesises (lite, full)
+# score pairs for non-focused scenarios at low frequency, populating
+# focus_switch_log with source='shadow_sampler' so that the C-medium
+# recommendation does not depend on analyst focus rotation.
+# - ENABLED: master switch.
+# - INTERVAL_SEC=0 means "piggyback on the focused scoring cycle"; non-zero
+#   would imply a dedicated cadence (not implemented in v1).
+# - MIN_GAP_SEC: per-scenario lockout (anti-thrash); a scenario won't be
+#   re-sampled within this window even if it's the least-recent.
+# - MAX_PER_DAY: global cap to bound write volume on focus_switch_log.
+# - REQUIRE_PARTICIPANT_OVERLAP: when true, only sample background scenarios
+#   that share at least one participant country with the focused scenario
+#   (since shadow piggybacks on the focused signal set, signals for
+#   non-overlapping scenarios will degrade to global-only).
+# - WARMUP_SEC: skip shadow sampling for the first N seconds after process
+#   start to let baselines stabilise.
+# - C_MEDIUM_DELTA_MISS_SHADOW: separate (typically more conservative) miss
+#   threshold for shadow-sourced rows; analyst rows still use C_MEDIUM_DELTA_MISS.
+SHADOW_SAMPLING_ENABLED              = os.getenv("SHADOW_SAMPLING_ENABLED", "true").lower() in ("true", "1", "yes")
+SHADOW_SAMPLING_INTERVAL_SEC         = int(os.getenv("SHADOW_SAMPLING_INTERVAL_SEC", "0"))
+SHADOW_SAMPLING_MIN_GAP_SEC          = int(os.getenv("SHADOW_SAMPLING_MIN_GAP_SEC", "300"))
+SHADOW_SAMPLING_MAX_PER_DAY          = int(os.getenv("SHADOW_SAMPLING_MAX_PER_DAY", "200"))
+SHADOW_SAMPLING_REQUIRE_OVERLAP      = os.getenv("SHADOW_SAMPLING_REQUIRE_OVERLAP", "false").lower() in ("true", "1", "yes")
+SHADOW_SAMPLING_WARMUP_SEC           = int(os.getenv("SHADOW_SAMPLING_WARMUP_SEC", "600"))
+C_MEDIUM_DELTA_MISS_SHADOW           = float(os.getenv("C_MEDIUM_DELTA_MISS_SHADOW", "1.4"))
+
 # TL recalibration advisory (scenario-refactor §7.3.1). Operator-facing
 # flag surfaced through /api/analytics/tl_recalibration_advisory.
 TL_RECALIBRATION_MIN_OBS            = int(os.getenv("TL_RECALIBRATION_MIN_OBS", "100"))

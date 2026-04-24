@@ -321,6 +321,36 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
     revoked_at  REAL NOT NULL
 );
 
+-- C-medium migration evaluation (§9.3.1) + shadow sampling (ADR-025)
+-- Records every focused-scenario change (analyst-driven or shadow-synthesized)
+-- so we can measure whether a switch was a "miss" by C-lite.
+CREATE TABLE IF NOT EXISTS focus_switch_log (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id       TEXT NOT NULL,
+    switched_at       REAL NOT NULL,
+    lite_score        REAL NOT NULL,
+    full_score        REAL NOT NULL,
+    delta             REAL NOT NULL,
+    is_miss           INTEGER NOT NULL DEFAULT 0,
+    source            TEXT NOT NULL DEFAULT 'analyst',
+    shadow_score_kind TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_focus_switch_log_time
+    ON focus_switch_log (switched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_focus_switch_log_source_time
+    ON focus_switch_log (source, switched_at DESC);
+
+-- Round-robin state for ShadowSampler (ADR-025): least-recently-sampled
+-- selection persists across restarts to avoid post-restart bias.
+CREATE TABLE IF NOT EXISTS shadow_sampler_state (
+    scenario_id      TEXT PRIMARY KEY,
+    last_sampled_at  REAL NOT NULL,
+    sample_count     INTEGER NOT NULL DEFAULT 0,
+    last_lite_score  REAL,
+    last_full_score  REAL,
+    last_delta       REAL
+);
+
 -- Tier 1 calibration: shadow scoring log (ADR-015 dual-weight evaluation)
 CREATE TABLE IF NOT EXISTS shadow_eval_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -782,6 +812,26 @@ class RadarDB:
         (12, "Drop situation_wire table (Situation Board backend removed)", lambda conn: [
             conn.execute("DROP TABLE IF EXISTS situation_wire"),
         ]),
+        (13, "Add shadow sampling support: source column + state table (ADR-025)", lambda conn: [
+            # Distinguish analyst-initiated focus switches from synthesized
+            # shadow samples. Existing rows backfill to 'analyst' via DEFAULT.
+            conn.execute("ALTER TABLE focus_switch_log ADD COLUMN source TEXT NOT NULL DEFAULT 'analyst'"),
+            # NULL for analyst rows; 'pre_bonus' for shadow rows (ADR-028).
+            conn.execute("ALTER TABLE focus_switch_log ADD COLUMN shadow_score_kind TEXT"),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_focus_switch_log_source_time
+                ON focus_switch_log (source, switched_at DESC)"""),
+            # Round-robin state for ShadowSampler — least-recently-sampled
+            # selection persists across restarts to avoid post-restart
+            # alphabetical-stampede pattern.
+            conn.execute("""CREATE TABLE IF NOT EXISTS shadow_sampler_state (
+                scenario_id      TEXT PRIMARY KEY,
+                last_sampled_at  REAL NOT NULL,
+                sample_count     INTEGER NOT NULL DEFAULT 0,
+                last_lite_score  REAL,
+                last_full_score  REAL,
+                last_delta       REAL
+            )"""),
+        ]),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -1212,45 +1262,75 @@ class RadarDB:
     # ── focus_switch_log (Section 9.3.1) ───────────────────────────────────
     def focus_switch_append(self, scenario_id: str, switched_at: float,
                             lite_score: float, full_score: float,
-                            delta: float, is_miss: bool):
+                            delta: float, is_miss: bool,
+                            source: str = "analyst",
+                            shadow_score_kind: str | None = None):
         conn = self._get_conn()
         with conn.writing():
             conn.execute(
                 "INSERT INTO focus_switch_log "
-                "(scenario_id, switched_at, lite_score, full_score, delta, is_miss) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(scenario_id, switched_at, lite_score, full_score, delta, is_miss, "
+                " source, shadow_score_kind) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (scenario_id, switched_at, lite_score, full_score, delta,
-                 1 if is_miss else 0),
+                 1 if is_miss else 0, source, shadow_score_kind),
             )
 
-    def focus_switch_stats(self, days: int = 28) -> dict:
-        """Return miss statistics for C-medium migration evaluation."""
+    def focus_switch_stats(self, days: int = 28,
+                           source: str | None = None) -> dict:
+        """Return miss statistics for C-medium migration evaluation.
+
+        source: when provided, restricts to rows with matching source
+        ('analyst' or 'shadow_sampler'). None aggregates across all sources.
+        """
         conn = self._get_conn()
         cutoff = time.time() - days * 86400
-        rows = conn.execute(
-            "SELECT COUNT(*) AS total, "
-            "  SUM(CASE WHEN is_miss = 1 THEN 1 ELSE 0 END) AS misses "
-            "FROM focus_switch_log WHERE switched_at > ?",
-            (cutoff,),
-        ).fetchone()
+        if source is None:
+            rows = conn.execute(
+                "SELECT COUNT(*) AS total, "
+                "  SUM(CASE WHEN is_miss = 1 THEN 1 ELSE 0 END) AS misses "
+                "FROM focus_switch_log WHERE switched_at > ?",
+                (cutoff,),
+            ).fetchone()
+        else:
+            rows = conn.execute(
+                "SELECT COUNT(*) AS total, "
+                "  SUM(CASE WHEN is_miss = 1 THEN 1 ELSE 0 END) AS misses "
+                "FROM focus_switch_log WHERE switched_at > ? AND source = ?",
+                (cutoff, source),
+            ).fetchone()
         return {
             "period_days": days,
+            "source": source or "all",
             "total_switches": rows["total"] or 0,
             "misses": rows["misses"] or 0,
         }
 
-    def focus_switch_detailed(self, days: int = 28) -> dict:
+    def focus_switch_detailed(self, days: int = 28,
+                              source: str | None = None) -> dict:
         """Extended focus_switch_stats with delta distribution and per-scenario
-        breakdown for the C-lite evaluation endpoint."""
+        breakdown for the C-lite evaluation endpoint.
+
+        source: when provided, restricts to rows with matching source.
+        """
         conn = self._get_conn()
         cutoff = time.time() - days * 86400
-        rows = conn.execute(
-            "SELECT scenario_id, switched_at, lite_score, full_score, "
-            "  delta, is_miss "
-            "FROM focus_switch_log WHERE switched_at > ? "
-            "ORDER BY switched_at DESC",
-            (cutoff,),
-        ).fetchall()
+        if source is None:
+            rows = conn.execute(
+                "SELECT scenario_id, switched_at, lite_score, full_score, "
+                "  delta, is_miss, source, shadow_score_kind "
+                "FROM focus_switch_log WHERE switched_at > ? "
+                "ORDER BY switched_at DESC",
+                (cutoff,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT scenario_id, switched_at, lite_score, full_score, "
+                "  delta, is_miss, source, shadow_score_kind "
+                "FROM focus_switch_log WHERE switched_at > ? AND source = ? "
+                "ORDER BY switched_at DESC",
+                (cutoff, source),
+            ).fetchall()
         total = len(rows)
         misses = sum(1 for r in rows if r["is_miss"])
         deltas = [r["delta"] for r in rows]
@@ -1281,6 +1361,7 @@ class RadarDB:
             recommendation = "LITE_SUFFICIENT"
         return {
             "period_days": days,
+            "source": source or "all",
             "total_switches": total,
             "misses": misses,
             "miss_rate": miss_rate,
@@ -1289,6 +1370,88 @@ class RadarDB:
             "recommendation": recommendation,
             "by_scenario": by_scenario,
         }
+
+    # ── shadow_sampler_state (ADR-025: background C-medium evaluation) ──────
+    def shadow_sampler_state_get(self, scenario_id: str) -> dict | None:
+        """Return the most recent shadow sampler state for a scenario, or None."""
+        row = self._get_conn().execute(
+            "SELECT scenario_id, last_sampled_at, sample_count, "
+            "  last_lite_score, last_full_score, last_delta "
+            "FROM shadow_sampler_state WHERE scenario_id = ?",
+            (scenario_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "scenario_id": row["scenario_id"],
+            "last_sampled_at": row["last_sampled_at"],
+            "sample_count": row["sample_count"],
+            "last_lite_score": row["last_lite_score"],
+            "last_full_score": row["last_full_score"],
+            "last_delta": row["last_delta"],
+        }
+
+    def shadow_sampler_state_upsert(self, scenario_id: str,
+                                    last_sampled_at: float,
+                                    lite_score: float,
+                                    full_score: float,
+                                    delta: float) -> None:
+        """Atomically upsert the shadow sampler state, incrementing sample_count."""
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO shadow_sampler_state "
+                "(scenario_id, last_sampled_at, sample_count, "
+                " last_lite_score, last_full_score, last_delta) "
+                "VALUES (?, ?, 1, ?, ?, ?) "
+                "ON CONFLICT(scenario_id) DO UPDATE SET "
+                "  last_sampled_at = excluded.last_sampled_at, "
+                "  sample_count = sample_count + 1, "
+                "  last_lite_score = excluded.last_lite_score, "
+                "  last_full_score = excluded.last_full_score, "
+                "  last_delta = excluded.last_delta",
+                (scenario_id, last_sampled_at,
+                 round(lite_score, 4), round(full_score, 4), round(delta, 4)),
+            )
+
+    def shadow_sampler_least_recent_among(self, scenario_ids: list[str]) -> str | None:
+        """Return the scenario_id from the candidate list that has the oldest
+        last_sampled_at (or has never been sampled). Returns None if the input
+        list is empty."""
+        if not scenario_ids:
+            return None
+        conn = self._get_conn()
+        placeholders = ",".join("?" * len(scenario_ids))
+        rows = conn.execute(
+            f"SELECT scenario_id, last_sampled_at "
+            f"FROM shadow_sampler_state "
+            f"WHERE scenario_id IN ({placeholders})",
+            tuple(scenario_ids),
+        ).fetchall()
+        seen = {r["scenario_id"]: r["last_sampled_at"] for r in rows}
+        # Never-sampled scenarios sort first (last_sampled_at = -inf)
+        return min(scenario_ids,
+                   key=lambda sid: seen.get(sid, float("-inf")))
+
+    def shadow_sampler_daily_count(self, scenario_id: str | None = None) -> int:
+        """Return the number of shadow_sampler entries in focus_switch_log
+        within the last 24h. If scenario_id is None, counts globally."""
+        conn = self._get_conn()
+        cutoff = time.time() - 86400
+        if scenario_id is None:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM focus_switch_log "
+                "WHERE source = 'shadow_sampler' AND switched_at > ?",
+                (cutoff,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM focus_switch_log "
+                "WHERE source = 'shadow_sampler' AND scenario_id = ? "
+                "  AND switched_at > ?",
+                (scenario_id, cutoff),
+            ).fetchone()
+        return int(row["n"] or 0)
 
     # ── shadow_eval_log (Tier 1: ADR-015 dual-weight evaluation) ───────────
     def shadow_eval_record(self, scenario_id: str, sampled_at: float,

@@ -8,6 +8,7 @@ from radar.config import (
     SEQUENCE_WINDOW,
     C_MEDIUM_WINDOW_DAYS, C_MEDIUM_MISS_THRESHOLD,
     C_MEDIUM_DELTA_MISS, C_MEDIUM_MIN_SWITCHES,
+    C_MEDIUM_DELTA_MISS_SHADOW,
     TL_RECALIBRATION_MIN_OBS, TL_RECALIBRATION_SKEW_THRESHOLD_PCT,
     SHOW_BACKGROUND_TL,
 )
@@ -965,11 +966,32 @@ def adaptive_zscore_status():
     })
 
 
+_VALID_SOURCES = ("all", "analyst", "shadow_sampler")
+
+
+def _parse_source(raw: str | None) -> str | None:
+    """Map ?source= query value to focus_switch_log filter. 'all' (or
+    missing/invalid) returns None meaning no filter; 'analyst' /
+    'shadow_sampler' return the literal source value."""
+    if not raw:
+        return None
+    raw = raw.strip().lower()
+    if raw not in _VALID_SOURCES:
+        return None
+    return None if raw == "all" else raw
+
+
 @bp.route("/api/analytics/focus_switches", methods=["GET"])
 def api_focus_switch_stats():
-    """C-medium migration metric: focus switch miss rate (Section 9.3.1)."""
+    """C-medium migration metric: focus switch miss rate (Section 9.3.1).
+
+    Query params:
+      - days: lookback window (default 28)
+      - source: 'all' (default), 'analyst', or 'shadow_sampler' (ADR-025)
+    """
     days = _safe_int(request.args.get("days", "28"), 28, min_val=1, max_val=365)
-    return jsonify(_db.focus_switch_stats(days=days))
+    source = _parse_source(request.args.get("source"))
+    return jsonify(_db.focus_switch_stats(days=days, source=source))
 
 
 @bp.route("/api/analytics/clite_evaluation", methods=["GET"])
@@ -978,9 +1000,14 @@ def api_clite_evaluation():
 
     Returns miss rate, delta distribution, per-scenario breakdown, and a
     recommendation (LITE_SUFFICIENT / CONSIDER_C_MEDIUM / INSUFFICIENT_DATA).
+
+    Query params:
+      - days: lookback window (default 28)
+      - source: 'all' (default), 'analyst', or 'shadow_sampler' (ADR-025)
     """
     days = _safe_int(request.args.get("days", "28"), 28, min_val=1, max_val=365)
-    return jsonify(_db.focus_switch_detailed(days=days))
+    source = _parse_source(request.args.get("source"))
+    return jsonify(_db.focus_switch_detailed(days=days, source=source))
 
 
 @bp.route("/api/analytics/cmedium_recommendation", methods=["GET"])
@@ -989,17 +1016,23 @@ def api_cmedium_recommendation():
 
     Honors C_MEDIUM_* config knobs:
       - WINDOW_DAYS: observation window
-      - DELTA_MISS: |full_score - lite_score| above which a switch counts as a miss
+      - DELTA_MISS: |full_score - lite_score| above which an analyst switch counts as a miss
+      - DELTA_MISS_SHADOW: same threshold applied to shadow_sampler rows (ADR-025)
       - MISS_THRESHOLD: miss_rate above which CONSIDER_C_MEDIUM fires
       - MIN_SWITCHES: minimum switch count before any recommendation is meaningful
+
+    Query params:
+      - days: lookback window (default = C_MEDIUM_WINDOW_DAYS)
+      - source: 'all' (default), 'analyst', or 'shadow_sampler'
     """
     from radar.scenarios import scenario_store
     days = _safe_int(
         request.args.get("days", str(C_MEDIUM_WINDOW_DAYS)),
         C_MEDIUM_WINDOW_DAYS, min_val=1, max_val=365,
     )
+    source = _parse_source(request.args.get("source"))
     lang = request.args.get("lang")
-    detailed = _db.focus_switch_detailed(days=days)
+    detailed = _db.focus_switch_detailed(days=days, source=source)
     by_sid = detailed.get("by_scenario", {})
 
     per_scenario = []
@@ -1040,8 +1073,10 @@ def api_cmedium_recommendation():
 
     return jsonify({
         "period_days": days,
+        "source": source or "all",
         "config": {
             "delta_miss": C_MEDIUM_DELTA_MISS,
+            "delta_miss_shadow": C_MEDIUM_DELTA_MISS_SHADOW,
             "miss_threshold": C_MEDIUM_MISS_THRESHOLD,
             "min_switches": C_MEDIUM_MIN_SWITCHES,
         },
