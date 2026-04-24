@@ -2340,13 +2340,6 @@ def get_threat_data():
         except Exception as _ce:
             log.debug(f"[Climate] update error: {_ce}")
 
-        # ── Situation Board update ────────────────────────────────────────────
-        try:
-            from radar.situation_state import situation_engine
-            situation_engine.update(_routes.registry, _new_cache)
-        except Exception as _se:
-            log.debug(f"[Situation] update error: {_se}")
-
         # ── WebSocket push + external notifications ──────────────────────────
         emit_threat_update(core_theater, _new_cache["strategic"])
         if threat_level != prev_threat_level:

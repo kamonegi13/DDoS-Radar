@@ -259,18 +259,6 @@ CREATE TABLE IF NOT EXISTS climate_events (
 CREATE INDEX IF NOT EXISTS idx_climate_events_ts ON climate_events (ts);
 CREATE INDEX IF NOT EXISTS idx_climate_events_dedup ON climate_events (indicator, theater, ts);
 
--- Situation Wire items (persistent)
-CREATE TABLE IF NOT EXISTS situation_wire (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts         REAL NOT NULL,
-    theater    TEXT NOT NULL,
-    source     TEXT NOT NULL,
-    text       TEXT NOT NULL,
-    severity   INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_situation_wire_ts ON situation_wire (ts);
-CREATE INDEX IF NOT EXISTS idx_situation_wire_theater ON situation_wire (theater, ts);
-
 -- LLM Intel: source credibility tracking
 CREATE TABLE IF NOT EXISTS llm_sources (
     source_id            TEXT PRIMARY KEY,
@@ -790,6 +778,9 @@ class RadarDB:
                 domain          TEXT PRIMARY KEY,
                 first_observed  REAL NOT NULL
             )"""),
+        ]),
+        (9, "Drop situation_wire table (Situation Board backend removed)", lambda conn: [
+            conn.execute("DROP TABLE IF EXISTS situation_wire"),
         ]),
     ]
 
@@ -2503,10 +2494,6 @@ class RadarDB:
         deleted["climate_events"] = cur.rowcount
         conn.commit()
 
-        cur = conn.execute("DELETE FROM situation_wire WHERE ts < ?", (cutoff_48h,))
-        deleted["situation_wire"] = cur.rowcount
-        conn.commit()
-
         # LLM intel: retain based on INTEL_RETENTION_DAYS config (default 7d)
         import os as _os
         cutoff_intel = now - int(_os.getenv("INTEL_RETENTION_DAYS", "7")) * 86400
@@ -2608,45 +2595,6 @@ class RadarDB:
         conn = self._get_conn()
         with conn.writing():
             conn.execute("DELETE FROM climate_events WHERE ts < ?", (before_ts,))
-
-    # ── Situation Wire ───────────────────────────────────────────────────────
-    def situation_wire_save(self, items: list[dict]):
-        """Persist wire items. Replaces existing entries with same (theater, source, hour)."""
-        if not items:
-            return
-        conn = self._get_conn()
-        # Delete old entries matching same dedup key (theater, source, hour_bucket)
-        for w in items:
-            hour_bucket = int(w["ts"] // 3600)
-            hour_start = hour_bucket * 3600
-            hour_end = hour_start + 3600
-            conn.execute(
-                "DELETE FROM situation_wire WHERE theater=? AND source=? AND ts>=? AND ts<?",
-                (w["theater"], w["source"], hour_start, hour_end),
-            )
-        with conn.writing():
-            conn.executemany(
-                "INSERT INTO situation_wire (ts, theater, source, text, severity) "
-                "VALUES (?, ?, ?, ?, ?)",
-                [(w["ts"], w["theater"], w["source"], w["text"], w.get("severity", 0))
-                 for w in items],
-            )
-
-    def situation_wire_load(self, since_ts: float) -> list[dict]:
-        """Load wire items since a given timestamp."""
-        rows = self._get_conn().execute(
-            "SELECT ts, theater, source, text, severity "
-            "FROM situation_wire WHERE ts > ? ORDER BY ts",
-            (since_ts,),
-        ).fetchall()
-        return [{"ts": r["ts"], "theater": r["theater"], "source": r["source"],
-                 "text": r["text"], "severity": r["severity"]} for r in rows]
-
-    def situation_wire_prune(self, before_ts: float):
-        """Remove wire items older than given timestamp."""
-        conn = self._get_conn()
-        with conn.writing():
-            conn.execute("DELETE FROM situation_wire WHERE ts < ?", (before_ts,))
 
     # ── LLM Intel ───────────────────────────────────────────────────────────
     def intel_upsert(self, item: dict):
