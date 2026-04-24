@@ -337,8 +337,10 @@ CREATE TABLE IF NOT EXISTS focus_switch_log (
 );
 CREATE INDEX IF NOT EXISTS idx_focus_switch_log_time
     ON focus_switch_log (switched_at DESC);
-CREATE INDEX IF NOT EXISTS idx_focus_switch_log_source_time
-    ON focus_switch_log (source, switched_at DESC);
+-- NOTE: idx_focus_switch_log_source_time is created in migration v13
+-- (not here) because existing deployments may have a pre-v13
+-- focus_switch_log without the `source` column, and this baseline runs
+-- before migrations. Fresh DBs get the index via _post_baseline_indexes().
 
 -- Round-robin state for ShadowSampler (ADR-025): least-recently-sampled
 -- selection persists across restarts to avoid post-restart bias.
@@ -561,6 +563,21 @@ class RadarDB:
             conn.executescript(_SCHEMA_SQL)
             conn.commit()
             self._run_migrations(conn)
+            self._post_baseline_indexes(conn)
+
+    def _post_baseline_indexes(self, conn: "_CooperativeConn"):
+        """Indexes that depend on migration-added columns. Created after
+        baseline + migrations have both run, so columns are guaranteed
+        present regardless of whether the DB is fresh or upgraded.
+        """
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_focus_switch_log_source_time "
+                "ON focus_switch_log (source, switched_at DESC)"
+            )
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            log.warning("[DB] post-baseline index skipped: %s", e)
 
     def schema_version(self) -> int:
         try:
