@@ -249,14 +249,12 @@
                 <div id="tools-menu" class="tools-menu">
                     <div class="tools-menu-section-header" data-i18n="tools.section.core">CORE</div>
                     <div class="tools-menu-item" id="tm-item-tgt"  onclick="handleToolToggle('target-panel',    toggleTargetPanel,    'tm-dot-tgt',   'tm-item-tgt')"><span class="tools-menu-icon">&#x1F3AF;</span><span class="tools-menu-label" data-i18n="tools.target_visibility">Target Visibility</span><span class="tools-menu-dot" id="tm-dot-tgt"></span></div>
-                    <div class="tools-menu-item" id="tm-item-dash" onclick="handleToolToggle('dashboard-panel', toggleDashboardPanel, 'tm-dot-dash',  'tm-item-dash')"><span class="tools-menu-icon">&#x1F4E1;</span><span class="tools-menu-label" data-i18n="tools.live_threat_telemetry">Live Threat Telemetry</span><span class="tools-menu-dot" id="tm-dot-dash"></span></div>
+                    <div class="tools-menu-item" id="tm-item-dash" onclick="handleToolToggle('dashboard-panel', toggleDashboardPanel, 'tm-dot-dash',  'tm-item-dash')"><span class="tools-menu-icon">&#x1F4E1;</span><span class="tools-menu-label" data-i18n="tools.live_threat_telemetry">Attack Origin Feed</span><span class="tools-menu-dot" id="tm-dot-dash"></span></div>
                     <div class="tools-menu-item" id="tm-item-chain" onclick="handleToolToggle('chain-panel',    toggleChainPanel,     'tm-dot-chain', 'tm-item-chain')"><span class="tools-menu-icon">&#x1F517;</span><span class="tools-menu-label" data-i18n="tools.evidence_chain">Evidence Chain</span><span class="tools-menu-dot" id="tm-dot-chain"></span></div>
                     <div class="tools-menu-item" id="tm-item-tg"   onclick="handleToolToggle('tg-sigint-panel', toggleTgSigint,       'tm-dot-tg',    'tm-item-tg')"><span class="tools-menu-icon">&#x1F4FB;</span><span class="tools-menu-label" data-i18n="tools.telegram_sigint">Telegram SIGINT</span><span class="tools-menu-dot" id="tm-dot-tg"></span></div>
                     <div class="tools-menu-section-header" data-i18n="tools.section.analytics">ANALYTICS</div>
                     <div class="tools-menu-item" id="tm-item-climate" onclick="handleToolToggle('climate-panel', toggleClimatePanel, 'tm-dot-climate', 'tm-item-climate')"><span class="tools-menu-icon">&#x1F321;</span><span class="tools-menu-label" data-i18n="tools.strategic_climate">Strategic Climate</span><span class="tools-menu-dot" id="tm-dot-climate"></span></div>
-                    <div class="tools-menu-item" id="tm-item-sitboard" onclick="handleToolToggle('sitboard-panel', toggleSitBoard, 'tm-dot-sitboard', 'tm-item-sitboard')"><span class="tools-menu-icon">&#x1F4CB;</span><span class="tools-menu-label" data-i18n="tools.situation_board">Situation Board</span><span class="tools-menu-dot" id="tm-dot-sitboard"></span></div>
                     <div class="tools-menu-item" id="tm-item-wx"  onclick="handleToolToggle('weather-brief-panel', toggleWeatherBrief,  'tm-dot-wx',  'tm-item-wx')"><span class="tools-menu-icon">&#x26C8;</span><span class="tools-menu-label" data-i18n="tools.weather_brief">Weather Brief</span><span class="tools-menu-dot" id="tm-dot-wx"></span></div>
-                    <div class="tools-menu-item" id="tm-item-ha"  onclick="handleToolToggle('hist-analog-panel',     toggleHistAnalog,  'tm-dot-ha',  'tm-item-ha')"><span class="tools-menu-icon">&#x1F4CA;</span><span class="tools-menu-label" data-i18n="tools.historical_analog">Historical Analog</span><span class="tools-menu-dot" id="tm-dot-ha"></span></div>
                     <div class="tools-menu-item" id="tm-item-gn"  onclick="handleToolToggle('gn-panel',       toggleGnPanel,   'tm-dot-gn',  'tm-item-gn')"><span class="tools-menu-icon">&#x1F50D;</span><span class="tools-menu-label" data-i18n="tools.greynoise">GreyNoise</span><span class="tools-menu-dot" id="tm-dot-gn"></span></div>
                     <div class="tools-menu-item" id="tm-item-hist" onclick="handleToolToggle('history-panel', toggleHistoryPanel, 'tm-dot-hist', 'tm-item-hist')"><span class="tools-menu-icon">&#x1F4CA;</span><span class="tools-menu-label" data-i18n="tools.history_analysis">History Analysis</span><span class="tools-menu-dot" id="tm-dot-hist"></span></div>
                     <div class="tools-menu-item" id="tm-item-llm" onclick="handleToolToggle('llm-intel-panel', toggleLlmIntelPanel, 'tm-dot-llm', 'tm-item-llm')"><span class="tools-menu-icon">&#x1F916;</span><span class="tools-menu-label" data-i18n="tools.llm_intelligence">LLM Intelligence</span><span class="tm-triage-badge" id="tm-triage-badge-llm" hidden data-i18n-tip="panel.llm_intel.pulse_tip" title="">0</span><span class="tools-menu-dot" id="tm-dot-llm"></span></div>
@@ -320,13 +318,9 @@
 <div id="main-container">
     <!-- Left Sidebar (auto-hide when empty) -->
     <div id="left-sidebar">
-        <div id="lsb-ph-sitboard"></div>
         <div id="lsb-ph-climate"></div>
         <div id="lsb-ph-llm"></div>
-        <div id="lsb-ph-pulse"></div>
         <div id="lsb-ph-wx"></div>
-        <div id="lsb-ph-clk"></div>
-        <div id="lsb-ph-phase"></div>
         <div id="lsb-ph-corr"></div>
     </div>
 
@@ -378,7 +372,7 @@
         <div id="dashboard-placeholder">
             <div id="dashboard-panel" class="draggable-panel docked">
                 <div class="drag-handle panel-header-unified">
-                    <span data-i18n="panel.dashboard.title">Live Threat Telemetry</span>
+                    <span data-i18n="panel.dashboard.title">Attack Origin Feed</span>
                     <div>
                         <span class="icon-btn dock-btn" style="display:none;" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
                         <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
@@ -994,22 +988,6 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
-     Intuition UI: Historical Pattern Analog (draggable)
-═══════════════════════════════════════════════════════ -->
-<div id="hist-analog-panel" class="draggable-panel floating" style="display:none; left:300px; top:380px;">
-    <div class="drag-handle panel-header-unified">
-        <span data-i18n="panel.ha.title">HISTORICAL ANALOG</span>
-        <div>
-            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
-            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('hist-analog-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
-        </div>
-    </div>
-    <div class="panel-content ha-body">
-        <div style="color:#666; font-size:10px; text-align:center; padding: 10px 0;" data-i18n="ui.loading">Loading...</div>
-    </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════
      Phase 1: What-If Simulation (draggable)
 ═══════════════════════════════════════════════════════ -->
 <div id="whatif-panel" class="draggable-panel floating" style="display:none; left:60px; top:120px; width:340px;">
@@ -1131,28 +1109,6 @@
         </div>
         <div class="climate-feed" id="climate-feed">
             <div style="color:#666; font-size:10px; text-align:center; padding:20px 0;" data-i18n="panel.climate.loading">Collecting climate signals...</div>
-        </div>
-    </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════
-     Situation Board (dockable)
-═══════════════════════════════════════════════════════ -->
-<div id="sitboard-panel" class="draggable-panel floating" style="display:none; left:50px; top:130px; width:420px;">
-    <div class="drag-handle panel-header-unified">
-        <span data-i18n="panel.sitboard.title">SITUATION BOARD</span>
-        <div>
-            <span class="icon-btn dock-btn" data-tooltip="Snap back to sidebar" data-i18n-tip="panel.common.dock_tooltip">Dock</span>
-            <span class="icon-btn toggle-btn" data-tooltip="Minimize" data-i18n-tip="panel.common.minimize_tooltip">−</span>
-            <span class="icon-btn" data-tooltip="Close" onclick="_panelClose('sitboard-panel')" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
-        </div>
-    </div>
-    <div class="panel-content sitboard-body">
-        <div class="sitboard-filter-row" id="sitboard-filter-row">
-            <button class="sitboard-chip sitboard-chip-active" data-code="ALL" onclick="_sitboardToggleChip(this)" data-i18n="panel.sitboard.filter_all">ALL</button>
-        </div>
-        <div class="sitboard-theaters" id="sitboard-theaters">
-            <div style="color:#666; font-size:10px; text-align:center; padding:20px 0;" data-i18n="panel.sitboard.loading">Loading situation data...</div>
         </div>
     </div>
 </div>
@@ -1932,7 +1888,7 @@
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">How to access</div>
-            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of panels. <b>CORE</b> section: Target Visibility / Live Threat Telemetry / Evidence Chain / Telegram SIGINT. <b>ANALYTICS</b> section: Strategic Climate / Situation Board / Weather Brief / Historical Analog / GreyNoise / History Analysis / LLM Intelligence. <b>SIMULATION</b> section: What-If Sim / SPOF Analysis. <b>ADMIN</b> section: Sensor Heatmap / Sensor Manager / Admin Panel (cyan dot = active). Close each panel individually with ✕. Always-on components (Ambient Atmosphere / Radio Silence / Threat Terrain) operate automatically without any interaction. <b>Report button group</b> (HUD top-right, next to TOOLS): <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — one-click access to the three primary output modals. SALUTE Export is also accessible from the Evidence Modal footer. <b>Map interaction</b>: Click any country marker to open Country Intel modal. Click the Threat Level display in the HUD to open the Evidence panel (same as the EVIDENCE button).</p>
+            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of panels. <b>CORE</b> section: Target Visibility / Attack Origin Feed / Evidence Chain / Telegram SIGINT. <b>ANALYTICS</b> section: Strategic Climate / Weather Brief / GreyNoise / History Analysis / LLM Intelligence. <b>SIMULATION</b> section: What-If Sim / SPOF Analysis. <b>ADMIN</b> section: Sensor Heatmap / Sensor Manager / Admin Panel (cyan dot = active). Close each panel individually with ✕. Always-on components (Ambient Atmosphere / Radio Silence / Threat Terrain) operate automatically without any interaction. <b>Report button group</b> (HUD top-right, next to TOOLS): <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — one-click access to the three primary output modals. SALUTE Export is also accessible from the Evidence Modal footer. <b>Map interaction</b>: Click any country marker to open Country Intel modal. Click the Threat Level display in the HUD to open the Evidence panel (same as the EVIDENCE button).</p>
         </div>
 
         <p><b>A. Ambient Atmosphere</b></p>
@@ -1960,16 +1916,6 @@
             </li>
         </ul>
 
-        <p><b>F. Historical Pattern Analog</b> — <span class="code-block">TOOLS ▾</span> → Historical Analog</p>
-        <ul>
-            <li>Compares the current threat score time series (latest 20 cycles) against 5 historical case patterns using Pearson correlation, and displays the top 3 matches:
-                <ul style="font-size:11px; color:#aaa;">
-                    <li>🔴 Ukraine Invasion 2022 / 🟠 Taiwan Strait 2022 / 🟡 Iran Shutdown 2019 / 🔵 Georgia-Russia 2008 / ⬜ Normal Baseline</li>
-                </ul>
-            </li>
-            <li>Each card shows similarity % and an overlay graph of the historical pattern (dim) vs. current pattern (cyan). Pearson ≥70% = statistically noteworthy pattern match. <b>Correlation ≠ causation: this is a decision aid, not a prediction.</b></li>
-        </ul>
-
         <p><b>G. Radio Silence Indicator</b></p>
         <ul>
             <li><b>Always displayed in the lower HUD.</b> Detects a state where the threat score is significant (≥3 pts) but velocity is near zero — flagged as <span style="color:#ff8800;font-weight:bold;">QUIET</span>.<br>
@@ -1985,7 +1931,7 @@
         <ul>
             <li><b>Theater Noise Classification</b>: Shows per-theater GreyNoise classification — <span style="color:#00ff88;font-weight:bold;">TARGETED</span> (traffic is directed, not background scanners), <span style="color:#ffaa00;font-weight:bold;">MIXED</span>, or <span style="color:#ff2200;font-weight:bold;">NOISE_DOMINANT</span> (≥70% internet background scan traffic, Cyber domain suppressed). Requires <span class="code-block">GREYNOISE_API_KEY</span> (Enterprise GNQL). Without an Enterprise key, classification shows UNKNOWN.</li>
             <li><b>IP Investigator (Community API)</b>: Manual on-demand lookup of any IPv4 address via the GreyNoise Community API. Returns: noise flag (true = internet-wide scanner), riot flag (known benign infrastructure), classification, entity name, and last-seen date. Results are cached 24 hours per IP. Rate limit: 50 req/day (Community plan). Requires <span class="code-block">GREYNOISE_API_KEY</span>.</li>
-            <li><b>Investigation Log</b>: Maintains a session history of the last 20 IP lookups, persisted to browser localStorage. Use this panel to triage suspicious source IPs surfaced in the Live Threat Telemetry panel.</li>
+            <li><b>Investigation Log</b>: Maintains a session history of the last 20 IP lookups, persisted to browser localStorage. Use this panel to triage suspicious source IPs surfaced in the Attack Origin Feed panel.</li>
         </ul>
 
         <p><b>K. Telegram SIGINT</b> — <span class="code-block">CHAIN</span> panel → <b>SIGINT↗</b> button on the Telegram Mirror row</p>
@@ -2101,12 +2047,12 @@
 
         <p><b>VIII. Target Visibility Panel</b> — <span class="code-block">TOOLS ▾</span> → Target Visibility (CORE)</p>
         <ul>
-            <li><b>Purpose:</b> Quick toggle panel for selecting which countries/regions to display on the main map and in the Live Threat Telemetry panel. Countries are derived from the focused scenario's participants (Settings → Scenarios).</li>
+            <li><b>Purpose:</b> Quick toggle panel for selecting which countries/regions to display on the main map and in the Attack Origin Feed panel. Countries are derived from the focused scenario's participants (Settings → Scenarios).</li>
             <li><b>Controls:</b> Grid of checkboxes — one per participant country of the focused scenario. Toggle on/off to show/hide that country's threat data on the map and in telemetry. State is persisted to localStorage across sessions.</li>
             <li><b>Dockable:</b> Can be docked to the left sidebar or used as a floating panel.</li>
         </ul>
 
-        <p><b>IX. Live Threat Telemetry (Dashboard)</b> — <span class="code-block">TOOLS ▾</span> → Live Threat Telemetry (CORE)</p>
+        <p><b>IX. Attack Origin Feed (Dashboard)</b> — <span class="code-block">TOOLS ▾</span> → Attack Origin Feed (CORE)</p>
         <ul>
             <li><b>Purpose:</b> Real-time threat source telemetry showing all active DDoS origins attacking selected targets. The primary operational awareness panel — displays attack metrics, actor attribution, and network status for each monitored theater.</li>
             <li><b>Target Group Header:</b> Each target country block shows:
@@ -2225,19 +2171,6 @@
             <li><b>API:</b> <span class="code-block">GET /api/climate</span> (full state) / <span class="code-block">GET /api/climate/feed?axis=time&amp;limit=50</span> (filtered feed).</li>
         </ul>
 
-        <p><b>XV. Situation Board</b> — <span class="code-block">TOOLS ▾</span> → Situation Board</p>
-        <ul>
-            <li><b>Purpose:</b> Theater-centric situational awareness. While the Climate Feed organizes signals by indicator type (time/space/target), the Situation Board re-projects the same data along the theater axis — answering "what is happening in each theater?" rather than "what types of signals are firing?"</li>
-            <li><b>Direction Vector:</b> Each theater shows a computed direction: <b>ESCALATING ↑</b> / <b>STABLE →</b> / <b>DE-ESCALATING ↓</b>. This is synthesized from GDELT tone trends, media concentration, aviation changes, forex stress, and climate indicator convergence. Theaters are sorted by escalation level (most active first).</li>
-            <li><b>Situation Metrics:</b> Compact per-theater indicators: Tone (GDELT current + 7-day delta), Media (RSS z-score), Aviation (% change from baseline), Forex (z-score deviation), and active Climate indicators.</li>
-            <li><b>Wire:</b> Below each theater's summary, a factual wire feed shows timestamped observations from all sensors — one-line facts derived from sensor data. Wire items are severity-coded: routine (dim), notable (yellow), significant (orange).</li>
-            <li><b>Cross-Theater Sync:</b> When notable wire events occur in multiple theaters within 30 minutes, a <b>SYNC</b> badge appears indicating which other theaters had simultaneous changes — a potential coordination signal.</li>
-            <li><b>Temporal Density:</b> A bar indicator in each theater header shows wire event frequency over the last 6 hours and its trend (INCREASING ▲ / DECREASING ▼ / STABLE). High density means the situation is actively evolving.</li>
-            <li><b>Theater Filter:</b> Multi-select chip toggles to focus on specific theaters.</li>
-            <li><b>Complementary to Climate Feed:</b> Climate = "what types of signals?" / Situation Board = "which theaters and how are they moving?" Same data, different analytical lens.</li>
-            <li><b>API:</b> <span class="code-block">GET /api/situation</span> (full board) / <span class="code-block">GET /api/situation/wire?theater=TW&amp;limit=50</span> (filtered wire).</li>
-        </ul>
-
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>8. 直感 UI — 識別先行意思決定（RPD）コンポーネント</h4>
@@ -2245,7 +2178,7 @@
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">アクセス方法</div>
-            <p style="font-size:11px; color:#aaa; margin:0;"><span class="code-block">TOOLS ▾</span> ドロップダウン（HUD 右上）でパネルを個別に有効化。<b>CORE</b>: Target Visibility / Live Threat Telemetry / Evidence Chain / Telegram SIGINT。<b>ANALYTICS</b>: Strategic Climate / Situation Board / Weather Brief / Historical Analog / GreyNoise / History Analysis / LLM Intelligence。<b>SIMULATION</b>: What-If Sim / SPOF Analysis。<b>ADMIN</b>: Sensor Heatmap / Sensor Manager / Admin Panel（シアンドット = アクティブ）。各パネルは ✕ で個別に閉じる。常時表示コンポーネント（Ambient Atmosphere / Radio Silence / Threat Terrain）はインタラクションなしに自動動作。<b>レポートボタングループ</b>（HUD右上、TOOLS横）: <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — 3つの主要出力モーダルへのワンクリックアクセス。SALUTEエクスポートはEvidence Modalフッターからもアクセス可能。<b>マップインタラクション</b>: 国マーカークリックでCountry Intelモーダルを開く。HUDの脅威レベル表示クリックでEvidenceパネルを開く（EVIDENCEボタンと同一）。</p>
+            <p style="font-size:11px; color:#aaa; margin:0;"><span class="code-block">TOOLS ▾</span> ドロップダウン（HUD 右上）でパネルを個別に有効化。<b>CORE</b>: Target Visibility / Attack Origin Feed / Evidence Chain / Telegram SIGINT。<b>ANALYTICS</b>: Strategic Climate / Weather Brief / GreyNoise / History Analysis / LLM Intelligence。<b>SIMULATION</b>: What-If Sim / SPOF Analysis。<b>ADMIN</b>: Sensor Heatmap / Sensor Manager / Admin Panel（シアンドット = アクティブ）。各パネルは ✕ で個別に閉じる。常時表示コンポーネント（Ambient Atmosphere / Radio Silence / Threat Terrain）はインタラクションなしに自動動作。<b>レポートボタングループ</b>（HUD右上、TOOLS横）: <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — 3つの主要出力モーダルへのワンクリックアクセス。SALUTEエクスポートはEvidence Modalフッターからもアクセス可能。<b>マップインタラクション</b>: 国マーカークリックでCountry Intelモーダルを開く。HUDの脅威レベル表示クリックでEvidenceパネルを開く（EVIDENCEボタンと同一）。</p>
         </div>
 
         <p><b>A. アンビエントアトモスフィア</b></p>
@@ -2273,16 +2206,6 @@
             </li>
         </ul>
 
-        <p><b>F. 歴史的パターンアナログ</b> — <span class="code-block">TOOLS ▾</span> → Historical Analog</p>
-        <ul>
-            <li>Pearson 相関を使用して現在の脅威スコア時系列（最新20サイクル）を5つの歴史的事例パターンと比較し、上位3つの一致を表示:
-                <ul style="font-size:11px; color:#aaa;">
-                    <li>🔴 ウクライナ侵攻2022 / 🟠 台湾海峡危機2022 / 🟡 イランシャットダウン2019 / 🔵 ジョージア〜ロシア2008 / ⬜ 平常ベースライン</li>
-                </ul>
-            </li>
-            <li>各カードには類似度％と、歴史的パターン（薄暗）対現在のパターン（シアン）のオーバーレイグラフを表示。Pearson ≥70% = 統計的に注目すべきパターン一致。<b>相関 ≠ 因果関係: これは意思決定支援ツールであり、予測ではない。</b></li>
-        </ul>
-
         <p><b>G. 無線沈黙インジケーター</b></p>
         <ul>
             <li><b>下部 HUD に常時表示。</b> 脅威スコアが有意（≥3 ポイント）であるが速度がゼロに近い状態を検出 — <span style="color:#ff8800;font-weight:bold;">QUIET</span> としてフラグ。<br>
@@ -2298,7 +2221,7 @@
         <ul>
             <li><b>シアターノイズ分類</b>: シアターごとの GreyNoise 分類を表示 — <span style="color:#00ff88;font-weight:bold;">TARGETED</span>（トラフィックが指向性を持ち、バックグラウンドスキャナーではない）、<span style="color:#ffaa00;font-weight:bold;">MIXED</span>、または <span style="color:#ff2200;font-weight:bold;">NOISE_DOMINANT</span>（≥70%インターネットバックグラウンドスキャントラフィック、サイバードメイン抑制）。<span class="code-block">GREYNOISE_API_KEY</span>（Enterprise GNQL）が必要。Enterprise キーなしの場合、分類は UNKNOWN を表示。</li>
             <li><b>IP インベスティゲーター（Community API）</b>: GreyNoise Community API 経由で任意の IPv4 アドレスを手動オンデマンド照会。返却値: ノイズフラグ（true = インターネット全体スキャナー）、riot フラグ（既知の無害なインフラ）、分類、エンティティ名、最終確認日。結果は IP ごとに24時間キャッシュ。レート制限: 50 req/day（Community プラン）。<span class="code-block">GREYNOISE_API_KEY</span>が必要。</li>
-            <li><b>調査ログ</b>: 直近20件の IP 照会のセッション履歴をブラウザの localStorage に保持。ライブ脅威テレメトリパネルで浮上した疑わしい送信元 IP のトリアージにこのパネルを使用。</li>
+            <li><b>調査ログ</b>: 直近20件の IP 照会のセッション履歴をブラウザの localStorage に保持。攻撃送信元フィードパネルで浮上した疑わしい送信元 IP のトリアージにこのパネルを使用。</li>
         </ul>
 
         <p><b>K. Telegram SIGINT</b> — <span class="code-block">CHAIN</span> パネル → Telegram Mirror 行の <b>SIGINT↗</b> ボタン</p>
@@ -2414,14 +2337,14 @@
 
         <p><b>VIII. ターゲット可視性パネル</b> — <span class="code-block">TOOLS ▾</span> → Target Visibility（CORE）</p>
         <ul>
-            <li><b>目的:</b> マップおよびリアルタイム脅威テレメトリパネルに表示する国/地域をトグル選択するクイック操作パネル。表示対象国はフォーカス中シナリオの participants から導出される（設定 → Scenarios）。</li>
+            <li><b>目的:</b> マップおよび攻撃送信元フィードパネルに表示する国/地域をトグル選択するクイック操作パネル。表示対象国はフォーカス中シナリオの participants から導出される（設定 → Scenarios）。</li>
             <li><b>操作:</b> フォーカス中シナリオの参加国ごとのチェックボックスグリッド。オン/オフでその国の脅威データをマップ・テレメトリ上に表示/非表示。状態はlocalStorageにセッション間で保持。</li>
             <li><b>ドッキング対応:</b> 左サイドバーにドッキングまたはフローティングパネルとして使用可能。</li>
         </ul>
 
-        <p><b>IX. リアルタイム脅威テレメトリ（ダッシュボード）</b> — <span class="code-block">TOOLS ▾</span> → Live Threat Telemetry（CORE）</p>
+        <p><b>IX. 攻撃送信元フィード（ダッシュボード）</b> — <span class="code-block">TOOLS ▾</span> → Attack Origin Feed（CORE）</p>
         <ul>
-            <li><b>目的:</b> 選択されたターゲットを攻撃しているすべてのアクティブDDoS送信元のリアルタイム脅威テレメトリを表示。主要な状況認識パネル — 各監視シアターの攻撃メトリクス、アクター帰属、ネットワーク状態を表示。</li>
+            <li><b>目的:</b> 選択されたターゲットを攻撃しているすべてのアクティブDDoS送信元のリアルタイム攻撃送信元フィードを表示。主要な状況認識パネル — 各監視シアターの攻撃メトリクス、アクター帰属、ネットワーク状態を表示。</li>
             <li><b>ターゲットグループヘッダー:</b> 各ターゲット国ブロックに表示:
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
                     <li>国コード + グローバルシェア%（L3/L7/Allベクター選択）</li>
@@ -2538,19 +2461,6 @@
             <li><b>API:</b> <span class="code-block">GET /api/climate</span>（全体状態）/ <span class="code-block">GET /api/climate/feed?axis=time&amp;limit=50</span>（フィルタ済みフィード）。</li>
         </ul>
 
-        <p><b>XV. 情勢ボード</b> — <span class="code-block">TOOLS ▾</span> → Situation Board</p>
-        <ul>
-            <li><b>目的:</b> シアター中心の状況認識。Climate Feedが指標タイプ別（時間/空間/対象）にシグナルを整理するのに対し、情勢ボードは同じデータをシアター軸で再投影し、「各シアターで何が起きているか？」を提示する。</li>
-            <li><b>方向性ベクトル:</b> 各シアターに対して算出された方向性: <b>ESCALATING ↑</b> / <b>STABLE →</b> / <b>DE-ESCALATING ↓</b>。GDELT論調トレンド、メディア集中度、航空変動、為替ストレス、Climate指標の収束から合成。最も活性化しているシアターが最上位にソートされる。</li>
-            <li><b>情勢メトリクス:</b> シアターごとのコンパクトな指標: 論調（GDELT現在値＋7日デルタ）、メディア（RSS z-score）、航空（ベースラインからの変化率%）、為替（z-score偏差）、活性Climate指標。</li>
-            <li><b>ワイヤー:</b> 各シアターのサマリ下に、全センサーからの観測事実をタイムスタンプ付きで表示。センサーデータから導出された一行ファクト。重要度でカラーコード: 定常（暗色）、注目（黄色）、重要（橙色）。</li>
-            <li><b>クロスシアター同期:</b> 30分以内に複数シアターで注目ワイヤーイベントが発生した場合、<b>SYNC</b>バッジが表示され、同時変化があった他のシアターを示す — 協調行動の可能性を示唆。</li>
-            <li><b>テンポラル密度:</b> 各シアターヘッダーのバーインジケーターが過去6時間のワイヤーイベント頻度とトレンド（上昇▲/下降▼/安定）を表示。密度が高い場合、状況が活発に変動中。</li>
-            <li><b>シアターフィルタ:</b> マルチセレクトチップトグルで特定のシアターに絞り込み。</li>
-            <li><b>Climate Feedとの補完関係:</b> Climate = 「どの種類のシグナルが出ているか」 / 情勢ボード = 「どのシアターがどう動いているか」。同じデータ、異なる分析レンズ。</li>
-            <li><b>API:</b> <span class="code-block">GET /api/situation</span>（全体ボード）/ <span class="code-block">GET /api/situation/wire?theater=TW&amp;limit=50</span>（フィルタ済みワイヤー）。</li>
-        </ul>
-
         <h5>H. Scenario Bar</h5>
         <ul>
             <li><b>Scenario cards</b> appear as a horizontal strip below the HUD. Each registered scenario has a card showing its name, score, TL (for focused), and domain activity dots (C/P/I).</li>
@@ -2655,10 +2565,7 @@
             <li><span class="code-block">GET /api/salute_report</span> — Generates a SALUTE-format contact report from current threat state. Used by the SALUTE Export modal (copy/download).</li>
             <li><span class="code-block">GET /api/climate</span> — Strategic Climate Feed: gauge level + event feed + calendar context. Indirect environmental indicators (media tempo, aviation rerouting, shipping anomalies, forex stress, narrative targeting, domain lookalike, search behavior).</li>
             <li><span class="code-block">GET /api/climate/feed?axis=time&amp;limit=50</span> — Filtered climate feed events. Axis: time/space/target/context.</li>
-            <li><span class="code-block">GET /api/situation</span> — Situation Board: per-theater situation summaries with direction vectors (ESCALATING/STABLE/DE-ESCALATING), metrics, and wire feed. Optional <span class="code-block">?theater=TW</span> filter.</li>
-            <li><span class="code-block">GET /api/situation/wire?theater=TW&amp;limit=50</span> — Filtered wire items. Factual one-liners from all sensors, organized by theater.</li>
             <li><span class="code-block">GET /api/weather_brief</span> — Maps sensor values to weather metaphors. Returns per-domain state, color, icon, and summary text. Used by the Weather Brief panel.</li>
-            <li><span class="code-block">GET /api/historical_events</span> — Returns the historical case pattern library from geo_data.json (5 reference fingerprints). Used by the Historical Analog panel.</li>
             <li><span class="code-block">GET /api/app_config</span> — Returns default settings, global monitored country list, and strategic bloc architecture. Includes: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span> (startup defaults), <span class="code-block">strategic_blocs</span> (4 blocs with sub-categories and theater lists), <span class="code-block">country_bloc_tags</span> (multi-threat country → blocs mapping), <span class="code-block">adversary_options</span> (5 adversary states: RU/CN/IR/KP/BY), <span class="code-block">available_countries</span> (full country list with code/name/region/lat/lng). Used for UI initialization on startup.</li>
             <li><span class="code-block">GET /api/scenarios</span> — List all registered scenarios with focused_scenario id. Returns merged Layer 1 (presets) + Layer 2 (DB customizations).</li>
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/breakdown</span> — Detailed scenario data: participants with weights and roles.</li>
@@ -2754,10 +2661,7 @@
             <li><span class="code-block">GET /api/salute_report</span> — 現在の脅威状態から SALUTE フォーマットの接触報告書を生成。SALUTEエクスポートモーダル（コピー/ダウンロード）で使用。</li>
             <li><span class="code-block">GET /api/climate</span> — 戦略的環境気候フィード: ゲージレベル + イベントフィード + 暦コンテキスト。間接的環境指標（メディアテンポ、航空迂回、商船異常、通貨ストレス、ナラティブ標的、ドメイン偽装、検索行動）。</li>
             <li><span class="code-block">GET /api/climate/feed?axis=time&amp;limit=50</span> — フィルタ済み環境気候フィードイベント。軸: time/space/target/context。</li>
-            <li><span class="code-block">GET /api/situation</span> — 情勢ボード: シアターごとの情勢サマリ、方向性ベクトル（ESCALATING/STABLE/DE-ESCALATING）、メトリクス、ワイヤーフィード。<span class="code-block">?theater=TW</span> でフィルタ可能。</li>
-            <li><span class="code-block">GET /api/situation/wire?theater=TW&amp;limit=50</span> — フィルタ済みワイヤーアイテム。全センサーからの事実情報をシアター別に整理。</li>
             <li><span class="code-block">GET /api/weather_brief</span> — センサー値を気象メタファーにマッピング。ドメインごとの状態、色、アイコン、サマリーテキストを返す。Weather Brief パネルで使用。</li>
-            <li><span class="code-block">GET /api/historical_events</span> — geo_data.json から歴史的事例パターンライブラリを返す（5つの参照フィンガープリント）。Historical Analog パネルで使用。</li>
             <li><span class="code-block">GET /api/app_config</span> — デフォルト設定、グローバル監視国リスト、戦略ブロックアーキテクチャを返す。含まれる内容: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span>（起動時デフォルト）、<span class="code-block">strategic_blocs</span>（サブカテゴリとシアターリスト付き4ブロック）、<span class="code-block">country_bloc_tags</span>（複数脅威国 → ブロックマッピング）、<span class="code-block">adversary_options</span>（5つの敵対国家: RU/CN/IR/KP/BY）、<span class="code-block">available_countries</span>（コード/名称/地域/緯度/経度付きの全国リスト）。起動時の UI 初期化に使用。</li>
             <li><span class="code-block">GET /api/scenarios</span> — 登録済み全シナリオと focused_scenario ID を返す。Layer 1（プリセット）+ Layer 2（DBカスタマイズ）のマージ結果。</li>
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/breakdown</span> — シナリオ詳細: 重みと役割を含む参加国情報。</li>

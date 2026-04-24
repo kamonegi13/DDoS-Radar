@@ -2273,7 +2273,7 @@ def get_threat_data():
             },
         }
         # Active theater set for frontend target filtering (Target Visibility,
-        # Live Threat Telemetry) and Situation Board. Derived entirely from the
+        # Attack Origin Feed). Derived entirely from the
         # focused scenario's participants (ADR-005). Exposed under strategic_alert
         # so the frontend can read it as strat.active_theaters.
         _active_theaters = set()

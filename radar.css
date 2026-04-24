@@ -1028,27 +1028,16 @@
         .s-crossref-label { color: #00ffff66; font-size: 8px; text-transform: uppercase; letter-spacing: 1px; margin-right: 6px; }
         .s-assess { margin-top: 8px; padding: 8px 10px; background: rgba(255,136,0,0.08); border-left: 2px solid #ff880055; border-radius: 0 4px 4px 0; font-size: 10px; color: #cc9966; line-height: 1.7; }
 
-        /* ── Intuition UI: Historical Analog ── */
-        #hist-analog-panel .panel-content { padding: 10px 12px; }
-        .ha-event-card { margin-bottom: 8px; padding: 7px 9px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 3px solid #444; }
-        .ha-event-name { font-size: 10px; font-weight: bold; margin-bottom: 3px; }
-        .ha-event-sim  { font-size: 9px; color: var(--color-muted); display: flex; justify-content: space-between; align-items: center; }
-        .ha-bar { height: 3px; background: #222; border-radius: 2px; margin-top: 5px; overflow: hidden; }
-        .ha-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s; }
-        .ha-canvas { width: 100%; height: 32px; display: block; border-radius: 2px; margin-top: 5px; background: var(--color-surface); }
-        .ha-note { font-size: 8px; color: #778; text-align: center; margin-top: 6px; letter-spacing: 1px; }
-
         /* ── Sidebar sort: drop indicator + dragging state ── */
         .sb-drop-indicator { height: 3px; background: #00ffff88; border-radius: 2px; margin: 2px 8px; flex-shrink: 0; pointer-events: none; }
         .sb-dragging { opacity: 0.45; pointer-events: none; }
 
         /* ── Floating color overrides for new panels ── */
         #weather-brief-panel.floating { background: rgba(8,10,16,0.97) !important; border-color: #1a2a3a !important; }
-        #hist-analog-panel.floating   { background: rgba(8,10,12,0.97) !important; border-color: #2a1a00 !important; }
 
         /* ── Left Sidebar ── */
         #left-sidebar { width: 280px; flex-shrink: 0; background: #121212; border-right: 1px solid #444; display: none; flex-direction: column; z-index: 10; box-shadow: 5px 0 20px rgba(0,0,0,0.5); overflow-y: auto; }
-        #lsb-ph-wx, #lsb-ph-ha { flex-shrink: 0; }
+        #lsb-ph-wx { flex-shrink: 0; }
 
         /* ── Intuition UI: TOOLS Dropdown Menu ── */
         .tools-dropdown-wrap { position: relative; margin-left: 8px; }
@@ -1377,36 +1366,6 @@
 .hud-climate-dot[data-level="WARMING"]    { background: #ffaa00; }
 .hud-climate-dot[data-level="HOT"]        { background: #ff6622; }
 .hud-climate-dot[data-level="FLASHPOINT"] { background: #ff2a2a; }
-/* ── Situation Board ───────────────────────────────────── */
-.sitboard-body { display: flex; flex-direction: column; max-height: 600px; }
-.sitboard-filter-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 10px; border-bottom: 1px solid #222; }
-.sitboard-chip { background: #111; color: #666; border: 1px solid #333; border-radius: 3px; font-size: 9px; padding: 2px 7px; cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; }
-.sitboard-chip:hover { color: #aaa; border-color: #555; }
-.sitboard-chip-active { color: var(--color-accent); border-color: rgba(0,255,255,0.3); background: rgba(0,255,255,0.06); }
-.sitboard-theaters { overflow-y: auto; flex: 1; }
-.sitboard-theater { border-bottom: 1px solid #1a1a1a; padding: 0; }
-.sitboard-theater-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px 4px; }
-.sitboard-theater-code { font-size: 13px; font-weight: bold; letter-spacing: 1px; color: #ddd; }
-.sitboard-direction { font-size: 10px; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; }
-.sit-esc .sitboard-direction { color: #ff6622; background: rgba(255,102,34,0.1); }
-.sit-deesc .sitboard-direction { color: #44cc66; background: rgba(68,204,102,0.1); }
-.sit-stable .sitboard-direction { color: #888; background: rgba(136,136,136,0.08); }
-.sitboard-dir-desc { font-size: 9px; color: #666; padding: 0 10px 4px; line-height: 1.3; }
-.sit-esc .sitboard-dir-desc { color: #aa7733; }
-.sit-deesc .sitboard-dir-desc { color: #55aa77; }
-.sitboard-metrics { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 2px 10px 6px; }
-.sitboard-metric { font-size: 9px; color: #999; background: #111; padding: 1px 5px; border-radius: 2px; border: 1px solid #222; white-space: nowrap; }
-.sitboard-metric-clm { color: var(--color-accent); border-color: rgba(0,255,255,0.15); }
-.sitboard-wire { border-top: 1px dashed #222; padding: 4px 0; }
-.sitboard-wire-item { display: flex; gap: 6px; padding: 2px 10px; font-size: 10px; line-height: 1.4; align-items: baseline; }
-.sitboard-wire-item:hover { background: rgba(255,255,255,0.02); }
-.sitboard-wire-ts { color: #555; font-size: 9px; white-space: nowrap; min-width: 52px; }
-.sitboard-wire-src { color: #666; font-size: 8px; letter-spacing: 0.5px; min-width: 44px; text-align: right; }
-.sitboard-wire-text { color: #aaa; }
-.sit-wire-note .sitboard-wire-text { color: #ccaa44; }
-.sit-wire-sig .sitboard-wire-text { color: #ff8844; }
-.sit-esc { border-left: 2px solid rgba(255,102,34,0.3); }
-.sit-deesc { border-left: 2px solid rgba(68,204,102,0.2); }
 /* ── Coordination Index: Constellation Pattern ───────────── */
 /* Constellation glow track (wide, dim, breathing) */
 .coord-glow { pointer-events: none; outline: none; animation: coordGlowBreathe 5s ease-in-out infinite; }

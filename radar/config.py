@@ -101,7 +101,6 @@ STRATEGIC_BLOCS: dict = {}               # bloc definitions for UI grouping
 COUNTRY_BLOC_TAGS: dict = {}             # country -> list of blocs (multi-threat countries)
 TACTICAL_KEYWORDS: dict = {}
 NARRATIVE_GEO_TERMS: dict = {}
-HISTORICAL_EVENTS: list = []
 CABLE_ROUTES: list = []
 THREAT_ACTOR_MAPPING:  dict = {}
 INFRASTRUCTURE_URLS:   dict = {}
@@ -120,7 +119,6 @@ try:
         COUNTRY_BLOC_TAGS   = geo_data.get("COUNTRY_BLOC_TAGS", {})
         TACTICAL_KEYWORDS   = geo_data.get("TACTICAL_KEYWORDS", {})
         NARRATIVE_GEO_TERMS = geo_data.get("NARRATIVE_GEO_TERMS", {})
-        HISTORICAL_EVENTS   = geo_data.get("HISTORICAL_EVENTS", [])
         CABLE_ROUTES        = geo_data.get("CABLE_ROUTES", [])
         THREAT_ACTOR_MAPPING   = geo_data.get("THREAT_ACTOR_MAPPING", {})
         INFRASTRUCTURE_URLS    = geo_data.get("INFRASTRUCTURE_URLS", {})

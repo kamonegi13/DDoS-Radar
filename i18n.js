@@ -136,12 +136,11 @@ const LANG = {
     // TOOLS dropdown
     // ══════════════════════════════════════════════════════════════
     'tools.target_visibility':        'Target Visibility',
-    'tools.live_threat_telemetry':    'Live Threat Telemetry',
+    'tools.live_threat_telemetry':    'Attack Origin Feed',
     'tools.evidence_chain':           'Evidence Chain',
     'tools.telegram_sigint':          'Telegram SIGINT',
     'tools.weather_brief':            'Weather Brief',
     'tools.salute_export':            'SALUTE Export',
-    'tools.historical_analog':        'Historical Analog',
     'tools.greynoise':                'GreyNoise',
 
     // ══════════════════════════════════════════════════════════════
@@ -159,9 +158,9 @@ const LANG = {
     'panel.target.hint':              'Participants of the focused scenario. Edit via Admin → Scenarios.',
 
     // ══════════════════════════════════════════════════════════════
-    // Panel — Live Threat Telemetry
+    // Panel — Attack Origin Feed
     // ══════════════════════════════════════════════════════════════
-    'panel.dashboard.title':          'Live Threat Telemetry',
+    'panel.dashboard.title':          'Attack Origin Feed',
     'panel.dashboard.waiting':        'Waiting for API telemetry...',
 
     // ══════════════════════════════════════════════════════════════
@@ -380,13 +379,6 @@ const LANG = {
     'panel.salute.btn_copy':          'Copy',
     'panel.salute.btn_download':      'Download',
     'panel.salute.cross_ref':         'CROSS-REF',
-
-    // ══════════════════════════════════════════════════════════════
-    // Panel — Historical Analog
-    // ══════════════════════════════════════════════════════════════
-    'panel.ha.title':                 'HISTORICAL ANALOG',
-    'ha.accumulating':                'Accumulating data...',
-    'ha.note':                        'PEARSON R — LAST 20 CYCLES vs KNOWN EVENTS',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Evidence Chain
@@ -829,47 +821,6 @@ const LANG = {
     'panel.climate.baseline_tooltip':     'Seasonal baseline level: exact=same weekday+time, hour=same time-of-day, all=flat average',
 
     // ══════════════════════════════════════════════════════════════
-    // Situation Board
-    // ══════════════════════════════════════════════════════════════
-    'tools.situation_board':              'Situation Board',
-    'panel.sitboard.title':               'SITUATION BOARD',
-    'panel.sitboard.loading':             'Loading situation data...',
-    'panel.sitboard.no_data':             'No situation data available yet',
-    'panel.sitboard.filter_all':          'ALL THEATERS',
-    'panel.sitboard.dir_escalating':      'ESCALATING',
-    'panel.sitboard.dir_stable':          'STABLE',
-    'panel.sitboard.dir_de_escalating':   'DE-ESCALATING',
-    'panel.sitboard.metric_tone':         'Media Tone',
-    'panel.sitboard.metric_media':        'State Media',
-    'panel.sitboard.metric_aviation':     'Civilian Aviation',
-    'panel.sitboard.metric_forex':        'Currency',
-    'panel.sitboard.metric_climate_active': 'Active indirect signals',
-    'panel.sitboard.dir_desc_esc':        'Multiple indicators trending toward heightened tension',
-    'panel.sitboard.dir_desc_deesc':      'Indicators suggest easing tension',
-    'panel.sitboard.dir_desc_stable':     'No significant directional change detected',
-    'panel.sitboard.clm_t2':             'Media Tempo',
-    'panel.sitboard.clm_t4':             'Search Trends',
-    'panel.sitboard.clm_s1':             'Aviation Rerouting',
-    'panel.sitboard.clm_s2':             'Shipping Anomaly',
-    'panel.sitboard.clm_s3':             'Forex Stress',
-    'panel.sitboard.clm_o1':             'Cert Surge',
-    'panel.sitboard.clm_o3':             'Narrative Shift',
-    'panel.sitboard.sync_tip':            'Simultaneous changes detected in',
-    'panel.sitboard.density_tip':         'Wire event frequency (6h)',
-    'panel.sitboard.tone_hostile':        'hostile',
-    'panel.sitboard.tone_negative':       'negative',
-    'panel.sitboard.tone_neutral':        'neutral',
-    'panel.sitboard.tone_positive':       'positive',
-    'panel.sitboard.above_normal':        'above normal',
-    'panel.sitboard.below_normal':        'below normal',
-    'panel.sitboard.fx_weakening':        'weakening',
-    'panel.sitboard.fx_strengthening':    'strengthening',
-    'panel.sitboard.tip_tone':            'GDELT global media tone index',
-    'panel.sitboard.tip_media':           'State-affiliated media publication rate vs baseline',
-    'panel.sitboard.tip_aviation':        'Civilian flight count change from baseline',
-    'panel.sitboard.tip_forex':           'Currency deviation from baseline',
-    'panel.sitboard.tip_climate':         'Active indirect indicators',
-
     // Evidence Panel: Contribution Waterfall & Counter-Signals
     'evidence.wf_bonus':                  'Convergence Bonus',
     'evidence.counter_signals':           'COUNTER-SIGNALS (normal readings)',
@@ -1459,12 +1410,11 @@ const LANG = {
     // TOOLS dropdown
     // ══════════════════════════════════════════════════════════════
     'tools.target_visibility':        'ターゲット可視性',
-    'tools.live_threat_telemetry':    'リアルタイム脅威テレメトリ',
+    'tools.live_threat_telemetry':    '攻撃送信元フィード',
     'tools.evidence_chain':           '証拠チェーン',
     'tools.telegram_sigint':          'Telegram SIGINT',
     'tools.weather_brief':            '気象ブリーフィング',
     'tools.salute_export':            'SALUTEエクスポート',
-    'tools.historical_analog':        '歴史的パターン類推',
     'tools.greynoise':                'GreyNoise',
 
     // ══════════════════════════════════════════════════════════════
@@ -1482,9 +1432,9 @@ const LANG = {
     'panel.target.hint':              '焦点シナリオの参加国。編集は管理画面 → Scenarios から。',
 
     // ══════════════════════════════════════════════════════════════
-    // Panel — Live Threat Telemetry
+    // Panel — Attack Origin Feed
     // ══════════════════════════════════════════════════════════════
-    'panel.dashboard.title':          'リアルタイム脅威テレメトリ',
+    'panel.dashboard.title':          '攻撃送信元フィード',
     'panel.dashboard.waiting':        'APIテレメトリ待機中...',
 
     // ══════════════════════════════════════════════════════════════
@@ -1703,13 +1653,6 @@ const LANG = {
     'panel.salute.btn_copy':          'コピー',
     'panel.salute.btn_download':      'ダウンロード',
     'panel.salute.cross_ref':         '相互参照',
-
-    // ══════════════════════════════════════════════════════════════
-    // Panel — Historical Analog
-    // ══════════════════════════════════════════════════════════════
-    'panel.ha.title':                 '歴史的パターン類推',
-    'ha.accumulating':                'データ蓄積中...',
-    'ha.note':                        'ピアソン相関係数 — 直近20サイクル vs 既知イベント',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Evidence Chain
@@ -2144,48 +2087,6 @@ const LANG = {
     'panel.climate.baseline_hour':        '時間帯',
     'panel.climate.baseline_all':         '全体',
     'panel.climate.baseline_tooltip':     '季節ベースライン: 完全一致=同曜日同時間帯, 時間帯=同時間帯全曜日, 全体=全履歴平均',
-
-    // ══════════════════════════════════════════════════════════════
-    // 情勢ボード
-    // ══════════════════════════════════════════════════════════════
-    'tools.situation_board':              '情勢ボード',
-    'panel.sitboard.title':               '情勢ボード',
-    'panel.sitboard.loading':             '情勢データを読み込み中...',
-    'panel.sitboard.no_data':             '情勢データはまだありません',
-    'panel.sitboard.filter_all':          '全シアター',
-    'panel.sitboard.dir_escalating':      'エスカレーション中',
-    'panel.sitboard.dir_stable':          '安定',
-    'panel.sitboard.dir_de_escalating':   'デエスカレーション中',
-    'panel.sitboard.metric_tone':         'メディア論調',
-    'panel.sitboard.metric_media':        '国営メディア',
-    'panel.sitboard.metric_aviation':     '民間航空',
-    'panel.sitboard.metric_forex':        '通貨',
-    'panel.sitboard.metric_climate_active': '活性化中の間接指標',
-    'panel.sitboard.dir_desc_esc':        '複数の指標が緊張の高まりを示唆',
-    'panel.sitboard.dir_desc_deesc':      '指標は緊張の緩和を示唆',
-    'panel.sitboard.dir_desc_stable':     '有意な方向性の変化なし',
-    'panel.sitboard.clm_t2':             'メディアテンポ',
-    'panel.sitboard.clm_t4':             '検索トレンド',
-    'panel.sitboard.clm_s1':             '航空回避',
-    'panel.sitboard.clm_s2':             '船舶異常',
-    'panel.sitboard.clm_s3':             '為替ストレス',
-    'panel.sitboard.clm_o1':             '証明書急増',
-    'panel.sitboard.clm_o3':             'ナラティブシフト',
-    'panel.sitboard.sync_tip':            '同時変化を検出：',
-    'panel.sitboard.density_tip':         'ワイヤーイベント頻度（6時間）',
-    'panel.sitboard.tone_hostile':        '敵対的',
-    'panel.sitboard.tone_negative':       'ネガティブ',
-    'panel.sitboard.tone_neutral':        '中立',
-    'panel.sitboard.tone_positive':       'ポジティブ',
-    'panel.sitboard.above_normal':        '通常以上',
-    'panel.sitboard.below_normal':        '通常以下',
-    'panel.sitboard.fx_weakening':        '下落',
-    'panel.sitboard.fx_strengthening':    '上昇',
-    'panel.sitboard.tip_tone':            'GDELTグローバルメディア論調指数',
-    'panel.sitboard.tip_media':           '国営メディア発行レート vs 基準値',
-    'panel.sitboard.tip_aviation':        '民間航空便数の基準値からの変化',
-    'panel.sitboard.tip_forex':           '通貨の基準値からの偏差',
-    'panel.sitboard.tip_climate':         '活性化中の間接指標',
 
     // エビデンスパネル：寄与率ウォーターフォール＆反証
     'evidence.wf_bonus':                  '収束ボーナス',

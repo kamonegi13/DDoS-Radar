@@ -410,7 +410,6 @@
                 panel.dataset.dirty = '';
                 const _dirtyMap = {
                     'weather-brief-panel': typeof renderWeatherBrief === 'function' ? renderWeatherBrief : null,
-                    'hist-analog-panel': typeof renderHistoricalAnalog === 'function' ? renderHistoricalAnalog : null,
                     'corr-heatmap-panel': typeof renderCorrHeatmap === 'function' ? renderCorrHeatmap : null,
                     'gn-panel': typeof updateGreyNoisePanel === 'function' ? () => updateGreyNoisePanel(window._lastThreatData) : null,
                 };
@@ -751,14 +750,12 @@
         { panelId: 'chain-panel',          dotId: 'tm-dot-chain', itemId: 'tm-item-chain' },
         { panelId: 'tg-sigint-panel',      dotId: 'tm-dot-tg',    itemId: 'tm-item-tg'    },
         { panelId: 'weather-brief-panel',  dotId: 'tm-dot-wx',    itemId: 'tm-item-wx'    },
-        { panelId: 'hist-analog-panel',    dotId: 'tm-dot-ha',    itemId: 'tm-item-ha'    },
         { panelId: 'gn-panel',             dotId: 'tm-dot-gn',    itemId: 'tm-item-gn'    },
         { panelId: 'history-panel',        dotId: 'tm-dot-hist',  itemId: 'tm-item-hist'  },
         { panelId: 'whatif-panel',         dotId: 'tm-dot-wif',   itemId: 'tm-item-wif'   },
         { panelId: 'spof-panel',           dotId: 'tm-dot-spof',  itemId: 'tm-item-spof'  },
         { panelId: 'corr-heatmap-panel', dotId: 'tm-dot-corr', itemId: 'tm-item-corr'  },
         { panelId: 'climate-panel',      dotId: 'tm-dot-climate', itemId: 'tm-item-climate' },
-        { panelId: 'sitboard-panel',     dotId: 'tm-dot-sitboard', itemId: 'tm-item-sitboard' },
         { panelId: 'llm-intel-panel',    dotId: 'tm-dot-llm',     itemId: 'tm-item-llm'     },
     ];
 
@@ -1135,13 +1132,11 @@
         { id: 'dashboard-panel',      ph: 'dashboard-placeholder' },
         { id: 'chain-panel',          ph: 'chain-placeholder'     },
         { id: 'weather-brief-panel',  ph: 'lsb-ph-wx'             },
-        { id: 'hist-analog-panel',    ph: 'lsb-ph-ha'             },
         { id: 'gn-panel',            ph: 'lsb-ph-gn'             },
         { id: 'tg-sigint-panel',      ph: 'lsb-ph-tg'             },
         { id: 'history-panel',        ph: 'lsb-ph-hist'           },
         { id: 'corr-heatmap-panel',  ph: 'lsb-ph-corr'           },
         { id: 'climate-panel',       ph: 'lsb-ph-climate'        },
-        { id: 'sitboard-panel',      ph: 'lsb-ph-sitboard'       },
         { id: 'llm-intel-panel',     ph: 'lsb-ph-llm'            },
         // Floating-only panels (no sidebar placeholder)
         { id: 'whatif-panel',        ph: null                     },
@@ -1151,7 +1146,7 @@
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
     let _sidebarOrder = {
         'sidebar':      ['target-panel', 'dashboard-panel', 'chain-panel'],
-        'left-sidebar': ['sitboard-panel', 'climate-panel', 'llm-intel-panel', 'weather-brief-panel', 'hist-analog-panel', 'gn-panel', 'tg-sigint-panel', 'history-panel', 'corr-heatmap-panel']
+        'left-sidebar': ['climate-panel', 'llm-intel-panel', 'weather-brief-panel', 'gn-panel', 'tg-sigint-panel', 'history-panel', 'corr-heatmap-panel']
     };
 
     // Re-order placeholder divs within a sidebar to match _sidebarOrder
@@ -1524,7 +1519,6 @@
     setupDockablePanel('chain-panel',         'chain-placeholder',     300);
     setupDockablePanel('weather-brief-panel', 'lsb-ph-wx',             420);
     // Floating-only panels (on-demand tools)
-    setupFloatingOnlyPanel('hist-analog-panel');
     setupFloatingOnlyPanel('gn-panel');
     setupFloatingOnlyPanel('tg-sigint-panel');
     setupFloatingOnlyPanel('history-panel');
@@ -1532,7 +1526,6 @@
     setupFloatingOnlyPanel('spof-panel');
     setupDockablePanel('corr-heatmap-panel', 'lsb-ph-corr',           340);
     setupDockablePanel('climate-panel',      'lsb-ph-climate',        380);
-    setupDockablePanel('sitboard-panel',     'lsb-ph-sitboard',       420);
     setupDockablePanel('llm-intel-panel',   'lsb-ph-llm',            440);
     updateSidebarVisibility();
 
@@ -2261,7 +2254,6 @@
 
         // Always update auxiliary panels regardless of data change (they fetch independently)
         if (window._updateClimateFromPoll) window._updateClimateFromPoll(data);
-        if (window._updateSitBoardFromPoll) window._updateSitBoardFromPoll();
         if (window._updateTgSigintFromPoll) window._updateTgSigintFromPoll(data);
         if (window._updateLlmIntelFromPoll) window._updateLlmIntelFromPoll();
 
@@ -2552,7 +2544,6 @@
             // Refresh open/visible panels only; mark hidden ones dirty for on-show render
             const _panelRenders = [
                 ['weather-brief-panel', renderWeatherBrief],
-                ['hist-analog-panel', renderHistoricalAnalog],
                 ['corr-heatmap-panel', renderCorrHeatmap],
             ];
             for (const [pid, fn] of _panelRenders) {
@@ -3876,8 +3867,6 @@
     //  Eight UI elements that appeal to the analyst's heuristics and intuition
     // ══════════════════════════════════════════════════════════════════════
 
-    let _histEvents     = []; // geo_data HISTORICAL_EVENTS cache
-
     // ── A. Ambient Atmosphere ──────────────────────────────────────────
     // Switch body class based on threat level → CSS keyframes subtly tint background
     function applyAmbientAtmosphere(threatLevel) {
@@ -4049,105 +4038,6 @@
         a.download = `SALUTE_${now.toISOString().slice(0,10)}_${now.toISOString().slice(11,16).replace(':','')}.txt`;
         a.click();
         URL.revokeObjectURL(a.href);
-    }
-
-    // ── F. Historical Pattern Analog ──────────────────────────────────
-    // Match current pattern against past confirmed cases using Pearson correlation
-    const toggleHistAnalog = _createPanelToggle('hist-analog-panel', { onShow: renderHistoricalAnalog });
-
-    async function renderHistoricalAnalog() {
-        const panel = document.getElementById('hist-analog-panel');
-        if (!panel || panel.style.display === 'none') return;
-        const bodyEl = panel.querySelector('.ha-body');
-        if (!bodyEl) return;
-
-        // Cache historical patterns (API fetch on first call only)
-        if (!_histEvents.length) {
-            try {
-                const res = await fetch(`/api/historical_events`);
-                const d   = await res.json();
-                _histEvents = (d.events || []).filter(e => e.id !== 'normal_baseline');
-            } catch(e) {}
-        }
-
-        if (!_histEvents.length || !latestData || !(latestData.threat_history || []).length) {
-            bodyEl.innerHTML = `<div style="color:#666;font-size:10px;text-align:center;">${_t('ha.accumulating')}</div>`;
-            return;
-        }
-
-        // Current pattern: last 20 cycles → normalized to 0(normal)–1(crisis)
-        const hist = latestData.threat_history || [];
-        const cur20 = hist.slice(-20).map(([, d]) => (5 - d) / 4);
-        while (cur20.length < 20) cur20.unshift(0);
-
-        // Match using Pearson correlation coefficient
-        function pearson(a, b) {
-            const n = a.length;
-            const ma = a.reduce((s, v) => s + v, 0) / n;
-            const mb = b.reduce((s, v) => s + v, 0) / n;
-            let num = 0, da = 0, db = 0;
-            for (let i = 0; i < n; i++) {
-                const ai = a[i] - ma, bi = b[i] - mb;
-                num += ai * bi; da += ai * ai; db += bi * bi;
-            }
-            return da * db > 0 ? num / Math.sqrt(da * db) : 0;
-        }
-
-        const matches = _histEvents.map(ev => ({
-            ...ev,
-            sim: Math.max(0, pearson(cur20, (ev.pattern || new Array(20).fill(0))))
-        })).sort((a, b) => b.sim - a.sim).slice(0, 3);
-
-        bodyEl.innerHTML = matches.map(ev => {
-            const pct = Math.round(ev.sim * 100);
-            const col = ev.color || '#666';
-            const cid = `ha-cv-${ev.id}`;
-            return `<div class="ha-event-card" style="border-left-color:${col}50;">
-                <div class="ha-event-name" style="color:${col};">${ev.label || ev.id}</div>
-                <div class="ha-event-sim">
-                    <span style="color:#888; font-size:9px;">${ev.short || ''}</span>
-                    <span style="color:${pct > 45 ? col : '#778'}; font-weight:${pct > 55 ? 'bold' : 'normal'};">${pct}%</span>
-                </div>
-                <div class="ha-bar"><div class="ha-bar-fill" style="width:${pct}%; background:${col};"></div></div>
-                <canvas id="${cid}" class="ha-canvas" width="241" height="32"></canvas>
-            </div>`;
-        }).join('') + `<div class="ha-note">${_t('ha.note')}</div>`;
-
-        // Draw mini-graph for each card (current=cyan, historical=dim color)
-        requestAnimationFrame(() => {
-            matches.forEach(ev => {
-                const cvs = document.getElementById(`ha-cv-${ev.id}`);
-                if (!cvs) return;
-                const ctx = cvs.getContext('2d');
-                const W = cvs.width, H = cvs.height;
-                ctx.clearRect(0, 0, W, H);
-                const col = ev.color || '#666';
-                const pat = ev.pattern || new Array(20).fill(0);
-                const n   = 20;
-
-                // Historical pattern (faint)
-                ctx.beginPath();
-                pat.forEach((v, i) => {
-                    const x = (i / (n-1)) * (W-2) + 1;
-                    const y = H - v * (H-4) - 2;
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                });
-                ctx.strokeStyle = col + '55';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-
-                // Current pattern (sharp)
-                ctx.beginPath();
-                cur20.forEach((v, i) => {
-                    const x = (i / (n-1)) * (W-2) + 1;
-                    const y = H - v * (H-4) - 2;
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                });
-                ctx.strokeStyle = '#00ffff77';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-            });
-        });
     }
 
     // ── G. Radio Silence Indicator ────────────────────────────────────
@@ -6832,207 +6722,6 @@
         }
     };
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // ██  SITUATION BOARD
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    let _sitboardSelectedTheaters = new Set(); // empty = show all
-    let _sitboardChipsBuilt = false;
-    let _sitboardData = null;
-
-    const toggleSitBoard = _createPanelToggle('sitboard-panel', { onShow: _fetchSitBoardData });
-    window.toggleSitBoard = toggleSitBoard;
-
-    function _fetchSitBoardData() {
-        fetch('/api/situation')
-            .then(r => r.json())
-            .then(data => {
-                _sitboardData = data;
-                _buildSitBoardChips(data);
-                _renderSitBoard(data);
-            })
-            .catch(e => console.warn('[SitBoard] fetch error:', e));
-    }
-
-    function _buildSitBoardChips(data) {
-        const row = document.getElementById('sitboard-filter-row');
-        if (!row) return;
-        const theaters = data.theaters || [];
-        if (!theaters.length) return;
-        // Check if theater set changed
-        const newCodes = theaters.map(t => t.theater).sort().join(',');
-        if (row.dataset.codes === newCodes) return;
-        row.dataset.codes = newCodes;
-        // Rebuild: keep ALL button, remove old chips
-        row.querySelectorAll('.sitboard-chip:not([data-code="ALL"])').forEach(c => c.remove());
-        theaters.forEach(t => {
-            const btn = document.createElement('button');
-            btn.className = 'sitboard-chip' + (_sitboardSelectedTheaters.has(t.theater) ? ' sitboard-chip-active' : '');
-            btn.dataset.code = t.theater;
-            btn.textContent = t.theater;
-            btn.title = t.theater_name || t.theater;
-            btn.onclick = function() { _sitboardToggleChip(this); };
-            row.appendChild(btn);
-        });
-    }
-
-    function _sitboardToggleChip(btn) {
-        const code = btn.dataset.code;
-        if (code === 'ALL') {
-            // Toggle ALL: clear selection = show all
-            _sitboardSelectedTheaters.clear();
-            document.querySelectorAll('#sitboard-filter-row .sitboard-chip').forEach(c => {
-                c.classList.toggle('sitboard-chip-active', c.dataset.code === 'ALL');
-            });
-        } else {
-            // Toggle individual theater
-            if (_sitboardSelectedTheaters.has(code)) {
-                _sitboardSelectedTheaters.delete(code);
-            } else {
-                _sitboardSelectedTheaters.add(code);
-            }
-            // Update chip styles
-            document.querySelectorAll('#sitboard-filter-row .sitboard-chip').forEach(c => {
-                if (c.dataset.code === 'ALL') {
-                    c.classList.toggle('sitboard-chip-active', _sitboardSelectedTheaters.size === 0);
-                } else {
-                    c.classList.toggle('sitboard-chip-active', _sitboardSelectedTheaters.has(c.dataset.code));
-                }
-            });
-        }
-        if (_sitboardData) _renderSitBoard(_sitboardData);
-    }
-    window._sitboardToggleChip = _sitboardToggleChip;
-
-    function _renderSitBoard(data) {
-        const container = document.getElementById('sitboard-theaters');
-        if (!container) return;
-        let theaters = data.theaters || [];
-        if (!theaters.length) {
-            container.innerHTML = `<div style="color:#666;font-size:10px;text-align:center;padding:20px 0;">${_t('panel.sitboard.no_data')}</div>`;
-            return;
-        }
-
-        // Filter by selected theaters (empty set = show all)
-        if (_sitboardSelectedTheaters.size > 0) {
-            theaters = theaters.filter(t => _sitboardSelectedTheaters.has(t.theater));
-        }
-        if (!theaters.length) {
-            container.innerHTML = `<div style="color:#666;font-size:10px;text-align:center;padding:20px 0;">${_t('panel.sitboard.no_data')}</div>`;
-            return;
-        }
-
-        // Direction description helpers
-        const _dirDesc = {
-            'ESCALATING':    _t('panel.sitboard.dir_desc_esc')    || 'Multiple indicators trending toward heightened tension',
-            'DE-ESCALATING': _t('panel.sitboard.dir_desc_deesc')  || 'Indicators suggest easing tension',
-            'STABLE':        _t('panel.sitboard.dir_desc_stable') || 'No significant directional change detected',
-        };
-
-        // Climate indicator readable names
-        const _clmLabels = {
-            T2: _t('panel.sitboard.clm_t2') || 'Media Tempo',
-            T4: _t('panel.sitboard.clm_t4') || 'Search Trends',
-            S1: _t('panel.sitboard.clm_s1') || 'Aviation Rerouting',
-            S2: _t('panel.sitboard.clm_s2') || 'Shipping Anomaly',
-            S3: _t('panel.sitboard.clm_s3') || 'Forex Stress',
-            O1: _t('panel.sitboard.clm_o1') || 'Cert Surge',
-            O3: _t('panel.sitboard.clm_o3') || 'Narrative Shift',
-        };
-
-        let html = '';
-        for (const t of theaters) {
-            const dir = t.direction || 'STABLE';
-            const dirClass = dir === 'ESCALATING' ? 'sit-esc'
-                           : dir === 'DE-ESCALATING' ? 'sit-deesc' : 'sit-stable';
-            const dirArrow = dir === 'ESCALATING' ? '\u2191'
-                           : dir === 'DE-ESCALATING' ? '\u2193' : '\u2192';
-            const dirLabel = _t(`panel.sitboard.dir_${dir.toLowerCase().replace('-', '_')}`) || dir;
-            const theaterLabel = t.theater_name ? `${t.theater_name} (${t.theater})` : t.theater;
-
-            html += `<div class="sitboard-theater ${dirClass}">`;
-
-            // Header: country name + direction + density indicator
-            html += `<div class="sitboard-theater-header">`;
-            html += `<span class="sitboard-theater-code">${_escHtml(theaterLabel)}</span>`;
-            // Temporal density indicator (wire events/6h)
-            if (t.wire_density_6h > 0) {
-                const maxBars = 5;
-                const filled = Math.min(t.wire_density_6h, maxBars);
-                const trendIcon = t.wire_density_trend === 'INCREASING' ? '\u25b2' : t.wire_density_trend === 'DECREASING' ? '\u25bc' : '';
-                const trendColor = t.wire_density_trend === 'INCREASING' ? 'var(--color-warning)' : t.wire_density_trend === 'DECREASING' ? 'var(--color-ok)' : '#666';
-                html += `<span class="sit-density" title="${_escAttr(_t('panel.sitboard.density_tip'))}: ${t.wire_density_6h} (${_escAttr(t.wire_density_trend || '')})">`;
-                for (let i = 0; i < maxBars; i++) {
-                    const h = 4 + i * 2;
-                    html += `<span class="sit-density-bar${i < filled ? ' active' : ''}" style="height:${h}px;"></span>`;
-                }
-                if (trendIcon) html += `<span class="sit-density-label" style="color:${trendColor};">${trendIcon}</span>`;
-                html += `</span>`;
-            }
-            html += `<span class="sitboard-direction ${dirClass}">${dirArrow} ${_escHtml(dirLabel)}</span>`;
-            html += `</div>`;
-
-            // Direction description
-            html += `<div class="sitboard-dir-desc">${_escHtml(_dirDesc[dir] || '')}</div>`;
-
-            // Metrics row — with full descriptions
-            html += `<div class="sitboard-metrics">`;
-            if (t.tone_current != null) {
-                const toneDir = t.tone_delta_7d != null ? (t.tone_delta_7d < 0 ? '\u25bc' : '\u25b2') : '';
-                const toneDelta = t.tone_delta_7d != null ? ` (7d ${toneDir}${Math.abs(t.tone_delta_7d).toFixed(1)})` : '';
-                const toneDesc = t.tone_current < -3 ? ` — ${_t('panel.sitboard.tone_hostile')}` : t.tone_current < -1 ? ` — ${_t('panel.sitboard.tone_negative')}` : t.tone_current < 1 ? ` — ${_t('panel.sitboard.tone_neutral')}` : ` — ${_t('panel.sitboard.tone_positive')}`;
-                html += `<span class="sitboard-metric" title="${_escAttr(_t('panel.sitboard.tip_tone'))}">${_t('panel.sitboard.metric_tone')} ${t.tone_current.toFixed(1)}${toneDesc}${toneDelta}</span>`;
-            }
-            if (t.media_concentration != null && t.media_concentration > 0.5) {
-                html += `<span class="sitboard-metric" title="${_escAttr(_t('panel.sitboard.tip_media'))}">${_t('panel.sitboard.metric_media')} ${t.media_concentration.toFixed(1)}\u03c3 ${_t('panel.sitboard.above_normal')}</span>`;
-            }
-            if (t.aviation_change_pct != null && Math.abs(t.aviation_change_pct) > 5) {
-                const avDesc = t.aviation_change_pct < 0 ? _t('panel.sitboard.below_normal') : _t('panel.sitboard.above_normal');
-                html += `<span class="sitboard-metric" title="${_escAttr(_t('panel.sitboard.tip_aviation'))}">${_t('panel.sitboard.metric_aviation')} ${Math.abs(t.aviation_change_pct).toFixed(0)}% ${avDesc}</span>`;
-            }
-            if (t.forex_z != null && Math.abs(t.forex_z) > 0.8) {
-                const fxDesc = t.forex_z > 0 ? _t('panel.sitboard.fx_weakening') : _t('panel.sitboard.fx_strengthening');
-                html += `<span class="sitboard-metric" title="${_escAttr(_t('panel.sitboard.tip_forex'))}">${_t('panel.sitboard.metric_forex')} ${Math.abs(t.forex_z).toFixed(1)}\u03c3 ${fxDesc}</span>`;
-            }
-            if (t.climate_indicators && t.climate_indicators.length > 0) {
-                const clmDesc = t.climate_indicators.map(c => _clmLabels[c] || c).join(', ');
-                html += `<span class="sitboard-metric sitboard-metric-clm" title="${_escAttr(_t('panel.sitboard.tip_climate'))}">${_t('panel.sitboard.metric_climate_active')}: ${clmDesc}</span>`;
-            }
-            html += `</div>`;
-
-            // Wire items
-            const wire = t.wire || [];
-            if (wire.length > 0) {
-                html += `<div class="sitboard-wire">`;
-                for (const w of wire) {
-                    const sevClass = w.severity >= 2 ? 'sit-wire-sig' : w.severity === 1 ? 'sit-wire-note' : '';
-                    html += `<div class="sitboard-wire-item ${sevClass}">`;
-                    html += `<span class="sitboard-wire-ts">${_fmtTs(w.ts_iso, w.ts)}</span>`;
-                    html += `<span class="sitboard-wire-src">${_escHtml(w.source)}</span>`;
-                    html += `<span class="sitboard-wire-text">${_escHtml(w.text)}`;
-                    // Cross-theater sync badge
-                    if (w.sync_theaters && w.sync_theaters.length > 0) {
-                        html += ` <span class="sit-sync-badge" title="${_escAttr(_t('panel.sitboard.sync_tip'))}: ${_escAttr(w.sync_theaters.join(', '))}">SYNC ${_escHtml(w.sync_theaters.join(', '))}</span>`;
-                    }
-                    html += `</span>`;
-                    html += `</div>`;
-                }
-                html += `</div>`;
-            }
-
-            html += `</div>`;
-        }
-        container.innerHTML = html;
-    }
-
-
-    window._updateSitBoardFromPoll = function() {
-        const panel = document.getElementById('sitboard-panel');
-        if (panel && panel.style.display !== 'none') {
-            _fetchSitBoardData();
-        }
-    };
-
     // ── Scenario Bar (Phase 4) ─────────────────────────────────────────
     let _scenarioFocusId = localStorage.getItem('radar_focused_scenario') || null;
 
@@ -7053,9 +6742,20 @@
         const ids = Object.keys(scenarios);
         if (ids.length === 0) { container.innerHTML = ''; return; }
 
+        // Sort: focused stays anchored at the left so analyst always sees their
+        // active scenario first. Background cards then sort by velocity_pts_per_hour
+        // descending — most operationally urgent (fastest-rising) at the top so
+        // analysts catch escalation candidates without scrolling. Missing/null
+        // velocity falls below all numeric values; ties break by id for stability.
+        const velOf = (sid) => {
+            const v = (scenarios[sid] || {}).velocity_pts_per_hour;
+            return (typeof v === 'number' && isFinite(v)) ? v : -Infinity;
+        };
         const sorted = ids.slice().sort((a, b) => {
             if (a === focusedId) return -1;
             if (b === focusedId) return 1;
+            const va = velOf(a), vb = velOf(b);
+            if (va !== vb) return vb - va;
             return a.localeCompare(b);
         });
 

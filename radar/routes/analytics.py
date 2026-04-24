@@ -5,7 +5,7 @@ import datetime
 from flask import jsonify, request
 from radar.config import (
     ADAPTIVE_ZSCORE_ENABLED, ADAPTIVE_ZSCORE_MIN_SAMPLES,
-    HISTORICAL_EVENTS, SEQUENCE_WINDOW,
+    SEQUENCE_WINDOW,
     C_MEDIUM_WINDOW_DAYS, C_MEDIUM_MISS_THRESHOLD,
     C_MEDIUM_DELTA_MISS, C_MEDIUM_MIN_SWITCHES,
     TL_RECALIBRATION_MIN_OBS, TL_RECALIBRATION_SKEW_THRESHOLD_PCT,
@@ -566,12 +566,6 @@ def api_weather_brief():
             "infra":    {"state": infra_state,  "detail": infra_desc},
         }
     })
-
-
-@bp.route("/api/historical_events", methods=["GET"])
-def api_historical_events():
-    """Return the HISTORICAL_EVENTS pattern library."""
-    return jsonify({"events": HISTORICAL_EVENTS})
 
 
 @bp.route("/api/ip_check", methods=["GET"])
