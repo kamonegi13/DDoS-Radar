@@ -1315,6 +1315,12 @@
 .llm-tri-no-scenario { background: rgba(255, 100, 100, 0.06); border-left-color: #ff6666; color: #ff8888; }
 .llm-tri-meta { display: flex; gap: 8px; margin-top: 4px; font-size: 9px; flex-wrap: wrap; }
 .llm-tri-cred { color: #888; cursor: help; }
+.llm-tri-cred-trusted    { color: #4cf09a; }
+.llm-tri-cred-standard   { color: #d8d8a0; }
+.llm-tri-cred-unverified { color: #ff8866; }
+.rat-prov { color: var(--color-accent); cursor: help; font-size: 10px; margin-left: 4px; }
+.sc-fresh { font-size: 9px; color: #889; padding: 1px 5px; border: 1px solid #2a3540; border-radius: 2px; margin-left: 4px; cursor: help; }
+.sc-fresh-stale { color: var(--color-warning); border-color: #5a4720; background: rgba(255,170,0,0.08); }
 .llm-tri-corr { color: #66ccaa; margin-left: auto; cursor: help; }
 .llm-tri-gate { padding: 1px 6px; border-radius: 2px; font-weight: bold; letter-spacing: 0.3px; cursor: help; }
 .llm-tri-gate-low_confidence       { color: #ffaa00; background: rgba(255, 170, 0, 0.10); }

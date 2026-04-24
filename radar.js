@@ -3543,8 +3543,24 @@
 
                 const _domain = e.domain || 'other';
                 const _hidden = _evCollapsedDomains.has(_domain);
+
+                // F1 provenance: sensor_chain shows other sensors that share this
+                // signal_source (corroborating sources). signal_source itself is
+                // the dedup key. Tooltip exposes both for analyst verification.
+                let provHtml = '';
+                if (e.signal_source) {
+                    const chain = Array.isArray(e.sensor_chain) ? e.sensor_chain : [];
+                    const chainLabel = chain.length > 0
+                        ? `+${chain.length}`
+                        : '·';
+                    const chainTip = chain.length > 0
+                        ? _t('evidence.prov.chain_tip', { src: e.signal_source, chain: chain.join(', ') })
+                        : _t('evidence.prov.solo_tip', { src: e.signal_source });
+                    provHtml = `<span class="rat-prov" title="${_escAttr(chainTip)}">⛓ ${esc(chainLabel)}</span>`;
+                }
+
                 return `<tr data-ev-domain="${esc(_domain)}"${_hidden ? ' style="display:none;"' : ''}>
-                    <td style="font-family:monospace; font-size:11px; color:#ccc;">${esc(e.sensor)} ${muteBtn}${classifyBtn}</td>
+                    <td style="font-family:monospace; font-size:11px; color:#ccc;">${esc(e.sensor)} ${provHtml}${muteBtn}${classifyBtn}</td>
                     <td><span class="rat-domain-${esc(e.domain)}">${esc(e.domain)}</span></td>
                     <td><span class="rat-status-${esc(e.status)}">${esc(e.status)}</span></td>
                     <td style="color:#fff; font-size:11px;">${esc(e.value)}</td>
@@ -6290,8 +6306,18 @@
                        + '⊘ ' + _escHtml(gateLabel) + gateExtra
                        + '</span>';
 
-        const credLine = '<span class="llm-tri-cred" title="' + _t('panel.llm_intel.triage_cred_tip') + '">'
-                       + 'CRED ' + (item.source_credibility || 0).toFixed(2)
+        // F3 source reliability: tier classification (trusted ≥0.75 = auto-confirm
+        // floor; standard 0.50–0.75; unverified <0.50). Badge color hints at how
+        // much weight the analyst should put on this single source alone.
+        const credVal = item.source_credibility || 0;
+        const credTier = credVal >= 0.75 ? 'trusted' : credVal >= 0.50 ? 'standard' : 'unverified';
+        const credTierLabel = _t('panel.llm_intel.cred_tier.' + credTier);
+        const sourceIdShort = item.source_id ? _escHtml(String(item.source_id).replace(/_/g, ' ')) : '';
+        const credLine = '<span class="llm-tri-cred llm-tri-cred-' + credTier + '" title="'
+                       + _escAttr(_t('panel.llm_intel.cred_tier_tip', { tier: credTierLabel, src: sourceIdShort, val: credVal.toFixed(2) }))
+                       + '">'
+                       + (credTier === 'trusted' ? '★ ' : credTier === 'standard' ? '◆ ' : '○ ')
+                       + 'CRED ' + credVal.toFixed(2)
                        + '</span>';
 
         let actions = '<button class="llm-btn llm-btn-raw" onclick="_llmToggleRaw(\'' + _escHtml(item.id) + '\')">' + _t('panel.llm_intel.btn_raw') + '</button>';
@@ -6879,6 +6905,17 @@
             html += `<span class="sc-trend ${trendCls}" title="${_escHtml(trendTip)}">${trendIcon}</span>`;
             html += etaHtml;
             html += liteTagHtml;
+
+            // F2 data freshness: chip turns warning when scenario score is built
+            // from cache older than 60s (config-aligned with TTL).
+            if (sc.data_freshness_sec != null) {
+                const fs = Math.max(0, Math.floor(sc.data_freshness_sec));
+                const fsLabel = fs < 60 ? `${fs}s` : `${Math.floor(fs / 60)}m`;
+                const stale = fs > 90;
+                const fcls = stale ? 'sc-fresh sc-fresh-stale' : 'sc-fresh';
+                html += `<span class="${fcls}" title="${_t('scenario.freshness_tip', { age: fsLabel })}">⏲ ${_escHtml(fsLabel)}</span>`;
+            }
+
             html += `</div>`;
             html += `</div>`;
         }
