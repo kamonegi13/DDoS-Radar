@@ -48,6 +48,14 @@ def save_conclusion(db: "RadarDB", c: Conclusion) -> None:
         conn.execute(_INSERT_SQL, c.to_db_row())
 
 
+_SELECT_COLS = (
+    "id, scenario_id, conclusion_type, state, confidence, "
+    "observed_at, formula_ref, threshold_ref, source_urls, "
+    "llm_prompt_sha256, calibration_status, "
+    "conclusion_unavailable_reason, metadata"
+)
+
+
 def latest_conclusion(
     db: "RadarDB",
     scenario_id: str,
@@ -57,17 +65,23 @@ def latest_conclusion(
     has no row yet. Used by API readers and round-trip tests.
     """
     row = db._get_conn().execute(  # noqa: SLF001
-        """
-        SELECT id, scenario_id, conclusion_type, state, confidence,
-               observed_at, formula_ref, threshold_ref, source_urls,
-               llm_prompt_sha256, calibration_status,
-               conclusion_unavailable_reason, metadata
-        FROM conclusions
-        WHERE scenario_id = ? AND conclusion_type = ?
-        ORDER BY observed_at DESC
-        LIMIT 1
-        """,
+        f"SELECT {_SELECT_COLS} FROM conclusions "
+        "WHERE scenario_id = ? AND conclusion_type = ? "
+        "ORDER BY observed_at DESC LIMIT 1",
         (scenario_id, conclusion_type.value),
+    ).fetchone()
+    if row is None:
+        return None
+    return _row_to_conclusion(row)
+
+
+def get_conclusion_by_id(db: "RadarDB", conclusion_id: str) -> Optional[Conclusion]:
+    """Fetch a single conclusion row by primary key. Returns None if absent.
+    Used by `/api/v2/conclusions/<id>` and the audit-trace endpoint.
+    """
+    row = db._get_conn().execute(  # noqa: SLF001
+        f"SELECT {_SELECT_COLS} FROM conclusions WHERE id = ?",
+        (conclusion_id,),
     ).fetchone()
     if row is None:
         return None

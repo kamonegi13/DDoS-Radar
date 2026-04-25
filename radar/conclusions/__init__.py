@@ -14,6 +14,7 @@ from radar.conclusions.base import (
     new_conclusion_id,
 )
 from radar.conclusions.persistence import (
+    get_conclusion_by_id,
     latest_conclusion,
     save_conclusion,
 )
@@ -25,4 +26,5 @@ __all__ = [
     "new_conclusion_id",
     "save_conclusion",
     "latest_conclusion",
+    "get_conclusion_by_id",
 ]

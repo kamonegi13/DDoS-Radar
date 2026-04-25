@@ -221,6 +221,11 @@ V2_NP7_DISCLAIMER = os.getenv(
 # and llm_call_log gains a prompt_sha256 link. Default off until Phase 2.
 V2_LLM_PROMPT_PERSISTENCE_ENABLED = os.getenv("V2_LLM_PROMPT_PERSISTENCE_ENABLED", "false").lower() in ("true", "1", "yes")
 
+# v2.0 API surface (/api/v2/...). Phase 1 read-only skeleton — endpoints serve
+# the latest rows from the conclusions ledger if present, or an explicit
+# "no conclusion yet" envelope otherwise. v1 API is unaffected.
+V2_API_ENABLED = os.getenv("V2_API_ENABLED", "false").lower() in ("true", "1", "yes")
+
 CF_HEADERS = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
 
 AIRSPACE_WINDOW             = int(os.getenv("AIRSPACE_WINDOW", "20"))
