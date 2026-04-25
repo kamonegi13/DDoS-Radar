@@ -2569,17 +2569,22 @@ class RadarDB:
     def llm_call_log_append(self, caller: str, model: str, duration_ms: int,
                             outcome: str, verdict: str = "",
                             confidence: float = 0.0, headline: str = "",
-                            error: str = ""):
-        """Persist a single LLM call attempt and its downstream queue verdict."""
+                            error: str = "", prompt_sha256: str = ""):
+        """Persist a single LLM call attempt and its downstream queue verdict.
+
+        prompt_sha256: optional FK to llm_prompts (ADR-V2-009). Empty string
+        when prompt persistence is disabled or persistence failed.
+        """
         import time as _time
         conn = self._get_conn()
         with conn.writing():
             conn.execute(
                 "INSERT INTO llm_call_log "
-                "(ts, caller, model, duration_ms, outcome, verdict, confidence, headline, error) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(ts, caller, model, duration_ms, outcome, verdict, confidence, headline, error, prompt_sha256) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (_time.time(), caller, model[:80], duration_ms, outcome,
-                 verdict, float(confidence), (headline or "")[:200], (error or "")[:300]),
+                 verdict, float(confidence), (headline or "")[:200], (error or "")[:300],
+                 prompt_sha256 or None),
             )
 
     def llm_call_stats(self, hours: int = 24) -> dict:

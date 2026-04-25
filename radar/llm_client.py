@@ -117,18 +117,37 @@ def _infer_caller() -> str:
 
 
 def _log_call(caller: str, duration_ms: int, outcome: str,
-              confidence: float = 0.0, headline: str = "", error: str = ""):
+              confidence: float = 0.0, headline: str = "", error: str = "",
+              prompt_sha256: str = ""):
     """Best-effort logging of an LLM call to llm_call_log.
-    Verdict (auto_confirmed/pending/discarded_*) is recorded later by intel_queue."""
+    Verdict (auto_confirmed/pending/discarded_*) is recorded later by intel_queue.
+    prompt_sha256 links the call to the persisted llm_prompts row (ADR-V2-009)."""
     try:
         from radar.database import db
         db.llm_call_log_append(
             caller=caller, model=LLM_MODEL, duration_ms=duration_ms,
             outcome=outcome, verdict="", confidence=confidence,
-            headline=headline, error=error,
+            headline=headline, error=error, prompt_sha256=prompt_sha256,
         )
     except Exception:
         pass  # never let observability break the main flow
+
+
+def _maybe_persist_prompt(prompt: str, system: str, temperature: float) -> str:
+    """v2.0 shadow-write: store the (system, prompt) pair, return its sha256.
+    Returns '' when V2_LLM_PROMPT_PERSISTENCE_ENABLED=False or storage failed.
+    Never raises — observability cannot break the LLM call path."""
+    try:
+        from radar import config
+        if not config.V2_LLM_PROMPT_PERSISTENCE_ENABLED:
+            return ""
+        from radar.database import db
+        from radar.llm_prompts import save_prompt
+        sha = save_prompt(db, prompt=prompt, system=system,
+                          model=LLM_MODEL, temperature=temperature)
+        return sha or ""
+    except Exception:
+        return ""
 
 
 def record_sensor_drop(reason: str, caller: str = "") -> None:
@@ -268,6 +287,9 @@ def llm_analyze_json(prompt: str, system: str = "",
         _log_call(caller, 0, "disabled", error="LLM_ENABLED=false")
         return {"ok": False, "data": {}, "error": "LLM_ENABLED=false"}
 
+    # v2.0 ADR-V2-009: persist (system, prompt) and capture sha256 for FK linking.
+    prompt_sha = _maybe_persist_prompt(prompt, system, temperature)
+
     # Use format="json" to force Ollama to output valid JSON regardless of model
     payload: dict = {
         "model": LLM_MODEL,
@@ -292,7 +314,7 @@ def llm_analyze_json(prompt: str, system: str = "",
         if res.status_code != 200:
             log.warning(f"[LLM] HTTP {res.status_code}: {res.text[:200]}")
             _log_call(caller, duration_ms, "http_error",
-                      error=f"HTTP {res.status_code}")
+                      error=f"HTTP {res.status_code}", prompt_sha256=prompt_sha)
             return {"ok": False, "data": {}, "error": f"HTTP {res.status_code}"}
         rj = res.json()
         # Some models (e.g. Qwen3.5) put output in "thinking" field instead of "response"
@@ -302,12 +324,12 @@ def llm_analyze_json(prompt: str, system: str = "",
     except requests.Timeout:
         duration_ms = int((time.time() - t0) * 1000)
         log.warning("[LLM] JSON request timed out")
-        _log_call(caller, duration_ms, "timeout", error="timeout")
+        _log_call(caller, duration_ms, "timeout", error="timeout", prompt_sha256=prompt_sha)
         return {"ok": False, "data": {}, "error": "timeout"}
     except Exception as e:
         duration_ms = int((time.time() - t0) * 1000)
         log.error(f"[LLM] JSON request error: {e}")
-        _log_call(caller, duration_ms, "exception", error=str(e))
+        _log_call(caller, duration_ms, "exception", error=str(e), prompt_sha256=prompt_sha)
         return {"ok": False, "data": {}, "error": str(e)}
 
     # Strip markdown code fences if present
@@ -323,6 +345,7 @@ def llm_analyze_json(prompt: str, system: str = "",
             caller, duration_ms, "ok",
             confidence=safe_float(data.get("confidence"), 0.0),
             headline=str(data.get("headline", ""))[:200],
+            prompt_sha256=prompt_sha,
         )
         return {"ok": True, "data": data}
     except json.JSONDecodeError:
@@ -336,11 +359,12 @@ def llm_analyze_json(prompt: str, system: str = "",
                     caller, duration_ms, "ok",
                     confidence=safe_float(data.get("confidence"), 0.0),
                     headline=str(data.get("headline", ""))[:200],
+                    prompt_sha256=prompt_sha,
                 )
                 return {"ok": True, "data": data}
             except json.JSONDecodeError:
                 pass
         log.warning(f"[LLM] JSON parse failed: {text[:200]}")
         _log_call(caller, duration_ms, "parse_failed",
-                  error=text[:200])
+                  error=text[:200], prompt_sha256=prompt_sha)
         return {"ok": False, "data": {}, "error": "json_parse_failed"}

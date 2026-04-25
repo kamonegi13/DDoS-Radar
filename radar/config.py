@@ -216,6 +216,11 @@ V2_NP7_DISCLAIMER = os.getenv(
     "Tool conclusion only — final judgment by organizational process.",
 )
 
+# v2.0 LLM prompt persistence (ADR-V2-009). Phase 1 shadow-write: every LLM
+# call's (system, prompt) pair is persisted to llm_prompts (sha256-deduped)
+# and llm_call_log gains a prompt_sha256 link. Default off until Phase 2.
+V2_LLM_PROMPT_PERSISTENCE_ENABLED = os.getenv("V2_LLM_PROMPT_PERSISTENCE_ENABLED", "false").lower() in ("true", "1", "yes")
+
 CF_HEADERS = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
 
 AIRSPACE_WINDOW             = int(os.getenv("AIRSPACE_WINDOW", "20"))
