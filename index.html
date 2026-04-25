@@ -411,6 +411,7 @@
         <div class="tab active" onclick="switchTab('sensors'); loadSensorConfig()" data-i18n="modal.settings.tab.sensors" data-role-min="analyst">Sensors</div>
         <div class="tab" onclick="switchTab('fetchlog'); loadFetchLog()" data-i18n="modal.settings.tab.fetchlog">Fetch Log</div>
         <div class="tab" onclick="switchTab('upstreams'); loadUpstreams()" data-i18n="modal.settings.tab.upstreams" data-role-min="analyst">Upstreams</div>
+        <div class="tab" onclick="switchTab('fleet'); loadFleetHealth()" data-i18n="modal.settings.tab.fleet" data-role-min="analyst">Fleet Health</div>
         <div class="tab" onclick="switchTab('scenarios'); loadScenarioManager()" data-i18n="scenario.tab.scenarios" data-role-min="admin">Scenarios</div>
         <div class="tab" onclick="switchTab('sysconfig'); loadEnvConfig()" data-i18n="modal.settings.tab.sysconfig" data-role-min="admin">System</div>
         <div class="tab" onclick="switchTab('users'); umgrLoadUsers()" data-i18n="modal.settings.tab.users">Users</div>
@@ -450,6 +451,32 @@
                 </div>
                 <div id="upstreams-container" style="flex:1;min-height:0;overflow-y:auto;">
                     <div style="color:#555;font-size:13px;" data-i18n="modal.upstreams.loading">Loading...</div>
+                </div>
+            </div>
+            <div id="tab-fleet" class="tab-content">
+                <div class="help-text">
+                    <span data-i18n="modal.fleet.help">Per-sensor fleet status: circuit-breaker state, cache freshness, recent reliability, last error. Surfaces the same /api/admin/sensor_health data the HUD dots summarize, with full per-sensor detail and quota/rate-limit visibility.</span>
+                </div>
+                <div style="margin-bottom:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                    <button onclick="loadFleetHealth()" class="btn-tactical" style="margin-left:0;" data-i18n="modal.fleet.refresh_btn">↻ Refresh</button>
+                    <span style="font-size:11px;color:#666;margin-left:6px;" data-i18n="modal.fleet.window_label">Window:</span>
+                    <select id="fleet-window-hours" onchange="loadFleetHealth()" class="btn-tactical" style="font-size:11px;">
+                        <option value="1">1h</option>
+                        <option value="24" selected>24h</option>
+                        <option value="168">7d</option>
+                    </select>
+                    <span style="font-size:11px;color:#666;margin-left:6px;" data-i18n="modal.fleet.filter_label">Domain:</span>
+                    <select id="fleet-domain-filter" onchange="_renderFleetCached()" class="btn-tactical" style="font-size:11px;">
+                        <option value="all" data-i18n="modal.fleet.filter.all">All</option>
+                        <option value="cyber">Cyber</option>
+                        <option value="physical">Physical</option>
+                        <option value="info">Info</option>
+                    </select>
+                    <span id="fleet-ts" style="font-size:11px;color:#555;margin-left:auto;"></span>
+                </div>
+                <div id="fleet-summary" style="font-size:11px;color:#888;margin-bottom:8px;"></div>
+                <div id="fleet-container" style="flex:1;min-height:0;overflow-y:auto;">
+                    <div style="color:#555;font-size:13px;" data-i18n="modal.fleet.loading">Loading...</div>
                 </div>
             </div>
             <div id="tab-sysconfig" class="tab-content">

@@ -4726,6 +4726,106 @@
         }
     }
 
+    // ── Fleet Health (admin tab) ─────────────────────────────────────────────
+    let _fleetCache = null;
+    function _fleetFmtAge(sec) {
+        if (sec == null) return _t('fleet.never_fetched');
+        if (sec < 60) return `${Math.round(sec)}s`;
+        if (sec < 3600) return `${Math.round(sec/60)}m`;
+        if (sec < 86400) return `${Math.round(sec/3600)}h`;
+        return `${Math.round(sec/86400)}d`;
+    }
+    function _fleetHealthColor(h) {
+        if (h === 'OK') return 'var(--color-ok)';
+        if (h === 'DEGRADED' || h === 'STALE') return 'var(--color-warning)';
+        if (h === 'ERROR' || h === 'CIRCUIT_OPEN' || h === 'CIRCUIT_OPEN_PERSISTENT') return 'var(--color-severe)';
+        return 'var(--color-muted)';
+    }
+    function _fleetCbBadge(state) {
+        if (!state || state === 'closed') return `<span style="color:var(--color-ok);">${_t('fleet.cb.closed')}</span>`;
+        if (state === 'half_open' || state === 'half-open') return `<span style="color:var(--color-warning);">${_t('fleet.cb.half_open')}</span>`;
+        if (state === 'open') return `<span style="color:var(--color-severe);font-weight:bold;">${_t('fleet.cb.open')}</span>`;
+        return `<span style="color:var(--color-muted);">${esc(state)}</span>`;
+    }
+    function _renderFleetCached() {
+        if (!_fleetCache) return;
+        const container = document.getElementById('fleet-container');
+        const summaryEl = document.getElementById('fleet-summary');
+        const filter = document.getElementById('fleet-domain-filter')?.value || 'all';
+        const sensors = (_fleetCache.sensors || [])
+            .filter(s => filter === 'all' || s.domain === filter)
+            .slice()
+            .sort((a, b) => (a.domain || '').localeCompare(b.domain || '') || a.name.localeCompare(b.name));
+        const sm = _fleetCache.summary || {};
+        if (summaryEl) {
+            summaryEl.textContent = _t('fleet.summary', {
+                total: sm.total || 0, ok: sm.ok || 0, degraded: sm.degraded || 0,
+                stale: sm.stale || 0, err: sm.error || 0,
+                cb: sm.circuit_open || 0, off: sm.disabled || 0,
+            });
+        }
+        if (!sensors.length) {
+            container.innerHTML = `<div style="color:#555;font-size:13px;">${_t('fleet.empty_filter')}</div>`;
+            return;
+        }
+        const rows = sensors.map(s => {
+            const hCol = _fleetHealthColor(s.health);
+            const rel = s.reliability || {};
+            const successPct = rel.success_rate != null ? `${(rel.success_rate * 100).toFixed(1)}%` : '—';
+            const totalFetches = rel.total_fetches || 0;
+            const avgMs = rel.avg_duration_ms ? `${Math.round(rel.avg_duration_ms)}ms` : '—';
+            const cbFails = s.cb_fail_count || 0;
+            const lastErr = s.last_error || _t('fleet.no_error');
+            const errCol = s.last_error ? '#ff8888' : '#666';
+            const upstream = s.upstream;
+            let upstreamSection = '';
+            if (upstream && !upstream.error && upstream.sources) {
+                const srcDots = Object.entries(upstream.sources).map(([n, h]) => {
+                    const c = _statusColor ? _statusColor(h.status) : '#888';
+                    return `<span title="${esc(n)}: ${esc(h.status || '?')}" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:3px;"></span>`;
+                }).join('');
+                upstreamSection = `<div style="margin-top:6px;font-size:10px;color:#666;">↳ upstream (${esc(upstream.status || '?')}): ${srcDots}</div>`;
+            }
+            return `
+            <div style="margin-bottom:8px;padding:8px 10px;background:#0e0e10;border:1px solid #1c1c20;border-left:3px solid ${hCol};border-radius:3px;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <span style="font-weight:bold;color:#eee;font-size:12px;min-width:160px;">${esc(s.name)}</span>
+                    <span style="font-size:9px;padding:1px 5px;border-radius:2px;background:#1a1a20;color:#888;">${esc((s.domain || '?').toUpperCase())}</span>
+                    <span style="font-size:9px;padding:1px 5px;border-radius:2px;background:#0a0a14;color:#88a;">${esc(s.tier || 'GLOBAL')}</span>
+                    <span style="font-size:11px;color:${hCol};font-weight:bold;">${esc(s.health || '?')}</span>
+                    <span style="font-size:10px;color:#666;">CB: ${_fleetCbBadge(s.cb_state)}${cbFails > 0 ? ` <span style="color:#ff8800;">(${cbFails} fails)</span>` : ''}</span>
+                    <span style="margin-left:auto;font-size:10px;color:#555;">poll ${Math.round((s.poll_interval_sec||0)/60)}m</span>
+                </div>
+                <div style="display:flex;gap:14px;font-size:10px;color:#888;margin-top:5px;flex-wrap:wrap;">
+                    <span><span style="color:#555;">${_t('fleet.col.cache_age')}:</span> <b style="color:#bbb;">${_fleetFmtAge(s.cache_age_sec)}</b></span>
+                    <span><span style="color:#555;">${_t('fleet.col.reliability')} (${totalFetches}):</span> <b style="color:#bbb;">${successPct}</b> @ ${avgMs}</span>
+                    ${s.enabled ? '' : '<span style="color:#666;">[disabled]</span>'}
+                </div>
+                <div style="font-size:10px;color:${errCol};margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(lastErr)}">
+                    <span style="color:#555;">${_t('fleet.col.last_error')}:</span> ${esc(lastErr)}
+                </div>
+                ${upstreamSection}
+            </div>`;
+        }).join('');
+        container.innerHTML = rows;
+    }
+    window._renderFleetCached = _renderFleetCached;
+    async function loadFleetHealth() {
+        const container = document.getElementById('fleet-container');
+        const tsEl = document.getElementById('fleet-ts');
+        const hours = document.getElementById('fleet-window-hours')?.value || '24';
+        try {
+            const res = await fetch(`/api/admin/sensor_health?hours=${encodeURIComponent(hours)}`, { headers: _adminHeaders() });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            _fleetCache = await res.json();
+            if (tsEl) tsEl.textContent = _t('fleet.last_refreshed', { time: new Date().toLocaleTimeString() });
+            _renderFleetCached();
+        } catch (e) {
+            container.innerHTML = `<div style="color:#ff2a2a;">${_t('fleet.load_error', { msg: e.message })}</div>`;
+        }
+    }
+    window.loadFleetHealth = loadFleetHealth;
+
     // ── Admin headers helper ─────────────────────────────────────────────────────
     function _adminHeaders(extra = {}) {
         return { ...extra };
