@@ -1093,6 +1093,20 @@ def get_threat_data():
                 _seq_fire(core_theater, "ISR_SURGE",
                                         {"count": isr_count, "hotspots": core_isr.get("hotspots", [])},
                                         scenario_id=focused_id)
+            # ADR-009 stage 2: per-country symmetric ISR_SURGE for
+            # secondary belligerents. ISR build-up over the secondary's
+            # territory is its own escalation signal, distinct from the
+            # primary's. _isr_active gates the secondary path too.
+            if _isr_active and secondary_ecs:
+                for sec_ec in secondary_ecs:
+                    sec_isr = isr_data.get(sec_ec, {})
+                    if sec_isr.get("is_surge"):
+                        register_sequence_event(
+                            sec_ec, "ISR_SURGE",
+                            {"count": sec_isr.get("count", 0),
+                             "hotspots": sec_isr.get("hotspots", [])},
+                            dedup_window=300, scenario_id=focused_id,
+                        )
 
         # AIS maritime anomaly
         if ais_maritime_sensor and ais_maritime_sensor.enabled:
@@ -1110,6 +1124,25 @@ def get_threat_data():
                 _seq_fire(core_theater, "AIS_DARK_GAP",
                                         {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)},
                                         scenario_id=focused_id)
+            # ADR-009 stage 2: per-country symmetric AIS_DARK_GAP for
+            # secondary belligerents. Chokepoint dark gaps adjacent to
+            # the secondary's territory belong on its escalation chain.
+            # The global ais_has_anomaly path already fired for primary
+            # — secondary firing only triggers when chokepoint hits map
+            # to its own country to avoid double-counting global noise.
+            if _ais_active and secondary_ecs:
+                for sec_ec in secondary_ecs:
+                    sec_gaps = [g for g in ais_dark_gaps if any(
+                        cp["country"] == sec_ec for cp in CHOKEPOINTS
+                        if cp["name"] == g.get("chokepoint")
+                    )]
+                    if sec_gaps:
+                        register_sequence_event(
+                            sec_ec, "AIS_DARK_GAP",
+                            {"dark_gaps": len(sec_gaps),
+                             "stationary": len(ais_stationary)},
+                            dedup_window=300, scenario_id=focused_id,
+                        )
 
         # FIRMS → register Sequence Event (gated by add_rat suppression check)
         if has_firms_core and _firms_active:
@@ -1452,6 +1485,17 @@ def get_threat_data():
                 _seq_fire(core_theater, "NOTAM_SURGE",
                                         {"total": _notam_total, "military": _notam_mil},
                                         scenario_id=focused_id)
+            # ADR-009 stage 2: per-country symmetric NOTAM_SURGE.
+            if _notam_active and secondary_ecs:
+                for sec_ec in secondary_ecs:
+                    sec_notam = notam_data.get(sec_ec, {})
+                    if sec_notam.get("is_surge"):
+                        register_sequence_event(
+                            sec_ec, "NOTAM_SURGE",
+                            {"total": sec_notam.get("total", 0),
+                             "military": sec_notam.get("military", 0)},
+                            dedup_window=300, scenario_id=focused_id,
+                        )
 
         # ── Phase C: S2 Travel Advisory rationale ────────────────────────────
         _travel_core = travel_advisories.get(core_theater, {})
@@ -1507,6 +1551,18 @@ def get_threat_data():
                 _seq_fire(core_theater, "CENSORSHIP_DETECTED",
                                         {"source": "ooni", "anomaly_rate": _ooni_anomaly_rate},
                                         scenario_id=focused_id)
+            # ADR-009 stage 2: per-country symmetric CENSORSHIP_DETECTED
+            # for OONI heavy-censorship signals on the secondary's territory.
+            if _ooni_active and secondary_ecs:
+                for sec_ec in secondary_ecs:
+                    sec_ooni = ooni_data.get(sec_ec, {})
+                    if sec_ooni.get("is_heavy"):
+                        register_sequence_event(
+                            sec_ec, "CENSORSHIP_DETECTED",
+                            {"source": "ooni",
+                             "anomaly_rate": sec_ooni.get("anomaly_rate", 0)},
+                            dedup_window=300, scenario_id=focused_id,
+                        )
 
         # ── Phase C: S4 USGS Seismic rationale ──────────────────────────────
         _seismic_cable = seismic_data.get("has_cable_threat", False)
@@ -1565,6 +1621,23 @@ def get_threat_data():
                 _seq_fire(core_theater, "MIL_AIR_SURGE",
                                         {"tanker": _mil_tanker, "transport": _mil_transport, "awacs": _mil_awacs},
                                         scenario_id=focused_id)
+            # ADR-009 stage 2: per-country symmetric MIL_AIR_SURGE.
+            # Tanker/transport/AWACS build-up over the secondary's
+            # airspace is its own escalation signal.
+            if _mil_active and secondary_ecs:
+                for sec_ec in secondary_ecs:
+                    sec_mil = mil_air_data.get(sec_ec, {})
+                    sec_fired = (sec_mil.get("is_tanker_surge")
+                                 or sec_mil.get("is_transport_surge")
+                                 or sec_mil.get("is_awacs_active"))
+                    if sec_fired:
+                        register_sequence_event(
+                            sec_ec, "MIL_AIR_SURGE",
+                            {"tanker": sec_mil.get("tanker", 0),
+                             "transport": sec_mil.get("transport", 0),
+                             "awacs": sec_mil.get("awacs", 0)},
+                            dedup_window=300, scenario_id=focused_id,
+                        )
 
         # ── Phase C: S6 GPS Jamming rationale ────────────────────────────────
         _gps_core = gps_jam_data.get(core_theater, {})
