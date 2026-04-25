@@ -1146,51 +1146,58 @@
     </div>
     <div class="panel-content">
         <div id="chain-seq-badge" class="chain-seq-badge chain-seq-NONE" data-i18n="panel.chain.no_events">NO EVENTS</div>
-        <div id="chain-events" style="margin-top:10px;"></div>
-        <div style="margin-top:10px;padding-top:8px;border-top:1px solid #222;">
-            <div style="color:#555;font-size:9px;text-align:center;" data-i18n="panel.chain.24h_window">24h WINDOW — LOOSELY ORDERED</div>
-            <div class="chain-metric" data-chain-type="NARRATIVE_BURST" style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;padding:2px 4px;border-radius:3px;">
-                <span style="color:#cc66ff;font-size:10px;" data-i18n="panel.chain.narrative_z">Narrative Z</span>
-                <span id="ev-narrative-z" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
-            </div>
-            <div class="chain-metric" data-chain-type="ISR_SURGE" style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:2px 4px;border-radius:3px;">
-                <span style="color:#ffaa00;font-size:10px;" data-i18n="panel.chain.isr_aircraft">ISR Aircraft</span>
-                <span id="ev-isr-count" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
-            </div>
-            <div class="chain-metric" data-chain-type="AIS_DARK_GAP" style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:2px 4px;border-radius:3px;">
-                <span style="color:#44aaff;font-size:10px;" data-i18n="panel.chain.ais_dark_gaps">AIS Dark Gaps</span>
-                <span id="ev-ais-gaps" style="color:#ddd;font-size:11px;font-weight:bold;">—</span>
-            </div>
-            <!-- v9 metrics -->
-            <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1a1a1a;">
-                <div style="color:#444;font-size:9px;margin-bottom:4px;" data-i18n="panel.chain.v9_intel">── v9 INTELLIGENCE ──</div>
-                <div class="chain-metric" data-chain-type="TELEGRAM_INTENT" style="display:flex;justify-content:space-between;align-items:center;padding:2px 4px;border-radius:3px;">
-                    <span style="color:#ff66cc;font-size:10px;" data-i18n="panel.chain.telegram_mirror">Telegram Mirror</span>
-                    <span style="display:flex;align-items:center;gap:6px;">
-                        <span id="ev-telegram-intent" style="color:#555;font-size:11px;font-weight:bold;">—</span>
-                        <span class="icon-btn" onclick="openTgSigint()" data-tooltip="Open SIGINT Panel" style="font-size:9px;color:#ff66cc66;padding:1px 5px;border-color:#ff66cc33;" data-i18n="panel.chain.sigint_open" data-i18n-tip="panel.chain.sigint_tooltip">SIGINT↗</span>
-                    </span>
-                </div>
-                <div class="chain-metric" data-chain-type="INFRA_BLACKOUT" style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:2px 4px;border-radius:3px;">
-                    <span style="color:#00ff88;font-size:10px;" data-i18n="panel.chain.infra_survival">Infra Survival</span>
-                    <span id="ev-checkhost-status" style="color:#555;font-size:11px;font-weight:bold;">—</span>
-                </div>
-                <div class="chain-metric" data-chain-type="C2_SYNC" style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:2px 4px;border-radius:3px;">
-                    <span style="color:#ffffff;font-size:10px;" data-i18n="panel.chain.c2_sync">C2 Sync</span>
-                    <span id="ev-c2sync-detail" style="color:#555;font-size:11px;font-weight:bold;">—</span>
-                </div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-                    <span style="color:#aa88ff;font-size:10px;" data-i18n="panel.chain.llm_intel">LLM Intel</span>
-                    <span id="ev-llm-intel" style="color:#555;font-size:11px;font-weight:bold;" data-tooltip="">—</span>
-                </div>
-            </div>
-            <!-- v9: CheckHost URL detail -->
-            <div id="chain-checkhost-detail" style="display:none;margin-top:8px;padding:6px 8px;background:#060a06;border:1px solid #00ff8822;border-radius:3px;"></div>
-            <!-- v9: Telegram channel detail -->
-            <div id="chain-telegram-detail" style="display:none;margin-top:6px;padding:6px 8px;background:#0a0614;border:1px solid #ff66cc22;border-radius:3px;"></div>
-            <!-- Maskirovka alert -->
-            <div id="chain-maskirovka" style="display:none;margin-top:8px;padding:6px 8px;background:#1a0800;border:1px solid #ff8800;border-radius:3px;font-size:10px;"></div>
+        <div id="chain-events" style="margin-top:8px;"></div>
+        <!-- v8 metric group -->
+        <div class="chain-section-divider">
+            <span data-i18n="panel.chain.24h_window">24h WINDOW — LOOSELY ORDERED</span>
+            <span class="chain-group-toggle" data-chain-group="v8" data-tooltip="Toggle v8 group" data-i18n-tip="panel.chain.toggle_group">▾</span>
         </div>
+        <div class="chain-metric-grid chain-metric-grid-v8" id="chain-metrics-v8">
+            <div class="chain-metric" data-chain-type="NARRATIVE_BURST">
+                <span class="cm-label" style="color:#cc66ff;" data-i18n="panel.chain.narrative_z">Narrative Z</span>
+                <span class="cm-value" id="ev-narrative-z">—</span>
+            </div>
+            <div class="chain-metric" data-chain-type="ISR_SURGE">
+                <span class="cm-label" style="color:#ffaa00;" data-i18n="panel.chain.isr_aircraft">ISR Aircraft</span>
+                <span class="cm-value" id="ev-isr-count">—</span>
+            </div>
+            <div class="chain-metric" data-chain-type="AIS_DARK_GAP">
+                <span class="cm-label" style="color:#44aaff;" data-i18n="panel.chain.ais_dark_gaps">AIS Dark Gaps</span>
+                <span class="cm-value" id="ev-ais-gaps">—</span>
+            </div>
+        </div>
+        <!-- v9 metric group -->
+        <div class="chain-section-divider">
+            <span data-i18n="panel.chain.v9_intel">── v9 INTELLIGENCE ──</span>
+            <span class="chain-group-toggle" data-chain-group="v9" data-tooltip="Toggle v9 group" data-i18n-tip="panel.chain.toggle_group">▾</span>
+        </div>
+        <div class="chain-metric-grid chain-metric-grid-v9" id="chain-metrics-v9">
+            <div class="chain-metric" data-chain-type="TELEGRAM_INTENT">
+                <span class="cm-label" style="color:#ff66cc;" data-i18n="panel.chain.telegram_mirror">Telegram Mirror</span>
+                <span class="cm-value-row">
+                    <span class="cm-value" id="ev-telegram-intent" style="color:#555;">—</span>
+                    <span class="icon-btn" onclick="openTgSigint()" data-tooltip="Open SIGINT Panel" style="font-size:9px;color:#ff66cc66;padding:1px 5px;border-color:#ff66cc33;" data-i18n="panel.chain.sigint_open" data-i18n-tip="panel.chain.sigint_tooltip">SIGINT↗</span>
+                </span>
+            </div>
+            <div class="chain-metric" data-chain-type="INFRA_BLACKOUT">
+                <span class="cm-label" style="color:#00ff88;" data-i18n="panel.chain.infra_survival">Infra Survival</span>
+                <span class="cm-value" id="ev-checkhost-status" style="color:#555;">—</span>
+            </div>
+            <div class="chain-metric" data-chain-type="C2_SYNC">
+                <span class="cm-label" style="color:#ffffff;" data-i18n="panel.chain.c2_sync">C2 Sync</span>
+                <span class="cm-value" id="ev-c2sync-detail" style="color:#555;">—</span>
+            </div>
+            <div class="chain-metric">
+                <span class="cm-label" style="color:#aa88ff;" data-i18n="panel.chain.llm_intel">LLM Intel</span>
+                <span class="cm-value" id="ev-llm-intel" style="color:#555;" data-tooltip="">—</span>
+            </div>
+        </div>
+        <!-- v9: CheckHost URL detail -->
+        <div id="chain-checkhost-detail" style="display:none;margin-top:8px;padding:6px 8px;background:#060a06;border:1px solid #00ff8822;border-radius:3px;"></div>
+        <!-- v9: Telegram channel detail -->
+        <div id="chain-telegram-detail" style="display:none;margin-top:6px;padding:6px 8px;background:#0a0614;border:1px solid #ff66cc22;border-radius:3px;"></div>
+        <!-- Maskirovka alert -->
+        <div id="chain-maskirovka" style="display:none;margin-top:8px;padding:6px 8px;background:#1a0800;border:1px solid #ff8800;border-radius:3px;font-size:10px;"></div>
     </div>
 </div>
 

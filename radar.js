@@ -180,6 +180,44 @@
         if (caret) caret.textContent = _evCollapsedDomains.has(domain) ? '▸' : '▾';
     };
 
+    // Chain panel: collapsed metric groups (persisted, Phase A4)
+    let _chainCollapsedGroups;
+    try { _chainCollapsedGroups = new Set(JSON.parse(localStorage.getItem('chainCollapsedGroups') || '[]')); }
+    catch (e) { _chainCollapsedGroups = new Set(); }
+    function _applyChainCollapseState() {
+        ['v8', 'v9'].forEach(g => {
+            const grid = document.getElementById(`chain-metrics-${g}`);
+            const toggle = document.querySelector(`.chain-group-toggle[data-chain-group="${g}"]`);
+            if (!grid) return;
+            const collapsed = _chainCollapsedGroups.has(g);
+            grid.classList.toggle('chain-group-collapsed', collapsed);
+            if (toggle) toggle.textContent = collapsed ? '▸' : '▾';
+        });
+    }
+    window.toggleChainGroup = function(group) {
+        if (_chainCollapsedGroups.has(group)) _chainCollapsedGroups.delete(group);
+        else _chainCollapsedGroups.add(group);
+        try { localStorage.setItem('chainCollapsedGroups', JSON.stringify([..._chainCollapsedGroups])); } catch (e) {}
+        _applyChainCollapseState();
+    };
+    // Bind click delegation. Script loads at body end, so DOM may already be ready.
+    function _bindChainGroupToggles() {
+        document.querySelectorAll('.chain-group-toggle[data-chain-group]').forEach(el => {
+            if (el.dataset.bound === '1') return;
+            el.dataset.bound = '1';
+            el.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                window.toggleChainGroup(el.dataset.chainGroup);
+            });
+        });
+        _applyChainCollapseState();
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _bindChainGroupToggles);
+    } else {
+        _bindChainGroupToggles();
+    }
+
     window.toggleMute = function(sensorName) {
         if (mutedSensors.has(sensorName)) {
             mutedSensors.delete(sensorName);
@@ -1195,20 +1233,18 @@
                     return;
                 }
                 let html = '';
-                events.forEach((ev, idx) => {
+                events.forEach((ev) => {
                     const color  = EVENT_COLORS[ev.type] || '#888';
                     const label  = EVENT_LABELS[ev.type] || ev.type;
                     const dt     = new Date(ev.ts * 1000);
                     const _lang  = (localStorage.getItem('ddos_radar_lang') || 'en') === 'ja' ? 'ja-JP' : 'en-US';
                     const timeStr = dt.toLocaleTimeString(_lang, {hour:'2-digit', minute:'2-digit'});
+                    // Single-line compact row: dot + label + time inline (Phase A2)
                     html += `<div class="chain-event" data-chain-type="${ev.type}">
-                        <div style="display:flex;flex-direction:column;align-items:center;">
-                            <div class="chain-dot chain-dot-${ev.type}" style="background:${color};"></div>
-                            ${idx < events.length - 1 ? '<div class="chain-line"></div>' : ''}
-                        </div>
+                        <div class="chain-dot chain-dot-${ev.type}" style="background:${color};"></div>
                         <div class="chain-text">
-                            <div class="chain-type" style="color:${color};">${label}</div>
-                            <div class="chain-time">${timeStr}</div>
+                            <span class="chain-type" style="color:${color};">${label}</span>
+                            <span class="chain-time">${timeStr}</span>
                         </div>
                     </div>`;
                 });
