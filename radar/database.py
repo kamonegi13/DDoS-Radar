@@ -20,6 +20,62 @@ from typing import Optional
 
 log = logging.getLogger("radar")
 
+
+# ── A-4 generated-column migration (ADR-V2-006 Safe Rename Pattern) ───────────
+# Tables that carry a legacy `theater` column. v24 adds a generated `country`
+# mirror to each; SELECT sites can use either name interchangeably until A-5
+# sunset renames the source column. Keep this list in sync with
+# `RadarDB._A4_TABLES_WITH_THEATER` (single source of truth on the class).
+_A4_THEATER_TABLES: tuple[str, ...] = (
+    "baseline_cache",
+    "hod_baseline",
+    "checkhost_hod",
+    "bgp_hod",
+    "gdelt_dow",
+    "time_series_ts",
+    "time_series",
+    "sequence_events",
+    "sensor_zscore_stats",
+    "noise_exclusion",
+    "confirmed_threats",
+    "daily_summary",
+    "forecast_log",
+    "cooccurrence_stats",
+    "climate_events",
+    "llm_intel",
+)
+
+
+def _migration_v24_generated_country(conn) -> None:
+    """Add `country` GENERATED VIRTUAL column mirroring `theater` on each table.
+
+    Idempotent: skips tables that already have a `country` column (e.g. a
+    fresh DB created from a future _SCHEMA_SQL baseline that includes the
+    column directly). Tables that lack a `theater` column are silently
+    skipped — they were dropped or never created on this deployment.
+    """
+    for table in _A4_THEATER_TABLES:
+        # NB: use table_xinfo, not table_info — table_info hides generated
+        # columns, so the idempotency check would fail on a re-run and we'd
+        # try to re-ALTER an existing column.
+        cols = conn.execute(f"PRAGMA table_xinfo({table})").fetchall()
+        col_names = {r[1] for r in cols}
+        if not col_names:
+            log.info("[migration v24] table %s does not exist — skip", table)
+            continue
+        if "country" in col_names:
+            log.info("[migration v24] %s.country already present — skip", table)
+            continue
+        if "theater" not in col_names:
+            log.info("[migration v24] %s has no theater column — skip", table)
+            continue
+        conn.execute(
+            f'ALTER TABLE {table} ADD COLUMN country TEXT '
+            f'GENERATED ALWAYS AS (theater) VIRTUAL'
+        )
+        log.info("[migration v24] %s.country generated column added", table)
+
+
 # ── Schema SQL ────────────────────────────────────────────────────────────────
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -662,9 +718,8 @@ class RadarDB:
             self._post_baseline_indexes(conn)
 
     def _post_baseline_indexes(self, conn: "_CooperativeConn"):
-        """Indexes that depend on migration-added columns. Created after
-        baseline + migrations have both run, so columns are guaranteed
-        present regardless of whether the DB is fresh or upgraded.
+        """Indexes and idempotent schema enhancements that must apply on
+        BOTH fresh and upgraded DBs. Anything here MUST be idempotent.
         """
         try:
             conn.execute(
@@ -674,6 +729,16 @@ class RadarDB:
             conn.commit()
         except sqlite3.OperationalError as e:
             log.warning("[DB] post-baseline index skipped: %s", e)
+
+        # ADR-V2-006 A-4: ensure `country` generated column exists on every
+        # table that carries `theater`, regardless of whether this DB was
+        # created fresh from _SCHEMA_SQL (which doesn't contain the column)
+        # or upgraded through migration v24. The helper is idempotent.
+        try:
+            with conn.writing():
+                _migration_v24_generated_country(conn)
+        except sqlite3.OperationalError as e:
+            log.warning("[DB] A-4 generated column setup skipped: %s", e)
 
     def schema_version(self) -> int:
         try:
@@ -1262,6 +1327,16 @@ class RadarDB:
             conn.execute("""CREATE INDEX IF NOT EXISTS idx_legacy_access_last_seen
                 ON legacy_access_log (last_seen DESC)"""),
         ]),
+        # v2.0 priority 3 (Safe Rename Pattern A-4): generated `country` column
+        # mirroring legacy `theater` on every table that carries the legacy
+        # field. Lets all SELECT sites use either name interchangeably while
+        # the source column is still `theater`. At A-5 sunset we will swap
+        # the source: drop the generated column, rename `theater` -> `country`.
+        # SQLite ≥ 3.31 (project on 3.52.0) supports VIRTUAL generated columns
+        # via ALTER TABLE; STORED is not allowed via ALTER. VIRTUAL is fine
+        # here because it has zero storage cost and is computed on read.
+        # Tables without a `theater` column (pure rename targets) are skipped.
+        (24, "v2.0 A-4: generated country column mirroring theater (17 tables)", _migration_v24_generated_country),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):

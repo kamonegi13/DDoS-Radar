@@ -30,9 +30,11 @@ if ! python scripts/gen_codemap.py --check; then
     FAIL=1
 fi
 
-# Placeholder for the rename coverage gate that will arrive with Phase A-1+
-# step "Rename coverage (theater→country)"
-# python scripts/check_rename_coverage.py || FAIL=1
+step "Rename coverage (theater→country)"
+if ! python scripts/check_rename_coverage.py; then
+    echo "FAIL: rename coverage gate. See output above." >&2
+    FAIL=1
+fi
 
 if [[ $FAIL -eq 0 ]]; then
     echo

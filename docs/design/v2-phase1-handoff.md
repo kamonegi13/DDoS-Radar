@@ -9,7 +9,7 @@
 | 項目 | 値 |
 |------|-----|
 | 作成日 | 2026-04-25 |
-| 最終更新 | 2026-04-25 (priority 1, 2, 4-7 完了 / priority 3 を Safe Rename Pattern で再設計、Phase B-1 + A-0 + A-1 + A-2 + A-3 完了) |
+| 最終更新 | 2026-04-26 (priority 1, 2, 4-7 完了 / priority 3 を Safe Rename Pattern で再設計、Phase B-1 + A-0 + A-1 + A-2 + A-3 + A-4 + CI gate 完了) |
 | Phase 0 完了基準 | Conclusion dataclass + DB v19/v20 + tests 17/17 pass + codemod scaffolding |
 | 次セッションでまず読むもの | CLAUDE.md → v2-migration.md §0-§5 → 本書 |
 
@@ -117,7 +117,8 @@ planner agent によりサブフェーズ分割を確定。各サブフェーズ
 | **A-1** | sensors stragglers (convergence_tracker / intel_corroboration) の dual-write `countries=[theater]` + intel_queue.submit() legacy fallback の telemetry 計装。`scenarios.py` は調査結果 `theater` 属性が存在せず no-op | ✅ 完了 (2026-04-25) |
 | **A-2** | API レスポンス dual-write + フロントエンド read-side 切替 | ✅ 完了 (2026-04-25) |
 | **A-3** | API param dual-read (`?country=` 主、`?theater=` SR4 記録) + フロント write-side | ✅ 完了 (2026-04-25) |
-| **A-4** | DB column dual-write (SQLite 3.52.0 確認済 → generated column 戦略採用) | ⏳ 未着手 |
+| **A-4** | DB column dual-write (SQLite 3.52.0 確認済 → generated column 戦略採用) | ✅ 完了 (2026-04-26) |
+| **CI gate** | `scripts/check_rename_coverage.py` + `check_ci.sh` への統合 | ✅ 完了 (2026-04-26) |
 | **A-5** | 90 日 telemetry 観測後の sunset (alias 削除、column rename) | ⏳ 90 日待機 |
 
 **A-0 完了時点での成果物**:
@@ -199,6 +200,31 @@ intel guide (Ch.9 EN/JA):
 - DB column 物理 rename / generated column 追加 — A-4
 - shadow log diff sampler の country 列 cross-check — A-4
 - `request.args.get("theater")` の deprecation warning ログ出力 — A-5 (sunset 段階で error 化)
+
+**A-4 完了時点での成果物 (2026-04-26)**:
+
+DB schema (generated VIRTUAL column 戦略):
+- `radar/database.py`: 16 テーブルを列挙する `_A4_THEATER_TABLES` 定数 + `_migration_v24_generated_country()` 冪等ヘルパー (`PRAGMA table_xinfo` で generated 列の重複検出を含む)
+- migration v24 を `_MIGRATIONS` に登録 (`ALTER TABLE ... ADD COLUMN country TEXT GENERATED ALWAYS AS (theater) VIRTUAL`)
+- `_post_baseline_indexes()` から v24 ヘルパーを再呼び出し: フレッシュ DB は `_run_migrations()` の `current==0` 早期リターンで callable migration を skip するため、SCHEMA_SQL ベースライン直後に冪等ヘルパーで補填する仕組み
+- `focus_switch_log` は theater 列を持たないため A-4 対象外 (scenario-centric テーブル)
+
+検証:
+- `test_a4_country_generated_column.py` 7 ケース新規追加 (every_table_has_country / mirrors_theater / write_protected / where_filterable / idempotent / theater_index_intact / table_list_freshness)
+- 663 tests pass (+7 新規、回帰なし)
+- 既存の `(theater, ...)` インデックスは無変更で動作継続
+- 生成列は VIRTUAL のためストレージコスト 0、SELECT 時に評価
+- 注意: `PRAGMA table_info` は generated 列を返さないので、SELECT 側のスキーマ検査は `PRAGMA table_xinfo` を使うこと
+
+**CI gate 完了時点での成果物 (2026-04-26)**:
+
+`scripts/check_rename_coverage.py` (192 行) で 3 hard invariant + 1 soft invariant をチェック:
+1. (hard) フロント `radar.js` の fetch literal `?theater=` 不在
+2. (hard) `request.args.get("theater")` を読む routes は `_country_param` を併用 (dual-read 強制)
+3. (hard) `_A4_THEATER_TABLES` の全テーブルが `_SCHEMA_SQL` で `theater` 列を持つ
+4. (soft) `"theater":` を JSON で返す routes は `"country":` も返す (A-4 mirror)
+
+`scripts/check_ci.sh` から呼び出し済 (codemap freshness と並走)。pre-commit hook 化任意 (`ln -s ../../scripts/check_ci.sh .git/hooks/pre-commit`)。現状: PASS (0 warning)。
 
 ---
 
