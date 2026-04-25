@@ -9,7 +9,7 @@
 | 項目 | 値 |
 |------|-----|
 | 作成日 | 2026-04-25 |
-| 最終更新 | 2026-04-25 (priority 1, 2, 4-7 完了 / priority 3 を Safe Rename Pattern で再設計、Phase B-1 + A-0 完了) |
+| 最終更新 | 2026-04-25 (priority 1, 2, 4-7 完了 / priority 3 を Safe Rename Pattern で再設計、Phase B-1 + A-0 + A-1 完了) |
 | Phase 0 完了基準 | Conclusion dataclass + DB v19/v20 + tests 17/17 pass + codemod scaffolding |
 | 次セッションでまず読むもの | CLAUDE.md → v2-migration.md §0-§5 → 本書 |
 
@@ -114,7 +114,7 @@ planner agent によりサブフェーズ分割を確定。各サブフェーズ
 |------------|------|------|
 | **B-1** | コンテキスト消費削減: codemap 自動生成 + CLAUDE.md §5.5 + SESSION_BUDGET + check_ci.sh | ✅ 完了 (2026-04-25) |
 | **A-0** | SR4 telemetry 基盤: `radar/legacy_telemetry.py` + migration v23 (`legacy_access_log`) + scheduler hourly flush + `/api/admin/legacy_access` + 11 tests pass | ✅ 完了 (2026-04-25) |
-| **A-1** | sensors の dual-key alias (`theaters` ↔ `countries`)、`scenarios.py` `@property theater` 等 | ⏳ 未着手 |
+| **A-1** | sensors stragglers (convergence_tracker / intel_corroboration) の dual-write `countries=[theater]` + intel_queue.submit() legacy fallback の telemetry 計装。`scenarios.py` は調査結果 `theater` 属性が存在せず no-op | ✅ 完了 (2026-04-25) |
 | **A-2** | API レスポンス dual-write + フロントエンド read-side 切替 | ⏳ 未着手 |
 | **A-3** | API param dual-read (`?country=` 主、`?theater=` SR4 記録) + フロント write-side | ⏳ 未着手 |
 | **A-4** | DB column dual-write (SQLite 3.52.0 確認済 → generated column 戦略採用) | ⏳ 未着手 |
@@ -137,6 +137,20 @@ _lt.record_legacy_access("Participant.theater")  # 各 deprecated 参照箇所�
 key は grep-friendly な命名規約: `<class>.<attr>` / `<endpoint>?<param>=` 形式
 
 **SQLite 戦略**: 本番 SQLite 3.52.0 確認済 → A-4 では `GENERATED ALWAYS AS (theater) VIRTUAL` 列追加方式 (Option A) を採用
+
+**A-1 完了時点での成果物 (2026-04-25)**:
+- `radar/sensors/convergence_tracker.py` L399-404: `countries=[theater]` + `country_weights={theater:1.0}` を additive で追加
+- `radar/intel_corroboration.py` L314-319: 同上 (corroborated item は theater-keyed のため weight 1.0)
+- `radar/intel_queue.py` L460-475: legacy fallback (`countries` 空 + `theater` 有り) で `record_legacy_access(f"intel_queue.submit:{source_type}")` を呼ぶ
+- 651 tests pass (回帰なし)
+- サブエージェント調査により判明: `radar/scenarios.py` には `theater` 属性が存在しない (元 plan の `@property` alias は no-op)。実態は `core_country` 等で正規化済
+- 主要 7 LLM センサー (apt_intel / military_exercise / diplomatic / hacktivist_intel / hacktivist_news / rss_narrative / ground_osint) は既に dual-write 済 (Phase 3 対応の名残) — 本サブフェーズでの追加変更不要
+
+**A-1 の意図的にスコープ外とした項目** (A-2 / A-3 / A-5 へ繰り延べ):
+- `intel_queue.py` L896 dedup key tuple `(source_type, theater)` の country 化 — 行動変更を伴うため A-3 以降で
+- `intel_queue.py` L708 `emit_intel_update(theater, ...)` の WebSocket routing key — A-2 (フロント連動)
+- `intel_queue.py` L918 `get_active_rationale()` 出力辞書の theater key — 既に dual-write 済、削除は A-5 sunset
+- `radar/scoring.py` の HOD / adaptive Z-score / entropy_history `theater` パラメータ名 — 内部呼び出し連鎖が大きい、A-5 一括 rename 推奨
 
 ---
 

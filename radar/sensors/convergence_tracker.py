@@ -397,6 +397,10 @@ class ConvergenceTrackerSensor(BaseSensor):
             "source_type":  "convergence",
             "source_id":    f"convergence_{theater.lower()}",
             "theater":      theater,
+            # Safe Rename Pattern (ADR-V2-006) A-1: dual-write countries
+            # alongside legacy theater. Single-country signal — weight 1.0.
+            "countries":        [theater] if theater else [],
+            "country_weights":  {theater: 1.0} if theater else {},
             "ts":           time.time(),
             "confidence":   round(confidence, 3),
             "raw_text":     f"Convergence: {', '.join(sustained_sensors)}\n{data.get('assessment', '')}",

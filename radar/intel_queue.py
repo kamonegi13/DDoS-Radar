@@ -458,13 +458,23 @@ class IntelQueue:
         headline = item.get("headline", "")
 
         # Multi-country support (Phase 3): derive countries from item,
-        # fall back to legacy theater field for backward compatibility
+        # fall back to legacy theater field for backward compatibility.
+        # Safe Rename Pattern SR4 (ADR-V2-006): record fallback hits so we
+        # can identify any sensor still emitting only `theater=` after the
+        # 90-day observation window. The /api/admin/legacy_access endpoint
+        # exposes the per-source rollup; zero hits across a sensor for the
+        # full window is the cutover gate for A-5 sunset.
         countries: list[str] = item.get("countries", [])
         country_weights: dict[str, float] = item.get("country_weights", {})
         theater = item.get("theater", "")
         if not countries and theater:
             countries = [theater]
             country_weights = {theater: 1.0}
+            try:
+                from radar import legacy_telemetry as _lt
+                _lt.record_legacy_access(f"intel_queue.submit:{source_type}")
+            except Exception:
+                pass  # Telemetry must never break submit
 
         # Discard below minimum threshold
         if confidence < _confidence_min():

@@ -312,6 +312,12 @@ class CorroborationEngine:
             "source_type":  "corroborated",
             "source_id":    f"corroborated_{theater}",
             "theater":      theater,
+            # Safe Rename Pattern (ADR-V2-006) A-1: dual-write countries
+            # alongside legacy theater. Corroboration is theater-keyed today —
+            # single country with weight 1.0. Multi-country corroboration
+            # is a future enhancement (would require widening _corroborate loop).
+            "countries":        [theater] if theater else [],
+            "country_weights":  {theater: 1.0} if theater else {},
             "ts":           time.time(),
             "confidence":   round(confidence, 3),
             "raw_text":     f"Multi-source corroboration [{source_list}]\n{context[:800]}",
