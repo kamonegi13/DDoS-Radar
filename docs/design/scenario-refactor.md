@@ -367,6 +367,13 @@ class Role(Enum):
 - ✅ core_country の意味が明確になる(UI 補助)
 - ⚠️ 既存コードの core_country 参照を optional 前提に書き直し必要
 
+**ADR-009 follow-up (2026-04-25, Phase 5 partial)**:
+- 現在の core.py 実装は dual-core scenario で primary_ec(spike 最大の belligerent)を core_theater に昇格させ、per-country の `_seq_fire()` 系はその一国のみで発火する
+- secondary belligerent の per-country sensor data は `compute_scenario_score()` の Signal pipeline で正しく集計され、scenario score / TL は対称的に扱われる
+- ただし sequence event(NARRATIVE_BURST / ISR_SURGE / AIS_DARK_GAP / FIRMS_ANOMALY / SYNC_DDOS / TELEGRAM_INTENT 等)は primary_ec のみで登録される
+- API response の `strategic.secondary_ecs` で「sequence log で silent な belligerent」を可視化(NP6)
+- 完全な per-country sequence event 対称化は将来の refactor とする(add_rat() / suppression / confidence gating の interaction が大きいため、TDD で段階的に導入予定)
+
 ### ADR-010: country-level 出力は内部保持、API は scenario 中心、drill-down は専用エンドポイント
 
 **Status**: Accepted (2026-04-12)

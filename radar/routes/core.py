@@ -789,9 +789,21 @@ def get_threat_data():
         # to core_theater so that ALL downstream per-country sensor lookups,
         # sequence events, and baseline computations use a valid country code.
         # Preserve the original for the API response (backward compat).
+        #
+        # Known limitation (Phase 5 / 2.3 deferred — see docs/design/scenario-
+        # refactor.md ADR-009 follow-up): per-country _seq_fire() blocks
+        # downstream (NARRATIVE_BURST, ISR_SURGE, AIS_DARK_GAP, FIRMS_ANOMALY,
+        # SYNC_DDOS, telegram intent, etc.) only fire for primary_ec. The
+        # secondary belligerent's per-country sensor data is still ingested
+        # by compute_scenario_score() via the Signal pipeline (so scenario
+        # score and TL are correct), but its sequence events are not
+        # registered. secondary_ecs is surfaced in the API response so
+        # analysts can see which belligerents are silent in the sequence
+        # log without having to consult geo_data.json.
         _original_core_theater = core_theater
         if not core_theater and primary_ec:
             core_theater = primary_ec
+        secondary_ecs = [ec for ec in effective_cores if ec != primary_ec]
 
         # State-directed coordinated ops typically show 20–35% overlap. 45%+ indicates large civilian botnet.
         high_correlation = any(v > 30.0 for v in correlations.values())
@@ -2438,6 +2450,7 @@ def get_threat_data():
                 "core_theater": _original_core_theater or core_theater,
                 "effective_cores": effective_cores,
                 "primary_ec": primary_ec,
+                "secondary_ecs": secondary_ecs,
                 "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
                 "correlations": correlations, "correlations_l3": correlations_l3, "correlations_l7": correlations_l7,
                 "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
