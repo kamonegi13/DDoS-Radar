@@ -127,6 +127,35 @@ def resolve_seq_fire_targets(
     return [t for t in effective_cores if t]
 
 
+def select_secondary_ec_hits(
+    effective_cores: list,
+    primary_ec: str,
+    data: list,
+    country_field: str,
+) -> dict:
+    """Group sensor data rows by secondary effective_core (ADR-009 stage 2).
+
+    For dual-core scenarios, the existing _seq_fire path covers
+    primary_ec only. This helper picks out the rows whose country
+    matches each *secondary* effective_core so callers can register
+    per-country sequence events (FIRMS_ANOMALY, ISR_SURGE, etc.)
+    against each principal belligerent symmetrically.
+
+    Returns ``{secondary_ec: [matching_row, ...]}`` — secondaries with
+    no matching data are omitted so the caller's loop is a no-op for
+    quiet belligerents. Sensor-agnostic: the country field name
+    differs across sensors (FIRMS uses 'code', ISR uses 'country').
+    """
+    out: dict[str, list] = {}
+    for ec in effective_cores:
+        if not ec or ec == primary_ec:
+            continue
+        hits = [row for row in data if row.get(country_field) == ec]
+        if hits:
+            out[ec] = hits
+    return out
+
+
 def register_sequence_event(theater: str, event_type: str, meta: dict = None,
                             dedup_window: int = 300,
                             scenario_id: str | None = None):

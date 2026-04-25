@@ -21,7 +21,7 @@ from radar.state import _global_cache_lock
 from radar.database import db as _db
 from radar.scoring import (
     register_sequence_event, compute_sequence_bonus,
-    resolve_seq_fire_targets,
+    resolve_seq_fire_targets, select_secondary_ec_hits,
     compute_hod_zscore, record_hod_sample,
     get_fallback_coord, fetch_cf_data_cached,
     parse_origins, calculate_overlap, fetch_asn_origins,
@@ -1116,6 +1116,24 @@ def get_threat_data():
             _seq_fire(core_theater, "FIRMS_ANOMALY",
                                     {"hotspots": [f for f in nasa_firms_data if f.get("code") == core_theater]},
                                     scenario_id=focused_id)
+        # ADR-009 stage 2: per-country symmetric firing for secondary
+        # belligerents in dual-core scenarios. FIRMS hits on the
+        # secondary's territory are kinetic-strike precursors that
+        # belong on its own escalation chain, not silently attributed
+        # to primary (or dropped). _firms_active gates the secondary
+        # path too — if the sensor was suppressed/muted globally we
+        # respect that; per-secondary hits use their own dedup line so
+        # cross-firing primary doesn't silence them.
+        if _firms_active and secondary_ecs:
+            _firms_secondary = select_secondary_ec_hits(
+                secondary_ecs, primary_ec, nasa_firms_data, "code",
+            )
+            for sec_ec, sec_hits in _firms_secondary.items():
+                register_sequence_event(
+                    sec_ec, "FIRMS_ANOMALY",
+                    {"hotspots": sec_hits},
+                    dedup_window=300, scenario_id=focused_id,
+                )
 
         # Sync DDoS detection → register Sequence Event (gated by add_rat suppression checks)
         if is_coordinated and high_correlation and _coord_active and _overlap_active:
