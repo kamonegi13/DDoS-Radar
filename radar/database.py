@@ -1528,6 +1528,24 @@ class RadarDB:
         ).fetchall()
         return {r["country"]: float(r["total"] or 0.0) for r in rows}
 
+    def scenario_contributions_rows(
+        self, scenario_id: str, hours: int = 168,
+    ) -> list[tuple[float, str, float]]:
+        """Raw (logged_at, country, contribution_sum) rows for time-bucketed
+        analysis. Used by the weight_advisory timeseries variant."""
+        cutoff = time.time() - hours * 3600
+        rows = self._get_conn().execute(
+            "SELECT logged_at, country, contribution_sum "
+            "FROM scenario_contribution_log "
+            "WHERE scenario_id = ? AND logged_at > ? "
+            "ORDER BY logged_at ASC",
+            (scenario_id, cutoff),
+        ).fetchall()
+        return [
+            (float(r["logged_at"]), r["country"], float(r["contribution_sum"] or 0.0))
+            for r in rows
+        ]
+
     # ── focus_switch_log (Section 9.3.1) ───────────────────────────────────
     def focus_switch_append(self, scenario_id: str, switched_at: float,
                             lite_score: float, full_score: float,

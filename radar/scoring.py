@@ -1237,3 +1237,72 @@ def compute_weight_utilization(
             row["note"] = note
         out.append(row)
     return out
+
+
+def compute_weight_utilization_timeseries(
+    scenario,
+    rows: list[tuple[float, str, float]],
+    hours: int = 168,
+    bucket_count: int = 12,
+) -> dict:
+    """Time-bucketed observed_share / utilization_pct per participant.
+
+    Slices the lookback window into N equal buckets and computes the
+    per-country observed share + configured-weight utilization for each
+    bucket. Used by the weight_advisory timeseries variant so analysts
+    can see whether a participant's underperformance is worsening or
+    recovering before deciding whether to edit the static weight.
+
+    rows: (logged_at_ts, country, contribution_total). GLOBAL rows are
+    excluded from the share denominator (same convention as the point-
+    in-time helper). Out-of-range rows are silently dropped.
+    """
+    participants = getattr(scenario, "participants", {}) or {}
+    bucket_count = max(1, int(bucket_count))
+    hours = max(1, int(hours))
+
+    now = time.time()
+    window_start = now - hours * 3600
+    bucket_secs = (hours * 3600) / bucket_count
+    midpoints = [
+        window_start + bucket_secs * (i + 0.5)
+        for i in range(bucket_count)
+    ]
+
+    total_weight = sum(p.weight for p in participants.values())
+    configured_share = {
+        cc: (p.weight / total_weight if total_weight > 0 else 0.0)
+        for cc, p in participants.items()
+    }
+
+    # bucket_idx -> {country: total}
+    per_bucket: list[dict[str, float]] = [
+        {cc: 0.0 for cc in participants} for _ in range(bucket_count)
+    ]
+    per_bucket_total = [0.0] * bucket_count
+
+    for ts, country, total in rows:
+        if ts < window_start or ts > now:
+            continue
+        idx = int((ts - window_start) / bucket_secs)
+        if idx >= bucket_count:
+            idx = bucket_count - 1
+        if country == "GLOBAL" or country not in participants:
+            continue
+        per_bucket[idx][country] += float(total)
+        per_bucket_total[idx] += float(total)
+
+    series: dict[str, list[dict]] = {cc: [] for cc in participants}
+    for i in range(bucket_count):
+        bucket_total = per_bucket_total[i]
+        for cc in participants:
+            obs = per_bucket[i][cc]
+            obs_share = (obs / bucket_total) if bucket_total > 0 else 0.0
+            cfg = configured_share[cc]
+            util = (obs_share / cfg) if cfg > 0 else 0.0
+            series[cc].append({
+                "observed_share": round(obs_share, 4),
+                "utilization_pct": round(util * 100, 1),
+            })
+
+    return {"buckets": midpoints, "series": series}

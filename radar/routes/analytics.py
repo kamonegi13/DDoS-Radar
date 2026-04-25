@@ -17,7 +17,8 @@ from radar.state import _global_cache_lock, ALERT_TIMELINE_MAX
 from radar.database import db as _db
 from radar.models import RationaleEntry
 from radar.scoring import (
-    compute_sequence_bonus, compute_weight_utilization, derive_tl,
+    compute_sequence_bonus, compute_weight_utilization,
+    compute_weight_utilization_timeseries, derive_tl,
     Signal, ScenarioContribution,
 )
 import radar.routes as _routes
@@ -1288,6 +1289,43 @@ def api_scenario_weight_advisory(scenario_id):
         "period_hours": hours,
         "config": {"divergence_threshold_pct": threshold_pct},
         "participants": rows,
+    })
+
+
+@bp.route("/api/scenario/<scenario_id>/weight_advisory/timeseries", methods=["GET"])
+def api_scenario_weight_advisory_timeseries(scenario_id):
+    """Time-bucketed weight utilization for trend analysis.
+
+    Companion to /weight_advisory: that endpoint reports the current
+    point-in-time utilization, but cannot answer "is YE's
+    underperformance worsening or recovering?". This variant slices
+    the lookback window into bucket_count equal buckets and returns
+    per-participant observed_share / utilization_pct series so the UI
+    can chart the trend.
+
+    Query params:
+      - hours: lookback window (default 168, max 720)
+      - bucket_count: number of equal time slices (default 12, max 48)
+    """
+    from radar.scenarios import scenario_store
+    hours = _safe_int(request.args.get("hours", "168"), 168, min_val=1, max_val=720)
+    bucket_count = _safe_int(
+        request.args.get("bucket_count", "12"), 12, min_val=1, max_val=48,
+    )
+    sc = scenario_store.get(scenario_id)
+    if sc is None:
+        return jsonify({"error": "scenario_not_found", "scenario_id": scenario_id}), 404
+
+    rows = _db.scenario_contributions_rows(scenario_id, hours=hours)
+    out = compute_weight_utilization_timeseries(
+        sc, rows, hours=hours, bucket_count=bucket_count,
+    )
+    return jsonify({
+        "scenario_id": scenario_id,
+        "period_hours": hours,
+        "bucket_count": bucket_count,
+        "buckets": out["buckets"],
+        "series": out["series"],
     })
 
 
