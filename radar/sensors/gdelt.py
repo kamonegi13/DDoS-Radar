@@ -31,7 +31,7 @@ class GDELTSensor(BaseSensor):
             return round(sum(values) / len(values), 3) if values else None
         except Exception: return None
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_countries", []); weather_conds = context.get("weather_conditions", {})
+        theaters = context.get("strategic_theaters", []); weather_conds = context.get("weather_conditions", {})
         alert_threshold = context.get("gdelt_tone_threshold", GDELT_TONE_ALERT_THRESHOLD); history_window = context.get("gdelt_history_window", GDELT_HISTORY_WINDOW)
         tones: dict = {}
         t0 = time.time()

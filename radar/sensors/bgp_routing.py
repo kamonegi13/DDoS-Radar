@@ -26,7 +26,7 @@ class BgpRoutingSensor(BaseSensor):
     def __init__(self):
         super().__init__("ripe_bgp", "cyber", 1800); self._baseline: dict = {}
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_countries", []); results: dict = {}
+        theaters = context.get("strategic_theaters", []); results: dict = {}
         t0 = time.time(); total_prefixes = 0; any_success = False; last_status = 0; last_error = ""
         _now = time.time()
         _bgp_hour_bucket = int(_now // 3600) * 3600

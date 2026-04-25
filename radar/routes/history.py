@@ -10,7 +10,7 @@ from radar.routes import bp, _require_admin
 from radar.scenarios import scenario_store
 
 
-def _resolve_default_country() -> str:
+def _resolve_default_theater() -> str:
     """Pick a sensible default ISO country code from the first scorable scenario."""
     for sc in scenario_store.scorable():
         if sc.core_country:
@@ -24,16 +24,16 @@ def _resolve_default_country() -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @bp.route("/api/history/theaters", methods=["GET"])
-def api_history_countries():
+def api_history_theaters():
     """Return all configured + historically recorded theaters.
 
     Configured set = union of participants across all scorable scenarios.
     """
-    db_countries = set(_db.ts_distinct_countries())
-    cfg_countries: set[str] = set()
+    db_theaters = set(_db.ts_distinct_theaters())
+    cfg_theaters: set[str] = set()
     for sc in scenario_store.scorable():
-        cfg_countries |= set(sc.participants.keys())
-    return jsonify({"theaters": sorted(db_countries | cfg_countries)})
+        cfg_theaters |= set(sc.participants.keys())
+    return jsonify({"theaters": sorted(db_theaters | cfg_theaters)})
 
 
 @bp.route("/api/history/timeseries", methods=["GET"])
@@ -154,10 +154,10 @@ def api_history_sequence_events():
         events = _db.seq_events_since(theater, cutoff)
         return jsonify({"theater": theater, "hours": hours, "events": events})
     else:
-        # All countries
-        countries = _db.seq_distinct_countries()
+        # All theaters
+        theaters = _db.seq_distinct_theaters()
         result = {}
-        for th in countries:
+        for th in theaters:
             result[th] = _db.seq_events_since(th, cutoff)
         return jsonify({"hours": hours, "theaters": result})
 

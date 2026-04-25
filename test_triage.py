@@ -58,10 +58,10 @@ class TestDeriveCountries:
     def test_explicit_countries_win(self):
         assert derive_countries({"countries": ["tw", "us"], "theater": "JP-CN"}) == ["TW", "US"]
 
-    def test_falls_back_to_dashed_country(self):
+    def test_falls_back_to_dashed_theater(self):
         assert derive_countries({"countries": [], "theater": "TW-CN"}) == ["TW", "CN"]
 
-    def test_single_country_country(self):
+    def test_single_country_theater(self):
         assert derive_countries({"theater": "JP"}) == ["JP"]
 
     def test_empty_returns_empty_list(self):
@@ -71,7 +71,7 @@ class TestDeriveCountries:
     def test_filters_empty_strings_in_countries(self):
         assert derive_countries({"countries": ["", "TW", None]}) == ["TW"]
 
-    def test_strips_whitespace_in_country_split(self):
+    def test_strips_whitespace_in_theater_split(self):
         assert derive_countries({"theater": " TW - CN "}) == ["TW", "CN"]
 
 

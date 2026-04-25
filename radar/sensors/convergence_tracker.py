@@ -78,7 +78,7 @@ class _SnapshotDB:
                 "  elevated_sensors TEXT NOT NULL"  # JSON list of sensor names
                 ")"
             )
-            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_country_ts ON snapshots(theater, ts)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_theater_ts ON snapshots(theater, ts)")
             self._conn.commit()
         return self._conn
 
@@ -179,7 +179,7 @@ class ConvergenceTrackerSensor(BaseSensor):
             self.log_fetch(True, 0, 0, 0, "no_registry")
             return {"convergence_tracker": {"error": "no_registry"}}
 
-        strategic_countries = context.get("strategic_countries", [])
+        strategic_theaters = context.get("strategic_theaters", [])
         t0 = time.time()
         alerts_submitted = 0
         now = time.time()
@@ -190,7 +190,7 @@ class ConvergenceTrackerSensor(BaseSensor):
 
         convergence_states: dict = {}
 
-        for theater in strategic_countries:
+        for theater in strategic_theaters:
             # Build current snapshot: which sensors are elevated right now?
             elevated_now: list[str] = []
             for sensor_name in _MONITORED_SENSORS:
@@ -250,7 +250,7 @@ class ConvergenceTrackerSensor(BaseSensor):
         self.log_fetch(True, duration_ms, 0, alerts_submitted)
         result_data = {"convergence_tracker": {
             "alerts_submitted": alerts_submitted,
-            "theaters_checked": len(strategic_countries),
+            "theaters_checked": len(strategic_theaters),
             "states": convergence_states,
         }}
         self.set_cache(result_data)

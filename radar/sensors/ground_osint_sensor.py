@@ -170,10 +170,10 @@ class GroundOsintSensor(BaseSensor):
             safe_snippet = sanitize_llm_input(snippet, 400)
             safe_channel = sanitize_llm_input(channel, 80)
             safe_group = sanitize_llm_input(group_hint, 80)
-            safe_country = sanitize_llm_input(theater, 10)
+            safe_theater = sanitize_llm_input(theater, 10)
             raw_text = (
                 f"[Ground OSINT — Telegram: {safe_channel} ({safe_group})]\n"
-                f"Theater: {safe_country}\n"
+                f"Theater: {safe_theater}\n"
                 f"Status: {status}\n"
                 f"Target URLs: {', '.join(targets[:5])}\n"
                 f"Snippet: {safe_snippet}\n"
@@ -182,7 +182,7 @@ class GroundOsintSensor(BaseSensor):
             )
             llm_raw = (
                 f"[Ground OSINT — Telegram: {safe_channel} ({safe_group})]\n"
-                f"Theater: {safe_country}\n"
+                f"Theater: {safe_theater}\n"
                 f"Status: {status}\n"
                 f"Target URLs: {', '.join(targets[:5])}\n"
                 f"Snippet: {safe_snippet}\n"

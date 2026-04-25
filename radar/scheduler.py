@@ -45,7 +45,7 @@ def _build_default_context() -> dict:
         # Store not yet loaded — return minimal context; scheduler will pick
         # up real targets on the next cycle.
         return {
-            "all_targets": [], "strategic_countries": [], "adversary_states": [],
+            "all_targets": [], "strategic_theaters": [], "adversary_states": [],
             "all_participant_countries": [],
             "cf_headers": CF_HEADERS, "owm_api_key": OWM_API_KEY,
             "weather_conditions": {},
@@ -58,13 +58,13 @@ def _build_default_context() -> dict:
     adversaries: set[str] = set()
     for sc in focused_scenarios:
         ctx = derive_country_context(sc)
-        strategic |= set(ctx["strategic_countries"])
+        strategic |= set(ctx["strategic_theaters"])
         adversaries |= set(ctx["adversary_states"])
 
     global_targets = derive_global_fetch_targets()
     return {
         "all_targets":         sorted(strategic | adversaries),
-        "strategic_countries":  sorted(strategic),
+        "strategic_theaters":  sorted(strategic),
         "adversary_states":    sorted(adversaries),
         "all_participant_countries": global_targets["all_participant_countries"],
         "cf_headers":          CF_HEADERS,

@@ -145,7 +145,7 @@ def warm_taiwan_ctx(testdb):
     testdb.ct_log_set_first_observed(
         domain, time.time() - (CT_LOG_WARMUP_DAYS + 5) * 86400
     )
-    return {"strategic_countries": ["TW"], "adversary_states": []}, domain
+    return {"strategic_theaters": ["TW"], "adversary_states": []}, domain
 
 
 # ── Backfill flow ─────────────────────────────────────────────────────────
@@ -196,7 +196,7 @@ def test_empty_response_arms_warmup_marker(testdb, monkeypatch):
     sensor = CtLogSensor()
     sensor._pull_sources = [FakePullSource(default=[[]])]
 
-    sensor.fetch({"strategic_countries": ["TW"], "adversary_states": []})
+    sensor.fetch({"strategic_theaters": ["TW"], "adversary_states": []})
 
     # Markers armed for every polled domain (round-robin slice).
     after = [d for d in fresh_domains if testdb.ct_log_first_observed(d) is not None]
@@ -238,7 +238,7 @@ def test_alive_response_with_only_out_of_window_certs_arms_marker(testdb, monkey
 
     sensor._pull_sources[0].fetch_domain = fetch_with_matching_domain
 
-    sensor.fetch({"strategic_countries": ["TW"], "adversary_states": []})
+    sensor.fetch({"strategic_theaters": ["TW"], "adversary_states": []})
 
     after = [d for d in fresh_domains if testdb.ct_log_first_observed(d) is not None]
     assert after, ("first_observed must arm even when the response carried "
@@ -313,7 +313,7 @@ def test_no_pull_attempt_does_not_increment_failures():
     sensor._pull_sources = [FakePullSource()]  # nothing matches anyway
 
     # Use an unknown country to guarantee the early-return path.
-    ctx = {"strategic_countries": ["ZZ"], "adversary_states": []}
+    ctx = {"strategic_theaters": ["ZZ"], "adversary_states": []}
     sensor.fetch(ctx)
     assert sensor._consecutive_failures == 0
 

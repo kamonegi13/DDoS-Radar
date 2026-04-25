@@ -149,7 +149,7 @@ class TravelAdvisorySensor(BaseSensor):
 
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
-        theaters = set(context.get("strategic_countries", []))
+        theaters = set(context.get("strategic_theaters", []))
         adversaries = set(context.get("adversary_states", []))
         all_targets = theaters | adversaries
         if not all_targets:

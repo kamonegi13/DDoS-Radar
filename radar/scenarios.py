@@ -441,7 +441,7 @@ scenario_store = ScenarioStore()
 
 
 # ── Helpers: derive legacy-compatible country lists from a scenario ─────────
-# ADR-005 supersedes focused_country with focused_scenario; ADR-014 merges adversaries
+# ADR-005 supersedes core_theater with focused_scenario; ADR-014 merges adversaries
 # into participants[role=ADVERSARY]. These helpers collapse the mapping into a
 # single definition point so per-country sensor pipelines, HOD baseline, and
 # scheduler fetch targets can all be driven from the same scenario source.
@@ -450,7 +450,7 @@ def derive_country_context(focused: "Scenario") -> dict:
     """Derive per-country context lists from a focused Scenario.
 
     Returns a dict with:
-      - focused_country: focused.core_country (Optional[str], ADR-009)
+      - core_theater: focused.core_country (Optional[str], ADR-009)
       - effective_cores: list of countries that act as scoring cores.
         When core_country is set, this is [core_country].
         When core_country is null (dual-core, e.g. middle_east), this is
@@ -458,7 +458,7 @@ def derive_country_context(focused: "Scenario") -> dict:
       - correlate_targets: participants with non-adversary role, excluding
         core and effective_cores
       - adversary_states: participants with role=ADVERSARY
-      - strategic_countries: all participant countries (superset)
+      - strategic_theaters: all participant countries (superset)
     """
     core = focused.core_country
     parts = focused.participants
@@ -479,11 +479,11 @@ def derive_country_context(focused: "Scenario") -> dict:
                   if p.role != Role.ADVERSARY and cc != core
                   and cc not in ec_set]
     return {
-        "focused_country": core,
+        "core_theater": core,
         "effective_cores": effective_cores,
         "correlate_targets": sorted(correlates),
         "adversary_states": sorted(adversaries),
-        "strategic_countries": sorted(parts.keys()),
+        "strategic_theaters": sorted(parts.keys()),
     }
 
 

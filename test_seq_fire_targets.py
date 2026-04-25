@@ -4,7 +4,7 @@ dual-core scenarios for scenario-wide event types.
 Background (ADR-009 follow-up):
   In dual-core scenarios (core_country=null, two PRINCIPAL_BELLIGERENT
   participants), the existing _seq_fire() helper promotes the spike-
-  leader to focused_country and registers events ONLY for that primary
+  leader to core_theater and registers events ONLY for that primary
   belligerent. The secondary belligerent's sequence chain stays silent
   even when the underlying signal is scenario-wide (e.g. NARRATIVE_BURST
   reflects a theater-aggregate Z-score that applies symmetrically to
@@ -22,15 +22,15 @@ from radar.scoring import resolve_seq_fire_targets
 
 
 class TestResolveSeqFireTargets:
-    def test_single_core_returns_focused_country(self):
+    def test_single_core_returns_core_theater(self):
         out = resolve_seq_fire_targets(
-            focused_country="TW", effective_cores=["TW"], scenario_wide=False,
+            core_theater="TW", effective_cores=["TW"], scenario_wide=False,
         )
         assert out == ["TW"]
 
-    def test_single_core_scenario_wide_returns_focused_country(self):
+    def test_single_core_scenario_wide_returns_core_theater(self):
         out = resolve_seq_fire_targets(
-            focused_country="TW", effective_cores=["TW"], scenario_wide=True,
+            core_theater="TW", effective_cores=["TW"], scenario_wide=True,
         )
         assert out == ["TW"]
 
@@ -38,7 +38,7 @@ class TestResolveSeqFireTargets:
         """Per-country events: data was only checked against primary,
         so registering for secondary would be a false-provenance event."""
         out = resolve_seq_fire_targets(
-            focused_country="IL",
+            core_theater="IL",
             effective_cores=["IL", "IR"],
             scenario_wide=False,
         )
@@ -49,7 +49,7 @@ class TestResolveSeqFireTargets:
         applies symmetrically to all belligerents; both chains should
         accrue the event so cmedium drift evaluation sees it."""
         out = resolve_seq_fire_targets(
-            focused_country="IL",
+            core_theater="IL",
             effective_cores=["IL", "IR"],
             scenario_wide=True,
         )
@@ -57,7 +57,7 @@ class TestResolveSeqFireTargets:
 
     def test_empty_strings_filtered(self):
         out = resolve_seq_fire_targets(
-            focused_country=None,
+            core_theater=None,
             effective_cores=["", "IL", None, "IR"],
             scenario_wide=True,
         )
@@ -65,7 +65,7 @@ class TestResolveSeqFireTargets:
 
     def test_no_targets_returns_empty(self):
         out = resolve_seq_fire_targets(
-            focused_country=None, effective_cores=[], scenario_wide=True,
+            core_theater=None, effective_cores=[], scenario_wide=True,
         )
         assert out == []
 
@@ -73,18 +73,18 @@ class TestResolveSeqFireTargets:
         """Defensive: if effective_cores accidentally contains the same
         country twice, the resolved list still dedupes."""
         out = resolve_seq_fire_targets(
-            focused_country=None,
+            core_theater=None,
             effective_cores=["IL", "IR", "IL"],
             scenario_wide=True,
         )
         assert out == ["IL", "IR"]
 
-    def test_dual_core_per_country_with_empty_focused_country(self):
-        """If focused_country wasn't promoted (still empty) and the event
+    def test_dual_core_per_country_with_empty_core_theater(self):
+        """If core_theater wasn't promoted (still empty) and the event
         is per-country, fall back to all effective_cores so we don't
         silently drop the event."""
         out = resolve_seq_fire_targets(
-            focused_country=None,
+            core_theater=None,
             effective_cores=["IL", "IR"],
             scenario_wide=False,
         )

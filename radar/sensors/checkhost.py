@@ -170,7 +170,7 @@ class CheckHostSensor(BaseSensor):
             return {"success_rate": None, "error": str(e)}
 
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_countries", [])
+        theaters = context.get("strategic_theaters", [])
         results: dict = {}
         t0 = time.time()
         total_checked = 0

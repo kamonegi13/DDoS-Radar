@@ -169,15 +169,15 @@ class HacktiivistIntelSensor(BaseSensor):
 
             # Verify theater: use LLM-assigned theater if it disagrees with channel metadata,
             # but only if the LLM returned a non-null value (LLM can detect off-topic posts)
-            llm_country_raw = data.get("theater")
-            if llm_country_raw is None or str(llm_country_raw).strip().upper() in ("NULL", "NONE", ""):
+            llm_theater_raw = data.get("theater")
+            if llm_theater_raw is None or str(llm_theater_raw).strip().upper() in ("NULL", "NONE", ""):
                 log.debug(f"[HacktiivistIntel] LLM flagged theater mismatch for {channel} — skipped")
                 record_sensor_drop("theater_null")
                 continue
-            resolved_country = str(llm_country_raw).strip().upper()
+            resolved_theater = str(llm_theater_raw).strip().upper()
             # Accept LLM theater override if it's a plausible 2-letter code; otherwise keep original
-            if len(resolved_country) == 2 and resolved_country.isalpha():
-                theater = resolved_country
+            if len(resolved_theater) == 2 and resolved_theater.isalpha():
+                theater = resolved_theater
 
             if theater not in countries:
                 countries = [theater] + countries

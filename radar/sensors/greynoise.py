@@ -195,7 +195,7 @@ class GreyNoiseSensor(BaseSensor):
             return {}
 
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_countries", [])
+        theaters = context.get("strategic_theaters", [])
         results: dict = {}
         t0 = time.time()
         any_success = False

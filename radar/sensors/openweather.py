@@ -13,7 +13,7 @@ class OpenWeatherSensor(BaseSensor):
     def __init__(self): super().__init__("openweather", "physical", 1800)
     def fetch(self, context: dict) -> dict:
         # Weather noise check for strategic_theaters only (all_targets is too large, risks API quota exhaustion)
-        targets = context.get("strategic_countries", []); api_key = context.get("owm_api_key", "")
+        targets = context.get("strategic_theaters", []); api_key = context.get("owm_api_key", "")
         if not api_key:
             self.set_error("OWM_API_KEY not configured"); return {"conditions": {}}
         conditions: dict = {}

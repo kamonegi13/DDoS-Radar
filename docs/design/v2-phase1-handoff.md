@@ -33,7 +33,7 @@
 | `radar/conclusions/base.py` | frozen dataclass、5 ConclusionType、4 UnavailableReason、`__post_init__` バリデーション、`to_dict` / `to_db_row` | `test_conclusions.py` |
 | `radar/database.py` | migration v19 (conclusions ledger) + v20 (llm_prompts + llm_call_log.prompt_sha256) を `_MIGRATIONS` と `_SCHEMA_SQL` 両方に追加 | smoke test 2 件 (v19/v20) |
 | `test_conclusions.py` | **17 ケース全 PASS** (id 一意性、状態と unavailable_reason の排他、disclaimer 必須、confidence 範囲、frozen、シリアライズ、5 ConclusionType、DB マイグレーション 2 件) | — |
-| `scripts/codemod_country.py` | discover / diff / apply 3 サブコマンド。491 occurrences 分類済 (rename_to_country=313, rename_to_focused_country=166, user_facing_text=8, keep_v1_api_param=4) | — |
+| `scripts/codemod_theater.py` | discover / diff / apply 3 サブコマンド。491 occurrences 分類済 (rename_to_country=313, rename_to_focused_country=166, user_facing_text=8, keep_v1_api_param=4) | — |
 
 ### 3. 解決済みの設計判断
 
@@ -84,38 +84,27 @@
 
 ---
 
-### 優先度 3: theater codemod 適用 ✅ **完了** (2026-04-25, branch `v2/theater-codemod`)
+### 優先度 3: theater codemod 適用 ❌ **撤回** (2026-04-25, cbfc113 を revert)
 
-**ゴール**: コードベースから `theater` 識別子を排除し `country` / `focused_country` / `scenario` に置換。
+**経緯**:
+1. cbfc113 で 484 occurrences / 38 files をリネーム済とした
+2. しかし codemod の正規表現 `[A-Za-z_][A-Za-z0-9_]*theater[A-Za-z0-9_]*` には致命的バグがあり、theater 前に **少なくとも 1 文字の word-char を必須** としていた
+3. 結果、standalone `theater` (例: `WHERE theater=?`, `def f(theater: str)`) と plural `theaters` を**取り逃した**。実カバレッジ **44%** (484/1094)
+4. 残り 56% が未リネームのまま混在 → cross-module 参照、dict キー、JSON ペイロード、未テスト code path で潜在的破損リスク
+5. 「テスト 636/636 通る」は安全保証ではない (untested path / 動的属性アクセスは静的解析不能)
+6. **「破損は確実に回避する」要件 (ユーザー指示)** に従い cbfc113 を revert
 
-**実施結果**:
-- **484 occurrences across 38 files** をリライト (commit `cbfc113`)
-  - rename_to_country: 313 (theater → country, theaters → countries)
-  - rename_to_focused_country: 166 (core_theater → focused_country)
-  - keep_v1_api_param: 4 (`request.args.get("theater")` を v1 アダプタとして保持)
-- **codemod スクリプトのバグ修正** (`_rename_preserving_case` 導入):
-  - 旧実装: `theaters` → `countrys` (誤った複数形)、`THEATER` 等の大文字を取り逃し
-  - 新実装: 順序付きケース保存リネーム (plural→singular、SCREAMING/Title/lower)
-- **codemod の限界 → 手動修正 2 箇所**:
-  - `radar.js`: `_t('gn.no_theater_data')` → 行に `#444` (color hex) があり user_facing 誤分類
-  - `radar/routes/history.py`: `jsonify(...)` 行内識別子。`json` 文字列が user_facing ヒントに hit
-- **YAGNI 適用**: `_v1_compat.py` 作成は見送り。4 つの `request.args.get("theater")` インライン受理が既にアダプタとして機能
-- **back-compat 保持**: JSON response key `"theaters"` (history.py:36, 162) と route `/api/history/theaters` は v1 互換のため変更せず (ADR-V2-006)
-- **テスト**: 636/636 PASS (134s)
+**判断根拠**: in-place rename は v2-migration の核心原則 **「v1 並走 → shadow → opt-in → default-on」(ADR-V2-002)** に違反。v2 移行は parallel API パターンで実施すべき。
 
-**Stage F (deferred)**: SQL 列名 `theater` → `country` の rename は **migration v22 として未着手のまま**。
+**正しい前進方針**: [docs/design/safe-rename-pattern.md](safe-rename-pattern.md) を参照。要点:
+- Rename は additive。古い名前と新しい名前を併存させる
+- module-level identifier: `old = new` alias
+- function param: `**kwargs` で両キー受理
+- dict / JSON: dual-write
+- DB column: SQLite generated column or runtime alias
+- 古い名前の削除は 100% consumer 移行確認後 (ADR-V2-002 90日サンセット)
 
-理由:
-- handoff doc 上、step 7 で「codemod は Python 識別子のみ。SQL DDL は別 migration」と明示分離
-- 現在 SQL 文字列が `WHERE theater=?` を維持しており DB 列名 `theater` と一致 → 動作している
-- migration v22 は 16+ テーブルへの ALTER TABLE + 80+ SQL string 同時更新を要する大規模変更
-- `_SCHEMA_SQL` baseline と `_MIGRATIONS` の二重メンテ問題があり、独立した PR で扱うのが安全
-
-**Stage F 着手時の注意**:
-- SQLite 3.25+ の `ALTER TABLE x RENAME COLUMN theater TO country`
-- インデックスは自動更新されるが、SQL 文字列は手動更新必須 (`grep "theater" radar/database.py` で約 30 箇所)
-- _SCHEMA_SQL baseline (lines 35-358) も同時に書き換える
-- migration v22 と SQL 文字列更新を **同一コミット** にする (順序ずれで test 100% fail する)
+**v2 移行で codemod を再投入しない**。代わりに Phase 1 残りスコープ (優先度 4-7) で **新規 v2 API/モジュールを並走** で構築し、consumer 側を順次切替える。
 
 ---
 
@@ -136,7 +125,7 @@
 
 - [ ] `git status` がクリーン (Phase 0 の変更が commit 済 or stash 済)
 - [ ] `python -m pytest test_conclusions.py -v` が 17/17 pass
-- [ ] `python scripts/codemod_country.py discover` が走る
+- [ ] `python scripts/codemod_theater.py discover` が走る
 - [ ] CLAUDE.md と v2-migration.md を読み直し、NP4 と NP6 の責務が頭に入っている
 - [ ] **Phase 1 は API 互換性を壊さない** ことに合意 (壊すのは Phase 4 sunset)
 
