@@ -160,19 +160,60 @@ CREATE INDEX IF NOT EXISTS idx_fetch_log_sensor_ts ON sensor_fetch_log (sensor_n
 -- verdict   : auto_confirmed | pending | discarded_low_conf | discarded_dedup | not_submitted
 --             (verdict='' when call failed before reaching the queue)
 CREATE TABLE IF NOT EXISTS llm_call_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts           REAL NOT NULL,
-    caller       TEXT NOT NULL,
-    model        TEXT NOT NULL DEFAULT '',
-    duration_ms  INTEGER DEFAULT 0,
-    outcome      TEXT NOT NULL DEFAULT '',
-    verdict      TEXT NOT NULL DEFAULT '',
-    confidence   REAL DEFAULT 0,
-    headline     TEXT DEFAULT '',
-    error        TEXT DEFAULT ''
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts              REAL NOT NULL,
+    caller          TEXT NOT NULL,
+    model           TEXT NOT NULL DEFAULT '',
+    duration_ms     INTEGER DEFAULT 0,
+    outcome         TEXT NOT NULL DEFAULT '',
+    verdict         TEXT NOT NULL DEFAULT '',
+    confidence      REAL DEFAULT 0,
+    headline        TEXT DEFAULT '',
+    error           TEXT DEFAULT '',
+    -- v2.0 ADR-V2-009: FK to llm_prompts.prompt_sha256 (NP6 disclosure).
+    prompt_sha256   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_llm_call_log_ts     ON llm_call_log (ts);
 CREATE INDEX IF NOT EXISTS idx_llm_call_log_caller ON llm_call_log (caller, ts);
+
+-- v2.0 ADR-V2-009: sha256-deduplicated LLM prompt store.
+-- Every llm_client invocation persists its prompt here; llm_call_log.prompt_sha256
+-- references this table. Lets analysts retrieve the exact prompt text that
+-- produced any conclusion (NP6 full disclosure).
+CREATE TABLE IF NOT EXISTS llm_prompts (
+    prompt_sha256  TEXT PRIMARY KEY,
+    prompt_text    TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    temperature    REAL,
+    prompt_version TEXT,
+    first_seen_at  REAL NOT NULL,
+    last_seen_at   REAL NOT NULL,
+    use_count      INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_llm_prompts_last_seen ON llm_prompts (last_seen_at DESC);
+
+-- v2.0 ADR-V2-001 + ADR-V2-008: append-only ledger for every Conclusion the tool emits.
+-- Single output schema for all 5 domains (TL, trend, per_domain, anomaly, attack_mode).
+-- Retention 365 days (configurable). Never UPDATE — historical truth.
+CREATE TABLE IF NOT EXISTS conclusions (
+    id                            TEXT PRIMARY KEY,
+    scenario_id                   TEXT NOT NULL,
+    conclusion_type               TEXT NOT NULL,
+    state                         TEXT,
+    confidence                    REAL NOT NULL,
+    observed_at                   REAL NOT NULL,
+    formula_ref                   TEXT NOT NULL,
+    threshold_ref                 TEXT NOT NULL,
+    source_urls                   TEXT NOT NULL,
+    llm_prompt_sha256             TEXT,
+    calibration_status            TEXT NOT NULL,
+    conclusion_unavailable_reason TEXT,
+    metadata                      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conclusions_scenario_time
+    ON conclusions (scenario_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conclusions_type_time
+    ON conclusions (conclusion_type, observed_at DESC);
 
 -- CAC: Noise exclusion rules (analyst-defined)
 CREATE TABLE IF NOT EXISTS noise_exclusion (
@@ -1060,6 +1101,50 @@ class RadarDB:
             )"""),
             conn.execute("""CREATE INDEX IF NOT EXISTS idx_scenario_contrib_sid_time
                 ON scenario_contribution_log (scenario_id, logged_at DESC)"""),
+        ]),
+        # v2.0 Phase 0 scaffolding (ADR-V2-001, ADR-V2-008).
+        # Append-only ledger of every Conclusion the tool emits.
+        (19, "v2.0: conclusions append-only ledger", lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS conclusions (
+                id                            TEXT PRIMARY KEY,
+                scenario_id                   TEXT NOT NULL,
+                conclusion_type               TEXT NOT NULL,
+                state                         TEXT,
+                confidence                    REAL NOT NULL,
+                observed_at                   REAL NOT NULL,
+                formula_ref                   TEXT NOT NULL,
+                threshold_ref                 TEXT NOT NULL,
+                source_urls                   TEXT NOT NULL,
+                llm_prompt_sha256             TEXT,
+                calibration_status            TEXT NOT NULL,
+                conclusion_unavailable_reason TEXT,
+                metadata                      TEXT NOT NULL
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_conclusions_scenario_time
+                ON conclusions (scenario_id, observed_at DESC)"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_conclusions_type_time
+                ON conclusions (conclusion_type, observed_at DESC)"""),
+        ]),
+        # v2.0 Phase 0 scaffolding (ADR-V2-009).
+        # sha256-deduplicated LLM prompt store + FK column on llm_call_log.
+        # The ALTER TABLE is irreversible in SQLite — back up before applying.
+        (20, "v2.0: llm_prompts sha256 store + llm_call_log FK", lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS llm_prompts (
+                prompt_sha256  TEXT PRIMARY KEY,
+                prompt_text    TEXT NOT NULL,
+                model          TEXT NOT NULL,
+                temperature    REAL,
+                prompt_version TEXT,
+                first_seen_at  REAL NOT NULL,
+                last_seen_at   REAL NOT NULL,
+                use_count      INTEGER NOT NULL DEFAULT 1
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_llm_prompts_last_seen
+                ON llm_prompts (last_seen_at DESC)"""),
+            # Add FK column to existing llm_call_log. SQLite cannot enforce FK
+            # via ALTER, so we skip REFERENCES (we enforce in app code).
+            conn.execute("""ALTER TABLE llm_call_log
+                ADD COLUMN prompt_sha256 TEXT"""),
         ]),
     ]
 

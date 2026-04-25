@@ -1,0 +1,4922 @@
+{
+  "generated_for": "v2-migration ADR-V2-006",
+  "total": 491,
+  "by_classification": {
+    "rename_to_country": 313,
+    "rename_to_focused_country": 166,
+    "user_facing_text": 8,
+    "keep_v1_api_param": 4
+  },
+  "occurrences": [
+    {
+      "path": "test_engine.py",
+      "line": 252,
+      "col": 8,
+      "snippet": "def test_maskirovka_medium_without_cross_theater(self):",
+      "matched": "test_maskirovka_medium_without_cross_theater",
+      "classification": "rename_to_country",
+      "proposed": "test_maskirovka_medium_without_cross_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_engine.py",
+      "line": 1017,
+      "col": 48,
+      "snippet": "def _score_bgp_events(self, hijacks, leaks, core_theater=\"TW\"):",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_engine.py",
+      "line": 1019,
+      "col": 73,
+      "snippet": "core_hijacks = [h for h in hijacks if h.get(\"victim_country\") == core_theater]",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_engine.py",
+      "line": 1020,
+      "col": 67,
+      "snippet": "core_leaks = [l for l in leaks if l.get(\"leak_country\") == core_theater]",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_triage.py",
+      "line": 61,
+      "col": 8,
+      "snippet": "def test_falls_back_to_dashed_theater(self):",
+      "matched": "test_falls_back_to_dashed_theater",
+      "classification": "rename_to_country",
+      "proposed": "test_falls_back_to_dashed_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_triage.py",
+      "line": 64,
+      "col": 8,
+      "snippet": "def test_single_country_theater(self):",
+      "matched": "test_single_country_theater",
+      "classification": "rename_to_country",
+      "proposed": "test_single_country_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_triage.py",
+      "line": 74,
+      "col": 8,
+      "snippet": "def test_strips_whitespace_in_theater_split(self):",
+      "matched": "test_strips_whitespace_in_theater_split",
+      "classification": "rename_to_country",
+      "proposed": "test_strips_whitespace_in_country_split",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 79,
+      "col": 8,
+      "snippet": "def test_both_theaters_returns_match(self):",
+      "matched": "test_both_theaters_returns_match",
+      "classification": "rename_to_country",
+      "proposed": "test_both_countrys_returns_match",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 146,
+      "col": 8,
+      "snippet": "def test_excludes_other_theater_articles(self):",
+      "matched": "test_excludes_other_theater_articles",
+      "classification": "rename_to_country",
+      "proposed": "test_excludes_other_country_articles",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 159,
+      "col": 12,
+      "snippet": "current_theater=\"UA\",",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 178,
+      "col": 12,
+      "snippet": "current_theater=\"UA\",",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 199,
+      "col": 12,
+      "snippet": "current_theater=\"UA\",",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 212,
+      "col": 12,
+      "snippet": "current_theater=\"UA\",",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 227,
+      "col": 8,
+      "snippet": "def test_burst_excludes_other_theater(self):",
+      "matched": "test_burst_excludes_other_theater",
+      "classification": "rename_to_country",
+      "proposed": "test_burst_excludes_other_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 240,
+      "col": 12,
+      "snippet": "current_theater=\"UA\",",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 269,
+      "col": 8,
+      "snippet": "def test_tass_mixed_articles_ua_theater(self):",
+      "matched": "test_tass_mixed_articles_ua_theater",
+      "classification": "rename_to_country",
+      "proposed": "test_tass_mixed_articles_ua_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 294,
+      "col": 12,
+      "snippet": "current_theater=\"UA\",",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_rss_narrative.py",
+      "line": 306,
+      "col": 12,
+      "snippet": "current_theater=\"UA\",",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_age_decay.py",
+      "line": 131,
+      "col": 9,
+      "snippet": "\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\",",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_age_decay.py",
+      "line": 218,
+      "col": 28,
+      "snippet": "monkeypatch.setenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"1\")",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_age_decay.py",
+      "line": 234,
+      "col": 28,
+      "snippet": "monkeypatch.setenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"1\")",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 7,
+      "col": 12,
+      "snippet": "leader to core_theater and registers events ONLY for that primary",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 25,
+      "col": 8,
+      "snippet": "def test_single_core_returns_core_theater(self):",
+      "matched": "test_single_core_returns_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "test_single_core_returns_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 27,
+      "col": 12,
+      "snippet": "core_theater=\"TW\", effective_cores=[\"TW\"], scenario_wide=False,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 31,
+      "col": 8,
+      "snippet": "def test_single_core_scenario_wide_returns_core_theater(self):",
+      "matched": "test_single_core_scenario_wide_returns_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "test_single_core_scenario_wide_returns_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 33,
+      "col": 12,
+      "snippet": "core_theater=\"TW\", effective_cores=[\"TW\"], scenario_wide=True,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 41,
+      "col": 12,
+      "snippet": "core_theater=\"IL\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 52,
+      "col": 12,
+      "snippet": "core_theater=\"IL\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 60,
+      "col": 12,
+      "snippet": "core_theater=None,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 68,
+      "col": 12,
+      "snippet": "core_theater=None, effective_cores=[], scenario_wide=True,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 76,
+      "col": 12,
+      "snippet": "core_theater=None,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 82,
+      "col": 8,
+      "snippet": "def test_dual_core_per_country_with_empty_core_theater(self):",
+      "matched": "test_dual_core_per_country_with_empty_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "test_dual_core_per_country_with_empty_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 83,
+      "col": 14,
+      "snippet": "\"\"\"If core_theater wasn't promoted (still empty) and the event",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_seq_fire_targets.py",
+      "line": 87,
+      "col": 12,
+      "snippet": "core_theater=None,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 32,
+      "col": 4,
+      "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER,",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 320,
+      "col": 53,
+      "snippet": "from radar.config import CT_LOG_WATCHED_DOMAINS, CT_LOG_MAX_QUERIES_PER_THEATER",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 324,
+      "col": 38,
+      "snippet": "cycles = (len(expected) // max(1, CT_LOG_MAX_QUERIES_PER_THEATER)) + 2",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 327,
+      "col": 27,
+      "snippet": "seen.update(sensor._select_domains_for_theater(\"US\"))",
+      "matched": "_select_domains_for_theater",
+      "classification": "rename_to_country",
+      "proposed": "_select_domains_for_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 334,
+      "col": 53,
+      "snippet": "from radar.config import CT_LOG_WATCHED_DOMAINS, CT_LOG_MAX_QUERIES_PER_THEATER",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 338,
+      "col": 32,
+      "snippet": "if len(ds) <= CT_LOG_MAX_QUERIES_PER_THEATER]",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 344,
+      "col": 29,
+      "snippet": "sliced = sensor_test._select_domains_for_theater(small)",
+      "matched": "_select_domains_for_theater",
+      "classification": "rename_to_country",
+      "proposed": "_select_domains_for_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 345,
+      "col": 30,
+      "snippet": "assert len(sliced) <= CT_LOG_MAX_QUERIES_PER_THEATER",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 348,
+      "col": 21,
+      "snippet": "domains = sensor._select_domains_for_theater(code)",
+      "matched": "_select_domains_for_theater",
+      "classification": "rename_to_country",
+      "proposed": "_select_domains_for_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 354,
+      "col": 18,
+      "snippet": "assert sensor._select_domains_for_theater(\"ZZ\") == []",
+      "matched": "_select_domains_for_theater",
+      "classification": "rename_to_country",
+      "proposed": "_select_domains_for_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 371,
+      "col": 12,
+      "snippet": "assert \"queries_per_theater_per_cycle\" in health",
+      "matched": "queries_per_theater_per_cycle",
+      "classification": "rename_to_country",
+      "proposed": "queries_per_country_per_cycle",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 372,
+      "col": 19,
+      "snippet": "assert health[\"queries_per_theater_per_cycle\"] == CT_LOG_MAX_QUERIES_PER_THEATER",
+      "matched": "queries_per_theater_per_cycle",
+      "classification": "rename_to_country",
+      "proposed": "queries_per_country_per_cycle",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_redesign.py",
+      "line": 372,
+      "col": 54,
+      "snippet": "assert health[\"queries_per_theater_per_cycle\"] == CT_LOG_MAX_QUERIES_PER_THEATER",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_dual_core_observability.py",
+      "line": 12,
+      "col": 40,
+      "snippet": "primary_ec (spike-max belligerent) to core_theater for downstream",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_dual_core_observability.py",
+      "line": 67,
+      "col": 20,
+      "snippet": "assert ctx[\"core_theater\"] is None",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_dual_core_observability.py",
+      "line": 72,
+      "col": 20,
+      "snippet": "assert ctx[\"core_theater\"] == \"TW\"",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "test_ooni_degraded.py",
+      "line": 12,
+      "col": 13,
+      "snippet": "return {\"strategic_theaters\": targets, \"adversary_states\": []}",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ooni_degraded.py",
+      "line": 78,
+      "col": 4,
+      "snippet": "def test_degraded_mode_probes_one_theater_only():",
+      "matched": "test_degraded_mode_probes_one_theater_only",
+      "classification": "rename_to_country",
+      "proposed": "test_degraded_mode_probes_one_country_only",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_intel_multicountry.py",
+      "line": 114,
+      "col": 8,
+      "snippet": "def test_theater_only_derives_countries(self, testdb, monkeypatch):",
+      "matched": "test_theater_only_derives_countries",
+      "classification": "rename_to_country",
+      "proposed": "test_country_only_derives_countries",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_intel_multicountry.py",
+      "line": 270,
+      "col": 8,
+      "snippet": "def test_rationale_backward_compat_theater_only(self, testdb, monkeypatch):",
+      "matched": "test_rationale_backward_compat_theater_only",
+      "classification": "rename_to_country",
+      "proposed": "test_rationale_backward_compat_country_only",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_apt_prompt_dedup.py",
+      "line": 113,
+      "col": 9,
+      "snippet": "\"strategic_theaters\": [\"US\", \"TW\", \"JP\", \"CN\"],",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_orchestrator.py",
+      "line": 148,
+      "col": 13,
+      "snippet": "return {\"strategic_theaters\": [\"TW\"], \"adversary_states\": []}, domain",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_orchestrator.py",
+      "line": 199,
+      "col": 19,
+      "snippet": "sensor.fetch({\"strategic_theaters\": [\"TW\"], \"adversary_states\": []})",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_orchestrator.py",
+      "line": 241,
+      "col": 19,
+      "snippet": "sensor.fetch({\"strategic_theaters\": [\"TW\"], \"adversary_states\": []})",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "test_ct_log_orchestrator.py",
+      "line": 316,
+      "col": 12,
+      "snippet": "ctx = {\"strategic_theaters\": [\"ZZ\"], \"adversary_states\": []}",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scenarios.py",
+      "line": 443,
+      "col": 21,
+      "snippet": "# ADR-005 supersedes core_theater with focused_scenario; ADR-014 merges adversaries",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/scenarios.py",
+      "line": 452,
+      "col": 8,
+      "snippet": "- core_theater: focused.core_country (Optional[str], ADR-009)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/scenarios.py",
+      "line": 460,
+      "col": 8,
+      "snippet": "- strategic_theaters: all participant countries (superset)",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scenarios.py",
+      "line": 481,
+      "col": 9,
+      "snippet": "\"core_theater\": core,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/scenarios.py",
+      "line": 485,
+      "col": 9,
+      "snippet": "\"strategic_theaters\": sorted(parts.keys()),",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/intel_queue.py",
+      "line": 55,
+      "col": 4,
+      "snippet": "def _max_items_per_source_theater() -> int:",
+      "matched": "_max_items_per_source_theater",
+      "classification": "rename_to_country",
+      "proposed": "_max_items_per_source_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/intel_queue.py",
+      "line": 57,
+      "col": 26,
+      "snippet": "return int(os.getenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"2\"))",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/intel_queue.py",
+      "line": 864,
+      "col": 40,
+      "snippet": "Score accumulation cap: at most INTEL_MAX_ITEMS_PER_SOURCE_THEATER items per",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/intel_queue.py",
+      "line": 875,
+      "col": 14,
+      "snippet": "cap = _max_items_per_source_theater()",
+      "matched": "_max_items_per_source_theater",
+      "classification": "rename_to_country",
+      "proposed": "_max_items_per_source_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/intel_queue.py",
+      "line": 1051,
+      "col": 13,
+      "snippet": "\"max_items_per_source_theater\": _max_items_per_source_theater(),",
+      "matched": "max_items_per_source_theater",
+      "classification": "rename_to_country",
+      "proposed": "max_items_per_source_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/intel_queue.py",
+      "line": 1051,
+      "col": 44,
+      "snippet": "\"max_items_per_source_theater\": _max_items_per_source_theater(),",
+      "matched": "_max_items_per_source_theater",
+      "classification": "rename_to_country",
+      "proposed": "_max_items_per_source_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/config.py",
+      "line": 337,
+      "col": 0,
+      "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv(\"CT_LOG_MAX_QUERIES_PER_THEATER\", \"2\"))",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/config.py",
+      "line": 337,
+      "col": 53,
+      "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv(\"CT_LOG_MAX_QUERIES_PER_THEATER\", \"2\"))",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/config.py",
+      "line": 451,
+      "col": 0,
+      "snippet": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER = int(os.getenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"2\"))",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/config.py",
+      "line": 451,
+      "col": 52,
+      "snippet": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER = int(os.getenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"2\"))",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 94,
+      "col": 4,
+      "snippet": "core_theater: str | None,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 100,
+      "col": 27,
+      "snippet": "Single-core scenarios (core_theater present): always [core_theater].",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 100,
+      "col": 58,
+      "snippet": "Single-core scenarios (core_theater present): always [core_theater].",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 109,
+      "col": 40,
+      "snippet": "checked against primary): only [core_theater]. Registering for",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 125,
+      "col": 7,
+      "snippet": "if core_theater:",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 126,
+      "col": 16,
+      "snippet": "return [core_theater]",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 717,
+      "col": 23,
+      "snippet": "strategic_theaters: list = None,",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 732,
+      "col": 4,
+      "snippet": "strategic_theaters = strategic_theaters or []",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 732,
+      "col": 25,
+      "snippet": "strategic_theaters = strategic_theaters or []",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 736,
+      "col": 29,
+      "snippet": "is_src_friendly = src in strategic_theaters and src not in adversary_states",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 737,
+      "col": 30,
+      "snippet": "is_tgt_strategic = tgt in strategic_theaters",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 878,
+      "col": 27,
+      "snippet": "strategic_theaters: list = None,",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 884,
+      "col": 6,
+      "snippet": "- is_core_theater: boolean (theater == focused scenario's core_country)",
+      "matched": "is_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "is_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 888,
+      "col": 4,
+      "snippet": "strategic_theaters = strategic_theaters or []",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 888,
+      "col": 25,
+      "snippet": "strategic_theaters = strategic_theaters or []",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 896,
+      "col": 39,
+      "snippet": "if is_adversary and theater in strategic_theaters:",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 898,
+      "col": 24,
+      "snippet": "elif theater in strategic_theaters:",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scoring.py",
+      "line": 907,
+      "col": 9,
+      "snippet": "\"is_core_theater\": is_core,",
+      "matched": "is_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "is_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 95,
+      "col": 27,
+      "snippet": "CREATE INDEX IF NOT EXISTS idx_time_series_theater",
+      "matched": "idx_time_series_theater",
+      "classification": "rename_to_country",
+      "proposed": "idx_time_series_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 115,
+      "col": 27,
+      "snippet": "CREATE INDEX IF NOT EXISTS idx_seq_events_theater_ts",
+      "matched": "idx_seq_events_theater_ts",
+      "classification": "rename_to_country",
+      "proposed": "idx_seq_events_country_ts",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 242,
+      "col": 27,
+      "snippet": "CREATE INDEX IF NOT EXISTS idx_confirmed_theater_ts ON confirmed_threats (theater, ts);",
+      "matched": "idx_confirmed_theater_ts",
+      "classification": "rename_to_country",
+      "proposed": "idx_confirmed_country_ts",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 259,
+      "col": 27,
+      "snippet": "CREATE INDEX IF NOT EXISTS idx_daily_summary_theater ON daily_summary (theater, day_bucket);",
+      "matched": "idx_daily_summary_theater",
+      "classification": "rename_to_country",
+      "proposed": "idx_daily_summary_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 272,
+      "col": 27,
+      "snippet": "CREATE INDEX IF NOT EXISTS idx_forecast_theater_ts ON forecast_log (theater, ts);",
+      "matched": "idx_forecast_theater_ts",
+      "classification": "rename_to_country",
+      "proposed": "idx_forecast_country_ts",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 337,
+      "col": 27,
+      "snippet": "CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC);",
+      "matched": "idx_llm_intel_theater",
+      "classification": "rename_to_country",
+      "proposed": "idx_llm_intel_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 686,
+      "col": 53,
+      "snippet": "conn.execute(\"CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC)\"),",
+      "matched": "idx_llm_intel_theater",
+      "classification": "rename_to_country",
+      "proposed": "idx_llm_intel_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 1350,
+      "col": 8,
+      "snippet": "def hod_total_points_theater(self, table: str, theater: str) -> int:",
+      "matched": "hod_total_points_theater",
+      "classification": "rename_to_country",
+      "proposed": "hod_total_points_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 1424,
+      "col": 8,
+      "snippet": "def ts_distinct_theaters(self) -> list[str]:",
+      "matched": "ts_distinct_theaters",
+      "classification": "rename_to_country",
+      "proposed": "ts_distinct_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/database.py",
+      "line": 1540,
+      "col": 8,
+      "snippet": "def seq_distinct_theaters(self) -> list[str]:",
+      "matched": "seq_distinct_theaters",
+      "classification": "rename_to_country",
+      "proposed": "seq_distinct_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/__init__.py",
+      "line": 258,
+      "col": 0,
+      "snippet": "_hod_theaters: set[str] = set()",
+      "matched": "_hod_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_hod_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/__init__.py",
+      "line": 261,
+      "col": 4,
+      "snippet": "_hod_theaters |= set(_sc.participants.keys())",
+      "matched": "_hod_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_hod_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/__init__.py",
+      "line": 266,
+      "col": 17,
+      "snippet": "args=(sorted(_hod_theaters), sorted(_hod_adversaries)),",
+      "matched": "_hod_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_hod_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/intel_corroboration.py",
+      "line": 172,
+      "col": 8,
+      "snippet": "by_theater: dict[str, list[dict]] = defaultdict(list)",
+      "matched": "by_theater",
+      "classification": "rename_to_country",
+      "proposed": "by_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/intel_corroboration.py",
+      "line": 176,
+      "col": 16,
+      "snippet": "by_theater[theater].append(item)",
+      "matched": "by_theater",
+      "classification": "rename_to_country",
+      "proposed": "by_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/intel_corroboration.py",
+      "line": 179,
+      "col": 38,
+      "snippet": "for theater, theater_items in by_theater.items():",
+      "matched": "by_theater",
+      "classification": "rename_to_country",
+      "proposed": "by_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/ws.py",
+      "line": 9,
+      "col": 41,
+      "snippet": "Clients subscribe to a theater room via 'subscribe_theater' event.",
+      "matched": "subscribe_theater",
+      "classification": "rename_to_country",
+      "proposed": "subscribe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/ws.py",
+      "line": 74,
+      "col": 18,
+      "snippet": "@socketio.on(\"subscribe_theater\")",
+      "matched": "subscribe_theater",
+      "classification": "rename_to_country",
+      "proposed": "subscribe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/ws.py",
+      "line": 75,
+      "col": 8,
+      "snippet": "def on_subscribe_theater(data):",
+      "matched": "on_subscribe_theater",
+      "classification": "rename_to_country",
+      "proposed": "on_subscribe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/ws.py",
+      "line": 86,
+      "col": 18,
+      "snippet": "@socketio.on(\"unsubscribe_theater\")",
+      "matched": "unsubscribe_theater",
+      "classification": "rename_to_country",
+      "proposed": "unsubscribe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/ws.py",
+      "line": 87,
+      "col": 8,
+      "snippet": "def on_unsubscribe_theater(data):",
+      "matched": "on_unsubscribe_theater",
+      "classification": "rename_to_country",
+      "proposed": "on_unsubscribe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/engine.py",
+      "line": 876,
+      "col": 13,
+      "snippet": "self._theater_baselines: dict[str, list[tuple[float, float]]] = {}",
+      "matched": "_theater_baselines",
+      "classification": "rename_to_country",
+      "proposed": "_country_baselines",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/engine.py",
+      "line": 879,
+      "col": 8,
+      "snippet": "def record_theater_score(self, theater: str, score: float):",
+      "matched": "record_theater_score",
+      "classification": "rename_to_country",
+      "proposed": "record_country_score",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/engine.py",
+      "line": 884,
+      "col": 27,
+      "snippet": "history = self._theater_baselines.setdefault(theater, [])",
+      "matched": "_theater_baselines",
+      "classification": "rename_to_country",
+      "proposed": "_country_baselines",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/engine.py",
+      "line": 887,
+      "col": 17,
+      "snippet": "self._theater_baselines[theater] = [",
+      "matched": "_theater_baselines",
+      "classification": "rename_to_country",
+      "proposed": "_country_baselines",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/engine.py",
+      "line": 891,
+      "col": 8,
+      "snippet": "def compute_theater_zscore(self, theater: str, current_score: float) -> dict:",
+      "matched": "compute_theater_zscore",
+      "classification": "rename_to_country",
+      "proposed": "compute_country_zscore",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/engine.py",
+      "line": 898,
+      "col": 32,
+      "snippet": "history = list(self._theater_baselines.get(theater, []))",
+      "matched": "_theater_baselines",
+      "classification": "rename_to_country",
+      "proposed": "_country_baselines",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scheduler.py",
+      "line": 48,
+      "col": 32,
+      "snippet": "\"all_targets\": [], \"strategic_theaters\": [], \"adversary_states\": [],",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scheduler.py",
+      "line": 61,
+      "col": 30,
+      "snippet": "strategic |= set(ctx[\"strategic_theaters\"])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/scheduler.py",
+      "line": 67,
+      "col": 9,
+      "snippet": "\"strategic_theaters\":  sorted(strategic),",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/isr_hotspot.py",
+      "line": 24,
+      "col": 36,
+      "snippet": "theaters = set(context.get(\"strategic_theaters\", []))",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/mil_support_air.py",
+      "line": 70,
+      "col": 36,
+      "snippet": "theaters = set(context.get(\"strategic_theaters\", []))",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/threatfox.py",
+      "line": 16,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/openweather.py",
+      "line": 15,
+      "col": 34,
+      "snippet": "# Weather noise check for strategic_theaters only (all_targets is too large, risks API quota exhaustion)",
+      "matched": "strategic_theaters",
+      "classification": "user_facing_text",
+      "proposed": "",
+      "note": "review prompt/comment manually — country or scenario?"
+    },
+    {
+      "path": "radar/sensors/openweather.py",
+      "line": 16,
+      "col": 31,
+      "snippet": "targets = context.get(\"strategic_theaters\", []); api_key = context.get(\"owm_api_key\", \"\")",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 45,
+      "col": 4,
+      "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER,",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 366,
+      "col": 8,
+      "snippet": "def _select_domains_for_theater(self, code: str) -> list[str]:",
+      "matched": "_select_domains_for_theater",
+      "classification": "rename_to_country",
+      "proposed": "_select_domains_for_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 367,
+      "col": 24,
+      "snippet": "\"\"\"Return up to CT_LOG_MAX_QUERIES_PER_THEATER domains for this poll,",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "user_facing_text",
+      "proposed": "",
+      "note": "review prompt/comment manually — country or scenario?"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 373,
+      "col": 24,
+      "snippet": "budget = max(1, CT_LOG_MAX_QUERIES_PER_THEATER)",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 387,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", []) or []",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 407,
+      "col": 8,
+      "snippet": "polled_domains_by_theater: dict[str, list[str]] = {}",
+      "matched": "polled_domains_by_theater",
+      "classification": "rename_to_country",
+      "proposed": "polled_domains_by_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 412,
+      "col": 27,
+      "snippet": "domains = self._select_domains_for_theater(code)",
+      "matched": "_select_domains_for_theater",
+      "classification": "rename_to_country",
+      "proposed": "_select_domains_for_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 417,
+      "col": 12,
+      "snippet": "polled_domains_by_theater[code] = list(domains)",
+      "matched": "polled_domains_by_theater",
+      "classification": "rename_to_country",
+      "proposed": "polled_domains_by_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 497,
+      "col": 26,
+      "snippet": "domains = polled_domains_by_theater[code]",
+      "matched": "polled_domains_by_theater",
+      "classification": "rename_to_country",
+      "proposed": "polled_domains_by_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 739,
+      "col": 13,
+      "snippet": "\"queries_per_theater_per_cycle\": CT_LOG_MAX_QUERIES_PER_THEATER,",
+      "matched": "queries_per_theater_per_cycle",
+      "classification": "rename_to_country",
+      "proposed": "queries_per_country_per_cycle",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ct_log.py",
+      "line": 739,
+      "col": 45,
+      "snippet": "\"queries_per_theater_per_cycle\": CT_LOG_MAX_QUERIES_PER_THEATER,",
+      "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_news_sensor.py",
+      "line": 236,
+      "col": 8,
+      "snippet": "strategic_theaters = set(context.get(\"all_participant_countries\")",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_news_sensor.py",
+      "line": 237,
+      "col": 50,
+      "snippet": "or context.get(\"strategic_theaters\", []))",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_news_sensor.py",
+      "line": 276,
+      "col": 48,
+      "snippet": "theaters_str = \", \".join(sorted(strategic_theaters)) if strategic_theaters else \"any\"",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_news_sensor.py",
+      "line": 276,
+      "col": 72,
+      "snippet": "theaters_str = \", \".join(sorted(strategic_theaters)) if strategic_theaters else \"any\"",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_news_sensor.py",
+      "line": 365,
+      "col": 40,
+      "snippet": "record_sensor_drop(\"no_theater\")",
+      "matched": "no_theater",
+      "classification": "rename_to_country",
+      "proposed": "no_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_news_sensor.py",
+      "line": 368,
+      "col": 19,
+      "snippet": "if strategic_theaters and theater not in strategic_theaters:",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_news_sensor.py",
+      "line": 368,
+      "col": 57,
+      "snippet": "if strategic_theaters and theater not in strategic_theaters:",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/tor_metrics.py",
+      "line": 39,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/opensky.py",
+      "line": 15,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", []); results: dict = {}; delta = 0.5",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/telegram.py",
+      "line": 288,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/telegram.py",
+      "line": 296,
+      "col": 8,
+      "snippet": "channel_theaters: dict[str, list[str]] = {}",
+      "matched": "channel_theaters",
+      "classification": "rename_to_country",
+      "proposed": "channel_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/telegram.py",
+      "line": 299,
+      "col": 16,
+      "snippet": "channel_theaters.setdefault(ch, []).append(theater)",
+      "matched": "channel_theaters",
+      "classification": "rename_to_country",
+      "proposed": "channel_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/telegram.py",
+      "line": 304,
+      "col": 36,
+      "snippet": "for i, channel in enumerate(channel_theaters):",
+      "matched": "channel_theaters",
+      "classification": "rename_to_country",
+      "proposed": "channel_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/peeringdb.py",
+      "line": 24,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/checkhost.py",
+      "line": 173,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 94,
+      "col": 4,
+      "snippet": "current_theater: str,",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 105,
+      "col": 38,
+      "snippet": "current_terms = all_geo_terms.get(current_theater, [])",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 106,
+      "col": 32,
+      "snippet": "current_re = _get_geo_regex(current_theater, current_terms)",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 112,
+      "col": 19,
+      "snippet": "if code == current_theater:",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 151,
+      "col": 8,
+      "snippet": "current_theater: str = \"\",",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 180,
+      "col": 41,
+      "snippet": "use_geo = bool(all_geo_terms and current_theater)",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 202,
+      "col": 50,
+      "snippet": "geo = _classify_article_geo(text, current_theater, all_geo_terms)",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 223,
+      "col": 8,
+      "snippet": "current_theater: str = \"\",",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 245,
+      "col": 41,
+      "snippet": "use_geo = bool(all_geo_terms and current_theater)",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 267,
+      "col": 56,
+      "snippet": "geo = _classify_article_geo(text_lower, current_theater, all_geo_terms)",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 628,
+      "col": 43,
+      "snippet": "or context.get(\"strategic_theaters\", []))",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 677,
+      "col": 20,
+      "snippet": "current_theater=theater,",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/rss_narrative.py",
+      "line": 710,
+      "col": 28,
+      "snippet": "current_theater=theater,",
+      "matched": "current_theater",
+      "classification": "rename_to_country",
+      "proposed": "current_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ripe_atlas.py",
+      "line": 97,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ground_osint_sensor.py",
+      "line": 173,
+      "col": 12,
+      "snippet": "safe_theater = sanitize_llm_input(theater, 10)",
+      "matched": "safe_theater",
+      "classification": "rename_to_country",
+      "proposed": "safe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ground_osint_sensor.py",
+      "line": 176,
+      "col": 28,
+      "snippet": "f\"Theater: {safe_theater}\\n\"",
+      "matched": "safe_theater",
+      "classification": "rename_to_country",
+      "proposed": "safe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ground_osint_sensor.py",
+      "line": 185,
+      "col": 28,
+      "snippet": "f\"Theater: {safe_theater}\\n\"",
+      "matched": "safe_theater",
+      "classification": "rename_to_country",
+      "proposed": "safe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/notam.py",
+      "line": 58,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/gdelt.py",
+      "line": 34,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", []); weather_conds = context.get(\"weather_conditions\", {})",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 140,
+      "col": 4,
+      "snippet": "def _theater_names(theaters: list[str]) -> list[str]:",
+      "matched": "_theater_names",
+      "classification": "rename_to_country",
+      "proposed": "_country_names",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 256,
+      "col": 8,
+      "snippet": "strategic_theaters = set(context.get(\"all_participant_countries\")",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 257,
+      "col": 50,
+      "snippet": "or context.get(\"strategic_theaters\", []))",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 267,
+      "col": 60,
+      "snippet": "theaters = [t for t in meta[\"theaters\"] if t in strategic_theaters or not strategic_theaters]",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 267,
+      "col": 86,
+      "snippet": "theaters = [t for t in meta[\"theaters\"] if t in strategic_theaters or not strategic_theaters]",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 278,
+      "col": 22,
+      "snippet": "t_names = _theater_names(theaters)",
+      "matched": "_theater_names",
+      "classification": "rename_to_country",
+      "proposed": "_country_names",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 371,
+      "col": 16,
+      "snippet": "llm_theater = (data.get(\"theater\") or \"\").strip().upper()",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 372,
+      "col": 23,
+      "snippet": "if not llm_theater or llm_theater not in theaters:",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 372,
+      "col": 38,
+      "snippet": "if not llm_theater or llm_theater not in theaters:",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 373,
+      "col": 95,
+      "snippet": "log.debug(f\"[Diplomatic] No specific theater match for {source_name} (llm={llm_theater!r})\")",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/diplomatic.py",
+      "line": 376,
+      "col": 26,
+      "snippet": "theater = llm_theater",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/greynoise.py",
+      "line": 198,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_intel_sensor.py",
+      "line": 172,
+      "col": 12,
+      "snippet": "llm_theater_raw = data.get(\"theater\")",
+      "matched": "llm_theater_raw",
+      "classification": "rename_to_country",
+      "proposed": "llm_country_raw",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_intel_sensor.py",
+      "line": 173,
+      "col": 15,
+      "snippet": "if llm_theater_raw is None or str(llm_theater_raw).strip().upper() in (\"NULL\", \"NONE\", \"\"):",
+      "matched": "llm_theater_raw",
+      "classification": "rename_to_country",
+      "proposed": "llm_country_raw",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_intel_sensor.py",
+      "line": 173,
+      "col": 46,
+      "snippet": "if llm_theater_raw is None or str(llm_theater_raw).strip().upper() in (\"NULL\", \"NONE\", \"\"):",
+      "matched": "llm_theater_raw",
+      "classification": "rename_to_country",
+      "proposed": "llm_country_raw",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_intel_sensor.py",
+      "line": 177,
+      "col": 12,
+      "snippet": "resolved_theater = str(llm_theater_raw).strip().upper()",
+      "matched": "resolved_theater",
+      "classification": "rename_to_country",
+      "proposed": "resolved_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_intel_sensor.py",
+      "line": 177,
+      "col": 35,
+      "snippet": "resolved_theater = str(llm_theater_raw).strip().upper()",
+      "matched": "llm_theater_raw",
+      "classification": "rename_to_country",
+      "proposed": "llm_country_raw",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_intel_sensor.py",
+      "line": 179,
+      "col": 19,
+      "snippet": "if len(resolved_theater) == 2 and resolved_theater.isalpha():",
+      "matched": "resolved_theater",
+      "classification": "rename_to_country",
+      "proposed": "resolved_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_intel_sensor.py",
+      "line": 179,
+      "col": 46,
+      "snippet": "if len(resolved_theater) == 2 and resolved_theater.isalpha():",
+      "matched": "resolved_theater",
+      "classification": "rename_to_country",
+      "proposed": "resolved_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/hacktivist_intel_sensor.py",
+      "line": 180,
+      "col": 26,
+      "snippet": "theater = resolved_theater",
+      "matched": "resolved_theater",
+      "classification": "rename_to_country",
+      "proposed": "resolved_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/nasa_firms.py",
+      "line": 20,
+      "col": 4,
+      "snippet": "_THEATER_RADIUS: dict[str, float] = {",
+      "matched": "_THEATER_RADIUS",
+      "classification": "rename_to_country",
+      "proposed": "_THEATER_RADIUS",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/nasa_firms.py",
+      "line": 32,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/nasa_firms.py",
+      "line": 72,
+      "col": 34,
+      "snippet": "radius = self._THEATER_RADIUS.get(code, self.GEO_RADIUS_DEG_DEFAULT)",
+      "matched": "_THEATER_RADIUS",
+      "classification": "rename_to_country",
+      "proposed": "_THEATER_RADIUS",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/bgp_routing.py",
+      "line": 29,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", []); results: dict = {}",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/ooni.py",
+      "line": 62,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/travel_advisory.py",
+      "line": 152,
+      "col": 36,
+      "snippet": "theaters = set(context.get(\"strategic_theaters\", []))",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/gps_jamming.py",
+      "line": 110,
+      "col": 32,
+      "snippet": "theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 162,
+      "col": 4,
+      "snippet": "def _theater_names(theaters: list[str]) -> list[str]:",
+      "matched": "_theater_names",
+      "classification": "rename_to_country",
+      "proposed": "_country_names",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 332,
+      "col": 8,
+      "snippet": "strategic_theaters = set(context.get(\"all_participant_countries\")",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 333,
+      "col": 50,
+      "snippet": "or context.get(\"strategic_theaters\", []))",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 345,
+      "col": 36,
+      "snippet": "if not strategic_theaters or t in strategic_theaters]",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 345,
+      "col": 63,
+      "snippet": "if not strategic_theaters or t in strategic_theaters]",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 352,
+      "col": 22,
+      "snippet": "t_names = _theater_names(theater_hints)",
+      "matched": "_theater_names",
+      "classification": "rename_to_country",
+      "proposed": "_country_names",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 524,
+      "col": 40,
+      "snippet": "record_sensor_drop(\"stage2_no_theater\")",
+      "matched": "stage2_no_theater",
+      "classification": "rename_to_country",
+      "proposed": "stage2_no_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 528,
+      "col": 19,
+      "snippet": "if strategic_theaters and theater not in strategic_theaters:",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 528,
+      "col": 57,
+      "snippet": "if strategic_theaters and theater not in strategic_theaters:",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/apt_intel.py",
+      "line": 530,
+      "col": 40,
+      "snippet": "record_sensor_drop(\"stage2_theater_not_strategic\")",
+      "matched": "stage2_theater_not_strategic",
+      "classification": "rename_to_country",
+      "proposed": "stage2_country_not_strategic",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 98,
+      "col": 4,
+      "snippet": "def _theater_names(theaters: list[str]) -> list[str]:",
+      "matched": "_theater_names",
+      "classification": "rename_to_country",
+      "proposed": "_country_names",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 220,
+      "col": 8,
+      "snippet": "strategic_theaters = set(context.get(\"all_participant_countries\")",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 221,
+      "col": 50,
+      "snippet": "or context.get(\"strategic_theaters\", []))",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 227,
+      "col": 60,
+      "snippet": "theaters = [t for t in meta[\"theaters\"] if t in strategic_theaters or not strategic_theaters]",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 227,
+      "col": 86,
+      "snippet": "theaters = [t for t in meta[\"theaters\"] if t in strategic_theaters or not strategic_theaters]",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 234,
+      "col": 22,
+      "snippet": "t_names = _theater_names(theaters)",
+      "matched": "_theater_names",
+      "classification": "rename_to_country",
+      "proposed": "_country_names",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 362,
+      "col": 16,
+      "snippet": "llm_theater = (data.get(\"theater\") or \"\").strip().upper()",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 363,
+      "col": 23,
+      "snippet": "if not llm_theater or llm_theater not in theaters:",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 363,
+      "col": 38,
+      "snippet": "if not llm_theater or llm_theater not in theaters:",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 364,
+      "col": 96,
+      "snippet": "log.debug(f\"[MilExercise] No specific theater match for {source_name} (llm={llm_theater!r})\")",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/military_exercise.py",
+      "line": 367,
+      "col": 26,
+      "snippet": "theater = llm_theater",
+      "matched": "llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/convergence_tracker.py",
+      "line": 81,
+      "col": 59,
+      "snippet": "self._conn.execute(\"CREATE INDEX IF NOT EXISTS idx_theater_ts ON snapshots(theater, ts)\")",
+      "matched": "idx_theater_ts",
+      "classification": "rename_to_country",
+      "proposed": "idx_country_ts",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/convergence_tracker.py",
+      "line": 182,
+      "col": 8,
+      "snippet": "strategic_theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/convergence_tracker.py",
+      "line": 182,
+      "col": 42,
+      "snippet": "strategic_theaters = context.get(\"strategic_theaters\", [])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/convergence_tracker.py",
+      "line": 193,
+      "col": 23,
+      "snippet": "for theater in strategic_theaters:",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/sensors/convergence_tracker.py",
+      "line": 253,
+      "col": 36,
+      "snippet": "\"theaters_checked\": len(strategic_theaters),",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 501,
+      "col": 4,
+      "snippet": "core_theater = (_ctx[\"core_theater\"] or \"\").upper()",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 501,
+      "col": 26,
+      "snippet": "core_theater = (_ctx[\"core_theater\"] or \"\").upper()",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 506,
+      "col": 11,
+      "snippet": "# When core_theater is empty (dual-core scenario such as middle_east),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 509,
+      "col": 38,
+      "snippet": "# string that a legacy `_seq_fire(core_theater, ...)`",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 512,
+      "col": 18,
+      "snippet": "def _seq_fire(_legacy_theater: str, event_type: str,",
+      "matched": "_legacy_theater",
+      "classification": "rename_to_country",
+      "proposed": "_legacy_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 517,
+      "col": 10,
+      "snippet": "# _original_core_theater is empty for dual-core scenarios; promotion",
+      "matched": "_original_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "_original_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 522,
+      "col": 12,
+      "snippet": "_original_core_theater, effective_cores,",
+      "matched": "_original_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "_original_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 530,
+      "col": 4,
+      "snippet": "strategic_theaters_set = set(_ctx[\"strategic_theaters\"])",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 530,
+      "col": 39,
+      "snippet": "strategic_theaters_set = set(_ctx[\"strategic_theaters\"])",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 553,
+      "col": 7,
+      "snippet": "if core_theater:",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 554,
+      "col": 26,
+      "snippet": "required_keys.add(core_theater)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 560,
+      "col": 9,
+      "snippet": "\"strategic_theaters\": sorted(strategic_theaters_set),",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 560,
+      "col": 37,
+      "snippet": "\"strategic_theaters\": sorted(strategic_theaters_set),",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 673,
+      "col": 20,
+      "snippet": "if t in strategic_theaters_set:",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 719,
+      "col": 53,
+      "snippet": "if code in adversary_states and t in strategic_theaters_set and spike_factor >= 4.0 and current_local_pct > 3.0:",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 736,
+      "col": 40,
+      "snippet": "if is_vector_shift and t in strategic_theaters_set: vector_shifts.append(t)",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 745,
+      "col": 20,
+      "snippet": "if t in strategic_theaters_set:",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 750,
+      "col": 78,
+      "snippet": "_entropy_track = track_entropy_change(t, _origin_entropy) if t in strategic_theaters_set else {\"current\": _origin_entrop",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 757,
+      "col": 8,
+      "snippet": "_corr_theaters = []",
+      "matched": "_corr_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_corr_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 758,
+      "col": 41,
+      "snippet": "for t in (effective_cores if not core_theater else [core_theater]) + correlate_targets:",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 758,
+      "col": 60,
+      "snippet": "for t in (effective_cores if not core_theater else [core_theater]) + correlate_targets:",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 760,
+      "col": 16,
+      "snippet": "_corr_theaters.append(t)",
+      "matched": "_corr_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_corr_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 762,
+      "col": 30,
+      "snippet": "for i, a in enumerate(_corr_theaters):",
+      "matched": "_corr_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_corr_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 763,
+      "col": 21,
+      "snippet": "for b in _corr_theaters[i + 1:]:",
+      "matched": "_corr_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_corr_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 769,
+      "col": 8,
+      "snippet": "elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get(\"avg_spike\", 0) > 3.0]",
+      "matched": "elevated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "elevated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 769,
+      "col": 40,
+      "snippet": "elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get(\"avg_spike\", 0) > 3.0]",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 770,
+      "col": 29,
+      "snippet": "is_coordinated = len(elevated_theaters) >= 2",
+      "matched": "elevated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "elevated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 776,
+      "col": 35,
+      "snippet": "if effective_cores and not core_theater:",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 790,
+      "col": 44,
+      "snippet": "core_spike = target_details.get(core_theater, {}).get(\"avg_spike\", 0)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 791,
+      "col": 28,
+      "snippet": "core_degraded = core_theater in degraded_targets_effective",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 792,
+      "col": 27,
+      "snippet": "core_shifted = core_theater in vector_shifts",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 793,
+      "col": 25,
+      "snippet": "primary_ec = core_theater",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 796,
+      "col": 13,
+      "snippet": "# to core_theater so that ALL downstream per-country sensor lookups,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 810,
+      "col": 8,
+      "snippet": "_original_core_theater = core_theater",
+      "matched": "_original_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "_original_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 810,
+      "col": 33,
+      "snippet": "_original_core_theater = core_theater",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 811,
+      "col": 15,
+      "snippet": "if not core_theater and primary_ec:",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 812,
+      "col": 12,
+      "snippet": "core_theater = primary_ec",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 858,
+      "col": 16,
+      "snippet": "strategic_theaters=list(strategic_theaters_set),",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 858,
+      "col": 40,
+      "snippet": "strategic_theaters=list(strategic_theaters_set),",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 868,
+      "col": 46,
+      "snippet": "strategic_theaters=list(strategic_theaters_set),",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 868,
+      "col": 70,
+      "snippet": "strategic_theaters=list(strategic_theaters_set),",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 939,
+      "col": 112,
+      "snippet": "_coord_active = add_rat(\"cf_coordinated\", \"cyber\", \"FIRED\" if is_coordinated else \"OK\", f\"theaters={elevated_theaters}\",",
+      "matched": "elevated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "elevated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 946,
+      "col": 49,
+      "snippet": "_ioda_core_detail = ioda_details.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 954,
+      "col": 30,
+      "snippet": "_wx_suppressed = (core_theater in weather_suppressed_bgp)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 971,
+      "col": 46,
+      "snippet": "core_airspace = airspace_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 987,
+      "col": 50,
+      "snippet": "core_weather = weather_conditions.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 988,
+      "col": 56,
+      "snippet": "add_rat(\"openweather\", \"physical\", \"OK\", f\"{core_theater}: {core_weather.get('severity', 'NORMAL')}\", 0, None, suppress_",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 993,
+      "col": 40,
+      "snippet": "core_tone = gdelt_tones.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1000,
+      "col": 44,
+      "snippet": "core_bgp = bgp_routing_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1015,
+      "col": 85,
+      "snippet": "_core_hijacks = [h for h in cf_bgp_hijacks if h.get(\"victim_country\") == core_theater]",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1016,
+      "col": 79,
+      "snippet": "_core_leaks = [l for l in cf_bgp_leaks if l.get(\"leak_country\") == core_theater]",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1039,
+      "col": 41,
+      "snippet": "has_firms = any(f[\"code\"] == core_theater for f in nasa_firms_data)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1043,
+      "col": 49,
+      "snippet": "_firms_val = f\"Thermal Anomaly [{core_theater}]\"",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1052,
+      "col": 21,
+      "snippet": "has_tf = core_theater in threatfox_data",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1061,
+      "col": 44,
+      "snippet": "core_narrative = narrative_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1077,
+      "col": 26,
+      "snippet": "_seq_fire(core_theater, \"NARRATIVE_BURST\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1082,
+      "col": 32,
+      "snippet": "core_isr = isr_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1093,
+      "col": 26,
+      "snippet": "_seq_fire(core_theater, \"ISR_SURGE\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1114,
+      "col": 33,
+      "snippet": "cp[\"country\"] == core_theater for cp in CHOKEPOINTS if cp[\"name\"] == g.get(\"chokepoint\")",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1124,
+      "col": 26,
+      "snippet": "_seq_fire(core_theater, \"AIS_DARK_GAP\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1149,
+      "col": 22,
+      "snippet": "_seq_fire(core_theater, \"FIRMS_ANOMALY\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1150,
+      "col": 97,
+      "snippet": "{\"hotspots\": [f for f in nasa_firms_data if f.get(\"code\") == core_theater]},",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1176,
+      "col": 22,
+      "snippet": "_seq_fire(core_theater, \"SYNC_DDOS\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1177,
+      "col": 38,
+      "snippet": "{\"coordinated_theaters\": elevated_theaters,",
+      "matched": "coordinated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "coordinated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1177,
+      "col": 61,
+      "snippet": "{\"coordinated_theaters\": elevated_theaters,",
+      "matched": "elevated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "elevated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1184,
+      "col": 49,
+      "snippet": "core_telegram        = telegram_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1220,
+      "col": 26,
+      "snippet": "_seq_fire(core_theater, \"NARRATIVE_BURST\", {",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1227,
+      "col": 46,
+      "snippet": "core_checkhost   = checkhost_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1246,
+      "col": 48,
+      "snippet": "core_greynoise     = greynoise_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1277,
+      "col": 65,
+      "snippet": "_seq_events_dict = {th: _db.seq_all_events(th) for th in strategic_theaters_set}",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1279,
+      "col": 77,
+      "snippet": "_routes.engine.compute_temporal_coherence(_seq_events_dict, list(strategic_theaters_set))",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1287,
+      "col": 8,
+      "snippet": "other_theater_live = False",
+      "matched": "other_theater_live",
+      "classification": "rename_to_country",
+      "proposed": "other_country_live",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1288,
+      "col": 18,
+      "snippet": "for _t in strategic_theaters_set:",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1289,
+      "col": 21,
+      "snippet": "if _t == core_theater:",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1293,
+      "col": 16,
+      "snippet": "other_theater_live = True",
+      "matched": "other_theater_live",
+      "classification": "rename_to_country",
+      "proposed": "other_country_live",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1296,
+      "col": 16,
+      "snippet": "other_theater_live = True",
+      "matched": "other_theater_live",
+      "classification": "rename_to_country",
+      "proposed": "other_country_live",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1305,
+      "col": 32,
+      "snippet": "other_sensors_alive=other_theater_live,",
+      "matched": "other_theater_live",
+      "classification": "rename_to_country",
+      "proposed": "other_country_live",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1316,
+      "col": 36,
+      "snippet": "ts_series_core = _db.ts_get(core_theater)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1325,
+      "col": 45,
+      "snippet": "_bi_ripe_drop = bgp_routing_data.get(core_theater, {}).get(\"drop_pct\", 0.0)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1357,
+      "col": 40,
+      "snippet": "_ihr_core_disco = ihr_disco.get(core_theater, [])",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1358,
+      "col": 40,
+      "snippet": "_ihr_core_delay = ihr_delay.get(core_theater, [])",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1359,
+      "col": 50,
+      "snippet": "_ihr_core_status = ihr_country_status.get(core_theater, \"NORMAL\")",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1366,
+      "col": 64,
+      "snippet": "_ihr_disco_reason = (f\"IHR: Disconnection event in {core_theater} \"",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1387,
+      "col": 54,
+      "snippet": "_atlas_core_status = atlas_country_status.get(core_theater, \"NORMAL\")",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1388,
+      "col": 46,
+      "snippet": "_atlas_core_probes = atlas_probes.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1389,
+      "col": 44,
+      "snippet": "_atlas_core_lat = atlas_latency.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1414,
+      "col": 50,
+      "snippet": "_tor_core_status = tor_country_status.get(core_theater, \"NORMAL\")",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1415,
+      "col": 42,
+      "snippet": "_tor_core_relays = tor_relays.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1416,
+      "col": 44,
+      "snippet": "_tor_core_clients = tor_clients.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1465,
+      "col": 22,
+      "snippet": "_seq_fire(core_theater, \"CENSORSHIP_DETECTED\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1470,
+      "col": 14,
+      "snippet": "# core_theater, so we check the raw status dicts per",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1490,
+      "col": 37,
+      "snippet": "_notam_core = notam_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1505,
+      "col": 26,
+      "snippet": "_seq_fire(core_theater, \"NOTAM_SURGE\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1521,
+      "col": 45,
+      "snippet": "_travel_core = travel_advisories.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1553,
+      "col": 35,
+      "snippet": "_ooni_core = ooni_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1562,
+      "col": 56,
+      "snippet": "f\" [{ooni_country_status.get(core_theater, 'NORMAL')}]\")",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1571,
+      "col": 26,
+      "snippet": "_seq_fire(core_theater, \"CENSORSHIP_DETECTED\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1614,
+      "col": 41,
+      "snippet": "_mil_air_core = mil_air_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1641,
+      "col": 26,
+      "snippet": "_seq_fire(core_theater, \"MIL_AIR_SURGE\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1663,
+      "col": 37,
+      "snippet": "_gps_core = gps_jam_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1671,
+      "col": 90,
+      "snippet": "_gps_value = f\"max={_gps_max:.1f} avg={_gps_avg:.1f} [{gps_country_status.get(core_theater, 'NO_DATA')}]\"",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1672,
+      "col": 66,
+      "snippet": "_gps_reason = (f\"GPS jamming: {gps_country_status.get(core_theater, 'DETECTED')} \"",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1680,
+      "col": 26,
+      "snippet": "_seq_fire(core_theater, \"GPS_JAMMING\",",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1693,
+      "col": 31,
+      "snippet": "_ct_core = ct_data.get(core_theater, {})",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1700,
+      "col": 49,
+      "snippet": "_ct_status_label = ct_country_status.get(core_theater, \"NORMAL\")",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1757,
+      "col": 66,
+      "snippet": "seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1765,
+      "col": 37,
+      "snippet": "#   1. theater field matches core_theater (legacy compat)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1766,
+      "col": 47,
+      "snippet": "#   2. countries list has overlap with strategic_theaters_set (Phase 3)",
+      "matched": "strategic_theaters_set",
+      "classification": "user_facing_text",
+      "proposed": "",
+      "note": "review prompt/comment manually — country or scenario?"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1771,
+      "col": 16,
+      "snippet": "_llm_theater = _llm_entry.get(\"theater\", \"\")",
+      "matched": "_llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "_llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1774,
+      "col": 23,
+      "snippet": "if not _llm_theater and not _llm_countries:",
+      "matched": "_llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "_llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1777,
+      "col": 38,
+      "snippet": "elif _llm_countries & strategic_theaters_set:",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1780,
+      "col": 21,
+      "snippet": "elif _llm_theater and _llm_theater in strategic_theaters_set:",
+      "matched": "_llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "_llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1780,
+      "col": 38,
+      "snippet": "elif _llm_theater and _llm_theater in strategic_theaters_set:",
+      "matched": "_llm_theater",
+      "classification": "rename_to_country",
+      "proposed": "_llm_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1780,
+      "col": 54,
+      "snippet": "elif _llm_theater and _llm_theater in strategic_theaters_set:",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1827,
+      "col": 86,
+      "snippet": "cooc_boost = _routes.engine.compute_cooccurrence_boost(_db, _fired_for_boost, core_theater)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1867,
+      "col": 23,
+      "snippet": "_routes.engine.record_theater_score(core_theater, score_with_bonus)",
+      "matched": "record_theater_score",
+      "classification": "rename_to_country",
+      "proposed": "record_country_score",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1867,
+      "col": 44,
+      "snippet": "_routes.engine.record_theater_score(core_theater, score_with_bonus)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1868,
+      "col": 42,
+      "snippet": "theater_baseline = _routes.engine.compute_theater_zscore(core_theater, score_with_bonus)",
+      "matched": "compute_theater_zscore",
+      "classification": "rename_to_country",
+      "proposed": "compute_country_zscore",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1868,
+      "col": 65,
+      "snippet": "theater_baseline = _routes.engine.compute_theater_zscore(core_theater, score_with_bonus)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1905,
+      "col": 62,
+      "snippet": "# (GLOBAL coverage) but the rationale only covers core_theater.",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1974,
+      "col": 20,
+      "snippet": "_sc_seq_theater = _sc.core_country or primary_ec",
+      "matched": "_sc_seq_theater",
+      "classification": "rename_to_country",
+      "proposed": "_sc_seq_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1975,
+      "col": 23,
+      "snippet": "if _sc_seq_theater:",
+      "matched": "_sc_seq_theater",
+      "classification": "rename_to_country",
+      "proposed": "_sc_seq_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 1976,
+      "col": 65,
+      "snippet": "_sc_seq_b, _, _ = compute_sequence_bonus(_sc_seq_theater)",
+      "matched": "_sc_seq_theater",
+      "classification": "rename_to_country",
+      "proposed": "_sc_seq_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2295,
+      "col": 21,
+      "snippet": "_db, core_theater, current_time, threat_level, _escalation)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2297,
+      "col": 21,
+      "snippet": "_db, core_theater, current_time, threat_level)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2318,
+      "col": 16,
+      "snippet": "core_theater, _day_bucket,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2334,
+      "col": 52,
+      "snippet": "_db.cooccurrence_update(sa, sb, core_theater, both_fired=True)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2420,
+      "col": 73,
+      "snippet": "\"theater_data\":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2423,
+      "col": 49,
+      "snippet": "\"origin_entropy\": target_details.get(core_theater, {}).get(\"origin_entropy\"),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2437,
+      "col": 89,
+      "snippet": "\"core_hijacks\": [h for h in cf_bgp_hijacks if h.get(\"victim_country\") == core_theater],",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2438,
+      "col": 83,
+      "snippet": "\"core_leaks\": [l for l in cf_bgp_leaks if l.get(\"leak_country\") == core_theater],",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2443,
+      "col": 48,
+      "snippet": "\"core_detail\": ioda_details.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2502,
+      "col": 44,
+      "snippet": "\"core_disco\": ihr_disco.get(core_theater, []),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2503,
+      "col": 44,
+      "snippet": "\"core_delay\": ihr_delay.get(core_theater, []),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2504,
+      "col": 50,
+      "snippet": "\"core_hegemony\": ihr_hegemony.get(core_theater, []),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2505,
+      "col": 49,
+      "snippet": "\"status\": ihr_country_status.get(core_theater, \"NORMAL\"),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2509,
+      "col": 48,
+      "snippet": "\"core_probes\": atlas_probes.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2510,
+      "col": 50,
+      "snippet": "\"core_latency\": atlas_latency.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2511,
+      "col": 51,
+      "snippet": "\"status\": atlas_country_status.get(core_theater, \"NORMAL\"),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2514,
+      "col": 46,
+      "snippet": "\"core_relays\": tor_relays.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2515,
+      "col": 48,
+      "snippet": "\"core_clients\": tor_clients.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2516,
+      "col": 49,
+      "snippet": "\"status\": tor_country_status.get(core_theater, \"NORMAL\"),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2520,
+      "col": 39,
+      "snippet": "\"core\": notam_data.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2521,
+      "col": 51,
+      "snippet": "\"status\": notam_country_status.get(core_theater, \"NORMAL\"),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2524,
+      "col": 46,
+      "snippet": "\"core\": travel_advisories.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2525,
+      "col": 61,
+      "snippet": "\"all\": {t: travel_advisories.get(t) for t in strategic_theaters_set if travel_advisories.get(t)},",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2528,
+      "col": 38,
+      "snippet": "\"core\": ooni_data.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2529,
+      "col": 50,
+      "snippet": "\"status\": ooni_country_status.get(core_theater, \"NORMAL\"),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2534,
+      "col": 41,
+      "snippet": "\"core\": mil_air_data.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2538,
+      "col": 41,
+      "snippet": "\"core\": gps_jam_data.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2539,
+      "col": 49,
+      "snippet": "\"status\": gps_country_status.get(core_theater, \"NO_DATA\"),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2542,
+      "col": 36,
+      "snippet": "\"core\": ct_data.get(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2543,
+      "col": 48,
+      "snippet": "\"status\": ct_country_status.get(core_theater, \"NORMAL\"),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2547,
+      "col": 63,
+      "snippet": "\"forecast_accuracy\": _db.forecast_accuracy_summary(core_theater),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2576,
+      "col": 17,
+      "snippet": "\"core_theater\": _original_core_theater or core_theater,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2576,
+      "col": 32,
+      "snippet": "\"core_theater\": _original_core_theater or core_theater,",
+      "matched": "_original_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "_original_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2576,
+      "col": 58,
+      "snippet": "\"core_theater\": _original_core_theater or core_theater,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2583,
+      "col": 17,
+      "snippet": "\"degraded_theaters\": [t for t in degraded_targets_effective if t in strategic_theaters_set],",
+      "matched": "degraded_theaters",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2583,
+      "col": 84,
+      "snippet": "\"degraded_theaters\": [t for t in degraded_targets_effective if t in strategic_theaters_set],",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2584,
+      "col": 17,
+      "snippet": "\"degraded_theaters_raw\": [t for t in degraded_targets_raw if t in strategic_theaters_set],",
+      "matched": "degraded_theaters_raw",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys_raw",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2584,
+      "col": 82,
+      "snippet": "\"degraded_theaters_raw\": [t for t in degraded_targets_raw if t in strategic_theaters_set],",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2585,
+      "col": 17,
+      "snippet": "\"coordinated_theaters\": elevated_theaters if is_coordinated else [],",
+      "matched": "coordinated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "coordinated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2585,
+      "col": 40,
+      "snippet": "\"coordinated_theaters\": elevated_theaters if is_coordinated else [],",
+      "matched": "elevated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "elevated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2603,
+      "col": 35,
+      "snippet": "} for code in (strategic_theaters_set | {c for c, s in ioda_data.items() if s == \"BGP_OUTAGE\"} | {c for c, s in ihr_coun",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2642,
+      "col": 67,
+      "snippet": "for hs in ISR_HOTSPOTS if hs[\"theater\"] in strategic_theaters_set",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2654,
+      "col": 47,
+      "snippet": "# so the frontend can read it as strat.active_theaters.",
+      "matched": "active_theaters",
+      "classification": "user_facing_text",
+      "proposed": "",
+      "note": "review prompt/comment manually — country or scenario?"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2655,
+      "col": 8,
+      "snippet": "_active_theaters = set()",
+      "matched": "_active_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_active_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2656,
+      "col": 11,
+      "snippet": "if core_theater:",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2657,
+      "col": 12,
+      "snippet": "_active_theaters.add(core_theater)",
+      "matched": "_active_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_active_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2657,
+      "col": 33,
+      "snippet": "_active_theaters.add(core_theater)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2658,
+      "col": 8,
+      "snippet": "_active_theaters.update(correlate_targets)",
+      "matched": "_active_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_active_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2659,
+      "col": 8,
+      "snippet": "_active_theaters.update(adversary_states)",
+      "matched": "_active_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_active_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2660,
+      "col": 33,
+      "snippet": "_new_cache[\"strategic\"][\"active_theaters\"] = sorted(_active_theaters)",
+      "matched": "active_theaters",
+      "classification": "rename_to_country",
+      "proposed": "active_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2660,
+      "col": 60,
+      "snippet": "_new_cache[\"strategic\"][\"active_theaters\"] = sorted(_active_theaters)",
+      "matched": "_active_theaters",
+      "classification": "rename_to_country",
+      "proposed": "_active_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2706,
+      "col": 13,
+      "snippet": "\"core_theater\": _original_core_theater or core_theater, \"degraded_theaters\": [t for t in degraded_targets_effective if t",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2706,
+      "col": 28,
+      "snippet": "\"core_theater\": _original_core_theater or core_theater, \"degraded_theaters\": [t for t in degraded_targets_effective if t",
+      "matched": "_original_core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "_original_focused_country",
+      "note": "compound containing core_theater"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2706,
+      "col": 54,
+      "snippet": "\"core_theater\": _original_core_theater or core_theater, \"degraded_theaters\": [t for t in degraded_targets_effective if t",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2706,
+      "col": 69,
+      "snippet": "\"core_theater\": _original_core_theater or core_theater, \"degraded_theaters\": [t for t in degraded_targets_effective if t",
+      "matched": "degraded_theaters",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2706,
+      "col": 136,
+      "snippet": "\"core_theater\": _original_core_theater or core_theater, \"degraded_theaters\": [t for t in degraded_targets_effective if t",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2720,
+      "col": 27,
+      "snippet": "emit_threat_update(core_theater, _new_cache[\"strategic\"])",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2722,
+      "col": 39,
+      "snippet": "notify_threat_level_change(core_theater, prev_threat_level, threat_level, score_with_bonus)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2733,
+      "col": 30,
+      "snippet": "emit_ambush_alert(core_theater, {",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2738,
+      "col": 32,
+      "snippet": "emit_sequence_event(core_theater, {",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2741,
+      "col": 37,
+      "snippet": "notify_sequence_complete(core_theater, seq_status, seq_chain)",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2750,
+      "col": 41,
+      "snippet": "_degraded_raw = _snap_strategic.get(\"degraded_theaters_raw\", [])",
+      "matched": "degraded_theaters_raw",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys_raw",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2751,
+      "col": 41,
+      "snippet": "_degraded_eff = _snap_strategic.get(\"degraded_theaters\", [])",
+      "matched": "degraded_theaters",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/core.py",
+      "line": 2755,
+      "col": 20,
+      "snippet": "for t in sorted(strategic_theaters_set):",
+      "matched": "strategic_theaters_set",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys_set",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/admin.py",
+      "line": 89,
+      "col": 9,
+      "snippet": "\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\": str(_cfg.INTEL_MAX_ITEMS_PER_SOURCE_THEATER),",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/admin.py",
+      "line": 89,
+      "col": 55,
+      "snippet": "\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\": str(_cfg.INTEL_MAX_ITEMS_PER_SOURCE_THEATER),",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/admin.py",
+      "line": 179,
+      "col": 29,
+      "snippet": "\"INTEL_ITEM_TTL_HOURS\", \"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\",",
+      "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "classification": "rename_to_country",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 92,
+      "col": 23,
+      "snippet": "core = latest.get(\"core_theater\") or \"UNKNOWN\"",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 111,
+      "col": 27,
+      "snippet": "degraded = latest.get(\"degraded_theaters\", [])",
+      "matched": "degraded_theaters",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 139,
+      "col": 13,
+      "snippet": "\"core_theater\": core,",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 158,
+      "col": 57,
+      "snippet": "theaters = [theater_param] if theater_param else _db.seq_distinct_theaters()",
+      "matched": "seq_distinct_theaters",
+      "classification": "rename_to_country",
+      "proposed": "seq_distinct_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 183,
+      "col": 4,
+      "snippet": "_default_theater = (",
+      "matched": "_default_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "default_focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 184,
+      "col": 50,
+      "snippet": "st.global_cache.get(\"strategic\", {}).get(\"core_theater\")",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 187,
+      "col": 52,
+      "snippet": "theater_param = (request.args.get(\"theater\") or _default_theater).upper()",
+      "matched": "_default_theater",
+      "classification": "keep_v1_api_param",
+      "proposed": "",
+      "note": "v1 API param — adapter handles v2 mapping"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 208,
+      "col": 51,
+      "snippet": "is_degraded  = theater_param in strategic.get(\"degraded_theaters\", [])",
+      "matched": "degraded_theaters",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 301,
+      "col": 24,
+      "snippet": "core   = strat.get(\"core_theater\", \"UNKNOWN\")",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 340,
+      "col": 26,
+      "snippet": "degraded = strat.get(\"degraded_theaters\", [])",
+      "matched": "degraded_theaters",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/analytics.py",
+      "line": 659,
+      "col": 35,
+      "snippet": "\"theater\":      strat.get(\"core_theater\"),",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 13,
+      "col": 4,
+      "snippet": "def _resolve_default_theater() -> str:",
+      "matched": "_resolve_default_theater",
+      "classification": "rename_to_country",
+      "proposed": "_resolve_default_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 27,
+      "col": 4,
+      "snippet": "def api_history_theaters():",
+      "matched": "api_history_theaters",
+      "classification": "rename_to_country",
+      "proposed": "api_history_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 32,
+      "col": 4,
+      "snippet": "db_theaters = set(_db.ts_distinct_theaters())",
+      "matched": "db_theaters",
+      "classification": "rename_to_country",
+      "proposed": "db_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 32,
+      "col": 26,
+      "snippet": "db_theaters = set(_db.ts_distinct_theaters())",
+      "matched": "ts_distinct_theaters",
+      "classification": "rename_to_country",
+      "proposed": "ts_distinct_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 33,
+      "col": 4,
+      "snippet": "cfg_theaters: set[str] = set()",
+      "matched": "cfg_theaters",
+      "classification": "rename_to_country",
+      "proposed": "cfg_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 35,
+      "col": 8,
+      "snippet": "cfg_theaters |= set(sc.participants.keys())",
+      "matched": "cfg_theaters",
+      "classification": "rename_to_country",
+      "proposed": "cfg_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 36,
+      "col": 39,
+      "snippet": "return jsonify({\"theaters\": sorted(db_theaters | cfg_theaters)})",
+      "matched": "db_theaters",
+      "classification": "user_facing_text",
+      "proposed": "",
+      "note": "review prompt/comment manually — country or scenario?"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 36,
+      "col": 53,
+      "snippet": "return jsonify({\"theaters\": sorted(db_theaters | cfg_theaters)})",
+      "matched": "cfg_theaters",
+      "classification": "user_facing_text",
+      "proposed": "",
+      "note": "review prompt/comment manually — country or scenario?"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 44,
+      "col": 46,
+      "snippet": "theater = (request.args.get(\"theater\") or _resolve_default_theater()).upper()",
+      "matched": "_resolve_default_theater",
+      "classification": "keep_v1_api_param",
+      "proposed": "",
+      "note": "v1 API param — adapter handles v2 mapping"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 76,
+      "col": 46,
+      "snippet": "theater = (request.args.get(\"theater\") or _resolve_default_theater()).upper()",
+      "matched": "_resolve_default_theater",
+      "classification": "keep_v1_api_param",
+      "proposed": "",
+      "note": "v1 API param — adapter handles v2 mapping"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 158,
+      "col": 23,
+      "snippet": "theaters = _db.seq_distinct_theaters()",
+      "matched": "seq_distinct_theaters",
+      "classification": "rename_to_country",
+      "proposed": "seq_distinct_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar/routes/history.py",
+      "line": 186,
+      "col": 46,
+      "snippet": "theater = (request.args.get(\"theater\") or _resolve_default_theater()).upper()",
+      "matched": "_resolve_default_theater",
+      "classification": "keep_v1_api_param",
+      "proposed": "",
+      "note": "v1 API param — adapter handles v2 mapping"
+    },
+    {
+      "path": "radar.js",
+      "line": 147,
+      "col": 13,
+      "snippet": "// strat.core_theater field while backend deprecation (sunset 2026-10-01) is in flight.",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar.js",
+      "line": 164,
+      "col": 22,
+      "snippet": "return (strat.core_theater || '').toUpperCase();",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "radar.js",
+      "line": 357,
+      "col": 76,
+      "snippet": "}).join('') || `<div style=\"color:#444;font-size:9px;\">${_t('gn.no_theater_data')}</div>`;",
+      "matched": "no_theater_data",
+      "classification": "user_facing_text",
+      "proposed": "",
+      "note": "review prompt/comment manually — country or scenario?"
+    },
+    {
+      "path": "radar.js",
+      "line": 1195,
+      "col": 18,
+      "snippet": "const curTheater = resolveChainTargetCountry(strat);",
+      "matched": "curTheater",
+      "classification": "rename_to_country",
+      "proposed": "curCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1198,
+      "col": 18,
+      "snippet": "(!curTheater || i.theater === curTheater)",
+      "matched": "curTheater",
+      "classification": "rename_to_country",
+      "proposed": "curCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1198,
+      "col": 46,
+      "snippet": "(!curTheater || i.theater === curTheater)",
+      "matched": "curTheater",
+      "classification": "rename_to_country",
+      "proposed": "curCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1200,
+      "col": 89,
+      "snippet": "const reviewNeeded = _llmItems.filter(i => i.status === 'review_needed' && (!curTheater || i.theater === curTheater));",
+      "matched": "curTheater",
+      "classification": "rename_to_country",
+      "proposed": "curCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1200,
+      "col": 117,
+      "snippet": "const reviewNeeded = _llmItems.filter(i => i.status === 'review_needed' && (!curTheater || i.theater === curTheater));",
+      "matched": "curTheater",
+      "classification": "rename_to_country",
+      "proposed": "curCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1839,
+      "col": 38,
+      "snippet": "const partSet = new Set(strat.active_theaters || []);",
+      "matched": "active_theaters",
+      "classification": "rename_to_country",
+      "proposed": "active_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1883,
+      "col": 13,
+      "snippet": "function buildTheaterUI() {",
+      "matched": "buildTheaterUI",
+      "classification": "rename_to_country",
+      "proposed": "buildCountryUI",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1896,
+      "col": 37,
+      "snippet": "const active = new Set(strat.active_theaters || []);",
+      "matched": "active_theaters",
+      "classification": "rename_to_country",
+      "proposed": "active_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1920,
+      "col": 37,
+      "snippet": "const active = new Set(strat.active_theaters || []);",
+      "matched": "active_theaters",
+      "classification": "rename_to_country",
+      "proposed": "active_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1958,
+      "col": 8,
+      "snippet": "let _wsSubscribedTheater = '';",
+      "matched": "_wsSubscribedTheater",
+      "classification": "rename_to_country",
+      "proposed": "_wsSubscribedCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1969,
+      "col": 14,
+      "snippet": "const coreTheater = resolveChainTargetCountry((latestData || {}).strategic_alert || {});",
+      "matched": "coreTheater",
+      "classification": "rename_to_country",
+      "proposed": "coreCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1999,
+      "col": 45,
+      "snippet": "if (_wsSocket && _wsConnected && coreTheater && coreTheater !== _wsSubscribedTheater) {",
+      "matched": "coreTheater",
+      "classification": "rename_to_country",
+      "proposed": "coreCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1999,
+      "col": 60,
+      "snippet": "if (_wsSocket && _wsConnected && coreTheater && coreTheater !== _wsSubscribedTheater) {",
+      "matched": "coreTheater",
+      "classification": "rename_to_country",
+      "proposed": "coreCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 1999,
+      "col": 76,
+      "snippet": "if (_wsSocket && _wsConnected && coreTheater && coreTheater !== _wsSubscribedTheater) {",
+      "matched": "_wsSubscribedTheater",
+      "classification": "rename_to_country",
+      "proposed": "_wsSubscribedCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2000,
+      "col": 20,
+      "snippet": "if (_wsSubscribedTheater) _wsSocket.emit('unsubscribe_theater', _wsSubscribedTheater);",
+      "matched": "_wsSubscribedTheater",
+      "classification": "rename_to_country",
+      "proposed": "_wsSubscribedCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2000,
+      "col": 58,
+      "snippet": "if (_wsSubscribedTheater) _wsSocket.emit('unsubscribe_theater', _wsSubscribedTheater);",
+      "matched": "unsubscribe_theater",
+      "classification": "rename_to_country",
+      "proposed": "unsubscribe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2000,
+      "col": 80,
+      "snippet": "if (_wsSubscribedTheater) _wsSocket.emit('unsubscribe_theater', _wsSubscribedTheater);",
+      "matched": "_wsSubscribedTheater",
+      "classification": "rename_to_country",
+      "proposed": "_wsSubscribedCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2001,
+      "col": 32,
+      "snippet": "_wsSocket.emit('subscribe_theater', coreTheater);",
+      "matched": "subscribe_theater",
+      "classification": "rename_to_country",
+      "proposed": "subscribe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2001,
+      "col": 52,
+      "snippet": "_wsSocket.emit('subscribe_theater', coreTheater);",
+      "matched": "coreTheater",
+      "classification": "rename_to_country",
+      "proposed": "coreCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2002,
+      "col": 16,
+      "snippet": "_wsSubscribedTheater = coreTheater;",
+      "matched": "_wsSubscribedTheater",
+      "classification": "rename_to_country",
+      "proposed": "_wsSubscribedCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2002,
+      "col": 39,
+      "snippet": "_wsSubscribedTheater = coreTheater;",
+      "matched": "coreTheater",
+      "classification": "rename_to_country",
+      "proposed": "coreCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2003,
+      "col": 53,
+      "snippet": "console.log('[WS] Re-subscribed to', coreTheater);",
+      "matched": "coreTheater",
+      "classification": "rename_to_country",
+      "proposed": "coreCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2546,
+      "col": 35,
+      "snippet": "const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? esc(strat.degraded_theaters.join(', '))",
+      "matched": "degraded_theaters",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2546,
+      "col": 62,
+      "snippet": "const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? esc(strat.degraded_theaters.join(', '))",
+      "matched": "degraded_theaters",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2546,
+      "col": 103,
+      "snippet": "const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? esc(strat.degraded_theaters.join(', '))",
+      "matched": "degraded_theaters",
+      "classification": "rename_to_country",
+      "proposed": "degraded_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2550,
+      "col": 26,
+      "snippet": "if (strat.coordinated_theaters && strat.coordinated_theaters.length >= 2) {",
+      "matched": "coordinated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "coordinated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2550,
+      "col": 56,
+      "snippet": "if (strat.coordinated_theaters && strat.coordinated_theaters.length >= 2) {",
+      "matched": "coordinated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "coordinated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 2551,
+      "col": 92,
+      "snippet": "coordinatedEl.innerHTML = `<span class=\"alert-text\">ACTIVE [${esc(strat.coordinated_theaters.join(', '))}]</span>`;",
+      "matched": "coordinated_theaters",
+      "classification": "rename_to_country",
+      "proposed": "coordinated_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 3083,
+      "col": 8,
+      "snippet": "buildTheaterUI();",
+      "matched": "buildTheaterUI",
+      "classification": "rename_to_country",
+      "proposed": "buildCountryUI",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 3177,
+      "col": 20,
+      "snippet": "_wsSubscribedTheater = core;",
+      "matched": "_wsSubscribedTheater",
+      "classification": "rename_to_country",
+      "proposed": "_wsSubscribedCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 3178,
+      "col": 36,
+      "snippet": "_wsSocket.emit('subscribe_theater', core);",
+      "matched": "subscribe_theater",
+      "classification": "rename_to_country",
+      "proposed": "subscribe_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 3185,
+      "col": 20,
+      "snippet": "_wsSubscribedTheater = '';",
+      "matched": "_wsSubscribedTheater",
+      "classification": "rename_to_country",
+      "proposed": "_wsSubscribedCountry",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 3511,
+      "col": 18,
+      "snippet": "const p8Theater = resolveChainTargetCountry(strat) || '—';",
+      "matched": "p8Theater",
+      "classification": "rename_to_country",
+      "proposed": "p8Country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 3537,
+      "col": 167,
+      "snippet": "<div class=\"cip-section-title\">${_t('cip.section.predictive')} <span style=\"color:#555;font-size:9px;font-weight:normal;",
+      "matched": "p8Theater",
+      "classification": "user_facing_text",
+      "proposed": "",
+      "note": "review prompt/comment manually — country or scenario?"
+    },
+    {
+      "path": "radar.js",
+      "line": 7674,
+      "col": 14,
+      "snippet": "const sortedTheaters = (THEATERS || []).slice().sort((a, b) => a.name.localeCompare(b.name));",
+      "matched": "sortedTheaters",
+      "classification": "rename_to_country",
+      "proposed": "sortedCountrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 7675,
+      "col": 12,
+      "snippet": "if (sortedTheaters.length === 0) {",
+      "matched": "sortedTheaters",
+      "classification": "rename_to_country",
+      "proposed": "sortedCountrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "radar.js",
+      "line": 7678,
+      "col": 28,
+      "snippet": "for (const t of sortedTheaters) {",
+      "matched": "sortedTheaters",
+      "classification": "rename_to_country",
+      "proposed": "sortedCountrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "i18n.js",
+      "line": 491,
+      "col": 8,
+      "snippet": "'gn.no_theater_data':             'No theater data',",
+      "matched": "no_theater_data",
+      "classification": "rename_to_country",
+      "proposed": "no_country_data",
+      "note": "compound identifier"
+    },
+    {
+      "path": "i18n.js",
+      "line": 1940,
+      "col": 8,
+      "snippet": "'gn.no_theater_data':             'シアターデータなし',",
+      "matched": "no_theater_data",
+      "classification": "rename_to_country",
+      "proposed": "no_country_data",
+      "note": "compound identifier"
+    },
+    {
+      "path": "index.html",
+      "line": 2684,
+      "col": 205,
+      "snippet": "<li><span class=\"code-block\">strategic.primary_ec</span> — Primary effective core: the <code>PRINCIPAL_BELLIGERENT</code",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "index.html",
+      "line": 2684,
+      "col": 241,
+      "snippet": "<li><span class=\"code-block\">strategic.primary_ec</span> — Primary effective core: the <code>PRINCIPAL_BELLIGERENT</code",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "index.html",
+      "line": 2786,
+      "col": 165,
+      "snippet": "<li><span class=\"code-block\">strategic.primary_ec</span> — Primary effective core: dual-core シナリオで spike スコア最大の <code>PR",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "index.html",
+      "line": 2786,
+      "col": 219,
+      "snippet": "<li><span class=\"code-block\">strategic.primary_ec</span> — Primary effective core: dual-core シナリオで spike スコア最大の <code>PR",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "CLAUDE.md",
+      "line": 77,
+      "col": 4,
+      "snippet": "| **core_theater** | `focused_scenario` | 「最高スコア国を選ぶロジック」と誤解されやすい |",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "CLAUDE.md",
+      "line": 79,
+      "col": 4,
+      "snippet": "| **strategic_theaters** | `scenario.participants` | 同上 |",
+      "matched": "strategic_theaters",
+      "classification": "rename_to_country",
+      "proposed": "strategic_countrys",
+      "note": "compound identifier"
+    },
+    {
+      "path": "docs/design/v2-migration.md",
+      "line": 61,
+      "col": 39,
+      "snippet": "- **theater 用語残存**: `grep -r \"theater\\|core_theater\" --include=\"*.py\" --include=\"*.js\" --include=\"*.html\"` で **1,612 箇所 ",
+      "matched": "core_theater",
+      "classification": "rename_to_focused_country",
+      "proposed": "focused_country",
+      "note": "scenario-focused country variable"
+    },
+    {
+      "path": "docs/design/v2-migration.md",
+      "line": 160,
+      "col": 24,
+      "snippet": "- **codemod**: `scripts/codemod_theater.py` を AST ベースで実装 (Phase 0 で scaffold)",
+      "matched": "codemod_theater",
+      "classification": "rename_to_country",
+      "proposed": "codemod_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "docs/design/v2-migration.md",
+      "line": 596,
+      "col": 13,
+      "snippet": "- ⏳ `scripts/codemod_theater.py` scaffolding (dry-run のみ)",
+      "matched": "codemod_theater",
+      "classification": "rename_to_country",
+      "proposed": "codemod_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "docs/design/v2-migration.md",
+      "line": 760,
+      "col": 13,
+      "snippet": "- ⏳ `scripts/codemod_theater.py` scaffolding",
+      "matched": "codemod_theater",
+      "classification": "rename_to_country",
+      "proposed": "codemod_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "docs/design/v2-migration.md",
+      "line": 765,
+      "col": 37,
+      "snippet": "1. **theater codemod 本実行** (`scripts/codemod_theater.py` を 5 batch で commit)",
+      "matched": "codemod_theater",
+      "classification": "rename_to_country",
+      "proposed": "codemod_country",
+      "note": "compound identifier"
+    }
+  ]
+}
