@@ -1097,6 +1097,62 @@ def derive_tl(total_score: float, active_domains: list[str],
     return 5
 
 
+# v2.0 derive_tl version tag — bumped when thresholds or formula change.
+# Persisted in Conclusion.formula_ref so analysts can trace which version
+# produced a historical row.
+DERIVE_TL_FORMULA_REF = "radar/scoring.py#derive_tl@v2.0.1"
+
+
+def _maybe_persist_tl_conclusion(state: "ScenarioState") -> None:
+    """v2.0 shadow-write: persist the focused TL as a Conclusion row.
+
+    Gated by V2_CONCLUSION_LEDGER_ENABLED. v1 API responses are unchanged;
+    this path only writes to the new conclusions ledger. ADR-V2-001.
+    """
+    from radar import config
+    if not config.V2_CONCLUSION_LEDGER_ENABLED:
+        return
+    if state.tl is None:
+        return
+    try:
+        from radar.conclusions import (
+            Conclusion,
+            ConclusionType,
+            new_conclusion_id,
+            save_conclusion,
+        )
+        source_urls = tuple(sorted({
+            c.signal.evidence_url for c in state.contributions
+            if c.signal.evidence_url
+        }))
+        c = Conclusion(
+            id=new_conclusion_id(),
+            scenario_id=state.scenario_id,
+            conclusion_type=ConclusionType.THREAT_LEVEL,
+            state=str(state.tl),
+            confidence=min(1.0, max(0.0, state.score / 12.0)),
+            observed_at=time.time(),
+            formula_ref=DERIVE_TL_FORMULA_REF,
+            threshold_ref={
+                "tl1_total": 9.0, "tl1_physical": 3.0,
+                "tl2_total": 6.0, "tl2_active_domains_min": 2,
+                "tl3_total": 4.0, "tl4_total": 2.0,
+            },
+            source_urls=source_urls,
+            final_judgment_disclaimer=config.V2_NP7_DISCLAIMER,
+            metadata={
+                "score": state.score,
+                "active_countries": list(state.active_countries),
+                "convergence_bonus": state.convergence_bonus,
+                "scoring_mode": state.scoring_mode,
+            },
+        )
+        save_conclusion(_db, c)
+    except Exception:
+        # Phase 1 shadow-write must NEVER break v1 scoring. Log and swallow.
+        log.exception("v2 conclusion persistence failed (non-fatal)")
+
+
 def apply_hysteresis_to_tl(new_tl: Optional[int],
                            prev_tl: Optional[int]) -> tuple[Optional[int], bool]:
     """Scenario TL hysteresis: de-escalation (higher TL#) is limited to one
@@ -1196,7 +1252,7 @@ def compute_scenario_score(
     scoring_mode = "full" if is_focused else "lite"
     tl = derive_tl(total_score, active_domains, domains["physical"]) if is_focused else None
 
-    return ScenarioState(
+    state = ScenarioState(
         scenario_id=scenario.id,
         is_focused=is_focused,
         scoring_mode=scoring_mode,
@@ -1207,6 +1263,8 @@ def compute_scenario_score(
         tl=tl,
         contributions=deduped,
     )
+    _maybe_persist_tl_conclusion(state)
+    return state
 
 
 # ── Weight calibration advisory (Item 2.2) ───────────────────────────────────

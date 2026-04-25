@@ -206,6 +206,16 @@ TL_RECALIBRATION_SKEW_THRESHOLD_PCT = float(os.getenv("TL_RECALIBRATION_SKEW_THR
 # (TL is only shown for focused). When True, background scenarios also show TL.
 SHOW_BACKGROUND_TL = os.getenv("SHOW_BACKGROUND_TL", "false").lower() in ("true", "1", "yes")
 
+# v2.0 Conclusion Model ledger (docs/design/v2-migration.md ADR-V2-001/008).
+# Phase 1 shadow-write: when ENABLED, every focused TL derivation is also
+# persisted as a Conclusion row. v1 API responses are unchanged. Default off
+# until Phase 2 default-on flip per the three-stage rollout plan.
+V2_CONCLUSION_LEDGER_ENABLED = os.getenv("V2_CONCLUSION_LEDGER_ENABLED", "false").lower() in ("true", "1", "yes")
+V2_NP7_DISCLAIMER = os.getenv(
+    "V2_NP7_DISCLAIMER",
+    "Tool conclusion only — final judgment by organizational process.",
+)
+
 CF_HEADERS = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
 
 AIRSPACE_WINDOW             = int(os.getenv("AIRSPACE_WINDOW", "20"))

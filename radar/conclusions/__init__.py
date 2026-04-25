@@ -13,10 +13,16 @@ from radar.conclusions.base import (
     ConclusionUnavailableReason,
     new_conclusion_id,
 )
+from radar.conclusions.persistence import (
+    latest_conclusion,
+    save_conclusion,
+)
 
 __all__ = [
     "Conclusion",
     "ConclusionType",
     "ConclusionUnavailableReason",
     "new_conclusion_id",
+    "save_conclusion",
+    "latest_conclusion",
 ]
