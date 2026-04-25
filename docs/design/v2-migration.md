@@ -360,10 +360,12 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
 - **state**: 観測事象の summary 文字列 (例: `"BGP withdrawal surge from AS4134 (China Telecom)"`)
 - **importance_score**: 0-100 (`metadata["importance_score"]`)
 - **算出式**: `raw_score × recency_decay × scenario_relevance × novelty_factor × 100`
-  - `recency_decay = exp(-elapsed_h / 12)` (半減期 12h)
-  - `scenario_relevance = max(country_weights[c] for c in scenario.participants)`
-  - `novelty_factor = 1.0 - (similar_anomaly_count_in_24h / 10)`, clamped [0.3, 1.0]
+  - `recency_decay = exp(-elapsed_h / 12)` (時定数 τ=12h、12h で約 37% に減衰。実半減期は 12·ln 2 ≈ 8.32h)
+  - `scenario_relevance = llm_country_weight × participant_weight` (per-contribution 値; GLOBAL は participant_weight のみ)
+  - `novelty_factor = 1.0 - (similar_count / 10)`, clamped [0.3, 1.0]
+    - Phase 1 では similar_count を *現在の scoring tick 内* の同 `signal_source` 数で近似 (NP1 寄り)。Phase 1.x 以降で `conclusions` 表 24h 走査に置換。`metadata["novelty_source"]` で算出元を区別
 - **API 返却**: 上位 N 件 (default 10、`?limit=` で調整)
+- **importance_score 上限**: 100.0 へクランプ (raw_score × 各係数の積が 1.0 を超える場合のセーフティ)
 
 ### 6.5 推定攻撃シナリオ (ATTACK_MODE)
 
