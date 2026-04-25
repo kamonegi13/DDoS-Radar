@@ -43,6 +43,19 @@ def build_envelope(
     }
 
 
+def build_error(status: int, error: str, **extra) -> tuple[dict, int]:
+    """NP7-compliant error response. Every v2 error path goes through this so
+    the disclaimer + api_version are guaranteed even on 4xx/5xx.
+    """
+    body = {
+        "api_version": API_VERSION,
+        "final_judgment_disclaimer": config.V2_NP7_DISCLAIMER,
+        "error": error,
+        **extra,
+    }
+    return body, status
+
+
 def build_unavailable(
     scenario_id: str,
     conclusion_type: ConclusionType,

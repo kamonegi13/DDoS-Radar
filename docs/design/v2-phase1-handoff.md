@@ -9,7 +9,7 @@
 | 項目 | 値 |
 |------|-----|
 | 作成日 | 2026-04-25 |
-| 最終更新 | 2026-04-25 (Phase 1 priority 1, 2, 4, 6, 7 完了 / priority 3 未着手) |
+| 最終更新 | 2026-04-25 (Phase 1 priority 1, 2, 4, 5, 6, 7 完了 / priority 3 撤回) |
 | Phase 0 完了基準 | Conclusion dataclass + DB v19/v20 + tests 17/17 pass + codemod scaffolding |
 | 次セッションでまず読むもの | CLAUDE.md → v2-migration.md §0-§5 → 本書 |
 
@@ -108,14 +108,16 @@
 
 ---
 
-### 優先度 4 以降 (Phase 1 残りスコープ)
+### 優先度 4-7 (Phase 1 残りスコープ) — ✅ 完了
 
-| # | タスク | 想定工数 |
-|---|--------|---------|
-| 4 | v2 API 骨格 (`/api/v2/conclusion/...` 4 endpoint、空実装で OK) | 2 日 |
-| 5 | NP7 disclaimer をすべての v2 API レスポンスへ強制 (decorator) | 1 日 |
-| 6 | shadow_sampler を v1 と v2 結論の差分計測モードに拡張 | 3 日 |
-| 7 | Calibration status の per-conclusion 注入経路 | 2 日 |
+| # | タスク | 実装 |
+|---|--------|------|
+| 4 | v2 API 骨格 (4 endpoint) | `radar/routes/conclusions_v2.py` (4 read endpoint + admin diff_stats) |
+| 5 | NP7 disclaimer 強制 | `radar/conclusions/api.py` の `build_envelope` / `build_unavailable` / `build_error` 中央集約 (decorator ではなく helper 経由で「ad-hoc dict return では disclaimer 漏れがあり得ない」契約) |
+| 6 | shadow_sampler 差分計測 | `radar/conclusions/diff_sampler.py` + `conclusion_diff_log` テーブル + `/api/v2/admin/conclusion_diff_stats` |
+| 7 | Calibration status 注入 | `radar/conclusions/calibration.py` の `calibration_status_for()` を `radar/scoring.py:1143` で Conclusion 構築時に注入 |
+
+**Phase 1.5 補修 (2026-04-25)**: priority 5 は当初 envelope 経路のみカバーしており、503/400/404 エラー応答に disclaimer が欠落していた (docstring 契約と矛盾)。`build_error()` helper を追加し全 error path を中央集約。`test_v2_error_responses_carry_disclaimer` で回帰防止。
 
 詳細は v2-migration.md §10 (移行戦略) と §12 (工数) を参照。
 

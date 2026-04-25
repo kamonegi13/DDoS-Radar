@@ -274,3 +274,43 @@ def test_audit_trace_marks_llm_prompt_missing_when_row_purged(client, auth_heade
     body = r.get_json()
     assert body["llm_prompt"]["missing"] is True
     assert body["llm_prompt"]["sha256"] == "ff" * 32
+
+
+# ── NP7 regression: error envelopes must carry the disclaimer ────────────
+
+@pytest.mark.parametrize("setup,expect_status", [
+    # 503: flag off
+    (
+        {"flag": False, "url": "/api/v2/scenarios/x/conclusions"},
+        503,
+    ),
+    # 400: bad conclusion_type
+    (
+        {"flag": True, "url": "/api/v2/scenarios/x/conclusions/not_a_real_type"},
+        400,
+    ),
+    # 404: missing single id
+    (
+        {"flag": True,
+         "url": "/api/v2/conclusions/00000000-0000-0000-0000-000000000000"},
+        404,
+    ),
+    # 404: missing audit_trace id
+    (
+        {"flag": True,
+         "url": "/api/v2/conclusions/00000000-0000-0000-0000-000000000000/audit_trace"},
+        404,
+    ),
+])
+def test_v2_error_responses_carry_disclaimer(client, auth_headers, monkeypatch,
+                                             setup, expect_status):
+    """NP7 contract: every v2 response — including error paths — must include
+    `final_judgment_disclaimer` and `api_version`. Regression test for the
+    pre-Phase-1.5 gap where 503/400/404 paths returned bare error dicts."""
+    monkeypatch.setattr(config, "V2_API_ENABLED", setup["flag"])
+    r = client.get(setup["url"], headers=auth_headers)
+    assert r.status_code == expect_status
+    body = r.get_json()
+    assert body["api_version"] == "2.0"
+    assert body["final_judgment_disclaimer"] == config.V2_NP7_DISCLAIMER
+    assert "error" in body

@@ -22,6 +22,7 @@ from flask import jsonify, request
 from radar.conclusions.api import (
     API_VERSION,
     build_envelope,
+    build_error,
     build_unavailable,
 )
 from radar.conclusions.base import ConclusionType
@@ -45,11 +46,12 @@ def _v2_enabled_or_503():
     """Guard helper. Returns a Flask response if the flag is off, else None."""
     from radar import config
     if not config.V2_API_ENABLED:
-        return jsonify({
-            "api_version": API_VERSION,
-            "error": "v2 API not enabled",
-            "detail": "Set V2_API_ENABLED=true to opt in (Phase 1 read-only).",
-        }), 503
+        body, status = build_error(
+            503,
+            "v2 API not enabled",
+            detail="Set V2_API_ENABLED=true to opt in (Phase 1 read-only).",
+        )
+        return jsonify(body), status
     return None
 
 
@@ -88,11 +90,12 @@ def v2_scenario_conclusion_single(scenario_id: str, conclusion_type: str):
         return guard
     ct = _parse_conclusion_type(conclusion_type)
     if ct is None:
-        return jsonify({
-            "api_version": API_VERSION,
-            "error": "unknown conclusion_type",
-            "detail": f"valid: {[t.value for t in _ALL_TYPES]}",
-        }), 400
+        body, status = build_error(
+            400,
+            "unknown conclusion_type",
+            detail=f"valid: {[t.value for t in _ALL_TYPES]}",
+        )
+        return jsonify(body), status
 
     from radar.database import db
     c = latest_conclusion(db, scenario_id, ct)
@@ -109,11 +112,10 @@ def v2_conclusion_by_id(conclusion_id: str):
     from radar.database import db
     c = get_conclusion_by_id(db, conclusion_id)
     if c is None:
-        return jsonify({
-            "api_version": API_VERSION,
-            "error": "conclusion not found",
-            "conclusion_id": conclusion_id,
-        }), 404
+        body, status = build_error(
+            404, "conclusion not found", conclusion_id=conclusion_id,
+        )
+        return jsonify(body), status
     return jsonify(build_envelope(c.scenario_id, [c]))
 
 
@@ -133,11 +135,10 @@ def v2_conclusion_audit_trace(conclusion_id: str):
     from radar.database import db
     c = get_conclusion_by_id(db, conclusion_id)
     if c is None:
-        return jsonify({
-            "api_version": API_VERSION,
-            "error": "conclusion not found",
-            "conclusion_id": conclusion_id,
-        }), 404
+        body, status = build_error(
+            404, "conclusion not found", conclusion_id=conclusion_id,
+        )
+        return jsonify(body), status
 
     trace = {
         "api_version": API_VERSION,
