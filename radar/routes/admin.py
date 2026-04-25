@@ -699,6 +699,7 @@ def api_admin_sensor_health():
             "domain": cfg.get("domain"),
             "enabled": cfg.get("enabled"),
             "health": cfg.get("health"),
+            "tier": cfg.get("tier"),
             "poll_interval_sec": cfg.get("poll_interval_sec"),
             "cache_age_sec": cfg.get("cache_age_sec"),
             "last_fetch_ts": cfg.get("last_fetch_ts"),

@@ -239,4 +239,5 @@ class BaseSensor(ABC):
             "last_fetch_ts": cache_time or None,
             "cb_state": cb_state,
             "cb_fail_count": cb_fail_count,
+            "tier": self.tier.value,
         }
