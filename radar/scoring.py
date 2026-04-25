@@ -1129,6 +1129,26 @@ def _maybe_persist_tl_conclusion(state: "ScenarioState") -> None:
         log.exception("v2 conclusion persistence failed (non-fatal)")
 
 
+def _maybe_persist_per_domain_conclusion(state: "ScenarioState") -> None:
+    """v2.0 shadow-write: persist the per-domain (cyber/physical/info) row.
+
+    Independent from the TL hook — emits even when state.tl is None, since
+    the per-domain breakdown is meaningful for background scenarios that do
+    not derive a TL. The builder itself returns INSUFFICIENT_DATA when all
+    three domains are silent (NP5+8 + NP1).
+    """
+    from radar import config
+    if not config.V2_CONCLUSION_LEDGER_ENABLED:
+        return
+    try:
+        from radar.conclusions import save_conclusion
+        from radar.conclusions.per_domain import derive_per_domain
+        c = derive_per_domain(_db, state)
+        save_conclusion(_db, c)
+    except Exception:
+        log.exception("v2 per_domain conclusion persistence failed (non-fatal)")
+
+
 def apply_hysteresis_to_tl(new_tl: Optional[int],
                            prev_tl: Optional[int]) -> tuple[Optional[int], bool]:
     """Scenario TL hysteresis: de-escalation (higher TL#) is limited to one
@@ -1240,6 +1260,7 @@ def compute_scenario_score(
         contributions=deduped,
     )
     _maybe_persist_tl_conclusion(state)
+    _maybe_persist_per_domain_conclusion(state)
     _maybe_sample_v1_v2_diff(state)
     return state
 

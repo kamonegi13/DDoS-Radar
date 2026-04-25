@@ -346,7 +346,7 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
 
 - **state**: `ACTIVE` / `ELEVATED` / `STABLE` / `DEGRADING` / `INSUFFICIENT_SIGNAL`
 - **対象ドメイン**: `cyber` / `physical` / `info`
-- **算出**:
+- **算出 (spec 目標)**:
   - 各 domain の signal 数と raw_score 合計から閾値判定
   - `ACTIVE`: 過去 24h で domain raw_score > 5.0 かつ signal_count >= 5
   - `ELEVATED`: raw_score > 2.0 かつ signal_count >= 2
@@ -354,6 +354,11 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
   - `DEGRADING`: 直近 6h で signal_count が前 24h 平均の 30% 未満
   - `INSUFFICIENT_SIGNAL`: signal_count < 1 かつ センサー全体が degraded
 - **frequency**: scoring tick 毎
+- **Phase 1 実装ドリフト** (`radar/conclusions/per_domain.py`):
+  - 閾値: `ACTIVE_FLOOR=3.0` / `ELEVATED_FLOOR=1.5` / `DEGRADE_DELTA=1.5` (絶対値、`signal_count` 無し)。spec の `5.0` / `2.0` + `signal_count` ゲート + 30% 相対 `DEGRADING` から逸脱。Phase 1 は scoring 直後 1 tick 分の `domains` 合計のみで判定し、`signal_count` の正値は累積 ledger を待つ
+  - `DEGRADING`: 直近 PER_DOMAIN 行 (`latest_conclusion`) との絶対差 `DEGRADE_DELTA` 以上を判定。spec の「6h vs 24h 相対 30% 減」は ledger 蓄積が必要なので Phase 1.3 で再キャリブレーション
+  - 出力形式: 3 ドメインを 1 つの Conclusion 行に packed-state 文字列 `cyber=X;physical=Y;info=Z` で格納 (spec は明示せず、行数最少のコスト効率を採用)
+  - 閾値の正式 calibration は Phase 1.3 で 14 日間 shadow 観測の上で実施 (現状は機能 OK / calibration 未確定)
 
 ### 6.4 個別異常事象 (ANOMALY)
 
