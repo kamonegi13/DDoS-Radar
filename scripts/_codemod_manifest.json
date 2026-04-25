@@ -1,8 +1,8 @@
 {
   "generated_for": "v2-migration ADR-V2-006",
-  "total": 491,
+  "total": 496,
   "by_classification": {
-    "rename_to_country": 313,
+    "rename_to_country": 318,
     "rename_to_focused_country": 166,
     "user_facing_text": 8,
     "keep_v1_api_param": 4
@@ -710,7 +710,7 @@
     },
     {
       "path": "radar/config.py",
-      "line": 337,
+      "line": 367,
       "col": 0,
       "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv(\"CT_LOG_MAX_QUERIES_PER_THEATER\", \"2\"))",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
@@ -720,7 +720,7 @@
     },
     {
       "path": "radar/config.py",
-      "line": 337,
+      "line": 367,
       "col": 53,
       "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv(\"CT_LOG_MAX_QUERIES_PER_THEATER\", \"2\"))",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
@@ -730,7 +730,7 @@
     },
     {
       "path": "radar/config.py",
-      "line": 451,
+      "line": 481,
       "col": 0,
       "snippet": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER = int(os.getenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"2\"))",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
@@ -740,7 +740,7 @@
     },
     {
       "path": "radar/config.py",
-      "line": 451,
+      "line": 481,
       "col": 52,
       "snippet": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER = int(os.getenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"2\"))",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
@@ -950,7 +950,7 @@
     },
     {
       "path": "radar/database.py",
-      "line": 242,
+      "line": 263,
       "col": 27,
       "snippet": "CREATE INDEX IF NOT EXISTS idx_confirmed_theater_ts ON confirmed_threats (theater, ts);",
       "matched": "idx_confirmed_theater_ts",
@@ -960,7 +960,7 @@
     },
     {
       "path": "radar/database.py",
-      "line": 259,
+      "line": 280,
       "col": 27,
       "snippet": "CREATE INDEX IF NOT EXISTS idx_daily_summary_theater ON daily_summary (theater, day_bucket);",
       "matched": "idx_daily_summary_theater",
@@ -970,7 +970,7 @@
     },
     {
       "path": "radar/database.py",
-      "line": 272,
+      "line": 293,
       "col": 27,
       "snippet": "CREATE INDEX IF NOT EXISTS idx_forecast_theater_ts ON forecast_log (theater, ts);",
       "matched": "idx_forecast_theater_ts",
@@ -980,7 +980,7 @@
     },
     {
       "path": "radar/database.py",
-      "line": 337,
+      "line": 358,
       "col": 27,
       "snippet": "CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC);",
       "matched": "idx_llm_intel_theater",
@@ -990,7 +990,7 @@
     },
     {
       "path": "radar/database.py",
-      "line": 686,
+      "line": 707,
       "col": 53,
       "snippet": "conn.execute(\"CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC)\"),",
       "matched": "idx_llm_intel_theater",
@@ -1000,7 +1000,7 @@
     },
     {
       "path": "radar/database.py",
-      "line": 1350,
+      "line": 1393,
       "col": 8,
       "snippet": "def hod_total_points_theater(self, table: str, theater: str) -> int:",
       "matched": "hod_total_points_theater",
@@ -1010,7 +1010,7 @@
     },
     {
       "path": "radar/database.py",
-      "line": 1424,
+      "line": 1467,
       "col": 8,
       "snippet": "def ts_distinct_theaters(self) -> list[str]:",
       "matched": "ts_distinct_theaters",
@@ -1020,7 +1020,7 @@
     },
     {
       "path": "radar/database.py",
-      "line": 1540,
+      "line": 1583,
       "col": 8,
       "snippet": "def seq_distinct_theaters(self) -> list[str]:",
       "matched": "seq_distinct_theaters",
@@ -4913,6 +4913,56 @@
       "line": 765,
       "col": 37,
       "snippet": "1. **theater codemod 本実行** (`scripts/codemod_theater.py` を 5 batch で commit)",
+      "matched": "codemod_theater",
+      "classification": "rename_to_country",
+      "proposed": "codemod_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "docs/design/v2-phase1-handoff.md",
+      "line": 35,
+      "col": 11,
+      "snippet": "| `scripts/codemod_theater.py` | discover / diff / apply 3 サブコマンド。491 occurrences 分類済 (rename_to_country=313, rename_to_",
+      "matched": "codemod_theater",
+      "classification": "rename_to_country",
+      "proposed": "codemod_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "docs/design/v2-phase1-handoff.md",
+      "line": 92,
+      "col": 19,
+      "snippet": "2. `python scripts/codemod_theater.py discover` で manifest 再生成 (Phase 0 から時間が経っていれば)。",
+      "matched": "codemod_theater",
+      "classification": "rename_to_country",
+      "proposed": "codemod_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "docs/design/v2-phase1-handoff.md",
+      "line": 94,
+      "col": 19,
+      "snippet": "4. `python scripts/codemod_theater.py diff` でファイル別変更プレビュー。",
+      "matched": "codemod_theater",
+      "classification": "rename_to_country",
+      "proposed": "codemod_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "docs/design/v2-phase1-handoff.md",
+      "line": 95,
+      "col": 19,
+      "snippet": "5. `python scripts/codemod_theater.py apply --i-have-a-clean-git-tree` 実行。",
+      "matched": "codemod_theater",
+      "classification": "rename_to_country",
+      "proposed": "codemod_country",
+      "note": "compound identifier"
+    },
+    {
+      "path": "docs/design/v2-phase1-handoff.md",
+      "line": 121,
+      "col": 22,
+      "snippet": "- [ ] `python scripts/codemod_theater.py discover` が走る",
       "matched": "codemod_theater",
       "classification": "rename_to_country",
       "proposed": "codemod_country",

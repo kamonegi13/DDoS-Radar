@@ -378,7 +378,7 @@ CT_LOG_QUERY_TIMEOUT_SEC            = int(os.getenv("CT_LOG_QUERY_TIMEOUT_SEC", 
 # when multiple theaters fire in the same cycle.
 CT_LOG_INTER_QUERY_SLEEP_SEC        = float(os.getenv("CT_LOG_INTER_QUERY_SLEEP_SEC", "4.0"))
 # Multi-source pipeline (Phase 1 of the post-ADR-024 transport rework — see
-# docs/design/scenario-refactor.md). Sources (crt.sh REST, certstream ws,
+# docs/_archive/scenario-refactor-v1.8.1.md). Sources (crt.sh REST, certstream ws,
 # certspotter REST) write into an ObservationBuffer; the orchestrator drains
 # it at score time. Buffer cap protects against memory blow-up under a
 # certstream burst; it should be larger than the realistic peak of cert

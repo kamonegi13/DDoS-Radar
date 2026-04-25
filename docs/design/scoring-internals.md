@@ -22,7 +22,7 @@ Convergence bonus:
 signal_source dedup: same key → MAX (do not sum)
 ```
 
-Scenario-unit scoring (in-progress refactor) is specified in [scenario-refactor.md](scenario-refactor.md) — in particular ADR-021 (domain weight deprecation in scenario scoring) and §7.3.1 (TL threshold recalibration).
+Scenario-unit scoring is specified in [v2-migration.md](v2-migration.md) (current) and the frozen v1 reference at [_archive/scenario-refactor-v1.8.1.md](../_archive/scenario-refactor-v1.8.1.md) — in particular ADR-021 (domain weight deprecation in scenario scoring) and §7.3.1 (TL threshold recalibration).
 
 ## Pitfalls and invariants
 

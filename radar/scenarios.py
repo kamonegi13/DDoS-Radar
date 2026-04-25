@@ -1,7 +1,8 @@
 """radar.scenarios -- Scenario data model, loader, and validator.
 
 Implements the scenario-centric architecture defined in
-docs/design/scenario-refactor.md (Phase 1).
+docs/design/v2-migration.md (current) — the v1 reference at
+docs/_archive/scenario-refactor-v1.8.1.md is retained for history.
 
 Layers:
   Layer 1: Static presets from geo_data.json["scenarios"]

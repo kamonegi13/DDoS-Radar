@@ -9,6 +9,7 @@
 | 項目 | 値 |
 |------|-----|
 | 作成日 | 2026-04-25 |
+| 最終更新 | 2026-04-25 (Phase 1 priority 1, 2, 4, 6, 7 完了 / priority 3 未着手) |
 | Phase 0 完了基準 | Conclusion dataclass + DB v19/v20 + tests 17/17 pass + codemod scaffolding |
 | 次セッションでまず読むもの | CLAUDE.md → v2-migration.md §0-§5 → 本書 |
 
@@ -21,7 +22,7 @@
 | パス | 役割 |
 |------|------|
 | `docs/design/v2-migration.md` | v2.0 設計の単一情報源 (約 880 行) |
-| `docs/design/scenario-refactor.md` | v1.8.1 として **凍結**。冒頭に handoff バナー |
+| `docs/_archive/scenario-refactor-v1.8.1.md` | v1.8.1 として **凍結 + アーカイブ移動済**。冒頭に handoff バナー (誤読防止のため `docs/_archive/` に物理隔離) |
 | `CLAUDE.md` | 「進行中の大規模リファクタリング」セクションを v2 へ更新済 |
 
 ### 2. コード scaffolding
@@ -130,13 +131,17 @@
 
 | ファイル | 行数 | 代替 |
 |----------|------|------|
-| `docs/design/scenario-refactor.md` | 1,975 | v2-migration.md §1.1 で要点要約済。**読むな** |
+| `docs/_archive/scenario-refactor-v1.8.1.md` | 1,975 | v2-migration.md §1.1 で要点要約済。**読むな** (アーカイブ済) |
 | `radar.js` | 8,160 | 必要な関数だけ Grep してから Read with offset/limit |
-| `radar/database.py` | 4,207 | `_MIGRATIONS` / `_SCHEMA_SQL` セクション、または該当 method のみ |
+| `radar/database.py` | 4,255 | `_MIGRATIONS` / `_SCHEMA_SQL` セクション、または該当 method のみ |
 | `index.html` | 3,411 | help-modal 章は非常に長い。該当章だけ |
 | `i18n.js` | 3,041 | 翻訳キー追加なら末尾だけ Read |
 | `radar/routes/core.py` | 2,840 | 該当 endpoint 関数だけ |
 | `radar/routes/analytics.py` | 1,739 | 同上 |
+| `radar/scoring.py` | 1,452 | scenario scoring の単一モノリス。dataclass / function 単位で Grep |
+| `test_engine.py` | 1,390 | 個別テストクラス単位で Read with offset/limit |
+| `radar/intel_queue.py` | 1,056 | submit / dedup / verdict patch のいずれかに絞る |
+| `radar/engine.py` | 1,056 | WeightedConvergenceEngine のメソッド単位 |
 
 **強い推奨**: Phase 1 着手の最初のターンで、これらのファイルを丸ごと
 Read で読み込まないこと。Grep で当たりをつけ、`offset` / `limit` で

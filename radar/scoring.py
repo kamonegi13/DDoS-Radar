@@ -32,8 +32,8 @@ log = logging.getLogger("radar")
 class Signal:
     """Atomic observation emitted by a sensor — input unit for scoring engine.
 
-    See docs/design/scenario-refactor.md §6.3 for field semantics and
-    ADR-022 for the Signal.countries convention.
+    See docs/_archive/scenario-refactor-v1.8.1.md §6.3 for field semantics
+    and ADR-022 for the Signal.countries convention.
     """
     signal_source: str
     sensor: str

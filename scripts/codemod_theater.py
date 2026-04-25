@@ -51,7 +51,7 @@ MANIFEST_PATH = REPO_ROOT / "scripts" / "_codemod_manifest.json"
 # Files / directories never touched by the codemod.
 EXCLUDED_DIR_PARTS = frozenset({".venv", ".git", "node_modules", "__pycache__", "scripts"})
 EXCLUDED_FILES = frozenset({
-    "docs/design/scenario-refactor.md",  # frozen v1 design doc
+    "docs/_archive/scenario-refactor-v1.8.1.md",  # frozen v1 design doc
     "scripts/codemod_theater.py",        # this file itself
 })
 

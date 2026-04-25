@@ -193,7 +193,9 @@ After a tradecraft-related deploy, walk through the panel as an analyst:
 
 ## 8. Related documents
 
-- [docs/design/scenario-refactor.md](./scenario-refactor.md) — scenario-unit
-  refactor that the tradecraft layer operates on top of.
+- [docs/design/v2-migration.md](./v2-migration.md) — current v2.0 design (the
+  scenario-unit refactor that the tradecraft layer operates on top of).
+- [docs/_archive/scenario-refactor-v1.8.1.md](../_archive/scenario-refactor-v1.8.1.md)
+  — frozen v1 reference, retained for history only.
 - [CLAUDE.md](../../CLAUDE.md) — project-wide conventions, i18n rules,
   layer boundaries.
