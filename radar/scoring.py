@@ -1264,7 +1264,25 @@ def compute_scenario_score(
         contributions=deduped,
     )
     _maybe_persist_tl_conclusion(state)
+    _maybe_sample_v1_v2_diff(state)
     return state
+
+
+def _maybe_sample_v1_v2_diff(state: "ScenarioState") -> None:
+    """v2.0 Phase 1 priority 6: rollout monitoring shadow-write.
+
+    Records one (v1, v2) TL diff row per cycle in conclusion_diff_log so
+    analysts can verify default-on safety before the flag flip. Runs only
+    for the focused scenario — background scenarios do not produce v2
+    rows in C-lite mode, so any diff would be vacuously v2_missing.
+    """
+    if not state.is_focused:
+        return
+    try:
+        from radar.conclusions.diff_sampler import sample_focused_tl_diff
+        sample_focused_tl_diff(_db, state)
+    except Exception:
+        log.exception("v2 diff sampler failed (non-fatal)")
 
 
 # ── Weight calibration advisory (Item 2.2) ───────────────────────────────────

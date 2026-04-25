@@ -13,6 +13,7 @@ from radar.conclusions.base import (
     ConclusionUnavailableReason,
     new_conclusion_id,
 )
+from radar.conclusions.diff_sampler import sample_focused_tl_diff
 from radar.conclusions.persistence import (
     get_conclusion_by_id,
     latest_conclusion,
@@ -27,4 +28,5 @@ __all__ = [
     "save_conclusion",
     "latest_conclusion",
     "get_conclusion_by_id",
+    "sample_focused_tl_diff",
 ]

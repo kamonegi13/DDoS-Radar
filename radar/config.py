@@ -226,6 +226,16 @@ V2_LLM_PROMPT_PERSISTENCE_ENABLED = os.getenv("V2_LLM_PROMPT_PERSISTENCE_ENABLED
 # "no conclusion yet" envelope otherwise. v1 API is unaffected.
 V2_API_ENABLED = os.getenv("V2_API_ENABLED", "false").lower() in ("true", "1", "yes")
 
+# v2.0 Phase 1 priority 6: v1/v2 conclusion diff sampler.
+# When ENABLED, every focused scoring cycle samples the focused TL from v1
+# (in-memory ScenarioState) against the latest v2 ledger row and appends a
+# conclusion_diff_log entry. Used to gate the default-on flip (ADR-V2-001).
+# Implies V2_CONCLUSION_LEDGER_ENABLED — without ledger writes there is no
+# v2 row to compare against.
+V2_CONCLUSION_DIFF_SAMPLER_ENABLED = os.getenv(
+    "V2_CONCLUSION_DIFF_SAMPLER_ENABLED", "false",
+).lower() in ("true", "1", "yes")
+
 CF_HEADERS = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
 
 AIRSPACE_WINDOW             = int(os.getenv("AIRSPACE_WINDOW", "20"))

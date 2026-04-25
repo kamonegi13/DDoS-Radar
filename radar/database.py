@@ -215,6 +215,27 @@ CREATE INDEX IF NOT EXISTS idx_conclusions_scenario_time
 CREATE INDEX IF NOT EXISTS idx_conclusions_type_time
     ON conclusions (conclusion_type, observed_at DESC);
 
+-- v2.0 Phase 1 (ADR-V2-001 rollout monitoring).
+-- Per-cycle diff between v1's in-memory TL and the v2 conclusions ledger.
+-- Append-only; analysts review divergence stats before flipping the
+-- default-on switch.
+CREATE TABLE IF NOT EXISTS conclusion_diff_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    sampled_at      REAL    NOT NULL,
+    scenario_id     TEXT    NOT NULL,
+    conclusion_type TEXT    NOT NULL,
+    v1_state        TEXT,
+    v2_state        TEXT,
+    v2_conclusion_id TEXT,
+    is_match        INTEGER NOT NULL,
+    diff_kind       TEXT    NOT NULL,
+    metadata        TEXT    NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_conclusion_diff_time
+    ON conclusion_diff_log (sampled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conclusion_diff_kind_time
+    ON conclusion_diff_log (diff_kind, sampled_at DESC);
+
 -- CAC: Noise exclusion rules (analyst-defined)
 CREATE TABLE IF NOT EXISTS noise_exclusion (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1145,6 +1166,28 @@ class RadarDB:
             # via ALTER, so we skip REFERENCES (we enforce in app code).
             conn.execute("""ALTER TABLE llm_call_log
                 ADD COLUMN prompt_sha256 TEXT"""),
+        ]),
+        # v2.0 Phase 1 priority 6: v1/v2 conclusion diff log.
+        # Used during the shadow → opt-in rollout (ADR-V2-001) to measure
+        # how often the v1 in-memory TL diverges from the v2 ledger row
+        # before flipping default-on. Append-only; analyst review only.
+        (21, "v2.0: conclusion_diff_log for v1/v2 rollout monitoring", lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS conclusion_diff_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                sampled_at      REAL    NOT NULL,
+                scenario_id     TEXT    NOT NULL,
+                conclusion_type TEXT    NOT NULL,
+                v1_state        TEXT,
+                v2_state        TEXT,
+                v2_conclusion_id TEXT,
+                is_match        INTEGER NOT NULL,
+                diff_kind       TEXT    NOT NULL,
+                metadata        TEXT    NOT NULL DEFAULT '{}'
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_conclusion_diff_time
+                ON conclusion_diff_log (sampled_at DESC)"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_conclusion_diff_kind_time
+                ON conclusion_diff_log (diff_kind, sampled_at DESC)"""),
         ]),
     ]
 
