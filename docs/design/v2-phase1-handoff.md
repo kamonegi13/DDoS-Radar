@@ -9,7 +9,7 @@
 | 項目 | 値 |
 |------|-----|
 | 作成日 | 2026-04-25 |
-| 最終更新 | 2026-04-25 (priority 1, 2, 4-7 完了 / priority 3 を Safe Rename Pattern で再設計、Phase B-1 + A-0 + A-1 完了) |
+| 最終更新 | 2026-04-25 (priority 1, 2, 4-7 完了 / priority 3 を Safe Rename Pattern で再設計、Phase B-1 + A-0 + A-1 + A-2 完了) |
 | Phase 0 完了基準 | Conclusion dataclass + DB v19/v20 + tests 17/17 pass + codemod scaffolding |
 | 次セッションでまず読むもの | CLAUDE.md → v2-migration.md §0-§5 → 本書 |
 
@@ -115,7 +115,7 @@ planner agent によりサブフェーズ分割を確定。各サブフェーズ
 | **B-1** | コンテキスト消費削減: codemap 自動生成 + CLAUDE.md §5.5 + SESSION_BUDGET + check_ci.sh | ✅ 完了 (2026-04-25) |
 | **A-0** | SR4 telemetry 基盤: `radar/legacy_telemetry.py` + migration v23 (`legacy_access_log`) + scheduler hourly flush + `/api/admin/legacy_access` + 11 tests pass | ✅ 完了 (2026-04-25) |
 | **A-1** | sensors stragglers (convergence_tracker / intel_corroboration) の dual-write `countries=[theater]` + intel_queue.submit() legacy fallback の telemetry 計装。`scenarios.py` は調査結果 `theater` 属性が存在せず no-op | ✅ 完了 (2026-04-25) |
-| **A-2** | API レスポンス dual-write + フロントエンド read-side 切替 | ⏳ 未着手 |
+| **A-2** | API レスポンス dual-write + フロントエンド read-side 切替 | ✅ 完了 (2026-04-25) |
 | **A-3** | API param dual-read (`?country=` 主、`?theater=` SR4 記録) + フロント write-side | ⏳ 未着手 |
 | **A-4** | DB column dual-write (SQLite 3.52.0 確認済 → generated column 戦略採用) | ⏳ 未着手 |
 | **A-5** | 90 日 telemetry 観測後の sunset (alias 削除、column rename) | ⏳ 90 日待機 |
@@ -151,6 +151,27 @@ key は grep-friendly な命名規約: `<class>.<attr>` / `<endpoint>?<param>=` 
 - `intel_queue.py` L708 `emit_intel_update(theater, ...)` の WebSocket routing key — A-2 (フロント連動)
 - `intel_queue.py` L918 `get_active_rationale()` 出力辞書の theater key — 既に dual-write 済、削除は A-5 sunset
 - `radar/scoring.py` の HOD / adaptive Z-score / entropy_history `theater` パラメータ名 — 内部呼び出し連鎖が大きい、A-5 一括 rename 推奨
+
+**A-2 完了時点での成果物 (2026-04-25)**:
+
+backend dual-write (新キー = country / 既存キー = theater 並走):
+- `radar/routes/core.py`: check_host (`country_success_rate`), telegram_mirror (`country_breakdown`), greynoise (`country_data`), travel_advisory.all/ooni.adversary/mil_support_air.all (`country_*`), score_breakdown (`country_baseline`), strategic dict (`core_country`, `degraded_countries`, `degraded_countries_raw`, `coordinated_countries`), ISR hotspots (`country`)
+- `radar/routes/history.py`: `/history`, `/history/hod_baseline`, `/history/sequence_events`, `/history/export` の top-level に `country` (single) + `countries` (multi-mirror) を追加
+- `radar/routes/analytics.py`: sitrep summary (`core_country`), acceleration (`country`), strategic (`country`)
+- `radar/database.py` `_intel_row_to_dict()`: 各 LLM intel item に `country` フィールドを mirror 追加 (theater 値の単一文字列複製)
+
+frontend read-side fallback (`x.country ?? x.theater` パターンで既存挙動を保ったまま新キーを優先):
+- `radar.js` resolveChainTargetCountry, GreyNoise list, Telegram grid, check_host chRate (2 ヶ所), degraded/coordinated lists, country baseline z-score, ISR hotspot popup, intel triage / accepted item の theater badge (2 ヶ所)
+
+検証:
+- 651 tests pass (回帰なし)
+- すべて additive (新キー追加 + フォールバック導入のみ、既存 consumer は theater 読み取りで動き続ける)
+
+**A-2 の意図的にスコープ外とした項目** (A-3 以降へ):
+- API クエリパラメータの dual-read (`?country=` 受理) — A-3
+- フロントエンドからの URL 構築 `?country=` 切替 — A-3
+- DB column 物理 rename (theater → country) — A-4 (generated column 戦略)
+- レガシー `theater` キーの削除 — A-5 (90 日 SR4 telemetry 観測後)
 
 ---
 

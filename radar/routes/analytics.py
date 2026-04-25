@@ -136,8 +136,10 @@ def api_sitrep():
             "threat_avg_1h": avg_d, 
             "convergence": dominant_conv, 
             "active_domains": active_domains, 
-            "core_theater": core, 
-            "span_minutes": span_min, 
+            "core_theater": core,
+            # ADR-V2-006 A-2: dual-write `core_country` alongside legacy `core_theater`.
+            "core_country": core,
+            "span_minutes": span_min,
             "cycle_count": len(_tl)
         },
     })
@@ -232,6 +234,8 @@ def api_deep_analytics():
     return jsonify({
         "ts": datetime.datetime.now().isoformat(),
         "theater": theater_param,
+        # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
+        "country": theater_param,
         "acceleration_engine": {
             "velocity":      round(velocity, 6),
             "acceleration":  round(acc, 8),
@@ -657,6 +661,8 @@ def api_score_breakdown():
     return jsonify({
         "ts":           datetime.datetime.now().isoformat(),
         "theater":      strat.get("core_theater"),
+        # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
+        "country":      strat.get("core_theater"),
         "threat_level": strat.get("threat_level", 5),
         "domains": {
             d: {

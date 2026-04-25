@@ -3496,9 +3496,13 @@ class RadarDB:
         return [self._intel_row_to_dict(r) for r in rows]
 
     def _intel_row_to_dict(self, r) -> dict:
+        # ADR-V2-006 A-2: dual-write `country` (single-string mirror of legacy
+        # `theater`) so the UI can read `item.country ?? item.theater`. The
+        # multi-country list lives in `countries` (Phase 3); `country` is the
+        # rename pair for the legacy scalar field.
         return {
             "id": r[0], "source_type": r[1], "source_id": r[2],
-            "theater": r[3], "ts": r[4], "status": r[5],
+            "theater": r[3], "country": r[3], "ts": r[4], "status": r[5],
             "confidence": r[6], "raw_text": r[7], "raw_url": r[8],
             "headline": r[9], "llm_fields": json.loads(r[10]),
             "score_delta": r[11], "domain": r[12],

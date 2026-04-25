@@ -145,6 +145,8 @@
     // Resolve the "target country" for CHAIN fetch / LLM intel filter.
     // Prefer scenario participants[role=primary_target], fall back to the legacy
     // strat.core_theater field while backend deprecation (sunset 2026-10-01) is in flight.
+    // ADR-V2-006 A-2: prefer the new core_country key; fall back to core_theater
+    // until A-5 sunset removes the legacy alias.
     function resolveChainTargetCountry(strat) {
         if (!strat) return '';
         const parts = strat.participants;
@@ -161,7 +163,7 @@
             }
             if (primary) return primary;
         }
-        return (strat.core_theater || '').toUpperCase();
+        return ((strat.core_country ?? strat.core_theater) || '').toUpperCase();
     }
 
     // Evidence Rationale Matrix: collapsed domain groups (persisted)
@@ -345,9 +347,11 @@
             }
         }
         // Per-theater list
+        // ADR-V2-006 A-2: prefer country_data; fall back to legacy theater_data.
         const listEl = document.getElementById('gn-theater-list');
-        if (listEl && gn.theater_data) {
-            listEl.innerHTML = Object.entries(gn.theater_data).map(([cc, d]) => {
+        const gnCountryData = gn.country_data ?? gn.theater_data;
+        if (listEl && gnCountryData) {
+            listEl.innerHTML = Object.entries(gnCountryData).map(([cc, d]) => {
                 const nc = d.noise_class || 'UNKNOWN';
                 const nr = d.noise_ratio !== null && d.noise_ratio !== undefined ? ` (${Math.round(d.noise_ratio * 100)}%)` : '';
                 return `<div class="gn-theater-row">
@@ -662,9 +666,10 @@
         }
 
         // Theater grid
+        // ADR-V2-006 A-2: prefer country_breakdown; fall back to legacy theater_breakdown.
         const grid = document.getElementById('tgsig-theater-grid');
         if (grid) {
-            const breakdown = tg.theater_breakdown || {};
+            const breakdown = tg.country_breakdown ?? tg.theater_breakdown ?? {};
             const entries   = Object.entries(breakdown);
             if (entries.length === 0) {
                 const hasHistory = (tg.recent_hits || []).length > 0;
@@ -1027,7 +1032,8 @@
         const ch = p8.check_host || {};
         const tg = p8.telegram_mirror || {};   // defined here — before the detail code further below
         const chStatus = ch.status || 'UNKNOWN';
-        const chRate   = ch.theater_success_rate;
+        // ADR-V2-006 A-2: prefer country_success_rate; fall back to legacy theater_success_rate.
+        const chRate   = ch.country_success_rate ?? ch.theater_success_rate;
         if (survEl) {
             const COLOR_MAP = { OK: '#00ff88', PARTIAL: '#ffaa00', BLACKOUT: '#ff2200', UNKNOWN: '#555' };
             let survLabel = chStatus + (chRate !== null && chRate !== undefined ? ` (${Math.round(chRate * 100)}%)` : '');
@@ -2316,7 +2322,7 @@
              .bindPopup(
                 `<div style="min-width:200px;padding:8px 10px 6px;">` +
                 `<div style="color:${col};font-weight:bold;font-size:12px;">✦ ${esc(hs.name)}</div>` +
-                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">ISR HOTSPOT ZONE · ${esc(hs.theater)}</div>` +
+                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">ISR HOTSPOT ZONE · ${esc(hs.country ?? hs.theater)}</div>` +
                 `<div>ISR Aircraft: <b style="color:${col};">${esc(hs.isr_count)}</b></div>` +
                 `<div>Status: <b style="color:${col};">${isSurge ? '⚡ SURGE' : '● NORMAL'}</b></div>` +
                 `<div style="color:#555;font-size:9px;margin-top:4px;">Radius: ${esc(hs.radius_km || 200)} km</div>` +
@@ -2543,12 +2549,15 @@
             }
             strikesEl.innerHTML = strikesText;
 
-            const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? esc(strat.degraded_theaters.join(', ')) : "None";
+            // ADR-V2-006 A-2: prefer country_* lists; fall back to legacy theater_* lists.
+            const _degradedList = strat.degraded_countries ?? strat.degraded_theaters;
+            const degraded = _degradedList && _degradedList.length > 0 ? esc(_degradedList.join(', ')) : "None";
             outagesEl.innerHTML = `<span class="${degraded !== 'None' ? 'warn-text' : ''}">${degraded}</span>`;
 
             if (coordinatedEl) {
-                if (strat.coordinated_theaters && strat.coordinated_theaters.length >= 2) {
-                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${esc(strat.coordinated_theaters.join(', '))}]</span>`;
+                const _coordinatedList = strat.coordinated_countries ?? strat.coordinated_theaters;
+                if (_coordinatedList && _coordinatedList.length >= 2) {
+                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${esc(_coordinatedList.join(', '))}]</span>`;
                 } else {
                     coordinatedEl.innerText = "None";
                 }
@@ -2650,10 +2659,11 @@
                 sdEl.style.display = 'none';
             }
 
-            // A2: Theater Baseline Z-score
+            // A2: Country Baseline Z-score (legacy key: theater_baseline)
             const baseZEl = document.getElementById('hud-baseline-z');
-            if (baseZEl && p8.theater_baseline) {
-                const tb = p8.theater_baseline;
+            const _baselineSrc = p8.country_baseline ?? p8.theater_baseline;
+            if (baseZEl && _baselineSrc) {
+                const tb = _baselineSrc;
                 if (tb.samples >= 20) {
                     const z = tb.z_score;
                     baseZEl.textContent = (z >= 0 ? '+' : '') + z.toFixed(1) + 'σ';
@@ -6276,7 +6286,7 @@
         { name: 'check_host', lbl: 'CH',  domain: 'cyber',    extract: (_i, _td, code, sa) => {
             const ch = (sa.analytics || {}).check_host || {};
             if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'Core only'};
-            const sr = ch.theater_success_rate;
+            const sr = ch.country_success_rate ?? ch.theater_success_rate;
             return sr != null && sr < 0.5 ? {level:2, label:Math.round(sr*100)+'%', tip:'Reachability '+Math.round(sr*100)+'%'}
                  : sr != null && sr < 0.9 ? {level:1, label:Math.round(sr*100)+'%', tip:'Partial: '+Math.round(sr*100)+'%'}
                  : {level:0, label:sr != null ? Math.round(sr*100)+'%' : '—', tip:'OK'};
@@ -6580,7 +6590,7 @@
             <div class="llm-item-header">
                 <span class="llm-item-badge ${badgeClass}">${badgeLabel}</span>
                 <span class="llm-item-time">${ageStr}</span>
-                <span class="llm-item-theater">${_escHtml(item.theater || '')}</span>
+                <span class="llm-item-theater">${_escHtml(item.country ?? item.theater ?? '')}</span>
                 <span class="${confClass}">${confPct}</span>
                 ${credLine}
                 ${corrLine}
@@ -6702,7 +6712,7 @@
                 <span class="llm-item-badge ${badgeClass}">${badgeLabel}</span>
                 <span class="llm-item-time">${timeStr}</span>
                 ${statusLabel}
-                <span class="llm-item-theater">${_escHtml(item.theater || '')}</span>
+                <span class="llm-item-theater">${_escHtml(item.country ?? item.theater ?? '')}</span>
             </div>
             <div class="llm-item-headline">${_escHtml(item.headline || '')}</div>
             <div class="llm-item-conf"><span class="${confClass}">${confPct}</span> conf${scoreApplied ? '' : (scoreStr ? '<span class="llm-item-score">' + scoreStr + '</span>' : '')}</div>

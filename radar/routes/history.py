@@ -52,7 +52,8 @@ def api_history_timeseries():
 
     cutoff = time.time() - hours * 3600
 
-    result = {"theater": theater, "hours": hours, "series": {}}
+    # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
+    result = {"theater": theater, "country": theater, "hours": hours, "series": {}}
 
     # Timestamped series (ts_db)
     ts_data = _db.ts_get_since(theater, cutoff)
@@ -104,7 +105,8 @@ def api_history_hod_baseline():
                               "min": None, "max": None, "n": 0})
 
     return jsonify({
-        "theater": theater, "type": table,
+        # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
+        "theater": theater, "country": theater, "type": table,
         "total_points": len(entries),
         "hod_stats": hod_stats,
         "raw": [{"ts": ts, "value": v} for ts, v in entries[-200:]],
@@ -152,14 +154,16 @@ def api_history_sequence_events():
 
     if theater:
         events = _db.seq_events_since(theater, cutoff)
-        return jsonify({"theater": theater, "hours": hours, "events": events})
+        # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
+        return jsonify({"theater": theater, "country": theater, "hours": hours, "events": events})
     else:
         # All theaters
         theaters = _db.seq_distinct_theaters()
         result = {}
         for th in theaters:
             result[th] = _db.seq_events_since(th, cutoff)
-        return jsonify({"hours": hours, "theaters": result})
+        # ADR-V2-006 A-2: dual-write `countries` alongside legacy `theaters`.
+        return jsonify({"hours": hours, "theaters": result, "countries": result})
 
 
 @bp.route("/api/history/threat_levels", methods=["GET"])
@@ -189,6 +193,8 @@ def api_history_export():
 
     export = {
         "theater": theater,
+        # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
+        "country": theater,
         "exported_at": datetime.datetime.now().isoformat(),
         "timeseries_scored": [{"ts": t, "value": v} for t, v in _db.ts_get(theater)],
         "timeseries_combined": _db.series_get(theater, "combined"),

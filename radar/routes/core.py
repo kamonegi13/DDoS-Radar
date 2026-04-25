@@ -2377,6 +2377,9 @@ def get_threat_data():
             # Check-Host Survival (v9) — includes detailed data + asphyxiation flag
             "check_host": {
                 "theater_success_rate": ch_success_rate,
+                # ADR-V2-006 A-2: dual-write `country_*` alongside `theater_*` (additive).
+                # Same value, new key — frontend reads `country_success_rate ?? theater_success_rate`.
+                "country_success_rate": ch_success_rate,
                 "status":              ch_status,
                 "url_results":         core_checkhost.get("urls", {}),
                 "nodes":               CHECKHOST_NODES,
@@ -2407,6 +2410,8 @@ def get_threat_data():
                 "channels_monitored":  core_telegram.get("channels_monitored", []),
                 "target_urls":         core_telegram.get("target_urls", []),
                 "theater_breakdown":   telegram_data,
+                # ADR-V2-006 A-2: dual-write — same dict, new key.
+                "country_breakdown":   telegram_data,
                 "recent_hits":         list(TelegramMirrorSensor._intercept_log[:10]),
                 "last_poll_ts":        TelegramMirrorSensor._last_poll_ts,
                 "last_poll_ok":        TelegramMirrorSensor._last_poll_ok,
@@ -2418,6 +2423,8 @@ def get_threat_data():
                 "suppressing":   gn_suppress,
                 "gnql_tier":     core_greynoise.get("gnql_tier", "none"),
                 "theater_data":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},
+                # ADR-V2-006 A-2: dual-write — same comprehension under new key.
+                "country_data":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},
             },
             # Origin distribution entropy (attack source diversity tracking)
             "origin_entropy": target_details.get(core_theater, {}).get("origin_entropy"),
@@ -2485,6 +2492,8 @@ def get_threat_data():
             "direction_summary": direction_summary,
             # A2: Theater Baseline Risk (auto-calculated Z-score)
             "theater_baseline": theater_baseline,
+            # ADR-V2-006 A-2: dual-write — same value, new key.
+            "country_baseline": theater_baseline,
             # A3: Triangulation (3-domain quality confirmation)
             "triangulation": {
                 "is_triangulated": is_triangulated,
@@ -2523,16 +2532,25 @@ def get_threat_data():
             "travel_advisory": {
                 "core": travel_advisories.get(core_theater),
                 "all": {t: travel_advisories.get(t) for t in strategic_theaters_set if travel_advisories.get(t)},
+                # ADR-V2-006 A-2: `all` is keyed by theater code today.
+                # Same content under `country_all` for forward compat;
+                # legacy `all` kept until A-5 sunset.
+                "country_all": {t: travel_advisories.get(t) for t in strategic_theaters_set if travel_advisories.get(t)},
             },
             "ooni": {
                 "core": ooni_data.get(core_theater),
                 "status": ooni_country_status.get(core_theater, "NORMAL"),
                 "adversary": {a: ooni_data.get(a) for a in adversary_states if ooni_data.get(a)},
+                # ADR-V2-006 A-2: `adversary` is keyed by country code; mirror
+                # under `country_adversary` for forward compat.
+                "country_adversary": {a: ooni_data.get(a) for a in adversary_states if ooni_data.get(a)},
             },
             "seismic": seismic_data,
             "mil_support_air": {
                 "core": mil_air_data.get(core_theater),
                 "all": mil_air_data,
+                # ADR-V2-006 A-2: same dict reference under `country_all`.
+                "country_all": mil_air_data,
             },
             "gps_jamming": {
                 "core": gps_jam_data.get(core_theater),
@@ -2557,6 +2575,8 @@ def get_threat_data():
             "is_c2_sync": is_c2_sync, "is_maskirovka": is_maskirovka,
             "is_silent_divergence": is_silent_div, "silent_divergence_conf": silent_div_conf,
             "theater_baseline": theater_baseline,
+            # ADR-V2-006 A-2: dual-write — same value, new key.
+            "country_baseline": theater_baseline,
             "cooccurrence_boost": _cooc_factor,
         }
 
@@ -2574,6 +2594,9 @@ def get_threat_data():
             "data": target_details,
             "strategic": {
                 "core_theater": _original_core_theater or core_theater,
+                # ADR-V2-006 A-2: dual-write — same scalar/list under `country_*`.
+                # Frontend reads: `data.core_country ?? data.core_theater`.
+                "core_country": _original_core_theater or core_theater,
                 "effective_cores": effective_cores,
                 "primary_ec": primary_ec,
                 "secondary_ecs": secondary_ecs,
@@ -2583,6 +2606,10 @@ def get_threat_data():
                 "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
                 "degraded_theaters_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
                 "coordinated_theaters": elevated_theaters if is_coordinated else [],
+                # ADR-V2-006 A-2: dual-write — list aliases under `country_*`.
+                "degraded_countries": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+                "degraded_countries_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
+                "coordinated_countries": elevated_theaters if is_coordinated else [],
                 "domains": {
                     d: {"score": domain_scores.get(d, 0), "weight": _routes.engine.DOMAIN_WEIGHTS.get(d, 0), "weighted": round(min(domain_scores.get(d, 0), 10) * _routes.engine.DOMAIN_WEIGHTS.get(d, 0), 2), "status": "CRITICAL" if domain_scores.get(d, 0) >= 6 else "ELEVATED" if domain_scores.get(d, 0) >= 3 else "WATCH" if domain_scores.get(d, 0) >= 1 else "NORMAL"} for d in ("cyber", "physical", "info")
                 },
@@ -2631,6 +2658,8 @@ def get_threat_data():
                             "lng":       hs["lng"],
                             "radius_km": hs.get("radius_km", 200),
                             "theater":   hs["theater"],
+                            # ADR-V2-006 A-2: dual-write — same string, new key.
+                            "country":   hs["theater"],
                             "isr_count": isr_data.get(hs["theater"], {}).get("count", 0),
                             "is_surge":  isr_data.get(hs["theater"], {}).get("is_surge", False),
                             "tracks":    next(
