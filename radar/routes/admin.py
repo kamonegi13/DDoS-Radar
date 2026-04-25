@@ -742,3 +742,40 @@ def api_admin_sensor_health():
         "sensors": out_sensors,
     })
 
+
+# ── Safe Rename Pattern (SR4) telemetry ──────────────────────────────────────
+
+@bp.route("/api/admin/legacy_access", methods=["GET"])
+def api_admin_legacy_access():
+    """Dump observed accesses to deprecated identifiers / dict keys / API params.
+
+    Each row is one deprecated surface (e.g. ``Participant.theater``,
+    ``GET /api/threat_data?theater=``) with its access count and
+    first/last-seen timestamps. Used by ADR-V2-002 sunset evaluation:
+    a key with ``last_seen`` older than 30 days and matching the 90-day
+    window since dual-write rollout is a sunset candidate.
+
+    Snapshot reflects the in-memory counter, which is flushed to
+    ``legacy_access_log`` hourly by the cleanup worker.
+    """
+    auth_err = _require_admin()
+    if auth_err:
+        return auth_err
+    from radar import legacy_telemetry as _lt
+    snap = _lt.snapshot()
+    now = _time.time()
+    out = []
+    for stat in sorted(snap.values(), key=lambda s: s.last_seen, reverse=True):
+        out.append({
+            "key": stat.key,
+            "count": stat.count,
+            "first_seen": stat.first_seen,
+            "last_seen": stat.last_seen,
+            "age_hours_since_last_seen": round((now - stat.last_seen) / 3600.0, 2),
+        })
+    return jsonify({
+        "now": now,
+        "total_keys": len(out),
+        "items": out,
+    })
+

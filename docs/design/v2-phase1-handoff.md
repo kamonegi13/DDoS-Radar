@@ -9,7 +9,7 @@
 | 項目 | 値 |
 |------|-----|
 | 作成日 | 2026-04-25 |
-| 最終更新 | 2026-04-25 (Phase 1 priority 1, 2, 4, 5, 6, 7 完了 / priority 3 撤回) |
+| 最終更新 | 2026-04-25 (priority 1, 2, 4-7 完了 / priority 3 を Safe Rename Pattern で再設計、Phase B-1 + A-0 完了) |
 | Phase 0 完了基準 | Conclusion dataclass + DB v19/v20 + tests 17/17 pass + codemod scaffolding |
 | 次セッションでまず読むもの | CLAUDE.md → v2-migration.md §0-§5 → 本書 |
 
@@ -105,6 +105,38 @@
 - 古い名前の削除は 100% consumer 移行確認後 (ADR-V2-002 90日サンセット)
 
 **v2 移行で codemod を再投入しない**。代わりに Phase 1 残りスコープ (優先度 4-7) で **新規 v2 API/モジュールを並走** で構築し、consumer 側を順次切替える。
+
+#### 優先度 3 再着手 — Safe Rename Pattern による段階移行 (2026-04-25 〜)
+
+planner agent によりサブフェーズ分割を確定。各サブフェーズは独立 PR / 独立 revert 可能。
+
+| サブフェーズ | 内容 | 状態 |
+|------------|------|------|
+| **B-1** | コンテキスト消費削減: codemap 自動生成 + CLAUDE.md §5.5 + SESSION_BUDGET + check_ci.sh | ✅ 完了 (2026-04-25) |
+| **A-0** | SR4 telemetry 基盤: `radar/legacy_telemetry.py` + migration v23 (`legacy_access_log`) + scheduler hourly flush + `/api/admin/legacy_access` + 11 tests pass | ✅ 完了 (2026-04-25) |
+| **A-1** | sensors の dual-key alias (`theaters` ↔ `countries`)、`scenarios.py` `@property theater` 等 | ⏳ 未着手 |
+| **A-2** | API レスポンス dual-write + フロントエンド read-side 切替 | ⏳ 未着手 |
+| **A-3** | API param dual-read (`?country=` 主、`?theater=` SR4 記録) + フロント write-side | ⏳ 未着手 |
+| **A-4** | DB column dual-write (SQLite 3.52.0 確認済 → generated column 戦略採用) | ⏳ 未着手 |
+| **A-5** | 90 日 telemetry 観測後の sunset (alias 削除、column rename) | ⏳ 90 日待機 |
+
+**A-0 完了時点での成果物**:
+- `radar/legacy_telemetry.py` (146 行): thread-safe in-memory counter + DB upsert + hydrate
+- `radar/database.py` migration v23: `legacy_access_log` テーブル + index
+- `radar/scheduler.py`: 時間毎 flush hook 追加 (cleanup worker 内)
+- `radar/routes/admin.py`: `GET /api/admin/legacy_access` (admin 認可)
+- `test_legacy_telemetry.py`: 11 ケース pass (concurrency / roundtrip / upsert / hydrate idempotent / first_seen min)
+- `scripts/gen_codemap.py` + `docs/CODEMAPS/` (22 ファイル) + `scripts/check_ci.sh`
+- `CLAUDE.md` §5.5 + `.claude/SESSION_BUDGET.md` で運用ルール明文化
+
+**SR4 ヘルパー使用法**:
+```python
+from radar import legacy_telemetry as _lt
+_lt.record_legacy_access("Participant.theater")  # 各 deprecated 参照箇所で
+```
+key は grep-friendly な命名規約: `<class>.<attr>` / `<endpoint>?<param>=` 形式
+
+**SQLite 戦略**: 本番 SQLite 3.52.0 確認済 → A-4 では `GENERATED ALWAYS AS (theater) VIRTUAL` 列追加方式 (Option A) を採用
 
 ---
 

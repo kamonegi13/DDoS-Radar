@@ -236,6 +236,40 @@ CREATE INDEX IF NOT EXISTS idx_conclusion_diff_time
 CREATE INDEX IF NOT EXISTS idx_conclusion_diff_kind_time
     ON conclusion_diff_log (diff_kind, sampled_at DESC);
 
+-- v2.0 Phase 2 (ADR-V2-010): inconclusive_continuity_log.
+-- Tracks consecutive cycles where a (scenario, conclusion_type) pair
+-- produced an unavailable conclusion. NP5+8: transient unavailable is OK,
+-- but >= 7-day continuous unavailable is a design failure.
+CREATE TABLE IF NOT EXISTS inconclusive_continuity_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    observed_at     REAL    NOT NULL,
+    scenario_id     TEXT    NOT NULL,
+    conclusion_type TEXT    NOT NULL,
+    is_available    INTEGER NOT NULL,
+    reason          TEXT,
+    run_length_sec  REAL    NOT NULL DEFAULT 0,
+    first_seen_at   REAL,
+    metadata        TEXT    NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_continuity_scen_type_time
+    ON inconclusive_continuity_log (scenario_id, conclusion_type, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_continuity_observed_at
+    ON inconclusive_continuity_log (observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conclusions_scen_type_time
+    ON conclusions (scenario_id, conclusion_type, observed_at DESC);
+
+-- v2.0 priority 3 (Safe Rename Pattern SR4): legacy_access_log.
+-- Records every observed access of a deprecated identifier so that the
+-- 90-day sunset criterion (ADR-V2-002) can be evaluated on data, not guesswork.
+CREATE TABLE IF NOT EXISTS legacy_access_log (
+    key         TEXT    PRIMARY KEY,
+    count       INTEGER NOT NULL DEFAULT 0,
+    first_seen  REAL    NOT NULL,
+    last_seen   REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_legacy_access_last_seen
+    ON legacy_access_log (last_seen DESC);
+
 -- CAC: Noise exclusion rules (analyst-defined)
 CREATE TABLE IF NOT EXISTS noise_exclusion (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1188,6 +1222,45 @@ class RadarDB:
                 ON conclusion_diff_log (sampled_at DESC)"""),
             conn.execute("""CREATE INDEX IF NOT EXISTS idx_conclusion_diff_kind_time
                 ON conclusion_diff_log (diff_kind, sampled_at DESC)"""),
+        ]),
+        # v2.0 Phase 2 (ADR-V2-010): inconclusive_continuity_log.
+        # Tracks consecutive cycles where a (scenario, conclusion_type) pair
+        # produced an unavailable conclusion. NP5+8 enforces that transient
+        # unavailable is acceptable but >= 7-day continuous unavailable is a
+        # design failure that the scheduler must surface to analysts.
+        # Append-only: each cycle inserts one row, even on transition.
+        (22, "v2.0 Phase 2: inconclusive_continuity_log + per-conclusion-type index", lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS inconclusive_continuity_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                observed_at     REAL    NOT NULL,
+                scenario_id     TEXT    NOT NULL,
+                conclusion_type TEXT    NOT NULL,
+                is_available    INTEGER NOT NULL,
+                reason          TEXT,
+                run_length_sec  REAL    NOT NULL DEFAULT 0,
+                first_seen_at   REAL,
+                metadata        TEXT    NOT NULL DEFAULT '{}'
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_continuity_scen_type_time
+                ON inconclusive_continuity_log (scenario_id, conclusion_type, observed_at DESC)"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_continuity_observed_at
+                ON inconclusive_continuity_log (observed_at DESC)"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_conclusions_scen_type_time
+                ON conclusions (scenario_id, conclusion_type, observed_at DESC)"""),
+        ]),
+        # v2.0 priority 3 (Safe Rename Pattern SR4): legacy_access_log records
+        # every observed access of a deprecated identifier / dict key / API param.
+        # Used by ADR-V2-002 sunset criterion "30 consecutive days of count=0".
+        # See docs/design/safe-rename-pattern.md and radar/legacy_telemetry.py.
+        (23, "v2.0 priority 3: legacy_access_log for SR4 telemetry", lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS legacy_access_log (
+                key         TEXT    PRIMARY KEY,
+                count       INTEGER NOT NULL DEFAULT 0,
+                first_seen  REAL    NOT NULL,
+                last_seen   REAL    NOT NULL
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_legacy_access_last_seen
+                ON legacy_access_log (last_seen DESC)"""),
         ]),
     ]
 
@@ -4253,3 +4326,12 @@ from radar.config import PERSISTENCE_DIR  # noqa: E402
 
 _DB_PATH = os.path.join(PERSISTENCE_DIR, "radar.db")
 db = RadarDB(_DB_PATH)
+
+# Hydrate Safe Rename Pattern SR4 telemetry from disk so counters survive
+# restarts. Best-effort: if migration v23 has not yet run, the call is a no-op
+# and will succeed on the next module import (after migrations complete).
+try:
+    from radar import legacy_telemetry as _lt
+    _lt.hydrate_from_db(db)
+except Exception as _e:
+    log.warning("legacy_telemetry hydrate skipped: %s", _e)
