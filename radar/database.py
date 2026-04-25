@@ -3269,30 +3269,60 @@ class RadarDB:
     def intel_confidence_distribution(self, hours: int = 168) -> dict:
         """Confidence distribution of LLM intel items for pipeline tuning.
 
-        Returns histogram buckets (0.0-0.1, 0.1-0.2, ..., 0.9-1.0),
-        per-status breakdown, and auto_confirm threshold analysis.
+        Returns global histogram buckets (0.0-0.1 ... 0.9-1.0),
+        per-status breakdown, auto_confirm threshold analysis, and a
+        `by_source_type` map repeating the same shape per source_type
+        so per-sensor calibration drift is visible without DB shell.
         """
         cutoff = time.time() - hours * 3600
         rows = self._get_conn().execute(
-            "SELECT confidence, status FROM llm_intel WHERE ts > ?",
+            "SELECT confidence, status, source_type FROM llm_intel WHERE ts > ?",
             (cutoff,),
         ).fetchall()
 
+        def _bucket_label(conf: float) -> str:
+            bucket_idx = min(int(conf * 10), 9)
+            return f"{bucket_idx * 0.1:.1f}-{(bucket_idx + 1) * 0.1:.1f}"
+
         buckets: dict[str, int] = {}
         status_counts: dict[str, int] = {}
+        per_source: dict[str, dict] = {}
         auto_confirmable = 0
         total = 0
         for r in rows:
             conf = r["confidence"]
             st = r["status"]
-            # Bucket by 0.1 intervals
-            bucket_idx = min(int(conf * 10), 9)
-            label = f"{bucket_idx * 0.1:.1f}-{(bucket_idx + 1) * 0.1:.1f}"
+            stype = r["source_type"] or "unknown"
+            label = _bucket_label(conf)
             buckets[label] = buckets.get(label, 0) + 1
             status_counts[st] = status_counts.get(st, 0) + 1
             if conf >= 0.80:
                 auto_confirmable += 1
             total += 1
+
+            entry = per_source.setdefault(
+                stype,
+                {"total": 0, "buckets": {}, "status_counts": {},
+                 "auto_confirmable": 0},
+            )
+            entry["total"] += 1
+            entry["buckets"][label] = entry["buckets"].get(label, 0) + 1
+            entry["status_counts"][st] = entry["status_counts"].get(st, 0) + 1
+            if conf >= 0.80:
+                entry["auto_confirmable"] += 1
+
+        by_source_type = {
+            stype: {
+                "total": e["total"],
+                "buckets": e["buckets"],
+                "status_counts": e["status_counts"],
+                "auto_confirmable_pct": (
+                    round(e["auto_confirmable"] / e["total"] * 100, 1)
+                    if e["total"] else 0
+                ),
+            }
+            for stype, e in per_source.items()
+        }
 
         return {
             "hours": hours,
@@ -3300,6 +3330,7 @@ class RadarDB:
             "buckets": buckets,
             "status_counts": status_counts,
             "auto_confirmable_pct": round(auto_confirmable / total * 100, 1) if total else 0,
+            "by_source_type": by_source_type,
         }
 
     def intel_country_weight_aggregate(self, hours: int = 168) -> dict:
