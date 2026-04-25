@@ -1606,6 +1606,25 @@
     font-style: italic;
     flex-shrink: 0;
 }
+.sc-coverage-badge {
+    font-size: 7px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    border: 1px solid;
+    flex-shrink: 0;
+    cursor: help;
+    letter-spacing: 0.3px;
+}
+.sc-coverage-warn {
+    color: var(--color-warning);
+    border-color: #5a4720;
+    background: rgba(255,170,0,0.10);
+}
+.sc-coverage-critical {
+    color: var(--color-critical);
+    border-color: #5a2020;
+    background: rgba(255,42,42,0.12);
+}
 .sc-focus-btn {
     display: inline-flex; align-items: center; justify-content: center;
     width: 18px; height: 14px;

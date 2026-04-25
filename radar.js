@@ -6986,6 +6986,25 @@
                 liteTagHtml = `<span class="sc-lite-tag">${_t('scenario.badge.lite_warn')}</span>`;
             }
 
+            // Coverage badge (background cards only) — row2
+            // Surfaces NP6 transparency: when fewer than 2/3 domains have any
+            // signal, the lite-mode score is structurally biased. Tooltip
+            // names the missing domains so analysts can decide if the gap is
+            // expected (e.g. info-only periods) or a real blind spot.
+            let coverageBadgeHtml = '';
+            if (!isFocused && sc.indicators
+                && sc.indicators.coverage_completeness != null
+                && sc.indicators.coverage_completeness < 0.66) {
+                const covPct = Math.round(sc.indicators.coverage_completeness * 100);
+                const covCls = sc.indicators.coverage_completeness <= 0.33
+                    ? 'sc-coverage-badge sc-coverage-critical'
+                    : 'sc-coverage-badge sc-coverage-warn';
+                const blind = (sc.indicators.blind_domains || []).join(', ') || '—';
+                const covTip = _t('scenario.coverage.tip', { pct: covPct, blind: blind });
+                const covLabel = _t('scenario.coverage.badge', { pct: covPct });
+                coverageBadgeHtml = `<span class="${covCls}" title="${_escHtml(covTip)}">${_escHtml(covLabel)}</span>`;
+            }
+
             // Focus switch button (background cards only) — row1 right
             let focusBtnHtml = '';
             if (!isFocused) {
@@ -7015,6 +7034,7 @@
             html += `<span class="sc-trend ${trendCls}" title="${_escHtml(trendTip)}">${trendIcon}</span>`;
             html += etaHtml;
             html += liteTagHtml;
+            html += coverageBadgeHtml;
 
             // F2 data freshness: chip turns warning when scenario score is built
             // from cache older than 60s (config-aligned with TTL).
