@@ -21,6 +21,7 @@ from radar.state import _global_cache_lock
 from radar.database import db as _db
 from radar.scoring import (
     register_sequence_event, compute_sequence_bonus,
+    resolve_seq_fire_targets,
     compute_hod_zscore, record_hod_sample,
     get_fallback_coord, fetch_cf_data_cached,
     parse_origins, calculate_overlap, fetch_asn_origins,
@@ -511,11 +512,17 @@ def get_threat_data():
     def _seq_fire(_legacy_theater: str, event_type: str,
                   meta: dict | None = None, *,
                   dedup_window: int = 300,
-                  scenario_id: str | None = None):
-        targets = [core_theater] if core_theater else effective_cores
+                  scenario_id: str | None = None,
+                  scenario_wide: bool = False):
+        # _original_core_theater is empty for dual-core scenarios; promotion
+        # to primary_ec happens later for sensor-data lookups but the target
+        # decision uses the pre-promotion value so secondary chains are not
+        # silently dropped (ADR-009 follow-up).
+        targets = resolve_seq_fire_targets(
+            _original_core_theater, effective_cores,
+            scenario_wide=scenario_wide,
+        )
         for t in targets:
-            if not t:
-                continue
             register_sequence_event(t, event_type, meta,
                                     dedup_window=dedup_window,
                                     scenario_id=scenario_id or focused_id)
@@ -1064,9 +1071,12 @@ def get_threat_data():
                     f"Narrative Burst Z={narrative_z:.2f}" if narrative_burst else None,
                     confidence=_sensor_conf(rss_narrative_sensor))
             if narrative_burst and _narr_active:
+                # NARRATIVE_BURST is a theater-aggregate signal (Z-score over
+                # narrative volume across the scenario), so it applies
+                # symmetrically to every effective_core in dual-core scenarios.
                 _seq_fire(core_theater, "NARRATIVE_BURST",
                                         {"z_score": narrative_z, "status": narrative_status},
-                                        scenario_id=focused_id)
+                                        scenario_id=focused_id, scenario_wide=True)
 
         # ISR hotspot surge
         core_isr = isr_data.get(core_theater, {})
@@ -1109,10 +1119,13 @@ def get_threat_data():
 
         # Sync DDoS detection → register Sequence Event (gated by add_rat suppression checks)
         if is_coordinated and high_correlation and _coord_active and _overlap_active:
+            # SYNC_DDOS reflects coordinated cross-theater activity, not a
+            # property of any single belligerent — fire symmetrically across
+            # all effective_cores in dual-core scenarios.
             _seq_fire(core_theater, "SYNC_DDOS",
                                     {"coordinated_theaters": elevated_theaters,
                                      "max_overlap": max(correlations.values(), default=0.0)},
-                                    scenario_id=focused_id)
+                                    scenario_id=focused_id, scenario_wide=True)
 
         # ── v9 sensor rationale ────────────────────────────────────────────────
 
@@ -1151,11 +1164,13 @@ def get_threat_data():
                     "Target URLs found in Telegram channels" if telegram_status == "TARGETS_FOUND" else None,
                     confidence=_sensor_conf(telegram_mirror_sensor))
             if _tg_active and telegram_burst:
+                # Telegram NARRATIVE_BURST: theater-aggregate channels are
+                # tracked scenario-wide, so fire symmetrically per ADR-009.
                 _seq_fire(core_theater, "NARRATIVE_BURST", {
                     "source": "telegram_mirror", "channels": telegram_active_ch,
                     "targets": core_telegram.get("target_urls", [])[:5],
                     "z_score": telegram_z,
-                }, scenario_id=focused_id)
+                }, scenario_id=focused_id, scenario_wide=True)
 
         # Check-Host (Physical Domain)
         core_checkhost   = checkhost_data.get(core_theater, {})

@@ -90,6 +90,43 @@ def rationale_to_signal(rat, source_country: str = "", observed_at: float = 0.0,
     )
 
 
+def resolve_seq_fire_targets(
+    core_theater: str | None,
+    effective_cores: list,
+    scenario_wide: bool = False,
+) -> list[str]:
+    """Decide which countries should receive a sequence event registration.
+
+    Single-core scenarios (core_theater present): always [core_theater].
+
+    Dual-core scenarios (ADR-009: core_country=null, two principal
+    belligerents):
+      - scenario_wide=True (NARRATIVE_BURST, SYNC_DDOS — semantics are
+        theater-aggregate, the underlying signal applies symmetrically
+        to every belligerent): every effective_core is targeted so each
+        principal belligerent's escalation chain accrues the event.
+      - scenario_wide=False (per-country events whose data was only
+        checked against primary): only [core_theater]. Registering for
+        secondary would attach a false-provenance event to a chain
+        whose underlying sensor data was never inspected.
+
+    Filters falsy entries (empty strings, None) and dedupes preserving
+    insertion order so callers can pass effective_cores directly.
+    """
+    if scenario_wide and effective_cores:
+        seen: set[str] = set()
+        out: list[str] = []
+        for t in effective_cores:
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            out.append(t)
+        return out
+    if core_theater:
+        return [core_theater]
+    return [t for t in effective_cores if t]
+
+
 def register_sequence_event(theater: str, event_type: str, meta: dict = None,
                             dedup_window: int = 300,
                             scenario_id: str | None = None):
