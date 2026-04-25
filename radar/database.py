@@ -2974,6 +2974,19 @@ class RadarDB:
         deleted["forecast_log"] = cur.rowcount
         conn.commit()
 
+        # scenario_contribution_log: per-cycle per-country contribution
+        # snapshots feeding the weight_advisory endpoint. ~1 row/country/
+        # cycle (~30s), so a 4-participant scenario produces ~11.5k rows/day.
+        # The endpoint queries at most 720h (30d); 90d gives a 60d margin
+        # for trend analysis without unbounded growth.
+        _ctb_days = int(_os.getenv("SCENARIO_CONTRIB_RETENTION_DAYS", "90"))
+        cutoff_ctb = now - _ctb_days * 86400
+        cur = conn.execute(
+            "DELETE FROM scenario_contribution_log WHERE logged_at < ?",
+            (cutoff_ctb,))
+        deleted["scenario_contribution_log"] = cur.rowcount
+        conn.commit()
+
         # NOTE: scenario_change_log and confirmed_threats are intentionally
         # excluded from automatic cleanup. scenario_change_log is an audit trail
         # (~4 MB/decade); confirmed_threats is human-generated ground truth
