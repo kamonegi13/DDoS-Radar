@@ -389,15 +389,19 @@ class AptIntelSensor(BaseSensor):
                     "targeting of a specific country, region, or critical sector. "
                     "Respond ONLY with a JSON object."
                 )
+                # T1 dedup: Stage 1 also extracts a factual summary so Stage 2
+                # can reuse it without re-sending the full advisory body.
                 gate_prompt = (
                     f"Today's date: {today_str()}\n"
                     f"Advisory source: {authority}\n"
                     f"Advisory text:\n{llm_article}\n\n"
-                    "Answer these two questions with a JSON object:\n"
+                    "Answer these questions with a JSON object:\n"
                     "{\n"
                     '  "is_strategically_relevant": true or false,\n'
                     '  "has_geographic_target": true or false,\n'
-                    '  "reason": "one sentence"\n'
+                    '  "reason": "one sentence",\n'
+                    '  "summary": "1-2 sentence factual summary preserving '
+                    'actor name, target country/sector, and TTP (≤200 chars)"\n'
                     "}\n"
                     "is_strategically_relevant = true if the advisory describes ANY of:\n"
                     "  - Active exploitation by a state actor (currently ongoing)\n"
@@ -420,7 +424,7 @@ class AptIntelSensor(BaseSensor):
                     "(e.g. 'patch this CVE', global supply chain with no actor, no named sector)."
                 )
 
-                gate_result = llm_analyze_json(gate_prompt, system=gate_system, max_tokens=140)
+                gate_result = llm_analyze_json(gate_prompt, system=gate_system, max_tokens=200)
                 if not gate_result["ok"]:
                     log.debug(f"[AptIntel] Stage1 parse failed {source_name}: {gate_result.get('error')}")
                     continue
@@ -439,6 +443,19 @@ class AptIntelSensor(BaseSensor):
                     record_sensor_drop("stage1_no_geo_target")
                     continue
 
+                # T1 dedup: reuse Stage 1's extracted summary instead of
+                # re-sending the full body. Fall back to title-only context
+                # for legacy cached Stage 1 responses missing the field —
+                # never regress to re-sending the full body.
+                _stage1_summary = (gate_data.get("summary") or "").strip()
+                if _stage1_summary:
+                    stage2_advisory_block = (
+                        f"Title: {safe_title}\n"
+                        f"Stage 1 summary: {_stage1_summary}"
+                    )
+                else:
+                    stage2_advisory_block = f"Title: {safe_title}"
+
                 # ── Stage 2: Full analysis ────────────────────────────────────
                 # Only reached if Stage 1 confirmed: active + geographically targeted.
                 # Theater assignment is based SOLELY on what the advisory names —
@@ -454,7 +471,7 @@ class AptIntelSensor(BaseSensor):
                     f"Today's date: {today_str()}\n"
                     f"Advisory source: {authority}\n"
                     f"Active strategic theaters for context: {hints_str}\n\n"
-                    f"Advisory:\n{llm_article}\n\n"
+                    f"Advisory:\n{stage2_advisory_block}\n\n"
                     "Return a JSON object:\n"
                     "{\n"
                     '  "headline": "One-sentence threat summary (max 100 chars)",\n'
