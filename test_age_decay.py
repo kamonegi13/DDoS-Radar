@@ -128,7 +128,7 @@ def iqdb(tmp_path, monkeypatch):
         "INTEL_AGE_DECAY_ENABLED",
         "INTEL_AGE_DECAY_TAU_HOURS",
         "INTEL_ITEM_TTL_HOURS",
-        "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
+        "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
     ):
         monkeypatch.delenv(k, raising=False)
     yield tdb
@@ -215,7 +215,7 @@ class TestGetActiveRationaleDecay:
         decay is applied — the regression target the whole feature exists for.
         """
         monkeypatch.setenv("INTEL_AGE_DECAY_TAU_HOURS", "12")
-        monkeypatch.setenv("INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY", "1")
+        monkeypatch.setenv("INTEL_MAX_ITEMS_PER_SOURCE_THEATER", "1")
         now = time.time()
         # Stale hi-raw: score_delta=5.0 at age=24h → decayed ≈ 5 * e^-2 ≈ 0.677
         iqdb.intel_upsert(_confirmed_item(
@@ -231,7 +231,7 @@ class TestGetActiveRationaleDecay:
     def test_multiple_groups_independent(self, iqdb, monkeypatch) -> None:
         """Different (source_type, theater) groups each get their own cap."""
         monkeypatch.setenv("INTEL_AGE_DECAY_TAU_HOURS", "12")
-        monkeypatch.setenv("INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY", "1")
+        monkeypatch.setenv("INTEL_MAX_ITEMS_PER_SOURCE_THEATER", "1")
         now = time.time()
         iqdb.intel_upsert(_confirmed_item(
             ts=now - 60, source_type="military", theater="TW", score_delta=2.0))

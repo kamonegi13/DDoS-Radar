@@ -52,9 +52,9 @@ def _item_ttl_seconds() -> float:
     well before this TTL is reached."""
     return float(os.getenv("INTEL_ITEM_TTL_HOURS", "48")) * 3600
 
-def _max_items_per_source_country() -> int:
+def _max_items_per_source_theater() -> int:
     """Max active items per (source_type, theater) in rationale. Prevents score inflation."""
-    return int(os.getenv("INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY", "2"))
+    return int(os.getenv("INTEL_MAX_ITEMS_PER_SOURCE_THEATER", "2"))
 
 def _pending_auto_reject_hours() -> float:
     """Hours after which unreviewed PENDING items are automatically rejected.
@@ -861,7 +861,7 @@ class IntelQueue:
         naturally rather than dropping at the TTL boundary. TTL is retained as
         a hard floor (default 48h).
 
-        Score accumulation cap: at most INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY items per
+        Score accumulation cap: at most INTEL_MAX_ITEMS_PER_SOURCE_THEATER items per
         (source_type, theater) pair contribute. Ranking is by *decayed* score so
         fresh high-signal items dominate the cap, and stale items exit the cap
         even if their raw score_delta was high.
@@ -872,7 +872,7 @@ class IntelQueue:
         items_ac = db.intel_list(status="auto_confirmed", limit=100)
         items_c  = db.intel_list(status="confirmed", limit=100)
         ttl = _item_ttl_seconds()
-        cap = _max_items_per_source_country()
+        cap = _max_items_per_source_theater()
         now = time.time()
 
         # Filter to active items within TTL; compute decayed score upfront so
@@ -1048,7 +1048,7 @@ class IntelQueue:
             "auto_threshold": _auto_confirm_threshold(),
             "confidence_min": _confidence_min(),
             "item_ttl_hours": _item_ttl_seconds() / 3600,
-            "max_items_per_source_country": _max_items_per_source_country(),
+            "max_items_per_source_theater": _max_items_per_source_theater(),
         }
 
 

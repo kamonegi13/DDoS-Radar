@@ -9,7 +9,7 @@ from radar.sensors.ooni import OoniSensor
 
 
 def _ctx(targets):
-    return {"strategic_countries": targets, "adversary_states": []}
+    return {"strategic_theaters": targets, "adversary_states": []}
 
 
 def _mock_500():
@@ -75,7 +75,7 @@ def test_does_not_enter_degraded_before_threshold():
     assert sensor.poll_interval == OoniSensor._NORMAL_INTERVAL
 
 
-def test_degraded_mode_probes_one_country_only():
+def test_degraded_mode_probes_one_theater_only():
     """Once degraded, probe_targets shrinks to one to avoid hammering.
 
     We can't trust mock.call_count because radar.sensors.* share the same

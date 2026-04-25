@@ -488,7 +488,7 @@ const LANG = {
     'gn.log.no_lookups':              'No lookups yet.',
     'gn.log.noise':                   'NOISE',
     'gn.log.targeted':                'TARGETED',
-    'gn.no_country_data':             'No theater data',
+    'gn.no_theater_data':             'No theater data',
 
     // ══════════════════════════════════════════════════════════════
     // Sensor config / mute
@@ -1937,7 +1937,7 @@ const LANG = {
     'gn.log.no_lookups':              'ルックアップ履歴なし。',
     'gn.log.noise':                   'ノイズ',
     'gn.log.targeted':                '標的',
-    'gn.no_country_data':             'シアターデータなし',
+    'gn.no_theater_data':             'シアターデータなし',
 
     // ══════════════════════════════════════════════════════════════
     // Sensor config / mute

@@ -6,7 +6,7 @@ Event types pushed to clients:
   - sequence_event:   New escalation chain event registered
   - sensor_status:    Sensor health change notification
 
-Clients subscribe to a theater room via 'subscribe_country' event.
+Clients subscribe to a theater room via 'subscribe_theater' event.
 Polling fallback via /api/threat_data remains functional.
 """
 from __future__ import annotations
@@ -71,8 +71,8 @@ def init_socketio(app, **kwargs) -> SocketIO:
     def on_disconnect():
         log.info("[WS] Client disconnected")
 
-    @socketio.on("subscribe_country")
-    def on_subscribe_country(data):
+    @socketio.on("subscribe_theater")
+    def on_subscribe_theater(data):
         """Client joins a theater room to receive targeted updates.
         data: {"theater": "TW"} or just the theater code string.
         """
@@ -83,8 +83,8 @@ def init_socketio(app, **kwargs) -> SocketIO:
             log.info(f"[WS] Client joined room theater:{theater}")
             emit("subscribed", {"theater": theater, "status": "ok"})
 
-    @socketio.on("unsubscribe_country")
-    def on_unsubscribe_country(data):
+    @socketio.on("unsubscribe_theater")
+    def on_unsubscribe_theater(data):
         theater = data if isinstance(data, str) else data.get("theater", "")
         theater = theater.strip().upper()
         if theater:

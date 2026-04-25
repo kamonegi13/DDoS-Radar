@@ -95,7 +95,7 @@ _processed_lock = threading.Lock()
 _MAX_PROCESSED = 1000
 
 
-def _country_names(theaters: list[str]) -> list[str]:
+def _theater_names(theaters: list[str]) -> list[str]:
     """Resolve theater codes to lowercase country/region names for text matching."""
     names = []
     for code in theaters:
@@ -217,21 +217,21 @@ class MilitaryExerciseSensor(BaseSensor):
 
         # LLM sensor covers every participant country across all scorable
         # scenarios (ADR-004).
-        strategic_countries = set(context.get("all_participant_countries")
-                                  or context.get("strategic_countries", []))
+        strategic_theaters = set(context.get("all_participant_countries")
+                                  or context.get("strategic_theaters", []))
         t0 = time.time()
         submitted = 0
         any_feed_ok = False
 
         for source_name, meta in _MILITARY_SOURCES.items():
-            theaters = [t for t in meta["theaters"] if t in strategic_countries or not strategic_countries]
+            theaters = [t for t in meta["theaters"] if t in strategic_theaters or not strategic_theaters]
             if not theaters:
                 continue
 
             xml_text = _fetch_rss(meta["url"])
             if xml_text:
                 any_feed_ok = True
-            t_names = _country_names(theaters)
+            t_names = _theater_names(theaters)
             articles = _parse_articles(xml_text, theater_names=t_names)
             if not articles:
                 continue
@@ -359,12 +359,12 @@ class MilitaryExerciseSensor(BaseSensor):
                     continue
 
                 # Discard if LLM could not assign a specific theater — no forced fallback
-                llm_country = (data.get("theater") or "").strip().upper()
-                if not llm_country or llm_country not in theaters:
-                    log.debug(f"[MilExercise] No specific theater match for {source_name} (llm={llm_country!r})")
+                llm_theater = (data.get("theater") or "").strip().upper()
+                if not llm_theater or llm_theater not in theaters:
+                    log.debug(f"[MilExercise] No specific theater match for {source_name} (llm={llm_theater!r})")
                     record_sensor_drop("theater_mismatch")
                     continue
-                theater = llm_country
+                theater = llm_theater
 
                 # Theater link validation: indirect links get confidence penalty,
                 # 'none' links are discarded.  This catches LLM over-association

@@ -498,28 +498,28 @@ def get_threat_data():
                 log.warning("scenario overlay parse failed: %s", _e)
 
     _ctx = derive_country_context(focused_scenario_obj)
-    focused_country = (_ctx["focused_country"] or "").upper()
+    core_theater = (_ctx["core_theater"] or "").upper()
     effective_cores = [ec.upper() for ec in _ctx["effective_cores"]]
     correlate_targets = list(_ctx["correlate_targets"])
 
     # Dual-core sequence event helper (ADR-009, P2-1).
-    # When focused_country is empty (dual-core scenario such as middle_east),
+    # When core_theater is empty (dual-core scenario such as middle_east),
     # register the event once per effective core so the escalation chain
     # accrues against each principal_belligerent instead of the empty
-    # string that a legacy `_seq_fire(focused_country, ...)`
+    # string that a legacy `_seq_fire(core_theater, ...)`
     # call would produce.  Accepts the legacy (theater, event_type, ...)
     # signature so existing call sites need only the name change.
-    def _seq_fire(_legacy_country: str, event_type: str,
+    def _seq_fire(_legacy_theater: str, event_type: str,
                   meta: dict | None = None, *,
                   dedup_window: int = 300,
                   scenario_id: str | None = None,
                   scenario_wide: bool = False):
-        # _original_focused_country is empty for dual-core scenarios; promotion
+        # _original_core_theater is empty for dual-core scenarios; promotion
         # to primary_ec happens later for sensor-data lookups but the target
         # decision uses the pre-promotion value so secondary chains are not
         # silently dropped (ADR-009 follow-up).
         targets = resolve_seq_fire_targets(
-            _original_focused_country, effective_cores,
+            _original_core_theater, effective_cores,
             scenario_wide=scenario_wide,
         )
         for t in targets:
@@ -527,7 +527,7 @@ def get_threat_data():
                                     dedup_window=dedup_window,
                                     scenario_id=scenario_id or focused_id)
     adversary_states = list(_ctx["adversary_states"])
-    strategic_countries_set = set(_ctx["strategic_countries"])
+    strategic_theaters_set = set(_ctx["strategic_theaters"])
 
     # Union of all scorable scenarios — used for cross-scenario sensor coverage
     # (LLM sensors, HOD sampling scope, etc. — ADR-004).
@@ -550,14 +550,14 @@ def get_threat_data():
     muted_sensors = [s.strip() for s in request.args.get("muted", "").split(",") if s.strip()]
 
     required_keys = set(correlate_targets)
-    if focused_country:
-        required_keys.add(focused_country)
+    if core_theater:
+        required_keys.add(core_theater)
     # Dual-core: ensure all effective cores are in the fetch target set
     required_keys.update(effective_cores)
 
     sensor_context = {
         "all_targets": sorted(required_keys),
-        "strategic_countries": sorted(strategic_countries_set),
+        "strategic_theaters": sorted(strategic_theaters_set),
         "adversary_states": adversary_states,
         "all_participant_countries": all_participant_countries,
         "cf_headers": CF_HEADERS, "owm_api_key": OWM_API_KEY,
@@ -670,7 +670,7 @@ def get_threat_data():
             o_l7 = parse_origins(fetch_cf_data_cached("https://api.cloudflare.com/client/v4/radar/attacks/layer7/top/locations/origin", {"location": t, "dateRange": CURRENT_DATE_RANGE, "format": "json"}))
 
             state_asn_hits = {}
-            if t in strategic_countries_set:
+            if t in strategic_theaters_set:
                 for asn_key in fetch_asn_origins(t):
                     if asn_key in STATE_ASNS: state_asn_hits.setdefault(STATE_ASNS[asn_key], []).append(asn_key)
 
@@ -716,7 +716,7 @@ def get_threat_data():
                 total_global_weight = global_l3_weight + global_l7_weight
 
                 is_direct_strike = False
-                if code in adversary_states and t in strategic_countries_set and spike_factor >= 4.0 and current_local_pct > 3.0:
+                if code in adversary_states and t in strategic_theaters_set and spike_factor >= 4.0 and current_local_pct > 3.0:
                     adversary_strikes.append({"actor": code, "target": t, "spike": round(spike_factor, 1), "pct": round(current_local_pct, 1)})
                     is_direct_strike = True
 
@@ -733,7 +733,7 @@ def get_threat_data():
             avg_l3_spike = target_l3_spike_sum / max(total_local_pct, 5.0); avg_l7_spike = target_l7_spike_sum / max(total_local_pct, 5.0)
             shift_actors = [s["code"] for s in combined_sources.values() if s.get("is_l7_shift")]
             is_vector_shift = ((avg_l7_spike >= 2.5 and avg_l7_spike > avg_l3_spike * 1.5) or len(shift_actors) > 0)
-            if is_vector_shift and t in strategic_countries_set: vector_shifts.append(t)
+            if is_vector_shift and t in strategic_theaters_set: vector_shifts.append(t)
 
             avg_spike_record = round(target_weighted_spike / max(total_local_pct, 5.0), 2)
             _db.series_append(t, "combined", avg_spike_record)
@@ -742,38 +742,38 @@ def get_threat_data():
             # Update timestamped time series (for derivative computation)
             _db.ts_append(t, current_time, avg_spike_record)
             # Record HOD (Hour-of-Day) sample for strategic theaters only
-            if t in strategic_countries_set:
+            if t in strategic_theaters_set:
                 record_hod_sample(t, current_time, avg_spike_record)
 
             # Origin distribution entropy tracking
             _origin_entropy = compute_origin_entropy(normalized_dist)
-            _entropy_track = track_entropy_change(t, _origin_entropy) if t in strategic_countries_set else {"current": _origin_entropy, "moving_avg": _origin_entropy, "delta_pct": 0.0, "shift_label": "N/A"}
+            _entropy_track = track_entropy_change(t, _origin_entropy) if t in strategic_theaters_set else {"current": _origin_entropy, "moving_avg": _origin_entropy, "delta_pct": 0.0, "shift_label": "N/A"}
 
             target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "avg_l3_spike": round(avg_l3_spike, 2), "avg_l7_spike": round(avg_l7_spike, 2), "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values()), "origin_entropy": _entropy_track}
 
         correlations, correlations_l3, correlations_l7 = {}, {}, {}
         # Compute all pairwise correlations (not just core vs correlates)
         _corr_seen = set()
-        _corr_countries = []
-        for t in (effective_cores if not focused_country else [focused_country]) + correlate_targets:
+        _corr_theaters = []
+        for t in (effective_cores if not core_theater else [core_theater]) + correlate_targets:
             if t in origin_distributions and t not in _corr_seen:
-                _corr_countries.append(t)
+                _corr_theaters.append(t)
                 _corr_seen.add(t)
-        for i, a in enumerate(_corr_countries):
-            for b in _corr_countries[i + 1:]:
+        for i, a in enumerate(_corr_theaters):
+            for b in _corr_theaters[i + 1:]:
                 key = f"{a}-{b}"
                 correlations[key]    = calculate_overlap(origin_distributions[a], origin_distributions[b])
                 correlations_l3[key] = calculate_overlap(origin_distributions_l3.get(a, {}), origin_distributions_l3.get(b, {}))
                 correlations_l7[key] = calculate_overlap(origin_distributions_l7.get(a, {}), origin_distributions_l7.get(b, {}))
 
-        elevated_countries = [t for t in strategic_countries_set if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
-        is_coordinated = len(elevated_countries) >= 2
+        elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
+        is_coordinated = len(elevated_theaters) >= 2
 
         # Dual-core MAX aggregation: for scenarios with multiple effective
         # cores (e.g. middle_east: IL+IR), take worst-case across all cores.
         # primary_ec is the effective core driving the highest spike — used as
         # the single-country reference for sequence events, HOD baseline, etc.
-        if effective_cores and not focused_country:
+        if effective_cores and not core_theater:
             # Dual-core scenario (core_country=null)
             core_spike = max(
                 (target_details.get(ec, {}).get("avg_spike", 0) for ec in effective_cores),
@@ -787,13 +787,13 @@ def get_threat_data():
             ) if effective_cores else ""
         else:
             # Single-core scenario (standard path)
-            core_spike = target_details.get(focused_country, {}).get("avg_spike", 0)
-            core_degraded = focused_country in degraded_targets_effective
-            core_shifted = focused_country in vector_shifts
-            primary_ec = focused_country
+            core_spike = target_details.get(core_theater, {}).get("avg_spike", 0)
+            core_degraded = core_theater in degraded_targets_effective
+            core_shifted = core_theater in vector_shifts
+            primary_ec = core_theater
 
         # For dual-core scenarios (core_country=null), promote primary_ec
-        # to focused_country so that ALL downstream per-country sensor lookups,
+        # to core_theater so that ALL downstream per-country sensor lookups,
         # sequence events, and baseline computations use a valid country code.
         # Preserve the original for the API response (backward compat).
         #
@@ -807,9 +807,9 @@ def get_threat_data():
         # registered. secondary_ecs is surfaced in the API response so
         # analysts can see which belligerents are silent in the sequence
         # log without having to consult geo_data.json.
-        _original_focused_country = focused_country
-        if not focused_country and primary_ec:
-            focused_country = primary_ec
+        _original_core_theater = core_theater
+        if not core_theater and primary_ec:
+            core_theater = primary_ec
         secondary_ecs = [ec for ec in effective_cores if ec != primary_ec]
 
         # State-directed coordinated ops typically show 20–35% overlap. 45%+ indicates large civilian botnet.
@@ -855,7 +855,7 @@ def get_threat_data():
                 sensor, domain, source_country=source_country,
                 target_country=primary_ec,
                 adversary_states=adversary_states,
-                strategic_countries=list(strategic_countries_set),
+                strategic_theaters=list(strategic_theaters_set),
                 **kwargs)
             # CAC context computation
             _temporal = compute_temporal_context(sensor, current_time, primary_ec)
@@ -865,7 +865,7 @@ def get_threat_data():
             _target = compute_target_context(sensor, primary_ec,
                                               source_country=source_country,
                                               adversary_states=adversary_states,
-                                              strategic_countries=list(strategic_countries_set),
+                                              strategic_theaters=list(strategic_theaters_set),
                                               core_country=primary_ec)
             rationale.append(RationaleEntry(
                 sensor=sensor, domain=domain, status=status, value=value,
@@ -936,14 +936,14 @@ def get_threat_data():
             _adv_score = 3 if _adv_count >= 3 else (2 if _adv_count >= 1 else 0)
             _adv_top_actor = adversary_strikes[0]["actor"] if adversary_strikes else ""
             add_rat("cf_adversary_strike", "cyber", "FIRED" if major_adversary else "OK", f"{_adv_count} strike(s)", _adv_score, f"Adversary state direct strike ({_adv_count} actors)" if major_adversary else None, confidence=_cf_conf, source_country=_adv_top_actor, is_state_asn=bool(state_asn_hits))
-            _coord_active = add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_countries}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None, confidence=_cf_conf)
+            _coord_active = add_rat("cf_coordinated", "cyber", "FIRED" if is_coordinated else "OK", f"theaters={elevated_theaters}", 1 if is_coordinated else 0, f"Simultaneous surge" if is_coordinated else None, confidence=_cf_conf)
 
         if not (ioda_sensor and ioda_sensor.enabled):
             add_rat("ioda_bgp", "physical", "DISABLED", "sensor off", 0, None)
         else:
             weather_suppressed_bgp = [t for t in degraded_targets_raw if t not in degraded_targets_effective]
             # Enrich BGP value with IODA datasource details when available
-            _ioda_core_detail = ioda_details.get(focused_country, {})
+            _ioda_core_detail = ioda_details.get(core_theater, {})
             _ioda_src_count = _ioda_core_detail.get("source_count", 0)
             _ioda_level = _ioda_core_detail.get("level", "")
             bgp_value = f"bgp={'OUTAGE' if core_degraded else 'NORMAL'}"
@@ -951,7 +951,7 @@ def get_threat_data():
                 bgp_value += f" ioda={_ioda_level}({_ioda_src_count}src)"
             bgp_value += f" [{ioda_source}]"
             if weather_suppressed_bgp: bgp_value += f" weather_muted={weather_suppressed_bgp}"
-            _wx_suppressed = (focused_country in weather_suppressed_bgp)
+            _wx_suppressed = (core_theater in weather_suppressed_bgp)
             _sw_bgp_suppressed = sw_suppress and core_degraded and not _wx_suppressed
             _bgp_suppress = _wx_suppressed or _sw_bgp_suppressed
             _bgp_suppress_reason = (f"Weather-muted: {weather_suppressed_bgp}" if _wx_suppressed
@@ -968,7 +968,7 @@ def get_threat_data():
         if not (opensky_sensor and opensky_sensor.enabled):
             add_rat("opensky", "physical", "DISABLED", "sensor off", 0, None)
         else:
-            core_airspace = airspace_data.get(focused_country, {})
+            core_airspace = airspace_data.get(core_theater, {})
             airspace_status = core_airspace.get("status", "NO_DATA")
             airspace_score, airspace_fired, airspace_reason = 0, False, None
             if airspace_status == "CLOSURE": airspace_score, airspace_fired, airspace_reason = 3, True, f"Airport near-total closure"
@@ -984,20 +984,20 @@ def get_threat_data():
         if not (owm_sensor and owm_sensor.enabled):
             add_rat("openweather", "physical", "DISABLED", "sensor off", 0, None)
         else:
-            core_weather = weather_conditions.get(focused_country, {})
-            add_rat("openweather", "physical", "OK", f"{focused_country}: {core_weather.get('severity', 'NORMAL')}", 0, None, suppress_reason=f"Active noise filter" if core_weather.get("is_severe") else None)
+            core_weather = weather_conditions.get(core_theater, {})
+            add_rat("openweather", "physical", "OK", f"{core_theater}: {core_weather.get('severity', 'NORMAL')}", 0, None, suppress_reason=f"Active noise filter" if core_weather.get("is_severe") else None)
 
         if not (gdelt_sensor and gdelt_sensor.enabled):
             add_rat("gdelt", "info", "DISABLED", "sensor off", 0, None)
         else:
-            core_tone = gdelt_tones.get(focused_country, {})
+            core_tone = gdelt_tones.get(core_theater, {})
             tone_status, gdelt_alert = core_tone.get("status", "NO_DATA"), core_tone.get("status") == "ALERT"
             add_rat("gdelt", "info", "SUPPRESSED" if tone_status == "WEATHER_NOISE" else "FIRED" if gdelt_alert else "OK", tone_status, 1 if gdelt_alert else 0, "Media tone collapse" if gdelt_alert else None, is_suppressed=(tone_status == "WEATHER_NOISE"), suppress_reason="Severe weather detected" if tone_status == "WEATHER_NOISE" else None, confidence=_sensor_conf(gdelt_sensor))
 
         if not (bgp_routing_sensor and bgp_routing_sensor.enabled):
             add_rat("ripe_bgp", "cyber", "DISABLED", "sensor off", 0, None)
         else:
-            core_bgp = bgp_routing_data.get(focused_country, {})
+            core_bgp = bgp_routing_data.get(core_theater, {})
             bgp_anomaly = core_bgp.get("is_anomaly", False)
             _bgp_trend_label = core_bgp.get("trend_label", "")
             _bgp_trend_pct = core_bgp.get("prefix_trend_pct", 0.0)
@@ -1012,8 +1012,8 @@ def get_threat_data():
 
         # CF Radar BGP Hijack/Leak detection (Cyber)
         if cf_sensor and cf_sensor.enabled:
-            _core_hijacks = [h for h in cf_bgp_hijacks if h.get("victim_country") == focused_country]
-            _core_leaks = [l for l in cf_bgp_leaks if l.get("leak_country") == focused_country]
+            _core_hijacks = [h for h in cf_bgp_hijacks if h.get("victim_country") == core_theater]
+            _core_leaks = [l for l in cf_bgp_leaks if l.get("leak_country") == core_theater]
             _hijack_ongoing = [h for h in _core_hijacks if h.get("is_ongoing")]
             _bgp_event_count = len(_core_hijacks) + len(_core_leaks)
             _bgp_event_fired = len(_hijack_ongoing) > 0 or len(_core_leaks) >= 3
@@ -1036,11 +1036,11 @@ def get_threat_data():
         _firms_active = False
         has_firms_core = False
         if nasa_firms_sensor and nasa_firms_sensor.enabled:
-            has_firms = any(f["code"] == focused_country for f in nasa_firms_data)
+            has_firms = any(f["code"] == core_theater for f in nasa_firms_data)
             has_firms_core = has_firms
             _firms_global_codes = sorted({f["code"] for f in nasa_firms_data})
             if has_firms:
-                _firms_val = f"Thermal Anomaly [{focused_country}]"
+                _firms_val = f"Thermal Anomaly [{core_theater}]"
             elif _firms_global_codes:
                 _firms_val = f"Global only [{','.join(_firms_global_codes[:4])}]"
             else:
@@ -1049,7 +1049,7 @@ def get_threat_data():
 
         # ThreatFox (Cyber)
         if threatfox_sensor and threatfox_sensor.enabled:
-            has_tf = focused_country in threatfox_data
+            has_tf = core_theater in threatfox_data
             add_rat("threatfox", "cyber", "FIRED" if has_tf else "OK", "APT C2 Hit", 1 if has_tf else 0, "Known APT infra matched", confidence=_sensor_conf(threatfox_sensor))
 
         if peeringdb_sensor and peeringdb_sensor.enabled:
@@ -1058,7 +1058,7 @@ def get_threat_data():
         # ── Additional sensor rationale + Sequence Event registration ──────────────────────
 
         # RSS narrative burst
-        core_narrative = narrative_data.get(focused_country, {})
+        core_narrative = narrative_data.get(core_theater, {})
         narrative_burst = core_narrative.get("is_burst", False)
         narrative_z     = core_narrative.get("z_score", 0.0)
         narrative_status = core_narrative.get("status", "NORMAL")
@@ -1074,12 +1074,12 @@ def get_threat_data():
                 # NARRATIVE_BURST is a theater-aggregate signal (Z-score over
                 # narrative volume across the scenario), so it applies
                 # symmetrically to every effective_core in dual-core scenarios.
-                _seq_fire(focused_country, "NARRATIVE_BURST",
+                _seq_fire(core_theater, "NARRATIVE_BURST",
                                         {"z_score": narrative_z, "status": narrative_status},
                                         scenario_id=focused_id, scenario_wide=True)
 
         # ISR hotspot surge
-        core_isr = isr_data.get(focused_country, {})
+        core_isr = isr_data.get(core_theater, {})
         isr_surge = core_isr.get("is_surge", False)
         isr_count = core_isr.get("count", 0)
         if isr_hotspot_sensor and isr_hotspot_sensor.enabled:
@@ -1090,7 +1090,7 @@ def get_threat_data():
                     f"ISR surge: {isr_count} aircraft" if isr_surge else None,
                     confidence=_sensor_conf(isr_hotspot_sensor))
             if isr_surge and _isr_active:
-                _seq_fire(focused_country, "ISR_SURGE",
+                _seq_fire(core_theater, "ISR_SURGE",
                                         {"count": isr_count, "hotspots": core_isr.get("hotspots", [])},
                                         scenario_id=focused_id)
             # ADR-009 stage 2: per-country symmetric ISR_SURGE for
@@ -1111,7 +1111,7 @@ def get_threat_data():
         # AIS maritime anomaly
         if ais_maritime_sensor and ais_maritime_sensor.enabled:
             core_gaps = [g for g in ais_dark_gaps if any(
-                cp["country"] == focused_country for cp in CHOKEPOINTS if cp["name"] == g.get("chokepoint")
+                cp["country"] == core_theater for cp in CHOKEPOINTS if cp["name"] == g.get("chokepoint")
             )]
             ais_fired = ais_has_anomaly or len(core_gaps) > 0
             _ais_active = add_rat("ais_maritime", "physical",
@@ -1121,7 +1121,7 @@ def get_threat_data():
                     "AIS Dark Gap / Stationary Anomaly at chokepoint" if ais_fired else None,
                     confidence=_sensor_conf(ais_maritime_sensor))
             if ais_fired and _ais_active:
-                _seq_fire(focused_country, "AIS_DARK_GAP",
+                _seq_fire(core_theater, "AIS_DARK_GAP",
                                         {"dark_gaps": len(ais_dark_gaps), "stationary": len(ais_stationary)},
                                         scenario_id=focused_id)
             # ADR-009 stage 2: per-country symmetric AIS_DARK_GAP for
@@ -1146,8 +1146,8 @@ def get_threat_data():
 
         # FIRMS → register Sequence Event (gated by add_rat suppression check)
         if has_firms_core and _firms_active:
-            _seq_fire(focused_country, "FIRMS_ANOMALY",
-                                    {"hotspots": [f for f in nasa_firms_data if f.get("code") == focused_country]},
+            _seq_fire(core_theater, "FIRMS_ANOMALY",
+                                    {"hotspots": [f for f in nasa_firms_data if f.get("code") == core_theater]},
                                     scenario_id=focused_id)
         # ADR-009 stage 2: per-country symmetric firing for secondary
         # belligerents in dual-core scenarios. FIRMS hits on the
@@ -1173,15 +1173,15 @@ def get_threat_data():
             # SYNC_DDOS reflects coordinated cross-theater activity, not a
             # property of any single belligerent — fire symmetrically across
             # all effective_cores in dual-core scenarios.
-            _seq_fire(focused_country, "SYNC_DDOS",
-                                    {"coordinated_countries": elevated_countries,
+            _seq_fire(core_theater, "SYNC_DDOS",
+                                    {"coordinated_theaters": elevated_theaters,
                                      "max_overlap": max(correlations.values(), default=0.0)},
                                     scenario_id=focused_id, scenario_wide=True)
 
         # ── v9 sensor rationale ────────────────────────────────────────────────
 
         # Telegram Mirror (Info Domain)
-        core_telegram        = telegram_data.get(focused_country, {})
+        core_telegram        = telegram_data.get(core_theater, {})
         telegram_intent      = core_telegram.get("has_attack_intent", False)
         telegram_status      = core_telegram.get("status", "CLEAR")
         telegram_active_ch   = core_telegram.get("active_channels", [])
@@ -1217,14 +1217,14 @@ def get_threat_data():
             if _tg_active and telegram_burst:
                 # Telegram NARRATIVE_BURST: theater-aggregate channels are
                 # tracked scenario-wide, so fire symmetrically per ADR-009.
-                _seq_fire(focused_country, "NARRATIVE_BURST", {
+                _seq_fire(core_theater, "NARRATIVE_BURST", {
                     "source": "telegram_mirror", "channels": telegram_active_ch,
                     "targets": core_telegram.get("target_urls", [])[:5],
                     "z_score": telegram_z,
                 }, scenario_id=focused_id, scenario_wide=True)
 
         # Check-Host (Physical Domain)
-        core_checkhost   = checkhost_data.get(focused_country, {})
+        core_checkhost   = checkhost_data.get(core_theater, {})
         ch_status        = core_checkhost.get("status", "UNKNOWN")
         ch_success_rate  = core_checkhost.get("theater_success_rate")
         if check_host_sensor and check_host_sensor.enabled:
@@ -1243,7 +1243,7 @@ def get_threat_data():
                     confidence=_sensor_conf(check_host_sensor))
 
         # GreyNoise (Cyber Domain — noise suppressor)
-        core_greynoise     = greynoise_data.get(focused_country, {})
+        core_greynoise     = greynoise_data.get(core_theater, {})
         gn_noise_class     = core_greynoise.get("noise_class", "UNKNOWN")
         gn_suppress        = core_greynoise.get("suppress_confidence", False)
         gn_noise_ratio     = core_greynoise.get("noise_ratio")
@@ -1274,9 +1274,9 @@ def get_threat_data():
 
         # ── v9 Temporal Coherence analysis ─────────────────────────────────────
         # Build sequence_event_log dict for temporal coherence analysis
-        _seq_events_dict = {th: _db.seq_all_events(th) for th in strategic_countries_set}
+        _seq_events_dict = {th: _db.seq_all_events(th) for th in strategic_theaters_set}
         is_c2_sync, coherence_score, temporal_bonus, temporal_detail = \
-            _routes.engine.compute_temporal_coherence(_seq_events_dict, list(strategic_countries_set))
+            _routes.engine.compute_temporal_coherence(_seq_events_dict, list(strategic_theaters_set))
 
         # ── Asphyxiation flag from Check-Host (CDN masking detection) ───────────
         ch_asphyxiation = core_checkhost.get("asphyxiation", False)
@@ -1284,16 +1284,16 @@ def get_threat_data():
         # ── Cross-theater sensor liveness for Maskirovka confidence upgrade ─────
         # Other sensors are considered "alive" if ≥1 non-core theater's Check-Host
         # or IODA sensor returned a valid (non-error) result recently.
-        other_country_live = False
-        for _t in strategic_countries_set:
-            if _t == focused_country:
+        other_theater_live = False
+        for _t in strategic_theaters_set:
+            if _t == core_theater:
                 continue
             _other_ch = checkhost_data.get(_t, {})
             if _other_ch.get("theater_success_rate") is not None:
-                other_country_live = True
+                other_theater_live = True
                 break
             if ioda_data.get(_t) in ("NORMAL", "BGP_OUTAGE"):
-                other_country_live = True
+                other_theater_live = True
                 break
 
         # ── v9 Maskirovka detection ─────────────────────────────────────────────
@@ -1302,7 +1302,7 @@ def get_threat_data():
             narrative_burst=narrative_burst or telegram_intent,
             check_host_status=ch_status,
             telegram_intent=telegram_intent,
-            other_sensors_alive=other_country_live,
+            other_sensors_alive=other_theater_live,
         )
         if is_maskirovka:
             # HIGH confidence = +2 score (cross-theater confirmed suppression),
@@ -1313,7 +1313,7 @@ def get_threat_data():
                     msk_score, maskirovka_reason)
 
         # ── Derivative computation (Velocity / Acceleration / Ambush) ───────────────
-        ts_series_core = _db.ts_get(focused_country)
+        ts_series_core = _db.ts_get(core_theater)
         is_ambush, ambush_z, velocity_val, acceleration_val = _routes.engine.detect_ambush_pattern(ts_series_core)
         if is_ambush:
             add_rat("ddos_acceleration", "cyber",
@@ -1322,7 +1322,7 @@ def get_threat_data():
 
         # ── (i) Blockade Index → scoring ─────────────────────────────────────────
         # Compute early so it can contribute to rationale before domain_scores
-        _bi_ripe_drop = bgp_routing_data.get(focused_country, {}).get("drop_pct", 0.0)
+        _bi_ripe_drop = bgp_routing_data.get(core_theater, {}).get("drop_pct", 0.0)
         blockade_index = _routes.engine.compute_blockade_index(
             ddos_intensity=core_spike,
             ripe_drop_pct=_bi_ripe_drop,
@@ -1354,16 +1354,16 @@ def get_threat_data():
         # ── Phase 4: IHR rationale ────────────────────────────────────────────
         _ihr_suppress = sw_suppress  # IHR is physical domain; respect space weather
         _ihr_suppress_reason = space_weather_data.get("suppress_reason") if sw_suppress else None
-        _ihr_core_disco = ihr_disco.get(focused_country, [])
-        _ihr_core_delay = ihr_delay.get(focused_country, [])
-        _ihr_core_status = ihr_country_status.get(focused_country, "NORMAL")
+        _ihr_core_disco = ihr_disco.get(core_theater, [])
+        _ihr_core_delay = ihr_delay.get(core_theater, [])
+        _ihr_core_status = ihr_country_status.get(core_theater, "NORMAL")
         if not (ihr_sensor and ihr_sensor.enabled):
             add_rat("ihr_disco", "physical", "DISABLED", "sensor off", 0, None)
         else:
             _ihr_disco_fired = len(_ihr_core_disco) > 0
             _ihr_disco_score = 2 if any(e.get("avglevel", 0) > 5 for e in _ihr_core_disco) else (1 if _ihr_disco_fired else 0)
             _ihr_disco_value = f"{len(_ihr_core_disco)} events" if _ihr_disco_fired else "—"
-            _ihr_disco_reason = (f"IHR: Disconnection event in {focused_country} "
+            _ihr_disco_reason = (f"IHR: Disconnection event in {core_theater} "
                                  f"({len(_ihr_core_disco)} events, "
                                  f"probes={_ihr_core_disco[0].get('nbprobes', '?') if _ihr_core_disco else 0})"
                                  ) if _ihr_disco_fired else None
@@ -1384,9 +1384,9 @@ def get_threat_data():
                     confidence=ihr_sensor.compute_confidence() if ihr_sensor else 0.0)
 
         # ── Phase 4: RIPE Atlas rationale ─────────────────────────────────────
-        _atlas_core_status = atlas_country_status.get(focused_country, "NORMAL")
-        _atlas_core_probes = atlas_probes.get(focused_country, {})
-        _atlas_core_lat = atlas_latency.get(focused_country, {})
+        _atlas_core_status = atlas_country_status.get(core_theater, "NORMAL")
+        _atlas_core_probes = atlas_probes.get(core_theater, {})
+        _atlas_core_lat = atlas_latency.get(core_theater, {})
         if not (atlas_sensor and atlas_sensor.enabled):
             add_rat("ripe_atlas", "physical", "DISABLED", "sensor off", 0, None)
         else:
@@ -1411,9 +1411,9 @@ def get_threat_data():
                     confidence=atlas_sensor.compute_confidence() if atlas_sensor else 0.0)
 
         # ── Phase 4: Tor Metrics rationale ────────────────────────────────────
-        _tor_core_status = tor_country_status.get(focused_country, "NORMAL")
-        _tor_core_relays = tor_relays.get(focused_country, {})
-        _tor_core_clients = tor_clients.get(focused_country, {})
+        _tor_core_status = tor_country_status.get(core_theater, "NORMAL")
+        _tor_core_relays = tor_relays.get(core_theater, {})
+        _tor_core_clients = tor_clients.get(core_theater, {})
         if not (tor_sensor and tor_sensor.enabled):
             add_rat("tor_metrics", "info", "DISABLED", "sensor off", 0, None)
         else:
@@ -1462,12 +1462,12 @@ def get_threat_data():
         if _tor_entry and _ihr_disco_entry:
             _tor_entry.fired_reason += " — Censorship chain: IHR disconnection concurrent with Tor relay drop"
             _tor_entry.confidence = 1.0
-            _seq_fire(focused_country, "CENSORSHIP_DETECTED",
+            _seq_fire(core_theater, "CENSORSHIP_DETECTED",
                                     {"tor_status": _tor_core_status, "ihr_status": _ihr_core_status},
                                     scenario_id=focused_id)
             # ADR-009 stage 2.3: per-country symmetric Tor+IHR censorship
             # chain. Rationale entries are 1-per-sensor and bound to
-            # focused_country, so we check the raw status dicts per
+            # core_theater, so we check the raw status dicts per
             # secondary directly. Both signals (tor_status fired AND
             # ihr_disco events present) must hold for the secondary's
             # own territory to register the sequence event there.
@@ -1487,7 +1487,7 @@ def get_threat_data():
                         )
 
         # ── Phase C: S1 NOTAM Anomaly rationale ──────────────────────────────
-        _notam_core = notam_data.get(focused_country, {})
+        _notam_core = notam_data.get(core_theater, {})
         _notam_surge = _notam_core.get("is_surge", False)
         _notam_mil = _notam_core.get("military", 0)
         _notam_total = _notam_core.get("total", 0)
@@ -1502,7 +1502,7 @@ def get_threat_data():
                     _notam_value, _notam_score, _notam_reason,
                     confidence=_sensor_conf(notam_sensor))
             if _notam_fired and _notam_active:
-                _seq_fire(focused_country, "NOTAM_SURGE",
+                _seq_fire(core_theater, "NOTAM_SURGE",
                                         {"total": _notam_total, "military": _notam_mil},
                                         scenario_id=focused_id)
             # ADR-009 stage 2: per-country symmetric NOTAM_SURGE.
@@ -1518,7 +1518,7 @@ def get_threat_data():
                         )
 
         # ── Phase C: S2 Travel Advisory rationale ────────────────────────────
-        _travel_core = travel_advisories.get(focused_country, {})
+        _travel_core = travel_advisories.get(core_theater, {})
         _travel_level = _travel_core.get("level", 0)
         _travel_upgraded = _travel_core.get("upgraded", False)
         _travel_converged = _travel_core.get("converged", False)
@@ -1550,7 +1550,7 @@ def get_threat_data():
                     confidence=_travel_conf)
 
         # ── Phase C: S3 OONI Censorship rationale ────────────────────────────
-        _ooni_core = ooni_data.get(focused_country, {})
+        _ooni_core = ooni_data.get(core_theater, {})
         _ooni_censoring = _ooni_core.get("is_censoring", False)
         _ooni_heavy = _ooni_core.get("is_heavy", False)
         _ooni_anomaly_rate = _ooni_core.get("anomaly_rate", 0)
@@ -1559,7 +1559,7 @@ def get_threat_data():
             _ooni_fired = _ooni_censoring
             _ooni_score = 2 if _ooni_heavy else (1 if _ooni_censoring else 0)
             _ooni_value = (f"anomaly={_ooni_anomaly_rate:.1%} confirmed={_ooni_confirmed_rate:.1%}"
-                           f" [{ooni_country_status.get(focused_country, 'NORMAL')}]")
+                           f" [{ooni_country_status.get(core_theater, 'NORMAL')}]")
             _ooni_reason = (f"OONI: Internet censorship detected "
                             f"(anomaly={_ooni_anomaly_rate:.1%}, confirmed={_ooni_confirmed_rate:.1%})"
                             if _ooni_fired else None)
@@ -1568,7 +1568,7 @@ def get_threat_data():
                     _ooni_value, _ooni_score, _ooni_reason,
                     confidence=_sensor_conf(ooni_sensor))
             if _ooni_heavy and _ooni_active:
-                _seq_fire(focused_country, "CENSORSHIP_DETECTED",
+                _seq_fire(core_theater, "CENSORSHIP_DETECTED",
                                         {"source": "ooni", "anomaly_rate": _ooni_anomaly_rate},
                                         scenario_id=focused_id)
             # ADR-009 stage 2: per-country symmetric CENSORSHIP_DETECTED
@@ -1611,7 +1611,7 @@ def get_threat_data():
                     f"seismic_cable: earthquake near {_seismic_near[0]['chokepoint'] if _seismic_near else '?'}")
 
         # ── Phase C: S5 Military Support Aircraft rationale ──────────────────
-        _mil_air_core = mil_air_data.get(focused_country, {})
+        _mil_air_core = mil_air_data.get(core_theater, {})
         _mil_air_surge = _mil_air_core.get("is_surge", False)
         _mil_tanker = _mil_air_core.get("tanker", 0)
         _mil_transport = _mil_air_core.get("transport", 0)
@@ -1638,7 +1638,7 @@ def get_threat_data():
                     _mil_value, _mil_score, _mil_reason,
                     confidence=_sensor_conf(mil_air_sensor))
             if _mil_fired and _mil_active:
-                _seq_fire(focused_country, "MIL_AIR_SURGE",
+                _seq_fire(core_theater, "MIL_AIR_SURGE",
                                         {"tanker": _mil_tanker, "transport": _mil_transport, "awacs": _mil_awacs},
                                         scenario_id=focused_id)
             # ADR-009 stage 2: per-country symmetric MIL_AIR_SURGE.
@@ -1660,7 +1660,7 @@ def get_threat_data():
                         )
 
         # ── Phase C: S6 GPS Jamming rationale ────────────────────────────────
-        _gps_core = gps_jam_data.get(focused_country, {})
+        _gps_core = gps_jam_data.get(core_theater, {})
         _gps_jammed = _gps_core.get("is_jammed", False)
         _gps_critical = _gps_core.get("is_critical", False)
         _gps_max = _gps_core.get("max_level", 0)
@@ -1668,8 +1668,8 @@ def get_threat_data():
         if gps_jam_sensor and gps_jam_sensor.enabled:
             _gps_fired = _gps_jammed
             _gps_score = 2 if _gps_critical else (1 if _gps_jammed else 0)
-            _gps_value = f"max={_gps_max:.1f} avg={_gps_avg:.1f} [{gps_country_status.get(focused_country, 'NO_DATA')}]"
-            _gps_reason = (f"GPS jamming: {gps_country_status.get(focused_country, 'DETECTED')} "
+            _gps_value = f"max={_gps_max:.1f} avg={_gps_avg:.1f} [{gps_country_status.get(core_theater, 'NO_DATA')}]"
+            _gps_reason = (f"GPS jamming: {gps_country_status.get(core_theater, 'DETECTED')} "
                            f"(max={_gps_max:.1f}, avg={_gps_avg:.1f})"
                            if _gps_fired else None)
             _gps_active = add_rat("gps_jamming", "physical",
@@ -1677,7 +1677,7 @@ def get_threat_data():
                     _gps_value, _gps_score, _gps_reason,
                     confidence=_sensor_conf(gps_jam_sensor))
             if _gps_fired and _gps_active:
-                _seq_fire(focused_country, "GPS_JAMMING",
+                _seq_fire(core_theater, "GPS_JAMMING",
                                         {"max_level": _gps_max, "is_critical": _gps_critical},
                                         scenario_id=focused_id)
 
@@ -1690,14 +1690,14 @@ def get_threat_data():
         # Score 2: wildcard cert issued at country gov-TLD level
         #         (e.g. *.gov.tw) — rare and uniformly suspicious.
         # Score 0: NORMAL or WARMUP — no anomaly fired.
-        _ct_core = ct_data.get(focused_country, {})
+        _ct_core = ct_data.get(core_theater, {})
         _ct_total = _ct_core.get("total_recent", 0)
         _ct_untrusted_count = _ct_core.get("untrusted_ca_count", 0)
         _ct_untrusted_events = _ct_core.get("untrusted_ca_events", []) or []
         _ct_wildcard_tld = bool(_ct_core.get("wildcard_tld_detected", False))
         _ct_wildcard_count = _ct_core.get("wildcard_count", 0)
         _ct_warmup = bool(_ct_core.get("warmup_active", False))
-        _ct_status_label = ct_country_status.get(focused_country, "NORMAL")
+        _ct_status_label = ct_country_status.get(core_theater, "NORMAL")
         if ct_log_sensor and ct_log_sensor.enabled:
             _ct_fired = (_ct_untrusted_count > 0) or _ct_wildcard_tld
             if _ct_untrusted_count > 0:
@@ -1754,7 +1754,7 @@ def get_threat_data():
             _notam_entry.confidence = 1.0
 
         # ── Sequence Bonus computation ──────────────────────────────────────────
-        seq_bonus, seq_status, seq_chain = compute_sequence_bonus(focused_country)
+        seq_bonus, seq_status, seq_chain = compute_sequence_bonus(core_theater)
 
         # ── LLM Intel rationale injection ──────────────────────────────────────
         # Inject confirmed/auto_confirmed LLM intel items as scored rationale entries.
@@ -1762,22 +1762,22 @@ def get_threat_data():
         # domain scores, exactly like any other sensor.
         # Relevance filter: an LLM intel item is relevant to the current scenario if
         # ANY of these hold:
-        #   1. theater field matches focused_country (legacy compat)
+        #   1. theater field matches core_theater (legacy compat)
         #   2. countries list has overlap with strategic_theaters_set (Phase 3)
         #   3. theater field is empty AND countries list is empty (global signal)
         try:
             from radar.intel_queue import intel_queue as _iq
             for _llm_entry in _iq.get_active_rationale():
-                _llm_country = _llm_entry.get("theater", "")
+                _llm_theater = _llm_entry.get("theater", "")
                 _llm_countries = set(_llm_entry.get("countries", []))
                 _is_relevant = False
-                if not _llm_country and not _llm_countries:
+                if not _llm_theater and not _llm_countries:
                     # Global signal — always relevant
                     _is_relevant = True
-                elif _llm_countries & strategic_countries_set:
+                elif _llm_countries & strategic_theaters_set:
                     # Country overlap with scenario participants
                     _is_relevant = True
-                elif _llm_country and _llm_country in strategic_countries_set:
+                elif _llm_theater and _llm_theater in strategic_theaters_set:
                     # Legacy theater field matches any participant
                     _is_relevant = True
                 if not _is_relevant:
@@ -1824,7 +1824,7 @@ def get_threat_data():
 
         # ── CAC Phase D: Co-occurrence sensitivity boost (UP only) ──────────
         _fired_for_boost = [e.sensor for e in rationale if e.status == "FIRED" and not e.suppressed]
-        cooc_boost = _routes.engine.compute_cooccurrence_boost(_db, _fired_for_boost, focused_country)
+        cooc_boost = _routes.engine.compute_cooccurrence_boost(_db, _fired_for_boost, core_theater)
         _cooc_factor = cooc_boost["boost_factor"]
 
         # Confidence-weighted total: sum(score * confidence) for fired, non-suppressed entries
@@ -1864,8 +1864,8 @@ def get_threat_data():
         active_domains = sum(1 for s in domain_scores.values() if s > 0)
 
         # ── A2: Theater Baseline — record score and compute Z-score ────────
-        _routes.engine.record_country_score(focused_country, score_with_bonus)
-        theater_baseline = _routes.engine.compute_country_zscore(focused_country, score_with_bonus)
+        _routes.engine.record_theater_score(core_theater, score_with_bonus)
+        theater_baseline = _routes.engine.compute_theater_zscore(core_theater, score_with_bonus)
 
         # ── Scenario scoring — single source of truth for threat_level ────
         # This block computes all scenario scores AND drives the legacy
@@ -1902,7 +1902,7 @@ def get_threat_data():
                 if sig is not None:
                     _signals.append(sig)
             # IODA per-country signal injection: IODA fetches all countries
-            # (GLOBAL coverage) but the rationale only covers focused_country.
+            # (GLOBAL coverage) but the rationale only covers core_theater.
             # Inject per-country signals for non-core BGP_OUTAGE countries
             # so background scenarios see IODA outages for their participants.
             _ioda_core = focused_scenario_obj.core_country or ""
@@ -1971,9 +1971,9 @@ def get_threat_data():
                     # into focused scenario score, then re-derive TL.
                     _scenario_bonus = 0.0
                     # For dual-core, use primary_ec; for single-core, use core_country
-                    _sc_seq_country = _sc.core_country or primary_ec
-                    if _sc_seq_country:
-                        _sc_seq_b, _, _ = compute_sequence_bonus(_sc_seq_country)
+                    _sc_seq_theater = _sc.core_country or primary_ec
+                    if _sc_seq_theater:
+                        _sc_seq_b, _, _ = compute_sequence_bonus(_sc_seq_theater)
                         _scenario_bonus += _sc_seq_b
                     _scenario_bonus += temporal_bonus
 
@@ -2292,9 +2292,9 @@ def get_threat_data():
             _db.threat_list(), _db.alert_list(limit=100))
         try:
             _routes.engine.record_forecast(
-                _db, focused_country, current_time, threat_level, _escalation)
+                _db, core_theater, current_time, threat_level, _escalation)
             _routes.engine.resolve_pending_forecasts(
-                _db, focused_country, current_time, threat_level)
+                _db, core_theater, current_time, threat_level)
         except Exception:
             pass  # Non-critical
 
@@ -2315,7 +2315,7 @@ def get_threat_data():
         try:
             _fired_sensors = [e.sensor for e in rationale if e.status == "FIRED" and not e.suppressed]
             _db.daily_summary_upsert(
-                focused_country, _day_bucket,
+                core_theater, _day_bucket,
                 avg_score=score_with_bonus, max_score=score_with_bonus,
                 min_tl=threat_level, max_tl=threat_level,
                 fired_sensors=_fired_sensors,
@@ -2331,7 +2331,7 @@ def get_threat_data():
         for i, sa in enumerate(_fired_list):
             for sb in _fired_list[i + 1:]:
                 try:
-                    _db.cooccurrence_update(sa, sb, focused_country, both_fired=True)
+                    _db.cooccurrence_update(sa, sb, core_theater, both_fired=True)
                 except Exception:
                     pass
 
@@ -2417,10 +2417,10 @@ def get_threat_data():
                 "noise_ratio":   gn_noise_ratio,
                 "suppressing":   gn_suppress,
                 "gnql_tier":     core_greynoise.get("gnql_tier", "none"),
-                "theater_data":  {t: greynoise_data.get(t, {}) for t in (strategic_countries_set or set())},
+                "theater_data":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},
             },
             # Origin distribution entropy (attack source diversity tracking)
-            "origin_entropy": target_details.get(focused_country, {}).get("origin_entropy"),
+            "origin_entropy": target_details.get(core_theater, {}).get("origin_entropy"),
             # Phase 2: Space Weather noise suppressor
             "space_weather": {
                 "kp_index":           space_weather_data.get("kp_index", 0),
@@ -2434,13 +2434,13 @@ def get_threat_data():
             "bgp_events": {
                 "hijacks": cf_bgp_hijacks,
                 "leaks": cf_bgp_leaks,
-                "core_hijacks": [h for h in cf_bgp_hijacks if h.get("victim_country") == focused_country],
-                "core_leaks": [l for l in cf_bgp_leaks if l.get("leak_country") == focused_country],
+                "core_hijacks": [h for h in cf_bgp_hijacks if h.get("victim_country") == core_theater],
+                "core_leaks": [l for l in cf_bgp_leaks if l.get("leak_country") == core_theater],
             },
             # IODA details (multi-datasource outage corroboration)
             "ioda": {
                 "source": ioda_source,
-                "core_detail": ioda_details.get(focused_country),
+                "core_detail": ioda_details.get(core_theater),
                 "outage_countries": [code for code, status in ioda_data.items() if status == "BGP_OUTAGE"],
             },
             # Phase 2: Adaptive Z-score status
@@ -2499,52 +2499,52 @@ def get_threat_data():
             },
             # Phase 4: IHR / RIPE Atlas / Tor Metrics
             "ihr": {
-                "core_disco": ihr_disco.get(focused_country, []),
-                "core_delay": ihr_delay.get(focused_country, []),
-                "core_hegemony": ihr_hegemony.get(focused_country, []),
-                "status": ihr_country_status.get(focused_country, "NORMAL"),
+                "core_disco": ihr_disco.get(core_theater, []),
+                "core_delay": ihr_delay.get(core_theater, []),
+                "core_hegemony": ihr_hegemony.get(core_theater, []),
+                "status": ihr_country_status.get(core_theater, "NORMAL"),
                 "disco_countries": [c for c, s in ihr_country_status.items() if s == "DISCO_EVENT"],
             },
             "ripe_atlas": {
-                "core_probes": atlas_probes.get(focused_country),
-                "core_latency": atlas_latency.get(focused_country),
-                "status": atlas_country_status.get(focused_country, "NORMAL"),
+                "core_probes": atlas_probes.get(core_theater),
+                "core_latency": atlas_latency.get(core_theater),
+                "status": atlas_country_status.get(core_theater, "NORMAL"),
             },
             "tor_metrics": {
-                "core_relays": tor_relays.get(focused_country),
-                "core_clients": tor_clients.get(focused_country),
-                "status": tor_country_status.get(focused_country, "NORMAL"),
+                "core_relays": tor_relays.get(core_theater),
+                "core_clients": tor_clients.get(core_theater),
+                "status": tor_country_status.get(core_theater, "NORMAL"),
             },
             # Phase C: New sensors S1-S7
             "notam": {
-                "core": notam_data.get(focused_country),
-                "status": notam_country_status.get(focused_country, "NORMAL"),
+                "core": notam_data.get(core_theater),
+                "status": notam_country_status.get(core_theater, "NORMAL"),
             },
             "travel_advisory": {
-                "core": travel_advisories.get(focused_country),
-                "all": {t: travel_advisories.get(t) for t in strategic_countries_set if travel_advisories.get(t)},
+                "core": travel_advisories.get(core_theater),
+                "all": {t: travel_advisories.get(t) for t in strategic_theaters_set if travel_advisories.get(t)},
             },
             "ooni": {
-                "core": ooni_data.get(focused_country),
-                "status": ooni_country_status.get(focused_country, "NORMAL"),
+                "core": ooni_data.get(core_theater),
+                "status": ooni_country_status.get(core_theater, "NORMAL"),
                 "adversary": {a: ooni_data.get(a) for a in adversary_states if ooni_data.get(a)},
             },
             "seismic": seismic_data,
             "mil_support_air": {
-                "core": mil_air_data.get(focused_country),
+                "core": mil_air_data.get(core_theater),
                 "all": mil_air_data,
             },
             "gps_jamming": {
-                "core": gps_jam_data.get(focused_country),
-                "status": gps_country_status.get(focused_country, "NO_DATA"),
+                "core": gps_jam_data.get(core_theater),
+                "status": gps_country_status.get(core_theater, "NO_DATA"),
             },
             "ct_log": {
-                "core": ct_data.get(focused_country),
-                "status": ct_country_status.get(focused_country, "NORMAL"),
+                "core": ct_data.get(core_theater),
+                "status": ct_country_status.get(core_theater, "NORMAL"),
             },
             # Phase D: Co-occurrence boost & Forecast accuracy
             "cooccurrence_boost": cooc_boost,
-            "forecast_accuracy": _db.forecast_accuracy_summary(focused_country),
+            "forecast_accuracy": _db.forecast_accuracy_summary(core_theater),
         }
 
         score_breakdown = {
@@ -2573,16 +2573,16 @@ def get_threat_data():
             "focus": _req_focus,
             "data": target_details,
             "strategic": {
-                "focused_country": _original_focused_country or focused_country,
+                "core_theater": _original_core_theater or core_theater,
                 "effective_cores": effective_cores,
                 "primary_ec": primary_ec,
                 "secondary_ecs": secondary_ecs,
                 "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
                 "correlations": correlations, "correlations_l3": correlations_l3, "correlations_l7": correlations_l7,
                 "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
-                "degraded_countries": [t for t in degraded_targets_effective if t in strategic_countries_set],
-                "degraded_countries_raw": [t for t in degraded_targets_raw if t in strategic_countries_set],
-                "coordinated_countries": elevated_countries if is_coordinated else [],
+                "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+                "degraded_theaters_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
+                "coordinated_theaters": elevated_theaters if is_coordinated else [],
                 "domains": {
                     d: {"score": domain_scores.get(d, 0), "weight": _routes.engine.DOMAIN_WEIGHTS.get(d, 0), "weighted": round(min(domain_scores.get(d, 0), 10) * _routes.engine.DOMAIN_WEIGHTS.get(d, 0), 2), "status": "CRITICAL" if domain_scores.get(d, 0) >= 6 else "ELEVATED" if domain_scores.get(d, 0) >= 3 else "WATCH" if domain_scores.get(d, 0) >= 1 else "NORMAL"} for d in ("cyber", "physical", "info")
                 },
@@ -2600,7 +2600,7 @@ def get_threat_data():
                         "ihr_disco": ihr_disco.get(code),
                         "ripe_atlas": {"probes": atlas_probes.get(code), "latency": atlas_latency.get(code), "status": atlas_country_status.get(code, "NORMAL")} if atlas_probes.get(code) else None,
                         "tor_metrics": {"relays": tor_relays.get(code), "clients": tor_clients.get(code), "status": tor_country_status.get(code, "NORMAL")} if tor_relays.get(code) else None,
-                    } for code in (strategic_countries_set | {c for c, s in ioda_data.items() if s == "BGP_OUTAGE"} | {c for c, s in ihr_country_status.items() if s != "NORMAL"}) if code in COUNTRY_COORDS
+                    } for code in (strategic_theaters_set | {c for c, s in ioda_data.items() if s == "BGP_OUTAGE"} | {c for c, s in ihr_country_status.items() if s != "NORMAL"}) if code in COUNTRY_COORDS
                 },
                 "map_overlays": {
                     "ioda_outages": ioda_overlays, "airspace_anomaly": airspace_anomalies,
@@ -2639,7 +2639,7 @@ def get_threat_data():
                                 []
                             ),
                         }
-                        for hs in ISR_HOTSPOTS if hs["theater"] in strategic_countries_set
+                        for hs in ISR_HOTSPOTS if hs["theater"] in strategic_theaters_set
                     ],
                     "ais_dark_gaps":  ais_dark_gaps[:10],
                     "ais_stationary": ais_stationary[:10],
@@ -2652,12 +2652,12 @@ def get_threat_data():
         # Attack Origin Feed). Derived entirely from the
         # focused scenario's participants (ADR-005). Exposed under strategic_alert
         # so the frontend can read it as strat.active_theaters.
-        _active_countries = set()
-        if focused_country:
-            _active_countries.add(focused_country)
-        _active_countries.update(correlate_targets)
-        _active_countries.update(adversary_states)
-        _new_cache["strategic"]["active_countries"] = sorted(_active_countries)
+        _active_theaters = set()
+        if core_theater:
+            _active_theaters.add(core_theater)
+        _active_theaters.update(correlate_targets)
+        _active_theaters.update(adversary_states)
+        _new_cache["strategic"]["active_theaters"] = sorted(_active_theaters)
         _new_cache["focused_scenario"] = _focused_id
 
         # Scenario results are computed upstream (see scenario scoring block
@@ -2703,7 +2703,7 @@ def get_threat_data():
             "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
             "sequence_bonus": seq_bonus, "sequence_status": seq_status,
             "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
-            "focused_country": _original_focused_country or focused_country, "degraded_countries": [t for t in degraded_targets_effective if t in strategic_countries_set],
+            "core_theater": _original_core_theater or core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
             "is_coordinated": is_coordinated, "system_note": system_note,
             "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
             "blockade_index": deep_analytics["blockade_index"],
@@ -2717,9 +2717,9 @@ def get_threat_data():
             log.debug(f"[Climate] update error: {_ce}")
 
         # ── WebSocket push + external notifications ──────────────────────────
-        emit_threat_update(focused_country, _new_cache["strategic"])
+        emit_threat_update(core_theater, _new_cache["strategic"])
         if threat_level != prev_threat_level:
-            notify_threat_level_change(focused_country, prev_threat_level, threat_level, score_with_bonus)
+            notify_threat_level_change(core_theater, prev_threat_level, threat_level, score_with_bonus)
             # Phase C: scenario-aware notification with what-changed
             if _focused_id:
                 _sc_name = _scenario_results.get(
@@ -2730,15 +2730,15 @@ def get_threat_data():
                     score_with_bonus, _what_changed,
                 )
         if is_ambush:
-            emit_ambush_alert(focused_country, {
+            emit_ambush_alert(core_theater, {
                 "z_score": ambush_z, "acceleration": acceleration_val,
                 "velocity": velocity_val, "score": score_with_bonus,
             })
         if seq_status in ("FULL_CHAIN", "PARTIAL"):
-            emit_sequence_event(focused_country, {
+            emit_sequence_event(core_theater, {
                 "status": seq_status, "chain": seq_chain, "bonus": seq_bonus,
             })
-            notify_sequence_complete(focused_country, seq_status, seq_chain)
+            notify_sequence_complete(core_theater, seq_status, seq_chain)
 
     # Snapshot global_cache under lock to prevent reading mid-update
     with _global_cache_lock:
@@ -2747,12 +2747,12 @@ def get_threat_data():
         _snap_strategic = _cache_snap.get("strategic", {})
 
     results = []
-    _degraded_raw = _snap_strategic.get("degraded_countries_raw", [])
-    _degraded_eff = _snap_strategic.get("degraded_countries", [])
+    _degraded_raw = _snap_strategic.get("degraded_theaters_raw", [])
+    _degraded_eff = _snap_strategic.get("degraded_theaters", [])
     # Participant role lookup from the focused scenario (for map marker differentiation).
     _focused_participants = focused_scenario_obj.participants if focused_scenario_obj else {}
     # Targets panel: show all focused scenario participants (ADR-005).
-    for t in sorted(strategic_countries_set):
+    for t in sorted(strategic_theaters_set):
         t_info = COUNTRY_COORDS.get(t)
         if t_info is None:
             log.warning("COUNTRY_COORDS missing for participant %s — using fallback", t)

@@ -364,7 +364,7 @@ CT_LOG_OBSERVATION_WINDOW_HOURS     = int(os.getenv("CT_LOG_OBSERVATION_WINDOW_H
 # set are covered over time — at 2/cycle on a 9-domain set the full sweep
 # completes every ~5 hours, which is well within the relevance window of the
 # CA-anomaly signal we are measuring.
-CT_LOG_MAX_QUERIES_PER_COUNTRY      = int(os.getenv("CT_LOG_MAX_QUERIES_PER_COUNTRY", "2"))
+CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv("CT_LOG_MAX_QUERIES_PER_THEATER", "2"))
 # Per-domain query timeout. Phase 2 raised the floor from 10s → 30s after
 # production telemetry showed crt.sh response times routinely fall in the
 # 7-30s band even when the upstream eventually delivers a 200 — clipping at
@@ -478,7 +478,7 @@ INTEL_ITEM_TTL_HOURS           = float(os.getenv("INTEL_ITEM_TTL_HOURS", "48"))
 # Max number of active intel items per (source_type, theater) that contribute to score.
 # Prevents a single noisy sensor from dominating the total score via accumulation.
 # Top N items ranked by decayed score are kept; the rest are excluded from active rationale.
-INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY = int(os.getenv("INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY", "2"))
+INTEL_MAX_ITEMS_PER_SOURCE_THEATER = int(os.getenv("INTEL_MAX_ITEMS_PER_SOURCE_THEATER", "2"))
 
 # ── Intel Age-Decay (ADR-023) ──────────────────────────────────────────────
 # Exponential decay: effective_score = score_delta * exp(-age_sec / (tau_hours * 3600))

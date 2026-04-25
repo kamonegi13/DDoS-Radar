@@ -2681,7 +2681,7 @@
             <li><span class="code-block">background_scenarios[].velocity_trend</span> — <span class="code-block">rising</span> / <span class="code-block">falling</span> / <span class="code-block">stable</span></li>
             <li><span class="code-block">background_scenarios[].score_delta_6h</span> — Score change over the last 6 hours.</li>
             <li><span class="code-block">background_scenarios[].score_delta_24h</span> — Score change over the last 24 hours.</li>
-            <li><span class="code-block">strategic.primary_ec</span> — Primary effective core: the <code>PRINCIPAL_BELLIGERENT</code> with the highest spike score in dual-core scenarios (promoted to <code>focused_country</code>). Same as <code>focused_country</code> for single-core scenarios. NP6 transparency: makes the promotion outcome explicit.</li>
+            <li><span class="code-block">strategic.primary_ec</span> — Primary effective core: the <code>PRINCIPAL_BELLIGERENT</code> with the highest spike score in dual-core scenarios (promoted to <code>core_theater</code>). Same as <code>core_theater</code> for single-core scenarios. NP6 transparency: makes the promotion outcome explicit.</li>
             <li><span class="code-block">strategic.secondary_ecs</span> — Secondary effective cores: other <code>PRINCIPAL_BELLIGERENT</code> participants in dual-core scenarios. As of v1.8.1, sequence events fire symmetrically for both primary and secondary belligerents (ADR-009 follow-up Stage 1+2). The list lets analysts identify which belligerents share the registered event chain.</li>
         </ul>
         <p><b>LLM Intel Age-Decay Fields</b> <span style="color:#aa88ff;">[ADR-023]</span></p>
@@ -2783,7 +2783,7 @@
             <li><span class="code-block">background_scenarios[].velocity_trend</span> — <span class="code-block">rising</span> / <span class="code-block">falling</span> / <span class="code-block">stable</span></li>
             <li><span class="code-block">background_scenarios[].score_delta_6h</span> — 過去6時間のスコア変化量。</li>
             <li><span class="code-block">background_scenarios[].score_delta_24h</span> — 過去24時間のスコア変化量。</li>
-            <li><span class="code-block">strategic.primary_ec</span> — Primary effective core: dual-core シナリオで spike スコア最大の <code>PRINCIPAL_BELLIGERENT</code>（<code>focused_country</code> に昇格される国）。single-core シナリオでは <code>focused_country</code> と同値。NP6（透明性）として昇格結果を明示するためのフィールド。</li>
+            <li><span class="code-block">strategic.primary_ec</span> — Primary effective core: dual-core シナリオで spike スコア最大の <code>PRINCIPAL_BELLIGERENT</code>（<code>core_theater</code> に昇格される国）。single-core シナリオでは <code>core_theater</code> と同値。NP6（透明性）として昇格結果を明示するためのフィールド。</li>
             <li><span class="code-block">strategic.secondary_ecs</span> — Secondary effective cores: dual-core シナリオの他の <code>PRINCIPAL_BELLIGERENT</code> 参加国リスト。v1.8.1 以降、sequence event は primary/secondary 両方に対称登録される（ADR-009 follow-up Stage 1+2）。アナリストが「どの belligerent が同じ event chain を共有しているか」を確認できる。</li>
         </ul>
         <p><b>LLMインテル経時減衰フィールド</b> <span style="color:#aa88ff;">[ADR-023]</span></p>

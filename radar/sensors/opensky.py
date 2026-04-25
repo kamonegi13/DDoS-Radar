@@ -12,7 +12,7 @@ class OpenSkySensor(BaseSensor):
     tier = SensorTier.FOCUSED_ONLY
     def __init__(self): super().__init__("opensky", "physical", 1800)
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_countries", []); results: dict = {}; delta = 0.5
+        theaters = context.get("strategic_theaters", []); results: dict = {}; delta = 0.5
         t0 = time.time(); total_states = 0; any_success = False; last_status = 0; last_error = ""
         for code in theaters:
             box = AIRPORT_BOXES.get(code)

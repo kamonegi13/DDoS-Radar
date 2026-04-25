@@ -21,7 +21,7 @@ class PeeringDbSensor(BaseSensor):
         self._country_counts: dict[str, tuple[int, float]] = {}  # code -> (count, ts)
 
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_countries", [])
+        theaters = context.get("strategic_theaters", [])
         ixp_data: dict = {}
         t0 = time.time()
         total_ixps = 0; any_success = False; last_status = 0; last_error = ""

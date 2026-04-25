@@ -13,7 +13,7 @@ log = logging.getLogger("radar")
 class ThreatFoxSensor(BaseSensor):
     def __init__(self): super().__init__("threatfox", "cyber", 3600)
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_countries", [])
+        theaters = context.get("strategic_theaters", [])
         hits = {}
 
         url = "https://threatfox-api.abuse.ch/api/v1/"

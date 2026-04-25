@@ -17,7 +17,7 @@ class NasaFirmsSensor(BaseSensor):
     # Adaptive radius per theater size. Small countries (TW, IL) use tight
     # radius to avoid overwhelming false positives from neighboring countries'
     # natural fires. Large countries default to 3.0° (≈330km).
-    _COUNTRY_RADIUS: dict[str, float] = {
+    _THEATER_RADIUS: dict[str, float] = {
         "TW": 2.0, "IL": 2.0, "KR": 2.0, "KW": 2.0, "LB": 2.0,
         "JP": 3.0, "UA": 3.0, "PH": 3.0, "GE": 2.0, "EE": 2.0,
         "LV": 2.0, "LT": 2.0,
@@ -29,7 +29,7 @@ class NasaFirmsSensor(BaseSensor):
         self._last_event_sig: str = ""  # Skip reprocessing when wildfire set unchanged
 
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_countries", [])
+        theaters = context.get("strategic_theaters", [])
         anomalies = []
 
         t0 = time.time()
@@ -69,7 +69,7 @@ class NasaFirmsSensor(BaseSensor):
                     coord = COUNTRY_COORDS.get(code)
                     if not coord: continue
                     tlat, tlng = coord["lat"], coord["lng"]
-                    radius = self._COUNTRY_RADIUS.get(code, self.GEO_RADIUS_DEG_DEFAULT)
+                    radius = self._THEATER_RADIUS.get(code, self.GEO_RADIUS_DEG_DEFAULT)
 
                     for ev in events:
                         for geo in (ev.get("geometry") or []):

@@ -159,7 +159,7 @@ _processed_lock = threading.Lock()
 _MAX_PROCESSED = 1000
 
 
-def _country_names(theaters: list[str]) -> list[str]:
+def _theater_names(theaters: list[str]) -> list[str]:
     """Resolve theater codes to lowercase country/region names for text matching."""
     names = []
     for code in theaters:
@@ -329,8 +329,8 @@ class AptIntelSensor(BaseSensor):
 
         # LLM intel covers every country any scorable scenario cares about
         # (ADR-004: LLM tags countries, scoring engine maps to scenarios).
-        strategic_countries = set(context.get("all_participant_countries")
-                                  or context.get("strategic_countries", []))
+        strategic_theaters = set(context.get("all_participant_countries")
+                                  or context.get("strategic_theaters", []))
         t0 = time.time()
         submitted = 0
         any_feed_ok = False
@@ -342,14 +342,14 @@ class AptIntelSensor(BaseSensor):
         for source_name, meta in _CERT_SOURCES.items():
             # Theater hints: used only to inform LLM context, NOT for forced assignment
             theater_hints = [t for t in meta["theater_hints"]
-                             if not strategic_countries or t in strategic_countries]
+                             if not strategic_theaters or t in strategic_theaters]
 
             feeds_tried += 1
             xml_text = _fetch_rss(meta["url"])
             if xml_text:
                 any_feed_ok = True
                 feeds_ok += 1
-            t_names = _country_names(theater_hints)
+            t_names = _theater_names(theater_hints)
             articles = _parse_articles(xml_text, theater_names=t_names)
             total_articles += len(articles)
             if not articles:
@@ -521,13 +521,13 @@ class AptIntelSensor(BaseSensor):
                 theater = (data.get("theater") or "").strip().upper() or None
                 if not theater or theater in ("NULL", "NONE"):
                     log.debug(f"[AptIntel] Stage2 DISCARD (no theater): {art['title'][:60]}")
-                    record_sensor_drop("stage2_no_country")
+                    record_sensor_drop("stage2_no_theater")
                     continue
 
                 # Verify theater is in active strategic theaters (or no filter set)
-                if strategic_countries and theater not in strategic_countries:
+                if strategic_theaters and theater not in strategic_theaters:
                     log.debug(f"[AptIntel] Stage2 DISCARD (theater {theater} not strategic): {art['title'][:60]}")
-                    record_sensor_drop("stage2_country_not_strategic")
+                    record_sensor_drop("stage2_theater_not_strategic")
                     continue
 
                 if theater not in countries:

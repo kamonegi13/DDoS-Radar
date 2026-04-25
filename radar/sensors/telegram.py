@@ -285,7 +285,7 @@ class TelegramMirrorSensor(BaseSensor):
         return total
 
     def fetch(self, context: dict) -> dict:
-        theaters = context.get("strategic_countries", [])
+        theaters = context.get("strategic_theaters", [])
         results: dict = {}
         t0 = time.time()
         total_hits = 0
@@ -293,15 +293,15 @@ class TelegramMirrorSensor(BaseSensor):
 
         # ── Phase 1: scrape each unique channel ONCE ──
         # Build reverse map: channel → set of theaters
-        channel_countries: dict[str, list[str]] = {}
+        channel_theaters: dict[str, list[str]] = {}
         for theater in theaters:
             for ch in THREAT_ACTOR_MAPPING.get(theater, []):
-                channel_countries.setdefault(ch, []).append(theater)
+                channel_theaters.setdefault(ch, []).append(theater)
 
         # Scrape and analyse each channel exactly once, cache results
         import random as _rnd_jitter
         channel_results: dict[str, dict] = {}  # channel → parsed result
-        for i, channel in enumerate(channel_countries):
+        for i, channel in enumerate(channel_theaters):
             if i > 0:
                 time.sleep(_rnd_jitter.uniform(1.5, 4.0))
             html = self._scrape_channel(channel)

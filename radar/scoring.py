@@ -91,13 +91,13 @@ def rationale_to_signal(rat, source_country: str = "", observed_at: float = 0.0,
 
 
 def resolve_seq_fire_targets(
-    focused_country: str | None,
+    core_theater: str | None,
     effective_cores: list,
     scenario_wide: bool = False,
 ) -> list[str]:
     """Decide which countries should receive a sequence event registration.
 
-    Single-core scenarios (focused_country present): always [focused_country].
+    Single-core scenarios (core_theater present): always [core_theater].
 
     Dual-core scenarios (ADR-009: core_country=null, two principal
     belligerents):
@@ -106,7 +106,7 @@ def resolve_seq_fire_targets(
         to every belligerent): every effective_core is targeted so each
         principal belligerent's escalation chain accrues the event.
       - scenario_wide=False (per-country events whose data was only
-        checked against primary): only [focused_country]. Registering for
+        checked against primary): only [core_theater]. Registering for
         secondary would attach a false-provenance event to a chain
         whose underlying sensor data was never inspected.
 
@@ -122,8 +122,8 @@ def resolve_seq_fire_targets(
             seen.add(t)
             out.append(t)
         return out
-    if focused_country:
-        return [focused_country]
+    if core_theater:
+        return [core_theater]
     return [t for t in effective_cores if t]
 
 
@@ -714,7 +714,7 @@ def classify_direction(sensor_name: str, domain: str,
                        source_country: str = "",
                        target_country: str = "",
                        adversary_states: list = None,
-                       strategic_countries: list = None,
+                       strategic_theaters: list = None,
                        **kwargs) -> tuple[str, float]:
     """Classify a signal's direction as ADVERSARY_OFFENSIVE, FRIENDLY_DEFENSIVE,
     TARGET_IMPACT, or UNKNOWN.
@@ -729,12 +729,12 @@ def classify_direction(sensor_name: str, domain: str,
     - State ASN involvement raises confidence
     """
     adversary_states = adversary_states or []
-    strategic_countries = strategic_countries or []
+    strategic_theaters = strategic_theaters or []
     src = source_country.upper() if source_country else ""
     tgt = target_country.upper() if target_country else ""
     is_src_adversary = src in adversary_states
-    is_src_friendly = src in strategic_countries and src not in adversary_states
-    is_tgt_strategic = tgt in strategic_countries
+    is_src_friendly = src in strategic_theaters and src not in adversary_states
+    is_tgt_strategic = tgt in strategic_theaters
 
     # Cyber domain: DDoS origin, BGP manipulation, APT infrastructure
     if domain == "cyber":
@@ -875,17 +875,17 @@ def compute_spatial_context(sensor_name: str, theater: str,
 def compute_target_context(sensor_name: str, theater: str,
                            source_country: str = "",
                            adversary_states: list = None,
-                           strategic_countries: list = None,
+                           strategic_theaters: list = None,
                            core_country: str = "") -> dict:
     """Compute target context: relationship between signal and monitored target.
 
     Returns dict with:
     - target_relevance: DIRECT / INDIRECT / AMBIENT
-    - is_focused_country: boolean (theater == focused scenario's core_country)
+    - is_core_theater: boolean (theater == focused scenario's core_country)
     - adversary_involvement: boolean
     """
     adversary_states = adversary_states or []
-    strategic_countries = strategic_countries or []
+    strategic_theaters = strategic_theaters or []
     is_core = bool(core_country) and theater == core_country
     is_adversary = source_country in adversary_states if source_country else False
 
@@ -893,9 +893,9 @@ def compute_target_context(sensor_name: str, theater: str,
     # Indirect: signal affects regional infrastructure that includes this theater
     # Ambient: background signal with no specific target attribution
     if source_country and theater:
-        if is_adversary and theater in strategic_countries:
+        if is_adversary and theater in strategic_theaters:
             relevance = "DIRECT"
-        elif theater in strategic_countries:
+        elif theater in strategic_theaters:
             relevance = "INDIRECT"
         else:
             relevance = "AMBIENT"
@@ -904,7 +904,7 @@ def compute_target_context(sensor_name: str, theater: str,
 
     return {
         "target_relevance": relevance,
-        "is_focused_country": is_core,
+        "is_core_theater": is_core,
         "adversary_involvement": is_adversary,
     }
 

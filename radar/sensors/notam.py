@@ -55,7 +55,7 @@ class NotamSensor(BaseSensor):
 
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
-        theaters = context.get("strategic_countries", [])
+        theaters = context.get("strategic_theaters", [])
         if not theaters:
             theaters = list(COUNTRY_COORDS.keys())[:10]
 
