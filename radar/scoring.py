@@ -1108,6 +1108,11 @@ def _maybe_persist_tl_conclusion(state: "ScenarioState") -> None:
 
     Gated by V2_CONCLUSION_LEDGER_ENABLED. v1 API responses are unchanged;
     this path only writes to the new conclusions ledger. ADR-V2-001.
+
+    Skip background (unfocused) scenarios with no TL — they are not deeply
+    scored and emit no actionable conclusion. The builder itself is total
+    over ScenarioState (returns INSUFFICIENT_DATA when tl is None), but we
+    only call it where a row is meaningful.
     """
     from radar import config
     if not config.V2_CONCLUSION_LEDGER_ENABLED:
@@ -1115,40 +1120,9 @@ def _maybe_persist_tl_conclusion(state: "ScenarioState") -> None:
     if state.tl is None:
         return
     try:
-        from radar.conclusions import (
-            Conclusion,
-            ConclusionType,
-            calibration_status_for,
-            new_conclusion_id,
-            save_conclusion,
-        )
-        source_urls = tuple(sorted({
-            c.signal.evidence_url for c in state.contributions
-            if c.signal.evidence_url
-        }))
-        c = Conclusion(
-            id=new_conclusion_id(),
-            scenario_id=state.scenario_id,
-            conclusion_type=ConclusionType.THREAT_LEVEL,
-            state=str(state.tl),
-            confidence=min(1.0, max(0.0, state.score / 12.0)),
-            observed_at=time.time(),
-            formula_ref=DERIVE_TL_FORMULA_REF,
-            threshold_ref={
-                "tl1_total": 9.0, "tl1_physical": 3.0,
-                "tl2_total": 6.0, "tl2_active_domains_min": 2,
-                "tl3_total": 4.0, "tl4_total": 2.0,
-            },
-            source_urls=source_urls,
-            calibration_status=calibration_status_for(_db, state.scenario_id),
-            final_judgment_disclaimer=config.V2_NP7_DISCLAIMER,
-            metadata={
-                "score": state.score,
-                "active_countries": list(state.active_countries),
-                "convergence_bonus": state.convergence_bonus,
-                "scoring_mode": state.scoring_mode,
-            },
-        )
+        from radar.conclusions import save_conclusion
+        from radar.conclusions.threat_level import derive_threat_level
+        c = derive_threat_level(_db, state)
         save_conclusion(_db, c)
     except Exception:
         # Phase 1 shadow-write must NEVER break v1 scoring. Log and swallow.

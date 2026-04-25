@@ -20,6 +20,7 @@ from radar.conclusions.persistence import (
     latest_conclusion,
     save_conclusion,
 )
+from radar.conclusions.threat_level import derive_threat_level
 
 __all__ = [
     "Conclusion",
@@ -31,4 +32,5 @@ __all__ = [
     "get_conclusion_by_id",
     "sample_focused_tl_diff",
     "calibration_status_for",
+    "derive_threat_level",
 ]
