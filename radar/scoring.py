@@ -1118,6 +1118,7 @@ def _maybe_persist_tl_conclusion(state: "ScenarioState") -> None:
         from radar.conclusions import (
             Conclusion,
             ConclusionType,
+            calibration_status_for,
             new_conclusion_id,
             save_conclusion,
         )
@@ -1139,6 +1140,7 @@ def _maybe_persist_tl_conclusion(state: "ScenarioState") -> None:
                 "tl3_total": 4.0, "tl4_total": 2.0,
             },
             source_urls=source_urls,
+            calibration_status=calibration_status_for(_db, state.scenario_id),
             final_judgment_disclaimer=config.V2_NP7_DISCLAIMER,
             metadata={
                 "score": state.score,
