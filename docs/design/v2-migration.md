@@ -329,18 +329,26 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
 
 ### 6.2 トレンド (TREND)
 
-- **state**: `RAPIDLY_ESCALATING` / `ESCALATING` / `STABLE` / `DE_ESCALATING` / `RAPIDLY_DE_ESCALATING`
+- **state (spec 目標)**: `RAPIDLY_ESCALATING` / `ESCALATING` / `STABLE` / `DE_ESCALATING` / `RAPIDLY_DE_ESCALATING`
 - **三層**:
   - `trend_24h` (短期、scoring tick 毎)
   - `trend_7d` (中期、1時間毎)
   - `trend_30d` (長期、6時間毎)
-- **算出**: 既存 `compute_scenario_velocity()` + `compute_scenario_acceleration()` を拡張、ラベルへ閾値マッピング
-- **閾値** (Phase 2 で calibration):
+- **算出 (spec 目標)**: 既存 `compute_scenario_velocity()` + `compute_scenario_acceleration()` を拡張、ラベルへ閾値マッピング
+- **閾値 (spec 目標、Phase 2 で calibration)**:
   - `RAPIDLY_ESCALATING`: velocity > +1.0/h かつ acceleration > +0.3/h²
   - `ESCALATING`: velocity > +0.3/h
   - `STABLE`: |velocity| ≤ 0.3/h
   - `DE_ESCALATING`: velocity < -0.3/h
   - `RAPIDLY_DE_ESCALATING`: velocity < -1.0/h かつ acceleration < -0.3/h²
+- **Phase 1 実装ドリフト** (`radar/conclusions/trend.py`):
+  - **語彙ドリフト**: `ESCALATING` / `RISING` / `STABLE` / `COOLING` / `DEEPER_DECAY` を採用 (spec の `RAPIDLY_*` プレフィックス無し)。Phase 1.3 で spec 目標形に再マッピング検討
+  - **算出ドリフト**: velocity/acceleration ではなく **mean-of-window 比較** (現在 span vs 直前 span の TL 平均差分) を使用。velocity 基盤は v1 から流用予定だが、Phase 1 は ledger に蓄積されたばかりの TL 行を直接読むほうが透明 (NP6) で着手コストが低い
+  - **閾値**: `RISING_DELTA=0.50` / `ESCALATE_DELTA=1.50` (TL severity 1..4 の差分単位)。spec の velocity/h 単位とは比較不能なので Phase 1.3 で再 calibration
+  - **MIN_SAMPLES**: 現/前両 window に各 3 行以上必要。`conclusions` ledger 蓄積前は INSUFFICIENT_DATA 期間が続く (NP5+8 過渡的不足として許容)
+  - **出力形式**: 3 window を 1 つの Conclusion 行に packed-state 文字列 `short_term=X;medium_term=Y;long_term=Z` で格納 (spec は 3 horizon 別行を示唆するが、`?horizon=` クエリ側で分解可能なので 1 行集約を採用)
+  - **TL severity 反転**: `_TL_SEVERITY` で TL1→4 / TL5→0 にマップ (TL 数字は小さいほど高脅威、severity は大きいほど高脅威)
+  - shadow-write は焦点シナリオのみ (background は TL 行を出さないため input ledger が進まず無意味)
 
 ### 6.3 ドメイン別兆候 (PER_DOMAIN)
 

@@ -23,6 +23,7 @@ from radar.conclusions.persistence import (
 from radar.conclusions.anomaly import derive_anomaly
 from radar.conclusions.per_domain import derive_per_domain
 from radar.conclusions.threat_level import derive_threat_level
+from radar.conclusions.trend import derive_trend
 
 __all__ = [
     "Conclusion",
@@ -37,4 +38,5 @@ __all__ = [
     "derive_anomaly",
     "derive_per_domain",
     "derive_threat_level",
+    "derive_trend",
 ]

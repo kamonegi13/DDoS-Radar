@@ -1149,6 +1149,28 @@ def _maybe_persist_per_domain_conclusion(state: "ScenarioState") -> None:
         log.exception("v2 per_domain conclusion persistence failed (non-fatal)")
 
 
+def _maybe_persist_trend_conclusion(state: "ScenarioState") -> None:
+    """v2.0 shadow-write: derive the 3-window trend from THREAT_LEVEL ledger.
+
+    Must fire AFTER _maybe_persist_tl_conclusion so the freshly-written TL
+    row is part of the input set the trend deriver reads back. Calling it
+    only on focused scenarios because background scoring emits no TL row,
+    so the input ledger does not advance for them.
+    """
+    from radar import config
+    if not config.V2_CONCLUSION_LEDGER_ENABLED:
+        return
+    if not state.is_focused:
+        return
+    try:
+        from radar.conclusions import save_conclusion
+        from radar.conclusions.trend import derive_trend
+        c = derive_trend(_db, state.scenario_id)
+        save_conclusion(_db, c)
+    except Exception:
+        log.exception("v2 trend conclusion persistence failed (non-fatal)")
+
+
 def apply_hysteresis_to_tl(new_tl: Optional[int],
                            prev_tl: Optional[int]) -> tuple[Optional[int], bool]:
     """Scenario TL hysteresis: de-escalation (higher TL#) is limited to one
@@ -1261,6 +1283,7 @@ def compute_scenario_score(
     )
     _maybe_persist_tl_conclusion(state)
     _maybe_persist_per_domain_conclusion(state)
+    _maybe_persist_trend_conclusion(state)
     _maybe_sample_v1_v2_diff(state)
     return state
 
