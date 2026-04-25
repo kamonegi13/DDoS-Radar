@@ -85,7 +85,7 @@
       "snippet": "def test_both_theaters_returns_match(self):",
       "matched": "test_both_theaters_returns_match",
       "classification": "rename_to_country",
-      "proposed": "test_both_countrys_returns_match",
+      "proposed": "test_both_countries_returns_match",
       "note": "compound identifier"
     },
     {
@@ -195,7 +195,7 @@
       "snippet": "\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\",",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -205,7 +205,7 @@
       "snippet": "monkeypatch.setenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"1\")",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -215,7 +215,7 @@
       "snippet": "monkeypatch.setenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"1\")",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -355,7 +355,7 @@
       "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER,",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -365,7 +365,7 @@
       "snippet": "from radar.config import CT_LOG_WATCHED_DOMAINS, CT_LOG_MAX_QUERIES_PER_THEATER",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -375,7 +375,7 @@
       "snippet": "cycles = (len(expected) // max(1, CT_LOG_MAX_QUERIES_PER_THEATER)) + 2",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -395,7 +395,7 @@
       "snippet": "from radar.config import CT_LOG_WATCHED_DOMAINS, CT_LOG_MAX_QUERIES_PER_THEATER",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -405,7 +405,7 @@
       "snippet": "if len(ds) <= CT_LOG_MAX_QUERIES_PER_THEATER]",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -425,7 +425,7 @@
       "snippet": "assert len(sliced) <= CT_LOG_MAX_QUERIES_PER_THEATER",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -475,7 +475,7 @@
       "snippet": "assert health[\"queries_per_theater_per_cycle\"] == CT_LOG_MAX_QUERIES_PER_THEATER",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -515,7 +515,7 @@
       "snippet": "return {\"strategic_theaters\": targets, \"adversary_states\": []}",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -555,7 +555,7 @@
       "snippet": "\"strategic_theaters\": [\"US\", \"TW\", \"JP\", \"CN\"],",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -565,7 +565,7 @@
       "snippet": "return {\"strategic_theaters\": [\"TW\"], \"adversary_states\": []}, domain",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -575,7 +575,7 @@
       "snippet": "sensor.fetch({\"strategic_theaters\": [\"TW\"], \"adversary_states\": []})",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -585,7 +585,7 @@
       "snippet": "sensor.fetch({\"strategic_theaters\": [\"TW\"], \"adversary_states\": []})",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -595,12 +595,12 @@
       "snippet": "ctx = {\"strategic_theaters\": [\"ZZ\"], \"adversary_states\": []}",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
       "path": "radar/scenarios.py",
-      "line": 443,
+      "line": 444,
       "col": 21,
       "snippet": "# ADR-005 supersedes core_theater with focused_scenario; ADR-014 merges adversaries",
       "matched": "core_theater",
@@ -610,7 +610,7 @@
     },
     {
       "path": "radar/scenarios.py",
-      "line": 452,
+      "line": 453,
       "col": 8,
       "snippet": "- core_theater: focused.core_country (Optional[str], ADR-009)",
       "matched": "core_theater",
@@ -620,17 +620,17 @@
     },
     {
       "path": "radar/scenarios.py",
-      "line": 460,
+      "line": 461,
       "col": 8,
       "snippet": "- strategic_theaters: all participant countries (superset)",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
       "path": "radar/scenarios.py",
-      "line": 481,
+      "line": 482,
       "col": 9,
       "snippet": "\"core_theater\": core,",
       "matched": "core_theater",
@@ -640,12 +640,12 @@
     },
     {
       "path": "radar/scenarios.py",
-      "line": 485,
+      "line": 486,
       "col": 9,
       "snippet": "\"strategic_theaters\": sorted(parts.keys()),",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -665,7 +665,7 @@
       "snippet": "return int(os.getenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"2\"))",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -675,7 +675,7 @@
       "snippet": "Score accumulation cap: at most INTEL_MAX_ITEMS_PER_SOURCE_THEATER items per",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -715,7 +715,7 @@
       "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv(\"CT_LOG_MAX_QUERIES_PER_THEATER\", \"2\"))",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -725,7 +725,7 @@
       "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER      = int(os.getenv(\"CT_LOG_MAX_QUERIES_PER_THEATER\", \"2\"))",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -735,7 +735,7 @@
       "snippet": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER = int(os.getenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"2\"))",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -745,7 +745,7 @@
       "snippet": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER = int(os.getenv(\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\", \"2\"))",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -815,7 +815,7 @@
       "snippet": "strategic_theaters: list = None,",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -825,7 +825,7 @@
       "snippet": "strategic_theaters = strategic_theaters or []",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -835,7 +835,7 @@
       "snippet": "strategic_theaters = strategic_theaters or []",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -845,7 +845,7 @@
       "snippet": "is_src_friendly = src in strategic_theaters and src not in adversary_states",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -855,7 +855,7 @@
       "snippet": "is_tgt_strategic = tgt in strategic_theaters",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -865,7 +865,7 @@
       "snippet": "strategic_theaters: list = None,",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -885,7 +885,7 @@
       "snippet": "strategic_theaters = strategic_theaters or []",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -895,7 +895,7 @@
       "snippet": "strategic_theaters = strategic_theaters or []",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -905,7 +905,7 @@
       "snippet": "if is_adversary and theater in strategic_theaters:",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -915,7 +915,7 @@
       "snippet": "elif theater in strategic_theaters:",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1015,7 +1015,7 @@
       "snippet": "def ts_distinct_theaters(self) -> list[str]:",
       "matched": "ts_distinct_theaters",
       "classification": "rename_to_country",
-      "proposed": "ts_distinct_countrys",
+      "proposed": "ts_distinct_countries",
       "note": "compound identifier"
     },
     {
@@ -1025,7 +1025,7 @@
       "snippet": "def seq_distinct_theaters(self) -> list[str]:",
       "matched": "seq_distinct_theaters",
       "classification": "rename_to_country",
-      "proposed": "seq_distinct_countrys",
+      "proposed": "seq_distinct_countries",
       "note": "compound identifier"
     },
     {
@@ -1035,7 +1035,7 @@
       "snippet": "_hod_theaters: set[str] = set()",
       "matched": "_hod_theaters",
       "classification": "rename_to_country",
-      "proposed": "_hod_countrys",
+      "proposed": "_hod_countries",
       "note": "compound identifier"
     },
     {
@@ -1045,7 +1045,7 @@
       "snippet": "_hod_theaters |= set(_sc.participants.keys())",
       "matched": "_hod_theaters",
       "classification": "rename_to_country",
-      "proposed": "_hod_countrys",
+      "proposed": "_hod_countries",
       "note": "compound identifier"
     },
     {
@@ -1055,7 +1055,7 @@
       "snippet": "args=(sorted(_hod_theaters), sorted(_hod_adversaries)),",
       "matched": "_hod_theaters",
       "classification": "rename_to_country",
-      "proposed": "_hod_countrys",
+      "proposed": "_hod_countries",
       "note": "compound identifier"
     },
     {
@@ -1205,7 +1205,7 @@
       "snippet": "\"all_targets\": [], \"strategic_theaters\": [], \"adversary_states\": [],",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1215,7 +1215,7 @@
       "snippet": "strategic |= set(ctx[\"strategic_theaters\"])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1225,7 +1225,7 @@
       "snippet": "\"strategic_theaters\":  sorted(strategic),",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1235,7 +1235,7 @@
       "snippet": "theaters = set(context.get(\"strategic_theaters\", []))",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1245,7 +1245,7 @@
       "snippet": "theaters = set(context.get(\"strategic_theaters\", []))",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1255,7 +1255,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1275,7 +1275,7 @@
       "snippet": "targets = context.get(\"strategic_theaters\", []); api_key = context.get(\"owm_api_key\", \"\")",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1285,7 +1285,7 @@
       "snippet": "CT_LOG_MAX_QUERIES_PER_THEATER,",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -1315,7 +1315,7 @@
       "snippet": "budget = max(1, CT_LOG_MAX_QUERIES_PER_THEATER)",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -1325,7 +1325,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", []) or []",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1385,7 +1385,7 @@
       "snippet": "\"queries_per_theater_per_cycle\": CT_LOG_MAX_QUERIES_PER_THEATER,",
       "matched": "CT_LOG_MAX_QUERIES_PER_THEATER",
       "classification": "rename_to_country",
-      "proposed": "CT_LOG_MAX_QUERIES_PER_THEATER",
+      "proposed": "CT_LOG_MAX_QUERIES_PER_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -1395,7 +1395,7 @@
       "snippet": "strategic_theaters = set(context.get(\"all_participant_countries\")",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1405,7 +1405,7 @@
       "snippet": "or context.get(\"strategic_theaters\", []))",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1415,7 +1415,7 @@
       "snippet": "theaters_str = \", \".join(sorted(strategic_theaters)) if strategic_theaters else \"any\"",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1425,7 +1425,7 @@
       "snippet": "theaters_str = \", \".join(sorted(strategic_theaters)) if strategic_theaters else \"any\"",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1445,7 +1445,7 @@
       "snippet": "if strategic_theaters and theater not in strategic_theaters:",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1455,7 +1455,7 @@
       "snippet": "if strategic_theaters and theater not in strategic_theaters:",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1465,7 +1465,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1475,7 +1475,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", []); results: dict = {}; delta = 0.5",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1485,7 +1485,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1495,7 +1495,7 @@
       "snippet": "channel_theaters: dict[str, list[str]] = {}",
       "matched": "channel_theaters",
       "classification": "rename_to_country",
-      "proposed": "channel_countrys",
+      "proposed": "channel_countries",
       "note": "compound identifier"
     },
     {
@@ -1505,7 +1505,7 @@
       "snippet": "channel_theaters.setdefault(ch, []).append(theater)",
       "matched": "channel_theaters",
       "classification": "rename_to_country",
-      "proposed": "channel_countrys",
+      "proposed": "channel_countries",
       "note": "compound identifier"
     },
     {
@@ -1515,7 +1515,7 @@
       "snippet": "for i, channel in enumerate(channel_theaters):",
       "matched": "channel_theaters",
       "classification": "rename_to_country",
-      "proposed": "channel_countrys",
+      "proposed": "channel_countries",
       "note": "compound identifier"
     },
     {
@@ -1525,7 +1525,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1535,7 +1535,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1645,7 +1645,7 @@
       "snippet": "or context.get(\"strategic_theaters\", []))",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1675,7 +1675,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1715,7 +1715,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1725,7 +1725,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", []); weather_conds = context.get(\"weather_conditions\", {})",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1745,7 +1745,7 @@
       "snippet": "strategic_theaters = set(context.get(\"all_participant_countries\")",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1755,7 +1755,7 @@
       "snippet": "or context.get(\"strategic_theaters\", []))",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1765,7 +1765,7 @@
       "snippet": "theaters = [t for t in meta[\"theaters\"] if t in strategic_theaters or not strategic_theaters]",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1775,7 +1775,7 @@
       "snippet": "theaters = [t for t in meta[\"theaters\"] if t in strategic_theaters or not strategic_theaters]",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1845,7 +1845,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1935,7 +1935,7 @@
       "snippet": "_THEATER_RADIUS: dict[str, float] = {",
       "matched": "_THEATER_RADIUS",
       "classification": "rename_to_country",
-      "proposed": "_THEATER_RADIUS",
+      "proposed": "_COUNTRY_RADIUS",
       "note": "compound identifier"
     },
     {
@@ -1945,7 +1945,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1955,7 +1955,7 @@
       "snippet": "radius = self._THEATER_RADIUS.get(code, self.GEO_RADIUS_DEG_DEFAULT)",
       "matched": "_THEATER_RADIUS",
       "classification": "rename_to_country",
-      "proposed": "_THEATER_RADIUS",
+      "proposed": "_COUNTRY_RADIUS",
       "note": "compound identifier"
     },
     {
@@ -1965,7 +1965,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", []); results: dict = {}",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1975,7 +1975,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1985,7 +1985,7 @@
       "snippet": "theaters = set(context.get(\"strategic_theaters\", []))",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -1995,7 +1995,7 @@
       "snippet": "theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2015,7 +2015,7 @@
       "snippet": "strategic_theaters = set(context.get(\"all_participant_countries\")",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2025,7 +2025,7 @@
       "snippet": "or context.get(\"strategic_theaters\", []))",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2035,7 +2035,7 @@
       "snippet": "if not strategic_theaters or t in strategic_theaters]",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2045,7 +2045,7 @@
       "snippet": "if not strategic_theaters or t in strategic_theaters]",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2075,7 +2075,7 @@
       "snippet": "if strategic_theaters and theater not in strategic_theaters:",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2085,7 +2085,7 @@
       "snippet": "if strategic_theaters and theater not in strategic_theaters:",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2115,7 +2115,7 @@
       "snippet": "strategic_theaters = set(context.get(\"all_participant_countries\")",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2125,7 +2125,7 @@
       "snippet": "or context.get(\"strategic_theaters\", []))",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2135,7 +2135,7 @@
       "snippet": "theaters = [t for t in meta[\"theaters\"] if t in strategic_theaters or not strategic_theaters]",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2145,7 +2145,7 @@
       "snippet": "theaters = [t for t in meta[\"theaters\"] if t in strategic_theaters or not strategic_theaters]",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2225,7 +2225,7 @@
       "snippet": "strategic_theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2235,7 +2235,7 @@
       "snippet": "strategic_theaters = context.get(\"strategic_theaters\", [])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2245,7 +2245,7 @@
       "snippet": "for theater in strategic_theaters:",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2255,7 +2255,7 @@
       "snippet": "\"theaters_checked\": len(strategic_theaters),",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2335,7 +2335,7 @@
       "snippet": "strategic_theaters_set = set(_ctx[\"strategic_theaters\"])",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2345,7 +2345,7 @@
       "snippet": "strategic_theaters_set = set(_ctx[\"strategic_theaters\"])",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2375,7 +2375,7 @@
       "snippet": "\"strategic_theaters\": sorted(strategic_theaters_set),",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2385,7 +2385,7 @@
       "snippet": "\"strategic_theaters\": sorted(strategic_theaters_set),",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2395,7 +2395,7 @@
       "snippet": "if t in strategic_theaters_set:",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2405,7 +2405,7 @@
       "snippet": "if code in adversary_states and t in strategic_theaters_set and spike_factor >= 4.0 and current_local_pct > 3.0:",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2415,7 +2415,7 @@
       "snippet": "if is_vector_shift and t in strategic_theaters_set: vector_shifts.append(t)",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2425,7 +2425,7 @@
       "snippet": "if t in strategic_theaters_set:",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2435,7 +2435,7 @@
       "snippet": "_entropy_track = track_entropy_change(t, _origin_entropy) if t in strategic_theaters_set else {\"current\": _origin_entrop",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2445,7 +2445,7 @@
       "snippet": "_corr_theaters = []",
       "matched": "_corr_theaters",
       "classification": "rename_to_country",
-      "proposed": "_corr_countrys",
+      "proposed": "_corr_countries",
       "note": "compound identifier"
     },
     {
@@ -2475,7 +2475,7 @@
       "snippet": "_corr_theaters.append(t)",
       "matched": "_corr_theaters",
       "classification": "rename_to_country",
-      "proposed": "_corr_countrys",
+      "proposed": "_corr_countries",
       "note": "compound identifier"
     },
     {
@@ -2485,7 +2485,7 @@
       "snippet": "for i, a in enumerate(_corr_theaters):",
       "matched": "_corr_theaters",
       "classification": "rename_to_country",
-      "proposed": "_corr_countrys",
+      "proposed": "_corr_countries",
       "note": "compound identifier"
     },
     {
@@ -2495,7 +2495,7 @@
       "snippet": "for b in _corr_theaters[i + 1:]:",
       "matched": "_corr_theaters",
       "classification": "rename_to_country",
-      "proposed": "_corr_countrys",
+      "proposed": "_corr_countries",
       "note": "compound identifier"
     },
     {
@@ -2505,7 +2505,7 @@
       "snippet": "elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get(\"avg_spike\", 0) > 3.0]",
       "matched": "elevated_theaters",
       "classification": "rename_to_country",
-      "proposed": "elevated_countrys",
+      "proposed": "elevated_countries",
       "note": "compound identifier"
     },
     {
@@ -2515,7 +2515,7 @@
       "snippet": "elevated_theaters = [t for t in strategic_theaters_set if target_details.get(t, {}).get(\"avg_spike\", 0) > 3.0]",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2525,7 +2525,7 @@
       "snippet": "is_coordinated = len(elevated_theaters) >= 2",
       "matched": "elevated_theaters",
       "classification": "rename_to_country",
-      "proposed": "elevated_countrys",
+      "proposed": "elevated_countries",
       "note": "compound identifier"
     },
     {
@@ -2635,7 +2635,7 @@
       "snippet": "strategic_theaters=list(strategic_theaters_set),",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2645,7 +2645,7 @@
       "snippet": "strategic_theaters=list(strategic_theaters_set),",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2655,7 +2655,7 @@
       "snippet": "strategic_theaters=list(strategic_theaters_set),",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -2665,7 +2665,7 @@
       "snippet": "strategic_theaters=list(strategic_theaters_set),",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2675,7 +2675,7 @@
       "snippet": "_coord_active = add_rat(\"cf_coordinated\", \"cyber\", \"FIRED\" if is_coordinated else \"OK\", f\"theaters={elevated_theaters}\",",
       "matched": "elevated_theaters",
       "classification": "rename_to_country",
-      "proposed": "elevated_countrys",
+      "proposed": "elevated_countries",
       "note": "compound identifier"
     },
     {
@@ -2895,7 +2895,7 @@
       "snippet": "{\"coordinated_theaters\": elevated_theaters,",
       "matched": "coordinated_theaters",
       "classification": "rename_to_country",
-      "proposed": "coordinated_countrys",
+      "proposed": "coordinated_countries",
       "note": "compound identifier"
     },
     {
@@ -2905,7 +2905,7 @@
       "snippet": "{\"coordinated_theaters\": elevated_theaters,",
       "matched": "elevated_theaters",
       "classification": "rename_to_country",
-      "proposed": "elevated_countrys",
+      "proposed": "elevated_countries",
       "note": "compound identifier"
     },
     {
@@ -2955,7 +2955,7 @@
       "snippet": "_seq_events_dict = {th: _db.seq_all_events(th) for th in strategic_theaters_set}",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2965,7 +2965,7 @@
       "snippet": "_routes.engine.compute_temporal_coherence(_seq_events_dict, list(strategic_theaters_set))",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -2985,7 +2985,7 @@
       "snippet": "for _t in strategic_theaters_set:",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -3365,7 +3365,7 @@
       "snippet": "elif _llm_countries & strategic_theaters_set:",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -3395,7 +3395,7 @@
       "snippet": "elif _llm_theater and _llm_theater in strategic_theaters_set:",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -3535,7 +3535,7 @@
       "snippet": "\"theater_data\":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -3715,7 +3715,7 @@
       "snippet": "\"all\": {t: travel_advisories.get(t) for t in strategic_theaters_set if travel_advisories.get(t)},",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -3835,7 +3835,7 @@
       "snippet": "\"degraded_theaters\": [t for t in degraded_targets_effective if t in strategic_theaters_set],",
       "matched": "degraded_theaters",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys",
+      "proposed": "degraded_countries",
       "note": "compound identifier"
     },
     {
@@ -3845,7 +3845,7 @@
       "snippet": "\"degraded_theaters\": [t for t in degraded_targets_effective if t in strategic_theaters_set],",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -3855,7 +3855,7 @@
       "snippet": "\"degraded_theaters_raw\": [t for t in degraded_targets_raw if t in strategic_theaters_set],",
       "matched": "degraded_theaters_raw",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys_raw",
+      "proposed": "degraded_countries_raw",
       "note": "compound identifier"
     },
     {
@@ -3865,7 +3865,7 @@
       "snippet": "\"degraded_theaters_raw\": [t for t in degraded_targets_raw if t in strategic_theaters_set],",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -3875,7 +3875,7 @@
       "snippet": "\"coordinated_theaters\": elevated_theaters if is_coordinated else [],",
       "matched": "coordinated_theaters",
       "classification": "rename_to_country",
-      "proposed": "coordinated_countrys",
+      "proposed": "coordinated_countries",
       "note": "compound identifier"
     },
     {
@@ -3885,7 +3885,7 @@
       "snippet": "\"coordinated_theaters\": elevated_theaters if is_coordinated else [],",
       "matched": "elevated_theaters",
       "classification": "rename_to_country",
-      "proposed": "elevated_countrys",
+      "proposed": "elevated_countries",
       "note": "compound identifier"
     },
     {
@@ -3895,7 +3895,7 @@
       "snippet": "} for code in (strategic_theaters_set | {c for c, s in ioda_data.items() if s == \"BGP_OUTAGE\"} | {c for c, s in ihr_coun",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -3905,7 +3905,7 @@
       "snippet": "for hs in ISR_HOTSPOTS if hs[\"theater\"] in strategic_theaters_set",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -3925,7 +3925,7 @@
       "snippet": "_active_theaters = set()",
       "matched": "_active_theaters",
       "classification": "rename_to_country",
-      "proposed": "_active_countrys",
+      "proposed": "_active_countries",
       "note": "compound identifier"
     },
     {
@@ -3945,7 +3945,7 @@
       "snippet": "_active_theaters.add(core_theater)",
       "matched": "_active_theaters",
       "classification": "rename_to_country",
-      "proposed": "_active_countrys",
+      "proposed": "_active_countries",
       "note": "compound identifier"
     },
     {
@@ -3965,7 +3965,7 @@
       "snippet": "_active_theaters.update(correlate_targets)",
       "matched": "_active_theaters",
       "classification": "rename_to_country",
-      "proposed": "_active_countrys",
+      "proposed": "_active_countries",
       "note": "compound identifier"
     },
     {
@@ -3975,7 +3975,7 @@
       "snippet": "_active_theaters.update(adversary_states)",
       "matched": "_active_theaters",
       "classification": "rename_to_country",
-      "proposed": "_active_countrys",
+      "proposed": "_active_countries",
       "note": "compound identifier"
     },
     {
@@ -3985,7 +3985,7 @@
       "snippet": "_new_cache[\"strategic\"][\"active_theaters\"] = sorted(_active_theaters)",
       "matched": "active_theaters",
       "classification": "rename_to_country",
-      "proposed": "active_countrys",
+      "proposed": "active_countries",
       "note": "compound identifier"
     },
     {
@@ -3995,7 +3995,7 @@
       "snippet": "_new_cache[\"strategic\"][\"active_theaters\"] = sorted(_active_theaters)",
       "matched": "_active_theaters",
       "classification": "rename_to_country",
-      "proposed": "_active_countrys",
+      "proposed": "_active_countries",
       "note": "compound identifier"
     },
     {
@@ -4035,7 +4035,7 @@
       "snippet": "\"core_theater\": _original_core_theater or core_theater, \"degraded_theaters\": [t for t in degraded_targets_effective if t",
       "matched": "degraded_theaters",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys",
+      "proposed": "degraded_countries",
       "note": "compound identifier"
     },
     {
@@ -4045,7 +4045,7 @@
       "snippet": "\"core_theater\": _original_core_theater or core_theater, \"degraded_theaters\": [t for t in degraded_targets_effective if t",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -4105,7 +4105,7 @@
       "snippet": "_degraded_raw = _snap_strategic.get(\"degraded_theaters_raw\", [])",
       "matched": "degraded_theaters_raw",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys_raw",
+      "proposed": "degraded_countries_raw",
       "note": "compound identifier"
     },
     {
@@ -4115,7 +4115,7 @@
       "snippet": "_degraded_eff = _snap_strategic.get(\"degraded_theaters\", [])",
       "matched": "degraded_theaters",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys",
+      "proposed": "degraded_countries",
       "note": "compound identifier"
     },
     {
@@ -4125,7 +4125,7 @@
       "snippet": "for t in sorted(strategic_theaters_set):",
       "matched": "strategic_theaters_set",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys_set",
+      "proposed": "strategic_countries_set",
       "note": "compound identifier"
     },
     {
@@ -4135,7 +4135,7 @@
       "snippet": "\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\": str(_cfg.INTEL_MAX_ITEMS_PER_SOURCE_THEATER),",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -4145,7 +4145,7 @@
       "snippet": "\"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\": str(_cfg.INTEL_MAX_ITEMS_PER_SOURCE_THEATER),",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -4155,7 +4155,7 @@
       "snippet": "\"INTEL_ITEM_TTL_HOURS\", \"INTEL_MAX_ITEMS_PER_SOURCE_THEATER\",",
       "matched": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
       "classification": "rename_to_country",
-      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+      "proposed": "INTEL_MAX_ITEMS_PER_SOURCE_COUNTRY",
       "note": "compound identifier"
     },
     {
@@ -4175,7 +4175,7 @@
       "snippet": "degraded = latest.get(\"degraded_theaters\", [])",
       "matched": "degraded_theaters",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys",
+      "proposed": "degraded_countries",
       "note": "compound identifier"
     },
     {
@@ -4195,7 +4195,7 @@
       "snippet": "theaters = [theater_param] if theater_param else _db.seq_distinct_theaters()",
       "matched": "seq_distinct_theaters",
       "classification": "rename_to_country",
-      "proposed": "seq_distinct_countrys",
+      "proposed": "seq_distinct_countries",
       "note": "compound identifier"
     },
     {
@@ -4235,7 +4235,7 @@
       "snippet": "is_degraded  = theater_param in strategic.get(\"degraded_theaters\", [])",
       "matched": "degraded_theaters",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys",
+      "proposed": "degraded_countries",
       "note": "compound identifier"
     },
     {
@@ -4255,7 +4255,7 @@
       "snippet": "degraded = strat.get(\"degraded_theaters\", [])",
       "matched": "degraded_theaters",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys",
+      "proposed": "degraded_countries",
       "note": "compound identifier"
     },
     {
@@ -4285,7 +4285,7 @@
       "snippet": "def api_history_theaters():",
       "matched": "api_history_theaters",
       "classification": "rename_to_country",
-      "proposed": "api_history_countrys",
+      "proposed": "api_history_countries",
       "note": "compound identifier"
     },
     {
@@ -4295,7 +4295,7 @@
       "snippet": "db_theaters = set(_db.ts_distinct_theaters())",
       "matched": "db_theaters",
       "classification": "rename_to_country",
-      "proposed": "db_countrys",
+      "proposed": "db_countries",
       "note": "compound identifier"
     },
     {
@@ -4305,7 +4305,7 @@
       "snippet": "db_theaters = set(_db.ts_distinct_theaters())",
       "matched": "ts_distinct_theaters",
       "classification": "rename_to_country",
-      "proposed": "ts_distinct_countrys",
+      "proposed": "ts_distinct_countries",
       "note": "compound identifier"
     },
     {
@@ -4315,7 +4315,7 @@
       "snippet": "cfg_theaters: set[str] = set()",
       "matched": "cfg_theaters",
       "classification": "rename_to_country",
-      "proposed": "cfg_countrys",
+      "proposed": "cfg_countries",
       "note": "compound identifier"
     },
     {
@@ -4325,7 +4325,7 @@
       "snippet": "cfg_theaters |= set(sc.participants.keys())",
       "matched": "cfg_theaters",
       "classification": "rename_to_country",
-      "proposed": "cfg_countrys",
+      "proposed": "cfg_countries",
       "note": "compound identifier"
     },
     {
@@ -4375,7 +4375,7 @@
       "snippet": "theaters = _db.seq_distinct_theaters()",
       "matched": "seq_distinct_theaters",
       "classification": "rename_to_country",
-      "proposed": "seq_distinct_countrys",
+      "proposed": "seq_distinct_countries",
       "note": "compound identifier"
     },
     {
@@ -4475,7 +4475,7 @@
       "snippet": "const partSet = new Set(strat.active_theaters || []);",
       "matched": "active_theaters",
       "classification": "rename_to_country",
-      "proposed": "active_countrys",
+      "proposed": "active_countries",
       "note": "compound identifier"
     },
     {
@@ -4495,7 +4495,7 @@
       "snippet": "const active = new Set(strat.active_theaters || []);",
       "matched": "active_theaters",
       "classification": "rename_to_country",
-      "proposed": "active_countrys",
+      "proposed": "active_countries",
       "note": "compound identifier"
     },
     {
@@ -4505,7 +4505,7 @@
       "snippet": "const active = new Set(strat.active_theaters || []);",
       "matched": "active_theaters",
       "classification": "rename_to_country",
-      "proposed": "active_countrys",
+      "proposed": "active_countries",
       "note": "compound identifier"
     },
     {
@@ -4645,7 +4645,7 @@
       "snippet": "const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? esc(strat.degraded_theaters.join(', '))",
       "matched": "degraded_theaters",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys",
+      "proposed": "degraded_countries",
       "note": "compound identifier"
     },
     {
@@ -4655,7 +4655,7 @@
       "snippet": "const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? esc(strat.degraded_theaters.join(', '))",
       "matched": "degraded_theaters",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys",
+      "proposed": "degraded_countries",
       "note": "compound identifier"
     },
     {
@@ -4665,7 +4665,7 @@
       "snippet": "const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? esc(strat.degraded_theaters.join(', '))",
       "matched": "degraded_theaters",
       "classification": "rename_to_country",
-      "proposed": "degraded_countrys",
+      "proposed": "degraded_countries",
       "note": "compound identifier"
     },
     {
@@ -4675,7 +4675,7 @@
       "snippet": "if (strat.coordinated_theaters && strat.coordinated_theaters.length >= 2) {",
       "matched": "coordinated_theaters",
       "classification": "rename_to_country",
-      "proposed": "coordinated_countrys",
+      "proposed": "coordinated_countries",
       "note": "compound identifier"
     },
     {
@@ -4685,7 +4685,7 @@
       "snippet": "if (strat.coordinated_theaters && strat.coordinated_theaters.length >= 2) {",
       "matched": "coordinated_theaters",
       "classification": "rename_to_country",
-      "proposed": "coordinated_countrys",
+      "proposed": "coordinated_countries",
       "note": "compound identifier"
     },
     {
@@ -4695,7 +4695,7 @@
       "snippet": "coordinatedEl.innerHTML = `<span class=\"alert-text\">ACTIVE [${esc(strat.coordinated_theaters.join(', '))}]</span>`;",
       "matched": "coordinated_theaters",
       "classification": "rename_to_country",
-      "proposed": "coordinated_countrys",
+      "proposed": "coordinated_countries",
       "note": "compound identifier"
     },
     {
@@ -4765,7 +4765,7 @@
       "snippet": "const sortedTheaters = (THEATERS || []).slice().sort((a, b) => a.name.localeCompare(b.name));",
       "matched": "sortedTheaters",
       "classification": "rename_to_country",
-      "proposed": "sortedCountrys",
+      "proposed": "sortedCountries",
       "note": "compound identifier"
     },
     {
@@ -4775,7 +4775,7 @@
       "snippet": "if (sortedTheaters.length === 0) {",
       "matched": "sortedTheaters",
       "classification": "rename_to_country",
-      "proposed": "sortedCountrys",
+      "proposed": "sortedCountries",
       "note": "compound identifier"
     },
     {
@@ -4785,7 +4785,7 @@
       "snippet": "for (const t of sortedTheaters) {",
       "matched": "sortedTheaters",
       "classification": "rename_to_country",
-      "proposed": "sortedCountrys",
+      "proposed": "sortedCountries",
       "note": "compound identifier"
     },
     {
@@ -4865,7 +4865,7 @@
       "snippet": "| **strategic_theaters** | `scenario.participants` | 同上 |",
       "matched": "strategic_theaters",
       "classification": "rename_to_country",
-      "proposed": "strategic_countrys",
+      "proposed": "strategic_countries",
       "note": "compound identifier"
     },
     {
@@ -4920,7 +4920,7 @@
     },
     {
       "path": "docs/design/v2-phase1-handoff.md",
-      "line": 35,
+      "line": 36,
       "col": 11,
       "snippet": "| `scripts/codemod_theater.py` | discover / diff / apply 3 サブコマンド。491 occurrences 分類済 (rename_to_country=313, rename_to_",
       "matched": "codemod_theater",
@@ -4930,7 +4930,7 @@
     },
     {
       "path": "docs/design/v2-phase1-handoff.md",
-      "line": 92,
+      "line": 93,
       "col": 19,
       "snippet": "2. `python scripts/codemod_theater.py discover` で manifest 再生成 (Phase 0 から時間が経っていれば)。",
       "matched": "codemod_theater",
@@ -4940,7 +4940,7 @@
     },
     {
       "path": "docs/design/v2-phase1-handoff.md",
-      "line": 94,
+      "line": 95,
       "col": 19,
       "snippet": "4. `python scripts/codemod_theater.py diff` でファイル別変更プレビュー。",
       "matched": "codemod_theater",
@@ -4950,7 +4950,7 @@
     },
     {
       "path": "docs/design/v2-phase1-handoff.md",
-      "line": 95,
+      "line": 96,
       "col": 19,
       "snippet": "5. `python scripts/codemod_theater.py apply --i-have-a-clean-git-tree` 実行。",
       "matched": "codemod_theater",
@@ -4960,7 +4960,7 @@
     },
     {
       "path": "docs/design/v2-phase1-handoff.md",
-      "line": 121,
+      "line": 122,
       "col": 22,
       "snippet": "- [ ] `python scripts/codemod_theater.py discover` が走る",
       "matched": "codemod_theater",

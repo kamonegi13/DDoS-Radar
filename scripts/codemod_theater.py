@@ -129,7 +129,7 @@ def _classify(token: str, line_text: str, path: Path) -> tuple[Classification, s
 
     # 4. Compound identifiers (theater_baselines, _theater_names, etc.)
     if "theater" in lower and not _is_user_facing(line_text):
-        return ("rename_to_country", token.replace("theater", "country").replace("Theater", "Country"),
+        return ("rename_to_country", _rename_preserving_case(token),
                 "compound identifier")
 
     # 5. User-facing text (docstrings, prompts, comments)
@@ -143,6 +143,27 @@ _USER_FACING_HINTS = (
     "you are", "respond with", "json", "narrative", "##", "#", "<!--",
     "prompt", "explanation", "description", "guide",
 )
+
+
+# Order matters — longer plural forms must be tried before singular so
+# `theaters` → `countries` (not `countrys`).
+_CASE_PRESERVING_RENAMES = (
+    ("theaters", "countries"),
+    ("Theaters", "Countries"),
+    ("THEATERS", "COUNTRIES"),
+    ("theater",  "country"),
+    ("Theater",  "Country"),
+    ("THEATER",  "COUNTRY"),
+)
+
+
+def _rename_preserving_case(token: str) -> str:
+    """Replace `theater(s)` with `country/countries` while preserving case
+    (camelCase, snake_case, SCREAMING_SNAKE) and pluralization. Tries
+    longer plural forms first so `theaters` does not become `countrys`."""
+    for old, new in _CASE_PRESERVING_RENAMES:
+        token = token.replace(old, new)
+    return token
 
 
 def _is_user_facing(line_text: str) -> bool:
