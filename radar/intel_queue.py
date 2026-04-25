@@ -37,6 +37,15 @@ def _auto_confirm_threshold() -> float:
 def _confidence_min() -> float:
     return float(os.getenv("LLM_CONFIDENCE_MIN", "0.35"))
 
+def _tier3_conf_threshold() -> float:
+    # Tier 3 (corroborated) confidence floor. Lower than tier1/tier2
+    # because corroboration from a separate ecosystem provides the
+    # safety net normally supplied by per-call confidence.
+    return float(os.getenv("LLM_AUTO_CONFIRM_TIER3_CONF", "0.70"))
+
+def _tier3_cred_threshold() -> float:
+    return float(os.getenv("LLM_AUTO_CONFIRM_TIER3_CRED", "0.75"))
+
 def _item_ttl_seconds() -> float:
     """How long (seconds) a confirmed item contributes to active rationale.
     Acts as a hard floor; age-decay (ADR-023) usually zeroes contribution
@@ -216,6 +225,57 @@ def _corroboration_payload(corroborators: list, *source_ids: str) -> dict:
     }
 
 
+_AUTO_CONFIRM_ELIGIBLE_ECOSYSTEMS: frozenset[str] = frozenset(
+    {"independent", "cert", "us_gov"}
+)
+
+
+def _resolve_auto_confirm_status(
+    *,
+    confidence: float,
+    credibility: float,
+    ecosystem: str,
+    corroborator_count: int,
+    source_id: str,
+    headline: str,
+) -> tuple[str, str]:
+    """Decide auto_confirm tier for an item.
+
+    Returns (status, verdict_tag). status is "auto_confirmed" or "pending".
+    verdict_tag distinguishes tier1 / tier2 / tier3 / pending so analytics
+    can break out the corroborated tier separately.
+
+    Ecosystem gate (ADR-025): state-media and unclassified sources are
+    always pending regardless of confidence/credibility. Tier 3 does not
+    relax this — corroboration from inside the same propaganda ecosystem
+    is not real corroboration.
+    """
+    if ecosystem not in _AUTO_CONFIRM_ELIGIBLE_ECOSYSTEMS:
+        log.info(f"[Intel] ECOSYSTEM_GATE: {source_id!r} "
+                 f"(eco={ecosystem!r}) held for analyst review "
+                 f"despite conf={confidence:.2f}/cred={credibility:.2f}")
+        return ("pending", "pending")
+    if confidence >= 0.85 and credibility >= 0.80:
+        log.info(f"[Intel] AUTO-CONFIRMED (tier1): {headline[:80]} "
+                 f"(conf={confidence:.2f}, cred={credibility:.2f})")
+        return ("auto_confirmed", "auto_confirmed")
+    if confidence >= _auto_confirm_threshold() and credibility >= 0.75:
+        log.info(f"[Intel] AUTO-CONFIRMED (tier2): {headline[:80]} "
+                 f"(conf={confidence:.2f}, cred={credibility:.2f})")
+        return ("auto_confirmed", "auto_confirmed")
+    if (confidence >= _tier3_conf_threshold()
+            and credibility >= _tier3_cred_threshold()
+            and corroborator_count >= 1):
+        log.info(f"[Intel] AUTO-CONFIRMED (tier3 corroborated): {headline[:80]} "
+                 f"(conf={confidence:.2f}, cred={credibility:.2f}, "
+                 f"corroborators={corroborator_count})")
+        return ("auto_confirmed", "auto_confirmed_corroborated")
+    log.info(f"[Intel] PENDING review: {headline[:80]} "
+             f"(conf={confidence:.2f}, cred={credibility:.2f}, "
+             f"corroborators={corroborator_count})")
+    return ("pending", "pending")
+
+
 def _initial_credibility(source_id: str) -> float:
     """Return the seed credibility weight for a newly-seen source_id.
 
@@ -322,6 +382,53 @@ class IntelQueue:
             return
         db.llm_call_patch_verdict(callers, verdict, window_sec=60)
 
+    def _maybe_promote_corroborated(self, ex_id: str) -> None:
+        """Re-evaluate a pending item that just gained a corroborator.
+
+        Tier 3 only triggers when at least one independent source agrees,
+        and corroboration is enriched DURING the dedup pass. So a pending
+        item can only ever cross the tier-3 threshold here — the original
+        submit() call had ``corroborator_count = 0`` for the new item and
+        could not consult the existing record's count. Without this hook
+        the corroborated item sits pending until manual review, defeating
+        the entire point of tier 3.
+        """
+        fresh = db.intel_get(ex_id)
+        if not fresh or fresh.get("status") != "pending":
+            return
+        ex_source_id = fresh.get("source_id", "")
+        ex_source = db.intel_source_get(ex_source_id)
+        ex_credibility = ex_source["credibility_weight"] if ex_source else 0.70
+        ex_ecosystem = classify_ecosystem(ex_source_id)
+        ex_llm = fresh.get("llm_fields", {}) or {}
+        ex_corroborator_count = len(ex_llm.get("corroborating_sources", []))
+        status, verdict_tag = _resolve_auto_confirm_status(
+            confidence=fresh.get("confidence", 0.0),
+            credibility=ex_credibility,
+            ecosystem=ex_ecosystem,
+            corroborator_count=ex_corroborator_count,
+            source_id=ex_source_id,
+            headline=fresh.get("headline", ""),
+        )
+        if status != "auto_confirmed":
+            return
+        db.intel_update_status(
+            ex_id, "auto_confirmed",
+            confirmed_by=None, confirmed_at=time.time(),
+        )
+        with _active_lock:
+            _active_item_ids.add(ex_id)
+        self._record_verdict(
+            fresh.get("source_type", "unknown"),
+            verdict_tag,
+            fresh.get("confidence", 0.0),
+            fresh.get("headline", ""),
+        )
+        log.info(
+            f"[Intel] LATE_PROMOTION: {ex_id} → auto_confirmed "
+            f"(corroborators={ex_corroborator_count}, tag={verdict_tag})"
+        )
+
     def submit(self, item: dict) -> Optional[str]:
         """Accept a new LLM-analyzed item from a sensor.
 
@@ -394,6 +501,7 @@ class IntelQueue:
                 if source_id not in corroborators and source_id != ex.get("source_id"):
                     corroborators.append(source_id)
                     db.intel_update_llm_fields(ex["id"], {"corroborating_sources": corroborators})
+                    self._maybe_promote_corroborated(ex["id"])
                 log.info(
                     f"[Intel] Cross-type URL dedup: discarded {source_type}/{source_id!r} "
                     f"(URL matches existing {ex['source_type']}/{ex['source_id']!r})"
@@ -488,6 +596,7 @@ class IntelQueue:
                             ex["id"],
                             _corroboration_payload(corroborators, ex.get("source_id", "")),
                         )
+                        self._maybe_promote_corroborated(ex["id"])
                     log.debug(
                         f"[Intel] Intra-type dedup: discarded {source_id!r} "
                         f"(Jaccard={jacc:.2f} vs {ex['source_id']!r}, "
@@ -528,6 +637,7 @@ class IntelQueue:
                         ex["id"],
                         _corroboration_payload(corroborators, ex.get("source_id", "")),
                     )
+                    self._maybe_promote_corroborated(ex["id"])
                 log.info(
                     f"[Intel] Cross-type headline dedup: discarded {source_type}/{source_id!r} "
                     f"(Jaccard={jacc:.2f} vs {ex['source_type']}/{ex['source_id']!r})"
@@ -554,34 +664,20 @@ class IntelQueue:
         # are eligible for auto-confirm. State media and unclassified sources are
         # always held for analyst review.
         _ecosystem = classify_ecosystem(source_id)
-        _AUTO_CONFIRM_ELIGIBLE = {"independent", "cert", "us_gov"}
-        _is_auto_eligible = _ecosystem in _AUTO_CONFIRM_ELIGIBLE
-
-        if not _is_auto_eligible:
-            # Non-eligible ecosystem: always pending (fail-closed)
-            status = "pending"
-            log.info(f"[Intel] ECOSYSTEM_GATE: {source_id!r} "
-                     f"(eco={_ecosystem!r}) held for analyst review "
-                     f"despite conf={confidence:.2f}/cred={credibility:.2f}")
-        elif confidence >= 0.85 and credibility >= 0.80:
-            # Tier 1 (strict): high confidence + high credibility
-            status = "auto_confirmed"
+        _llm_fields = item.get("llm_fields", {}) or {}
+        _corroborator_count = len(_llm_fields.get("corroborating_sources", []))
+        status, _verdict_tag = _resolve_auto_confirm_status(
+            confidence=confidence,
+            credibility=credibility,
+            ecosystem=_ecosystem,
+            corroborator_count=_corroborator_count,
+            source_id=source_id,
+            headline=headline,
+        )
+        if status == "auto_confirmed":
             with _active_lock:
                 _active_item_ids.add(item_id)
-            log.info(f"[Intel] AUTO-CONFIRMED (tier1): {headline[:80]} "
-                     f"(conf={confidence:.2f}, cred={credibility:.2f})")
-        elif confidence >= _auto_confirm_threshold() and credibility >= 0.75:
-            # Tier 2 (standard): original threshold, non-state media only
-            status = "auto_confirmed"
-            with _active_lock:
-                _active_item_ids.add(item_id)
-            log.info(f"[Intel] AUTO-CONFIRMED (tier2): {headline[:80]} "
-                     f"(conf={confidence:.2f}, cred={credibility:.2f})")
-        else:
-            status = "pending"
-            log.info(f"[Intel] PENDING review: {headline[:80]} "
-                     f"(conf={confidence:.2f}, cred={credibility:.2f})")
-        self._record_verdict(source_type, status, confidence, headline)
+        self._record_verdict(source_type, _verdict_tag, confidence, headline)
 
         record = {
             "id":          item_id,
