@@ -1465,6 +1465,26 @@ def get_threat_data():
             _seq_fire(core_theater, "CENSORSHIP_DETECTED",
                                     {"tor_status": _tor_core_status, "ihr_status": _ihr_core_status},
                                     scenario_id=focused_id)
+            # ADR-009 stage 2.3: per-country symmetric Tor+IHR censorship
+            # chain. Rationale entries are 1-per-sensor and bound to
+            # core_theater, so we check the raw status dicts per
+            # secondary directly. Both signals (tor_status fired AND
+            # ihr_disco events present) must hold for the secondary's
+            # own territory to register the sequence event there.
+            if secondary_ecs and tor_sensor and tor_sensor.enabled \
+                    and ihr_sensor and ihr_sensor.enabled:
+                for sec_ec in secondary_ecs:
+                    sec_tor_status = tor_country_status.get(sec_ec, "NORMAL")
+                    sec_ihr_disco = ihr_disco.get(sec_ec, [])
+                    sec_ihr_status = ihr_country_status.get(sec_ec, "NORMAL")
+                    sec_tor_fired = sec_tor_status in ("RELAY_DROP", "CENSORSHIP_INDICATOR")
+                    if sec_tor_fired and len(sec_ihr_disco) > 0:
+                        register_sequence_event(
+                            sec_ec, "CENSORSHIP_DETECTED",
+                            {"tor_status": sec_tor_status,
+                             "ihr_status": sec_ihr_status},
+                            dedup_window=300, scenario_id=focused_id,
+                        )
 
         # ── Phase C: S1 NOTAM Anomaly rationale ──────────────────────────────
         _notam_core = notam_data.get(core_theater, {})
