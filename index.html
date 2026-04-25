@@ -3004,7 +3004,7 @@
         <div class="guide-lang-en">
         <h4>11. System Limitations &amp; Monitoring Directionality</h4>
 
-        <p><b>This chapter is required reading for all operators.</b> Understanding the system's inherent limitations is critical to avoiding over-reliance on automated assessments and maintaining human-in-the-loop (HITL) judgment.</p>
+        <p><b>This chapter is required reading for all operators.</b> The tool emits the maximum technically derivable assessment under OSINT-only constraints (NP4) and discloses every formula, threshold, source, and LLM prompt that produced it (NP6). Understanding the inherent limitations below is what lets analyst organizations integrate this output as one node in their decision process (NP7) — alongside HUMINT, SIGINT, and other inputs the tool cannot see.</p>
 
         <h5>11.1 Sensor Coverage Gaps</h5>
         <ul>
@@ -3036,9 +3036,9 @@
             <li><b>Remaining overlaps</b>: Certificate Transparency anomalies (untrusted CA issuance, gov-TLD wildcards) may correlate with BGP hijacking events (DNS+BGP attacks often co-occur). These are NOT currently deduplicated because the underlying phenomena are distinct even if tactically coordinated.</li>
         </ul>
 
-        <h5>11.5 Operator Responsibilities</h5>
+        <h5>11.5 Operator Practices</h5>
         <ul>
-            <li><b>HITL override is mandatory</b>: All automated assessments must be validated by a human analyst before action is taken. The MUTE function exists specifically for this purpose.</li>
+            <li><b>Tool output is one node, not the verdict (NP7)</b>: the tool emits the strongest conclusion its formula and data permit, with full derivation trace (NP6). Analyst organizations integrate this with HUMINT, SIGINT, and other inputs to reach the operational judgment. MUTE removes a sensor's contribution when corroborated as a false positive — this reshapes the tool's evidence input; it is not a vote on whether to trust the tool's reasoning.</li>
             <li><b>Domain weight bias</b>: Default weights (cyber=0.50, physical=0.30, info=0.20) reflect a cyber-first monitoring posture. Operators should adjust <code>DOMAIN_WEIGHT_*</code> variables based on the operational context (e.g., increase physical weight during kinetic conflict).</li>
             <li><b>Threat level interpretation</b>: Severity levels (NORMAL→WATCH→ELEVATED→CRITICAL) are relative to baseline, NOT absolute assessments of danger. A "CRITICAL" rating means "significantly above historical normal" — it does not inherently mean an attack is imminent.</li>
         </ul>
@@ -3047,7 +3047,7 @@
         <div class="guide-lang-ja">
         <h4>11. システムの限界と監視方向性</h4>
 
-        <p><b>本章はすべてのオペレーターの必読事項です。</b>自動評価への過度な依存を避け、HITL（Human-in-the-Loop）判断を維持するため、システムの固有の限界を理解することが不可欠です。</p>
+        <p><b>本章はすべてのオペレーターの必読事項です。</b>本ツールは OSINT のみという制約下で技術的に実行可能な最大の評価結論を出力し（NP4）、その導出に用いた式・閾値・一次ソース・LLM プロンプトをすべて開示します（NP6）。以下の固有の限界を理解することで、本ツールの出力を組織の意思決定プロセスにおける一つのノードとして（NP7）、HUMINT・SIGINT 等の本ツールが見ることのできない他情報源と統合して活用できます。</p>
 
         <h5>11.1 センサーカバレッジのギャップ</h5>
         <ul>
@@ -3079,9 +3079,9 @@
             <li><b>残存する重複</b>：証明書透過性のサージはBGPハイジャックイベントと相関する場合があります（DNS+BGP攻撃は共起することが多い）。基盤となる現象が異なるため、現時点ではこれらは重複排除されていません。</li>
         </ul>
 
-        <h5>11.5 オペレーターの責任</h5>
+        <h5>11.5 オペレーター実践指針</h5>
         <ul>
-            <li><b>HITLオーバーライドは必須</b>：すべての自動評価は、アクションを取る前に人間のアナリストによって検証されなければなりません。MUTE機能はまさにこの目的のために存在します。</li>
+            <li><b>ツール出力は判定そのものではなく組織内の一ノード（NP7）</b>：本ツールは式とデータが許す限り最大の結論を、完全な導出トレース（NP6）と共に出力します。組織はこの出力を HUMINT・SIGINT 等と統合し、運用上の判断を導きます。MUTE 機能は誤検知が裏取りされたセンサーの寄与を取り除くためのものであり、これはツールの根拠入力を再構成する操作です（ツール推論を信用するか否かの票決ではありません）。</li>
             <li><b>ドメイン重みバイアス</b>：デフォルトの重み（cyber=0.50、physical=0.30、info=0.20）はサイバーファーストの監視姿勢を反映しています。オペレーターは運用コンテキストに基づいて<code>DOMAIN_WEIGHT_*</code>変数を調整する必要があります（例：動的紛争中はphysical重みを増加）。</li>
             <li><b>脅威レベルの解釈</b>：重大度レベル（NORMAL→WATCH→ELEVATED→CRITICAL）はベースラインに対する相対値であり、危険の絶対的評価ではありません。「CRITICAL」レーティングは「過去の正常値を大幅に上回っている」ことを意味し、攻撃が差し迫っていることを本質的に意味するものではありません。</li>
         </ul>

@@ -239,6 +239,20 @@ DB schema (generated VIRTUAL column 戦略):
 
 **Phase 1.5 補修 (2026-04-25)**: priority 5 は当初 envelope 経路のみカバーしており、503/400/404 エラー応答に disclaimer が欠落していた (docstring 契約と矛盾)。`build_error()` helper を追加し全 error path を中央集約。`test_v2_error_responses_carry_disclaimer` で回帰防止。
 
+### Phase 1.2 / 1.5 (Conclusion builder 抽出 + UI コピー NP4/NP7 整合) — ✅ 完了 (2026-04-26)
+
+| Phase | スコープ | 成果物 |
+|-------|----------|--------|
+| 1.2a | `derive_threat_level` builder 抽出 | `radar/conclusions/threat_level.py` (FORMULA_REF / THRESHOLD_REF + INSUFFICIENT_DATA path) + 10 tests in `test_threat_level_derive.py`。`scoring._maybe_persist_tl_conclusion` は builder 委譲のみ (background skip ガードは保持) |
+| 1.2b | `derive_anomaly` builder 追加 | `radar/conclusions/anomaly.py` (importance = raw × recency_decay × scenario_relevance × novelty × 100、top-N ranking) + 24 tests in `test_anomaly_derive.py`。novelty は Phase 1 では「現在 tick 内の同 signal_source 数」近似 (`metadata["novelty_source"]` で記録)、Phase 1.x で 24h ledger 走査に置換予定 |
+| 1.5  | NP4/NP7 違反 UI コピーの除去 + 静的ガード | `index.html` Ch.11 EN/JA 4 箇所を NP4 (結論最大化) + NP7 (組織内ノード) 言い回しへ書き換え。`test_ui_integrity.py` に `test_no_forbidden_pre_v2_p5_phrases_in_ui` (9 パターン × `index.html` + `i18n.js`) と regex 自己検証 `test_forbidden_phrase_patterns_match_their_intended_strings` を追加 |
+
+**Phase 1.2b spec ドリフト発見**: v2-migration.md §6.4 が `recency_decay = exp(-elapsed_h / 12)` を「半減期 12h」と誤ラベルしていた (literal 半減期は 12·ln 2 ≈ 8.32h)。式を literal 採用し、§6.4 を「時定数 τ=12h」に修正、定数名を `recency_time_constant_hours` に変更。test 2 本で formula 挙動と実半減期の両方を pinning。
+
+**禁止フレーズ pattern (UI のみに適用、docs は対象外)**:
+- 英語: `avoid(?:ing)? over[- ]reliance` / `advisory only` / `tool does not (decide|judge|assess|conclude)` / `must be validated by a human` / `automated assessments must be`
+- 日本語: `過度な?の?依存` / `ツールは判断しない` / `あくまで助言` / `アナリストによって検証されなければ`
+
 詳細は v2-migration.md §10 (移行戦略) と §12 (工数) を参照。
 
 ---

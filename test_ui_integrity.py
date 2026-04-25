@@ -100,3 +100,93 @@ def test_js_literal_keys_defined_in_both_languages() -> None:
     missing_ja = sorted(js_keys - ja)
     assert not missing_en, f"radar.js references {len(missing_en)} key(s) not in EN: {missing_en[:20]}"
     assert not missing_ja, f"radar.js references {len(missing_ja)} key(s) not in JA: {missing_ja[:20]}"
+
+
+# Phrases that contradict NP4 (結論最大化 — the tool DOES emit the maximum
+# technically derivable assessment) or NP7 (組織内ノード — the tool is one
+# input to an organizational process, not something that needs human
+# approval before action). The pre-v2 P5 ("ツールは判断しない") was
+# explicitly retired by CLAUDE.md; this guard prevents its language from
+# silently re-entering UI copy via doc edits or i18n drift.
+#
+# Each entry is (regex_pattern, brief_reason) — regex is matched
+# case-insensitively against index.html and i18n.js raw bytes. Add new
+# patterns sparingly: false positives are worse than misses here, because
+# this test's job is to flag specific framings that the new tool-purpose
+# definition rules out, not to police general writing style.
+_FORBIDDEN_PHRASES: tuple[tuple[str, str], ...] = (
+    (r"avoid(?:ing)?\s+over[- ]reliance",
+     "implies tool output should be discounted; contradicts NP4"),
+    (r"advisory only",
+     "pre-v2 P5 framing — replaced by NP4 + NP7"),
+    (r"tool\s+does\s+not\s+(?:decide|judge|assess|conclude)",
+     "explicit former-P5 phrase retired by CLAUDE.md"),
+    (r"must\s+be\s+validated\s+by\s+a\s+human",
+     "inverts NP7 — the tool is a node, not an artifact awaiting approval"),
+    (r"automated\s+assessments\s+must\s+be",
+     "former-P5 framing of mandatory human gating"),
+    (r"過度な?の?依存",
+     "implies tool over-trust risk; contradicts NP4 (Japanese)"),
+    (r"ツールは判断しない",
+     "pre-v2 P5 phrase explicitly retired (Japanese)"),
+    (r"あくまで助言",
+     "pre-v2 P5 'advisory only' framing (Japanese)"),
+    (r"アナリストによって検証されなければ",
+     "inverts NP7 — tool gated on human approval (Japanese)"),
+)
+
+
+def test_forbidden_phrase_patterns_match_their_intended_strings() -> None:
+    """Self-test: each forbidden pattern must hit a representative bad string.
+
+    A "no matches found" pass on the real UI is meaningful only if the
+    patterns themselves are known-good. This guards against silent regex
+    rot — e.g. a typo in a Japanese pattern that no longer matches anything.
+    """
+    canaries = (
+        ("avoid(?:ing)?\\s+over[- ]reliance", "avoiding over-reliance"),
+        ("advisory only", "advisory only"),
+        (r"tool\s+does\s+not\s+(?:decide|judge|assess|conclude)",
+         "tool does not decide"),
+        (r"must\s+be\s+validated\s+by\s+a\s+human",
+         "must be validated by a human analyst"),
+        (r"automated\s+assessments\s+must\s+be",
+         "automated assessments must be reviewed"),
+        ("過度な?の?依存", "過度な依存"),
+        ("ツールは判断しない", "ツールは判断しない"),
+        ("あくまで助言", "あくまで助言"),
+        ("アナリストによって検証されなければ",
+         "アナリストによって検証されなければなりません"),
+    )
+    for pattern, sample in canaries:
+        assert re.search(pattern, sample, re.IGNORECASE), (
+            f"forbidden-phrase pattern /{pattern}/ failed to match its "
+            f"own canary {sample!r} — the pattern is broken, not the UI"
+        )
+
+
+def test_no_forbidden_pre_v2_p5_phrases_in_ui() -> None:
+    """UI copy must not re-introduce the retired P5 ('tool does not decide')
+    framing — NP4 and NP7 in CLAUDE.md replaced it.
+
+    Scope: index.html + i18n.js. Other docs (e.g. v2-migration.md) may
+    discuss the retired phrasing in historical context; this test is
+    deliberately narrow to user-visible UI copy.
+    """
+    sources = {
+        "index.html": HTML.read_text(encoding="utf-8"),
+        "i18n.js": I18N.read_text(encoding="utf-8"),
+    }
+    violations: list[str] = []
+    for name, body in sources.items():
+        for pattern, reason in _FORBIDDEN_PHRASES:
+            for m in re.finditer(pattern, body, re.IGNORECASE):
+                line_no = body.count("\n", 0, m.start()) + 1
+                violations.append(
+                    f"{name}:{line_no}  /{pattern}/  → {reason}\n"
+                    f"    matched: {m.group(0)!r}"
+                )
+    assert not violations, (
+        "Forbidden NP4/NP7-violating UI copy detected:\n  "
+        + "\n  ".join(violations)
+    )
