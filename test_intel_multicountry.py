@@ -111,7 +111,7 @@ class TestDBCountryColumns:
 class TestSubmitBackwardCompat:
     """When a sensor sends only theater (no countries), submit() derives them."""
 
-    def test_theater_only_derives_countries(self, testdb, monkeypatch):
+    def test_country_only_derives_countries(self, testdb, monkeypatch):
         monkeypatch.setattr("radar.intel_queue.db", testdb)
         from radar.intel_queue import IntelQueue
         q = IntelQueue()
@@ -267,7 +267,7 @@ class TestActiveRationale:
         with _active_lock:
             _active_item_ids.discard(rec["id"])
 
-    def test_rationale_backward_compat_theater_only(self, testdb, monkeypatch):
+    def test_rationale_backward_compat_country_only(self, testdb, monkeypatch):
         monkeypatch.setattr("radar.intel_queue.db", testdb)
         from radar.intel_queue import IntelQueue
         q = IntelQueue()

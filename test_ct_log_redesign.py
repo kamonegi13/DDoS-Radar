@@ -29,7 +29,7 @@ from radar.sensors.ct_log_sources.crtsh import _parse_issuer
 from radar.sensors.ct_log_sources.base import CertObservation
 from radar.config import (
     CT_LOG_WARMUP_DAYS,
-    CT_LOG_MAX_QUERIES_PER_THEATER,
+    CT_LOG_MAX_QUERIES_PER_COUNTRY,
 )
 
 
@@ -317,41 +317,41 @@ def test_wildcard_at_subdomain_does_not_fire(testdb):
 
 def test_round_robin_covers_all_domains():
     """Over enough cycles, every watched domain should be queried."""
-    from radar.config import CT_LOG_WATCHED_DOMAINS, CT_LOG_MAX_QUERIES_PER_THEATER
+    from radar.config import CT_LOG_WATCHED_DOMAINS, CT_LOG_MAX_QUERIES_PER_COUNTRY
     sensor = CtLogSensor()
     expected = set(CT_LOG_WATCHED_DOMAINS["US"])
     # Run enough cycles to cover the full set with margin: ceil(N / budget) + 1
-    cycles = (len(expected) // max(1, CT_LOG_MAX_QUERIES_PER_THEATER)) + 2
+    cycles = (len(expected) // max(1, CT_LOG_MAX_QUERIES_PER_COUNTRY)) + 2
     seen = set()
     for _ in range(cycles):
-        seen.update(sensor._select_domains_for_theater("US"))
+        seen.update(sensor._select_domains_for_country("US"))
     assert seen == expected
 
 
 def test_round_robin_returns_full_list_when_under_budget():
     """A theater with fewer domains than the per-cycle budget should always
     return its full set (no rotation needed)."""
-    from radar.config import CT_LOG_WATCHED_DOMAINS, CT_LOG_MAX_QUERIES_PER_THEATER
+    from radar.config import CT_LOG_WATCHED_DOMAINS, CT_LOG_MAX_QUERIES_PER_COUNTRY
     sensor = CtLogSensor()
     # Pick a country whose curated set fits within the per-cycle budget.
     candidates = [c for c, ds in CT_LOG_WATCHED_DOMAINS.items()
-                  if len(ds) <= CT_LOG_MAX_QUERIES_PER_THEATER]
+                  if len(ds) <= CT_LOG_MAX_QUERIES_PER_COUNTRY]
     if not candidates:
         # Synthetic: shrink one to one domain via the round-robin call directly.
         # Confirm slice equals the full set when budget >= len.
         small = next(iter(CT_LOG_WATCHED_DOMAINS))
         sensor_test = CtLogSensor()
-        sliced = sensor_test._select_domains_for_theater(small)
-        assert len(sliced) <= CT_LOG_MAX_QUERIES_PER_THEATER
+        sliced = sensor_test._select_domains_for_country(small)
+        assert len(sliced) <= CT_LOG_MAX_QUERIES_PER_COUNTRY
         return
     code = candidates[0]
-    domains = sensor._select_domains_for_theater(code)
+    domains = sensor._select_domains_for_country(code)
     assert sorted(domains) == sorted(CT_LOG_WATCHED_DOMAINS[code])
 
 
 def test_round_robin_unknown_country_returns_empty():
     sensor = CtLogSensor()
-    assert sensor._select_domains_for_theater("ZZ") == []
+    assert sensor._select_domains_for_country("ZZ") == []
 
 
 # ── Status / scoring shape ────────────────────────────────────────────────
@@ -368,8 +368,8 @@ def test_upstream_health_exposes_redesign_metadata():
     assert "anomaly_counts" in health
     assert "warmup_days" in health
     assert health["warmup_days"] == CT_LOG_WARMUP_DAYS
-    assert "queries_per_theater_per_cycle" in health
-    assert health["queries_per_theater_per_cycle"] == CT_LOG_MAX_QUERIES_PER_THEATER
+    assert "queries_per_country_per_cycle" in health
+    assert health["queries_per_country_per_cycle"] == CT_LOG_MAX_QUERIES_PER_COUNTRY
     # Multi-source aggregate
     assert "sources" in health
     assert "crtsh" in health["sources"]

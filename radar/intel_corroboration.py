@@ -169,14 +169,14 @@ class CorroborationEngine:
         ]
 
         # Group by theater
-        by_theater: dict[str, list[dict]] = defaultdict(list)
+        by_country: dict[str, list[dict]] = defaultdict(list)
         for item in candidates:
             theater = item.get("theater", "")
             if theater:
-                by_theater[theater].append(item)
+                by_country[theater].append(item)
 
         created = 0
-        for theater, theater_items in by_theater.items():
+        for theater, theater_items in by_country.items():
             # Check cooldown
             with _cooldown_lock:
                 if time.time() < _cooldown_until.get(theater, 0):

@@ -58,7 +58,7 @@ v1 リファクタリング (scenario-refactor.md) で達成した事項:
 
 ### 1.3 アーキテクチャ債務
 
-- **theater 用語残存**: `grep -r "theater\|core_theater" --include="*.py" --include="*.js" --include="*.html"` で **1,612 箇所 / 67 ファイル**
+- **theater 用語残存**: `grep -r "theater\|focused_country" --include="*.py" --include="*.js" --include="*.html"` で **1,612 箇所 / 67 ファイル**
 - **巨大ファイル**: `radar.js` 8,160 行、`radar/database.py` 4,122 行、`index.html` 3,411 行、`i18n.js` 3,041 行
 - **scenario-refactor.md** が 1,970 行と上限 2,000 行に接近 (本書分離で v1 系列を保管 → v2 系列を本書で構築)
 
@@ -157,7 +157,7 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 - **判断**: 内部実装は codemod で `theater → scenario_id / country` に一斉置換、v1 API のみ adapter 層で `theater` キーに alias
 - **代替案**: v1 残置 → 永続的負債、外部破壊 → 互換性損失
 - **理由**: 内部 1612 箇所が残ると Phase 1-3 全工程で認知負荷大。adapter 層は薄く v1 sunset で削除可能 (永続負債にならない)
-- **codemod**: `scripts/codemod_theater.py` を AST ベースで実装 (Phase 0 で scaffold)
+- **codemod**: `scripts/codemod_country.py` を AST ベースで実装 (Phase 0 で scaffold)
 - **残置許容**: 過去のコミット履歴・ADR 記録、DB 既存 column 名 (`sequence_events.theater` 等は migration コスト > メリット)
 
 ### ADR-V2-007: 旧 P5 文言の駆逐
@@ -593,7 +593,7 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 - ⏳ DB migration v19 (conclusions テーブル)
 - ⏳ DB migration v20 (llm_prompts + llm_call_log.prompt_sha256)
 - ⏳ `tests/test_conclusions.py` 基本テスト
-- ⏳ `scripts/codemod_theater.py` scaffolding (dry-run のみ)
+- ⏳ `scripts/codemod_country.py` scaffolding (dry-run のみ)
 
 #### Phase 1 完了条件
 - DB migration v19-v22 すべて適用済み (本番 DB で検証)
@@ -757,12 +757,12 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 - ⏳ DB migration v19 (conclusions テーブル) 追加
 - ⏳ DB migration v20 (llm_prompts + llm_call_log.prompt_sha256) 追加
 - ⏳ `tests/test_conclusions.py` 基本テスト
-- ⏳ `scripts/codemod_theater.py` scaffolding
+- ⏳ `scripts/codemod_country.py` scaffolding
 - ⏳ Phase 1 実装ハンドオフドキュメント作成
 
 ### 14.3 次セッション (Phase 1) 着手手順
 
-1. **theater codemod 本実行** (`scripts/codemod_theater.py` を 5 batch で commit)
+1. **theater codemod 本実行** (`scripts/codemod_country.py` を 5 batch で commit)
 2. **v1 API adapter 配置** (`radar/routes/_v1_compat.py`)
 3. **NP7 disclaimer の API 必須化** (`radar/conclusions/disclaimer.py` + 全 v2 route で wrap)
 4. **DB migration v21/v22 追加**

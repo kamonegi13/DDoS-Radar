@@ -9,7 +9,7 @@ Background:
   scenario score and TL.
 
   The legacy per-country pipeline in radar/routes/core.py promotes
-  primary_ec (spike-max belligerent) to core_theater for downstream
+  primary_ec (spike-max belligerent) to focused_country for downstream
   _seq_fire() blocks. Secondary belligerent's sequence events are
   not registered. This is a known limitation tracked in ADR-009
   follow-up notes.
@@ -64,12 +64,12 @@ class TestEffectiveCoresDerivation:
         ctx = derive_country_context(_symmetric_scenario())
         assert set(ctx["effective_cores"]) == {"IL", "IR"}, \
             f"expected IL+IR, got {ctx['effective_cores']!r}"
-        assert ctx["core_theater"] is None
+        assert ctx["focused_country"] is None
 
     def test_single_core_yields_single_effective_core(self):
         ctx = derive_country_context(_single_core_scenario())
         assert ctx["effective_cores"] == ["TW"]
-        assert ctx["core_theater"] == "TW"
+        assert ctx["focused_country"] == "TW"
 
     def test_dual_core_excludes_force_projection_from_effective(self):
         """Only PRINCIPAL_BELLIGERENT with weight>=0.9 graduate to

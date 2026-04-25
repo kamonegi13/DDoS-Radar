@@ -89,7 +89,7 @@ def api_sitrep():
         trend_val = latest["threat_level"] - levels[0]
         trend = "ESCALATING" if trend_val < 0 else "DE-ESCALATING" if trend_val > 0 else "STABLE"
 
-    core = latest.get("core_theater") or "UNKNOWN"
+    core = latest.get("focused_country") or "UNKNOWN"
     note = latest.get("system_note", "")
     
     text_lines = [
@@ -108,7 +108,7 @@ def api_sitrep():
         f"   ACTIVE DOMAINS       : {', '.join(active_domains) if active_domains else 'NONE'}",
     ]
     
-    degraded = latest.get("degraded_theaters", [])
+    degraded = latest.get("degraded_countries", [])
     if degraded: 
         text_lines += [f"   CRITICAL OUTAGES     : {', '.join(degraded)}"]
     
@@ -136,7 +136,7 @@ def api_sitrep():
             "threat_avg_1h": avg_d, 
             "convergence": dominant_conv, 
             "active_domains": active_domains, 
-            "core_theater": core, 
+            "focused_country": core, 
             "span_minutes": span_min, 
             "cycle_count": len(_tl)
         },
@@ -155,7 +155,7 @@ def api_sequence_chain():
     theater_param = request.args.get("theater", "").upper()
     now = time.time()
     result = {}
-    theaters = [theater_param] if theater_param else _db.seq_distinct_theaters()
+    theaters = [theater_param] if theater_param else _db.seq_distinct_countries()
     for th in theaters:
         bonus, status, chain = compute_sequence_bonus(th)
         cutoff = now - SEQUENCE_WINDOW
@@ -180,8 +180,8 @@ def api_deep_analytics():
     Detailed endpoint for deep analysis results.
     Returns velocity/acceleration/ambush/narrative/ISR/AIS/blockade_index.
     """
-    _default_theater = (
-        st.global_cache.get("strategic", {}).get("core_theater")
+    default_focused_country = (
+        st.global_cache.get("strategic", {}).get("focused_country")
         or ""
     )
     theater_param = (request.args.get("theater") or _default_theater).upper()
@@ -205,7 +205,7 @@ def api_deep_analytics():
     strategic    = st.global_cache.get("strategic", {})
     analytics_v9 = strategic.get("analytics", {})
     core_spike_v = strategic.get("threat_breakdown", {}).get("core_spike_val", 0.0)
-    is_degraded  = theater_param in strategic.get("degraded_theaters", [])
+    is_degraded  = theater_param in strategic.get("degraded_countries", [])
     # Use v9 blockade_index from cache if available, otherwise recompute with compute_blockade_index
     if "blockade_index" in analytics_v9:
         blockade_idx = analytics_v9["blockade_index"]
@@ -298,7 +298,7 @@ def api_salute_report():
     now_ts = datetime.datetime.now(datetime.timezone.utc)
     dtg = now_ts.strftime("%d%H%MZ %b %Y").upper()
     threat_level = strat.get("threat_level", 5)
-    core   = strat.get("core_theater", "UNKNOWN")
+    core   = strat.get("focused_country", "UNKNOWN")
     bd     = strat.get("threat_breakdown", {})
     adv_raw = strat.get("adversary_strikes", [])
     adv     = list(dict.fromkeys(a.get("actor", str(a)) if isinstance(a, dict) else str(a) for a in adv_raw))
@@ -337,7 +337,7 @@ def api_salute_report():
     activity = "; ".join(acts) if acts else ("通常 — 特記すべき活動なし" if ja else "ROUTINE — NO SIGNIFICANT ACTIVITY")
 
     # LOCATION: primary threat location
-    degraded = strat.get("degraded_theaters", [])
+    degraded = strat.get("degraded_countries", [])
     loc_parts = [f"{'主要' if ja else 'PRIMARY'}: {core}"]
     if degraded:
         loc_parts.append(f"{'劣化中' if ja else 'DEGRADED'}: {', '.join(degraded)}")
@@ -656,7 +656,7 @@ def api_score_breakdown():
 
     return jsonify({
         "ts":           datetime.datetime.now().isoformat(),
-        "theater":      strat.get("core_theater"),
+        "theater":      strat.get("focused_country"),
         "threat_level": strat.get("threat_level", 5),
         "domains": {
             d: {

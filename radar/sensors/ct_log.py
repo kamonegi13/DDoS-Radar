@@ -42,7 +42,7 @@ from radar.config import (
     CT_LOG_TRUSTED_CAS_GLOBAL,
     CT_LOG_WARMUP_DAYS,
     CT_LOG_OBSERVATION_WINDOW_HOURS,
-    CT_LOG_MAX_QUERIES_PER_THEATER,
+    CT_LOG_MAX_QUERIES_PER_COUNTRY,
     CT_LOG_INTER_QUERY_SLEEP_SEC,
     CT_LOG_BUFFER_MAX_OBS,
     CT_LOG_DEGRADED_INTERVAL_SEC,
@@ -363,14 +363,14 @@ class CtLogSensor(BaseSensor):
         }
 
     # ── Round-robin domain selection ──────────────────────────────────────
-    def _select_domains_for_theater(self, code: str) -> list[str]:
+    def _select_domains_for_country(self, code: str) -> list[str]:
         """Return up to CT_LOG_MAX_QUERIES_PER_THEATER domains for this poll,
         rotating through the full watched-domain list across cycles.
         """
         all_domains = CT_LOG_WATCHED_DOMAINS.get(code, [])
         if not all_domains:
             return []
-        budget = max(1, CT_LOG_MAX_QUERIES_PER_THEATER)
+        budget = max(1, CT_LOG_MAX_QUERIES_PER_COUNTRY)
         if len(all_domains) <= budget:
             return list(all_domains)
         cursor = self._query_cursor.get(code, 0) % len(all_domains)
@@ -384,7 +384,7 @@ class CtLogSensor(BaseSensor):
     # ── Main fetch loop ───────────────────────────────────────────────────
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
-        theaters = context.get("strategic_theaters", []) or []
+        theaters = context.get("strategic_countries", []) or []
         adversaries = context.get("adversary_states", []) or []
         all_targets = sorted(set(theaters + adversaries))
         # Restrict to theaters that actually have a curated watched-domain
@@ -404,17 +404,17 @@ class CtLogSensor(BaseSensor):
         # own circuit breaker / rate-limit state and return None when
         # they're suppressing themselves. Push sources (Phase 2) feed the
         # buffer asynchronously between cycles.
-        polled_domains_by_theater: dict[str, list[str]] = {}
+        polled_domains_by_country: dict[str, list[str]] = {}
         any_real_response = False
         any_pull_attempt = False
 
         for code in all_targets:
-            domains = self._select_domains_for_theater(code)
+            domains = self._select_domains_for_country(code)
             # In degraded mode probe just a single domain per theater to
             # detect upstream recovery without hammering crt.sh.
             if self._upstream_status == "degraded":
                 domains = domains[:1]
-            polled_domains_by_theater[code] = list(domains)
+            polled_domains_by_country[code] = list(domains)
 
             for domain in domains:
                 alive = False
@@ -494,7 +494,7 @@ class CtLogSensor(BaseSensor):
 
         for code in all_targets:
             try:
-                domains = polled_domains_by_theater[code]
+                domains = polled_domains_by_country[code]
                 aggregate_total = 0
                 aggregate_wildcard = 0
                 aggregate_untrusted: list[dict] = []
@@ -736,7 +736,7 @@ class CtLogSensor(BaseSensor):
             "scoring_model": "adr_024_signal_redesign",
             "warmup_days": CT_LOG_WARMUP_DAYS,
             "observation_window_hours": CT_LOG_OBSERVATION_WINDOW_HOURS,
-            "queries_per_theater_per_cycle": CT_LOG_MAX_QUERIES_PER_THEATER,
+            "queries_per_country_per_cycle": CT_LOG_MAX_QUERIES_PER_COUNTRY,
             "inter_query_sleep_sec": CT_LOG_INTER_QUERY_SLEEP_SEC,
             "buffer": self._buffer.stats(),
             "source_freshness": self._buffer.source_freshness(),

@@ -76,7 +76,7 @@ class TestClassifyArticleGeo:
         text = "global nuclear tensions rise amid arms race concerns"
         assert _classify_article_geo(text, "UA", _TEST_GEO_TERMS) == "generic"
 
-    def test_both_theaters_returns_match(self):
+    def test_both_countries_returns_match(self):
         """Article mentioning both current and other theater → match (current takes priority)."""
         text = "ukraine and iran both face escalating security challenges"
         assert _classify_article_geo(text, "UA", _TEST_GEO_TERMS) == "match"
@@ -143,7 +143,7 @@ class TestCountKeywordsGeoFilter:
     def setup_method(self):
         _geo_regex_cache.clear()
 
-    def test_excludes_other_theater_articles(self):
+    def test_excludes_other_country_articles(self):
         """Iran articles matching UA keywords should NOT count as UA hits."""
         xml = _build_rss_xml([
             {"title": "Ukraine escalation continues near Kyiv",
@@ -156,7 +156,7 @@ class TestCountKeywordsGeoFilter:
         keywords = ["escalation", "military measures"]
         hits, count = RssNarrativeSensor._count_keywords_in_rss(
             xml, keywords,
-            current_theater="UA",
+            current_country="UA",
             all_geo_terms=_TEST_GEO_TERMS,
         )
         # Article 1: UA match → counted
@@ -175,7 +175,7 @@ class TestCountKeywordsGeoFilter:
         keywords = ["crisis", "military exercise"]
         hits, count = RssNarrativeSensor._count_keywords_in_rss(
             xml, keywords,
-            current_theater="UA",
+            current_country="UA",
             all_geo_terms=_TEST_GEO_TERMS,
         )
         # All 3 are "other" (IR, CN) or keyword miss — UA gets 0 hits
@@ -196,7 +196,7 @@ class TestCountKeywordsGeoFilter:
         )
         hits_with_geo, count_with_geo = RssNarrativeSensor._count_keywords_in_rss(
             xml, keywords,
-            current_theater="UA",
+            current_country="UA",
             all_geo_terms=_TEST_GEO_TERMS,
         )
         # Without geo: both articles count
@@ -209,7 +209,7 @@ class TestCountKeywordsGeoFilter:
     def test_empty_xml(self):
         hits, count = RssNarrativeSensor._count_keywords_in_rss(
             "", ["escalation"],
-            current_theater="UA",
+            current_country="UA",
             all_geo_terms=_TEST_GEO_TERMS,
         )
         assert hits == 0
@@ -224,7 +224,7 @@ class TestGetBurstArticlesGeoFilter:
     def setup_method(self):
         _geo_regex_cache.clear()
 
-    def test_burst_excludes_other_theater(self):
+    def test_burst_excludes_other_country(self):
         """Burst articles should only include geo-relevant articles."""
         xml = _build_rss_xml([
             {"title": "Ukraine offensive operations near Donbas",
@@ -237,7 +237,7 @@ class TestGetBurstArticlesGeoFilter:
         keywords = ["escalation", "military measures", "offensive operations"]
         articles = RssNarrativeSensor._get_burst_articles(
             xml, keywords, max_articles=4,
-            current_theater="UA",
+            current_country="UA",
             all_geo_terms=_TEST_GEO_TERMS,
         )
         # Article 1: UA → included
@@ -266,7 +266,7 @@ class TestGeoFilterIntegration:
     def setup_method(self):
         _geo_regex_cache.clear()
 
-    def test_tass_mixed_articles_ua_theater(self):
+    def test_tass_mixed_articles_ua_country(self):
         """Simulate a TASS feed with articles about multiple regions.
         Only UA-relevant and generic articles should count for UA theater."""
         xml = _build_rss_xml([
@@ -291,7 +291,7 @@ class TestGeoFilterIntegration:
 
         hits, count = RssNarrativeSensor._count_keywords_in_rss(
             xml, keywords,
-            current_theater="UA",
+            current_country="UA",
             all_geo_terms=_TEST_GEO_TERMS,
         )
         # Articles 1, 4, 5 → match or generic → 3 hits
@@ -303,7 +303,7 @@ class TestGeoFilterIntegration:
         # Also verify burst articles
         burst = RssNarrativeSensor._get_burst_articles(
             xml, keywords, max_articles=10,
-            current_theater="UA",
+            current_country="UA",
             all_geo_terms=_TEST_GEO_TERMS,
         )
         assert len(burst) == 3

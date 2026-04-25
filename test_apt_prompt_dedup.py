@@ -110,7 +110,7 @@ def _run_fetch_with_mocks(mock_llm):
     sensor = apt_intel.AptIntelSensor()
     context = {
         "all_participant_countries": ["US", "TW", "JP", "CN"],
-        "strategic_theaters": ["US", "TW", "JP", "CN"],
+        "strategic_countries": ["US", "TW", "JP", "CN"],
     }
 
     with patch("radar.sensors.apt_intel._fetch_rss", return_value=rss_xml), \

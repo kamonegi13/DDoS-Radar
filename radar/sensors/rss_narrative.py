@@ -91,7 +91,7 @@ def _get_geo_regex(theater: str, terms: list[str]) -> re.Pattern | None:
 
 def _classify_article_geo(
     text_lower: str,
-    current_theater: str,
+    current_country: str,
     all_geo_terms: dict[str, list[str]],
 ) -> str:
     """Classify an article's geographic relevance to a theater.
@@ -102,14 +102,14 @@ def _classify_article_geo(
         "generic" — no monitored theater geography detected (global/ambiguous)
     """
     # Check current theater first
-    current_terms = all_geo_terms.get(current_theater, [])
-    current_re = _get_geo_regex(current_theater, current_terms)
+    current_terms = all_geo_terms.get(current_country, [])
+    current_re = _get_geo_regex(current_country, current_terms)
     if current_re and current_re.search(text_lower):
         return "match"
 
     # Check all other theaters
     for code, terms in all_geo_terms.items():
-        if code == current_theater:
+        if code == current_country:
             continue
         other_re = _get_geo_regex(code, terms)
         if other_re and other_re.search(text_lower):
@@ -148,7 +148,7 @@ class RssNarrativeSensor(BaseSensor):
     def _count_keywords_in_rss(
         xml_text: str,
         keywords: list,
-        current_theater: str = "",
+        current_country: str = "",
         all_geo_terms: dict[str, list[str]] | None = None,
     ) -> tuple:
         """
@@ -177,7 +177,7 @@ class RssNarrativeSensor(BaseSensor):
             r"\b(?:" + "|".join(re.escape(t) for t in atomic) + r")\b"
         ) if atomic else None
 
-        use_geo = bool(all_geo_terms and current_theater)
+        use_geo = bool(all_geo_terms and current_country)
         titles_seen: set = set()
         keyword_hits, article_count = 0, 0
 
@@ -199,7 +199,7 @@ class RssNarrativeSensor(BaseSensor):
 
             # Geographic relevance: skip keyword counting for other-theater articles
             if use_geo:
-                geo = _classify_article_geo(text, current_theater, all_geo_terms)
+                geo = _classify_article_geo(text, current_country, all_geo_terms)
                 if geo == "other":
                     continue
 
@@ -220,7 +220,7 @@ class RssNarrativeSensor(BaseSensor):
         xml_text: str,
         keywords: list,
         max_articles: int = 4,
-        current_theater: str = "",
+        current_country: str = "",
         all_geo_terms: dict[str, list[str]] | None = None,
     ) -> list[dict]:
         """Extract matched articles from RSS XML for LLM burst analysis.
@@ -242,7 +242,7 @@ class RssNarrativeSensor(BaseSensor):
             r"\b(?:" + "|".join(re.escape(t) for t in atomic) + r")\b"
         ) if atomic else None
 
-        use_geo = bool(all_geo_terms and current_theater)
+        use_geo = bool(all_geo_terms and current_country)
         titles_seen: set = set()
         articles = []
 
@@ -264,7 +264,7 @@ class RssNarrativeSensor(BaseSensor):
 
             # Geographic filter: skip articles about other monitored theaters
             if use_geo:
-                geo = _classify_article_geo(text_lower, current_theater, all_geo_terms)
+                geo = _classify_article_geo(text_lower, current_country, all_geo_terms)
                 if geo == "other":
                     continue
 
@@ -625,7 +625,7 @@ class RssNarrativeSensor(BaseSensor):
         # across all scorable scenarios so background scenarios receive intel
         # signal too (ADR-004).
         theaters        = (context.get("all_participant_countries")
-                           or context.get("strategic_theaters", []))
+                           or context.get("strategic_countries", []))
         adversary_states = context.get("adversary_states", [])
         results: dict = {}
         t0 = time.time()
@@ -674,7 +674,7 @@ class RssNarrativeSensor(BaseSensor):
                 xml_texts[source_name] = xml_text
                 hits, articles = self._count_keywords_in_rss(
                     xml_text, keywords,
-                    current_theater=theater,
+                    current_country=theater,
                     all_geo_terms=NARRATIVE_GEO_TERMS,
                 )
                 combined_hits    += hits
@@ -707,7 +707,7 @@ class RssNarrativeSensor(BaseSensor):
                     burst_article_pool.extend(
                         self._get_burst_articles(
                             xml_text, keywords, max_articles=2,
-                            current_theater=theater,
+                            current_country=theater,
                             all_geo_terms=NARRATIVE_GEO_TERMS,
                         )
                     )

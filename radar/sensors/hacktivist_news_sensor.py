@@ -233,8 +233,8 @@ class HacktivistNewsSensor(BaseSensor):
 
         # LLM sensor covers every participant country across all scorable
         # scenarios (ADR-004).
-        strategic_theaters = set(context.get("all_participant_countries")
-                                  or context.get("strategic_theaters", []))
+        strategic_countries = set(context.get("all_participant_countries")
+                                  or context.get("strategic_countries", []))
         t0 = time.time()
         submitted = 0
         any_feed_ok = False
@@ -273,7 +273,7 @@ class HacktivistNewsSensor(BaseSensor):
                 safe_summary = sanitize_llm_input(art["summary"], 500)
                 article_text = f"{art['title']}\n{art['summary'][:500]}"
 
-                theaters_str = ", ".join(sorted(strategic_theaters)) if strategic_theaters else "any"
+                theaters_str = ", ".join(sorted(strategic_countries)) if strategic_countries else "any"
 
                 system_prompt = (
                     "You are a cyber threat intelligence analyst specializing in "
@@ -362,10 +362,10 @@ class HacktivistNewsSensor(BaseSensor):
                     log.debug(
                         f"[HackNews] No theater: {art['title'][:60]}"
                     )
-                    record_sensor_drop("no_theater")
+                    record_sensor_drop("no_country")
                     continue
 
-                if strategic_theaters and theater not in strategic_theaters:
+                if strategic_countries and theater not in strategic_countries:
                     log.debug(
                         f"[HackNews] Theater {theater} not strategic: "
                         f"{art['title'][:60]}"

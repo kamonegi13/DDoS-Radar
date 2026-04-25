@@ -873,29 +873,29 @@ class WeightedConvergenceEngine:
     # ── A2: Theater Baseline Risk (auto-calculated) ──────────────────────────
 
     def __init__(self):
-        self._theater_baselines: dict[str, list[tuple[float, float]]] = {}
+        self._country_baselines: dict[str, list[tuple[float, float]]] = {}
         self._baseline_lock = threading.Lock()
 
-    def record_theater_score(self, theater: str, score: float):
+    def record_country_score(self, theater: str, score: float):
         """Record a score sample for theater baseline computation."""
         now = time.time()
         cutoff = now - THEATER_BASELINE_WINDOW * 86400
         with self._baseline_lock:
-            history = self._theater_baselines.setdefault(theater, [])
+            history = self._country_baselines.setdefault(theater, [])
             history.append((now, score))
             # Prune entries older than the baseline window
-            self._theater_baselines[theater] = [
+            self._country_baselines[theater] = [
                 (t, s) for t, s in history if t > cutoff
             ]
 
-    def compute_theater_zscore(self, theater: str, current_score: float) -> dict:
+    def compute_country_zscore(self, theater: str, current_score: float) -> dict:
         """Compute Z-score of current score against theater-specific baseline.
 
         Returns: {"z_score": float, "baseline_mean": float, "baseline_std": float,
                   "samples": int, "is_anomalous": bool}
         """
         with self._baseline_lock:
-            history = list(self._theater_baselines.get(theater, []))
+            history = list(self._country_baselines.get(theater, []))
         scores = [s for _, s in history]
         n = len(scores)
         if n < THEATER_BASELINE_MIN_SAMPLES:
