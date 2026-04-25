@@ -374,6 +374,14 @@ class Role(Enum):
 - API response の `strategic.secondary_ecs` で「sequence log で silent な belligerent」を可視化(NP6)
 - 完全な per-country sequence event 対称化は将来の refactor とする(add_rat() / suppression / confidence gating の interaction が大きいため、TDD で段階的に導入予定)
 
+**ADR-009 follow-up: Stage 1 + 2 完了 (2026-04-25)**:
+- **Stage 1** (commit `437e86c`): scenario-wide events を両 belligerent に対称登録。pure helper `resolve_seq_fire_targets(core_theater, effective_cores, scenario_wide)` を `radar/scoring.py` に追加し、`_seq_fire(...)` に `scenario_wide: bool` 引数を導入。`NARRATIVE_BURST` (theater-aggregate Z-score) と `SYNC_DDOS` (multi-target ddos) を `scenario_wide=True` に変更
+- **Stage 2.1** (commit `31e9f9d`): per-country `FIRMS_ANOMALY` を secondary に対称登録。pure helper `select_secondary_ec_hits(effective_cores, primary_ec, data, country_field)` を `radar/scoring.py` に追加(list-of-dicts 形のセンサーデータに対応)
+- **Stage 2.2** (commit `c3d1b51`): dict-keyed センサーデータ 5 種類を per-country 対称登録: `ISR_SURGE`, `AIS_DARK_GAP` (CHOKEPOINTS の country 一致のみ), `NOTAM_SURGE`, `OONI CENSORSHIP_DETECTED`, `MIL_AIR_SURGE`(tanker/transport/awacs surge)。各々 `_<sensor>_active` flag で循環ブレーカ判定を共有
+- **Stage 2.3** (commit `761f4e4`): Tor+IHR cross-sensor `CENSORSHIP_DETECTED` を secondary に対称登録。rationale entry が 1-per-sensor のため raw status dict (`tor_country_status`, `ihr_disco`, `ihr_country_status`) を per-secondary 直接参照
+- ADR-009 follow-up は Stage 2.3 をもって完了。dual-core scenario における sequence event 登録は scenario-wide / per-country 両系統で対称になった
+- 設計判断: per-country 系では「データ存在ベース」(各 secondary の sensor cache に該当国の hit が存在する場合のみ発火)を採用。NP6(透明性 / honest provenance)を NP1(感度)よりも優先し、false-provenance event を避ける
+
 ### ADR-010: country-level 出力は内部保持、API は scenario 中心、drill-down は専用エンドポイント
 
 **Status**: Accepted (2026-04-12)
@@ -1955,6 +1963,7 @@ Phase N の完了時に、その Phase で実装された **疑似コード・SQ
 | 2026-04-21 | 1.6.6 | ADR-024 追加: CTLog 上流耐障害性。失敗モード 6 種に細分化、サイレント 5xx 修正。Tier 1 基盤(`_require_analyst()`、migration v10 shadow_eval_log) | — |
 | 2026-04-23 | 1.6.7 | TL/dual-weight 評価に絶対期限と決定基準付与(10.5 節)。Calidog certstream の 60s close を確認し既定 false 化、watchdog 追加。Upstreams 管理タブ追加 | — |
 | 2026-04-25 | 1.8.0 | **ツール定義のブラッシュアップに伴う設計原則の全面改訂**。CLAUDE.md の 4 文定義(NP4 結論最大化への舵切り)に整合させ、Section 1 を 1 文 → 4 文に置換、Section 3 の P1〜P5 を NP1〜NP7 に全面書換(優先度ピラミッド + 旧呼称マッピング表を併設)。**旧 P5(ツールは判断しない)を完全廃止**し、NP4(結論最大化) + NP7(組織内ノード) で責務を分担。ADR-025 の根拠を P5 → NP4/NP5+8 に再定式化(「観察可能性 > 自動化」→「自動化は許容、観察可能性は不可欠」)。ADR-026 新規追加: 設計 W = participant weight の制約付き自動 calibration(`configured_weight × adjustment_factor`、adjustment ∈ [0.7, 1.3] hard clip、5 ゲート AND 条件、shadow → opt-in → default-on 段階展開、shadow_sampler 再利用、analyst override 常時可能)。Out of Scope の根拠を P5 違反 → NP4/NP6/NP7 で再定義。OQ-6 と R15 を追加。散在する P1〜P5 参照を NP 系に置換 | TBD |
+| 2026-04-25 | 1.8.1 | **ADR-009 follow-up Stage 1+2 完了**。dual-core scenario の sequence event を per-country 7 種類 + scenario-wide 2 種類で対称登録(NARRATIVE_BURST / SYNC_DDOS / FIRMS_ANOMALY / ISR_SURGE / AIS_DARK_GAP / NOTAM_SURGE / OONI CENSORSHIP / MIL_AIR_SURGE / Tor+IHR CENSORSHIP)。pure helper `resolve_seq_fire_targets()` と `select_secondary_ec_hits()` を `radar/scoring.py` に追加(各々 8 テスト)。設計判断: per-country 系はデータ存在ベース(NP6 honest provenance を NP1 sensitivity に優先)。F (weight_advisory + secondary_ecs API + confidence histogram) / E (scenario_contribution_log retention) / C (weight_advisory timeseries) / D (shadow_drift detection) も併せて完了 | `437e86c`〜`761f4e4` |
 
 ---
 
