@@ -82,7 +82,18 @@ class Occurrence:
 
 
 # Regex for a token *containing* "theater" anywhere in the identifier.
-TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*theater[A-Za-z0-9_]*", re.IGNORECASE)
+# v2 fix: the original pattern required at least one word char *before* "theater",
+# so it missed standalone `theater` and tokens *starting* with theater (e.g.
+# `theater_baselines`, `theaters`). We now match any identifier whose body
+# contains "theater" by anchoring on non-word boundaries on both sides and
+# allowing the prefix to be empty.
+TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])",
+)
+
+
+def _token_contains_theater(token: str) -> bool:
+    return "theater" in token.lower()
 
 
 def _is_excluded(path: Path) -> bool:
@@ -187,6 +198,8 @@ def discover() -> list[Occurrence]:
         for lineno, line in enumerate(text.splitlines(), start=1):
             for match in TOKEN_RE.finditer(line):
                 token = match.group(0)
+                if not _token_contains_theater(token):
+                    continue
                 classification, proposed, note = _classify(token, line, path)
                 snippet = line.strip()[:120]
                 found.append(Occurrence(
