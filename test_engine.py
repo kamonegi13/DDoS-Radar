@@ -249,7 +249,7 @@ class TestWeightedConvergenceEngine:
         )
         assert detected is False
 
-    def test_maskirovka_medium_without_cross_theater(self):
+    def test_maskirovka_medium_without_cross_country(self):
         detected, conf, _ = self.engine.detect_maskirovka(
             core_degraded=True, narrative_burst=False,
             check_host_status="OK", telegram_intent=False,
@@ -1014,10 +1014,10 @@ class TestLinearSlope:
 class TestCfBgpHijackScoring:
     """Tests for CF Radar BGP hijack/leak scoring logic (as implemented in core.py)."""
 
-    def _score_bgp_events(self, hijacks, leaks, core_theater="TW"):
+    def _score_bgp_events(self, hijacks, leaks, focused_country="TW"):
         """Replicate the scoring logic from core.py for BGP events."""
-        core_hijacks = [h for h in hijacks if h.get("victim_country") == core_theater]
-        core_leaks = [l for l in leaks if l.get("leak_country") == core_theater]
+        core_hijacks = [h for h in hijacks if h.get("victim_country") == focused_country]
+        core_leaks = [l for l in leaks if l.get("leak_country") == focused_country]
         hijack_ongoing = [h for h in core_hijacks if h.get("is_ongoing")]
         fired = len(hijack_ongoing) > 0 or len(core_leaks) >= 3
         return fired, len(core_hijacks), len(core_leaks), len(hijack_ongoing)

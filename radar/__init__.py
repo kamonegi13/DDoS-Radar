@@ -255,15 +255,15 @@ for _i, _s in enumerate(registry._sensors.values()):
 # HOD covers every country any scorable scenario participates in, and treats
 # ADVERSARY-role participants as adversaries for baseline purposes (ADR-014).
 from radar.scenarios import scenario_store as _scenario_store, Role as _Role
-_hod_theaters: set[str] = set()
+_hod_countries: set[str] = set()
 _hod_adversaries: set[str] = set()
 for _sc in _scenario_store.scorable():
-    _hod_theaters |= set(_sc.participants.keys())
+    _hod_countries |= set(_sc.participants.keys())
     _hod_adversaries |= {_cc for _cc, _p in _sc.participants.items()
                          if _p.role == _Role.ADVERSARY}
 threading.Thread(
     target=prefill_hod_baseline_bg,
-    args=(sorted(_hod_theaters), sorted(_hod_adversaries)),
+    args=(sorted(_hod_countries), sorted(_hod_adversaries)),
     daemon=True, name='hod-prefill'
 ).start()
 

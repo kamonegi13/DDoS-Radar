@@ -107,7 +107,7 @@ class GpsJammingSensor(BaseSensor):
 
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
-        theaters = context.get("strategic_theaters", [])
+        theaters = context.get("strategic_countries", [])
         adversaries = context.get("adversary_states", [])
         all_targets = list(set(theaters + adversaries))
         if not all_targets:

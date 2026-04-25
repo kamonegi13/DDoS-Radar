@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS time_series (
     series_type TEXT NOT NULL,
     value       REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_time_series_theater
+CREATE INDEX IF NOT EXISTS idx_time_series_country
     ON time_series (theater, series_type, id);
 
 -- alert_timeline (ring buffer, max 288)
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS sequence_events (
     event_type TEXT NOT NULL,
     meta_json  TEXT NOT NULL DEFAULT '{}'
 );
-CREATE INDEX IF NOT EXISTS idx_seq_events_theater_ts
+CREATE INDEX IF NOT EXISTS idx_seq_events_country_ts
     ON sequence_events (theater, ts);
 
 -- threat_history (ring buffer, max 20)
@@ -260,7 +260,7 @@ CREATE TABLE IF NOT EXISTS confirmed_threats (
     notes           TEXT NOT NULL DEFAULT '',
     created_by      TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS idx_confirmed_theater_ts ON confirmed_threats (theater, ts);
+CREATE INDEX IF NOT EXISTS idx_confirmed_country_ts ON confirmed_threats (theater, ts);
 
 -- CAC: Daily summary snapshots for long-term trend analysis
 CREATE TABLE IF NOT EXISTS daily_summary (
@@ -277,7 +277,7 @@ CREATE TABLE IF NOT EXISTS daily_summary (
     summary_json  TEXT NOT NULL DEFAULT '{}',
     UNIQUE(theater, day_bucket)
 );
-CREATE INDEX IF NOT EXISTS idx_daily_summary_theater ON daily_summary (theater, day_bucket);
+CREATE INDEX IF NOT EXISTS idx_daily_summary_country ON daily_summary (theater, day_bucket);
 
 -- CAC: Forecast log for prediction accuracy tracking
 CREATE TABLE IF NOT EXISTS forecast_log (
@@ -290,7 +290,7 @@ CREATE TABLE IF NOT EXISTS forecast_log (
     resolved_at   REAL DEFAULT NULL,
     accuracy      REAL DEFAULT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_forecast_theater_ts ON forecast_log (theater, ts);
+CREATE INDEX IF NOT EXISTS idx_forecast_country_ts ON forecast_log (theater, ts);
 
 -- CAC: Co-occurrence statistics for sensor pattern learning (sensitivity UP only)
 CREATE TABLE IF NOT EXISTS cooccurrence_stats (
@@ -355,7 +355,7 @@ CREATE TABLE IF NOT EXISTS llm_intel (
 );
 CREATE INDEX IF NOT EXISTS idx_llm_intel_ts     ON llm_intel (ts DESC);
 CREATE INDEX IF NOT EXISTS idx_llm_intel_status ON llm_intel (status, ts DESC);
-CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_intel_country ON llm_intel (theater, ts DESC);
 
 -- Auth: user accounts
 CREATE TABLE IF NOT EXISTS users (
@@ -704,7 +704,7 @@ class RadarDB:
             )"""),
             conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_intel_ts      ON llm_intel (ts DESC)"),
             conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_intel_status  ON llm_intel (status, ts DESC)"),
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_intel_theater ON llm_intel (theater, ts DESC)"),
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_intel_country ON llm_intel (theater, ts DESC)"),
         ]),
         (3, "Add scenario tables and sequence_events.scenario_id", lambda conn: [
             conn.execute("""CREATE TABLE IF NOT EXISTS scenarios (
@@ -1390,7 +1390,7 @@ class RadarDB:
         row = self._get_conn().execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         return row[0] if row else 0
 
-    def hod_total_points_theater(self, table: str, theater: str) -> int:
+    def hod_total_points_country(self, table: str, theater: str) -> int:
         if table not in _HOD_TABLES:
             raise ValueError(f"Invalid HOD table: {table!r}")
         row = self._get_conn().execute(
@@ -1464,7 +1464,7 @@ class RadarDB:
         ).fetchall()
         return [(r[0], r[1]) for r in rows]
 
-    def ts_distinct_theaters(self) -> list[str]:
+    def ts_distinct_countries(self) -> list[str]:
         rows = self._get_conn().execute(
             "SELECT DISTINCT theater FROM time_series_ts ORDER BY theater"
         ).fetchall()
@@ -1580,7 +1580,7 @@ class RadarDB:
         row = self._get_conn().execute("SELECT COUNT(*) FROM sequence_events").fetchone()
         return row[0] if row else 0
 
-    def seq_distinct_theaters(self) -> list[str]:
+    def seq_distinct_countries(self) -> list[str]:
         rows = self._get_conn().execute(
             "SELECT DISTINCT theater FROM sequence_events"
         ).fetchall()

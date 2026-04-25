@@ -21,7 +21,7 @@ class IsrHotspotSensor(BaseSensor):
         super().__init__("isr_hotspot", "physical", 1800)
 
     def fetch(self, context: dict) -> dict:
-        theaters = set(context.get("strategic_theaters", []))
+        theaters = set(context.get("strategic_countries", []))
         results: dict = {}
         t0 = time.time()
         any_success = False; last_status = 0; last_error = ""

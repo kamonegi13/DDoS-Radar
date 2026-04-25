@@ -137,7 +137,7 @@ def _fetch_rss(url: str) -> str:
     return ""
 
 
-def _theater_names(theaters: list[str]) -> list[str]:
+def _country_names(theaters: list[str]) -> list[str]:
     """Resolve theater codes to lowercase country/region names for text matching."""
     names = []
     for code in theaters:
@@ -253,8 +253,8 @@ class DiplomaticSensor(BaseSensor):
 
         # LLM sensor covers every participant country across all scorable
         # scenarios (ADR-004).
-        strategic_theaters = set(context.get("all_participant_countries")
-                                  or context.get("strategic_theaters", []))
+        strategic_countries = set(context.get("all_participant_countries")
+                                  or context.get("strategic_countries", []))
         t0 = time.time()
         submitted = 0
         any_feed_ok = False
@@ -264,7 +264,7 @@ class DiplomaticSensor(BaseSensor):
         total_articles = 0
 
         for source_name, meta in _DIPLOMATIC_SOURCES.items():
-            theaters = [t for t in meta["theaters"] if t in strategic_theaters or not strategic_theaters]
+            theaters = [t for t in meta["theaters"] if t in strategic_countries or not strategic_countries]
             if not theaters:
                 continue
 
@@ -275,7 +275,7 @@ class DiplomaticSensor(BaseSensor):
                 feeds_ok += 1
             else:
                 record_sensor_skip(f"feed_fetch_failed:{source_name}", caller="diplomatic")
-            t_names = _theater_names(theaters)
+            t_names = _country_names(theaters)
             articles = _parse_articles(xml_text, theater_names=t_names)
             total_articles += len(articles)
             if not articles:
@@ -368,12 +368,12 @@ class DiplomaticSensor(BaseSensor):
                     country_weights[c] = max(0.0, min(1.0, safe_float(w, default=1.0)))
 
                 # Discard if LLM could not assign a specific theater — no forced fallback
-                llm_theater = (data.get("theater") or "").strip().upper()
-                if not llm_theater or llm_theater not in theaters:
-                    log.debug(f"[Diplomatic] No specific theater match for {source_name} (llm={llm_theater!r})")
+                llm_country = (data.get("theater") or "").strip().upper()
+                if not llm_country or llm_country not in theaters:
+                    log.debug(f"[Diplomatic] No specific theater match for {source_name} (llm={llm_country!r})")
                     record_sensor_drop("theater_mismatch")
                     continue
-                theater = llm_theater
+                theater = llm_country
 
                 if theater not in countries:
                     countries = [theater] + countries

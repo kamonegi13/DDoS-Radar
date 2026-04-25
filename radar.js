@@ -144,7 +144,7 @@
 
     // Resolve the "target country" for CHAIN fetch / LLM intel filter.
     // Prefer scenario participants[role=primary_target], fall back to the legacy
-    // strat.core_theater field while backend deprecation (sunset 2026-10-01) is in flight.
+    // strat.focused_country field while backend deprecation (sunset 2026-10-01) is in flight.
     function resolveChainTargetCountry(strat) {
         if (!strat) return '';
         const parts = strat.participants;
@@ -161,7 +161,7 @@
             }
             if (primary) return primary;
         }
-        return (strat.core_theater || '').toUpperCase();
+        return (strat.focused_country || '').toUpperCase();
     }
 
     // Evidence Rationale Matrix: collapsed domain groups (persisted)
@@ -354,7 +354,7 @@
                     <span style="color:#888;font-size:10px;">${esc(cc)}</span>
                     <span class="gn-noise-${esc(nc)}" style="font-size:10px;font-weight:bold;">${esc(nc)}${nr}</span>
                 </div>`;
-            }).join('') || `<div style="color:#444;font-size:9px;">${_t('gn.no_theater_data')}</div>`;
+            }).join('') || `<div style="color:#444;font-size:9px;">${_t('gn.no_country_data')}</div>`;
         }
     }
 
@@ -1192,12 +1192,12 @@
         // ev-llm-intel (chain panel — LLM confirmed intel count for this theater)
         const llmIntelEl = document.getElementById('ev-llm-intel');
         if (llmIntelEl) {
-            const curTheater = resolveChainTargetCountry(strat);
+            const curCountry = resolveChainTargetCountry(strat);
             const active = _llmItems.filter(i =>
                 (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
-                (!curTheater || i.theater === curTheater)
+                (!curCountry || i.theater === curCountry)
             );
-            const reviewNeeded = _llmItems.filter(i => i.status === 'review_needed' && (!curTheater || i.theater === curTheater));
+            const reviewNeeded = _llmItems.filter(i => i.status === 'review_needed' && (!curCountry || i.theater === curCountry));
             if (reviewNeeded.length > 0) {
                 llmIntelEl.textContent = `⚠ ${reviewNeeded.length} ${_t('chain.llm_intel.review')}`;
                 llmIntelEl.style.color = '#ff8800';
@@ -1836,7 +1836,7 @@
         const strat = (latestData || {}).strategic_alert || {};
         const coreVal = resolveChainTargetCountry(strat);
         const advSet  = new Set(strat.adversary_states || []);
-        const partSet = new Set(strat.active_theaters || []);
+        const partSet = new Set(strat.active_countries || []);
         if (coreVal) partSet.add(coreVal);
 
         THEATERS.forEach(t => {
@@ -1880,7 +1880,7 @@
     };
     let _activeBloc = '';  // retained for region pill state (Pins tab removed)
 
-    function buildTheaterUI() {
+    function buildCountryUI() {
         // Strategy / Actors / Pins tabs were removed — scope is now driven by
         // the focused scenario's participants (see Scenario Manager admin tab).
         _reapplyFilters = () => {};
@@ -1893,7 +1893,7 @@
         const displayGrid = document.getElementById('display-checkboxes');
         if (!displayGrid) return;
         const strat = (latestData || {}).strategic_alert || {};
-        const active = new Set(strat.active_theaters || []);
+        const active = new Set(strat.active_countries || []);
         const _coreVal = resolveChainTargetCountry(strat);
         if (_coreVal) active.add(_coreVal);
         displayGrid.innerHTML = '';
@@ -1917,7 +1917,7 @@
         // Scope is now derived from the focused scenario server-side; the URL
         // only needs to carry the focus id. Preserve the shape for legacy callers.
         const strat = (latestData || {}).strategic_alert || {};
-        const active = new Set(strat.active_theaters || []);
+        const active = new Set(strat.active_countries || []);
         const _coreVal = resolveChainTargetCountry(strat);
         if (_coreVal) active.add(_coreVal);
         return {
@@ -1955,7 +1955,7 @@
     // WS state — declared before fetchDDoSData so it can reference them
     let _wsConnected = false;
     let _wsSocket = null;
-    let _wsSubscribedTheater = '';
+    let _wsSubscribedCountry = '';
     let _lastSyncTime = 0;
     const _POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 min
 
@@ -1966,7 +1966,7 @@
         // Under scenario-unit mode the server derives scope from the focused
         // scenario; only focus + muted + force are passed.
         const mutedList = Array.from(mutedSensors).join(',');
-        const coreTheater = resolveChainTargetCountry((latestData || {}).strategic_alert || {});
+        const coreCountry = resolveChainTargetCountry((latestData || {}).strategic_alert || {});
 
         const syncBtnTop = document.getElementById('btn-sync-top');
         const syncBtnSide = document.getElementById('btn-sync-side');
@@ -1996,11 +1996,11 @@
             lastSyncedConfig = getCurrentConfig();
 
             // Re-subscribe WS room if core theater changed
-            if (_wsSocket && _wsConnected && coreTheater && coreTheater !== _wsSubscribedTheater) {
-                if (_wsSubscribedTheater) _wsSocket.emit('unsubscribe_theater', _wsSubscribedTheater);
-                _wsSocket.emit('subscribe_theater', coreTheater);
-                _wsSubscribedTheater = coreTheater;
-                console.log('[WS] Re-subscribed to', coreTheater);
+            if (_wsSocket && _wsConnected && coreCountry && coreCountry !== _wsSubscribedCountry) {
+                if (_wsSubscribedCountry) _wsSocket.emit('unsubscribe_country', _wsSubscribedCountry);
+                _wsSocket.emit('subscribe_country', coreCountry);
+                _wsSubscribedCountry = coreCountry;
+                console.log('[WS] Re-subscribed to', coreCountry);
             }
 
             renderTelemetry(latestData);
@@ -2543,12 +2543,12 @@
             }
             strikesEl.innerHTML = strikesText;
 
-            const degraded = strat.degraded_theaters && strat.degraded_theaters.length > 0 ? esc(strat.degraded_theaters.join(', ')) : "None";
+            const degraded = strat.degraded_countries && strat.degraded_countries.length > 0 ? esc(strat.degraded_countries.join(', ')) : "None";
             outagesEl.innerHTML = `<span class="${degraded !== 'None' ? 'warn-text' : ''}">${degraded}</span>`;
 
             if (coordinatedEl) {
-                if (strat.coordinated_theaters && strat.coordinated_theaters.length >= 2) {
-                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${esc(strat.coordinated_theaters.join(', '))}]</span>`;
+                if (strat.coordinated_countries && strat.coordinated_countries.length >= 2) {
+                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${esc(strat.coordinated_countries.join(', '))}]</span>`;
                 } else {
                     coordinatedEl.innerText = "None";
                 }
@@ -3080,7 +3080,7 @@
         if (defaults.strategic_blocs)   STRATEGIC_BLOCS_DATA = defaults.strategic_blocs;
         if (defaults.adversary_options) ADVERSARY_OPTIONS    = defaults.adversary_options;
         if (defaults.country_bloc_tags) COUNTRY_BLOC_TAGS    = defaults.country_bloc_tags;
-        buildTheaterUI();
+        buildCountryUI();
 
         const savedState = localStorage.getItem('ctiIntelAlerts');
         if (savedState) {
@@ -3174,15 +3174,15 @@
                     _wsConnected = true;
                     const core = getCurrentConfig().core || '';
                     if (!core) return;
-                    _wsSubscribedTheater = core;
-                    _wsSocket.emit('subscribe_theater', core);
+                    _wsSubscribedCountry = core;
+                    _wsSocket.emit('subscribe_country', core);
                     console.log('[WS] Connected, subscribed to', core);
                     const dot = document.getElementById('ws-status-dot');
                     if (dot) dot.className = 'ws-dot ws-dot-connected';
                 });
                 _wsSocket.on('disconnect', () => {
                     _wsConnected = false;
-                    _wsSubscribedTheater = '';
+                    _wsSubscribedCountry = '';
                     console.log('[WS] Disconnected — polling fallback active');
                     const dot = document.getElementById('ws-status-dot');
                     if (dot) dot.className = 'ws-dot ws-dot-disconnected';
@@ -3508,7 +3508,7 @@
 
         ${(function() {
             const p8 = strat.analytics || {};
-            const p8Theater = resolveChainTargetCountry(strat) || '—';
+            const p8Country = resolveChainTargetCountry(strat) || '—';
             const velRaw = p8.velocity;
             const velColor = velRaw > 0.0005 ? '#ff4444' : velRaw > 0.0001 ? '#ffaa00' : '#00ff88';
             const velTxt  = velRaw !== undefined
@@ -7671,11 +7671,11 @@
         html += `      <th style="width:80px;">${_t('scenario.mgr.weight')}</th>`;
         html += '    </tr></thead>';
         html += '    <tbody id="scmgr-picker-body">';
-        const sortedTheaters = (THEATERS || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-        if (sortedTheaters.length === 0) {
+        const sortedCountries = (THEATERS || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+        if (sortedCountries.length === 0) {
             html += '<tr><td colspan="6" class="scmgr-p-empty">Country list not loaded.</td></tr>';
         } else {
-            for (const t of sortedTheaters) {
+            for (const t of sortedCountries) {
                 const sel = participants[t.code];
                 html += _scMgrCountryRow(t, sel, coreCountry);
             }

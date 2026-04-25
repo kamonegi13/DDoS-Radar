@@ -33,7 +33,7 @@
 | `radar/conclusions/base.py` | frozen dataclass、5 ConclusionType、4 UnavailableReason、`__post_init__` バリデーション、`to_dict` / `to_db_row` | `test_conclusions.py` |
 | `radar/database.py` | migration v19 (conclusions ledger) + v20 (llm_prompts + llm_call_log.prompt_sha256) を `_MIGRATIONS` と `_SCHEMA_SQL` 両方に追加 | smoke test 2 件 (v19/v20) |
 | `test_conclusions.py` | **17 ケース全 PASS** (id 一意性、状態と unavailable_reason の排他、disclaimer 必須、confidence 範囲、frozen、シリアライズ、5 ConclusionType、DB マイグレーション 2 件) | — |
-| `scripts/codemod_theater.py` | discover / diff / apply 3 サブコマンド。491 occurrences 分類済 (rename_to_country=313, rename_to_focused_country=166, user_facing_text=8, keep_v1_api_param=4) | — |
+| `scripts/codemod_country.py` | discover / diff / apply 3 サブコマンド。491 occurrences 分類済 (rename_to_country=313, rename_to_focused_country=166, user_facing_text=8, keep_v1_api_param=4) | — |
 
 ### 3. 解決済みの設計判断
 
@@ -90,10 +90,10 @@
 
 **着手手順**:
 1. **専用ブランチ** (`v2/theater-codemod`) を作成。
-2. `python scripts/codemod_theater.py discover` で manifest 再生成 (Phase 0 から時間が経っていれば)。
+2. `python scripts/codemod_country.py discover` で manifest 再生成 (Phase 0 から時間が経っていれば)。
 3. `scripts/_codemod_manifest.json` を **手動レビュー** — 特に `user_facing_text` (8 件) と `keep_v1_api_param` (4 件) の妥当性確認。
-4. `python scripts/codemod_theater.py diff` でファイル別変更プレビュー。
-5. `python scripts/codemod_theater.py apply --i-have-a-clean-git-tree` 実行。
+4. `python scripts/codemod_country.py diff` でファイル別変更プレビュー。
+5. `python scripts/codemod_country.py apply --i-have-a-clean-git-tree` 実行。
 6. **必須**: `pytest` 全件 + `bash smoke_tradecraft.sh` 通過まで commit しない。
 7. SQL 列名変更は別 migration v21 として扱う (codemod は Python 識別子のみ。SQL DDL 文字列は `sqlite_master` から生成して別途 ALTER)。
 8. v1 API adapter (`?theater=` を受けて内部で `country` に変換) は `radar/routes/_v1_compat.py` を新規作成して隔離。
@@ -119,7 +119,7 @@
 
 - [ ] `git status` がクリーン (Phase 0 の変更が commit 済 or stash 済)
 - [ ] `python -m pytest test_conclusions.py -v` が 17/17 pass
-- [ ] `python scripts/codemod_theater.py discover` が走る
+- [ ] `python scripts/codemod_country.py discover` が走る
 - [ ] CLAUDE.md と v2-migration.md を読み直し、NP4 と NP6 の責務が頭に入っている
 - [ ] **Phase 1 は API 互換性を壊さない** ことに合意 (壊すのは Phase 4 sunset)
 

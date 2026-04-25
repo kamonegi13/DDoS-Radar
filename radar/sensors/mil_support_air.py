@@ -67,7 +67,7 @@ class MilSupportAirSensor(BaseSensor):
 
     def fetch(self, context: dict) -> dict:
         t0 = time.time()
-        theaters = set(context.get("strategic_theaters", []))
+        theaters = set(context.get("strategic_countries", []))
         results: dict[str, dict] = {}
         any_success = False
         last_status = 0
