@@ -13,9 +13,9 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 1.7.0 |
+| **現バージョン** | 1.8.0 |
 | **作成日** | 2026-04-11 |
-| **最終更新** | 2026-04-24 |
+| **最終更新** | 2026-04-25 |
 | **現在のフェーズ** | **Phase 5 実装完了（TL 閾値再校正は 2026-04-28 期限、ADR-015 dual-weight 評価は 2026-05-12 期限）** |
 | **採用方針** | **C-lite** で開始、運用知見をもとに **C-medium** へ進化 |
 | **責任者** | kamonegi13(@juzo1192) |
@@ -37,75 +37,137 @@
 
 ## 1. ツールの定義(ユーザー定義文)
 
-> **フリーかつオープンの情報ソースを統合して、選択したシナリオにおける国家レベルの脅威の上昇や開戦兆候を把握するための、直接的なスコアと、アナリスト検証可能な情報を提供するツール**
+> **特定の警戒シナリオにおける国家間エスカレーションと開戦兆候を検知することを目的に、フリーかつオープンの情報ソースを統合し、専門アナリストに対し、現時点で技術的に実行可能な最大の評価結論(全体脅威レベル、トレンド、ドメイン別兆候、個別異常事象、推定攻撃シナリオ)を、その導出に用いた式・閾値・一次ソースと併せて出力するツール。**
+>
+> **本ツールは、組織的なインテリジェンス判断プロセスにおける一つのノードとして機能することを前提とする。最終的な状況判断は、本ツールの出力を含む複数の情報源を統合した、組織のプロセスによって行われる。本ツールの責任範囲は、(1) 透明な計算過程に基づく結論の導出、(2) すべての結論の根拠に至る検証経路の提示、(3) データまたは calibration の不足により結論を出せない状態(結論不可)の明示、に限定される。**
+>
+> **結論不可状態は過渡的なものとして許容されるが、データ蓄積後も恒常的に結論不可が継続する状態は本ツールの設計失敗として扱う。**
+>
+> **本ツールは OSINT のみという制約下での最良努力であり、HUMINT・SIGINT 等を持つ機関と同等の検知能力を主張するものではない。検知漏れの可能性は構造的に存在する。**
 
-この一文がツールのすべての設計判断の起点。**いかなる変更もこの定義に整合しなければならない**。
+この 4 文がツールのすべての設計判断の起点。**いかなる変更もこの定義に整合しなければならない**。
 
 ### 定義から導かれる本質
-- **観察対象は紛争シナリオ**(国ではない)
-- **scoring の出力は直接的**(複雑な集計の結果ではなく、その場で読める数値)
-- **アナリストは判断する主体**(ツールは判断を支援する)
-- **すべての情報は無料で再現可能**
+- **観察対象は特定の警戒シナリオ**(国ではない、また網羅的世界監視でもない)
+- **出力は「現時点で技術的に実行可能な最大の結論」**(advisory に留めず、結論を出す)
+- **アナリストは結論を活用して組織判断を下す主体**(ツールは結論ノードとしてその判断を支援)
+- **計算過程・閾値・一次ソース・LLM プロンプトまで完全に追跡可能**
+- **結論不可は過渡的に許容されるが、恒常化は設計失敗**(NP5+8)
+- **OSINT 限界を明示**(検知漏れの構造的存在を認める)
 
 ---
 
 ## 2. 設計拘束(4つ)
 
-定義文から導かれる、絶対に犯してはならない拘束。
+定義文から導かれる、絶対に犯してはならない拘束。これらは下位の **設計原則 NP1〜NP7**(3 章)へ昇華され、実装層を制約する。
 
 | # | 拘束 | 意味 | 違反例 |
 |---|------|------|--------|
 | **①** | **OSINT 限定** | 有償・機密ソースは使わない | 商用 threat intel feed の組み込み |
-| **②** | **選択したシナリオにおける** | 分析の単位は scenario(国ではない) | 国単位の TL を主出力にする |
-| **③** | **直接的なスコア** | 1つの数値で「いま何点か」が即読める | ML 出力の確率分布を主表示にする |
-| **④** | **アナリスト検証可能** | あらゆる寄与点が原典に追跡できる | ブラックボックス aggregation |
+| **②** | **特定の警戒シナリオにおける** | 分析の単位は scenario(国ではない、また全世界網羅でもない) | 国単位の TL を主出力にする / 未登録 scenario の自動拡張 |
+| **③** | **技術的に実行可能な最大の結論を出力** | 1つの数値で「いま何点か」を出し、トレンド・ドメイン別兆候・推定シナリオまで結論として返す | ML 出力の確率分布を主表示にする / 結論を advisory に格下げする |
+| **④** | **完全な導出開示** | あらゆる寄与点が式・閾値・一次ソース・LLM プロンプトに追跡できる | ブラックボックス aggregation / プロンプトを sensor コードに埋め込んで履歴に残さない |
+
+> **拘束 → NP マッピング**: 拘束① → NP1/NP5+8(感度と OSINT 限界の正直な校正)、拘束② → NP1/NP4(対象シナリオに対し最大結論)、拘束③ → NP4(結論最大化)、拘束④ → NP6(全面開示)。NP7(組織内ノード)は 4 拘束すべての帰結として、結論を「最終判断ではない」位置付けに据える。
 
 ---
 
-## 3. 設計原則(P1〜P5)
+## 3. 設計原則(NP1〜NP7)
 
-設計拘束を実装に翻訳した、コードレベルの判断基準。
+設計拘束を実装に翻訳した、コードレベルの判断基準。**旧 P1〜P5 は本章末のマッピング表で旧呼称→新呼称を保持** する(過去 ADR 文中の `P3` 等の参照が意味を失わないように)。
 
-### P1: シナリオは第一級の出力単位
-**根拠**: 拘束② から直接導出
+### 3.0 優先度ピラミッド
+
+原則間が衝突した場合は上位が下位を制約する。
+
+```
+        NP1 (感度優先)               ← 最上位: 見逃しの忌避
+            │
+        NP4 (結論最大化)             ← 結論を出す姿勢
+            │
+        NP6 (全面開示)               ← 結論の正当化方法
+            │
+       NP5+8 (結論品質規律)          ← 結論不可の扱いと calibration
+            │
+        NP7 (組織内ノード)           ← 出力の位置付け
+            │
+   NP2 (多ソース収斂) / NP3 (障害耐性)  ← 実装層の手段
+```
+
+### NP1: 感度優先(sensitivity-first)
+**根拠**: ツール定義「検知することを目的に」+ 拘束②(対象範囲は限定するが、その範囲内での見逃しは許容しない)
 **意味**:
-- API レスポンスの主体は scenario(country ではない)
-- HUD の主表示単位は scenario
-- TL は scenario ごとに付与
-- アラート/通知は scenario 単位で発火
+- recall を precision より優先する。誤検知は分析プロセスで除外できるが、見逃しは取り戻せない
+- 閾値設定は迷ったら下げる(より多く拾う)
+- 境界事例(borderline signal)はデフォルトで採用、analyst が reject 可能にする
+- 感度低下を伴う最適化(LLM コスト削減、quota 節約)は NP4 / NP6 と独立に評価し、NP1 を最優先で守る
 
-### P2: シナリオ内の cross-country シグナルは自動集約
-**根拠**: 開戦兆候は本質的に複数国に分散して現れるため
+### NP4: 結論最大化(maximum-conclusion)
+**根拠**: ツール定義「現時点で技術的に実行可能な最大の評価結論」
 **意味**:
-- 「US で観測された APT 活動」は Taiwan Contingency シナリオの cyber スコアに自動寄与
-- 寄与の重みは `scenario.participants[country].weight` で定義
-- アナリストが手動で関連付けを行う必要はない
+- 「データから言えること」を最大限に言う。結論を advisory に後退させない
+- 出力対象: 全体脅威レベル(TL)、トレンド、ドメイン別兆候、個別異常事象、推定攻撃シナリオ
+- 「LLM が判断したから」「自動 calibration が動いたから」を理由に結論を弱めない(代わりに NP6 で完全開示する)
+- 旧 P5「ツールは判断しない」は **完全廃止**。本ツールは判断・予測・自律的アクションを行う
 
-### P3: スコア合成式は完全に透明
-**根拠**: 拘束③④
-**意味**:
-- スコアは展開可能な積和式で構成される（→ 正規定義: 7.1 節）
-- すべての項を数値とラベル付きで表示できる
-- ブラックボックス ML や隠れたヒューリスティックは禁止
-- HOD baseline 等の統計的処理は許可だが、式と入力値は表示可能でなければならない
-
-### P4: 全ての rationale は原典追跡可能
-**根拠**: 拘束④
+### NP6: 完全な導出開示(full-disclosure)
+**根拠**: ツール定義「導出に用いた式・閾値・一次ソースと併せて出力」+ 拘束④
 **意味**:
 - 各 rationale entry は次を持つ:
   - sensor 名 + 観測タイムスタンプ
   - 生の観測値
-  - LLM 由来の場合: 原典 URL + LLM の reasoning + confidence
+  - LLM 由来の場合: 原典 URL + LLM の reasoning + confidence + **使用したプロンプトのバージョンタグ**
   - 計算過程: `value × llm_weight × participant_weight = contribution`
 - 「これを除外したら TL がどうなるか」の what-if が UI から可能
+- スコア式は展開可能な積和式(→ 正規定義: 7.1 節)。ブラックボックス ML や隠れたヒューリスティックは禁止
+- HOD baseline 等の統計的処理は許可だが、式と入力値は表示可能でなければならない
+- **NP4 で結論を出す力を獲得した代償として、NP6 は妥協不可**
 
-### P5: ツールは判断を支援する、判断しない
-**根拠**: 拘束④ の最も深い含意
+### NP5+8: 結論品質規律(conclusion-quality discipline)
+**根拠**: ツール定義「データ・calibration 不足による結論不可の明示」+「恒常的結論不可は設計失敗」
+**意味**(2 つの責務を統合):
+1. **(a) Calibration 継続評価**: 各結論には calibration 状態(sample_n、最終 calibration 時刻、信頼区間)を付記する。calibration 不足の結論は「結論不可」状態として返す
+2. **(b) 過渡的結論不可は許容、恒常的結論不可は設計失敗**: データ蓄積後も `INSUFFICIENT_DATA` が継続するエンドポイントは構造欠陥として扱い、ADR を起こして根治する(例: ADR-025 shadow_sampler が解決した focus_switch_log の構造的欠陥)
+
+### NP7: 組織内ノード(organizational-node)
+**根拠**: ツール定義「組織的なインテリジェンス判断プロセスにおける一つのノード」
 **意味**:
-- 自律行動はしない(自動ブロック、自動通報など)
-- 通知は「人間の注意を引く」ためであり、「人間の代わりに判断する」ためではない
-- シナリオ自動検出はしない(シナリオはアナリストが定義)
-- 予測はしない(現状の警告のみ)
+- 出力には常時「最終判断ではない」を含める(API レスポンス、HUD バナー、通知)
+- シナリオ登録判断はアナリスト組織側が行う(ツール側で auto-suggestion を出さない理由は NP7、旧 P5 ではない)
+- 自律行動(自動ブロック、自動通報)は NP7 違反: ツールは判断ノードであり、実行ノードではない
+- 通知は「人間の注意を引く」ためであり、「組織判断を肩代わりする」ためではない
+
+### NP2: 多ソース収斂(implementation layer)
+**根拠**: 単一ソース依存は OSINT のノイズ特性と衝突するため、結論強度を担保するための実装手段
+**意味**:
+- 単一センサー単独で TL を引き上げない設計(convergence_bonus、domain_signal_counts)
+- 複数ドメイン(cyber/physical/info)横断の収斂を加算的にスコアに反映する(DUAL +1.0 / FULL +2.0)
+- これは NP1(感度) と NP6(透明性) を実装で達成するための手段であり、原則間の優先度では下位
+
+### NP3: 障害耐性(implementation layer)
+**根拠**: センサー個別障害は OSINT 環境の常態。全体停止は NP1(感度) を直接損なう
+**意味**:
+- センサーごとのサーキットブレーカー、degraded モード、self-healing
+- 上流障害時は `failure_modes` で観察可能にし(NP6)、結論を出せる範囲では出し続ける
+- NP2 と並ぶ実装層の手段
+
+---
+
+### 旧 P1〜P5 と NP1〜NP7 の対応(履歴保全)
+
+過去 ADR 文中の `P1`〜`P5` 参照は、以下の対応で読み替える。**旧呼称は新規ドキュメントでは使わない**。
+
+| 旧 | 旧の意味 | 新 | 備考 |
+|----|--------|-----|------|
+| P1 | シナリオは第一級の出力単位 | (拘束② に格下げ、NP4 が結論単位を規定) | scenario 単位は手段ではなく分析対象そのもの |
+| P2 | cross-country シグナルの自動集約 | NP2(多ソース収斂)+ NP1(見逃し回避) | 実装手段として位置付けを明確化 |
+| P3 | スコア合成式の透明性 | **NP6(全面開示)** | 完全互換 |
+| P4 | rationale の原典追跡可能性 | **NP6(全面開示)** | P3 と統合 |
+| P5 | ツールは判断を支援する、判断しない | **完全廃止** | NP4(結論最大化)+ NP7(組織内ノード)が責務を分担 |
+
+### 旧 ADR-025 の再定式化(本章での要約、実体は ADR-025 章)
+
+旧 ADR-025 は「観察可能性 > 自動化」を掲げていたが、本版で **「自動化は許容、観察可能性は不可欠」** に再定式化。NP4(結論最大化)が自動化を要請し、NP6(全面開示)が観察可能性を不可侵とする。両者は対立しない。
 
 ---
 
@@ -357,7 +419,7 @@ class Role(Enum):
 
 **Consequences**:
 - ✅ 「削除」の意味が明確
-- ✅ P4(検証可能性)を保てる(履歴を不用意に失わない)
+- ✅ NP6(全面開示)を保てる(履歴を不用意に失わない)
 - ⚠️ scenario_id 予約語表の管理が必要
 
 ### ADR-012: meta-scenario layer は将来課題として保留
@@ -405,7 +467,7 @@ class Role(Enum):
 ### ADR-014: adversaries を participants に統合、scoring に算入する
 
 **Status**: Accepted (2026-04-12)
-**Context**: 既存設計では `adversaries: list[str]` を participants と別フィールドで保持し、scoring に算入していなかった。しかし「CN の cyber 動員」は Taiwan Contingency の重要な前兆であり、scoring に算入されないのは設計原則 P2 に反する。
+**Context**: 既存設計では `adversaries: list[str]` を participants と別フィールドで保持し、scoring に算入していなかった。しかし「CN の cyber 動員」は Taiwan Contingency の重要な前兆であり、scoring に算入されないのは **NP1(感度: 見逃し回避)** および **NP2(多ソース収斂: cross-country シグナル集約)** に反する。
 **Decision**:
 - `adversaries` フィールドを廃止
 - 攻撃側国家は `participants` に role `ADVERSARY` として登録する
@@ -434,10 +496,10 @@ contribution = signal.raw_score
 
 - LLM が country_weights を返さない場合はデフォルト 1.0
 - 非 LLM signal(Cloudflare Radar 等)は常に country_weights = {country: 1.0}
-- 計算式は rationale の `formula_trace` に完全に記録される(P4)
+- 計算式は rationale の `formula_trace` に完全に記録される(NP6)
 **Consequences**:
 - ✅ LLM 判断と analyst 判断の両方が scoring に反映
-- ✅ P3 の透明性を保ちつつ、より精度の高いスコアリング
+- ✅ NP6(全面開示)を保ちつつ、より精度の高いスコアリング
 - ⚠️ LLM プロンプトで country_weights を返させる必要(Phase 3)
 - ⚠️ 既存 test は両方の weight を考慮した期待値に更新
 
@@ -446,7 +508,7 @@ contribution = signal.raw_score
 
 1. **LLM 非決定性**: 同じ記事を別時刻に再分析すると `country_weights` が変わりうる。これは signal.raw_score に直接掛かるため、scoring 安定性の外乱源になる。
 2. **ハルシネーション**: LLM が「TW に関連あり」と 0.8 を返した根拠が原典に無い場合、scoring が過大化する。拘束④(検証可能)を守るには `llm_reasoning` と evidence URL を厳密に保持する必要がある。
-3. **P3(透明性)との緊張**: 「なぜ TW 経由が 0.6 で US 経由が 1.0 なのか」の問いに対して「LLM がそう判定したから」という答えは、直接性を弱める。アナリストにとっての可読性を Phase 4 の HUD 設計で実証する必要がある。
+3. **NP6(全面開示)との緊張**: 「なぜ TW 経由が 0.6 で US 経由が 1.0 なのか」の問いに対して「LLM がそう判定したから」という答えは、検証経路の直接性を弱める。アナリストにとっての可読性を Phase 4 の HUD 設計で実証する必要がある。LLM プロンプトと reasoning を `formula_trace` に保持することが NP6 充足の最低条件。
 4. **後退オプション**: 上記 3 つのいずれかが運用上の問題になった場合、将来の ADR で `country_weights` を **metadata 保存のみに留め、scoring には participant_weight のみを使う** single-weight 方式へ戻す。この場合の `formula_trace` は `raw × participant_weight` の 2 段になる。
 
 **観察指標(Phase 2 完了後から収集開始)**:
@@ -486,7 +548,7 @@ contribution = signal.raw_score
 **Status**: Accepted (2026-04-12)
 **Context**: 既存の TL 履歴・time series・alert データは country 単位で蓄積されている。これをどう扱うか。
 **Decision**:
-- 既存履歴は **破棄せず保持**(P4: 過去の検証可能性)
+- 既存履歴は **破棄せず保持**(NP6: 過去の検証可能性)
 - country 単位の履歴は Phase 2 以降も drill-down API で参照可能
 - scenario 単位の履歴は Phase 2 稼働後から新規に蓄積開始
 - retroactive な再分類(過去データを新 scenario に再マッピング)は行わない
@@ -528,7 +590,7 @@ contribution = signal.raw_score
 **Status**: Accepted (2026-04-12)
 **Context**: 既存 country 単位の scoring engine（WeightedConvergenceEngine）は domain weight `cyber=0.50, physical=0.30, info=0.20` を乗じていた。scenario 単位の scoring ではこの domain weight をどうするか。
 **Decision**: scenario scoring では **domain weight を使用しない**。理由:
-1. participant weight がすでに「この国の観測はどれだけ重要か」を表現しており、domain weight との二重の重み付けは P3（透明性）を損なう
+1. participant weight がすでに「この国の観測はどれだけ重要か」を表現しており、domain weight との二重の重み付けは NP6(全面開示)の検証経路を損なう
 2. domain weight `info=0.20` は country 単位では妥当だったが、scenario 単位では background（C-lite）が info 偏重になるため、info を 0.20 で抑えると background scenario の score_lite がほぼ無意味になる
 3. convergence bonus（DUAL +1.0 / FULL +2.0）がすでに「物理ドメインの重要性」を間接的に表現している（physical がないと FULL bonus は取れない）
 4. 「cyber の 1 点は physical の 1 点と等価か」という問いは、participant weight の校正で各シナリオに合わせて調整するのがより柔軟
@@ -549,7 +611,7 @@ contribution = signal.raw_score
 **(a) Signal.countries の規約（センサー層に義務付け）**:
 - **per-country sensor**（SensorTier.FOCUSED_ONLY）: `countries` は **観測対象の単一国**。例: `countries=["TW"]`
 - **global sensor**（SensorTier.GLOBAL）の非 LLM: `countries` は **空リスト `[]`**。scoring engine が別経路で処理する（下記 b 参照）
-- **global sensor の LLM**: `countries` は **LLM が判定した関連国のみ**（全 participant を列挙しない）。LLM が特定国に帰属させた根拠が必要（P4）
+- **global sensor の LLM**: `countries` は **LLM が判定した関連国のみ**（全 participant を列挙しない）。LLM が特定国に帰属させた根拠が必要(NP6)
 
 **(b) global signal の scoring 経路**:
 `Signal.countries == []` の signal は、scenario の全 participant に展開するのではなく、**scenario 全体への flat な寄与** として扱う:
@@ -737,7 +799,11 @@ ct_data の legacy フィールド（`total_recent`, `gov_count`, `wildcard_coun
 - 結果として `cmedium_recommendation` は半永久的に `INSUFFICIENT_DATA` を返す
 - 「移行すべきか否か」という判定は、移行を判断するための観測機構そのものが動かないため永遠に保留される
 
-これは P5（観察可能性 > 自動化）に反する: ツールが提供すべき観察データを、アナリストの操作待ちにしてしまっていた。
+これは **NP4(結論最大化)** および **NP5+8(結論品質規律)** に反する:
+- NP4 観点: C-medium 移行可否という「結論」を出すために必要な観測機構が、アナリスト操作待ちで動かない構造になっていた
+- NP5+8 観点: データ蓄積後も `INSUFFICIENT_DATA` から抜け出せない設計は、本ドキュメントが定義する「恒常的結論不可 = 設計失敗」に該当する
+
+なお、本 ADR は旧 P5(観察可能性 > 自動化)を再定式化した **「自動化は許容、観察可能性は不可欠」** の最初の適用例である: shadow_sampler は新規 I/O ゼロという制約下で自動化を行いつつ、`source` カラムによる provenance 保存で観察可能性を担保している。
 
 **Decision**:
 focused scoring サイクルに **piggyback する形で** background scenario の (lite, full) スコアペアを合成し、`focus_switch_log` に `source='shadow_sampler'` として記録する。これにより analyst の focus 切替に依存せず C-medium 評価データが蓄積される。
@@ -809,6 +875,128 @@ CREATE TABLE shadow_sampler_state (
 - `INTERVAL_SEC > 0` の dedicated cadence をいつ実装するか — focused サイクルが極端に長い(>5min)環境で背景観測が薄くなる場合のみ意味がある。現状は要否不明
 - `REQUIRE_PARTICIPANT_OVERLAP=true` を既定にすべきか — 数週間の運用データを見て判断
 - C-medium 移行判定での analyst rows と shadow rows の重み付け — 現状は単純合算。将来は kind ごとに別系列で表示する可能性
+
+### ADR-026: 設計 W — participant weight の制約付き自動 calibration
+
+**Status**: Accepted (2026-04-25)
+
+**Context**:
+`scenario.participants[X].weight` は Phase 1 以降、analyst が geo_data.json または admin UI で **静的に設定** する設計だった。これは旧 P5(ツールは判断しない)と整合していたが、**新原則 NP4(結論最大化)** の下では以下が問題化する:
+
+1. weight 校正の **遅延**: 「TW の weight が高すぎ/低すぎ」という気付きは、TL 系列を眺めて初めて生じる。analyst が手動で +0.1 / -0.1 を試行する loop は数日〜数週間スケールで、その間 TL は systematically biased なまま結論を出し続ける
+2. **NP5+8 違反の温床**: calibration 状態が結論に付記されない。analyst は「現在の TL が calibration 済みか否か」を区別できない
+3. **NP4 の結論最大化要請**: ツールは「現時点で技術的に実行可能な最大の結論」を出す責務を負う。weight 自動調整は技術的に実行可能であり、これを analyst 操作待ちにするのは責務放棄
+
+旧設計は「自動調整は判断 = P5 違反」として禁じていたが、本版は P5 を廃止した。NP6(全面開示)+ NP7(組織内ノード)の枠組み下では、自動調整は **「analyst が把握可能な制約内で行われ、override 可能であること」** さえ満たせば許容される。
+
+**Decision**:
+participant weight に **制約付き自動 calibration**(設計 W)を導入する。
+
+#### W.1 二層モデル
+
+weight は次の 2 値の積で表現される:
+
+```
+effective_weight = configured_weight × adjustment_factor
+```
+
+- `configured_weight ∈ [0.0, 1.0]`: analyst が geo_data.json / admin UI で設定する **戦略的アンカー値**(従来の `participant.weight` をそのまま継承)
+- `adjustment_factor ∈ [0.7, 1.3]`: calibration エンジンが自動更新する **微調整係数**。±30% を hard bound とし、bound を超える adjustment 提案は飽和(clip)される
+
+`effective_weight` は scoring engine に渡される最終値。`configured_weight` と `adjustment_factor` は **常に separately 保存される**(NP6: 結論寄与の追跡可能性)。
+
+#### W.2 Calibration ゲート(全 AND 条件)
+
+`adjustment_factor` の更新は次の 5 つを **全て満たす** 場合のみ実行:
+
+| ゲート | 閾値 | 根拠 |
+|-------|------|------|
+| **G1: sample_n** | ≥ 30 | 統計的に意味のある最小標本(per-participant の signal 寄与件数) |
+| **G2: sensor health** | 関連 sensor の `failure_rate < 0.3`(7d window) | 障害中の sensor 由来 signal で calibration を歪めない |
+| **G3: continuity** | 直近 7d で signal が均等(no >50% gap) | サンプル偏在期間を除外 |
+| **G4: cooldown** | 前回 calibration から ≥ 24h | 振動防止 |
+| **G5: shadow validation** | shadow_sampler の delta 履歴で adjustment 候補が **少なくとも中立**(改悪しない) | NP4 の結論品質を悪化させない安全弁 |
+
+ゲートが満たされない場合、`adjustment_factor` は **直前の値を保持** し、`calibration_status = INSUFFICIENT_DATA` を結論メタデータに付記する(NP5+8(a))。
+
+#### W.3 Adjustment 算出
+
+`adjustment_factor` の更新は次の規則に従う:
+
+```
+target_factor = clip(observed_contribution_ratio / expected_contribution_ratio, 0.7, 1.3)
+new_factor    = old_factor × (1 - α) + target_factor × α    # EMA、α = 0.1
+```
+
+- `expected_contribution_ratio`: 当該 participant の `configured_weight` から導出される期待寄与比率(scenario 内の total weight に対する割合)
+- `observed_contribution_ratio`: 直近 7d window の実測寄与比率(`focus_switch_log` shadow rows + analyst rows)
+- α=0.1: EMA 平滑化定数。1 cycle で最大 ±3%(=0.3 × 0.1)の動き
+
+#### W.4 Audit と Override
+
+- 全 calibration イベントは `weight_calibration_log` テーブルに記録(migration v14):
+  ```sql
+  CREATE TABLE weight_calibration_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scenario_id TEXT NOT NULL,
+      country TEXT NOT NULL,
+      calibrated_at REAL NOT NULL,
+      old_factor REAL NOT NULL,
+      new_factor REAL NOT NULL,
+      sample_n INTEGER NOT NULL,
+      gate_pass_mask INTEGER NOT NULL,  -- bitmask of G1..G5
+      reason TEXT NOT NULL,             -- "ema_step" | "saturation_low" | "saturation_high" | "rollback"
+      source TEXT NOT NULL DEFAULT 'auto'  -- 'auto' | 'analyst_override' | 'analyst_reset'
+  );
+  ```
+- Analyst は admin UI から:
+  - `adjustment_factor` を任意の値で **override**(`source='analyst_override'`)
+  - **reset to 1.0**(`source='analyst_reset'`)
+  - per-scenario または per-participant で **calibration を一時停止**
+
+#### W.5 Phased Rollout(必須)
+
+新規 calibration ロジックは結論に直接影響するため、3 段階で展開する:
+
+| Phase | フラグ | 期間 | 内容 |
+|-------|-------|------|------|
+| **Shadow** | `WEIGHT_CALIB_MODE='shadow'` | 14 日 | calibration を計算・log に記録するが scoring には使わない(`adjustment_factor=1.0` 固定)。`weight_calibration_log` で挙動観察 |
+| **Opt-in** | `WEIGHT_CALIB_MODE='opt_in'` | 14 日 | per-scenario flag(`scenario.calibration_enabled`)で有効化。analyst が明示的に on にした scenario のみで実 scoring に反映 |
+| **Default-on** | `WEIGHT_CALIB_MODE='default'` | 以降 | 全 scenario で既定 on。opt-out フラグで個別停止可能 |
+
+各 phase 移行は本ドキュメントへの追記 + ADR を伴う(本 ADR とは別の Phase 移行 ADR)。
+
+#### W.6 NP マッピング
+
+- **NP1(感度)**: clip ±30% により weight が極端に下がって signal が無視される事態を防止
+- **NP4(結論最大化)**: 自動 calibration により analyst 操作待ちを排除
+- **NP5+8(品質規律)**: G1〜G5 ゲートで `INSUFFICIENT_DATA` を honest に出す。calibration 履歴は結論メタデータに含む
+- **NP6(全面開示)**: `configured_weight` と `adjustment_factor` を分離保存、`weight_calibration_log` で全イベント追跡可能、formula_trace に両値を含める
+- **NP7(組織内ノード)**: analyst override / reset / 一時停止が常時可能。ツールは calibration 提案を出すが、最終決定権は analyst にある
+
+#### W.7 実装上の再利用
+
+- ADR-025 の `shadow_sampler` を `observed_contribution_ratio` 計算の一次データソースとして再利用(focus 切替に依存せず参加国寄与履歴が蓄積される)
+- G5(shadow validation)は同 sampler の delta 履歴を直接参照
+
+**Consequences**:
+- ✅ NP4(結論最大化)を実装層で実現。analyst は戦略的アンカーの設定のみに集中できる
+- ✅ ±30% bound + EMA + 5 つのゲートで calibration 暴走を防止
+- ✅ shadow → opt-in → default-on の段階展開で本番影響をコントロール
+- ✅ analyst override が常時可能(NP7)
+- ⚠️ 計算負荷増(per-cycle で adjustment 算出)。実測で focused サイクル時間 +10ms 程度を許容
+- ⚠️ `weight_calibration_log` の容量(5 scenario × 8 participant × 1 entry/day = 40 rows/day)。年間 1.5 万 rows、無視可能
+- ⚠️ shadow phase でアナリストが calibration の挙動を観察する負荷が新規発生。Help Guide に観察手順を追記
+
+**Verification**:
+- migration v14 適用後、`weight_calibration_log` テーブル存在確認
+- shadow phase で `effective_weight = configured_weight` が成立(adjustment が scoring に反映されない)こと
+- ゲート G1〜G5 のいずれかが false の cycle では `adjustment_factor` が更新されないこと
+- analyst override 後 24h は auto calibration が cooldown により skip されること
+
+**Open Questions**:
+- shadow phase の長さ 14 日は十分か(scenario によっては signal 蓄積が遅い可能性)
+- ゲート G3(continuity)の「均等」定義 — 現状は >50% gap 検出。より精緻な metric が必要か Phase 観察で判定
 
 ---
 
@@ -996,7 +1184,7 @@ CREATE INDEX IF NOT EXISTS idx_sequence_events_scenario
 
 **diff_json フォーマット**: [JSON Merge Patch (RFC 7396)](https://datatracker.ietf.org/doc/html/rfc7396) 形式で変更前→変更後の差分を保存。
 
-**change_log のリテンション**: 永続保持(P4 重視、変更頻度が低いためサイズ問題は発生しない)。
+**change_log のリテンション**: 永続保持(NP6 重視、変更頻度が低いためサイズ問題は発生しない)。
 
 ### 6.3 Signal データクラス
 
@@ -1021,7 +1209,7 @@ class Signal:
                                            # 非 LLM は {country: 1.0}、未指定は default 1.0
     raw_score: float                       # scoring engine が使う元値
     value_display: str                     # UI 表示用の生の観測値文字列
-    evidence_url: str | None               # 原典 URL(P4)
+    evidence_url: str | None               # 原典 URL(NP6)
     llm_reasoning: str | None              # LLM 由来の reasoning trace
 ```
 
@@ -1056,268 +1244,68 @@ class ScenarioContribution:
     formula_trace: str                     # 人間可読の計算過程文字列
 ```
 
-### 6.5 API レスポンス形式
+### 6.5 API レスポンス形式(実装参照)
 
-```json
-GET /api/threat_data?focus=taiwan_contingency
+実装は `radar/routes/core.py:/api/threat_data` ハンドラ。レスポンス構築は `_serialize_scenario_state()` 系ヘルパー。
 
-{
-  "focused_scenario": "taiwan_contingency",
-  "scenarios": {
-    "taiwan_contingency": {
-      "id": "taiwan_contingency",
-      "name": "Taiwan Contingency",
-      "is_focused": true,
-      "scoring_mode": "full",
-      "tl": 3,
-      "score": 6.4,
-      "domains": {
-        "cyber": 3.2,
-        "physical": 1.2,
-        "info": 1.0
-      },
-      "convergence_bonus": 1.0,
-      "active_countries": ["TW", "US", "JP"],
-      "contributions": [
-        {
-          "rationale": { /* RationaleEntry */ },
-          "contributing_country": "US",
-          "llm_country_weight": 1.0,
-          "participant_weight": 0.8,
-          "participant_role": "primary_ally",
-          "final_contribution": 2.4,
-          "formula_trace": "3.0 (raw) × 1.0 (llm:US) × 0.8 (participant:US) = 2.4"
-        },
-        {
-          "rationale": { /* RationaleEntry — same signal, TW route */ },
-          "contributing_country": "TW",
-          "llm_country_weight": 0.6,
-          "participant_weight": 1.0,
-          "participant_role": "primary_target",
-          "final_contribution": 1.8,
-          "formula_trace": "3.0 (raw) × 0.6 (llm:TW) × 1.0 (participant:TW) = 1.8"
-        }
-      ],
-      "data_freshness_sec": 287
-    },
-    "eastern_europe": {
-      "id": "eastern_europe",
-      "name": "Eastern Europe",
-      "is_focused": false,
-      "scoring_mode": "lite",
-      "tl": null,
-      "score_lite": 4.1,
-      "domains_lite": {
-        "cyber": 0.8,
-        "physical": 0.3,
-        "info": 3.0
-      },
-      "indicators": {
-        "llm_intel_24h": 12,
-        "active_countries": 4,
-        "domain_signal_counts": {
-          "cyber": 2,
-          "physical": 1,
-          "info": 9
-        }
-      },
-      "contributions": [ /* C-lite 下でも A 群 signal 由来の寄与を返す */ ],
-      "lite_bias_warning": "LITE mode: LLM intel + global signals only. Physical and per-country cyber signals are not observed.",
-      "data_freshness_sec": 287
-    }
-  },
-  "global_data_freshness_sec": 287,
-  "scenario_history_starts_at": 1681000000
-}
-```
+**focused scenario フィールド**:
+`id` / `name` / `is_focused: true` / `scoring_mode: "full"` / `tl` (1-5) / `score` / `domains` (cyber/physical/info) / `convergence_bonus` / `active_countries` / `contributions` (each: `rationale`, `contributing_country`, `llm_country_weight`, `participant_weight`, `participant_role`, `final_contribution`, `formula_trace`) / `data_freshness_sec`
 
-**重要な数値の検算**(P3):
-- `sum(domains) = 3.2 + 1.2 + 1.0 = 5.4`
-- `score = sum(domains) + convergence_bonus = 5.4 + 1.0 = 6.4` ✓
-- contributions の `formula_trace` は `raw_score × llm_country_weight × participant_weight = final_contribution` の形式。**convergence_bonus は contribution には掛からない**（domain 合計への加算であり、個別寄与の乗数ではない）
-- 上記例の 2 contributions(US 経由 2.4 + TW 経由 1.8 = 4.2)はサンプルの一部。実際の domains 合計 5.4 には他の contributions も含まれる
+**background scenario フィールド** (ADR-008、TL 出さない):
+`is_focused: false` / `scoring_mode: "lite"` / `tl: null` / `score_lite` / `domains_lite` / `indicators` (`llm_intel_24h`, `active_countries`, `domain_signal_counts`) / `contributions` (LLM intel + global signal のみ) / `lite_bias_warning` / `data_freshness_sec`
 
-**同一 signal が複数 contribution を生む仕様**:
+**top-level**: `focused_scenario` / `scenarios` (dict) / `global_data_freshness_sec` / `scenario_history_starts_at`
 
-LLM signal `countries=["US","TW"], country_weights={"US":1.0,"TW":0.6}` が Taiwan Contingency に寄与する場合:
-- US 経由の contribution: `raw × 1.0 × 0.8 (US participant)`
-- TW 経由の contribution: `raw × 0.6 × 1.0 (TW participant)`
+**重要な数値関係**(NP6):
+- `score = sum(domains) + convergence_bonus`
+- `formula_trace`: `"{raw:.2f} (raw) × {llm_cw:.2f} (llm:{cc}) × {pw:.2f} (participant:{cc}) = {final:.2f}"` (per contribution)
+- **convergence_bonus は contribution に掛からない**（domain 合計への加算であり、個別寄与の乗数ではない）
 
-これは **二重計上ではなく仕様**(同じ事象が複数 country 経由で影響するモデル)。
-ただし signal_source dedup(ADR-007)で `(signal_source, contributing_country)` 単位で MAX される。
+**同一 signal が複数 contribution を生む仕様**: LLM signal `countries=["US","TW"], country_weights={"US":1.0,"TW":0.6}` が Taiwan Contingency に寄与する場合、US 経由と TW 経由の 2 contribution が独立に生成される(ADR-015 dual-weight)。signal_source dedup (ADR-007) は `(signal_source, contributing_country)` 単位で MAX。
 
 ---
 
 ## 7. スコアリングアルゴリズム
 
-### 7.1 シナリオスコア計算(疑似コード)
+### 7.1 シナリオスコア計算(実装参照、ルール 8)
 
-```python
-def compute_scenario_score(
-    scenario: Scenario,
-    all_signals: list[Signal],
-    is_focused: bool,
-    global_config: ScoringConfig,
-) -> ScenarioState:
-    """
-    Compute scenario-level score from country-tagged signals.
+実装は `radar/scoring.py:compute_scenario_score()` (L1059)。
 
-    Formula (per contribution):
-        contribution = signal.raw_score
-                     × signal.country_weights.get(country, 1.0)
-                     × participant.weight
-    """
-    contributions: list[ScenarioContribution] = []
+**寄与計算式** (per contribution):
+- per-country: `contribution = signal.raw_score × signal.country_weights[country] × participant.weight`
+- global signal (`signal.countries==[]`, ADR-022): `contribution = signal.raw_score × GLOBAL_SIGNAL_WEIGHT`
 
-    for signal in all_signals:
-        if not signal.countries:
-            # Global signal (ADR-022): flat contribution, no country attribution
-            final = signal.raw_score * GLOBAL_SIGNAL_WEIGHT
-            contributions.append(ScenarioContribution(
-                rationale=RationaleEntry(signal=signal, suppress_reason=None),
-                contributing_country="GLOBAL",
-                llm_country_weight=1.0,
-                participant_weight=GLOBAL_SIGNAL_WEIGHT,
-                participant_role="global",
-                final_contribution=final,
-                formula_trace=(
-                    f"{signal.raw_score:.2f} (raw) "
-                    f"× {GLOBAL_SIGNAL_WEIGHT:.2f} (global) "
-                    f"= {final:.2f}"
-                ),
-            ))
-            continue
+**処理順**: signals → contributions → `dedup_by_source_country_max()` (L1048, ADR-007) → domain aggregation with `DOMAIN_CAP` (ADR-022) → convergence bonus (within scenario) → `total_score = Σdomain + bonus` → focused のみ `derive_tl()` (L1021, ADR-008)。
 
-        for country in signal.countries:
-            if country not in scenario.participants:
-                continue
+**`scoring_mode`** は runtime 派生(`"full" if is_focused else "lite"`、ADR-019)。
 
-            participant = scenario.participants[country]
-            llm_cw = signal.country_weights.get(country, 1.0)
-            final = signal.raw_score * llm_cw * participant.weight
+**`formula_trace`** は contribution ごとに `"{raw:.2f} (raw) × {llm_cw:.2f} (llm:{cc}) × {pw:.2f} (participant:{cc}) = {final:.2f}"` 形式で残す(NP6 完全な導出開示)。
 
-            contributions.append(ScenarioContribution(
-                rationale=RationaleEntry(signal=signal, suppress_reason=None),
-                contributing_country=country,
-                llm_country_weight=llm_cw,
-                participant_weight=participant.weight,
-                participant_role=participant.role.value,
-                final_contribution=final,
-                formula_trace=(
-                    f"{signal.raw_score:.2f} (raw) "
-                    f"× {llm_cw:.2f} (llm:{country}) "
-                    f"× {participant.weight:.2f} (participant:{country}) "
-                    f"= {final:.2f}"
-                ),
-            ))
+### 7.2 Convergence bonus 計算(実装参照)
 
-    # Dedup: (signal_source, contributing_country) 単位で MAX (ADR-007)
-    deduped = dedup_by_source_country_max(contributions)
+実装は `radar/scoring.py:compute_convergence_bonus_scenario()` (L1012)。
 
-    # Domain aggregation with per-domain cap (ADR-022)
-    domains = {"cyber": 0.0, "physical": 0.0, "info": 0.0}
-    for c in deduped:
-        domains[c.rationale.signal.domain] += c.final_contribution
-    for d in domains:
-        domains[d] = min(domains[d], DOMAIN_CAP)
+| active domains | bonus |
+|----------------|-------|
+| 3 (FULL) | +2.0 |
+| 2 (DUAL) | +1.0 |
+| ≤1 | +0.0 |
 
-    # Convergence bonus (within scenario)
-    active_domains = [d for d, s in domains.items() if s > 0]
-    active_countries = set(c.contributing_country for c in deduped)
-    convergence_bonus = compute_convergence_bonus(active_domains)
+将来拡張(複数 active_country による追加 boost)は ADR-012 meta-scenario layer の課題。
 
-    total_score = sum(domains.values()) + convergence_bonus
+### 7.3 TL 判定式(実装参照)
 
-    # Scoring mode is runtime, not scenario attribute (ADR-019)
-    scoring_mode = "full" if is_focused else "lite"
+実装は `radar/scoring.py:derive_tl()` (L1021)。閾値は §7.3.1 calibration の対象。
 
-    # TL judgement (focused のみ、background は None、ADR-008)
-    if is_focused:
-        tl = derive_tl(total_score, active_domains, domains["physical"])
-    else:
-        tl = None
+| TL | 条件 |
+|----|------|
+| TL1 | `total_score ≥ 9` かつ `physical_score ≥ 3.0` (physical degradation gate) |
+| TL2 | `total_score ≥ 6` かつ `len(active_domains) ≥ 2` |
+| TL3 | `total_score ≥ 4` |
+| TL4 | `total_score ≥ 2` |
+| TL5 | それ以外 |
 
-    return ScenarioState(
-        scenario=scenario,
-        is_focused=is_focused,
-        scoring_mode=scoring_mode,
-        score=total_score,
-        domains=domains,
-        active_countries=sorted(active_countries),
-        convergence_bonus=convergence_bonus,
-        tl=tl,
-        contributions=deduped,
-    )
-
-
-def dedup_by_source_country_max(
-    contributions: list[ScenarioContribution],
-) -> list[ScenarioContribution]:
-    """
-    (signal_source, contributing_country) 単位で MAX dedup.
-
-    既存実装は signal_source 単位だったが、ADR-007 で複合キー単位に変更。
-    異なる国で観測された同一 signal_source(例: BGP)は独立した事実として採用される。
-    """
-    best: dict[tuple[str, str], ScenarioContribution] = {}
-    for c in contributions:
-        key = (c.rationale.signal.signal_source, c.contributing_country)
-        if key not in best or c.final_contribution > best[key].final_contribution:
-            best[key] = c
-    return list(best.values())
-```
-
-### 7.2 Convergence bonus 計算
-
-既存の WeightedConvergenceEngine の bonus 仕様を継承:
-
-```python
-def compute_convergence_bonus(active_domains: list[str]) -> float:
-    """
-    - FULL (3 domains active): +2.0
-    - DUAL (2 domains active): +1.0
-    - SINGLE or empty:         +0.0
-
-    将来拡張: 複数 active_country による追加 boost は ADR-012 の
-    meta-scenario layer で再検討(現フェーズでは非実装)。
-    """
-    n = len(active_domains)
-    if n >= 3:
-        return 2.0
-    if n == 2:
-        return 1.0
-    return 0.0
-```
-
-### 7.3 TL 判定式
-
-```python
-def derive_tl(
-    total_score: float,
-    active_domains: list[str],
-    physical_score: float,
-) -> int:
-    """
-    TL 判定(scenario 単位)。既存の閾値を継承。
-
-    - TL1: score >= 9 かつ physical degradation(physical_score >= 3.0)
-    - TL2: score >= 6 かつ active domains >= 2
-    - TL3: score >= 4
-    - TL4: score >= 2
-    - TL5: それ以外
-    """
-    if total_score >= 9 and physical_score >= 3.0:
-        return 1
-    if total_score >= 6 and len(active_domains) >= 2:
-        return 2
-    if total_score >= 4:
-        return 3
-    if total_score >= 2:
-        return 4
-    return 5
-```
-
-**physical degradation の定義**: 上記式では「scenario の physical ドメイン合計が 3.0 以上」で代用。将来的に「N 参加国で物理センサーが degraded 状態」等のより厳格な判定に差し替え可能(Phase 2 以降の校正対象)。
+**physical degradation の定義**: 暫定で「physical ドメイン合計 ≥ 3.0」。将来「N 参加国で物理センサーが degraded」へ厳格化可能(校正対象)。
 
 ### 7.3.1 TL 閾値の再校正計画(v1.2 追記)
 
@@ -1407,7 +1395,7 @@ ADR-008 に従い、TL を出さず、rationale は A 群由来のみを返す:
 }
 ```
 
-`contributions` は C-lite でも返す(P4 検証可能性)。ただし **per-country sensor 由来の contribution は含まれない**(該当データが fetch されていないため)。
+`contributions` は C-lite でも返す(NP6 検証可能性)。ただし **per-country sensor 由来の contribution は含まれない**(該当データが fetch されていないため)。
 
 ### 8.4 既知の bias と HUD 表示要件
 
@@ -1700,160 +1688,17 @@ full_state = compute_scenario_score(target, signals, is_focused=True,  ...)
 
 ## 10. 実装フェーズ
 
-各フェーズは **完了条件を満たさなければ次に進まない**。Phase 完了時にこのドキュメントの「Phase 進行表」を更新する。
+Phase 1〜5 は実装完了済(0 章「Phase 進行表」を参照)。詳細スコープ・完了条件は git 履歴に保持。本章は **Phase 完了サマリと未完了の運用評価項目のみ** を記載する。
 
-### Phase 1: シナリオデータモデルと用語整理(~4-5日)
+### Phase 1〜5 完了サマリ
 
-**スコープ**:
-- `geo_data.json` にプリセット5シナリオを追加(ADR-013 の通り)
-- SQLite migration: `scenarios`, `scenario_participants`, `scenario_change_log`, `scenario_reserved_ids` テーブル追加、`sequence_events` に `scenario_id` カラム追加
-- `radar/scenarios.py` モジュール新設
-  - Scenario, Participant, Role の dataclass / enum
-  - loader(geo_data.json → Layer 1、SQLite → Layer 2、HTTP session → Layer 3)
-  - バリデータ(role enum、scenario_id 正規表現、weight 範囲、scenario 予約語)
-- `radar/scoring.py` に `Signal` データクラスを追加
-- `BaseSensor` に `tier: SensorTier` 属性を追加(全センサーに `GLOBAL` または `FOCUSED_ONLY` を付与)
-- `radar/config.py` に `DEFAULT_FOCUSED_SCENARIO = os.getenv("DEFAULT_FOCUSED_SCENARIO", "taiwan_contingency")` を追加
-- `/api/scenarios` GET エンドポイント追加(list のみ、CRUD は Phase 4)
-- `CLAUDE.md` 用語セクションの追加(v1.1 で実施済)
-
-**完了条件**:
-- ✅ プリセット5シナリオ(Tier 1: 3、Tier 2: 2、SCS は disabled)が起動時にロードされる
-- ✅ `/api/scenarios` が5件を返す(disabled を含む)
-- ✅ SQLite migration が既存 DB を破損させずに実行される
-- ✅ sequence_events の新カラムが追加され、既存レコードは scenario_id=null で読み込める
-- ✅ 既存の `/api/threat_data` は引き続き動作(後方互換維持、旧 core_theater パラメータも受け付ける)
-- ✅ test_engine.py の既存テストが全てパス
-- ✅ `radar/scenarios.py` の単体テスト:
-  - role enum バリデーション
-  - scenario_id 正規表現
-  - 予約語拒否
-  - Layer 1/2 merge
-  - core_country null 許容
-- ✅ Signal クラスの単体テスト
-
-**依存**: なし
-
-**リスク**:
-- R4: 既存コードの `theater` 参照が膨大で、段階的置換が進まない
-  - → 対策: Phase 1 では用語置換は最小限、本格的な置換は Phase 2-4 で順次
-
-### Phase 2: シナリオスコアリングエンジン(~4日)
-
-**スコープ**:
-- `radar/scoring.py` に `compute_scenario_score()`, `dedup_by_source_country_max()`, `compute_convergence_bonus()`, `derive_tl()` を実装
-- `radar/routes/core.py` に scenario 単位の scoring loop を追加
-- API `/api/threat_data` に scenario 形式のレスポンスを追加(旧形式と並行、`scenarios` キー追加)
-- `?focus=...` パラメータの追加(旧 `?core=...` との両対応)
-- drill-down 専用エンドポイント `/api/scenario/{id}/breakdown` を追加
-- 既存センサーのデータ変換層: 既存の rationale 出力を `Signal` データクラスに変換するアダプタ
-- sequence_events を scenario 単位に書き込むよう `register_sequence_event` を拡張(ADR-020)
-
-**完了条件**:
-- ✅ `/api/threat_data?focus=taiwan_contingency` がシナリオ単位 TL を返す
-- ✅ background scenario には TL を出さず、indicators + contributions を返す（v1.5: indicators は Phase 4 後に追加修正）
-- ✅ 既存 API レスポンスとの後方互換が維持されている（deprecation ヘッダは Phase 5 で付与）
-- ✅ rationale/contribution に `evidence_url` と `formula_trace` が含まれる
-- ✅ dedup が `(signal_source, contributing_country)` 単位で動作することを単体テストで確認
-- ✅ 単体テスト: 5シナリオ × 各種シグナルパターン(enabled=false の SCS は scoring 対象外テスト含む)で期待値検証
-- ✅ edge cases(focused 不在、participant 0件、signal.countries 空など)のテスト
-- ✅ **二重カウント実証テスト(v1.2 追加)**: LLM signal `countries=["US","TW"], country_weights={"US":1.0,"TW":0.6}` を Taiwan Contingency に食わせ、US 経由と TW 経由の 2 つの contribution が生成され、両方が合算されることを確認(これは「仕様」として Accepted されているが、数値として確認)
-- ✅ **adversary 寄与の検証(v1.2 追加)**: CN の threatfox signal(`countries=["CN"]`)が Taiwan Contingency の cyber スコアに `adversary weight 0.7` で寄与することを確認
-- ✅ **TL ベースライン計測の開始(v1.2 追加)**: 7.3.1 節の再校正計画に従い、Phase 2 稼働開始後 2 週間にわたり 5 シナリオの score / domain / TL 分布を DB に記録する scheduler を組み込む(集計テーブル `scenario_tl_observation` を追加)
-
-**依存**: Phase 1
-
-### Phase 3: LLM プロンプトと intel queue の country 化(~8-12日)
-
-**スコープ**:
-- 6種類の LLM intel sensor のプロンプトを multi-country 出力に変更
-  - apt_intel, ground_osint, military_exercise, hacktivist_intel, hacktivist_news_sensor, diplomatic, rss_narrative
-- ~~**1センサーずつ段階的に変更**(全部一括ではない)、各変更後 1-2日の品質観察期間~~ → **実績**: 6センサー一括で変更（2026-04-13）。全変更が後方互換（`countries` 未指定時は `theater` フォールバック）のため、一括変更のリスクは限定的と判断。デプロイ後 2-3 日の統合観察期間で代替
-- `intel_queue.submit()` の引数を `theater: str` → `countries: list[str], country_weights: dict[str, float]` に
-- `RationaleEntry` を `Signal` ベースに移行
-- LLM intel の dedup ロジックを multi-country 対応に(Jaccard 類似度 + countries の集合演算)
-- DB スキーマ migration: 既存 LLM intel item の `theater` カラムを `countries` (JSON) と `country_weights` (JSON) に変換、既存データは `countries=[theater], country_weights={theater:1.0}` に補完
-
-**完了条件**:
-- ✅ LLM が `["US", "TW"]` のような multi-country タグを返す — テストデータで3国タグ(TW+JP+US, UA+RU+PL)の DB round-trip 確認済み
-- ✅ LLM が country_weights を返した場合、scoring に反映される — コード実装済み、テスト通過
-- ✅ LLM が country_weights を返さない場合、全て 1.0 で動作する — コード実装済み、テスト通過
-- ✅ 既存 LLM intel item の migration 後も読み込み可能 — 確認済み（migration v6 正常適用）
-- ✅ 各センサーの品質観察期間を経て劣化がないことを確認 — 観察チェックリスト全6項目グリーン（2026-04-13）
-- ✅ scenario filter が集合演算で動作 — コード実装済み、テスト通過
-- ✅ 統合テスト: multi-country タグ付けが実運用で期待通りか — テストデータ注入で確認済み
-
-**依存**: Phase 2
-
-**リスク**:
-- R1: LLM プロンプト変更で intel 品質劣化
-- → 対策: 1センサーずつ段階的変更、観察期間、ロールバック手順を準備
-
-**観察チェックリスト**（デプロイ後 2-3 日、以下を確認して Phase 3 完了判定）:
-- [x] `/api/intel` で各 LLM センサーの出力に `countries` フィールドが正しく入っているか — 全11件に正常格納（2026-04-13）
-- [x] `country_weights` の値域が 0.0-1.0 に収まっているか — 範囲外なし
-- [x] multi-country タグ（2国以上）が期待されるケースで実際に複数国が返っているか — テストデータ注入で TW+JP+US / UA+RU+PL 確認
-- [x] dedup が正常動作しているか — 異常増減なし
-- [x] auto_confirm 率が大幅に変動していないか — pending:2, auto_confirmed:2, rejected:7（従来比異常なし）
-- [x] theater フォールバック（`countries` 未返却時）が正しく動作しているか — theater のみ指定→ countries=[theater] 自動変換確認
-
-**ロールバック手順**: 各センサーの `countries`/`country_weights` パースブロックを削除し、item dict から両フィールドを除去すれば `intel_queue.submit()` の theater フォールバックで旧動作に戻る。DB カラムは残置しても無害（デフォルト `[]`/`{}`）。
-
-### Phase 4: HUD のシナリオ単位再設計(~6-8日)
-
-**スコープ**:
-- `radar.js` の HUD レンダリングを scenario カード単位に
-- focused scenario のフル詳細表示
-- background scenario カード(LITE バッジ + indicators + bias warning)
-- scenario 切替 UI(クリックで focus 変更、切替時にデータ再 fetch)
-- Scenario Manager 管理画面(admin パネル内)
-  - シナリオ一覧、編集、新規作成、delete/archive/restore、reset
-  - participants の追加/削除/重み/role 調整(role は dropdown)
-- Layer 3 セッション override UI(analyst 向け、URL param または temporary UI control で重みを一時変更)
-- `i18n.js` に scenario 関連の翻訳キー追加(EN/JA)
-  - scenario 名、役割ラベル、lifecycle state、bias warning
-- `index.html` Help Guide Ch.8 (Intuition UI), Ch.9 (API Reference), Ch.10 (Admin) の更新
-
-**完了条件**:
-- ✅ HUD に focused scenario の詳細とその他 scenario カードが並列表示される
-- ✅ クリックで focus 切替が可能
-- ✅ admin が新規シナリオを作成・編集・delete・restore できる（ADR-011 状態遷移バリデーション付き）
-- ✅ admin が purge(完全削除)できる(確認ダイアログ必須、archived のみ許可、scenario_reserved_ids に登録)
-- ⏳ analyst がセッション override で重みを一時変更できる → Phase 5 へ繰り延べ（Layer 3 は設計上「将来」扱い）
-- ✅ disabled な SCS シナリオを enable できる(動的構成のデモ)
-- ✅ EN/JA すべて翻訳済み、ハードコード文字列なし
-- ✅ Help Guide が新 UI と整合
-- ✅ focus_switch_log テーブル追加（Section 9.3.1、C-medium 移行判定データ蓄積開始）
-- ✅ API レスポンスに data_freshness_sec, scenario_history_starts_at, indicators を追加（Section 6.5 準拠）
-- ✅ `/api/analytics/focus_switches` エンドポイント追加
-
-**依存**: Phase 2, Phase 3
-
-### Phase 5: 検証 UX と bias インジケータ(~3日)
-
-**スコープ**:
-- rationale/contribution のクリック展開 UX
-  - sensor, raw value, llm_country_weight, participant_weight, formula_trace, evidence URL の表示
-  - LLM 由来の場合は llm_reasoning も表示
-- background scenario の bias 警告表示
-  - `lite_bias_warning` フィールドを目立たせる
-  - domain breakdown (cyber/physical/info signal 件数)
-- "what-if" 機能(特定 contribution を一時的に除外したらスコアがどうなるか)
-- evidence URL のクリックで原典 fetch(新タブ)
-- 旧 country-level API の deprecation ヘッダ付与
-
-**完了条件**:
-- ✅ すべての contribution が原典に追跡可能 — `Signal.evidence_url` / `Signal.llm_reasoning` を routes/core.py で伝搬、scenario detail panel の行展開で `formula_trace` / `value_display` / `llm_reasoning` / `observed_at` / evidence URL を表示
-- ✅ background scenario の表示に LITE バッジと bias warning が必ずある — scenario card に `BIAS` タグ、detail panel 先頭に `.sc-bias-warning` バナー（オレンジ枠、ADR-008 を明記）
-- ✅ what-if が動作する — detail panel のトグルで contribution を除外し、クライアント側でドメインスコア / 収斂ボーナス / TL をリアルタイム再計算（サーバーエンジンと同じ DOMAIN_CAP=6.0 / TL derivation を使用）
-- ✅ Help Guide に「rationale の検証方法」の章が追加されている — index.html Ch.8-I 「Scenario Detail Panel & Rationale Verification」を EN/JA 両方で追加
-- ✅ evidence URL のクリックで原典が新タブで開く — `target="_blank" rel="noopener"` 付きのリンクで実装
-- ✅ 旧 country-level API の deprecation ヘッダ — `/api/threat_data` に `Deprecation: true`, `Sunset: 2026-10-01`, `X-Deprecation-Notice` を付与
-- ✅ `/api/scenario/{id}/timeseries` / `/api/scenario/{id}/country/{cc}/timeseries` エンドポイント（ADR-010 drill-down）を analytics.py に追加、database.py に `scenario_tl_timeseries` / `scenario_country_timeseries` を実装
-- ⏳ **TL 閾値の再校正(v1.2 追加)**: 7.3.1 節の校正手順に基づく評価は運用データ蓄積待ち(Phase 5 実装完了後、2 週間以上の `scenario_tl_observation` 蓄積を経てから判断)。現閾値を維持。**評価期限: 2026-04-28**(Phase 5 完了 2026-04-14 + 14d)。
-- ⏳ **ADR-015 dual-weight 評価(v1.2 追加)**: LLM country_weights の観察指標(分散、極端値比率、多国割当率)も運用データ蓄積待ち。現方式(LLM × participant の dual-weight)を継続。**評価期限: 2026-05-12**(Phase 5 完了 2026-04-14 + 28d)。
-
-**依存**: Phase 4
+| Phase | 完了日 | 主成果 | 残課題 |
+|-------|--------|--------|--------|
+| **Phase 1** | 2026-04-12 | scenarios/Signal データモデル、5 プリセット、`/api/scenarios`、SensorTier 分類 | なし |
+| **Phase 2** | 2026-04-12 | `compute_scenario_score()`、dedup、convergence_bonus、derive_tl、`/api/threat_data?focus=`、scenario_tl_observation | なし |
+| **Phase 3** | 2026-04-13 | 7 LLM sensor の multi-country 化(一括変更、観察 OK)、`intel_queue.submit(countries, country_weights)`、migration v6 | なし |
+| **Phase 4** | 2026-04-13 | scenario HUD カード、Scenario Manager(CRUD + lifecycle)、focus_switch_log、indicators、Layer 3 は Phase 5 へ繰り延べ | なし |
+| **Phase 5** | 2026-04-14 | rationale 展開 UX、LITE/BIAS バッジ、what-if、evidence URL、deprecation ヘッダ、drill-down API、Layer 3 session overlay | TL 再校正(2026-04-28 期限)、ADR-015 dual-weight 評価(2026-05-12 期限)— 10.5 節参照 |
 
 **テスト結果**: `python -m pytest test_engine.py -v` → 164 passed (2026-04-14)
 
@@ -1875,20 +1720,20 @@ full_state = compute_scenario_score(target, signals, is_focused=True,  ...)
 | 項目 | 理由 | 再評価トリガ |
 |------|------|------------|
 | **meta-scenario layer**(cross-scenario 相関)(ADR-012) | 複雑性が高い、まず単一 scenario の精度を上げる | Phase 5 安定運用後 |
-| **シナリオ自動検出** | P5 違反の懸念、シナリオ定義はアナリスト責務 | 運用で必要性が確認された場合 |
+| **シナリオ自動検出** | NP7(組織内ノード)違反: scenario 登録判断はアナリスト組織側の責務。ツール側 auto-suggestion は組織判断を肩代わりする | 運用で必要性が確認された場合 |
 | **scenario テンプレート共有機構** | スコープ過大 | コミュニティ要求があれば |
-| **LLM 多言語化(非英語 feed の充実)** | LLM bias 軽減の手段だが工数大 | bias による見逃しが問題化した場合 |
+| **LLM 多言語化(非英語 feed の充実)** | LLM bias 軽減の手段だが工数大 | bias による見逃しが問題化した場合(NP1 直接関連) |
 
 ### 11.2 意図的に実装しない(Out of Scope)
 
-要望が出ても断る根拠。
+要望が出ても断る根拠。**旧版は「P5 違反」を理由に多くの項目を範囲外としていたが、本版は P5 を廃止したため、各項目の根拠を NP1〜NP7 で再定義した**。
 
 | 項目 | 理由 |
 |------|------|
-| **scenario auto-suggestion** | P5 違反(ツールは判断しない) |
-| **未来予測(forecasting)** | P5 違反、また OSINT のみでは精度確保困難 |
-| **自律行動(自動ブロック等)** | P5 違反 |
-| **ML ベースのスコアリング** | P3 違反(透明性欠如) |
+| **scenario auto-suggestion** | **NP7(組織内ノード)違反**: シナリオ登録は組織判断の対象。ツール側で suggestion を出すと組織判断を肩代わりすることになる。ただし「shadow_sampler が拾った未登録 anomaly の通知」は NP1 の延長として将来検討余地あり(NP7 と矛盾しない範囲で) |
+| **未来予測(forecasting)** | **NP5+8(品質規律)違反**: OSINT のみで forecasting 結論の calibration を満たせない(永続的に `INSUFFICIENT_DATA` になる構造) |
+| **自律行動(自動ブロック等)** | **NP7(組織内ノード)違反**: 本ツールは判断ノードであり実行ノードではない。実行は組織プロセスの別ノードが行う |
+| **ML ベースのスコアリング** | **NP6(全面開示)違反**: 検証経路が「重み行列を学習した」で終わってしまい、analyst が原典まで遡れない |
 | **商用 threat intel 統合** | 拘束① 違反(OSINT 限定) |
 | **scenario テンプレートマーケットプレイス** | スコープ過大 |
 
@@ -1901,6 +1746,7 @@ full_state = compute_scenario_score(target, signals, is_focused=True,  ...)
 | **OQ-3** | Layer 3 session override を URL param(`?override=...`)で渡すか、temporary UI control で渡すか | Phase 4 実装時 |
 | **OQ-4** | 動的編集の反映タイミング — (a) 次 scoring サイクル、(b) 即時キャッシュ無効化、(c) 明示的 re-compute | Phase 4 実装時(推奨: a) |
 | **OQ-5** | Phase 1 のシナリオ投入数 — (a) 5 シナリオ一括(現計画)、(b) Taiwan Contingency のみで動作確認後に Phase 2 完了後に残り 4 追加 | Phase 1 着手時 |
+| **OQ-6** | 設計 W(ADR-026)の opt-in → default-on 移行判定基準 — (a) shadow phase で `weight_calibration_log` の adjustment_factor が ±15% 以内に収束、(b) opt-in phase で 3 scenario 以上が 14 日以上連続有効化、(c) analyst override / reset 件数が calibration 件数の 20% 以下、の 3 条件全て満たしたら default-on へ。複数条件のうちどれを必須/推奨とするか | ADR-026 opt-in phase 完了時 |
 
 **OQ-5 の背景(v1.2 追記)**:
 5 シナリオ一括は設計検証の幅が広いが、Phase 1 の完了条件(loader、validator、migration、SensorTier、test)が 5 シナリオ分の組み合わせを要求するため工数が膨らむ。代替案として **1 シナリオ(taiwan_contingency)のみで Phase 1-2 を完走** し、scoring engine の動作を実証した後に残り 4 シナリオを追加する段階化が考えられる。
@@ -1928,6 +1774,7 @@ full_state = compute_scenario_score(target, signals, is_focused=True,  ...)
 | **R12** | sequence_events の scenario_id 移行で既存イベントが null のままになる | 将来データ解析の断絶 | 低 | ADR-018 に従い意図的に許容、UI で「scenario 単位履歴開始日」を明示 |
 | **R13** | GLOBAL_SIGNAL_WEIGHT / DOMAIN_CAP の初期値が不適切で scenario score が過大/過小 | TL 精度低下 | 中 | Phase 2 ベースライン計測で校正。初期値は保守的(0.5 / 6.0) |
 | **R14** | domain weight 廃止(ADR-021)により info 偏重が悪化 | background scenario の score_lite が info に支配される | 中 | DOMAIN_CAP で安全弁、Phase 2 計測で判明時に domain weight 再導入を ADR で検討 |
+| **R15** | 設計 W(ADR-026)の auto calibration が暴走し participant weight が分布的に偏る | TL の系統的な過大/過小評価、analyst の戦略的アンカーが無視される | 中 | (1) `adjustment_factor ∈ [0.7, 1.3]` の hard clip、(2) EMA α=0.1 で 1 cycle 最大 ±3%、(3) ゲート G1〜G5 の AND 条件で更新ゲーティング、(4) shadow → opt-in → default-on の段階展開、(5) `weight_calibration_log` で全イベント追跡、(6) analyst override / reset / 一時停止が常時可能。万が一 default-on 後に問題化したら `WEIGHT_CALIB_MODE='shadow'` への即時 rollback で全 scenario の adjustment を 1.0 固定に戻せる |
 
 ---
 
@@ -2093,13 +1940,14 @@ Phase N の完了時に、その Phase で実装された **疑似コード・SQ
 | 2026-04-12 | 1.3.0 | 数理・一貫性修正。formula_trace 数値修正、enabled/state 意味論確定、ADR-021(domain weight 廃止)、ADR-022(global signal 規約 + DOMAIN_CAP) | `a03f628` |
 | 2026-04-12 | 1.3.1 | 文書保守性改善。ルール 8(実装完了→実コード参照に圧縮)、ルール 9(正規定義箇所の一元化)追加。改訂履歴を圧縮、冗長箇所を正規定義への参照に置換(約 30 行削減) | — |
 | 2026-04-20 | 1.6.0 | ADR-023(LLM intel age-decay τ=12h 指数関数減衰)追加。confirm cliff / TTL cliff 解消。TTL 48h に延長、cap は decayed score でランク | — |
-| 2026-04-21 | 1.6.1 | EVIDENCE/CHAIN UI 改善 (Phase A/B/C-1)。CHAIN パネルを `resolveChainTargetCountry(strat)` 経由に切替、ADR-005 で deprecated 指定された `core_theater` への直接依存を除去。フロント単独の小変更で、API は引き続き両フィールドを送出(Sunset 2026-10-01)。`test_ui_integrity.py` 追加で i18n キー欠落を CI で検知 | `ef77580`, `4cc5a9e`, `49e9490` |
-| 2026-04-21 | 1.6.2 | フロント側の `core_theater` 直参照 全 15 箇所(minimap / quick toggles / config / WS resub / TSM / CIP / SITREP / LLM intel / heatmap × 4 / corr-matrix / classify submit)を `resolveChainTargetCountry(strat)` 経由に統一移行。ADR-005 deprecation のフロント単独移行は完了、残るは API Sunset (2026-10-01) でヘルパー内フォールバック除去のみ | TBD |
-| 2026-04-21 | 1.6.3 | P1/P2 observability 実装: `/api/analytics/cmedium_recommendation` / `tl_recalibration_advisory` / `dual_weight_evaluation` 追加、session overlay (X-Scenario-Overlay)、SHOW_BACKGROUND_TL、scheduler が active focus を参照、FOCUSED_ONLY 全 12 センサーに SensorTier 宣言。UI: HUD/シナリオ詳細パネルをオーバーレイ化し地図の下方シフトを解消、外クリックで自動クローズ。rss_narrative: flat-zero baseline での第一信号消失を修正(NARRATIVE_ZSCORE_FIRST_SIGNAL) | `018f099`, `8396c76`, `566103c`, `8e5bf36` |
-| 2026-04-21 | 1.6.4 | geo_data.json に NARRATIVE_GEO_TERMS 7 シナリオ参加国を追加 (AU, GU, IQ, MY, RO, SK, VN)。これらの国は TACTICAL_KEYWORDS は定義済みだが geo 辞書が空で、rss_narrative が起動毎に警告を出しクロスシアター誤帰属を起こしていた。scenario participant 全員の地理語彙を完備し、rss_narrative の信号が scenario scoring へ正しく寄与できるようにした | `efd47f2` |
-| 2026-04-21 | 1.6.5 | (1) CTLog self-healing: 10s タイムアウトを 3s に短縮、3 サイクル連続失敗で degraded モード(fetch 間隔 4h に延長、1 パターンのみプローブ、ログ DEBUG 降格)に自動遷移、一度でも成功すれば復帰。`upstream_health()` API を `/api/data_status` で公開。crt.sh の 502/timeout 嵐で毎サイクル WARNING が溢れる問題を解消。(2) Layer 3 session overlay UI 実装(ADR-003 完全実装): シナリオ詳細パネルに participant weight スライダー群、Apply/Reset ボタン、ACTIVE バッジ、analyst/admin ロールゲート、sessionStorage による非永続保存、`X-Scenario-Overlay` ヘッダ送信。バックエンドでは overlay 適用後の `focused_scenario_obj` をスコアリングループに渡す修正も含む(以前は apply されていたが scoring に反映されない既存バグ)。/api/threat_data レスポンスに `participants.weight` と `base_weight` を追加 | TBD |
-| 2026-04-21 | 1.6.6 | ADR-024 追加: CTLog 上流耐障害性。crt.sh REST が 15s+ 完全無応答状態を本セッションで実測。代替上流 (crt.sh:5432 PG / certspotter / 直接 CT log) を検証したが、いずれも query shape が我々のニーズに合わず却下。REST パスを強化(タイムアウト 3s→8s、5xx に 1 回 in-cycle リトライ、失敗モードを 6 種類 (`timeout`/`conn_error`/`http_5xx`/`http_4xx`/`json_error`/`empty_result`) に細分化、`upstream_health()` で全カウンタ露出、JSON parse 失敗時に response body 先頭 80B をログ)。サイレント 5xx 失敗バグを修正(従来 `200/429` のみ判定で 502/503/504 が黙殺されていた)。Tier 1 基盤も追加: `_require_analyst()` (analyst-or-admin ロールゲート)、SQLite migration v10 (shadow_eval_log)、`shadow_eval_record()` / `shadow_eval_summary()` ヘルパ。`shadow_eval_log` を baseline `_SCHEMA_SQL` にも追加 (fresh DB の `current==0` ショートカット対策) | TBD |
-| 2026-04-23 | 1.6.7 | TL 閾値再校正と ADR-015 dual-weight 評価に絶対期限と決定基準を付与。10.5 節に評価期限テーブルを追加(TL 再校正: 2026-04-28 / dual-weight: 2026-05-12)。各評価の判定 trigger を a/b/c/d の具体的な数値しきい値で記述し、サンプル不足時の 14 日延長ルールも明示。Phase E (open issue cleanup) として実施。Calidog certstream upstream の 60s 強制 close を 2026-04-23 に live で確認、`CT_LOG_CERTSTREAM_ENABLED` を既定 false に変更し watchdog (heartbeat budget 120s) を防御的に追加。CT 多ソース運用状況を可視化する Upstreams 管理タブを実装(EN/JA i18n、Help Guide Ch.7 反映) | TBD |
+| 2026-04-21 | 1.6.1 | EVIDENCE/CHAIN UI Phase A/B/C-1。`resolveChainTargetCountry()` 経由化、`test_ui_integrity.py` 追加 | `ef77580` 他 |
+| 2026-04-21 | 1.6.2 | フロント `core_theater` 直参照 全 15 箇所をヘルパー経由に統一移行。ADR-005 フロント移行完了 | — |
+| 2026-04-21 | 1.6.3 | P1/P2 observability 実装(`/api/analytics/*`、session overlay、SHOW_BACKGROUND_TL、12 センサー SensorTier 宣言、HUD オーバーレイ化、rss_narrative 第一信号修正) | `018f099` 他 |
+| 2026-04-21 | 1.6.4 | NARRATIVE_GEO_TERMS に 7 参加国追加(AU/GU/IQ/MY/RO/SK/VN)。クロスシアター誤帰属解消 | `efd47f2` |
+| 2026-04-21 | 1.6.5 | CTLog self-healing(degraded モード自動遷移、`upstream_health()` API)+ Layer 3 session overlay UI 実装(ADR-003 完全実装) | — |
+| 2026-04-21 | 1.6.6 | ADR-024 追加: CTLog 上流耐障害性。失敗モード 6 種に細分化、サイレント 5xx 修正。Tier 1 基盤(`_require_analyst()`、migration v10 shadow_eval_log) | — |
+| 2026-04-23 | 1.6.7 | TL/dual-weight 評価に絶対期限と決定基準付与(10.5 節)。Calidog certstream の 60s close を確認し既定 false 化、watchdog 追加。Upstreams 管理タブ追加 | — |
+| 2026-04-25 | 1.8.0 | **ツール定義のブラッシュアップに伴う設計原則の全面改訂**。CLAUDE.md の 4 文定義(NP4 結論最大化への舵切り)に整合させ、Section 1 を 1 文 → 4 文に置換、Section 3 の P1〜P5 を NP1〜NP7 に全面書換(優先度ピラミッド + 旧呼称マッピング表を併設)。**旧 P5(ツールは判断しない)を完全廃止**し、NP4(結論最大化) + NP7(組織内ノード) で責務を分担。ADR-025 の根拠を P5 → NP4/NP5+8 に再定式化(「観察可能性 > 自動化」→「自動化は許容、観察可能性は不可欠」)。ADR-026 新規追加: 設計 W = participant weight の制約付き自動 calibration(`configured_weight × adjustment_factor`、adjustment ∈ [0.7, 1.3] hard clip、5 ゲート AND 条件、shadow → opt-in → default-on 段階展開、shadow_sampler 再利用、analyst override 常時可能)。Out of Scope の根拠を P5 違反 → NP4/NP6/NP7 で再定義。OQ-6 と R15 を追加。散在する P1〜P5 参照を NP 系に置換 | TBD |
 
 ---
 
