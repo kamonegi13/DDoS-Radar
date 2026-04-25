@@ -16,7 +16,10 @@ from radar import state as st
 from radar.state import _global_cache_lock, ALERT_TIMELINE_MAX
 from radar.database import db as _db
 from radar.models import RationaleEntry
-from radar.scoring import compute_sequence_bonus, derive_tl
+from radar.scoring import (
+    compute_sequence_bonus, compute_weight_utilization, derive_tl,
+    Signal, ScenarioContribution,
+)
 import radar.routes as _routes
 from radar.routes import bp, _safe_int
 
@@ -1229,6 +1232,62 @@ def api_tl_recalibration_advisory():
             "past_extended": days_remaining_extended < 0,
         },
         "scenarios": advisories,
+    })
+
+
+@bp.route("/api/scenario/<scenario_id>/weight_advisory", methods=["GET"])
+def api_scenario_weight_advisory(scenario_id):
+    """Per-participant weight calibration advisory (NP4 / NP6 / NP7).
+
+    Compares each participant's configured static weight share against
+    the observed contribution share over the lookback window. Reports
+    divergence with an ADVISORY_REVIEW_NEEDED flag for analyst review;
+    the system never auto-mutates weights — that remains a deliberate
+    analyst decision via the scenario admin UI.
+
+    Query params:
+      - hours: lookback window for observed contributions (default 168)
+      - threshold_pct: divergence band that triggers the advisory
+        (default 30; underperformance flag fires below `1 - t/100`,
+        overperformance is informational above `1 + t/100`)
+    """
+    from radar.scenarios import scenario_store
+    hours = _safe_int(request.args.get("hours", "168"), 168, min_val=1, max_val=720)
+    threshold_pct = _safe_int(
+        request.args.get("threshold_pct", "30"), 30, min_val=1, max_val=99,
+    )
+    sc = scenario_store.get(scenario_id)
+    if sc is None:
+        return jsonify({"error": "scenario_not_found", "scenario_id": scenario_id}), 404
+
+    aggregated = _db.scenario_contributions_aggregate(scenario_id, hours=hours)
+    # Reconstruct a minimal ScenarioContribution per (country, total) so
+    # the pure helper can be reused. Only contributing_country and
+    # final_contribution are read; the Signal stub satisfies dataclass typing.
+    stub_signal = Signal(
+        signal_source="aggregate", sensor="aggregate", observed_at=0.0,
+        domain="info", countries=[],
+    )
+    contribs = [
+        ScenarioContribution(
+            signal=stub_signal,
+            contributing_country=country,
+            llm_country_weight=1.0,
+            participant_weight=1.0,
+            participant_role="aggregate",
+            final_contribution=total,
+            formula_trace="aggregate",
+        )
+        for country, total in aggregated.items()
+    ]
+    rows = compute_weight_utilization(
+        sc, contribs, divergence_threshold_pct=float(threshold_pct),
+    )
+    return jsonify({
+        "scenario_id": scenario_id,
+        "period_hours": hours,
+        "config": {"divergence_threshold_pct": threshold_pct},
+        "participants": rows,
     })
 
 

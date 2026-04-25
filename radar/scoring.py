@@ -1141,3 +1141,99 @@ def compute_scenario_score(
         tl=tl,
         contributions=deduped,
     )
+
+
+# ── Weight calibration advisory (Item 2.2) ───────────────────────────────────
+# REPORTING ONLY. Static participant weights are never auto-mutated by this
+# helper — it surfaces divergence so analysts can decide whether to retune.
+# All flag strings carry the ADVISORY_ prefix per NP7 / P5 audit rule so
+# downstream readers can grep tool-side recommendations vs system-detected
+# facts (compromise indicators, sequence fires, etc.) without a parse step.
+
+# Floor below which silence is expected — observers and low-weight
+# participants need not generate alerts when they contribute nothing.
+_LOW_WEIGHT_FLOOR = 0.30
+
+
+def compute_weight_utilization(
+    scenario,
+    contributions: list[ScenarioContribution],
+    divergence_threshold_pct: float = 30.0,
+) -> list[dict]:
+    """Per-participant weight utilization vs configured share.
+
+    Underperformance flag fires when:
+      - participant has configured_weight >= _LOW_WEIGHT_FLOOR, AND
+      - utilization_pct < (100 - divergence_threshold_pct)
+
+    Overperformance is informational only (note="overperforming") so the
+    UI can hint at it without raising an alert. Auto-rebalancing weights
+    on observed traffic would create a feedback loop where quiet weeks
+    drag the weight down and the next escalation gets undercounted.
+    """
+    participants = getattr(scenario, "participants", {}) or {}
+    if not participants:
+        return []
+
+    # Configured shares: weight / sum(weights). The denominator collapses
+    # to all participants, so a 1.0/0.5 scenario yields 0.667/0.333 shares.
+    total_weight = sum(p.weight for p in participants.values())
+    configured_share = {
+        cc: (p.weight / total_weight if total_weight > 0 else 0.0)
+        for cc, p in participants.items()
+    }
+
+    # Observed shares: per-country contribution / total participant
+    # contribution. GLOBAL contributions are explicitly excluded — they
+    # are not attributable to any one participant and would distort the
+    # ratio. dedup_by_source_country_max is assumed to have been applied
+    # upstream, so each (signal_source, country) appears at most once.
+    observed_total = 0.0
+    observed_per_country: dict[str, float] = {cc: 0.0 for cc in participants}
+    for c in contributions:
+        country = c.contributing_country
+        if country == "GLOBAL" or country not in participants:
+            continue
+        observed_per_country[country] += c.final_contribution
+        observed_total += c.final_contribution
+
+    out: list[dict] = []
+    floor = 1.0 - (divergence_threshold_pct / 100.0)
+    ceiling = 1.0 + (divergence_threshold_pct / 100.0)
+    for cc, p in participants.items():
+        cfg_share = configured_share[cc]
+        obs_share = (observed_per_country[cc] / observed_total
+                     if observed_total > 0 else 0.0)
+        utilization = (obs_share / cfg_share if cfg_share > 0 else 0.0)
+        utilization_pct = round(utilization * 100, 1)
+
+        flag = "normal"
+        reason = ""
+        note: Optional[str] = None
+        # Underperformance flag: only fires when configured_weight is
+        # high enough that silence is genuinely surprising.
+        if (p.weight >= _LOW_WEIGHT_FLOOR
+                and observed_total > 0
+                and utilization < floor):
+            flag = "ADVISORY_REVIEW_NEEDED"
+            reason = (
+                f"configured share {cfg_share:.2f} vs observed "
+                f"{obs_share:.2f} (utilization {utilization_pct:.0f}% < "
+                f"{int(floor * 100)}% threshold)"
+            )
+        elif observed_total > 0 and utilization > ceiling:
+            note = "overperforming"
+
+        row = {
+            "country": cc,
+            "configured_weight": round(p.weight, 3),
+            "configured_share": round(cfg_share, 3),
+            "observed_share": round(obs_share, 3),
+            "utilization_pct": utilization_pct,
+            "flag": flag,
+            "reason": reason,
+        }
+        if note:
+            row["note"] = note
+        out.append(row)
+    return out

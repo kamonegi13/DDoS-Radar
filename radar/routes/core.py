@@ -2031,6 +2031,29 @@ def get_threat_data():
                 except Exception:
                     pass
 
+                # Per-country contribution snapshot for Item 2.2 weight
+                # advisory. Aggregated over a 7-day window by the
+                # /api/scenario/<id>/weight_advisory endpoint to detect
+                # static participant weights that have drifted from
+                # observed traffic. Best-effort: never break scoring.
+                try:
+                    _contrib_by_country: dict[str, float] = {}
+                    for _c in _state.contributions:
+                        _cc = _c.contributing_country
+                        if _cc and _cc != "GLOBAL":
+                            _contrib_by_country[_cc] = (
+                                _contrib_by_country.get(_cc, 0.0)
+                                + _c.final_contribution
+                            )
+                    if _contrib_by_country:
+                        _db.scenario_contribution_append(
+                            scenario_id=_sc.id,
+                            contributions_by_country=_contrib_by_country,
+                            logged_at=current_time,
+                        )
+                except Exception:
+                    pass
+
             # Focus switch detection (Section 9.3.1).
             # is_miss is a C-medium migration indicator: it flags cases where
             # LITE mode underestimated a scenario that subsequently reveals

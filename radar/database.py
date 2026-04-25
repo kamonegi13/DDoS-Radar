@@ -1046,6 +1046,21 @@ class RadarDB:
             conn.execute("""CREATE INDEX IF NOT EXISTS idx_decision_ledger_user
                 ON decision_ledger (user_id, logged_at DESC)"""),
         ]),
+        (18, "Add scenario_contribution_log for weight calibration advisory (Item 2.2)", lambda conn: [
+            # Per-cycle per-(scenario, country) contribution snapshot.
+            # Aggregated over a window to compute observed_share vs
+            # configured_share for the weight_advisory endpoint. Append-only
+            # — never updated, so no transactional contention with scoring.
+            conn.execute("""CREATE TABLE IF NOT EXISTS scenario_contribution_log (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id      TEXT NOT NULL,
+                country          TEXT NOT NULL,
+                contribution_sum REAL NOT NULL,
+                logged_at        REAL NOT NULL
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_scenario_contrib_sid_time
+                ON scenario_contribution_log (scenario_id, logged_at DESC)"""),
+        ]),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -1472,6 +1487,46 @@ class RadarDB:
             "SELECT MIN(observed_at) AS earliest FROM scenario_tl_observation"
         ).fetchone()
         return row["earliest"] if row and row["earliest"] else None
+
+    # ── scenario_contribution_log (Item 2.2 weight advisory) ───────────────
+    def scenario_contribution_append(self, scenario_id: str,
+                                     contributions_by_country: dict[str, float],
+                                     logged_at: float) -> None:
+        """Persist this cycle's per-country contribution sums for a scenario.
+
+        Empty contributions are intentionally still appended as a row with
+        contribution_sum=0 so the aggregator can distinguish "no signal in
+        the window" from "scenario was inactive in the window".
+        """
+        if not contributions_by_country:
+            return
+        conn = self._get_conn()
+        with conn.writing():
+            for country, total in contributions_by_country.items():
+                conn.execute(
+                    "INSERT INTO scenario_contribution_log "
+                    "(scenario_id, country, contribution_sum, logged_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (scenario_id, country, float(total), logged_at),
+                )
+
+    def scenario_contributions_aggregate(self, scenario_id: str,
+                                         hours: int = 168) -> dict[str, float]:
+        """Sum per-country contributions for a scenario over a window.
+
+        Returns ``{country: total_contribution}`` suitable for direct use
+        as the ``contributions_by_country`` input to the weight_advisory
+        helper after re-wrapping into ScenarioContribution objects.
+        """
+        cutoff = time.time() - hours * 3600
+        rows = self._get_conn().execute(
+            "SELECT country, SUM(contribution_sum) AS total "
+            "FROM scenario_contribution_log "
+            "WHERE scenario_id = ? AND logged_at > ? "
+            "GROUP BY country",
+            (scenario_id, cutoff),
+        ).fetchall()
+        return {r["country"]: float(r["total"] or 0.0) for r in rows}
 
     # ── focus_switch_log (Section 9.3.1) ───────────────────────────────────
     def focus_switch_append(self, scenario_id: str, switched_at: float,
