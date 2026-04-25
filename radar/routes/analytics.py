@@ -1088,6 +1088,41 @@ def api_cmedium_recommendation():
     })
 
 
+@bp.route("/api/analytics/shadow_drift", methods=["GET"])
+def api_shadow_drift():
+    """Per-scenario calibration drift detection over shadow_sampler rows.
+
+    Companion to /cmedium_recommendation: that endpoint reports a binary
+    status from a static threshold and cannot warn an analyst that the
+    lite-vs-full delta is *trending upward* until the threshold trips.
+
+    This endpoint splits the lookback window into early/recent halves
+    and reports per-scenario:
+      - early_avg_delta, recent_avg_delta
+      - early_miss_rate, recent_miss_rate
+      - drift_direction: 'increasing' | 'decreasing' | 'stable' |
+        'insufficient_data'
+      - drift_magnitude_pct: signed (recent-early)/early percentage
+
+    Use the 'increasing' rows as a watch-list: calibration is degrading
+    but the binary recommendation has not flipped yet (NP1 sensitivity).
+
+    Query params:
+      - days: lookback window (default = C_MEDIUM_WINDOW_DAYS, max 365)
+      - noise_band_pct: drift_direction is 'stable' inside ± this band
+        (default 25, range 1-100)
+    """
+    days = _safe_int(
+        request.args.get("days", str(C_MEDIUM_WINDOW_DAYS)),
+        C_MEDIUM_WINDOW_DAYS, min_val=1, max_val=365,
+    )
+    noise_band = _safe_int(
+        request.args.get("noise_band_pct", "25"), 25, min_val=1, max_val=100,
+    )
+    out = _db.shadow_drift_stats(days=days, noise_band_pct=float(noise_band))
+    return jsonify(out)
+
+
 # scenario-refactor §10.5: TL recalibration evaluation is anchored at
 # Phase 5 completion 2026-04-14 + 14d = 2026-04-28, with one 14d extension
 # permitted → final hard deadline 2026-05-12.
