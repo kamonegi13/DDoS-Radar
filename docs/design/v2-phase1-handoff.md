@@ -9,7 +9,7 @@
 | 項目 | 値 |
 |------|-----|
 | 作成日 | 2026-04-25 |
-| 最終更新 | 2026-04-25 (priority 1, 2, 4-7 完了 / priority 3 を Safe Rename Pattern で再設計、Phase B-1 + A-0 + A-1 + A-2 完了) |
+| 最終更新 | 2026-04-25 (priority 1, 2, 4-7 完了 / priority 3 を Safe Rename Pattern で再設計、Phase B-1 + A-0 + A-1 + A-2 + A-3 完了) |
 | Phase 0 完了基準 | Conclusion dataclass + DB v19/v20 + tests 17/17 pass + codemod scaffolding |
 | 次セッションでまず読むもの | CLAUDE.md → v2-migration.md §0-§5 → 本書 |
 
@@ -116,7 +116,7 @@ planner agent によりサブフェーズ分割を確定。各サブフェーズ
 | **A-0** | SR4 telemetry 基盤: `radar/legacy_telemetry.py` + migration v23 (`legacy_access_log`) + scheduler hourly flush + `/api/admin/legacy_access` + 11 tests pass | ✅ 完了 (2026-04-25) |
 | **A-1** | sensors stragglers (convergence_tracker / intel_corroboration) の dual-write `countries=[theater]` + intel_queue.submit() legacy fallback の telemetry 計装。`scenarios.py` は調査結果 `theater` 属性が存在せず no-op | ✅ 完了 (2026-04-25) |
 | **A-2** | API レスポンス dual-write + フロントエンド read-side 切替 | ✅ 完了 (2026-04-25) |
-| **A-3** | API param dual-read (`?country=` 主、`?theater=` SR4 記録) + フロント write-side | ⏳ 未着手 |
+| **A-3** | API param dual-read (`?country=` 主、`?theater=` SR4 記録) + フロント write-side | ✅ 完了 (2026-04-25) |
 | **A-4** | DB column dual-write (SQLite 3.52.0 確認済 → generated column 戦略採用) | ⏳ 未着手 |
 | **A-5** | 90 日 telemetry 観測後の sunset (alias 削除、column rename) | ⏳ 90 日待機 |
 
@@ -172,6 +172,33 @@ frontend read-side fallback (`x.country ?? x.theater` パターンで既存挙�
 - フロントエンドからの URL 構築 `?country=` 切替 — A-3
 - DB column 物理 rename (theater → country) — A-4 (generated column 戦略)
 - レガシー `theater` キーの削除 — A-5 (90 日 SR4 telemetry 観測後)
+
+**A-3 完了時点での成果物 (2026-04-25)**:
+
+backend dual-read (新エンドポイントは `?country=` 主、`?theater=` も互換のため受理):
+- `radar/routes/__init__.py`: `_country_param(endpoint_label, default="")` 共有ヘルパーを追加。`?country=` を最優先で読み、無ければ `?theater=` にフォールバックして `legacy_telemetry.record_legacy_access(f"{endpoint}?theater=")` を呼ぶ
+- `radar/routes/history.py`: `/history/timeseries`, `/history/hod_baseline`, `/history/sequence_events`, `/history/export` の 4 endpoint
+- `radar/routes/analytics.py`: `/sequence_chain`, `/deep_analytics` の 2 endpoint
+- `radar/routes/admin.py`: `/noise_exclusion`, `/confirmed_threats`, `/daily_summary`, `/forecast_accuracy`, `/cooccurrence` の 5 endpoint
+- `radar/routes/intel.py`: `/api/intel` の 1 endpoint
+- 計 12 endpoint で dual-read を有効化
+
+frontend write-side (`?country=` を優先生成):
+- `radar.js`: `/api/sequence_chain`, `/api/history/timeseries`, `/api/history/hod_baseline`, `/api/history/sequence_events`, `/api/history/export` の 5 fetch を `?country=` に切替
+
+intel guide (Ch.9 EN/JA):
+- `index.html`: 全 13 箇所の `?theater=TW` / `&theater=TW` 例を `?country=TW` / `&country=TW` に置換
+- Ch.9 冒頭 EN/JA 両方に「ADR-V2-006 注: `?country=` 優先、`?theater=` も互換のため受理し SR4 telemetry に記録、90 日後 sunset」を明記
+
+検証:
+- `test_country_param_dual_read.py` 5 ケース新規追加 (preference / legacy accepted / sequence_chain / intel / counter accumulation)
+- 656 tests pass (+5 新規、回帰なし)
+- すべて additive (legacy `?theater=` は壊さず受理、新キー優先で telemetry が cardinality 1 で増加)
+
+**A-3 の意図的にスコープ外とした項目** (A-4 以降へ):
+- DB column 物理 rename / generated column 追加 — A-4
+- shadow log diff sampler の country 列 cross-check — A-4
+- `request.args.get("theater")` の deprecation warning ログ出力 — A-5 (sunset 段階で error 化)
 
 ---
 

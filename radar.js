@@ -1222,7 +1222,7 @@
         // Async: fetch sequence event list and render
         const theater = resolveChainTargetCountry(strat);
         if (!theater) return;
-        fetch(`/api/sequence_chain?theater=${encodeURIComponent(theater)}`)
+        fetch(`/api/sequence_chain?country=${encodeURIComponent(theater)}`)
             .then(r => r.json())
             .then(data => {
                 const chain = (data.chains || {})[theater] || {};
@@ -5493,17 +5493,17 @@
         const theater = document.getElementById('hist-theater')?.value || 'TW';
         const hours = parseInt(document.getElementById('hist-range')?.value || '168');
 
-        fetch(`/api/history/timeseries?theater=${theater}&hours=${hours}&series=combined,l3,l7`)
+        fetch(`/api/history/timeseries?country=${theater}&hours=${hours}&series=combined,l3,l7`)
             .then(r => r.json())
             .then(data => _drawScoreChart(data))
             .catch(e => console.error('[History] timeseries error:', e));
 
-        fetch(`/api/history/hod_baseline?theater=${theater}&type=hod_baseline`)
+        fetch(`/api/history/hod_baseline?country=${theater}&type=hod_baseline`)
             .then(r => r.json())
             .then(data => _drawHodChart(data))
             .catch(e => console.error('[History] hod error:', e));
 
-        fetch(`/api/history/sequence_events?theater=${theater}&hours=${hours}`)
+        fetch(`/api/history/sequence_events?country=${theater}&hours=${hours}`)
             .then(r => r.json())
             .then(data => _renderSeqEvents(data))
             .catch(e => console.error('[History] seq error:', e));
@@ -5920,7 +5920,7 @@
 
     window.exportHistoryData = function() {
         const theater = document.getElementById('hist-theater')?.value || 'TW';
-        window.open(`/api/history/export?theater=${theater}`, '_blank');
+        window.open(`/api/history/export?country=${theater}`, '_blank');
     };
 
 

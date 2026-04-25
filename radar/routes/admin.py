@@ -13,7 +13,7 @@ from radar.database import db as _db
 from radar.persistence import save_state
 from radar.sensors.telegram import TelegramMirrorSensor
 import radar.routes as _routes
-from radar.routes import bp, _require_admin, _require_analyst, _safe_int
+from radar.routes import bp, _require_admin, _require_analyst, _safe_int, _country_param
 
 # -- Secret masking for GET /api/env_config -----------------------------------
 _SECRET_PATTERNS = ("SECRET", "PASSWORD", "TOKEN", "WEBHOOK", "API_KEY")
@@ -293,7 +293,7 @@ def api_persist_save():
 def api_noise_exclusion_list():
     """List active noise exclusion rules."""
     sensor = request.args.get("sensor")
-    theater = request.args.get("theater")
+    theater = _country_param("/api/noise_exclusion") or None
     return jsonify(_db.noise_excl_list(sensor=sensor, theater=theater))
 
 
@@ -345,7 +345,7 @@ def api_noise_exclusion_delete(rule_id):
 @bp.route("/api/confirmed_threats", methods=["GET"])
 def api_confirmed_threats_list():
     """List confirmed threat events."""
-    theater = request.args.get("theater")
+    theater = _country_param("/api/confirmed_threats") or None
     try:
         limit = int(request.args.get("limit", "100"))
     except (ValueError, TypeError):
@@ -390,8 +390,8 @@ def api_confirmed_threats_add():
 
 @bp.route("/api/daily_summary", methods=["GET"])
 def api_daily_summary():
-    """Get daily summary for a theater."""
-    theater = request.args.get("theater", "")
+    """Get daily summary for a country."""
+    theater = _country_param("/api/daily_summary")
     try:
         days = int(request.args.get("days", "90"))
     except (ValueError, TypeError):
@@ -402,14 +402,14 @@ def api_daily_summary():
 @bp.route("/api/forecast_accuracy", methods=["GET"])
 def api_forecast_accuracy():
     """Get forecast accuracy summary."""
-    theater = request.args.get("theater")
+    theater = _country_param("/api/forecast_accuracy") or None
     return jsonify(_db.forecast_accuracy_summary(theater))
 
 
 @bp.route("/api/cooccurrence", methods=["GET"])
 def api_cooccurrence():
     """Get co-occurrence statistics."""
-    theater = request.args.get("theater")
+    theater = _country_param("/api/cooccurrence") or None
     return jsonify(_db.cooccurrence_get(theater))
 
 

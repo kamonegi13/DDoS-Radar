@@ -40,6 +40,28 @@ def _safe_int(val, default: int, *, min_val: int = 0, max_val: int = 99999) -> i
         return default
 
 
+def _country_param(endpoint_label: str, default: str = "") -> str:
+    """Read `?country=` (preferred) or fall back to legacy `?theater=`.
+
+    ADR-V2-006 Safe Rename Pattern A-3: dual-read with SR4 telemetry.
+    Records `<endpoint>?theater=` access whenever the legacy alias is used so
+    the 90-day sunset PR (A-5) can confirm zero callers depend on it.
+    """
+    from flask import request
+    val = request.args.get("country", "")
+    if val:
+        return val
+    legacy = request.args.get("theater", "")
+    if legacy:
+        try:
+            from radar import legacy_telemetry as _lt
+            _lt.record_legacy_access(f"{endpoint_label}?theater=")
+        except Exception:
+            pass  # Telemetry must never break the request path
+        return legacy
+    return default
+
+
 def _require_admin():
     """Check admin authorization via DB role lookup. Returns None if authorized, or a Flask response tuple on failure."""
     from flask_jwt_extended import get_jwt_identity

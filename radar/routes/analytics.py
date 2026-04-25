@@ -22,7 +22,7 @@ from radar.scoring import (
     Signal, ScenarioContribution,
 )
 import radar.routes as _routes
-from radar.routes import bp, _safe_int
+from radar.routes import bp, _safe_int, _country_param
 
 @bp.route("/api/data_status", methods=["GET"])
 def data_status():
@@ -151,10 +151,10 @@ def api_sitrep():
 @bp.route("/api/sequence_chain", methods=["GET"])
 def api_sequence_chain():
     """
-    Return escalation chain status for all theaters.
-    Query parameter: ?theater=TW (omit for all theaters)
+    Return escalation chain status for all countries.
+    Query parameter: ?country=TW (omit for all countries; legacy ?theater= still accepted, recorded via SR4 telemetry).
     """
-    theater_param = request.args.get("theater", "").upper()
+    theater_param = _country_param("/api/sequence_chain").upper()
     now = time.time()
     result = {}
     theaters = [theater_param] if theater_param else _db.seq_distinct_theaters()
@@ -186,9 +186,9 @@ def api_deep_analytics():
         st.global_cache.get("strategic", {}).get("core_theater")
         or ""
     )
-    theater_param = (request.args.get("theater") or _default_theater).upper()
+    theater_param = (_country_param("/api/deep_analytics") or _default_theater).upper()
     if not theater_param:
-        return jsonify({"error": "theater required (no focused scenario resolved)"}), 400
+        return jsonify({"error": "country required (no focused scenario resolved)"}), 400
     ts_series = _db.ts_get(theater_param)
     velocity   = _routes.engine.compute_velocity(ts_series)
     acc        = _routes.engine.compute_acceleration(ts_series)

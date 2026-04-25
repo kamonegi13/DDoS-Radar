@@ -6,7 +6,7 @@ import datetime
 from flask import jsonify, request, Response
 from radar.state import ALERT_TIMELINE_MAX
 from radar.database import db as _db
-from radar.routes import bp, _require_admin
+from radar.routes import bp, _require_admin, _country_param
 from radar.scenarios import scenario_store
 
 
@@ -38,10 +38,11 @@ def api_history_theaters():
 
 @bp.route("/api/history/timeseries", methods=["GET"])
 def api_history_timeseries():
-    """Return time-series data for a theater.
-    GET /api/history/timeseries?theater=TW&hours=168&series=combined,l3,l7
+    """Return time-series data for a country.
+    GET /api/history/timeseries?country=TW&hours=168&series=combined,l3,l7
+    (legacy ?theater= still accepted, recorded via SR4 telemetry).
     """
-    theater = (request.args.get("theater") or _resolve_default_theater()).upper()
+    theater = (_country_param("/api/history/timeseries") or _resolve_default_theater()).upper()
     if not theater:
         return jsonify({"error": "theater required"}), 400
     try:
@@ -71,10 +72,11 @@ def api_history_timeseries():
 
 @bp.route("/api/history/hod_baseline", methods=["GET"])
 def api_history_hod_baseline():
-    """Return HOD baseline data for a theater.
-    GET /api/history/hod_baseline?theater=TW&type=hod_baseline
+    """Return HOD baseline data for a country.
+    GET /api/history/hod_baseline?country=TW&type=hod_baseline
+    (legacy ?theater= still accepted, recorded via SR4 telemetry).
     """
-    theater = (request.args.get("theater") or _resolve_default_theater()).upper()
+    theater = (_country_param("/api/history/hod_baseline") or _resolve_default_theater()).upper()
     if not theater:
         return jsonify({"error": "theater required"}), 400
     table = request.args.get("type", "hod_baseline")
@@ -141,10 +143,11 @@ def api_history_alerts():
 
 @bp.route("/api/history/sequence_events", methods=["GET"])
 def api_history_sequence_events():
-    """Return sequence events with optional theater filter.
-    GET /api/history/sequence_events?theater=TW&hours=48
+    """Return sequence events with optional country filter.
+    GET /api/history/sequence_events?country=TW&hours=48
+    (legacy ?theater= still accepted, recorded via SR4 telemetry).
     """
-    theater = request.args.get("theater", "").upper()
+    theater = _country_param("/api/history/sequence_events").upper()
     try:
         hours = min(int(request.args.get("hours", "24")), 168)
     except (ValueError, TypeError):
@@ -181,13 +184,14 @@ def api_history_threat_levels():
 @bp.route("/api/history/export", methods=["GET"])
 def api_history_export():
     """Export historical data as JSON for offline analysis.
-    GET /api/history/export?theater=TW&format=json
+    GET /api/history/export?country=TW&format=json
+    (legacy ?theater= still accepted, recorded via SR4 telemetry).
     """
     auth_err = _require_admin()
     if auth_err:
         return auth_err
 
-    theater = (request.args.get("theater") or _resolve_default_theater()).upper()
+    theater = (_country_param("/api/history/export") or _resolve_default_theater()).upper()
     if not theater:
         return jsonify({"error": "theater required"}), 400
 

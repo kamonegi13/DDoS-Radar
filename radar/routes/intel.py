@@ -5,6 +5,7 @@ import time
 import radar.routes as _routes
 from flask import jsonify, request
 from radar.auth import require_role
+from radar.routes import _country_param
 
 bp = _routes.bp
 
@@ -29,13 +30,13 @@ def intel_list():
     Query params:
         source_type : hacktivist | diplomatic | military | ground_osint
         status      : pending | auto_confirmed | confirmed | rejected | overridden | review_needed
-        theater     : e.g. CN-TW
+        country     : ISO2 (preferred); legacy ?theater= still accepted (SR4)
         limit       : max items to return (default 100, max 200)
     """
     from radar.intel_queue import intel_queue
     source_type = request.args.get("source_type", "")
     status      = request.args.get("status", "")
-    theater     = request.args.get("theater", "")
+    theater     = _country_param("/api/intel")
     try:
         limit = min(int(request.args.get("limit", "100")), 200)
     except (ValueError, TypeError):
