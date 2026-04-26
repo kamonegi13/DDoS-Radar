@@ -5542,11 +5542,6 @@
     // participants — see scenarios.py derive_focus_context.)
     const _COORD_LINK_MODE_KEY = 'radar_coord_link_mode';
     const _COORD_LINK_MODES = ['off', 'strong', 'all'];
-    // ─── Raw-correlation thresholds (calculate_overlap, range 0-100) ────────
-    // STRONG mode: skip pairs whose final coordIdx is below this. 60 ≈ red
-    // (C2-SYNC confirmed) or strong orange; weaker pairs are not drawn at all
-    // (no line, no diamond, no % label).
-    const _COORD_STRONG_MIN = 60;
     // ─── IDF-correlation thresholds (calculate_overlap_idf, range 0-~5) ────
     // Calibrated from live shadow-surface data on 2026-04-26 (n=21 pairs,
     // single tick): IDF P50=0.0  P75=0.29  P90=1.22  P95=1.48  max=4.12
@@ -5555,8 +5550,7 @@
     //   OVERLAP_THRESHOLD 15  → 0.5  (suppress noise floor; no rare ASN sharing)
     //   _COORD_STRONG_MIN 60  → 1.5  (≈P95, top ~5% — analyst-actionable)
     //   (new) _COORD_ALARM_MIN 3.0   (P99+, rare ASN co-occurrence — alarm-grade)
-    // Used by future cutover (A-2) — currently unused, kept in source so the
-    // reviewer can see the chosen values together with the data they came from.
+    // Phase 6: raw mode removed — these are the only thresholds in use.
     const _COORD_IDF_OVERLAP_THRESHOLD = 0.5;
     const _COORD_IDF_STRONG_MIN        = 1.5;
     const _COORD_IDF_ALARM_MIN         = 3.0;
@@ -5587,57 +5581,31 @@
     else document.addEventListener('DOMContentLoaded', _renderCoordToggleLabel);
 
     // ─── Source-dependent parameter pack ─────────────────────────────────────
-    // Coord links can be driven by raw-overlap (legacy 0-100 scale) or by the
-    // IDF-weighted shadow surface (sparse 0-~5 scale). All scale-sensitive
+    // Phase 6: raw correlations removed. Coord links are now driven exclusively
+    // by the IDF-weighted index (sparse 0–~5 scale, ubiquitous cloud/CDN ASNs
+    // suppressed). 'idf_l3' is the canonical source — falls back to per-tick
+    // 'idf' on a fresh DB before the L3 window has warmed up. All scale-sensitive
     // numbers (thresholds, bonuses, color tiers, display format) live here so
-    // the actual rendering loop is source-agnostic.
-    //
-    // Default 'idf_l3' reflects A-1 calibration: raw mode saturates at 30+
-    // for ~all pairs in dense scenarios (no actionable signal). L3 is a more
-    // stable readout than per-tick IDF (n=21 / 1 tick is thin per A-1 notes).
-    const _COORD_DATA_SOURCE = 'idf_l3';   // 'raw' | 'idf' | 'idf_l3'
+    // the rendering loop is source-agnostic.
 
-    function _buildCoordParams(source, strat) {
-        // Raw legacy params (kept verbatim — known-good behaviour).
-        const rawParams = {
-            field: 'correlations',
-            l3Field: 'correlations_l3', l7Field: 'correlations_l7',
-            scaleMax: 100,
-            threshold: 15,                 // OVERLAP_THRESHOLD
-            strongMin: _COORD_STRONG_MIN,  // 60
-            // Color tiers
-            hotTier: 70, midTier: 45, c2HighTier: 60,
-            // Independent-evidence bonuses (DDoS spike, C2-SYNC, strike pair)
-            bonusBoth: 10, bonusC2Sync: 15, bonusC2Partial: 5, bonusStrike: 10,
-            displayFormat: (v) => v.toFixed(0) + '%',
-        };
-        // IDF params — bonuses + color tiers scaled by ~1/20 to preserve the
-        // legacy semantic (independent evidence adds ~10–25% on top of base
-        // overlap). All cutoffs come from A-1 percentile data (v2-migration §10.2).
-        const idfBaseParams = {
+    function _buildCoordParams(strat) {
+        // IDF params — cutoffs come from A-1 percentile data (v2-migration §10.2).
+        const base = {
             scaleMax: 8,                   // soft cap; live max ~5.4 (idf_l3)
             threshold: _COORD_IDF_OVERLAP_THRESHOLD, // 0.5
             strongMin: _COORD_IDF_STRONG_MIN,        // 1.5
-            hotTier: 2.0, midTier: 1.0, c2HighTier: _COORD_IDF_STRONG_MIN, // 1.5
+            hotTier: 2.0, midTier: 1.0, c2HighTier: _COORD_IDF_STRONG_MIN,
             bonusBoth: 0.5, bonusC2Sync: 0.75, bonusC2Partial: 0.25, bonusStrike: 0.5,
             displayFormat: (v) => v.toFixed(2),
+            l3Field: 'correlations_idf_l3', l7Field: 'correlations_idf_l7',
         };
-        if (source === 'raw') return rawParams;
-        if (source === 'idf') {
-            return { ...idfBaseParams, field: 'correlations_idf',
-                     l3Field: 'correlations_idf_l3', l7Field: 'correlations_idf_l7' };
-        }
-        // 'idf_l3' (default) — fall back to per-tick idf if l3 has not warmed
-        // up yet (every value 0). Avoids a silent empty map on a fresh DB.
+        // Prefer L3 (more stable). Fall back to per-tick IDF only if L3 is empty
+        // (fresh DB, no warm-up yet) AND per-tick has any non-zero value.
         const l3 = strat && strat.correlations_idf_l3;
         const l3Empty = !l3 || Object.values(l3).every(v => !v);
-        if (l3Empty && strat && strat.correlations_idf
-            && Object.values(strat.correlations_idf).some(v => v > 0)) {
-            return { ...idfBaseParams, field: 'correlations_idf',
-                     l3Field: 'correlations_idf_l3', l7Field: 'correlations_idf_l7' };
-        }
-        return { ...idfBaseParams, field: 'correlations_idf_l3',
-                 l3Field: 'correlations_idf_l3', l7Field: 'correlations_idf_l7' };
+        const tick = strat && strat.correlations_idf;
+        const useTick = l3Empty && tick && Object.values(tick).some(v => v > 0);
+        return { ...base, field: useTick ? 'correlations_idf' : 'correlations_idf_l3' };
     }
 
     function _coordColor(coordIdx, isC2Sync, params) {
@@ -5653,7 +5621,7 @@
         if (mode === 'off') return;
         const strat = data && data.strategic_alert;
         if (!strat) return;
-        const params = _buildCoordParams(_COORD_DATA_SOURCE, strat);
+        const params = _buildCoordParams(strat);
         const correlations = strat[params.field];
         if (!correlations) return;
 

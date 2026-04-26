@@ -24,7 +24,7 @@ from radar.scoring import (
     resolve_seq_fire_targets, select_secondary_ec_hits,
     compute_hod_zscore, record_hod_sample,
     get_fallback_coord, fetch_cf_data_cached,
-    parse_origins, calculate_overlap, calculate_overlap_idf,
+    parse_origins, calculate_overlap_idf,
     compute_idf_weights, fetch_asn_origins,
     compute_confidence, compute_adaptive_zscore,
     compute_origin_entropy, track_entropy_change,
@@ -752,14 +752,11 @@ def get_threat_data():
 
             target_details[t] = {"global_share": global_target_share, "global_share_l3": g_l3_share_display, "global_share_l7": g_l7_share_display, "avg_spike": avg_spike_record, "avg_l3_spike": round(avg_l3_spike, 2), "avg_l7_spike": round(avg_l7_spike, 2), "is_vector_shift": is_vector_shift, "shift_actors": shift_actors, "sources": list(combined_sources.values()), "origin_entropy": _entropy_track}
 
-        correlations, correlations_l3, correlations_l7 = {}, {}, {}
-        # Phase 4 shadow: IDF-weighted variants. Suppresses ubiquitous global
-        # cloud/CDN ASNs (which structurally saturate raw histogram intersection
-        # in dense scenarios) so the index reflects "rare ASN co-occurrence"
-        # rather than "both countries get attacked by AWS/Cloudflare like
-        # everyone else". Live for shadow comparison only — the frontend still
-        # renders `correlations` (raw) until calibration confirms the new index
-        # discriminates correctly. See docs/design/v2-migration.md (Phase 4).
+        # Phase 6 (commit pending): raw `correlations*` removed. All consumers
+        # migrated to IDF (Phase 5). The IDF-weighted index suppresses
+        # ubiquitous cloud/CDN ASNs that previously saturated raw histogram
+        # intersection (P50≈53% in normal ops, no separation from baseline).
+        # See docs/design/v2-migration.md §10.2.1 for the migration audit.
         correlations_idf, correlations_idf_l3, correlations_idf_l7 = {}, {}, {}
         # Compute all pairwise correlations (not just core vs correlates)
         _corr_seen = set()
@@ -781,9 +778,6 @@ def get_threat_data():
         for i, a in enumerate(_corr_theaters):
             for b in _corr_theaters[i + 1:]:
                 key = f"{a}-{b}"
-                correlations[key]    = calculate_overlap(origin_distributions[a], origin_distributions[b])
-                correlations_l3[key] = calculate_overlap(origin_distributions_l3.get(a, {}), origin_distributions_l3.get(b, {}))
-                correlations_l7[key] = calculate_overlap(origin_distributions_l7.get(a, {}), origin_distributions_l7.get(b, {}))
                 correlations_idf[key]    = calculate_overlap_idf(_scoped_dists[a],    _scoped_dists[b],    _idf_w)
                 correlations_idf_l3[key] = calculate_overlap_idf(_scoped_dists_l3[a], _scoped_dists_l3[b], _idf_w_l3)
                 correlations_idf_l7[key] = calculate_overlap_idf(_scoped_dists_l7[a], _scoped_dists_l7[b], _idf_w_l7)
@@ -2638,10 +2632,10 @@ def get_threat_data():
                 "primary_ec": primary_ec,
                 "secondary_ecs": secondary_ecs,
                 "threat_level": threat_level, "threat_score": total_score, "threat_breakdown": score_breakdown,
-                "correlations": correlations, "correlations_l3": correlations_l3, "correlations_l7": correlations_l7,
-                # Phase 4 shadow surface — IDF-weighted (suppresses ubiquitous
-                # cloud/CDN ASNs). Frontend currently ignores; available for
-                # calibration replay and operator inspection via /api/threat_data.
+                # Phase 6: raw `correlations*` fields removed. IDF-weighted
+                # variants are the canonical ASN co-occurrence surface — they
+                # suppress ubiquitous cloud/CDN ASNs that previously caused
+                # raw saturation (P50≈53% in normal ops). See v2-migration §10.2.1.
                 "correlations_idf": correlations_idf, "correlations_idf_l3": correlations_idf_l3, "correlations_idf_l7": correlations_idf_l7,
                 "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
                 "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],

@@ -793,6 +793,25 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
   | **5-5** | `test_engine.py` 4 件 | `calculate_overlap()` 直接テスト | 関数自体は残置 (削除しないなら不要) |
   | **5-6** | `radar.js:3623-3628` | HUD max-overlap pill (A-4 監査の `3645-3650` は誤記。実体はこの位置) | display only。色 tier を A-2 と揃え (40%/20% → IDF 1.5/1.0)、書式 `X% → X.XX IDF` |
 
+  ### 10.2.2 Phase 6 — raw `correlations` surface 撤去 (完了)
+
+  Phase 5 で production code から raw 依存が消えたため、surface 自体を削除:
+
+  | 削除対象 | 場所 | 影響 |
+  |----------|------|------|
+  | `correlations`, `correlations_l3`, `correlations_l7` 計算 | `radar/routes/core.py:755,784-786` | 1 tick あたり pair × O(n_asn) の計算が消える |
+  | API response の raw 3 フィールド | `radar/routes/core.py:2641` | external consumer なし (Phase 5 監査で confirm)、外向き API contract が IDF only に |
+  | `from radar.scoring import calculate_overlap` | `radar/routes/core.py:27` | 残置: 関数本体、test_engine.py 4 件 (NP6 replay 用に温存) |
+  | `_COORD_DATA_SOURCE` enum, `_buildCoordParams('raw',…)` 分岐, `rawParams` block, `_COORD_STRONG_MIN=60` | `radar.js:5543-5641` | code 削減 ~30 行、`_buildCoordParams(strat)` の API が `(strat)` だけに |
+
+  **残置の理由**: `calculate_overlap` 関数本体は `radar/scoring.py` に存続。analyst が「raw vs IDF を historical event で比較したい」場合の replay フックが必要 (NP6)。consumer が production になく、`test_engine.py` 4 テストが 1 関数の正確性を保証しているだけのコストなら、削除より残置のほうが NP6 整合。
+
+  **検証**:
+  - python `pytest test_engine.py` → 153/153 green
+  - node `test_wp_alarm.js` → 46/46 green
+  - container rebuild → healthy、scoring tick エラーなし
+  - `curl /radar.js | grep _COORD_DATA_SOURCE|rawParams|correlations_l3` → 0 hits
+
   **A-4 監査の訂正**: 当初「`radar.js:3645-3650` で HUD `max ASN overlap: X%` を表示」と記載していたが、実際の grep 結果では radar.js 側に `max_overlap` の数値消費は存在せず、誤記。frontend は A-2 で既に `correlations_idf*` に切替済で raw に依存しない。
 
   **5-4 の意義**: raw 30% 閾値が `correlations` の P50 (≈53%) を下回っていたため、`cf_botnet_overlap` は通常時から FIRED し続け、`SYNC_DDOS` sequence event の precision を低下させていた。IDF への移行で「ubiquitous な AWS/Cloudflare 共起 (= 攻撃の証跡ではなく commodity ASN 利用)」を分母から外し、true positive のみを残す。recall は STRONG_MIN=1.5 (A-1 calibration の P95 付近) で確保 (NP1 整合)。
