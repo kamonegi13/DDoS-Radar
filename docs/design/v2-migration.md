@@ -29,7 +29,7 @@
 | **Phase 0** | 設計確定、ADR 起こし、scaffolding (Conclusion dataclass, DB v19-v22, codemod 準備) | **進行中** | 2026-05-02 |
 | **Phase 1** | 基盤層: Conclusion Model 永続化、LLM プロンプト永続化、theater 撲滅、v2 API 骨格、NP7 disclaimer 強制 | 未着手 | 2026-06-15 |
 | **Phase 2** | 結論層: 攻撃モード推定、トレンド三層化、per-domain 構造化、importance ranking、Calibration governance、Design W default-on | 未着手 | 2026-07-31 |
-| **Phase 3** | UI と運用: Analyst Workbench (4 ペイン)、drill-down、Markdown/PDF export、analyst feedback ループ、ACLED+GDELT 自動突合 | 未着手 | 2026-09-15 |
+| **Phase 3** | UI と運用: Analyst Workbench (4 ペイン)、drill-down、Markdown/PDF export、analyst feedback ループ、ACLED+GDELT 自動突合 ([v2-ui.md](v2-ui.md) で詳細設計) | 未着手 | 2026-09-15 |
 | **Phase 4** | v1 sunset: deprecation header → 90 日 → v1 撤去、theater adapter 削除 | 未着手 | 2026-12-15 |
 
 ---
