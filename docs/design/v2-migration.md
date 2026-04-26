@@ -376,7 +376,9 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
   - `recency_decay = exp(-elapsed_h / 12)` (時定数 τ=12h、12h で約 37% に減衰。実半減期は 12·ln 2 ≈ 8.32h)
   - `scenario_relevance = llm_country_weight × participant_weight` (per-contribution 値; GLOBAL は participant_weight のみ)
   - `novelty_factor = 1.0 - (similar_count / 10)`, clamped [0.3, 1.0]
-    - Phase 1 では similar_count を *現在の scoring tick 内* の同 `signal_source` 数で近似 (NP1 寄り)。Phase 1.x 以降で `conclusions` 表 24h 走査に置換。`metadata["novelty_source"]` で算出元を区別
+    - similar_count は `conclusions` 表を直近 24h スキャンし、同一 `(scenario_id, conclusion_type=ANOMALY, metadata.signal_source)` に一致する prior 行数。`metadata["novelty_source"] = "ledger_24h"` を付与
+    - SQL 失敗時は count=0 / novelty=1.0 にフォールバックし `metadata["novelty_source"] = "ledger_24h_fallback_empty"` でデグレード経路を可視化 (NP1: 履歴欠落で importance を sponta に下げない)
+    - lookback 窓は `THRESHOLD_REF["novelty_lookback_sec"] = 86400` で開示
 - **API 返却**: 上位 N 件 (default 10、`?limit=` で調整)
 - **importance_score 上限**: 100.0 へクランプ (raw_score × 各係数の積が 1.0 を超える場合のセーフティ)
 

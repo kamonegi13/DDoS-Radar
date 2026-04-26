@@ -16,14 +16,14 @@ but the literal formula `exp(-h/12)` is a 1/e time constant — half-life is
 actually ≈ 8.32h (12·ln 2). We follow the formula literally rather than the
 label; the misnomer is tracked for a doc fix.
 
-NP1 stance: Phase 1 has no historical anomaly ledger to query, so
-`similar_24h_count` is approximated by the count of same-`signal_source`
-contributions *within the current scoring tick*. This biases novelty
-toward 1.0 (more anomalies surfaced) which is acceptable under NP1
-(sensitivity > precision). A follow-up will tighten the proxy once the
-`conclusions` table accumulates ANOMALY rows we can count over 24h —
-the source of the count is recorded in `metadata["novelty_source"]` so
-analysts can tell which definition any given row used.
+Novelty source: this builder counts prior ANOMALY rows in the conclusions
+ledger over the past `_NOVELTY_LOOKBACK_SEC` window (default 24h) for the
+same scenario_id and same signal_source. Empty / unavailable ledger reads
+return 0, which keeps novelty=1.0 — strictly NP1 (no false suppression
+when history is missing). The source of the count is recorded in
+`metadata["novelty_source"]` (`"ledger_24h"` for the live path,
+`"ledger_24h_fallback_empty"` if the SQL query failed) so analysts can
+trace which definition a historical row used.
 
 NP5+8: when the scoring tick has no scorable contribution we still emit
 a single INSUFFICIENT_DATA Conclusion rather than dropping the row, so
@@ -50,12 +50,13 @@ if TYPE_CHECKING:
     from radar.scoring import ScenarioContribution, ScenarioState
 
 
-FORMULA_REF = "radar/conclusions/anomaly.py#derive_anomaly@v2.0.0"
+FORMULA_REF = "radar/conclusions/anomaly.py#derive_anomaly@v2.1.0"
 
 THRESHOLD_REF: dict = {
     "recency_time_constant_hours": 12.0,
     "novelty_floor": 0.3,
     "novelty_window_count": 10,
+    "novelty_lookback_sec": 24 * 3600,
     "default_limit": 10,
     "max_importance": 100.0,
 }
@@ -65,6 +66,7 @@ DEFAULT_LIMIT = 10
 _RECENCY_TIME_CONSTANT_HOURS = 12.0
 _NOVELTY_WINDOW = 10
 _NOVELTY_FLOOR = 0.3
+_NOVELTY_LOOKBACK_SEC = 24 * 3600
 _MAX_IMPORTANCE = 100.0
 
 
@@ -121,6 +123,34 @@ def _unavailable(db: "RadarDB", state: "ScenarioState", now: float) -> Conclusio
     )
 
 
+def _ledger_similar_count(db: "RadarDB", scenario_id: str,
+                          signal_source: str, now: float) -> tuple[int, str]:
+    """Count prior ANOMALY conclusions for (scenario, signal_source) in the
+    last `_NOVELTY_LOOKBACK_SEC` seconds.
+
+    Returns (count, source_label). On any read failure we fall back to 0
+    (novelty=1.0) and label the source so analysts can distinguish a real
+    "no prior history" from a degraded path that returned 0 by accident.
+    NP1: never under-count silently in a way that would suppress importance.
+    """
+    cutoff = now - _NOVELTY_LOOKBACK_SEC
+    try:
+        row = db._get_conn().execute(  # noqa: SLF001 — established internal pattern
+            "SELECT COUNT(*) AS n FROM conclusions "
+            "WHERE scenario_id = ? "
+            "  AND conclusion_type = ? "
+            "  AND observed_at >= ? AND observed_at < ? "
+            "  AND json_extract(metadata, '$.signal_source') = ?",
+            (scenario_id, ConclusionType.ANOMALY.value,
+             cutoff, now, signal_source),
+        ).fetchone()
+        if row is None:
+            return 0, "ledger_24h"
+        return int(row["n"] or 0), "ledger_24h"
+    except Exception:
+        return 0, "ledger_24h_fallback_empty"
+
+
 def derive_anomaly(
     db: "RadarDB",
     state: "ScenarioState",
@@ -134,20 +164,15 @@ def derive_anomaly(
     contribution is available, returns a single INSUFFICIENT_DATA
     Conclusion (NP5+8 + NP1).
 
-    Caller persists each row via `save_conclusion`. Pure: the only DB
-    reads are `calibration_status_for` per emitted row.
+    Caller persists each row via `save_conclusion`. The only DB reads
+    are `calibration_status_for` and one `_ledger_similar_count` per
+    emitted row.
     """
     if now is None:
         now = time.time()
 
     if not state.contributions:
         return [_unavailable(db, state, now)]
-
-    src_counts: dict[str, int] = {}
-    for c in state.contributions:
-        src_counts[c.signal.signal_source] = (
-            src_counts.get(c.signal.signal_source, 0) + 1
-        )
 
     cal = calibration_status_for(db, state.scenario_id)
     disclaimer = config.V2_NP7_DISCLAIMER
@@ -160,8 +185,9 @@ def derive_anomaly(
             continue
         decay = _recency_decay(float(sig.observed_at), now)
         relevance = _scenario_relevance(c)
-        # similar_count excludes the contribution itself
-        similar = max(0, src_counts.get(sig.signal_source, 1) - 1)
+        similar, novelty_source = _ledger_similar_count(
+            db, state.scenario_id, sig.signal_source, now,
+        )
         novelty = _novelty_factor(similar)
         importance = raw * decay * relevance * novelty * 100.0
         importance = max(0.0, min(_MAX_IMPORTANCE, importance))
@@ -186,12 +212,13 @@ def derive_anomaly(
                 "recency_decay": round(decay, 3),
                 "scenario_relevance": round(relevance, 3),
                 "novelty_factor": round(novelty, 3),
+                "novelty_similar_count": similar,
                 "elapsed_hours": round(elapsed_h, 2),
                 "domain": sig.domain,
                 "contributing_country": c.contributing_country,
                 "signal_source": sig.signal_source,
                 "sensor": sig.sensor,
-                "novelty_source": "current_tick_proxy",
+                "novelty_source": novelty_source,
             },
         )
         ranked.append((importance, conc))

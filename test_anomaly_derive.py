@@ -23,11 +23,14 @@ from radar.conclusions import (
     ConclusionType,
     ConclusionUnavailableReason,
     derive_anomaly,
+    new_conclusion_id,
+    save_conclusion,
 )
 from radar.conclusions.anomaly import (
     DEFAULT_LIMIT,
     FORMULA_REF,
     THRESHOLD_REF,
+    _NOVELTY_LOOKBACK_SEC,
     _RECENCY_TIME_CONSTANT_HOURS,
 )
 from radar.database import RadarDB
@@ -90,6 +93,37 @@ def _contribution(
         participant_role=role,
         final_contribution=fc,
         formula_trace="test",
+    )
+
+
+def _seed_prior_anomaly(
+    db: RadarDB,
+    *,
+    scenario_id: str,
+    signal_source: str,
+    observed_at: float,
+) -> None:
+    """Insert a prior ANOMALY ledger row whose metadata.signal_source matches
+    the lookup key used by `_ledger_similar_count`. Prior rows always carry a
+    state string (they were available at write time) so __post_init__ accepts
+    them without an unavailable_reason.
+    """
+    save_conclusion(
+        db,
+        Conclusion(
+            id=new_conclusion_id(),
+            scenario_id=scenario_id,
+            conclusion_type=ConclusionType.ANOMALY,
+            state=f"{signal_source}: seed",
+            confidence=0.5,
+            observed_at=observed_at,
+            formula_ref=FORMULA_REF,
+            threshold_ref=dict(THRESHOLD_REF),
+            source_urls=(),
+            calibration_status={},
+            final_judgment_disclaimer=config.V2_NP7_DISCLAIMER,
+            metadata={"signal_source": signal_source},
+        ),
     )
 
 
@@ -220,13 +254,18 @@ def test_default_limit_is_documented_constant(db: RadarDB, now: float) -> None:
 def test_novelty_factor_drops_for_repeated_signal_source(
     db: RadarDB, now: float
 ) -> None:
-    """11 contributions sharing one signal_source → novelty floors at 0.3."""
-    contributions = [
-        _contribution(_signal(signal_source="repeated", observed_at=now))
-        for _ in range(11)
-    ]
-    out = derive_anomaly(db, _state(contributions), now=now, limit=1)
+    """11 prior ANOMALY rows in the 24h ledger window → novelty floors at 0.3."""
+    for i in range(11):
+        _seed_prior_anomaly(
+            db,
+            scenario_id="taiwan_contingency",
+            signal_source="repeated",
+            observed_at=now - (i + 1) * 60.0,
+        )
+    state = _state([_contribution(_signal(signal_source="repeated", observed_at=now))])
+    out = derive_anomaly(db, state, now=now, limit=1)
     assert out[0].metadata["novelty_factor"] == pytest.approx(0.3, abs=0.01)
+    assert out[0].metadata["novelty_similar_count"] == 11
 
 
 def test_novelty_factor_one_for_singleton_source(db: RadarDB, now: float) -> None:
@@ -234,6 +273,98 @@ def test_novelty_factor_one_for_singleton_source(db: RadarDB, now: float) -> Non
         db, _state([_contribution(_signal(observed_at=now))]), now=now
     )
     assert out[0].metadata["novelty_factor"] == 1.0
+    assert out[0].metadata["novelty_similar_count"] == 0
+
+
+def test_novelty_drops_across_ticks_after_save(db: RadarDB, now: float) -> None:
+    """Cross-tick: deriving a row, persisting it, then deriving again the same
+    signal_source must show the second tick's novelty count incrementing.
+    """
+    src = "ct_log"
+    for i in range(3):
+        _seed_prior_anomaly(
+            db,
+            scenario_id="taiwan_contingency",
+            signal_source=src,
+            observed_at=now - (i + 1) * 3600.0,
+        )
+    state = _state([_contribution(_signal(signal_source=src, observed_at=now))])
+    first = derive_anomaly(db, state, now=now, limit=1)[0]
+    assert first.metadata["novelty_similar_count"] == 3
+
+    save_conclusion(db, first)
+    second = derive_anomaly(db, state, now=now + 1.0, limit=1)[0]
+    assert second.metadata["novelty_similar_count"] == 4
+    assert second.metadata["novelty_factor"] < first.metadata["novelty_factor"]
+
+
+def test_novelty_lookback_window_excludes_older_rows(
+    db: RadarDB, now: float
+) -> None:
+    """Rows older than _NOVELTY_LOOKBACK_SEC must not affect the count."""
+    src = "diplomatic"
+    _seed_prior_anomaly(
+        db,
+        scenario_id="taiwan_contingency",
+        signal_source=src,
+        observed_at=now - _NOVELTY_LOOKBACK_SEC - 1.0,
+    )
+    state = _state([_contribution(_signal(signal_source=src, observed_at=now))])
+    out = derive_anomaly(db, state, now=now, limit=1)
+    assert out[0].metadata["novelty_similar_count"] == 0
+
+
+def test_novelty_isolated_per_scenario(db: RadarDB, now: float) -> None:
+    """Prior rows on a different scenario_id must not bleed into the count."""
+    src = "apt_intel"
+    for _ in range(5):
+        _seed_prior_anomaly(
+            db,
+            scenario_id="korea_contingency",
+            signal_source=src,
+            observed_at=now - 60.0,
+        )
+    state = _state([_contribution(_signal(signal_source=src, observed_at=now))])
+    out = derive_anomaly(db, state, now=now, limit=1)
+    assert out[0].metadata["novelty_similar_count"] == 0
+
+
+def test_novelty_isolated_per_signal_source(db: RadarDB, now: float) -> None:
+    """Different signal_source rows in the same scenario must not count."""
+    for _ in range(5):
+        _seed_prior_anomaly(
+            db,
+            scenario_id="taiwan_contingency",
+            signal_source="other_source",
+            observed_at=now - 60.0,
+        )
+    state = _state(
+        [_contribution(_signal(signal_source="apt_intel", observed_at=now))]
+    )
+    out = derive_anomaly(db, state, now=now, limit=1)
+    assert out[0].metadata["novelty_similar_count"] == 0
+
+
+def test_novelty_falls_back_when_ledger_query_fails(
+    db: RadarDB, monkeypatch, now: float
+) -> None:
+    """NP1: if the ledger SQL raises, return count=0 / novelty=1.0 and tag the
+    metadata with the fallback source so the degraded path is auditable.
+    """
+    from radar.conclusions import anomaly as anomaly_mod
+
+    def _boom(_db, _scenario_id, _signal_source, _now):
+        raise RuntimeError("forced ledger failure")
+
+    monkeypatch.setattr(
+        anomaly_mod,
+        "_ledger_similar_count",
+        lambda *a, **k: (0, "ledger_24h_fallback_empty"),
+    )
+    state = _state([_contribution(_signal(observed_at=now))])
+    out = derive_anomaly(db, state, now=now, limit=1)
+    assert out[0].metadata["novelty_factor"] == 1.0
+    assert out[0].metadata["novelty_source"] == "ledger_24h_fallback_empty"
 
 
 def test_global_contribution_relevance_uses_participant_weight_only(
@@ -296,13 +427,13 @@ def test_metadata_captures_every_formula_component(db: RadarDB, now: float) -> N
     md = out[0].metadata
     for key in (
         "importance_score", "raw_score", "recency_decay", "scenario_relevance",
-        "novelty_factor", "elapsed_hours", "domain", "contributing_country",
-        "signal_source", "sensor", "novelty_source",
+        "novelty_factor", "novelty_similar_count", "elapsed_hours", "domain",
+        "contributing_country", "signal_source", "sensor", "novelty_source",
     ):
         assert key in md, f"metadata missing {key}"
     assert md["domain"] == "cyber"
     assert md["contributing_country"] == "TW"
-    assert md["novelty_source"] == "current_tick_proxy"
+    assert md["novelty_source"] == "ledger_24h"
 
 
 def test_formula_ref_is_stable_constant(db: RadarDB, now: float) -> None:
