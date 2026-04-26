@@ -2593,11 +2593,45 @@
     // history_shallow when fewer than 2 points have accumulated for a sensor
     // (fresh DB / very first cycle) — the toolbar tag mirrors that.
     const _WP_STORAGE_KEY = 'watchpane.v1.state';
-    let _wpState = { sensors: [], version: 1 };
+    const _WP_STATE_VERSION = 2;  // v2 adds optional `alarm` per row
+    let _wpState = { sensors: [], version: _WP_STATE_VERSION };
     let _wpCatalog = null;            // [{sensor, label, domain}]
     let _wpToggleFn = null;
     let _wpRefreshInflight = false;
     const _wpLastObs = new Map();     // key="sensor::scope" → last response
+
+    // Alarm condition fields/operators. Kept tiny and explicit per NP6 — every
+    // alarm is fully describable as `<field> <op> <number-or-status>` so the
+    // analyst can reason about exactly when it fires and we can render the
+    // condition back to them in plain text in the row tooltip.
+    const _WP_ALARM_FIELDS = ['score', 'value', 'delta', 'status'];
+    const _WP_ALARM_OPS_NUMERIC = ['>', '>=', '<', '<=', '==', '!='];
+    const _WP_ALARM_OPS_STATUS  = ['==', '!='];
+    const _WP_ALARM_STATUS_VALUES = ['FIRED', 'NORMAL', 'SUPPRESSED'];
+
+    function _wpNormalizeAlarm(a) {
+        if (!a || typeof a !== 'object') return null;
+        const field = _WP_ALARM_FIELDS.includes(a.field) ? a.field : null;
+        if (!field) return null;
+        const ops = (field === 'status') ? _WP_ALARM_OPS_STATUS : _WP_ALARM_OPS_NUMERIC;
+        const op = ops.includes(a.op) ? a.op : null;
+        if (!op) return null;
+        let value = a.value;
+        if (field === 'status') {
+            value = String(value || '').toUpperCase();
+            if (!_WP_ALARM_STATUS_VALUES.includes(value)) return null;
+        } else {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return null;
+            value = n;
+        }
+        return {
+            field, op, value,
+            last_fired_ts: Number(a.last_fired_ts) || 0,
+            is_active: !!a.is_active,
+            notify: a.notify !== false,  // default ON; user can opt out per row
+        };
+    }
 
     function _wpLoadState() {
         try {
@@ -2606,12 +2640,13 @@
             const parsed = JSON.parse(raw);
             if (parsed && Array.isArray(parsed.sensors)) {
                 _wpState = {
-                    version: 1,
+                    version: _WP_STATE_VERSION,
                     sensors: parsed.sensors.filter(s => s && typeof s.name === 'string')
                                             .map(s => ({
                                                 name: s.name,
                                                 scope: s.scope || 'focused',
                                                 added_at: s.added_at || Date.now(),
+                                                alarm: _wpNormalizeAlarm(s.alarm),
                                             })),
                 };
             }
@@ -2623,6 +2658,85 @@
     function _wpSaveState() {
         try { localStorage.setItem(_WP_STORAGE_KEY, JSON.stringify(_wpState)); }
         catch (e) { if (window.console) console.debug('[Watchpane] state save failed', e); }
+    }
+
+    // Pure evaluator (no side effects) — given an alarm spec and the latest
+    // observation envelope, return true iff the row should be in alarm state.
+    function _wpAlarmMatches(alarm, env) {
+        if (!alarm || !env) return false;
+        const obs = (env.observations || []);
+        const latest = obs.length ? obs[obs.length - 1] : null;
+        const curr = env.current || null;
+        let actual;
+        switch (alarm.field) {
+            case 'score':
+                actual = latest ? Number(latest.value) : null;
+                break;
+            case 'value':
+                actual = curr ? Number(curr.raw_value) : null;
+                break;
+            case 'delta':
+                actual = latest ? Number(latest.delta_vs_baseline) : null;
+                break;
+            case 'status':
+                if (!curr) return false;
+                if (curr.suppressed) actual = 'SUPPRESSED';
+                else actual = String(curr.status || '').toUpperCase();
+                break;
+            default: return false;
+        }
+        if (alarm.field === 'status') {
+            return alarm.op === '==' ? actual === alarm.value : actual !== alarm.value;
+        }
+        if (actual == null || !Number.isFinite(actual)) return false;
+        switch (alarm.op) {
+            case '>':  return actual >  alarm.value;
+            case '>=': return actual >= alarm.value;
+            case '<':  return actual <  alarm.value;
+            case '<=': return actual <= alarm.value;
+            case '==': return actual === alarm.value;
+            case '!=': return actual !== alarm.value;
+            default:   return false;
+        }
+    }
+
+    function _wpAlarmDescribe(alarm) {
+        if (!alarm) return '';
+        return `${alarm.field} ${alarm.op} ${alarm.value}`;
+    }
+
+    function _wpNotify(sensor, alarm) {
+        if (!alarm.notify) return;
+        if (typeof Notification === 'undefined') return;
+        if (Notification.permission !== 'granted') return;
+        try {
+            const title = _t('watchpane.notify.title') || 'Sensor alarm';
+            const body  = `${sensor.name} (${sensor.scope}) — ${_wpAlarmDescribe(alarm)}`;
+            new Notification(title, { body, tag: `wp-alarm-${sensor.name}-${sensor.scope}` });
+        } catch (e) {
+            if (window.console) console.debug('[Watchpane] notify failed', e);
+        }
+    }
+
+    // Walk all rows after a refresh, fire one notification per false→true edge.
+    // Suppressed while already active to avoid notification spam on every poll.
+    function _wpEvaluateAlarms() {
+        let changed = false;
+        for (const s of _wpState.sensors) {
+            if (!s.alarm) continue;
+            const env = _wpLastObs.get(_wpRowKey(s.name, s.scope));
+            const wasActive = !!s.alarm.is_active;
+            const nowActive = _wpAlarmMatches(s.alarm, env);
+            if (nowActive !== wasActive) {
+                s.alarm.is_active = nowActive;
+                if (nowActive) {
+                    s.alarm.last_fired_ts = Date.now();
+                    _wpNotify(s, s.alarm);
+                }
+                changed = true;
+            }
+        }
+        if (changed) _wpSaveState();
     }
 
     async function _wpLoadCatalog() {
@@ -2726,14 +2840,27 @@
             const statusCls = _wpStatusClass(curr);
             const statusTxt = _wpStatusText(curr);
             const rawValueTip = (curr && curr.raw_value != null) ? String(curr.raw_value) : '';
+            const alarmActive = !!(s.alarm && s.alarm.is_active);
+            const alarmConfigured = !!s.alarm;
+            const rowCls = 'wp-row' + (alarmActive ? ' wp-row-alarm' : '');
+            const bellCls = 'wp-alarm-btn'
+                + (alarmActive ? ' wp-alarm-active' : (alarmConfigured ? ' wp-alarm-set' : ''));
+            const bellTip = alarmConfigured
+                ? `${_t('watchpane.alarm.btn.tip_configured')}: ${_wpAlarmDescribe(s.alarm)}`
+                : _t('watchpane.alarm.btn.tip_unset');
+            const alarmBadge = alarmActive
+                ? `<span class="wp-alarm-badge" title="${_escHtml(_wpAlarmDescribe(s.alarm))}">⚠</span>`
+                : '';
             return `
-                <div class="wp-row" data-wp-idx="${idx}">
+                <div class="${rowCls}" data-wp-idx="${idx}">
                     <div class="wp-meta">
-                        <div class="wp-name" title="${safeName}">${_escHtml(labelOf(s.name))}</div>
+                        <div class="wp-name" title="${safeName}">${alarmBadge}${_escHtml(labelOf(s.name))}</div>
                         <div class="wp-sub ${statusCls}">${safeScope} · <span class="${statusCls}">${_escHtml(statusTxt)}</span>${rawValueTip ? ` · <span title="${_escHtml(rawValueTip)}">${_escHtml(String(rawValueTip).slice(0,20))}</span>` : ''}</div>
                     </div>
                     <span class="wp-spark">${_wpRenderSpark(observations)}</span>
                     <span class="wp-value ${statusCls}">${_escHtml(valueDisp)}</span>
+                    <button type="button" class="${bellCls}" title="${_escHtml(bellTip)}"
+                            onclick="window._wpOpenAlarmEditor(${idx})">🔔</button>
                     <button type="button" class="wp-remove" data-i18n-tip="watchpane.row.remove"
                             title="${_escHtml(_t('watchpane.row.remove'))}"
                             onclick="window._wpRemoveSensor(${idx})">×</button>
@@ -2770,6 +2897,10 @@
         _wpRefreshInflight = true;
         try {
             await Promise.all(_wpState.sensors.map(s => _wpRefreshOne(s.name, s.scope)));
+            // Alarm evaluation must happen AFTER the new envelopes land in
+            // _wpLastObs but BEFORE rendering, so the row can paint with the
+            // updated active state in the same paint cycle.
+            _wpEvaluateAlarms();
             _wpRender();
         } finally {
             _wpRefreshInflight = false;
@@ -2844,6 +2975,122 @@
         if (removed) _wpLastObs.delete(_wpRowKey(removed.name, removed.scope));
         _wpSaveState();
         _wpRender();
+    };
+
+    let _wpAlarmEditIdx = -1;
+
+    function _wpRequestNotificationPermission() {
+        if (typeof Notification === 'undefined') return;
+        if (Notification.permission === 'default') {
+            try { Notification.requestPermission(); } catch (e) { /* legacy promise-less browsers */ }
+        }
+    }
+
+    function _wpAlarmFieldOps(field) {
+        return field === 'status' ? _WP_ALARM_OPS_STATUS : _WP_ALARM_OPS_NUMERIC;
+    }
+
+    window._wpOpenAlarmEditor = function(idx) {
+        if (idx < 0 || idx >= _wpState.sensors.length) return;
+        _wpAlarmEditIdx = idx;
+        const overlay = document.getElementById('wp-alarm-overlay');
+        if (!overlay) return;
+        const s = _wpState.sensors[idx];
+        const a = s.alarm;
+        const fieldEl = document.getElementById('wp-alarm-field');
+        const opEl    = document.getElementById('wp-alarm-op');
+        const valEl   = document.getElementById('wp-alarm-value');
+        const statusEl = document.getElementById('wp-alarm-status-value');
+        const notifyEl = document.getElementById('wp-alarm-notify');
+        const titleEl = document.getElementById('wp-alarm-title');
+        if (titleEl) titleEl.textContent = `${_t('watchpane.alarm.title')} — ${s.name}`;
+        // Field options
+        if (fieldEl) {
+            fieldEl.innerHTML = _WP_ALARM_FIELDS.map(
+                f => `<option value="${f}">${_escHtml(_t('watchpane.alarm.field.' + f) || f)}</option>`
+            ).join('');
+            fieldEl.value = (a && a.field) || 'score';
+        }
+        const refreshOpAndValue = () => {
+            const field = fieldEl ? fieldEl.value : 'score';
+            const ops = _wpAlarmFieldOps(field);
+            if (opEl) {
+                opEl.innerHTML = ops.map(o => `<option value="${o}">${o}</option>`).join('');
+                opEl.value = (a && ops.includes(a.op)) ? a.op : ops[0];
+            }
+            if (field === 'status') {
+                if (valEl) valEl.style.display = 'none';
+                if (statusEl) {
+                    statusEl.style.display = '';
+                    statusEl.innerHTML = _WP_ALARM_STATUS_VALUES.map(
+                        v => `<option value="${v}">${v}</option>`
+                    ).join('');
+                    statusEl.value = (a && _WP_ALARM_STATUS_VALUES.includes(String(a.value).toUpperCase()))
+                        ? String(a.value).toUpperCase() : 'FIRED';
+                }
+            } else {
+                if (statusEl) statusEl.style.display = 'none';
+                if (valEl) {
+                    valEl.style.display = '';
+                    valEl.value = (a && Number.isFinite(Number(a.value))) ? String(a.value) : '';
+                }
+            }
+        };
+        refreshOpAndValue();
+        if (fieldEl) fieldEl.onchange = refreshOpAndValue;
+        if (notifyEl) notifyEl.checked = !a || a.notify !== false;
+        overlay.style.display = 'flex';
+        _wpRequestNotificationPermission();
+    };
+
+    window._wpCloseAlarmEditor = function() {
+        const overlay = document.getElementById('wp-alarm-overlay');
+        if (overlay) overlay.style.display = 'none';
+        _wpAlarmEditIdx = -1;
+    };
+
+    window._wpSaveAlarm = function() {
+        if (_wpAlarmEditIdx < 0) return;
+        const s = _wpState.sensors[_wpAlarmEditIdx];
+        if (!s) return;
+        const fieldEl = document.getElementById('wp-alarm-field');
+        const opEl    = document.getElementById('wp-alarm-op');
+        const valEl   = document.getElementById('wp-alarm-value');
+        const statusEl = document.getElementById('wp-alarm-status-value');
+        const notifyEl = document.getElementById('wp-alarm-notify');
+        const field = fieldEl ? fieldEl.value : 'score';
+        const op    = opEl ? opEl.value : '>';
+        const value = field === 'status'
+            ? (statusEl ? statusEl.value : 'FIRED')
+            : (valEl ? Number(valEl.value) : NaN);
+        const candidate = _wpNormalizeAlarm({
+            field, op, value,
+            notify: notifyEl ? notifyEl.checked : true,
+        });
+        if (!candidate) {
+            const errEl = document.getElementById('wp-alarm-error');
+            if (errEl) {
+                errEl.textContent = _t('watchpane.alarm.error.invalid') || 'Invalid value';
+                errEl.style.display = '';
+            }
+            return;
+        }
+        s.alarm = candidate;
+        // Re-evaluate immediately so the row reflects the new condition without
+        // waiting for the next 10s poll.
+        _wpEvaluateAlarms();
+        _wpSaveState();
+        _wpRender();
+        window._wpCloseAlarmEditor();
+    };
+
+    window._wpClearAlarm = function() {
+        if (_wpAlarmEditIdx < 0) return;
+        const s = _wpState.sensors[_wpAlarmEditIdx];
+        if (s) s.alarm = null;
+        _wpSaveState();
+        _wpRender();
+        window._wpCloseAlarmEditor();
     };
 
     function _wpInit() {

@@ -1970,7 +1970,7 @@
         <ul>
             <li><b>Layer 1 — Conclusion Cards</b>: Five always-on cards rendered below the HUD for the focused scenario, one per <i>ConclusionType</i> bucket: <b>THREAT_LEVEL</b> (1–5 + label), <b>TREND</b> (rising / steady / falling), <b>PER_DOMAIN</b> (cyber / physical / info status mix), <b>ANOMALY</b> (top sensor outliers), <b>ATTACK_MODE</b> (rule-based attack-pattern estimate or <span class="code-block">INSUFFICIENT_DATA</span>). Each card shows the headline conclusion plus a confidence dot. Cards refresh on every 10 s scoring poll and re-render &lt;100 ms after <b>Switch Focus</b> (◎ button or scenario panel) — no full page sync required.</li>
             <li><b>Layer 2 — Drill-down Modal</b>: Click any card to open the audit-trace modal. Per <b>NP6 (full derivation disclosure)</b>, every conclusion exposes: (a) the <b>formula reference</b> + threshold values used, (b) the <b>numeric inputs</b> that produced the result, (c) <b>calibration metadata</b> (sample N, last calibrated timestamp; flagged with a low-N warning per NP5+8 when N is too small to trust), (d) the <b>primary sources</b> consulted (deduplicated http(s) URLs only, XSS-safe), (e) any <b>LLM prompt hash</b> if an LLM step contributed to the conclusion. Close with ESC, the [✕] button, or backdrop click. Focus returns to the originating card. Stale fetches are cancelled via AbortController if the analyst clicks another card mid-load.</li>
-            <li><b>Layer 3 — Sensor Watchpane</b> — <span class="code-block">TOOLS ▾</span> → Sensor Watchpane: A persistent floating panel where the analyst pins arbitrary sensors of interest. Click <b>+ Add sensor</b> to filter the catalog by id / label / domain (search box, case-insensitive substring) and pick. Each pinned row shows the sensor label, scope, status pill (<span style="color:#ff2200;">FIRED</span> / <span style="color:#6fcf6f;">NORMAL</span> / <span style="color:#888;">SUPPRESSED</span>), a sparkline drawn from the <span class="code-block">sensor_observation_ts</span> table (24 h TTL, populated each scoring tick), and the current numeric score. Refreshes piggyback on the 10 s scoring poll (only while the panel is visible). Pinned sensors and panel position/visibility persist across browser reloads via <span class="code-block">localStorage</span>. The yellow <span class="code-block">history shallow</span> tag appears only when fewer than 2 observations have accumulated yet (fresh DB / first cycle after restart) and disappears once the series fills out.</li>
+            <li><b>Layer 3 — Sensor Watchpane</b> — <span class="code-block">TOOLS ▾</span> → Sensor Watchpane: A persistent floating panel where the analyst pins arbitrary sensors of interest. Click <b>+ Add sensor</b> to filter the catalog by id / label / domain (search box, case-insensitive substring) and pick. Each pinned row shows the sensor label, scope, status pill (<span style="color:#ff2200;">FIRED</span> / <span style="color:#6fcf6f;">NORMAL</span> / <span style="color:#888;">SUPPRESSED</span>), a sparkline drawn from the <span class="code-block">sensor_observation_ts</span> table (24 h TTL, populated each scoring tick), and the current numeric score. Refreshes piggyback on the 10 s scoring poll (only while the panel is visible). Pinned sensors and panel position/visibility persist across browser reloads via <span class="code-block">localStorage</span>. The yellow <span class="code-block">history shallow</span> tag appears only when fewer than 2 observations have accumulated yet (fresh DB / first cycle after restart) and disappears once the series fills out. <b>Alarm mode</b>: each row has a 🔔 button — set a condition (<span class="code-block">score &gt; 5</span>, <span class="code-block">delta &gt; 2</span>, <span class="code-block">status == FIRED</span>, etc.) and the row turns red with a ⚠ badge while the condition is true. Optional Web Notification fires once per false→true edge (suppressed while continuously active) so the analyst can monitor a signal the conclusion layer chose to suppress. Conditions persist in <span class="code-block">localStorage</span> alongside the sensor list.</li>
             <li><b>NP7 disclaimer banner</b>: A persistent strip beneath the HUD restates "tool conclusion only — final judgment by your organization" together with the v2 API surface notice. Always present so analysts cannot accidentally treat a card as the final verdict.</li>
         </ul>
 
@@ -2269,7 +2269,7 @@
         <ul>
             <li><b>レイヤ 1 — Conclusion Cards</b>: HUD 直下に focus シナリオの 5 結論カードを常時表示。<i>ConclusionType</i> バケット別: <b>THREAT_LEVEL</b>（1〜5 + ラベル）、<b>TREND</b>（上昇 / 横ばい / 下降）、<b>PER_DOMAIN</b>（cyber / physical / info の状態組み合わせ）、<b>ANOMALY</b>（センサー外れ値の上位）、<b>ATTACK_MODE</b>（ルールベース攻撃パターン推定または <span class="code-block">INSUFFICIENT_DATA</span>）。各カードには見出し結論と確信度ドットを表示。10 秒ごとのスコアリングポーリングで更新され、<b>Switch Focus</b>（◎ボタンまたはシナリオパネル）後は &lt;100 ms で再描画される（v1 同期完了を待たない）。</li>
             <li><b>レイヤ 2 — Drill-down Modal</b>: カードクリックで監査トレースモーダルを開く。<b>NP6（完全な導出開示）</b>に基づき各結論は以下を露出: (a) 採用した <b>計算式参照</b> と閾値、(b) 結果を生んだ <b>数値入力</b>、(c) <b>キャリブレーションメタ</b>（サンプル N、最終キャリブレーション時刻；信頼に足る N 未満の場合は NP5+8 に従い low-N 警告）、(d) 参照した <b>一次ソース</b>（重複排除済の http(s) URL のみ、XSS 安全）、(e) LLM ステップが寄与した場合の <b>LLM プロンプトハッシュ</b>。ESC・[✕]・背景クリックで閉じる。閉じると元のカードへフォーカス復帰。読み込み中に他カードへ切替えた場合は AbortController で古い fetch をキャンセル。</li>
-            <li><b>レイヤ 3 — Sensor Watchpane</b> — <span class="code-block">TOOLS ▾</span> → Sensor Watchpane: アナリストが任意のセンサーをピン留めできる持続型フローティングパネル。<b>+ Add sensor</b> でカタログを ID / ラベル / ドメインで絞り込み（検索ボックス、大文字小文字を無視する部分一致）、選択して追加。各行はセンサーラベル、スコープ、ステータスピル（<span style="color:#ff2200;">FIRED</span> / <span style="color:#6fcf6f;">NORMAL</span> / <span style="color:#888;">SUPPRESSED</span>）、<span class="code-block">sensor_observation_ts</span> テーブル（24h TTL、scoring tick 毎に append）由来のスパークライン、現在の数値スコアを表示。更新は 10 秒スコアリングポーリングに相乗り（パネル表示中のみ）。ピン留めしたセンサーとパネル位置・表示状態は <span class="code-block">localStorage</span> でブラウザリロードを跨いで永続化。黄色の <span class="code-block">history shallow</span> タグは観測点が 2 点未満（fresh DB / 再起動直後の初サイクル）の時のみ表示され、系列が蓄積されると消える。</li>
+            <li><b>レイヤ 3 — Sensor Watchpane</b> — <span class="code-block">TOOLS ▾</span> → Sensor Watchpane: アナリストが任意のセンサーをピン留めできる持続型フローティングパネル。<b>+ Add sensor</b> でカタログを ID / ラベル / ドメインで絞り込み（検索ボックス、大文字小文字を無視する部分一致）、選択して追加。各行はセンサーラベル、スコープ、ステータスピル（<span style="color:#ff2200;">FIRED</span> / <span style="color:#6fcf6f;">NORMAL</span> / <span style="color:#888;">SUPPRESSED</span>）、<span class="code-block">sensor_observation_ts</span> テーブル（24h TTL、scoring tick 毎に append）由来のスパークライン、現在の数値スコアを表示。更新は 10 秒スコアリングポーリングに相乗り（パネル表示中のみ）。ピン留めしたセンサーとパネル位置・表示状態は <span class="code-block">localStorage</span> でブラウザリロードを跨いで永続化。黄色の <span class="code-block">history shallow</span> タグは観測点が 2 点未満（fresh DB / 再起動直後の初サイクル）の時のみ表示され、系列が蓄積されると消える。<b>アラームモード</b>: 各行に 🔔 ボタンを設置。条件（<span class="code-block">score &gt; 5</span>、<span class="code-block">delta &gt; 2</span>、<span class="code-block">status == FIRED</span> 等）を設定すると、条件成立中は行が赤化し ⚠ バッジを表示。任意で false→true 遷移時に Web Notification を 1 回発射（連続 active 中は抑制）— 結論層が suppress した signal をアナリストが直接監視するための経路。条件はセンサーリストと同じ <span class="code-block">localStorage</span> に永続化。</li>
             <li><b>NP7 ディスクレーマバナー</b>: HUD 直下に「ツールの結論であり、最終判断は組織のプロセスによって行われます」と v2 API サーフェス通知を常時表示する帯。アナリストが結論カードを最終判断と誤認することを構造的に防止。</li>
         </ul>
 
@@ -3491,6 +3491,44 @@
             <input type="text" id="wp-add-search" data-i18n-ph="watchpane.add.search_ph"
                    placeholder="Filter sensors…" autocomplete="off" />
             <div id="wp-add-list" class="wp-add-list"></div>
+        </div>
+    </div>
+    <div id="wp-alarm-overlay" class="wp-add-overlay" style="display:none;" role="dialog" aria-modal="true">
+        <div class="wp-add-panel wp-alarm-panel">
+            <div class="wp-add-header">
+                <span id="wp-alarm-title" data-i18n="watchpane.alarm.title">Alarm condition</span>
+                <button type="button" class="wp-add-close" onclick="window._wpCloseAlarmEditor()" aria-label="Close">✕</button>
+            </div>
+            <div class="wp-alarm-form">
+                <div class="wp-alarm-row">
+                    <label data-i18n="watchpane.alarm.label.field">Field</label>
+                    <select id="wp-alarm-field"></select>
+                </div>
+                <div class="wp-alarm-row">
+                    <label data-i18n="watchpane.alarm.label.op">Operator</label>
+                    <select id="wp-alarm-op"></select>
+                </div>
+                <div class="wp-alarm-row">
+                    <label data-i18n="watchpane.alarm.label.value">Value</label>
+                    <input type="number" id="wp-alarm-value" step="any" />
+                    <select id="wp-alarm-status-value" style="display:none;"></select>
+                </div>
+                <div class="wp-alarm-row wp-alarm-row-check">
+                    <label><input type="checkbox" id="wp-alarm-notify" checked />
+                        <span data-i18n="watchpane.alarm.label.notify">Send Web Notification on transition</span>
+                    </label>
+                </div>
+                <div id="wp-alarm-error" class="wp-alarm-error" style="display:none;"></div>
+                <div class="wp-alarm-actions">
+                    <button type="button" class="wp-alarm-clear" onclick="window._wpClearAlarm()"
+                            data-i18n="watchpane.alarm.btn.clear">Clear</button>
+                    <button type="button" class="wp-alarm-save" onclick="window._wpSaveAlarm()"
+                            data-i18n="watchpane.alarm.btn.save">Save</button>
+                </div>
+                <p class="wp-alarm-hint" data-i18n="watchpane.alarm.hint">
+                    Fires when the latest observation matches the condition. Notification fires once per false→true edge (suppressed while continuously active).
+                </p>
+            </div>
         </div>
     </div>
 </div>
