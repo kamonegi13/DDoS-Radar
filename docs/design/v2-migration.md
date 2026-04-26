@@ -197,6 +197,47 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 - **判断**: API v2 の全レスポンスに `final_judgment_disclaimer` を必須フィールドとする (テストで欠落を検知)
 - **i18n**: `disclaimer.final_judgment.short` (~80字) と `disclaimer.final_judgment.long` (~200字) の 2 種、UI 文脈で使い分け
 
+### ADR-V2-013: 観察期間の事後 backfill 採用 (Phase 1.3 加速)
+
+- **状態**: PROPOSED → ACCEPTED (2026-04-26 実施済)
+- **背景**: Phase 1.3 は Mode B (shadow-write) を 14 日間観察してから Mode C への opt-in 判断を行う設計だった。しかし `scenario_tl_observation` テーブルに 4400+ 行の歴史的状態が既に蓄積されており、これらを事後的に v2 builders に流せば PER_DOMAIN/ATTACK_MODE/TREND ledger を即座に厚くでき、観察期間を実質短縮できる。
+- **判断**: 以下 2 段階で backfill を実施する:
+  1. **`scripts/replay_v1_v2_diff.py`**: `scenario_tl_observation` 4422 行を `derive_threat_level` に通し、v1 derive_tl との一致を `conclusion_diff_log` に書き込む (`metadata.replay_tag = "replay_v1_v2_diff/v1"`)。結果: 100% match (5 件 hysteresis_applied, 全行意味的一致)。
+  2. **`scripts/backfill_v2_ledger.py`**: 同 4437 行を時系列順に 4 builders (tl/per_domain/attack_mode/trend) で `conclusions` ledger に書き込む (`metadata.replay_tag = "backfill_v2_ledger/v1"`)。結果: 17,748 行書き込み, errors=0, 重複ゼロ。
+- **対象外**:
+  - **ANOMALY backfill** は実施しない。`derive_anomaly` は per-signal `state.contributions` を必要とするが、`scenario_tl_observation` にはドメイン集計値しか保存されていない。捏造した contributions で proxy ANOMALY を作るのは NP1 (感度) と NP6 (透明性) を同時に損なう。
+  - **LLM プロンプト履歴 backfill** も恒久不可。`llm_prompts` テーブル + `llm_call_log.prompt_sha256` は v2.0 Phase 1 で導入され、それ以前のプロンプト本文は streaming + dispose で永続化されていない。NP6 の遡及性は「将来生成される結論への遡及性」であり、過去の不存在データを fabricate するのは違反。
+- **idempotency / rollback**:
+  - `metadata.replay_tag` で identity を維持。再実行は `(scenario_id, observed_at, conclusion_type, replay_tag)` で skip。
+  - `--rollback` でタグ付き全行削除。本番実行前に smoke + rollback テスト済 (40 行 → 0 行 → 143 行 baseline 復帰)。
+- **運用**:
+  - backfill 実行中は Mode B hook を `V2_CONCLUSION_LEDGER_ENABLED=false` で停止。`derive_trend` / `derive_per_domain` がライブ ledger を参照するため、並走時の汚染を防ぐ。停止時間 ~30 分以内に収めること。
+  - DB スナップショット (`radar.db.pre_backfill_<ts>`) を container 内で取得してから実行。ホスト側からの sqlite3 操作は WAL 不整合を起こすため厳禁。
+- **NP 整合性**:
+  - **NP1 (感度)**: 観察期間短縮 = TL/per_domain/trend の本番投入を早める = 見逃し低減
+  - **NP5+8 (結論品質規律)**: `replay_tag` で「実 live ではない」ことを明示しており、品質指標への混入は ADR-V2-014 で別途規律化
+  - **NP6 (透明性)**: スクリプト本体 + replay_tag で導出経路を完全開示
+
+### ADR-V2-014: calibration への replay 行採用ポリシー (Phase 1.3 加速)
+
+- **状態**: PROPOSED
+- **背景**: Phase 1.3 backfill (ADR-V2-013) で `conclusion_diff_log` に 4422 行 + `conclusions` に 17,748 行が `replay_tag` 付きで追加された。`calibration_status_for(db, scenario_id)` (`radar/conclusions/calibration.py`) は `db.shadow_drift_stats()` 経由で diff_log を集計するが、現状 replay 行をそのまま含むかは未定義。
+- **問題**: `_classify_verdict` は `sample_n < 8` で INSUFFICIENT_DATA を返す。**replay 行を含めれば**初日から sample_n が数千になり verdict が OK / DRIFTING / DEGRADED に到達するが、replay 行の 100% match は **同一 v1 derive_tl の自己一致**を測っているだけで、live drift とは性質が異なる。
+- **選択肢**:
+  - **A (混在)**: replay と live を統合集計。pros: NP5+8 verdict が即座に有効化。cons: replay の 100% match が drift_magnitude を不当に押し下げ、live drift の検出感度が落ちる (NP1 違反)。
+  - **B (分離・除外)**: `calibration_status_for` は live 行のみを集計。replay 行は分析用 (人手レビュー) 専用。pros: live drift の感度を保持。cons: 14 日経過まで sample_n が 8 に届かない可能性あり、INSUFFICIENT_DATA が長引く (NP5+8 の名目的後退)。
+  - **C (二系統公開)**: `calibration_status` に `live` と `replay_baseline` 2 ブロックを並列で出す。verdict は live 由来、replay_baseline は参考値。pros: 透明性 (NP6) と感度 (NP1) を両立。cons: API/UI 変更負荷あり。
+- **判断**: **B を採用**。理由:
+  1. NP1 (感度) を最優先する (旧 P4 → NP1)
+  2. INSUFFICIENT_DATA は NP5+8 で「過渡的に許容」と明記されている
+  3. C は将来必要になった時点で additive に追加可能 (現時点で YAGNI)
+- **実装**:
+  - `db.shadow_drift_stats()` の SQL に `WHERE json_extract(metadata, '$.replay_tag') IS NULL` を追加
+  - 既存テストへの影響を確認 (`test_engine.py`, conclusion calibration 関連)
+  - replay 行は `/api/v2/admin/replay_audit` (新設) で人手レビュー可能にする (Phase 2 タスク)
+- **NP 整合性**: 上記参照
+- **依存**: ADR-V2-013 完了 (✅)
+
 ---
 
 ## 5. データモデル (v2.0)
