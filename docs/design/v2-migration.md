@@ -748,12 +748,13 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 - 全テスト pass + recall metrics ベースライン記録
 
 #### Phase 3 完了条件
-- Analyst Workbench UI 稼働 (4 ペイン + drill-down)
+- Analyst Workbench UI 稼働 (5 cards + drill-down) — **実装済**: `index.html#conclusion-cards-bar` (5 ConclusionType の grid)、`radar.js _ccDrillRender` (header / disclaimer / formula / thresholds / calibration / sources / metadata / llm_prompt / llm_aug (ATTACK_MODE のみ) / feedback の 10 セクション)
 - Markdown export 稼働 (実装済 — §8.3)
 - analyst feedback UI 稼働 — **実装済 (2026-04-26)**: ADR-V2-011 参照。drill-down modal に統合 (4 ラベル radio + URL/notes)、`POST/GET /api/v2/conclusions/<id>/feedback`、bias mitigation のため per-label counts のみ提示、anti-spoof analyst_id (JWT 由来)
-- v2 default-on (旧 v1 UI/API は legacy)
-- v1 deprecation header 発射
-- アナリスト 90 日継続利用フィードバック収集
+- ATTACK_MODE LLM augmentation drill-down セクション — **実装済 (2026-04-26)**: agreement / suggested_alternative / confidence_adjustment / narrative / key_evidence を独立カードとして表示。LLM 失敗時は attempted=true + error 文字列を表示し offline と quiet を区別可能
+- v2 default-on (旧 v1 UI/API は legacy) — **完了 (2026-04-26)**: `V2_API_ENABLED` config 既定 true、`scripts/check_mode_c_readiness.py` 5 条件 pass
+- v1 deprecation header 発射 — **完了**: `radar/conclusions/v1_sunset.py` で RFC 9745 + RFC 8594 + RFC 8288 ヘッダを `/api/threat_data` と `/api/scenario/<id>/breakdown` に付与、Sunset = 2026-07-26
+- アナリスト 90 日継続利用フィードバック収集 — **passive observation 中** (analyst_feedback テーブルへの蓄積を観察、再評価は 2026-07-26 以降)
 
 #### Phase 4 完了条件
 - v1 API 撤去
