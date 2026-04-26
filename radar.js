@@ -2602,36 +2602,13 @@
 
     // Alarm condition fields/operators. Kept tiny and explicit per NP6 — every
     // alarm is fully describable as `<field> <op> <number-or-status>` so the
-    // analyst can reason about exactly when it fires and we can render the
-    // condition back to them in plain text in the row tooltip.
-    const _WP_ALARM_FIELDS = ['score', 'value', 'delta', 'status'];
-    const _WP_ALARM_OPS_NUMERIC = ['>', '>=', '<', '<=', '==', '!='];
-    const _WP_ALARM_OPS_STATUS  = ['==', '!='];
-    const _WP_ALARM_STATUS_VALUES = ['FIRED', 'NORMAL', 'SUPPRESSED'];
-
-    function _wpNormalizeAlarm(a) {
-        if (!a || typeof a !== 'object') return null;
-        const field = _WP_ALARM_FIELDS.includes(a.field) ? a.field : null;
-        if (!field) return null;
-        const ops = (field === 'status') ? _WP_ALARM_OPS_STATUS : _WP_ALARM_OPS_NUMERIC;
-        const op = ops.includes(a.op) ? a.op : null;
-        if (!op) return null;
-        let value = a.value;
-        if (field === 'status') {
-            value = String(value || '').toUpperCase();
-            if (!_WP_ALARM_STATUS_VALUES.includes(value)) return null;
-        } else {
-            const n = Number(value);
-            if (!Number.isFinite(n)) return null;
-            value = n;
-        }
-        return {
-            field, op, value,
-            last_fired_ts: Number(a.last_fired_ts) || 0,
-            is_active: !!a.is_active,
-            notify: a.notify !== false,  // default ON; user can opt out per row
-        };
-    }
+    // analyst can reason about exactly when it fires. Pure logic lives in
+    // wp_alarm.js so it can be unit-tested under Node.
+    const _WP_ALARM_FIELDS        = window.WatchpaneAlarm.FIELDS;
+    const _WP_ALARM_OPS_NUMERIC   = window.WatchpaneAlarm.OPS_NUMERIC;
+    const _WP_ALARM_OPS_STATUS    = window.WatchpaneAlarm.OPS_STATUS;
+    const _WP_ALARM_STATUS_VALUES = window.WatchpaneAlarm.STATUS_VALUES;
+    const _wpNormalizeAlarm = window.WatchpaneAlarm.normalizeAlarm;
 
     function _wpLoadState() {
         try {
@@ -2660,50 +2637,9 @@
         catch (e) { if (window.console) console.debug('[Watchpane] state save failed', e); }
     }
 
-    // Pure evaluator (no side effects) — given an alarm spec and the latest
-    // observation envelope, return true iff the row should be in alarm state.
-    function _wpAlarmMatches(alarm, env) {
-        if (!alarm || !env) return false;
-        const obs = (env.observations || []);
-        const latest = obs.length ? obs[obs.length - 1] : null;
-        const curr = env.current || null;
-        let actual;
-        switch (alarm.field) {
-            case 'score':
-                actual = latest ? Number(latest.value) : null;
-                break;
-            case 'value':
-                actual = curr ? Number(curr.raw_value) : null;
-                break;
-            case 'delta':
-                actual = latest ? Number(latest.delta_vs_baseline) : null;
-                break;
-            case 'status':
-                if (!curr) return false;
-                if (curr.suppressed) actual = 'SUPPRESSED';
-                else actual = String(curr.status || '').toUpperCase();
-                break;
-            default: return false;
-        }
-        if (alarm.field === 'status') {
-            return alarm.op === '==' ? actual === alarm.value : actual !== alarm.value;
-        }
-        if (actual == null || !Number.isFinite(actual)) return false;
-        switch (alarm.op) {
-            case '>':  return actual >  alarm.value;
-            case '>=': return actual >= alarm.value;
-            case '<':  return actual <  alarm.value;
-            case '<=': return actual <= alarm.value;
-            case '==': return actual === alarm.value;
-            case '!=': return actual !== alarm.value;
-            default:   return false;
-        }
-    }
-
-    function _wpAlarmDescribe(alarm) {
-        if (!alarm) return '';
-        return `${alarm.field} ${alarm.op} ${alarm.value}`;
-    }
+    // Pure evaluator + describer live in wp_alarm.js (testable under Node).
+    const _wpAlarmMatches  = window.WatchpaneAlarm.alarmMatches;
+    const _wpAlarmDescribe = window.WatchpaneAlarm.alarmDescribe;
 
     function _wpNotify(sensor, alarm) {
         if (!alarm.notify) return;

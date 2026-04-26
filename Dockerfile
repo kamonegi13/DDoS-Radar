@@ -21,6 +21,7 @@ COPY i18n.js         .
 COPY login-init.js   .
 COPY radar.js        .
 COPY radar.css       .
+COPY wp_alarm.js     .
 COPY index.html      .
 COPY tradecraft.js   .
 COPY tradecraft.css  .
