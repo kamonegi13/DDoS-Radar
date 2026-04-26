@@ -734,6 +734,9 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 - v1 UI 撤去
 - theater adapter 削除
 - DB schema cleanup
+- **Coordination Index recalibration**: IDF-weighted `correlations_idf` shadow surface (commit 12d56e2, 2026-04-26) を frontend に切替え、旧 `correlations` を sunset。判断は live data での discrimination 検証後 (active escalation サンプル蓄積待ち)
+  - shadow 投入時の挙動 (taiwan_contingency 平時): raw≥60 が 6/21 → idf≥60 が 0/21、raw mean 54.4 → idf mean 0.3。平時の coordination が事実上ゼロ判定される (false positive 解消)
+  - 切替時に必要な作業: (a) 新閾値決定 (現行 OVERLAP_THRESHOLD=15 / _COORD_STRONG_MIN=60 は転用不可、IDF レンジ 0-15 想定で再設計)、(b) frontend `updateCoordinationIndex` を `correlations_idf` 参照に変更、(c) Coord 既定 OFF → STRONG 復帰検討、(d) intel guide Ch.8 Q2 の式更新
 
 ### 10.3 ロールバック手順
 
