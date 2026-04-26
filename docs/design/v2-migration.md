@@ -251,12 +251,16 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 |--------|-----------|----------------|----------------|----------|----------------|----------------|--------------------------------------------------------------------|------|
 | 2026-04-26 | 90 | 0 | 1.0000 | 1370 | 0 | 1.0000 | 10 / 10 / 41 / 41 / 41 | Priority 5 calibration 直後初観測。replay 行は diff_log に 0 行 (ADR-V2-014 検証通り)。TL/TREND が他より低いのは hysteresis でしか persist しない設計どおり |
 
-**判定基準 (Mode C opt-in 前提)**:
-- 7d 連続で `match_rate ≥ 0.99` かつ
-- 14d 累計で `divergence < 50 行` かつ
-- 全 5 ConclusionType で live 行が 0 件のシナリオが無い (background のみ TL は INSUFFICIENT 許容)
+**判定基準 (Mode C opt-in / 段階 rollout)**:
+- **Stage 1 (analyst-only opt-in)** — `diff_log 7d match_rate ≥ 0.99` かつ `7d divergence ≤ 5` の単一基準で十分。TL pipeline の v1 等価性が実証されており、PER_DOMAIN/ATTACK_MODE/ANOMALY は v1 等価が無いため diff_log では検証不能 (Phase 1.3 calibration で代替済)
+- **Stage 2 (全認証ユーザー opt-in)** — Stage 1 基準 + TREND short_term が algorithm 上算出可能 (live TL ledger ≥ 48h)
+- **Mode C 完全 opt-in (default-on)** — Stage 2 基準 + 14d 累計 `divergence < 50 行` + Stage 2 期間中の analyst からの critical complaint なし
 
-**次回観察**: 2026-05-03 (1 週間後)
+**Stage 1 開始: 2026-04-26 04:23 JST** — `V2_API_ENABLED=true` 化、4 公開ルート (`/api/v2/scenarios/.../conclusions`, single, by_id, audit_trace) に `_require_analyst()` ガード追加。smoke test 完了 (anonymous → 401 / admin → 200)。基準満たした根拠: `diff_log 7d 1370 行で match_rate=1.0000、divergence=0`。
+
+**Stage 2 ターゲット**: 2026-04-28 04:00 JST (live TL ledger 48h+ で TREND short_term が出始めるタイミング)
+
+**次回フル観察**: 2026-05-03 (1 週間後)
 
 ---
 
