@@ -273,6 +273,16 @@
     </div>
 </div>
 
+<!-- ── NP7 Final-Judgment Disclaimer (v2 conclusions API) ─────────────
+     Persistent banner. Disclaimer text fetched from
+     /api/v2/scenarios/<focused>/conclusions on focus changes; falls back
+     to a literal string if v2 is unavailable so NP7 is satisfied even
+     when v2 is degraded. role=note + aria-live=polite per WCAG 2.2 SC 4.1.3. -->
+<div id="np7-disclaimer-banner" role="note" aria-live="polite">
+    <span class="np7-banner-icon" aria-hidden="true">📌</span>
+    <span class="np7-banner-text" id="np7-banner-text" data-i18n="banner.np7.fallback">Tool conclusion only — final judgment by organizational process.</span>
+</div>
+
 <!-- ── Scenario Bar ──────────────────────────────────────────────────── -->
 <div id="scenario-bar">
     <div id="scenario-cards"></div>
@@ -1285,9 +1295,11 @@
 
         <div class="guide-lang-en">
         <p>This platform is an <b>MDO C4ISR Strategic OSINT Radar</b> designed to detect precursor indicators of kinetic operations by correlating signals across three domains: Cyber, Physical, and Information. All data is sourced exclusively from open-source intelligence (OSINT). Sensors run on independent background schedules, and the convergence score is recalculated every <span class="code-block">SCORE_REFRESH_SEC=60</span> seconds from the latest cached data. The <span class="code-block">SYNC</span> button forces an immediate fetch and score update across all active sensors.</p>
+        <p style="border-left: 3px solid var(--color-accent); padding: 6px 10px; background: rgba(0,80,120,0.1);"><b>Tool conclusion only — final judgment by organizational process.</b> This radar functions as one node in an organizational intelligence assessment process. Every output (threat level, trend, per-domain status, anomalies, attack-mode estimates) is a <i>tool conclusion</i> derived from transparent formulas and primary sources. Final situation assessment is performed by your organization, integrating this output with other sources (HUMINT, SIGINT, etc.). The persistent banner at the top of the page is the formal disclaimer; the v2 conclusions API exposes the full derivation path (formula reference, threshold values, source URLs, LLM prompt hashes) for every conclusion to support analyst verification.</p>
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <p>本プラットフォームは <b>MDO C4ISR 戦略OSINTレーダー</b> です。サイバー・物理・情報の3ドメインにわたるシグナルを相関分析し、動態作戦の前兆指標を検出します。すべてのデータはオープンソースインテリジェンス（OSINT）のみから取得しています。各センサーは独立したバックグラウンドスケジュールで稼働し、収束スコアは最新キャッシュデータから <span class="code-block">SCORE_REFRESH_SEC=60</span> 秒ごとに再計算されます。<span class="code-block">SYNC</span> ボタンで全アクティブセンサーの即時取得とスコア更新を強制実行できます。</p>
+        <p style="border-left: 3px solid var(--color-accent); padding: 6px 10px; background: rgba(0,80,120,0.1);"><b>本ツールの結論であり、最終判断は組織のプロセスによって行われます。</b>本レーダーは、組織的なインテリジェンス判断プロセスにおける一つのノードとして機能します。出力（脅威レベル、トレンド、ドメイン別ステータス、異常事象、推定攻撃モード）はすべて、透明な計算式と一次ソースから導出された <i>ツールの結論</i> です。最終的な状況判断は、本ツールの出力を他の情報源（HUMINT、SIGINT 等）と統合した上で組織が行います。ページ上部に常時表示される disclaimer バナーが正式な注意書きであり、v2 conclusions API は各結論の完全な導出経路（formula 参照、閾値、ソース URL、LLM プロンプトハッシュ）を公開してアナリストの検証を支援します。</p>
         </div>
 
         <div class="guide-ch-nav">

@@ -1968,6 +1968,32 @@
     function forceDataSync() { fetchDDoSData(true); }
     window.forceDataSync = forceDataSync;
 
+    // ── NP7 disclaimer banner (Phase 1.4 P2) ─────────────────────────────
+    // Fetches the canonical final-judgment disclaimer text from the v2
+    // conclusions envelope and renders it into #np7-banner-text. Falls back
+    // to the i18n key (already in the DOM) if v2 is degraded so NP7 is
+    // satisfied even when v2 is unavailable. One-shot per session — the
+    // disclaimer is global (config.V2_NP7_DISCLAIMER), not per-scenario, so
+    // no need to re-fetch on focus changes.
+    let _np7BannerLoaded = false;
+    async function _refreshNp7Banner(scenarioId) {
+        if (_np7BannerLoaded || !scenarioId) return;
+        try {
+            const resp = await fetch(`/api/v2/scenarios/${encodeURIComponent(scenarioId)}/conclusions`);
+            if (!resp.ok) return;  // 503 (v2 disabled) / 404 (no scenario) → keep fallback text
+            const env = await resp.json();
+            const text = env && env.final_judgment_disclaimer;
+            if (typeof text !== 'string' || !text) return;
+            const node = document.getElementById('np7-banner-text');
+            if (node) {
+                node.textContent = text;  // textContent — no XSS path even if server text changes
+                _np7BannerLoaded = true;
+            }
+        } catch (e) {
+            // Silent — NP7 fallback in DOM is the safety net.
+        }
+    }
+
     async function fetchDDoSData(force = false) {
         // Under scenario-unit mode the server derives scope from the focused
         // scenario; only focus + muted + force are passed.
@@ -2010,6 +2036,9 @@
             }
 
             renderTelemetry(latestData);
+
+            // Fire-and-forget: hydrate NP7 banner with v2 disclaimer. One-shot.
+            _refreshNp7Banner(_focusParam);
 
             // Refresh LLM Intel data on every poll so chain panel and intel panel stay current
             if (typeof _fetchLlmIntel === 'function') _fetchLlmIntel();

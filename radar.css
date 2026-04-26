@@ -1480,6 +1480,36 @@
     padding: 4px 8px !important;
 }
 
+/* ── NP7 final-judgment disclaimer banner (v2 conclusions API) ───────
+   Stays above scenario-bar at the top of the page. Visible at all times
+   so analysts cannot mistake a tool conclusion for an organizational
+   judgment (NP7 / constraint ⑥). Dim accent palette so it reads as
+   informational, not alarm. Banner DOM is `<div role="note">`; styles
+   are scoped to the id so they cannot leak via the panel chrome
+   contract (docs/design/panel-chrome.md). */
+#np7-disclaimer-banner {
+    background: rgba(0, 80, 120, 0.18);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-accent);
+    font-size: 11px;
+    letter-spacing: 0.4px;
+    padding: 4px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    line-height: 1.4;
+}
+#np7-disclaimer-banner .np7-banner-icon {
+    flex: 0 0 auto;
+    font-size: 12px;
+    opacity: 0.9;
+}
+#np7-disclaimer-banner .np7-banner-text {
+    flex: 1 1 auto;
+    color: var(--color-text);
+    opacity: 0.85;
+}
+
 /* ── Scenario Bar (Phase 4) ───────────────────────────────────────── */
 #scenario-bar {
     background: var(--color-surface);
