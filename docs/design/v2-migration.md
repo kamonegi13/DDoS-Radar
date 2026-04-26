@@ -753,8 +753,8 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 - importance_score ranking 稼働
 - inconclusive_continuity_log + scheduler job 稼働
 - ACLED + GDELT 自動突合 ETL 稼働 — **実装済 (2026-04-26)**: ADR-V2-005 参照。`scripts/run_ground_truth_etl.py` + `radar/conclusions/ground_truth_etl.py` + `radar/sensors/acled.py`。flag `V2_GROUND_TRUTH_ETL_ENABLED` 既定 false (ACLED API key 設定 + cron 構成後に opt-in)
-- Design W opt-in 移行
-- 全テスト pass + recall metrics ベースライン記録
+- Design W opt-in 移行 — **passive observation 中** (analyst_feedback ledger の蓄積を待ち、recall ≥ 0.8 を確認次第 opt-in)
+- 全テスト pass + recall metrics ベースライン記録 — **実装済 (2026-04-27)**: `scripts/report_recall_metrics.py` + `test_report_recall_metrics.py` (8 件)。`analyst_feedback` JOIN `conclusions` で per-(scenario, type) confusion matrix を集計、recall=TP/(TP+FN), precision=TP/(TP+FP) を出力。`--exclude-auto` で human-only baseline、`--json` で CI 取り込み可。latest-row-wins de-dup でアナリスト label revision を二重カウントしない
 
 #### Phase 3 完了条件
 - Analyst Workbench UI 稼働 (5 cards + drill-down) — **実装済**: `index.html#conclusion-cards-bar` (5 ConclusionType の grid)、`radar.js _ccDrillRender` (header / disclaimer / formula / thresholds / calibration / sources / metadata / llm_prompt / llm_aug (ATTACK_MODE のみ) / feedback の 10 セクション)
