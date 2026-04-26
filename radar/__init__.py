@@ -57,6 +57,20 @@ def _security_headers(response):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
+# ── v1 sunset headers (ADR-V2-003) ──
+# Adds Deprecation/Sunset/Link to the two v1 routes superseded by v2.
+# Wrapped in try/except so a header-construction bug never returns 5xx.
+from radar.conclusions.v1_sunset import apply_sunset_headers_if_needed  # noqa: E402
+
+@app.after_request
+def _v1_sunset_headers(response):
+    try:
+        from flask import request
+        apply_sunset_headers_if_needed(request.path, response.headers)
+    except Exception:  # noqa: BLE001
+        log.warning("v1 sunset header injection failed", exc_info=True)
+    return response
+
 # ── Config (triggers _load_env) ──
 from radar import config  # noqa: E402
 
