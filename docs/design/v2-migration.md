@@ -489,8 +489,21 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
   - INSUFFICIENT_SIGNAL は spec 通り `ConclusionUnavailableReason.INSUFFICIENT_DATA` (transient) として表現。`state=None` / `confidence=0.0`
   - 複数モード firing は実装済み (`metadata.ranked_modes` に confidence 降順で全件、`state` に top 1)。`is_tentative` flag を `confidence < 0.6` で付与
   - `scenario_extensions` 適用フックは未実装 (Phase 2.5 で追加予定、call site は変えずに済むよう deriver は state-only API)
-  - LLM 補強は Phase 2 後半で追加 (現状は rule-based のみ)
+  - LLM 補強は Phase 2 後半で追加 (現状は rule-based のみ) — **実装済 (2026-04-26)**
   - 閾値の正式 calibration は Phase 1.3 で 14 日間 shadow 観測の上で実施 (現状は機能 OK / calibration 未確定)
+
+  **Phase 2 後半 LLM 補強実装** (2026-04-26):
+  - 新モジュール `radar/conclusions/attack_mode_llm.py` — `augment_attack_mode_with_llm(rule_conclusion, state)`
+  - **rule が authority**: `state` (top mode) は rule のまま LLM では上書き不可。LLM の disagreement は `metadata.llm_augmentation.suggested_alternative_mode` に記録
+  - **confidence nudge**: ±0.10 max (絶対値クランプ)、rule baseline から微調整のみ
+  - **NP1 整合**: rule が `INSUFFICIENT_DATA` の場合は LLM 呼び出しせず pass-through (LLM に mode を発明させない)
+  - **NP3 整合**: LLM 不可達/parse 失敗時は rule conclusion をそのまま返す + `metadata.llm_augmentation.attempted=true, ok=false, error=<reason>` で監査可能化
+  - **NP6 整合**: `llm_prompt_sha256` を Conclusion に直接スタンプ (deterministic prompt → 同じ state は dedup)
+  - **prompt 構造**: system は固定 (240 chars 程度)、user prompt は scenario_id + rule_top_mode + ranked_modes + domain_scores + active_n の決定論的 render
+  - **JSON schema**: `{agreement ∈ {agree, weak_agree, weak_disagree, disagree, unknown}, suggested_alternative_mode ∈ {5 modes} | null, narrative ≤240 chars, key_evidence list[≤4]≤120 chars, confidence_adjustment ∈ [-0.10, 0.10]}`
+  - **flag**: `V2_ATTACK_MODE_LLM_AUGMENT_ENABLED` (default false、明示 opt-in)
+  - **wire**: `radar/scoring.py:_maybe_persist_attack_mode_conclusion` で `derive_attack_mode → augment_attack_mode_with_llm → save_conclusion` の chain
+  - **tests**: `test_attack_mode_llm_augment.py` 14 件 (gating / NP1 pass-through / confidence clamp / state immutability / sha256 stamp / parse defense / failure path)
 
 ---
 

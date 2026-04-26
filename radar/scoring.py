@@ -1259,8 +1259,12 @@ def _maybe_persist_attack_mode_conclusion(state: "ScenarioState") -> None:
     try:
         from radar.conclusions import save_conclusion
         from radar.conclusions.attack_mode import derive_attack_mode
+        from radar.conclusions.attack_mode_llm import augment_attack_mode_with_llm
         from radar.conclusions.shadow_metrics import record_success
         c = derive_attack_mode(state)
+        # NP3: augmentation never raises; on LLM failure it returns the
+        # rule-based row unchanged so the ledger still advances.
+        c = augment_attack_mode_with_llm(c, state)
         save_conclusion(_db, c)
         record_success("attack_mode")
     except Exception as exc:

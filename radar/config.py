@@ -248,6 +248,15 @@ V2_PER_DOMAIN_ENABLED = os.getenv("V2_PER_DOMAIN_ENABLED", "false").lower() in (
 V2_ATTACK_MODE_ENABLED = os.getenv("V2_ATTACK_MODE_ENABLED", "false").lower() in ("true", "1", "yes")
 V2_CONTINUITY_LOG_ENABLED = os.getenv("V2_CONTINUITY_LOG_ENABLED", "false").lower() in ("true", "1", "yes")
 
+# v2.0 Phase 2 後半 (ADR-V2-005): LLM augmentation for ATTACK_MODE conclusions.
+# When ENABLED, every successful rule-based attack-mode classification is also
+# sent to the LLM for narrative + agreement + confidence nudge (±0.10 max).
+# Rule remains the authority for `state`. INSUFFICIENT_DATA rows pass through
+# unaugmented (NP1: do not invent a mode when rules abstained).
+V2_ATTACK_MODE_LLM_AUGMENT_ENABLED = os.getenv(
+    "V2_ATTACK_MODE_LLM_AUGMENT_ENABLED", "false",
+).lower() in ("true", "1", "yes")
+
 # Continuity threshold: NP5+8 marks a (scenario, type) pair as a design
 # failure when the unavailable run length crosses this many seconds.
 # Default 7 days = 604_800; can be tightened in production.
