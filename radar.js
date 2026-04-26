@@ -5362,6 +5362,33 @@
     }
 
     // ── Coordination Index: Constellation Pattern ──────────────────
+    // Visibility toggle: 'all' | 'focused' | 'off'. Default 'focused' so the
+    // map stays scannable; analyst can opt into ALL pairs or hide everything.
+    const _COORD_LINK_MODE_KEY = 'radar_coord_link_mode';
+    const _COORD_LINK_MODES = ['focused', 'all', 'off'];
+    function _getCoordLinkMode() {
+        const v = localStorage.getItem(_COORD_LINK_MODE_KEY);
+        return _COORD_LINK_MODES.includes(v) ? v : 'focused';
+    }
+    function _renderCoordToggleLabel() {
+        const btn = document.getElementById('hud-coord-toggle');
+        if (!btn) return;
+        const mode = _getCoordLinkMode();
+        btn.textContent = _t(`hud.coord.mode.${mode}`) || mode.toUpperCase();
+        btn.dataset.mode = mode;
+    }
+    window._cycleCoordLinkMode = function () {
+        const cur = _getCoordLinkMode();
+        const next = _COORD_LINK_MODES[(_COORD_LINK_MODES.indexOf(cur) + 1) % _COORD_LINK_MODES.length];
+        localStorage.setItem(_COORD_LINK_MODE_KEY, next);
+        _renderCoordToggleLabel();
+        // Re-render with cached data
+        if (window._lastThreatData) updateCoordinationIndex(window._lastThreatData);
+    };
+    // Initial label paint (deferred until DOM + i18n are ready)
+    if (document.readyState !== 'loading') setTimeout(_renderCoordToggleLabel, 0);
+    else document.addEventListener('DOMContentLoaded', _renderCoordToggleLabel);
+
     function _coordColor(coordIdx, isC2Sync) {
         if (isC2Sync && coordIdx > 60) return '#ff4444';
         if (coordIdx > 70) return '#ff8833';
@@ -5371,6 +5398,8 @@
 
     function updateCoordinationIndex(data) {
         coordLinkLayer.clearLayers();
+        const mode = _getCoordLinkMode();
+        if (mode === 'off') return;
         const strat = data && data.strategic_alert;
         if (!strat || !strat.correlations) return;
 
@@ -5380,6 +5409,18 @@
             if (t.lat != null && t.lng != null) posMap[t.code] = {lat: t.lat, lng: shiftLng(t.lng)};
             spikeMap[t.code] = t.avg_spike || 0;
         });
+
+        // FOCUSED mode: keep only pairs where BOTH endpoints are participants
+        // of the focused scenario. Falls back to ALL when no focused scenario
+        // is set (early boot / no scorable scenario).
+        let participantSet = null;
+        if (mode === 'focused') {
+            const fid = data.focused_scenario || '';
+            const sc = (data.scenarios || {})[fid] || {};
+            const parts = sc.participants || {};
+            const codes = Object.keys(parts);
+            if (codes.length > 0) participantSet = new Set(codes);
+        }
 
         const tc = (strat.analytics || {}).temporal_coherence || {};
         const isC2Sync = tc.is_c2_sync || false;
@@ -5392,6 +5433,7 @@
 
         for (const [pair, overlap] of Object.entries(strat.correlations)) {
             const [a, b] = pair.split('-');
+            if (participantSet && !(participantSet.has(a) && participantSet.has(b))) continue;
             const ca = posMap[a], cb = posMap[b];
             if (!ca || !cb) continue;
 

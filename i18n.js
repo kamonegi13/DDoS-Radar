@@ -96,6 +96,11 @@ const LANG = {
 
     // Sensor Watchpane (Layer 3)
     'watchpane.title':                'Sensor Watchpane',
+    'hud.coord.toggle.label':         'Coord links',
+    'hud.coord.toggle.tip':           'Coordination link visibility on the map.\nALL: all pairs above threshold (noisiest).\nFOCUSED: only pairs within the focused scenario (default).\nOFF: hide all links.',
+    'hud.coord.mode.all':             'ALL',
+    'hud.coord.mode.focused':         'FOCUSED',
+    'hud.coord.mode.off':             'OFF',
     'watchpane.btn.add':              '+ Add sensor',
     'watchpane.empty':                'No sensors selected. Click + Add sensor to start.',
     'watchpane.tag.history_shallow':  'history shallow',
@@ -1658,6 +1663,11 @@ const LANG = {
 
     // Sensor Watchpane (Layer 3)
     'watchpane.title':                'センサー監視盤',
+    'hud.coord.toggle.label':         'Coord 線',
+    'hud.coord.toggle.tip':           '地図上の Coordination 線の表示。\nALL: 閾値超のすべてのペア (最も賑やか)。\nFOCUSED: focused シナリオ内のペアのみ (既定)。\nOFF: 全非表示。',
+    'hud.coord.mode.all':             'ALL',
+    'hud.coord.mode.focused':         'FOCUSED',
+    'hud.coord.mode.off':             'OFF',
     'watchpane.btn.add':              '+ センサー追加',
     'watchpane.empty':                'センサー未選択。+ センサー追加 で開始。',
     'watchpane.tag.history_shallow':  '履歴限定',

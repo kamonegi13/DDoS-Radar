@@ -1396,11 +1396,17 @@
 .hud-climate-dot[data-level="HOT"]        { background: #ff6622; }
 .hud-climate-dot[data-level="FLASHPOINT"] { background: #ff2a2a; }
 /* ── Coordination Index: Constellation Pattern ───────────── */
-/* Constellation glow track (wide, dim, breathing) */
-.coord-glow { pointer-events: none; outline: none; animation: coordGlowBreathe 5s ease-in-out infinite; }
+/* Tier-aware visual budget (revised 2026-04-26):
+   - low tier  (cyan, coordIdx <45)  → static, no animation. A faint trace.
+   - med tier  (yellow, 45-70)        → very subtle breathe.
+   - high tier (orange/red >70 / C2-SYNC) → keep animation; this is the
+     escalation signal we want to draw the eye.
+   This stops the "every country flashing orange" effect when many low/med
+   pairs overlap. */
+.coord-glow { pointer-events: none; outline: none; }
 .coord-glow.coord-core-fast  { animation: coordGlowBreatheHigh 1.5s ease-in-out infinite; }
-.coord-glow.coord-core-med   { animation: coordGlowBreatheMed 3s ease-in-out infinite; }
-.coord-glow.coord-core-slow  { animation: coordGlowBreatheLow 5s ease-in-out infinite; }
+.coord-glow.coord-core-med   { animation: coordGlowBreatheMed  4s ease-in-out infinite; }
+.coord-glow.coord-core-slow  { stroke-opacity: 0.04; }
 
 /* ── Contribution Waterfall ── */
 .wf-bar { display: flex; height: 22px; border-radius: 3px; overflow: hidden; margin: 6px 0 4px; border: 1px solid var(--color-border); }
@@ -1420,13 +1426,10 @@
 .cs-chip-ok { color: var(--color-ok); border-color: #1a3a2a; }
 .cs-chip-gap { color: var(--color-warning); border-color: #3a2a1a; background: #1a1000; }
 
-@keyframes coordGlowBreatheLow {
-    0%, 100% { stroke-opacity: 0; }
-    50%      { stroke-opacity: 0.03; }
-}
+/* coordGlowBreatheLow removed — low tier is now static (see .coord-glow.coord-core-slow). */
 @keyframes coordGlowBreatheMed {
-    0%, 100% { stroke-opacity: 0.01; }
-    50%      { stroke-opacity: 0.08; }
+    0%, 100% { stroke-opacity: 0.02; }
+    50%      { stroke-opacity: 0.06; }
 }
 @keyframes coordGlowBreatheHigh {
     0%, 100% { stroke-opacity: 0.08; }
@@ -1434,22 +1437,23 @@
 }
 .coord-core, .coord-glow { outline: none; }
 .coord-core:focus, .coord-glow:focus { outline: none; }
-/* Constellation core line with breathing animation */
+/* Constellation core line.
+   Default = high tier (animated). Low tier overrides to static via the
+   coord-core-slow class; med tier uses the dampened keyframe. */
 .coord-core {
     pointer-events: auto;
     animation: coordBreathe 4s ease-in-out infinite;
 }
 .coord-core-fast  { animation-duration: 1.5s !important; }
-.coord-core-med   { animation-duration: 3s !important; }
-.coord-core-slow  { animation-duration: 6s !important; }
-@keyframes coordBreatheLow {
-    0%, 100% { stroke-opacity: 0.03; }
-    50%      { stroke-opacity: 0.25; }
+.coord-core-med   { animation-duration: 4s !important; }
+/* Low tier: no animation, faint static trace. Cancels the inherited animation. */
+.coord-core.coord-core-slow {
+    animation: none !important;
+    stroke-opacity: 0.18 !important;
 }
-.coord-core.coord-core-slow { animation-name: coordBreatheLow !important; }
 @keyframes coordBreatheMed {
-    0%, 100% { stroke-opacity: 0.05; }
-    50%      { stroke-opacity: 0.4; }
+    0%, 100% { stroke-opacity: 0.10; }
+    50%      { stroke-opacity: 0.30; }
 }
 .coord-core.coord-core-med { animation-name: coordBreatheMed !important; }
 @keyframes coordBreathe {
@@ -1458,6 +1462,17 @@
 }
 /* C2-SYNC escalation glow */
 .coord-c2sync { filter: drop-shadow(0 0 4px currentColor); }
+/* Coord link mode toggle button (HUD sub-metric) */
+.coord-toggle-btn {
+    background: transparent; border: 1px solid var(--color-border);
+    color: var(--color-accent); cursor: pointer; padding: 0 6px;
+    font-family: inherit; font-size: inherit; letter-spacing: 0.5px;
+    border-radius: 2px; min-width: 56px;
+}
+.coord-toggle-btn:hover { background: rgba(102,255,238,0.08); }
+.coord-toggle-btn[data-mode="off"]     { color: #888; }
+.coord-toggle-btn[data-mode="all"]     { color: #ffaa44; }
+.coord-toggle-btn[data-mode="focused"] { color: var(--color-accent); }
 /* Diamond endpoint markers */
 .coord-diamond {
     border-radius: 1px;

@@ -318,6 +318,9 @@
                 <div class="dd-submetric"><span class="dd-submetric-label" data-i18n="hud.label.strikes">Strikes</span><span id="hud-strikes" class="dd-submetric-value">—</span></div>
                 <div class="dd-submetric"><span class="dd-submetric-label" data-i18n="hud.label.bgp">BGP</span><span id="hud-outages" class="dd-submetric-value">—</span></div>
                 <div class="dd-submetric"><span class="dd-submetric-label" data-i18n="hud.label.multi_front">Multi-Front</span><span id="hud-coordinated" class="dd-submetric-value">—</span></div>
+                <div class="dd-submetric"><span class="dd-submetric-label" data-i18n="hud.coord.toggle.label">Coord links</span><button type="button" id="hud-coord-toggle" class="dd-submetric-value coord-toggle-btn"
+                    data-i18n-tip="hud.coord.toggle.tip"
+                    onclick="window._cycleCoordLinkMode()">FOCUSED</button></div>
             </div>
         </div>
         <div class="dd-domain-col">
@@ -2061,6 +2064,7 @@
             <li><b>Color Scale:</b> Cyan (low) → Yellow (mid) → Orange (high) → Red (C2-SYNC confirmed). Pulse speed increases with coordination level.</li>
             <li><b>Tooltip:</b> Hover over a link to see the breakdown — origin overlap %, L3/L7 split, elevation status, C2-SYNC, and adversary strike indicators.</li>
             <li><b>Layer Toggle:</b> "Coordination" in the layer control panel.</li>
+            <li><b>Visibility Mode (HUD):</b> The <b>Coord links</b> button in the Cyber sub-metrics row cycles <b>FOCUSED → ALL → OFF</b>. Default <b>FOCUSED</b> shows only pairs whose endpoints both belong to the focused scenario; <b>ALL</b> shows every pair above threshold (noisier); <b>OFF</b> hides links entirely. Choice is persisted per device. Tier-aware animation (low tier = static, only mid/high pulse) prevents the "every country flashing" effect.</li>
         </ul>
 
         <p><b>R. Phase 3 UX Enhancements</b> <span style="color:#66ffcc;">[Phase 3]</span></p>
@@ -2359,6 +2363,7 @@
             <li><b>色スケール:</b> シアン（低）→ イエロー（中）→ オレンジ（高）→ レッド（C2-SYNC確認時）。パルス速度は協調レベルに応じて加速。</li>
             <li><b>ツールチップ:</b> リンクにホバーで内訳表示 — 攻撃元重複%、L3/L7分割、両方高負荷、C2-SYNC、敵対的打撃指標。</li>
             <li><b>レイヤー切替:</b> レイヤーコントロールの「Coordination」で表示/非表示。</li>
+            <li><b>表示モード (HUD):</b> Cyber サブメトリクス行の <b>Coord 線</b> ボタンで <b>FOCUSED → ALL → OFF</b> を切替。既定 <b>FOCUSED</b> は focused シナリオの participant 同士のペアのみ表示、<b>ALL</b> は閾値超の全ペア (賑やか)、<b>OFF</b> は完全非表示。選択は端末ごとに永続化。tier 別アニメ (low 静止、mid/high のみ脈動) で「全国オレンジ明滅」を防止。</li>
         </ul>
 
         <p><b>R. Phase 3 UX強化</b> <span style="color:#66ffcc;">[Phase 3]</span></p>
