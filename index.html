@@ -290,6 +290,11 @@
      toggles .cc-visible once the envelope is fetched. Hidden when v2
      returns 503. See docs/design/v2-ui.md §4. -->
 <div id="conclusion-cards-bar" role="region" aria-live="polite" aria-label="Conclusion cards">
+    <div class="cc-toolbar">
+        <button type="button" id="cc-export-md" class="cc-export-btn"
+                data-i18n="cc.btn.export_md" data-i18n-tip="cc.btn.export_md_tooltip"
+                title="" disabled>Export Markdown</button>
+    </div>
     <div class="cc-grid" id="cc-grid"></div>
 </div>
 

@@ -610,10 +610,14 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
 
 ### 8.3 Export 機能
 
-- **Markdown**: シナリオ全結論を Markdown 文書として download
-  - YAML front-matter (scenario, observed_at, disclaimer)
-  - 各結論を H2 セクション、formula/threshold/sources を表/リストで
-  - 末尾に NP7 disclaimer (long form)
+- **Markdown** (実装済 2026-04-26):
+  - Endpoint: `GET /api/v2/scenarios/<scenario_id>/conclusions.md`
+    - `?include_audit=1` で各 conclusion に対応する LLM プロンプト全文を `<details>` ブロックで埋め込む (NP6 完全開示)
+    - JWT 必須、`V2_API_ENABLED=false` で 503 (JSON envelope)
+  - Pure renderer: [radar/conclusions/markdown.py](../../radar/conclusions/markdown.py) — Flask 非依存、テストは [test_conclusions_markdown.py](../../test_conclusions_markdown.py) (21 件)
+  - 構成: 先頭にシナリオヘッダ + NP7 disclaimer (blockquote, 1 回のみ)、`## <Title>` per ConclusionType、threshold/calibration/metadata は ```json``` fenced (sort_keys 安定化)、source_urls は bullet list、unavailable は `_unavailable_` + reason 表示
+  - Frontend: `#conclusion-cards-bar` 内 `cc-toolbar` の "Export Markdown" ボタンから download (i18n: `cc.btn.export_md`)
+  - YAML front-matter は不要と判断 (analyst が wiki/ticket に貼る用途で front-matter を解釈する consumer がない); 必要になれば add-on で導入
 - **PDF**: Markdown を pandoc または weasyprint で変換 (Phase 3 後半で実装)
 - **STIX 2.1 / JSON-LD**: v2.1 で追加 (ADR-V2-004)
 

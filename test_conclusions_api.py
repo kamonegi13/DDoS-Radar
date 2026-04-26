@@ -276,6 +276,97 @@ def test_audit_trace_marks_llm_prompt_missing_when_row_purged(client, auth_heade
     assert body["llm_prompt"]["sha256"] == "ff" * 32
 
 
+# ── Markdown export (Phase 3) ───────────────────────────────────────────
+
+def test_md_export_returns_markdown_content_type(client, auth_headers):
+    sid = "test_md_export_ct"
+    save_conclusion(db, _make_tl(sid))
+
+    r = client.get(f"/api/v2/scenarios/{sid}/conclusions.md", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.headers["Content-Type"].startswith("text/markdown")
+    cd = r.headers.get("Content-Disposition", "")
+    assert "attachment" in cd
+    assert f"{sid}-conclusions.md" in cd
+
+
+def test_md_export_renders_each_saved_conclusion(client, auth_headers):
+    sid = "test_md_export_sections"
+    save_conclusion(db, _make_tl(sid))
+    save_conclusion(db, _make_trend(sid))
+
+    r = client.get(f"/api/v2/scenarios/{sid}/conclusions.md", headers=auth_headers)
+    body = r.get_data(as_text=True)
+    assert "# DDoS-Radar Scenario Report" in body
+    assert "## Threat Level" in body
+    assert "## Trend" in body
+    # NP7 disclaimer present as blockquote.
+    assert f"> {config.V2_NP7_DISCLAIMER}" in body
+
+
+def test_md_export_returns_placeholder_for_empty_scenario(client, auth_headers):
+    r = client.get("/api/v2/scenarios/zzz_no_md_scenario/conclusions.md",
+                   headers=auth_headers)
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "_No conclusions available for this scenario yet._" in body
+    # Disclaimer still required when nothing is reported.
+    assert f"> {config.V2_NP7_DISCLAIMER}" in body
+
+
+def test_md_export_503_when_v2_disabled(client, auth_headers, monkeypatch):
+    """Same gate as JSON endpoints — returns the JSON error envelope, not
+    a markdown 503 page."""
+    monkeypatch.setattr(config, "V2_API_ENABLED", False)
+    r = client.get("/api/v2/scenarios/x/conclusions.md", headers=auth_headers)
+    assert r.status_code == 503
+    body = r.get_json()
+    assert body["api_version"] == "2.0"
+
+
+def test_md_export_includes_audit_trace_when_requested(client, auth_headers,
+                                                       monkeypatch):
+    """?include_audit=1 inlines the LLM prompt full text via <details>."""
+    monkeypatch.setattr(config, "V2_LLM_PROMPT_PERSISTENCE_ENABLED", True)
+    from radar.llm_prompts import save_prompt
+
+    sha = save_prompt(db, prompt="please analyze md export",
+                      system="be terse", model="llama3.1:8b",
+                      temperature=0.1)
+    sid = "test_md_export_audit"
+    c = _make_tl(sid, llm_prompt_sha256=sha)
+    save_conclusion(db, c)
+
+    r = client.get(
+        f"/api/v2/scenarios/{sid}/conclusions.md?include_audit=1",
+        headers=auth_headers,
+    )
+    body = r.get_data(as_text=True)
+    assert "<details><summary>LLM prompt (full text)</summary>" in body
+    assert "please analyze md export" in body
+
+
+def test_md_export_omits_audit_trace_by_default(client, auth_headers,
+                                                monkeypatch):
+    """Default response is the lighter view — no LLM prompt text leakage
+    unless the analyst opts in."""
+    monkeypatch.setattr(config, "V2_LLM_PROMPT_PERSISTENCE_ENABLED", True)
+    from radar.llm_prompts import save_prompt
+
+    sha = save_prompt(db, prompt="default-omit secret content",
+                      system="be terse", model="llama3.1:8b",
+                      temperature=0.1)
+    sid = "test_md_export_no_audit"
+    c = _make_tl(sid, llm_prompt_sha256=sha)
+    save_conclusion(db, c)
+
+    r = client.get(f"/api/v2/scenarios/{sid}/conclusions.md",
+                   headers=auth_headers)
+    body = r.get_data(as_text=True)
+    assert "<details>" not in body
+    assert "default-omit secret content" not in body
+
+
 # ── NP7 regression: error envelopes must carry the disclaimer ────────────
 
 @pytest.mark.parametrize("setup,expect_status", [

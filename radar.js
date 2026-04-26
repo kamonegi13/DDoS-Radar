@@ -2005,7 +2005,52 @@
     let _ccLastFocus = null;
     let _ccInflightFocus = null;
     let _ccAbort = null;
+    let _ccExportInflight = false;
     const _CC_TYPE_ORDER = ['threat_level', 'trend', 'per_domain', 'anomaly', 'attack_mode'];
+
+    // Phase 3 — Markdown export. Fetches the .md endpoint (JWT auto-injected
+    // by the global fetch override) and triggers a browser download. Kept on
+    // the toolbar rather than inside individual cards because the export is
+    // per-scenario (all 5 conclusions in one file), not per-conclusion.
+    async function _ccExportMarkdown(scenarioId) {
+        if (!scenarioId || _ccExportInflight) return;
+        _ccExportInflight = true;
+        const btn = document.getElementById('cc-export-md');
+        if (btn) btn.disabled = true;
+        try {
+            const resp = await fetch(
+                `/api/v2/scenarios/${encodeURIComponent(scenarioId)}/conclusions.md`,
+            );
+            if (!resp.ok) {
+                if (window.console) console.warn('[ConclusionCards] export failed', resp.status);
+                return;
+            }
+            const text = await resp.text();
+            const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${scenarioId}-conclusions.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // Revoke shortly after the click so the browser has time to start the download.
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (e) {
+            if (window.console) console.warn('[ConclusionCards] export error', e);
+        } finally {
+            _ccExportInflight = false;
+            if (btn && _ccLastFocus) btn.disabled = false;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('cc-export-md');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            if (_ccLastFocus) _ccExportMarkdown(_ccLastFocus);
+        });
+    });
 
     function _ccTitleKey(type) { return `cc.title.${type}`; }
     function _ccUnavailableText(reason) {
@@ -2200,6 +2245,8 @@
 
         if (!scenarioId) {
             bar.classList.remove('cc-visible');
+            const btn = document.getElementById('cc-export-md');
+            if (btn) btn.disabled = true;
             return;
         }
 
@@ -2231,6 +2278,8 @@
             if (_ccLastFocus !== scenarioId) return;
             if (resp.status === 503 || resp.status === 404) {
                 bar.classList.remove('cc-visible');  // Graceful hide when v2 is degraded
+                const btn = document.getElementById('cc-export-md');
+                if (btn) btn.disabled = true;
                 return;
             }
             if (!resp.ok) return;  // Keep previous render on transient errors
@@ -2240,6 +2289,8 @@
             if (list.length === 0) {
                 bar.classList.add('cc-visible');
                 _ccRenderEmpty(grid);
+                const btn = document.getElementById('cc-export-md');
+                if (btn) btn.disabled = true;  // Nothing to export yet.
                 return;
             }
             const byType = {};
@@ -2263,6 +2314,10 @@
                 grid.appendChild(_ccRenderCard(c));
             });
             bar.classList.add('cc-visible');
+            // Enable export now that at least one real conclusion is rendered.
+            const hasReal = list.some((c) => c && c.id);
+            const btn = document.getElementById('cc-export-md');
+            if (btn) btn.disabled = !hasReal;
         } catch (e) {
             if (e && e.name === 'AbortError') return;  // Superseded by a newer focus — expected
             // Network error — keep prior render. Don't surface a noisy toast;

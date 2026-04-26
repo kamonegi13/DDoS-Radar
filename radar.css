@@ -1653,6 +1653,25 @@
 }
 .cc-drill-btn:hover { background: rgba(0, 180, 220, 0.12); }
 .cc-drill-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.cc-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 4px 8px 0;
+}
+.cc-export-btn {
+    background: transparent;
+    border: 1px solid rgba(0, 180, 220, 0.4);
+    color: var(--color-accent);
+    font-size: 11px;
+    letter-spacing: 0.3px;
+    padding: 2px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.cc-export-btn:hover:not(:disabled) { background: rgba(0, 180, 220, 0.12); }
+.cc-export-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.cc-export-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .cc-domain-row {
     display: flex;
     justify-content: space-between;

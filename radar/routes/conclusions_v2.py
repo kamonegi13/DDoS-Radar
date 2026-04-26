@@ -27,6 +27,7 @@ from radar.conclusions.api import (
     build_unavailable,
 )
 from radar.conclusions.base import ConclusionType
+from radar.conclusions.markdown import render_scenario_markdown
 from radar.conclusions.persistence import (
     get_conclusion_by_id,
     latest_conclusion,
@@ -163,6 +164,60 @@ def v2_conclusion_audit_trace(conclusion_id: str):
     else:
         trace["llm_prompt"] = None
     return jsonify(trace)
+
+
+@bp.route("/api/v2/scenarios/<scenario_id>/conclusions.md", methods=["GET"])
+@jwt_required()
+def v2_scenario_conclusions_markdown(scenario_id: str):
+    """Phase 3 — single-file Markdown export of a scenario's latest conclusions.
+
+    Pure text/markdown response (not the JSON envelope) so analysts can pipe
+    the body straight into a wiki, ticket, or local file. NP6 disclosure is
+    preserved: when ?include_audit=1 each section embeds the resolved LLM
+    prompt full text via an expandable <details> block.
+
+    NP7 disclaimer is rendered once at the top as a blockquote — the same
+    string shipped in JSON envelopes' final_judgment_disclaimer field.
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    from radar.database import db
+
+    conclusions = []
+    for ct in _ALL_TYPES:
+        c = latest_conclusion(db, scenario_id, ct)
+        if c is not None:
+            conclusions.append(c)
+
+    audit_traces = None
+    include_audit = request.args.get("include_audit", "0").lower() in (
+        "1", "true", "yes",
+    )
+    if include_audit:
+        audit_traces = {}
+        for c in conclusions:
+            if c.llm_prompt_sha256:
+                audit_traces[c.id] = {
+                    "llm_prompt": _resolve_llm_prompt(db, c.llm_prompt_sha256),
+                }
+
+    body = render_scenario_markdown(
+        scenario_id,
+        conclusions,
+        disclaimer=_disclaimer(),
+        api_version=API_VERSION,
+        audit_traces=audit_traces,
+    )
+    filename = f"{scenario_id}-conclusions.md"
+    return (
+        body,
+        200,
+        {
+            "Content-Type": "text/markdown; charset=utf-8",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 def _disclaimer() -> str:
