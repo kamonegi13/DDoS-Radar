@@ -18,6 +18,7 @@ responses still carry the disclaimer.
 from __future__ import annotations
 
 from flask import jsonify, request
+from flask_jwt_extended import jwt_required
 
 from radar.conclusions.api import (
     API_VERSION,
@@ -64,13 +65,11 @@ def _parse_conclusion_type(raw: str):
 
 
 @bp.route("/api/v2/scenarios/<scenario_id>/conclusions", methods=["GET"])
+@jwt_required()
 def v2_scenario_conclusions(scenario_id: str):
     guard = _v2_enabled_or_503()
     if guard is not None:
         return guard
-    auth_err = _require_analyst()
-    if auth_err is not None:
-        return auth_err
     from radar.database import db
 
     conclusions = []
@@ -87,13 +86,11 @@ def v2_scenario_conclusions(scenario_id: str):
 
 @bp.route("/api/v2/scenarios/<scenario_id>/conclusions/<conclusion_type>",
           methods=["GET"])
+@jwt_required()
 def v2_scenario_conclusion_single(scenario_id: str, conclusion_type: str):
     guard = _v2_enabled_or_503()
     if guard is not None:
         return guard
-    auth_err = _require_analyst()
-    if auth_err is not None:
-        return auth_err
     ct = _parse_conclusion_type(conclusion_type)
     if ct is None:
         body, status = build_error(
@@ -111,13 +108,11 @@ def v2_scenario_conclusion_single(scenario_id: str, conclusion_type: str):
 
 
 @bp.route("/api/v2/conclusions/<conclusion_id>", methods=["GET"])
+@jwt_required()
 def v2_conclusion_by_id(conclusion_id: str):
     guard = _v2_enabled_or_503()
     if guard is not None:
         return guard
-    auth_err = _require_analyst()
-    if auth_err is not None:
-        return auth_err
     from radar.database import db
     c = get_conclusion_by_id(db, conclusion_id)
     if c is None:
@@ -129,6 +124,7 @@ def v2_conclusion_by_id(conclusion_id: str):
 
 
 @bp.route("/api/v2/conclusions/<conclusion_id>/audit_trace", methods=["GET"])
+@jwt_required()
 def v2_conclusion_audit_trace(conclusion_id: str):
     """NP6 — return the full derivation: formula_ref, threshold_ref, source
     URLs, calibration status, and the resolved LLM prompt text (system + user)
@@ -141,9 +137,6 @@ def v2_conclusion_audit_trace(conclusion_id: str):
     guard = _v2_enabled_or_503()
     if guard is not None:
         return guard
-    auth_err = _require_analyst()
-    if auth_err is not None:
-        return auth_err
     from radar.database import db
     c = get_conclusion_by_id(db, conclusion_id)
     if c is None:
