@@ -42,6 +42,12 @@ if ! python scripts/check_rename_coverage.py; then
     FAIL=1
 fi
 
+step "Recall metrics baseline (Design W gate)"
+if ! python scripts/check_recall_baseline.py; then
+    echo "FAIL: recall baseline gate. See output above." >&2
+    FAIL=1
+fi
+
 if [[ $FAIL -eq 0 ]]; then
     echo
     echo "All gates passed."
