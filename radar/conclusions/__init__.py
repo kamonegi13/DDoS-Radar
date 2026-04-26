@@ -21,6 +21,7 @@ from radar.conclusions.persistence import (
     save_conclusion,
 )
 from radar.conclusions.anomaly import derive_anomaly
+from radar.conclusions.attack_mode import derive_attack_mode
 from radar.conclusions.per_domain import derive_per_domain
 from radar.conclusions.threat_level import derive_threat_level
 from radar.conclusions.trend import derive_trend
@@ -36,6 +37,7 @@ __all__ = [
     "sample_focused_tl_diff",
     "calibration_status_for",
     "derive_anomaly",
+    "derive_attack_mode",
     "derive_per_domain",
     "derive_threat_level",
     "derive_trend",

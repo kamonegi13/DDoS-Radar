@@ -393,6 +393,14 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
   - `INSUFFICIENT_SIGNAL`: 上記いずれにも該当せず、データ過渡的不足
 - **scenario_extensions**: `geo_data.json` の `scenarios.<id>.attack_mode_extensions` で追加判定式
 - **複数モード並列**: top 3 を confidence 順で返却 (排他ではない)
+- **Phase 1 実装ドリフト** (`radar/conclusions/attack_mode.py`):
+  - 入力: `cyber_signal_count` / `info_narrative_burst` / 物理サブセンサー連動 / `intel cluster size` などの「24h 集計」の代わりに、in-flight `state.domains` (cyber/physical/info の現 tick スコア) と `len(state.active_countries)` を直接使用 (Phase 1 では 24h 集計の蓄積が無いため)
+  - 閾値: `CYBER_DDOS_FLOOR=5.0`, `INFO_NARRATIVE_FLOOR=1.5`, `PHYSICAL_KINETIC_FLOOR=3.0`, `ALL_DOMAIN_HYBRID_FLOOR=1.5`, `HYBRID_INTEL_CLUSTER_MIN=4` (active_countries proxy), `INFO_DOMINANCE_RATIO=1.5`
+  - INSUFFICIENT_SIGNAL は spec 通り `ConclusionUnavailableReason.INSUFFICIENT_DATA` (transient) として表現。`state=None` / `confidence=0.0`
+  - 複数モード firing は実装済み (`metadata.ranked_modes` に confidence 降順で全件、`state` に top 1)。`is_tentative` flag を `confidence < 0.6` で付与
+  - `scenario_extensions` 適用フックは未実装 (Phase 2.5 で追加予定、call site は変えずに済むよう deriver は state-only API)
+  - LLM 補強は Phase 2 後半で追加 (現状は rule-based のみ)
+  - 閾値の正式 calibration は Phase 1.3 で 14 日間 shadow 観測の上で実施 (現状は機能 OK / calibration 未確定)
 
 ---
 

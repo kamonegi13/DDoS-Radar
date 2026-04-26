@@ -1171,6 +1171,26 @@ def _maybe_persist_trend_conclusion(state: "ScenarioState") -> None:
         log.exception("v2 trend conclusion persistence failed (non-fatal)")
 
 
+def _maybe_persist_attack_mode_conclusion(state: "ScenarioState") -> None:
+    """v2.0 shadow-write: persist the rule-based ATTACK_MODE classification.
+
+    The deriver is pure over ScenarioState (no DB read), so this is the
+    cheapest hook of the four. Emits on every tick — INSUFFICIENT_DATA
+    rows are intentional (NP5+8 + NP1: a transient unavailable, NOT a
+    "no attack" claim) and become input for continuity tracking.
+    """
+    from radar import config
+    if not config.V2_CONCLUSION_LEDGER_ENABLED:
+        return
+    try:
+        from radar.conclusions import save_conclusion
+        from radar.conclusions.attack_mode import derive_attack_mode
+        c = derive_attack_mode(state)
+        save_conclusion(_db, c)
+    except Exception:
+        log.exception("v2 attack_mode conclusion persistence failed (non-fatal)")
+
+
 def apply_hysteresis_to_tl(new_tl: Optional[int],
                            prev_tl: Optional[int]) -> tuple[Optional[int], bool]:
     """Scenario TL hysteresis: de-escalation (higher TL#) is limited to one
@@ -1284,6 +1304,7 @@ def compute_scenario_score(
     _maybe_persist_tl_conclusion(state)
     _maybe_persist_per_domain_conclusion(state)
     _maybe_persist_trend_conclusion(state)
+    _maybe_persist_attack_mode_conclusion(state)
     _maybe_sample_v1_v2_diff(state)
     return state
 
