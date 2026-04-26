@@ -183,3 +183,60 @@ def test_flush_preserves_min_first_seen(temp_db):
     # first_seen is the MIN of disk + flush; last_seen is the MAX
     assert row["first_seen"] == 100.0
     assert row["last_seen"] == 500.0
+
+
+# ── summarize_v1_sunset ──────────────────────────────────────────────────────
+
+
+def test_summarize_v1_sunset_empty_returns_zero_with_countdown():
+    """No v1 hits → zero summary, but days_remaining is still computed.
+
+    Operators read this as the green-light signal: "no residual users,
+    safe to remove on the contracted date".
+    """
+    summary = lt.summarize_v1_sunset(now=1700000000.0)
+    assert summary.total_routes == 0
+    assert summary.total_hits == 0
+    assert summary.per_route == ()
+    # SUNSET_DATE_EPOCH is 2026-07-26 UTC ≈ 1785456000; 2023-11-14 ≈ 1700000000.
+    # The exact value isn't load-bearing — only that countdown is positive
+    # and finite, proving the field is wired through.
+    assert summary.days_remaining_until_sunset > 0
+    assert summary.days_remaining_until_sunset < 100000
+
+
+def test_summarize_v1_sunset_aggregates_only_prefixed_keys():
+    """Non-prefixed keys must be ignored so the summary stays focused."""
+    lt.record_legacy_access("v1_sunset_route:/api/threat_data", now=1000.0)
+    lt.record_legacy_access("v1_sunset_route:/api/threat_data", now=1100.0)
+    lt.record_legacy_access("v1_sunset_route:/api/scenario/<id>/breakdown", now=1200.0)
+    # These must NOT appear in the v1 sunset summary even though they are
+    # also recorded via the same telemetry surface.
+    lt.record_legacy_access("Participant.theater", now=1500.0)
+    lt.record_legacy_access("intel_queue.submit:theater_kwarg", now=1600.0)
+
+    summary = lt.summarize_v1_sunset(now=2000.0)
+    assert summary.total_routes == 2
+    assert summary.total_hits == 3  # 2 + 1
+    assert summary.last_seen == 1200.0
+    # age = (2000 - 1200) / 3600 = 0.222...
+    assert summary.age_hours_since_last_seen == pytest.approx(800.0 / 3600.0)
+    labels = [label for label, _, _ in summary.per_route]
+    assert "/api/threat_data" in labels
+    assert "/api/scenario/<id>/breakdown" in labels
+    # Per-route is sorted by count descending — noisier surface first.
+    assert labels[0] == "/api/threat_data"
+
+
+def test_summarize_v1_sunset_strips_prefix_in_per_route_labels():
+    """Labels in per_route must NOT carry the internal namespace prefix.
+
+    Operator-facing logs should show route paths, not implementation keys.
+    """
+    lt.record_legacy_access("v1_sunset_route:/api/threat_data", now=1000.0)
+    summary = lt.summarize_v1_sunset(now=1100.0)
+    label, count, last_seen = summary.per_route[0]
+    assert label == "/api/threat_data"
+    assert not label.startswith("v1_sunset_route:")
+    assert count == 1
+    assert last_seen == 1000.0

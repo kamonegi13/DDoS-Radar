@@ -248,6 +248,33 @@ def _cache_cleanup_worker(registry=None):
             except Exception as e:
                 log.error(f"[Cleanup] legacy_access flush error: {e}")
 
+            # Hourly: v1 sunset observation summary (ADR-V2-003).
+            # Single-line digest of residual v1 route hits so the T+90d
+            # removal decision is driven by observed evidence, not guesswork.
+            # Always emit (even on zero) — sustained zero is the green light.
+            try:
+                from radar import legacy_telemetry as _lt2
+                summary = _lt2.summarize_v1_sunset()
+                if summary.total_hits == 0:
+                    log.info(
+                        f"[V1Sunset] residual=0 routes "
+                        f"days_remaining={summary.days_remaining_until_sunset:.1f}"
+                    )
+                else:
+                    top = ", ".join(
+                        f"{label}={count}"
+                        for label, count, _ in summary.per_route[:3]
+                    )
+                    log.info(
+                        f"[V1Sunset] residual_routes={summary.total_routes} "
+                        f"hits={summary.total_hits} "
+                        f"last_seen_h_ago={summary.age_hours_since_last_seen:.1f} "
+                        f"days_remaining={summary.days_remaining_until_sunset:.1f} "
+                        f"top=[{top}]"
+                    )
+            except Exception as e:
+                log.error(f"[Cleanup] v1 sunset summary error: {e}")
+
             # Daily: prune SQLite tables
             if _cycle % DB_CLEANUP_EVERY == 0:
                 _db.periodic_cleanup()

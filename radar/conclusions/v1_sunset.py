@@ -44,6 +44,15 @@ SUNSETTED_V1_ROUTES: tuple[tuple[re.Pattern[str], str, str], ...] = (
 # this date passing.
 SUNSET_DATE_HEADER = "Sat, 26 Jul 2026 00:00:00 GMT"
 
+# Same instant as SUNSET_DATE_HEADER, expressed as a unix epoch seconds value.
+# Derived once at import time from the canonical UTC datetime so the two
+# representations cannot drift. Consumed by observation tooling (scheduler
+# cleanup loop) to compute days_remaining_until_sunset.
+import datetime as _datetime  # noqa: E402  (intentional late import for grouping)
+SUNSET_DATE_EPOCH: float = _datetime.datetime(
+    2026, 7, 26, 0, 0, 0, tzinfo=_datetime.timezone.utc,
+).timestamp()
+
 
 def match_sunsetted_route(
     path: str,

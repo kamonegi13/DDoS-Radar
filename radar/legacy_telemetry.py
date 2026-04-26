@@ -92,6 +92,68 @@ def reset_for_test() -> None:
         _HYDRATED = False
 
 
+# v1 sunset observation key prefix. Keys recorded by
+# radar.conclusions.v1_sunset are namespaced with this prefix so the
+# scheduler can summarise just v1-sunset hits without coupling to the
+# specific route list.
+_V1_SUNSET_KEY_PREFIX = "v1_sunset_route:"
+
+
+@dataclass(frozen=True)
+class V1SunsetSummary:
+    """Aggregate of v1 sunset residual access for one observation tick.
+
+    ``days_remaining_until_sunset`` is signed: negative once the contracted
+    removal date has passed. ``per_route`` is sorted by ``count`` descending
+    so the noisiest residual surface is first in the log line.
+    """
+    total_routes: int
+    total_hits: int
+    last_seen: float
+    age_hours_since_last_seen: float
+    days_remaining_until_sunset: float
+    per_route: tuple[tuple[str, int, float], ...]  # (route_label, count, last_seen)
+
+
+def summarize_v1_sunset(*, now: Optional[float] = None) -> V1SunsetSummary:
+    """Aggregate the in-memory snapshot to v1 sunset residual hits only.
+
+    Filters by the ``v1_sunset_route:`` prefix so the function does not
+    need to know which specific routes are sunsetted (single source of
+    truth lives in radar.conclusions.v1_sunset).
+
+    Returns an empty summary (zeros, empty tuple) when no v1 hits are
+    recorded — callers should treat that as "ready to sunset on schedule".
+    """
+    from radar.conclusions.v1_sunset import SUNSET_DATE_EPOCH
+    ts = time.time() if now is None else now
+    snap = snapshot()
+    rows = [s for s in snap.values() if s.key.startswith(_V1_SUNSET_KEY_PREFIX)]
+    if not rows:
+        return V1SunsetSummary(
+            total_routes=0,
+            total_hits=0,
+            last_seen=0.0,
+            age_hours_since_last_seen=0.0,
+            days_remaining_until_sunset=(SUNSET_DATE_EPOCH - ts) / 86400.0,
+            per_route=(),
+        )
+    last_seen = max(r.last_seen for r in rows)
+    rows_sorted = sorted(rows, key=lambda r: r.count, reverse=True)
+    per_route = tuple(
+        (r.key[len(_V1_SUNSET_KEY_PREFIX):], r.count, r.last_seen)
+        for r in rows_sorted
+    )
+    return V1SunsetSummary(
+        total_routes=len(rows),
+        total_hits=sum(r.count for r in rows),
+        last_seen=last_seen,
+        age_hours_since_last_seen=(ts - last_seen) / 3600.0,
+        days_remaining_until_sunset=(SUNSET_DATE_EPOCH - ts) / 86400.0,
+        per_route=per_route,
+    )
+
+
 def hydrate_from_db(db: "RadarDB") -> int:
     """Load existing rows from ``legacy_access_log`` into memory.
 
