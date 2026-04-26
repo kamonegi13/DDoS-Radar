@@ -3620,12 +3620,18 @@
                 scenarioNameEl.textContent = dispName;
             }
 
-            if (strat.correlations && Object.keys(strat.correlations).length > 0) {
-                const maxEntry = Object.entries(strat.correlations).reduce((a, b) => b[1] > a[1] ? b : a, ['—', 0]);
-                const maxPct = maxEntry[1];
-                const color = maxPct > 40 ? '#ff2a2a' : maxPct > 20 ? '#ffaa00' : '#888';
-                overlapEl.innerHTML = `<span style="color:${color}">${maxEntry[0]}: ${maxPct.toFixed(0)}%</span>`;
-                overlapEl.setAttribute('data-tooltip', Object.entries(strat.correlations).map(([k,v]) => `${k}: ${v.toFixed(1)}%`).join('\n') + '\n(see map: Origin Overlap layer)');
+            // Phase 5-6: HUD max-overlap pill switched from raw % to IDF.
+            // Color cutoffs mirror the Coord-link tiers (A-2): IDF >= 1.5 is
+            // a real outlier, 1.0 is mid, below is noise. Raw % saturated at
+            // P50≈53% in normal ops so the prior 40/20 thresholds were
+            // miscalibrated against the actual distribution.
+            const _idfPairs = strat.correlations_idf_l3 || strat.correlations_idf || {};
+            if (Object.keys(_idfPairs).length > 0) {
+                const maxEntry = Object.entries(_idfPairs).reduce((a, b) => b[1] > a[1] ? b : a, ['—', 0]);
+                const maxIdf = Number(maxEntry[1]) || 0;
+                const color = maxIdf >= 1.5 ? '#ff2a2a' : maxIdf >= 1.0 ? '#ffaa00' : '#888';
+                overlapEl.innerHTML = `<span style="color:${color}">${esc(maxEntry[0])}: ${maxIdf.toFixed(2)} IDF</span>`;
+                overlapEl.setAttribute('data-tooltip', Object.entries(_idfPairs).map(([k,v]) => `${k}: ${Number(v).toFixed(2)} IDF`).join('\n') + '\n(see map: Origin Overlap layer)');
             } else {
                 overlapEl.innerHTML = _t('ui.none');
             }

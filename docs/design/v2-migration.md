@@ -791,6 +791,7 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
   | **5-3** | `core.py:1200` | SYNC_DDOS event metadata `max_overlap` → `max_overlap_idf` (write-only) | 不要 (consumer なし) |
   | **5-4** | `core.py:838,947` | `high_correlation` 閾値 raw `>30.0` → IDF `>=1.5` | A-1 STRONG_MIN を流用。raw 30 は P50≈53% 下回りで常時発火していた校正ミスを修正 |
   | **5-5** | `test_engine.py` 4 件 | `calculate_overlap()` 直接テスト | 関数自体は残置 (削除しないなら不要) |
+  | **5-6** | `radar.js:3623-3628` | HUD max-overlap pill (A-4 監査の `3645-3650` は誤記。実体はこの位置) | display only。色 tier を A-2 と揃え (40%/20% → IDF 1.5/1.0)、書式 `X% → X.XX IDF` |
 
   **A-4 監査の訂正**: 当初「`radar.js:3645-3650` で HUD `max ASN overlap: X%` を表示」と記載していたが、実際の grep 結果では radar.js 側に `max_overlap` の数値消費は存在せず、誤記。frontend は A-2 で既に `correlations_idf*` に切替済で raw に依存しない。
 
