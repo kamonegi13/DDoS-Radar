@@ -29,3 +29,6 @@ structural changes to keep maps in sync.
 | `radar/conclusions/trend.py` | [radar.conclusions.trend.md](radar.conclusions.trend.md) | 222 |
 | `radar/conclusions/per_domain.py` | [radar.conclusions.per_domain.md](radar.conclusions.per_domain.md) | 165 |
 | `radar/conclusions/attack_mode.py` | [radar.conclusions.attack_mode.md](radar.conclusions.attack_mode.md) | 173 |
+| `radar/conclusions/threat_level.py` | [radar.conclusions.threat_level.md](radar.conclusions.threat_level.md) | 129 |
+| `radar/conclusions/anomaly.py` | [radar.conclusions.anomaly.md](radar.conclusions.anomaly.md) | 230 |
+| `radar/conclusions/shadow_metrics.py` | [radar.conclusions.shadow_metrics.md](radar.conclusions.shadow_metrics.md) | 125 |

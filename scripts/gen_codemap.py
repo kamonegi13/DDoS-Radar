@@ -59,6 +59,9 @@ DEFAULT_TARGETS: tuple[str, ...] = (
     "radar/conclusions/trend.py",
     "radar/conclusions/per_domain.py",
     "radar/conclusions/attack_mode.py",
+    "radar/conclusions/threat_level.py",
+    "radar/conclusions/anomaly.py",
+    "radar/conclusions/shadow_metrics.py",
 )
 
 
