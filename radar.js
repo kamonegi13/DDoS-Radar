@@ -2787,11 +2787,15 @@
             const alarmBadge = alarmActive
                 ? `<span class="wp-alarm-badge" title="${_escHtml(_wpAlarmDescribe(s.alarm))}">⚠</span>`
                 : '';
+            // Build the sub-line as plain text first so we can use it for the
+            // title (full hover text) without relying on slicing. The visible
+            // span keeps the full raw_value — CSS line-clamp handles overflow.
+            const subPlain = `${s.scope} · ${statusTxt}` + (rawValueTip ? ` · ${rawValueTip}` : '');
             return `
                 <div class="${rowCls}" data-wp-idx="${idx}">
                     <div class="wp-meta">
                         <div class="wp-name" title="${safeName}">${alarmBadge}${_escHtml(labelOf(s.name))}</div>
-                        <div class="wp-sub ${statusCls}">${safeScope} · <span class="${statusCls}">${_escHtml(statusTxt)}</span>${rawValueTip ? ` · <span title="${_escHtml(rawValueTip)}">${_escHtml(String(rawValueTip).slice(0,20))}</span>` : ''}</div>
+                        <div class="wp-sub ${statusCls}" title="${_escHtml(subPlain)}">${safeScope} · <span class="${statusCls}">${_escHtml(statusTxt)}</span>${rawValueTip ? ` · <span>${_escHtml(rawValueTip)}</span>` : ''}</div>
                     </div>
                     <span class="wp-spark">${_wpRenderSpark(observations)}</span>
                     <span class="wp-value ${statusCls}">${_escHtml(valueDisp)}</span>

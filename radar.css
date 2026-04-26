@@ -1883,10 +1883,13 @@
        the meta column. */
     grid-template-columns: minmax(0, 1fr) 56px 52px 24px 24px;
     column-gap: 6px;
+    /* center vertically so spark/value/buttons stay aligned when the
+       sub-line wraps to a 2nd line. */
     align-items: center;
     padding: 6px 10px;
     border-bottom: 1px solid #1f1f1f;
     font-size: 11.5px;
+    min-height: 36px;
 }
 .wp-body .wp-row:hover { background: rgba(0,255,255,0.04); }
 .wp-body .wp-row .wp-meta {
@@ -1905,9 +1908,15 @@
 .wp-body .wp-row .wp-sub {
     color: var(--color-muted);
     font-size: 10.5px;
-    white-space: nowrap;
+    /* Allow up to 2 lines for the sub-info ("scope · status · raw_value")
+       so labels like "HOD Z=-0.77 (1.07x base)" don't get clipped. Beyond
+       2 lines we ellipsize; full text is still available via title= on hover. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
 }
 .wp-body .wp-row .wp-status-fired { color: var(--color-critical); font-weight: 700; }
 .wp-body .wp-row .wp-status-suppressed { color: var(--color-muted); }
