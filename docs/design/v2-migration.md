@@ -192,9 +192,18 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 
 ### ADR-V2-011: analyst_feedback テーブル新設
 
-- **判断**: `analyst_feedback` テーブル (DB migration v22) でアナリスト ground truth を保存
-- **schema**: `(conclusion_id, label ∈ {TRUE_POSITIVE, FALSE_POSITIVE, TRUE_NEGATIVE, FALSE_NEGATIVE}, observed_outcome_url, analyst_id, observed_at)`
+- **判断**: `analyst_feedback` テーブル (DB migration v22 として設計、実装は v26 として 2026-04-26 配備) でアナリスト ground truth を保存
+- **schema**: `(conclusion_id, label ∈ {TRUE_POSITIVE, FALSE_POSITIVE, TRUE_NEGATIVE, FALSE_NEGATIVE}, observed_outcome_url, analyst_id, observed_at, notes)`
 - **用途**: Design W (ADR-026) の recall 計測ベース、attack_mode 推定の検証
+- **実装** (2026-04-26):
+  - DB migration v26 (`radar/database.py:1367`)。設計時の "v22" は予約番号、v23-v25 が先行実装されたため実装版は v26
+  - 永続層: `radar/conclusions/feedback.py` (Flask-free pure module、`AnalystFeedback` frozen dataclass + `FeedbackLabel` Enum + `save/list/summarize_feedback`)
+  - API: `POST/GET /api/v2/conclusions/<id>/feedback` (`radar/routes/conclusions_v2.py`)。jwt_required + V2_API_ENABLED ゲート
+  - **anti-spoof**: `analyst_id` は `get_jwt_identity()` で server-derived。client payload の `analyst_id` は無視 (test で明示検証)
+  - **bias mitigation** (§11 risk row 整合): `summarize_feedback()` は label 集計と distinct_analysts のみ返却。「単一 verdict」ではなく per-label counts。フロント widget も同形 (Total/Distinct + per-label breakdown)
+  - **schema 整合性**: `CHECK (label IN (4 値))` で defense-in-depth
+  - frontend: drill-down modal の `_ccDrillRenderFeedback` (radar.js)。i18n キー 19 件 EN/JA
+  - tests: `test_conclusions_feedback.py` 14 件 (DB layer / POST / GET / flag gate / spoof rejection / 404/400/notes truncation)
 
 ### ADR-V2-012: NP7 disclaimer は schema レベルで強制
 
@@ -727,8 +736,8 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 
 #### Phase 3 完了条件
 - Analyst Workbench UI 稼働 (4 ペイン + drill-down)
-- Markdown export 稼働
-- analyst feedback UI 稼働
+- Markdown export 稼働 (実装済 — §8.3)
+- analyst feedback UI 稼働 — **実装済 (2026-04-26)**: ADR-V2-011 参照。drill-down modal に統合 (4 ラベル radio + URL/notes)、`POST/GET /api/v2/conclusions/<id>/feedback`、bias mitigation のため per-label counts のみ提示、anti-spoof analyst_id (JWT 由来)
 - v2 default-on (旧 v1 UI/API は legacy)
 - v1 deprecation header 発射
 - アナリスト 90 日継続利用フィードバック収集

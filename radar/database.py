@@ -1358,6 +1358,29 @@ class RadarDB:
             CREATE INDEX IF NOT EXISTS idx_sensor_obs_ttl
                 ON sensor_observation_ts (ts);
         """),
+        # v2.0 Phase 3 (ADR-V2-011): analyst feedback ledger. Stores ground
+        # truth labels per conclusion for Design W recall calibration and
+        # attack-mode estimator validation. Permanent retention — feedback
+        # is the project's only ground-truth signal, and aggregate metrics
+        # are downstream of the raw rows. Multiple analysts may label the
+        # same conclusion; aggregation is a read-side concern.
+        (26, "v2.0 Phase 3: analyst_feedback ledger (ADR-V2-011)", """
+            CREATE TABLE IF NOT EXISTS analyst_feedback (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                conclusion_id        TEXT NOT NULL REFERENCES conclusions(id),
+                label                TEXT NOT NULL
+                    CHECK (label IN ('TRUE_POSITIVE', 'FALSE_POSITIVE',
+                                     'TRUE_NEGATIVE', 'FALSE_NEGATIVE')),
+                observed_outcome_url TEXT,
+                analyst_id           TEXT NOT NULL,
+                observed_at          REAL NOT NULL,
+                notes                TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_feedback_conclusion
+                ON analyst_feedback (conclusion_id, observed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_feedback_analyst_time
+                ON analyst_feedback (analyst_id, observed_at DESC);
+        """),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):

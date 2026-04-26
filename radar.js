@@ -2528,6 +2528,170 @@
         return wrap;
     }
 
+    // Phase 3 — analyst feedback widget (ADR-V2-011). Renders the four-way
+    // confusion-matrix labels, a free-text notes field, and the current
+    // multi-analyst summary. Per v2-migration §11 the summary always shows
+    // counts (never a single chosen verdict) so a lone analyst's label
+    // cannot masquerade as consensus.
+    const _CC_FEEDBACK_LABELS = [
+        'TRUE_POSITIVE', 'FALSE_POSITIVE', 'TRUE_NEGATIVE', 'FALSE_NEGATIVE',
+    ];
+
+    function _ccFeedbackRenderSummary(summary) {
+        const wrap = document.createElement('div');
+        wrap.className = 'dm-feedback-summary';
+        const counts = (summary && summary.label_counts) || {};
+        if (!summary || !summary.total) {
+            const empty = document.createElement('div');
+            empty.className = 'dm-empty';
+            empty.textContent = _t('drill_modal.feedback.summary_empty');
+            wrap.appendChild(empty);
+            return wrap;
+        }
+        const meta = document.createElement('div');
+        meta.className = 'dm-feedback-meta';
+        meta.textContent = _t('drill_modal.feedback.summary_meta', {
+            total: summary.total,
+            distinct: summary.distinct_analysts,
+        });
+        wrap.appendChild(meta);
+        _CC_FEEDBACK_LABELS.forEach((lbl) => {
+            const n = Number(counts[lbl] || 0);
+            const row = document.createElement('div');
+            row.className = 'dm-feedback-row';
+            row.innerHTML = `<span>${_escHtml(_t('drill_modal.feedback.label.' + lbl))}</span>` +
+                            `<span>${_escHtml(String(n))}</span>`;
+            wrap.appendChild(row);
+        });
+        return wrap;
+    }
+
+    async function _ccFeedbackLoad(conclusionId, summaryHost) {
+        try {
+            const resp = await fetch(
+                `/api/v2/conclusions/${encodeURIComponent(conclusionId)}/feedback`,
+            );
+            if (!resp.ok) return;  // Render-time best effort; failure leaves prior summary
+            const body = await resp.json();
+            summaryHost.innerHTML = '';
+            summaryHost.appendChild(_ccFeedbackRenderSummary(body && body.summary));
+        } catch (e) {
+            if (window.console) console.debug('[FeedbackWidget] load error', e);
+        }
+    }
+
+    async function _ccFeedbackSubmit(conclusionId, payload, statusEl, summaryHost, submitBtn) {
+        statusEl.textContent = _t('drill_modal.feedback.status.submitting');
+        submitBtn.disabled = true;
+        try {
+            const resp = await fetch(
+                `/api/v2/conclusions/${encodeURIComponent(conclusionId)}/feedback`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                },
+            );
+            if (resp.status === 201) {
+                const body = await resp.json();
+                statusEl.textContent = _t('drill_modal.feedback.status.saved');
+                summaryHost.innerHTML = '';
+                summaryHost.appendChild(_ccFeedbackRenderSummary(body && body.summary));
+            } else if (resp.status === 400) {
+                statusEl.textContent = _t('drill_modal.feedback.status.bad_label');
+            } else {
+                statusEl.textContent = _t('drill_modal.feedback.status.failed', { status: resp.status });
+            }
+        } catch (e) {
+            statusEl.textContent = _t('drill_modal.feedback.status.network');
+            if (window.console) console.debug('[FeedbackWidget] submit error', e);
+        } finally {
+            submitBtn.disabled = false;
+        }
+    }
+
+    function _ccDrillRenderFeedback(trace) {
+        const wrap = document.createElement('div');
+        wrap.className = 'dm-feedback';
+        if (!trace || !trace.conclusion_id) {
+            wrap.textContent = _t('drill_modal.feedback.disabled');
+            return wrap;
+        }
+
+        const summaryHost = document.createElement('div');
+        summaryHost.className = 'dm-feedback-summary-host';
+        summaryHost.appendChild(_ccFeedbackRenderSummary(null));
+        wrap.appendChild(summaryHost);
+
+        const form = document.createElement('div');
+        form.className = 'dm-feedback-form';
+        // Radio group — uses fieldset for a11y
+        const fs = document.createElement('fieldset');
+        fs.className = 'dm-feedback-fieldset';
+        const legend = document.createElement('legend');
+        legend.textContent = _t('drill_modal.feedback.legend');
+        fs.appendChild(legend);
+        const radioName = `dm-feedback-label-${trace.conclusion_id}`;
+        _CC_FEEDBACK_LABELS.forEach((lbl) => {
+            const id = `${radioName}-${lbl}`;
+            const lab = document.createElement('label');
+            lab.htmlFor = id;
+            lab.className = 'dm-feedback-radio';
+            const r = document.createElement('input');
+            r.type = 'radio'; r.name = radioName; r.value = lbl; r.id = id;
+            lab.appendChild(r);
+            const span = document.createElement('span');
+            span.textContent = _t('drill_modal.feedback.label.' + lbl);
+            lab.appendChild(span);
+            fs.appendChild(lab);
+        });
+        form.appendChild(fs);
+
+        // Optional outcome URL + notes
+        const urlInput = document.createElement('input');
+        urlInput.type = 'url'; urlInput.className = 'dm-feedback-url';
+        urlInput.placeholder = _t('drill_modal.feedback.url_placeholder');
+        form.appendChild(urlInput);
+
+        const notes = document.createElement('textarea');
+        notes.className = 'dm-feedback-notes';
+        notes.rows = 3;
+        notes.placeholder = _t('drill_modal.feedback.notes_placeholder');
+        notes.maxLength = 2000;
+        form.appendChild(notes);
+
+        const actions = document.createElement('div');
+        actions.className = 'dm-feedback-actions';
+        const submit = document.createElement('button');
+        submit.type = 'button';
+        submit.className = 'dm-feedback-submit';
+        submit.textContent = _t('drill_modal.feedback.submit');
+        const status = document.createElement('span');
+        status.className = 'dm-feedback-status';
+        actions.appendChild(submit);
+        actions.appendChild(status);
+        form.appendChild(actions);
+
+        submit.addEventListener('click', () => {
+            const checked = fs.querySelector('input[type="radio"]:checked');
+            if (!checked) {
+                status.textContent = _t('drill_modal.feedback.status.no_label');
+                return;
+            }
+            const payload = { label: checked.value };
+            const u = urlInput.value && urlInput.value.trim();
+            if (u) payload.observed_outcome_url = u;
+            const n = notes.value && notes.value.trim();
+            if (n) payload.notes = n;
+            _ccFeedbackSubmit(trace.conclusion_id, payload, status, summaryHost, submit);
+        });
+
+        wrap.appendChild(form);
+        // Kick off the initial summary fetch (replaces the placeholder).
+        _ccFeedbackLoad(trace.conclusion_id, summaryHost);
+        return wrap;
+    }
+
     function _ccDrillRender(trace) {
         const body = document.getElementById('cc-drill-body');
         if (!body) return;
@@ -2547,6 +2711,7 @@
         const mdEmpty = !trace.metadata || Object.keys(trace.metadata || {}).length === 0;
         body.appendChild(_ccDrillSection('drill_modal.section.metadata',    mdEl, mdEmpty));
         body.appendChild(_ccDrillSection('drill_modal.section.llm_prompt',  _ccDrillRenderLlmPrompt(trace), false));
+        body.appendChild(_ccDrillSection('drill_modal.section.feedback',    _ccDrillRenderFeedback(trace), false));
     }
 
     function _ccDrillRenderError(msg) {

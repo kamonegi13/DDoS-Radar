@@ -27,6 +27,14 @@ from radar.conclusions.api import (
     build_unavailable,
 )
 from radar.conclusions.base import ConclusionType
+from radar.conclusions.feedback import (
+    AnalystFeedback,
+    coerce_label,
+    list_feedback,
+    now_seconds,
+    save_feedback,
+    summarize_feedback,
+)
 from radar.conclusions.markdown import render_scenario_markdown
 from radar.conclusions.persistence import (
     get_conclusion_by_id,
@@ -218,6 +226,105 @@ def v2_scenario_conclusions_markdown(scenario_id: str):
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+
+@bp.route("/api/v2/conclusions/<conclusion_id>/feedback", methods=["POST"])
+@jwt_required()
+def v2_conclusion_feedback_submit(conclusion_id: str):
+    """ADR-V2-011 — submit one analyst feedback row against a conclusion.
+
+    Body: `{label, observed_outcome_url?, notes?}`. The analyst_id and
+    observed_at are server-derived (JWT identity, server clock) so the
+    client cannot spoof either. Returns the new id + the post-write
+    aggregate so the UI can update its multi-analyst view in one round-trip.
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    from flask_jwt_extended import get_jwt_identity
+    from radar.database import db
+
+    target = get_conclusion_by_id(db, conclusion_id)
+    if target is None:
+        body, status = build_error(
+            404, "conclusion not found", conclusion_id=conclusion_id,
+        )
+        return jsonify(body), status
+
+    payload = request.get_json(silent=True) or {}
+    label = coerce_label(payload.get("label"))
+    if label is None:
+        body, status = build_error(
+            400, "invalid feedback label",
+            detail="valid: TRUE_POSITIVE, FALSE_POSITIVE, "
+                   "TRUE_NEGATIVE, FALSE_NEGATIVE",
+        )
+        return jsonify(body), status
+
+    raw_url = payload.get("observed_outcome_url")
+    outcome_url = raw_url.strip() if isinstance(raw_url, str) and raw_url.strip() else None
+    raw_notes = payload.get("notes")
+    notes = raw_notes.strip() if isinstance(raw_notes, str) and raw_notes.strip() else None
+    if notes and len(notes) > 2000:
+        notes = notes[:2000]
+
+    fb = AnalystFeedback(
+        conclusion_id=conclusion_id,
+        label=label,
+        analyst_id=get_jwt_identity() or "analyst",
+        observed_at=now_seconds(),
+        observed_outcome_url=outcome_url,
+        notes=notes,
+    )
+    new_id = save_feedback(db, fb)
+    summary = summarize_feedback(db, conclusion_id)
+    return jsonify({
+        "api_version": API_VERSION,
+        "final_judgment_disclaimer": _disclaimer(),
+        "feedback_id": new_id,
+        "summary": summary,
+    }), 201
+
+
+@bp.route("/api/v2/conclusions/<conclusion_id>/feedback", methods=["GET"])
+@jwt_required()
+def v2_conclusion_feedback_list(conclusion_id: str):
+    """Return the per-conclusion feedback ledger + aggregate counts.
+
+    Read path is what enforces the "show multiple analysts, never a single
+    verdict" rule from v2-migration §11 — the response shape is
+    `{summary, items}` so the UI can render counts even when listing the
+    raw rows would be too noisy.
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    from radar.database import db
+
+    target = get_conclusion_by_id(db, conclusion_id)
+    if target is None:
+        body, status = build_error(
+            404, "conclusion not found", conclusion_id=conclusion_id,
+        )
+        return jsonify(body), status
+
+    limit = _safe_int(request.args.get("limit"), 50, min_val=1, max_val=1000)
+    rows = list_feedback(db, conclusion_id, limit=limit)
+    items = [{
+        "id": r.id,
+        "label": r.label.value,
+        "analyst_id": r.analyst_id,
+        "observed_at": r.observed_at,
+        "observed_outcome_url": r.observed_outcome_url,
+        "notes": r.notes,
+    } for r in rows]
+    return jsonify({
+        "api_version": API_VERSION,
+        "final_judgment_disclaimer": _disclaimer(),
+        "conclusion_id": conclusion_id,
+        "summary": summarize_feedback(db, conclusion_id),
+        "items": items,
+    })
 
 
 def _disclaimer() -> str:

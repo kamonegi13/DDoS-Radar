@@ -7,7 +7,7 @@ structural changes to keep maps in sync.
 
 | Source file | Codemap | Lines |
 |-------------|---------|-------|
-| `radar/database.py` | [radar.database.md](radar.database.md) | 4471 |
+| `radar/database.py` | [radar.database.md](radar.database.md) | 4494 |
 | `radar/scoring.py` | [radar.scoring.md](radar.scoring.md) | 1597 |
 | `radar/intel_queue.py` | [radar.intel_queue.md](radar.intel_queue.md) | 1066 |
 | `radar/engine.py` | [radar.engine.md](radar.engine.md) | 1056 |
@@ -20,7 +20,7 @@ structural changes to keep maps in sync.
 | `radar/routes/analytics.py` | [radar.routes.analytics.md](radar.routes.analytics.md) | 1748 |
 | `radar/routes/admin.py` | [radar.routes.admin.md](radar.routes.admin.md) | 781 |
 | `radar/routes/intel.py` | [radar.routes.intel.md](radar.routes.intel.md) | 345 |
-| `radar/routes/conclusions_v2.py` | [radar.routes.conclusions_v2.md](radar.routes.conclusions_v2.md) | 330 |
+| `radar/routes/conclusions_v2.py` | [radar.routes.conclusions_v2.md](radar.routes.conclusions_v2.md) | 437 |
 | `radar/conclusions/base.py` | [radar.conclusions.base.md](radar.conclusions.base.md) | 136 |
 | `radar/conclusions/api.py` | [radar.conclusions.api.md](radar.conclusions.api.md) | 99 |
 | `radar/conclusions/persistence.py` | [radar.conclusions.persistence.md](radar.conclusions.persistence.md) | 116 |

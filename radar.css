@@ -1847,6 +1847,80 @@
     word-break: break-word;
     border-radius: 3px;
 }
+#cc-drill-body .dm-feedback {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+#cc-drill-body .dm-feedback-meta {
+    color: var(--color-accent);
+    font-size: 11px;
+    margin-bottom: 4px;
+}
+#cc-drill-body .dm-feedback-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 1px 4px;
+    color: #ccc;
+}
+#cc-drill-body .dm-feedback-fieldset {
+    border: 1px solid var(--color-border);
+    padding: 6px 10px;
+    border-radius: 3px;
+}
+#cc-drill-body .dm-feedback-fieldset legend {
+    color: var(--color-accent);
+    font-size: 11px;
+    padding: 0 4px;
+}
+#cc-drill-body .dm-feedback-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    padding: 2px 0;
+    cursor: pointer;
+    color: #ccc;
+}
+#cc-drill-body .dm-feedback-url,
+#cc-drill-body .dm-feedback-notes {
+    width: 100%;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--color-border);
+    color: #ddd;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    box-sizing: border-box;
+}
+#cc-drill-body .dm-feedback-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+#cc-drill-body .dm-feedback-submit {
+    background: transparent;
+    border: 1px solid var(--color-accent);
+    color: var(--color-accent);
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 11px;
+    border-radius: 3px;
+    font-family: inherit;
+}
+#cc-drill-body .dm-feedback-submit:hover:not(:disabled) {
+    background: rgba(0, 180, 220, 0.12);
+}
+#cc-drill-body .dm-feedback-submit:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+#cc-drill-body .dm-feedback-status {
+    font-size: 11px;
+    color: #888;
+}
 
 /* ── Sensor Watchpane (Layer 3) ───────────────────────────────────── */
 .wp-body {
