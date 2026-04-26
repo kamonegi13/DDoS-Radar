@@ -220,23 +220,43 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 
 ### ADR-V2-014: calibration への replay 行採用ポリシー (Phase 1.3 加速)
 
-- **状態**: PROPOSED
-- **背景**: Phase 1.3 backfill (ADR-V2-013) で `conclusion_diff_log` に 4422 行 + `conclusions` に 17,748 行が `replay_tag` 付きで追加された。`calibration_status_for(db, scenario_id)` (`radar/conclusions/calibration.py`) は `db.shadow_drift_stats()` 経由で diff_log を集計するが、現状 replay 行をそのまま含むかは未定義。
-- **問題**: `_classify_verdict` は `sample_n < 8` で INSUFFICIENT_DATA を返す。**replay 行を含めれば**初日から sample_n が数千になり verdict が OK / DRIFTING / DEGRADED に到達するが、replay 行の 100% match は **同一 v1 derive_tl の自己一致**を測っているだけで、live drift とは性質が異なる。
-- **選択肢**:
-  - **A (混在)**: replay と live を統合集計。pros: NP5+8 verdict が即座に有効化。cons: replay の 100% match が drift_magnitude を不当に押し下げ、live drift の検出感度が落ちる (NP1 違反)。
-  - **B (分離・除外)**: `calibration_status_for` は live 行のみを集計。replay 行は分析用 (人手レビュー) 専用。pros: live drift の感度を保持。cons: 14 日経過まで sample_n が 8 に届かない可能性あり、INSUFFICIENT_DATA が長引く (NP5+8 の名目的後退)。
-  - **C (二系統公開)**: `calibration_status` に `live` と `replay_baseline` 2 ブロックを並列で出す。verdict は live 由来、replay_baseline は参考値。pros: 透明性 (NP6) と感度 (NP1) を両立。cons: API/UI 変更負荷あり。
-- **判断**: **B を採用**。理由:
-  1. NP1 (感度) を最優先する (旧 P4 → NP1)
-  2. INSUFFICIENT_DATA は NP5+8 で「過渡的に許容」と明記されている
-  3. C は将来必要になった時点で additive に追加可能 (現時点で YAGNI)
-- **実装**:
-  - `db.shadow_drift_stats()` の SQL に `WHERE json_extract(metadata, '$.replay_tag') IS NULL` を追加
-  - 既存テストへの影響を確認 (`test_engine.py`, conclusion calibration 関連)
-  - replay 行は `/api/v2/admin/replay_audit` (新設) で人手レビュー可能にする (Phase 2 タスク)
-- **NP 整合性**: 上記参照
+- **状態**: ACCEPTED (2026-04-26)
+- **背景**: Phase 1.3 backfill (ADR-V2-013) 実行後に、replay 行がどの calibration / 観察パスを汚染しうるかを検証する必要があった。当初は「`conclusion_diff_log` の `match_rate` が replay 行の 100% match で押し上げられる」「`calibration_status_for` の sampler verdict が誤った OK 判定を出す」ことを懸念していた。
+- **検証結果 (2026-04-26 ライブ DB 確認)**:
+  - `conclusions`: 17,891 行中 17,748 が `replay_tag` 付き (期待通り)
+  - **`conclusion_diff_log`: 4,432 行中 replay_tag 付きは 0 行** ← 汚染なし
+  - 理由: backfill は `save_conclusion(db, conclusion)` を直接呼ぶ。diff sampler hook は `compute_scenario_score()` 経路 (`radar/scoring.py:1352` の `_maybe_sample_v1_v2_diff`) からのみ起動し、`save_conclusion` 単体ではトリガしない設計。`/api/v2/admin/shadow_write_metrics` の `match_rate` も `conclusion_diff_log` を読むので、同じく汚染ゼロ。
+  - `calibration_status_for` (`radar/conclusions/calibration.py`) は `db.shadow_drift_stats()` 経由で **`focus_switch_log`** を集計しており、`conclusions` テーブルも `conclusion_diff_log` も読まない。backfill は両者ともに書き込まないので、calibration verdict も影響を受けない。
+- **判断**: **Option B (分離・除外) を採用**。ただし当初想定とは違う形での「分離」が既にコードレベルで成立していた:
+  1. 公式 calibration / shadow メトリクス (`shadow_drift_stats` / `match_rate` / `shadow_write_metrics`) はすべて backfill が触らないテーブル経由で動作する
+  2. replay 行は `conclusions.metadata.replay_tag` でしか到達できない、人手レビュー専用の分析データ
+  3. `scripts/calibrate_thresholds.py` (Phase 1.3 Priority 5) が唯一の正式 replay 消費者で、`WHERE json_extract(metadata, '$.replay_tag') = ?` で明示的に opt-in 集計する read-only ツール
+- **実装 (確認のみ、コード変更不要)**:
+  - `shadow_drift_stats` / `calibration_status_for` / `match_rate` 計算: replay 行を含まないことを上記検証で確認済 (コード変更不要)
+  - `scripts/calibrate_thresholds.py`: 既に replay-only スコープで実装済
+  - 将来 backfill 経路を増設する場合は本 ADR の「`save_conclusion` 単体は diff sampler を起動しない」前提を破らないよう注意
+- **NP 整合性**:
+  - **NP1 (感度)**: live drift の検出感度を保持
+  - **NP5+8 (品質規律)**: replay 行は `replay_tag` で「実 live ではない」ことを明示
+  - **NP6 (導出開示)**: `calibrate_thresholds.py` が replay コーパスを名指しで参照する read-only パスのみ提供
 - **依存**: ADR-V2-013 完了 (✅)
+
+---
+
+### Phase 1.3 観察ログ
+
+`/api/v2/admin/shadow_write_metrics` 同等のクエリを定期的に DB へ直接打って記録する。Mode C opt-in 判断材料として 7d / 14d 連続健全を確認する。
+
+| 観察日 | 24h match | 24h divergence | 24h match_rate | 7d match | 7d divergence | 7d match_rate | live conclusions 24h (TL/TREND/PER_DOMAIN/ANOMALY/ATTACK_MODE) | 備考 |
+|--------|-----------|----------------|----------------|----------|----------------|----------------|--------------------------------------------------------------------|------|
+| 2026-04-26 | 90 | 0 | 1.0000 | 1370 | 0 | 1.0000 | 10 / 10 / 41 / 41 / 41 | Priority 5 calibration 直後初観測。replay 行は diff_log に 0 行 (ADR-V2-014 検証通り)。TL/TREND が他より低いのは hysteresis でしか persist しない設計どおり |
+
+**判定基準 (Mode C opt-in 前提)**:
+- 7d 連続で `match_rate ≥ 0.99` かつ
+- 14d 累計で `divergence < 50 行` かつ
+- 全 5 ConclusionType で live 行が 0 件のシナリオが無い (background のみ TL は INSUFFICIENT 許容)
+
+**次回観察**: 2026-05-03 (1 週間後)
 
 ---
 
