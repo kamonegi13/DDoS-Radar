@@ -237,8 +237,8 @@ def test_degrading_when_drop_at_or_above_degrade_delta(db, now) -> None:
 
 
 def test_no_degrading_when_drop_below_threshold(db, now) -> None:
-    """Drop of 1.0 < DEGRADE_DELTA(1.5) → ELEVATED, not DEGRADING."""
-    _seed_prior(db, scenario_id="taiwan_contingency", observed_at=now - 60, cyber=2.5)
+    """Drop strictly below DEGRADE_DELTA → ELEVATED, not DEGRADING."""
+    _seed_prior(db, scenario_id="taiwan_contingency", observed_at=now - 60, cyber=2.0)
     out = derive_per_domain(db, _state([], domains={"cyber": 1.5, "physical": 0.0, "info": 0.0}), now=now)
     assert out.metadata["domain_states"]["cyber"] == "ELEVATED"
 

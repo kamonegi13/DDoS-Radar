@@ -386,6 +386,7 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
   - **語彙ドリフト**: `ESCALATING` / `RISING` / `STABLE` / `COOLING` / `DEEPER_DECAY` を採用 (spec の `RAPIDLY_*` プレフィックス無し)。Phase 1.3 で spec 目標形に再マッピング検討
   - **算出ドリフト**: velocity/acceleration ではなく **mean-of-window 比較** (現在 span vs 直前 span の TL 平均差分) を使用。velocity 基盤は v1 から流用予定だが、Phase 1 は ledger に蓄積されたばかりの TL 行を直接読むほうが透明 (NP6) で着手コストが低い
   - **閾値**: `RISING_DELTA=0.50` / `ESCALATE_DELTA=1.50` (TL severity 1..4 の差分単位)。spec の velocity/h 単位とは比較不能なので Phase 1.3 で再 calibration
+  - **Phase 1.3 再 calibration 結果 (2026-04-26、`scripts/calibrate_thresholds.py`、backfill 17,748 行)**: short_term window の実 state 分布が STABLE 71% / RISING 17% / ESCALATING 1% / COOLING 10% と均衡しており、現閾値を維持。閾値を下げると ESCALATING share が 5% を超え specificity が低下する。medium_term/long_term は |delta_sev|=ESCALATE が p99 tail にしか達していないが、これは backfill コーパスが 7d/30d window に対して短いことに起因し、organic ledger を 30 日以上蓄積した後で再評価する (replay-only での tuning は ADR-V2-014 の Option B に整合)
   - **MIN_SAMPLES**: 現/前両 window に各 3 行以上必要。`conclusions` ledger 蓄積前は INSUFFICIENT_DATA 期間が続く (NP5+8 過渡的不足として許容)
   - **出力形式**: 3 window を 1 つの Conclusion 行に packed-state 文字列 `short_term=X;medium_term=Y;long_term=Z` で格納 (spec は 3 horizon 別行を示唆するが、`?horizon=` クエリ側で分解可能なので 1 行集約を採用)
   - **TL severity 反転**: `_TL_SEVERITY` で TL1→4 / TL5→0 にマップ (TL 数字は小さいほど高脅威、severity は大きいほど高脅威)
@@ -404,10 +405,10 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
   - `INSUFFICIENT_SIGNAL`: signal_count < 1 かつ センサー全体が degraded
 - **frequency**: scoring tick 毎
 - **Phase 1 実装ドリフト** (`radar/conclusions/per_domain.py`):
-  - 閾値: `ACTIVE_FLOOR=3.0` / `ELEVATED_FLOOR=1.5` / `DEGRADE_DELTA=1.5` (絶対値、`signal_count` 無し)。spec の `5.0` / `2.0` + `signal_count` ゲート + 30% 相対 `DEGRADING` から逸脱。Phase 1 は scoring 直後 1 tick 分の `domains` 合計のみで判定し、`signal_count` の正値は累積 ledger を待つ
-  - `DEGRADING`: 直近 PER_DOMAIN 行 (`latest_conclusion`) との絶対差 `DEGRADE_DELTA` 以上を判定。spec の「6h vs 24h 相対 30% 減」は ledger 蓄積が必要なので Phase 1.3 で再キャリブレーション
+  - 閾値 (Phase 1 初期): `ACTIVE_FLOOR=3.0` / `ELEVATED_FLOOR=1.5` / `DEGRADE_DELTA=1.5` (絶対値、`signal_count` 無し)。spec の `5.0` / `2.0` + `signal_count` ゲート + 30% 相対 `DEGRADING` から逸脱。Phase 1 は scoring 直後 1 tick 分の `domains` 合計のみで判定し、`signal_count` の正値は累積 ledger を待つ
+  - **Phase 1.3 calibration 後 (2026-04-26、`@v2.0.1`、`scripts/calibrate_thresholds.py`、backfill 4437 行)**: `ACTIVE_FLOOR=2.5` / `ELEVATED_FLOOR=1.5` (維持) / `DEGRADE_DELTA=1.0`。実分布: cyber 正値 score p95=2.5 / max=3.5、physical p95=2.70 / max=4.29。旧 `ACTIVE_FLOOR=3.0` は positive observation の <1% にしか発火せず NP1 (感度) を阻害していた。`DEGRADE_DELTA=1.5` も cyber drop の p95 ちょうどで、現実的な p75-p90 の drop を捕捉できなかった。`ELEVATED_FLOOR=1.5` は p75 帯をカバーしており妥当
+  - `DEGRADING`: 直近 PER_DOMAIN 行 (`latest_conclusion`) との絶対差 `DEGRADE_DELTA` 以上を判定。spec の「6h vs 24h 相対 30% 減」は ledger 蓄積が必要なので将来再評価
   - 出力形式: 3 ドメインを 1 つの Conclusion 行に packed-state 文字列 `cyber=X;physical=Y;info=Z` で格納 (spec は明示せず、行数最少のコスト効率を採用)
-  - 閾値の正式 calibration は Phase 1.3 で 14 日間 shadow 観測の上で実施 (現状は機能 OK / calibration 未確定)
 
 ### 6.4 個別異常事象 (ANOMALY)
 

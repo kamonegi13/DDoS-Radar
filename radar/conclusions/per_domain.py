@@ -36,13 +36,21 @@ if TYPE_CHECKING:
     from radar.scoring import ScenarioState
 
 
-FORMULA_REF = "radar/conclusions/per_domain.py#derive_per_domain@v2.0.0"
+FORMULA_REF = "radar/conclusions/per_domain.py#derive_per_domain@v2.0.1"
 
 DOMAINS = ("cyber", "physical", "info")
 
-ACTIVE_FLOOR = 3.0       # domain score considered ACTIVE
-ELEVATED_FLOOR = 1.5     # domain score considered ELEVATED
-DEGRADE_DELTA = 1.5      # absolute drop from prior PER_DOMAIN snapshot to call DEGRADING
+# Threshold calibration (Phase 1.3, scripts/calibrate_thresholds.py over
+# 4437 backfilled rows): cyber score p95=2.5/max=3.5, physical p95=2.70/
+# max=4.29. ACTIVE_FLOOR=3.0 fired in <1% of positive observations; lower
+# to 2.5 to capture the p95-p99 band without flooding with false ACTIVE.
+# DEGRADE_DELTA=1.5 sat at exactly cyber drop p95 (i.e. only the most
+# extreme tail triggered DEGRADING); lower to 1.0 to cover p75-p90 of
+# real drops. NP1 (sensitivity) dictates picking thresholds that fire on
+# the meaningful portion of the empirical distribution, not just outliers.
+ACTIVE_FLOOR = 2.5       # domain score considered ACTIVE
+ELEVATED_FLOOR = 1.5     # domain score considered ELEVATED (unchanged: covers ~p75)
+DEGRADE_DELTA = 1.0      # absolute drop from prior PER_DOMAIN snapshot to call DEGRADING
 
 
 def derive_per_domain(db: "RadarDB", state: "ScenarioState", *,
