@@ -114,6 +114,14 @@ const LANG = {
     'drill_modal.feedback.status.failed':     'Save failed (HTTP {status}).',
     'drill_modal.feedback.status.network':    'Network error — try again.',
 
+    'drill_modal.section.llm_aug':            'LLM augmentation',
+    'drill_modal.llm_aug.empty':              'No LLM augmentation for this conclusion.',
+    'drill_modal.llm_aug.attempted':          'LLM call attempted',
+    'drill_modal.llm_aug.failed':             'failed ({error})',
+    'drill_modal.llm_aug.agreement':          'Agreement',
+    'drill_modal.llm_aug.suggested_alt':      'Suggested alternative',
+    'drill_modal.llm_aug.conf_adj':           'Confidence nudge',
+
     // Sensor Watchpane (Layer 3)
     'watchpane.title':                'Sensor Watchpane',
     'hud.coord.toggle.label':         'Coord links',
@@ -1716,6 +1724,14 @@ const LANG = {
     'drill_modal.feedback.status.bad_label':  'サーバーがラベルを拒否しました。',
     'drill_modal.feedback.status.failed':     '保存失敗 (HTTP {status})。',
     'drill_modal.feedback.status.network':    'ネットワークエラー — 再試行してください。',
+
+    'drill_modal.section.llm_aug':            'LLM 補強',
+    'drill_modal.llm_aug.empty':              'この結論には LLM 補強が記録されていません。',
+    'drill_modal.llm_aug.attempted':          'LLM 呼び出し試行',
+    'drill_modal.llm_aug.failed':             '失敗 ({error})',
+    'drill_modal.llm_aug.agreement':          'LLM の同意度',
+    'drill_modal.llm_aug.suggested_alt':      'LLM 提案の代替モード',
+    'drill_modal.llm_aug.conf_adj':           'confidence 調整量',
 
     // Sensor Watchpane (Layer 3)
     'watchpane.title':                'センサー監視盤',

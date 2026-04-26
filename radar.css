@@ -1847,6 +1847,31 @@
     word-break: break-word;
     border-radius: 3px;
 }
+#cc-drill-body .dm-llm-aug {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+#cc-drill-body .dm-llm-aug-narrative {
+    margin-top: 4px;
+    padding: 8px 10px;
+    background: rgba(0, 200, 255, 0.06);
+    border-left: 2px solid var(--color-accent);
+    border-radius: 2px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #ddd;
+}
+#cc-drill-body .dm-llm-aug-evidence {
+    margin: 4px 0 0 16px;
+    padding: 0;
+    font-size: 11px;
+    color: #ccc;
+}
+#cc-drill-body .dm-llm-aug-evidence li {
+    margin-bottom: 2px;
+}
+
 #cc-drill-body .dm-feedback {
     display: flex;
     flex-direction: column;

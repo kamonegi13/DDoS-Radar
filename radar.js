@@ -2610,6 +2610,57 @@
         }
     }
 
+    function _ccDrillRenderLlmAugmentation(trace) {
+        // ATTACK_MODE LLM augmentation surfaces narrative + agreement +
+        // suggested_alternative_mode + key_evidence as a dedicated card so
+        // analysts see the LLM's read at a glance instead of digging in
+        // the raw metadata blob. Empty when conclusion has no augmentation
+        // (i.e. flag off, LLM offline, or rule-based INSUFFICIENT_DATA).
+        const wrap = document.createElement('div');
+        wrap.className = 'dm-llm-aug';
+        const aug = (trace && trace.metadata && trace.metadata.llm_augmentation) || null;
+        if (!aug || typeof aug !== 'object') {
+            wrap.textContent = _t('drill_modal.llm_aug.empty');
+            return wrap;
+        }
+        if (aug.ok === false) {
+            const row = _ccDrillRow(_t('drill_modal.llm_aug.attempted'),
+                                    _t('drill_modal.llm_aug.failed', { error: String(aug.error || '—') }));
+            wrap.appendChild(row);
+            return wrap;
+        }
+        if (aug.agreement) {
+            wrap.appendChild(_ccDrillRow(_t('drill_modal.llm_aug.agreement'),
+                                          String(aug.agreement)));
+        }
+        if (aug.suggested_alternative_mode) {
+            wrap.appendChild(_ccDrillRow(_t('drill_modal.llm_aug.suggested_alt'),
+                                          String(aug.suggested_alternative_mode)));
+        }
+        if (typeof aug.confidence_adjustment_applied === 'number') {
+            const sign = aug.confidence_adjustment_applied >= 0 ? '+' : '';
+            wrap.appendChild(_ccDrillRow(_t('drill_modal.llm_aug.conf_adj'),
+                                          `${sign}${aug.confidence_adjustment_applied}`));
+        }
+        if (aug.narrative) {
+            const block = document.createElement('div');
+            block.className = 'dm-llm-aug-narrative';
+            block.textContent = String(aug.narrative);
+            wrap.appendChild(block);
+        }
+        if (Array.isArray(aug.key_evidence) && aug.key_evidence.length) {
+            const ul = document.createElement('ul');
+            ul.className = 'dm-llm-aug-evidence';
+            aug.key_evidence.forEach((e) => {
+                const li = document.createElement('li');
+                li.textContent = String(e);
+                ul.appendChild(li);
+            });
+            wrap.appendChild(ul);
+        }
+        return wrap;
+    }
+
     function _ccDrillRenderFeedback(trace) {
         const wrap = document.createElement('div');
         wrap.className = 'dm-feedback';
@@ -2711,6 +2762,13 @@
         const mdEmpty = !trace.metadata || Object.keys(trace.metadata || {}).length === 0;
         body.appendChild(_ccDrillSection('drill_modal.section.metadata',    mdEl, mdEmpty));
         body.appendChild(_ccDrillSection('drill_modal.section.llm_prompt',  _ccDrillRenderLlmPrompt(trace), false));
+        // Show LLM augmentation only for attack_mode where it is meaningful;
+        // other types use the generic metadata kv table which is enough.
+        if (trace && trace.conclusion_type === 'attack_mode') {
+            const augEl = _ccDrillRenderLlmAugmentation(trace);
+            const augHasContent = !!(trace.metadata && trace.metadata.llm_augmentation);
+            body.appendChild(_ccDrillSection('drill_modal.section.llm_aug', augEl, !augHasContent));
+        }
         body.appendChild(_ccDrillSection('drill_modal.section.feedback',    _ccDrillRenderFeedback(trace), false));
     }
 
