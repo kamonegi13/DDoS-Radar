@@ -26,11 +26,11 @@
 
 | Phase | 概要 | 状態 | 期限 (目安) |
 |-------|------|------|------------|
-| **Phase 0** | 設計確定、ADR 起こし、scaffolding (Conclusion dataclass, DB v19-v22, codemod 準備) | **進行中** | 2026-05-02 |
-| **Phase 1** | 基盤層: Conclusion Model 永続化、LLM プロンプト永続化、theater 撲滅、v2 API 骨格、NP7 disclaimer 強制 | 未着手 | 2026-06-15 |
-| **Phase 2** | 結論層: 攻撃モード推定、トレンド三層化、per-domain 構造化、importance ranking、Calibration governance、Design W default-on | 未着手 | 2026-07-31 |
-| **Phase 3** | UI と運用: Analyst Workbench (4 ペイン)、drill-down、Markdown/PDF export、analyst feedback ループ、ACLED+GDELT 自動突合 ([v2-ui.md](v2-ui.md) で詳細設計) | 未着手 | 2026-09-15 |
-| **Phase 4** | v1 sunset: deprecation header → 90 日 → v1 撤去、theater adapter 削除 | 未着手 | 2026-12-15 |
+| **Phase 0** | 設計確定、ADR 起こし、scaffolding (Conclusion dataclass, DB v19-v22, codemod 準備) | **完了 (2026-04-26)** | 2026-05-02 |
+| **Phase 1** | 基盤層: Conclusion Model 永続化、LLM プロンプト永続化、theater 撲滅、v2 API 骨格、NP7 disclaimer 強制 | **完了 (2026-04-27)** — Phase 1.1〜1.4 (P1/SR4/P2/C) 全 stage 済 | 2026-06-15 |
+| **Phase 2** | 結論層: 攻撃モード推定 + extensions、トレンド三層化、per-domain 構造化、importance ranking、Calibration governance、Design W default-on | **概ね完了 (2026-04-27)** — 結論層実装済、ACLED+GDELT 自動突合稼働可、recall metrics + CI gate 実装済。残: Design W opt-in は analyst_feedback 蓄積待ち (passive observation) | 2026-07-31 |
+| **Phase 3** | UI と運用: Analyst Workbench (4 ペイン)、drill-down、Markdown/PDF export、analyst feedback ループ、ACLED+GDELT 自動突合 ([v2-ui.md](v2-ui.md) で詳細設計) | **完了 (2026-04-26)** — workbench / drill-down / Markdown export / feedback ledger / LLM augmentation drill-down section / default-on | 2026-09-15 |
+| **Phase 4** | v1 sunset: deprecation header → 90 日 → v1 撤去、theater adapter 削除 | **進行中** — deprecation/sunset header 配信中。v1 撤去は 2026-07-26 以降 | 2026-12-15 |
 
 ---
 
@@ -46,15 +46,17 @@ v1 リファクタリング (scenario-refactor.md) で達成した事項:
 
 しかし v1 は **「観察結果プレゼンテーション層」としての完成度が高い** 一方、CLAUDE.md で再定義した新目的「**結論を付けて出力する**」に対しては構造的に未到達である。
 
-### 1.2 NP1-NP7 への充足度 (Phase A 監査結果)
+### 1.2 NP1-NP7 への充足度 (Phase A 監査結果 — 監査時点 2026-04 初旬)
 
-| 原則 | 充足度 | 主な未到達領域 |
+注: 下表は v2.0 着手前のベースライン。Phase 1〜3 完了後の現状は「→」以降に併記。
+
+| 原則 | 充足度 (監査時) | 主な未到達領域 → v2.0 進捗 |
 |------|--------|--------------|
-| **NP1 感度優先** | 中 | 手動 tuning 中心。recall ground truth 注入機構なし |
-| **NP4 結論最大化** | **約 40%** | TL は出るがトレンドラベル/ドメイン別結論/異常事象ランク/**攻撃モード推定**未実装 |
-| **NP5+8 結論品質規律** | 中 | INSUFFICIENT_DATA 提示はあるが「過渡的 vs 恒常的」区別なし |
-| **NP6 完全な導出開示** | **約 65%** | LLM プロンプト未永続化 (grep 結果 0 件)、TL 閾値が API 非開示 |
-| **NP7 組織内ノード** | **約 15%** | disclaimer が i18n tooltip 1 箇所のみ、API レスポンスに常設されていない |
+| **NP1 感度優先** | 中 | 手動 tuning 中心。recall ground truth 注入機構なし → ACLED+GDELT 自動突合 + analyst_feedback ledger + recall_metrics CI gate 実装済 (2026-04-27) |
+| **NP4 結論最大化** | **約 40%** | TL は出るがトレンドラベル/ドメイン別結論/異常事象ランク/**攻撃モード推定**未実装 → 5 ConclusionType (THREAT_LEVEL/TREND/PER_DOMAIN/ANOMALY/ATTACK_MODE) + scenario_extensions hook 全実装 |
+| **NP5+8 結論品質規律** | 中 | INSUFFICIENT_DATA 提示はあるが「過渡的 vs 恒常的」区別なし → INSUFFICIENT_DATA + INSUFFICIENT_SIGNAL を明示。calibration metadata は drill-down で開示 |
+| **NP6 完全な導出開示** | **約 65%** | LLM プロンプト未永続化 (grep 結果 0 件)、TL 閾値が API 非開示 → drill-down で formula/thresholds/sources/llm_prompt 全開示 |
+| **NP7 組織内ノード** | **約 15%** | disclaimer が i18n tooltip 1 箇所のみ、API レスポンスに常設されていない → 全 v2 API レスポンス + UI banner に NP7 disclaimer 強制 |
 
 ### 1.3 アーキテクチャ債務
 
@@ -141,7 +143,7 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 - **進行状況**:
   - **default-on 切替**: 2026-04-26 (Mode C activation, all 5 readiness conditions PASS via `scripts/check_mode_c_readiness.py --ack`)
   - **v1 sunset target**: 2026-07-26 (T+90d)
-  - **未実装**: v1 ルート (`/api/threat_data` 等) への `Deprecation` HTTP ヘッダ追加 (Phase 1.4 で対応予定)
+  - **Phase 1.4 完了 (2026-04-27)**: P1 = `Deprecation` / `Sunset` / `Link` HTTP ヘッダを v1 superseded routes に付与 (8a1ce11)、SR4 = sunsetted route hit を `legacy_telemetry` カウンタへ集約 (2e0310d)、P2 = NP7 disclaimer banner (7ea0916)、C = sunset 後の residual access 観測 (d32c856)。残作業は v1 sunset 当日 (2026-07-26) 以降の Phase 4 撤去のみ
 
 ### ADR-V2-004: Export 形式は Markdown/PDF のみ (v2.0)
 
