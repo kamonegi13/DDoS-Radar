@@ -1877,8 +1877,12 @@
 }
 .wp-body .wp-row {
     display: grid;
-    grid-template-columns: 1fr 64px 50px 26px;
-    column-gap: 8px;
+    /* 5 columns: meta | spark | value | alarm-bell | remove
+       Alarm button was added in Phase 3 but the grid still had 4 cols,
+       which forced the remove button to wrap to a 2nd row and squeezed
+       the meta column. */
+    grid-template-columns: minmax(0, 1fr) 56px 52px 24px 24px;
+    column-gap: 6px;
     align-items: center;
     padding: 6px 10px;
     border-bottom: 1px solid #1f1f1f;
@@ -1934,6 +1938,7 @@
     line-height: 1;
     border-radius: 2px;
     font-size: 11px;
+    justify-self: center;
 }
 .wp-body .wp-row .wp-remove:hover {
     color: var(--color-critical);
@@ -1951,7 +1956,7 @@
     line-height: 1;
     border-radius: 2px;
     font-size: 11px;
-    margin-right: 2px;
+    justify-self: center;
 }
 .wp-body .wp-row .wp-alarm-btn.wp-alarm-set {
     color: var(--color-accent);

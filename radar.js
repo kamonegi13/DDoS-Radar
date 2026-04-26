@@ -3037,9 +3037,9 @@
             id: 'sensor-watchpane',
             titleKey: 'watchpane.title',
             titleFallback: 'Sensor Watchpane',
-            defaultLeft: window.innerWidth - 380,
+            defaultLeft: window.innerWidth - 440,
             defaultTop: 140,
-            width: 360,
+            width: 420,
             bodyClass: 'wp-body',
             onShow: () => { _wpRefreshAll(); },
         });
@@ -4193,7 +4193,7 @@
         syncToolsMenuState();
     }
 
-    const LAYOUT_VERSION = 14; // bump when layout structure changes to auto-clear stale state
+    const LAYOUT_VERSION = 15; // bump when layout structure changes to auto-clear stale state
 
     function loadTargetState(defaults) {
         // Initialize THEATERS from app_config global list before building UI
