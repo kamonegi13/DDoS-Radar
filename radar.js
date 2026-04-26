@@ -5362,13 +5362,15 @@
     }
 
     // ── Coordination Index: Constellation Pattern ──────────────────
-    // Visibility toggle: 'strong' | 'all' | 'off'. Default 'strong' so the
-    // map stays scannable; analyst can opt into ALL pairs or hide everything.
+    // Visibility toggle: 'off' | 'strong' | 'all'. Default 'off' because in
+    // multi-country scenarios (Taiwan etc.) the underlying overlap saturates at
+    // a structural baseline (5/21 pairs ≥70% even with no temporal coherence),
+    // so the layer pulses orange across most of the map at all times and conveys
+    // no actionable signal. Analysts can opt into STRONG/ALL for investigation.
     // (Backend already scopes `correlations` to the focused scenario's
-    // participants — see scenarios.py derive_focus_context — so a separate
-    // FOCUSED mode would be redundant.)
+    // participants — see scenarios.py derive_focus_context.)
     const _COORD_LINK_MODE_KEY = 'radar_coord_link_mode';
-    const _COORD_LINK_MODES = ['strong', 'all', 'off'];
+    const _COORD_LINK_MODES = ['off', 'strong', 'all'];
     // STRONG mode: skip pairs whose final coordIdx is below this. 60 ≈ red
     // (C2-SYNC confirmed) or strong orange; weaker pairs are not drawn at all
     // (no line, no diamond, no % label).
@@ -5376,9 +5378,9 @@
     function _getCoordLinkMode() {
         const v = localStorage.getItem(_COORD_LINK_MODE_KEY);
         // Migrate the short-lived 'focused' value (8f97a9b → next commit) to
-        // 'strong' silently — they map to "the quiet default" semantically.
-        if (v === 'focused') { localStorage.setItem(_COORD_LINK_MODE_KEY, 'strong'); return 'strong'; }
-        return _COORD_LINK_MODES.includes(v) ? v : 'strong';
+        // 'off' silently — both map to "the quiet default" semantically.
+        if (v === 'focused') { localStorage.setItem(_COORD_LINK_MODE_KEY, 'off'); return 'off'; }
+        return _COORD_LINK_MODES.includes(v) ? v : 'off';
     }
     function _renderCoordToggleLabel() {
         const btn = document.getElementById('hud-coord-toggle');

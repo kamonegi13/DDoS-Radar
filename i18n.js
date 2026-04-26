@@ -97,7 +97,7 @@ const LANG = {
     // Sensor Watchpane (Layer 3)
     'watchpane.title':                'Sensor Watchpane',
     'hud.coord.toggle.label':         'Coord links',
-    'hud.coord.toggle.tip':           'Coordination link visibility on the map (the focused scenario already scopes which countries are eligible).\nSTRONG: only pairs with coordIdx ≥ 60 (red / strong orange — default, cleanest map).\nALL: every pair above the OVERLAP_THRESHOLD (noisier, full picture).\nOFF: hide all links.',
+    'hud.coord.toggle.tip':           'Coordination link visibility on the map. Focused scenario already scopes eligible countries; in dense scenarios overlap saturates at a structural baseline (most pairs ≥70%) and conveys no actionable signal at a glance.\nOFF: hide all links (default — cleanest map).\nSTRONG: only pairs with coordIdx ≥ 60 — use when investigating a specific cluster.\nALL: every pair above OVERLAP_THRESHOLD — full picture, noisy.',
     'hud.coord.mode.all':             'ALL',
     'hud.coord.mode.strong':          'STRONG',
     'hud.coord.mode.off':             'OFF',
@@ -1664,7 +1664,7 @@ const LANG = {
     // Sensor Watchpane (Layer 3)
     'watchpane.title':                'センサー監視盤',
     'hud.coord.toggle.label':         'Coord 線',
-    'hud.coord.toggle.tip':           '地図上の Coordination 線の表示 (focused シナリオで対象国は既に絞り込み済み)。\nSTRONG: coordIdx ≥ 60 (赤 / 強オレンジ) のみ — 既定、最も静粛。\nALL: OVERLAP_THRESHOLD 超のすべてのペア (賑やか、全体像)。\nOFF: 全非表示。',
+    'hud.coord.toggle.tip':           '地図上の Coordination 線の表示。focused シナリオで対象国は既に絞り込み済み。多国構成シナリオでは構造的ベースライン（多数ペアが ≥70%）で飽和し、平常時から脈動するため一目での示唆は乏しい。\nOFF: 全非表示（既定 — 地図が最も静粛）。\nSTRONG: coordIdx ≥ 60 のみ — 特定クラスタを調査する時に使用。\nALL: OVERLAP_THRESHOLD 超の全ペア — 全体像、賑やか。',
     'hud.coord.mode.all':             'ALL',
     'hud.coord.mode.strong':          'STRONG',
     'hud.coord.mode.off':             'OFF',
