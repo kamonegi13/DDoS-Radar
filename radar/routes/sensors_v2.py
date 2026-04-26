@@ -1,0 +1,173 @@
+"""v2 sensor observation API — Layer 3 (Sensor Watchpane) backend.
+
+Phase 3 task 4 (per docs/design/v2-ui.md §6, §7.1): expose a per-sensor
+observation surface for the analyst watchpane. The full design calls for a
+new `sensor_observation_ts` SQLite table populated by the scoring tick,
+returning real 1h sparklines. Until that schema migration lands, this
+endpoint operates in **degraded mode** as documented in §7.1: it returns
+the current observation as a single-point series with `history_shallow:
+true`, sourced from the global cache's `rationale_matrix`.
+
+Gated behind `config.V2_API_ENABLED` and `_require_analyst()` consistent
+with the rest of v2 surfaces.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from flask import jsonify, request
+
+from radar import state as st
+from radar.routes import _require_analyst, _safe_int, bp
+from radar.routes.conclusions_v2 import _v2_enabled_or_503
+from radar.state import _global_cache_lock
+
+
+# Sensor catalog: (sensor_id, domain, label_en) — mirrors WHATIF_SENSOR_CATALOG
+# in analytics.py without coupling to its What-If specific fields. Maintained
+# manually because rationale_matrix entries can be sparse (sensor only present
+# when it fired or was suppressed in the current cycle).
+SENSOR_CATALOG: list[dict[str, Any]] = [
+    # Cyber
+    {"sensor": "cf_spike_core",      "domain": "cyber",    "label": "Cloudflare DDoS Spike"},
+    {"sensor": "cf_botnet_overlap",  "domain": "cyber",    "label": "Botnet Overlap"},
+    {"sensor": "cf_vector_shift",    "domain": "cyber",    "label": "L7 Vector Shift"},
+    {"sensor": "cf_adversary_strike","domain": "cyber",    "label": "Adversary State Strike"},
+    {"sensor": "cf_coordinated",     "domain": "cyber",    "label": "Coordinated Multi-Theater"},
+    {"sensor": "ripe_bgp",           "domain": "cyber",    "label": "RIPE BGP Anomaly"},
+    {"sensor": "threatfox",          "domain": "cyber",    "label": "ThreatFox APT IoC"},
+    {"sensor": "ddos_acceleration",  "domain": "cyber",    "label": "DDoS Ambush Pattern"},
+    {"sensor": "greynoise",          "domain": "cyber",    "label": "GreyNoise Suppressor"},
+    {"sensor": "ct_log",             "domain": "cyber",    "label": "CT Log Surge"},
+    # Physical
+    {"sensor": "ioda_bgp",           "domain": "physical", "label": "IODA BGP Outage"},
+    {"sensor": "opensky",            "domain": "physical", "label": "Airspace Anomaly"},
+    {"sensor": "nasa_firms",         "domain": "physical", "label": "NASA FIRMS Thermal"},
+    {"sensor": "isr_hotspot",        "domain": "physical", "label": "ISR Surge"},
+    {"sensor": "ais_maritime",       "domain": "physical", "label": "AIS Dark / Stationary"},
+    {"sensor": "check_host",         "domain": "physical", "label": "Check-Host Survival"},
+    {"sensor": "openweather",        "domain": "physical", "label": "Weather (Noise Filter)"},
+    {"sensor": "gps_jamming",        "domain": "physical", "label": "GPS Jamming"},
+    # Info
+    {"sensor": "gdelt",              "domain": "info",     "label": "GDELT Media Tone"},
+    {"sensor": "rss_narrative",      "domain": "info",     "label": "RSS Narrative Burst"},
+    {"sensor": "telegram_mirror",    "domain": "info",     "label": "Telegram Mirror"},
+    {"sensor": "maskirovka_flag",    "domain": "info",     "label": "Maskirovka Detection"},
+]
+
+_SENSOR_INDEX = {row["sensor"]: row for row in SENSOR_CATALOG}
+
+
+@bp.route("/api/v2/sensors/catalog", methods=["GET"])
+def v2_sensor_catalog():
+    """Return the static sensor catalog for the watchpane add-sensor picker."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+    return jsonify({
+        "api_version": "v2",
+        "sensors": SENSOR_CATALOG,
+    })
+
+
+def _lookup_sensor_observation(sensor: str, scope: str) -> dict[str, Any] | None:
+    """Pull the most recent observation for `sensor` from the global cache's
+    rationale_matrix. `scope` is currently ignored in degraded mode because
+    the scoring tick already filters per the focused scenario; once the
+    sensor_observation_ts table lands (§7.1) scope will route to the proper
+    series.
+    """
+    with _global_cache_lock:
+        cache = dict(st.global_cache) if st.global_cache else {}
+    strat = cache.get("strategic", {})
+    rationale = strat.get("rationale_matrix", []) or []
+    for entry in rationale:
+        if entry.get("sensor") == sensor:
+            return entry
+    return None
+
+
+@bp.route("/api/v2/sensors/<sensor_name>/observations", methods=["GET"])
+def v2_sensor_observations(sensor_name: str):
+    """Per-sensor observation series for the analyst watchpane.
+
+    Query params:
+      scope=<country|global|...>  — passed through to response (degraded mode
+                                    does not yet filter on scope).
+      hours=<int 1..24>           — requested baseline window. Echoed in the
+                                    response; degraded mode returns 1 point.
+
+    Degraded mode contract (§7.1):
+      observations = single-point list with the current cycle value.
+      history_shallow = True so the UI can label the sparkline.
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    if sensor_name not in _SENSOR_INDEX:
+        return jsonify({
+            "api_version": "v2",
+            "error": "unknown sensor",
+            "sensor": sensor_name,
+        }), 404
+
+    scope = request.args.get("scope", "focused") or "focused"
+    hours = _safe_int(request.args.get("hours"), 1, min_val=1, max_val=24)
+
+    entry = _lookup_sensor_observation(sensor_name, scope)
+    now_ts = time.time()
+
+    observations: list[dict[str, Any]] = []
+    status: str | None = None
+    fired_reason: str | None = None
+    suppressed: bool = False
+    suppress_reason: str | None = None
+    raw_value: Any = None
+
+    if entry is not None:
+        status = entry.get("status")
+        fired_reason = entry.get("fired_reason")
+        suppressed = bool(entry.get("suppressed", False))
+        suppress_reason = entry.get("suppress_reason")
+        raw_value = entry.get("value")
+        # `score` is the deriver-normalised numeric used by scoring; the
+        # underlying `value` is opaque (sometimes a label, sometimes a number).
+        # Plot the score so the sparkline has a numeric y-axis.
+        score = entry.get("score")
+        if score is None:
+            score = 0
+        observations.append({
+            "ts": now_ts,
+            "value": score,
+            "baseline": None,
+            "delta_vs_baseline": None,
+        })
+
+    return jsonify({
+        "api_version": "v2",
+        "sensor": sensor_name,
+        "scope": scope,
+        "label": _SENSOR_INDEX[sensor_name].get("label"),
+        "domain": _SENSOR_INDEX[sensor_name].get("domain"),
+        "baseline_window_hours": hours,
+        "observations": observations,
+        "history_shallow": True,
+        # Surface qualitative state from the current cycle so the watchpane
+        # can colour the row even without history.
+        "current": {
+            "status": status,
+            "fired_reason": fired_reason,
+            "suppressed": suppressed,
+            "suppress_reason": suppress_reason,
+            "raw_value": raw_value,
+        },
+    })

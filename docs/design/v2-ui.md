@@ -181,7 +181,7 @@ NP1 (感度) は「結論レベルで隠された signal を見落とすな」�
 | 削除 | row hover で × ボタン |
 | 追加 | `[+ Add sensor]` ボタン → 検索可能なドロップダウン (sensor name × country/scope) |
 | 更新 | 既存ポーリング (10s) に乗せる、追加コストは差分 fetch のみ |
-| データソース | 既存 `/api/sensor/<name>/snapshot` を再利用 (新設不要)、未存在なら新エンドポイント設計 (§7) |
+| データソース | **既存 `/api/sensor/<name>/snapshot` は存在しない (§7.1 棚卸し結果)。新エンドポイント新設が必要 (§7)** |
 
 ### 6.3 alarm モード (Phase 2.5 候補)
 
@@ -194,22 +194,56 @@ NP1 (感度) は「結論レベルで隠された signal を見落とすな」�
 
 ## 7. Observation スキーマ
 
-### 7.1 既存 API の再利用可否調査 (Phase 2 着手時の最初のタスク)
+### 7.1 既存 API の再利用可否調査 (Phase 3 タスク 1 — 2026-04-26 完了)
 
-新セッションで最初に確認すべきこと:
+#### 棚卸し結果
 
-```bash
-grep -rn "def api_sensor\|/api/sensor" radar/routes/
-```
+`radar/routes/` 配下で `sensor` を含む全 endpoint を列挙:
 
-既存 sensor snapshot API があれば再利用、なければ新設。新設する場合の最小設計:
+| Endpoint | 提供内容 | watchpane 要件への適合 |
+|----------|---------|----------------------|
+| `GET /api/sensor_config` ([radar/routes/admin.py:245](../../radar/routes/admin.py#L245)) | enabled フラグと domain weights のみ | ✗ observation データなし |
+| `GET /api/sensor_reliability` ([radar/routes/analytics.py:51](../../radar/routes/analytics.py#L51)) | 成功率などのメタ統計 | ✗ observation データなし |
+| `GET /api/admin/sensor_health` ([radar/routes/admin.py:652](../../radar/routes/admin.py#L652)) | health enum, CB state, cache age, fetch_log の信頼性集計 (current snapshot 1 点) | △ "現在値ステータス" は出るが時系列なし |
+| `GET /api/score_breakdown` ([radar/routes/analytics.py:626](../../radar/routes/analytics.py#L626)) | 現 cycle の per-sensor `(sensor, status, score, value, fired_reason, suppressed)` (focused scenario のみ) | △ 現値は出る。1h delta / sparkline は出ない |
+| `GET /api/scenario/<id>/timeseries`, `…/country/<c>/timeseries` ([radar/routes/analytics.py:1373](../../radar/routes/analytics.py#L1373)) | scoring 集約 score の時系列 (theater 単位) | ✗ sensor 単位ではなく集約後の TL/score |
+
+**`/api/sensor/<name>/snapshot` は存在しない**。v2-ui.md §6.2 旧版の「既存 API を再利用」前提は事実誤認だった。
+
+#### バックエンドデータの実情
+
+sensor 単位の raw observation 時系列を持つ schema が DB に**ない**:
+
+- `time_series_ts` / `time_series` ([radar/database.py:1587](../../radar/database.py#L1587), [radar/database.py:1626](../../radar/database.py#L1626)) は **theater (国) 単位の集約 score** を保存。`series_type` は `combined` / `l3` / `l7` 等で sensor 名は持たない
+- `fetch_log` は `(sensor_name, ts, success, duration_ms)` のみで observation value を持たない
+- BaseSensor の in-memory `set_cache()` は最新 1 点のみ (TTL ベース)。1h 履歴は再構成不可
+
+#### 判断
+
+| 項目 | 決定 |
+|------|------|
+| 再利用 | 不可。既存 endpoint は (a) 設定/メタ情報、(b) 集約後 TL のみ。sensor × scope の raw observation 時系列を持つ surface はゼロ |
+| 新設 endpoint | `GET /api/v2/sensors/<sensor_name>/observations?scope=<country|global|src→dst>&hours=1` を新設 |
+| バックエンド | **新 schema 追加** が必要。`sensor_observation_ts(sensor TEXT, scope TEXT, ts REAL, value REAL, baseline REAL)` (max_entries=720 → 12h@1min cycle、TTL 自動 prune)。scoring tick で各 sensor の signals を append |
+| 暫定モード | schema migration 完了前は `/api/score_breakdown` の current value を返す degraded mode (sparkline = 単一点)。watchpane UI 側で "history shallow" ラベルを出す |
+| 認証 | 既存 `_require_analyst()` (v2 endpoint と同等) |
+| Phase | schema 追加と endpoint 実装は Phase 3 タスク 4 (Sensor Watchpane 基本) に含める。タスク 1 (本書) は判断記録まで |
+
+#### 残課題 (タスク 4 着手時に決める)
+
+- 旧 sensor も新 ts table に書き込むか、新規 sensor のみに限定するか (前者は実装範囲が広がる)
+- scope の正規化規則 (`bgp_anomaly` の TW→US のような cross-country をどう列挙するか — 既存 sensor 出力の `target` / `source` フィールドを map する方針で追加調査)
+- ts の retention (12h で十分か、24h まで伸ばすか — sparkline 用途なら 12h で十分)
+
+#### 新設エンドポイント仕様 (実装は Phase 3 タスク 4)
 
 | 項目 | 案 |
 |------|-----|
-| Endpoint | `GET /api/v2/sensors/<sensor_name>/observations?country=TW&hours=1` |
-| Response | `{sensor, country, observations: [{ts, value, baseline, delta}], baseline_window_hours}` |
-| 認証 | 既存 `_require_analyst()` (v2 と同等) |
-| キャッシュ | sensor 自身のキャッシュ TTL に追従 |
+| Endpoint | `GET /api/v2/sensors/<sensor_name>/observations?scope=<scope>&hours=1` |
+| Response | `{sensor, scope, observations: [{ts, value, baseline, delta_vs_baseline}], baseline_window_hours, history_shallow: bool}` |
+| 認証 | 既存 `_require_analyst()` |
+| キャッシュ | sensor 自身のキャッシュ TTL に追従 (差分 fetch でコスト最小化) |
+| degraded | schema 未到達時は `observations: [現値1点], history_shallow: true` で graceful 返却 |
 
 ### 7.2 watchpane state 永続化
 

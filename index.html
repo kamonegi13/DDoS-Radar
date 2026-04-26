@@ -265,6 +265,7 @@
                     <div class="tools-menu-item" id="tm-item-corr" onclick="handleToolToggle('corr-heatmap-panel', toggleCorrHeatmap, 'tm-dot-corr', 'tm-item-corr')"><span class="tools-menu-icon">&#x1F321;</span><span class="tools-menu-label" data-i18n="tools.corr_heatmap">Sensor Heatmap</span><span class="tools-menu-dot" id="tm-dot-corr"></span></div>
                     <div class="tools-menu-section-header" data-i18n="tools.section.tradecraft">TRADECRAFT</div>
                     <div class="tools-menu-item" id="tm-item-tc" onclick="handleToolToggle('tradecraft-panel', toggleTradecraftPanel, 'tm-dot-tc', 'tm-item-tc')"><span class="tools-menu-icon">&#x1F4D6;</span><span class="tools-menu-label" data-i18n="tools.tradecraft">Analyst Tradecraft</span><span class="tools-menu-dot" id="tm-dot-tc"></span></div>
+                    <div class="tools-menu-item" id="tm-item-wp" onclick="handleToolToggle('sensor-watchpane', toggleSensorWatchpane, 'tm-dot-wp', 'tm-item-wp')"><span class="tools-menu-icon">&#x1F441;</span><span class="tools-menu-label" data-i18n="tools.sensor_watchpane">Sensor Watchpane</span><span class="tools-menu-dot" id="tm-dot-wp"></span></div>
                     <div class="tools-menu-section-header" data-i18n="tools.section.admin">ADMIN</div>
                     <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();"><span class="tools-menu-icon">&#x1F464;</span><span class="tools-menu-label" data-i18n="tools.user_management">User Management</span></div>
                 </div>
@@ -281,6 +282,15 @@
 <div id="np7-disclaimer-banner" role="note" aria-live="polite">
     <span class="np7-banner-icon" aria-hidden="true">📌</span>
     <span class="np7-banner-text" id="np7-banner-text" data-i18n="banner.np7.fallback">Tool conclusion only — final judgment by organizational process.</span>
+</div>
+
+<!-- ── Conclusion Cards (Layer 1) ─────────────────────────────────────
+     Renders the 5 ConclusionType buckets from /api/v2/scenarios/<id>/
+     conclusions. Hidden by default; radar.js _refreshConclusionCards()
+     toggles .cc-visible once the envelope is fetched. Hidden when v2
+     returns 503. See docs/design/v2-ui.md §4. -->
+<div id="conclusion-cards-bar" role="region" aria-live="polite" aria-label="Conclusion cards">
+    <div class="cc-grid" id="cc-grid"></div>
 </div>
 
 <!-- ── Scenario Bar ──────────────────────────────────────────────────── -->
@@ -411,6 +421,16 @@
 </div>
 
 <div id="settings-backdrop" onclick="closeAllModals()"></div>
+
+<div id="cc-drill-modal" class="modal-window" role="dialog" aria-modal="true" aria-labelledby="cc-drill-title">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555;">
+        <div id="cc-drill-title" data-i18n="drill_modal.title">Conclusion Audit Trace</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="window._ccCloseDrillModal()" data-i18n="drill_modal.close">[ X ] Close</button>
+    </div>
+    <div id="cc-drill-body" class="dm-body" tabindex="-1">
+        <div class="dm-loading" data-i18n="drill_modal.loading">Loading audit trace...</div>
+    </div>
+</div>
 
 <div id="settings-modal" class="modal-window">
     <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555;">
@@ -1940,8 +1960,16 @@
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">How to access</div>
-            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of panels. <b>CORE</b> section: Target Visibility / Attack Origin Feed / Evidence Chain / Telegram SIGINT. <b>ANALYTICS</b> section: Strategic Climate / Weather Brief / GreyNoise / History Analysis / LLM Intelligence. <b>SIMULATION</b> section: What-If Sim / SPOF Analysis. <b>ADMIN</b> section: Sensor Heatmap / Sensor Manager / Admin Panel (cyan dot = active). Close each panel individually with ✕. Always-on components (Ambient Atmosphere / Radio Silence / Threat Terrain) operate automatically without any interaction. <b>Report button group</b> (HUD top-right, next to TOOLS): <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — one-click access to the three primary output modals. SALUTE Export is also accessible from the Evidence Modal footer. <b>Map interaction</b>: Click any country marker to open Country Intel modal. Click the Threat Level display in the HUD to open the Evidence panel (same as the EVIDENCE button).</p>
+            <p style="font-size:11px; color:#aaa; margin:0;">The <span class="code-block">TOOLS ▾</span> dropdown (HUD top-right) allows individual activation of panels. <b>CORE</b> section: Target Visibility / Attack Origin Feed / Evidence Chain / Telegram SIGINT / <b>Sensor Watchpane</b>. <b>ANALYTICS</b> section: Strategic Climate / Weather Brief / GreyNoise / History Analysis / LLM Intelligence. <b>SIMULATION</b> section: What-If Sim / SPOF Analysis. <b>ADMIN</b> section: Sensor Heatmap / Sensor Manager / Admin Panel (cyan dot = active). Close each panel individually with ✕. Always-on components (Ambient Atmosphere / Radio Silence / Threat Terrain / <b>Conclusion Cards</b>) operate automatically without any interaction. <b>Report button group</b> (HUD top-right, next to TOOLS): <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — one-click access to the three primary output modals. SALUTE Export is also accessible from the Evidence Modal footer. <b>Map interaction</b>: Click any country marker to open Country Intel modal. Click the Threat Level display in the HUD to open the Evidence panel (same as the EVIDENCE button).</p>
         </div>
+
+        <p><b>0. v2 Conclusion Surfaces</b> <span style="color:#66ffcc;">[Phase 3]</span> — Primary analyst surface for scenario verdicts</p>
+        <ul>
+            <li><b>Layer 1 — Conclusion Cards</b>: Five always-on cards rendered below the HUD for the focused scenario, one per <i>ConclusionType</i> bucket: <b>THREAT_LEVEL</b> (1–5 + label), <b>TREND</b> (rising / steady / falling), <b>PER_DOMAIN</b> (cyber / physical / info status mix), <b>ANOMALY</b> (top sensor outliers), <b>ATTACK_MODE</b> (rule-based attack-pattern estimate or <span class="code-block">INSUFFICIENT_DATA</span>). Each card shows the headline conclusion plus a confidence dot. Cards refresh on every 10 s scoring poll and re-render &lt;100 ms after <b>Switch Focus</b> (◎ button or scenario panel) — no full page sync required.</li>
+            <li><b>Layer 2 — Drill-down Modal</b>: Click any card to open the audit-trace modal. Per <b>NP6 (full derivation disclosure)</b>, every conclusion exposes: (a) the <b>formula reference</b> + threshold values used, (b) the <b>numeric inputs</b> that produced the result, (c) <b>calibration metadata</b> (sample N, last calibrated timestamp; flagged with a low-N warning per NP5+8 when N is too small to trust), (d) the <b>primary sources</b> consulted (deduplicated http(s) URLs only, XSS-safe), (e) any <b>LLM prompt hash</b> if an LLM step contributed to the conclusion. Close with ESC, the [✕] button, or backdrop click. Focus returns to the originating card. Stale fetches are cancelled via AbortController if the analyst clicks another card mid-load.</li>
+            <li><b>Layer 3 — Sensor Watchpane</b> — <span class="code-block">TOOLS ▾</span> → Sensor Watchpane: A persistent floating panel where the analyst pins arbitrary sensors of interest. Click <b>+ Add sensor</b> to filter the catalog by id / label / domain (search box, case-insensitive substring) and pick. Each pinned row shows the sensor label, scope, status pill (<span style="color:#ff2200;">FIRED</span> / <span style="color:#6fcf6f;">NORMAL</span> / <span style="color:#888;">SUPPRESSED</span>), a tiny sparkline, and the current numeric score. Refreshes piggyback on the 10 s scoring poll (only while the panel is visible). Pinned sensors and panel position/visibility persist across browser reloads via <span class="code-block">localStorage</span>. <b>Degraded mode</b> (current): observation series is a single point with a yellow <span class="code-block">history shallow</span> tag — full 1 h sparklines arrive when the <span class="code-block">sensor_observation_ts</span> schema migration lands.</li>
+            <li><b>NP7 disclaimer banner</b>: A persistent strip beneath the HUD restates "tool conclusion only — final judgment by your organization" together with the v2 API surface notice. Always present so analysts cannot accidentally treat a card as the final verdict.</li>
+        </ul>
 
         <p><b>A. Ambient Atmosphere</b></p>
         <ul>
@@ -2230,8 +2258,16 @@
 
         <div style="background:rgba(0,255,255,0.03); border:1px solid #00ffff20; border-radius:5px; padding:10px 14px; margin:10px 0 16px;">
             <div style="color:#00ffff88; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">アクセス方法</div>
-            <p style="font-size:11px; color:#aaa; margin:0;"><span class="code-block">TOOLS ▾</span> ドロップダウン（HUD 右上）でパネルを個別に有効化。<b>CORE</b>: Target Visibility / Attack Origin Feed / Evidence Chain / Telegram SIGINT。<b>ANALYTICS</b>: Strategic Climate / Weather Brief / GreyNoise / History Analysis / LLM Intelligence。<b>SIMULATION</b>: What-If Sim / SPOF Analysis。<b>ADMIN</b>: Sensor Heatmap / Sensor Manager / Admin Panel（シアンドット = アクティブ）。各パネルは ✕ で個別に閉じる。常時表示コンポーネント（Ambient Atmosphere / Radio Silence / Threat Terrain）はインタラクションなしに自動動作。<b>レポートボタングループ</b>（HUD右上、TOOLS横）: <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — 3つの主要出力モーダルへのワンクリックアクセス。SALUTEエクスポートはEvidence Modalフッターからもアクセス可能。<b>マップインタラクション</b>: 国マーカークリックでCountry Intelモーダルを開く。HUDの脅威レベル表示クリックでEvidenceパネルを開く（EVIDENCEボタンと同一）。</p>
+            <p style="font-size:11px; color:#aaa; margin:0;"><span class="code-block">TOOLS ▾</span> ドロップダウン（HUD 右上）でパネルを個別に有効化。<b>CORE</b>: Target Visibility / Attack Origin Feed / Evidence Chain / Telegram SIGINT / <b>Sensor Watchpane</b>。<b>ANALYTICS</b>: Strategic Climate / Weather Brief / GreyNoise / History Analysis / LLM Intelligence。<b>SIMULATION</b>: What-If Sim / SPOF Analysis。<b>ADMIN</b>: Sensor Heatmap / Sensor Manager / Admin Panel（シアンドット = アクティブ）。各パネルは ✕ で個別に閉じる。常時表示コンポーネント（Ambient Atmosphere / Radio Silence / Threat Terrain / <b>Conclusion Cards</b>）はインタラクションなしに自動動作。<b>レポートボタングループ</b>（HUD右上、TOOLS横）: <span class="code-block">SITREP</span> / <span class="code-block">EVIDENCE</span> / <span class="code-block">SALUTE</span> — 3つの主要出力モーダルへのワンクリックアクセス。SALUTEエクスポートはEvidence Modalフッターからもアクセス可能。<b>マップインタラクション</b>: 国マーカークリックでCountry Intelモーダルを開く。HUDの脅威レベル表示クリックでEvidenceパネルを開く（EVIDENCEボタンと同一）。</p>
         </div>
+
+        <p><b>0. v2 結論サーフェス</b> <span style="color:#66ffcc;">[Phase 3]</span> — focus シナリオに対するアナリスト向け一次結論面</p>
+        <ul>
+            <li><b>レイヤ 1 — Conclusion Cards</b>: HUD 直下に focus シナリオの 5 結論カードを常時表示。<i>ConclusionType</i> バケット別: <b>THREAT_LEVEL</b>（1〜5 + ラベル）、<b>TREND</b>（上昇 / 横ばい / 下降）、<b>PER_DOMAIN</b>（cyber / physical / info の状態組み合わせ）、<b>ANOMALY</b>（センサー外れ値の上位）、<b>ATTACK_MODE</b>（ルールベース攻撃パターン推定または <span class="code-block">INSUFFICIENT_DATA</span>）。各カードには見出し結論と確信度ドットを表示。10 秒ごとのスコアリングポーリングで更新され、<b>Switch Focus</b>（◎ボタンまたはシナリオパネル）後は &lt;100 ms で再描画される（v1 同期完了を待たない）。</li>
+            <li><b>レイヤ 2 — Drill-down Modal</b>: カードクリックで監査トレースモーダルを開く。<b>NP6（完全な導出開示）</b>に基づき各結論は以下を露出: (a) 採用した <b>計算式参照</b> と閾値、(b) 結果を生んだ <b>数値入力</b>、(c) <b>キャリブレーションメタ</b>（サンプル N、最終キャリブレーション時刻；信頼に足る N 未満の場合は NP5+8 に従い low-N 警告）、(d) 参照した <b>一次ソース</b>（重複排除済の http(s) URL のみ、XSS 安全）、(e) LLM ステップが寄与した場合の <b>LLM プロンプトハッシュ</b>。ESC・[✕]・背景クリックで閉じる。閉じると元のカードへフォーカス復帰。読み込み中に他カードへ切替えた場合は AbortController で古い fetch をキャンセル。</li>
+            <li><b>レイヤ 3 — Sensor Watchpane</b> — <span class="code-block">TOOLS ▾</span> → Sensor Watchpane: アナリストが任意のセンサーをピン留めできる持続型フローティングパネル。<b>+ Add sensor</b> でカタログを ID / ラベル / ドメインで絞り込み（検索ボックス、大文字小文字を無視する部分一致）、選択して追加。各行はセンサーラベル、スコープ、ステータスピル（<span style="color:#ff2200;">FIRED</span> / <span style="color:#6fcf6f;">NORMAL</span> / <span style="color:#888;">SUPPRESSED</span>）、ミニスパークライン、現在の数値スコアを表示。更新は 10 秒スコアリングポーリングに相乗り（パネル表示中のみ）。ピン留めしたセンサーとパネル位置・表示状態は <span class="code-block">localStorage</span> でブラウザリロードを跨いで永続化。<b>Degraded mode</b>（現状）: 観測系列は 1 点のみで黄色の <span class="code-block">history shallow</span> タグを表示 — 完全な 1 時間スパークラインは <span class="code-block">sensor_observation_ts</span> スキーママイグレーション完了後に提供。</li>
+            <li><b>NP7 ディスクレーマバナー</b>: HUD 直下に「ツールの結論であり、最終判断は組織のプロセスによって行われます」と v2 API サーフェス通知を常時表示する帯。アナリストが結論カードを最終判断と誤認することを構造的に防止。</li>
+        </ul>
 
         <p><b>A. アンビエントアトモスフィア</b></p>
         <ul>
@@ -2607,7 +2643,12 @@
         <div class="guide-lang-en">
         <h4>9. API Reference (Analyst / Integration Endpoints)</h4>
         <p style="font-size: 11px; color: #66ffcc;">Note (ADR-V2-006): endpoints below take <span class="code-block">?country=TW</span>. The legacy <span class="code-block">?theater=TW</span> alias is still accepted but recorded via SR4 telemetry; sunset planned 90 days after rollout.</p>
+        <p style="font-size: 11px; color: #66ffcc;"><b>v2 surfaces</b> (gated by <span class="code-block">V2_API_ENABLED</span>; analyst role required): power Layer 1 / 2 / 3 of the Phase 3 UI (see Ch.8 §0).</p>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
+            <li><span class="code-block">GET /api/v2/scenarios/&lt;scenario_id&gt;/conclusions</span> — <span style="color:#66ffcc;">[v2 — Layer 1]</span> All five <i>ConclusionType</i> verdicts for a scenario in one envelope: <b>THREAT_LEVEL</b>, <b>TREND</b>, <b>PER_DOMAIN</b>, <b>ANOMALY</b>, <b>ATTACK_MODE</b>. Each item includes <span class="code-block">id</span>, <span class="code-block">type</span>, <span class="code-block">headline</span>, <span class="code-block">confidence</span>, and a <span class="code-block">reason_summary</span>. Used by the Conclusion Cards strip; refreshed every 10 s and on Switch Focus.</li>
+            <li><span class="code-block">GET /api/v2/conclusions/&lt;conclusion_id&gt;/audit_trace</span> — <span style="color:#66ffcc;">[v2 — Layer 2]</span> Full NP6 derivation trace for one conclusion. Returns <span class="code-block">formula_ref</span>, <span class="code-block">thresholds</span>, <span class="code-block">inputs</span>, <span class="code-block">calibration</span> (sample N + last_calibrated_at; flagged with <span class="code-block">low_n_warning</span> per NP5+8 when N is too small to trust), <span class="code-block">sources</span> (deduplicated http(s) URLs, XSS-safe), <span class="code-block">metadata</span>, and optional <span class="code-block">llm_prompt</span> (hash + version) when an LLM step contributed. Powers the drill-down modal.</li>
+            <li><span class="code-block">GET /api/v2/sensors/catalog</span> — <span style="color:#66ffcc;">[v2 — Layer 3]</span> Static sensor catalog (id / domain / label) for the Sensor Watchpane add-picker.</li>
+            <li><span class="code-block">GET /api/v2/sensors/&lt;sensor_name&gt;/observations?scope=focused&amp;hours=1</span> — <span style="color:#66ffcc;">[v2 — Layer 3]</span> Per-sensor observation series. <b>Degraded mode</b> (current): returns a single-point series with <span class="code-block">history_shallow:true</span> sourced from the cycle's <span class="code-block">rationale_matrix</span>; full 1 h sparklines arrive when the <span class="code-block">sensor_observation_ts</span> table lands. Response also includes <span class="code-block">current.{status, fired_reason, suppressed, suppress_reason, raw_value}</span> so the row colour is correct even with shallow history.</li>
             <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — Primary data feed. Returns all sensor data (33 sensors), threat score, domain breakdown, and deep analytics block (v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics; Phase C: notam, travel_advisory, ooni, seismic, mil_support_air, gps_jamming, ct_log; LLM Intel: hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news; Phase D: cooccurrence_boost, forecast_accuracy). Includes context_alignment and direction_summary (CAC).</li>
             <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — Threat level history (up to 24 hrs / 288 cycles). Each cycle includes velocity, ambush flag, and blockade index.</li>
             <li><span class="code-block">GET /api/sitrep</span> — Machine-readable SITREP including trend, domain activity, and convergence state.</li>
@@ -2710,7 +2751,12 @@
         <div class="guide-lang-ja" style="display:none;">
         <h4>9. API リファレンス（アナリスト / 統合エンドポイント）</h4>
         <p style="font-size: 11px; color: #66ffcc;">注（ADR-V2-006）: 以下のエンドポイントは <span class="code-block">?country=TW</span> を受け付けます。レガシーエイリアス <span class="code-block">?theater=TW</span> も互換のため受理されますが、SR4 telemetry に記録され、ロールアウト後 90 日でサンセット予定です。</p>
+        <p style="font-size: 11px; color: #66ffcc;"><b>v2 サーフェス</b>（<span class="code-block">V2_API_ENABLED</span> でゲート、analyst ロール必須）: Phase 3 UI のレイヤ 1 / 2 / 3 を駆動（Ch.8 §0 参照）。</p>
         <ul style="font-family: monospace; font-size: 11px; line-height: 2.0;">
+            <li><span class="code-block">GET /api/v2/scenarios/&lt;scenario_id&gt;/conclusions</span> — <span style="color:#66ffcc;">[v2 — レイヤ 1]</span> 1 シナリオに対する <i>ConclusionType</i> 5 結論を 1 つのエンベロープで返却: <b>THREAT_LEVEL</b>、<b>TREND</b>、<b>PER_DOMAIN</b>、<b>ANOMALY</b>、<b>ATTACK_MODE</b>。各項目は <span class="code-block">id</span>、<span class="code-block">type</span>、<span class="code-block">headline</span>、<span class="code-block">confidence</span>、<span class="code-block">reason_summary</span> を含む。Conclusion Cards 帯の駆動源、10 秒ごと及び Switch Focus 時に更新。</li>
+            <li><span class="code-block">GET /api/v2/conclusions/&lt;conclusion_id&gt;/audit_trace</span> — <span style="color:#66ffcc;">[v2 — レイヤ 2]</span> 1 結論に対する完全な NP6 導出トレース。<span class="code-block">formula_ref</span>、<span class="code-block">thresholds</span>、<span class="code-block">inputs</span>、<span class="code-block">calibration</span>（サンプル N + last_calibrated_at；信頼に足る N 未満の場合は NP5+8 に従い <span class="code-block">low_n_warning</span> フラグ）、<span class="code-block">sources</span>（重複排除済の http(s) URL のみ、XSS 安全）、<span class="code-block">metadata</span>、LLM ステップが寄与した場合の任意の <span class="code-block">llm_prompt</span>（ハッシュ + バージョン）を返却。Drill-down モーダルの駆動源。</li>
+            <li><span class="code-block">GET /api/v2/sensors/catalog</span> — <span style="color:#66ffcc;">[v2 — レイヤ 3]</span> 静的センサーカタログ（id / domain / label）。Sensor Watchpane の追加ピッカー用。</li>
+            <li><span class="code-block">GET /api/v2/sensors/&lt;sensor_name&gt;/observations?scope=focused&amp;hours=1</span> — <span style="color:#66ffcc;">[v2 — レイヤ 3]</span> センサー別観測系列。<b>Degraded mode</b>（現状）: 当該サイクルの <span class="code-block">rationale_matrix</span> から 1 点系列を <span class="code-block">history_shallow:true</span> 付きで返却。完全な 1 時間スパークラインは <span class="code-block">sensor_observation_ts</span> テーブル導入後に提供。レスポンスには <span class="code-block">current.{status, fired_reason, suppressed, suppress_reason, raw_value}</span> も含み、shallow 履歴下でも行のカラーリングを正確に反映。</li>
             <li><span class="code-block">GET /api/threat_data?core=TW&amp;correlates=JP,US&amp;adversaries=CN,RU</span> — プライマリデータフィード。全33センサーのデータ、脅威スコア、ドメイン内訳、ディープアナリティクスブロックを返す（v9: temporal_coherence, maskirovka, check_host, telegram_mirror, greynoise; Phase 4: ihr, ripe_atlas, tor_metrics; Phase C: notam, travel_advisory, ooni, seismic, mil_support_air, gps_jamming, ct_log; LLM Intel: hacktivist_intel, ground_osint, diplomatic, military_exercise, apt_intel, hacktivist_news; Phase D: cooccurrence_boost, forecast_accuracy）。context_alignment と direction_summary (CAC) を含む。</li>
             <li><span class="code-block">GET /api/alert_timeline?limit=288</span> — 脅威レベル履歴（最大24時間 / 288サイクル）。各サイクルには速度、アンブッシュフラグ、封鎖インデックスを含む。</li>
             <li><span class="code-block">GET /api/sitrep</span> — トレンド、ドメイン活動、収束状態を含む機械可読 SITREP。</li>
@@ -3417,6 +3463,30 @@
             <div id="tc-pane-decisions" class="tc-pane" style="display:none;"></div>
             <div id="tc-pane-whatif" class="tc-pane" style="display:none;"></div>
         </div>
+</div>
+
+<!-- Sensor Watchpane (Layer 3) — chrome generated by createFloatingPanel()
+     in radar.js at startup. Author only the body content here. -->
+<div id="sensor-watchpane" style="display:none;">
+    <div class="wp-toolbar">
+        <button type="button" id="wp-add-btn" class="wp-add-btn" data-i18n="watchpane.btn.add">+ Add sensor</button>
+        <span id="wp-shallow-tag" class="wp-shallow-tag" data-i18n-tip="watchpane.tip.history_shallow"
+              data-i18n="watchpane.tag.history_shallow">history shallow</span>
+    </div>
+    <div id="wp-rows" class="wp-rows">
+        <div class="wp-empty" data-i18n="watchpane.empty">No sensors selected. Click + Add sensor to start.</div>
+    </div>
+    <div id="wp-add-overlay" class="wp-add-overlay" style="display:none;" role="dialog" aria-modal="true">
+        <div class="wp-add-panel">
+            <div class="wp-add-header">
+                <span data-i18n="watchpane.add.title">Add sensor</span>
+                <button type="button" class="wp-add-close" onclick="window._wpCloseAdd()" aria-label="Close">✕</button>
+            </div>
+            <input type="text" id="wp-add-search" data-i18n-ph="watchpane.add.search_ph"
+                   placeholder="Filter sensors…" autocomplete="off" />
+            <div id="wp-add-list" class="wp-add-list"></div>
+        </div>
+    </div>
 </div>
 
 <script src="radar.js"></script>

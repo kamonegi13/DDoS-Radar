@@ -908,6 +908,7 @@
         { panelId: 'corr-heatmap-panel', dotId: 'tm-dot-corr', itemId: 'tm-item-corr'  },
         { panelId: 'climate-panel',      dotId: 'tm-dot-climate', itemId: 'tm-item-climate' },
         { panelId: 'llm-intel-panel',    dotId: 'tm-dot-llm',     itemId: 'tm-item-llm'     },
+        { panelId: 'sensor-watchpane',   dotId: 'tm-dot-wp',      itemId: 'tm-item-wp'      },
     ];
 
     function toggleToolsMenu() {
@@ -1291,6 +1292,7 @@
         // Floating-only panels (no sidebar placeholder)
         { id: 'whatif-panel',        ph: null                     },
         { id: 'spof-panel',         ph: null                     },
+        { id: 'sensor-watchpane',   ph: null                     },
     ];
 
     // Remembered order of panels within each sidebar (panel IDs, top→bottom)
@@ -1994,6 +1996,883 @@
         }
     }
 
+    // ── Conclusion Cards Layer 1 (Phase 3 — v2 conclusions envelope) ─────
+    // Renders the 5 ConclusionType buckets (THREAT_LEVEL, TREND, PER_DOMAIN,
+    // ANOMALY, ATTACK_MODE) from the v2 envelope into #cc-grid. Hidden when
+    // v2 is degraded (503/404) or when the envelope contains no conclusions.
+    // See docs/design/v2-ui.md §4. Drill-down (Layer 2) is wired in a
+    // follow-up task — the button currently no-ops with a placeholder.
+    let _ccLastFocus = null;
+    let _ccInflightFocus = null;
+    let _ccAbort = null;
+    const _CC_TYPE_ORDER = ['threat_level', 'trend', 'per_domain', 'anomaly', 'attack_mode'];
+
+    function _ccTitleKey(type) { return `cc.title.${type}`; }
+    function _ccUnavailableText(reason) {
+        if (!reason) return _t('cc.label.unavailable');
+        const k = `cc.label.${reason}`;
+        const tx = _t(k);
+        return (tx && tx !== k) ? tx : reason.toUpperCase();
+    }
+    function _ccConfidencePct(c) {
+        const v = (typeof c === 'number' && isFinite(c)) ? Math.max(0, Math.min(1, c)) : 0;
+        return Math.round(v * 100);
+    }
+    function _ccParseKvState(state) {
+        // "short_term=STABLE;medium_term=STABLE;long_term=INSUFFICIENT_DATA"
+        const out = {};
+        if (typeof state !== 'string') return out;
+        state.split(';').forEach((pair) => {
+            const [k, v] = pair.split('=');
+            if (k && v) out[k.trim()] = v.trim();
+        });
+        return out;
+    }
+    function _ccTrendStateClass(label) {
+        if (!label) return 'cc-trend-insufficient_data';
+        return 'cc-trend-' + String(label).toLowerCase();
+    }
+    function _ccDomainStatusClass(label) {
+        const u = String(label || '').toUpperCase();
+        if (u === 'ACTIVE') return 'cc-status-active';
+        if (u === 'ELEVATED') return 'cc-status-elevated';
+        if (u === 'STABLE') return 'cc-status-stable';
+        return 'cc-status-insufficient';
+    }
+
+    function _ccRenderCard(c) {
+        const type = c.conclusion_type;
+        const titleKey = _ccTitleKey(type);
+        const confPct = _ccConfidencePct(c.confidence);
+        const isAvail = c.conclusion_unavailable_reason == null && c.state != null;
+        const card = document.createElement('div');
+        card.className = 'cc-card cc-card-' + type;
+        if (!isAvail) card.classList.add('cc-unavailable');
+
+        // Header
+        const titleEl = document.createElement('div');
+        titleEl.className = 'cc-card-title';
+        titleEl.setAttribute('data-i18n', titleKey);
+        titleEl.textContent = _t(titleKey);
+        card.appendChild(titleEl);
+
+        // Body — varies by type
+        const body = document.createElement('div');
+        body.className = 'cc-card-body';
+        if (!isAvail) {
+            const stateEl = document.createElement('div');
+            stateEl.className = 'cc-card-state';
+            stateEl.textContent = _ccUnavailableText(c.conclusion_unavailable_reason);
+            body.appendChild(stateEl);
+            const meta = document.createElement('div');
+            meta.className = 'cc-card-meta';
+            const detail = (c.metadata && c.metadata.reason_detail) || '';
+            if (detail) meta.textContent = detail;
+            body.appendChild(meta);
+        } else if (type === 'threat_level') {
+            const tl = parseInt(c.state, 10);
+            const stateEl = document.createElement('div');
+            stateEl.className = 'cc-card-state cc-tl-' + (isFinite(tl) ? tl : 'unk');
+            stateEl.textContent = _t('cc.tl.prefix') + ' ' + (isFinite(tl) ? tl : c.state);
+            body.appendChild(stateEl);
+            const md = c.metadata || {};
+            const meta = document.createElement('div');
+            meta.className = 'cc-card-meta';
+            const score = (typeof md.score === 'number') ? md.score.toFixed(2) : '—';
+            const ad = (typeof md.active_domain_count === 'number') ? md.active_domain_count : '—';
+            meta.innerHTML = `<div class="cc-row"><span>score</span><span>${_escHtml(score)}</span></div>` +
+                             `<div class="cc-row"><span>active domains</span><span>${_escHtml(String(ad))}</span></div>`;
+            body.appendChild(meta);
+        } else if (type === 'trend') {
+            const horizons = _ccParseKvState(c.state);
+            const labels = { short_term: 'cc.horizon.short', medium_term: 'cc.horizon.medium', long_term: 'cc.horizon.long' };
+            ['short_term', 'medium_term', 'long_term'].forEach((h) => {
+                const v = horizons[h] || 'INSUFFICIENT_DATA';
+                const row = document.createElement('div');
+                row.className = 'cc-horizon-row';
+                row.innerHTML = `<span class="cc-horizon-label">${_escHtml(_t(labels[h]))}</span>` +
+                                `<span class="cc-horizon-state ${_ccTrendStateClass(v)}">${_escHtml(v)}</span>`;
+                body.appendChild(row);
+            });
+        } else if (type === 'per_domain') {
+            const doms = _ccParseKvState(c.state);
+            const md = (c.metadata && c.metadata.domain_scores) || {};
+            ['cyber', 'physical', 'info'].forEach((d) => {
+                const status = doms[d] || 'INSUFFICIENT_SIGNAL';
+                const score = (typeof md[d] === 'number') ? md[d].toFixed(2) : '—';
+                if (String(status).toUpperCase() === 'DEGRADED') card.classList.add('cc-degraded');
+                const row = document.createElement('div');
+                row.className = 'cc-domain-row';
+                row.innerHTML = `<span class="cc-domain-name">${_escHtml(_t('cc.domain.' + d))}</span>` +
+                                `<span class="cc-domain-status ${_ccDomainStatusClass(status)}">${_escHtml(status)}</span>` +
+                                `<span class="cc-domain-name">${_escHtml(score)}</span>`;
+                body.appendChild(row);
+            });
+        } else if (type === 'anomaly') {
+            const text = String(c.state || '');
+            const md = c.metadata || {};
+            const ranked = Array.isArray(md.ranked_anomalies) ? md.ranked_anomalies : null;
+            const stateEl = document.createElement('div');
+            stateEl.className = 'cc-anomaly-text';
+            stateEl.textContent = text;
+            body.appendChild(stateEl);
+            if (ranked && ranked.length > 1) {
+                const meta = document.createElement('div');
+                meta.className = 'cc-card-meta';
+                const more = ranked.length - 1;
+                meta.textContent = `+${more}`;
+                body.appendChild(meta);
+            }
+        } else if (type === 'attack_mode') {
+            const stateEl = document.createElement('div');
+            stateEl.className = 'cc-card-state';
+            stateEl.textContent = String(c.state);
+            body.appendChild(stateEl);
+            const md = c.metadata || {};
+            const ranked = Array.isArray(md.ranked_modes) ? md.ranked_modes.slice(1, 3) : [];
+            if (ranked.length) {
+                const meta = document.createElement('div');
+                meta.className = 'cc-card-meta';
+                meta.innerHTML = ranked.map((m) => {
+                    const nm = (m && m.mode) || '';
+                    const cf = (m && typeof m.confidence === 'number') ? m.confidence.toFixed(2) : '—';
+                    return `<div class="cc-row"><span>${_escHtml(nm)}</span><span>${_escHtml(cf)}</span></div>`;
+                }).join('');
+                body.appendChild(meta);
+            }
+            if (typeof c.confidence === 'number' && c.confidence < 0.6) {
+                card.classList.add('cc-tentative');
+            }
+        }
+        card.appendChild(body);
+
+        // Footer — confidence bar + drill button
+        const footer = document.createElement('div');
+        footer.className = 'cc-card-footer';
+        const conf = document.createElement('div');
+        conf.className = 'cc-confidence';
+        conf.innerHTML = `<span>${_escHtml(_t('cc.label.confidence'))}</span>` +
+                         `<span class="cc-confidence-bar"><span class="cc-confidence-bar-fill" style="width:${confPct}%"></span></span>` +
+                         `<span>${confPct}%</span>`;
+        footer.appendChild(conf);
+
+        // Tentative badge for low-confidence attack modes
+        if (type === 'attack_mode' && isAvail && typeof c.confidence === 'number' && c.confidence < 0.6) {
+            const badge = document.createElement('span');
+            badge.className = 'cc-badge cc-badge-warn';
+            badge.setAttribute('data-i18n', 'cc.label.tentative');
+            badge.textContent = _t('cc.label.tentative');
+            footer.appendChild(badge);
+        }
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cc-drill-btn';
+        btn.setAttribute('data-i18n', 'cc.btn.drill');
+        btn.setAttribute('data-i18n-tip', 'cc.btn.drill_tooltip');
+        btn.title = _t('cc.btn.drill_tooltip');
+        btn.textContent = _t('cc.btn.drill');
+        btn.disabled = !c.id;  // Unavailable conclusions have no id → no audit trace
+        btn.addEventListener('click', () => {
+            if (c.id) _ccOpenDrillModal(c);
+        });
+        footer.appendChild(btn);
+        card.appendChild(footer);
+        return card;
+    }
+
+    function _ccRenderEmpty(grid) {
+        grid.innerHTML = '';
+        const empty = document.createElement('div');
+        empty.className = 'cc-card cc-unavailable';
+        empty.style.gridColumn = '1 / -1';
+        const t = document.createElement('div');
+        t.className = 'cc-card-meta';
+        t.textContent = _t('cc.empty.waiting');
+        empty.appendChild(t);
+        grid.appendChild(empty);
+    }
+
+    async function _refreshConclusionCards(scenarioId) {
+        const bar = document.getElementById('conclusion-cards-bar');
+        const grid = document.getElementById('cc-grid');
+        if (!bar || !grid) return;
+
+        if (!scenarioId) {
+            bar.classList.remove('cc-visible');
+            return;
+        }
+
+        // Invalidate immediately on focus change so the user sees the
+        // grid clear while the new fetch is in flight.
+        const focusChanged = _ccLastFocus !== scenarioId;
+        if (focusChanged) {
+            _ccLastFocus = scenarioId;
+            grid.innerHTML = '';
+        }
+
+        // Skip ONLY when a fetch for this same focus is already running.
+        // On focus change we abort the stale fetch and start a fresh one
+        // so the bar updates immediately without waiting for the next poll.
+        if (_ccInflightFocus === scenarioId) return;
+        if (_ccAbort) {
+            try { _ccAbort.abort(); } catch (_) { /* AbortController unsupported → ignore */ }
+        }
+        const ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        _ccAbort = ac;
+        _ccInflightFocus = scenarioId;
+
+        try {
+            const resp = await fetch(
+                `/api/v2/scenarios/${encodeURIComponent(scenarioId)}/conclusions`,
+                ac ? { signal: ac.signal } : undefined,
+            );
+            // Stale-response guard — focus may have changed again while awaiting
+            if (_ccLastFocus !== scenarioId) return;
+            if (resp.status === 503 || resp.status === 404) {
+                bar.classList.remove('cc-visible');  // Graceful hide when v2 is degraded
+                return;
+            }
+            if (!resp.ok) return;  // Keep previous render on transient errors
+            const env = await resp.json();
+            if (_ccLastFocus !== scenarioId) return;  // Re-check after JSON parse
+            const list = Array.isArray(env && env.conclusions) ? env.conclusions : [];
+            if (list.length === 0) {
+                bar.classList.add('cc-visible');
+                _ccRenderEmpty(grid);
+                return;
+            }
+            const byType = {};
+            list.forEach((c) => { if (c && c.conclusion_type) byType[c.conclusion_type] = c; });
+
+            grid.innerHTML = '';
+            _CC_TYPE_ORDER.forEach((type) => {
+                const c = byType[type];
+                if (!c) {
+                    // Synthesize an unavailable placeholder so the slot doesn't collapse
+                    grid.appendChild(_ccRenderCard({
+                        conclusion_type: type,
+                        state: null,
+                        confidence: 0,
+                        conclusion_unavailable_reason: 'insufficient_data',
+                        metadata: { reason_detail: '' },
+                        id: null,
+                    }));
+                    return;
+                }
+                grid.appendChild(_ccRenderCard(c));
+            });
+            bar.classList.add('cc-visible');
+        } catch (e) {
+            if (e && e.name === 'AbortError') return;  // Superseded by a newer focus — expected
+            // Network error — keep prior render. Don't surface a noisy toast;
+            // the next poll will retry. Guarded console keeps test output quiet.
+            if (window.console) console.debug('[ConclusionCards] fetch error', e);
+        } finally {
+            if (_ccInflightFocus === scenarioId) _ccInflightFocus = null;
+            if (_ccAbort === ac) _ccAbort = null;
+        }
+    }
+
+    // ── Conclusion Drill-down Modal (Layer 2 — audit_trace) ─────────────
+    // Renders the full derivation path for a single conclusion: formula_ref,
+    // threshold_ref, calibration_status (with low-N warning per NP5+8),
+    // source_urls, metadata, and the resolved LLM prompt (collapsible per
+    // R-UI-2, default folded for long prompts). Backed by GET
+    // /api/v2/conclusions/<id>/audit_trace.
+    let _ccDrillAbort = null;
+    let _ccDrillReturnFocus = null;
+    let _ccDrillKeyHandler = null;
+
+    function _ccFmtTimestamp(v) {
+        if (v == null || v === '') return '—';
+        // audit_trace stores observed_at as a unix epoch (seconds, float).
+        const n = (typeof v === 'number') ? v : parseFloat(v);
+        if (isFinite(n) && n > 0) {
+            try { return new Date(n * 1000).toISOString(); } catch (_) { /* fallthrough */ }
+        }
+        return String(v);
+    }
+
+    function _ccDrillRow(key, val) {
+        const row = document.createElement('div');
+        row.className = 'dm-row';
+        const k = document.createElement('div');
+        k.className = 'dm-key';
+        k.textContent = key;
+        const v = document.createElement('div');
+        v.className = 'dm-val';
+        v.textContent = (val == null || val === '') ? '—' : String(val);
+        row.appendChild(k);
+        row.appendChild(v);
+        return row;
+    }
+
+    function _ccDrillSection(titleKey, bodyEl, isEmpty) {
+        const sec = document.createElement('section');
+        sec.className = 'dm-section';
+        const title = document.createElement('div');
+        title.className = 'dm-section-title';
+        title.setAttribute('data-i18n', titleKey);
+        title.textContent = _t(titleKey);
+        sec.appendChild(title);
+        const body = document.createElement('div');
+        body.className = 'dm-section-body' + (isEmpty ? ' dm-empty' : '');
+        body.appendChild(bodyEl);
+        sec.appendChild(body);
+        return sec;
+    }
+
+    function _ccDrillRenderHeader(trace) {
+        const wrap = document.createElement('div');
+        const typeRow = _ccDrillRow(_t(_ccTitleKey(trace.conclusion_type) || 'cc.title.threat_level'),
+                                     trace.conclusion_type || '—');
+        wrap.appendChild(typeRow);
+        wrap.appendChild(_ccDrillRow(_t('drill_modal.label.scenario'), trace.scenario_id || '—'));
+        wrap.appendChild(_ccDrillRow(_t('drill_modal.label.observed_at'), _ccFmtTimestamp(trace.observed_at)));
+        wrap.appendChild(_ccDrillRow(_t('drill_modal.label.conclusion_id'), trace.conclusion_id || '—'));
+        return wrap;
+    }
+
+    function _ccDrillRenderDisclaimer(trace) {
+        const div = document.createElement('div');
+        div.className = 'dm-disclaimer';
+        div.textContent = trace.final_judgment_disclaimer || _t('cc.tip.np7');
+        return div;
+    }
+
+    function _ccDrillRenderFormula(trace) {
+        const div = document.createElement('div');
+        div.className = 'dm-monospace';
+        div.textContent = trace.formula_ref || _t('drill_modal.empty.formula');
+        return div;
+    }
+
+    function _ccDrillRenderKvTable(obj, emptyKey) {
+        const wrap = document.createElement('div');
+        const keys = obj ? Object.keys(obj) : [];
+        if (keys.length === 0) {
+            wrap.textContent = _t(emptyKey);
+            return wrap;
+        }
+        keys.forEach((k) => {
+            const v = obj[k];
+            const display = (v != null && typeof v === 'object') ? JSON.stringify(v) : v;
+            wrap.appendChild(_ccDrillRow(k, display));
+        });
+        return wrap;
+    }
+
+    function _ccDrillRenderCalibration(trace) {
+        const cs = trace.calibration_status || {};
+        const wrap = document.createElement('div');
+        const keys = Object.keys(cs);
+        if (keys.length === 0) {
+            wrap.textContent = _t('drill_modal.empty.calibration');
+            return wrap;
+        }
+        // Surface canonical fields first when present, then fall back to raw dump
+        const canonical = ['status', 'sample_size', 'last_updated'];
+        const seen = new Set();
+        canonical.forEach((k) => {
+            if (k in cs) {
+                const labelKey = k === 'status' ? 'drill_modal.calib.status'
+                              : k === 'sample_size' ? 'drill_modal.calib.sample_size'
+                              : 'drill_modal.calib.last_updated';
+                const v = (k === 'last_updated') ? _ccFmtTimestamp(cs[k]) : cs[k];
+                wrap.appendChild(_ccDrillRow(_t(labelKey), v));
+                seen.add(k);
+            }
+        });
+        keys.forEach((k) => {
+            if (seen.has(k)) return;
+            const v = cs[k];
+            const display = (v != null && typeof v === 'object') ? JSON.stringify(v) : v;
+            wrap.appendChild(_ccDrillRow(k, display));
+        });
+        // Low-N warning (NP5+8) — surface when sample_size present and small
+        const n = parseFloat(cs.sample_size);
+        if (isFinite(n) && n > 0 && n < 10) {
+            const warn = document.createElement('div');
+            warn.className = 'dm-warn';
+            warn.setAttribute('role', 'status');
+            warn.textContent = _t('drill_modal.calib.warn_low_n');
+            wrap.appendChild(warn);
+        }
+        return wrap;
+    }
+
+    function _ccDrillRenderSources(trace) {
+        const urls = Array.isArray(trace.source_urls) ? trace.source_urls : [];
+        if (urls.length === 0) {
+            const div = document.createElement('div');
+            div.textContent = _t('drill_modal.empty.sources');
+            return div;
+        }
+        const ul = document.createElement('ul');
+        ul.className = 'dm-source-list';
+        urls.forEach((u) => {
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            // Only http(s) become clickable to avoid javascript: schemes from
+            // metadata pollution. Anything else falls back to text.
+            const safe = (typeof u === 'string') && /^https?:\/\//i.test(u);
+            if (safe) {
+                a.href = u;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.textContent = u;
+                li.appendChild(a);
+            } else {
+                li.textContent = String(u);
+            }
+            ul.appendChild(li);
+        });
+        return ul;
+    }
+
+    function _ccDrillRenderLlmPrompt(trace) {
+        const wrap = document.createElement('div');
+        const lp = trace.llm_prompt;
+        if (lp == null) {
+            wrap.textContent = _t('drill_modal.llm.no_prompt');
+            return wrap;
+        }
+        if (lp.missing) {
+            wrap.appendChild(_ccDrillRow(_t('drill_modal.llm.sha256'), lp.sha256 || '—'));
+            const note = document.createElement('div');
+            note.className = 'dm-warn';
+            note.textContent = _t('drill_modal.llm.missing');
+            wrap.appendChild(note);
+            return wrap;
+        }
+        wrap.appendChild(_ccDrillRow(_t('drill_modal.llm.model'),       lp.model));
+        wrap.appendChild(_ccDrillRow(_t('drill_modal.llm.temperature'), lp.temperature));
+        wrap.appendChild(_ccDrillRow(_t('drill_modal.llm.use_count'),   lp.use_count));
+        wrap.appendChild(_ccDrillRow(_t('drill_modal.llm.first_seen'),  _ccFmtTimestamp(lp.first_seen_at)));
+        wrap.appendChild(_ccDrillRow(_t('drill_modal.llm.last_seen'),   _ccFmtTimestamp(lp.last_seen_at)));
+        wrap.appendChild(_ccDrillRow(_t('drill_modal.llm.sha256'),      lp.sha256 || '—'));
+        const text = lp.prompt_text || '';
+        if (text) {
+            const toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'dm-collapse-toggle';
+            toggle.textContent = _t('drill_modal.llm.expand');
+            const content = document.createElement('div');
+            content.className = 'dm-collapse-content';
+            content.style.display = 'none';
+            content.textContent = text;  // textContent — defeats any HTML payload
+            toggle.addEventListener('click', () => {
+                const open = content.style.display !== 'none';
+                content.style.display = open ? 'none' : '';
+                toggle.textContent = _t(open ? 'drill_modal.llm.expand' : 'drill_modal.llm.collapse');
+            });
+            wrap.appendChild(toggle);
+            wrap.appendChild(content);
+        }
+        return wrap;
+    }
+
+    function _ccDrillRender(trace) {
+        const body = document.getElementById('cc-drill-body');
+        if (!body) return;
+        body.innerHTML = '';
+        body.appendChild(_ccDrillSection('drill_modal.section.header',      _ccDrillRenderHeader(trace), false));
+        body.appendChild(_ccDrillSection('drill_modal.section.disclaimer',  _ccDrillRenderDisclaimer(trace), false));
+        body.appendChild(_ccDrillSection('drill_modal.section.formula',     _ccDrillRenderFormula(trace),
+                                          !trace.formula_ref));
+        const trEl = _ccDrillRenderKvTable(trace.threshold_ref, 'drill_modal.empty.thresholds');
+        const trEmpty = !trace.threshold_ref || Object.keys(trace.threshold_ref || {}).length === 0;
+        body.appendChild(_ccDrillSection('drill_modal.section.thresholds',  trEl, trEmpty));
+        body.appendChild(_ccDrillSection('drill_modal.section.calibration', _ccDrillRenderCalibration(trace),
+                                          !trace.calibration_status || Object.keys(trace.calibration_status || {}).length === 0));
+        body.appendChild(_ccDrillSection('drill_modal.section.sources',     _ccDrillRenderSources(trace),
+                                          !trace.source_urls || trace.source_urls.length === 0));
+        const mdEl = _ccDrillRenderKvTable(trace.metadata, 'drill_modal.empty.metadata');
+        const mdEmpty = !trace.metadata || Object.keys(trace.metadata || {}).length === 0;
+        body.appendChild(_ccDrillSection('drill_modal.section.metadata',    mdEl, mdEmpty));
+        body.appendChild(_ccDrillSection('drill_modal.section.llm_prompt',  _ccDrillRenderLlmPrompt(trace), false));
+    }
+
+    function _ccDrillRenderError(msg) {
+        const body = document.getElementById('cc-drill-body');
+        if (!body) return;
+        body.innerHTML = '';
+        const div = document.createElement('div');
+        div.className = 'dm-error';
+        div.setAttribute('role', 'alert');
+        div.textContent = msg;
+        body.appendChild(div);
+    }
+
+    async function _ccOpenDrillModal(c) {
+        const modal = document.getElementById('cc-drill-modal');
+        const body = document.getElementById('cc-drill-body');
+        const backdrop = document.getElementById('settings-backdrop');
+        if (!modal || !body) return;
+
+        _ccDrillReturnFocus = document.activeElement;
+        body.innerHTML = `<div class="dm-loading">${_escHtml(_t('drill_modal.loading'))}</div>`;
+        // Re-use the global modal stack (settings-backdrop handles ESC by
+        // closeAllModals; we register our own ESC for predictable focus return).
+        if (typeof openModal === 'function') {
+            openModal('cc-drill-modal');
+        } else {
+            modal.style.display = 'flex';
+            if (backdrop) backdrop.style.display = 'block';
+        }
+        // Move focus to the modal body so screen readers announce the dialog.
+        try { body.focus(); } catch (_) { /* ignored */ }
+
+        // ESC key handler — register once per open
+        _ccDrillKeyHandler = (e) => {
+            if (e.key === 'Escape') {
+                e.stopPropagation();
+                _ccCloseDrillModal();
+            }
+        };
+        document.addEventListener('keydown', _ccDrillKeyHandler, true);
+
+        // Cancel any prior in-flight drill fetch
+        if (_ccDrillAbort) {
+            try { _ccDrillAbort.abort(); } catch (_) { /* unsupported → ignore */ }
+        }
+        const ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        _ccDrillAbort = ac;
+
+        try {
+            const resp = await fetch(
+                `/api/v2/conclusions/${encodeURIComponent(c.id)}/audit_trace`,
+                ac ? { signal: ac.signal } : undefined,
+            );
+            if (!resp.ok) {
+                _ccDrillRenderError(_t('drill_modal.error.fetch_failed', { status: resp.status }));
+                return;
+            }
+            const trace = await resp.json();
+            _ccDrillRender(trace);
+        } catch (e) {
+            if (e && e.name === 'AbortError') return;
+            _ccDrillRenderError(_t('drill_modal.error.network'));
+            if (window.console) console.debug('[DrillModal] fetch error', e);
+        } finally {
+            if (_ccDrillAbort === ac) _ccDrillAbort = null;
+        }
+    }
+
+    function _ccCloseDrillModal() {
+        const modal = document.getElementById('cc-drill-modal');
+        const backdrop = document.getElementById('settings-backdrop');
+        if (modal) modal.style.display = 'none';
+        // Only hide backdrop if no other modal is open
+        const otherOpen = !!document.querySelector('.modal-window[style*="display: flex"]:not(#cc-drill-modal)');
+        if (backdrop && !otherOpen) backdrop.style.display = 'none';
+        if (_ccDrillKeyHandler) {
+            document.removeEventListener('keydown', _ccDrillKeyHandler, true);
+            _ccDrillKeyHandler = null;
+        }
+        if (_ccDrillAbort) {
+            try { _ccDrillAbort.abort(); } catch (_) { /* ignored */ }
+            _ccDrillAbort = null;
+        }
+        if (_ccDrillReturnFocus && typeof _ccDrillReturnFocus.focus === 'function') {
+            try { _ccDrillReturnFocus.focus(); } catch (_) { /* ignored */ }
+        }
+        _ccDrillReturnFocus = null;
+    }
+
+    // Expose close for the modal header [X] button (must be window-scoped
+    // because the markup lives in index.html and uses inline onclick).
+    window._ccCloseDrillModal = _ccCloseDrillModal;
+
+    // ── Sensor Watchpane (Layer 3) ─────────────────────────────────────
+    // Floating panel that lets the analyst pin individual sensors and watch
+    // their observations cycle-by-cycle, sourced from
+    // /api/v2/sensors/<name>/observations. Operates in degraded mode (single-
+    // point sparkline + "history shallow" tag) until the sensor_observation_ts
+    // schema lands per docs/design/v2-ui.md §7.1.
+    const _WP_STORAGE_KEY = 'watchpane.v1.state';
+    let _wpState = { sensors: [], version: 1 };
+    let _wpCatalog = null;            // [{sensor, label, domain}]
+    let _wpToggleFn = null;
+    let _wpRefreshInflight = false;
+    const _wpLastObs = new Map();     // key="sensor::scope" → last response
+
+    function _wpLoadState() {
+        try {
+            const raw = localStorage.getItem(_WP_STORAGE_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (parsed && Array.isArray(parsed.sensors)) {
+                _wpState = {
+                    version: 1,
+                    sensors: parsed.sensors.filter(s => s && typeof s.name === 'string')
+                                            .map(s => ({
+                                                name: s.name,
+                                                scope: s.scope || 'focused',
+                                                added_at: s.added_at || Date.now(),
+                                            })),
+                };
+            }
+        } catch (e) {
+            if (window.console) console.debug('[Watchpane] state load failed', e);
+        }
+    }
+
+    function _wpSaveState() {
+        try { localStorage.setItem(_WP_STORAGE_KEY, JSON.stringify(_wpState)); }
+        catch (e) { if (window.console) console.debug('[Watchpane] state save failed', e); }
+    }
+
+    async function _wpLoadCatalog() {
+        if (_wpCatalog) return _wpCatalog;
+        try {
+            const resp = await fetch('/api/v2/sensors/catalog');
+            if (!resp.ok) return null;
+            const env = await resp.json();
+            _wpCatalog = Array.isArray(env && env.sensors) ? env.sensors : [];
+            return _wpCatalog;
+        } catch (e) {
+            if (window.console) console.debug('[Watchpane] catalog fetch failed', e);
+            return null;
+        }
+    }
+
+    function _wpRowKey(name, scope) { return `${name}::${scope}`; }
+
+    function _wpRenderSpark(observations) {
+        // Degraded mode returns 1 point. SVG is intentionally tiny — a single
+        // dot or short line so the row stays scannable.
+        const w = 60, h = 18;
+        if (!observations || observations.length === 0) {
+            return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"></svg>`;
+        }
+        if (observations.length === 1) {
+            const v = Number(observations[0].value || 0);
+            const cx = w / 2;
+            const cy = h - Math.max(2, Math.min(h - 2, (v / 5) * (h - 2)));
+            return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`
+                 + `<circle cx="${cx}" cy="${cy}" r="2.2" fill="var(--color-accent)" />`
+                 + `</svg>`;
+        }
+        // Multi-point (future): polyline normalised to range
+        const vals = observations.map(o => Number(o.value || 0));
+        const max = Math.max(...vals, 1), min = Math.min(...vals, 0);
+        const span = Math.max(0.001, max - min);
+        const pts = vals.map((v, i) => {
+            const x = (i / (vals.length - 1)) * w;
+            const y = h - ((v - min) / span) * (h - 2) - 1;
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+        return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`
+             + `<polyline points="${pts}" fill="none" stroke="var(--color-accent)" stroke-width="1.2" />`
+             + `</svg>`;
+    }
+
+    function _wpStatusClass(curr) {
+        if (!curr) return 'wp-status-error';
+        if (curr.suppressed) return 'wp-status-suppressed';
+        const s = (curr.status || '').toUpperCase();
+        if (s === 'FIRED' || s === 'CRITICAL' || s === 'ELEVATED') return 'wp-status-fired';
+        if (s === 'NORMAL' || s === 'OK') return 'wp-status-normal';
+        return '';
+    }
+
+    function _wpStatusText(curr) {
+        if (!curr) return _t('watchpane.row.no_data');
+        if (curr.suppressed) return _t('watchpane.row.suppressed');
+        const s = (curr.status || '').toUpperCase();
+        if (s === 'FIRED' || s === 'CRITICAL' || s === 'ELEVATED') return _t('watchpane.row.fired');
+        if (s === 'NORMAL' || s === 'OK') return _t('watchpane.row.normal');
+        return s || '—';
+    }
+
+    function _wpRender() {
+        const rowsEl = document.getElementById('wp-rows');
+        if (!rowsEl) return;
+        if (_wpState.sensors.length === 0) {
+            rowsEl.innerHTML = `<div class="wp-empty" data-i18n="watchpane.empty">${_escHtml(_t('watchpane.empty'))}</div>`;
+            return;
+        }
+        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
+        const labelOf = (name) => {
+            if (!_wpCatalog) return name;
+            const row = _wpCatalog.find(r => r.sensor === name);
+            return row ? (row.label || name) : name;
+        };
+        const html = _wpState.sensors.map((s, idx) => {
+            const safeName = _escHtml(s.name);
+            const safeScope = _escHtml(s.scope);
+            const obs = _wpLastObs.get(_wpRowKey(s.name, s.scope));
+            const observations = obs ? (obs.observations || []) : null;
+            const curr = obs ? obs.current : null;
+            const valueDisp = (observations && observations.length) ? Number(observations[0].value || 0).toFixed(2) : '—';
+            const statusCls = _wpStatusClass(curr);
+            const statusTxt = _wpStatusText(curr);
+            const rawValueTip = (curr && curr.raw_value != null) ? String(curr.raw_value) : '';
+            return `
+                <div class="wp-row" data-wp-idx="${idx}">
+                    <div class="wp-meta">
+                        <div class="wp-name" title="${safeName}">${_escHtml(labelOf(s.name))}</div>
+                        <div class="wp-sub ${statusCls}">${safeScope} · <span class="${statusCls}">${_escHtml(statusTxt)}</span>${rawValueTip ? ` · <span title="${_escHtml(rawValueTip)}">${_escHtml(String(rawValueTip).slice(0,20))}</span>` : ''}</div>
+                    </div>
+                    <span class="wp-spark">${_wpRenderSpark(observations)}</span>
+                    <span class="wp-value ${statusCls}">${_escHtml(valueDisp)}</span>
+                    <button type="button" class="wp-remove" data-i18n-tip="watchpane.row.remove"
+                            title="${_escHtml(_t('watchpane.row.remove'))}"
+                            onclick="window._wpRemoveSensor(${idx})">×</button>
+                </div>
+            `;
+        }).join('');
+        rowsEl.innerHTML = html;
+    }
+
+    async function _wpRefreshOne(name, scope) {
+        try {
+            const resp = await fetch(
+                `/api/v2/sensors/${encodeURIComponent(name)}/observations`
+                + `?scope=${encodeURIComponent(scope)}&hours=1`
+            );
+            if (!resp.ok) {
+                _wpLastObs.delete(_wpRowKey(name, scope));
+                return;
+            }
+            const env = await resp.json();
+            _wpLastObs.set(_wpRowKey(name, scope), env);
+        } catch (e) {
+            // Network error — drop cached value so the row shows fetch error
+            _wpLastObs.delete(_wpRowKey(name, scope));
+            if (window.console) console.debug('[Watchpane] obs fetch failed', name, scope, e);
+        }
+    }
+
+    async function _wpRefreshAll() {
+        if (_wpRefreshInflight) return;
+        const panel = document.getElementById('sensor-watchpane');
+        if (!panel || panel.style.display === 'none') return;  // Only poll while visible
+        if (_wpState.sensors.length === 0) return;
+        _wpRefreshInflight = true;
+        try {
+            await Promise.all(_wpState.sensors.map(s => _wpRefreshOne(s.name, s.scope)));
+            _wpRender();
+        } finally {
+            _wpRefreshInflight = false;
+        }
+    }
+
+    function _wpOpenAdd() {
+        const overlay = document.getElementById('wp-add-overlay');
+        if (!overlay) return;
+        overlay.style.display = 'flex';
+        const search = document.getElementById('wp-add-search');
+        if (search) { search.value = ''; setTimeout(() => search.focus(), 50); }
+        _wpLoadCatalog().then(() => _wpRenderAddList(''));
+    }
+
+    function _wpCloseAdd() {
+        const overlay = document.getElementById('wp-add-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+    window._wpCloseAdd = _wpCloseAdd;
+
+    function _wpRenderAddList(filter) {
+        const listEl = document.getElementById('wp-add-list');
+        if (!listEl) return;
+        if (!_wpCatalog) {
+            listEl.innerHTML = `<div class="wp-add-empty">${_escHtml(_t('ui.loading') || 'Loading…')}</div>`;
+            return;
+        }
+        const f = (filter || '').toLowerCase().trim();
+        const taken = new Set(_wpState.sensors.map(s => `${s.name}::${s.scope}`));
+        // Filter on either sensor id or label (case-insensitive substring)
+        const matches = _wpCatalog.filter(row => {
+            if (!f) return true;
+            return (row.sensor || '').toLowerCase().includes(f)
+                || (row.label || '').toLowerCase().includes(f)
+                || (row.domain || '').toLowerCase().includes(f);
+        });
+        if (matches.length === 0) {
+            listEl.innerHTML = `<div class="wp-add-empty">${_escHtml(_t('watchpane.add.no_match'))}</div>`;
+            return;
+        }
+        // Default scope is 'focused' for now; scope picker is deferred until
+        // the multi-scope schema lands (§7.1 future)
+        const html = matches.map(row => {
+            const dup = taken.has(`${row.sensor}::focused`);
+            const safeName = _escHtml(row.sensor);
+            const safeLabel = _escHtml(row.label || row.sensor);
+            const safeDomain = _escHtml(row.domain || '');
+            const cls = dup ? 'wp-add-item wp-disabled' : 'wp-add-item';
+            const onclick = dup ? '' : `onclick="window._wpAddSensor('${safeName}', 'focused')"`;
+            const trailing = dup
+                ? `<span class="wp-add-domain">(${_escHtml(_t('watchpane.add.already_added'))})</span>`
+                : `<span class="wp-add-domain">${safeDomain}</span>`;
+            return `<div class="${cls}" ${onclick}><span>${safeLabel}</span>${trailing}</div>`;
+        }).join('');
+        listEl.innerHTML = html;
+    }
+
+    window._wpAddSensor = function(name, scope) {
+        const sc = scope || 'focused';
+        if (_wpState.sensors.find(s => s.name === name && s.scope === sc)) return;
+        _wpState.sensors.push({ name, scope: sc, added_at: Date.now() });
+        _wpSaveState();
+        _wpCloseAdd();
+        _wpRender();
+        _wpRefreshOne(name, sc).then(() => _wpRender());
+    };
+
+    window._wpRemoveSensor = function(idx) {
+        if (idx < 0 || idx >= _wpState.sensors.length) return;
+        const removed = _wpState.sensors.splice(idx, 1)[0];
+        if (removed) _wpLastObs.delete(_wpRowKey(removed.name, removed.scope));
+        _wpSaveState();
+        _wpRender();
+    };
+
+    function _wpInit() {
+        const panel = document.getElementById('sensor-watchpane');
+        if (!panel) return;
+        if (typeof window.createFloatingPanel !== 'function') return;
+        _wpToggleFn = window.createFloatingPanel({
+            id: 'sensor-watchpane',
+            titleKey: 'watchpane.title',
+            titleFallback: 'Sensor Watchpane',
+            defaultLeft: window.innerWidth - 380,
+            defaultTop: 140,
+            width: 360,
+            bodyClass: 'wp-body',
+            onShow: () => { _wpRefreshAll(); },
+        });
+        // Bind add-button + search input (delegated to avoid losing handlers
+        // when the body markup gets re-rendered).
+        const addBtn = document.getElementById('wp-add-btn');
+        if (addBtn) addBtn.addEventListener('click', _wpOpenAdd);
+        const search = document.getElementById('wp-add-search');
+        if (search) {
+            search.addEventListener('input', (e) => _wpRenderAddList(e.target.value));
+            search.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') { e.stopPropagation(); _wpCloseAdd(); }
+            });
+        }
+        _wpLoadState();
+        _wpRender();
+        // Piggyback on the 10s scoring poll for refresh
+    }
+
+    window.toggleSensorWatchpane = function() {
+        if (!_wpToggleFn) _wpInit();
+        if (_wpToggleFn) _wpToggleFn();
+    };
+
+    // Init at boot so localStorage sensors are visible without opening first
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _wpInit);
+    } else {
+        // Defer so createFloatingPanel definition (above) is in scope
+        setTimeout(_wpInit, 0);
+    }
+
     async function fetchDDoSData(force = false) {
         // Under scenario-unit mode the server derives scope from the focused
         // scenario; only focus + muted + force are passed.
@@ -2039,6 +2918,12 @@
 
             // Fire-and-forget: hydrate NP7 banner with v2 disclaimer. One-shot.
             _refreshNp7Banner(_focusParam);
+            // Fire-and-forget: refresh Layer 1 conclusion cards (re-fetched
+            // every poll so cards stay in lockstep with v1 telemetry).
+            _refreshConclusionCards(_focusParam);
+
+            // Fire-and-forget: refresh Layer 3 sensor watchpane rows when visible
+            if (typeof _wpRefreshAll === 'function') _wpRefreshAll();
 
             // Refresh LLM Intel data on every poll so chain panel and intel panel stay current
             if (typeof _fetchLlmIntel === 'function') _fetchLlmIntel();
@@ -7558,11 +8443,29 @@
     };
 
     window.switchScenarioFocus = function(scenarioId) {
+        if (!scenarioId) return;
         _scenarioFocusId = scenarioId;
         localStorage.setItem('radar_focused_scenario', scenarioId);
         _scenarioDetailOpen = null;
         _scenarioWhatIfExcluded = new Set();
-        document.getElementById('scenario-detail-panel').style.display = 'none';
+        const detailPanel = document.getElementById('scenario-detail-panel');
+        if (detailPanel) detailPanel.style.display = 'none';
+
+        // Optimistic UI: re-render scenario bar with the new focus marker
+        // immediately from cached telemetry so the analyst sees feedback
+        // before the (potentially slow) force-sync round-trip completes.
+        if (latestData && latestData.scenarios) {
+            latestData.focused_scenario = scenarioId;
+            try { renderScenarioBar(latestData); } catch (_) { /* defensive */ }
+        }
+
+        // v2 surfaces (cards + NP7 banner) are independent of v1 force-sync
+        // and respond in <100ms. Fire them now so the analyst sees the new
+        // focus reflected immediately rather than after the v1 await.
+        _refreshNp7Banner(scenarioId);
+        _refreshConclusionCards(scenarioId);
+
+        // v1 force-refresh (slower; updates rest of telemetry).
         fetchDDoSData(true);
     };
 

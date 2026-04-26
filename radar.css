@@ -1510,6 +1510,510 @@
     opacity: 0.85;
 }
 
+/* ── Conclusion Cards (Layer 1) ───────────────────────────────────────
+   Renders the 5 ConclusionType buckets from the v2 envelope. Lives
+   directly under the NP7 banner so analysts read disclaimer + tool
+   conclusions as a single block. Hidden when v2 returns 503 or empty.
+   Per panel-chrome.md: id-rooted styles only target the container
+   itself; child styles are scoped via .cc-* classes so the cascade
+   cannot leak into other panels. */
+#conclusion-cards-bar {
+    background: rgba(0, 25, 40, 0.55);
+    border-bottom: 1px solid var(--color-border);
+    padding: 8px 12px;
+    display: none;
+}
+#conclusion-cards-bar.cc-visible { display: block; }
+#conclusion-cards-bar .cc-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+}
+@media (max-width: 1280px) {
+    #conclusion-cards-bar .cc-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+@media (max-width: 768px) {
+    #conclusion-cards-bar .cc-grid {
+        grid-template-columns: 1fr;
+    }
+}
+.cc-card {
+    background: rgba(10, 30, 50, 0.7);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 11px;
+    letter-spacing: 0.3px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 90px;
+    position: relative;
+}
+.cc-card-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    opacity: 0.85;
+    letter-spacing: 0.6px;
+}
+.cc-card-state {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-text);
+    line-height: 1.1;
+}
+.cc-card-state.cc-tl-1 { color: #6fc66f; }
+.cc-card-state.cc-tl-2 { color: #c8e260; }
+.cc-card-state.cc-tl-3 { color: #f0c060; }
+.cc-card-state.cc-tl-4 { color: #f08c4a; }
+.cc-card-state.cc-tl-5 { color: var(--color-critical); }
+.cc-card-meta {
+    font-size: 10px;
+    opacity: 0.75;
+    color: var(--color-text);
+    line-height: 1.3;
+}
+.cc-card-meta .cc-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+}
+.cc-confidence {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    opacity: 0.85;
+}
+.cc-confidence-bar {
+    flex: 1 1 auto;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.cc-confidence-bar-fill {
+    height: 100%;
+    background: var(--color-accent);
+    transition: width 200ms ease;
+}
+.cc-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: auto;
+    gap: 6px;
+}
+.cc-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--color-text);
+    opacity: 0.9;
+}
+.cc-badge.cc-badge-warn { background: rgba(240, 140, 74, 0.25); color: #f08c4a; }
+.cc-badge.cc-badge-crit { background: rgba(220, 50, 50, 0.25); color: var(--color-critical); }
+.cc-badge.cc-badge-info { background: rgba(0, 180, 220, 0.18); color: var(--color-accent); }
+.cc-badge.cc-badge-mute { background: rgba(255, 255, 255, 0.05); color: var(--color-muted); }
+.cc-card.cc-unavailable .cc-card-state { opacity: 0.5; font-size: 14px; font-weight: 400; }
+.cc-card.cc-tentative { border-color: rgba(240, 140, 74, 0.55); }
+.cc-card.cc-degraded  { border-color: rgba(220, 50, 50, 0.55); }
+.cc-drill-btn {
+    background: transparent;
+    border: 1px solid rgba(0, 180, 220, 0.4);
+    color: var(--color-accent);
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    padding: 1px 6px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.cc-drill-btn:hover { background: rgba(0, 180, 220, 0.12); }
+.cc-drill-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.cc-domain-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 10px;
+    line-height: 1.4;
+}
+.cc-domain-row .cc-domain-name { opacity: 0.8; }
+.cc-domain-row .cc-domain-status { font-weight: 600; }
+.cc-domain-row .cc-domain-status.cc-status-active { color: var(--color-critical); }
+.cc-domain-row .cc-domain-status.cc-status-elevated { color: #f08c4a; }
+.cc-domain-row .cc-domain-status.cc-status-stable { color: #6fc66f; }
+.cc-domain-row .cc-domain-status.cc-status-insufficient { color: var(--color-muted); }
+.cc-horizon-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 10px;
+}
+.cc-horizon-row .cc-horizon-label { opacity: 0.7; }
+.cc-horizon-row .cc-horizon-state { font-weight: 600; }
+.cc-horizon-row .cc-horizon-state.cc-trend-rapid_escalating { color: var(--color-critical); }
+.cc-horizon-row .cc-horizon-state.cc-trend-escalating { color: #f08c4a; }
+.cc-horizon-row .cc-horizon-state.cc-trend-stable { color: #6fc66f; }
+.cc-horizon-row .cc-horizon-state.cc-trend-de_escalating { color: #6fc6c6; }
+.cc-horizon-row .cc-horizon-state.cc-trend-rapid_de_escalating { color: #6fc6c6; }
+.cc-horizon-row .cc-horizon-state.cc-trend-insufficient_data { color: var(--color-muted); }
+.cc-anomaly-text {
+    font-size: 12px;
+    color: var(--color-text);
+    line-height: 1.3;
+    word-break: break-word;
+}
+
+/* ── Drill-down Modal (Layer 2 — audit_trace) ─────────────────────── */
+#cc-drill-modal {
+    width: 820px;
+    max-width: 92vw;
+    height: 82vh;
+    max-height: 860px;
+}
+#cc-drill-body.dm-body {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 6px 4px 4px 4px;
+    color: var(--color-text);
+    font-size: 12px;
+    line-height: 1.45;
+}
+#cc-drill-body .dm-loading {
+    color: var(--color-muted);
+    font-style: italic;
+    padding: 16px 4px;
+}
+#cc-drill-body .dm-error {
+    color: var(--color-critical);
+    padding: 12px;
+    background: rgba(255,42,42,0.08);
+    border: 1px solid rgba(255,42,42,0.4);
+    border-radius: 4px;
+}
+#cc-drill-body .dm-section {
+    margin-bottom: 14px;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.02);
+}
+#cc-drill-body .dm-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-accent);
+    padding: 6px 10px;
+    border-bottom: 1px solid #2a2a2a;
+    background: rgba(0,255,255,0.04);
+}
+#cc-drill-body .dm-section-body {
+    padding: 8px 10px;
+}
+#cc-drill-body .dm-section-body.dm-empty {
+    color: var(--color-muted);
+    font-style: italic;
+}
+#cc-drill-body .dm-row {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 8px;
+    padding: 3px 0;
+    border-bottom: 1px dashed #1f1f1f;
+    font-size: 11.5px;
+}
+#cc-drill-body .dm-row:last-child { border-bottom: none; }
+#cc-drill-body .dm-key {
+    color: var(--color-muted);
+    word-break: break-word;
+}
+#cc-drill-body .dm-val {
+    color: var(--color-text);
+    font-family: 'SF Mono', 'Menlo', monospace;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+#cc-drill-body .dm-monospace {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 11.5px;
+    color: var(--color-text);
+    word-break: break-all;
+}
+#cc-drill-body .dm-disclaimer {
+    font-size: 11.5px;
+    color: var(--color-text);
+    line-height: 1.5;
+    border-left: 3px solid var(--color-accent);
+    padding-left: 8px;
+    background: rgba(0,255,255,0.04);
+}
+#cc-drill-body .dm-source-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+#cc-drill-body .dm-source-list li {
+    padding: 3px 0;
+    border-bottom: 1px dashed #1f1f1f;
+}
+#cc-drill-body .dm-source-list li:last-child { border-bottom: none; }
+#cc-drill-body .dm-source-list a {
+    color: var(--color-accent);
+    text-decoration: none;
+    word-break: break-all;
+    font-size: 11.5px;
+}
+#cc-drill-body .dm-source-list a:hover { text-decoration: underline; }
+#cc-drill-body .dm-warn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border: 1px solid var(--color-warning);
+    background: rgba(255,170,0,0.08);
+    color: var(--color-warning);
+    border-radius: 3px;
+    font-size: 11px;
+    margin-top: 6px;
+}
+#cc-drill-body .dm-warn::before { content: "⚠"; }
+#cc-drill-body .dm-collapse-toggle {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-accent);
+    padding: 3px 10px;
+    cursor: pointer;
+    font-size: 11px;
+    border-radius: 3px;
+    margin-bottom: 6px;
+}
+#cc-drill-body .dm-collapse-toggle:hover {
+    background: rgba(0,255,255,0.06);
+    border-color: var(--color-accent);
+}
+#cc-drill-body .dm-collapse-content {
+    background: rgba(0,0,0,0.5);
+    border: 1px solid #2a2a2a;
+    padding: 8px;
+    margin-top: 4px;
+    max-height: 360px;
+    overflow-y: auto;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #ddd;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border-radius: 3px;
+}
+
+/* ── Sensor Watchpane (Layer 3) ───────────────────────────────────── */
+.wp-body {
+    padding: 0;
+    color: var(--color-text);
+}
+.wp-body .wp-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--color-border);
+    background: rgba(255,255,255,0.02);
+}
+.wp-body .wp-add-btn {
+    background: transparent;
+    border: 1px solid var(--color-accent);
+    color: var(--color-accent);
+    padding: 3px 10px;
+    cursor: pointer;
+    font-size: 11px;
+    border-radius: 3px;
+}
+.wp-body .wp-add-btn:hover { background: rgba(0,255,255,0.08); }
+.wp-body .wp-shallow-tag {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--color-warning);
+    border: 1px solid var(--color-warning);
+    background: rgba(255,170,0,0.06);
+    padding: 1px 6px;
+    border-radius: 2px;
+    cursor: help;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.wp-body .wp-rows {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.wp-body .wp-empty {
+    padding: 18px 12px;
+    color: var(--color-muted);
+    font-size: 11.5px;
+    font-style: italic;
+    text-align: center;
+}
+.wp-body .wp-row {
+    display: grid;
+    grid-template-columns: 1fr 64px 50px 26px;
+    column-gap: 8px;
+    align-items: center;
+    padding: 6px 10px;
+    border-bottom: 1px solid #1f1f1f;
+    font-size: 11.5px;
+}
+.wp-body .wp-row:hover { background: rgba(0,255,255,0.04); }
+.wp-body .wp-row .wp-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.wp-body .wp-row .wp-name {
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.wp-body .wp-row .wp-sub {
+    color: var(--color-muted);
+    font-size: 10.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.wp-body .wp-row .wp-status-fired { color: var(--color-critical); font-weight: 700; }
+.wp-body .wp-row .wp-status-suppressed { color: var(--color-muted); }
+.wp-body .wp-row .wp-status-normal { color: var(--color-success, #6fcf6f); }
+.wp-body .wp-row .wp-status-error { color: var(--color-warning); }
+.wp-body .wp-row .wp-spark {
+    width: 64px;
+    height: 22px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid #1f1f1f;
+    border-radius: 2px;
+    overflow: hidden;
+}
+.wp-body .wp-row .wp-spark svg { display: block; width: 100%; height: 100%; }
+.wp-body .wp-row .wp-value {
+    text-align: right;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 11.5px;
+    color: var(--color-accent);
+}
+.wp-body .wp-row .wp-remove {
+    background: transparent;
+    border: 1px solid #444;
+    color: #888;
+    cursor: pointer;
+    width: 22px;
+    height: 22px;
+    line-height: 1;
+    border-radius: 2px;
+    font-size: 11px;
+}
+.wp-body .wp-row .wp-remove:hover {
+    color: var(--color-critical);
+    border-color: var(--color-critical);
+    background: rgba(255,42,42,0.08);
+}
+/* Overlay is position:fixed so it escapes .panel-content's overflow:hidden
+   clipping. Without this, an empty watchpane (~72px tall) constrains the
+   absolutely-positioned overlay so only ~1 catalog row is visible. */
+.wp-body .wp-add-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 4500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.wp-body .wp-add-panel {
+    width: 360px;
+    max-width: 92vw;
+    height: 440px;
+    max-height: 80vh;
+    background: rgba(15,15,15,0.98);
+    border: 1px solid var(--color-accent);
+    border-radius: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    display: flex;
+    flex-direction: column;
+}
+.wp-body .wp-add-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-accent);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.wp-body .wp-add-close {
+    background: transparent;
+    border: none;
+    color: #ff666688;
+    cursor: pointer;
+    font-size: 13px;
+}
+.wp-body .wp-add-close:hover { color: var(--color-critical); }
+.wp-body #wp-add-search {
+    margin: 8px 10px;
+    padding: 5px 8px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    font-size: 12px;
+    border-radius: 3px;
+}
+.wp-body #wp-add-search:focus {
+    outline: none;
+    border-color: var(--color-accent);
+}
+.wp-body .wp-add-list {
+    overflow-y: auto;
+    padding: 0 4px 8px 4px;
+    flex-grow: 1;
+}
+.wp-body .wp-add-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11.5px;
+}
+.wp-body .wp-add-item:hover { background: rgba(0,255,255,0.06); }
+.wp-body .wp-add-item.wp-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.wp-body .wp-add-item .wp-add-domain {
+    font-size: 10px;
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.wp-body .wp-add-empty {
+    padding: 18px 10px;
+    color: var(--color-muted);
+    font-size: 11px;
+    font-style: italic;
+    text-align: center;
+}
+
 /* ── Scenario Bar (Phase 4) ───────────────────────────────────────── */
 #scenario-bar {
     background: var(--color-surface);
