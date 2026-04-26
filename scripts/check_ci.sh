@@ -24,9 +24,15 @@ step() {
     echo "=== $1 ==="
 }
 
-step "Codemap freshness"
+step "Codemap freshness (Python)"
 if ! python scripts/gen_codemap.py --check; then
-    echo "FAIL: codemaps are stale. Run: python scripts/gen_codemap.py" >&2
+    echo "FAIL: Python codemaps are stale. Run: python scripts/gen_codemap.py" >&2
+    FAIL=1
+fi
+
+step "Codemap freshness (Frontend)"
+if ! python scripts/gen_frontend_codemap.py --check; then
+    echo "FAIL: frontend codemaps are stale. Run: python scripts/gen_frontend_codemap.py" >&2
     FAIL=1
 fi
 
