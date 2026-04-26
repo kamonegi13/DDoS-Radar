@@ -267,17 +267,19 @@ sensor 単位の raw observation 時系列を持つ schema が DB に**ない**:
 
 ## 9. Phase 着手順序
 
-| 順 | タスク | 完了条件 | 工数 |
-|----|--------|---------|------|
-| 1 | 既存 sensor snapshot API 棚卸し (§7.1) | 再利用可否の判断記録 | 0.5d |
-| 2 | Conclusion Cards 実装 (Layer 1) | 5 type 全部、focus 切替時 invalidate、503 時 graceful hide、E2E ブラウザ確認 | 3-4d |
-| 3 | Drill-down Modal 実装 (Layer 2) | audit_trace 全 6 セクション描画、a11y チェック、i18n EN/JA | 2-3d |
-| 4 | Sensor Watchpane 基本 (Layer 3) | 追加/削除/永続化、既存 sensor API 統合 | 3-4d |
-| 5 | Help Guide Ch.1 + Ch.8 + Ch.10 更新 | EN/JA 両方、新 UI を反映 | 1d |
-| 6 | フロントエンド codemap 再生成 + コミット | `python scripts/gen_frontend_codemap.py` | 0.5d |
-| **計** | | | **10-13d** |
+Phase 3 タスク 1-6 はすべて完了 (2026-04-26)。
 
-watchpane alarm モード (§6.3) は本順序の外。Phase 2 後半か Phase 3 へ。
+| 順 | タスク | 完了 commit | 備考 |
+|----|--------|-------------|------|
+| 1 | 既存 sensor snapshot API 棚卸し (§7.1) | b795bc7 (docs landing) | 新エンドポイント仕様確定 |
+| 2 | Conclusion Cards 実装 (Layer 1) | 41007ef | 5 type 全部、focus 切替 invalidate、503 graceful hide |
+| 3 | Drill-down Modal 実装 (Layer 2) | 41007ef | audit_trace 全セクション、a11y、i18n EN/JA |
+| 4 | Sensor Watchpane 基本 (Layer 3) | 41007ef → 44ba0c8 (sensor_obs schema) → ebccd8b (sparkline wire-up) | 追加/削除/永続化、24h TTL 時系列 |
+| 5 | Help Guide 更新 (Ch.8 + Ch.9) | ab68e5d | watchpane Degraded 文言除去、Coord OFF 既定 |
+| 6 | フロントエンド codemap 再生成 | 58efa93 | radar.js.md / radar.css.md |
+| 追加 | Coord links 既定 OFF | 3e6c296 | 構造ベースライン飽和への対処 (NP1 維持) |
+
+watchpane alarm モード (§6.3) は引き続き Phase 4 候補。
 
 ---
 
