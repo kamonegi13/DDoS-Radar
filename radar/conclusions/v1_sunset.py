@@ -17,18 +17,24 @@ from __future__ import annotations
 import re
 from typing import Mapping
 
-# Mapping: v1 path pattern → v2 successor URL template.
-# Path pattern is a compiled regex; the named groups feed the successor
-# URL via str.format(). Keep this list in sync with ADR-V2-003 — adding a
-# route here promises clients a 90-day migration window.
-SUNSETTED_V1_ROUTES: tuple[tuple[re.Pattern[str], str], ...] = (
+# Mapping: v1 path pattern → (successor URL template, canonical telemetry
+# key). Path pattern is a compiled regex; the named groups feed the
+# successor URL via str.format(). The telemetry key is the canonical
+# (parameter-collapsed) form used for SR4 access counting via
+# legacy_telemetry — keeps key cardinality bounded regardless of how
+# many distinct scenario_ids are queried. Keep this list in sync with
+# ADR-V2-003 — adding a route here promises clients a 90-day migration
+# window.
+SUNSETTED_V1_ROUTES: tuple[tuple[re.Pattern[str], str, str], ...] = (
     (
         re.compile(r"^/api/threat_data/?$"),
         "/api/v2/scenarios/{scenario_id}/conclusions",
+        "v1_sunset_route:/api/threat_data",
     ),
     (
         re.compile(r"^/api/scenario/(?P<scenario_id>[^/]+)/breakdown/?$"),
         "/api/v2/scenarios/{scenario_id}/conclusions",
+        "v1_sunset_route:/api/scenario/<id>/breakdown",
     ),
 )
 
@@ -39,14 +45,17 @@ SUNSETTED_V1_ROUTES: tuple[tuple[re.Pattern[str], str], ...] = (
 SUNSET_DATE_HEADER = "Sat, 26 Jul 2026 00:00:00 GMT"
 
 
-def match_sunsetted_route(path: str) -> tuple[str, Mapping[str, str]] | None:
-    """Return (successor_url_template, named_groups) if `path` is a
-    sunsetted v1 route, else None. Pure function — safe to call per-request.
+def match_sunsetted_route(
+    path: str,
+) -> tuple[str, Mapping[str, str], str] | None:
+    """Return (successor_url_template, named_groups, telemetry_key) if
+    `path` is a sunsetted v1 route, else None. Pure function — safe to
+    call per-request.
     """
-    for pattern, successor_template in SUNSETTED_V1_ROUTES:
+    for pattern, successor_template, telemetry_key in SUNSETTED_V1_ROUTES:
         m = pattern.match(path)
         if m is not None:
-            return successor_template, m.groupdict()
+            return successor_template, m.groupdict(), telemetry_key
     return None
 
 
@@ -79,14 +88,26 @@ def apply_sunset_headers_if_needed(path: str, response_headers) -> bool:
     """Mutate `response_headers` (Flask Headers, MultiDict-like) to add the
     three RFC headers iff `path` matches a sunsetted v1 route.
 
+    Side effect: also records one access via legacy_telemetry under the
+    canonical (parameter-collapsed) key so SR4 sunset evaluation can
+    track residual v1 traffic without exploding key cardinality.
+    Telemetry failure is swallowed — it must never break the request path.
+
     Returns True if headers were applied (caller may use the signal for
-    monitoring / logging). Idempotent — calling twice on the same response
-    leaves the headers in the same state.
+    monitoring / logging). Idempotent on headers — calling twice on the
+    same response leaves the headers in the same state. The telemetry
+    counter is *not* idempotent: each call increments it (which is the
+    intended behaviour for an access counter).
     """
     match = match_sunsetted_route(path)
     if match is None:
         return False
-    successor_template, groups = match
+    successor_template, groups, telemetry_key = match
     for k, v in build_deprecation_headers(successor_template, groups).items():
         response_headers[k] = v
+    try:
+        from radar import legacy_telemetry as _lt
+        _lt.record_legacy_access(telemetry_key)
+    except Exception:  # noqa: BLE001
+        pass  # Telemetry must never break the request path.
     return True

@@ -40,9 +40,10 @@ from radar.database import db
 def test_match_sunsetted_route_threat_data():
     result = match_sunsetted_route("/api/threat_data")
     assert result is not None
-    template, groups = result
+    template, groups, key = result
     assert template == "/api/v2/scenarios/{scenario_id}/conclusions"
     assert groups == {}
+    assert key == "v1_sunset_route:/api/threat_data"
 
 
 def test_match_sunsetted_route_threat_data_trailing_slash():
@@ -52,9 +53,11 @@ def test_match_sunsetted_route_threat_data_trailing_slash():
 def test_match_sunsetted_route_breakdown_extracts_scenario_id():
     result = match_sunsetted_route("/api/scenario/taiwan_contingency/breakdown")
     assert result is not None
-    template, groups = result
+    template, groups, key = result
     assert groups == {"scenario_id": "taiwan_contingency"}
     assert template == "/api/v2/scenarios/{scenario_id}/conclusions"
+    # Telemetry key is canonical — collapses across all scenario_ids
+    assert key == "v1_sunset_route:/api/scenario/<id>/breakdown"
 
 
 def test_match_sunsetted_route_v2_routes_unmatched():
@@ -221,3 +224,45 @@ def test_unauthenticated_v1_response_still_carries_sunset_headers(client):
     resp = client.get("/api/threat_data")
     # 401 expected
     _assert_has_sunset_headers(resp)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Residual-access telemetry (P3) — leverages legacy_telemetry SR4 infra.
+# Verifies that a v1 sunset hit increments the canonical telemetry key so
+# operators can monitor 90-day window usage via /api/admin/legacy_access.
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_apply_sunset_records_legacy_access_with_canonical_key():
+    from radar import legacy_telemetry as lt
+    lt.reset_for_test()
+    headers: dict[str, str] = {}
+    apply_sunset_headers_if_needed("/api/threat_data", headers)
+    snap = lt.snapshot()
+    assert "v1_sunset_route:/api/threat_data" in snap, snap
+    assert snap["v1_sunset_route:/api/threat_data"].count == 1
+
+
+def test_apply_sunset_collapses_scenario_id_into_canonical_key():
+    """Every distinct scenario_id on the breakdown route must collapse
+    into the same telemetry key — otherwise key cardinality grows
+    unboundedly and the admin endpoint becomes useless."""
+    from radar import legacy_telemetry as lt
+    lt.reset_for_test()
+    for sid in ("taiwan_contingency", "korea_contingency", "anything_else"):
+        apply_sunset_headers_if_needed(
+            f"/api/scenario/{sid}/breakdown", {},
+        )
+    snap = lt.snapshot()
+    keys = [k for k in snap if k.startswith("v1_sunset_route:")]
+    assert keys == ["v1_sunset_route:/api/scenario/<id>/breakdown"], keys
+    assert snap["v1_sunset_route:/api/scenario/<id>/breakdown"].count == 3
+
+
+def test_non_sunsetted_path_does_not_record_telemetry():
+    from radar import legacy_telemetry as lt
+    lt.reset_for_test()
+    apply_sunset_headers_if_needed("/api/v2/scenarios/foo/conclusions", {})
+    apply_sunset_headers_if_needed("/api/scenarios", {})
+    snap = lt.snapshot()
+    # No v1_sunset_route keys should have been recorded.
+    assert not any(k.startswith("v1_sunset_route:") for k in snap), snap
