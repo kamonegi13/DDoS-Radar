@@ -782,7 +782,7 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 
   ### 10.2.1 Phase 5 — backend raw `correlations` 消費者の IDF 化
 
-  **方針**: blast radius が小さい順に 5 サブタスクへ分割。display / metadata 系 (5-1〜5-3) は behavior change を伴わないので 1 コミットへ束ね、scoring を変える 5-4 は独立コミット。テスト保守の 5-5 は raw 関数自体を残置するため deferred。
+  **方針**: blast radius が小さい順に 5 サブタスクへ分割。display / metadata 系 (5-1〜5-3) は behavior change を伴わない。scoring を変える 5-4 は本来独立コミット予定だったが、e57f8c8 で 5-1〜5-4 を同コミット内に混在させてしまった (uncommitted state を分割せず一括で `git add` した手順ミス)。今後 revert する場合は file-level revert ではなく、5-4 行を打ち消す follow-up コミットで対応する。テスト保守の 5-5 は raw 関数自体を残置するため deferred。
 
   | サブ | site | 種類 | calibration |
   |------|------|------|-------------|
