@@ -5558,10 +5558,24 @@
     // participants — see scenarios.py derive_focus_context.)
     const _COORD_LINK_MODE_KEY = 'radar_coord_link_mode';
     const _COORD_LINK_MODES = ['off', 'strong', 'all'];
+    // ─── Raw-correlation thresholds (calculate_overlap, range 0-100) ────────
     // STRONG mode: skip pairs whose final coordIdx is below this. 60 ≈ red
     // (C2-SYNC confirmed) or strong orange; weaker pairs are not drawn at all
     // (no line, no diamond, no % label).
     const _COORD_STRONG_MIN = 60;
+    // ─── IDF-correlation thresholds (calculate_overlap_idf, range 0-~5) ────
+    // Calibrated from live shadow-surface data on 2026-04-26 (n=21 pairs,
+    // single tick): IDF P50=0.0  P75=0.29  P90=1.22  P95=1.48  max=4.12
+    // (raw equivalents: P50=53  P75=64  P95=87  max=91 — saturated).
+    // Semantics-preserving mapping:
+    //   OVERLAP_THRESHOLD 15  → 0.5  (suppress noise floor; no rare ASN sharing)
+    //   _COORD_STRONG_MIN 60  → 1.5  (≈P95, top ~5% — analyst-actionable)
+    //   (new) _COORD_ALARM_MIN 3.0   (P99+, rare ASN co-occurrence — alarm-grade)
+    // Used by future cutover (A-2) — currently unused, kept in source so the
+    // reviewer can see the chosen values together with the data they came from.
+    const _COORD_IDF_OVERLAP_THRESHOLD = 0.5;
+    const _COORD_IDF_STRONG_MIN        = 1.5;
+    const _COORD_IDF_ALARM_MIN         = 3.0;
     function _getCoordLinkMode() {
         const v = localStorage.getItem(_COORD_LINK_MODE_KEY);
         // Migrate the short-lived 'focused' value (8f97a9b → next commit) to

@@ -736,7 +736,33 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 - DB schema cleanup
 - **Coordination Index recalibration**: IDF-weighted `correlations_idf` shadow surface (commit 12d56e2, 2026-04-26) を frontend に切替え、旧 `correlations` を sunset。判断は live data での discrimination 検証後 (active escalation サンプル蓄積待ち)
   - shadow 投入時の挙動 (taiwan_contingency 平時): raw≥60 が 6/21 → idf≥60 が 0/21、raw mean 54.4 → idf mean 0.3。平時の coordination が事実上ゼロ判定される (false positive 解消)
-  - 切替時に必要な作業: (a) 新閾値決定 (現行 OVERLAP_THRESHOLD=15 / _COORD_STRONG_MIN=60 は転用不可、IDF レンジ 0-15 想定で再設計)、(b) frontend `updateCoordinationIndex` を `correlations_idf` 参照に変更、(c) Coord 既定 OFF → STRONG 復帰検討、(d) intel guide Ch.8 Q2 の式更新
+
+  **A-1 計算済しきい値 (commit 7f75998 直後の live tick, 2026-04-26)**
+
+  | percentile | raw correlations | idf | idf_l3 | idf_l7 |
+  |---|---|---|---|---|
+  | min | 32.98 | 0.00 | 0.00 | 0.00 |
+  | P50 | 52.91 | 0.00 | 0.00 | — |
+  | P75 | 64.43 | 0.29 | 0.39 | — |
+  | P90 | 71.63 | 1.22 | 1.59 | — |
+  | P95 | 86.66 | 1.48 | 1.96 | — |
+  | P99 | 90.57 | 4.12 | 5.44 | — |
+  | max | 90.57 | 4.12 | 5.44 | 0.00 |
+  | mean / σ | 53.6 / 17.3 | 0.40 / 0.93 | 0.53 / 1.23 | 0 / 0 |
+  | n (pairs) | 21 | 21 | 21 | 21 |
+
+  L7 が全 0 の理由: 7 日 baseline window がまだ蓄積中。L3 は片寄った tail が確認できる (idf > l3 > raw 安定性の順)。
+
+  **採用しきい値 (radar.js に追加済 — A-1 段階では宣言のみ、A-2 で配線)**
+  | constant | 旧 (raw) | 新 (idf) | 根拠 |
+  |---|---|---|---|
+  | OVERLAP_THRESHOLD | 15 | 0.5 | P75 直上 — "rare ASN を共有していない" pair を除外 |
+  | _COORD_STRONG_MIN | 60 | 1.5 | ≈P95 — analyst-actionable な top 5% |
+  | (新) _COORD_ALARM_MIN | — | 3.0 | P99+ — 異常な ASN 共起 |
+
+  **検証メモ**: n=21 / 1 tick の thin data なので、A-2 配線後 7 日程度の累積データで再確認すること。escalation 期 (もしあれば) も別途 percentile を取り、平時↔有事の separation が現状候補で取れているかを見る。
+
+  - 残り作業: (a) frontend `updateCoordinationIndex` を `correlations_idf` 参照に変更 (A-2)、(b) Coord 既定 OFF → STRONG 復帰検討 (A-2)、(c) intel guide Ch.8 Q2 の式更新 (A-3)、(d) shadow surface 撤去判断 (A-4)
 
 ### 10.3 ロールバック手順
 
