@@ -1337,6 +1337,27 @@ class RadarDB:
         # here because it has zero storage cost and is computed on read.
         # Tables without a `theater` column (pure rename targets) are skipped.
         (24, "v2.0 A-4: generated country column mirroring theater (17 tables)", _migration_v24_generated_country),
+        # Phase 3 Layer 3: per-sensor observation time-series so the Sensor
+        # Watchpane (v2-ui.md §6.2 / §7.1) can render real 1h sparklines
+        # instead of the degraded single-point rendering. Written by the
+        # scoring tick after cache swap; read by /api/v2/sensors/<n>/observations.
+        # 24h retention is enough for the planned 1h–6h windows; cleanup runs
+        # opportunistically via DELETE WHERE ts < now()-86400.
+        (25, "Phase 3: sensor_observation_ts for watchpane sparklines", """
+            CREATE TABLE IF NOT EXISTS sensor_observation_ts (
+                sensor   TEXT NOT NULL,
+                scope    TEXT NOT NULL,
+                ts       REAL NOT NULL,
+                score    REAL NOT NULL,
+                baseline REAL,
+                status   TEXT,
+                PRIMARY KEY (sensor, scope, ts)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sensor_obs_lookup
+                ON sensor_observation_ts (sensor, scope, ts DESC);
+            CREATE INDEX IF NOT EXISTS idx_sensor_obs_ttl
+                ON sensor_observation_ts (ts);
+        """),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -1621,6 +1642,40 @@ class RadarDB:
     def ts_total_points(self) -> int:
         row = self._get_conn().execute("SELECT COUNT(*) FROM time_series_ts").fetchone()
         return row[0] if row else 0
+
+    # ── sensor_observation_ts (Phase 3 watchpane sparklines) ────────────────
+    # Per-sensor per-scope observation series. Written from the scoring tick
+    # after cache swap; read by /api/v2/sensors/<n>/observations to render
+    # real 1h sparklines. 24h TTL is enough for the planned 1h–6h windows.
+    def sensor_obs_record(
+        self, sensor: str, scope: str, ts: float, score: float,
+        baseline: float | None = None, status: str | None = None,
+        ttl_sec: float = 86400.0,
+    ) -> None:
+        """Insert one observation point and opportunistically prune > ttl_sec."""
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT OR REPLACE INTO sensor_observation_ts "
+                "(sensor, scope, ts, score, baseline, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (sensor, scope, ts, float(score), baseline, status),
+            )
+            cutoff = ts - ttl_sec
+            conn.execute(
+                "DELETE FROM sensor_observation_ts WHERE ts < ?",
+                (cutoff,),
+            )
+
+    def sensor_obs_recent(
+        self, sensor: str, scope: str, since_ts: float,
+    ) -> list[tuple[float, float, float | None, str | None]]:
+        """Return [(ts, score, baseline, status), ...] for a sensor/scope since cutoff."""
+        rows = self._get_conn().execute(
+            "SELECT ts, score, baseline, status FROM sensor_observation_ts "
+            "WHERE sensor=? AND scope=? AND ts>=? ORDER BY ts",
+            (sensor, scope, since_ts),
+        ).fetchall()
+        return [(r[0], r[1], r[2], r[3]) for r in rows]
 
     # ── time_series value-only (combined/l3/l7) ─────────────────────────────
     def series_append(self, theater: str, series_type: str,

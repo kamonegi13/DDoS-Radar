@@ -2727,6 +2727,23 @@ def get_threat_data():
                 _prev_scenario_domains[_focused_id] = dict(_cur_doms)
                 _prev_scenario_signals[_focused_id] = _cur_sigs
 
+        # Phase 3 Layer 3: persist per-sensor observation row for the focused
+        # scope so /api/v2/sensors/<n>/observations can render real 1h
+        # sparklines (no longer degraded). One row per rationale entry.
+        # Failures are swallowed — telemetry must never break the score path.
+        try:
+            for _r in rationale:
+                _db.sensor_obs_record(
+                    sensor=_r.sensor,
+                    scope="focused",
+                    ts=current_time,
+                    score=float(_r.score or 0),
+                    baseline=None,
+                    status=_r.status,
+                )
+        except Exception:
+            log.debug("[Watchpane] sensor_obs persist skipped", exc_info=True)
+
         _db.alert_append({
             "ts": current_time, "threat_level": threat_level, "threat_raw": tl_raw, "threat_held": tl_held, "score": total_score, "score_with_bonus": score_with_bonus,
             "convergence_level": convergence_level, "convergence_bonus": conv_bonus,

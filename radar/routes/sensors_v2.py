@@ -1,12 +1,12 @@
 """v2 sensor observation API — Layer 3 (Sensor Watchpane) backend.
 
 Phase 3 task 4 (per docs/design/v2-ui.md §6, §7.1): expose a per-sensor
-observation surface for the analyst watchpane. The full design calls for a
-new `sensor_observation_ts` SQLite table populated by the scoring tick,
-returning real 1h sparklines. Until that schema migration lands, this
-endpoint operates in **degraded mode** as documented in §7.1: it returns
-the current observation as a single-point series with `history_shallow:
-true`, sourced from the global cache's `rationale_matrix`.
+observation surface for the analyst watchpane. After the v25 migration
+(Phase 3 follow-up) the scoring tick persists each sensor's score per
+cycle into `sensor_observation_ts`, so this endpoint returns real
+multi-point series for the requested window. Until at least 2 points have
+accumulated for a sensor (fresh DB / first cycle) it falls back to the
+prior **degraded mode** with `history_shallow: true`.
 
 Gated behind `config.V2_API_ENABLED` and `_require_analyst()` consistent
 with the rest of v2 surfaces.
@@ -123,34 +123,47 @@ def v2_sensor_observations(sensor_name: str):
     scope = request.args.get("scope", "focused") or "focused"
     hours = _safe_int(request.args.get("hours"), 1, min_val=1, max_val=24)
 
-    entry = _lookup_sensor_observation(sensor_name, scope)
     now_ts = time.time()
+    cutoff = now_ts - hours * 3600.0
 
-    observations: list[dict[str, Any]] = []
+    # Pull persisted history from sensor_observation_ts (v25 migration).
+    persisted: list[tuple[float, float, float | None, str | None]] = []
+    try:
+        from radar.database import db as _db
+        persisted = _db.sensor_obs_recent(sensor_name, scope, cutoff)
+    except Exception:
+        persisted = []  # Fall back to degraded mode below.
+
+    observations: list[dict[str, Any]] = [
+        {"ts": ts, "value": score, "baseline": baseline, "delta_vs_baseline": None}
+        for (ts, score, baseline, _status) in persisted
+    ]
+
+    # Always overlay the current-cycle qualitative state from rationale_matrix
+    # so the row colour reflects suppress/fired even when history is shallow.
+    entry = _lookup_sensor_observation(sensor_name, scope)
     status: str | None = None
     fired_reason: str | None = None
     suppressed: bool = False
     suppress_reason: str | None = None
     raw_value: Any = None
-
     if entry is not None:
         status = entry.get("status")
         fired_reason = entry.get("fired_reason")
         suppressed = bool(entry.get("suppressed", False))
         suppress_reason = entry.get("suppress_reason")
         raw_value = entry.get("value")
-        # `score` is the deriver-normalised numeric used by scoring; the
-        # underlying `value` is opaque (sometimes a label, sometimes a number).
-        # Plot the score so the sparkline has a numeric y-axis.
-        score = entry.get("score")
-        if score is None:
-            score = 0
-        observations.append({
-            "ts": now_ts,
-            "value": score,
-            "baseline": None,
-            "delta_vs_baseline": None,
-        })
+        # If we have no persisted points yet (fresh DB / first cycle), seed
+        # the chart with the current observation so the watchpane never
+        # renders an empty box.
+        if not observations:
+            score_now = entry.get("score") or 0
+            observations.append({
+                "ts": now_ts, "value": score_now,
+                "baseline": None, "delta_vs_baseline": None,
+            })
+
+    history_shallow = len(observations) < 2
 
     return jsonify({
         "api_version": "v2",
@@ -160,9 +173,7 @@ def v2_sensor_observations(sensor_name: str):
         "domain": _SENSOR_INDEX[sensor_name].get("domain"),
         "baseline_window_hours": hours,
         "observations": observations,
-        "history_shallow": True,
-        # Surface qualitative state from the current cycle so the watchpane
-        # can colour the row even without history.
+        "history_shallow": history_shallow,
         "current": {
             "status": status,
             "fired_reason": fired_reason,
