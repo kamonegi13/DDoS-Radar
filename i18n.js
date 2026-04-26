@@ -97,7 +97,7 @@ const LANG = {
     // Sensor Watchpane (Layer 3)
     'watchpane.title':                'Sensor Watchpane',
     'hud.coord.toggle.label':         'Coord links',
-    'hud.coord.toggle.tip':           'Coordination link visibility on the map. Focused scenario already scopes eligible countries; in dense scenarios overlap saturates at a structural baseline (most pairs ≥70%) and conveys no actionable signal at a glance.\nOFF: hide all links (default — cleanest map).\nSTRONG: only pairs with coordIdx ≥ 60 — use when investigating a specific cluster.\nALL: every pair above OVERLAP_THRESHOLD — full picture, noisy.',
+    'hud.coord.toggle.tip':           'Coordination link visibility on the map. Powered by the IDF-weighted overlap (calculate_overlap_idf): ubiquitous global ASNs (Cloudflare/AWS/etc.) are suppressed and only rare ASN co-occurrence is scored, so peacetime baseline reads close to 0 and elevated values reflect genuinely shared infrastructure.\nOFF: hide all links (current default — cleanest map).\nSTRONG: pairs with coordIdx ≥ 1.5 (≈P95) — analyst-actionable, top ~5%.\nALL: every pair above the noise floor (≥ 0.5) — full picture.',
     'hud.coord.mode.all':             'ALL',
     'hud.coord.mode.strong':          'STRONG',
     'hud.coord.mode.off':             'OFF',
@@ -1680,7 +1680,7 @@ const LANG = {
     // Sensor Watchpane (Layer 3)
     'watchpane.title':                'センサー監視盤',
     'hud.coord.toggle.label':         'Coord 線',
-    'hud.coord.toggle.tip':           '地図上の Coordination 線の表示。focused シナリオで対象国は既に絞り込み済み。多国構成シナリオでは構造的ベースライン（多数ペアが ≥70%）で飽和し、平常時から脈動するため一目での示唆は乏しい。\nOFF: 全非表示（既定 — 地図が最も静粛）。\nSTRONG: coordIdx ≥ 60 のみ — 特定クラスタを調査する時に使用。\nALL: OVERLAP_THRESHOLD 超の全ペア — 全体像、賑やか。',
+    'hud.coord.toggle.tip':           '地図上の Coordination 線の表示。IDF 重み付き overlap (calculate_overlap_idf) を使用：Cloudflare/AWS など世界共通の ASN は抑制され、希少な ASN 共起のみがスコアされるため、平常時はほぼ 0、上昇時は実質的なインフラ共有を示す。\nOFF: 全非表示（現状の既定 — 地図が最も静粛）。\nSTRONG: coordIdx ≥ 1.5（≈P95）のみ — analyst が動くべき上位 5%。\nALL: noise floor (≥ 0.5) 超の全ペア — 全体像。',
     'hud.coord.mode.all':             'ALL',
     'hud.coord.mode.strong':          'STRONG',
     'hud.coord.mode.off':             'OFF',

@@ -5602,10 +5602,64 @@
     if (document.readyState !== 'loading') setTimeout(_renderCoordToggleLabel, 0);
     else document.addEventListener('DOMContentLoaded', _renderCoordToggleLabel);
 
-    function _coordColor(coordIdx, isC2Sync) {
-        if (isC2Sync && coordIdx > 60) return '#ff4444';
-        if (coordIdx > 70) return '#ff8833';
-        if (coordIdx > 45) return '#ffcc44';
+    // ─── Source-dependent parameter pack ─────────────────────────────────────
+    // Coord links can be driven by raw-overlap (legacy 0-100 scale) or by the
+    // IDF-weighted shadow surface (sparse 0-~5 scale). All scale-sensitive
+    // numbers (thresholds, bonuses, color tiers, display format) live here so
+    // the actual rendering loop is source-agnostic.
+    //
+    // Default 'idf_l3' reflects A-1 calibration: raw mode saturates at 30+
+    // for ~all pairs in dense scenarios (no actionable signal). L3 is a more
+    // stable readout than per-tick IDF (n=21 / 1 tick is thin per A-1 notes).
+    const _COORD_DATA_SOURCE = 'idf_l3';   // 'raw' | 'idf' | 'idf_l3'
+
+    function _buildCoordParams(source, strat) {
+        // Raw legacy params (kept verbatim — known-good behaviour).
+        const rawParams = {
+            field: 'correlations',
+            l3Field: 'correlations_l3', l7Field: 'correlations_l7',
+            scaleMax: 100,
+            threshold: 15,                 // OVERLAP_THRESHOLD
+            strongMin: _COORD_STRONG_MIN,  // 60
+            // Color tiers
+            hotTier: 70, midTier: 45, c2HighTier: 60,
+            // Independent-evidence bonuses (DDoS spike, C2-SYNC, strike pair)
+            bonusBoth: 10, bonusC2Sync: 15, bonusC2Partial: 5, bonusStrike: 10,
+            displayFormat: (v) => v.toFixed(0) + '%',
+        };
+        // IDF params — bonuses + color tiers scaled by ~1/20 to preserve the
+        // legacy semantic (independent evidence adds ~10–25% on top of base
+        // overlap). All cutoffs come from A-1 percentile data (v2-migration §10.2).
+        const idfBaseParams = {
+            scaleMax: 8,                   // soft cap; live max ~5.4 (idf_l3)
+            threshold: _COORD_IDF_OVERLAP_THRESHOLD, // 0.5
+            strongMin: _COORD_IDF_STRONG_MIN,        // 1.5
+            hotTier: 2.0, midTier: 1.0, c2HighTier: _COORD_IDF_STRONG_MIN, // 1.5
+            bonusBoth: 0.5, bonusC2Sync: 0.75, bonusC2Partial: 0.25, bonusStrike: 0.5,
+            displayFormat: (v) => v.toFixed(2),
+        };
+        if (source === 'raw') return rawParams;
+        if (source === 'idf') {
+            return { ...idfBaseParams, field: 'correlations_idf',
+                     l3Field: 'correlations_idf_l3', l7Field: 'correlations_idf_l7' };
+        }
+        // 'idf_l3' (default) — fall back to per-tick idf if l3 has not warmed
+        // up yet (every value 0). Avoids a silent empty map on a fresh DB.
+        const l3 = strat && strat.correlations_idf_l3;
+        const l3Empty = !l3 || Object.values(l3).every(v => !v);
+        if (l3Empty && strat && strat.correlations_idf
+            && Object.values(strat.correlations_idf).some(v => v > 0)) {
+            return { ...idfBaseParams, field: 'correlations_idf',
+                     l3Field: 'correlations_idf_l3', l7Field: 'correlations_idf_l7' };
+        }
+        return { ...idfBaseParams, field: 'correlations_idf_l3',
+                 l3Field: 'correlations_idf_l3', l7Field: 'correlations_idf_l7' };
+    }
+
+    function _coordColor(coordIdx, isC2Sync, params) {
+        if (isC2Sync && coordIdx > params.c2HighTier) return '#ff4444';
+        if (coordIdx > params.hotTier) return '#ff8833';
+        if (coordIdx > params.midTier) return '#ffcc44';
         return '#66ffee';
     }
 
@@ -5614,7 +5668,10 @@
         const mode = _getCoordLinkMode();
         if (mode === 'off') return;
         const strat = data && data.strategic_alert;
-        if (!strat || !strat.correlations) return;
+        if (!strat) return;
+        const params = _buildCoordParams(_COORD_DATA_SOURCE, strat);
+        const correlations = strat[params.field];
+        if (!correlations) return;
 
         const targets = data.targets || [];
         const posMap = {}, spikeMap = {};
@@ -5624,9 +5681,8 @@
         });
 
         // STRONG mode: only render pairs whose final coordIdx >= threshold.
-        // Filters out the noisy long tail of low/mid pairs that the
-        // OVERLAP_THRESHOLD=15 floor + isC2Sync +15 boost otherwise produce.
-        const minCoordIdx = (mode === 'strong') ? _COORD_STRONG_MIN : 0;
+        // Under IDF this drops to top ~5% (P95) — heavy filter by design.
+        const minCoordIdx = (mode === 'strong') ? params.strongMin : 0;
 
         const tc = (strat.analytics || {}).temporal_coherence || {};
         const isC2Sync = tc.is_c2_sync || false;
@@ -5634,35 +5690,34 @@
         const strikes = strat.adversary_strikes || [];
         const strikeTargets = new Set(strikes.map(s => s.target));
 
-        const OVERLAP_THRESHOLD = 15;
         const diamondPlaced = new Set();
 
-        for (const [pair, overlap] of Object.entries(strat.correlations)) {
+        for (const [pair, overlap] of Object.entries(correlations)) {
             const [a, b] = pair.split('-');
             const ca = posMap[a], cb = posMap[b];
             if (!ca || !cb) continue;
 
             let coordIdx = overlap;
             const bothElevated = spikeMap[a] > 2 && spikeMap[b] > 2;
-            if (bothElevated) coordIdx += 10;
-            if (isC2Sync) coordIdx += 15;
-            else if (c2Score > 0) coordIdx += 5;
-            if (strikeTargets.has(a) && strikeTargets.has(b)) coordIdx += 10;
-            coordIdx = Math.min(100, Math.max(0, coordIdx));
-            if (coordIdx < OVERLAP_THRESHOLD) continue;
+            if (bothElevated) coordIdx += params.bonusBoth;
+            if (isC2Sync) coordIdx += params.bonusC2Sync;
+            else if (c2Score > 0) coordIdx += params.bonusC2Partial;
+            if (strikeTargets.has(a) && strikeTargets.has(b)) coordIdx += params.bonusStrike;
+            coordIdx = Math.min(params.scaleMax, Math.max(0, coordIdx));
+            if (coordIdx < params.threshold) continue;
             if (coordIdx < minCoordIdx) continue;
 
-            const norm = Math.min(1, (coordIdx - OVERLAP_THRESHOLD) / (100 - OVERLAP_THRESHOLD));
-            const color = _coordColor(coordIdx, isC2Sync);
-            const isC2High = isC2Sync && coordIdx > 60;
+            const norm = Math.min(1, (coordIdx - params.threshold) / (params.scaleMax - params.threshold));
+            const color = _coordColor(coordIdx, isC2Sync, params);
+            const isC2High = isC2Sync && coordIdx > params.c2HighTier;
 
             // Tiered visual intensity: low(cyan) is subtle, high(red) is aggressive
             let coreW, glowW, glowOp, speedCls;
             if (isC2High) {
                 coreW = 4; glowW = 12; glowOp = 0.35; speedCls = 'coord-core-fast';
-            } else if (coordIdx > 70) {
+            } else if (coordIdx > params.hotTier) {
                 coreW = 3; glowW = 10; glowOp = 0.22; speedCls = 'coord-core-fast';
-            } else if (coordIdx > 45) {
+            } else if (coordIdx > params.midTier) {
                 coreW = 2; glowW = 7; glowOp = 0.12; speedCls = 'coord-core-med';
             } else {
                 coreW = 1; glowW = 4; glowOp = 0.05; speedCls = 'coord-core-slow';
@@ -5683,11 +5738,15 @@
             }).addTo(coordLinkLayer);
 
 
-            // Rich tooltip with signal breakdown
-            const l3 = strat.correlations_l3 ? (strat.correlations_l3[pair] || 0).toFixed(0) : '—';
-            const l7 = strat.correlations_l7 ? (strat.correlations_l7[pair] || 0).toFixed(0) : '—';
-            let tipHtml = `<b>${a} ↔ ${b}</b> — Coord: ${coordIdx.toFixed(0)}%`;
-            tipHtml += `<br><span style="color:#888">Origin:</span> ${overlap.toFixed(0)}% (<span style="color:#ff6666">L3:${l3}%</span> <span style="color:#66ff66">L7:${l7}%</span>)`;
+            // Rich tooltip with signal breakdown — uses the same source the
+            // map is rendering from so the analyst sees consistent numbers.
+            const l3v = strat[params.l3Field] ? (strat[params.l3Field][pair] || 0) : null;
+            const l7v = strat[params.l7Field] ? (strat[params.l7Field][pair] || 0) : null;
+            const fmt = params.displayFormat;
+            const l3s = l3v == null ? '—' : fmt(l3v);
+            const l7s = l7v == null ? '—' : fmt(l7v);
+            let tipHtml = `<b>${a} ↔ ${b}</b> — Coord: ${fmt(coordIdx)}`;
+            tipHtml += `<br><span style="color:#888">Origin:</span> ${fmt(overlap)} (<span style="color:#ff6666">L3:${l3s}</span> <span style="color:#66ff66">L7:${l7s}</span>)`;
             if (bothElevated) tipHtml += `<br><span style="color:#ffaa00">▲ Both elevated (${spikeMap[a].toFixed(1)}× / ${spikeMap[b].toFixed(1)}×)</span>`;
             if (isC2Sync) tipHtml += `<br><span style="color:#ff2200">⚡ C2-SYNC confirmed</span>`;
             else if (c2Score > 0) tipHtml += `<br><span style="color:#ffaa00">◉ Partial temporal coherence</span>`;
@@ -5699,7 +5758,7 @@
             const midLng = (ca.lng + cb.lng) / 2;
             const labelIcon = L.divIcon({
                 className: '',
-                html: `<div style="font-size:13px;font-weight:bold;font-family:monospace;color:${color};text-shadow:0 0 6px rgba(0,0,0,0.95),0 0 2px rgba(0,0,0,0.8);white-space:nowrap;pointer-events:none;">${coordIdx.toFixed(0)}%</div>`,
+                html: `<div style="font-size:13px;font-weight:bold;font-family:monospace;color:${color};text-shadow:0 0 6px rgba(0,0,0,0.95),0 0 2px rgba(0,0,0,0.8);white-space:nowrap;pointer-events:none;">${params.displayFormat(coordIdx)}</div>`,
                 iconSize: [40, 18], iconAnchor: [20, 9],
             });
             L.marker([midLat, midLng], {icon: labelIcon, interactive: false}).addTo(coordLinkLayer);
