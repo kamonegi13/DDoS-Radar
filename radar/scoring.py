@@ -3,6 +3,7 @@
 from __future__ import annotations
 import hashlib
 import logging
+import math
 import requests
 import threading
 import time
@@ -673,6 +674,67 @@ def calculate_overlap(dist1: dict, dist2: dict) -> float:
     s2 = sum(dist2.values()) or 1.0
     all_keys = set(dist1) | set(dist2)
     return round(sum(min(dist1.get(k, 0.0) / s1, dist2.get(k, 0.0) / s2) for k in all_keys) * 100, 2)
+
+
+def compute_idf_weights(distributions: dict) -> dict:
+    """Build TF-IDF style inverse-document-frequency weights for ASN keys.
+
+    distributions: {country_code: {asn_key: weight}}
+    Returns: {asn_key: idf_weight in [0, 1]}, normalized so the rarest ASN has weight 1.
+
+    Rationale: in dense scenarios, large global cloud/CDN ASNs (Google,
+    Cloudflare, AWS) appear in every country's attack-origin distribution and
+    dominate raw histogram intersection. IDF weighting suppresses these
+    structural-baseline ASNs (idf ≈ 0 when N_docs == N_total) and amplifies
+    rarer ASNs that are genuine signals of coordinated targeting.
+    """
+    if not distributions:
+        return {}
+    n_docs = sum(1 for d in distributions.values() if d)
+    if n_docs <= 0:
+        return {}
+    df: dict[str, int] = {}
+    for d in distributions.values():
+        if not d:
+            continue
+        for k in d.keys():
+            df[k] = df.get(k, 0) + 1
+    if not df:
+        return {}
+    # Standard IDF: log(N / df). +1 in numerator avoids -inf for ubiquitous keys
+    # while still driving them close to zero. We then normalize to [0, 1] so
+    # the resulting overlap stays in a familiar 0-100 range.
+    raw = {k: math.log((n_docs + 1) / (cnt + 1)) for k, cnt in df.items()}
+    max_w = max(raw.values()) or 1.0
+    if max_w <= 0:
+        return {k: 0.0 for k in raw}
+    return {k: max(0.0, w / max_w) for k, w in raw.items()}
+
+
+def calculate_overlap_idf(dist1: dict, dist2: dict, idf_weights: dict) -> float:
+    """IDF-weighted histogram intersection (Phase 4 candidate replacement).
+
+    Behaves like calculate_overlap, but each ASN's contribution is multiplied
+    by its IDF weight. Background-noise ASNs (present in all countries) get
+    weight ≈ 0 and stop saturating the index; rare/coordinated ASNs dominate.
+    Returns a value in [0, 100].
+    """
+    if not dist1 or not dist2 or not idf_weights:
+        return 0.0
+    s1 = sum(dist1.values()) or 1.0
+    s2 = sum(dist2.values()) or 1.0
+    all_keys = set(dist1) | set(dist2)
+    # weighted intersection
+    num = sum(
+        min(dist1.get(k, 0.0) / s1, dist2.get(k, 0.0) / s2) * idf_weights.get(k, 0.0)
+        for k in all_keys
+    )
+    # weighted self-intersection ceiling: if both distributions were identical
+    # and concentrated entirely on the highest-IDF key, the result would equal
+    # idf_max == 1.0 (post-normalization). So scaling by 100 keeps the index
+    # comparable to the existing 0-100 range without further calibration.
+    return round(num * 100, 2)
+
 
 _asn_cache: dict = {}  # {target_code: {"time": float, "data": dict}}
 _asn_cache_lock = threading.Lock()

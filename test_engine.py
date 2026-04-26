@@ -23,6 +23,8 @@ from radar_api import (
     hod_baseline_db,
     record_hod_sample,
     calculate_overlap,
+    calculate_overlap_idf,
+    compute_idf_weights,
     compute_confidence,
     SEQUENCE_WINDOW,
     compute_origin_entropy,
@@ -372,6 +374,58 @@ class TestHelpers:
         d2 = {"A": 2.0, "C": 10.0}       # normalized: A=16.67%, C=83.33%
         # overlap = min(62.5,16.67) + min(37.5,0) + min(0,83.33) = 16.67%
         assert calculate_overlap(d1, d2) == 16.67
+
+    def test_compute_idf_weights_ubiquitous_zero(self):
+        # AS_GLOBAL appears in every country → idf should collapse near zero
+        # (post-normalization), AS_RARE appears once → idf == 1.0
+        dists = {
+            "JP": {"AS_GLOBAL": 50.0, "AS_RARE": 10.0},
+            "US": {"AS_GLOBAL": 60.0},
+            "TW": {"AS_GLOBAL": 30.0},
+        }
+        w = compute_idf_weights(dists)
+        assert w["AS_RARE"] == 1.0
+        assert w["AS_GLOBAL"] < w["AS_RARE"]
+        assert w["AS_GLOBAL"] >= 0.0
+
+    def test_compute_idf_weights_empty(self):
+        assert compute_idf_weights({}) == {}
+        assert compute_idf_weights({"JP": {}}) == {}
+
+    def test_calculate_overlap_idf_suppresses_global_baseline(self):
+        # JP and US are dominated by the same global ASN that also hits TW.
+        # Raw overlap → high (~80%); IDF overlap → low because the shared
+        # ASN is ubiquitous and gets weight ~0.
+        dists = {
+            "JP": {"AS_GLOBAL": 80.0, "AS_JP_LOCAL": 20.0},
+            "US": {"AS_GLOBAL": 80.0, "AS_US_LOCAL": 20.0},
+            "TW": {"AS_GLOBAL": 100.0},
+        }
+        w = compute_idf_weights(dists)
+        raw  = calculate_overlap(dists["JP"], dists["US"])
+        idf  = calculate_overlap_idf(dists["JP"], dists["US"], w)
+        assert raw >= 70.0  # structural baseline saturation
+        assert idf <  raw   # IDF must dampen the shared-noise contribution
+        assert idf <  10.0  # essentially zero coordination signal
+
+    def test_calculate_overlap_idf_amplifies_rare_coincidence(self):
+        # JP and PH share a RARE ASN that no one else has → IDF should give
+        # this real signal a non-trivial score even though raw overlap is small.
+        dists = {
+            "JP": {"AS_GLOBAL": 90.0, "AS_RARE": 10.0},
+            "PH": {"AS_GLOBAL": 90.0, "AS_RARE": 10.0},
+            "US": {"AS_GLOBAL": 100.0},
+            "TW": {"AS_GLOBAL": 100.0},
+        }
+        w = compute_idf_weights(dists)
+        idf_jp_ph = calculate_overlap_idf(dists["JP"], dists["PH"], w)
+        idf_jp_us = calculate_overlap_idf(dists["JP"], dists["US"], w)
+        # JP-PH share the RARE ASN; JP-US do not — IDF must rank JP-PH higher
+        assert idf_jp_ph > idf_jp_us
+
+    def test_calculate_overlap_idf_empty_inputs(self):
+        assert calculate_overlap_idf({}, {"A": 1}, {"A": 1.0}) == 0.0
+        assert calculate_overlap_idf({"A": 1}, {"A": 1}, {}) == 0.0
 
     def test_compute_confidence_state_asn(self):
         assert compute_confidence(3.0, "CN", False, True) == "HIGH"

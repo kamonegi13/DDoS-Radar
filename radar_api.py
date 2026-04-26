@@ -17,7 +17,8 @@ from radar.engine import WeightedConvergenceEngine, SensorRegistry  # noqa: F401
 from radar.scoring import (  # noqa: F401
     register_sequence_event, compute_sequence_bonus,
     compute_hod_zscore, record_hod_sample,
-    calculate_overlap, compute_confidence,
+    calculate_overlap, calculate_overlap_idf, compute_idf_weights,
+    compute_confidence,
     compute_adaptive_zscore,
     compute_origin_entropy, track_entropy_change,
     _entropy_history,
