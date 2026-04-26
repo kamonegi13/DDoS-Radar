@@ -15,7 +15,7 @@ structural changes to keep maps in sync.
 | `radar/llm_client.py` | [radar.llm_client.md](radar.llm_client.md) | 370 |
 | `radar/persistence.py` | [radar.persistence.md](radar.persistence.md) | 139 |
 | `radar/scheduler.py` | [radar.scheduler.md](radar.scheduler.md) | 304 |
-| `radar/config.py` | [radar.config.md](radar.config.md) | 527 |
+| `radar/config.py` | [radar.config.md](radar.config.md) | 552 |
 | `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 2921 |
 | `radar/routes/analytics.py` | [radar.routes.analytics.md](radar.routes.analytics.md) | 1748 |
 | `radar/routes/admin.py` | [radar.routes.admin.md](radar.routes.admin.md) | 781 |
@@ -32,3 +32,5 @@ structural changes to keep maps in sync.
 | `radar/conclusions/threat_level.py` | [radar.conclusions.threat_level.md](radar.conclusions.threat_level.md) | 129 |
 | `radar/conclusions/anomaly.py` | [radar.conclusions.anomaly.md](radar.conclusions.anomaly.md) | 230 |
 | `radar/conclusions/shadow_metrics.py` | [radar.conclusions.shadow_metrics.md](radar.conclusions.shadow_metrics.md) | 125 |
+| `radar/conclusions/ground_truth_etl.py` | [radar.conclusions.ground_truth_etl.md](radar.conclusions.ground_truth_etl.md) | 348 |
+| `radar/sensors/acled.py` | [radar.sensors.acled.md](radar.sensors.acled.md) | 199 |

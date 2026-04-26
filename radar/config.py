@@ -262,6 +262,31 @@ V2_ATTACK_MODE_LLM_AUGMENT_ENABLED = os.getenv(
 # Default 7 days = 604_800; can be tightened in production.
 V2_CONTINUITY_FAILURE_SEC = float(os.getenv("V2_CONTINUITY_FAILURE_SEC", str(7 * 24 * 3600)))
 
+# v2.0 Phase 2 完了条件 (ADR-V2-005): ACLED + GDELT auto-correlation ETL.
+# When ENABLED, scripts/run_ground_truth_etl.py classifies recent conclusions
+# against ACLED political-violence events + GDELT tone spikes and writes
+# auto-feedback rows (analyst_id="auto:acled" / "auto:gdelt") into
+# analyst_feedback for Design W recall calibration.
+V2_GROUND_TRUTH_ETL_ENABLED = os.getenv(
+    "V2_GROUND_TRUTH_ETL_ENABLED", "false",
+).lower() in ("true", "1", "yes")
+ACLED_API_KEY = os.getenv("ACLED_API_KEY", "")
+ACLED_API_EMAIL = os.getenv("ACLED_API_EMAIL", "")
+# Forward window for matching escalation evidence to a conclusion.
+GROUND_TRUTH_WINDOW_HOURS = int(os.getenv("GROUND_TRUTH_WINDOW_HOURS", "72"))
+# A high-confidence conclusion older than this with zero corroborating events
+# is auto-labeled FALSE_POSITIVE. 7 days mirrors the inconclusive_continuity
+# rule (ADR-V2-010) so noise patterns line up.
+GROUND_TRUTH_FALSE_POSITIVE_HORIZON_DAYS = int(
+    os.getenv("GROUND_TRUTH_FALSE_POSITIVE_HORIZON_DAYS", "7"),
+)
+# An ACLED event with this many fatalities (or more) inside the forward
+# window flips a TL=1 conclusion to FALSE_NEGATIVE — the NP1-critical case
+# where the tool stayed quiet through a real escalation.
+GROUND_TRUTH_FALSE_NEGATIVE_FATALITIES = int(
+    os.getenv("GROUND_TRUTH_FALSE_NEGATIVE_FATALITIES", "10"),
+)
+
 CF_HEADERS = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
 
 AIRSPACE_WINDOW             = int(os.getenv("AIRSPACE_WINDOW", "20"))

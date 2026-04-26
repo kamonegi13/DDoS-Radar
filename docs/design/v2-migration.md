@@ -155,6 +155,15 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 - **公開 DB**: ACLED (Armed Conflict Location & Event Data) + GDELT (Global Database of Events, Language, and Tone)
 - **代替案**: CISA KEV → 採用却下 (本ツールは escalation precursor、CISA KEV は exploit)
 - **理由**: 自動突合で recall 計測の母数を稼ぎ Design W の統計的信頼性を上げる、手動 UI で質的フィードバックを補う
+- **実装** (2026-04-26):
+  - **ACLED 取得**: `radar/sensors/acled.py` の `fetch_events()` (BaseSensor を継承しない pure client。scoring tick とは別 cadence のため)。`ACLED_API_KEY` / `ACLED_API_EMAIL` 必須、欠落時は空リスト返却 (NP3 graceful degrade)。`_ISO2_TO_ACLED_COUNTRY` で v1 strategic 12 国を ACLED 名にマップ。HTTP/JSON エラーは握り潰し、log.warning のみ
+  - **GDELT 突合**: 既存 `gdelt_dow` テーブルから per-weekday baseline を再構築し、`dow_z < -2.0` (live sensor の ALERT 閾値と一致) のスパイクを `ExternalEvent(severity=streak)` として emit。3 日連続で severity=2
+  - **分類器**: `radar/conclusions/ground_truth_etl.py` の `classify_conclusion(conclusion, evidence, participant_countries, ...)` — pure function。ルール優先順: (1) FALSE_NEGATIVE (TL=1 + ACLED severity≥10 in window) → NP1 critical、(2) TRUE_POSITIVE (high-severity TL/ATTACK_MODE + corroborating event)、(3) FALSE_POSITIVE (high-severity + horizon 経過 + 0 event)、(4) TRUE_NEGATIVE (TL=1 + horizon 経過 + 0 event)。PER_DOMAIN/TREND/INSUFFICIENT_DATA は対象外 (Design W primary recall に直結しない)
+  - **provenance**: `analyst_id` は `auto:acled` / `auto:gdelt` / `auto:both` で source を識別。`summarize_feedback().distinct_analysts` を膨らませない (auto は source 単位で 1 票)
+  - **Idempotency**: `has_existing_auto_feedback(conclusion_id, analyst_id)` で既存行を skip。cron 再実行で重複行を作らない
+  - **job runner**: `scripts/run_ground_truth_etl.py` — `--dry-run` / `--scenario` / `--no-gdelt` / `--force` 対応。`V2_GROUND_TRUTH_ETL_ENABLED=false` で no-op exit (--force で上書き可)
+  - **config**: `V2_GROUND_TRUTH_ETL_ENABLED` (default false), `GROUND_TRUTH_WINDOW_HOURS` (72), `GROUND_TRUTH_FALSE_POSITIVE_HORIZON_DAYS` (7), `GROUND_TRUTH_FALSE_NEGATIVE_FATALITIES` (10)
+  - **tests**: `test_ground_truth_etl.py` 21 件 (4 ルール × 複数ケース、provenance、window エッジ、idempotency、ACLED graceful degrade、ACLED happy path、不正 date 行 drop)
 
 ### ADR-V2-006: theater 撲滅は内部一斉置換 + v1 API adapter
 
@@ -743,7 +752,7 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 - per-domain 構造化稼働
 - importance_score ranking 稼働
 - inconclusive_continuity_log + scheduler job 稼働
-- ACLED + GDELT 自動突合 ETL 稼働
+- ACLED + GDELT 自動突合 ETL 稼働 — **実装済 (2026-04-26)**: ADR-V2-005 参照。`scripts/run_ground_truth_etl.py` + `radar/conclusions/ground_truth_etl.py` + `radar/sensors/acled.py`。flag `V2_GROUND_TRUTH_ETL_ENABLED` 既定 false (ACLED API key 設定 + cron 構成後に opt-in)
 - Design W opt-in 移行
 - 全テスト pass + recall metrics ベースライン記録
 
