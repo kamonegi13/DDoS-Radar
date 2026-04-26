@@ -2613,20 +2613,7 @@
     function _wpLoadState() {
         try {
             const raw = localStorage.getItem(_WP_STORAGE_KEY);
-            if (!raw) return;
-            const parsed = JSON.parse(raw);
-            if (parsed && Array.isArray(parsed.sensors)) {
-                _wpState = {
-                    version: _WP_STATE_VERSION,
-                    sensors: parsed.sensors.filter(s => s && typeof s.name === 'string')
-                                            .map(s => ({
-                                                name: s.name,
-                                                scope: s.scope || 'focused',
-                                                added_at: s.added_at || Date.now(),
-                                                alarm: _wpNormalizeAlarm(s.alarm),
-                                            })),
-                };
-            }
+            _wpState = window.WatchpaneAlarm.loadStateFromRaw(raw, _WP_STATE_VERSION);
         } catch (e) {
             if (window.console) console.debug('[Watchpane] state load failed', e);
         }
@@ -2655,24 +2642,16 @@
     }
 
     // Walk all rows after a refresh, fire one notification per false→true edge.
-    // Suppressed while already active to avoid notification spam on every poll.
+    // Pure edge-trigger logic lives in wp_alarm.js — this function only
+    // commits the new state and dispatches notifications for rising rows.
     function _wpEvaluateAlarms() {
-        let changed = false;
-        for (const s of _wpState.sensors) {
-            if (!s.alarm) continue;
-            const env = _wpLastObs.get(_wpRowKey(s.name, s.scope));
-            const wasActive = !!s.alarm.is_active;
-            const nowActive = _wpAlarmMatches(s.alarm, env);
-            if (nowActive !== wasActive) {
-                s.alarm.is_active = nowActive;
-                if (nowActive) {
-                    s.alarm.last_fired_ts = Date.now();
-                    _wpNotify(s, s.alarm);
-                }
-                changed = true;
-            }
-        }
-        if (changed) _wpSaveState();
+        const result = window.WatchpaneAlarm.evaluateAlarmsEdge(
+            _wpState, _wpLastObs, Date.now()
+        );
+        if (!result.changed) return;
+        _wpState = result.nextState;
+        for (const row of result.rising) _wpNotify(row, row.alarm);
+        _wpSaveState();
     }
 
     async function _wpLoadCatalog() {
@@ -3015,7 +2994,7 @@
             }
             return;
         }
-        s.alarm = candidate;
+        _wpState = window.WatchpaneAlarm.applyAlarmToState(_wpState, _wpAlarmEditIdx, candidate);
         // Re-evaluate immediately so the row reflects the new condition without
         // waiting for the next 10s poll.
         _wpEvaluateAlarms();
@@ -3026,8 +3005,7 @@
 
     window._wpClearAlarm = function() {
         if (_wpAlarmEditIdx < 0) return;
-        const s = _wpState.sensors[_wpAlarmEditIdx];
-        if (s) s.alarm = null;
+        _wpState = window.WatchpaneAlarm.applyAlarmToState(_wpState, _wpAlarmEditIdx, null);
         _wpSaveState();
         _wpRender();
         window._wpCloseAlarmEditor();

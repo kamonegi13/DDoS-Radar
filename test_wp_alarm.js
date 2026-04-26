@@ -10,7 +10,10 @@
 'use strict';
 
 const assert = require('assert');
-const { normalizeAlarm, alarmMatches, alarmDescribe } = require('./wp_alarm');
+const {
+    normalizeAlarm, alarmMatches, alarmDescribe,
+    loadStateFromRaw, evaluateAlarmsEdge, applyAlarmToState,
+} = require('./wp_alarm');
 
 let passed = 0;
 let failed = 0;
@@ -177,6 +180,234 @@ test('alarmDescribe: renders human-readable predicate', () => {
 
 test('alarmDescribe: empty for null alarm', () => {
     assert.strictEqual(alarmDescribe(null), '');
+});
+
+// ─── loadStateFromRaw: state migration / hardening ──────────────────────────
+
+test('loadStateFromRaw: null/empty returns empty state with version stamp', () => {
+    const s = loadStateFromRaw(null, 2);
+    assert.deepStrictEqual(s, { version: 2, sensors: [] });
+    const s2 = loadStateFromRaw('', 2);
+    assert.deepStrictEqual(s2, { version: 2, sensors: [] });
+});
+
+test('loadStateFromRaw: malformed JSON yields empty state (no throw)', () => {
+    const s = loadStateFromRaw('{not json', 2);
+    assert.deepStrictEqual(s, { version: 2, sensors: [] });
+});
+
+test('loadStateFromRaw: missing sensors array yields empty state', () => {
+    const s = loadStateFromRaw(JSON.stringify({ foo: 'bar' }), 2);
+    assert.deepStrictEqual(s, { version: 2, sensors: [] });
+});
+
+test('loadStateFromRaw: drops malformed rows (no name string)', () => {
+    const raw = JSON.stringify({ sensors: [
+        { name: 'good_sensor', scope: 'focused' },
+        { scope: 'focused' },                              // no name
+        null,                                              // null row
+        { name: 42 },                                      // wrong type
+    ]});
+    const s = loadStateFromRaw(raw, 2);
+    assert.strictEqual(s.sensors.length, 1);
+    assert.strictEqual(s.sensors[0].name, 'good_sensor');
+});
+
+test('loadStateFromRaw: v1 row (no alarm field) migrates to v2 with alarm=null', () => {
+    const raw = JSON.stringify({ sensors: [
+        { name: 'cyber_signal', scope: 'focused', added_at: 1700000000000 },
+    ]});
+    const s = loadStateFromRaw(raw, 2);
+    assert.strictEqual(s.version, 2);
+    assert.strictEqual(s.sensors[0].alarm, null);
+    assert.strictEqual(s.sensors[0].added_at, 1700000000000);
+});
+
+test('loadStateFromRaw: v2 row with valid alarm normalises through', () => {
+    const raw = JSON.stringify({ sensors: [
+        { name: 's1', scope: 'global', alarm: { field: 'score', op: '>=', value: 70 } },
+    ]});
+    const s = loadStateFromRaw(raw, 2);
+    assert.deepStrictEqual(s.sensors[0].alarm, {
+        field: 'score', op: '>=', value: 70,
+        last_fired_ts: 0, is_active: false, notify: true,
+    });
+});
+
+test('loadStateFromRaw: v2 row with invalid alarm survives with alarm=null', () => {
+    const raw = JSON.stringify({ sensors: [
+        { name: 's1', scope: 'focused', alarm: { field: 'bogus', op: '>', value: 1 } },
+    ]});
+    const s = loadStateFromRaw(raw, 2);
+    assert.strictEqual(s.sensors[0].alarm, null);
+});
+
+test('loadStateFromRaw: defaults scope to focused when missing', () => {
+    const raw = JSON.stringify({ sensors: [{ name: 's1' }]});
+    const s = loadStateFromRaw(raw, 2);
+    assert.strictEqual(s.sensors[0].scope, 'focused');
+});
+
+test('loadStateFromRaw: returns NEW state object (immutability)', () => {
+    const input = { sensors: [{ name: 's1', scope: 'focused' }] };
+    const raw = JSON.stringify(input);
+    const s = loadStateFromRaw(raw, 2);
+    // Mutating the input should never affect the result.
+    input.sensors[0].name = 'mutated';
+    assert.strictEqual(s.sensors[0].name, 's1');
+});
+
+// ─── evaluateAlarmsEdge: rising / falling edges ─────────────────────────────
+
+const obsMap = (entries) => {
+    const m = new Map();
+    for (const [k, v] of entries) m.set(k, v);
+    return m;
+};
+
+test('evaluateAlarmsEdge: no alarm rows → no change, same reference', () => {
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm: null, added_at: 0 },
+    ]};
+    const result = evaluateAlarmsEdge(state, new Map(), 1234);
+    assert.strictEqual(result.changed, false);
+    assert.strictEqual(result.nextState, state);  // identity preserved
+    assert.deepStrictEqual(result.rising, []);
+    assert.deepStrictEqual(result.falling, []);
+});
+
+test('evaluateAlarmsEdge: false→true rising edge emits row & stamps ts', () => {
+    const alarm = normalizeAlarm({ field: 'score', op: '>=', value: 40 });
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm, added_at: 0 },
+    ]};
+    const obs = obsMap([['s1::focused', baseEnv(50, 100, 'FIRED')]]);
+    const result = evaluateAlarmsEdge(state, obs, 9999);
+    assert.strictEqual(result.changed, true);
+    assert.strictEqual(result.rising.length, 1);
+    assert.strictEqual(result.rising[0].alarm.is_active, true);
+    assert.strictEqual(result.rising[0].alarm.last_fired_ts, 9999);
+});
+
+test('evaluateAlarmsEdge: stays-true (no edge) → no rising emit', () => {
+    const alarm = { ...normalizeAlarm({ field: 'score', op: '>=', value: 40 }),
+                    is_active: true, last_fired_ts: 5000 };
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm, added_at: 0 },
+    ]};
+    const obs = obsMap([['s1::focused', baseEnv(50, 100, 'FIRED')]]);  // still ≥40
+    const result = evaluateAlarmsEdge(state, obs, 9999);
+    assert.strictEqual(result.changed, false);
+    assert.strictEqual(result.rising.length, 0);
+});
+
+test('evaluateAlarmsEdge: true→false falling edge reported separately', () => {
+    const alarm = { ...normalizeAlarm({ field: 'score', op: '>=', value: 40 }),
+                    is_active: true, last_fired_ts: 5000 };
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm, added_at: 0 },
+    ]};
+    const obs = obsMap([['s1::focused', baseEnv(10, 100, 'NORMAL')]]);  // now <40
+    const result = evaluateAlarmsEdge(state, obs, 9999);
+    assert.strictEqual(result.changed, true);
+    assert.strictEqual(result.falling.length, 1);
+    assert.strictEqual(result.rising.length, 0);
+    assert.strictEqual(result.falling[0].alarm.is_active, false);
+    // last_fired_ts NOT updated on falling edge
+    assert.strictEqual(result.falling[0].alarm.last_fired_ts, 5000);
+});
+
+test('evaluateAlarmsEdge: never mutates original state object', () => {
+    const alarm = normalizeAlarm({ field: 'score', op: '>=', value: 40 });
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm, added_at: 0 },
+    ]};
+    const stateCopy = JSON.parse(JSON.stringify(state));
+    evaluateAlarmsEdge(state, obsMap([['s1::focused', baseEnv(50, 100, 'FIRED')]]), 1);
+    assert.deepStrictEqual(state, stateCopy);  // input untouched
+});
+
+test('evaluateAlarmsEdge: missing observation env keeps row inactive (no spurious fire)', () => {
+    const alarm = normalizeAlarm({ field: 'score', op: '>=', value: 40 });
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm, added_at: 0 },
+    ]};
+    const result = evaluateAlarmsEdge(state, new Map(), 1);
+    assert.strictEqual(result.changed, false);
+    assert.strictEqual(result.rising.length, 0);
+});
+
+test('evaluateAlarmsEdge: multiple rows — independent edges', () => {
+    const aHigh = normalizeAlarm({ field: 'score', op: '>=', value: 40 });
+    const aLow  = { ...normalizeAlarm({ field: 'score', op: '>=', value: 90 }),
+                    is_active: true, last_fired_ts: 1 };
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm: aHigh, added_at: 0 },  // will rise
+        { name: 's2', scope: 'focused', alarm: aLow,  added_at: 0 },  // will fall
+        { name: 's3', scope: 'focused', alarm: null,  added_at: 0 },  // no alarm
+    ]};
+    const obs = obsMap([
+        ['s1::focused', baseEnv(50, 100, 'FIRED')],   // 50 ≥ 40 → rise
+        ['s2::focused', baseEnv(50, 100, 'FIRED')],   // 50 < 90 → fall
+        ['s3::focused', baseEnv(99, 100, 'FIRED')],
+    ]);
+    const result = evaluateAlarmsEdge(state, obs, 1234);
+    assert.strictEqual(result.rising.length, 1);
+    assert.strictEqual(result.rising[0].name, 's1');
+    assert.strictEqual(result.falling.length, 1);
+    assert.strictEqual(result.falling[0].name, 's2');
+});
+
+test('evaluateAlarmsEdge: accepts plain object instead of Map', () => {
+    const alarm = normalizeAlarm({ field: 'score', op: '>=', value: 40 });
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm, added_at: 0 },
+    ]};
+    const obs = { 's1::focused': baseEnv(50, 100, 'FIRED') };
+    const result = evaluateAlarmsEdge(state, obs, 1);
+    assert.strictEqual(result.changed, true);
+    assert.strictEqual(result.rising.length, 1);
+});
+
+// ─── applyAlarmToState: row alarm setter ────────────────────────────────────
+
+test('applyAlarmToState: sets candidate alarm on target row only', () => {
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm: null, added_at: 0 },
+        { name: 's2', scope: 'focused', alarm: null, added_at: 0 },
+    ]};
+    const a = normalizeAlarm({ field: 'score', op: '>=', value: 70 });
+    const next = applyAlarmToState(state, 0, a);
+    assert.deepStrictEqual(next.sensors[0].alarm, a);
+    assert.strictEqual(next.sensors[1].alarm, null);
+});
+
+test('applyAlarmToState: null candidate clears alarm', () => {
+    const a = normalizeAlarm({ field: 'score', op: '>=', value: 70 });
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm: a, added_at: 0 },
+    ]};
+    const next = applyAlarmToState(state, 0, null);
+    assert.strictEqual(next.sensors[0].alarm, null);
+});
+
+test('applyAlarmToState: out-of-range idx returns same reference', () => {
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm: null, added_at: 0 },
+    ]};
+    assert.strictEqual(applyAlarmToState(state,  5, null), state);
+    assert.strictEqual(applyAlarmToState(state, -1, null), state);
+    assert.strictEqual(applyAlarmToState(state, 1.5, null), state);
+});
+
+test('applyAlarmToState: never mutates input', () => {
+    const state = { version: 2, sensors: [
+        { name: 's1', scope: 'focused', alarm: null, added_at: 0 },
+    ]};
+    const snapshot = JSON.parse(JSON.stringify(state));
+    const a = normalizeAlarm({ field: 'score', op: '>=', value: 70 });
+    applyAlarmToState(state, 0, a);
+    assert.deepStrictEqual(state, snapshot);
 });
 
 // ─── Summary ────────────────────────────────────────────────────────────────
