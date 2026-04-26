@@ -780,6 +780,24 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 
   **次フェーズ (Phase 5 候補)**: 上記 5 ヶ所を 1 箇所ずつ IDF 化 → raw `calculate_overlap` 関数と shadow 計算を削除。各消費者ごとに「IDF レンジでの新閾値はいくつか」を data-driven に決定する必要があり、A-1 と同等の calibration 作業が 5 回分必要なため、独立フェーズとして切り出す。
 
+  ### 10.2.1 Phase 5 — backend raw `correlations` 消費者の IDF 化
+
+  **方針**: blast radius が小さい順に 5 サブタスクへ分割。display / metadata 系 (5-1〜5-3) は behavior change を伴わないので 1 コミットへ束ね、scoring を変える 5-4 は独立コミット。テスト保守の 5-5 は raw 関数自体を残置するため deferred。
+
+  | サブ | site | 種類 | calibration |
+  |------|------|------|-------------|
+  | **5-1** | `analytics.py:309` | display (`len(corr)` のみ — 値非依存) | 不要 |
+  | **5-2** | `core.py:946` | rationale display string `"X.X% overlap"` → `"X.XX IDF overlap"` | 不要 (表示のみ) |
+  | **5-3** | `core.py:1200` | SYNC_DDOS event metadata `max_overlap` → `max_overlap_idf` (write-only) | 不要 (consumer なし) |
+  | **5-4** | `core.py:838,947` | `high_correlation` 閾値 raw `>30.0` → IDF `>=1.5` | A-1 STRONG_MIN を流用。raw 30 は P50≈53% 下回りで常時発火していた校正ミスを修正 |
+  | **5-5** | `test_engine.py` 4 件 | `calculate_overlap()` 直接テスト | 関数自体は残置 (削除しないなら不要) |
+
+  **A-4 監査の訂正**: 当初「`radar.js:3645-3650` で HUD `max ASN overlap: X%` を表示」と記載していたが、実際の grep 結果では radar.js 側に `max_overlap` の数値消費は存在せず、誤記。frontend は A-2 で既に `correlations_idf*` に切替済で raw に依存しない。
+
+  **5-4 の意義**: raw 30% 閾値が `correlations` の P50 (≈53%) を下回っていたため、`cf_botnet_overlap` は通常時から FIRED し続け、`SYNC_DDOS` sequence event の precision を低下させていた。IDF への移行で「ubiquitous な AWS/Cloudflare 共起 (= 攻撃の証跡ではなく commodity ASN 利用)」を分母から外し、true positive のみを残す。recall は STRONG_MIN=1.5 (A-1 calibration の P95 付近) で確保 (NP1 整合)。
+
+  **観察期間**: 5-4 commit 後 7 日、`cf_botnet_overlap` FIRED 頻度と `SYNC_DDOS` 発火回数を観察。期待値は両者とも顕著に減少。減りすぎたら閾値を STRONG_MIN=1.5 から 1.0 (≈P90) へ緩める。
+
 ### 10.3 ロールバック手順
 
 各 Phase で問題発生時:

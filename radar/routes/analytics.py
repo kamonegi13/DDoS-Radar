@@ -306,7 +306,10 @@ def api_salute_report():
     bd     = strat.get("threat_breakdown", {})
     adv_raw = strat.get("adversary_strikes", [])
     adv     = list(dict.fromkeys(a.get("actor", str(a)) if isinstance(a, dict) else str(a) for a in adv_raw))
-    corr   = strat.get("correlations", {})
+    # Phase 5: only `len(corr)` is used here (count of correlation pairs).
+    # Both raw `correlations` and `correlations_idf_l3` share the same key set
+    # so the count is identical — read the IDF surface to drop the raw dep.
+    corr   = strat.get("correlations_idf_l3", {})
     isr    = p8.get("isr", {})
     ais    = p8.get("ais", {})
     narr   = p8.get("narrative", {})

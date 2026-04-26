@@ -834,8 +834,16 @@ def get_threat_data():
             core_theater = primary_ec
         secondary_ecs = [ec for ec in effective_cores if ec != primary_ec]
 
-        # State-directed coordinated ops typically show 20–35% overlap. 45%+ indicates large civilian botnet.
-        high_correlation = any(v > 30.0 for v in correlations.values())
+        # Phase 5-4: high_correlation now thresholded on IDF instead of raw %.
+        #   Raw rationale: "20-35% overlap = state-directed; 45%+ = civilian
+        #   botnet". Calibration (A-1, n=21) showed raw P50≈53%, P95≈87% in
+        #   normal scenarios — i.e. raw 30 fired more than half the time
+        #   because commodity cloud ASNs (AWS/Cloudflare) saturate the index.
+        #   IDF (suppresses ubiquitous ASNs): P50≈0, P95≈1.96, max≈5.43.
+        #   STRONG_MIN = 1.5 marks a real outlier without losing recall (NP1).
+        #   Frontend Coord links (A-2) already use this same threshold.
+        _HIGH_CORR_IDF_MIN = 1.5
+        high_correlation = any(v >= _HIGH_CORR_IDF_MIN for v in correlations_idf_l3.values())
         major_adversary  = len(adversary_strikes) > 0
         tl1_hard = core_spike > 5.0 and core_degraded
 
@@ -943,8 +951,12 @@ def get_threat_data():
                 spike_value += f" [AZ={az_score:.2f} n={az_n}]"
             _cf_conf = _sensor_conf(cf_sensor, sample_count=hod_n, baseline_samples=hod_n)
             add_rat("cf_spike_core", "cyber", "FIRED" if spike_fired else "OK", spike_value, spike_score, spike_reason, confidence=_cf_conf)
-            max_overlap = max(correlations.values(), default=0.0)
-            _overlap_active = add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap:.1f}% overlap", 1 if high_correlation else 0, "Shared botnet >30%" if high_correlation else None, confidence=_cf_conf)
+            # Phase 5-2: rationale display switched from raw % to IDF.
+            # Raw saturated near P50≈53% in normal operation (commodity cloud
+            # ASN co-occurrence), so the percent value was uninformative.
+            # IDF range is 0–~5; values ≥1.5 mean meaningful rare-ASN overlap.
+            max_overlap_idf = max(correlations_idf_l3.values(), default=0.0)
+            _overlap_active = add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap_idf:.2f} IDF overlap", 1 if high_correlation else 0, "Shared botnet IDF≥1.5" if high_correlation else None, confidence=_cf_conf)
             # Graduated L3→L7 vector shift scoring: moderate +1, severe +2
             _core_l7s = target_details.get(primary_ec, {}).get("avg_l7_spike", 0)
             _core_l3s = target_details.get(primary_ec, {}).get("avg_l3_spike", 0)
@@ -1195,9 +1207,12 @@ def get_threat_data():
             # SYNC_DDOS reflects coordinated cross-theater activity, not a
             # property of any single belligerent — fire symmetrically across
             # all effective_cores in dual-core scenarios.
+            # Phase 5-3: SYNC_DDOS metadata switched to IDF. Field renamed to
+            # `max_overlap_idf` so any future consumer sees IDF semantics
+            # explicitly (range 0–~5, not 0–100). Currently no reader exists.
             _seq_fire(core_theater, "SYNC_DDOS",
                                     {"coordinated_theaters": elevated_theaters,
-                                     "max_overlap": max(correlations.values(), default=0.0)},
+                                     "max_overlap_idf": max(correlations_idf_l3.values(), default=0.0)},
                                     scenario_id=focused_id, scenario_wide=True)
 
         # ── v9 sensor rationale ────────────────────────────────────────────────
