@@ -762,7 +762,23 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 
   **検証メモ**: n=21 / 1 tick の thin data なので、A-2 配線後 7 日程度の累積データで再確認すること。escalation 期 (もしあれば) も別途 percentile を取り、平時↔有事の separation が現状候補で取れているかを見る。
 
-  - 残り作業: (a) frontend `updateCoordinationIndex` を `correlations_idf` 参照に変更 (A-2)、(b) Coord 既定 OFF → STRONG 復帰検討 (A-2)、(c) intel guide Ch.8 Q2 の式更新 (A-3)、(d) shadow surface 撤去判断 (A-4)
+  - 残り作業: (a) frontend `updateCoordinationIndex` を `correlations_idf` 参照に変更 (A-2 完了 / commit b5328be)、(b) Coord 既定 OFF → STRONG 復帰検討 (A-2: 観察期間後)、(c) intel guide Ch.8 Q2 の式更新 (A-3 完了 / commit 58403d6)、(d) shadow surface 撤去判断 (A-4: 後述)
+
+  **A-4 判断 (2026-04-26): raw `correlations` は当面残置**
+
+  消費者監査の結果、raw `correlations` を即時削除すると以下が破壊される:
+
+  | 場所 | 用途 | 移行に必要な作業 |
+  |------|------|------------------|
+  | `radar/routes/core.py:838` | `high_correlation = any(v > 30.0 …)` — strategic alert フラグ | IDF レンジでの閾値再校正 (raw 30 → idf 約 0.5–1.0) |
+  | `radar/routes/core.py:946,1200` | `max(correlations.values())` — `max_overlap` メトリクス出力 | IDF レンジでの意味づけ。analyst 慣れている "% 表現" を IDF (0–~5) に置き換える UI 文言整理 |
+  | `radar/routes/analytics.py:309` | analytics route 内で参照 | route 内の閾値 / 表現を IDF 化 |
+  | `radar.js:3645-3650` | HUD「max ASN overlap: X%」表示 | %表記を捨てて "X.X (IDF)" 形式に。tooltip 文言、i18n キー両方 |
+  | `test_engine.py:25,365,370,376,405` | `calculate_overlap()` 直接テスト | 関数削除なら 4 件のテスト改修 |
+
+  即時撤去のリスクは frontend Coord links (A-2 で移行済) ではなく、上記 backend 統計フィールドの誤動作。raw 計算コストは 1 tick あたり pair 数 × O(n_asn) で ~ms オーダー、放置しても害はほぼ無い。
+
+  **次フェーズ (Phase 5 候補)**: 上記 5 ヶ所を 1 箇所ずつ IDF 化 → raw `calculate_overlap` 関数と shadow 計算を削除。各消費者ごとに「IDF レンジでの新閾値はいくつか」を data-driven に決定する必要があり、A-1 と同等の calibration 作業が 5 回分必要なため、独立フェーズとして切り出す。
 
 ### 10.3 ロールバック手順
 
