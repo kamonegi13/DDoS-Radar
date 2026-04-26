@@ -4726,7 +4726,25 @@
           "weight": 0.7,
           "role": "adversary"
         }
-      }
+      },
+      "attack_mode_extensions": [
+        {
+          "mode": "NAVAL_BLOCKADE_PRECURSOR",
+          "domain_floors": {"physical": 4.0, "info": 1.0},
+          "active_n_min": 3,
+          "requires_participant": ["CN"],
+          "base_confidence": 0.6,
+          "rule_summary": "physical>=4 & info>=1 & active_n>=3 & CN active"
+        },
+        {
+          "mode": "PLA_AIR_INCURSION_SURGE",
+          "domain_floors": {"physical": 3.0},
+          "active_n_min": 2,
+          "requires_participant": ["TW", "CN"],
+          "base_confidence": 0.65,
+          "rule_summary": "physical>=3 & TW+CN active"
+        }
+      ]
     },
     "eastern_europe": {
       "name_en": "Eastern Europe (Russia-Ukraine)",
@@ -4782,7 +4800,24 @@
           "weight": 0.6,
           "role": "adversary"
         }
-      }
+      },
+      "attack_mode_extensions": [
+        {
+          "mode": "KINETIC_TEMPO_SHIFT",
+          "domain_floors": {"physical": 4.0},
+          "active_n_min": 3,
+          "requires_participant": ["UA", "RU"],
+          "base_confidence": 0.65,
+          "rule_summary": "physical>=4 & active_n>=3 & UA+RU active"
+        },
+        {
+          "mode": "GRAY_ZONE_PROBING",
+          "domain_floors": {"cyber": 2.0, "info": 1.5},
+          "active_n_min": 2,
+          "base_confidence": 0.55,
+          "rule_summary": "cyber>=2 & info>=1.5 (sub-kinetic hybrid pressure)"
+        }
+      ]
     },
     "middle_east": {
       "name_en": "Middle East (Israel-Iran-Proxies)",
@@ -4858,7 +4893,25 @@
           "weight": 0.8,
           "role": "adversary"
         }
-      }
+      },
+      "attack_mode_extensions": [
+        {
+          "mode": "ARTILLERY_BUILDUP",
+          "domain_floors": {"physical": 3.5},
+          "active_n_min": 2,
+          "requires_participant": ["KP"],
+          "base_confidence": 0.6,
+          "rule_summary": "physical>=3.5 & KP active"
+        },
+        {
+          "mode": "MISSILE_TEST_CASCADE",
+          "domain_floors": {"physical": 2.5, "info": 1.0},
+          "active_n_min": 2,
+          "requires_participant": ["KP"],
+          "base_confidence": 0.65,
+          "rule_summary": "physical>=2.5 & info>=1 & KP active"
+        }
+      ]
     },
     "south_china_sea": {
       "name_en": "South China Sea",

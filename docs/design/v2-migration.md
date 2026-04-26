@@ -497,7 +497,7 @@ CREATE INDEX idx_feedback_conclusion ON analyst_feedback(conclusion_id);
   - 閾値: `CYBER_DDOS_FLOOR=5.0`, `INFO_NARRATIVE_FLOOR=1.5`, `PHYSICAL_KINETIC_FLOOR=3.0`, `ALL_DOMAIN_HYBRID_FLOOR=1.5`, `HYBRID_INTEL_CLUSTER_MIN=4` (active_countries proxy), `INFO_DOMINANCE_RATIO=1.5`
   - INSUFFICIENT_SIGNAL は spec 通り `ConclusionUnavailableReason.INSUFFICIENT_DATA` (transient) として表現。`state=None` / `confidence=0.0`
   - 複数モード firing は実装済み (`metadata.ranked_modes` に confidence 降順で全件、`state` に top 1)。`is_tentative` flag を `confidence < 0.6` で付与
-  - `scenario_extensions` 適用フックは未実装 (Phase 2.5 で追加予定、call site は変えずに済むよう deriver は state-only API)
+  - `scenario_extensions` 適用フック — **実装済 (2026-04-27, Phase 2.5)**: `radar/conclusions/attack_mode_extensions.py` で `geo_data.json["SCENARIOS"][sid]["attack_mode_extensions"]` を declarative ルール (domain_floors / active_n_min / requires_participant / base_confidence) として評価。base + extension matches を merge し confidence 降順で再ソート。reserve された base mode を shadow するエクステンションは silent drop、malformed entry も silent drop (NP3)。confidence は `[0.55, 0.95]` にクランプ。`taiwan_contingency` (NAVAL_BLOCKADE_PRECURSOR / PLA_AIR_INCURSION_SURGE)、`korean_peninsula` (ARTILLERY_BUILDUP / MISSILE_TEST_CASCADE)、`eastern_europe` (KINETIC_TEMPO_SHIFT / GRAY_ZONE_PROBING) を geo_data.json で宣言。call site は変更不要 (deriver の state-only API は維持)。テスト: `test_attack_mode_extensions.py` 20 件
   - LLM 補強は Phase 2 後半で追加 (現状は rule-based のみ) — **実装済 (2026-04-26)**
   - 閾値の正式 calibration は Phase 1.3 で 14 日間 shadow 観測の上で実施 (現状は機能 OK / calibration 未確定)
 

@@ -13,8 +13,9 @@ INFO_OPS_DOMINANT). The conclusion records the top mode in `state` and
 the full ranked list in metadata so downstream UI can show top N.
 
 scenario_extensions (per geo_data.json scenarios.<id>.attack_mode_extensions)
-are NOT yet applied — that hook is wired so Phase 2.5 can add them
-without changing call sites.
+are evaluated by `radar/conclusions/attack_mode_extensions.py` and merged
+into the ranked list. Extensions are config-only — declared in geo_data.json
+per scenario, never as Python branches.
 
 LLM augmentation is deferred to Phase 2 後半 (per design doc §6.5).
 """
@@ -63,7 +64,13 @@ def derive_attack_mode(state: "ScenarioState", *,
     if now is None:
         now = time.time()
 
-    matches = list(_apply_rules(state))
+    from radar.conclusions.attack_mode_extensions import evaluate_extensions
+    base_matches = list(_apply_rules(state))
+    extension_matches = [
+        _ModeMatch(mode=m.mode, confidence=m.confidence, rule=m.rule)
+        for m in evaluate_extensions(state)
+    ]
+    matches = base_matches + extension_matches
     matches.sort(key=lambda m: m.confidence, reverse=True)
 
     threshold_ref = {
