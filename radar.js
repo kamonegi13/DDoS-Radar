@@ -2588,9 +2588,10 @@
     // ── Sensor Watchpane (Layer 3) ─────────────────────────────────────
     // Floating panel that lets the analyst pin individual sensors and watch
     // their observations cycle-by-cycle, sourced from
-    // /api/v2/sensors/<name>/observations. Operates in degraded mode (single-
-    // point sparkline + "history shallow" tag) until the sensor_observation_ts
-    // schema lands per docs/design/v2-ui.md §7.1.
+    // /api/v2/sensors/<name>/observations. Backend persists per-cycle scores
+    // into sensor_observation_ts (1h–6h window); the API only flags
+    // history_shallow when fewer than 2 points have accumulated for a sensor
+    // (fresh DB / very first cycle) — the toolbar tag mirrors that.
     const _WP_STORAGE_KEY = 'watchpane.v1.state';
     let _wpState = { sensors: [], version: 1 };
     let _wpCatalog = null;            // [{sensor, label, domain}]
@@ -2641,8 +2642,9 @@
     function _wpRowKey(name, scope) { return `${name}::${scope}`; }
 
     function _wpRenderSpark(observations) {
-        // Degraded mode returns 1 point. SVG is intentionally tiny — a single
-        // dot or short line so the row stays scannable.
+        // 1 point → single dot (fresh sensor, history shallow).
+        // N points → polyline normalised to local min/max so even subtle
+        // deltas read at a glance. SVG is intentionally tiny.
         const w = 60, h = 18;
         if (!observations || observations.length === 0) {
             return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"></svg>`;
@@ -2687,9 +2689,20 @@
         return s || '—';
     }
 
+    function _wpUpdateShallowTag() {
+        const tag = document.getElementById('wp-shallow-tag');
+        if (!tag) return;
+        const anyShallow = _wpState.sensors.some(s => {
+            const env = _wpLastObs.get(_wpRowKey(s.name, s.scope));
+            return env && env.history_shallow === true;
+        });
+        tag.style.display = anyShallow ? '' : 'none';
+    }
+
     function _wpRender() {
         const rowsEl = document.getElementById('wp-rows');
         if (!rowsEl) return;
+        _wpUpdateShallowTag();
         if (_wpState.sensors.length === 0) {
             rowsEl.innerHTML = `<div class="wp-empty" data-i18n="watchpane.empty">${_escHtml(_t('watchpane.empty'))}</div>`;
             return;
@@ -2706,7 +2719,10 @@
             const obs = _wpLastObs.get(_wpRowKey(s.name, s.scope));
             const observations = obs ? (obs.observations || []) : null;
             const curr = obs ? obs.current : null;
-            const valueDisp = (observations && observations.length) ? Number(observations[0].value || 0).toFixed(2) : '—';
+            // Latest point (backend orders ascending by ts).
+            const latest = (observations && observations.length)
+                ? observations[observations.length - 1] : null;
+            const valueDisp = latest ? Number(latest.value || 0).toFixed(2) : '—';
             const statusCls = _wpStatusClass(curr);
             const statusTxt = _wpStatusText(curr);
             const rawValueTip = (curr && curr.raw_value != null) ? String(curr.raw_value) : '';

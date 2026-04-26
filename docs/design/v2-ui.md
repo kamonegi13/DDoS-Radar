@@ -225,15 +225,15 @@ sensor 単位の raw observation 時系列を持つ schema が DB に**ない**:
 | 再利用 | 不可。既存 endpoint は (a) 設定/メタ情報、(b) 集約後 TL のみ。sensor × scope の raw observation 時系列を持つ surface はゼロ |
 | 新設 endpoint | `GET /api/v2/sensors/<sensor_name>/observations?scope=<country|global|src→dst>&hours=1` を新設 |
 | バックエンド | **新 schema 追加** が必要。`sensor_observation_ts(sensor TEXT, scope TEXT, ts REAL, value REAL, baseline REAL)` (max_entries=720 → 12h@1min cycle、TTL 自動 prune)。scoring tick で各 sensor の signals を append |
-| 暫定モード | schema migration 完了前は `/api/score_breakdown` の current value を返す degraded mode (sparkline = 単一点)。watchpane UI 側で "history shallow" ラベルを出す |
+| 暫定モード | ~~schema migration 完了前は `/api/score_breakdown` の current value を返す degraded mode~~ → **2026-04-26 解消**: v25 マイグレーション (`sensor_observation_ts`) 適用済み。scoring tick が `scope="focused"` で各 rationale 行を persist し、endpoint は実 1h 履歴を返却。観測点 < 2 (fresh DB / 初サイクル) のときのみ rationale_matrix 由来の単一点で seeding し `history_shallow: true` を返す |
 | 認証 | 既存 `_require_analyst()` (v2 endpoint と同等) |
 | Phase | schema 追加と endpoint 実装は Phase 3 タスク 4 (Sensor Watchpane 基本) に含める。タスク 1 (本書) は判断記録まで |
 
 #### 残課題 (タスク 4 着手時に決める)
 
-- 旧 sensor も新 ts table に書き込むか、新規 sensor のみに限定するか (前者は実装範囲が広がる)
-- scope の正規化規則 (`bgp_anomaly` の TW→US のような cross-country をどう列挙するか — 既存 sensor 出力の `target` / `source` フィールドを map する方針で追加調査)
-- ts の retention (12h で十分か、24h まで伸ばすか — sparkline 用途なら 12h で十分)
+- ~~旧 sensor も新 ts table に書き込むか、新規 sensor のみに限定するか~~ → **決定 2026-04-26**: 全 rationale 行を一律 persist (scoring tick で `for _r in rationale: sensor_obs_record(...)`)。31 sensors × cycle で十分軽量
+- scope の正規化規則 → **暫定 2026-04-26**: 全行を `scope="focused"` で記録 (focused scenario が単一であるため整合)。background/cross-country scope は C-medium 移行時に再検討
+- ~~ts の retention (12h で十分か、24h まで伸ばすか)~~ → **決定 2026-04-26**: 24h TTL (`sensor_obs_record(ttl_sec=86400.0)`)。sparkline 用途で十分、INSERT 毎に opportunistic prune
 
 #### 新設エンドポイント仕様 (実装は Phase 3 タスク 4)
 
@@ -243,7 +243,7 @@ sensor 単位の raw observation 時系列を持つ schema が DB に**ない**:
 | Response | `{sensor, scope, observations: [{ts, value, baseline, delta_vs_baseline}], baseline_window_hours, history_shallow: bool}` |
 | 認証 | 既存 `_require_analyst()` |
 | キャッシュ | sensor 自身のキャッシュ TTL に追従 (差分 fetch でコスト最小化) |
-| degraded | schema 未到達時は `observations: [現値1点], history_shallow: true` で graceful 返却 |
+| degraded | (実装後) 観測点 < 2 のときのみ `observations: [現値1点], history_shallow: true` で graceful 返却。schema は v25 で landed (2026-04-26) |
 
 ### 7.2 watchpane state 永続化
 

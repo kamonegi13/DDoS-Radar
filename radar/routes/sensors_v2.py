@@ -76,11 +76,11 @@ def v2_sensor_catalog():
 
 
 def _lookup_sensor_observation(sensor: str, scope: str) -> dict[str, Any] | None:
-    """Pull the most recent observation for `sensor` from the global cache's
-    rationale_matrix. `scope` is currently ignored in degraded mode because
-    the scoring tick already filters per the focused scenario; once the
-    sensor_observation_ts table lands (§7.1) scope will route to the proper
-    series.
+    """Pull the most recent qualitative state for `sensor` from the global
+    cache's rationale_matrix. `scope` is ignored — the scoring tick already
+    filters per the focused scenario, and the persisted history (queried
+    separately) carries the per-scope time series. This call only seeds the
+    `current` block (status/fired_reason/suppressed) for the response.
     """
     with _global_cache_lock:
         cache = dict(st.global_cache) if st.global_cache else {}
