@@ -132,12 +132,16 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 - **代替案**: 全共通 → 表現力不足、完全シナリオ別 → cross-scenario 学習困難
 - **理由**: NP1 (感度) と analyst の cross-scenario pattern 学習を両立
 
-### ADR-V2-003: v1 API sunset 3ヶ月
+### ADR-V2-003: v1 API sunset 3ヶ月 (IN_PROGRESS)
 
 - **判断**: v2 default-on 後 **90 日** で v1 API を撤去
 - **代替案**: 6ヶ月 → 二重メンテ負荷大、Phase 2/3 工数を圧迫
 - **理由**: 利用者は専門アナリスト個人〜小規模チーム想定、エンタープライズ慣行 (6-12ヶ月) は過剰
 - **rollout**: 月0 default-on + Sunset header → 月1 残存利用者特定 → 月3 撤去
+- **進行状況**:
+  - **default-on 切替**: 2026-04-26 (Mode C activation, all 5 readiness conditions PASS via `scripts/check_mode_c_readiness.py --ack`)
+  - **v1 sunset target**: 2026-07-26 (T+90d)
+  - **未実装**: v1 ルート (`/api/threat_data` 等) への `Deprecation` HTTP ヘッダ追加 (Phase 1.4 で対応予定)
 
 ### ADR-V2-004: Export 形式は Markdown/PDF のみ (v2.0)
 
@@ -268,6 +272,10 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 **Mode C 判定再評価**: 当初の T+7d (2026-05-03) は TREND short_term の live data 蓄積を待つ前提だったが、TREND derivation は THREAT_LEVEL 行を replay backfill 含めて読むため、live ledger 4h で既に real state を返している (`short_term=STABLE; medium_term=STABLE`)。技術条件は本日全て満たすので、残るのは operator self-validation のみ。**判定日を 2026-04-27 04:00 JST (T+24h) に圧縮**。
 
 **Mode C 判定手順**: `docker exec ddos-radar bash -c 'cd /app && PYTHONPATH=/app python scripts/check_mode_c_readiness.py --ack'` を 2026-04-27 04:00 JST 以降に実行。exit 0 を確認後、`radar/config.py` で `V2_API_ENABLED` のデフォルトを `true` に変更し v1 sunset T+90d (2026-07-26) カウントダウン開始。
+
+**Mode C 切替: 2026-04-26 05:10 JST** — `check_mode_c_readiness.py --ack` が全 5 条件 PASS で exit 0 を返却 (C1: 14d 4438/4438 match / C2: 5/5 type live row / C3: 5/5 type non-replay row / C4: live TREND 6 行 real state / C5: operator ack)。`radar/config.py` で `V2_API_ENABLED` のデフォルトを `"true"` に変更。判定日を当初の T+24h からさらに圧縮した根拠: 操作者 1 名のため 24h 待機で増える観察データはなく、C1〜C4 の technical evidence と直近 1h ログの 5xx=0 / traceback=0 が既に no-complaint を裏付け、ロールバックは `V2_API_ENABLED=false` の env 一行で 1 restart 内に可能 (commitment 不可逆性が低い)。
+
+**v1 sunset カウントダウン開始**: 2026-04-26 → **2026-07-26 (T+90d)** で v1 API 撤去。Phase 1.4 で v1 ルートに `Deprecation` HTTP ヘッダ追加予定。
 
 ---
 

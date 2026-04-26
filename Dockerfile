@@ -24,6 +24,7 @@ COPY radar.css       .
 COPY index.html      .
 COPY tradecraft.js   .
 COPY tradecraft.css  .
+COPY scripts/        scripts/
 
 # Ensure persistence directory exists (mounted as volume in production)
 RUN mkdir -p radar/persistence plugins

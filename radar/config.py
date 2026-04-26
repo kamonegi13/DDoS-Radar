@@ -224,7 +224,11 @@ V2_LLM_PROMPT_PERSISTENCE_ENABLED = os.getenv("V2_LLM_PROMPT_PERSISTENCE_ENABLED
 # v2.0 API surface (/api/v2/...). Phase 1 read-only skeleton — endpoints serve
 # the latest rows from the conclusions ledger if present, or an explicit
 # "no conclusion yet" envelope otherwise. v1 API is unaffected.
-V2_API_ENABLED = os.getenv("V2_API_ENABLED", "false").lower() in ("true", "1", "yes")
+# Default flipped to true on 2026-04-26 (Mode C activation) — all 5
+# readiness conditions passed via scripts/check_mode_c_readiness.py.
+# v1 sunset T+90d targets 2026-07-26 (ADR-V2-003 IN_PROGRESS).
+# Set V2_API_ENABLED=false to opt out (e.g. emergency rollback).
+V2_API_ENABLED = os.getenv("V2_API_ENABLED", "true").lower() in ("true", "1", "yes")
 
 # v2.0 Phase 1 priority 6: v1/v2 conclusion diff sampler.
 # When ENABLED, every focused scoring cycle samples the focused TL from v1
