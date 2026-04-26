@@ -1470,9 +1470,9 @@
     border-radius: 2px; min-width: 56px;
 }
 .coord-toggle-btn:hover { background: rgba(102,255,238,0.08); }
-.coord-toggle-btn[data-mode="off"]     { color: #888; }
-.coord-toggle-btn[data-mode="all"]     { color: #ffaa44; }
-.coord-toggle-btn[data-mode="focused"] { color: var(--color-accent); }
+.coord-toggle-btn[data-mode="off"]    { color: #888; }
+.coord-toggle-btn[data-mode="all"]    { color: #ffaa44; }
+.coord-toggle-btn[data-mode="strong"] { color: var(--color-accent); }
 /* Diamond endpoint markers */
 .coord-diamond {
     border-radius: 1px;

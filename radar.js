@@ -5362,13 +5362,23 @@
     }
 
     // ── Coordination Index: Constellation Pattern ──────────────────
-    // Visibility toggle: 'all' | 'focused' | 'off'. Default 'focused' so the
+    // Visibility toggle: 'strong' | 'all' | 'off'. Default 'strong' so the
     // map stays scannable; analyst can opt into ALL pairs or hide everything.
+    // (Backend already scopes `correlations` to the focused scenario's
+    // participants — see scenarios.py derive_focus_context — so a separate
+    // FOCUSED mode would be redundant.)
     const _COORD_LINK_MODE_KEY = 'radar_coord_link_mode';
-    const _COORD_LINK_MODES = ['focused', 'all', 'off'];
+    const _COORD_LINK_MODES = ['strong', 'all', 'off'];
+    // STRONG mode: skip pairs whose final coordIdx is below this. 60 ≈ red
+    // (C2-SYNC confirmed) or strong orange; weaker pairs are not drawn at all
+    // (no line, no diamond, no % label).
+    const _COORD_STRONG_MIN = 60;
     function _getCoordLinkMode() {
         const v = localStorage.getItem(_COORD_LINK_MODE_KEY);
-        return _COORD_LINK_MODES.includes(v) ? v : 'focused';
+        // Migrate the short-lived 'focused' value (8f97a9b → next commit) to
+        // 'strong' silently — they map to "the quiet default" semantically.
+        if (v === 'focused') { localStorage.setItem(_COORD_LINK_MODE_KEY, 'strong'); return 'strong'; }
+        return _COORD_LINK_MODES.includes(v) ? v : 'strong';
     }
     function _renderCoordToggleLabel() {
         const btn = document.getElementById('hud-coord-toggle');
@@ -5410,17 +5420,10 @@
             spikeMap[t.code] = t.avg_spike || 0;
         });
 
-        // FOCUSED mode: keep only pairs where BOTH endpoints are participants
-        // of the focused scenario. Falls back to ALL when no focused scenario
-        // is set (early boot / no scorable scenario).
-        let participantSet = null;
-        if (mode === 'focused') {
-            const fid = data.focused_scenario || '';
-            const sc = (data.scenarios || {})[fid] || {};
-            const parts = sc.participants || {};
-            const codes = Object.keys(parts);
-            if (codes.length > 0) participantSet = new Set(codes);
-        }
+        // STRONG mode: only render pairs whose final coordIdx >= threshold.
+        // Filters out the noisy long tail of low/mid pairs that the
+        // OVERLAP_THRESHOLD=15 floor + isC2Sync +15 boost otherwise produce.
+        const minCoordIdx = (mode === 'strong') ? _COORD_STRONG_MIN : 0;
 
         const tc = (strat.analytics || {}).temporal_coherence || {};
         const isC2Sync = tc.is_c2_sync || false;
@@ -5433,7 +5436,6 @@
 
         for (const [pair, overlap] of Object.entries(strat.correlations)) {
             const [a, b] = pair.split('-');
-            if (participantSet && !(participantSet.has(a) && participantSet.has(b))) continue;
             const ca = posMap[a], cb = posMap[b];
             if (!ca || !cb) continue;
 
@@ -5445,6 +5447,7 @@
             if (strikeTargets.has(a) && strikeTargets.has(b)) coordIdx += 10;
             coordIdx = Math.min(100, Math.max(0, coordIdx));
             if (coordIdx < OVERLAP_THRESHOLD) continue;
+            if (coordIdx < minCoordIdx) continue;
 
             const norm = Math.min(1, (coordIdx - OVERLAP_THRESHOLD) / (100 - OVERLAP_THRESHOLD));
             const color = _coordColor(coordIdx, isC2Sync);

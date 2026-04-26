@@ -2064,7 +2064,7 @@
             <li><b>Color Scale:</b> Cyan (low) → Yellow (mid) → Orange (high) → Red (C2-SYNC confirmed). Pulse speed increases with coordination level.</li>
             <li><b>Tooltip:</b> Hover over a link to see the breakdown — origin overlap %, L3/L7 split, elevation status, C2-SYNC, and adversary strike indicators.</li>
             <li><b>Layer Toggle:</b> "Coordination" in the layer control panel.</li>
-            <li><b>Visibility Mode (HUD):</b> The <b>Coord links</b> button in the Cyber sub-metrics row cycles <b>FOCUSED → ALL → OFF</b>. Default <b>FOCUSED</b> shows only pairs whose endpoints both belong to the focused scenario; <b>ALL</b> shows every pair above threshold (noisier); <b>OFF</b> hides links entirely. Choice is persisted per device. Tier-aware animation (low tier = static, only mid/high pulse) prevents the "every country flashing" effect.</li>
+            <li><b>Visibility Mode (HUD):</b> The <b>Coord links</b> button in the Cyber sub-metrics row cycles <b>STRONG → ALL → OFF</b>. (Note: the backend already restricts <code>correlations</code> to the focused scenario's participants — see <code>derive_focus_context</code> — so a separate FOCUSED mode would be redundant.) Default <b>STRONG</b> only renders pairs with coordIdx ≥ 60 (red / strong orange — i.e. C2-SYNC confirmed or strong escalation); weaker pairs are not drawn at all. <b>ALL</b> restores the full set above OVERLAP_THRESHOLD=15. <b>OFF</b> hides everything. Choice is persisted per device. Tier-aware animation (low tier = static, only mid/high pulse) further prevents visual noise in ALL mode.</li>
         </ul>
 
         <p><b>R. Phase 3 UX Enhancements</b> <span style="color:#66ffcc;">[Phase 3]</span></p>
@@ -2363,7 +2363,7 @@
             <li><b>色スケール:</b> シアン（低）→ イエロー（中）→ オレンジ（高）→ レッド（C2-SYNC確認時）。パルス速度は協調レベルに応じて加速。</li>
             <li><b>ツールチップ:</b> リンクにホバーで内訳表示 — 攻撃元重複%、L3/L7分割、両方高負荷、C2-SYNC、敵対的打撃指標。</li>
             <li><b>レイヤー切替:</b> レイヤーコントロールの「Coordination」で表示/非表示。</li>
-            <li><b>表示モード (HUD):</b> Cyber サブメトリクス行の <b>Coord 線</b> ボタンで <b>FOCUSED → ALL → OFF</b> を切替。既定 <b>FOCUSED</b> は focused シナリオの participant 同士のペアのみ表示、<b>ALL</b> は閾値超の全ペア (賑やか)、<b>OFF</b> は完全非表示。選択は端末ごとに永続化。tier 別アニメ (low 静止、mid/high のみ脈動) で「全国オレンジ明滅」を防止。</li>
+            <li><b>表示モード (HUD):</b> Cyber サブメトリクス行の <b>Coord 線</b> ボタンで <b>STRONG → ALL → OFF</b> を切替。(注: backend では <code>correlations</code> を focused シナリオの participant に既に絞り込み済み — <code>derive_focus_context</code> 参照 — のため別途 FOCUSED モードは不要)。既定 <b>STRONG</b> は coordIdx ≥ 60 (赤 / 強オレンジ = C2-SYNC 確認 / 強エスカレーション) のみ描画、弱いペアは線も diamond も label も出さない。<b>ALL</b> は OVERLAP_THRESHOLD=15 超の全ペア、<b>OFF</b> は完全非表示。選択は端末ごとに永続化。tier 別アニメ (low 静止、mid/high のみ脈動) は ALL モードでの視覚ノイズも抑制。</li>
         </ul>
 
         <p><b>R. Phase 3 UX強化</b> <span style="color:#66ffcc;">[Phase 3]</span></p>
