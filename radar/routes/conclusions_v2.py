@@ -30,7 +30,7 @@ from radar.conclusions.persistence import (
     get_conclusion_by_id,
     latest_conclusion,
 )
-from radar.routes import _require_analyst, _safe_int, bp
+from radar.routes import _require_admin, _require_analyst, _safe_int, bp
 
 
 _ALL_TYPES = (
@@ -216,6 +216,37 @@ def v2_conclusion_diff_stats():
         "diff_kind_counts": counts,
         "match_rate": (counts.get("match", 0) / total) if total else None,
         "recent_divergences": [dict(r) for r in recent_rows],
+    })
+
+
+@bp.route("/api/v2/admin/shadow_write_metrics", methods=["GET"])
+def v2_shadow_write_metrics():
+    """Mode B observability — process-local counters for the 5 shadow-write
+    hooks in compute_scenario_score.
+
+    Unlike most /api/v2 routes this one is NOT gated by V2_API_ENABLED. The
+    operator needs to read it during the Shadow phase precisely *because*
+    the public v2 API is still off — otherwise there is no way to verify
+    that V2_CONCLUSION_LEDGER_ENABLED=true is actually producing rows.
+    Admin auth is still required so the surface stays internal.
+
+    Counters are reset on process restart; `started_at` / `uptime_sec` let
+    the operator interpret whether a "0 successes" reading means "broken"
+    or "just restarted, no scoring tick has run yet".
+    """
+    auth_err = _require_admin()
+    if auth_err is not None:
+        return auth_err
+
+    from radar import config
+    from radar.conclusions.shadow_metrics import snapshot
+
+    snap = snapshot()
+    return jsonify({
+        "api_version": API_VERSION,
+        "ledger_enabled": config.V2_CONCLUSION_LEDGER_ENABLED,
+        "metrics": snap,
+        "final_judgment_disclaimer": _disclaimer(),
     })
 
 

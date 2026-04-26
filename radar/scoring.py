@@ -1121,12 +1121,16 @@ def _maybe_persist_tl_conclusion(state: "ScenarioState") -> None:
         return
     try:
         from radar.conclusions import save_conclusion
+        from radar.conclusions.shadow_metrics import record_failure, record_success
         from radar.conclusions.threat_level import derive_threat_level
         c = derive_threat_level(_db, state)
         save_conclusion(_db, c)
-    except Exception:
+        record_success("threat_level")
+    except Exception as exc:
         # Phase 1 shadow-write must NEVER break v1 scoring. Log and swallow.
         log.exception("v2 conclusion persistence failed (non-fatal)")
+        from radar.conclusions.shadow_metrics import record_failure
+        record_failure("threat_level", exc)
 
 
 def _maybe_persist_per_domain_conclusion(state: "ScenarioState") -> None:
@@ -1143,10 +1147,14 @@ def _maybe_persist_per_domain_conclusion(state: "ScenarioState") -> None:
     try:
         from radar.conclusions import save_conclusion
         from radar.conclusions.per_domain import derive_per_domain
+        from radar.conclusions.shadow_metrics import record_success
         c = derive_per_domain(_db, state)
         save_conclusion(_db, c)
-    except Exception:
+        record_success("per_domain")
+    except Exception as exc:
         log.exception("v2 per_domain conclusion persistence failed (non-fatal)")
+        from radar.conclusions.shadow_metrics import record_failure
+        record_failure("per_domain", exc)
 
 
 def _maybe_persist_trend_conclusion(state: "ScenarioState") -> None:
@@ -1164,11 +1172,15 @@ def _maybe_persist_trend_conclusion(state: "ScenarioState") -> None:
         return
     try:
         from radar.conclusions import save_conclusion
+        from radar.conclusions.shadow_metrics import record_success
         from radar.conclusions.trend import derive_trend
         c = derive_trend(_db, state.scenario_id)
         save_conclusion(_db, c)
-    except Exception:
+        record_success("trend")
+    except Exception as exc:
         log.exception("v2 trend conclusion persistence failed (non-fatal)")
+        from radar.conclusions.shadow_metrics import record_failure
+        record_failure("trend", exc)
 
 
 def _maybe_persist_attack_mode_conclusion(state: "ScenarioState") -> None:
@@ -1185,10 +1197,41 @@ def _maybe_persist_attack_mode_conclusion(state: "ScenarioState") -> None:
     try:
         from radar.conclusions import save_conclusion
         from radar.conclusions.attack_mode import derive_attack_mode
+        from radar.conclusions.shadow_metrics import record_success
         c = derive_attack_mode(state)
         save_conclusion(_db, c)
-    except Exception:
+        record_success("attack_mode")
+    except Exception as exc:
         log.exception("v2 attack_mode conclusion persistence failed (non-fatal)")
+        from radar.conclusions.shadow_metrics import record_failure
+        record_failure("attack_mode", exc)
+
+
+def _maybe_persist_anomaly_conclusions(state: "ScenarioState") -> None:
+    """v2.0 shadow-write: persist top-N ANOMALY rows for this scoring tick.
+
+    derive_anomaly returns either a list of ranked anomalies (top DEFAULT_LIMIT)
+    or a single INSUFFICIENT_DATA row when no scorable contribution exists.
+    Both shapes are valid ledger inputs and we persist them all so the 24h
+    novelty scan in subsequent ticks (Phase 1.2e) has the full history.
+
+    Each saved row counts as one success in the metrics; a single failure
+    short-circuits the rest of the list (safe — the counter still advances
+    once for the failure and v1 scoring is unaffected).
+    """
+    from radar import config
+    if not config.V2_CONCLUSION_LEDGER_ENABLED:
+        return
+    try:
+        from radar.conclusions import derive_anomaly, save_conclusion
+        from radar.conclusions.shadow_metrics import record_success
+        for c in derive_anomaly(_db, state):
+            save_conclusion(_db, c)
+            record_success("anomaly")
+    except Exception as exc:
+        log.exception("v2 anomaly conclusion persistence failed (non-fatal)")
+        from radar.conclusions.shadow_metrics import record_failure
+        record_failure("anomaly", exc)
 
 
 def apply_hysteresis_to_tl(new_tl: Optional[int],
@@ -1305,6 +1348,7 @@ def compute_scenario_score(
     _maybe_persist_per_domain_conclusion(state)
     _maybe_persist_trend_conclusion(state)
     _maybe_persist_attack_mode_conclusion(state)
+    _maybe_persist_anomaly_conclusions(state)
     _maybe_sample_v1_v2_diff(state)
     return state
 
