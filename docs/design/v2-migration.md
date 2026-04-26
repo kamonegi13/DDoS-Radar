@@ -259,7 +259,15 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 
 **Stage 1+2 統合: 2026-04-26 (同日)** — Stage 2 の 48h 待機が recall に寄与しない慣習バッファである旨を再評価し、`_require_analyst()` を `@jwt_required()` に緩和して全認証ユーザに開放。NP4 (結論最大化) の観点で遅延コストの方が大きいと判定。
 
-**次回フル観察 / Mode C 判定**: 2026-05-03 (T+7d)
+**Day-0 evidence (2026-04-26 04:58 JST)** — `scripts/check_mode_c_readiness.py` で技術 4 条件を計測:
+- C1 diff_log 14d: total=4436, match_rate=1.0000, divergence=0
+- C2 直近 1h tick coverage: 5/5 conclusion_type に live row あり
+- C3 live ledger (replay 除外): 5/5 type で live row 存在 (TL/TREND=14、PER_DOMAIN/ATTACK_MODE/ANOMALY=61 in live window)
+- C4 live TREND state: 4 行が real short_term state を返却 (chronic INSUFFICIENT_DATA リスクなし)
+
+**Mode C 判定再評価**: 当初の T+7d (2026-05-03) は TREND short_term の live data 蓄積を待つ前提だったが、TREND derivation は THREAT_LEVEL 行を replay backfill 含めて読むため、live ledger 4h で既に real state を返している (`short_term=STABLE; medium_term=STABLE`)。技術条件は本日全て満たすので、残るのは operator self-validation のみ。**判定日を 2026-04-27 04:00 JST (T+24h) に圧縮**。
+
+**Mode C 判定手順**: `docker exec ddos-radar bash -c 'cd /app && PYTHONPATH=/app python scripts/check_mode_c_readiness.py --ack'` を 2026-04-27 04:00 JST 以降に実行。exit 0 を確認後、`radar/config.py` で `V2_API_ENABLED` のデフォルトを `true` に変更し v1 sunset T+90d (2026-07-26) カウントダウン開始。
 
 ---
 
