@@ -2233,6 +2233,22 @@
     }
 
     /**
+     * Return the cached v2 byType envelope for `focusedId` if it is fresh,
+     * else null. Single source of truth for the cache+TTL gate so the HUD
+     * overlay and the HUD click handler agree on freshness.
+     *
+     * @param {string|null|undefined} focusedId
+     * @returns {Object<string,object>|null}
+     */
+    function _hudFreshEnvelopeByType(focusedId) {
+        if (!focusedId) return null;
+        const entry = _ccEnvelopeCache[focusedId];
+        if (!entry) return null;
+        if (Date.now() - entry.ts > _CC_ENVELOPE_TTL_MS) return null;
+        return entry.byType || null;
+    }
+
+    /**
      * TTL/cache gate around HudV2Overlay.applyOverlay. Returns the original
      * `strat` when no fresh envelope is cached for the focused scenario —
      * preserving NP3 (HUD must keep working when v2 is down).
@@ -2246,13 +2262,12 @@
      * @returns {object|null|undefined} new strat (or original on no-op)
      */
     function _hudV2OverlayStrat(strat, focusedId) {
-        if (!strat || !focusedId) return strat;
-        const entry = _ccEnvelopeCache[focusedId];
-        if (!entry) return strat;
-        if (Date.now() - entry.ts > _CC_ENVELOPE_TTL_MS) return strat;
+        if (!strat) return strat;
+        const byType = _hudFreshEnvelopeByType(focusedId);
+        if (!byType) return strat;
         const overlay = (window.HudV2Overlay && window.HudV2Overlay.applyOverlay) || null;
         if (!overlay) return strat;  // Defensive: hud_v2_overlay.js failed to load
-        return overlay(strat, entry.byType || {});
+        return overlay(strat, byType);
     }
 
     function _ccRenderEmpty(grid) {
@@ -4019,7 +4034,20 @@
                 updateThreatSparkline(data.threat_history);
             }
 
-            threatEl.onclick = () => openEvidencePanel(strat);
+            // NP6 transparency: prefer the v2 drill-down (formula / thresholds /
+            // sources / llm_prompt / calibration) over the v1 evidence panel
+            // when a fresh threat_level conclusion is cached. Falls back to
+            // the v1 panel when v2 is degraded or the conclusion has no id —
+            // keeps the surface usable during the v1 sunset window (NP3).
+            threatEl.onclick = () => {
+                const byType = _hudFreshEnvelopeByType(data.focused_scenario);
+                const tlC = byType && byType.threat_level;
+                if (tlC && tlC.id && tlC.conclusion_unavailable_reason == null) {
+                    _ccOpenDrillModal(tlC);
+                    return;
+                }
+                openEvidencePanel(strat);
+            };
 
             // ── HUD update ────────────────────────────────────────────────
             const p8 = strat.analytics || {};
