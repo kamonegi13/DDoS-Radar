@@ -322,3 +322,139 @@ def test_extension_match_dataclass_is_immutable():
     m = ExtensionMatch(mode="X", confidence=0.7, rule="r")
     with pytest.raises(Exception):
         m.confidence = 0.9  # type: ignore[misc]
+
+
+# ─── Live-config rule matrix ────────────────────────────────────────────────
+# These tests run against the REAL geo_data.json (no patched_geo). They guard
+# the declared 11 rules across 5 scenarios from silent regressions: a rule
+# rename, threshold typo, or accidental deletion would break a parametrized
+# case. The matrix is data-driven, so adding a rule in geo_data.json
+# automatically extends coverage without test edits.
+
+
+def _live_rules() -> list[tuple[str, dict]]:
+    """Yield (scenario_id, rule_dict) for every declared extension."""
+    out: list[tuple[str, dict]] = []
+    scenarios = config._raw_geo.get("SCENARIOS", {})
+    for sid, sdata in scenarios.items():
+        if not isinstance(sdata, dict):
+            continue
+        for rule in sdata.get("attack_mode_extensions", []) or []:
+            if isinstance(rule, dict) and isinstance(rule.get("mode"), str):
+                out.append((sid, rule))
+    return out
+
+
+_LIVE_RULES = _live_rules()
+_LIVE_IDS = [f"{sid}.{r['mode']}" for sid, r in _LIVE_RULES]
+
+
+def _pick_countries(rule: dict) -> list[str]:
+    """Return active_countries that satisfy active_n_min + requires_participant.
+
+    Pads with throwaway ISO codes ("XX", "YY", "ZZ") that won't accidentally
+    match any rule's requires_participant list.
+    """
+    required = list(rule.get("requires_participant") or [])
+    n_min = max(int(rule.get("active_n_min") or 1), len(required), 1)
+    extras = ["XX", "YY", "ZZ", "AA"][: max(0, n_min - len(required))]
+    return required + extras
+
+
+def _firing_state(sid: str, rule: dict, *, floor_delta: float = 0.05) -> ScenarioState:
+    """Build a state that fires `rule` (default) or fails it (negative delta)."""
+    floors = rule.get("domain_floors") or {}
+    return _state(
+        scenario_id=sid,
+        cyber=(floors["cyber"] + floor_delta) if "cyber" in floors else 0.0,
+        physical=(floors["physical"] + floor_delta) if "physical" in floors else 0.0,
+        info=(floors["info"] + floor_delta) if "info" in floors else 0.0,
+        active_countries=_pick_countries(rule),
+    )
+
+
+def test_live_config_declares_expected_rule_count():
+    """Pin the rule count so accidental deletion gets caught loud.
+
+    Update this assertion deliberately when adding/removing rules in
+    geo_data.json — that's the whole point of the lock.
+    """
+    assert len(_LIVE_RULES) == 11, (
+        f"Expected 11 declared scenario_extensions across all scenarios, "
+        f"got {len(_LIVE_RULES)}: {_LIVE_IDS}"
+    )
+
+
+def test_live_config_every_scenario_with_extensions_has_unique_modes():
+    """No two rules in the same scenario share a mode (would silently dedup)."""
+    by_scenario: dict[str, list[str]] = {}
+    for sid, rule in _LIVE_RULES:
+        by_scenario.setdefault(sid, []).append(rule["mode"])
+    for sid, modes in by_scenario.items():
+        assert len(modes) == len(set(modes)), (
+            f"Scenario {sid} has duplicate extension modes: {modes}"
+        )
+
+
+@pytest.mark.parametrize("sid,rule", _LIVE_RULES, ids=_LIVE_IDS)
+def test_live_rule_fires_at_threshold(sid, rule):
+    """Each declared rule MUST fire when state crosses every gate."""
+    state = _firing_state(sid, rule)
+    matches = evaluate_extensions(state)
+    fired_modes = [m.mode for m in matches]
+    assert rule["mode"] in fired_modes, (
+        f"{sid}.{rule['mode']} did not fire at threshold; "
+        f"floors={rule.get('domain_floors')}, active={state.active_countries}, "
+        f"got modes={fired_modes}"
+    )
+
+
+@pytest.mark.parametrize("sid,rule", _LIVE_RULES, ids=_LIVE_IDS)
+def test_live_rule_silent_below_floor(sid, rule):
+    """Each declared rule MUST stay silent when every floor is under threshold."""
+    floors = rule.get("domain_floors") or {}
+    if not floors:
+        pytest.skip("rule has no domain_floors — below-floor case undefined")
+    state = _firing_state(sid, rule, floor_delta=-0.10)
+    matches = evaluate_extensions(state)
+    assert rule["mode"] not in [m.mode for m in matches]
+
+
+@pytest.mark.parametrize("sid,rule", _LIVE_RULES, ids=_LIVE_IDS)
+def test_live_rule_silent_when_required_participant_missing(sid, rule):
+    """Rules with requires_participant must not fire if any required code absent."""
+    required = list(rule.get("requires_participant") or [])
+    if not required:
+        pytest.skip("rule has no requires_participant gate")
+    countries = _pick_countries(rule)
+    countries.remove(required[0])  # drop one required country
+    floors = rule.get("domain_floors") or {}
+    state = _state(
+        scenario_id=sid,
+        cyber=(floors["cyber"] + 0.05) if "cyber" in floors else 0.0,
+        physical=(floors["physical"] + 0.05) if "physical" in floors else 0.0,
+        info=(floors["info"] + 0.05) if "info" in floors else 0.0,
+        active_countries=countries,
+    )
+    matches = evaluate_extensions(state)
+    assert rule["mode"] not in [m.mode for m in matches]
+
+
+def test_live_rule_does_not_leak_across_scenarios():
+    """A rule declared on scenario A must NOT fire when state.scenario_id is B."""
+    if len(_LIVE_RULES) < 2:
+        pytest.skip("need ≥2 rules across distinct scenarios to test leakage")
+    # Find two rules in different scenarios
+    by_sid = {sid: rule for sid, rule in _LIVE_RULES}
+    sids = list(by_sid.keys())
+    if len(sids) < 2:
+        pytest.skip("only one scenario has extensions")
+    sid_a, sid_b = sids[0], sids[1]
+    rule_a = by_sid[sid_a]
+    # Build a state that satisfies rule_a's gates but is bound to sid_b
+    state = _firing_state(sid_b, rule_a)  # scenario B + A's thresholds
+    matches = evaluate_extensions(state)
+    # rule_a should not fire under sid_b. (rule_b might or might not.)
+    assert rule_a["mode"] not in [m.mode for m in matches], (
+        f"{rule_a['mode']} declared on {sid_a} leaked into {sid_b}"
+    )
