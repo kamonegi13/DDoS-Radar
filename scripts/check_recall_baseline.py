@@ -16,6 +16,9 @@ Two modes:
   default check  — load that baseline and compare against the live matrix.
                    Fails (exit 1) if any per-cell recall drops by more than
                    ``--max-drop`` (default 0.05) versus baseline.
+  --window-days  — restrict the matrix to feedback rows observed within the
+                   last N days. The window is recorded in the snapshot and
+                   the check uses the baseline's window unless overridden.
 
 Bootstrap mode:
   When the baseline file does not yet exist, the check exits 0 with a
@@ -60,6 +63,19 @@ logging.basicConfig(
 )
 
 
+def _display_path(p: Path) -> str:
+    """Render ``p`` relative to the repo when possible, else as-is.
+
+    ``Path.relative_to`` raises when the target lives outside the repo
+    (e.g. tmp dirs in tests, or a user-supplied ``--baseline`` outside the
+    tree). The display is purely cosmetic, so swallow that and fall back.
+    """
+    try:
+        return str(p.relative_to(_REPO_ROOT))
+    except ValueError:
+        return str(p)
+
+
 # ── snapshot ──────────────────────────────────────────────────────────────
 
 
@@ -67,11 +83,16 @@ def _collect_snapshot(
     *,
     db_path: Optional[str] = None,
     exclude_auto: bool = False,
+    since: Optional[float] = None,
 ) -> dict[str, Any]:
     """Build a baseline dict from the live DB. Pure data — no rendering.
 
     Calls into ``scripts/report_recall_metrics.collect_metrics`` so the SQL
     and de-dup rules stay shared with the on-demand reporter.
+
+    ``since`` is an absolute unix timestamp; only feedback rows with
+    ``observed_at >= since`` participate in the matrix. Lets the gate
+    catch seasonal drift without re-baselining the full history.
     """
     sys.path.insert(0, str(_REPO_ROOT / "scripts"))
     from radar.database import RadarDB  # noqa: E402  (late import after sys.path)
@@ -81,11 +102,12 @@ def _collect_snapshot(
         os.environ["RADAR_DB_PATH"] = db_path
     db = RadarDB(os.environ.get("RADAR_DB_PATH", "radar/persistence/radar.db"))
 
-    cells = collect_metrics(db, exclude_auto=exclude_auto)
+    cells = collect_metrics(db, exclude_auto=exclude_auto, since=since)
     return {
         "schema_version": 1,
         "generated_at": time.time(),
         "exclude_auto": exclude_auto,
+        "since": since,
         "opt_in": False,  # flips to true once Design W opt-in fires
         "cells": [c.to_dict() for c in cells],
     }
@@ -194,13 +216,24 @@ def main(argv: list[str]) -> int:
         "--baseline", default=str(_BASELINE_PATH),
         help="Baseline file path (default: docs/baselines/recall_metrics.json)",
     )
+    parser.add_argument(
+        "--window-days", type=float, default=None,
+        help="Restrict the matrix to feedback rows from the last N days "
+             "(absolute timestamp = now - N*86400). Catches seasonal drift "
+             "without re-baselining full history.",
+    )
     args = parser.parse_args(argv)
 
     baseline_path = Path(args.baseline)
+    since: Optional[float] = (
+        time.time() - args.window_days * 86400.0
+        if args.window_days is not None
+        else None
+    )
 
     if args.update:
         snapshot = _collect_snapshot(
-            db_path=args.db, exclude_auto=args.exclude_auto,
+            db_path=args.db, exclude_auto=args.exclude_auto, since=since,
         )
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
         baseline_path.write_text(
@@ -208,20 +241,24 @@ def main(argv: list[str]) -> int:
             encoding="utf-8",
         )
         n = len(snapshot["cells"])
-        print(f"wrote {baseline_path.relative_to(_REPO_ROOT)} ({n} cells)")
+        print(f"wrote {_display_path(baseline_path)} ({n} cells)")
         return 0
 
     baseline = _load_baseline(baseline_path)
     if baseline is None:
         print(
-            f"bootstrap: no baseline at {baseline_path.relative_to(_REPO_ROOT)} — "
+            f"bootstrap: no baseline at {_display_path(baseline_path)} — "
             "run with --update once analyst_feedback has accumulated.",
         )
         return 0
 
+    # Prefer the CLI-provided window over the baseline's frozen value;
+    # falls back to baseline's snapshot window so the comparison is apples-to-apples.
+    effective_since = since if since is not None else baseline.get("since")
     current = _collect_snapshot(
         db_path=args.db,
         exclude_auto=baseline.get("exclude_auto", False),
+        since=effective_since,
     )
     ok, messages = compare(baseline, current, max_drop=args.max_drop)
     for m in messages:

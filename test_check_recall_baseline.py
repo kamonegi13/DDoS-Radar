@@ -156,5 +156,79 @@ def test_both_recall_none_skips() -> None:
     assert all("FAIL" not in m for m in messages)
 
 
+# ── --window-days CLI plumbing ─────────────────────────────────────────────
+
+def test_window_days_propagates_since_to_collect_metrics(monkeypatch, tmp_path) -> None:
+    """--window-days N must materialize as since=now-N*86400 inside the snapshot."""
+    import check_recall_baseline as crb
+
+    captured: dict = {}
+
+    def fake_snapshot(*, db_path=None, exclude_auto=False, since=None):
+        captured["since"] = since
+        captured["exclude_auto"] = exclude_auto
+        return {"schema_version": 1, "exclude_auto": exclude_auto,
+                "since": since, "opt_in": False, "cells": []}
+
+    monkeypatch.setattr(crb, "_collect_snapshot", fake_snapshot)
+
+    baseline_path = tmp_path / "baseline.json"
+    rc = crb.main([
+        "--update", "--window-days", "30",
+        "--baseline", str(baseline_path),
+    ])
+    assert rc == 0
+    assert captured["since"] is not None
+    # 30d ago, allow 5s slack for execution time
+    expected = __import__("time").time() - 30 * 86400.0
+    assert abs(captured["since"] - expected) < 5.0
+
+
+def test_window_days_omitted_means_full_history(monkeypatch, tmp_path) -> None:
+    import check_recall_baseline as crb
+
+    captured: dict = {}
+
+    def fake_snapshot(*, db_path=None, exclude_auto=False, since=None):
+        captured["since"] = since
+        return {"schema_version": 1, "exclude_auto": False,
+                "since": since, "opt_in": False, "cells": []}
+
+    monkeypatch.setattr(crb, "_collect_snapshot", fake_snapshot)
+
+    baseline_path = tmp_path / "baseline.json"
+    rc = crb.main(["--update", "--baseline", str(baseline_path)])
+    assert rc == 0
+    assert captured["since"] is None
+
+
+def test_check_inherits_baseline_window(monkeypatch, tmp_path) -> None:
+    """When --window-days is omitted on check, current snapshot must reuse baseline.since."""
+    import json as _json
+    import check_recall_baseline as crb
+
+    baseline_path = tmp_path / "baseline.json"
+    baseline_payload = {
+        "schema_version": 1, "exclude_auto": False,
+        "since": 1_700_000_000.0, "opt_in": False,
+        "cells": [_cell("twn", "TREND", 0.80)],
+    }
+    baseline_path.write_text(_json.dumps(baseline_payload), encoding="utf-8")
+
+    captured: dict = {}
+
+    def fake_snapshot(*, db_path=None, exclude_auto=False, since=None):
+        captured["since"] = since
+        return {"schema_version": 1, "exclude_auto": False,
+                "since": since, "opt_in": False,
+                "cells": [_cell("twn", "TREND", 0.80)]}
+
+    monkeypatch.setattr(crb, "_collect_snapshot", fake_snapshot)
+
+    rc = crb.main(["--baseline", str(baseline_path)])
+    assert rc == 0
+    assert captured["since"] == 1_700_000_000.0
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
