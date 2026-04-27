@@ -4861,7 +4861,33 @@
           "weight": 0.3,
           "role": "regional_power"
         }
-      }
+      },
+      "attack_mode_extensions": [
+        {
+          "mode": "PROXY_KINETIC_SURGE",
+          "domain_floors": {"physical": 3.0},
+          "active_n_min": 2,
+          "requires_participant": ["IL"],
+          "base_confidence": 0.6,
+          "rule_summary": "physical>=3 & IL active (Hezbollah/Houthi/Hamas tempo escalation)"
+        },
+        {
+          "mode": "MARITIME_INTERDICTION_RISK",
+          "domain_floors": {"physical": 2.5, "info": 1.0},
+          "active_n_min": 2,
+          "requires_participant": ["YE"],
+          "base_confidence": 0.6,
+          "rule_summary": "physical>=2.5 & info>=1 & YE active (Red Sea / Bab el-Mandeb shipping risk)"
+        },
+        {
+          "mode": "DIRECT_STATE_EXCHANGE_RISK",
+          "domain_floors": {"physical": 4.0, "info": 1.5},
+          "active_n_min": 2,
+          "requires_participant": ["IL", "IR"],
+          "base_confidence": 0.7,
+          "rule_summary": "physical>=4 & info>=1.5 & IL+IR active (direct kinetic exchange precursor)"
+        }
+      ]
     },
     "korean_peninsula": {
       "name_en": "Korean Peninsula",
@@ -4951,7 +4977,25 @@
           "weight": 0.7,
           "role": "adversary"
         }
-      }
+      },
+      "attack_mode_extensions": [
+        {
+          "mode": "GRAY_ZONE_MARITIME_PRESSURE",
+          "domain_floors": {"physical": 2.0, "info": 1.0},
+          "active_n_min": 2,
+          "requires_participant": ["CN"],
+          "base_confidence": 0.55,
+          "rule_summary": "physical>=2 & info>=1 & CN active (CCG / militia harassment, water cannon, blockade attempts)"
+        },
+        {
+          "mode": "REEF_INCIDENT_ESCALATION",
+          "domain_floors": {"physical": 3.0},
+          "active_n_min": 2,
+          "requires_participant": ["PH", "CN"],
+          "base_confidence": 0.65,
+          "rule_summary": "physical>=3 & PH+CN active (Second Thomas Shoal / Scarborough collision-class incident)"
+        }
+      ]
     }
   },
   "CT_LOG_WATCHED_DOMAINS": {
