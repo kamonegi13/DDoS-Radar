@@ -2005,6 +2005,12 @@
     let _ccLastFocus = null;
     let _ccInflightFocus = null;
     let _ccAbort = null;
+    // HUD↔Cards consistency: cache the latest v2 envelope per focused scenario so
+    // _hudV2OverlayStrat() can override v1 strategic_alert.threat_level/domains
+    // with the same values the cards display. Stale entries (>180s) fall through
+    // to the v1 values per NP3 (fault tolerance: HUD must never go blank).
+    const _ccEnvelopeCache = {};
+    const _CC_ENVELOPE_TTL_MS = 180_000;
     let _ccExportInflight = false;
     const _CC_TYPE_ORDER = ['threat_level', 'trend', 'per_domain', 'anomaly', 'attack_mode'];
 
@@ -2226,6 +2232,54 @@
         return card;
     }
 
+    /**
+     * Reconcile HUD with v2 conclusions: when a fresh envelope is cached for
+     * the focused scenario, return a NEW strat object whose `threat_level`
+     * and `domains` are sourced from the v2 ledger (same data the cards
+     * render). Returns the original `strat` unchanged when no envelope is
+     * available, when it is stale, or when v2 surfaces are unavailable —
+     * preserving NP3 (HUD must keep working when v2 is down).
+     *
+     * @param {object|null|undefined} strat — v1 data.strategic_alert
+     * @param {string|null|undefined} focusedId — focused scenario id
+     * @returns {object|null|undefined} new strat (or original on no-op)
+     */
+    function _hudV2OverlayStrat(strat, focusedId) {
+        if (!strat || !focusedId) return strat;
+        const entry = _ccEnvelopeCache[focusedId];
+        if (!entry) return strat;
+        if (Date.now() - entry.ts > _CC_ENVELOPE_TTL_MS) return strat;
+        const byType = entry.byType || {};
+
+        const overlay = { ...strat };
+
+        // TL — only override when v2 has an available numeric TL conclusion.
+        const tlC = byType.threat_level;
+        if (tlC && tlC.conclusion_unavailable_reason == null) {
+            const tl = parseInt(tlC.state, 10);
+            if (Number.isFinite(tl)) overlay.threat_level = tl;
+        }
+
+        // per-domain — override scores + status when v2 has a per_domain
+        // conclusion. v1 shape is `{cyber: {score, status}, ...}`; v2 carries
+        // status in the kv-state and score in metadata.domain_scores.
+        const pdC = byType.per_domain;
+        if (pdC && pdC.conclusion_unavailable_reason == null) {
+            const statusByDomain = _ccParseKvState(pdC.state);
+            const scoreByDomain = (pdC.metadata && pdC.metadata.domain_scores) || {};
+            const v1Domains = strat.domains || {};
+            const newDomains = {};
+            ['cyber', 'physical', 'info'].forEach((d) => {
+                const v1 = v1Domains[d] || { score: 0, status: 'NORMAL' };
+                const score = (typeof scoreByDomain[d] === 'number') ? scoreByDomain[d] : v1.score;
+                const status = statusByDomain[d] || v1.status;
+                newDomains[d] = { ...v1, score, status };
+            });
+            overlay.domains = newDomains;
+        }
+        return overlay;
+    }
+
     function _ccRenderEmpty(grid) {
         grid.innerHTML = '';
         const empty = document.createElement('div');
@@ -2295,6 +2349,9 @@
             }
             const byType = {};
             list.forEach((c) => { if (c && c.conclusion_type) byType[c.conclusion_type] = c; });
+            // Stash the just-fetched envelope so the HUD can pull TL + per_domain
+            // from the same source the cards render. Single point of truth.
+            _ccEnvelopeCache[scenarioId] = { ts: Date.now(), byType };
 
             grid.innerHTML = '';
             _CC_TYPE_ORDER.forEach((type) => {
@@ -3799,7 +3856,14 @@
             (data.strategic_alert.rationale_matrix || []).map(e => `${e.sensor}:${e.status}:${e.score}`).join(',')
         ) : '';
         const _tgtHash = (data.targets || []).map(t => `${t.code}:${t.avg_spike||0}:${t.l7_spike||0}`).join('|');
-        const _sig = `${data.timestamp || ''}_${currentVector}_${[...displayTargets].sort().join(',')}_${mapCenterMode}_${_stratHash}_${_tgtHash}`;
+        // Include v2 envelope freshness in the render signature so HUD re-renders
+        // when _ccEnvelopeCache refreshes (otherwise a stable v1 strategic_alert
+        // would short-circuit the v2 overlay and the HUD would lag the cards).
+        const _v2Hash = (() => {
+            const e = _ccEnvelopeCache[data.focused_scenario];
+            return e ? String(e.ts) : '';
+        })();
+        const _sig = `${data.timestamp || ''}_${currentVector}_${[...displayTargets].sort().join(',')}_${mapCenterMode}_${_stratHash}_${_tgtHash}_${_v2Hash}`;
         if (_sig === _lastRenderSig) return;
         _lastRenderSig = _sig;
 
@@ -3812,7 +3876,11 @@
         const coordinatedEl = document.getElementById('hud-coordinated');
 
         if (data.strategic_alert) {
-            const strat = data.strategic_alert;
+            // Reconcile HUD with v2 Conclusion Cards: TL and per_domain values
+            // come from the same v2 envelope when available, eliminating the
+            // brief HUD/Cards mismatch that arises from independent v1/v2
+            // computations during the v1→v2 sunset window.
+            const strat = _hudV2OverlayStrat(data.strategic_alert, data.focused_scenario);
             const threatLabels = { 5: _t('threat_lv.5'), 4: _t('threat_lv.4'), 3: _t('threat_lv.3'), 2: _t('threat_lv.2'), 1: _t('threat_lv.1') };
             threatEl.className = `threat-hud threat-${strat.threat_level}-hud`;
             if (strat.threat_breakdown) {

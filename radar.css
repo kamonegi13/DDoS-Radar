@@ -173,6 +173,10 @@
         .hud-domain-status.ELEVATED { color: var(--color-warning); }
         .hud-domain-status.WATCH    { color: var(--color-elevated); }
         .hud-domain-status.NORMAL   { color: #555; }
+        /* v2 per_domain enum (matches Conclusion Cards palette) */
+        .hud-domain-status.ACTIVE   { color: var(--color-critical); }
+        .hud-domain-status.STABLE   { color: #6fc66f; }
+        .hud-domain-status.INSUFFICIENT_SIGNAL { color: var(--color-muted); }
 
         /* ── Row 2 split tag (adversary vs target contribution) ──── */
         .hud-split-tag { font-size: 9px; font-family: 'Courier New', monospace; color: #888; letter-spacing: 0.5px; padding: 1px 4px; border-radius: 2px; background: rgba(0,0,0,0.35); border: 1px solid #2a2a2a; flex-shrink: 0; cursor: help; }
@@ -727,6 +731,10 @@
         .domain-status.ELEVATED { color: var(--color-warning); }
         .domain-status.WATCH    { color: var(--color-elevated); }
         .domain-status.NORMAL   { color: #777; }
+        /* v2 per_domain enum (matches Conclusion Cards palette) */
+        .domain-status.ACTIVE   { color: var(--color-critical); }
+        .domain-status.STABLE   { color: #6fc66f; }
+        .domain-status.INSUFFICIENT_SIGNAL { color: var(--color-muted); }
         /* ── Theater Halo (SVG circle animation) ── */
         @keyframes halo-pulse {
             0%, 100% { stroke-opacity: 0.85; }
