@@ -166,3 +166,100 @@ def test_calibration_status_is_attached(db: RadarDB) -> None:
     c = derive_threat_level(db, _state())
     assert isinstance(c.calibration_status, dict)
     # calibration_status_for returns a dict even when no analyst feedback yet
+
+
+# ─── rationale_matrix (NP6 transparency, mirrors v1 strategic_alert) ────────
+
+
+def _signal(sensor: str, domain: str, raw_score: float = 1.0,
+            evidence_url: str | None = None,
+            value_display: str = "") -> "scoring.Signal":
+    from radar.scoring import Signal
+    return Signal(
+        signal_source=sensor, sensor=sensor, observed_at=0.0,
+        domain=domain, countries=["TW"], country_weights={"TW": 1.0},
+        raw_score=raw_score, value_display=value_display,
+        evidence_url=evidence_url,
+    )
+
+
+def _contrib(sig, *, country: str = "TW", role: str = "primary_target",
+             final: float = 1.0, trace: str = "test",
+             suppress: str | None = None) -> "scoring.ScenarioContribution":
+    from radar.scoring import ScenarioContribution
+    return ScenarioContribution(
+        signal=sig, contributing_country=country,
+        llm_country_weight=1.0, participant_weight=1.0,
+        participant_role=role, final_contribution=final,
+        formula_trace=trace, suppress_reason=suppress,
+    )
+
+
+def test_metadata_includes_rationale_matrix_when_contributions_exist(db: RadarDB) -> None:
+    contributions = [
+        _contrib(_signal("apt_intel", "cyber", raw_score=2.5,
+                         evidence_url="https://example.com/a",
+                         value_display="3 indicators"),
+                 final=1.5, trace="raw*0.6"),
+        _contrib(_signal("mil_exercise", "physical", raw_score=1.0,
+                         value_display="exercise"),
+                 final=0.5, trace="raw*0.5"),
+    ]
+    c = derive_threat_level(db, _state(contributions=contributions))
+    rm = c.metadata.get("rationale_matrix")
+    assert isinstance(rm, list)
+    assert len(rm) == 2
+    # Sorted by |final_contribution| descending
+    assert rm[0]["sensor"] == "apt_intel"
+    assert rm[1]["sensor"] == "mil_exercise"
+    # Per-row shape
+    row = rm[0]
+    assert row["domain"] == "cyber"
+    assert row["raw_score"] == 2.5
+    assert row["final_contribution"] == 1.5
+    assert row["contributing_country"] == "TW"
+    assert row["participant_role"] == "primary_target"
+    assert row["formula_trace"] == "raw*0.6"
+    assert row["evidence_url"] == "https://example.com/a"
+    assert row["value_display"] == "3 indicators"
+    assert row["suppress_reason"] is None
+
+
+def test_rationale_matrix_is_empty_list_when_no_contributions(db: RadarDB) -> None:
+    c = derive_threat_level(db, _state(contributions=[]))
+    assert c.metadata["rationale_matrix"] == []
+
+
+def test_rationale_matrix_sorted_by_absolute_contribution(db: RadarDB) -> None:
+    """Negative contributions (suppression) should still be ranked by magnitude."""
+    contributions = [
+        _contrib(_signal("low", "cyber"), final=0.2, trace="t"),
+        _contrib(_signal("neg", "info"), final=-1.5, trace="t"),
+        _contrib(_signal("high", "physical"), final=1.0, trace="t"),
+    ]
+    c = derive_threat_level(db, _state(contributions=contributions))
+    rm = c.metadata["rationale_matrix"]
+    assert [r["sensor"] for r in rm] == ["neg", "high", "low"]
+
+
+def test_rationale_matrix_carries_suppress_reason(db: RadarDB) -> None:
+    contributions = [
+        _contrib(_signal("noisy", "cyber"), final=0.0, trace="t",
+                 suppress="muted_by_analyst"),
+    ]
+    c = derive_threat_level(db, _state(contributions=contributions))
+    rm = c.metadata["rationale_matrix"]
+    assert rm[0]["suppress_reason"] == "muted_by_analyst"
+
+
+def test_rationale_matrix_present_on_insufficient_data_branch(db: RadarDB) -> None:
+    """NP6: even when TL is unavailable, the contributing signals (if any)
+    must surface so the analyst can see WHY there was insufficient data."""
+    contributions = [
+        _contrib(_signal("partial", "cyber", raw_score=0.5),
+                 final=0.3, trace="below_floor"),
+    ]
+    c = derive_threat_level(db, _state(tl=None, score=0.0,
+                                       contributions=contributions))
+    assert c.state is None
+    assert c.metadata["rationale_matrix"][0]["sensor"] == "partial"

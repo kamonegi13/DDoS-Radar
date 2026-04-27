@@ -81,6 +81,30 @@ def derive_threat_level(
         if c.signal.evidence_url
     }))
 
+    # NP6 — surface every contributing signal so the drill-down can show the
+    # full derivation path (mirrors v1 strategic_alert.rationale_matrix). Sorted
+    # by absolute final_contribution descending so the largest movers come first.
+    rationale_matrix = [
+        {
+            "sensor": c.signal.sensor,
+            "domain": c.signal.domain,
+            "signal_source": c.signal.signal_source,
+            "value_display": c.signal.value_display,
+            "raw_score": round(float(c.signal.raw_score), 3),
+            "contributing_country": c.contributing_country,
+            "participant_role": c.participant_role,
+            "final_contribution": round(float(c.final_contribution), 3),
+            "formula_trace": c.formula_trace,
+            "evidence_url": c.signal.evidence_url,
+            "suppress_reason": c.suppress_reason,
+        }
+        for c in sorted(
+            state.contributions,
+            key=lambda c: abs(float(c.final_contribution)),
+            reverse=True,
+        )
+    ]
+
     if state.tl is None:
         return Conclusion(
             id=new_conclusion_id(),
@@ -102,6 +126,7 @@ def derive_threat_level(
                 "scoring_mode": state.scoring_mode,
                 "is_transient": True,
                 "reason_detail": "derive_tl returned None (no scorable signal)",
+                "rationale_matrix": rationale_matrix,
             },
         )
 
@@ -125,5 +150,6 @@ def derive_threat_level(
             "convergence_bonus": round(float(state.convergence_bonus), 3),
             "scoring_mode": state.scoring_mode,
             "active_domain_count": sum(1 for v in state.domains.values() if v > 0),
+            "rationale_matrix": rationale_matrix,
         },
     )

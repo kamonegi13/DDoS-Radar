@@ -2450,9 +2450,10 @@
         return div;
     }
 
-    function _ccDrillRenderKvTable(obj, emptyKey) {
+    function _ccDrillRenderKvTable(obj, emptyKey, excludeKeys) {
         const wrap = document.createElement('div');
-        const keys = obj ? Object.keys(obj) : [];
+        const skip = new Set(Array.isArray(excludeKeys) ? excludeKeys : []);
+        const keys = obj ? Object.keys(obj).filter((k) => !skip.has(k)) : [];
         if (keys.length === 0) {
             wrap.textContent = _t(emptyKey);
             return wrap;
@@ -2462,6 +2463,89 @@
             const display = (v != null && typeof v === 'object') ? JSON.stringify(v) : v;
             wrap.appendChild(_ccDrillRow(k, display));
         });
+        return wrap;
+    }
+
+    /**
+     * Render the rationale_matrix as a structured table (mirrors v1 evidence
+     * panel's per-sensor breakdown). NP6: every contributing signal is
+     * surfaced with sensor / domain / country / contribution / formula /
+     * evidence link, sorted server-side by |final_contribution| descending.
+     *
+     * Returns an empty container with `drill_modal.empty.rationale_matrix`
+     * text when no entries exist (the section is then marked empty by the
+     * caller and rendered collapsed).
+     */
+    function _ccDrillRenderRationaleMatrix(trace) {
+        const wrap = document.createElement('div');
+        const rm = (trace && trace.metadata && trace.metadata.rationale_matrix) || [];
+        if (!Array.isArray(rm) || rm.length === 0) {
+            wrap.textContent = _t('drill_modal.empty.rationale_matrix');
+            return wrap;
+        }
+        const table = document.createElement('table');
+        table.className = 'dm-rationale-table';
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        ['sensor', 'domain', 'country', 'contribution', 'formula', 'evidence'].forEach((c) => {
+            const th = document.createElement('th');
+            th.setAttribute('data-i18n', 'drill_modal.rationale.col.' + c);
+            th.textContent = _t('drill_modal.rationale.col.' + c);
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        rm.forEach((row) => {
+            const tr = document.createElement('tr');
+            if (row && row.suppress_reason) tr.classList.add('dm-rationale-suppressed');
+
+            const tdSensor = document.createElement('td');
+            tdSensor.textContent = (row && row.sensor) || '';
+            tr.appendChild(tdSensor);
+
+            const tdDomain = document.createElement('td');
+            tdDomain.className = 'dm-rationale-domain dm-rationale-domain-' + ((row && row.domain) || '');
+            tdDomain.textContent = (row && row.domain) || '';
+            tr.appendChild(tdDomain);
+
+            const tdCountry = document.createElement('td');
+            const cc = (row && row.contributing_country) || '';
+            const role = (row && row.participant_role) || '';
+            tdCountry.textContent = role ? `${cc} (${role})` : cc;
+            tr.appendChild(tdCountry);
+
+            const tdContrib = document.createElement('td');
+            tdContrib.className = 'dm-rationale-num';
+            const fc = (row && typeof row.final_contribution === 'number') ? row.final_contribution : null;
+            tdContrib.textContent = (fc != null) ? fc.toFixed(3) : '—';
+            tr.appendChild(tdContrib);
+
+            const tdFormula = document.createElement('td');
+            tdFormula.className = 'dm-rationale-formula';
+            tdFormula.textContent = (row && row.formula_trace) || '';
+            tr.appendChild(tdFormula);
+
+            const tdEvidence = document.createElement('td');
+            const url = row && row.evidence_url;
+            if (url) {
+                const a = document.createElement('a');
+                a.href = url;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.textContent = '🔗';
+                a.title = url;
+                tdEvidence.appendChild(a);
+            } else {
+                tdEvidence.textContent = '—';
+            }
+            tr.appendChild(tdEvidence);
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
         return wrap;
     }
 
@@ -2805,8 +2889,23 @@
                                           !trace.calibration_status || Object.keys(trace.calibration_status || {}).length === 0));
         body.appendChild(_ccDrillSection('drill_modal.section.sources',     _ccDrillRenderSources(trace),
                                           !trace.source_urls || trace.source_urls.length === 0));
-        const mdEl = _ccDrillRenderKvTable(trace.metadata, 'drill_modal.empty.metadata');
-        const mdEmpty = !trace.metadata || Object.keys(trace.metadata || {}).length === 0;
+
+        // NP6: rationale_matrix lives only on threat_level conclusions today.
+        // Render it as its own structured table and exclude the key from the
+        // generic metadata kv dump (would dump as a JSON wall otherwise).
+        const isThreat = trace && trace.conclusion_type === 'threat_level';
+        const hasRm = isThreat && trace.metadata && Array.isArray(trace.metadata.rationale_matrix)
+                       && trace.metadata.rationale_matrix.length > 0;
+        if (isThreat) {
+            body.appendChild(_ccDrillSection('drill_modal.section.rationale_matrix',
+                                             _ccDrillRenderRationaleMatrix(trace), !hasRm));
+        }
+        const metadataExcludes = isThreat ? ['rationale_matrix'] : [];
+        const mdEl = _ccDrillRenderKvTable(trace.metadata, 'drill_modal.empty.metadata', metadataExcludes);
+        const mdKeyCount = trace.metadata
+            ? Object.keys(trace.metadata).filter((k) => !metadataExcludes.includes(k)).length
+            : 0;
+        const mdEmpty = mdKeyCount === 0;
         body.appendChild(_ccDrillSection('drill_modal.section.metadata',    mdEl, mdEmpty));
         body.appendChild(_ccDrillSection('drill_modal.section.llm_prompt',  _ccDrillRenderLlmPrompt(trace), false));
         // Show LLM augmentation only for attack_mode where it is meaningful;
