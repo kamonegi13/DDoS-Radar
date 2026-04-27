@@ -22,6 +22,7 @@ COPY login-init.js   .
 COPY radar.js        .
 COPY radar.css       .
 COPY wp_alarm.js     .
+COPY hud_v2_overlay.js .
 COPY index.html      .
 COPY tradecraft.js   .
 COPY tradecraft.css  .

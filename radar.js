@@ -2233,12 +2233,13 @@
     }
 
     /**
-     * Reconcile HUD with v2 conclusions: when a fresh envelope is cached for
-     * the focused scenario, return a NEW strat object whose `threat_level`
-     * and `domains` are sourced from the v2 ledger (same data the cards
-     * render). Returns the original `strat` unchanged when no envelope is
-     * available, when it is stale, or when v2 surfaces are unavailable —
+     * TTL/cache gate around HudV2Overlay.applyOverlay. Returns the original
+     * `strat` when no fresh envelope is cached for the focused scenario —
      * preserving NP3 (HUD must keep working when v2 is down).
+     *
+     * Pure merge logic lives in `hud_v2_overlay.js` (window.HudV2Overlay),
+     * so it can be unit-tested under Node without a browser. This wrapper
+     * only owns the cache key + TTL.
      *
      * @param {object|null|undefined} strat — v1 data.strategic_alert
      * @param {string|null|undefined} focusedId — focused scenario id
@@ -2249,35 +2250,9 @@
         const entry = _ccEnvelopeCache[focusedId];
         if (!entry) return strat;
         if (Date.now() - entry.ts > _CC_ENVELOPE_TTL_MS) return strat;
-        const byType = entry.byType || {};
-
-        const overlay = { ...strat };
-
-        // TL — only override when v2 has an available numeric TL conclusion.
-        const tlC = byType.threat_level;
-        if (tlC && tlC.conclusion_unavailable_reason == null) {
-            const tl = parseInt(tlC.state, 10);
-            if (Number.isFinite(tl)) overlay.threat_level = tl;
-        }
-
-        // per-domain — override scores + status when v2 has a per_domain
-        // conclusion. v1 shape is `{cyber: {score, status}, ...}`; v2 carries
-        // status in the kv-state and score in metadata.domain_scores.
-        const pdC = byType.per_domain;
-        if (pdC && pdC.conclusion_unavailable_reason == null) {
-            const statusByDomain = _ccParseKvState(pdC.state);
-            const scoreByDomain = (pdC.metadata && pdC.metadata.domain_scores) || {};
-            const v1Domains = strat.domains || {};
-            const newDomains = {};
-            ['cyber', 'physical', 'info'].forEach((d) => {
-                const v1 = v1Domains[d] || { score: 0, status: 'NORMAL' };
-                const score = (typeof scoreByDomain[d] === 'number') ? scoreByDomain[d] : v1.score;
-                const status = statusByDomain[d] || v1.status;
-                newDomains[d] = { ...v1, score, status };
-            });
-            overlay.domains = newDomains;
-        }
-        return overlay;
+        const overlay = (window.HudV2Overlay && window.HudV2Overlay.applyOverlay) || null;
+        if (!overlay) return strat;  // Defensive: hud_v2_overlay.js failed to load
+        return overlay(strat, entry.byType || {});
     }
 
     function _ccRenderEmpty(grid) {
