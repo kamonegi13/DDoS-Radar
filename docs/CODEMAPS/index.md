@@ -7,7 +7,7 @@ structural changes to keep maps in sync.
 
 | Source file | Codemap | Lines |
 |-------------|---------|-------|
-| `radar/database.py` | [radar.database.md](radar.database.md) | 4494 |
+| `radar/database.py` | [radar.database.md](radar.database.md) | 4544 |
 | `radar/scoring.py` | [radar.scoring.md](radar.scoring.md) | 1601 |
 | `radar/intel_queue.py` | [radar.intel_queue.md](radar.intel_queue.md) | 1066 |
 | `radar/engine.py` | [radar.engine.md](radar.engine.md) | 1056 |
@@ -16,7 +16,7 @@ structural changes to keep maps in sync.
 | `radar/persistence.py` | [radar.persistence.md](radar.persistence.md) | 139 |
 | `radar/scheduler.py` | [radar.scheduler.md](radar.scheduler.md) | 304 |
 | `radar/config.py` | [radar.config.md](radar.config.md) | 552 |
-| `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 2925 |
+| `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 2968 |
 | `radar/routes/analytics.py` | [radar.routes.analytics.md](radar.routes.analytics.md) | 1748 |
 | `radar/routes/admin.py` | [radar.routes.admin.md](radar.routes.admin.md) | 781 |
 | `radar/routes/intel.py` | [radar.routes.intel.md](radar.routes.intel.md) | 345 |

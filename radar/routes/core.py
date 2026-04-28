@@ -2085,6 +2085,24 @@ def get_threat_data():
                         _sd.pop("tl", None)
                     if "indicators" in _sd:
                         _sd["indicators"]["llm_intel_24h"] = _intel_24h.get(_sc.id, 0)
+                    # AP3 — per-scenario signal-volume metric (background OBS chip).
+                    # Surfaces the per-country observation rate so analysts can tell
+                    # at a glance which background scenarios are starved of real
+                    # signals (and therefore have lite scores driven only by
+                    # global noise like cf_botnet_overlap). NP5+8 chronic-gap
+                    # detector — colour band: 0=red, 1-9=amber, ≥10=green.
+                    try:
+                        _vol = _db.scenario_signal_volume(_sc.id, hours=24)
+                        if "indicators" not in _sd:
+                            _sd["indicators"] = {}
+                        _sd["indicators"]["signal_volume_24h"] = _vol["row_count"]
+                        _sd["indicators"]["signal_distinct_countries_24h"] = _vol["distinct_countries"]
+                        _sd["indicators"]["signal_last_at"] = _vol["last_at"]
+                        _sd["indicators"]["signal_top_countries"] = _vol["top_countries"]
+                    except Exception:
+                        # NP3 — chip degrades gracefully if the query fails.
+                        if "indicators" in _sd:
+                            _sd["indicators"]["signal_volume_24h"] = None
                     # B1: background score deltas over multiple windows
                     for _dkey, _dsec in (("score_delta_1h", 3600),
                                          ("score_delta_6h", 21600),
@@ -2120,6 +2138,31 @@ def get_threat_data():
                         "falling" if _vel_pts_h < -0.1 else "stable"
                     )
                     _sd["velocity_pts_per_hour"] = round(_vel_pts_h, 3)
+                    # B1: focused scenario delta windows + signal-volume metric.
+                    # Background scenarios already get these in the lite branch
+                    # above; symmetry here lets the scenario-bar Δ chips and
+                    # OBS chip work uniformly for the focused card too.
+                    for _dkey, _dsec in (("score_delta_1h", 3600),
+                                         ("score_delta_6h", 21600),
+                                         ("score_delta_24h", 86400)):
+                        try:
+                            _prev_s = _db.scenario_score_at_or_before(
+                                _sc.id, current_time - _dsec)
+                            _sd[_dkey] = (round(_state.score - _prev_s, 2)
+                                          if _prev_s is not None else None)
+                        except Exception:
+                            _sd[_dkey] = None
+                    try:
+                        _vol_f = _db.scenario_signal_volume(_sc.id, hours=24)
+                        if "indicators" not in _sd:
+                            _sd["indicators"] = {}
+                        _sd["indicators"]["signal_volume_24h"] = _vol_f["row_count"]
+                        _sd["indicators"]["signal_distinct_countries_24h"] = _vol_f["distinct_countries"]
+                        _sd["indicators"]["signal_last_at"] = _vol_f["last_at"]
+                        _sd["indicators"]["signal_top_countries"] = _vol_f["top_countries"]
+                    except Exception:
+                        if "indicators" in _sd:
+                            _sd["indicators"]["signal_volume_24h"] = None
                     # ETA to next TL boundary (compute tl_proximity inline
                     # since the focused scenario's score/tl are already final)
                     _focused_prox = _routes.engine.compute_tl_proximity(

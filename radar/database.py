@@ -1900,6 +1900,56 @@ class RadarDB:
             for r in rows
         ]
 
+    def scenario_signal_volume(
+        self, scenario_id: str, hours: int = 24,
+    ) -> dict:
+        """Per-scenario signal-volume report for the AP3 OBS chip.
+
+        Returns a dict with:
+          - row_count: distinct (logged_at, country) rows with non-zero
+                       per-country contribution in the window
+          - distinct_countries: count of distinct participant countries
+                                that contributed
+          - last_at: most recent logged_at (None if no rows)
+          - top_countries: list of (country, total_contribution) tuples,
+                           top 5 desc
+
+        Queries the scenario_contribution_log, which excludes GLOBAL
+        signals by construction. So the figure measures genuine per-
+        country observation, not noise from global sources like
+        cf_botnet_overlap.
+
+        Used to identify scenarios whose lite-mode score is being driven
+        only by global signals (chronic blind-spot per NP5+8).
+        """
+        cutoff = time.time() - hours * 3600
+        conn = self._get_conn()
+        agg = conn.execute(
+            "SELECT COUNT(*) AS n, "
+            "       COUNT(DISTINCT country) AS n_countries, "
+            "       MAX(logged_at) AS last_at "
+            "FROM scenario_contribution_log "
+            "WHERE scenario_id = ? AND logged_at > ? "
+            "  AND contribution_sum > 0",
+            (scenario_id, cutoff),
+        ).fetchone()
+        top = conn.execute(
+            "SELECT country, SUM(contribution_sum) AS total "
+            "FROM scenario_contribution_log "
+            "WHERE scenario_id = ? AND logged_at > ? "
+            "  AND contribution_sum > 0 "
+            "GROUP BY country ORDER BY total DESC LIMIT 5",
+            (scenario_id, cutoff),
+        ).fetchall()
+        return {
+            "row_count": int(agg["n"] or 0) if agg else 0,
+            "distinct_countries": int(agg["n_countries"] or 0) if agg else 0,
+            "last_at": float(agg["last_at"]) if agg and agg["last_at"] else None,
+            "top_countries": [
+                (r["country"], float(r["total"] or 0.0)) for r in top
+            ],
+        }
+
     # ── focus_switch_log (Section 9.3.1) ───────────────────────────────────
     def focus_switch_append(self, scenario_id: str, switched_at: float,
                             lite_score: float, full_score: float,
