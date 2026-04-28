@@ -2115,10 +2115,21 @@
         if (oldBtn) oldBtn.remove();
         _mapDimSetText(_t('map.dim.switching').replace('{name}', name));
         overlay.hidden = false;
+        // Two-phase wiring (Phase 4 commit 4):
+        //   liftSources: envelope only — once the v2 envelope arrives the
+        //     visual dim overlay drops AND a small "REFRESHING" badge is
+        //     pinned in the map corner.
+        //   requireSources: envelope + threat_data — when the slower v1
+        //     telemetry leg also lands, the badge clears.
+        //   stale: only fires if the envelope leg itself is too slow,
+        //     which post-commit-3 should be rare.
         window.MapDim.start({
             scenarioName: name,
             timeoutMs: _MAP_DIM_TIMEOUT_MS,
-            lift: function () { _mapDimHide(); },
+            liftSources: ['envelope'],
+            requireSources: ['envelope', 'threat_data'],
+            lift: function () { _mapDimHide(); _mapRefreshShow(name); },
+            done: function () { _mapRefreshHide(); },
             stale: function () { _mapDimMarkStale(); },
         });
     }
@@ -2132,6 +2143,34 @@
         }
         if (wrapper) wrapper.removeAttribute('aria-busy');
         document.body.removeAttribute('data-map-dim');
+    }
+
+    // Two-phase Phase 2: small "REFRESHING" badge anchored to the map
+    // corner while the slower v1 telemetry leg is still in flight.
+    // Auto-clears on Phase 2 done; also auto-clears after a hard 30s
+    // failsafe so it can never get stuck visible if a downstream caller
+    // forgets to notifyReady('threat_data').
+    let _mapRefreshFailsafeId = null;
+    function _mapRefreshShow(scenarioName) {
+        const badge = document.getElementById('map-refresh-badge');
+        if (!badge) return;
+        const labelEl = badge.querySelector('.mr-text');
+        if (labelEl) {
+            labelEl.textContent = scenarioName
+                ? _t('map.refresh.label_named').replace('{name}', scenarioName)
+                : _t('map.refresh.label');
+        }
+        badge.hidden = false;
+        if (_mapRefreshFailsafeId) clearTimeout(_mapRefreshFailsafeId);
+        _mapRefreshFailsafeId = setTimeout(_mapRefreshHide, 30000);
+    }
+    function _mapRefreshHide() {
+        const badge = document.getElementById('map-refresh-badge');
+        if (badge) badge.hidden = true;
+        if (_mapRefreshFailsafeId) {
+            clearTimeout(_mapRefreshFailsafeId);
+            _mapRefreshFailsafeId = null;
+        }
     }
 
     function _mapDimMarkStale() {

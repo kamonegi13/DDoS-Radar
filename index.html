@@ -412,6 +412,14 @@
             <div class="md-spinner" aria-hidden="true"></div>
             <div class="md-text" id="md-text" data-i18n="map.dim.switching">Switching scenario…</div>
         </div>
+        <!-- Phase 2 refreshing badge — pinned in the map corner after the
+             v2 envelope has lifted the dim, while the slower v1 telemetry
+             leg is still in flight. Auto-clears on Phase 2 done. -->
+        <div id="map-refresh-badge" class="map-refresh-badge"
+             role="status" aria-live="polite" hidden>
+            <span class="mr-spinner" aria-hidden="true"></span>
+            <span class="mr-text" data-i18n="map.refresh.label">Refreshing telemetry…</span>
+        </div>
         <!-- NP7 attribution overlay — bottom-right of map, always rendered.
              Compressed text + ⓘ tooltip with the full disclaimer. Three-surface
              redundancy with drilldown header + API field keeps NP7 satisfied

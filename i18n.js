@@ -559,6 +559,8 @@ const STRINGS = {
     'map.dim.timeout':                'Sync incomplete — showing last known state.',
     'map.dim.retry':                  'Retry',
     'map.dim.aria_busy':              'Map is updating to new scenario',
+    'map.refresh.label':              'Refreshing telemetry…',
+    'map.refresh.label_named':        'Refreshing telemetry — {name}',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Weather Brief

@@ -263,6 +263,121 @@ test('callbacks that throw do not blow up the state machine', () => {
 });
 
 
+// ── Two-phase model (Phase 4 commit 4) ──────────────────────────────────
+
+test('two-phase: lift fires when liftSources arrived, done waits for the rest', () => {
+    const dim = MapDim.create();
+    let lifts = 0, dones = 0, stales = 0;
+    dim.start({
+        liftSources: ['envelope'],
+        requireSources: ['envelope', 'threat_data'],
+        lift: () => { lifts += 1; },
+        done: () => { dones += 1; },
+        stale: () => { stales += 1; },
+        timeoutMs: 5000,
+    });
+    // Envelope arrives — Phase 1 fires.
+    dim.notifyReady('envelope');
+    assert.strictEqual(lifts, 1);
+    assert.strictEqual(dones, 0);
+    assert.ok(dim.isLifted());
+    assert.ok(dim.isActive(), 'session stays active in REFRESHING window');
+    // Threat data arrives — Phase 2 fires.
+    dim.notifyReady('threat_data');
+    assert.strictEqual(lifts, 1);
+    assert.strictEqual(dones, 1);
+    assert.strictEqual(stales, 0);
+    assert.ok(!dim.isActive());
+});
+
+test('two-phase: stale only fires when timeout hits before Phase 1', () => {
+    const dim = MapDim.create();
+    let stales = 0, lifts = 0;
+    let scheduled = null;
+    const fakeST = (fn) => { scheduled = fn; return 1; };
+    const fakeCT = () => { scheduled = null; };
+    dim.start({
+        liftSources: ['envelope'],
+        requireSources: ['envelope', 'threat_data'],
+        lift: () => { lifts += 1; },
+        stale: () => { stales += 1; },
+        timeoutMs: 1000,
+        _setTimeout: fakeST,
+        _clearTimeout: fakeCT,
+    });
+    // Phase 1 lifts first.
+    dim.notifyReady('envelope');
+    // Now fire the timeout — must NOT mark stale because lift already happened.
+    if (scheduled) scheduled();
+    assert.strictEqual(stales, 0);
+    assert.strictEqual(lifts, 1);
+});
+
+test('two-phase: stale fires when timeout beats the envelope', () => {
+    const dim = MapDim.create();
+    let stales = 0, lifts = 0;
+    let scheduled = null;
+    const fakeST = (fn) => { scheduled = fn; return 1; };
+    const fakeCT = () => { scheduled = null; };
+    dim.start({
+        liftSources: ['envelope'],
+        requireSources: ['envelope', 'threat_data'],
+        lift: () => { lifts += 1; },
+        stale: () => { stales += 1; },
+        timeoutMs: 1000,
+        _setTimeout: fakeST,
+        _clearTimeout: fakeCT,
+    });
+    if (scheduled) scheduled();
+    assert.strictEqual(stales, 1);
+    assert.strictEqual(lifts, 0);
+    assert.ok(!dim.isActive());
+});
+
+test('two-phase: forceDone implicitly fires lift first', () => {
+    const dim = MapDim.create();
+    let lifts = 0, dones = 0;
+    dim.start({
+        liftSources: ['envelope'],
+        requireSources: ['envelope', 'threat_data'],
+        lift: () => { lifts += 1; },
+        done: () => { dones += 1; },
+        timeoutMs: 5000,
+    });
+    dim.forceDone();
+    assert.strictEqual(lifts, 1);
+    assert.strictEqual(dones, 1);
+    assert.ok(!dim.isActive());
+});
+
+test('two-phase: notifyReady on a slow source after Phase 1 still triggers Phase 2', () => {
+    const dim = MapDim.create();
+    let dones = 0;
+    dim.start({
+        liftSources: ['envelope'],
+        requireSources: ['envelope', 'threat_data'],
+        lift: () => {},
+        done: () => { dones += 1; },
+        timeoutMs: 5000,
+    });
+    dim.notifyReady('envelope');
+    dim.notifyReady('threat_data');
+    assert.strictEqual(dones, 1);
+});
+
+test('liftRequired() exposes the configured trigger set', () => {
+    const dim = MapDim.create();
+    dim.start({
+        liftSources: ['envelope'],
+        requireSources: ['envelope', 'threat_data'],
+        lift: () => {},
+        timeoutMs: 1000,
+    });
+    assert.deepStrictEqual(dim.liftRequired(), ['envelope']);
+    assert.deepStrictEqual(dim.required().sort(), ['envelope', 'threat_data']);
+});
+
+
 // ── Report ───────────────────────────────────────────────────────────────
 
 console.log(`\n\n${passed} passed, ${failed} failed`);
