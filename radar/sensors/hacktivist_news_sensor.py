@@ -252,7 +252,32 @@ class HacktivistNewsSensor(BaseSensor):
             if not articles:
                 if xml_text:
                     feeds_no_articles += 1
-                    record_sensor_skip(f"no_articles_post_filter:{source_name}", caller="hacktivist_news")
+                    # 2026-04-29: classify the failure mode like diplomatic
+                    # so audits separate "URL stale" from "filter strict
+                    # against a healthy feed". Live audit showed all 5
+                    # cyber-news feeds are healthy (rss_with_items) but
+                    # hacktivist_keyword match rate is genuinely ~2% —
+                    # this is base-rate β, not implementation α. Tagging
+                    # accordingly so the next audit reports it correctly.
+                    try:
+                        from radar.sensors.diplomatic import _classify_feed
+                        feed_class = _classify_feed(xml_text)
+                    except Exception:
+                        feed_class = "unknown"
+                    if feed_class == "returns_html":
+                        record_sensor_skip(f"feed_url_stale_html:{source_name}", caller="hacktivist_news")
+                    elif feed_class == "rss_empty":
+                        record_sensor_skip(f"feed_empty:{source_name}", caller="hacktivist_news")
+                    elif feed_class == "unparseable":
+                        record_sensor_skip(f"feed_unparseable:{source_name}", caller="hacktivist_news")
+                    else:
+                        # Healthy feed, filter rejected all articles — likely
+                        # genuine base rate (hacktivist coverage in mainstream
+                        # cyber news is sparse). Distinct from a stale URL.
+                        record_sensor_skip(
+                            f"no_kw_match_healthy_feed:{source_name}",
+                            caller="hacktivist_news",
+                        )
                 continue
 
             org = meta["org"]

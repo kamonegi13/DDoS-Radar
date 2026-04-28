@@ -69,6 +69,23 @@ def per_sensor_call_log(conn: sqlite3.Connection, hours: int) -> dict:
     return {k: dict(v) for k, v in out.items()}
 
 
+def per_sensor_pre_filter_reasons(conn: sqlite3.Connection, hours: int) -> dict:
+    """Top pre_filter verdict reasons per caller. Helps the operator see
+    whether a high pre_filter ratio is α (url stale, parser broken) or
+    β (filter rejecting healthy-but-irrelevant articles).
+    """
+    cutoff = _now() - hours * 3600
+    out: dict = defaultdict(lambda: defaultdict(int))
+    for row in conn.execute(
+        "SELECT caller, verdict, COUNT(*) FROM llm_call_log "
+        "WHERE ts > ? AND outcome='pre_filter' "
+        "GROUP BY caller, verdict",
+        (cutoff,),
+    ):
+        out[row[0] or "<unknown>"][row[1] or "<unknown>"] = int(row[2])
+    return {k: dict(v) for k, v in out.items()}
+
+
 def per_source_type_intel(conn: sqlite3.Connection, hours: int) -> dict:
     cutoff = _now() - hours * 3600
     out: dict = defaultdict(lambda: defaultdict(int))
@@ -148,10 +165,17 @@ def classify(call_log_7d: dict, intel_7d: dict, sensor: str) -> tuple[str, str]:
 
     if disabled > 0 and disabled / total_calls > 0.5:
         return ("α", f"sensor mostly disabled ({disabled}/{total_calls})")
-    if pre_ratio >= 0.95:
-        return ("α", f"pre_filter rejecting {pre_ratio*100:.0f}% — LLM never invoked")
     if err_ratio >= 0.20:
         return ("α", f"errors {err_ratio*100:.0f}% (parse/timeout/http) — investigate stack trace")
+    # When pre_filter dominates we want to look at the *reason* breakdown,
+    # not just the ratio. The sensor itself (since 2026-04-29) writes
+    # specific verdict tags that distinguish β-base-rate ('no_kw_match_healthy_feed',
+    # 'rss_empty') from α-implementation ('feed_url_stale_html', 'feed_unparseable',
+    # 'no_articles_post_filter' on legacy callers). Caller of this function
+    # passes the per-sensor verdict counts via call_log_7d when available.
+    if pre_ratio >= 0.95:
+        return ("α", f"pre_filter rejecting {pre_ratio*100:.0f}% — LLM never invoked "
+                      "(check verdict reasons for url_stale vs base_rate)")
     if ok_ratio >= 0.50 and intel_count == 0:
         return ("β?", f"LLM running ({ok}/{total_calls} ok) but submitting 0 rows — base rate or "
                        "LLM_CONFIDENCE_MIN too high")
@@ -162,7 +186,8 @@ def classify(call_log_7d: dict, intel_7d: dict, sensor: str) -> tuple[str, str]:
     return ("unknown", f"mixed signal: ok={ok} pre={pre} err={parse_fail+timeout+other_err}")
 
 
-def render(call_log_7d, intel_7d, intel_24h, divers_7d, divers_24h, classifications):
+def render(call_log_7d, intel_7d, intel_24h, divers_7d, divers_24h, classifications,
+           pre_reasons_7d=None):
     out = []
     out.append("=" * 76)
     out.append(" Intel Sensor Audit — α (implementation) / β (base rate) classification")
@@ -209,6 +234,29 @@ def render(call_log_7d, intel_7d, intel_24h, divers_7d, divers_24h, classificati
                f"max_distinct={divers_24h['max_distinct']}  "
                f"single_src_theaters={divers_24h['single_source_theaters']}")
 
+    if pre_reasons_7d:
+        out.append("\n[Pre-filter verdict reasons — last 7 days]")
+        out.append("  (helps tell α=url-stale / α=parser-bug from β=base-rate)")
+        for sensor in INTEL_SENSORS:
+            reasons = pre_reasons_7d.get(sensor, {})
+            if not reasons:
+                continue
+            top = sorted(reasons.items(), key=lambda kv: -kv[1])[:6]
+            out.append(f"  {sensor}:")
+            for verdict, count in top:
+                # Annotate verdict tags with quick α/β hints.
+                hint = ""
+                vlow = verdict.lower()
+                if "stale_html" in vlow or "unparseable" in vlow:
+                    hint = "  ← α (url stale / parser bug)"
+                elif "fetch_failed" in vlow:
+                    hint = "  ← α (404/timeout — check feed URL)"
+                elif "no_kw_match_healthy_feed" in vlow or "rss_empty" in vlow:
+                    hint = "  ← β (feed healthy, content irrelevant)"
+                elif "no_telegram_entries" in vlow or "no_burst" in vlow:
+                    hint = "  ← α-or-β (depends on cycle warmup)"
+                out.append(f"    {count:>5d}  {verdict}{hint}")
+
     out.append("\n[Diagnosis summary]")
     alpha = [s for s, (k, _) in classifications.items() if k == "α"]
     beta = [s for s, (k, _) in classifications.items() if k.startswith("β")]
@@ -250,6 +298,7 @@ def main() -> int:
         return 2
 
     call_log_7d = per_sensor_call_log(conn, hours=7 * 24)
+    pre_reasons_7d = per_sensor_pre_filter_reasons(conn, hours=7 * 24)
     intel_7d = per_source_type_intel(conn, hours=7 * 24)
     intel_24h = per_source_type_intel(conn, hours=24)
     divers_7d = diversity_now(conn, hours=7 * 24)
@@ -262,6 +311,7 @@ def main() -> int:
     if args.json:
         print(json.dumps({
             "call_log_7d": call_log_7d,
+            "pre_filter_reasons_7d": pre_reasons_7d,
             "intel_7d": intel_7d,
             "intel_24h": intel_24h,
             "diversity_7d": divers_7d,
@@ -271,7 +321,8 @@ def main() -> int:
         }, indent=2))
     else:
         print(render(call_log_7d, intel_7d, intel_24h,
-                     divers_7d, divers_24h, classifications))
+                     divers_7d, divers_24h, classifications,
+                     pre_reasons_7d=pre_reasons_7d))
     return 0
 
 
