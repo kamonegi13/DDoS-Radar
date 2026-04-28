@@ -148,6 +148,69 @@ def _theater_names(theaters: list[str]) -> list[str]:
     return names
 
 
+def _parse_xml_tolerant(xml_text: str):
+    """Parse XML with the strict defusedxml parser first, then fall back to
+    lxml with recover=True for the malformed RSS that several diplomatic
+    feeds emit (RU MID encoding garbage, TW MOFA unescaped &, US STATE
+    HTML wrapping the feed). Returns an ElementTree root or None.
+
+    Live audit on 2026-04-29 showed every diplomatic feed except KCNA_WATCH
+    failing the strict parser; the previous code silently returned [] on
+    ParseError, which surfaced in llm_call_log as 'no_articles_post_filter'
+    even though the feed itself was the cause.
+    """
+    if not xml_text:
+        return None
+    try:
+        return ET.fromstring(xml_text)
+    except ET.ParseError:
+        pass
+    try:
+        from lxml import etree as _lxml_et
+        parser = _lxml_et.XMLParser(recover=True, encoding=None)
+        root = _lxml_et.fromstring(xml_text.encode("utf-8", errors="replace"), parser)
+        return root if root is not None else None
+    except Exception:
+        return None
+
+
+def _classify_feed(xml_text: str) -> str:
+    """Distinguish feed failure modes for the audit log:
+      - 'rss_with_items' (healthy)
+      - 'rss_empty'      (valid RSS, but <channel> has 0 <item>)
+      - 'returns_html'   (server returned a web page, URL is stale)
+      - 'unparseable'    (XML so malformed that even lxml recovery fails)
+      - 'unknown'        (anything else)
+
+    Used by the sensor to record_sensor_skip a more useful reason than
+    the previous catch-all 'no_articles_post_filter'.
+    """
+    if not xml_text:
+        return "unknown"
+    head = xml_text.lstrip()[:200].lower()
+    if head.startswith("<!doctype html") or head.startswith("<html"):
+        return "returns_html"
+    root = _parse_xml_tolerant(xml_text)
+    if root is None:
+        return "unparseable"
+    # lxml may report .tag as a string or a function depending on element
+    # type; check using a getter that tolerates both.
+    def _has_item(node) -> bool:
+        for child in node.iter():
+            tag = getattr(child, "tag", None)
+            if isinstance(tag, str) and (tag == "item" or tag.endswith("}item")):
+                return True
+            if isinstance(tag, str) and (tag == "entry" or tag.endswith("}entry")):
+                return True  # Atom-format feeds
+        return False
+    root_tag = getattr(root, "tag", "")
+    if isinstance(root_tag, str) and ("rss" in root_tag.lower() or "feed" in root_tag.lower() or root_tag.endswith("}rss")):
+        return "rss_with_items" if _has_item(root) else "rss_empty"
+    if isinstance(root_tag, str) and ("html" in root_tag.lower()):
+        return "returns_html"
+    return "unknown"
+
+
 def _parse_articles(xml_text: str, max_age_h: int = 48,
                     theater_names: list[str] | None = None) -> list[dict]:
     """Parse RSS XML and return recent articles as dicts with title, summary, pub_ts.
@@ -157,12 +220,11 @@ def _parse_articles(xml_text: str, max_age_h: int = 48,
       Slot 3: 1 most-recent article as fallback when slots 1+2 are both empty
               (ensures LLM sees something even when keyword/theater filters miss)
     """
-    if not xml_text:
-        return []
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
-        log.debug("[Diplomatic] RSS XML parse error")
+    root = _parse_xml_tolerant(xml_text)
+    if root is None:
+        if xml_text:
+            log.debug("[Diplomatic] RSS XML unparseable even with recovery (len=%d)",
+                      len(xml_text))
         return []
 
     cutoff = time.time() - max_age_h * 3600
@@ -280,8 +342,20 @@ class DiplomaticSensor(BaseSensor):
             total_articles += len(articles)
             if not articles:
                 if xml_text:
-                    log.info(f"[Diplomatic] {source_name}: feed OK but 0 articles after filter")
-                    record_sensor_skip(f"no_articles_post_filter:{source_name}", caller="diplomatic")
+                    # 2026-04-29: classify the failure mode so future audits
+                    # can tell whether the URL is stale (returns_html / rss_empty)
+                    # vs the filter being too strict (no_articles_post_filter
+                    # against a healthy rss_with_items feed).
+                    feed_class = _classify_feed(xml_text)
+                    log.info(f"[Diplomatic] {source_name}: feed_class={feed_class} 0 articles")
+                    if feed_class == "returns_html":
+                        record_sensor_skip(f"feed_url_stale_html:{source_name}", caller="diplomatic")
+                    elif feed_class == "rss_empty":
+                        record_sensor_skip(f"feed_empty:{source_name}", caller="diplomatic")
+                    elif feed_class == "unparseable":
+                        record_sensor_skip(f"feed_unparseable:{source_name}", caller="diplomatic")
+                    else:
+                        record_sensor_skip(f"no_articles_post_filter:{source_name}", caller="diplomatic")
                 continue
 
             country = meta["country"]
