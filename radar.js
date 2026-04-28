@@ -2077,6 +2077,84 @@
         return entry.byType || null;
     }
 
+    // ── Self-Evaluation chips (AP3) ─────────────────────────────────────
+    // Polls /api/v2/self_eval (5min cadence — recall + null-zone don't move
+    // fast enough to warrant the 30s scoring tick). Each chip lights green
+    // / amber / red based on its own threshold band; "—" + muted color when
+    // data is unavailable.
+    let _selfEvalLastFetchMs = 0;
+    const _SELF_EVAL_TTL_MS = 5 * 60 * 1000;
+
+    function _applySelfEvalClass(chipId, band) {
+        const el = document.getElementById(chipId);
+        if (!el) return;
+        el.classList.remove('hud-self-eval-good', 'hud-self-eval-warn',
+                             'hud-self-eval-crit', 'hud-self-eval-na');
+        el.classList.add('hud-self-eval-' + band);
+    }
+
+    async function _refreshSelfEval() {
+        const now = Date.now();
+        if (now - _selfEvalLastFetchMs < _SELF_EVAL_TTL_MS) return;
+        _selfEvalLastFetchMs = now;
+        try {
+            const resp = await fetch('/api/v2/self_eval');
+            if (!resp.ok) return;  // 503 / 401 → leave previous values
+            const data = await resp.json();
+
+            const recallEl = document.getElementById('hud-recall-value');
+            if (recallEl) {
+                if (typeof data.recall === 'number') {
+                    recallEl.textContent = data.recall.toFixed(2);
+                    const band = data.recall >= 0.8 ? 'good'
+                               : data.recall >= 0.6 ? 'warn' : 'crit';
+                    _applySelfEvalClass('hud-recall-chip', band);
+                } else {
+                    recallEl.textContent = '—';
+                    _applySelfEvalClass('hud-recall-chip', 'na');
+                }
+            }
+
+            const nzEl = document.getElementById('hud-nullzone-value');
+            if (nzEl) {
+                if (typeof data.null_zone_days === 'number') {
+                    nzEl.textContent = data.null_zone_days + 'd';
+                    const band = data.null_zone_days === 0 ? 'good'
+                               : data.null_zone_days <= 3 ? 'warn' : 'crit';
+                    _applySelfEvalClass('hud-nullzone-chip', band);
+                } else {
+                    nzEl.textContent = '—';
+                    _applySelfEvalClass('hud-nullzone-chip', 'na');
+                }
+            }
+
+            const driftEl = document.getElementById('hud-drift-value');
+            if (driftEl) {
+                if (typeof data.drift === 'number') {
+                    driftEl.textContent = data.drift.toFixed(2);
+                    const band = data.drift <= 0.05 ? 'good'
+                               : data.drift <= 0.10 ? 'warn' : 'crit';
+                    _applySelfEvalClass('hud-drift-chip', band);
+                } else {
+                    driftEl.textContent = '—';
+                    _applySelfEvalClass('hud-drift-chip', 'na');
+                }
+            }
+        } catch (_) {
+            // NP3 — leave previous chip values; the chip stays in the prior
+            // band class so a transient network blip doesn't flicker the UI.
+        }
+    }
+
+    // First-load fetch + periodic refresh. The 30-min interval is a safe
+    // upper bound; each scoring tick already triggers _refreshSelfEval too
+    // via the TTL gate so the chips will refresh as soon as the cadence
+    // allows.
+    document.addEventListener('DOMContentLoaded', () => {
+        _refreshSelfEval();
+        setInterval(_refreshSelfEval, 30 * 60 * 1000);
+    });
+
     // ── Triage Lane / Alert Lane (AP1 — Active Triage) ──────────────────
     // Active Triage: ranks event-shaped conclusions (anomaly + attack_mode
     // today, extensible) by attention_score and renders the top-N as a
@@ -3483,9 +3561,12 @@
             _refreshNp7Banner(_focusParam);
             // Fire-and-forget: refresh the v2 envelope cache (still consumed
             // by hud_v2_overlay + Alert Lane even though the legacy cards
-            // grid is gated off by default since Stage A.2). The Alert Lane
-            // refresh is chained internally on the fresh cache.
+            // grid was removed in Stage A.5). The Alert Lane refresh is
+            // chained internally on the fresh cache.
             _refreshConclusionCards(_focusParam);
+            // AP3 — self-evaluation chips. Internally TTL-gated so this is
+            // cheap to call every poll.
+            _refreshSelfEval();
 
             // Fire-and-forget: refresh Layer 3 sensor watchpane rows when visible
             if (typeof _wpRefreshAll === 'function') _wpRefreshAll();

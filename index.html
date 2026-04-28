@@ -186,6 +186,25 @@
             <span class="hud-climate-dot" id="hud-climate-dot" data-level="COOL"></span>
             <span id="hud-climate-text" class="hud-chip-value">—</span>
         </div>
+
+        <!-- AP3 (Self-Evaluation): tool's own health metrics. RECALL =
+             cumulative recall over analyst_feedback, NULL-ZONE = consecutive
+             days where every threat_level conclusion was INSUFFICIENT_DATA
+             (chronic gap detector), DRIFT = calibration stability indicator
+             (placeholder until ledger has 30+ days of feedback). Each chip
+             colors green/amber/red based on the value's risk band. -->
+        <div class="hud-chip hud-self-eval" id="hud-recall-chip" title="Recall over analyst_feedback (TP/(TP+FN)). Green ≥0.8, amber ≥0.6, red <0.6.">
+            <span class="hud-chip-label">RECALL</span>
+            <span id="hud-recall-value" class="hud-chip-value">—</span>
+        </div>
+        <div class="hud-chip hud-self-eval" id="hud-nullzone-chip" title="Consecutive days where every threat_level conclusion was INSUFFICIENT_DATA. Green 0d, amber 1-3d, red ≥4d (chronic gap = design failure per NP5+8).">
+            <span class="hud-chip-label">NULL-ZONE</span>
+            <span id="hud-nullzone-value" class="hud-chip-value">—</span>
+        </div>
+        <div class="hud-chip hud-self-eval" id="hud-drift-chip" title="Calibration drift indicator. Placeholder — populated once analyst_feedback ledger holds 30+ days of data.">
+            <span class="hud-chip-label">DRIFT</span>
+            <span id="hud-drift-value" class="hud-chip-value">—</span>
+        </div>
     </div>
 
 </div>

@@ -417,6 +417,100 @@ def v2_shadow_write_metrics():
     })
 
 
+@bp.route("/api/v2/self_eval", methods=["GET"])
+@jwt_required()
+def v2_self_eval():
+    """AP3 — Self-Evaluation: tool's own health metrics surfaced to the HUD.
+
+    Returns recall (overall + per-conclusion-type), null-zone tracking
+    (consecutive days where every focused-scenario conclusion has been
+    INSUFFICIENT_DATA), and a calibration drift indicator. The HUD reads
+    these values to render the trust chips so analysts can decide
+    at-a-glance how much weight to put on the displayed conclusions.
+
+    Returns 200 with `data: null` when there is not yet enough analyst
+    feedback to compute recall — the HUD renders "—" placeholders.
+    Never errors out; NP3 fault-tolerant.
+    """
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+
+    import time as _time
+    from radar import config as _config
+
+    out: dict = {
+        "api_version": API_VERSION,
+        "generated_at": _time.time(),
+        "recall": None,
+        "null_zone_days": None,
+        "drift": None,
+        "final_judgment_disclaimer": _disclaimer(),
+    }
+
+    try:
+        # Recall — re-use the same collect_metrics path the CI gate uses
+        # so the chip and the gate cannot disagree.
+        import sys
+        from pathlib import Path
+        scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from report_recall_metrics import collect_metrics  # noqa: E402
+
+        from radar.database import db as _shared_db
+        cells = collect_metrics(_shared_db, exclude_auto=False)
+        if cells:
+            tp = sum(c.tp for c in cells)
+            fn = sum(c.fn for c in cells)
+            recall = tp / (tp + fn) if (tp + fn) > 0 else None
+            out["recall"] = (
+                None if recall is None else round(float(recall), 3)
+            )
+    except Exception as e:  # noqa: BLE001
+        out["recall"] = None
+        out["recall_error"] = str(e)
+
+    try:
+        # Null-zone — count consecutive recent days where every observed
+        # threat_level conclusion was INSUFFICIENT_DATA. Cheap heuristic:
+        # walk the last 30 days of conclusions, compute longest tail-run
+        # of all-INSUFFICIENT_DATA buckets ending today.
+        from radar.database import db as _shared_db
+        rows = _shared_db.execute(
+            "SELECT date(observed_at, 'unixepoch') AS d, "
+            "       SUM(CASE WHEN conclusion_unavailable_reason IS NULL "
+            "                THEN 1 ELSE 0 END) AS n_avail, "
+            "       COUNT(*) AS n_total "
+            "FROM conclusions WHERE conclusion_type = 'threat_level' "
+            "  AND observed_at >= ? "
+            "GROUP BY d ORDER BY d DESC LIMIT 30",
+            (_time.time() - 30 * 86400.0,),
+        ).fetchall()
+        run = 0
+        for row in rows:
+            n_avail = row["n_avail"] if row["n_avail"] is not None else 0
+            n_total = row["n_total"] if row["n_total"] is not None else 0
+            if n_total > 0 and n_avail == 0:
+                run += 1
+            else:
+                break
+        out["null_zone_days"] = run
+    except Exception as e:  # noqa: BLE001
+        out["null_zone_days"] = None
+        out["null_zone_error"] = str(e)
+
+    # Drift — placeholder. Phase 4+: stddev of recall over rolling 7d
+    # windows. Today returns None so the chip renders "—" until we have
+    # a long enough analyst_feedback ledger to compute it.
+    out["drift"] = None
+
+    return jsonify(out)
+
+
 def _resolve_llm_prompt(db, sha256: str) -> dict:
     """Look up the full prompt text for an audit trace. Returns a dict with
     sha256, model, and the prompt body. If the row is missing (purged or

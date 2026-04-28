@@ -2118,6 +2118,18 @@
     text-align: center;
 }
 
+/* AP3 Self-Evaluation chips — render at the right end of HUD Row 3.
+   Color encodes risk band on the displayed value (green/amber/red). */
+.hud-chip.hud-self-eval { font-family: 'Courier New', monospace; }
+.hud-chip.hud-self-eval .hud-chip-value { font-variant-numeric: tabular-nums; }
+.hud-chip.hud-self-eval-good   { border-color: rgba(80, 200, 120, 0.45); }
+.hud-chip.hud-self-eval-good   .hud-chip-value { color: #6fc66f; }
+.hud-chip.hud-self-eval-warn   { border-color: rgba(240, 180, 80, 0.45); }
+.hud-chip.hud-self-eval-warn   .hud-chip-value { color: #f0b450; }
+.hud-chip.hud-self-eval-crit   { border-color: rgba(240, 80, 80, 0.55); }
+.hud-chip.hud-self-eval-crit   .hud-chip-value { color: var(--color-critical); }
+.hud-chip.hud-self-eval-na     .hud-chip-value { color: var(--color-muted); opacity: 0.7; }
+
 /* ── Alert Lane (AP1 — Active Triage) ──────────────────────────────
    Sits between the HUD and the scenario-bar. Hidden (display:none) when
    nothing fires — Stage A.3 ships empty infrastructure; Stage B.7 fills
