@@ -187,6 +187,7 @@ const STRINGS = {
     'hud.btn.sitrep':                 'SITREP',
     'hud.btn.evidence':               'EVIDENCE',
     'hud.btn.salute':                 'SALUTE',
+    'hud.btn.export_md':              'EXPORT MD',
     'hud.btn.intel_guide':            'Intel Guide',
     'hud.btn.config':                 'Config',
     'hud.diag.label':                 'DIAG',

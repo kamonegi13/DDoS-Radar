@@ -2000,39 +2000,37 @@
         }
     }
 
-    // ── Conclusion Cards Layer 1 (Phase 3 — v2 conclusions envelope) ─────
-    // Renders the 5 ConclusionType buckets (THREAT_LEVEL, TREND, PER_DOMAIN,
-    // ANOMALY, ATTACK_MODE) from the v2 envelope into #cc-grid. Hidden when
-    // v2 is degraded (503/404) or when the envelope contains no conclusions.
-    // See docs/design/v2-ui.md §4. Drill-down (Layer 2) is wired in a
-    // follow-up task — the button currently no-ops with a placeholder.
+    // ── v2 conclusions envelope cache (Stage A.5: cards-bar removed) ─────
+    // _ccEnvelopeCache is the single source of truth for v2 conclusions on
+    // the frontend. It feeds:
+    //   - hud_v2_overlay.applyOverlay (HUD TL + per_domain rendering)
+    //   - _refreshAlertLane (event-shaped conclusions surfaced as triage)
+    //   - the drill-down modal (any displayed conclusion is one click away)
+    // The legacy 5-card grid was removed 2026-04-28; the cache itself stays.
     let _ccLastFocus = null;
     let _ccInflightFocus = null;
     let _ccAbort = null;
-    // HUD↔Cards consistency: cache the latest v2 envelope per focused scenario so
-    // _hudV2OverlayStrat() can override v1 strategic_alert.threat_level/domains
-    // with the same values the cards display. Stale entries (>180s) fall through
-    // to the v1 values per NP3 (fault tolerance: HUD must never go blank).
     const _ccEnvelopeCache = {};
     const _CC_ENVELOPE_TTL_MS = 180_000;
     let _ccExportInflight = false;
-    const _CC_TYPE_ORDER = ['threat_level', 'trend', 'per_domain', 'anomaly', 'attack_mode'];
 
     // Phase 3 — Markdown export. Fetches the .md endpoint (JWT auto-injected
     // by the global fetch override) and triggers a browser download. Kept on
     // the toolbar rather than inside individual cards because the export is
     // per-scenario (all 5 conclusions in one file), not per-conclusion.
+    // Markdown export — moved 2026-04-28 from the (now-deleted) cards-bar
+    // toolbar to the hamburger REPORTS section. Exposed globally as
+    // `exportFocusedScenarioMarkdown()` so the hamburger button can call it
+    // by name without coupling to the IIFE scope.
     async function _ccExportMarkdown(scenarioId) {
         if (!scenarioId || _ccExportInflight) return;
         _ccExportInflight = true;
-        const btn = document.getElementById('cc-export-md');
-        if (btn) btn.disabled = true;
         try {
             const resp = await fetch(
                 `/api/v2/scenarios/${encodeURIComponent(scenarioId)}/conclusions.md`,
             );
             if (!resp.ok) {
-                if (window.console) console.warn('[ConclusionCards] export failed', resp.status);
+                if (window.console) console.warn('[Conclusions] export failed', resp.status);
                 return;
             }
             const text = await resp.text();
@@ -2044,197 +2042,24 @@
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            // Revoke shortly after the click so the browser has time to start the download.
             setTimeout(() => URL.revokeObjectURL(url), 1000);
         } catch (e) {
-            if (window.console) console.warn('[ConclusionCards] export error', e);
+            if (window.console) console.warn('[Conclusions] export error', e);
         } finally {
             _ccExportInflight = false;
-            if (btn && _ccLastFocus) btn.disabled = false;
         }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-        const btn = document.getElementById('cc-export-md');
-        if (!btn) return;
-        btn.addEventListener('click', () => {
-            if (_ccLastFocus) _ccExportMarkdown(_ccLastFocus);
-        });
-    });
+    window.exportFocusedScenarioMarkdown = function () {
+        if (_ccLastFocus) _ccExportMarkdown(_ccLastFocus);
+    };
 
+    // _ccTitleKey is still used by the drill-down modal title row.
+    // The other card-specific helpers (_ccUnavailableText, _ccConfidencePct,
+    // _ccParseKvState, _ccTrendStateClass, _ccDomainStatusClass) were
+    // removed in Stage A.5 alongside the cards-bar — no remaining callers.
     function _ccTitleKey(type) { return `cc.title.${type}`; }
-    function _ccUnavailableText(reason) {
-        if (!reason) return _t('cc.label.unavailable');
-        const k = `cc.label.${reason}`;
-        const tx = _t(k);
-        return (tx && tx !== k) ? tx : reason.toUpperCase();
-    }
-    function _ccConfidencePct(c) {
-        const v = (typeof c === 'number' && isFinite(c)) ? Math.max(0, Math.min(1, c)) : 0;
-        return Math.round(v * 100);
-    }
-    function _ccParseKvState(state) {
-        // "short_term=STABLE;medium_term=STABLE;long_term=INSUFFICIENT_DATA"
-        const out = {};
-        if (typeof state !== 'string') return out;
-        state.split(';').forEach((pair) => {
-            const [k, v] = pair.split('=');
-            if (k && v) out[k.trim()] = v.trim();
-        });
-        return out;
-    }
-    function _ccTrendStateClass(label) {
-        if (!label) return 'cc-trend-insufficient_data';
-        return 'cc-trend-' + String(label).toLowerCase();
-    }
-    function _ccDomainStatusClass(label) {
-        const u = String(label || '').toUpperCase();
-        if (u === 'ACTIVE') return 'cc-status-active';
-        if (u === 'ELEVATED') return 'cc-status-elevated';
-        if (u === 'STABLE') return 'cc-status-stable';
-        return 'cc-status-insufficient';
-    }
 
-    function _ccRenderCard(c) {
-        const type = c.conclusion_type;
-        const titleKey = _ccTitleKey(type);
-        const confPct = _ccConfidencePct(c.confidence);
-        const isAvail = c.conclusion_unavailable_reason == null && c.state != null;
-        const card = document.createElement('div');
-        card.className = 'cc-card cc-card-' + type;
-        if (!isAvail) card.classList.add('cc-unavailable');
-
-        // Header
-        const titleEl = document.createElement('div');
-        titleEl.className = 'cc-card-title';
-        titleEl.setAttribute('data-i18n', titleKey);
-        titleEl.textContent = _t(titleKey);
-        card.appendChild(titleEl);
-
-        // Body — varies by type
-        const body = document.createElement('div');
-        body.className = 'cc-card-body';
-        if (!isAvail) {
-            const stateEl = document.createElement('div');
-            stateEl.className = 'cc-card-state';
-            stateEl.textContent = _ccUnavailableText(c.conclusion_unavailable_reason);
-            body.appendChild(stateEl);
-            const meta = document.createElement('div');
-            meta.className = 'cc-card-meta';
-            const detail = (c.metadata && c.metadata.reason_detail) || '';
-            if (detail) meta.textContent = detail;
-            body.appendChild(meta);
-        } else if (type === 'threat_level') {
-            const tl = parseInt(c.state, 10);
-            const stateEl = document.createElement('div');
-            stateEl.className = 'cc-card-state cc-tl-' + (isFinite(tl) ? tl : 'unk');
-            stateEl.textContent = _t('cc.tl.prefix') + ' ' + (isFinite(tl) ? tl : c.state);
-            body.appendChild(stateEl);
-            const md = c.metadata || {};
-            const meta = document.createElement('div');
-            meta.className = 'cc-card-meta';
-            const score = (typeof md.score === 'number') ? md.score.toFixed(2) : '—';
-            const ad = (typeof md.active_domain_count === 'number') ? md.active_domain_count : '—';
-            meta.innerHTML = `<div class="cc-row"><span>score</span><span>${_escHtml(score)}</span></div>` +
-                             `<div class="cc-row"><span>active domains</span><span>${_escHtml(String(ad))}</span></div>`;
-            body.appendChild(meta);
-        } else if (type === 'trend') {
-            const horizons = _ccParseKvState(c.state);
-            const labels = { short_term: 'cc.horizon.short', medium_term: 'cc.horizon.medium', long_term: 'cc.horizon.long' };
-            ['short_term', 'medium_term', 'long_term'].forEach((h) => {
-                const v = horizons[h] || 'INSUFFICIENT_DATA';
-                const row = document.createElement('div');
-                row.className = 'cc-horizon-row';
-                row.innerHTML = `<span class="cc-horizon-label">${_escHtml(_t(labels[h]))}</span>` +
-                                `<span class="cc-horizon-state ${_ccTrendStateClass(v)}">${_escHtml(v)}</span>`;
-                body.appendChild(row);
-            });
-        } else if (type === 'per_domain') {
-            const doms = _ccParseKvState(c.state);
-            const md = (c.metadata && c.metadata.domain_scores) || {};
-            ['cyber', 'physical', 'info'].forEach((d) => {
-                const status = doms[d] || 'INSUFFICIENT_SIGNAL';
-                const score = (typeof md[d] === 'number') ? md[d].toFixed(2) : '—';
-                if (String(status).toUpperCase() === 'DEGRADED') card.classList.add('cc-degraded');
-                const row = document.createElement('div');
-                row.className = 'cc-domain-row';
-                row.innerHTML = `<span class="cc-domain-name">${_escHtml(_t('cc.domain.' + d))}</span>` +
-                                `<span class="cc-domain-status ${_ccDomainStatusClass(status)}">${_escHtml(status)}</span>` +
-                                `<span class="cc-domain-name">${_escHtml(score)}</span>`;
-                body.appendChild(row);
-            });
-        } else if (type === 'anomaly') {
-            const text = String(c.state || '');
-            const md = c.metadata || {};
-            const ranked = Array.isArray(md.ranked_anomalies) ? md.ranked_anomalies : null;
-            const stateEl = document.createElement('div');
-            stateEl.className = 'cc-anomaly-text';
-            stateEl.textContent = text;
-            body.appendChild(stateEl);
-            if (ranked && ranked.length > 1) {
-                const meta = document.createElement('div');
-                meta.className = 'cc-card-meta';
-                const more = ranked.length - 1;
-                meta.textContent = `+${more}`;
-                body.appendChild(meta);
-            }
-        } else if (type === 'attack_mode') {
-            const stateEl = document.createElement('div');
-            stateEl.className = 'cc-card-state';
-            stateEl.textContent = String(c.state);
-            body.appendChild(stateEl);
-            const md = c.metadata || {};
-            const ranked = Array.isArray(md.ranked_modes) ? md.ranked_modes.slice(1, 3) : [];
-            if (ranked.length) {
-                const meta = document.createElement('div');
-                meta.className = 'cc-card-meta';
-                meta.innerHTML = ranked.map((m) => {
-                    const nm = (m && m.mode) || '';
-                    const cf = (m && typeof m.confidence === 'number') ? m.confidence.toFixed(2) : '—';
-                    return `<div class="cc-row"><span>${_escHtml(nm)}</span><span>${_escHtml(cf)}</span></div>`;
-                }).join('');
-                body.appendChild(meta);
-            }
-            if (typeof c.confidence === 'number' && c.confidence < 0.6) {
-                card.classList.add('cc-tentative');
-            }
-        }
-        card.appendChild(body);
-
-        // Footer — confidence bar + drill button
-        const footer = document.createElement('div');
-        footer.className = 'cc-card-footer';
-        const conf = document.createElement('div');
-        conf.className = 'cc-confidence';
-        conf.innerHTML = `<span>${_escHtml(_t('cc.label.confidence'))}</span>` +
-                         `<span class="cc-confidence-bar"><span class="cc-confidence-bar-fill" style="width:${confPct}%"></span></span>` +
-                         `<span>${confPct}%</span>`;
-        footer.appendChild(conf);
-
-        // Tentative badge for low-confidence attack modes
-        if (type === 'attack_mode' && isAvail && typeof c.confidence === 'number' && c.confidence < 0.6) {
-            const badge = document.createElement('span');
-            badge.className = 'cc-badge cc-badge-warn';
-            badge.setAttribute('data-i18n', 'cc.label.tentative');
-            badge.textContent = _t('cc.label.tentative');
-            footer.appendChild(badge);
-        }
-
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'cc-drill-btn';
-        btn.setAttribute('data-i18n', 'cc.btn.drill');
-        btn.setAttribute('data-i18n-tip', 'cc.btn.drill_tooltip');
-        btn.title = _t('cc.btn.drill_tooltip');
-        btn.textContent = _t('cc.btn.drill');
-        btn.disabled = !c.id;  // Unavailable conclusions have no id → no audit trace
-        btn.addEventListener('click', () => {
-            if (c.id) _ccOpenDrillModal(c);
-        });
-        footer.appendChild(btn);
-        card.appendChild(footer);
-        return card;
-    }
 
     /**
      * Return the cached v2 byType envelope for `focusedId` if it is fresh,
@@ -2356,60 +2181,31 @@
         return overlay(strat, byType);
     }
 
-    function _ccRenderEmpty(grid) {
-        grid.innerHTML = '';
-        const empty = document.createElement('div');
-        empty.className = 'cc-card cc-unavailable';
-        empty.style.gridColumn = '1 / -1';
-        const t = document.createElement('div');
-        t.className = 'cc-card-meta';
-        t.textContent = _t('cc.empty.waiting');
-        empty.appendChild(t);
-        grid.appendChild(empty);
-    }
-
+    /**
+     * Fetch the v2 conclusions envelope for the focused scenario and update
+     * `_ccEnvelopeCache`. Downstream consumers (HUD overlay, Alert Lane,
+     * drill-down modal) read from the cache. The legacy 5-card grid that
+     * this function used to populate was removed in Stage A.5 (2026-04-28);
+     * the function name is kept (`_refreshConclusionCards`) because two
+     * call sites still invoke it — rename can land in a follow-up.
+     *
+     * NP3 fault tolerance: on 503/404/network error the function exits
+     * silently, leaving the previous cache entry in place; HUD overlay
+     * + Alert Lane fall back to v1 strategic_alert per their own TTL gate.
+     */
     async function _refreshConclusionCards(scenarioId) {
-        const bar = document.getElementById('conclusion-cards-bar');
-        const grid = document.getElementById('cc-grid');
-        if (!bar || !grid) return;
-
-        // 2026-04-28 IA reclamation: cards-bar is gated off by default. The
-        // HUD now carries TL + per_domain (via hud_v2_overlay) and the new
-        // Alert Lane handles event-shaped conclusions. Devs / regression
-        // comparison can re-enable via:
-        //   localStorage.setItem('cc_legacy_visible', '1')
-        // Stage A.5 will delete this code path entirely.
-        const legacyVisible = (() => {
-            try { return localStorage.getItem('cc_legacy_visible') === '1'; }
-            catch (_) { return false; }
-        })();
-        if (!legacyVisible) {
-            bar.classList.remove('cc-visible');
-            // Still cache the envelope so hud_v2_overlay + Alert Lane keep working.
-            // (We just don't render the card grid.)
-        }
-
         if (!scenarioId) {
-            bar.classList.remove('cc-visible');
-            const btn = document.getElementById('cc-export-md');
-            if (btn) btn.disabled = true;
+            _ccLastFocus = null;
             return;
         }
-
-        // Invalidate immediately on focus change so the user sees the
-        // grid clear while the new fetch is in flight.
-        const focusChanged = _ccLastFocus !== scenarioId;
-        if (focusChanged) {
+        if (_ccLastFocus !== scenarioId) {
             _ccLastFocus = scenarioId;
-            grid.innerHTML = '';
         }
 
-        // Skip ONLY when a fetch for this same focus is already running.
-        // On focus change we abort the stale fetch and start a fresh one
-        // so the bar updates immediately without waiting for the next poll.
+        // De-dupe in-flight fetches per focus.
         if (_ccInflightFocus === scenarioId) return;
         if (_ccAbort) {
-            try { _ccAbort.abort(); } catch (_) { /* AbortController unsupported → ignore */ }
+            try { _ccAbort.abort(); } catch (_) { /* AbortController unsupported */ }
         }
         const ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
         _ccAbort = ac;
@@ -2420,68 +2216,20 @@
                 `/api/v2/scenarios/${encodeURIComponent(scenarioId)}/conclusions`,
                 ac ? { signal: ac.signal } : undefined,
             );
-            // Stale-response guard — focus may have changed again while awaiting
-            if (_ccLastFocus !== scenarioId) return;
-            if (resp.status === 503 || resp.status === 404) {
-                bar.classList.remove('cc-visible');  // Graceful hide when v2 is degraded
-                const btn = document.getElementById('cc-export-md');
-                if (btn) btn.disabled = true;
-                return;
-            }
-            if (!resp.ok) return;  // Keep previous render on transient errors
+            if (_ccLastFocus !== scenarioId) return;  // focus changed mid-flight
+            if (resp.status === 503 || resp.status === 404) return;  // v2 degraded
+            if (!resp.ok) return;
             const env = await resp.json();
-            if (_ccLastFocus !== scenarioId) return;  // Re-check after JSON parse
+            if (_ccLastFocus !== scenarioId) return;
             const list = Array.isArray(env && env.conclusions) ? env.conclusions : [];
             const byType = {};
             list.forEach((c) => { if (c && c.conclusion_type) byType[c.conclusion_type] = c; });
-            // Stash the just-fetched envelope so the HUD overlay + Alert Lane
-            // pull TL + per_domain from the same source. Always cached, even
-            // when the legacy cards grid is hidden — downstream consumers
-            // (hud_v2_overlay.applyOverlay, _refreshAlertLane) depend on it.
             _ccEnvelopeCache[scenarioId] = { ts: Date.now(), byType };
-            // Chain the Alert Lane refresh on the fresh cache so the lane
-            // never lags the envelope.
+            // Alert Lane chains here so it never lags the envelope.
             try { _refreshAlertLane(scenarioId); } catch (_) { /* defensive */ }
-
-            // Skip card grid rendering when the legacy flag is off — the bar
-            // stays hidden, but the cache above keeps the rest of the UI alive.
-            if (!legacyVisible) return;
-
-            if (list.length === 0) {
-                bar.classList.add('cc-visible');
-                _ccRenderEmpty(grid);
-                const btn = document.getElementById('cc-export-md');
-                if (btn) btn.disabled = true;  // Nothing to export yet.
-                return;
-            }
-
-            grid.innerHTML = '';
-            _CC_TYPE_ORDER.forEach((type) => {
-                const c = byType[type];
-                if (!c) {
-                    // Synthesize an unavailable placeholder so the slot doesn't collapse
-                    grid.appendChild(_ccRenderCard({
-                        conclusion_type: type,
-                        state: null,
-                        confidence: 0,
-                        conclusion_unavailable_reason: 'insufficient_data',
-                        metadata: { reason_detail: '' },
-                        id: null,
-                    }));
-                    return;
-                }
-                grid.appendChild(_ccRenderCard(c));
-            });
-            bar.classList.add('cc-visible');
-            // Enable export now that at least one real conclusion is rendered.
-            const hasReal = list.some((c) => c && c.id);
-            const btn = document.getElementById('cc-export-md');
-            if (btn) btn.disabled = !hasReal;
         } catch (e) {
-            if (e && e.name === 'AbortError') return;  // Superseded by a newer focus — expected
-            // Network error — keep prior render. Don't surface a noisy toast;
-            // the next poll will retry. Guarded console keeps test output quiet.
-            if (window.console) console.debug('[ConclusionCards] fetch error', e);
+            if (e && e.name === 'AbortError') return;
+            if (window.console) console.debug('[Conclusions] fetch error', e);
         } finally {
             if (_ccInflightFocus === scenarioId) _ccInflightFocus = null;
             if (_ccAbort === ac) _ccAbort = null;

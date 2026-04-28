@@ -227,6 +227,7 @@
                 <button class="hh-action" onclick="openEvidenceFromHud(); closeHudHamburger();" data-i18n="hud.btn.evidence">EVIDENCE</button>
                 <button class="hh-action" onclick="openSaluteModal(); closeHudHamburger();" data-i18n="hud.btn.salute">SALUTE</button>
                 <button class="hh-action" onclick="toggleChainPanel(); closeHudHamburger();" data-i18n="hud.btn.chain">CHAIN</button>
+                <button class="hh-action" id="hh-export-md" onclick="exportFocusedScenarioMarkdown(); closeHudHamburger();" data-i18n="hud.btn.export_md">EXPORT&nbsp;MD</button>
             </div>
         </div>
         <div class="hh-section">
@@ -275,19 +276,12 @@
      overlay (always-on DOM), every drilldown header (_ccDrillRenderDisclaimer
      in radar.js), and every API response field (final_judgment_disclaimer). -->
 
-<!-- ── Conclusion Cards (Layer 1) ─────────────────────────────────────
-     Renders the 5 ConclusionType buckets from /api/v2/scenarios/<id>/
-     conclusions. Hidden by default; radar.js _refreshConclusionCards()
-     toggles .cc-visible once the envelope is fetched. Hidden when v2
-     returns 503. See docs/design/v2-ui.md §4. -->
-<div id="conclusion-cards-bar" role="region" aria-live="polite" aria-label="Conclusion cards">
-    <div class="cc-toolbar">
-        <button type="button" id="cc-export-md" class="cc-export-btn"
-                data-i18n="cc.btn.export_md" data-i18n-tip="cc.btn.export_md_tooltip"
-                title="" disabled>Export Markdown</button>
-    </div>
-    <div class="cc-grid" id="cc-grid"></div>
-</div>
+<!-- The conclusion-cards-bar (5-card grid for v2 conclusions) was removed
+     2026-04-28 (Stage A.5). The HUD now carries TL + per_domain via
+     hud_v2_overlay; the Alert Lane below carries event-shaped conclusions
+     (anomaly / attack_mode); drill-down modal remains accessible from any
+     HUD click-through. Markdown export moved to the hamburger REPORTS
+     section as `EXPORT MD`. -->
 
 <!-- ── Alert Lane ─────────────────────────────────────────────────────
      Replaces the conclusion-cards-bar for event-shaped conclusions
