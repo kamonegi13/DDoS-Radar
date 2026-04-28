@@ -25,6 +25,7 @@ COPY wp_alarm.js     .
 COPY hud_v2_overlay.js .
 COPY triage_score.js .
 COPY self_explanation.js .
+COPY map_dim.js .
 COPY index.html      .
 COPY tradecraft.js   .
 COPY tradecraft.css  .
