@@ -306,8 +306,16 @@ def test_main_exits_zero_when_flag_disabled(monkeypatch, capsys):
 
 def test_main_runs_when_force_overrides_flag(monkeypatch, stub_acled, no_gdelt):
     """--force is the operator escape hatch when the flag is off but the
-    job needs to run (e.g. one-off backfill). Must execute the ETL pass."""
+    job needs to run (e.g. one-off backfill). Must execute the ETL pass.
+
+    Note: this test exercises the ACLED-enabled path, so ACLED creds
+    must be present (otherwise the new graceful-degradation logic in
+    main() would auto-flip enable_acled=False and the stub fetcher
+    would never run).
+    """
     monkeypatch.setattr(config, "V2_GROUND_TRUTH_ETL_ENABLED", False)
+    monkeypatch.setattr(config, "ACLED_API_KEY", "present")
+    monkeypatch.setattr(config, "ACLED_API_EMAIL", "x@example.com")
     obs_at = _NOW - 24 * 3600
     _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="3", observed_at=obs_at)
     stub_acled([_acled_evt("TW", obs_at + 6 * 3600, fatalities=5)])
@@ -336,3 +344,105 @@ def test_runner_returns_empty_summary_when_no_conclusions(stub_acled, no_gdelt):
     )
     assert summary.get("scanned", 0) == 0
     assert summary.get("persisted", 0) == 0
+
+
+# ── ACLED-optional paths (OPSEC fallback) ────────────────────────────────
+
+
+def test_runner_disables_acled_when_flag_false(stub_acled, no_gdelt, monkeypatch):
+    """With enable_acled=False the ACLED fetcher must not be invoked, even
+    when an ACLED stub would otherwise return events."""
+    obs_at = _NOW - 24 * 3600
+    _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="3", observed_at=obs_at)
+    stub_acled([_acled_evt("TW", obs_at + 6 * 3600, fatalities=5)])
+    calls = []
+    real_fetch = runner.fetch_acled_events
+
+    def _spy(*a, **kw):
+        calls.append((a, kw))
+        return real_fetch(*a, **kw)
+
+    monkeypatch.setattr(runner, "fetch_acled_events", _spy)
+
+    summary = runner.run_etl(
+        db, since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO, enable_acled=False, enable_gdelt=True,
+    )
+    assert calls == []
+    # No ACLED evidence; GDELT spy returned [] in no_gdelt fixture (still set
+    # by the test default), so summary['persisted'] is 0 — but the key
+    # contract is that fetch_acled_events was never called.
+    assert isinstance(summary, dict)
+
+
+def test_runner_returns_no_op_when_both_sources_disabled(stub_acled, no_gdelt):
+    """If both --no-gdelt and --no-acled are set, the runner must short-
+    circuit and not waste DB scans."""
+    obs_at = _NOW - 24 * 3600
+    _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="3", observed_at=obs_at)
+    summary = runner.run_etl(
+        db, since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO,
+        enable_gdelt=False, enable_acled=False,
+    )
+    assert summary == {"scanned": 0, "skipped_both_sources_disabled": 1}
+
+
+def test_main_falls_back_to_gdelt_only_when_acled_creds_missing(
+    monkeypatch, stub_acled
+):
+    """Missing ACLED_API_KEY/EMAIL → main() must propagate enable_acled=False
+    so the pipeline degrades gracefully to GDELT-only correlation."""
+    monkeypatch.setattr(config, "V2_GROUND_TRUTH_ETL_ENABLED", True)
+    monkeypatch.setattr(config, "ACLED_API_KEY", "")
+    monkeypatch.setattr(config, "ACLED_API_EMAIL", "")
+    obs_at = _NOW - 24 * 3600
+    _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="3", observed_at=obs_at)
+
+    captured = {}
+    real = runner.run_etl
+
+    def _spy(db_, **kw):
+        captured.update(kw)
+        return real(db_, **kw)
+
+    monkeypatch.setattr(runner, "run_etl", _spy)
+    monkeypatch.setattr(sys, "argv", [
+        "run_ground_truth_etl.py",
+        "--scenario", _SCENARIO,
+        "--since", str(obs_at - 1),
+        "--until", str(_NOW),
+        "--no-gdelt",
+    ])
+    rc = runner.main()
+    assert rc == 0
+    assert captured.get("enable_acled") is False
+
+
+def test_main_no_acled_flag_propagates(monkeypatch, stub_acled):
+    """Explicit --no-acled must propagate even when creds are present."""
+    monkeypatch.setattr(config, "V2_GROUND_TRUTH_ETL_ENABLED", True)
+    monkeypatch.setattr(config, "ACLED_API_KEY", "present")
+    monkeypatch.setattr(config, "ACLED_API_EMAIL", "x@example.com")
+    obs_at = _NOW - 24 * 3600
+    _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="3", observed_at=obs_at)
+
+    captured = {}
+    real = runner.run_etl
+
+    def _spy(db_, **kw):
+        captured.update(kw)
+        return real(db_, **kw)
+
+    monkeypatch.setattr(runner, "run_etl", _spy)
+    monkeypatch.setattr(sys, "argv", [
+        "run_ground_truth_etl.py",
+        "--scenario", _SCENARIO,
+        "--since", str(obs_at - 1),
+        "--until", str(_NOW),
+        "--no-acled", "--no-gdelt",
+    ])
+    rc = runner.main()
+    assert rc == 0
+    assert captured.get("enable_acled") is False
+    assert captured.get("enable_gdelt") is False

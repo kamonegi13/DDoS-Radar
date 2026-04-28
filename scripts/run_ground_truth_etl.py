@@ -22,6 +22,16 @@ Usage:
                                             [--limit N]
                                             [--dry-run]
                                             [--no-gdelt]
+                                            [--no-acled]
+
+ACLED is OPTIONAL since 2026-04-28 (OPSEC-conscious deployments may
+not want to register for an ACLED API key). When ``ACLED_API_KEY`` /
+``ACLED_API_EMAIL`` are unset, or when ``--no-acled`` is passed, the
+script falls back to GDELT-only correlation. The pipeline still
+produces auto-feedback rows; recall recovery is somewhat lower because
+GDELT exposes tone spikes but not fatality counts (so the
+FALSE_NEGATIVE rule has less to bite on). At least one of GDELT or
+ACLED must be enabled — disabling both makes the script a no-op.
 """
 
 from __future__ import annotations
@@ -183,8 +193,21 @@ def run_etl(
     limit: int = 1000,
     dry_run: bool = False,
     enable_gdelt: bool = True,
+    enable_acled: bool = True,
 ) -> dict:
-    """Drive one ETL pass. Returns a counter dict for the caller to log."""
+    """Drive one ETL pass. Returns a counter dict for the caller to log.
+
+    When ``enable_acled`` is False, or when the caller has cleared
+    ACLED_API_KEY/EMAIL, ACLED fetches are skipped entirely. GDELT-only
+    operation is the OPSEC-friendly default for deployments that don't
+    want to register an ACLED API key.
+    """
+    if not enable_gdelt and not enable_acled:
+        log.warning(
+            "Both --no-gdelt and --no-acled were passed — nothing to correlate."
+        )
+        return {"scanned": 0, "skipped_both_sources_disabled": 1}
+
     conclusions = list_conclusions_in_window(
         db, since=since, until=until, limit=limit,
     )
@@ -209,7 +232,10 @@ def run_etl(
         ev_until = max(c.observed_at for c in items) + (
             config.GROUND_TRUTH_FALSE_POSITIVE_HORIZON_DAYS * 86400
         )
-        acled = _acled_evidence_for_scenario(countries, ev_since, ev_until)
+        acled = (
+            _acled_evidence_for_scenario(countries, ev_since, ev_until)
+            if enable_acled else []
+        )
         gdelt = (
             _gdelt_evidence_for_scenario(db, countries, ev_since, ev_until)
             if enable_gdelt else []
@@ -256,6 +282,12 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-gdelt", action="store_true")
     parser.add_argument(
+        "--no-acled", action="store_true",
+        help="Skip ACLED entirely (OPSEC-friendly: avoids registering an API key). "
+             "GDELT-only mode still produces auto-feedback rows but with somewhat "
+             "lower recall recovery (no fatality counts).",
+    )
+    parser.add_argument(
         "--force", action="store_true",
         help="Run even if V2_GROUND_TRUTH_ETL_ENABLED=false",
     )
@@ -266,6 +298,22 @@ def main() -> int:
             "V2_GROUND_TRUTH_ETL_ENABLED is false; exiting (use --force to override)"
         )
         return 0
+
+    # OPSEC graceful degradation: if ACLED credentials are missing, log it
+    # and silently switch to GDELT-only. The script still produces useful
+    # feedback rows; recall reporting just covers a smaller share of the
+    # FALSE_NEGATIVE corner of the matrix.
+    enable_acled = not args.no_acled
+    if enable_acled and (
+        not getattr(config, "ACLED_API_KEY", "") or
+        not getattr(config, "ACLED_API_EMAIL", "")
+    ):
+        log.warning(
+            "ACLED_API_KEY or ACLED_API_EMAIL is not set — falling back to "
+            "GDELT-only correlation. Set both env vars (or pass --no-acled "
+            "to silence this warning) to enable ACLED."
+        )
+        enable_acled = False
 
     now = time.time()
     since = args.since if args.since is not None else now - 14 * 86400
@@ -287,6 +335,7 @@ def main() -> int:
         limit=args.limit,
         dry_run=args.dry_run,
         enable_gdelt=not args.no_gdelt,
+        enable_acled=enable_acled,
     )
     log.info("ETL summary: %s", summary)
     return 0
