@@ -159,6 +159,40 @@ def intel_stats():
     stats = intel_queue.stats()
     stats["llm_online"] = llm_available()
 
+    # HUD LLM service-health chip: emit `model_name`, `last_call_age_min`,
+    # `calls_1h`, and `mode` so the chip on HUD Row 3 can render the right
+    # band (green / amber / disabled) without a second backend call.
+    try:
+        from radar import config as _config
+        stats["llm_model"] = getattr(_config, "LLM_MODEL", "")
+        if not getattr(_config, "LLM_ENABLED", False):
+            stats["llm_mode"] = "disabled"
+        elif stats["llm_online"]:
+            stats["llm_mode"] = "enabled-online"
+        else:
+            stats["llm_mode"] = "enabled-offline"
+    except Exception:
+        stats["llm_model"] = ""
+        stats["llm_mode"] = "unknown"
+
+    try:
+        from radar.database import db as _db
+        _call_stats = _db.llm_call_stats(hours=1)
+        stats["llm_calls_1h"] = int(_call_stats.get("total_calls", 0) or 0)
+        # Most recent ok-call timestamp across all callers — proxy for "is
+        # the LLM actually answering, or is enabled/online but stalled?"
+        last_seen = max(
+            (c.get("last_seen") or 0) for c in _call_stats.get("per_caller", [])
+        ) if _call_stats.get("per_caller") else 0
+        if last_seen and last_seen > 0:
+            age_min = max(0, (time.time() - float(last_seen)) / 60.0)
+            stats["llm_last_call_age_min"] = round(age_min, 1)
+        else:
+            stats["llm_last_call_age_min"] = None
+    except Exception:
+        stats["llm_calls_1h"] = 0
+        stats["llm_last_call_age_min"] = None
+
     pulse_threshold = _safe_float_env("INTEL_PULSE_PRIORITY", 0.50)
     pulse_min_age_h = _safe_float_env("INTEL_PULSE_MIN_AGE_HOURS", 4.0)
 
