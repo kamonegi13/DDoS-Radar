@@ -247,6 +247,7 @@
                 <button class="hh-action" onclick="openSaluteModal(); closeHudHamburger();" data-i18n="hud.btn.salute">SALUTE</button>
                 <button class="hh-action" onclick="toggleChainPanel(); closeHudHamburger();" data-i18n="hud.btn.chain">CHAIN</button>
                 <button class="hh-action" id="hh-export-md" onclick="exportFocusedScenarioMarkdown(); closeHudHamburger();" data-i18n="hud.btn.export_md">EXPORT&nbsp;MD</button>
+                <button class="hh-action" id="hh-replay" onclick="openReplayMode(); closeHudHamburger();" title="Replay past conclusions on a timeline (AP4 — Decision Trail)">REPLAY</button>
             </div>
         </div>
         <div class="hh-section">
@@ -301,6 +302,20 @@
      (anomaly / attack_mode); drill-down modal remains accessible from any
      HUD click-through. Markdown export moved to the hamburger REPORTS
      section as `EXPORT MD`. -->
+
+<!-- ── Replay Mode controls (AP4 — Decision Trail) ──────────────────
+     Hidden by default. openReplayMode() toggles `data-replay-on="1"` on
+     the <body>. Slider drags the replay timestamp from -24h to now;
+     while replay is active the HUD overlay + Triage Lane consume the
+     replay envelope instead of polling. The badge on HUD makes it
+     impossible to mistake replay state for live state. -->
+<div id="replay-bar" hidden>
+    <span class="rb-label">REPLAY</span>
+    <span id="rb-time" class="rb-time">—</span>
+    <input type="range" id="rb-slider" min="-86400" max="0" step="60" value="0"
+           title="Drag back to step the conclusions ledger time-travel pointer (1 minute resolution).">
+    <button type="button" id="rb-live" class="rb-btn" onclick="exitReplayMode()" title="Return to live polling">LIVE</button>
+</div>
 
 <!-- ── Alert Lane ─────────────────────────────────────────────────────
      Replaces the conclusion-cards-bar for event-shaped conclusions

@@ -417,6 +417,82 @@ def v2_shadow_write_metrics():
     })
 
 
+@bp.route("/api/v2/replay/<scenario_id>", methods=["GET"])
+@jwt_required()
+def v2_replay(scenario_id):
+    """AP4 — Decision Trail / Replay: return the conclusions envelope as
+    it appeared at a given past instant.
+
+    Query parameter ``?at=<unix_seconds>`` selects the moment. For each
+    of the 5 ConclusionType buckets we return the latest row whose
+    ``observed_at <= at`` (or unavailable if no row exists by that time).
+    Same envelope shape as ``/api/v2/scenarios/<id>/conclusions`` so the
+    frontend renders into the existing surfaces (HUD overlay + Triage
+    Lane + Self-Explanation tooltips) without code branching.
+
+    NP6: every replayed conclusion is a real persisted ledger row — the
+    analyst can drill into it via /api/v2/conclusions/<id>/audit_trace
+    and see the same formula / sources / LLM prompt that drove the
+    original decision. Replay is *exactly* time-travel of the ledger,
+    not regenerated narrative.
+    """
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+
+    raw_at = request.args.get("at")
+    try:
+        at = float(raw_at) if raw_at is not None else None
+    except (TypeError, ValueError):
+        body, status = build_error(400, "invalid 'at' parameter",
+                                   detail="must be a unix timestamp in seconds")
+        return jsonify(body), status
+    if at is None:
+        import time as _time
+        at = _time.time()
+
+    from radar.database import db as _shared_db
+    rows = _shared_db._get_conn().execute(  # noqa: SLF001 — established pattern
+        "SELECT * FROM conclusions "
+        "WHERE scenario_id = ? AND observed_at <= ? "
+        "ORDER BY conclusion_type, observed_at DESC",
+        (scenario_id, at),
+    ).fetchall()
+
+    # Keep only the latest row per conclusion_type. The cursor returns rows
+    # already ordered by (type ASC, observed_at DESC), so the first row of
+    # each type is the most recent ≤ at.
+    latest_by_type: dict[str, dict] = {}
+    for row in rows:
+        t = row["conclusion_type"]
+        if t in latest_by_type:
+            continue
+        latest_by_type[t] = dict(row)
+
+    # Ledger rows store metadata as JSON text — re-hydrate so the frontend
+    # sees the same shape /api/v2/scenarios/<id>/conclusions returns.
+    import json as _json
+    for c in latest_by_type.values():
+        for k in ("metadata", "threshold_ref", "calibration_status", "source_urls"):
+            v = c.get(k)
+            if isinstance(v, str):
+                try:
+                    c[k] = _json.loads(v)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    return jsonify({
+        "api_version": API_VERSION,
+        "scenario_id": scenario_id,
+        "replay_at": at,
+        "conclusions": list(latest_by_type.values()),
+        "final_judgment_disclaimer": _disclaimer(),
+    })
+
+
 @bp.route("/api/v2/self_eval", methods=["GET"])
 @jwt_required()
 def v2_self_eval():

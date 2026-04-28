@@ -2077,6 +2077,122 @@
         return entry.byType || null;
     }
 
+    // ── Replay Mode (AP4 — Decision Trail) ──────────────────────────────
+    // Time-travels the v2 envelope. While active, _ccEnvelopeCache is
+    // populated from /api/v2/replay/<scenarioId>?at=<ts> instead of the
+    // live endpoint. The HUD overlay, Triage Lane, and Self-Explanation
+    // tooltips all consume the cache, so they automatically render the
+    // replayed state without code branching. The replay bar's slider step
+    // is 60s (1 min) — fine enough for analyst forensic review without
+    // hammering the backend. AP4 transparency: every replayed conclusion
+    // is a real persisted ledger row; drilling into it shows the original
+    // formula / sources / LLM prompt.
+    let _replayActive = false;
+    let _replayAtSec = null;  // unix seconds when replay is on; null = live
+
+    function _replayFmtOffset(deltaSec) {
+        if (deltaSec === 0) return 'now';
+        const abs = Math.abs(deltaSec);
+        const hr = Math.floor(abs / 3600);
+        const mn = Math.floor((abs % 3600) / 60);
+        return '-' + (hr ? hr + 'h ' : '') + mn + 'm';
+    }
+
+    async function _replayFetchEnvelope(scenarioId, atSec) {
+        if (!scenarioId) return null;
+        try {
+            const url = `/api/v2/replay/${encodeURIComponent(scenarioId)}?at=${encodeURIComponent(atSec)}`;
+            const resp = await fetch(url);
+            if (!resp.ok) return null;
+            const env = await resp.json();
+            return env;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    async function _replayApply(scenarioId, atSec) {
+        const env = await _replayFetchEnvelope(scenarioId, atSec);
+        if (!env) return false;
+        const list = Array.isArray(env.conclusions) ? env.conclusions : [];
+        const byType = {};
+        list.forEach((c) => { if (c && c.conclusion_type) byType[c.conclusion_type] = c; });
+        // Inject into the same cache the live UI consumes — single code path.
+        _ccEnvelopeCache[scenarioId] = { ts: Date.now(), byType };
+        try { _refreshAlertLane(scenarioId); } catch (_) { /* defensive */ }
+        // The HUD overlay + per-domain tooltips will pick up the new envelope
+        // on the next renderTelemetry call (driven by polling). Nudge a
+        // re-render now if we have cached telemetry data.
+        if (window._lastThreatData && typeof renderTelemetry === 'function') {
+            try { window._resetRenderSig && window._resetRenderSig(); } catch (_) {}
+            try { renderTelemetry(window._lastThreatData); } catch (_) {}
+        }
+        return true;
+    }
+
+    function _replayUpdateBadge(atSec) {
+        const lbl = document.getElementById('rb-time');
+        if (!lbl) return;
+        const now = Date.now() / 1000;
+        const delta = Math.round(atSec - now);
+        const human = _replayFmtOffset(delta);
+        const date = new Date(atSec * 1000);
+        const stamp = date.toISOString().replace('T', ' ').slice(0, 19) + 'Z';
+        lbl.textContent = human + ' (' + stamp + ')';
+    }
+
+    window.openReplayMode = function () {
+        const bar = document.getElementById('replay-bar');
+        const slider = document.getElementById('rb-slider');
+        if (!bar || !slider) return;
+        _replayActive = true;
+        document.body.setAttribute('data-replay-on', '1');
+        bar.hidden = false;
+        slider.value = '0';  // start at "now"
+        _replayAtSec = Date.now() / 1000;
+        _replayUpdateBadge(_replayAtSec);
+        // Initial fetch of "now"-state via the replay endpoint so subsequent
+        // slider drags are diff-able against this baseline.
+        const sid = (window._lastThreatData && window._lastThreatData.focused_scenario)
+            || _ccLastFocus;
+        if (sid) _replayApply(sid, _replayAtSec);
+    };
+
+    window.exitReplayMode = function () {
+        _replayActive = false;
+        _replayAtSec = null;
+        document.body.removeAttribute('data-replay-on');
+        const bar = document.getElementById('replay-bar');
+        if (bar) bar.hidden = true;
+        // Resume live polling on next tick — _refreshConclusionCards will
+        // overwrite the cache from /api/v2/scenarios/<id>/conclusions.
+        const sid = (window._lastThreatData && window._lastThreatData.focused_scenario)
+            || _ccLastFocus;
+        if (sid) _refreshConclusionCards(sid);
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const slider = document.getElementById('rb-slider');
+        if (!slider) return;
+        let pending = null;
+        slider.addEventListener('input', () => {
+            if (!_replayActive) return;
+            const offsetSec = parseInt(slider.value, 10);
+            const atSec = Date.now() / 1000 + offsetSec;
+            _replayAtSec = atSec;
+            _replayUpdateBadge(atSec);
+            // Debounce so dragging doesn't spam the backend; 200ms after
+            // the user stops moving the handle we fetch the envelope.
+            if (pending) clearTimeout(pending);
+            pending = setTimeout(() => {
+                pending = null;
+                const sid = (window._lastThreatData && window._lastThreatData.focused_scenario)
+                    || _ccLastFocus;
+                if (sid && _replayActive) _replayApply(sid, atSec);
+            }, 200);
+        });
+    });
+
     // ── Self-Evaluation chips (AP3) ─────────────────────────────────────
     // Polls /api/v2/self_eval (5min cadence — recall + null-zone don't move
     // fast enough to warrant the 30s scoring tick). Each chip lights green
@@ -2378,6 +2494,11 @@
         if (_ccLastFocus !== scenarioId) {
             _ccLastFocus = scenarioId;
         }
+
+        // AP4 — when Replay Mode is active, the envelope cache is owned by
+        // the replay slider, not the live poll. Skip the fetch entirely so
+        // we don't clobber the replayed state mid-drag.
+        if (_replayActive) return;
 
         // De-dupe in-flight fetches per focus.
         if (_ccInflightFocus === scenarioId) return;
