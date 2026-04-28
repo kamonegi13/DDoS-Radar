@@ -3932,7 +3932,29 @@
             const strat = _hudV2OverlayStrat(data.strategic_alert, data.focused_scenario);
             const threatLabels = { 5: _t('threat_lv.5'), 4: _t('threat_lv.4'), 3: _t('threat_lv.3'), 2: _t('threat_lv.2'), 1: _t('threat_lv.1') };
             threatEl.className = `threat-hud threat-${strat.threat_level}-hud`;
-            if (strat.threat_breakdown) {
+
+            // AP2 (Self-Explanation): tooltip is the v2 narrative when the
+            // envelope is fresh — explains threshold position, calibration,
+            // last analyst view. Falls back to the v1 threat_breakdown
+            // checklist when v2 is degraded so the analyst still gets some
+            // rationale (NP3 fault tolerance).
+            const tlBy = _hudFreshEnvelopeByType(data.focused_scenario);
+            const tlConclusion = tlBy && tlBy.threat_level;
+            const selfExpl = (window.SelfExplanation && window.SelfExplanation.narrateTL) || null;
+            if (selfExpl && tlConclusion) {
+                const persisted = (function () {
+                    try {
+                        const raw = localStorage.getItem('ddos_radar_triage_state');
+                        if (!raw) return null;
+                        const p = JSON.parse(raw);
+                        return p && p.lastViewByScenario && p.lastViewByScenario[data.focused_scenario];
+                    } catch (_) { return null; }
+                })();
+                threatEl.setAttribute('data-tooltip', selfExpl(tlConclusion, {
+                    now: Date.now() / 1000,
+                    lastViewTs: persisted,
+                }));
+            } else if (strat.threat_breakdown) {
                 const b = strat.threat_breakdown;
                 const lines = [
                     `Threat Score: ${b.total_score}`,
@@ -4059,14 +4081,25 @@
             }
 
             if (strat.domains) {
+                // AP2 — fetch the per_domain conclusion once for tooltip narration
+                const _pdBy = _hudFreshEnvelopeByType(data.focused_scenario);
+                const _pdConclusion = _pdBy && _pdBy.per_domain;
+                const _narrate = (window.SelfExplanation && window.SelfExplanation.narrateDomain) || null;
                 ['cyber', 'physical', 'info'].forEach(d => {
                     const info = strat.domains[d] || { score: 0, status: 'NORMAL' };
                     const barEl    = document.getElementById(`bar-${d}`);
                     const statusEl = document.getElementById(`status-${d}`);
+                    const rowEl    = document.getElementById(`hud-domain-${d}`);
                     if (barEl)    barEl.style.width = `${Math.min(info.score * 8, 80)}px`;
                     if (statusEl) {
                         statusEl.textContent = `${info.score}pt`;
                         statusEl.className = `domain-status ${info.status}`;
+                    }
+                    // Self-explanation tooltip on the row (covers the bar +
+                    // label + status pill); narrative pulls from the v2
+                    // per_domain conclusion's threshold_ref + rationale_matrix.
+                    if (rowEl && _narrate && _pdConclusion) {
+                        rowEl.setAttribute('data-tooltip', _narrate(_pdConclusion, d));
                     }
                 });
             }
