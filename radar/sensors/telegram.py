@@ -22,7 +22,13 @@ TELEGRAM_ATTACK_KEYWORDS = [k.strip().lower() for k in TELEGRAM_ATTACK_KW_RAW.sp
 TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD = float(os.getenv("TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD", "0.5"))
 # Maximum age (hours) for individual posts to be analyzed.
 # Posts older than this are ignored to prevent stale detections.
-TELEGRAM_POST_MAX_AGE_H = int(os.getenv("TELEGRAM_POST_MAX_AGE_HOURS", "8"))
+# 2026-04-29: bumped default 8h → 48h. Hacktivist channels typically post in
+# bursts then go silent for 24-72h between operations; an 8h window was
+# observed to drop 100% of posts on all currently-active channels even
+# while the channels themselves were healthy. 48h preserves the "recent
+# vs stale" intent without starving the keyword matcher. Operators can
+# tighten it back via the env var if precision matters more than recall.
+TELEGRAM_POST_MAX_AGE_H = int(os.getenv("TELEGRAM_POST_MAX_AGE_HOURS", "48"))
 
 # Multi-stage confidence scoring for attack claims.
 # Stage 1: Declaration only (keywords matched) → base confidence 0.2
@@ -75,7 +81,14 @@ class TelegramMirrorSensor(BaseSensor):
         """Fetch public channel web preview from t.me/s/{channel}.
         Returns HTML text if the page contains actual post content,
         empty string if the channel is private, empty, or unreachable.
-        Applies UA rotation and exponential backoff on 403/429."""
+        Applies UA rotation and exponential backoff on 403/429.
+
+        Diagnostics (2026-04-29): distinguishes the three failure modes
+        in the log so operators can tell whether the channel list is
+        stale (preview disabled — 302 to /channel) or whether telegram
+        is throttling us (403/429 retries exhausted) or the network is
+        broken (exception). Previously all three returned "" silently.
+        """
         import random as _rnd
         url = self.TELEGRAM_PREVIEW_URL.format(channel=channel)
         delay = 2.0
@@ -84,8 +97,17 @@ class TelegramMirrorSensor(BaseSensor):
                 ua = _rnd.choice(_SCRAPER_UA_POOL)
                 res = requests.get(
                     url, timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
-                    headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"}
+                    headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"},
+                    allow_redirects=True,
                 )
+                # If t.me/s/<channel> redirects to t.me/<channel>, the
+                # channel admin disabled web preview. Detect by checking
+                # the final URL path lost its `/s/` segment.
+                if res.url.rstrip("/").endswith(f"/{channel}") and "/s/" not in res.url:
+                    log.debug(f"[Telegram] {channel}: preview disabled by channel admin "
+                              f"(redirected to {res.url}). Replace this channel "
+                              f"or accept silent reads.")
+                    return ""
                 if res.status_code == 200 and len(res.text) > self._MIN_CONTENT_LEN:
                     # Validate that the page contains actual Telegram post content.
                     # Private/restricted channels return a thin page with only a
@@ -98,8 +120,10 @@ class TelegramMirrorSensor(BaseSensor):
                     sleep_time = delay * (2 ** attempt) * _rnd.uniform(0.8, 1.2)
                     time.sleep(min(sleep_time, 30.0))
                     continue
+                log.debug(f"[Telegram] {channel}: unexpected status {res.status_code}")
                 break
-            except Exception:
+            except Exception as exc:
+                log.debug(f"[Telegram] {channel}: scrape exception ({exc})")
                 break
         return ""
 
