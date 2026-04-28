@@ -512,6 +512,31 @@ CT_LOG_TRUSTED_CAS_GLOBAL: tuple[str, ...] = (
     "telia", "atos trustcenter", "trustwave",
 )
 
+# ── Background Observer (AP3 — per-scenario observation health) ─────────
+# Periodic per-country RSS fetch for NON-focused scenarios. Closes the
+# observability gap exposed by the OBS chip: Asia-Pacific / SCS / Korea
+# scenarios receive ~0 LLM intel rows in 24h because the existing intel
+# pipeline is geographically biased toward sources covering UA/RU/IL.
+# Background observer rotates round-robin through non-focused scenarios
+# and their participants, fetches public RSS feeds (anonymous HTTP GET,
+# no API keys), runs the regex extractor (radar.conclusions.rss_extractor),
+# and writes findings as ephemeral Signals into the next scoring tick.
+# No LLM dependency. Default off — opt-in per NP3 (adds outbound HTTP).
+BG_OBSERVER_ENABLED        = os.getenv("BG_OBSERVER_ENABLED", "false").lower() in ("true", "1", "yes")
+BG_OBSERVER_INTERVAL_SEC   = int(os.getenv("BG_OBSERVER_INTERVAL_SEC", "300"))    # 5 min cycle
+BG_OBSERVER_SIGNAL_TTL_SEC = int(os.getenv("BG_OBSERVER_SIGNAL_TTL_SEC", "1800")) # signals age out after 30m
+BG_OBSERVER_MAX_QUEUE      = int(os.getenv("BG_OBSERVER_MAX_QUEUE", "200"))       # hard cap to bound memory
+BG_OBSERVER_FEEDS          = [
+    u.strip() for u in os.getenv(
+        "BG_OBSERVER_FEEDS",
+        "https://feeds.bbci.co.uk/news/world/rss.xml,"
+        "https://www.aljazeera.com/xml/rss/all.xml,"
+        "https://apnews.com/rss/apf-topnews,"
+        "http://www.xinhuanet.com/english/rss/worldrss.xml",
+    ).split(",") if u.strip()
+]
+
+
 # ── LLM Intelligence ──────────────────────────────────────────────────────────
 LLM_ENABLED               = os.getenv("LLM_ENABLED", "false").lower() in ("true", "1", "yes")
 LLM_HOST                  = os.getenv("LLM_HOST", "http://localhost:11434")

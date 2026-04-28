@@ -1973,6 +1973,29 @@ def get_threat_data():
             except Exception:
                 pass
 
+            # Drain background observer queue (AP3 — per-scenario obs health).
+            # Each pending signal is a per-country RSS finding for a non-
+            # focused scenario; converting to scoring.Signal here lets them
+            # flow through the same dedup + per-scenario contribution path
+            # the rest of _signals uses. Defensive: if the module isn't
+            # loadable (missing dependency), skip silently — NP3.
+            try:
+                from radar import background_observer as _bg_obs
+                for _ps in _bg_obs.drain_signals(now=current_time):
+                    _signals.append(Signal(
+                        signal_source=_ps.signal_source,
+                        sensor=_ps.sensor,
+                        observed_at=_ps.observed_at,
+                        domain=_ps.domain,
+                        countries=list(_ps.countries),
+                        country_weights={c: 1.0 for c in _ps.countries},
+                        raw_score=float(_ps.raw_score),
+                        value_display=_ps.value_display,
+                        evidence_url=_ps.evidence_url,
+                    ))
+            except Exception:
+                pass
+
             # Compute context alignment early so scenario scoring can use it
             context_alignment = _routes.engine.compute_context_alignment(rationale)
             direction_summary = _routes.engine.compute_direction_summary(rationale)

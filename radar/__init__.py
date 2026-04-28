@@ -287,6 +287,14 @@ threading.Thread(target=_cache_cleanup_worker, args=(registry,),
 threading.Thread(target=_corroboration_worker,
                  daemon=True, name='corroboration').start()
 
+# AP3 Background Observer (per-scenario observation health, opt-in via
+# BG_OBSERVER_ENABLED). No-ops silently when the flag is off.
+try:
+    from radar import background_observer as _bg_obs  # noqa: E402
+    _bg_obs.start_worker()
+except Exception:
+    _log.exception("[bg_observer] startup failed (non-fatal, observer disabled)")
+
 _log.info("[Startup] Initialization complete — all background workers launched")
 
 # ── WebSocket (Flask-SocketIO) ──
