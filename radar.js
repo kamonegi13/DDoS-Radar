@@ -2077,6 +2077,89 @@
         return entry.byType || null;
     }
 
+    // ── Map Dim (focus-change loading state) ────────────────────────────
+    // Glue between the pure MapDim state machine (map_dim.js) and the
+    // #map-dim-overlay DOM. _mapDimShow opens a session; _refreshConclusionCards
+    // and fetchDDoSData() call MapDim.notifyReady on arrival. Lift wires the
+    // overlay back to hidden; stale leaves the overlay visible in amber
+    // "stale" state with a Retry button (NP3 — never permanent).
+    const _MAP_DIM_TIMEOUT_MS = 8000;
+
+    function _mapDimSetText(text) {
+        const el = document.getElementById('md-text');
+        if (el) el.textContent = text;
+    }
+
+    function _mapDimShow(scenarioId) {
+        const overlay = document.getElementById('map-dim-overlay');
+        const wrapper = document.getElementById('map-wrapper');
+        if (!overlay || !wrapper || !window.MapDim) return;
+        // Friendly scenario name from latestData.scenarios when available;
+        // otherwise just the id.
+        let name = scenarioId;
+        const sc = latestData && latestData.scenarios && latestData.scenarios[scenarioId];
+        if (sc && sc.name_en) name = sc.name_en;
+        document.body.setAttribute('data-map-dim', '1');
+        wrapper.setAttribute('aria-busy', 'true');
+        overlay.classList.remove('md-stale');
+        // Drop any prior retry button so a re-entrant focus change doesn't
+        // accumulate them.
+        const oldBtn = overlay.querySelector('.md-retry-btn');
+        if (oldBtn) oldBtn.remove();
+        _mapDimSetText(_t('map.dim.switching').replace('{name}', name));
+        overlay.hidden = false;
+        window.MapDim.start({
+            scenarioName: name,
+            timeoutMs: _MAP_DIM_TIMEOUT_MS,
+            lift: function () { _mapDimHide(); },
+            stale: function () { _mapDimMarkStale(); },
+        });
+    }
+
+    function _mapDimHide() {
+        const overlay = document.getElementById('map-dim-overlay');
+        const wrapper = document.getElementById('map-wrapper');
+        if (overlay) {
+            overlay.classList.remove('md-stale');
+            overlay.hidden = true;
+        }
+        if (wrapper) wrapper.removeAttribute('aria-busy');
+        document.body.removeAttribute('data-map-dim');
+    }
+
+    function _mapDimMarkStale() {
+        const overlay = document.getElementById('map-dim-overlay');
+        if (!overlay) { _mapDimHide(); return; }
+        overlay.classList.add('md-stale');
+        _mapDimSetText(_t('map.dim.timeout'));
+        // Add a Retry button if it isn't there already.
+        if (!overlay.querySelector('.md-retry-btn')) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'md-retry-btn';
+            btn.textContent = _t('map.dim.retry');
+            btn.addEventListener('click', function () {
+                _mapDimHide();
+                if (typeof forceDataSync === 'function') forceDataSync();
+            });
+            overlay.appendChild(btn);
+        }
+    }
+
+    function _mapDimNotify(source) {
+        if (window.MapDim && window.MapDim.isActive && window.MapDim.isActive()) {
+            window.MapDim.notifyReady(source);
+        }
+    }
+
+    // ESC during dim aborts: lifts the overlay, leaves stale data visible.
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        if (window.MapDim && window.MapDim.isActive && window.MapDim.isActive()) {
+            window.MapDim.forceLift();
+        }
+    });
+
     // ── Replay Mode (AP4 — Decision Trail) ──────────────────────────────
     // Time-travels the v2 envelope. While active, _ccEnvelopeCache is
     // populated from /api/v2/replay/<scenarioId>?at=<ts> instead of the
@@ -2525,6 +2608,9 @@
             _ccEnvelopeCache[scenarioId] = { ts: Date.now(), byType };
             // Alert Lane chains here so it never lags the envelope.
             try { _refreshAlertLane(scenarioId); } catch (_) { /* defensive */ }
+            // Map dim: v2 envelope leg of a focus change has landed.
+            // Lift fires when this AND the v1 'threat_data' notify arrive.
+            try { _mapDimNotify('envelope'); } catch (_) { /* defensive */ }
         } catch (e) {
             if (e && e.name === 'AbortError') return;
             if (window.console) console.debug('[Conclusions] fetch error', e);
@@ -3683,6 +3769,11 @@
             }
 
             renderTelemetry(latestData);
+
+            // Map dim: signal that the v1 telemetry leg of a focus change has
+            // landed. The dim lifts only after this AND the v2 envelope leg
+            // (chained inside _refreshConclusionCards below) both arrive.
+            _mapDimNotify('threat_data');
 
             // Fire-and-forget: hydrate NP7 banner with v2 disclaimer. One-shot.
             _refreshNp7Banner(_focusParam);
@@ -9422,6 +9513,13 @@
             try { delete _ccEnvelopeCache[_previousFocus]; } catch (_) { /* defensive */ }
         }
         try { window._resetRenderSig && window._resetRenderSig(); } catch (_) { /* defensive */ }
+
+        // Map dim — only on a real focus change AND not while replaying
+        // (replay drag is deliberate, dim there would flicker obnoxiously).
+        if (_previousFocus && _previousFocus !== scenarioId
+                && window.MapDim && !_replayActive) {
+            _mapDimShow(scenarioId);
+        }
         _scenarioDetailOpen = null;
         _scenarioWhatIfExcluded = new Set();
         const detailPanel = document.getElementById('scenario-detail-panel');
