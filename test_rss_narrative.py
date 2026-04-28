@@ -314,3 +314,48 @@ class TestGeoFilterIntegration:
         # Iran and Gaza articles must NOT be in burst pool
         assert not any("IRGC" in t for t in titles)
         assert not any("Gaza" in t for t in titles)
+
+
+# ── Baseline retention regression (2026-04-29) ──────────────────────────
+
+
+class TestBaselineRetention:
+    """Regression: pre-fix the baseline list was capped at NARRATIVE_BASELINE_DAYS
+    entries, but the sensor fetches every 1800s (48 cycles/day). Cap must be
+    `days × cycles_per_day` so the rolling window genuinely covers the
+    intended number of days, not `days × 1` cycles.
+    """
+
+    def test_baseline_cap_matches_days_times_cycles_per_day(self, monkeypatch):
+        from radar.sensors.rss_narrative import RssNarrativeSensor
+        s = RssNarrativeSensor()
+        # poll_interval = 1800 → 48 cycles/day
+        # default NARRATIVE_BASELINE_DAYS = 30
+        # cap should be 30 * 48 = 1440 entries
+        for i in range(2000):
+            s._update_baseline("UA", float(i % 10))
+        kept = s._baseline["UA"]["daily_counts"]
+        assert len(kept) == 1440, f"expected 1440 entries, got {len(kept)}"
+
+    def test_baseline_cap_obeys_env_override(self, monkeypatch):
+        from radar.sensors.rss_narrative import RssNarrativeSensor
+        monkeypatch.setenv("NARRATIVE_BASELINE_DAYS", "7")
+        s = RssNarrativeSensor()
+        for i in range(500):
+            s._update_baseline("UA", float(i % 5))
+        # 7 days × 48 cycles/day = 336
+        assert len(s._baseline["UA"]["daily_counts"]) == 336
+
+    def test_baseline_zscore_warmup(self, monkeypatch):
+        """After ≥7 entries with variance, a spike crosses the alert threshold."""
+        from radar.sensors.rss_narrative import RssNarrativeSensor
+        s = RssNarrativeSensor()
+        # 6 entries — still below the 7-entry minimum, z must be 0.
+        for v in (0.03, 0.05, 0.04, 0.06, 0.05, 0.04):
+            s._update_baseline("UA", v)
+        z_under, _, _ = s._compute_zscore("UA", 0.05)
+        assert z_under == 0.0
+        # 7th entry adds enough variance; a spike now produces a real z-score.
+        s._update_baseline("UA", 0.07)
+        z_spike, _, _ = s._compute_zscore("UA", 0.50)
+        assert z_spike > 2.0, f"spike should cross 2.0 alert threshold; got z={z_spike}"

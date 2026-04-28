@@ -611,13 +611,24 @@ class RssNarrativeSensor(BaseSensor):
         return round(z, 3), round(mean, 4), round(std, 4)
 
     def _update_baseline(self, theater: str, today_normalized: float):
-        """Update daily baseline list (retains up to NARRATIVE_BASELINE_DAYS days)."""
+        """Update rolling baseline (NARRATIVE_BASELINE_DAYS days of cycles).
+
+        Bug fix 2026-04-29: prior code capped the list at NARRATIVE_BASELINE_DAYS
+        entries, but the sensor fetches every 1800 s (48 cycles/day). The cap
+        therefore truncated the rolling window to ~15 hours instead of 30 days,
+        and the z-score normalized against itself — observed effect was 100%
+        `no_burst_this_cycle` pre_filter rejection in production. Cap is now
+        `NARRATIVE_BASELINE_DAYS × cycles_per_day`, derived from the sensor's
+        own fetch_interval so it auto-adjusts if cadence ever changes.
+        """
+        cycles_per_day = max(1, int(86400 / max(1, self.poll_interval)))
+        cap = int(_os.getenv("NARRATIVE_BASELINE_DAYS", "30")) * cycles_per_day
         with self._lock:
             if theater not in self._baseline:
                 self._baseline[theater] = {"daily_counts": [], "last_updated": 0.0}
             bl = self._baseline[theater]
             bl["daily_counts"].append(today_normalized)
-            bl["daily_counts"] = bl["daily_counts"][-int(_os.getenv("NARRATIVE_BASELINE_DAYS", "30")):]
+            bl["daily_counts"] = bl["daily_counts"][-cap:]
             bl["last_updated"] = time.time()
 
     def fetch(self, context: dict) -> dict:
