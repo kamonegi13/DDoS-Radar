@@ -1967,7 +1967,14 @@
     let _lastSyncTime = 0;
     const _POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 min
 
-    function forceDataSync() { fetchDDoSData(true); }
+    function forceDataSync(evt) {
+        // Default SYNC click → force=snapshot (instant, cache-only refresh).
+        // Shift+click → force=sensors (also kicks off background sensor fan-out).
+        // Issue A (Phase 4 commit 3) — request thread no longer blocks 60s.
+        const ev = evt || (typeof window !== 'undefined' ? window.event : null);
+        const wantSensors = !!(ev && ev.shiftKey);
+        fetchDDoSData(wantSensors ? 'sensors' : 'snapshot');
+    }
     window.forceDataSync = forceDataSync;
 
     // ── NP7 attribution overlay (formerly Phase 1.4 P2 banner) ──────────
@@ -3796,12 +3803,24 @@
     async function fetchDDoSData(force = false) {
         // Under scenario-unit mode the server derives scope from the focused
         // scenario; only focus + muted + force are passed.
+        //
+        // `force` accepts:
+        //   false / 'off' — normal poll (uses cache TTL)
+        //   true / 'snapshot' — bypass cache TTL, do NOT fan out to slow sensors.
+        //                       Used for focus changes and the default SYNC click.
+        //   'sensors' — bypass cache TTL AND spawn server-side background fetch
+        //               of allow-listed fast sensors. Triggered by Shift+SYNC.
+        // Server keeps backward-compat with the boolean form (true → snapshot).
+        // (Issue A — Phase 4 commit 3.)
         const mutedList = Array.from(mutedSensors).join(',');
+        const _forceMode = (force === 'sensors') ? 'sensors'
+                         : (force === true || force === 'snapshot' || force === 'true') ? 'snapshot'
+                         : 'off';
 
         const syncBtnTop = document.getElementById('btn-sync-top');
         const syncBtnSide = document.getElementById('btn-sync-side');
 
-        if (force) {
+        if (_forceMode !== 'off') {
             syncBtnTop.innerText = _t('status.syncing'); syncBtnTop.classList.add("syncing");
             syncBtnSide.innerText = _t('status.syncing'); syncBtnSide.classList.add("syncing");
         }
@@ -3809,7 +3828,7 @@
         try {
             const _focusParam = _getScenarioFocus();
             const _params = new URLSearchParams({
-                muted: mutedList, force: force,
+                muted: mutedList, force: _forceMode,
                 focus: _focusParam
             });
             const apiUrl = `/api/threat_data?${_params}`;

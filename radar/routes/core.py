@@ -2,6 +2,7 @@
 from __future__ import annotations
 import logging
 import os
+import threading
 import time
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -48,6 +49,52 @@ from radar.scenarios import (
 )
 
 log = logging.getLogger("radar")
+
+# Allow-list of sensors that participate in the explicit `force=sensors` SYNC
+# path. Restricted to fast-ish global sensors so the request-thread greenlet
+# spawn doesn't fan out to slow ones (PeeringDB, AIS, IHR, NASA-FIRMS, Atlas)
+# whose cold latency was the dominant cause of the "huge wait" focus-change
+# regressions. Slow sensors continue to refresh on their normal scheduler.
+# (Issue A — Phase 4 commit 3.)
+_FORCE_SYNC_SENSORS: frozenset[str] = frozenset({
+    "cf", "ioda", "opensky", "gdelt", "check_host", "telegram_mirror",
+})
+
+# Guard so a single in-flight force=sensors greenlet covers concurrent SYNC
+# clicks instead of spawning N parallel fan-outs.
+_force_sensors_inflight = threading.Event()
+
+
+def _spawn_force_sensors_fetch(sensors_iter, ctx) -> None:
+    """Background greenlet: fetch the allow-listed sensors without blocking
+    the request thread. Cache writes from each sensor become visible to the
+    next /api/threat_data poll. Single-flight guarded.
+    """
+    if _force_sensors_inflight.is_set():
+        return
+    _force_sensors_inflight.set()
+
+    def _runner() -> None:
+        try:
+            allowed = [s for s in sensors_iter
+                       if s.enabled and getattr(s, "name", None) in _FORCE_SYNC_SENSORS]
+            if not allowed:
+                return
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                futures = [ex.submit(s.fetch, ctx) for s in allowed]
+                try:
+                    for fut in as_completed(futures, timeout=45):
+                        try:
+                            fut.result()
+                        except Exception as _exc:
+                            log.debug("force=sensors fetch failed: %s", _exc)
+                except TimeoutError:
+                    log.info("force=sensors greenlet hit 45s timeout — sensors will catch up via scheduler")
+        finally:
+            _force_sensors_inflight.clear()
+
+    threading.Thread(target=_runner, name="force-sensors-fetch", daemon=True).start()
+
 
 # Initialize to DEFAULT_FOCUSED_SCENARIO so the first scoring cycle can
 # detect if the user immediately switches focus away from the default.
@@ -535,17 +582,34 @@ def get_threat_data():
     _global_targets = derive_global_fetch_targets()
     all_participant_countries = list(_global_targets["all_participant_countries"])
 
-    _force_param = request.args.get("force", "false").lower() == "true"
-    # Restrict force_sync to analyst/admin roles to prevent quota exhaustion
-    force_sync = False
-    if _force_param:
+    # Force mode — three states (Issue A — Phase 4 commit 3):
+    #   "off"      : normal cache/TTL behavior
+    #   "snapshot" : bypass SCORE_REFRESH_SEC cache, but DO NOT fan out to
+    #                slow sensors. Returns instantly with whatever cached
+    #                sensor data exists (default for focus changes & SYNC).
+    #   "sensors"  : snapshot + spawn a background greenlet to refresh the
+    #                allow-listed sensors. Request thread still returns now.
+    # Backward compat: legacy `force=true` and `force=1` map to "snapshot".
+    _force_raw = request.args.get("force", "").strip().lower()
+    if _force_raw in ("snapshot", "true", "1"):
+        force_mode = "snapshot"
+    elif _force_raw == "sensors":
+        force_mode = "sensors"
+    else:
+        force_mode = "off"
+    # Restrict any force mode to analyst/admin roles to prevent quota exhaustion
+    if force_mode != "off":
         try:
             _identity = get_jwt_identity()
             _role = _db.user_get_role(_identity) if _identity else "viewer"
-            if _role in ("admin", "analyst"):
-                force_sync = True
+            if _role not in ("admin", "analyst"):
+                force_mode = "off"
         except Exception as _e:
             log.warning("force_sync role check failed: %s", _e)
+            force_mode = "off"
+    # `force_sync` retained as a boolean for downstream cache-invalidation
+    # logic (now means: "bypass the SCORE_REFRESH_SEC TTL on this request").
+    force_sync = (force_mode != "off")
 
     # HITL Analyst MUTE parameters
     muted_sensors = [s.strip() for s in request.args.get("muted", "").split(",") if s.strip()]
@@ -567,23 +631,20 @@ def get_threat_data():
     }
 
     # Sensors are individually scheduled in the background.
-    # Immediate fetch only on force_sync (SYNC button). Do not wait on missing_data.
-    # (At startup, background threads are fetching in parallel; waiting for sync would
-    #  block for minutes on slow sensors like PeeringDB/AIS).
-    if force_sync:
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(sensor.fetch, sensor_context)
-                       for sensor in _routes.registry._sensors.values() if sensor.enabled]
-            try:
-                for future in as_completed(futures, timeout=60):
-                    try:
-                        future.result()
-                    except Exception:
-                        pass
-            except TimeoutError:
-                # Use cached data for timed-out sensors.
-                # Let them complete in the background and update the cache.
-                pass
+    # Force-handling — Issue A (Phase 4 commit 3):
+    #   - Old behavior blocked the request thread for up to 60s while ALL
+    #     enabled sensors (~25, including slow PeeringDB / AIS / IHR / Atlas)
+    #     attempted a cold fetch. Combined with the front-end's 8s map-dim
+    #     timeout this consistently surfaced stale state on focus changes.
+    #   - New behavior: never block the request thread. force=snapshot just
+    #     bypasses the cache TTL. force=sensors spawns a single-flight
+    #     background greenlet that fans out to the allow-listed fast sensors
+    #     only; their cache writes become visible on the next poll.
+    if force_mode == "sensors":
+        _spawn_force_sensors_fetch(
+            list(_routes.registry._sensors.values()),
+            sensor_context,
+        )
 
     # Cache invalidation must also consider the focus parameter: scenario
     # scoring depends on focus (full vs lite mode, threat_level derivation),

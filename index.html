@@ -251,7 +251,7 @@
         </div>
         <div class="hh-section">
             <div class="hh-section-label" data-i18n="hud.hh.section.data">DATA</div>
-            <button id="btn-sync-top" class="btn-tactical btn-sync hh-action-wide" onclick="forceDataSync(); closeHudHamburger();" data-i18n="hud.btn.sync">SYNC</button>
+            <button id="btn-sync-top" class="btn-tactical btn-sync hh-action-wide" onclick="forceDataSync(event); closeHudHamburger();" data-i18n="hud.btn.sync" title="Click: instant snapshot refresh. Shift+Click: also fan out to fast sensors (background).">SYNC</button>
         </div>
         <div class="hh-section">
             <div class="hh-section-label" data-i18n="hud.hh.section.reports">REPORTS</div>
@@ -490,7 +490,7 @@
 <!-- Data Synced footer: fixed at bottom-right, always visible regardless of sidebar state -->
 <div class="sidebar-footer">
     <span id="update-time" data-i18n="footer.system_init">System Initializing...</span>
-    <button id="btn-sync-side" class="btn-tactical btn-sync" onclick="forceDataSync()" style="margin:0;" data-i18n="hud.btn.sync">SYNC</button>
+    <button id="btn-sync-side" class="btn-tactical btn-sync" onclick="forceDataSync(event)" style="margin:0;" data-i18n="hud.btn.sync" title="Click: instant snapshot refresh. Shift+Click: also fan out to fast sensors (background).">SYNC</button>
 </div>
 
 <div id="settings-backdrop" onclick="closeAllModals()"></div>
