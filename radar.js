@@ -1970,29 +1970,33 @@
     function forceDataSync() { fetchDDoSData(true); }
     window.forceDataSync = forceDataSync;
 
-    // ── NP7 disclaimer banner (Phase 1.4 P2) ─────────────────────────────
-    // Fetches the canonical final-judgment disclaimer text from the v2
-    // conclusions envelope and renders it into #np7-banner-text. Falls back
-    // to the i18n key (already in the DOM) if v2 is degraded so NP7 is
-    // satisfied even when v2 is unavailable. One-shot per session — the
-    // disclaimer is global (config.V2_NP7_DISCLAIMER), not per-scenario, so
-    // no need to re-fetch on focus changes.
+    // ── NP7 attribution overlay (formerly Phase 1.4 P2 banner) ──────────
+    // Updates the map corner attribution overlay (#np7-map-attribution) with
+    // the canonical final-judgment disclaimer text fetched from the v2
+    // conclusions envelope. The compressed on-screen label stays static; the
+    // full sentence lives in the title/aria-label attributes (hover/screen-
+    // reader). Falls back silently if v2 is unavailable — the static title in
+    // index.html keeps NP7 satisfied. One-shot per session.
     let _np7BannerLoaded = false;
     async function _refreshNp7Banner(scenarioId) {
         if (_np7BannerLoaded || !scenarioId) return;
         try {
             const resp = await fetch(`/api/v2/scenarios/${encodeURIComponent(scenarioId)}/conclusions`);
-            if (!resp.ok) return;  // 503 (v2 disabled) / 404 (no scenario) → keep fallback text
+            if (!resp.ok) return;
             const env = await resp.json();
             const text = env && env.final_judgment_disclaimer;
             if (typeof text !== 'string' || !text) return;
-            const node = document.getElementById('np7-banner-text');
-            if (node) {
-                node.textContent = text;  // textContent — no XSS path even if server text changes
+            const overlay = document.getElementById('np7-map-attribution');
+            if (overlay) {
+                // The compressed visible label is static ("Tool conclusion · final judgment org-side").
+                // The full sentence flows into title + aria-label so audit/hover
+                // surfaces always have the canonical text.
+                overlay.setAttribute('title', text);
+                overlay.setAttribute('aria-label', text);
                 _np7BannerLoaded = true;
             }
         } catch (e) {
-            // Silent — NP7 fallback in DOM is the safety net.
+            // Silent — the static title in HTML is the safety net.
         }
     }
 

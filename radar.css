@@ -1518,34 +1518,39 @@
     padding: 4px 8px !important;
 }
 
-/* ── NP7 final-judgment disclaimer banner (v2 conclusions API) ───────
-   Stays above scenario-bar at the top of the page. Visible at all times
-   so analysts cannot mistake a tool conclusion for an organizational
-   judgment (NP7 / constraint ⑥). Dim accent palette so it reads as
-   informational, not alarm. Banner DOM is `<div role="note">`; styles
-   are scoped to the id so they cannot leak via the panel chrome
-   contract (docs/design/panel-chrome.md). */
-#np7-disclaimer-banner {
-    background: rgba(0, 80, 120, 0.18);
-    border-bottom: 1px solid var(--color-border);
-    color: var(--color-accent);
+/* ── NP7 final-judgment attribution overlay ──────────────────────────
+   Bottom-right of #map-wrapper, always-on. Replaces the former full-width
+   banner (demoted 2026-04-28). Three concurrent surfaces keep NP7 satisfied:
+   this overlay, every drilldown header (_ccDrillRenderDisclaimer in radar.js),
+   every API response field (final_judgment_disclaimer). Hover/title attr
+   carries the full sentence; on-screen text is compressed to keep the
+   overlay unobtrusive. */
+#np7-map-attribution {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    z-index: 600;  /* above leaflet panes (~400) but below modals (~1000) */
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(0, 255, 255, 0.20);
+    border-radius: 3px;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    padding: 3px 8px;
+    line-height: 1.3;
+    font-family: 'Courier New', monospace;
+    pointer-events: auto;
+    cursor: help;
+    user-select: none;
+}
+#np7-map-attribution:hover {
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(0, 0, 0, 0.80);
+}
+#np7-map-attribution .np7-attr-info {
+    margin-left: 4px;
+    color: rgba(0, 255, 255, 0.55);
     font-size: 11px;
-    letter-spacing: 0.4px;
-    padding: 4px 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    line-height: 1.4;
-}
-#np7-disclaimer-banner .np7-banner-icon {
-    flex: 0 0 auto;
-    font-size: 12px;
-    opacity: 0.9;
-}
-#np7-disclaimer-banner .np7-banner-text {
-    flex: 1 1 auto;
-    color: var(--color-text);
-    opacity: 0.85;
 }
 
 /* ── Conclusion Cards (Layer 1) ───────────────────────────────────────

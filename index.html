@@ -267,15 +267,13 @@
     </div>
 </div>
 
-<!-- ── NP7 Final-Judgment Disclaimer (v2 conclusions API) ─────────────
-     Persistent banner. Disclaimer text fetched from
-     /api/v2/scenarios/<focused>/conclusions on focus changes; falls back
-     to a literal string if v2 is unavailable so NP7 is satisfied even
-     when v2 is degraded. role=note + aria-live=polite per WCAG 2.2 SC 4.1.3. -->
-<div id="np7-disclaimer-banner" role="note" aria-live="polite">
-    <span class="np7-banner-icon" aria-hidden="true">📌</span>
-    <span class="np7-banner-text" id="np7-banner-text" data-i18n="banner.np7.fallback">Tool conclusion only — final judgment by organizational process.</span>
-</div>
+<!-- NP7 disclaimer is rendered as a map corner attribution overlay (see
+     #np7-map-attribution inside #map-wrapper below). The original full-width
+     top banner was demoted 2026-04-28 to reclaim ~40px of viewport-top for
+     the analyst's primary working surface — visual weight reduced, not
+     removed. NP7 remains satisfied via three concurrent surfaces: the corner
+     overlay (always-on DOM), every drilldown header (_ccDrillRenderDisclaimer
+     in radar.js), and every API response field (final_judgment_disclaimer). -->
 
 <!-- ── Conclusion Cards (Layer 1) ─────────────────────────────────────
      Renders the 5 ConclusionType buckets from /api/v2/scenarios/<id>/
@@ -350,6 +348,16 @@
 
     <div id="map-wrapper">
         <div id="map"></div>
+        <!-- NP7 attribution overlay — bottom-right of map, always rendered.
+             Compressed text + ⓘ tooltip with the full disclaimer. Three-surface
+             redundancy with drilldown header + API field keeps NP7 satisfied
+             without consuming a viewport-top band. -->
+        <div id="np7-map-attribution" role="note"
+             title="Tool conclusion only — final judgment by organizational process. This radar functions as one node in an organizational intelligence assessment process."
+             aria-label="Tool conclusion only — final judgment by organizational process.">
+            <span id="np7-attr-text">Tool conclusion · final judgment org-side</span>
+            <span class="np7-attr-info" aria-hidden="true">ⓘ</span>
+        </div>
         <!-- BG scenario alert — floating notification on map top-center.
              Appears when a background scenario's score rises fast (focus-switch hint). -->
         <div class="map-bg-alert" id="hud-bg-alert" style="display:none;" data-i18n-tip="hud.tooltip.bg_alert">
