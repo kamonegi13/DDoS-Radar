@@ -9127,6 +9127,46 @@
             const delta1hHtml = `<span class="sc-delta ${deltaCls(d1h)}" title="Δ score over last 1h">Δ1h ${fmtDelta(d1h)}</span>`;
             const delta24hHtml = `<span class="sc-delta ${deltaCls(d24h)}" title="Δ score over last 24h">Δ24h ${fmtDelta(d24h)}</span>`;
 
+            // OBS chip — per-scenario observation health (AP3 extension).
+            // signal_volume_24h counts per-country contributions in
+            // scenario_contribution_log over the last 24h, EXCLUDING global
+            // signals. So a low number means the scenario is essentially
+            // unobserved (driven only by global noise like cf_botnet_overlap)
+            // — which is the chronic-blind-spot case NP5+8 calls out as a
+            // design failure. Color band: 0 = red, 1-9 = amber, ≥10 = green.
+            const ind = sc.indicators || {};
+            const obsVol = ind.signal_volume_24h;
+            const obsCountries = ind.signal_distinct_countries_24h;
+            const obsLastAt = ind.signal_last_at;
+            const obsTop = Array.isArray(ind.signal_top_countries) ? ind.signal_top_countries : [];
+            const obsCls = (() => {
+                if (typeof obsVol !== 'number') return 'sc-obs-na';
+                if (obsVol === 0) return 'sc-obs-crit';
+                if (obsVol < 10) return 'sc-obs-warn';
+                return 'sc-obs-good';
+            })();
+            const obsValue = (typeof obsVol === 'number') ? String(obsVol) : '—';
+            // Tooltip — shows volume, distinct countries, last-signal age,
+            // and the top contributing countries so the analyst can decide
+            // whether the lite score reflects real observation.
+            let obsTip = `OBS ${obsValue} per-country signals / 24h`;
+            if (typeof obsCountries === 'number') {
+                obsTip += `\nDistinct countries: ${obsCountries}`;
+            }
+            if (typeof obsLastAt === 'number' && obsLastAt > 0) {
+                const ageMin = Math.max(0, Math.round((Date.now() / 1000 - obsLastAt) / 60));
+                obsTip += `\nLast signal: ${ageMin}m ago`;
+            } else if (obsVol === 0) {
+                obsTip += `\nNo per-country signals in 24h — score driven only by global noise`;
+            }
+            if (obsTop.length) {
+                const topStr = obsTop
+                    .map(([cc, total]) => `${cc} ${(typeof total === 'number' ? total.toFixed(1) : '')}`)
+                    .join(', ');
+                obsTip += `\nTop: ${topStr}`;
+            }
+            const obsHtml = `<span class="sc-obs ${obsCls}" title="${_escHtml(obsTip)}">OBS ${_escHtml(obsValue)}</span>`;
+
             // ── Render: 2-row layout ─────────────────────────────────────
             // row1 (primary): TL | name (ellipsis, fills) | pattern + ◎
             // row2 (meta):    badge • score • Δ1h • Δ24h • C/P/I dots • trend • ETA [• lite-tag]
@@ -9142,6 +9182,7 @@
             html += `<span class="sc-score">${score}</span>`;
             html += delta1hHtml;
             html += delta24hHtml;
+            html += obsHtml;
             html += `<span class="sc-domains">`;
             html += `<span class="sc-domain-dot sc-domain-cyber ${cyberActive}">C</span>`;
             html += `<span class="sc-domain-dot sc-domain-physical ${physActive}">P</span>`;

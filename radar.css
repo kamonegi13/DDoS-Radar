@@ -2444,6 +2444,21 @@ body[data-replay-on="1"] #top-hud {
 .sc-delta-down-strong  { color: #44cc66; font-weight: 600; }
 .sc-delta-flat         { color: #555; }
 .sc-delta-na           { color: #444; opacity: 0.6; }
+/* OBS chip — per-scenario observation health (AP3 / NP5+8 chronic-gap). */
+.sc-obs {
+    font-size: 9px;
+    font-family: 'Courier New', monospace;
+    padding: 0 5px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid transparent;
+    cursor: help;
+}
+.sc-obs-good { color: #6fc66f; border-color: rgba(80,200,120,0.35); }
+.sc-obs-warn { color: #f0b450; border-color: rgba(240,180,80,0.45); }
+.sc-obs-crit { color: var(--color-critical); border-color: rgba(240,80,80,0.55); font-weight: 600; }
+.sc-obs-na   { color: #444; opacity: 0.6; }
 .sc-domains {
     display: inline-flex;
     gap: 2px;
