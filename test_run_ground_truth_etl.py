@@ -78,20 +78,32 @@ def _count_feedback_rows(prefix: str = "gt_etl_runner_") -> int:
     return int(row["n"])
 
 
-@pytest.fixture(autouse=True)
-def cleanup_test_rows():
-    yield
+def _wipe_test_fixture_rows():
+    """Drop both ETL-test and RSS-test fixture rows. RSS-test rows are
+    cleaned here too so that even if test_run_rss_etl.py crashes mid-
+    teardown the next ETL test sees a clean slate."""
     try:
         conn = db._get_conn()
         with conn.writing():
             conn.execute(
-                "DELETE FROM analyst_feedback WHERE conclusion_id LIKE 'gt_etl_runner_%'"
+                "DELETE FROM analyst_feedback "
+                "WHERE conclusion_id LIKE 'gt_etl_runner_%' "
+                "   OR conclusion_id LIKE 'rss-test-%'"
             )
             conn.execute(
-                "DELETE FROM conclusions WHERE id LIKE 'gt_etl_runner_%'"
+                "DELETE FROM conclusions "
+                "WHERE id LIKE 'gt_etl_runner_%' "
+                "   OR id LIKE 'rss-test-%'"
             )
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def cleanup_test_rows():
+    _wipe_test_fixture_rows()
+    yield
+    _wipe_test_fixture_rows()
 
 
 @pytest.fixture(autouse=True)
