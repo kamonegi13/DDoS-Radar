@@ -289,6 +289,17 @@
     <div class="cc-grid" id="cc-grid"></div>
 </div>
 
+<!-- ── Alert Lane ─────────────────────────────────────────────────────
+     Replaces the conclusion-cards-bar for event-shaped conclusions
+     (anomaly / attack_mode + "since last view" deltas). Collapsed (0 px)
+     when nothing fires; expands as needed. Stage A.3 ships the empty
+     infrastructure; Stage B.7 (AP1 — Active Triage) populates it with
+     attention_score-ranked items and "why ranked #N" rationale. -->
+<div id="alert-lane" role="region" aria-live="polite" aria-label="Active triage alerts" hidden>
+    <div class="al-toolbar" id="al-toolbar"><span class="al-title">TRIAGE</span></div>
+    <div class="al-list" id="al-list"></div>
+</div>
+
 <!-- ── Scenario Bar ──────────────────────────────────────────────────── -->
 <div id="scenario-bar">
     <div id="scenario-cards"></div>

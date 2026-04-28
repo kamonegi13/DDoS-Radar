@@ -2239,7 +2239,7 @@
     /**
      * Return the cached v2 byType envelope for `focusedId` if it is fresh,
      * else null. Single source of truth for the cache+TTL gate so the HUD
-     * overlay and the HUD click handler agree on freshness.
+     * overlay, HUD click handler, and Alert Lane all agree on freshness.
      *
      * @param {string|null|undefined} focusedId
      * @returns {Object<string,object>|null}
@@ -2250,6 +2250,88 @@
         if (!entry) return null;
         if (Date.now() - entry.ts > _CC_ENVELOPE_TTL_MS) return null;
         return entry.byType || null;
+    }
+
+    // ── Alert Lane (AP1 — Active Triage scaffold) ─────────────────────
+    // Stage A.3 ships the empty render hook. Stage B.7 will populate it
+    // with attention_score-ranked items + "why ranked #N" rationale +
+    // acknowledge/dismiss controls (the AP1 surface).
+    //
+    // Today the lane simply collapses (hidden) when no items qualify and
+    // expands when anomaly / attack_mode conclusions fire. This keeps the
+    // DOM contract stable so Stage B.7 only has to swap in the scoring
+    // logic without rearranging the surface.
+    function _refreshAlertLane(focusedId) {
+        const lane = document.getElementById('alert-lane');
+        const list = document.getElementById('al-list');
+        if (!lane || !list) return;
+
+        const byType = _hudFreshEnvelopeByType(focusedId);
+        if (!byType) {
+            lane.hidden = true;
+            return;
+        }
+
+        // Stage A.3: minimal seed — fire only when ATTACK_MODE has an id +
+        // is available + confidence ≥ 0.6, OR when ANOMALY has a non-empty
+        // state. attention_score / ranking comes in Stage B.7.
+        const items = [];
+        const am = byType.attack_mode;
+        if (am && am.id && am.conclusion_unavailable_reason == null
+                && typeof am.confidence === 'number' && am.confidence >= 0.6) {
+            items.push({
+                conclusion: am,
+                mode: String(am.state || ''),
+                why: 'attack_mode confidence ≥ 0.6',
+            });
+        }
+        const an = byType.anomaly;
+        if (an && an.id && an.conclusion_unavailable_reason == null
+                && typeof an.state === 'string' && an.state) {
+            items.push({
+                conclusion: an,
+                mode: 'ANOMALY: ' + an.state,
+                why: 'anomaly fired',
+            });
+        }
+
+        if (items.length === 0) {
+            lane.hidden = true;
+            list.innerHTML = '';
+            return;
+        }
+
+        list.innerHTML = '';
+        items.forEach((it, idx) => {
+            const row = document.createElement('div');
+            row.className = 'al-item';
+            const rank = document.createElement('span');
+            rank.className = 'al-rank';
+            rank.textContent = '#' + (idx + 1);
+            const mode = document.createElement('span');
+            mode.className = 'al-mode';
+            mode.textContent = it.mode;
+            const why = document.createElement('span');
+            why.className = 'al-why';
+            why.textContent = it.why;
+            const conf = document.createElement('span');
+            conf.className = 'al-conf';
+            const c = it.conclusion.confidence;
+            conf.textContent = (typeof c === 'number') ? ('conf ' + c.toFixed(2)) : '—';
+            const drillBtn = document.createElement('button');
+            drillBtn.type = 'button';
+            drillBtn.className = 'al-btn';
+            drillBtn.textContent = 'drill ▶';
+            drillBtn.addEventListener('click', () => _ccOpenDrillModal(it.conclusion));
+            // Stage B.7 will add `acknowledge` next to `drill`.
+            row.appendChild(rank);
+            row.appendChild(mode);
+            row.appendChild(why);
+            row.appendChild(conf);
+            row.appendChild(drillBtn);
+            list.appendChild(row);
+        });
+        lane.hidden = false;
     }
 
     /**
@@ -2357,6 +2439,9 @@
             // when the legacy cards grid is hidden — downstream consumers
             // (hud_v2_overlay.applyOverlay, _refreshAlertLane) depend on it.
             _ccEnvelopeCache[scenarioId] = { ts: Date.now(), byType };
+            // Chain the Alert Lane refresh on the fresh cache so the lane
+            // never lags the envelope.
+            try { _refreshAlertLane(scenarioId); } catch (_) { /* defensive */ }
 
             // Skip card grid rendering when the legacy flag is off — the bar
             // stays hidden, but the cache above keeps the rest of the UI alive.
@@ -3549,8 +3634,10 @@
 
             // Fire-and-forget: hydrate NP7 banner with v2 disclaimer. One-shot.
             _refreshNp7Banner(_focusParam);
-            // Fire-and-forget: refresh Layer 1 conclusion cards (re-fetched
-            // every poll so cards stay in lockstep with v1 telemetry).
+            // Fire-and-forget: refresh the v2 envelope cache (still consumed
+            // by hud_v2_overlay + Alert Lane even though the legacy cards
+            // grid is gated off by default since Stage A.2). The Alert Lane
+            // refresh is chained internally on the fresh cache.
             _refreshConclusionCards(_focusParam);
 
             // Fire-and-forget: refresh Layer 3 sensor watchpane rows when visible
@@ -9207,6 +9294,8 @@
         // and respond in <100ms. Fire them now so the analyst sees the new
         // focus reflected immediately rather than after the v1 await.
         _refreshNp7Banner(scenarioId);
+        // Cards refresh chains the Alert Lane refresh internally on the
+        // freshly-cached envelope.
         _refreshConclusionCards(scenarioId);
 
         // v1 force-refresh (slower; updates rest of telemetry).
