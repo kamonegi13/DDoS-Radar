@@ -100,6 +100,27 @@ def _source_recent_min_decisions() -> int:
 # distinguish auto-judge actions from human ones.
 ANALYST_AUTO_CONFIRM = "auto:rule_confirm"
 ANALYST_AUTO_REJECT = "auto:rule_reject"
+# LLM second-pass markers (Phase 4 commit 6) — kept distinct from the
+# rule markers so analytics can break out LLM-augmented decisions from
+# pure deterministic ones.
+ANALYST_LLM_CONFIRM = "auto:llm_recheck_confirm"
+ANALYST_LLM_REJECT = "auto:llm_recheck_reject"
+
+
+def _llm_recheck_enabled() -> bool:
+    """LLM second-pass recheck on middle-band pending items. OFF by default
+    — every air-gapped / LLM-disabled deployment must keep working without
+    it (NP3, AP1). Operators opt in via LLM_AUTO_JUDGE_RECHECK=true."""
+    val = os.getenv("LLM_AUTO_JUDGE_RECHECK", "false").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
+def _llm_confidence_floor() -> float:
+    """Confidence floor the LLM second pass must clear before a verdict
+    flip is applied. Default 0.80 — aggressive enough to clear the
+    "obvious" middle-band tails, conservative enough not to override
+    analyst review on borderline calls."""
+    return float(os.getenv("AUTO_JUDGE_LLM_CONF_FLOOR", "0.80"))
 
 
 @dataclass(frozen=True)
@@ -272,11 +293,96 @@ def evaluate(item: dict) -> AutoJudgeVerdict:
             corroborator_count=corroborators,
         )
 
-    return AutoJudgeVerdict(
+    middle_verdict = AutoJudgeVerdict(
         action="pending",
         reason="ambiguous_middle_band",
         corroborator_count=corroborators,
     )
+    # Optional LLM second pass — only runs when LLM_AUTO_JUDGE_RECHECK=true
+    # AND the LLM is reachable. Failures fall through to the deterministic
+    # pending verdict (NP3 graceful degradation).
+    if _llm_recheck_enabled():
+        llm_verdict = _llm_recheck(item, deterministic_pending=middle_verdict)
+        if llm_verdict is not None:
+            return llm_verdict
+    return middle_verdict
+
+
+_LLM_RECHECK_SYSTEM = (
+    "You are a strict OSINT triage analyst. Decide whether a single intel "
+    "headline+excerpt should be CONFIRMED (clearly relevant + credible), "
+    "REJECTED (clearly irrelevant, duplicate, or noise), or marked PENDING "
+    "(unclear). Answer ONLY in JSON with keys: action ('confirm'|'reject'|"
+    "'pending'), confidence (0..1), reason (short string)."
+)
+
+
+def _llm_recheck(item: dict, *, deterministic_pending: AutoJudgeVerdict) -> Optional[AutoJudgeVerdict]:
+    """Optional LLM second-pass for middle-band items. Returns a flipped
+    verdict only when the LLM clears the confidence floor; otherwise None
+    so the caller falls back to the deterministic pending verdict.
+
+    All failure paths return None — never raise — to preserve NP3
+    fault tolerance. The opt-in flag is checked by the caller.
+    """
+    try:
+        from radar.llm_client import llm_analyze_json, llm_available, safe_enum, safe_float
+    except Exception:
+        return None
+    try:
+        if not llm_available():
+            return None
+    except Exception:
+        return None
+
+    headline = (item.get("headline") or "").strip()
+    raw_text = (item.get("raw_text") or "").strip()
+    theater = item.get("theater") or ""
+    base_conf = float(item.get("confidence") or 0.0)
+    excerpt = raw_text[:600]
+    prompt = (
+        f"Theater: {theater}\n"
+        f"First-pass confidence: {base_conf:.2f}\n"
+        f"Headline: {headline}\n"
+        f"Excerpt: {excerpt}\n\n"
+        "Question: Is this a relevant, credible escalation/threat signal "
+        "for the named theater? Reject if it is duplicate of older news, "
+        "off-topic, low-quality social-media noise, or unverifiable rumor."
+    )
+    try:
+        resp = llm_analyze_json(
+            prompt, system=_LLM_RECHECK_SYSTEM,
+            temperature=0.0, max_tokens=200,
+            caller="intel_auto_judge.recheck",
+        )
+    except Exception as exc:
+        log.debug("auto_judge LLM recheck call failed: %s", exc)
+        return None
+    if not resp or not resp.get("ok"):
+        return None
+    data = resp.get("data") or {}
+    action = safe_enum(data.get("action"), {"confirm", "reject", "pending"}, "pending")
+    confidence = safe_float(data.get("confidence"), default=0.0,
+                            min_val=0.0, max_val=1.0)
+    reason = (data.get("reason") or "")[:120]
+    if action == "pending":
+        return None
+    if confidence < _llm_confidence_floor():
+        return None
+    if action == "confirm":
+        return AutoJudgeVerdict(
+            action="confirm",
+            reason=f"llm_recheck:{reason or 'confirmed'}",
+            confidence_floor_used=_llm_confidence_floor(),
+            corroborator_count=deterministic_pending.corroborator_count,
+        )
+    if action == "reject":
+        return AutoJudgeVerdict(
+            action="reject",
+            reason=f"llm_recheck:{reason or 'rejected'}",
+            confidence_floor_used=_llm_confidence_floor(),
+        )
+    return None
 
 
 def apply(item_id: str, verdict: AutoJudgeVerdict) -> bool:
@@ -287,27 +393,32 @@ def apply(item_id: str, verdict: AutoJudgeVerdict) -> bool:
     """
     if verdict.action == "pending":
         return True
+    # Verdicts produced by the LLM second pass carry a 'llm_recheck:' reason
+    # prefix so we can attach a distinct analyst marker for analytics.
+    is_llm = verdict.reason.startswith("llm_recheck:")
     if verdict.action == "confirm":
-        ok = intel_queue.confirm(item_id, analyst=ANALYST_AUTO_CONFIRM)
+        marker = ANALYST_LLM_CONFIRM if is_llm else ANALYST_AUTO_CONFIRM
+        ok = intel_queue.confirm(item_id, analyst=marker)
         if ok:
             log.info(
-                "[AutoJudge] CONFIRMED %s — %s (corroborators=%d)",
-                item_id, verdict.reason, verdict.corroborator_count,
+                "[AutoJudge] CONFIRMED %s — %s (corroborators=%d, marker=%s)",
+                item_id, verdict.reason, verdict.corroborator_count, marker,
             )
         return ok
     if verdict.action == "reject":
         # Use "irrelevant" classification so we don't penalize source
-        # credibility — the rule decided automatically, not based on
-        # ground-truth fact-check.
+        # credibility — the rule (or LLM) decided automatically, not
+        # based on ground-truth fact-check.
+        marker = ANALYST_LLM_REJECT if is_llm else ANALYST_AUTO_REJECT
         ok = intel_queue.reject(
             item_id,
-            analyst=ANALYST_AUTO_REJECT,
+            analyst=marker,
             classification="irrelevant",
         )
         if ok:
             log.info(
-                "[AutoJudge] REJECTED %s — %s",
-                item_id, verdict.reason,
+                "[AutoJudge] REJECTED %s — %s (marker=%s)",
+                item_id, verdict.reason, marker,
             )
         return ok
     return False
@@ -350,6 +461,8 @@ __all__ = [
     "AutoJudgeVerdict",
     "ANALYST_AUTO_CONFIRM",
     "ANALYST_AUTO_REJECT",
+    "ANALYST_LLM_CONFIRM",
+    "ANALYST_LLM_REJECT",
     "evaluate",
     "apply",
     "run_sweep",
