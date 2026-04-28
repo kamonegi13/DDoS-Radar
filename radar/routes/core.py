@@ -2798,7 +2798,11 @@ def get_threat_data():
             log.debug(f"[Climate] update error: {_ce}")
 
         # ── WebSocket push + external notifications ──────────────────────────
-        emit_threat_update(core_theater, _new_cache["strategic"])
+        # `_focused_id` is included so the frontend handler can drop pushes
+        # that race the analyst's focus change (fix landed 2026-04-29).
+        emit_threat_update(
+            core_theater, _new_cache["strategic"], scenario_id=_focused_id or "",
+        )
         if threat_level != prev_threat_level:
             notify_threat_level_change(core_theater, prev_threat_level, threat_level, score_with_bonus)
             # Phase C: scenario-aware notification with what-changed

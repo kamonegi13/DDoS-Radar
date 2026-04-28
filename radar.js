@@ -3639,7 +3639,6 @@
         // Under scenario-unit mode the server derives scope from the focused
         // scenario; only focus + muted + force are passed.
         const mutedList = Array.from(mutedSensors).join(',');
-        const coreTheater = resolveChainTargetCountry((latestData || {}).strategic_alert || {});
 
         const syncBtnTop = document.getElementById('btn-sync-top');
         const syncBtnSide = document.getElementById('btn-sync-side');
@@ -3662,18 +3661,25 @@
                 return;  // Preserve latestData from last successful poll
             }
             latestData = await response.json();
-            
+
             _lastSyncTime = Date.now();
             lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()}`;
             document.getElementById('update-time').innerText = lastSyncedTimeText;
             lastSyncedConfig = getCurrentConfig();
 
-            // Re-subscribe WS room if core theater changed
+            // Re-subscribe WS room if core theater changed.
+            // Capture coreTheater AFTER the await so the new focus's strategic_alert
+            // drives the room change (fix 2026-04-29 — pre-await capture left
+            // subscriptions stuck on the OLD focus's room across switches, which
+            // delivered stale broadcasts that clobbered the new map state).
+            const coreTheater = resolveChainTargetCountry((latestData || {}).strategic_alert || {});
             if (_wsSocket && _wsConnected && coreTheater && coreTheater !== _wsSubscribedTheater) {
                 if (_wsSubscribedTheater) _wsSocket.emit('unsubscribe_theater', _wsSubscribedTheater);
                 _wsSocket.emit('subscribe_theater', coreTheater);
                 _wsSubscribedTheater = coreTheater;
-                console.log('[WS] Re-subscribed to', coreTheater);
+                if (localStorage.getItem('radar_dbg_focus') === '1') {
+                    console.debug('[WS] Re-subscribed to', coreTheater);
+                }
             }
 
             renderTelemetry(latestData);
@@ -4943,6 +4949,24 @@
                 _wsSocket.on('threat_update', (data) => {
                     // WS pushes only strategic_alert — merge into existing latestData
                     // instead of replacing, so that targets/sensor_health/etc. are preserved.
+                    //
+                    // Focus-change race guard (2026-04-29): if the server tags the
+                    // payload with `__ws_scenario_id`, drop pushes whose scenario
+                    // does not match the analyst's current focus. Without this
+                    // filter, a tick that finished computing the OLD focus's
+                    // strategic_alert before the focus change reaches the server
+                    // can land after the analyst switched, clobbering the new
+                    // focus's overlays. Older servers don't tag the payload —
+                    // the absence of the field is treated as "no claim", same
+                    // as legacy behaviour, so backward compat holds.
+                    const pushedSid = (data && data.__ws_scenario_id) || '';
+                    if (pushedSid && _scenarioFocusId && pushedSid !== _scenarioFocusId) {
+                        if (localStorage.getItem('radar_dbg_focus') === '1') {
+                            console.debug('[WS] dropped threat_update for', pushedSid,
+                                '— focus is', _scenarioFocusId);
+                        }
+                        return;
+                    }
                     if (latestData) {
                         latestData.strategic_alert = data;
                         latestData.timestamp = new Date().toISOString();
@@ -9384,11 +9408,20 @@
 
     window.switchScenarioFocus = function(scenarioId) {
         if (!scenarioId) return;
+        const _previousFocus = _scenarioFocusId;
         _scenarioFocusId = scenarioId;
         localStorage.setItem('radar_focused_scenario', scenarioId);
         // AP1 — Active Triage: mark scenario as viewed so blindness resets
         // and the Alert Lane stops surfacing items the analyst has just seen.
         try { _alMarkScenarioViewed(scenarioId); } catch (_) { /* defensive */ }
+        // Invalidate the previous focus's v2 envelope cache + reset the HUD
+        // render-skip signature so the next render() cannot short-circuit on
+        // a stale `_v2Hash`. Without this, the HUD overlay can momentarily
+        // present old-focus values until the cache TTL expires.
+        if (_previousFocus && _previousFocus !== scenarioId) {
+            try { delete _ccEnvelopeCache[_previousFocus]; } catch (_) { /* defensive */ }
+        }
+        try { window._resetRenderSig && window._resetRenderSig(); } catch (_) { /* defensive */ }
         _scenarioDetailOpen = null;
         _scenarioWhatIfExcluded = new Set();
         const detailPanel = document.getElementById('scenario-detail-panel');

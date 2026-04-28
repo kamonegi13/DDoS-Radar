@@ -95,11 +95,22 @@ def init_socketio(app, **kwargs) -> SocketIO:
 
 # ── Emit helpers (called from scoring loop / sensors) ──────────────────────
 
-def emit_threat_update(theater: str, strategic_data: dict) -> None:
-    """Push updated threat data to all clients subscribed to the theater."""
+def emit_threat_update(theater: str, strategic_data: dict,
+                        scenario_id: str = "") -> None:
+    """Push updated threat data to all clients subscribed to the theater.
+
+    The optional ``scenario_id`` is attached to the payload so frontend
+    handlers can drop pushes that arrived for a previously focused
+    scenario after the analyst switched focus (focus-change WS race —
+    fixed 2026-04-29). Older clients ignore the field; newer clients
+    filter on it.
+    """
     if socketio is None:
         return
-    socketio.emit("threat_update", strategic_data, room=f"theater:{theater}")
+    payload = dict(strategic_data) if strategic_data else {}
+    if scenario_id:
+        payload["__ws_scenario_id"] = scenario_id
+    socketio.emit("threat_update", payload, room=f"theater:{theater}")
 
 
 def emit_ambush_alert(theater: str, alert_data: dict) -> None:
