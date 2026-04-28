@@ -216,6 +216,25 @@ def _cache_cleanup_worker(registry=None):
             from radar.intel_queue import intel_queue as _iq
             _iq.auto_reject_stale()
 
+            # Deterministic auto-judge recheck (Phase 4 commit 5).
+            # Runs on the same cadence as auto_reject_stale; LLM-free, so
+            # it works in air-gapped deployments. Decisions are tagged
+            # analyst="auto:rule_*" for analyst-recall exclusion.
+            try:
+                from radar.intel_auto_judge import run_sweep as _aj_sweep
+                _aj_summary = _aj_sweep(limit=200)
+                if _aj_summary.get("confirm") or _aj_summary.get("reject"):
+                    log.info(
+                        "[AutoJudge] sweep evaluated=%d confirm=%d reject=%d pending=%d errors=%d",
+                        _aj_summary.get("evaluated", 0),
+                        _aj_summary.get("confirm", 0),
+                        _aj_summary.get("reject", 0),
+                        _aj_summary.get("pending", 0),
+                        _aj_summary.get("errors", 0),
+                    )
+            except Exception as _aj_exc:
+                log.warning("[AutoJudge] sweep failed: %s", _aj_exc)
+
             # LLM pipeline health summary (hourly visibility)
             try:
                 from radar.config import LLM_ENABLED
