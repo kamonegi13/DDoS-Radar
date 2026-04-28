@@ -8770,20 +8770,23 @@
         const ids = Object.keys(scenarios);
         if (ids.length === 0) { container.innerHTML = ''; return; }
 
-        // Sort: focused stays anchored at the left so analyst always sees their
-        // active scenario first. Background cards then sort by velocity_pts_per_hour
-        // descending — most operationally urgent (fastest-rising) at the top so
-        // analysts catch escalation candidates without scrolling. Missing/null
-        // velocity falls below all numeric values; ties break by id for stability.
-        const velOf = (sid) => {
-            const v = (scenarios[sid] || {}).velocity_pts_per_hour;
-            return (typeof v === 'number' && isFinite(v)) ? v : -Infinity;
+        // Sort: focused stays anchored at the left. Background cards sort by
+        // |Δ1h| descending so the analyst's eye lands on what just changed
+        // (job-3 — "what's new in last hour"). When Δ1h is missing fall back
+        // to velocity_pts_per_hour (Stage A.4 prep); fall back further to id
+        // for stability. Updated 2026-04-28: was velocity-only, now Δ1h.
+        const deltaOf = (sid) => {
+            const sc = scenarios[sid] || {};
+            const d = sc.score_delta_1h;
+            if (typeof d === 'number' && isFinite(d)) return Math.abs(d);
+            const v = sc.velocity_pts_per_hour;
+            return (typeof v === 'number' && isFinite(v)) ? Math.abs(v) : -Infinity;
         };
         const sorted = ids.slice().sort((a, b) => {
             if (a === focusedId) return -1;
             if (b === focusedId) return 1;
-            const va = velOf(a), vb = velOf(b);
-            if (va !== vb) return vb - va;
+            const da = deltaOf(a), db = deltaOf(b);
+            if (da !== db) return db - da;
             return a.localeCompare(b);
         });
 
@@ -8905,9 +8908,31 @@
                      + `title="${_t('scenario.btn.switch_focus_tip')}">◎</span>`;
             }
 
+            // Δ chips — answer "what changed?" without forcing the analyst
+            // to compute it from the raw score. Δ1h is the headline; Δ24h
+            // is the slower trend. Sign drives color (rising = warm, falling
+            // = cool). Missing values render as "—" (no synthetic zero).
+            const fmtDelta = (d) => {
+                if (typeof d !== 'number' || !isFinite(d)) return '—';
+                const sign = d > 0 ? '+' : '';
+                return `${sign}${d.toFixed(2)}`;
+            };
+            const deltaCls = (d) => {
+                if (typeof d !== 'number' || !isFinite(d)) return 'sc-delta-na';
+                if (d > 0.5) return 'sc-delta-up-strong';
+                if (d > 0) return 'sc-delta-up';
+                if (d < -0.5) return 'sc-delta-down-strong';
+                if (d < 0) return 'sc-delta-down';
+                return 'sc-delta-flat';
+            };
+            const d1h = sc.score_delta_1h;
+            const d24h = sc.score_delta_24h;
+            const delta1hHtml = `<span class="sc-delta ${deltaCls(d1h)}" title="Δ score over last 1h">Δ1h ${fmtDelta(d1h)}</span>`;
+            const delta24hHtml = `<span class="sc-delta ${deltaCls(d24h)}" title="Δ score over last 24h">Δ24h ${fmtDelta(d24h)}</span>`;
+
             // ── Render: 2-row layout ─────────────────────────────────────
             // row1 (primary): TL | name (ellipsis, fills) | pattern + ◎
-            // row2 (meta):    badge • score • C/P/I dots • trend • ETA [• lite-tag]
+            // row2 (meta):    badge • score • Δ1h • Δ24h • C/P/I dots • trend • ETA [• lite-tag]
             html += `<div class="${cardClass}"${detailBtn}${tooltip}>`;
             html += `<div class="sc-row-primary">`;
             html += tlHtml;
@@ -8918,6 +8943,8 @@
             html += `<div class="sc-row-meta">`;
             html += badge;
             html += `<span class="sc-score">${score}</span>`;
+            html += delta1hHtml;
+            html += delta24hHtml;
             html += `<span class="sc-domains">`;
             html += `<span class="sc-domain-dot sc-domain-cyber ${cyberActive}">C</span>`;
             html += `<span class="sc-domain-dot sc-domain-physical ${physActive}">P</span>`;

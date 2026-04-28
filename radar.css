@@ -2480,6 +2480,21 @@
     padding: 0 3px;
 }
 .sc-score { color: #999; font-size: 9px; flex-shrink: 0; }
+/* Δ score chips — answer "what changed?" at-a-glance (job-3). */
+.sc-delta {
+    font-size: 9px;
+    font-family: 'Courier New', monospace;
+    padding: 0 4px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+.sc-delta-up           { color: #ffaa66; }
+.sc-delta-up-strong    { color: #ff4444; font-weight: 600; }
+.sc-delta-down         { color: #88cc88; }
+.sc-delta-down-strong  { color: #44cc66; font-weight: 600; }
+.sc-delta-flat         { color: #555; }
+.sc-delta-na           { color: #444; opacity: 0.6; }
 .sc-domains {
     display: inline-flex;
     gap: 2px;
