@@ -2291,6 +2291,22 @@
         const grid = document.getElementById('cc-grid');
         if (!bar || !grid) return;
 
+        // 2026-04-28 IA reclamation: cards-bar is gated off by default. The
+        // HUD now carries TL + per_domain (via hud_v2_overlay) and the new
+        // Alert Lane handles event-shaped conclusions. Devs / regression
+        // comparison can re-enable via:
+        //   localStorage.setItem('cc_legacy_visible', '1')
+        // Stage A.5 will delete this code path entirely.
+        const legacyVisible = (() => {
+            try { return localStorage.getItem('cc_legacy_visible') === '1'; }
+            catch (_) { return false; }
+        })();
+        if (!legacyVisible) {
+            bar.classList.remove('cc-visible');
+            // Still cache the envelope so hud_v2_overlay + Alert Lane keep working.
+            // (We just don't render the card grid.)
+        }
+
         if (!scenarioId) {
             bar.classList.remove('cc-visible');
             const btn = document.getElementById('cc-export-md');
@@ -2334,6 +2350,18 @@
             const env = await resp.json();
             if (_ccLastFocus !== scenarioId) return;  // Re-check after JSON parse
             const list = Array.isArray(env && env.conclusions) ? env.conclusions : [];
+            const byType = {};
+            list.forEach((c) => { if (c && c.conclusion_type) byType[c.conclusion_type] = c; });
+            // Stash the just-fetched envelope so the HUD overlay + Alert Lane
+            // pull TL + per_domain from the same source. Always cached, even
+            // when the legacy cards grid is hidden — downstream consumers
+            // (hud_v2_overlay.applyOverlay, _refreshAlertLane) depend on it.
+            _ccEnvelopeCache[scenarioId] = { ts: Date.now(), byType };
+
+            // Skip card grid rendering when the legacy flag is off — the bar
+            // stays hidden, but the cache above keeps the rest of the UI alive.
+            if (!legacyVisible) return;
+
             if (list.length === 0) {
                 bar.classList.add('cc-visible');
                 _ccRenderEmpty(grid);
@@ -2341,11 +2369,6 @@
                 if (btn) btn.disabled = true;  // Nothing to export yet.
                 return;
             }
-            const byType = {};
-            list.forEach((c) => { if (c && c.conclusion_type) byType[c.conclusion_type] = c; });
-            // Stash the just-fetched envelope so the HUD can pull TL + per_domain
-            // from the same source the cards render. Single point of truth.
-            _ccEnvelopeCache[scenarioId] = { ts: Date.now(), byType };
 
             grid.innerHTML = '';
             _CC_TYPE_ORDER.forEach((type) => {
