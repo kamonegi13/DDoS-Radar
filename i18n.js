@@ -553,6 +553,7 @@ const STRINGS = {
     'modal.help.ch10':                '10. Admin',
     'modal.help.ch11':                '11. Limitations',
     'modal.help.ch12':                '12. Tradecraft',
+    'modal.help.ch13':                '13. Feedback & Recall',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Weather Brief

@@ -1387,6 +1387,7 @@
             <button class="guide-ch-btn" data-ch="10" onclick="switchGuideChapter(10)" data-i18n="modal.help.ch10">10. Admin</button>
             <button class="guide-ch-btn" data-ch="11" onclick="switchGuideChapter(11)" data-i18n="modal.help.ch11">11. Limitations</button>
             <button class="guide-ch-btn" data-ch="12" onclick="switchGuideChapter(12)" data-i18n="modal.help.ch12">12. Tradecraft</button>
+            <button class="guide-ch-btn" data-ch="13" onclick="switchGuideChapter(13)" data-i18n="modal.help.ch13">13. Feedback &amp; Recall</button>
         </div>
 
         <div class="guide-chapter active" id="guide-ch-1">
@@ -3343,6 +3344,95 @@
         <p style="color:#779;font-size:10px;margin-top:12px;">方法論的背景: Heuer R.J., <i>Psychology of Intelligence Analysis</i>（1999, ACH 第8章）; CIA <i>Tradecraft Primer</i>（2009, KAC + ACH + プリモーテム）; Klein G., <i>Performing a Project Premortem</i>（HBR 2007）。「Key Assumptions Check」「Devil's Advocacy」の名称はいずれも Primer の SAT 標準の意味で用いています。</p>
         </div>
         </div><!-- /guide-ch-12 -->
+
+        <div class="guide-chapter" id="guide-ch-13">
+        <div class="guide-lang-en">
+        <h4>13. Analyst Feedback &amp; Recall (AP3 / AP4)</h4>
+        <p>The HUD's <b>RECALL</b> chip (Row 3, right) is computed from the <span class="code-block">analyst_feedback</span> ledger. Until the ledger has labelled rows, the chip stays at <code>—</code>. Two ways to populate it:</p>
+
+        <h5>A. Manual labelling (zero-OPSEC, recommended start)</h5>
+        <ol>
+            <li>Open a conclusion's drill-down (HUD threat number click, or the Triage Lane <code>drill ▶</code> button).</li>
+            <li>Scroll to the <b>Analyst Feedback</b> section.</li>
+            <li>Pick one of four labels:
+                <ul>
+                    <li><b>TRUE_POSITIVE</b> — the conclusion was correct and the event happened.</li>
+                    <li><b>FALSE_POSITIVE</b> — the conclusion fired but no event occurred.</li>
+                    <li><b>TRUE_NEGATIVE</b> — quiet conclusion was correct (no event).</li>
+                    <li><b>FALSE_NEGATIVE</b> — the tool stayed quiet through a real event (NP1-critical).</li>
+                </ul>
+            </li>
+            <li>Optionally attach a verification URL or note. Submit.</li>
+        </ol>
+        <p>30–50 labelled rows across multiple scenarios are usually enough for the RECALL chip to start showing a stable number.</p>
+
+        <h5>B. Auto-labelling via ground-truth ETL</h5>
+        <p><span class="code-block">scripts/run_ground_truth_etl.py</span> auto-labels conclusions from public sources. <b>ACLED is optional</b> — if you don't want to register an ACLED API key (OPSEC concern: registration ties an email + use-case to your operating org), the runner falls back to GDELT-only correlation:</p>
+        <ul>
+            <li>Set <span class="code-block">V2_GROUND_TRUTH_ETL_ENABLED=true</span> in <span class="code-block">config.env</span>.</li>
+            <li>Leave <span class="code-block">ACLED_API_KEY</span> / <span class="code-block">ACLED_API_EMAIL</span> empty and the runner uses GDELT-only mode automatically (with a warning). Or pass <span class="code-block">--no-acled</span> to silence the warning.</li>
+            <li>Schedule the runner via host cron or a remote routine: <span class="code-block">docker exec ddos-radar python scripts/run_ground_truth_etl.py</span> hourly is plenty.</li>
+            <li>Auto rows carry <span class="code-block">analyst_id="auto:gdelt"</span> (and <span class="code-block">"auto:acled"</span> when ACLED is enabled). Use <span class="code-block">scripts/report_recall_metrics.py --exclude-auto</span> to compute recall on human-only labels for the CI gate baseline.</li>
+        </ul>
+        <p>GDELT-only recovers TRUE_POSITIVE / FALSE_POSITIVE / TRUE_NEGATIVE rules; the FALSE_NEGATIVE-by-fatalities rule needs ACLED. Mix manual + auto for best coverage of the FN corner.</p>
+
+        <h5>C. RSS / news-wire correlation (B1, optional)</h5>
+        <p>An optional second auto-source pulls public RSS feeds (BBC / Reuters / AP / Al Jazeera / TASS / Xinhua, configurable) and extracts kinetic-event mentions. <b>The extractor degrades gracefully without an LLM:</b> a deterministic keyword-and-regex baseline produces auto-feedback rows on its own. When a local Ollama instance is reachable the same pipeline can optionally upgrade extraction quality, but no LLM dependency is required for the gate to function. RSS auto rows carry <span class="code-block">analyst_id="auto:rss"</span>.</p>
+
+        <h5>How recall feeds the HUD</h5>
+        <p>The <span class="code-block">/api/v2/self_eval</span> endpoint aggregates labelled rows into <code>recall = TP / (TP + FN)</code>. The HUD chip polls every 5 minutes:</p>
+        <ul>
+            <li>Green when recall ≥ 0.80 (within calibration target)</li>
+            <li>Amber when 0.60 ≤ recall &lt; 0.80 (drift forming)</li>
+            <li>Red when recall &lt; 0.60 (sensitivity regression — investigate immediately, NP1)</li>
+            <li><code>—</code> when no labels exist yet (not red — neutral grey)</li>
+        </ul>
+        <p>The same numerator/denominator drives the CI baseline gate (<span class="code-block">scripts/check_recall_baseline.py</span>) so chip and gate cannot disagree.</p>
+        </div>
+        <div class="guide-lang-ja" style="display:none;">
+        <h4>13. アナリスト feedback と recall (AP3 / AP4)</h4>
+        <p>HUD 右下の <b>RECALL</b> チップ（Row 3 右端）は <span class="code-block">analyst_feedback</span> 台帳から計算されます。ラベル付きの行がゼロの間チップは <code>—</code> のままです。値を点灯させるには 2 通りあります：</p>
+
+        <h5>A. 手動ラベリング（OPSEC コストゼロ、最初の選択肢として推奨）</h5>
+        <ol>
+            <li>結論の drill-down を開く（HUD の脅威レベル数値クリック、または Triage Lane の <code>drill ▶</code> ボタン）。</li>
+            <li><b>Analyst Feedback</b> セクションまでスクロール。</li>
+            <li>4 つのラベルから 1 つ選択：
+                <ul>
+                    <li><b>TRUE_POSITIVE</b> — 結論が正しく、実際にイベントが発生した。</li>
+                    <li><b>FALSE_POSITIVE</b> — 結論は発火したが、イベントは発生しなかった。</li>
+                    <li><b>TRUE_NEGATIVE</b> — 静かな結論が正しく、イベントは無かった。</li>
+                    <li><b>FALSE_NEGATIVE</b> — 実際のイベントが発生したのにツールが静かなままだった（NP1 クリティカル）。</li>
+                </ul>
+            </li>
+            <li>必要に応じて検証 URL やメモを添付して送信。</li>
+        </ol>
+        <p>複数シナリオで合計 30〜50 件のラベル付き行があると、RECALL チップは概ね安定した数値を表示し始めます。</p>
+
+        <h5>B. ground-truth ETL による自動ラベリング</h5>
+        <p><span class="code-block">scripts/run_ground_truth_etl.py</span> が公開情報から結論を自動ラベリングします。<b>ACLED は任意</b> — ACLED API キー登録（メール+用途を運用組織に紐付ける OPSEC リスクあり）を避けたい場合、ランナーは自動的に GDELT 単独モードへフォールバックします：</p>
+        <ul>
+            <li><span class="code-block">config.env</span> で <span class="code-block">V2_GROUND_TRUTH_ETL_ENABLED=true</span> を設定。</li>
+            <li><span class="code-block">ACLED_API_KEY</span> / <span class="code-block">ACLED_API_EMAIL</span> を空のままにすると、警告とともに GDELT 単独モードで動作。<span class="code-block">--no-acled</span> で警告を抑止可能。</li>
+            <li>ホスト cron またはリモート routine で定期実行: <span class="code-block">docker exec ddos-radar python scripts/run_ground_truth_etl.py</span> を 1 時間に 1 回で十分。</li>
+            <li>自動行は <span class="code-block">analyst_id="auto:gdelt"</span>（ACLED 有効時は <span class="code-block">"auto:acled"</span> も）を持ちます。CI baseline は <span class="code-block">scripts/report_recall_metrics.py --exclude-auto</span> で人手ラベルのみから計算するのが推奨。</li>
+        </ul>
+        <p>GDELT 単独で TRUE_POSITIVE / FALSE_POSITIVE / TRUE_NEGATIVE のルールは動作します。死者数による FALSE_NEGATIVE ルールだけは ACLED 必須。手動 + 自動の併用で FN コーナーのカバレッジが最良。</p>
+
+        <h5>C. RSS / ニュースワイヤー相関 (B1、任意)</h5>
+        <p>もう一つの任意の自動ソースとして、公開 RSS フィード（BBC / Reuters / AP / Al Jazeera / TASS / Xinhua、設定可能）から動態事象の言及を抽出します。<b>抽出器は LLM 無しでも degrade gracefully に動作</b> — 決定論的なキーワード + 正規表現ベースラインだけで自動 feedback 行を生成します。ローカル Ollama が到達可能なら同じパイプラインが LLM で品質を補強できますが、ゲート機能のために LLM 依存は必須ではありません。RSS 自動行は <span class="code-block">analyst_id="auto:rss"</span> を持ちます。</p>
+
+        <h5>recall が HUD に届く経路</h5>
+        <p><span class="code-block">/api/v2/self_eval</span> エンドポイントがラベル付き行を集計し <code>recall = TP / (TP + FN)</code> を計算。HUD チップは 5 分ごとにポーリング：</p>
+        <ul>
+            <li>recall ≥ 0.80 で緑（calibration 目標内）</li>
+            <li>0.60 ≤ recall &lt; 0.80 でアンバー（ドリフト形成中）</li>
+            <li>recall &lt; 0.60 で赤（感度退行 — NP1 即調査）</li>
+            <li>ラベルゼロの間は <code>—</code>（赤ではなく中立の灰色）</li>
+        </ul>
+        <p>同じ分子/分母が CI ベースライン ゲート（<span class="code-block">scripts/check_recall_baseline.py</span>）も駆動するため、チップとゲートが食い違うことはありません。</p>
+        </div>
+        </div><!-- /guide-ch-13 -->
 
     </div>
 </div>
