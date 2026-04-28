@@ -2284,6 +2284,74 @@
     let _selfEvalLastFetchMs = 0;
     const _SELF_EVAL_TTL_MS = 5 * 60 * 1000;
 
+    // ── HUD LLM service-health chip ──────────────────────────────────────
+    // Polls /api/intel/stats with a 60s TTL so the chip updates on every
+    // scoring tick without hammering the backend. 3-strike rule prevents
+    // a single transient miss from flicker-flipping the chip to offline.
+    let _llmChipLastFetchMs = 0;
+    let _llmChipFailStreak = 0;
+    const _LLM_CHIP_TTL_MS = 60 * 1000;
+    const _LLM_CHIP_FAIL_STRIKE_LIMIT = 3;
+
+    function _setLlmChipState(state, tooltipExtra) {
+        const dot = document.getElementById('hud-llm-dot');
+        const chip = document.getElementById('hud-llm-chip');
+        if (!dot || !chip) return;
+        const VALID = ['online', 'online-stalled', 'offline', 'disabled', 'unknown'];
+        const safe = VALID.indexOf(state) >= 0 ? state : 'unknown';
+        dot.classList.remove(
+            'hud-llm-dot-online', 'hud-llm-dot-online-stalled',
+            'hud-llm-dot-offline', 'hud-llm-dot-disabled', 'hud-llm-dot-unknown',
+        );
+        dot.classList.add('hud-llm-dot-' + safe);
+        const base = 'LLM service health (' + safe + ').';
+        chip.title = tooltipExtra ? base + '\n' + tooltipExtra : base;
+    }
+
+    async function _refreshLlmChip() {
+        const now = Date.now();
+        if (now - _llmChipLastFetchMs < _LLM_CHIP_TTL_MS) return;
+        _llmChipLastFetchMs = now;
+        try {
+            const resp = await fetch('/api/intel/stats');
+            if (!resp.ok) {
+                _llmChipFailStreak += 1;
+                if (_llmChipFailStreak >= _LLM_CHIP_FAIL_STRIKE_LIMIT) {
+                    _setLlmChipState('offline', 'API HTTP ' + resp.status);
+                }
+                return;
+            }
+            const s = await resp.json();
+            _llmChipFailStreak = 0;
+            const mode = String(s && s.llm_mode || 'unknown');
+            const model = String(s && s.llm_model || '');
+            const calls1h = (s && typeof s.llm_calls_1h === 'number') ? s.llm_calls_1h : 0;
+            const ageMin = (s && typeof s.llm_last_call_age_min === 'number') ? s.llm_last_call_age_min : null;
+
+            // Decide chip state: enabled-online + recent calls = green;
+            // online but no calls 30m+ = amber (stalled); offline = red;
+            // disabled = grey.
+            let state = 'unknown';
+            if (mode === 'disabled') state = 'disabled';
+            else if (mode === 'enabled-offline') state = 'offline';
+            else if (mode === 'enabled-online') {
+                if (ageMin === null) state = 'online';
+                else state = (ageMin > 30) ? 'online-stalled' : 'online';
+            }
+            const tipParts = [];
+            if (model) tipParts.push('model=' + model);
+            tipParts.push('calls/1h=' + calls1h);
+            if (ageMin !== null) tipParts.push('last_call=' + ageMin.toFixed(1) + 'm ago');
+            tipParts.push('click to open LLM Intelligence panel');
+            _setLlmChipState(state, tipParts.join(' · '));
+        } catch (e) {
+            _llmChipFailStreak += 1;
+            if (_llmChipFailStreak >= _LLM_CHIP_FAIL_STRIKE_LIMIT) {
+                _setLlmChipState('offline', 'fetch error: ' + (e && e.message || e));
+            }
+        }
+    }
+
     function _applySelfEvalClass(chipId, band) {
         const el = document.getElementById(chipId);
         if (!el) return;
@@ -2352,6 +2420,10 @@
     document.addEventListener('DOMContentLoaded', () => {
         _refreshSelfEval();
         setInterval(_refreshSelfEval, 30 * 60 * 1000);
+        // LLM chip — first paint immediately, then once a minute (TTL-gated
+        // so renderTelemetry calls during heavy polling are cheap).
+        _refreshLlmChip();
+        setInterval(_refreshLlmChip, 60 * 1000);
     });
 
     // ── Triage Lane / Alert Lane (AP1 — Active Triage) ──────────────────
@@ -3785,6 +3857,8 @@
             // AP3 — self-evaluation chips. Internally TTL-gated so this is
             // cheap to call every poll.
             _refreshSelfEval();
+            // LLM service-health chip on HUD Row 3 (60s TTL gate inside).
+            _refreshLlmChip();
 
             // Fire-and-forget: refresh Layer 3 sensor watchpane rows when visible
             if (typeof _wpRefreshAll === 'function') _wpRefreshAll();

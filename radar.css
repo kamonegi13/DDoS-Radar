@@ -2235,6 +2235,33 @@ body[data-replay-on="1"] #top-hud {
     box-shadow: 0 2px 0 rgba(255, 180, 0, 0.35), 0 4px 15px rgba(0,0,0,0.8);
 }
 
+/* HUD LLM service-health chip (HUD Row 3, between ALIGN and INTEL).
+   Single dot + "LLM" label. Color encodes service mode:
+     - online (calls active, last_call_age < 30m)  — green dot
+     - online-stalled (online flag true, no calls 30m+) — amber dot
+     - enabled-offline (LLM_ENABLED=true but ping fails) — red dot
+     - disabled (LLM_ENABLED=false) — grey dot
+     - unknown (boot, no stats yet) — grey-cyan dot
+   3-strike rule lives in radar.js — chip only flips to "offline" after
+   3 consecutive failed polls so a single transient miss doesn't flicker. */
+.hud-llm-chip { cursor: pointer; }
+.hud-llm-chip:hover { border-color: rgba(0, 255, 255, 0.50); }
+.hud-llm-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+    background: rgba(255,255,255,0.25);
+    box-shadow: 0 0 4px rgba(0,0,0,0.4);
+}
+.hud-llm-dot-online           { background: #6fc66f; box-shadow: 0 0 6px rgba(80,200,120,0.55); }
+.hud-llm-dot-online-stalled   { background: #f0b450; box-shadow: 0 0 6px rgba(240,180,80,0.45); }
+.hud-llm-dot-offline          { background: var(--color-critical); box-shadow: 0 0 6px rgba(240,80,80,0.55); }
+.hud-llm-dot-disabled         { background: #555; box-shadow: none; }
+.hud-llm-dot-unknown          { background: rgba(0,255,255,0.30); }
+
 /* AP3 Self-Evaluation chips — render at the right end of HUD Row 3.
    Color encodes risk band on the displayed value (green/amber/red). */
 .hud-chip.hud-self-eval { font-family: 'Courier New', monospace; }

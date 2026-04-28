@@ -165,6 +165,20 @@
             <span id="hud-cac-score" class="hud-chip-value cac-low" data-i18n-tip="hud.tooltip.context_align">—</span>
         </div>
 
+        <!-- LLM service health (cross-cutting — used by attack_mode_extensions,
+             intel_queue, rss_narrative, apt_intel, diplomatic, military_exercise,
+             ground_osint, hacktivist_*, intel_corroboration). Single dot + LLM
+             text; click → opens LLM Intelligence panel. Tooltip carries
+             model name, calls/h, last-call age. NP3-defensive: 3-strike rule
+             before flipping to offline so a single failed poll does not flicker
+             the chip. -->
+        <div class="hud-chip hud-llm-chip" id="hud-llm-chip"
+             onclick="toggleLlmIntelPanel && toggleLlmIntelPanel()"
+             title="LLM service health. Click to open the LLM Intelligence panel.">
+            <span class="hud-llm-dot hud-llm-dot-unknown" id="hud-llm-dot" aria-hidden="true"></span>
+            <span class="hud-chip-label">LLM</span>
+        </div>
+
         <!-- Intel cross-validation -->
         <div class="hud-chip" id="hud-intel-chip" data-i18n-tip="hud.tooltip.intel_corrob">
             <span class="hud-chip-label" data-i18n="hud.label.intel">INTEL</span>
