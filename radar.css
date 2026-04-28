@@ -2118,6 +2118,76 @@
     text-align: center;
 }
 
+/* ── Map Dim Overlay (focus-change loading state) ────────────────────
+   Sits over #map only — HUD, scenario bar, Triage Lane, hamburger
+   stay live so cross-scenario triage continues during the switch.
+   Cool dark palette by default; swaps to warm amber under Replay Mode
+   so the two visual states cannot be confused. Spinner cyan throughout
+   so "loading" semantics survive the palette swap. */
+#map-dim-overlay[hidden] { display: none; }
+#map-dim-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 550;  /* above leaflet panes (~400), below NP7 attribution (600) */
+    background: rgba(8, 12, 18, 0.55);
+    backdrop-filter: grayscale(0.6) blur(1.5px);
+    -webkit-backdrop-filter: grayscale(0.6) blur(1.5px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    color: rgba(220, 240, 255, 0.92);
+    font-family: 'Courier New', monospace;
+    pointer-events: auto;  /* swallow map clicks so analyst cannot act on stale markers */
+    user-select: none;
+}
+#map-dim-overlay .md-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(0, 255, 255, 0.20);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: md-spin 1.2s linear infinite;
+}
+#map-dim-overlay .md-text {
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 5px 12px;
+    border-radius: 3px;
+    border: 1px solid rgba(0, 255, 255, 0.20);
+}
+#map-dim-overlay.md-stale {
+    /* Timeout fallback — soft amber to flag "data may be stale".
+       Pointer-events stay on so the analyst can hit the retry button. */
+    background: rgba(40, 28, 8, 0.55);
+    color: rgba(255, 220, 170, 0.95);
+}
+#map-dim-overlay.md-stale .md-spinner { animation: none; opacity: 0.4; }
+#map-dim-overlay .md-retry-btn {
+    background: rgba(255, 180, 0, 0.12);
+    color: rgba(255, 220, 160, 0.95);
+    border: 1px solid rgba(255, 180, 0, 0.50);
+    padding: 4px 14px;
+    cursor: pointer;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+}
+#map-dim-overlay .md-retry-btn:hover { background: rgba(255, 180, 0, 0.25); }
+@keyframes md-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* When Replay Mode is active, the map already carries an amber tint via
+   body[data-replay-on="1"] #top-hud's box-shadow. If a focus change fires
+   during replay (rare but possible), swap the dim overlay to amber so the
+   two states layer cleanly instead of fighting. */
+body[data-replay-on="1"] #map-dim-overlay {
+    background: rgba(40, 28, 8, 0.55);
+    color: rgba(255, 220, 170, 0.95);
+}
+
 /* AP4 — Replay Mode bar (Decision Trail).
    Hidden by default; openReplayMode() shows it. Sits above the scenario-
    bar so it's always visible while in replay. The HUD picks up an extra

@@ -554,6 +554,11 @@ const STRINGS = {
     'modal.help.ch11':                '11. Limitations',
     'modal.help.ch12':                '12. Tradecraft',
     'modal.help.ch13':                '13. Feedback & Recall',
+    // Map dim overlay (focus-change loading state)
+    'map.dim.switching':              'Switching to {name}…',
+    'map.dim.timeout':                'Sync incomplete — showing last known state.',
+    'map.dim.retry':                  'Retry',
+    'map.dim.aria_busy':              'Map is updating to new scenario',
 
     // ══════════════════════════════════════════════════════════════
     // Panel — Weather Brief

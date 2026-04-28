@@ -387,6 +387,17 @@
 
     <div id="map-wrapper">
         <div id="map"></div>
+        <!-- Map dim overlay (focus-change loading state).
+             Hidden by default; switchScenarioFocus() reveals it with
+             body[data-map-dim="1"] and lifts it on lift. While dim is
+             active the map is grayscale + slightly blurred + dark-tinted
+             so the analyst sees that data is in transition. Replay Mode
+             (body[data-replay-on="1"]) tints amber instead so the two
+             states are visually distinct. -->
+        <div id="map-dim-overlay" role="status" aria-live="polite" hidden>
+            <div class="md-spinner" aria-hidden="true"></div>
+            <div class="md-text" id="md-text" data-i18n="map.dim.switching">Switching scenario…</div>
+        </div>
         <!-- NP7 attribution overlay — bottom-right of map, always rendered.
              Compressed text + ⓘ tooltip with the full disclaimer. Three-surface
              redundancy with drilldown header + API field keeps NP7 satisfied
