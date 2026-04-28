@@ -480,7 +480,7 @@ def v2_self_eval():
         # walk the last 30 days of conclusions, compute longest tail-run
         # of all-INSUFFICIENT_DATA buckets ending today.
         from radar.database import db as _shared_db
-        rows = _shared_db.execute(
+        rows = _shared_db._get_conn().execute(  # noqa: SLF001 — established pattern
             "SELECT date(observed_at, 'unixepoch') AS d, "
             "       SUM(CASE WHEN conclusion_unavailable_reason IS NULL "
             "                THEN 1 ELSE 0 END) AS n_avail, "
