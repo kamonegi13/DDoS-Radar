@@ -39,10 +39,17 @@ def _extract_lang_keys(block: str) -> set[str]:
 
 def _load_i18n() -> tuple[set[str], set[str]]:
     src = I18N.read_text(encoding="utf-8")
-    # Split into en / ja halves. The file has `en: {` then `  },` then `ja: {`.
+    # As of 2026-04-28, i18n.js was migrated to a single-language EN-only
+    # STRINGS dict (see "i18n runtime — EN-only as of 2026-04-28" comment).
+    # Prefer the new single-dict layout; fall back to the old en/ja split
+    # for any historical branches that still carry the dual structure.
+    m_strings = re.search(r"\nconst STRINGS\s*=\s*\{(.*?)\n\};", src, re.DOTALL)
+    if m_strings:
+        keys = _extract_lang_keys(m_strings.group(1))
+        return keys, keys
     m_en = re.search(r"\n  en:\s*\{(.*?)\n  \},\n", src, re.DOTALL)
     m_ja = re.search(r"\n  ja:\s*\{(.*?)\n  \},?\n", src, re.DOTALL)
-    assert m_en, "Could not locate LANG.en block in i18n.js"
+    assert m_en, "Could not locate STRINGS or LANG.en block in i18n.js"
     assert m_ja, "Could not locate LANG.ja block in i18n.js"
     return _extract_lang_keys(m_en.group(1)), _extract_lang_keys(m_ja.group(1))
 
