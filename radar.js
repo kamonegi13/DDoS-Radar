@@ -2077,82 +2077,181 @@
         return entry.byType || null;
     }
 
-    // ── Alert Lane (AP1 — Active Triage scaffold) ─────────────────────
-    // Stage A.3 ships the empty render hook. Stage B.7 will populate it
-    // with attention_score-ranked items + "why ranked #N" rationale +
-    // acknowledge/dismiss controls (the AP1 surface).
+    // ── Triage Lane / Alert Lane (AP1 — Active Triage) ──────────────────
+    // Active Triage: ranks event-shaped conclusions (anomaly + attack_mode
+    // today, extensible) by attention_score and renders the top-N as a
+    // single horizontal lane. Each row carries a deterministic "why ranked
+    // #N" rationale (AP1 transparency contract: the score is composed of
+    // novelty × confDelta × blindness, and the breakdown is shown).
     //
-    // Today the lane simply collapses (hidden) when no items qualify and
-    // expands when anomaly / attack_mode conclusions fire. This keeps the
-    // DOM contract stable so Stage B.7 only has to swap in the scoring
-    // logic without rearranging the surface.
+    // Per-conclusion history (lastFireTs, prevConfidence) is tracked in
+    // _alPriorByMode keyed by (focusedId, conclusion_type, state). Analyst
+    // state (lastViewTs, ackedIds) is persisted to localStorage so AP1
+    // survives reloads. Server-side acknowledge ledger is reserved for
+    // Stage C (replay mode); today the local ledger is sufficient to
+    // suppress acknowledged items in subsequent polls.
+
+    const _AL_STORAGE_KEY = 'ddos_radar_triage_state';
+    const _AL_MAX_ROWS = 5;
+    const _alPriorByMode = {};  // {`${focused}|${type}|${state}`: {firstSeenTs, lastFireTs, prevConfidence}}
+
+    function _alLoadState() {
+        try {
+            const raw = localStorage.getItem(_AL_STORAGE_KEY);
+            if (!raw) return { lastViewByScenario: {}, acked: {} };
+            const parsed = JSON.parse(raw);
+            return {
+                lastViewByScenario: parsed.lastViewByScenario || {},
+                acked: parsed.acked || {},  // {scenarioId: {conclusionId: ackTs}}
+            };
+        } catch (_) {
+            return { lastViewByScenario: {}, acked: {} };
+        }
+    }
+
+    function _alSaveState(state) {
+        try { localStorage.setItem(_AL_STORAGE_KEY, JSON.stringify(state)); }
+        catch (_) { /* quota / disabled — ignored */ }
+    }
+
+    function _alAckedIdSet(state, focusedId) {
+        const m = (state.acked || {})[focusedId] || {};
+        return new Set(Object.keys(m));
+    }
+
+    function _alMarkScenarioViewed(focusedId) {
+        if (!focusedId) return;
+        const state = _alLoadState();
+        state.lastViewByScenario[focusedId] = Date.now() / 1000;
+        _alSaveState(state);
+    }
+
+    function _alAcknowledge(focusedId, conclusionId) {
+        if (!focusedId || !conclusionId) return;
+        const state = _alLoadState();
+        if (!state.acked[focusedId]) state.acked[focusedId] = {};
+        state.acked[focusedId][conclusionId] = Date.now() / 1000;
+        _alSaveState(state);
+    }
+
+    function _alPriorKey(focusedId, type, stateStr) {
+        return focusedId + '|' + type + '|' + (stateStr || '');
+    }
+
+    function _alUpdatePrior(focusedId, conclusion) {
+        if (!conclusion || !conclusion.id) return null;
+        const k = _alPriorKey(focusedId, conclusion.conclusion_type, conclusion.state);
+        const prev = _alPriorByMode[k];
+        // Use prev's lastFireTs (when this mode was first seen in current run)
+        // before overwriting with the current observation. If we've never seen
+        // this mode before, lastFireTs is null → novelty = 1.
+        const history = {
+            lastFireTs: prev ? prev.firstSeenTs : null,
+            prevConfidence: prev ? prev.lastConfidence : null,
+        };
+        _alPriorByMode[k] = {
+            firstSeenTs: prev ? prev.firstSeenTs : (Date.now() / 1000),
+            lastConfidence: typeof conclusion.confidence === 'number'
+                ? conclusion.confidence : 0,
+        };
+        return history;
+    }
+
     function _refreshAlertLane(focusedId) {
         const lane = document.getElementById('alert-lane');
         const list = document.getElementById('al-list');
         if (!lane || !list) return;
 
         const byType = _hudFreshEnvelopeByType(focusedId);
-        if (!byType) {
+        const triage = window.TriageScore;
+        if (!byType || !triage || !triage.rankItems) {
             lane.hidden = true;
             return;
         }
 
-        // Stage A.3: minimal seed — fire only when ATTACK_MODE has an id +
-        // is available + confidence ≥ 0.6, OR when ANOMALY has a non-empty
-        // state. attention_score / ranking comes in Stage B.7.
-        const items = [];
+        // Build candidate list. Today: attack_mode (when available + has id)
+        // and anomaly (when available + has id + non-empty state). Other
+        // event-shaped conclusion types can be appended here without
+        // touching the scoring layer.
+        const candidates = [];
         const am = byType.attack_mode;
-        if (am && am.id && am.conclusion_unavailable_reason == null
-                && typeof am.confidence === 'number' && am.confidence >= 0.6) {
-            items.push({
+        if (am && am.id && am.conclusion_unavailable_reason == null) {
+            candidates.push({
                 conclusion: am,
-                mode: String(am.state || ''),
-                why: 'attack_mode confidence ≥ 0.6',
+                history: _alUpdatePrior(focusedId, am),
+                kindLabel: String(am.state || 'ATTACK_MODE'),
             });
         }
         const an = byType.anomaly;
         if (an && an.id && an.conclusion_unavailable_reason == null
                 && typeof an.state === 'string' && an.state) {
-            items.push({
+            candidates.push({
                 conclusion: an,
-                mode: 'ANOMALY: ' + an.state,
-                why: 'anomaly fired',
+                history: _alUpdatePrior(focusedId, an),
+                kindLabel: 'ANOMALY: ' + an.state,
             });
         }
 
-        if (items.length === 0) {
+        const persisted = _alLoadState();
+        const analystState = {
+            lastViewTs: persisted.lastViewByScenario[focusedId] || null,
+            ackedIds: _alAckedIdSet(persisted, focusedId),
+        };
+        const ranked = triage.rankItems(candidates, analystState).slice(0, _AL_MAX_ROWS);
+
+        if (ranked.length === 0) {
             lane.hidden = true;
             list.innerHTML = '';
             return;
         }
 
         list.innerHTML = '';
-        items.forEach((it, idx) => {
+        ranked.forEach((it) => {
             const row = document.createElement('div');
             row.className = 'al-item';
+
             const rank = document.createElement('span');
             rank.className = 'al-rank';
-            rank.textContent = '#' + (idx + 1);
+            rank.textContent = '#' + it.rank + ' · ' + it.score.toFixed(2);
+            const rankTip = (it.why || []).join('\n');
+            rank.setAttribute('title', rankTip);
+
             const mode = document.createElement('span');
             mode.className = 'al-mode';
-            mode.textContent = it.mode;
+            mode.textContent = it.kindLabel;
+
             const why = document.createElement('span');
             why.className = 'al-why';
-            why.textContent = it.why;
+            // Keep the row terse; full rationale lives in the rank-cell tooltip.
+            const headWhy = (it.why && it.why.length > 0) ? it.why[0] : '';
+            why.textContent = headWhy;
+
             const conf = document.createElement('span');
             conf.className = 'al-conf';
             const c = it.conclusion.confidence;
             conf.textContent = (typeof c === 'number') ? ('conf ' + c.toFixed(2)) : '—';
+
+            const ackBtn = document.createElement('button');
+            ackBtn.type = 'button';
+            ackBtn.className = 'al-btn';
+            ackBtn.textContent = 'ack';
+            ackBtn.title = 'Acknowledge — drop until next change';
+            ackBtn.addEventListener('click', () => {
+                _alAcknowledge(focusedId, it.conclusion.id);
+                _refreshAlertLane(focusedId);
+            });
+
             const drillBtn = document.createElement('button');
             drillBtn.type = 'button';
             drillBtn.className = 'al-btn';
             drillBtn.textContent = 'drill ▶';
             drillBtn.addEventListener('click', () => _ccOpenDrillModal(it.conclusion));
-            // Stage B.7 will add `acknowledge` next to `drill`.
+
             row.appendChild(rank);
             row.appendChild(mode);
             row.appendChild(why);
             row.appendChild(conf);
+            row.appendChild(ackBtn);
             row.appendChild(drillBtn);
             list.appendChild(row);
         });
@@ -9052,6 +9151,9 @@
         if (!scenarioId) return;
         _scenarioFocusId = scenarioId;
         localStorage.setItem('radar_focused_scenario', scenarioId);
+        // AP1 — Active Triage: mark scenario as viewed so blindness resets
+        // and the Alert Lane stops surfacing items the analyst has just seen.
+        try { _alMarkScenarioViewed(scenarioId); } catch (_) { /* defensive */ }
         _scenarioDetailOpen = null;
         _scenarioWhatIfExcluded = new Set();
         const detailPanel = document.getElementById('scenario-detail-panel');
