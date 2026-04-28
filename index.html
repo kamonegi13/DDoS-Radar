@@ -3390,6 +3390,15 @@
         <h5>C. RSS / news-wire correlation (B1, optional)</h5>
         <p>An optional second auto-source pulls public RSS feeds (BBC / Reuters / AP / Al Jazeera / TASS / Xinhua, configurable) and extracts kinetic-event mentions. <b>The extractor degrades gracefully without an LLM:</b> a deterministic keyword-and-regex baseline produces auto-feedback rows on its own. When a local Ollama instance is reachable the same pipeline can optionally upgrade extraction quality, but no LLM dependency is required for the gate to function. RSS auto rows carry <span class="code-block">analyst_id="auto:rss"</span>.</p>
 
+        <h5>D. Background Observer + OBS chip — per-scenario observation health (AP3)</h5>
+        <p>The "C-lite" mechanism (focused = full sensors, background = LLM intel + global only) is correctly wired but its actual signal supply is geographically biased: Taiwan / Korea / South China Sea scenarios receive ≈0 LLM intel rows per 24h, leaving their lite-mode scores driven almost entirely by global noise like <span class="code-block">cf_botnet_overlap</span>.</p>
+        <p>Two surfaces address this:</p>
+        <ul>
+            <li><b>OBS chip (scenario-bar)</b>: each scenario card shows <span class="code-block">OBS N</span> where N is per-country signal events in the last 24h. Color band: red 0 (chronic blind spot — NP5+8 design failure), amber 1-9 (under-observed), green ≥10 (healthy). Tooltip lists distinct countries, last-signal age, and top contributors.</li>
+            <li><b>Background Observer</b> (<span class="code-block">radar/background_observer.py</span>, opt-in via <span class="code-block">BG_OBSERVER_ENABLED=true</span>): rotates round-robin through non-focused scenarios + their participants, fetches public RSS via anonymous HTTP GET (no API keys, no registration, no LLM), runs the regex extractor scoped to that country, and injects findings as ephemeral signals into the next scoring tick. Default 5-min cycle; signals expire after 30 min so the durable record is the <span class="code-block">scenario_contribution_log</span> row that drives the OBS chip.</li>
+        </ul>
+        <p>To enable the observer: set <span class="code-block">BG_OBSERVER_ENABLED=true</span> in <span class="code-block">config.env</span> and restart. Override <span class="code-block">BG_OBSERVER_FEEDS</span> with regional sources (Kyodo News, Korea Herald, Taipei Times, etc.) to improve Asia-Pacific scenario coverage.</p>
+
         <h5>How recall feeds the HUD</h5>
         <p>The <span class="code-block">/api/v2/self_eval</span> endpoint aggregates labelled rows into <code>recall = TP / (TP + FN)</code>. The HUD chip polls every 5 minutes:</p>
         <ul>
@@ -3432,6 +3441,15 @@
 
         <h5>C. RSS / ニュースワイヤー相関 (B1、任意)</h5>
         <p>もう一つの任意の自動ソースとして、公開 RSS フィード（BBC / Reuters / AP / Al Jazeera / TASS / Xinhua、設定可能）から動態事象の言及を抽出します。<b>抽出器は LLM 無しでも degrade gracefully に動作</b> — 決定論的なキーワード + 正規表現ベースラインだけで自動 feedback 行を生成します。ローカル Ollama が到達可能なら同じパイプラインが LLM で品質を補強できますが、ゲート機能のために LLM 依存は必須ではありません。RSS 自動行は <span class="code-block">analyst_id="auto:rss"</span> を持ちます。</p>
+
+        <h5>D. Background Observer と OBS チップ — シナリオ別観測健全性 (AP3)</h5>
+        <p>「C-lite」機構（focused = 全 sensor、background = LLM intel + global signal のみ）は配線上は正しく動いていますが、実際の信号供給は地理的に偏っています：Taiwan / Korea / South China Sea シナリオは過去 24h で LLM intel ≈0 件、lite-mode スコアは <span class="code-block">cf_botnet_overlap</span> のような global noise のみで動かされている状態です。</p>
+        <p>これに対する 2 つの surface:</p>
+        <ul>
+            <li><b>OBS チップ（scenario-bar）</b>: 各シナリオカードに <span class="code-block">OBS N</span> を表示。N は過去 24h の per-country signal イベント数。色バンド: 赤 0 (恒常的盲点 — NP5+8 設計失敗)、アンバー 1-9 (観測不足)、緑 ≥10 (健全)。tooltip は distinct 国数、最終 signal までの分数、top 寄与国を表示。</li>
+            <li><b>Background Observer</b>（<span class="code-block">radar/background_observer.py</span>、<span class="code-block">BG_OBSERVER_ENABLED=true</span> で opt-in）: 非 focus シナリオとその participant 国を round-robin で巡回し、公開 RSS を anonymous HTTP GET でフェッチ（API key 不要、登録不要、LLM 不要）、対象国に scope した正規表現抽出を実行、findings を ephemeral signal として次の scoring tick に注入。デフォルト 5 分サイクル、signal は 30 分で失効するので、durable record は OBS チップを駆動する <span class="code-block">scenario_contribution_log</span> 行。</li>
+        </ul>
+        <p>有効化: <span class="code-block">config.env</span> で <span class="code-block">BG_OBSERVER_ENABLED=true</span> 設定 + 再起動。Asia-Pacific シナリオのカバレッジ向上には <span class="code-block">BG_OBSERVER_FEEDS</span> を地域ソース（Kyodo News、Korea Herald、Taipei Times 等）で上書き推奨。</p>
 
         <h5>recall が HUD に届く経路</h5>
         <p><span class="code-block">/api/v2/self_eval</span> エンドポイントがラベル付き行を集計し <code>recall = TP / (TP + FN)</code> を計算。HUD チップは 5 分ごとにポーリング：</p>
