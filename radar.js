@@ -3160,7 +3160,6 @@
             rowsEl.innerHTML = `<div class="wp-empty" data-i18n="watchpane.empty">${_escHtml(_t('watchpane.empty'))}</div>`;
             return;
         }
-        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
         const labelOf = (name) => {
             if (!_wpCatalog) return name;
             const row = _wpCatalog.find(r => r.sensor === name);
@@ -4049,9 +4048,8 @@
             if (scenarioNameEl) {
                 const focusedId = data.focused_scenario || '';
                 const sc = (data.scenarios || {})[focusedId];
-                const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
                 let dispName = focusedId || _t('hud.scenario.none');
-                if (sc) dispName = lang === 'ja' ? (sc.name_ja || sc.name_en || focusedId) : (sc.name_en || focusedId);
+                if (sc) dispName = sc.name_en || focusedId;
                 scenarioNameEl.textContent = dispName;
             }
 
@@ -5618,7 +5616,7 @@
         };
 
         try {
-            const res = await fetch(`/api/weather_brief?lang=${_currentLang}`);
+            const res = await fetch(`/api/weather_brief?lang=en`);
             const wb  = await res.json();
             const brief = wb.brief || {};
             const DOMAIN_ICON = { cyber:'⛈', maritime:'🌫', info:'📡', air:'🔭', infra:'🏗' };
@@ -5686,7 +5684,7 @@
         if (tsEl) tsEl.textContent = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}Z`;
 
         try {
-            const res = await fetch(`/api/salute_report?lang=${_currentLang}`);
+            const res = await fetch(`/api/salute_report?lang=en`);
             const sal = (await res.json()).report || {};
             _lastSaluteData = sal;
             const fields = [
@@ -5930,7 +5928,6 @@
         const bgText  = document.getElementById('hud-bg-alert-text');
         if (bgAlert && bgText) {
             let bestId = null, bestDelta = 0, bestName = '';
-            const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
             const allSc = data.scenarios || {};
             Object.entries(allSc).forEach(([sid, sc]) => {
                 if (sid === focusedId) return;
@@ -5938,7 +5935,7 @@
                 if (d != null && d > bestDelta && d >= 1.0) {
                     bestDelta = d;
                     bestId = sid;
-                    bestName = (lang === 'ja' ? sc.name_ja : sc.name_en) || sid;
+                    bestName = sc.name_en || sid;
                 }
             });
             if (bestId) {
@@ -8153,7 +8150,6 @@
     }
 
     function _renderTriageItem(item) {
-        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
         const conf = item.confidence || 0;
         const confPct = Math.round(conf * 100) + '%';
         const confClass = conf >= 0.80 ? 'llm-item-conf-hi' : conf >= 0.65 ? 'llm-item-conf-mid' : 'llm-item-conf-lo';
@@ -8168,7 +8164,7 @@
         let scenarioLine = '';
         if (item.top_scenario) {
             const sc = item.top_scenario;
-            const scName = lang === 'ja' ? (sc.name_ja || sc.name_en) : sc.name_en;
+            const scName = sc.name_en;
             scenarioLine = '<div class="llm-tri-scenario">'
                 + '<span class="llm-tri-scenario-label">' + _t('panel.llm_intel.triage_scenario') + ':</span> '
                 + '<span class="llm-tri-scenario-name">' + _escHtml(scName) + '</span> '
@@ -8657,7 +8653,6 @@
         if (!container) return;
         const scenarios = data.scenarios || {};
         const focusedId = data.focused_scenario || '';
-        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
         const ids = Object.keys(scenarios);
         if (ids.length === 0) { container.innerHTML = ''; return; }
 
@@ -8682,7 +8677,7 @@
         for (const sid of sorted) {
             const sc = scenarios[sid];
             const isFocused = (sid === focusedId);
-            const name = lang === 'ja' ? (sc.name_ja || sc.name_en || sid) : (sc.name_en || sid);
+            const name = sc.name_en || sid;
             const tl = sc.tl;
             const score = (sc.score || 0).toFixed(2);
             const mode = sc.scoring_mode || 'lite';
@@ -8869,8 +8864,7 @@
     function _renderScenarioDetail(sc, scenarioId) {
         const panel = document.getElementById('scenario-detail-panel');
         if (!panel) return;
-        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
-        const name = lang === 'ja' ? (sc.name_ja || sc.name_en || scenarioId) : (sc.name_en || scenarioId);
+        const name = sc.name_en || scenarioId;
         const isFocused = sc.is_focused;
         const contributions = sc.contributions || [];
         const domains = sc.domains || {};
@@ -9215,15 +9209,17 @@
     ];
 
     function _scMgrRenderList(scenarios, container) {
-        const lang = (typeof _currentLang !== 'undefined') ? _currentLang : 'en';
         if (!scenarios.length) {
             container.innerHTML = `<div style="color:#666;font-size:11px;">${_t('scenario.mgr.no_scenarios')}</div>`;
             return;
         }
         let html = '';
         for (const sc of scenarios) {
-            const primaryName = lang === 'ja' ? (sc.name_ja || sc.name_en) : (sc.name_en || sc.name_ja);
-            const altName     = lang === 'ja' ? (sc.name_en || '')         : (sc.name_ja || '');
+            // EN as primary; JA shown as a secondary line for analysts maintaining
+            // scenario data in the admin Scenario Manager (the only UI surface
+            // where name_ja still has meaning post-EN-only flip).
+            const primaryName = sc.name_en || sc.name_ja || '';
+            const altName     = sc.name_ja || '';
             const pCount = Object.keys(sc.participants || {}).length;
             const core = sc.core_country ? sc.core_country.toUpperCase() : '—';
             const stateLabel = _t('scenario.state.' + sc.state);

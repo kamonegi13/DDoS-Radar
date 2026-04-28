@@ -48,11 +48,10 @@ if ! python scripts/check_recall_baseline.py; then
     FAIL=1
 fi
 
-step "i18n key parity (JA-only, EN frozen 2026-04-28)"
-# Non-fatal warn for now — flip --strict on once unused-key cleanup lands.
-# undefined_refs would render as the literal key string at runtime (visible
-# bug); unused_keys are JA delete candidates per CLAUDE.md §3.1.
-python scripts/check_i18n_keys.py || echo "WARN: i18n audit reported issues. See output above." >&2
+step "i18n key parity (EN-only UI + INTEL GUIDE bilingual, 2026-04-28 PM)"
+# GUIDE parity is fatal in the script. STRINGS undefined_refs/unused are
+# warn-only here — flip to --strict once the unused-key cleanup lands.
+python scripts/check_i18n_keys.py || { echo "FAIL: i18n audit reported issues. See output above." >&2; FAIL=1; }
 
 if [[ $FAIL -eq 0 ]]; then
     echo

@@ -236,13 +236,6 @@
                 <button class="hh-action" onclick="openModal('settings-modal'); closeHudHamburger();" data-i18n="hud.btn.config">Config</button>
             </div>
         </div>
-        <div class="hh-section">
-            <div class="hh-section-label" data-i18n="hud.hh.section.language">LANGUAGE</div>
-            <span class="hud-lang-group">
-                <button id="lang-btn-en" class="btn-tactical btn-lang" onclick="setLang('en')" data-tooltip="Switch to English">EN</button>
-                <button id="lang-btn-ja" class="btn-tactical btn-lang" onclick="setLang('ja')" data-tooltip="日本語に切替">JP</button>
-            </span>
-        </div>
         <div class="hh-section hh-tools-section">
             <div class="hh-section-label" data-i18n="hud.hh.section.tools">TOOLS &amp; PANELS</div>
             <div class="tools-dropdown-wrap">
@@ -1317,6 +1310,10 @@
 <div id="help-modal" class="modal-window" style="border-color: #fff;">
     <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555; padding-bottom:10px;">
         <div data-i18n="modal.help.title">Intelligence Operations Guide — MDO C4ISR Strategic Radar</div>
+        <span class="guide-lang-pill" role="group" aria-label="Guide language">
+            <button id="guide-lang-btn-en" type="button" class="guide-lang-btn guide-lang-active" onclick="setGuideLang('en')">EN</button>
+            <button id="guide-lang-btn-ja" type="button" class="guide-lang-btn" onclick="setGuideLang('ja')">日本語</button>
+        </span>
         <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()" data-i18n="modal.help.close">[ X ] Close</button>
     </div>
     <div class="manual-content">
@@ -2563,6 +2560,8 @@
             <li><b>API:</b> <span class="code-block">GET /api/climate</span>（全体状態）/ <span class="code-block">GET /api/climate/feed?axis=time&amp;limit=50</span>（フィルタ済みフィード）。</li>
         </ul>
 
+        </div>
+        <div class="guide-lang-en">
         <h5>H. Scenario Bar</h5>
         <ul>
             <li><b>Scenario cards</b> appear as a horizontal strip below the HUD. Each registered scenario has a card showing its name, score, TL (for focused), and domain activity dots (C/P/I).</li>

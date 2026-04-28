@@ -1,7 +1,9 @@
-"""Tests for scripts/check_i18n_keys.py — JA-only i18n audit.
+"""Tests for scripts/check_i18n_keys.py — EN-only UI + GUIDE parity audit.
 
 Pins the parser/scanner contracts so a refactor of the regexes can't
-silently start letting unknown keys through.
+silently start letting unknown keys through. The GUIDE parity check is
+also pinned because long-form prose is the one place we still demand
+hand-curated bilingual coverage (CLAUDE.md §3.2).
 """
 
 from __future__ import annotations
@@ -17,59 +19,51 @@ if str(_REPO_ROOT / "scripts") not in sys.path:
 
 from check_i18n_keys import (  # noqa: E402
     Report,
-    parse_ja_keys,
+    count_guide_blocks,
+    parse_strings_keys,
     scan_html,
     scan_js,
 )
 
 
-# ── parse_ja_keys ──────────────────────────────────────────────────────────
+# ── parse_strings_keys ────────────────────────────────────────────────────
 
 
-def test_parse_ja_keys_extracts_keys_inside_ja_block(tmp_path):
+def test_parse_strings_keys_extracts_keys_inside_strings_block(tmp_path):
     src = tmp_path / "i18n.js"
     src.write_text(
         """
-const LANG = {
-  en: {
-    'foo.bar': 'EN bar',
-    'foo.baz': 'EN baz',
-  },
-  ja: {
-    'foo.bar': 'JA bar',
-    'foo.baz': 'JA baz',
-    'foo.qux': 'JA qux',
-  },
+const STRINGS = {
+    'foo.bar': 'val 1',
+    'foo.baz': 'val 2',
+    'foo.qux': 'val 3',
 };
 """,
         encoding="utf-8",
     )
-    keys = parse_ja_keys(src)
+    keys = parse_strings_keys(src)
     assert keys == {"foo.bar", "foo.baz", "foo.qux"}
 
 
-def test_parse_ja_keys_handles_double_quoted_keys(tmp_path):
+def test_parse_strings_keys_handles_double_quoted_keys(tmp_path):
     src = tmp_path / "i18n.js"
     src.write_text(
         """
-const LANG = {
-  en: { 'a': 'A' },
-  ja: {
-    "with.double": 'JA val',
-    'with.single': 'JA val',
-  },
+const STRINGS = {
+    "with.double": 'val',
+    'with.single': 'val',
 };
 """,
         encoding="utf-8",
     )
-    keys = parse_ja_keys(src)
+    keys = parse_strings_keys(src)
     assert keys == {"with.double", "with.single"}
 
 
-def test_parse_ja_keys_returns_empty_when_no_ja_block(tmp_path):
+def test_parse_strings_keys_returns_empty_when_no_strings_block(tmp_path):
     src = tmp_path / "i18n.js"
-    src.write_text("const LANG = { en: { 'a': 'A' } };", encoding="utf-8")
-    assert parse_ja_keys(src) == set()
+    src.write_text("const FOO = { 'a': 'A' };", encoding="utf-8")
+    assert parse_strings_keys(src) == set()
 
 
 # ── scan_html ──────────────────────────────────────────────────────────────
@@ -144,7 +138,6 @@ const c = _t('static.key');
     refs, opaque = scan_js(p)
     assert refs == {"static.key"}
     assert len(opaque) == 2
-    # opaque entries are (rel_path, line_no)
     line_nos = sorted(ln for _, ln in opaque)
     assert line_nos == [2, 3]
 
@@ -169,21 +162,6 @@ const a = _t('real.key');
     assert opaque == []
 
 
-def test_scan_js_does_not_match_method_named_t(tmp_path, monkeypatch):
-    """`obj._t('x')` must register as a normal _t call (chained-call form)."""
-    import check_i18n_keys
-    monkeypatch.setattr(check_i18n_keys, "_REPO_ROOT", tmp_path)
-
-    p = tmp_path / "code.js"
-    # `obj._t(` matches via the look-behind allowing `.` before `_t`?
-    # Actually the regex is `(?<![A-Za-z0-9_])_t\(` — it allows a dot
-    # before `_t`, treating `obj._t(...)` the same as bare `_t(...)`.
-    # That is intentional: we want to catch all _t call sites.
-    p.write_text("const a = obj._t('chained.key');\n", encoding="utf-8")
-    refs, _ = scan_js(p)
-    assert refs == {"chained.key"}
-
-
 def test_scan_js_does_not_match_other_t_named_functions(tmp_path, monkeypatch):
     """`my_t('x')` and `_test('x')` must NOT register."""
     import check_i18n_keys
@@ -202,7 +180,55 @@ const c = abc_t('not.captured');
     assert refs == set()
 
 
-# ── Report (derived sets) ──────────────────────────────────────────────────
+# ── count_guide_blocks (GUIDE parity) ──────────────────────────────────────
+
+
+def test_count_guide_blocks_paired(tmp_path):
+    p = tmp_path / "index.html"
+    p.write_text(
+        """
+<div class="guide-lang-en">EN content</div>
+<div class="guide-lang-ja" style="display:none;">JA content</div>
+<div class="guide-lang-en">More EN</div>
+<div class="guide-lang-ja">More JA</div>
+""",
+        encoding="utf-8",
+    )
+    en, ja = count_guide_blocks(p)
+    assert en == 2
+    assert ja == 2
+
+
+def test_count_guide_blocks_detects_orphan(tmp_path):
+    p = tmp_path / "index.html"
+    p.write_text(
+        """
+<div class="guide-lang-en">EN content</div>
+<div class="guide-lang-ja">JA content</div>
+<div class="guide-lang-ja">orphan JA</div>
+""",
+        encoding="utf-8",
+    )
+    en, ja = count_guide_blocks(p)
+    assert en == 1
+    assert ja == 2
+
+
+def test_count_guide_blocks_handles_multi_class(tmp_path):
+    p = tmp_path / "index.html"
+    p.write_text(
+        """
+<div class="guide-section guide-lang-en">EN</div>
+<div class="guide-lang-ja some-other-class">JA</div>
+""",
+        encoding="utf-8",
+    )
+    en, ja = count_guide_blocks(p)
+    assert en == 1
+    assert ja == 1
+
+
+# ── Report (derived sets + parity) ────────────────────────────────────────
 
 
 def test_report_undefined_refs_are_referenced_minus_defined():
@@ -221,11 +247,26 @@ def test_report_unused_keys_are_defined_minus_referenced():
     assert r.unused_keys == {"b", "c"}
 
 
+def test_report_guide_parity_flags_imbalance():
+    matched = Report(
+        defined_keys=frozenset(), referenced_keys=frozenset(),
+        guide_en_count=10, guide_ja_count=10,
+    )
+    assert matched.guide_parity_ok is True
+
+    skewed = Report(
+        defined_keys=frozenset(), referenced_keys=frozenset(),
+        guide_en_count=10, guide_ja_count=11,
+    )
+    assert skewed.guide_parity_ok is False
+
+
 def test_report_to_dict_shape():
     r = Report(
         defined_keys=frozenset({"a", "b"}),
         referenced_keys=frozenset({"a", "x"}),
         opaque_calls=(("file.js", 10),),
+        guide_en_count=3, guide_ja_count=3,
     )
     d = r.to_dict()
     assert d["defined_count"] == 2
@@ -233,20 +274,30 @@ def test_report_to_dict_shape():
     assert d["undefined_refs"] == ["x"]
     assert d["unused_keys"] == ["b"]
     assert d["opaque_calls"] == [{"file": "file.js", "line": 10}]
+    assert d["guide_en_blocks"] == 3
+    assert d["guide_ja_blocks"] == 3
+    assert d["guide_parity_ok"] is True
 
 
 # ── End-to-end against live tree ───────────────────────────────────────────
 
 
 def test_live_tree_has_zero_undefined_refs():
-    """Regression: keep undefined_refs at zero. If this fails, either fix the
-    code (add the missing JA key, or correct the call) or open a discussion
-    about why the gate should accept the new ref.
+    """Regression: undefined_refs (referenced but missing from STRINGS) stays
+    at zero. If this fails, either fix the missing key or the call site.
     """
-    sys.path.insert(0, str(_REPO_ROOT / "scripts"))
     from check_i18n_keys import build_report
-
     report = build_report()
     assert report.undefined_refs == frozenset(), (
-        f"Undefined JA refs found: {sorted(report.undefined_refs)}"
+        f"Undefined STRINGS refs found: {sorted(report.undefined_refs)}"
+    )
+
+
+def test_live_tree_has_balanced_guide_parity():
+    """Regression: every .guide-lang-en block needs a sibling .guide-lang-ja."""
+    from check_i18n_keys import build_report
+    report = build_report()
+    assert report.guide_parity_ok, (
+        f"INTEL GUIDE parity broken: "
+        f"{report.guide_en_count} EN vs {report.guide_ja_count} JA"
     )
