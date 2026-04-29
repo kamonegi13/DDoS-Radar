@@ -48,6 +48,8 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from radar import config
 from radar.calibration import (
+    drift_watchdog,
+    run_now as calibration_run_now,
     scenario_improver,
     sensor_disable_proposer,
     threshold_history,
@@ -312,6 +314,204 @@ def v2_proposals_scenario_improver_defer(proposal_id: int):
     if auth is not None:
         return auth
     return _scenario_improver_state_change(proposal_id, "snoozed_30d")
+
+
+# ── /api/v2/drift_signals (commit 4) ─────────────────────────────────────────
+
+
+@bp.route("/api/v2/drift_signals", methods=["GET"])
+@jwt_required()
+def v2_drift_signals_list():
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth = _require_analyst()
+    if auth is not None:
+        return auth
+
+    severity = request.args.get("severity", "").strip() or None
+    hours = _safe_int(request.args.get("hours"), 168, min_val=1, max_val=720)
+    min_runs = _safe_int(request.args.get("min_consecutive_runs"), 3,
+                         min_val=1, max_val=24)
+    try:
+        items = drift_watchdog.list_unack_events(
+            severity=severity,
+            min_consecutive_runs=min_runs,
+            hours=hours,
+        )
+    except Exception as exc:
+        return _wrap_error(500, "drift_signals_list_failed",
+                           detail=str(exc)[:200])
+    return jsonify(_wrap(
+        items,
+        filters={"severity": severity, "hours": hours,
+                 "min_consecutive_runs": min_runs},
+        count=len(items),
+    ))
+
+
+@bp.route("/api/v2/drift_signals/<int:event_id>/ack", methods=["POST"])
+@jwt_required()
+def v2_drift_signals_ack(event_id: int):
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    # Drift ack is analyst-allowed (per plan §1.2) — analyst seeing the
+    # drift surface should be able to clear it without escalating to admin.
+    auth = _require_analyst()
+    if auth is not None:
+        return auth
+
+    by = (get_jwt_identity() or "unknown")
+    try:
+        ok = drift_watchdog.acknowledge(event_id, by=f"analyst:{by}")
+    except Exception as exc:
+        return _wrap_error(500, "drift_ack_failed", detail=str(exc)[:200])
+    if not ok:
+        return _not_found(
+            "drift event not in unack state",
+            event_id=event_id,
+        )
+    return jsonify(_wrap({
+        "event_id": event_id,
+        "new_state": "acknowledged",
+        "by": f"analyst:{by}",
+    }))
+
+
+# ── /api/v2/calibration/run_now (commit 4) ───────────────────────────────────
+
+
+@bp.route("/api/v2/calibration/run_now", methods=["POST"])
+@jwt_required()
+def v2_calibration_run_now():
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth = _require_admin()
+    if auth is not None:
+        return auth
+
+    phase = request.args.get("phase", "").strip()
+    if not phase:
+        return _bad_request(
+            "missing phase argument",
+            valid_phases=["tl", "llm_conf", "sensor_disable",
+                          "scenario", "drift", "all"],
+        )
+    try:
+        results = calibration_run_now.dispatch(phase)
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    except Exception as exc:
+        return _wrap_error(500, "run_now_dispatch_failed",
+                           detail=str(exc)[:200])
+    payload = {
+        "phase": phase,
+        "results": [_run_result_to_dict(r) for r in results],
+        "n_ok": sum(1 for r in results if r.succeeded),
+        "n_err": sum(1 for r in results if not r.succeeded),
+    }
+    return jsonify(_wrap(payload))
+
+
+def _run_result_to_dict(r) -> dict:
+    return {
+        "phase": r.phase,
+        "started_at": r.started_at,
+        "duration_ms": r.duration_ms,
+        "summary": r.summary,
+        "error": r.error,
+        "succeeded": r.succeeded,
+    }
+
+
+# ── /api/v2/calibration/health (commit 4, AP3) ───────────────────────────────
+
+
+@bp.route("/api/v2/calibration/health", methods=["GET"])
+@jwt_required()
+def v2_calibration_health():
+    """AP3 self-evaluation: governor + proposer scoreboard.
+
+    Surfaces 7d aggregates so analysts can answer "how reliable is the
+    auto-tuner right now?" without reading the threshold_history table.
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth = _require_analyst()
+    if auth is not None:
+        return auth
+
+    hours = _safe_int(request.args.get("hours"), 168, min_val=1, max_val=720)
+    cutoff = time.time() - hours * 3600
+    try:
+        stats = _collect_health_stats(cutoff)
+    except Exception as exc:
+        return _wrap_error(500, "health_collect_failed",
+                           detail=str(exc)[:200])
+    stats["window_hours"] = hours
+    return jsonify(_wrap(stats))
+
+
+def _collect_health_stats(cutoff: float) -> dict:
+    """Aggregate threshold_history + scenario_proposals + scenario_drift_events
+    counts since `cutoff`. NP3: each query is fault-tolerant; one missing
+    table does not break the whole snapshot."""
+    from radar.database import db as _db
+    conn = _db._get_conn()  # noqa: SLF001
+
+    threshold_counts = _safe_count_by(conn,
+        "SELECT state, COUNT(*) FROM threshold_history "
+        "WHERE emitted_at >= ? GROUP BY state",
+        (cutoff,),
+    )
+    proposal_counts = _safe_count_by(conn,
+        "SELECT proposal_type, state, COUNT(*) FROM scenario_proposals "
+        "WHERE emitted_at >= ? GROUP BY proposal_type, state",
+        (cutoff,), key_columns=2,
+    )
+    drift_counts = _safe_count_by(conn,
+        "SELECT severity, ack_state, COUNT(*) FROM scenario_drift_events "
+        "WHERE emitted_at >= ? GROUP BY severity, ack_state",
+        (cutoff,), key_columns=2,
+    )
+    actionable_drift = 0
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM scenario_drift_events "
+            "WHERE ack_state='unack' AND consecutive_runs >= 3 "
+            "AND emitted_at >= ?",
+            (cutoff,),
+        ).fetchone()
+        actionable_drift = (row[0] if row else 0) or 0
+    except Exception:
+        actionable_drift = 0
+    return {
+        "threshold_history": threshold_counts,
+        "scenario_proposals": proposal_counts,
+        "scenario_drift_events": drift_counts,
+        "actionable_drift_count": actionable_drift,
+    }
+
+
+def _safe_count_by(conn, sql: str, params: tuple, *, key_columns: int = 1) -> dict:
+    """Run an aggregate query, return {key: count}. Multi-column keys are
+    flattened with '|' for JSON-serializable dict keys."""
+    try:
+        rows = conn.execute(sql, params).fetchall()
+    except Exception:
+        return {}
+    out: dict[str, int] = {}
+    for r in rows:
+        if key_columns == 1:
+            key = str(r[0]) if r[0] is not None else "null"
+        else:
+            key = "|".join(str(c) if c is not None else "null"
+                           for c in r[:key_columns])
+        out[key] = int(r[-1] or 0)
+    return out
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────

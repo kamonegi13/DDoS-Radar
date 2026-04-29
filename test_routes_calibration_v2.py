@@ -360,3 +360,135 @@ def test_envelope_includes_np7_disclaimer(client, admin_headers):
     assert body["final_judgment_disclaimer"]
     assert isinstance(body["final_judgment_disclaimer"], str)
     assert len(body["final_judgment_disclaimer"]) > 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Commit 4: drift_signals + run_now + health
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _seed_drift_event(scenario_id: str, signal: str = "weight_stale",
+                      consecutive_runs: int = 5,
+                      severity: str = "amber") -> int:
+    """Seed an unack drift event with sufficient dwell time."""
+    conn = db._get_conn()
+    with conn.writing():
+        cur = conn.execute(
+            "INSERT INTO scenario_drift_events "
+            "(emitted_at, scenario_id, drift_signal, severity, target_country, "
+            " evidence_json, why_string, consecutive_runs, formula_ref, "
+            " ack_state) "
+            "VALUES (?, ?, ?, ?, NULL, '{}', 'test', ?, "
+            "        'test#drift', 'unack')",
+            (time.time(), scenario_id, signal, severity, consecutive_runs),
+        )
+        return cur.lastrowid
+
+
+@pytest.fixture(autouse=True)
+def cleanup_drift_rows():
+    yield
+    try:
+        conn = db._get_conn()
+        with conn.writing():
+            conn.execute(
+                "DELETE FROM scenario_drift_events "
+                "WHERE scenario_id LIKE 'test_calv2_%'"
+            )
+    except Exception:
+        pass
+
+
+# 17. drift list returns dwell-filtered events
+
+
+def test_drift_signals_list_dwell_filter(client, admin_headers):
+    pid_short = _seed_drift_event("test_calv2_drift_short", consecutive_runs=1)
+    pid_long = _seed_drift_event("test_calv2_drift_long", consecutive_runs=5)
+    r = client.get(
+        "/api/v2/drift_signals?min_consecutive_runs=3",
+        headers=admin_headers,
+    )
+    assert r.status_code == 200
+    ids = [d["id"] for d in r.get_json()["data"]]
+    assert pid_long in ids
+    assert pid_short not in ids  # filtered by dwell time
+
+
+# 18. drift ack happy path
+
+
+def test_drift_signals_ack(client, admin_headers):
+    eid = _seed_drift_event("test_calv2_drift_ack", consecutive_runs=4)
+    r = client.post(f"/api/v2/drift_signals/{eid}/ack",
+                    headers=admin_headers)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["data"]["event_id"] == eid
+    assert body["data"]["new_state"] == "acknowledged"
+
+
+# 19. drift double-ack returns 404
+
+
+def test_drift_signals_double_ack(client, admin_headers):
+    eid = _seed_drift_event("test_calv2_drift_double", consecutive_runs=4)
+    client.post(f"/api/v2/drift_signals/{eid}/ack", headers=admin_headers)
+    r = client.post(f"/api/v2/drift_signals/{eid}/ack", headers=admin_headers)
+    assert r.status_code == 404
+
+
+# 20. run_now requires phase param
+
+
+def test_run_now_missing_phase_returns_400(client, admin_headers):
+    r = client.post("/api/v2/calibration/run_now", headers=admin_headers)
+    assert r.status_code == 400
+
+
+# 21. run_now invalid phase returns 400
+
+
+def test_run_now_invalid_phase_returns_400(client, admin_headers):
+    r = client.post("/api/v2/calibration/run_now?phase=banana",
+                    headers=admin_headers)
+    assert r.status_code == 400
+
+
+# 22. run_now happy path (drift)
+
+
+def test_run_now_drift_phase(client, admin_headers):
+    r = client.post("/api/v2/calibration/run_now?phase=drift",
+                    headers=admin_headers)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["data"]["phase"] == "drift"
+    assert len(body["data"]["results"]) == 1
+    assert body["data"]["results"][0]["phase"] == "drift"
+
+
+# 23. run_now requires admin (analyst is forbidden)
+
+
+def test_run_now_requires_admin(client, analyst_headers):
+    r = client.post("/api/v2/calibration/run_now?phase=drift",
+                    headers=analyst_headers)
+    assert r.status_code == 403
+
+
+# 24. health endpoint returns scoreboard envelope
+
+
+def test_calibration_health(client, admin_headers):
+    r = client.get("/api/v2/calibration/health?hours=24",
+                   headers=admin_headers)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["api_version"] == "2.0"
+    data = body["data"]
+    assert "threshold_history" in data
+    assert "scenario_proposals" in data
+    assert "scenario_drift_events" in data
+    assert "actionable_drift_count" in data
+    assert data["window_hours"] == 24

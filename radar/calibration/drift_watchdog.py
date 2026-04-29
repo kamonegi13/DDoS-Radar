@@ -465,4 +465,31 @@ def list_unack_events(*, severity: Optional[str] = None,
     return out
 
 
-__all__ = ["DriftEvent", "run_once", "list_unack_events"]
+def acknowledge(event_id: int, *, by: str) -> bool:
+    """Mark a drift event as acknowledged.
+
+    Returns True on update, False if the row is already non-unack
+    or does not exist. Caller-provided `by` should be `"analyst:<name>"`
+    or `"admin:<name>"`. Used by /api/v2/drift_signals/<id>/ack.
+
+    NP6: ack writes are append-event-style — the event row is updated
+    in place but the original emitted_at and consecutive_runs counter
+    are preserved so analysts can see *when* the signal first crossed
+    the dwell threshold.
+    """
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        with conn.writing():
+            cur = conn.execute(
+                "UPDATE scenario_drift_events SET ack_state='acknowledged', "
+                "ack_at=?, ack_by=? "
+                "WHERE id=? AND ack_state='unack'",
+                (time.time(), by, event_id),
+            )
+            return cur.rowcount > 0
+    except Exception as exc:
+        log.warning("acknowledge drift event %d failed: %s", event_id, exc)
+        return False
+
+
+__all__ = ["DriftEvent", "run_once", "list_unack_events", "acknowledge"]
