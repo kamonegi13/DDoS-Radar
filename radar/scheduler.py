@@ -271,6 +271,24 @@ def _cache_cleanup_worker(registry=None):
                 except Exception as _tlc_exc:
                     log.warning("[TLCalib] calibrate_all_scenarios failed: %s", _tlc_exc)
 
+            # Phase F3: scenario drift watchdog (per-scenario).
+            # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
+            # surfacing in <1 day. Records each detection; the API render
+            # layer filters by consecutive_runs ≥ 3 before showing in UI.
+            try:
+                from radar.calibration.drift_watchdog import run_once as _drift_once
+                drift_result = _drift_once()
+                total_emitted = sum(
+                    sum(per_sig.values()) for per_sig in drift_result.values()
+                )
+                if total_emitted:
+                    log.info(
+                        "[DriftWatchdog] %d scenarios scanned, %d signal events recorded",
+                        len(drift_result), total_emitted,
+                    )
+            except Exception as _drift_exc:
+                log.warning("[DriftWatchdog] run_once failed: %s", _drift_exc)
+
             # LLM pipeline health summary (hourly visibility)
             try:
                 from radar.config import LLM_ENABLED

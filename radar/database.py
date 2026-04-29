@@ -541,6 +541,37 @@ CREATE TABLE IF NOT EXISTS ct_log_domain_first_observed (
     first_observed  REAL NOT NULL
 );
 
+-- v2.0 Phase 3: sensor_observation_ts for watchpane sparklines / drift watchdog.
+CREATE TABLE IF NOT EXISTS sensor_observation_ts (
+    sensor    TEXT NOT NULL,
+    scope     TEXT NOT NULL,
+    ts        REAL NOT NULL,
+    score     REAL,
+    baseline  REAL,
+    status    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sensor_obs_lookup
+    ON sensor_observation_ts (sensor, scope, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_sensor_obs_ttl
+    ON sensor_observation_ts (ts);
+
+-- v2.0 Phase 2: inconclusive_continuity_log (ADR-V2-010).
+CREATE TABLE IF NOT EXISTS inconclusive_continuity_log (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    observed_at       REAL NOT NULL,
+    scenario_id       TEXT NOT NULL,
+    conclusion_type   TEXT NOT NULL,
+    is_available      INTEGER NOT NULL DEFAULT 0,
+    reason            TEXT,
+    run_length_sec    REAL NOT NULL DEFAULT 0,
+    first_seen_at     REAL NOT NULL,
+    metadata          TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_inconclusive_continuity_scope
+    ON inconclusive_continuity_log (scenario_id, conclusion_type, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inconclusive_continuity_time
+    ON inconclusive_continuity_log (observed_at DESC);
+
 -- v2.0 Phase 3 (ADR-V2-011): analyst_feedback ledger.
 CREATE TABLE IF NOT EXISTS analyst_feedback (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
