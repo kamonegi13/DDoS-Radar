@@ -3421,12 +3421,43 @@ class RadarDB:
             {"caller": r[0], "reason": r[1].split(":", 1)[1], "count": r[2]}
             for r in filter_rows
         ]
+        # Lifecycle summary — counts intel items in the same window by
+        # eventual status × confirmer kind. Distinguishes auto-judge
+        # background applies from ingest-time auto-confirms and analyst
+        # actions, so the Diagnostics panel can show what actually
+        # happened to items after submission (which the per-caller
+        # 'auto_confirmed' verdict column does NOT capture for items
+        # that were initially pending and later auto-judged).
+        lc_row = conn.execute(
+            "SELECT "
+            "  SUM(CASE WHEN status='auto_confirmed' THEN 1 ELSE 0 END), "
+            "  SUM(CASE WHEN status='confirmed' AND confirmed_by LIKE 'auto:%' THEN 1 ELSE 0 END), "
+            "  SUM(CASE WHEN status='confirmed' AND (confirmed_by NOT LIKE 'auto:%' OR confirmed_by IS NULL) THEN 1 ELSE 0 END), "
+            "  SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END), "
+            "  SUM(CASE WHEN status='review_needed' THEN 1 ELSE 0 END), "
+            "  SUM(CASE WHEN status='rejected' AND confirmed_by LIKE 'auto:%' THEN 1 ELSE 0 END), "
+            "  SUM(CASE WHEN status='rejected' AND (confirmed_by NOT LIKE 'auto:%' OR confirmed_by IS NULL) THEN 1 ELSE 0 END), "
+            "  SUM(CASE WHEN status='overridden' THEN 1 ELSE 0 END) "
+            "FROM llm_intel WHERE ts >= ?",
+            (cutoff,),
+        ).fetchone()
+        lifecycle = {
+            "ingest_auto_confirmed":  int(lc_row[0] or 0),
+            "auto_judge_confirmed":   int(lc_row[1] or 0),
+            "manual_confirmed":       int(lc_row[2] or 0),
+            "pending":                int(lc_row[3] or 0),
+            "review_needed":          int(lc_row[4] or 0),
+            "auto_judge_rejected":    int(lc_row[5] or 0),
+            "manual_rejected":        int(lc_row[6] or 0),
+            "overridden":             int(lc_row[7] or 0),
+        }
         return {
             "window_hours": hours,
             "total_calls": totals_row[0] or 0,
             "ok_calls": totals_row[1] or 0,
             "per_caller": per_caller,
             "sensor_filter_breakdown": sensor_filter_breakdown,
+            "lifecycle": lifecycle,
         }
 
     # ── CT Log per-domain known-CA history (ADR-024) ──────────────────────

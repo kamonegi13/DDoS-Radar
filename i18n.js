@@ -996,7 +996,9 @@ const STRINGS = {
     'panel.llm_intel.diag_empty':           'No LLM calls in this window',
     'panel.llm_intel.diag_col_sensor':      'sensor',
     'panel.llm_intel.diag_col_calls':       'calls',
-    'panel.llm_intel.diag_col_auto':        'auto',
+    'panel.llm_intel.diag_col_auto':        'auto',         /* legacy alias */
+    'panel.llm_intel.diag_col_ingest':      'ingest',       /* renamed for clarity */
+    'panel.llm_intel.diag_col_ingest_tip':  'Items auto-confirmed at submit time (verdict at LLM call). Items confirmed later by background auto-judge are NOT counted here — see Lifecycle summary above.',
     'panel.llm_intel.diag_col_pending':     'pend',
     'panel.llm_intel.diag_col_filtered':    'filt',
     'panel.llm_intel.diag_col_dedup':       'dedup',
@@ -1004,6 +1006,13 @@ const STRINGS = {
     'panel.llm_intel.diag_col_conf':        'conf',
     'panel.llm_intel.diag_col_ms':          'ms',
     'panel.llm_intel.diag_breakdown_title': 'SENSOR FILTER BREAKDOWN',
+    'panel.llm_intel.diag_lifecycle_title': 'LIFECYCLE ({h}h window)',
+    'panel.llm_intel.diag_lifecycle_note':  'The per-sensor table below shows submit-time verdicts only. Background auto-judge confirms appear here in the Lifecycle summary, not in the table.',
+    'panel.llm_intel.diag_lc_auto':         'AUTO',
+    'panel.llm_intel.diag_lc_manual':       'MANUAL',
+    'panel.llm_intel.diag_lc_pending':      'PENDING',
+    'panel.llm_intel.diag_lc_review':       'REVIEW',
+    'panel.llm_intel.diag_lc_rejected':     'REJECTED',
     // ══════════════════════════════════════════════════════════════
     // Strategic Climate Feed
     // ══════════════════════════════════════════════════════════════

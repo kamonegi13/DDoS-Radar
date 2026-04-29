@@ -3716,3 +3716,48 @@ body[data-replay-on="1"] #top-hud {
     text-transform: lowercase;
     letter-spacing: 0;
 }
+
+/* ── LLM Diagnostics: Lifecycle summary (post auto-judge redesign 2026-04-29) ── */
+.llm-diag-lifecycle {
+    background: rgba(0,0,0,0.35);
+    border: 1px solid #1a1a1a;
+    border-left: 3px solid var(--color-accent);
+    padding: 6px 10px;
+    margin: 6px 10px 10px 10px;
+    font-size: 10px;
+}
+.llm-diag-lifecycle-title {
+    color: #aaa;
+    font-size: 9px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.llm-diag-lifecycle-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-bottom: 4px;
+}
+.llm-diag-lifecycle .ld-cell {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    white-space: nowrap;
+}
+.llm-diag-lifecycle .ld-label { font-weight: bold; }
+.llm-diag-lifecycle .ld-val   { font-size: 12px; }
+.llm-diag-lifecycle .ld-sub   { color: #666; font-size: 9px; }
+.llm-diag-lifecycle .ld-auto    .ld-label { color: #44cc66; }
+.llm-diag-lifecycle .ld-manual  .ld-label { color: #66bbff; }
+.llm-diag-lifecycle .ld-pending .ld-label { color: #ffaa00; }
+.llm-diag-lifecycle .ld-review  .ld-label { color: #ff4444; }
+.llm-diag-lifecycle .ld-reject  .ld-label { color: #888; }
+.llm-diag-lifecycle-note {
+    color: #666;
+    font-size: 9px;
+    font-style: italic;
+    border-top: 1px dashed #222;
+    padding-top: 4px;
+    line-height: 1.4;
+}

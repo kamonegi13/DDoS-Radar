@@ -8763,17 +8763,33 @@
         const confClass   = conf >= 0.80 ? 'llm-item-conf-hi' : conf >= 0.65 ? 'llm-item-conf-mid' : 'llm-item-conf-lo';
         const confPct     = Math.round(conf * 100) + '%';
         const scoreStr    = item.score_delta > 0 ? ' +' + item.score_delta + ' ' + _escHtml((item.domain || '').toUpperCase()) : '';
-        const isAuto      = item.status === 'auto_confirmed';
-        const isPending   = item.status === 'pending' || item.status === 'review_needed';
-        const isReview    = item.status === 'review_needed';
+        // Auto-judge writes status='confirmed' + confirmed_by='auto:*'; the
+        // legacy ingest path writes status='auto_confirmed'. Both are AUTO
+        // for UI labelling purposes (post 2026-04-29 redesign).
+        const confirmedBy   = item.confirmed_by || '';
+        const isAutoIngest  = item.status === 'auto_confirmed';
+        const isAutoJudged  = item.status === 'confirmed'
+                              && confirmedBy.indexOf('auto:') === 0;
+        const isAuto        = isAutoIngest || isAutoJudged;
+        const isManualConf  = item.status === 'confirmed' && !isAutoJudged;
+        const isPending     = item.status === 'pending' || item.status === 'review_needed';
+        const isReview      = item.status === 'review_needed';
 
         // Status label
         let statusLabel = '';
-        if (isAuto)    statusLabel = '<span class="llm-status-label-auto">AUTO</span>';
-        else if (isReview)  statusLabel = '<span class="llm-status-label-review">REVIEW</span>';
-        else if (isPending) statusLabel = '<span class="llm-status-label-pending">PENDING</span>';
-        else if (item.status === 'confirmed')  statusLabel = '<span class="llm-status-label-confirmed">CONFIRMED</span>';
-        else if (item.status === 'rejected' || item.status === 'overridden') statusLabel = '<span class="llm-status-label-rejected">' + _escHtml(item.status.toUpperCase()) + '</span>';
+        if (isAutoJudged) {
+            statusLabel = '<span class="llm-status-label-auto" title="Auto-confirmed by background auto-judge (' + _escHtml(confirmedBy) + ')">AUTO</span>';
+        } else if (isAutoIngest) {
+            statusLabel = '<span class="llm-status-label-auto" title="Auto-confirmed at submit (confidence ≥ threshold)">AUTO</span>';
+        } else if (isReview) {
+            statusLabel = '<span class="llm-status-label-review">REVIEW</span>';
+        } else if (isPending) {
+            statusLabel = '<span class="llm-status-label-pending">PENDING</span>';
+        } else if (isManualConf) {
+            statusLabel = '<span class="llm-status-label-confirmed" title="Manually confirmed by ' + _escHtml(confirmedBy || 'analyst') + '">MANUAL</span>';
+        } else if (item.status === 'rejected' || item.status === 'overridden') {
+            statusLabel = '<span class="llm-status-label-rejected">' + _escHtml(item.status.toUpperCase()) + '</span>';
+        }
 
         // Score applied display
         const scoreApplied = (isAuto || item.status === 'confirmed') && scoreStr
@@ -8922,19 +8938,80 @@
         if (!body) return;
         const per = (data && data.per_caller) || [];
         const breakdown = (data && data.sensor_filter_breakdown) || [];
+        const lifecycle = (data && data.lifecycle) || null;
+        const window_h = (data && data.window_hours) || 24;
 
+        let html = '';
+
+        // ── Lifecycle summary (post auto-judge redesign 2026-04-29) ──
+        // Shows what eventually happened to intel items in the window,
+        // distinguishing auto-judge background applies from ingest-time
+        // auto-confirms and analyst actions. The per-caller table below
+        // shows submit-time verdicts only (which can no longer be the
+        // sole AUTO indicator once auto-judge is enabled).
+        if (lifecycle) {
+            const lc = lifecycle;
+            const totalAuto = (lc.ingest_auto_confirmed || 0) + (lc.auto_judge_confirmed || 0);
+            const totalReject = (lc.auto_judge_rejected || 0) + (lc.manual_rejected || 0);
+            html += '<div class="llm-diag-lifecycle">'
+                + '<div class="llm-diag-lifecycle-title">'
+                + _t('panel.llm_intel.diag_lifecycle_title', { h: window_h })
+                + '</div>'
+                + '<div class="llm-diag-lifecycle-grid">'
+                + '<div class="ld-cell ld-auto">'
+                +   '<span class="ld-label">● ' + _t('panel.llm_intel.diag_lc_auto') + '</span>'
+                +   '<span class="ld-val">' + totalAuto + '</span>'
+                +   '<span class="ld-sub">'
+                +     ' (judge:' + (lc.auto_judge_confirmed || 0)
+                +     ' / ingest:' + (lc.ingest_auto_confirmed || 0) + ')'
+                +   '</span>'
+                + '</div>'
+                + '<div class="ld-cell ld-manual">'
+                +   '<span class="ld-label">✓ ' + _t('panel.llm_intel.diag_lc_manual') + '</span>'
+                +   '<span class="ld-val">' + (lc.manual_confirmed || 0) + '</span>'
+                + '</div>'
+                + '<div class="ld-cell ld-pending">'
+                +   '<span class="ld-label">⚠ ' + _t('panel.llm_intel.diag_lc_pending') + '</span>'
+                +   '<span class="ld-val">' + (lc.pending || 0) + '</span>'
+                + '</div>'
+                + (lc.review_needed > 0
+                    ? '<div class="ld-cell ld-review">'
+                      + '<span class="ld-label">🔴 ' + _t('panel.llm_intel.diag_lc_review') + '</span>'
+                      + '<span class="ld-val">' + lc.review_needed + '</span>'
+                      + '</div>'
+                    : '')
+                + '<div class="ld-cell ld-reject">'
+                +   '<span class="ld-label">✗ ' + _t('panel.llm_intel.diag_lc_rejected') + '</span>'
+                +   '<span class="ld-val">' + totalReject + '</span>'
+                +   '<span class="ld-sub">'
+                +     ' (judge:' + (lc.auto_judge_rejected || 0)
+                +     ' / manual:' + (lc.manual_rejected || 0) + ')'
+                +   '</span>'
+                + '</div>'
+                + '</div>'
+                + '<div class="llm-diag-lifecycle-note">'
+                + _t('panel.llm_intel.diag_lifecycle_note')
+                + '</div>'
+                + '</div>';
+        }
+
+        // ── Per-caller LLM-call observability ──
+        // Each row = one sensor (caller). Columns show submit-time verdicts
+        // and call-layer outcomes (errors etc.). The "INGEST" column counts
+        // verdict='auto_confirmed' at submit time only — items that the
+        // auto-judge later confirmed are NOT counted here (see lifecycle
+        // summary above instead).
         if (!per.length) {
-            body.innerHTML = '<div class="llm-diag-empty">' + _t('panel.llm_intel.diag_empty') + '</div>';
+            html += '<div class="llm-diag-empty">' + _t('panel.llm_intel.diag_empty') + '</div>';
+            body.innerHTML = html;
             return;
         }
 
-        // Per-caller stats table.  Each row shows: sensor | total | auto | pend |
-        // filtered | dedup | err | avg_conf | avg_ms. "err" sums parse_failed +
-        // http_error + timeout + exception.
         const hdr = '<tr>'
             + '<th class="col-name">' + _t('panel.llm_intel.diag_col_sensor') + '</th>'
             + '<th>' + _t('panel.llm_intel.diag_col_calls') + '</th>'
-            + '<th>' + _t('panel.llm_intel.diag_col_auto')    + '</th>'
+            + '<th title="' + _t('panel.llm_intel.diag_col_ingest_tip') + '">'
+            +   _t('panel.llm_intel.diag_col_ingest') + '</th>'
             + '<th>' + _t('panel.llm_intel.diag_col_pending') + '</th>'
             + '<th>' + _t('panel.llm_intel.diag_col_filtered')+ '</th>'
             + '<th>' + _t('panel.llm_intel.diag_col_dedup')   + '</th>'
@@ -8961,7 +9038,7 @@
                 + '</tr>';
         }).join('');
 
-        let html = '<table class="llm-diag-table">' + hdr + rows + '</table>';
+        html += '<table class="llm-diag-table">' + hdr + rows + '</table>';
 
         // Sensor-layer filter breakdown list. Empty if no filters fired.
         if (breakdown.length) {
