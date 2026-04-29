@@ -276,6 +276,23 @@ def revert(row_id: int, *, reverted_by: str) -> Optional[int]:
     )
 
 
+def get_by_id(row_id: int) -> Optional[ThresholdRecord]:
+    """Fetch a single row by primary key. Returns None if not found.
+
+    Used by the calibration_v2 API to serve `/threshold_history/<id>`.
+    Read-only; no NP6 implications.
+    """
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        row = conn.execute(
+            f"SELECT {_COLS} FROM threshold_history WHERE id=?", (row_id,),
+        ).fetchone()
+    except Exception as exc:
+        log.debug("get_by_id %d failed: %s", row_id, exc)
+        return None
+    return _row_to_record(row) if row else None
+
+
 def list_recent(
     *,
     hours: int = 168,
@@ -308,4 +325,5 @@ __all__ = [
     "record_change",
     "revert",
     "list_recent",
+    "get_by_id",
 ]

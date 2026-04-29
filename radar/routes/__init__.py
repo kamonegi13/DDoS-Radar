@@ -103,3 +103,4 @@ def _require_analyst():
 from radar.routes import static, core, admin, analytics, history, climate, intel, analyst  # noqa: E402,F401
 from radar.routes import conclusions_v2  # noqa: E402,F401  -- v2 API skeleton (gated by V2_API_ENABLED)
 from radar.routes import sensors_v2  # noqa: E402,F401  -- v2 sensor watchpane backend (gated by V2_API_ENABLED)
+from radar.routes import calibration_v2  # noqa: E402,F401  -- v2 auto-tune API surface (Tier 1, gated by V2_API_ENABLED)
