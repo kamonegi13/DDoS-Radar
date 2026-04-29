@@ -1741,6 +1741,17 @@ const STRINGS = {
     'autotune.chip.recall_ok':         'recall OK',
     'autotune.chip.open_wizard':       'Open Wizard',
     'tools.autotune_wizard':           'Auto-tune Wizard',
+    'tools.llm_features':              'LLM Features',
+
+    // ══════════════════════════════════════════════════════════════
+    // LLM Feature Hub (commit J)
+    // ══════════════════════════════════════════════════════════════
+    'llm_features.title':              'LLM Feature Hub',
+    'llm_features.close':              '[ X ] Close',
+    'llm_features.loading':            'Loading…',
+    'llm_features.disclaimer':         'Tool conclusion only — final judgment by organizational process. State changes are recorded in the audit log (NP6).',
+    'llm_features.chip.title':         'LLM',
+    'llm_features.chip.tip':           'LLM features active. Click to manage.',
 
 };
 

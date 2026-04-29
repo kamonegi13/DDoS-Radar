@@ -228,6 +228,15 @@
             <span class="hud-chip-label" data-i18n="autotune.chip.title">AUTO-TUNE</span>
             <span id="hud-autotune-value" class="hud-chip-value">—</span>
         </div>
+        <!-- LLM Feature Hub chip — shows N on / total features with shadow tail.
+             Click opens the Feature Hub modal. -->
+        <div class="hud-chip hud-self-eval" id="hud-llm-feat-chip"
+             title="LLM features: click to manage which AI capabilities are active."
+             onclick="window._llmFeaturesOpen && window._llmFeaturesOpen()"
+             style="cursor:pointer;">
+            <span class="hud-chip-label" data-i18n="llm_features.chip.title">LLM</span>
+            <span id="hud-llm-feat-value" class="hud-chip-value">—</span>
+        </div>
     </div>
 
 </div>
@@ -306,6 +315,7 @@
                     <div class="tools-menu-section-header" data-i18n="tools.section.admin">ADMIN</div>
                     <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();"><span class="tools-menu-icon">&#x1F464;</span><span class="tools-menu-label" data-i18n="tools.user_management">User Management</span></div>
                     <div class="tools-menu-item" id="tm-item-autotune" onclick="window._wizardOpen && window._wizardOpen()"><span class="tools-menu-icon">&#x2699;</span><span class="tools-menu-label" data-i18n="tools.autotune_wizard">Auto-tune Wizard</span></div>
+                    <div class="tools-menu-item" id="tm-item-llm-features" onclick="window._llmFeaturesOpen && window._llmFeaturesOpen()"><span class="tools-menu-icon">&#x1F916;</span><span class="tools-menu-label" data-i18n="tools.llm_features">LLM Features</span></div>
                 </div>
             </div>
         </div>
@@ -3090,6 +3100,40 @@
             <li><b>Manual triggers</b>: Admins can fire individual phases via <span class="code-block">POST /api/v2/calibration/run_now?phase=&lt;name&gt;</span> (phase ∈ {tl, llm_conf, sensor_disable, scenario, structure, discovery, g3b, drift, all}).</li>
         </ul>
 
+        <p><b>K. LLM Feature Hub</b> — <span class="code-block">TOOLS ▾</span> → LLM Features (or HUD <span class="code-block">LLM</span> chip)</p>
+        <ul>
+            <li><b>Purpose</b>: Single control plane for every LLM-driven capability. LLM features were previously controlled through 8+ independent env flags with no visible state. The Hub centralizes registry, runtime override, audit history, and a global kill switch — without restarting Docker.</li>
+            <li><b>Tier hierarchy</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Tier 0 — Core</b>: load-bearing capabilities (sensor LLM intel extraction). Disabling this stops new intel ingestion. Kill switch only.</li>
+                    <li><b>Tier 1 — Decision-Augmenting</b>: auto-judge LLM recheck, attack-mode augmentation. Adds value to deterministic decisions. Admin-only flip.</li>
+                    <li><b>Tier 2 — Narrative</b>: triage natural-language explanation. Display only, no decision impact. Analyst-toggleable.</li>
+                    <li><b>Tier 3 — Discovery</b>: G.3b cluster annotation. Structure-suggesting (NP7) — admin-only with extra confirm modal.</li>
+                </ul>
+            </li>
+            <li><b>State resolution chain</b> (highest priority first):
+                <ol style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>Global kill switch (env <span class="code-block">LLM_FEATURE_KILL_SWITCH</span> OR DB row) → all features OFF.</li>
+                    <li>Per-feature DB override set via the Hub UI / API.</li>
+                    <li>env_var / shadow_env_var (legacy <span class="code-block">config.env</span> values).</li>
+                    <li>Registry default declared in <span class="code-block">radar/llm_features.py</span>.</li>
+                </ol>
+            </li>
+            <li><b>State values</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>OFF</b>: feature inert.</li>
+                    <li><b>SHADOW</b>: runs but does not apply (records to ledger). Only available for features whose <span class="code-block">supports_shadow=True</span>.</li>
+                    <li><b>ON</b>: fully active.</li>
+                    <li><b>auto</b>: drop UI override and revert to env+default. Use the <i>Auto (revert)</i> button.</li>
+                </ul>
+            </li>
+            <li><b>NP7 confirm</b>: Setting a structure-affecting feature (current example: <span class="code-block">g3b_cluster_annotator</span>) to ON or SHADOW pops a confirm dialog and prompts for a reason. The reason is recorded in the audit history.</li>
+            <li><b>Kill switch</b>: Admin-only. Engaging drops every feature (including Core) to OFF on the next is_enabled() call. New intel ingestion will stop until released. Use only for emergencies (suspected hallucination cascade, LLM endpoint compromise, etc.).</li>
+            <li><b>Audit (NP6)</b>: Every state flip records old_state, new_state, actor (<span class="code-block">admin:&lt;name&gt;</span> / <span class="code-block">analyst:&lt;name&gt;</span>), and optional reason. View via the History toggle or <span class="code-block">GET /api/v2/llm_features/audit?hours=720&amp;limit=200</span>.</li>
+            <li><b>API</b>: <span class="code-block">GET /api/v2/llm_features</span>, <span class="code-block">GET /api/v2/llm_features/&lt;key&gt;</span>, <span class="code-block">POST /api/v2/llm_features/&lt;key&gt;/{set,clear}</span>, <span class="code-block">POST /api/v2/llm_features/kill_switch</span>, <span class="code-block">GET /api/v2/llm_features/audit</span>.</li>
+            <li><b>HUD chip</b>: Row 3 right side shows <span class="code-block">LLM N/M</span> (N on / M total) with optional <span class="code-block">+Ks</span> shadow tail. Color: green = all on, amber = any shadow, red = kill switch engaged. Click opens the Hub.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3209,6 +3253,40 @@
             <li><b>監査</b>: 全 apply 操作は <span class="code-block">scenario_proposals.state_changed_by</span> に <span class="code-block">admin:&lt;username&gt;</span> として記録。<span class="code-block">GET /api/v2/threshold_history/&lt;id&gt;/lineage</span> で derivation chain を遡及可能。</li>
             <li><b>Discovery タブの注意</b>: G.3b LLM 注釈は <span class="code-block">G3B_SHADOW_ENABLED=true</span>（観察期間）→ <span class="code-block">G3B_LLM_ENABLED=true</span>（本番）の段階移行を経て初めて UI に出る。デフォルトは両方 false（ハルシネーション防止のため安全側デフォルト）。confidence_self_reported &lt; 0.5 の注釈は灰色化される。</li>
             <li><b>手動トリガー</b>: 管理者は <span class="code-block">POST /api/v2/calibration/run_now?phase=&lt;name&gt;</span> で個別フェーズを即座に実行可能（phase ∈ {tl, llm_conf, sensor_disable, scenario, structure, discovery, g3b, drift, all}）。</li>
+        </ul>
+
+        <p><b>K. LLM Feature Hub</b> — <span class="code-block">TOOLS ▾</span> → LLM Features (または HUD の <span class="code-block">LLM</span> chip)</p>
+        <ul>
+            <li><b>目的</b>: LLM 駆動の全機能を 1 か所で管理する制御面。これまで 8 つ以上の独立した env フラグで分散制御されていたものを、レジストリ + 実行時 override + 監査履歴 + グローバル kill switch に統合。Docker 再起動なしに切替可能。</li>
+            <li><b>4 階層構造</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Tier 0 — Core</b>: 根幹機能（センサー LLM intel 抽出）。停止すると新規 intel 流入が止まる。kill switch でのみ操作。</li>
+                    <li><b>Tier 1 — Decision-Augmenting</b>: auto-judge LLM 再判定、attack-mode 拡張。決定論的判断を補強。admin のみ。</li>
+                    <li><b>Tier 2 — Narrative</b>: triage 自然言語表示。表示のみで判断には影響しない。analyst でも切替可能。</li>
+                    <li><b>Tier 3 — Discovery</b>: G.3b クラスタ注釈。構造提案（NP7 概念）— admin のみ + 追加確認モーダル。</li>
+                </ul>
+            </li>
+            <li><b>状態解決の優先順位</b>（高い順）:
+                <ol style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>グローバル kill switch（env <span class="code-block">LLM_FEATURE_KILL_SWITCH</span> または DB 行）→ 全 feature OFF。</li>
+                    <li>機能別 DB override（Hub UI / API で設定）。</li>
+                    <li>env_var / shadow_env_var（既存 <span class="code-block">config.env</span> 値）。</li>
+                    <li><span class="code-block">radar/llm_features.py</span> registry のデフォルト。</li>
+                </ol>
+            </li>
+            <li><b>状態値</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>OFF</b>: 機能停止。</li>
+                    <li><b>SHADOW</b>: 動作するが apply しない（ledger に記録のみ）。<span class="code-block">supports_shadow=True</span> の機能のみ選択可。</li>
+                    <li><b>ON</b>: フル稼働。</li>
+                    <li><b>auto</b>: UI override をクリアし env+default に戻す。<i>Auto (revert)</i> ボタンを使用。</li>
+                </ul>
+            </li>
+            <li><b>NP7 確認</b>: 構造影響機能（現状 <span class="code-block">g3b_cluster_annotator</span>）を ON / SHADOW に切替時、確認ダイアログ + 理由入力を要求。理由は監査履歴に記録される。</li>
+            <li><b>Kill switch</b>: admin のみ。engage で次回 is_enabled() 呼び出し時に Core 含む全機能 OFF。新規 intel 流入が止まる。緊急時のみ使用（ハルシネーション連鎖の疑い、LLM エンドポイント侵害等）。</li>
+            <li><b>監査（NP6）</b>: 全状態変更で old_state / new_state / 実行者（<span class="code-block">admin:&lt;name&gt;</span> / <span class="code-block">analyst:&lt;name&gt;</span>）/ 任意理由を記録。Hub の History トグル または <span class="code-block">GET /api/v2/llm_features/audit?hours=720&amp;limit=200</span> で確認。</li>
+            <li><b>API</b>: <span class="code-block">GET /api/v2/llm_features</span>、<span class="code-block">GET /api/v2/llm_features/&lt;key&gt;</span>、<span class="code-block">POST /api/v2/llm_features/&lt;key&gt;/{set,clear}</span>、<span class="code-block">POST /api/v2/llm_features/kill_switch</span>、<span class="code-block">GET /api/v2/llm_features/audit</span>。</li>
+            <li><b>HUD chip</b>: Row 3 右側に <span class="code-block">LLM N/M</span>（N 個 on / 計 M 個）形式で表示。shadow 件数は <span class="code-block">+Ks</span> として末尾追加。色: 緑=全 on、橙=shadow あり、赤=kill switch engaged。クリックで Hub を開く。</li>
         </ul>
 
         </div>
@@ -3836,6 +3914,26 @@
     </div>
 </div>
 
+<!-- ── LLM Feature Hub modal (commit J) ─────────────────────────────────── -->
+<div id="llm-features-modal" class="modal-window lfh-modal"
+     role="dialog" aria-modal="true" aria-labelledby="lfh-title"
+     style="width:780px; max-height:84vh;">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555;">
+        <div id="lfh-title" data-i18n="llm_features.title">LLM Feature Hub</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;"
+                onclick="window._llmFeaturesClose && window._llmFeaturesClose()"
+                data-i18n="llm_features.close">[ X ] Close</button>
+    </div>
+    <div class="lfh-body" id="llm-features-body">
+        <div class="lfh-loading" data-i18n="llm_features.loading">Loading…</div>
+    </div>
+    <div class="lfh-footer">
+        <span class="lfh-disclaimer" data-i18n="llm_features.disclaimer">
+            Tool conclusion only — final judgment by organizational process. State changes are recorded in the audit log (NP6).
+        </span>
+    </div>
+</div>
+
 <!-- ── NP7 Confirmation modal (used by Wizard apply for recall-reducing proposals) ── -->
 <div id="autotune-confirm-modal" class="modal-window wizard-confirm"
      role="dialog" aria-modal="true" aria-labelledby="autotune-confirm-title"
@@ -3869,6 +3967,7 @@
 <script src="radar.js"></script>
 <script src="tradecraft.js"></script>
 <script src="autotune_wizard.js"></script>
+<script src="llm_features_hub.js"></script>
 
 </body>
 </html>
