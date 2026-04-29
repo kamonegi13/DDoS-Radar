@@ -273,6 +273,14 @@ const STRINGS = {
     'triage.tooltip.menu':             'TRIAGE actions: Inspect / Acknowledge / Snooze / Visibility. Critical events bypass snooze (NP1).',
     'triage.snooze.chip':              '⏸ TRIAGE muted {n}m',
     'triage.snooze.chip.tooltip':      'TRIAGE Lane is muted (NP1: critical events still surface). Click to release.',
+
+    // ── Decision History modal (Phase 4 of Decision Layer / AP4) ──────
+    'tools.decision_history':          'Decision History',
+    'controls.tool.decision_history.desc': 'Time-ordered ledger of analyst decisions across TRIAGE, calibration governance, and threshold operations. AP4 forensic timeline.',
+    'decision_history.title':          'Decision History (AP4)',
+    'decision_history.close':          '[ X ] Close',
+    'decision_history.loading':        'Loading…',
+    'decision_history.disclaimer':     'AP4 Decision Trail — every analyst action recorded with actor, reason, and parameters. Combine with the LLM Features audit log and scenario_change_log for the full forensic timeline.',
     'hud.label.eta':                  'ETA',
     'hud.tooltip.eta':                'ETA: projected time to next TL boundary based on current velocity. Suppressed when velocity is too small to be meaningful.',
     'hud.eta.tooltip_up':             '{pts}pt → TL{tl}, est. ~{eta} at current rate',

@@ -111,6 +111,10 @@
           labelKey: 'tools.llm_features', descKey: 'controls.tool.llm_features.desc',
           panelId: 'llm-features-modal', placeholderId: null,
           kind: 'modal', toggleFn: () => window._llmFeaturesOpen && window._llmFeaturesOpen() },
+        { id: 'decision-history', section: 'automation', icon: '📜',
+          labelKey: 'tools.decision_history', descKey: 'controls.tool.decision_history.desc',
+          panelId: 'decision-history-modal', placeholderId: null,
+          kind: 'modal', toggleFn: () => window._decisionHistoryOpen && window._decisionHistoryOpen() },
 
         // ─ Admin (modal) ─
         { id: 'usrmgr', section: 'admin', icon: '👤',

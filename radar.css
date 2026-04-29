@@ -2765,6 +2765,107 @@ body[data-replay-on="1"] #top-hud {
     font-style: italic;
 }
 
+/* ── Decision History modal (Phase 4 — AP4) ──────────────────────── */
+.dh-modal { background: var(--color-bg, #08090d); border: 1px solid #555; }
+.dh-filters {
+    display: flex;
+    gap: 12px;
+    padding: 8px 14px;
+    border-bottom: 1px solid #2a2a2a;
+    align-items: center;
+    flex-wrap: wrap;
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: #ccc;
+}
+.dh-filters label { display: inline-flex; gap: 6px; align-items: center; }
+.dh-filters select {
+    background: rgba(255, 255, 255, 0.04);
+    color: #ddd;
+    border: 1px solid #444;
+    padding: 2px 6px;
+    font-family: inherit;
+    font-size: 11px;
+}
+.dh-body {
+    padding: 8px 14px;
+    overflow-y: auto;
+    max-height: calc(84vh - 140px);
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+}
+.dh-summary { color: #66ccff; padding: 4px 0 8px 0; font-size: 10px; }
+.dh-empty { color: #888; padding: 20px; text-align: center; font-style: italic; }
+.dh-error { color: #ff8888; padding: 8px; }
+.dh-list { display: flex; flex-direction: column; gap: 6px; }
+.dh-row {
+    background: rgba(255, 255, 255, 0.02);
+    border-left: 2px solid #00ffff44;
+    padding: 6px 10px;
+    border-radius: 2px;
+}
+.dh-row-superseded {
+    opacity: 0.55;
+    border-left-color: #66666644;
+}
+.dh-row-head {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 10px;
+}
+.dh-ts { color: #aaa; min-width: 145px; }
+.dh-actor { color: #88ffaa; }
+.dh-action {
+    padding: 1px 6px;
+    border: 1px solid #444;
+    border-radius: 2px;
+    color: #ddd;
+    text-transform: uppercase;
+    font-size: 9px;
+    letter-spacing: 0.5px;
+}
+.dh-action-rollback,
+.dh-action-raise { border-color: #ff5555; color: #ff8888; }
+.dh-action-accept,
+.dh-action-extend { border-color: #00ff88; color: #88ff99; }
+.dh-action-snooze,
+.dh-action-dismiss { border-color: #ffaa00; color: #ffcc66; }
+.dh-type { color: #66ccff; }
+.dh-target { color: #888; }
+.dh-tag {
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 9px;
+    letter-spacing: 0.4px;
+}
+.dh-tag-np7 { background: rgba(255, 140, 0, 0.18); color: #ffcc66; border: 1px solid #ff880055; }
+.dh-tag-superseded { background: rgba(150, 150, 150, 0.15); color: #aaa; }
+.dh-reason {
+    padding: 4px 0 0 0;
+    color: #ccc;
+    font-style: italic;
+    font-size: 10px;
+}
+.dh-meta { color: #888; font-size: 10px; padding: 2px 0; }
+.dh-params {
+    background: rgba(0, 0, 0, 0.4);
+    color: #aabbcc;
+    padding: 4px 8px;
+    margin: 4px 0 0 0;
+    font-size: 10px;
+    line-height: 1.4;
+    border-radius: 2px;
+    overflow-x: auto;
+}
+.dh-footer {
+    padding: 8px 14px;
+    border-top: 1px solid #2a2a2a;
+    font-size: 10px;
+    color: #888;
+}
+
 /* HUD snooze indicator chip (always-visible reminder when muted) */
 .hud-triage-snooze-chip {
     display: inline-block;

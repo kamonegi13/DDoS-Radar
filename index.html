@@ -4112,6 +4112,64 @@
     </div>
 </div>
 
+<!-- ── Decision History modal (AP4 — Decision Trail, Phase 4 of Decision Layer) ── -->
+<div id="decision-history-modal" class="modal-window dh-modal"
+     role="dialog" aria-modal="true" aria-labelledby="dh-title"
+     style="width:880px; max-height:84vh;">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555;">
+        <div id="dh-title" data-i18n="decision_history.title">Decision History (AP4)</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;"
+                onclick="window._decisionHistoryClose && window._decisionHistoryClose()"
+                data-i18n="decision_history.close">[ X ] Close</button>
+    </div>
+    <div class="dh-filters">
+        <label>Type:
+            <select id="dh-filter-type">
+                <option value="">All</option>
+                <option value="triage_snooze">TRIAGE snooze</option>
+                <option value="triage_visibility">TRIAGE visibility</option>
+                <option value="triage_dismiss">TRIAGE dismiss</option>
+                <option value="triage_threshold_override">TRIAGE threshold</option>
+                <option value="tl_recal_accept">TL recal accept</option>
+                <option value="tl_recal_extend">TL recal extend</option>
+                <option value="tl_recal_raise">TL recal raise</option>
+                <option value="dual_weight_accept">Dual-weight accept</option>
+                <option value="dual_weight_extend">Dual-weight extend</option>
+                <option value="dual_weight_rollback">Dual-weight rollback</option>
+            </select>
+        </label>
+        <label>Window:
+            <select id="dh-filter-window">
+                <option value="86400">24h</option>
+                <option value="604800" selected>7d</option>
+                <option value="2592000">30d</option>
+                <option value="7776000">90d</option>
+            </select>
+        </label>
+        <label>Action:
+            <select id="dh-filter-action">
+                <option value="">All</option>
+                <option value="accept">accept</option>
+                <option value="extend">extend</option>
+                <option value="raise">raise</option>
+                <option value="rollback">rollback</option>
+                <option value="snooze">snooze</option>
+                <option value="dismiss">dismiss</option>
+                <option value="set">set</option>
+            </select>
+        </label>
+        <button type="button" id="dh-filter-apply" class="btn-tactical">Apply filters</button>
+    </div>
+    <div class="dh-body" id="decision-history-body">
+        <div class="dh-loading" data-i18n="decision_history.loading">Loading…</div>
+    </div>
+    <div class="dh-footer">
+        <span class="dh-disclaimer" data-i18n="decision_history.disclaimer">
+            AP4 Decision Trail — every analyst action recorded with actor, reason, and parameters. Combine with the LLM Features audit log and scenario_change_log for the full forensic timeline.
+        </span>
+    </div>
+</div>
+
 <!-- ── NP7 Confirmation modal (used by Wizard apply for recall-reducing proposals) ── -->
 <div id="autotune-confirm-modal" class="modal-window wizard-confirm"
      role="dialog" aria-modal="true" aria-labelledby="autotune-confirm-title"

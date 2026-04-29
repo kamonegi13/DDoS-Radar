@@ -2892,6 +2892,93 @@
         chip.style.display = 'inline-block';
     }
 
+    // ── Decision History modal (AP4, Phase 4) ─────────────────────────
+    // Loads /api/v2/decisions/history with the user's filter selections
+    // and renders a chronological list. Single-modal pattern matching
+    // the LLM Feature Hub UX.
+    window._decisionHistoryOpen = function () {
+        if (typeof openModal === 'function') openModal('decision-history-modal');
+        // Wire filter controls once.
+        const apply = document.getElementById('dh-filter-apply');
+        if (apply && apply.dataset.dhWired !== '1') {
+            apply.addEventListener('click', _dhLoad);
+            apply.dataset.dhWired = '1';
+        }
+        _dhLoad();
+    };
+
+    window._decisionHistoryClose = function () {
+        if (typeof closeModal === 'function') closeModal('decision-history-modal');
+    };
+
+    async function _dhLoad() {
+        const body = document.getElementById('decision-history-body');
+        if (!body) return;
+        body.innerHTML = '<div class="dh-loading">Loading…</div>';
+
+        const typeSel = document.getElementById('dh-filter-type');
+        const windowSel = document.getElementById('dh-filter-window');
+        const actionSel = document.getElementById('dh-filter-action');
+        const params = new URLSearchParams();
+        if (typeSel && typeSel.value) params.set('decision_type', typeSel.value);
+        if (actionSel && actionSel.value) params.set('action', actionSel.value);
+        if (windowSel && windowSel.value) {
+            const since = (Date.now() / 1000) - parseInt(windowSel.value, 10);
+            params.set('since_ts', String(since));
+        }
+        params.set('limit', '500');
+
+        try {
+            const resp = await fetch('/api/v2/decisions/history?' + params.toString());
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
+            const items = data.decisions || [];
+            if (items.length === 0) {
+                body.innerHTML = '<div class="dh-empty">No decisions match the current filters.</div>';
+                return;
+            }
+            body.innerHTML = '<div class="dh-summary">'
+                + items.length + ' decision' + (items.length === 1 ? '' : 's')
+                + ' · most recent first</div>'
+                + '<div class="dh-list">'
+                + items.map(_dhRenderRow).join('')
+                + '</div>';
+        } catch (e) {
+            body.innerHTML = '<div class="dh-error">Failed to load: '
+                + _escHtml(e.message) + '</div>';
+        }
+    }
+
+    function _dhRenderRow(it) {
+        const ts = it.decided_at ? new Date(it.decided_at * 1000).toISOString().slice(0, 19).replace('T', ' ') : '?';
+        const exp = it.expires_at
+            ? '· expires ' + new Date(it.expires_at * 1000).toISOString().slice(0, 19).replace('T', ' ')
+            : '';
+        const supersededCls = it.superseded_by ? 'dh-row-superseded' : '';
+        const supersededTag = it.superseded_by
+            ? '<span class="dh-tag dh-tag-superseded">superseded</span>' : '';
+        const np7Tag = it.parameters && it.parameters.np7_confirmed
+            ? '<span class="dh-tag dh-tag-np7">NP7 confirmed</span>' : '';
+        const target = it.target_kind === 'global' ? '—' : (it.target_kind + ':' + (it.target_id || '?'));
+        const params = it.parameters
+            ? '<pre class="dh-params">' + _escHtml(JSON.stringify(it.parameters, null, 2)) + '</pre>'
+            : '';
+        return `
+            <div class="dh-row ${supersededCls}">
+                <div class="dh-row-head">
+                    <span class="dh-ts">${_escHtml(ts)}</span>
+                    <span class="dh-actor">${_escHtml(it.actor)}</span>
+                    <span class="dh-action dh-action-${_escHtml(it.action)}">${_escHtml(it.action)}</span>
+                    <span class="dh-type">${_escHtml(it.decision_type)}</span>
+                    <span class="dh-target">${_escHtml(target)}</span>
+                    ${supersededTag}${np7Tag}
+                </div>
+                ${it.reason ? '<div class="dh-reason">' + _escHtml(it.reason) + '</div>' : ''}
+                ${exp ? '<div class="dh-meta">' + _escHtml(exp) + '</div>' : ''}
+                ${params}
+            </div>`;
+    }
+
     // Periodic state refresh so the chip's countdown stays current and
     // expired snoozes auto-clear without a page reload.
     setInterval(() => {
