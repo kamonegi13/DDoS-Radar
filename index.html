@@ -3183,6 +3183,24 @@
             <li><b>API</b>: <span class="code-block">GET /api/v2/attention</span> (rules + tool_status + suggestions), <span class="code-block">POST /api/v2/attention/&lt;rid&gt;/snooze</span>, <span class="code-block">GET /api/v2/attention/thresholds</span>, <span class="code-block">PUT /api/v2/attention/thresholds/&lt;rid&gt;</span>, <span class="code-block">DELETE /api/v2/attention/thresholds/&lt;rid&gt;</span>.</li>
         </ul>
 
+        <p><b>M. HUD TL Divergence Fix</b> — HUD Row 1 THREAT LV / Row 2 24H sparkline / FOCUS scenario card TL (commits V/W/X/Y, 2026-04-29)</p>
+        <ul>
+            <li><b>Symptom</b>: The three TL surfaces could disagree by 1–2 levels for several minutes after a TL transition. The HUD badge said TL3 while the sparkline still showed TL5 and the FOCUS card said TL2 — eroding analyst trust ("which one do I believe?").</li>
+            <li><b>Root causes</b> (5 structural issues, all addressed):
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>v1/v2 split path</b>: HUD badge applied a v2 conclusion-ledger overlay (<span class="code-block">_hudV2OverlayStrat</span>); the sparkline and FOCUS card read the raw v1 <span class="code-block">derive_tl()</span> result. <i>Fixed in commit W</i> — both surfaces now use the same v2 overlay.</li>
+                    <li><b>Global threat_history stream</b>: <span class="code-block">threat_history</span> stored a single TL stream regardless of which scenario produced it, so switching focus showed the previous scenario's TL trail. <i>Fixed in commit V</i> — migration v33 adds <span class="code-block">scenario_id</span>; new endpoint <span class="code-block">GET /api/v2/scenarios/&lt;id&gt;/threat_history</span> returns scoped series.</li>
+                    <li><b>180s envelope TTL</b>: v2 conclusion envelope was cached for 3 minutes — fine when v2 only updated on analyst feedback, but obsolete now that scoring writes fresh conclusions every 10s. <i>Fixed in commit X</i> — TTL shortened to 30s.</li>
+                    <li><b>Focus-switch race</b>: switching focused scenario didn't invalidate the v2 envelope or sparkline cache, so the old scenario's data lingered for one TTL window. <i>Fixed in commit W</i> — both caches drop the previous scenario's keys on switch.</li>
+                    <li><b>Silent disagreement</b>: when v1 and v2 disagreed, overlay priority quietly picked one and buried the other. <i>Fixed in commit X</i> — an amber chip next to the THREAT LV badge surfaces "v1 TL X / v2 TL Y" so the analyst sees the contention.</li>
+                </ul>
+            </li>
+            <li><b>Behavior after fix</b>: Same TL on all three surfaces under steady state. During a TL transition, the divergence chip lights up for &lt; 30s as caches drain, then clears. The chip's tooltip explains which ledger drives the badge and points to the v2 audit trace.</li>
+            <li><b>What the divergence chip looks like</b>: small amber pill <span class="code-block">⚠ v1 TL3 / v2 TL2</span> next to the duration tag. Visible only when both layers produced a definite TL and they disagree; otherwise hidden.</li>
+            <li><b>NP6 transparency</b>: The divergence is now visible rather than silently resolved. Click the THREAT LV badge to inspect the v2 conclusion (formula, threshold, sources, llm_prompt, calibration). The HUD sparkline and FOCUS card always follow v2 (overlay priority); v1 remains the fallback when v2 is missing or stale (NP3).</li>
+            <li><b>API</b>: <span class="code-block">GET /api/v2/scenarios/&lt;scenario_id&gt;/threat_history?hours=24&amp;limit=1000</span> — per-scenario TL series. <span class="code-block">hours</span> capped at 168, <span class="code-block">limit</span> capped at 5000. Returns <span class="code-block">{api_version, scenario_id, hours, history: [[ts, level], ...], final_judgment_disclaimer}</span>.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3370,6 +3388,24 @@
             <li><b>Per-user 閾値</b>: 各 analyst が任意ルールの enter 閾値を <span class="code-block">PUT /api/v2/attention/thresholds/&lt;rule_id&gt;</span> で個別 override 可能。override 不在時は default にフォールバック。</li>
             <li><b>検索 + キーボード</b>: 検索ボックスでカード名 + 説明文を部分一致フィルタ。<span class="code-block">/</span> キーで検索フォーカス、<span class="code-block">Esc</span> でモーダル閉じる。</li>
             <li><b>API</b>: <span class="code-block">GET /api/v2/attention</span>（rules + tool_status + suggestions）、<span class="code-block">POST /api/v2/attention/&lt;rid&gt;/snooze</span>、<span class="code-block">GET /api/v2/attention/thresholds</span>、<span class="code-block">PUT /api/v2/attention/thresholds/&lt;rid&gt;</span>、<span class="code-block">DELETE /api/v2/attention/thresholds/&lt;rid&gt;</span>。</li>
+        </ul>
+
+        <p><b>M. HUD TL 不整合修正</b> — HUD 1 段目 THREAT LV / 2 段目 24H スパークライン / FOCUS シナリオカード TL（commits V/W/X/Y、2026-04-29）</p>
+        <ul>
+            <li><b>症状</b>: TL 遷移直後の数分間、3 つの TL 表示面が 1–2 レベル乖離することがあった。HUD バッジは TL3、スパークラインはまだ TL5、FOCUS カードは TL2 と不整合。「どれを信じればよいのか」とアナリストの信頼を損ねる動作。</li>
+            <li><b>根本原因</b>（5 つの構造問題、全て対処済）:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>v1/v2 経路の分岐</b>: HUD バッジは v2 結論レジャー overlay（<span class="code-block">_hudV2OverlayStrat</span>）を適用、スパークラインと FOCUS カードは生の v1 <span class="code-block">derive_tl()</span> を読んでいた。<i>commit W で修正</i> — 両者とも同じ v2 overlay を使用。</li>
+                    <li><b>グローバル threat_history ストリーム</b>: <span class="code-block">threat_history</span> はどのシナリオが生成した値かに関係なく単一ストリームで TL を保持していたため、focus を切替えると前シナリオの TL trail がそのまま見えていた。<i>commit V で修正</i> — マイグレーション v33 で <span class="code-block">scenario_id</span> 列を追加、新エンドポイント <span class="code-block">GET /api/v2/scenarios/&lt;id&gt;/threat_history</span> がシナリオ別系列を返す。</li>
+                    <li><b>180 秒 envelope TTL</b>: v2 結論 envelope を 3 分キャッシュしていた — v2 が analyst feedback でしか更新されなかった時代の値で、scoring が 10 秒毎に新結論を書く現在では遅すぎる。<i>commit X で修正</i> — TTL を 30 秒に短縮。</li>
+                    <li><b>Focus 切替えレース</b>: 焦点シナリオを切替えても v2 envelope とスパークラインのキャッシュが invalidate されず、TTL window 1 回分は前シナリオのデータが残った。<i>commit W で修正</i> — 切替え時に両キャッシュから旧シナリオキーを drop。</li>
+                    <li><b>無言の不一致</b>: v1 と v2 が異なる時、overlay 優先で片方が静かに採用され、もう片方は埋もれていた。<i>commit X で修正</i> — THREAT LV バッジ横に「v1 TL X / v2 TL Y」を出すアンバー chip を追加し、不一致をアナリストに可視化。</li>
+                </ul>
+            </li>
+            <li><b>修正後の挙動</b>: 定常状態では 3 面とも同じ TL を表示。TL 遷移中はキャッシュが drain する 30 秒未満の間 divergence chip が点灯し、その後消える。chip の tooltip にバッジを駆動するレジャーと v2 audit trace への導線を表示。</li>
+            <li><b>divergence chip の見た目</b>: duration タグの隣に小さなアンバー pill <span class="code-block">⚠ v1 TL3 / v2 TL2</span>。両層が確定 TL を出していて、かつ値が異なる時のみ可視化（一致時・どちらか欠落時は非表示）。</li>
+            <li><b>NP6 透明性</b>: 不一致を黙って解決するのではなく可視化。THREAT LV バッジクリックで v2 結論の詳細（formula / threshold / sources / llm_prompt / calibration）を確認可能。HUD スパークラインと FOCUS カードは常に v2 を優先（overlay priority）、v2 不在/stale 時のみ v1 にフォールバック（NP3）。</li>
+            <li><b>API</b>: <span class="code-block">GET /api/v2/scenarios/&lt;scenario_id&gt;/threat_history?hours=24&amp;limit=1000</span> — シナリオ別 TL 系列。<span class="code-block">hours</span> は 168 上限、<span class="code-block">limit</span> は 5000 上限。レスポンス: <span class="code-block">{api_version, scenario_id, hours, history: [[ts, level], ...], final_judgment_disclaimer}</span>。</li>
         </ul>
 
         </div>
