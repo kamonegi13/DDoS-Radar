@@ -24,6 +24,7 @@ COPY radar.css       .
 COPY wp_alarm.js     .
 COPY hud_v2_overlay.js .
 COPY triage_score.js .
+COPY triage_display_mode.js .
 COPY self_explanation.js .
 COPY map_dim.js .
 COPY index.html      .

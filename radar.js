@@ -2556,6 +2556,43 @@
         return history;
     }
 
+    // ── TRIAGE Lane display mode (commit A) ─────────────────────────────
+    // The lane lives at #alert-lane in the DOM. Three display modes,
+    // each implemented by portal-moving #alert-lane between two slots:
+    //
+    //   dormant         #alert-lane is hidden (no portal needed)
+    //   pin-dock        #alert-lane → #triage-lane-dock-slot (inside
+    //                   #map-wrapper as an absolute corner overlay)
+    //   critical-banner #alert-lane → #triage-lane-critical-slot (HUD
+    //                   flow, slim banner)
+    //
+    // Commit A wires the portal mechanism only; commit B activates the
+    // state-machine transitions and the compact / expanded views.
+    let _triageCurrentMode = 'dormant';
+
+    function _setTriageMode(mode) {
+        const lane = document.getElementById('alert-lane');
+        if (!lane) return;
+        if (mode === _triageCurrentMode) return;
+
+        const dockSlot = document.getElementById('triage-lane-dock-slot');
+        const critSlot = document.getElementById('triage-lane-critical-slot');
+
+        if (mode === 'critical-banner' && critSlot && lane.parentNode !== critSlot) {
+            critSlot.appendChild(lane);
+        } else if (mode === 'pin-dock' && dockSlot && lane.parentNode !== dockSlot) {
+            dockSlot.appendChild(lane);
+        }
+        // dormant mode leaves #alert-lane wherever it is — `lane.hidden`
+        // controls visibility separately.
+
+        lane.classList.remove('tm-pin-dock', 'tm-dormant',
+                              'tm-critical-banner', 'tm-expanded');
+        lane.classList.add('tm-' + mode);
+
+        _triageCurrentMode = mode;
+    }
+
     function _refreshAlertLane(focusedId) {
         const lane = document.getElementById('alert-lane');
         const list = document.getElementById('al-list');

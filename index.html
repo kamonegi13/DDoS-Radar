@@ -372,6 +372,14 @@
      when nothing fires; expands as needed. Stage A.3 ships the empty
      infrastructure; Stage B.7 (AP1 — Active Triage) populates it with
      attention_score-ranked items and "why ranked #N" rationale. -->
+<!-- TRIAGE Lane portal slot: HUD-flow position used in CRITICAL banner mode.
+     #alert-lane is portal-moved here when attention_score crosses critical
+     threshold. Empty in pin-dock / dormant modes. -->
+<div id="triage-lane-critical-slot"></div>
+
+<!-- The Triage Lane body. JS portal-moves this between
+     #triage-lane-critical-slot (HUD flow, banner mode) and
+     #triage-lane-dock-slot (absolute, inside #map-wrapper, pin-dock mode). -->
 <div id="alert-lane" role="region" aria-live="polite" aria-label="Active triage alerts" hidden>
     <div class="al-toolbar" id="al-toolbar"
          title="TRIAGE: ranked attention queue. attention_score = novelty × confidence_delta × analyst_blindness. Higher rank = more deserving of immediate analyst attention.">
@@ -440,6 +448,11 @@
 
     <div id="map-wrapper">
         <div id="map"></div>
+        <!-- TRIAGE Lane portal slot: pin-dock position. Absolute corner
+             container so #alert-lane (when portal-moved here) overlays the
+             map without consuming HUD vertical space. Sized by
+             #alert-lane.tm-pin-dock CSS rules in radar.css. -->
+        <div id="triage-lane-dock-slot"></div>
         <!-- Map dim overlay (focus-change loading state).
              Hidden by default; switchScenarioFocus() reveals it with
              body[data-map-dim="1"] and lifts it on lift. While dim is
@@ -4081,6 +4094,7 @@
 <script src="wp_alarm.js"></script>
 <script src="hud_v2_overlay.js"></script>
 <script src="triage_score.js"></script>
+<script src="triage_display_mode.js"></script>
 <script src="self_explanation.js"></script>
 <script src="map_dim.js"></script>
 <script src="radar.js"></script>
