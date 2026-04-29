@@ -49,6 +49,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from radar import config
 from radar.calibration import (
     drift_watchdog,
+    lineage as calibration_lineage,
     run_now as calibration_run_now,
     scenario_improver,
     sensor_disable_proposer,
@@ -140,6 +141,26 @@ def v2_threshold_history_get(row_id: int):
     if record is None:
         return _not_found("threshold row not found", row_id=row_id)
     return jsonify(_wrap(asdict(record)))
+
+
+@bp.route("/api/v2/threshold_history/<int:row_id>/lineage", methods=["GET"])
+@jwt_required()
+def v2_threshold_history_lineage(row_id: int):
+    """F2-d: walk the derived_from chain (via revertible_to_id) to
+    expose ancestors + descendants of a threshold row."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth = _require_analyst()
+    if auth is not None:
+        return auth
+
+    max_depth = _safe_int(request.args.get("max_depth"), 50,
+                          min_val=1, max_val=200)
+    graph = calibration_lineage.walk_lineage(row_id, max_depth=max_depth)
+    if graph is None:
+        return _not_found("threshold row not found", row_id=row_id)
+    return jsonify(_wrap(graph.to_dict()))
 
 
 @bp.route("/api/v2/threshold_history/<int:row_id>/revert", methods=["POST"])
