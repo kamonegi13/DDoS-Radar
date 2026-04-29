@@ -3141,9 +3141,21 @@
             <li><b>HUD chip</b>: Row 3 right side shows <span class="code-block">LLM N/M</span> (N on / M total) with optional <span class="code-block">+Ks</span> shadow tail. Color: green = all on, amber = any shadow, red = kill switch engaged. Click opens the Hub.</li>
         </ul>
 
-        <p><b>L. CONTROLS Tools Hub</b> — hamburger menu → CONTROLS → Open Tools Hub ⇲</p>
+        <p><b>L. CONTROLS Tools Hub</b> — hamburger menu → CONTROLS panel (Tools Hub embedded inline)</p>
         <ul>
-            <li><b>Purpose</b>: Replaces the legacy three-step (hamburger → CONTROLS → TOOLS-dropdown) flow with a single modal grid of cards. Each card shows panel state (open/closed, dock position) and a live data badge (pending counts, sensor health, error states). Surfaces ATTENTION rules so analysts know what to look at first.</li>
+            <li><b>Purpose</b>: Replaces the legacy three-step (hamburger → CONTROLS → TOOLS-dropdown) flow with an embedded card layout inside the CONTROLS panel itself. Each card shows panel state (open/closed, dock position) and a live data badge (pending counts, sensor health, error states). Surfaces ATTENTION rules so analysts know what to look at first.</li>
+            <li><b>Why embedded (not modal)</b>: Threat-intel analysts need the map + scenario bar + alert lane visible while inspecting tools. A modal hides them. Embedded keeps everything addressable without obscuring the operational view.</li>
+            <li><b>Explicit buttons (not click-toggle)</b>: Each card has separate <span class="code-block">[Open]</span> / <span class="code-block">[Close]</span> buttons. The currently-active button is filled (green for open, gray for closed) so the analyst sees state and intent in the same place. Misclicks under time pressure are eliminated.</li>
+            <li><b>DOCK control buttons</b>: Dockable panels expose three additional buttons:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span class="code-block">⇄L</span> — Dock into the left sidebar</li>
+                    <li><span class="code-block">⇄R</span> — Dock into the right sidebar</li>
+                    <li><span class="code-block">⤢</span> — Detach as floating window</li>
+                </ul>
+                The currently-active dock target is filled (cyan). Replaces the prior drag-only mechanism.
+            </li>
+            <li><b>Accordion sections</b>: Non-active sections fold to keep the embedded view compact. ATTENTION + Suggestions are <i>always expanded</i>; INTELLIGENCE is default-expanded; other sections fold by default. Each analyst's expand/fold state persists in <span class="code-block">localStorage.cp_section_open</span> across browser sessions.</li>
+            <li><b>Search</b>: Top-of-hub search box filters by tool name + description. Auto-expands every folded section while a query is active so matches are visible. Press <span class="code-block">/</span> to focus, <span class="code-block">Esc</span> to close CONTROLS.</li>
             <li><b>Six sections</b> grouped by intent rather than category:
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
                     <li><b>INTELLIGENCE</b>: LLM Intelligence / Attack Origin / Telegram SIGINT / Evidence Chain / GreyNoise</li>
@@ -3318,9 +3330,21 @@
             <li><b>HUD chip</b>: Row 3 右側に <span class="code-block">LLM N/M</span>（N 個 on / 計 M 個）形式で表示。shadow 件数は <span class="code-block">+Ks</span> として末尾追加。色: 緑=全 on、橙=shadow あり、赤=kill switch engaged。クリックで Hub を開く。</li>
         </ul>
 
-        <p><b>L. CONTROLS Tools Hub</b> — ハンバーガーメニュー → CONTROLS → Open Tools Hub ⇲</p>
+        <p><b>L. CONTROLS Tools Hub</b> — ハンバーガーメニュー → CONTROLS パネル（Tools Hub をパネル内に埋込み）</p>
         <ul>
-            <li><b>目的</b>: 旧来の 3 段階フロー（ハンバーガー → CONTROLS → TOOLS ドロップダウン）を、単一モーダルのカードグリッドに置換。各カードが panel 状態（開/閉、ドック位置）と動的データバッジ（pending 件数、センサー健全性、エラー状態）を表示。ATTENTION ルールにより「次に注目すべきツール」を自動上位表示。</li>
+            <li><b>目的</b>: 旧来の 3 段階フロー（ハンバーガー → CONTROLS → TOOLS ドロップダウン）を CONTROLS パネル内のカードレイアウトに統合。各カードが panel 状態（開/閉、ドック位置）と動的データバッジ（pending 件数、センサー健全性、エラー状態）を表示。ATTENTION ルールにより「次に注目すべきツール」を自動上位表示。</li>
+            <li><b>埋込み式の理由</b>: 脅威インテリジェンスアナリストはツール状態確認中も地図 + シナリオバー + アラートレーンを視認する必要がある。モーダルだと隠れてしまうので、CONTROLS 内に埋込みで地図を遮らない設計。</li>
+            <li><b>明示ボタン（クリックトグルではない）</b>: 各カードに独立した <span class="code-block">[Open]</span> / <span class="code-block">[Close]</span> ボタン。現在状態のボタンが塗り（open は緑、close はグレー）で表示される。状態と操作意図が同位置で可視化され、緊張時の誤操作を防止。</li>
+            <li><b>DOCK 操作ボタン</b>: dockable パネルには 3 つの追加ボタン:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span class="code-block">⇄L</span> — 左サイドバーへドック</li>
+                    <li><span class="code-block">⇄R</span> — 右サイドバーへドック</li>
+                    <li><span class="code-block">⤢</span> — 浮動ウィンドウとして切り離し</li>
+                </ul>
+                現在のドック位置のボタンが塗り（cyan）。従来の「ドラッグでドック」のみだった動作を明示ボタン化。
+            </li>
+            <li><b>アコーディオン</b>: 非アクティブセクションは折り畳まれてパネルがコンパクトに保たれる。ATTENTION + Suggestions は <i>常時展開</i>、INTELLIGENCE はデフォルト展開、他のセクションはデフォルト折り畳み。各 analyst の展開/折り畳み状態は <span class="code-block">localStorage.cp_section_open</span> に永続化、ブラウザセッション再開で復元。</li>
+            <li><b>検索</b>: 上部の検索ボックスでツール名 + 説明文を部分一致フィルタ。クエリ中は折り畳みセクションも自動展開してマッチ結果を表示。<span class="code-block">/</span> でフォーカス、<span class="code-block">Esc</span> で CONTROLS を閉じる。</li>
             <li><b>意図ベース 6 区分</b>:
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
                     <li><b>INTELLIGENCE</b>: LLM Intelligence / Attack Origin / Telegram SIGINT / Evidence Chain / GreyNoise</li>
