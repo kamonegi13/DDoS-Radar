@@ -36,6 +36,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from typing import Optional
 
 from radar.database import db
 from radar.intel_queue import (
@@ -98,16 +99,53 @@ def _source_recent_min_decisions() -> int:
 # Marker analyst ids written into intel rows so analyst recall metrics can
 # distinguish auto-judge actions from human ones.
 #
-# Note (2026-04-29): the LLM second-pass markers (auto:llm_recheck_*) and
-# the supporting _llm_recheck() / _llm_recheck_enabled() helpers were
-# removed after scripts/backtest_auto_judge_layer1.py demonstrated that
-# the proposed Layer 1 safety gate (cross-source corroboration) cannot
-# function on the current data — every theater in the 7-day window has a
-# single source_type, so any LLM-driven flip would be unsafe. The
-# deterministic recheck below stands alone until cross-source diversity
-# exists; re-introduce the LLM second pass alongside Layer 1 then.
+# History (2026-04-29):
+#   1. First commit (1bb5195) shipped deterministic rules only.
+#   2. Second commit (70930bc) added LLM second-pass on confidence ≥ 0.80
+#      self-report. Removed in 8bddb2f because backtest showed Layer 1
+#      (cross-evidence) was the missing safety, and confidence-only was
+#      "unsafe-if-enabled" without it.
+#   3. R1 (3063943) restored diplomatic feeds → diversity max=3 achieved.
+#   4. THIS commit re-introduces LLM second pass with Layer 1 cross-evidence
+#      gate hard-coded into the path: an LLM verdict can ONLY flip an item
+#      that has independent cross-evidence in the same theater. Items in
+#      single-source theaters fall through to pending regardless of how
+#      confident the LLM claims to be. This is asymmetric NP1: blocks
+#      hallucination-driven flips, never causes them.
 ANALYST_AUTO_CONFIRM = "auto:rule_confirm"
 ANALYST_AUTO_REJECT = "auto:rule_reject"
+# LLM second-pass markers — distinct from rule markers so analyst-only
+# recall metrics and ECE calibration can stratify by decision path.
+ANALYST_LLM_CONFIRM = "auto:llm_recheck_confirm"
+ANALYST_LLM_REJECT = "auto:llm_recheck_reject"
+
+
+def _llm_recheck_enabled() -> bool:
+    """LLM second-pass on the deterministic-pending tail. OFF by default —
+    every air-gapped / LLM-disabled deployment must keep working without
+    it (NP3, AP1). Operators opt in via LLM_AUTO_JUDGE_RECHECK=true after
+    observing the calibration ledger for ≥1 week of shadow data.
+    """
+    val = os.getenv("LLM_AUTO_JUDGE_RECHECK", "false").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
+def _llm_shadow_enabled() -> bool:
+    """Shadow mode: invoke the LLM second pass and write the verdict to
+    the calibration ledger, but DO NOT apply it. Used for the 1-week
+    pre-rollout observation period before flipping LLM_AUTO_JUDGE_RECHECK
+    to true. Defaults true so calibration data accrues from day 1.
+    """
+    val = os.getenv("LLM_AUTO_JUDGE_SHADOW", "true").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
+def _llm_confidence_floor() -> float:
+    """Confidence the LLM second pass must clear before flipping. 0.85
+    default — stricter than the previous 0.80 because Layer 1 alone is
+    not a guarantee of correctness, only of cross-evidence presence.
+    """
+    return float(os.getenv("AUTO_JUDGE_LLM_CONF_FLOOR", "0.85"))
 
 
 @dataclass(frozen=True)
@@ -221,6 +259,34 @@ def _source_drift_rejects(source_id: str) -> bool:
     return ratio >= _source_reject_ratio_threshold()
 
 
+def _ledger_record(*, item_id: str, action_proposed: str, confidence: float,
+                    reason: str, layer1_corroborators: int,
+                    layer1_satisfied: bool, applied: bool) -> None:
+    """Wrapper around db.auto_judge_decision_log that swallows DB errors
+    (NP3 — observability must never break the main flow)."""
+    try:
+        db.auto_judge_decision_log(
+            item_id=item_id,
+            action_proposed=action_proposed,
+            confidence=confidence,
+            reason=reason,
+            layer1_corroborators=layer1_corroborators,
+            layer1_satisfied=layer1_satisfied,
+            applied=applied,
+        )
+    except Exception as exc:
+        log.debug("auto_judge ledger write failed: %s", exc)
+
+
+def _ledger_mark_applied(item_id: str) -> None:
+    if not item_id:
+        return
+    try:
+        db.auto_judge_decision_mark_applied(item_id)
+    except Exception as exc:
+        log.debug("auto_judge ledger mark_applied failed: %s", exc)
+
+
 def evaluate(item: dict) -> AutoJudgeVerdict:
     """Run the deterministic auto-judge rules on a pending intel item.
 
@@ -280,11 +346,148 @@ def evaluate(item: dict) -> AutoJudgeVerdict:
             corroborator_count=corroborators,
         )
 
-    return AutoJudgeVerdict(
+    middle_verdict = AutoJudgeVerdict(
         action="pending",
         reason="ambiguous_middle_band",
         corroborator_count=corroborators,
     )
+
+    # LLM second-pass — Layer 1 cross-evidence is REQUIRED inside the
+    # recheck so an LLM hallucination can never flip a single-source item.
+    # Two independent gates protect this:
+    #   (i)  shadow vs apply (env LLM_AUTO_JUDGE_RECHECK)
+    #   (ii) hardcoded "must have corroborators OR cross-evidence" inside
+    #        _llm_recheck() — this gate runs even in shadow mode so the
+    #        calibration ledger only records well-founded LLM verdicts.
+    if _llm_shadow_enabled() or _llm_recheck_enabled():
+        llm_verdict = _llm_recheck(item, deterministic_pending=middle_verdict,
+                                    corroborator_count=corroborators)
+        if llm_verdict is not None and _llm_recheck_enabled():
+            return llm_verdict
+        # Shadow mode: ledger written inside _llm_recheck but verdict
+        # discarded so deterministic pending stands.
+    return middle_verdict
+
+
+_LLM_RECHECK_SYSTEM = (
+    "You are a strict OSINT triage analyst. PENDING is the SAFE default. "
+    "Only return CONFIRM or REJECT when you can defend the verdict in one "
+    "sentence with concrete textual evidence from the excerpt. If unsure, "
+    "RETURN PENDING. There is no penalty for returning PENDING. There IS "
+    "a cost to a wrong CONFIRM or REJECT — a human analyst will be wasted "
+    "reviewing it. "
+    "Answer ONLY in JSON with keys: action ('confirm'|'reject'|'pending'), "
+    "confidence (0..1), reason (short string with concrete textual evidence)."
+)
+
+
+def _llm_recheck(item: dict, *, deterministic_pending: AutoJudgeVerdict,
+                 corroborator_count: int) -> Optional[AutoJudgeVerdict]:
+    """Optional LLM second-pass for deterministic-pending items.
+
+    Layer 1 cross-evidence is HARDCODED here: regardless of LLM verdict,
+    the function returns None (→ no flip) unless the item has
+    corroborator_count >= 1 in the same theater. This keeps the path
+    asymmetric — Layer 1 blocks LLM-driven false-positive flips at the
+    structural level, never causes them.
+
+    Always writes a ledger row when the LLM is invoked (shadow + apply
+    modes alike) so calibration data accrues from day 1.
+
+    All failure paths return None — never raise — to preserve NP3.
+    """
+    try:
+        from radar.llm_client import (
+            llm_analyze_json, llm_available, safe_enum, safe_float,
+        )
+    except Exception:
+        return None
+    try:
+        if not llm_available():
+            return None
+    except Exception:
+        return None
+
+    headline = (item.get("headline") or "").strip()
+    raw_text = (item.get("raw_text") or "").strip()
+    theater = item.get("theater") or ""
+    base_conf = float(item.get("confidence") or 0.0)
+    excerpt = raw_text[:600]
+    prompt = (
+        f"Theater: {theater}\n"
+        f"First-pass confidence: {base_conf:.2f}\n"
+        f"Cross-evidence corroborators in same theater (72h): {corroborator_count}\n"
+        f"Headline: {headline}\n"
+        f"Excerpt: {excerpt}\n\n"
+        "Question: Is this a relevant, credible escalation/threat signal "
+        "for the named theater? Reject if it is duplicate of older news, "
+        "off-topic, low-quality social-media noise, or unverifiable rumor. "
+        "Return PENDING if uncertain — that is the safe default."
+    )
+    try:
+        resp = llm_analyze_json(
+            prompt, system=_LLM_RECHECK_SYSTEM,
+            temperature=0.0, max_tokens=200,
+            caller="intel_auto_judge.recheck",
+        )
+    except Exception as exc:
+        log.debug("auto_judge LLM recheck call failed: %s", exc)
+        return None
+    if not resp or not resp.get("ok"):
+        return None
+    data = resp.get("data") or {}
+    action = safe_enum(data.get("action"), {"confirm", "reject", "pending"}, "pending")
+    confidence = safe_float(data.get("confidence"), default=0.0,
+                            min_val=0.0, max_val=1.0)
+    reason = (data.get("reason") or "")[:120]
+
+    # ALWAYS log to calibration ledger, even when the verdict is pending
+    # or below floor — this lets ECE be computed across the full LLM
+    # output distribution, not just the flips we kept.
+    _ledger_record(
+        item_id=item.get("id") or "",
+        action_proposed=action,
+        confidence=confidence,
+        reason=reason,
+        layer1_corroborators=corroborator_count,
+        layer1_satisfied=(corroborator_count >= 1),
+        applied=False,  # set true below if we actually flip
+    )
+
+    # Layer 1 gate (hardcoded): no flip without cross-evidence.
+    if action != "pending" and corroborator_count < 1:
+        log.debug(
+            "auto_judge LLM recheck blocked by Layer 1: %s (action=%s, "
+            "conf=%.2f) lacks cross-evidence in theater %s",
+            (item.get("id") or "")[:12], action, confidence, theater,
+        )
+        return None
+
+    if action == "pending":
+        return None
+    if confidence < _llm_confidence_floor():
+        return None
+
+    if action == "confirm":
+        verdict = AutoJudgeVerdict(
+            action="confirm",
+            reason=f"llm_recheck:{reason or 'confirmed'}",
+            confidence_floor_used=_llm_confidence_floor(),
+            corroborator_count=corroborator_count,
+        )
+    elif action == "reject":
+        verdict = AutoJudgeVerdict(
+            action="reject",
+            reason=f"llm_recheck:{reason or 'rejected'}",
+            confidence_floor_used=_llm_confidence_floor(),
+        )
+    else:
+        return None
+
+    # Mark applied=true in the ledger if we're actually going to apply.
+    if _llm_recheck_enabled():
+        _ledger_mark_applied(item.get("id") or "")
+    return verdict
 
 
 def apply(item_id: str, verdict: AutoJudgeVerdict) -> bool:
@@ -295,27 +498,30 @@ def apply(item_id: str, verdict: AutoJudgeVerdict) -> bool:
     """
     if verdict.action == "pending":
         return True
+    is_llm = verdict.reason.startswith("llm_recheck:")
     if verdict.action == "confirm":
-        ok = intel_queue.confirm(item_id, analyst=ANALYST_AUTO_CONFIRM)
+        marker = ANALYST_LLM_CONFIRM if is_llm else ANALYST_AUTO_CONFIRM
+        ok = intel_queue.confirm(item_id, analyst=marker)
         if ok:
             log.info(
-                "[AutoJudge] CONFIRMED %s — %s (corroborators=%d)",
-                item_id, verdict.reason, verdict.corroborator_count,
+                "[AutoJudge] CONFIRMED %s — %s (corroborators=%d, marker=%s)",
+                item_id, verdict.reason, verdict.corroborator_count, marker,
             )
         return ok
     if verdict.action == "reject":
         # Use "irrelevant" classification so we don't penalize source
-        # credibility — the rule decided automatically, not based on
-        # ground-truth fact-check.
+        # credibility — the rule (or LLM) decided automatically, not based
+        # on ground-truth fact-check.
+        marker = ANALYST_LLM_REJECT if is_llm else ANALYST_AUTO_REJECT
         ok = intel_queue.reject(
             item_id,
-            analyst=ANALYST_AUTO_REJECT,
+            analyst=marker,
             classification="irrelevant",
         )
         if ok:
             log.info(
-                "[AutoJudge] REJECTED %s — %s",
-                item_id, verdict.reason,
+                "[AutoJudge] REJECTED %s — %s (marker=%s)",
+                item_id, verdict.reason, marker,
             )
         return ok
     return False
@@ -358,6 +564,8 @@ __all__ = [
     "AutoJudgeVerdict",
     "ANALYST_AUTO_CONFIRM",
     "ANALYST_AUTO_REJECT",
+    "ANALYST_LLM_CONFIRM",
+    "ANALYST_LLM_REJECT",
     "evaluate",
     "apply",
     "run_sweep",

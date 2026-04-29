@@ -737,6 +737,16 @@ class IntelQueue:
         if item.get("source_id"):
             db.intel_source_record_outcome(item["source_id"], confirmed=True)
         log.info(f"[Intel] CONFIRMED by {analyst}: {item.get('headline', '')[:80]}")
+        # Track human override of an auto-judge decision (Phase 4 B2):
+        # if the analyst is a real human (not an auto:* marker) AND this
+        # item had an applied auto-judge decision, mark the override.
+        if not (analyst or "").startswith("auto:"):
+            try:
+                db.auto_judge_decision_mark_overridden(
+                    item_id, override_action="confirm", analyst_id=analyst,
+                )
+            except Exception:
+                pass
         return True
 
     def reject(self, item_id: str, analyst: str = "analyst",
@@ -760,6 +770,14 @@ class IntelQueue:
             db.intel_source_record_outcome(item["source_id"], confirmed=False)
         tag = "FALSE_POS" if classification == "false_positive" else "IRRELEVANT"
         log.info(f"[Intel] REJECTED ({tag}) by {analyst}: {item.get('headline', '')[:80]}")
+        # Track human override of an auto-judge decision (Phase 4 B2).
+        if not (analyst or "").startswith("auto:"):
+            try:
+                db.auto_judge_decision_mark_overridden(
+                    item_id, override_action="reject", analyst_id=analyst,
+                )
+            except Exception:
+                pass
         return True
 
     def revert(self, item_id: str, analyst: str = "analyst") -> bool:

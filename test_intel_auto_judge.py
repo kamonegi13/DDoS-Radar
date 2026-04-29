@@ -216,6 +216,145 @@ class TestAutoJudgeApply:
         assert got["status"] == "rejected"
         assert got["confirmed_by"] == ANALYST_AUTO_REJECT
 
+    def test_llm_recheck_gated_off_by_default(self, testdb, monkeypatch):
+        """LLM_AUTO_JUDGE_RECHECK=false (default) → middle-band items
+        stay pending even when LLM would have flipped them."""
+        _patch_db(monkeypatch, testdb)
+        monkeypatch.delenv("LLM_AUTO_JUDGE_RECHECK", raising=False)
+        monkeypatch.setenv("LLM_AUTO_JUDGE_SHADOW", "false")
+        monkeypatch.setattr("radar.llm_client.llm_available", lambda: True)
+        monkeypatch.setattr(
+            "radar.llm_client.llm_analyze_json",
+            lambda *a, **k: {"ok": True, "data": {
+                "action": "confirm", "confidence": 0.95,
+                "reason": "should not be applied",
+            }},
+        )
+        from radar.intel_auto_judge import evaluate
+
+        item = _base_item(confidence=0.55)
+        testdb.intel_upsert({**item, "id": "i_off", "status": "pending",
+                             "created_at": time.time(), "ts": time.time()})
+        verdict = evaluate(testdb.intel_get("i_off"))
+        assert verdict.action == "pending"
+
+    def test_llm_recheck_blocked_by_layer1_when_no_corroborator(self, testdb, monkeypatch):
+        """Even with LLM enabled and high LLM confidence, an item with zero
+        cross-evidence corroborators in the same theater MUST stay pending.
+        Layer 1 is hardcoded into _llm_recheck and cannot be bypassed."""
+        _patch_db(monkeypatch, testdb)
+        monkeypatch.setenv("LLM_AUTO_JUDGE_RECHECK", "true")
+        monkeypatch.setattr("radar.llm_client.llm_available", lambda: True)
+        monkeypatch.setattr(
+            "radar.llm_client.llm_analyze_json",
+            lambda *a, **k: {"ok": True, "data": {
+                "action": "confirm", "confidence": 0.95,
+                "reason": "looks credible",
+            }},
+        )
+        from radar.intel_auto_judge import evaluate
+
+        item = _base_item(confidence=0.55)
+        # Single-source theater (only this item exists) → no corroborator.
+        testdb.intel_upsert({**item, "id": "i_lonely", "status": "pending",
+                             "created_at": time.time(), "ts": time.time()})
+        verdict = evaluate(testdb.intel_get("i_lonely"))
+        assert verdict.action == "pending", (
+            "Layer 1 must block LLM-driven flips when no cross-evidence exists; "
+            f"got {verdict}"
+        )
+
+    def test_llm_recheck_flips_when_layer1_satisfied(self, testdb, monkeypatch):
+        """Multi-source theater + high-confidence LLM verdict → flip applied."""
+        _patch_db(monkeypatch, testdb)
+        monkeypatch.setenv("LLM_AUTO_JUDGE_RECHECK", "true")
+        monkeypatch.setattr("radar.llm_client.llm_available", lambda: True)
+        monkeypatch.setattr(
+            "radar.llm_client.llm_analyze_json",
+            lambda *a, **k: {"ok": True, "data": {
+                "action": "confirm", "confidence": 0.95,
+                "reason": "two-source corroborated escalation signal",
+            }},
+        )
+        from radar.intel_auto_judge import (
+            ANALYST_LLM_CONFIRM, AutoJudgeVerdict, apply, evaluate,
+        )
+
+        # Seed independent peer in the same theater (different source_type).
+        peer = _base_item(
+            source_type="diplomatic",
+            source_id="diplomatic_reuters",
+            headline="Independent diplomatic confirmation of Taiwan reconnaissance",
+        )
+        testdb.intel_upsert({**peer, "id": "i_peer_llm", "status": "confirmed",
+                             "created_at": time.time(), "ts": time.time()})
+        # Target item — middle-band confidence.
+        target = _base_item(confidence=0.55)
+        testdb.intel_upsert({**target, "id": "i_layer1_ok", "status": "pending",
+                             "created_at": time.time(), "ts": time.time()})
+
+        verdict = evaluate(testdb.intel_get("i_layer1_ok"))
+        # Layer 1 satisfied (≥1 corroborator) AND LLM confident →
+        # either deterministic confirm (the rule path beats LLM) or
+        # LLM-flagged confirm. Both end up applied.
+        assert verdict.action == "confirm"
+        ok = apply("i_layer1_ok", verdict)
+        assert ok
+        marker = testdb.intel_get("i_layer1_ok")["confirmed_by"]
+        # Whichever path fired, the marker is one of the two auto markers.
+        assert marker.startswith("auto:")
+
+    def test_llm_recheck_writes_calibration_ledger(self, testdb, monkeypatch):
+        """Every LLM recheck invocation writes a row to auto_judge_decisions —
+        even in shadow mode where the verdict is discarded."""
+        _patch_db(monkeypatch, testdb)
+        monkeypatch.setenv("LLM_AUTO_JUDGE_RECHECK", "false")
+        monkeypatch.setenv("LLM_AUTO_JUDGE_SHADOW", "true")
+        monkeypatch.setattr("radar.llm_client.llm_available", lambda: True)
+        monkeypatch.setattr(
+            "radar.llm_client.llm_analyze_json",
+            lambda *a, **k: {"ok": True, "data": {
+                "action": "reject", "confidence": 0.90,
+                "reason": "off-topic",
+            }},
+        )
+        from radar.intel_auto_judge import evaluate
+
+        item = _base_item(confidence=0.55)
+        testdb.intel_upsert({**item, "id": "i_shadow", "status": "pending",
+                             "created_at": time.time(), "ts": time.time()})
+        evaluate(testdb.intel_get("i_shadow"))
+        rows = testdb.auto_judge_decisions_recent(hours=1)
+        target_rows = [r for r in rows if r["item_id"] == "i_shadow"]
+        assert len(target_rows) >= 1
+        ledger = target_rows[0]
+        assert ledger["action_proposed"] == "reject"
+        assert ledger["confidence"] == 0.90
+        assert ledger["applied"] is False  # shadow mode: not applied
+
+    def test_human_override_marks_ledger(self, testdb, monkeypatch):
+        """When an analyst confirms an item that was previously auto-judged,
+        the ledger row is marked analyst_overrode=1."""
+        q = _patch_db(monkeypatch, testdb)
+        item = _base_item()
+        testdb.intel_upsert({**item, "id": "i_ovr", "status": "pending",
+                             "created_at": time.time(), "ts": time.time()})
+        # Seed a prior applied auto-judge decision row.
+        testdb.auto_judge_decision_log(
+            item_id="i_ovr", action_proposed="reject", confidence=0.7,
+            reason="test", layer1_corroborators=1, layer1_satisfied=True,
+            applied=True,
+        )
+        # Analyst confirms (overriding the auto-reject).
+        ok = q.confirm("i_ovr", analyst="alice@example.com")
+        assert ok
+        rows = testdb.auto_judge_decisions_recent(hours=1)
+        ovr_rows = [r for r in rows if r["item_id"] == "i_ovr"]
+        assert len(ovr_rows) == 1
+        assert ovr_rows[0]["analyst_overrode"] is True
+        assert ovr_rows[0]["analyst_id"] == "alice@example.com"
+        assert ovr_rows[0]["analyst_override_action"] == "confirm"
+
     def test_run_sweep_returns_counts(self, testdb, monkeypatch):
         _patch_db(monkeypatch, testdb)
         from radar.intel_auto_judge import run_sweep

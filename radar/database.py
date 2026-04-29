@@ -540,6 +540,33 @@ CREATE TABLE IF NOT EXISTS ct_log_domain_first_observed (
     domain          TEXT PRIMARY KEY,
     first_observed  REAL NOT NULL
 );
+
+-- Phase 4 B2 (2026-04-29): auto-judge calibration ledger.
+-- Mirrored in migration 27 for upgraded DBs; this ensures fresh DBs get
+-- the table without depending on migration runs.
+CREATE TABLE IF NOT EXISTS auto_judge_decisions (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                      REAL NOT NULL,
+    item_id                 TEXT NOT NULL,
+    action_proposed         TEXT NOT NULL
+        CHECK (action_proposed IN ('confirm', 'reject', 'pending')),
+    confidence              REAL NOT NULL DEFAULT 0,
+    reason                  TEXT NOT NULL DEFAULT '',
+    layer1_corroborators    INTEGER NOT NULL DEFAULT 0,
+    layer1_satisfied        INTEGER NOT NULL DEFAULT 0,
+    applied                 INTEGER NOT NULL DEFAULT 0,
+    applied_at              REAL,
+    analyst_overrode        INTEGER NOT NULL DEFAULT 0,
+    analyst_override_action TEXT,
+    analyst_override_at     REAL,
+    analyst_id              TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_auto_judge_decisions_ts
+    ON auto_judge_decisions (ts);
+CREATE INDEX IF NOT EXISTS idx_auto_judge_decisions_item
+    ON auto_judge_decisions (item_id, ts);
+CREATE INDEX IF NOT EXISTS idx_auto_judge_decisions_applied
+    ON auto_judge_decisions (applied, ts);
 """
 
 # Column name mapping for parameterized HOD methods.
@@ -1380,6 +1407,38 @@ class RadarDB:
                 ON analyst_feedback (conclusion_id, observed_at DESC);
             CREATE INDEX IF NOT EXISTS idx_feedback_analyst_time
                 ON analyst_feedback (analyst_id, observed_at DESC);
+        """),
+
+        (27, "Phase 4 N3+B2: auto_judge_decisions calibration ledger", """
+            -- LLM second-pass calibration ledger. Every LLM recheck
+            -- invocation writes one row, regardless of shadow vs apply
+            -- mode and regardless of whether the verdict was applied.
+            -- Lets us compute ECE = |predicted_confidence - actual_outcome|
+            -- once enough analyst overrides accumulate (≥30, per the
+            -- (a)-only ECE rule discussed during design).
+            CREATE TABLE IF NOT EXISTS auto_judge_decisions (
+                id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts                     REAL NOT NULL,
+                item_id                TEXT NOT NULL,
+                action_proposed        TEXT NOT NULL
+                    CHECK (action_proposed IN ('confirm', 'reject', 'pending')),
+                confidence             REAL NOT NULL DEFAULT 0,
+                reason                 TEXT NOT NULL DEFAULT '',
+                layer1_corroborators   INTEGER NOT NULL DEFAULT 0,
+                layer1_satisfied       INTEGER NOT NULL DEFAULT 0,
+                applied                INTEGER NOT NULL DEFAULT 0,
+                applied_at             REAL,
+                analyst_overrode       INTEGER NOT NULL DEFAULT 0,
+                analyst_override_action TEXT,
+                analyst_override_at    REAL,
+                analyst_id             TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_auto_judge_decisions_ts
+                ON auto_judge_decisions (ts);
+            CREATE INDEX IF NOT EXISTS idx_auto_judge_decisions_item
+                ON auto_judge_decisions (item_id, ts);
+            CREATE INDEX IF NOT EXISTS idx_auto_judge_decisions_applied
+                ON auto_judge_decisions (applied, ts);
         """),
     ]
 
@@ -2905,6 +2964,91 @@ class RadarDB:
                  verdict, float(confidence), (headline or "")[:200], (error or "")[:300],
                  prompt_sha256 or None),
             )
+
+    def auto_judge_decision_log(self, item_id: str, action_proposed: str,
+                                 confidence: float, reason: str,
+                                 layer1_corroborators: int,
+                                 layer1_satisfied: bool,
+                                 applied: bool) -> int:
+        """Append a row to auto_judge_decisions and return its rowid.
+
+        One row per LLM second-pass invocation (shadow + apply), regardless
+        of whether the verdict was actually applied. Used by ECE
+        calibration once analyst overrides accumulate.
+        """
+        import time as _time
+        conn = self._get_conn()
+        now = _time.time()
+        with conn.writing():
+            cur = conn.execute(
+                "INSERT INTO auto_judge_decisions "
+                "(ts, item_id, action_proposed, confidence, reason, "
+                " layer1_corroborators, layer1_satisfied, applied, applied_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (now, item_id, action_proposed, float(confidence),
+                 (reason or "")[:200], int(layer1_corroborators),
+                 1 if layer1_satisfied else 0,
+                 1 if applied else 0,
+                 now if applied else None),
+            )
+            return cur.lastrowid
+
+    def auto_judge_decision_mark_applied(self, item_id: str) -> None:
+        """Promote the most recent decision row for an item to applied=1."""
+        import time as _time
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "UPDATE auto_judge_decisions SET applied=1, applied_at=? "
+                "WHERE rowid=(SELECT rowid FROM auto_judge_decisions "
+                "             WHERE item_id=? ORDER BY ts DESC LIMIT 1)",
+                (_time.time(), item_id),
+            )
+
+    def auto_judge_decision_mark_overridden(self, item_id: str,
+                                             override_action: str,
+                                             analyst_id: str) -> None:
+        """Mark the most recent applied decision for `item_id` as overridden
+        by an analyst. Called from intel_queue.confirm/reject when the
+        analyst's marker is NOT auto:rule_* / auto:llm_recheck_*.
+        """
+        import time as _time
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "UPDATE auto_judge_decisions "
+                "SET analyst_overrode=1, analyst_override_action=?, "
+                "    analyst_override_at=?, analyst_id=? "
+                "WHERE rowid=(SELECT rowid FROM auto_judge_decisions "
+                "             WHERE item_id=? AND applied=1 "
+                "             ORDER BY ts DESC LIMIT 1)",
+                (override_action, _time.time(), analyst_id, item_id),
+            )
+
+    def auto_judge_decisions_recent(self, hours: int = 168) -> list[dict]:
+        """Return decisions from the last `hours` for ECE calibration.
+        Default 168h = 1 week.
+        """
+        import time as _time
+        cutoff = _time.time() - hours * 3600
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT id, ts, item_id, action_proposed, confidence, reason, "
+            "layer1_corroborators, layer1_satisfied, applied, applied_at, "
+            "analyst_overrode, analyst_override_action, analyst_override_at, "
+            "analyst_id FROM auto_judge_decisions WHERE ts >= ? "
+            "ORDER BY ts DESC",
+            (cutoff,),
+        ).fetchall()
+        return [
+            {"id": r[0], "ts": r[1], "item_id": r[2], "action_proposed": r[3],
+             "confidence": r[4], "reason": r[5], "layer1_corroborators": r[6],
+             "layer1_satisfied": bool(r[7]), "applied": bool(r[8]),
+             "applied_at": r[9], "analyst_overrode": bool(r[10]),
+             "analyst_override_action": r[11], "analyst_override_at": r[12],
+             "analyst_id": r[13]}
+            for r in rows
+        ]
 
     def llm_call_stats(self, hours: int = 24) -> dict:
         """Aggregate stats per caller and overall verdict counts."""
