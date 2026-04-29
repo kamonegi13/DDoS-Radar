@@ -299,6 +299,67 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 
 ---
 
+### Operational Observability (2026-04-29)
+
+Phase 4 (v1 sunset) と並走する形で、運用層の機能拡充と観測網の盲点修正を一括投入。3 つの user-reported issue (A/B/C) + 観察網診断 + 週次 cron の組み合わせで、約 20 commit が main に landing。
+
+**Issue A — フォーカス切替遅延**
+- 根本原因: `radar/routes/core.py:573` の `ThreadPoolExecutor` が `force=true` で全 25 sensor を 60s timeout で同期 fan-out。cold な PeeringDB / IHR / Atlas が 8s map-dim deadline を恒常的に超過
+- 修正: `force=snapshot` (default, 即時 cache 返却) と `force=sensors` (background greenlet で allow-list sensor のみ fetch) に分割。MapDim を **two-phase lift** に拡張 — envelope 到着で dim 解除 → 'REFRESHING' badge 表示 → threat_data 到着で badge 消去
+- commits: `2986c04` (force split), `087ea0c` (MapDim two-phase)
+
+**Issue B — LLM ONLINE 表示位置**
+- LLM が `radar/llm_client.py` 経由で 9 ファイルから cross-cutting に呼ばれている事実を確認 (diplomatic / military_exercise / apt_intel / hacktivist_* / rss_extractor / intel_corroboration 等)
+- HUD Row 3 に新 chip `#hud-llm-chip` を ALIGN/INTEL の間に配置。状態: online / online-stalled / offline / disabled / unknown。60s TTL + 3-strike rule で flicker 抑制
+- `/api/intel/stats` を 4 フィールド拡張 (`llm_model`, `llm_mode`, `llm_calls_1h`, `llm_last_call_age_min`)
+- commits: `7f2ce98` (API), `106eae3` (HUD chip)
+
+**Issue C — auto-judge recheck (LLM-free)**
+- 新 `radar/intel_auto_judge.py`: 7 分岐の決定論ルール (duplicate / source drift / low_conf+no_corrob / stale / corroborated_confirm / pending)。analyst marker `auto:rule_*` で human override 計算から自動判定を除外可能 (NP7 維持)
+- `_cache_cleanup_worker` から hourly sweep
+- 当初は `LLM_AUTO_JUDGE_RECHECK=true` で LLM 第二パスをオプション提供したが、後述 D5 で削除
+- commit: `1bb5195`
+
+**D5 — LLM 第二パス削除 (2026-04-29)**
+- backtest (後述) が「Layer 1 cross-evidence ゲートが現データでは機能不能」と示したため、`_llm_recheck()` / `ANALYST_LLM_*` / `LLM_AUTO_JUDGE_RECHECK` を全削除。`unsafe-if-enabled` のリスクを構造的に消滅
+- 再導入条件: cross-source diversity (avg ≥ 2.0) を満たした後、Layer 1 と同時実装
+- commit: `8bddb2f`
+
+**D6 — 観察網診断 (audit + backtest)**
+- `scripts/audit_intel_sensors.py`: 各 LLM intel sensor を α (実装/設定) / β (base rate) / healthy / unknown に分類。pre_filter 内訳まで深掘り。read-only
+- `scripts/backtest_auto_judge_layer1.py`: Layer 1 (cross-evidence ゲート) を実装前 dry-run。population / diversity / parameter sweep を出力
+- 初回実行結果: **diversity=1.0 (avg/max とも)、α 5 sensor、β 0 sensor、healthy 2 sensor**。Layer 1 は前提条件すら欠ける
+- commits: `264a150` (audit), `38b3454` (backtest)
+
+**D7 — 5 sensor 修正**
+1. `rss_narrative` (`ff99dd9`) — `_update_baseline()` 30 分 cycle 毎に append するが cap が 30 のまま → baseline 窓が **15 時間に縮退** (変数名は "30 days" を主張)。cap を `days × cycles_per_day` 動的算出に修正
+2. `telegram` → ground_osint + hacktivist_intel (`5dd3f31`) — `TELEGRAM_POST_MAX_AGE_HOURS` 8h → 48h。preview 302 redirect 検出ログ追加 (12 channel 中 7 が preview disabled — replace は intel research 案件)
+3. `diplomatic` (`9efc0c2`) — lxml recovery + `_classify_feed()` で feed 失敗を 5 種類に分類 (`rss_with_items` / `rss_empty` / `returns_html` / `unparseable` / `unknown`)。7 feed URL すべてが現在 stale と判明 — replace は intel research 案件
+4. `hacktivist_news` (`69537d3`) — 同 classifier 共有。5 feed すべて healthy だが hacktivist 関連記事は ~2% (genuine β)。新 verdict tag `no_kw_match_healthy_feed` で α と区別
+
+**N3 — 週次 cron (`81c29d4`)**
+- `radar/diagnostics.py`: `audit_intel_sensors.analyze()` + `backtest_auto_judge_layer1.analyze()` を 168h cadence で `_cache_cleanup_worker` から自動実行
+- 出力は INFO log + `_diversity_signal()` で Layer 1 unlock 判定 (avg ≥ 2.0 AND max ≥ 2)
+- env `WEEKLY_DIAGNOSTICS_INTERVAL_HOURS` で override 可 (≥1h clamp)
+
+**Phase 4 並走 work の今後の自動観察計画**:
+
+| 時期 | 自動観察される指標 | 期待される変化 |
+|------|------------------|--------------|
+| T+3.5h | rss_narrative baseline ≥7 entries | burst 検出が動作開始 |
+| T+48h | telegram 5 working channels の post window 拡張効果 | ground_osint + hacktivist_intel に signal 出現 |
+| T+7d  | 古い verdict tag が rotation で消滅 | audit が新 tag (`feed_url_stale_html` 等) でクリーン分類 |
+| 週次 cron | diversity avg/max | Layer 1 unlock 条件 (avg ≥ 2.0) を crossing したら INFO log で告知 |
+
+**Phase 4 並走で残す非コード課題 (intel research)**:
+- diplomatic 7 feed の現行 RSS endpoint 探索 (state.gov, mofa.gov.tw, fmprc.gov.cn, mid.ru, etc.)
+- hacktivist 12 channel 中 7 (noname05716 等) の preview-enabled な代替探索
+- これらが解消されると diversity が avg=1.0 → ≥2.0 に上がる見込み → Layer 1 + LLM 第二パスの再導入条件成立
+
+これらは「コード」ではなく「世界知識」の更新であり、別 issue として独立管理する。
+
+---
+
 ## 5. データモデル (v2.0)
 
 ### 5.1 Conclusion データクラス

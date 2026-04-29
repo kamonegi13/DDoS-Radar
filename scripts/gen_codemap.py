@@ -41,6 +41,7 @@ DEFAULT_TARGETS: tuple[str, ...] = (
     "radar/scoring.py",
     "radar/intel_queue.py",
     "radar/intel_auto_judge.py",
+    "radar/diagnostics.py",
     "radar/engine.py",
     "radar/scenarios.py",
     "radar/llm_client.py",
