@@ -161,15 +161,20 @@ CREATE INDEX IF NOT EXISTS idx_alert_timeline_ts
     ON alert_timeline (ts);
 
 -- sequence_event_log
+-- scenario_id was added via migration v4. Mirrored here so fresh DBs
+-- get the column without depending on the migration chain.
 CREATE TABLE IF NOT EXISTS sequence_events (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    theater    TEXT NOT NULL,
-    ts         REAL NOT NULL,
-    event_type TEXT NOT NULL,
-    meta_json  TEXT NOT NULL DEFAULT '{}'
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    theater     TEXT NOT NULL,
+    ts          REAL NOT NULL,
+    event_type  TEXT NOT NULL,
+    meta_json   TEXT NOT NULL DEFAULT '{}',
+    scenario_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_seq_events_theater_ts
     ON sequence_events (theater, ts);
+CREATE INDEX IF NOT EXISTS idx_sequence_events_scenario
+    ON sequence_events (scenario_id);
 
 -- threat_history (ring buffer, max 20)
 CREATE TABLE IF NOT EXISTS threat_history (

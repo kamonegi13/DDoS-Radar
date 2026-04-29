@@ -158,9 +158,18 @@ def collect_multi_source_signals(country: str, *, days: int = 30) -> dict[str, i
     if not country:
         return out
 
+    # llm_intel: count rows where the country is either the primary tag
+    # (theater) OR a mentioned country in the countries[] JSON array.
+    # The previous theater-only check missed countries that show up in
+    # multi-country reporting under another theater tag — e.g., CN
+    # mentioned in 5 stories tagged theater=US gets counted here, fixing
+    # the false-positive dormancy seen in the post-incident verification.
+    # The LIKE pattern matches '"CN"' inside the JSON array text.
+    pattern = f'%"{country}"%'
     out["llm_intel"] = _safe_count(
-        "SELECT COUNT(*) FROM llm_intel WHERE theater=? AND ts > ?",
-        (country, cutoff),
+        "SELECT COUNT(DISTINCT id) FROM llm_intel "
+        "WHERE ts > ? AND (theater=? OR countries LIKE ?)",
+        (cutoff, country, pattern),
     )
     out["sequence_events"] = _safe_count(
         "SELECT COUNT(*) FROM sequence_events WHERE theater=? AND ts > ?",

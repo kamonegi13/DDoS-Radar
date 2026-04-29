@@ -154,6 +154,61 @@ class TestCollectMultiSourceSignals:
         signals = guards.collect_multi_source_signals("ANY", days=30)
         assert signals["analyst_feedback_fn"] == 2
 
+    def test_llm_intel_counts_mentioned_countries(self, fresh_db):
+        """Bug-2 regression: post-incident verification found that CN
+        showed 0 theater rows but 5 mentions in countries[] of stories
+        tagged theater=US. The expanded query must count those.
+        """
+        # Seed a story tagged theater=US that mentions CN+JP in countries[]
+        conn = fresh_db._get_conn()
+        with conn.writing():
+            for i in range(3):
+                conn.execute(
+                    "INSERT INTO llm_intel "
+                    "(id, source_type, source_id, theater, ts, status, "
+                    " confidence, raw_text, raw_url, headline, llm_fields, "
+                    " score_delta, domain, confirmed_by, confirmed_at, "
+                    " override_at, created_at, countries, country_weights) "
+                    "VALUES (?, 'apt_intel', ?, 'US', ?, 'confirmed', "
+                    "        0.8, '', '', '', '{}', 0, 'cyber', NULL, "
+                    "        NULL, NULL, ?, ?, '{}')",
+                    (f"li-multi-{i}", f"src-{i}",
+                     time.time() - 3600,
+                     time.time(),
+                     '["CN","JP"]'),
+                )
+        # CN should now show 3 from countries[] mentions even though
+        # theater=CN has zero rows.
+        cn_signals = guards.collect_multi_source_signals("CN", days=30)
+        assert cn_signals["llm_intel"] == 3
+        # JP same — also mentioned in the 3 stories.
+        jp_signals = guards.collect_multi_source_signals("JP", days=30)
+        assert jp_signals["llm_intel"] == 3
+        # KR not mentioned anywhere → still zero
+        kr_signals = guards.collect_multi_source_signals("KR", days=30)
+        assert kr_signals["llm_intel"] == 0
+
+    def test_llm_intel_no_double_count_when_theater_and_mention_match(
+        self, fresh_db,
+    ):
+        """If a row has both theater=CN AND countries=['CN'], it should
+        be counted once (DISTINCT id), not twice."""
+        conn = fresh_db._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO llm_intel "
+                "(id, source_type, source_id, theater, ts, status, "
+                " confidence, raw_text, raw_url, headline, llm_fields, "
+                " score_delta, domain, confirmed_by, confirmed_at, "
+                " override_at, created_at, countries, country_weights) "
+                "VALUES ('dedup-1', 'apt_intel', 'src-1', 'CN', ?, "
+                "        'confirmed', 0.8, '', '', '', '{}', 0, "
+                "        'cyber', NULL, NULL, NULL, ?, '[\"CN\"]', '{}')",
+                (time.time() - 3600, time.time()),
+            )
+        signals = guards.collect_multi_source_signals("CN", days=30)
+        assert signals["llm_intel"] == 1
+
 
 class TestZeroSourceCount:
     def test_all_zero(self):

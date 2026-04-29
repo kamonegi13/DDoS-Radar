@@ -312,14 +312,19 @@ def _rule_weight_too_high(scenario) -> list[ProposalEvent]:
 
 
 def _rule_missing_participant(scenario) -> list[ProposalEvent]:
-    """A country fired ≥N sequence_events for this scenario but isn't a participant."""
+    """A country fired ≥N sequence_events for THIS scenario but isn't a
+    participant. Scenario filter is essential — without it, a country
+    active in scenario A would be proposed as missing for scenarios
+    B, C, D, E (the 2026-04-29 secondary incident: UA proposed for
+    taiwan_contingency / middle_east / korean_peninsula / south_china_sea
+    because it had eastern_europe sequence_events)."""
     cutoff = time.time() - 30 * 86400
     conn = db._get_conn()  # noqa: SLF001
     try:
         rows = conn.execute(
             "SELECT theater, COUNT(*) FROM sequence_events "
-            "WHERE ts > ? GROUP BY theater",
-            (cutoff,),
+            "WHERE scenario_id=? AND ts > ? GROUP BY theater",
+            (scenario.id, cutoff),
         ).fetchall()
     except Exception:
         return []

@@ -152,6 +152,34 @@ class TestScenarioImprover:
             assert "weight_too_high" in rules
             assert "missing_participant" in rules
 
+    def test_missing_participant_filters_by_scenario_id(self, db, monkeypatch):
+        """Bug-1 regression: missing_participant rule must scope
+        sequence_events query to scenario_id, otherwise UA active in
+        eastern_europe is proposed for all 5 scenarios."""
+        from radar.calibration.scenario_improver import _rule_missing_participant
+        from radar.scenarios import scenario_store
+        # Seed UA sequence_events under eastern_europe scenario_id only
+        conn = db._get_conn()
+        with conn.writing():
+            for i in range(5):
+                conn.execute(
+                    "INSERT INTO sequence_events "
+                    "(theater, ts, event_type, scenario_id) "
+                    "VALUES ('UA', ?, 'NARRATIVE_BURST', 'eastern_europe')",
+                    (time.time() - 3600,),
+                )
+        # Grab a non-eastern_europe scenario; rule should NOT propose UA
+        # for it because the sequence_events are scoped to eastern_europe.
+        for sid, sc in scenario_store._scenarios.items():
+            if sid == "eastern_europe":
+                continue
+            events = _rule_missing_participant(sc)
+            ua_proposals = [e for e in events if e.target_country == "UA"]
+            assert ua_proposals == [], (
+                f"Bug 1 regression: UA proposed as missing for scenario "
+                f"{sid} despite no UA sequence_events under that scenario_id"
+            )
+
     def test_diagnostic_emits_for_data_gap_scenario(self, db, monkeypatch):
         """Empty DB → vitality is data_gap → scenario_diagnostic emits
         sensor_gap_detected, while weight_too_high stays at zero (the
