@@ -2681,10 +2681,20 @@
                     : it.kindLabel;
             }
             narrative.textContent = text;
+            // Mark as deterministic so an async LLM enrichment can swap it.
+            narrative.dataset.source = 'template';
+            narrative.dataset.itemId = it.conclusion && it.conclusion.id || '';
             row.appendChild(narrative);
 
             list.appendChild(row);
         });
+
+        // Async LLM enrichment — only fired when the triage_narrative
+        // Feature Hub key is active. Endpoint returns 503 when off, so
+        // we always make the call and let the server short-circuit; this
+        // keeps the JS ignorant of state mutations between renders.
+        // Cache by item.id+why-hash so re-renders skip the round-trip.
+        _enrichTriageNarratives(focusedId, ranked, list);
 
         // Update the toolbar count badge so analysts see at a glance how
         // many items are surfaced — and link the title to the count.
@@ -2701,6 +2711,95 @@
         }
 
         lane.hidden = false;
+    }
+
+    // ── LLM-augmented triage narrative (commit K) ──
+    // Cached per (item.id, why-string-hash). When the
+    // triage_narrative Feature Hub key is OFF the endpoint returns
+    // 503 and we keep the deterministic template. NP3: any failure
+    // path (network, parse, validation) leaves the template
+    // untouched.
+    const _alLlmCache = new Map();
+
+    function _alCacheKey(it) {
+        const id = it.conclusion && it.conclusion.id || '';
+        const whyKey = (it.why || []).join('|');
+        return id + '|' + whyKey;
+    }
+
+    async function _enrichTriageNarratives(focusedId, ranked, list) {
+        const items = [];
+        const cached = [];
+        ranked.forEach((it) => {
+            if (!it.conclusion || !it.conclusion.id) return;
+            const ck = _alCacheKey(it);
+            const hit = _alLlmCache.get(ck);
+            if (hit && hit.text) {
+                cached.push({ id: it.conclusion.id, text: hit.text });
+                return;
+            }
+            const c = it.conclusion;
+            const ageMin = c.observed_at
+                ? Math.floor((Date.now() / 1000 - c.observed_at) / 60)
+                : null;
+            items.push({
+                id: c.id,
+                kindLabel: it.kindLabel,
+                scenario_id: c.scenario_id || '',
+                confidence: typeof c.confidence === 'number' ? c.confidence : null,
+                age_minutes: ageMin,
+                rank: it.rank,
+                why: it.why || [],
+            });
+        });
+
+        // Apply cached results immediately.
+        cached.forEach(({ id, text }) => _applyNarrative(list, id, text));
+
+        if (!items.length) return;
+
+        try {
+            const resp = await fetch('/api/v2/triage/narrate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items }),
+            });
+            if (resp.status === 503) return;  // feature off — keep template
+            if (!resp.ok) return;
+            const body = await resp.json();
+            const data = (body && body.data) || {};
+            // Honor shadow vs on: in shadow mode the server still
+            // returns narratives, but we record + skip applying so the
+            // analyst sees the deterministic template (matching the
+            // shadow-first contract).
+            if (data.feature_state !== 'on') {
+                if (window.console && console.debug) {
+                    console.debug('[triage_narrative] shadow result, not applied:', data);
+                }
+                return;
+            }
+            (data.results || []).forEach((r) => {
+                if (r.ok && r.narrative) {
+                    _applyNarrative(list, r.id, r.narrative);
+                    // Find the matching ranked item to construct cache key.
+                    const it = ranked.find(x => x.conclusion && x.conclusion.id === r.id);
+                    if (it) _alLlmCache.set(_alCacheKey(it), { text: r.narrative });
+                }
+            });
+        } catch (err) {
+            // Network / parse failure — silently keep template.
+        }
+    }
+
+    function _applyNarrative(list, itemId, text) {
+        const sel = '.al-narrative[data-item-id="' + CSS.escape(itemId) + '"]';
+        const el = list.querySelector(sel);
+        if (!el) return;
+        el.textContent = text;
+        el.dataset.source = 'llm';
+        el.style.color = '';  // already styled in CSS
+        // Subtle visual cue: thin left accent for LLM-augmented rows.
+        el.classList.add('al-narrative-llm');
     }
 
     /**

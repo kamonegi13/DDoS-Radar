@@ -2437,6 +2437,15 @@ body[data-replay-on="1"] #top-hud {
     line-height: 1.55;
     padding-left: 96px;     /* aligns under .al-mode */
     padding-right: 4px;
+    transition: color 0.2s, padding-left 0.2s;
+}
+#alert-lane .al-narrative.al-narrative-llm {
+    /* Visual cue: narrative was rewritten by the LLM (triage_narrative
+       Feature Hub key ON). Slightly bluer text + thin cyan accent. */
+    color: rgba(180, 220, 255, 0.92);
+    border-left: 2px solid rgba(0, 200, 255, 0.45);
+    padding-left: 92px;
+    margin-left: 2px;
 }
 #alert-lane .al-btn {
     background: transparent;

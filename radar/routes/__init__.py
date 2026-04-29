@@ -105,3 +105,4 @@ from radar.routes import conclusions_v2  # noqa: E402,F401  -- v2 API skeleton (
 from radar.routes import sensors_v2  # noqa: E402,F401  -- v2 sensor watchpane backend (gated by V2_API_ENABLED)
 from radar.routes import calibration_v2  # noqa: E402,F401  -- v2 auto-tune API surface (Tier 1, gated by V2_API_ENABLED)
 from radar.routes import llm_features_v2  # noqa: E402,F401  -- v2 LLM Feature Hub control plane (commit H, gated by V2_API_ENABLED)
+from radar.routes import triage_narrative  # noqa: E402,F401  -- v2 triage natural-language narrative endpoint (commit K, gated by V2_API_ENABLED)
