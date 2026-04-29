@@ -352,6 +352,26 @@ def _cache_cleanup_worker(registry=None):
                         "[StructureProposer] run_once failed: %s", _f2a_exc,
                     )
 
+            # Tier 3 G.2/G.3a: scenario discovery pipeline (daily).
+            # Computes country co-occurrence matrix → DBSCAN clusters →
+            # emits scenario_proposals for novel cluster candidates. NP7
+            # never auto-applies; analyst Wizard apply path is required.
+            if _cycle % 24 == 4:
+                try:
+                    from radar.calibration.scenario_discoverer import (
+                        run_once as _disc_once,
+                    )
+                    disc_result = _disc_once()
+                    if not disc_result.get("skipped"):
+                        log.info(
+                            "[Discovery] run_id=%s clusters=%d proposals=%d",
+                            disc_result.get("discovery_run_id"),
+                            disc_result.get("n_clusters", 0),
+                            disc_result.get("n_proposals", 0),
+                        )
+                except Exception as _disc_exc:
+                    log.warning("[Discovery] run_once failed: %s", _disc_exc)
+
             # Phase F3: scenario drift watchdog (per-scenario).
             # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
             # surfacing in <1 day. Records each detection; the API render
