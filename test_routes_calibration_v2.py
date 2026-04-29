@@ -492,3 +492,139 @@ def test_calibration_health(client, admin_headers):
     assert "scenario_drift_events" in data
     assert "actionable_drift_count" in data
     assert data["window_hours"] == 24
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Commit 11: discovery API endpoints (Tier 3 G.2/G.3a)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def cleanup_discovery_rows():
+    yield
+    try:
+        conn = db._get_conn()
+        with conn.writing():
+            conn.execute("DELETE FROM discovery_cluster")
+            conn.execute("DELETE FROM scenario_discovery_run")
+            conn.execute(
+                "DELETE FROM cooccurrence_matrix_snapshot "
+                "WHERE formula_ref LIKE 'cooccurrence/%'"
+            )
+    except Exception:
+        pass
+
+
+# 25. cooccurrence endpoint without snapshots
+
+
+def test_discovery_cooccurrence_returns_message_when_empty(
+    client, admin_headers,
+):
+    r = client.get("/api/v2/discovery/cooccurrence", headers=admin_headers)
+    assert r.status_code == 200
+    body = r.get_json()
+    # Either no_snapshots_yet or actual data
+    assert body["api_version"] == "2.0"
+
+
+# 26. cooccurrence endpoint after snapshot taken
+
+
+def test_discovery_cooccurrence_returns_snapshot(client, admin_headers):
+    from radar.analytics import cooccurrence as _cc
+    _cc.run_once()
+    r = client.get("/api/v2/discovery/cooccurrence", headers=admin_headers)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["data"] is not None
+    assert "matrix" in body["data"]
+    assert "evidence" in body["data"]
+
+
+# 27. clusters list endpoint
+
+
+def test_discovery_clusters_list(client, admin_headers):
+    # Seed a run + cluster directly
+    conn = db._get_conn()
+    with conn.writing():
+        cur = conn.execute(
+            "INSERT INTO cooccurrence_matrix_snapshot "
+            "(emitted_at, window_days, bucket_hours, cell_count, "
+            " matrix_json, formula_ref) "
+            "VALUES (?, 30, 24, 0, '{}', 'cooccurrence/v1#test')",
+            (time.time(),),
+        )
+        snap_id = cur.lastrowid
+        cur = conn.execute(
+            "INSERT INTO scenario_discovery_run "
+            "(emitted_at, matrix_snapshot_id, algorithm, eps, min_samples, "
+            " n_clusters, n_noise, formula_ref) "
+            "VALUES (?, ?, 'dbscan', 0.6, 3, 1, 0, 'test')",
+            (time.time(), snap_id),
+        )
+        run_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO discovery_cluster "
+            "(run_id, cluster_index, countries_json, centroid_json, "
+            " annotation_state, formula_ref) "
+            "VALUES (?, 0, '[\"CN\",\"JP\",\"TW\"]', '{\"centroid\":\"CN\"}', "
+            "        'none', 'test')",
+            (run_id,),
+        )
+    r = client.get("/api/v2/discovery/clusters?hours=24",
+                   headers=admin_headers)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert len(body["data"]) >= 1
+    cluster = body["data"][0]
+    assert cluster["countries"] == ["CN", "JP", "TW"]
+    assert cluster["centroid"] == "CN"
+
+
+# 28. replay endpoint
+
+
+def test_discovery_replay(client, admin_headers):
+    conn = db._get_conn()
+    with conn.writing():
+        cur = conn.execute(
+            "INSERT INTO cooccurrence_matrix_snapshot "
+            "(emitted_at, window_days, bucket_hours, cell_count, "
+            " matrix_json, formula_ref) "
+            "VALUES (?, 30, 24, 0, '{}', 'cooccurrence/v1#test')",
+            (time.time(),),
+        )
+        snap_id = cur.lastrowid
+        cur = conn.execute(
+            "INSERT INTO scenario_discovery_run "
+            "(emitted_at, matrix_snapshot_id, algorithm, eps, min_samples, "
+            " n_clusters, n_noise, formula_ref) "
+            "VALUES (?, ?, 'dbscan', 0.6, 3, 1, 0, 'test')",
+            (time.time(), snap_id),
+        )
+        run_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO discovery_cluster "
+            "(run_id, cluster_index, countries_json, centroid_json, "
+            " annotation_state, formula_ref) "
+            "VALUES (?, 0, '[\"CN\",\"TW\"]', '{}', 'none', 'test')",
+            (run_id,),
+        )
+    r = client.get(f"/api/v2/discovery/clusters/{run_id}/replay",
+                   headers=admin_headers)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["data"]["run"]["id"] == run_id
+    assert body["data"]["snapshot"]["id"] == snap_id
+    assert len(body["data"]["clusters"]) == 1
+
+
+# 29. replay 404 for missing run
+
+
+def test_discovery_replay_404(client, admin_headers):
+    r = client.get("/api/v2/discovery/clusters/99999999/replay",
+                   headers=admin_headers)
+    assert r.status_code == 404

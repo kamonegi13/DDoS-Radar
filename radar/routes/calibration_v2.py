@@ -39,6 +39,7 @@ break the whole list.
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import asdict
 from typing import Optional
@@ -533,6 +534,192 @@ def _safe_count_by(conn, sql: str, params: tuple, *, key_columns: int = 1) -> di
                            for c in r[:key_columns])
         out[key] = int(r[-1] or 0)
     return out
+
+
+# ── /api/v2/discovery/* (Tier 3, commit 11) ──────────────────────────────────
+
+
+@bp.route("/api/v2/discovery/cooccurrence", methods=["GET"])
+@jwt_required()
+def v2_discovery_cooccurrence():
+    """Latest cooccurrence matrix snapshot."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth = _require_analyst()
+    if auth is not None:
+        return auth
+
+    from radar.analytics import cooccurrence as _cc
+    snap = _cc.get_latest_snapshot()
+    if snap is None:
+        return jsonify(_wrap(None, message="no_snapshots_yet"))
+    return jsonify(_wrap(snap))
+
+
+@bp.route("/api/v2/discovery/clusters", methods=["GET"])
+@jwt_required()
+def v2_discovery_clusters():
+    """List recent discovery_cluster rows joined to their run."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth = _require_analyst()
+    if auth is not None:
+        return auth
+
+    hours = _safe_int(request.args.get("hours"), 168, min_val=1, max_val=720)
+    limit = _safe_int(request.args.get("limit"), 50, min_val=1, max_val=200)
+    cutoff = time.time() - hours * 3600
+    try:
+        from radar.database import db as _db
+        conn = _db._get_conn()  # noqa: SLF001
+        rows = conn.execute(
+            "SELECT c.id, c.run_id, c.cluster_index, c.countries_json, "
+            "       c.centroid_json, c.annotation_json, c.annotation_state, "
+            "       c.suggested_scenario_id, c.formula_ref, "
+            "       r.emitted_at, r.eps, r.min_samples, r.algorithm "
+            "FROM discovery_cluster c "
+            "JOIN scenario_discovery_run r ON r.id = c.run_id "
+            "WHERE r.emitted_at >= ? "
+            "ORDER BY r.emitted_at DESC, c.cluster_index ASC "
+            "LIMIT ?",
+            (cutoff, limit),
+        ).fetchall()
+    except Exception as exc:
+        return _wrap_error(500, "discovery_clusters_failed",
+                           detail=str(exc)[:200])
+
+    out = []
+    for r in rows:
+        try:
+            countries = json.loads(r[3] or "[]")
+            centroid = json.loads(r[4] or "{}")
+            annotation = json.loads(r[5]) if r[5] else None
+        except Exception:
+            countries, centroid, annotation = [], {}, None
+        out.append({
+            "id": r[0],
+            "run_id": r[1],
+            "cluster_index": r[2],
+            "countries": countries,
+            "centroid": centroid.get("centroid") if isinstance(centroid, dict) else None,
+            "annotation": annotation,
+            "annotation_state": r[6],
+            "suggested_scenario_id": r[7],
+            "formula_ref": r[8],
+            "run_emitted_at": r[9],
+            "run_eps": r[10],
+            "run_min_samples": r[11],
+            "run_algorithm": r[12],
+        })
+    return jsonify(_wrap(out, count=len(out),
+                         filters={"hours": hours, "limit": limit}))
+
+
+@bp.route("/api/v2/discovery/clusters/<int:run_id>/replay", methods=["GET"])
+@jwt_required()
+def v2_discovery_replay(run_id: int):
+    """AP4 replay: full snapshot of one discovery_run.
+
+    Returns the run record, all its clusters, and the matrix snapshot
+    that fed it — enough for an analyst to reproduce the run end-to-end
+    without further queries.
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth = _require_analyst()
+    if auth is not None:
+        return auth
+
+    try:
+        from radar.database import db as _db
+        conn = _db._get_conn()  # noqa: SLF001
+        run = conn.execute(
+            "SELECT id, emitted_at, matrix_snapshot_id, algorithm, eps, "
+            "       min_samples, n_clusters, n_noise, formula_ref, "
+            "       metadata_json "
+            "FROM scenario_discovery_run WHERE id=?",
+            (run_id,),
+        ).fetchone()
+        if not run:
+            return _not_found("discovery run not found", run_id=run_id)
+        clusters = conn.execute(
+            "SELECT id, cluster_index, countries_json, centroid_json, "
+            "       annotation_json, annotation_state, suggested_scenario_id, "
+            "       formula_ref "
+            "FROM discovery_cluster WHERE run_id=? ORDER BY cluster_index ASC",
+            (run_id,),
+        ).fetchall()
+        snap = conn.execute(
+            "SELECT id, emitted_at, window_days, bucket_hours, cell_count, "
+            "       matrix_json, formula_ref, evidence_json "
+            "FROM cooccurrence_matrix_snapshot WHERE id=?",
+            (run[2],),
+        ).fetchone()
+    except Exception as exc:
+        return _wrap_error(500, "discovery_replay_failed",
+                           detail=str(exc)[:200])
+
+    cluster_list = []
+    for c in clusters:
+        try:
+            countries = json.loads(c[2] or "[]")
+            centroid = json.loads(c[3] or "{}")
+            annotation = json.loads(c[4]) if c[4] else None
+        except Exception:
+            countries, centroid, annotation = [], {}, None
+        cluster_list.append({
+            "id": c[0],
+            "cluster_index": c[1],
+            "countries": countries,
+            "centroid": centroid.get("centroid") if isinstance(centroid, dict) else None,
+            "annotation": annotation,
+            "annotation_state": c[5],
+            "suggested_scenario_id": c[6],
+            "formula_ref": c[7],
+        })
+
+    snapshot_payload = None
+    if snap:
+        try:
+            matrix = json.loads(snap[5] or "{}")
+            evidence = json.loads(snap[7] or "{}")
+        except Exception:
+            matrix, evidence = {}, {}
+        snapshot_payload = {
+            "id": snap[0],
+            "emitted_at": snap[1],
+            "window_days": snap[2],
+            "bucket_hours": snap[3],
+            "cell_count": snap[4],
+            "matrix": matrix,
+            "formula_ref": snap[6],
+            "evidence": evidence,
+        }
+
+    try:
+        metadata = json.loads(run[9] or "{}")
+    except Exception:
+        metadata = {}
+
+    return jsonify(_wrap({
+        "run": {
+            "id": run[0],
+            "emitted_at": run[1],
+            "matrix_snapshot_id": run[2],
+            "algorithm": run[3],
+            "eps": run[4],
+            "min_samples": run[5],
+            "n_clusters": run[6],
+            "n_noise": run[7],
+            "formula_ref": run[8],
+            "metadata": metadata,
+        },
+        "clusters": cluster_list,
+        "snapshot": snapshot_payload,
+    }))
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
