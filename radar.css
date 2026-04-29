@@ -3216,6 +3216,79 @@ body[data-replay-on="1"] #top-hud {
     justify-content: space-between;
     padding: 2px 0;
     border-bottom: 1px dotted #2a2a2a;
+    align-items: center;
+}
+.pd-sc-actions {
+    display: inline-flex;
+    gap: 4px;
+}
+
+/* ── Pending-decision actions row (Phase 3) ─────────────────────── */
+.pending-decision-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 4px 0 4px;
+    margin-top: 6px;
+    border-top: 1px dotted #2a2a2a;
+}
+.pd-action-btn {
+    background: transparent;
+    border: 1px solid #444;
+    color: #aaa;
+    padding: 3px 10px;
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.12s;
+}
+.pd-action-btn:hover {
+    border-color: var(--color-accent, #00ffff);
+    color: #fff;
+    background: rgba(0, 255, 255, 0.05);
+}
+.pd-action-recommended {
+    /* Server says this is the right action right now. */
+    border-color: #00ff88;
+    color: #88ff99;
+    background: rgba(0, 255, 128, 0.06);
+}
+.pd-action-recommended:hover {
+    background: rgba(0, 255, 128, 0.14);
+    color: #ffffff;
+}
+.pd-action-muted {
+    /* Available but not recommended. Override mode — NP7 confirm
+       still required for raise/rollback. */
+    opacity: 0.65;
+}
+.pd-action-danger {
+    /* Recall-reducing or destructive. Always shown but with caution
+       coloring. NP7 confirm modal gates execution. */
+    border-color: rgba(255, 80, 80, 0.55);
+    color: rgba(255, 180, 180, 0.9);
+}
+.pd-action-danger:hover {
+    background: rgba(255, 80, 80, 0.10);
+    color: #ffffff;
+}
+.pd-action-danger.pd-action-recommended {
+    /* Server is actively recommending the dangerous action — emphasize. */
+    border-color: rgba(255, 80, 80, 0.90);
+    background: rgba(255, 80, 80, 0.12);
+    color: rgba(255, 220, 220, 1);
+    opacity: 1;
+}
+.pd-action-note {
+    color: #888;
+    font-size: 10px;
+    font-style: italic;
+    padding: 4px;
+}
+.pd-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 /* ── §10.5 deadline pin (dashboard) ─────────────────────────────────── */

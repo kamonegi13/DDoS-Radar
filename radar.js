@@ -11075,7 +11075,7 @@
             dw: await dwResp.json(),
         };
     }
-    function _renderPendingDecisionCard(name, deadline, decision, bodyHtml) {
+    function _renderPendingDecisionCard(name, deadline, decision, bodyHtml, opts) {
         const sev = _pdDeadlineSeverity(deadline.days_remaining, deadline.past_primary);
         const recCls = _pdRecClass(decision.recommendation);
         const daysLabel = deadline.past_primary
@@ -11084,7 +11084,8 @@
         const extLabel = deadline.past_extended
             ? _t('scenario.pending.extended_past')
             : _t('scenario.pending.extended_hard', { d: _escHtml(deadline.extended_hard) });
-        let html = `<div class="pending-decision-card pd-${sev}">`;
+        const cardId = 'pd-card-' + Math.random().toString(36).slice(2, 10);
+        let html = `<div class="pending-decision-card pd-${sev}" id="${cardId}">`;
         html += `<div class="pending-decision-head">`;
         html += `<span class="pending-decision-name">${_escHtml(name)}</span>`;
         html += `<span class="pending-decision-deadline pd-${sev}">`;
@@ -11099,8 +11100,172 @@
         if (decision.manual_review_needed) {
             html += `<div class="pending-decision-manual">${_escHtml(decision.manual_review_needed)}</div>`;
         }
+        // Action row (Phase 3 of Decision Layer). opts.category === 'tl' or 'dual_weight'.
+        // Buttons emphasized vs muted based on the current recommendation.
+        if (opts && opts.category) {
+            html += _renderPendingDecisionActions(opts.category, decision, opts);
+        }
         html += `</div>`;
         return html;
+    }
+
+    // ── Pending Decisions actions (Phase 3) ──────────────────────────
+    // Renders the [Accept] / [Extend] / [Raise|Rollback] action row.
+    // Active button (matches recommendation) is emphasized; others stay
+    // visible but muted so admins can override (with NP7 confirm if
+    // recall-reducing). Wired via event delegation on the panel.
+    function _renderPendingDecisionActions(category, decision, opts) {
+        const rec = decision.recommendation;
+        let buttons = '';
+        if (category === 'tl') {
+            const sid = (opts && opts.scenario_id) ? opts.scenario_id : '';
+            const sidEsc = _escHtml(sid);
+            buttons += _pdActionBtn('accept', 'tl', sid,
+                rec === 'ACCEPT_CURRENT', '✓ Accept current');
+            buttons += _pdActionBtn('extend', 'tl', sid,
+                rec === 'EXTEND_OR_WAIT', '⏵ Extend +14d');
+            buttons += _pdActionBtn('raise', 'tl', sid,
+                rec === 'RAISE_THRESHOLDS', '↑ Raise thresholds (⚠ NP7)');
+            // sid="" means roll-up card; per-scenario buttons live in body rows.
+            if (!sid) {
+                buttons = '<span class="pd-action-note">'
+                    + 'Per-scenario buttons appear in scenario rows above. '
+                    + 'Or open Auto-tune Wizard for the proposal flow.</span>';
+            }
+        } else if (category === 'dual_weight') {
+            buttons += _pdActionBtn('accept', 'dual_weight', '',
+                rec === 'ACCEPT_CURRENT', '✓ Accept');
+            buttons += _pdActionBtn('extend', 'dual_weight', '',
+                rec === 'EXTEND_OR_WAIT', '⏵ Extend +14d');
+            buttons += _pdActionBtn('rollback', 'dual_weight', '',
+                rec === 'ROLLBACK_TO_SINGLE_WEIGHT',
+                '↩ Rollback to single (⚠ NP7)');
+        }
+        return `<div class="pending-decision-actions">${buttons}</div>`;
+    }
+
+    function _pdActionBtn(action, category, targetId, isRecommended, label) {
+        const cls = 'pd-action-btn '
+                  + (isRecommended ? 'pd-action-recommended' : 'pd-action-muted')
+                  + (action === 'rollback' || action === 'raise' ? ' pd-action-danger' : '');
+        const dataAttrs = `data-pd-action="${_escHtml(action)}" `
+                        + `data-pd-category="${_escHtml(category)}" `
+                        + `data-pd-target="${_escHtml(targetId || '')}"`;
+        const tip = isRecommended
+            ? 'Recommended action for the current state.'
+            : 'Override mode — current recommendation differs. Reason will be required.';
+        return `<button type="button" class="${cls}" ${dataAttrs} title="${_escHtml(tip)}">${_escHtml(label)}</button>`;
+    }
+
+    // Delegated click handler installed once on the panel.
+    function _pdInstallActionDelegate() {
+        const panel = document.getElementById('pending-decisions-panel');
+        if (!panel || panel.dataset.pdActionsWired === '1') return;
+        panel.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.pd-action-btn');
+            if (!btn) return;
+            const action = btn.getAttribute('data-pd-action');
+            const category = btn.getAttribute('data-pd-category');
+            const targetId = btn.getAttribute('data-pd-target') || '';
+            try {
+                await _pdHandleAction(action, category, targetId, btn);
+            } catch (err) {
+                alert('Action failed: ' + (err && err.message ? err.message : err));
+            }
+        });
+        panel.dataset.pdActionsWired = '1';
+    }
+
+    async function _pdHandleAction(action, category, targetId, btn) {
+        // Build endpoint URL.
+        const baseMap = {
+            'tl': '/api/v2/decisions/tl_recalibration/',
+            'dual_weight': '/api/v2/decisions/dual_weight/',
+        };
+        const base = baseMap[category];
+        if (!base) throw new Error('unknown category: ' + category);
+        const url = base + action;
+
+        // Build body. Recall-reducing actions need NP7 confirm + reason.
+        const isRecallReducing = (action === 'raise' || action === 'rollback');
+        const body = {};
+        if (category === 'tl' && targetId) body.scenario_id = targetId;
+
+        if (isRecallReducing) {
+            const reason = await _pdNp7ConfirmModal(action, category, targetId);
+            if (reason == null) return;  // analyst cancelled
+            body.reason = reason;
+            body.np7_confirmed = true;
+            if (action === 'raise') {
+                // Caller does not have proposed thresholds in this UI — for
+                // now we point them at the Auto-tune Wizard for the actual
+                // proposal flow. The `raise` endpoint is reserved for
+                // direct admin use via API.
+                alert('Direct RAISE via this card is reserved for API use. '
+                    + 'Please use the Auto-tune Wizard which provides the '
+                    + 'specific proposed thresholds and evidence (NP6).');
+                return;
+            }
+        } else if (action === 'extend') {
+            body.days = 14;
+            const customAns = prompt(
+                'Extend deadline by how many days? (1–90, default 14)', '14');
+            if (customAns === null) return;
+            const n = Math.max(1, Math.min(parseInt(customAns, 10) || 14, 90));
+            body.days = n;
+            body.reason = prompt('Reason for extension (optional):', '') || null;
+        } else if (action === 'accept') {
+            body.reason = prompt('Reason for accepting (optional):', '') || null;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '… submitting';
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.error || ('HTTP ' + resp.status));
+        }
+        const data = await resp.json();
+        // Success: reload the panel to reflect ledger state.
+        if (typeof window.loadPendingDecisions === 'function') {
+            await window.loadPendingDecisions();
+        }
+        // Also refresh the dashboard pin.
+        if (typeof _refreshPendingDecisionsPin === 'function') {
+            _refreshPendingDecisionsPin();
+        }
+        // Brief success toast (use existing toast helper if available).
+        if (typeof window.showToast === 'function') {
+            window.showToast('Decision recorded: ' + action + ' (id ' + (data.decision_id || '?') + ')');
+        }
+    }
+
+    // Modal-style confirm for recall-reducing actions. Returns the
+    // entered reason on confirm, or null on cancel.
+    async function _pdNp7ConfirmModal(action, category, targetId) {
+        const actionLabel = action === 'raise' ? 'RAISE THRESHOLDS'
+                          : action === 'rollback' ? 'ROLLBACK TO SINGLE-WEIGHT'
+                          : action.toUpperCase();
+        const targetText = targetId ? ('\n\nTarget: ' + targetId) : '';
+        const message =
+            '⚠ NP7 confirmation required\n\n'
+            + 'Action: ' + actionLabel + ' (' + category + ')'
+            + targetText
+            + '\n\nThis is a recall-reducing or destructive action. '
+            + 'Proceeding will be recorded in the decision ledger '
+            + 'with your username and the reason below.\n\n'
+            + 'Enter a non-empty reason to proceed:';
+        const reason = prompt(message, '');
+        if (reason == null) return null;          // cancel
+        if (!String(reason).trim()) {
+            alert('A non-empty reason is required for NP7-gated actions. Aborted.');
+            return null;
+        }
+        return String(reason).trim();
     }
     window.loadPendingDecisions = async function () {
         const panel = document.getElementById('pending-decisions-panel');
@@ -11124,7 +11289,8 @@
                 body += `</div>`;
                 html += _renderPendingDecisionCard(
                     _t('scenario.pending.dual_weight_name'),
-                    dw.deadline, dw.decision, body);
+                    dw.deadline, dw.decision, body,
+                    { category: 'dual_weight' });
             }
 
             // TL recalibration (per-scenario with roll-up)
@@ -11151,6 +11317,7 @@
                     const rec = (s.decision && s.decision.recommendation) || 'EXTEND_OR_WAIT';
                     const m = s.decision && s.decision.measured;
                     const label = s.label || s.scenario_id;
+                    const sid = s.scenario_id || '';
                     body += `<div class="pd-sc-row">`;
                     body += `<span>${_escHtml(label)}</span>`;
                     if (m) {
@@ -11158,16 +11325,26 @@
                     } else {
                         body += `<span>obs ${s.observations}/${s.min_required} · ${_escHtml(rec)}</span>`;
                     }
+                    // Per-scenario actions inline.
+                    body += `<span class="pd-sc-actions">`;
+                    body += _pdActionBtn('accept', 'tl', sid,
+                        rec === 'ACCEPT_CURRENT', '✓');
+                    body += _pdActionBtn('extend', 'tl', sid,
+                        rec === 'EXTEND_OR_WAIT', '⏵+14d');
+                    body += `</span>`;
                     body += `</div>`;
                 }
                 body += '</div>';
                 html += _renderPendingDecisionCard(
                     _t('scenario.pending.tl_recal_name'),
-                    tl.deadline, rollupDecision, body);
+                    tl.deadline, rollupDecision, body,
+                    { category: 'tl', scenario_id: '' });  // roll-up card
             }
 
             html += `</div>`;
             panel.innerHTML = html;
+            // Install action delegate (idempotent).
+            _pdInstallActionDelegate();
         } catch (e) {
             panel.innerHTML = `<div style="color:red;">${_escHtml(e.message)}</div>`;
         }
