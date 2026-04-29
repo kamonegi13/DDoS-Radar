@@ -1082,7 +1082,7 @@
         #weather-brief-panel.floating { background: rgba(8,10,16,0.97) !important; border-color: #1a2a3a !important; }
 
         /* ── Left Sidebar ── */
-        #left-sidebar { width: 280px; flex-shrink: 0; background: #121212; border-right: 1px solid #444; display: none; flex-direction: column; z-index: 10; box-shadow: 5px 0 20px rgba(0,0,0,0.5); overflow-y: auto; }
+        #left-sidebar { width: 400px; flex-shrink: 0; background: #121212; border-right: 1px solid #444; display: none; flex-direction: column; z-index: 10; box-shadow: 5px 0 20px rgba(0,0,0,0.5); overflow-y: auto; }
         #lsb-ph-wx { flex-shrink: 0; }
 
         /* ── Intuition UI: TOOLS Dropdown Menu ── */
