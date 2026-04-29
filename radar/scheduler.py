@@ -330,6 +330,28 @@ def _cache_cleanup_worker(registry=None):
                         "[ScenarioImprover] run_once failed: %s", _f1_exc,
                     )
 
+            # Phase F2-a: scenario structure proposer (role + dormancy).
+            # Same cadence as F1 (offset by 3 cycles to spread load).
+            if _cycle % 24 == 3:
+                try:
+                    from radar.calibration.scenario_structure_proposer import (
+                        run_once as _f2a_once,
+                    )
+                    f2a_result = _f2a_once()
+                    total_f2a = sum(
+                        sum(per.values()) for per in f2a_result.values()
+                    )
+                    if total_f2a:
+                        log.info(
+                            "[StructureProposer] %d scenarios scanned, "
+                            "%d proposals emitted",
+                            len(f2a_result), total_f2a,
+                        )
+                except Exception as _f2a_exc:
+                    log.warning(
+                        "[StructureProposer] run_once failed: %s", _f2a_exc,
+                    )
+
             # Phase F3: scenario drift watchdog (per-scenario).
             # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
             # surfacing in <1 day. Records each detection; the API render
