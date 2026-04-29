@@ -316,4 +316,59 @@
             console.info('[wizard]', msg);
         }
     }
+
+    // ── AP3 chip refresher (commit 16) ───────────────────────────────────
+
+    async function refreshAutotuneChip() {
+        const valueEl = document.getElementById('hud-autotune-value');
+        if (!valueEl) return;
+        try {
+            const resp = await fetch('/api/v2/calibration/health?hours=168');
+            if (!resp.ok) {
+                valueEl.textContent = '—';
+                return;
+            }
+            const body = await resp.json();
+            const data = (body && body.data) || {};
+            const proposals = data.scenario_proposals || {};
+            // Sum keys with form 'type|state' where state == 'pending'
+            let pending = 0;
+            for (const k of Object.keys(proposals)) {
+                if (k.endsWith('|pending')) pending += proposals[k] || 0;
+            }
+            const drift = data.actionable_drift_count || 0;
+            const recallRed = false;  // populated when post-autotune gate exposes it
+            const parts = [];
+            parts.push(`P${pending}`);
+            parts.push(`D${drift}`);
+            valueEl.textContent = parts.join(' / ');
+            const chip = document.getElementById('hud-autotune-chip');
+            if (chip) {
+                if (drift > 0 || pending > 5) {
+                    chip.style.color = '#ff8800';
+                } else if (pending > 0) {
+                    chip.style.color = 'var(--color-accent)';
+                } else {
+                    chip.style.color = '';
+                }
+            }
+        } catch (err) {
+            valueEl.textContent = '—';
+        }
+    }
+
+    // Poll every 60s; first refresh kicks off after a short delay so
+    // login + initial data load can complete first.
+    function _initAutotuneChip() {
+        setTimeout(() => {
+            refreshAutotuneChip();
+            setInterval(refreshAutotuneChip, 60000);
+        }, 5000);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _initAutotuneChip);
+    } else {
+        _initAutotuneChip();
+    }
 })();

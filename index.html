@@ -219,6 +219,15 @@
             <span class="hud-chip-label">DRIFT</span>
             <span id="hud-drift-value" class="hud-chip-value">—</span>
         </div>
+        <!-- AP3: auto-tune health chip — pending proposals and drift signal counts.
+             Click opens the Auto-tune Wizard so analysts can act immediately. -->
+        <div class="hud-chip hud-self-eval" id="hud-autotune-chip"
+             title="Auto-tune health: pending proposals + actionable drift signals. Click to open the Wizard."
+             onclick="window._wizardOpen && window._wizardOpen()"
+             style="cursor:pointer;">
+            <span class="hud-chip-label" data-i18n="autotune.chip.title">AUTO-TUNE</span>
+            <span id="hud-autotune-value" class="hud-chip-value">—</span>
+        </div>
     </div>
 
 </div>
