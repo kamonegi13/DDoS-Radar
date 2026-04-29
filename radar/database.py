@@ -176,11 +176,17 @@ CREATE INDEX IF NOT EXISTS idx_seq_events_theater_ts
 CREATE INDEX IF NOT EXISTS idx_sequence_events_scenario
     ON sequence_events (scenario_id);
 
--- threat_history (ring buffer, max 20)
+-- threat_history — per-scenario TL series (migration v33 added
+-- scenario_id; mirrored here for fresh DBs). The
+-- idx_threat_history_scenario_ts index is created in
+-- _post_baseline_indexes() so existing-DB upgrades (where the column
+-- is added by migration v33) succeed without racing against the
+-- baseline executescript.
 CREATE TABLE IF NOT EXISTS threat_history (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     ts           REAL NOT NULL,
-    threat_level INTEGER NOT NULL
+    threat_level INTEGER NOT NULL,
+    scenario_id  TEXT
 );
 
 -- sensor_caches: per-sensor last-fetch snapshot
@@ -988,6 +994,18 @@ class RadarDB:
             conn.commit()
         except sqlite3.OperationalError as e:
             log.warning("[DB] post-baseline index skipped: %s", e)
+
+        # threat_history.scenario_id index — runs AFTER migration v33
+        # has added the column on upgraded DBs. Idempotent. (Fresh DBs
+        # have the column from baseline _SCHEMA_SQL.)
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_threat_history_scenario_ts "
+                "ON threat_history (scenario_id, ts DESC)"
+            )
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            log.warning("[DB] threat_history index skipped: %s", e)
 
         # ADR-V2-006 A-4: ensure `country` generated column exists on every
         # table that carries `theater`, regardless of whether this DB was
@@ -1813,6 +1831,18 @@ class RadarDB:
             -- pre-redesign rows.
             ALTER TABLE scenario_proposals ADD COLUMN evidence_strength TEXT;
             ALTER TABLE scenario_proposals ADD COLUMN vitality_state TEXT;
+        """),
+
+        (33, "Threat history scenario_id column for per-scenario sparkline (HUD divergence fix 2026-04-29)", """
+            -- Pre-fix: threat_history was a single global stream. The HUD
+            -- sparkline rendered "whatever scenario was focused at the
+            -- time" rather than "this scenario's history", causing the
+            -- HUD-Row-1 / sparkline / FOCUS-card divergence.
+            -- The accompanying idx_threat_history_scenario_ts index is
+            -- created by _post_baseline_indexes() (idempotent), which
+            -- runs AFTER all migrations so the column exists on both
+            -- fresh and upgraded DBs.
+            ALTER TABLE threat_history ADD COLUMN scenario_id TEXT;
         """),
 
         (32, "ATTENTION snooze + adaptive learning observation tables (CONTROLS redesign 2026-04-29)", """
@@ -3251,28 +3281,99 @@ class RadarDB:
         return [dict(r) for r in rows]
 
     # ── threat_history ──────────────────────────────────────────────────────
+    # Post-redesign 2026-04-29: scenario_id column added (migration v33) so
+    # the HUD sparkline can pull per-scenario history rather than the
+    # old "currently-focused TL across any scenario" mishmash that caused
+    # the HUD/sparkline/FOCUS-card divergence.
+    #
+    # `threat_append(ts, level)` retains the legacy unscoped semantics
+    # (used by paths that still don't track scenario context); new callers
+    # should use `threat_append_scoped(ts, level, scenario_id)`.
+
     def threat_append(self, ts: float, level: int, max_entries: int = 100):
+        """Legacy unscoped append. scenario_id stored as NULL.
+
+        Kept for any caller that doesn't have scenario_id available (e.g.
+        sunset-era v1 paths). Per-scenario sparkline ignores NULL rows.
+        """
+        return self.threat_append_scoped(ts, level, None,
+                                         max_entries=max_entries)
+
+    def threat_append_scoped(self, ts: float, level: int,
+                             scenario_id: Optional[str],
+                             max_entries: int = 1000):
+        """Append a (ts, level, scenario_id) row.
+
+        max_entries default raised from 100 → 1000 because we now have
+        N scenarios × ticks each, not a single global stream.
+        """
         conn = self._get_conn()
         with conn.writing():
             conn.execute(
-                "INSERT INTO threat_history (ts, threat_level) VALUES (?, ?)",
-                (ts, level),
+                "INSERT INTO threat_history (ts, threat_level, scenario_id) "
+                "VALUES (?, ?, ?)",
+                (ts, level, scenario_id),
             )
+            # Per-scenario retention: keep last `max_entries` per scenario.
+            # NULL scenario_id rows are kept under their own bucket.
             conn.execute(
-                "DELETE FROM threat_history WHERE id NOT IN "
-                "(SELECT id FROM threat_history ORDER BY id DESC LIMIT ?)",
-                (max_entries,),
+                "DELETE FROM threat_history WHERE id IN ("
+                "  SELECT id FROM threat_history th "
+                "  WHERE (th.scenario_id IS ? OR th.scenario_id = ?) "
+                "  AND id NOT IN ("
+                "    SELECT id FROM threat_history "
+                "    WHERE (scenario_id IS ? OR scenario_id = ?) "
+                "    ORDER BY id DESC LIMIT ?"
+                "  )"
+                ")",
+                (scenario_id, scenario_id,
+                 scenario_id, scenario_id, max_entries),
             )
 
     def threat_list(self) -> list[tuple[float, int]]:
+        """Legacy unscoped list — returns ALL rows regardless of scenario.
+
+        Used by the legacy /api/threat_data response. New consumers
+        should call `threat_list_scoped(scenario_id)`.
+        """
         rows = self._get_conn().execute(
             "SELECT ts, threat_level FROM threat_history ORDER BY id"
         ).fetchall()
         return [(r[0], r[1]) for r in rows]
 
+    def threat_list_scoped(self, scenario_id: str,
+                           since_ts: Optional[float] = None,
+                           limit: int = 1000) -> list[tuple[float, int]]:
+        """Return (ts, level) rows for a single scenario, optionally
+        filtered to since_ts (unix seconds). Ordered ascending by id.
+        """
+        if since_ts is not None:
+            rows = self._get_conn().execute(
+                "SELECT ts, threat_level FROM threat_history "
+                "WHERE scenario_id=? AND ts >= ? "
+                "ORDER BY id LIMIT ?",
+                (scenario_id, since_ts, limit),
+            ).fetchall()
+        else:
+            rows = self._get_conn().execute(
+                "SELECT ts, threat_level FROM threat_history "
+                "WHERE scenario_id=? ORDER BY id DESC LIMIT ?",
+                (scenario_id, limit),
+            ).fetchall()
+            rows = list(reversed(rows))
+        return [(r[0], r[1]) for r in rows]
+
     def threat_last(self) -> Optional[tuple[float, int]]:
         row = self._get_conn().execute(
             "SELECT ts, threat_level FROM threat_history ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return (row[0], row[1]) if row else None
+
+    def threat_last_scoped(self, scenario_id: str) -> Optional[tuple[float, int]]:
+        row = self._get_conn().execute(
+            "SELECT ts, threat_level FROM threat_history "
+            "WHERE scenario_id=? ORDER BY id DESC LIMIT 1",
+            (scenario_id,),
         ).fetchone()
         return (row[0], row[1]) if row else None
 

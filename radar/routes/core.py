@@ -2406,7 +2406,14 @@ def get_threat_data():
             tl_held = False
         prev_threat = _db.threat_last()
         prev_threat_level = prev_threat[1] if prev_threat else 5
-        _db.threat_append(current_time, threat_level)
+        # Per-scenario history (migration v33): append to threat_history
+        # with the focused scenario_id so the HUD sparkline can pull a
+        # scenario-specific series. Falls back to legacy unscoped append
+        # only when no scenario context is available (defensive).
+        if focused_id:
+            _db.threat_append_scoped(current_time, threat_level, focused_id)
+        else:
+            _db.threat_append(current_time, threat_level)
 
         # F5: snapshot sensor coverage for the focused scenario so the
         # /api/analyst/coverage endpoint reflects current health.

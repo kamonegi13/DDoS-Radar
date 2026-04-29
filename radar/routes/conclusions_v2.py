@@ -73,6 +73,55 @@ def _parse_conclusion_type(raw: str):
         return None
 
 
+@bp.route("/api/v2/scenarios/<scenario_id>/threat_history", methods=["GET"])
+@jwt_required()
+def v2_scenario_threat_history(scenario_id: str):
+    """Per-scenario TL history (migration v33 — HUD sparkline divergence
+    fix 2026-04-29).
+
+    Returns the TL series for one scenario over the lookback window so
+    the HUD sparkline can render scenario-specific bars instead of the
+    legacy "whichever scenario was focused at the time" mishmash.
+
+    Query params:
+      hours  : lookback window in hours (default 24, max 168)
+      limit  : max rows (default 1000, hard cap)
+
+    Response: { scenario_id, hours, history: [[ts, level], ...] }
+    """
+    from flask import request as _req
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    try:
+        hours = max(1, min(int(_req.args.get("hours", "24")), 168))
+    except (ValueError, TypeError):
+        hours = 24
+    try:
+        limit = max(1, min(int(_req.args.get("limit", "1000")), 5000))
+    except (ValueError, TypeError):
+        limit = 1000
+
+    from radar.database import db
+    import time as _time
+    since_ts = _time.time() - hours * 3600
+    rows = db.threat_list_scoped(scenario_id,
+                                  since_ts=since_ts,
+                                  limit=limit)
+    return jsonify({
+        "api_version": API_VERSION,
+        "scenario_id": scenario_id,
+        "hours": hours,
+        "history": [[r[0], r[1]] for r in rows],
+        "final_judgment_disclaimer": _np7_disclaimer(),
+    })
+
+
+def _np7_disclaimer():
+    from radar import config as _cfg
+    return _cfg.V2_NP7_DISCLAIMER
+
+
 @bp.route("/api/v2/scenarios/<scenario_id>/conclusions", methods=["GET"])
 @jwt_required()
 def v2_scenario_conclusions(scenario_id: str):
