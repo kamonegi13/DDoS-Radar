@@ -711,6 +711,31 @@ CREATE TABLE IF NOT EXISTS discovery_cluster (
 CREATE INDEX IF NOT EXISTS idx_discovery_cluster_run
     ON discovery_cluster (run_id);
 
+-- LLM Feature Hub (migration v31, 2026-04-29). Mirrored here so fresh
+-- DBs get the runtime control-plane tables without depending on the
+-- migration chain.
+CREATE TABLE IF NOT EXISTS llm_feature_state (
+    feature_key   TEXT PRIMARY KEY,
+    state         TEXT NOT NULL
+        CHECK (state IN ('off','shadow','on')),
+    set_at        REAL NOT NULL,
+    set_by        TEXT NOT NULL,
+    reason        TEXT
+);
+CREATE TABLE IF NOT EXISTS llm_feature_state_history (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature_key   TEXT NOT NULL,
+    old_state     TEXT,
+    new_state     TEXT NOT NULL,
+    changed_at    REAL NOT NULL,
+    changed_by    TEXT NOT NULL,
+    reason        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_feature_state_history_key
+    ON llm_feature_state_history (feature_key, changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_feature_state_history_ts
+    ON llm_feature_state_history (changed_at DESC);
+
 -- Phase 4 B2 (2026-04-29): auto-judge calibration ledger.
 -- Mirrored in migration 27 for upgraded DBs; this ensures fresh DBs get
 -- the table without depending on migration runs.
@@ -1751,6 +1776,39 @@ class RadarDB:
             -- pre-redesign rows.
             ALTER TABLE scenario_proposals ADD COLUMN evidence_strength TEXT;
             ALTER TABLE scenario_proposals ADD COLUMN vitality_state TEXT;
+        """),
+
+        (31, "LLM Feature Hub: feature_state runtime control plane + audit history", """
+            -- LLM Feature Hub registry (radar/llm_features.py). The
+            -- runtime state of every LLM-driven capability is owned
+            -- by these two tables. Migration is non-destructive — the
+            -- existing env flags continue to work as defaults; rows
+            -- here override env when present.
+            CREATE TABLE IF NOT EXISTS llm_feature_state (
+                feature_key   TEXT PRIMARY KEY,
+                state         TEXT NOT NULL
+                    CHECK (state IN ('off','shadow','on')),
+                set_at        REAL NOT NULL,
+                set_by        TEXT NOT NULL,
+                reason        TEXT
+            );
+
+            -- Append-only audit trail (NP6). Every state flip records
+            -- old/new state + actor + reason. Pair with the API audit
+            -- endpoint for forensic readout.
+            CREATE TABLE IF NOT EXISTS llm_feature_state_history (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                feature_key   TEXT NOT NULL,
+                old_state     TEXT,
+                new_state     TEXT NOT NULL,
+                changed_at    REAL NOT NULL,
+                changed_by    TEXT NOT NULL,
+                reason        TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_llm_feature_state_history_key
+                ON llm_feature_state_history (feature_key, changed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_llm_feature_state_history_ts
+                ON llm_feature_state_history (changed_at DESC);
         """),
     ]
 
