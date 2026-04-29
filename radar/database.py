@@ -541,6 +541,23 @@ CREATE TABLE IF NOT EXISTS ct_log_domain_first_observed (
     first_observed  REAL NOT NULL
 );
 
+-- v2.0 Phase 3 (ADR-V2-011): analyst_feedback ledger.
+CREATE TABLE IF NOT EXISTS analyst_feedback (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    conclusion_id        TEXT NOT NULL REFERENCES conclusions(id),
+    label                TEXT NOT NULL
+        CHECK (label IN ('TRUE_POSITIVE', 'FALSE_POSITIVE',
+                         'TRUE_NEGATIVE', 'FALSE_NEGATIVE')),
+    observed_outcome_url TEXT,
+    analyst_id           TEXT NOT NULL,
+    observed_at          REAL NOT NULL,
+    notes                TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_conclusion
+    ON analyst_feedback (conclusion_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_analyst_time
+    ON analyst_feedback (analyst_id, observed_at DESC);
+
 -- Phase A foundation (2026-04-29): auto-tune ledgers.
 CREATE TABLE IF NOT EXISTS threshold_history (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -245,6 +245,32 @@ def _cache_cleanup_worker(registry=None):
             except Exception as _diag_exc:
                 log.warning("[WeeklyDiag] maybe_run failed: %s", _diag_exc)
 
+            # Phase B: per-scenario TL threshold calibrator (auto-tune).
+            # Runs once per day on the cleanup_worker's hourly tick — a
+            # separate cadence gate inside calibrate_all_scenarios is not
+            # needed because the governor's cooldown (default 72h per key)
+            # bounds the actual write rate. The recall_metrics CI gate +
+            # bounded magnitude (10%) provide additional safety.
+            # Phase B v1: emits proposals to threshold_history; actual
+            # *application* in derive_tl is gated on a separate feature
+            # flag (future commit) so the conclusion_diff_log 100% match
+            # invariant is preserved during shadow rollout.
+            if _cycle % 24 == 1:  # ~daily (cleanup_worker is hourly)
+                try:
+                    from radar.calibration.tl_threshold_calibrator import (
+                        calibrate_all_scenarios,
+                    )
+                    cal_result = calibrate_all_scenarios()
+                    accepted = sum(r.get("accepted", 0) for r in cal_result.values())
+                    submitted = sum(r.get("submitted", 0) for r in cal_result.values())
+                    if submitted:
+                        log.info(
+                            "[TLCalib] daily pass: %d scenarios, %d submitted, %d accepted",
+                            len(cal_result), submitted, accepted,
+                        )
+                except Exception as _tlc_exc:
+                    log.warning("[TLCalib] calibrate_all_scenarios failed: %s", _tlc_exc)
+
             # LLM pipeline health summary (hourly visibility)
             try:
                 from radar.config import LLM_ENABLED
