@@ -387,17 +387,39 @@ def test_runner_disables_acled_when_flag_false(stub_acled, no_gdelt, monkeypatch
     assert isinstance(summary, dict)
 
 
-def test_runner_returns_no_op_when_both_sources_disabled(stub_acled, no_gdelt):
-    """If both --no-gdelt and --no-acled are set, the runner must short-
-    circuit and not waste DB scans."""
+def test_runner_returns_no_op_when_all_sources_disabled(stub_acled, no_gdelt):
+    """If ALL evidence sources are disabled (gdelt + acled + llm_intel +
+    sequence), the runner must short-circuit and not waste DB scans.
+
+    Updated 2026-04-29: previously only gdelt+acled were tracked. The
+    addition of llm_intel and sequence collectors means disabling just
+    those two no longer blocks the pipeline — internal sources still
+    produce evidence."""
     obs_at = _NOW - 24 * 3600
     _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="3", observed_at=obs_at)
     summary = runner.run_etl(
         db, since=obs_at - 1, until=_NOW,
         scenario_filter=_SCENARIO,
         enable_gdelt=False, enable_acled=False,
+        enable_llm_intel=False, enable_sequence=False,
     )
-    assert summary == {"scanned": 0, "skipped_both_sources_disabled": 1}
+    assert summary == {"scanned": 0, "skipped_all_sources_disabled": 1}
+
+
+def test_runner_runs_with_internal_sources_only(stub_acled, no_gdelt):
+    """ACLED + GDELT both off but llm_intel + sequence on → runner still
+    iterates conclusions and produces evidence. Validates the ACLED-free
+    bootstrap path."""
+    obs_at = _NOW - 24 * 3600
+    _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="3", observed_at=obs_at)
+    summary = runner.run_etl(
+        db, since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO,
+        enable_gdelt=False, enable_acled=False,
+        # internal sources default-on
+    )
+    assert summary.get("scanned", 0) >= 1
+    assert "skipped_all_sources_disabled" not in summary
 
 
 def test_main_falls_back_to_gdelt_only_when_acled_creds_missing(

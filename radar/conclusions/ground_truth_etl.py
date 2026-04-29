@@ -44,17 +44,32 @@ if TYPE_CHECKING:
 
 
 class EvidenceSource(str, Enum):
-    """Which public DB the evidence came from."""
+    """Which evidence source produced the event.
+
+    ACLED and GDELT are external (public DBs).
+
+    LLM_INTEL and SEQUENCE are internal (our own DB) — added 2026-04-29 to
+    keep the recall calculator working when ACLED is unavailable for OPSEC
+    reasons. They are deliberately weighted lower than ACLED in the
+    FALSE_NEGATIVE rule (require ≥2 distinct internal sources to substitute
+    for one ACLED severity≥N event) so a single LLM-confirmed item cannot
+    flip a tool conclusion against the analyst's TL=1 call.
+    """
 
     ACLED = "acled"
     GDELT = "gdelt"
+    LLM_INTEL = "llm_intel"
+    SEQUENCE = "sequence"
 
 
 # Auto-feedback identity strings. Kept in sync with the test suite so the
 # distinct-analyst aggregation rule above stays load-bearing.
 AUTO_ANALYST_ACLED = "auto:acled"
 AUTO_ANALYST_GDELT = "auto:gdelt"
+AUTO_ANALYST_LLM_INTEL = "auto:llm_intel"
+AUTO_ANALYST_SEQUENCE = "auto:sequence"
 AUTO_ANALYST_BOTH = "auto:both"
+AUTO_ANALYST_MIXED = "auto:mixed"  # ≥2 distinct sources of any kind
 
 # Keep auto-feedback notes short and machine-parseable. The drill-down UI
 # already has plenty of room for human prose; this field is debug context.
@@ -126,15 +141,38 @@ def _max_severity(events: list[ExternalEvent]) -> int:
 def _provenance(events: list[ExternalEvent]) -> tuple[str, Optional[str], str]:
     """Return ``(analyst_id, evidence_url, notes)`` for a list of confirming
     events. URL prefers the highest-severity event; notes describes the
-    ACLED/GDELT mix so a human can audit without reopening the script.
+    full source mix so a human can audit without reopening the script.
+
+    Source priority (when assigning analyst_id):
+      1. ACLED + GDELT (both external public DBs) → "auto:both"
+      2. ACLED-only → "auto:acled"
+      3. GDELT-only → "auto:gdelt"
+      4. ≥2 distinct internal-only sources (LLM_INTEL + SEQUENCE) → "auto:mixed"
+      5. LLM_INTEL-only → "auto:llm_intel"
+      6. SEQUENCE-only → "auto:sequence"
+
+    Internal-only paths (4-6) are added 2026-04-29 to keep the auto-feedback
+    pipeline producing labels when ACLED is unavailable. They are explicitly
+    distinguishable from external-source paths so analysts can filter recall
+    metrics by source quality if desired.
     """
     sources = {e.source for e in events}
-    if EvidenceSource.ACLED in sources and EvidenceSource.GDELT in sources:
+    has_acled = EvidenceSource.ACLED in sources
+    has_gdelt = EvidenceSource.GDELT in sources
+    has_llm = EvidenceSource.LLM_INTEL in sources
+    has_seq = EvidenceSource.SEQUENCE in sources
+    if has_acled and has_gdelt:
         analyst_id = AUTO_ANALYST_BOTH
-    elif EvidenceSource.ACLED in sources:
+    elif has_acled:
         analyst_id = AUTO_ANALYST_ACLED
-    elif EvidenceSource.GDELT in sources:
+    elif has_gdelt:
         analyst_id = AUTO_ANALYST_GDELT
+    elif has_llm and has_seq:
+        analyst_id = AUTO_ANALYST_MIXED
+    elif has_llm:
+        analyst_id = AUTO_ANALYST_LLM_INTEL
+    elif has_seq:
+        analyst_id = AUTO_ANALYST_SEQUENCE
     else:
         analyst_id = AUTO_ANALYST_ACLED  # fallback; should not occur
 
@@ -143,8 +181,11 @@ def _provenance(events: list[ExternalEvent]) -> tuple[str, Optional[str], str]:
         url = top.url or None
         n_acled = sum(1 for e in events if e.source == EvidenceSource.ACLED)
         n_gdelt = sum(1 for e in events if e.source == EvidenceSource.GDELT)
+        n_llm = sum(1 for e in events if e.source == EvidenceSource.LLM_INTEL)
+        n_seq = sum(1 for e in events if e.source == EvidenceSource.SEQUENCE)
         notes = (
             f"auto-correlation: ACLED={n_acled} GDELT={n_gdelt} "
+            f"LLM_INTEL={n_llm} SEQUENCE={n_seq} "
             f"top_severity={top.severity} top={top.summary}"
         )[:_NOTE_TRUNCATE]
     else:
@@ -235,11 +276,29 @@ def classify_conclusion(
     )
 
     # Rule 1 — FALSE_NEGATIVE (NP1 critical).
+    # Two paths to qualify:
+    #   (a) Strong path: ≥1 ACLED event with severity ≥ fn_severity
+    #   (b) Internal-source substitute (added 2026-04-29 for ACLED-free
+    #       deployments): ≥2 distinct internal sources (LLM_INTEL OR
+    #       SEQUENCE) corroborate during the forward window. Two distinct
+    #       internal confirmations is a deliberately stricter bar than one
+    #       ACLED event because LLM_INTEL is LLM-judged (not human-verified)
+    #       and SEQUENCE is our own scoring layer's judgment.
     if _is_quiet_threat_level(conclusion):
         critical = [
             e for e in in_window
             if e.source is EvidenceSource.ACLED and e.severity >= fn_severity
         ]
+        # Internal substitute: count distinct internal sources confirming.
+        internal_sources_present = {
+            e.source for e in in_window
+            if e.source in (EvidenceSource.LLM_INTEL, EvidenceSource.SEQUENCE)
+        }
+        if not critical and len(internal_sources_present) >= 2:
+            critical = [
+                e for e in in_window
+                if e.source in (EvidenceSource.LLM_INTEL, EvidenceSource.SEQUENCE)
+            ]
         if critical:
             analyst_id, url, notes = _provenance(critical)
             return AutoFeedback(

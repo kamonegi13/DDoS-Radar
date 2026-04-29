@@ -447,3 +447,114 @@ def test_acled_fetch_drops_rows_with_unparseable_date(monkeypatch):
         api_key="dummy", api_email="dummy@test", session=_FakeSession(),
     )
     assert out == []
+
+
+# ── Internal-source evidence (PF1 extension 2026-04-29) ─────────────────
+
+
+class TestInternalSourceProvenance:
+    """Provenance helper handles new LLM_INTEL and SEQUENCE source kinds."""
+
+    def test_provenance_llm_intel_only(self):
+        from radar.conclusions.ground_truth_etl import (
+            AUTO_ANALYST_LLM_INTEL, EvidenceSource, ExternalEvent, _provenance,
+        )
+        events = [ExternalEvent(
+            source=EvidenceSource.LLM_INTEL,
+            country="TW", event_at=_NOW, severity=1,
+            url="radar://llm_intel/abc", summary="diplomatic pendant 0.85",
+        )]
+        analyst, url, notes = _provenance(events)
+        assert analyst == AUTO_ANALYST_LLM_INTEL
+        assert "LLM_INTEL=1" in notes
+
+    def test_provenance_sequence_only(self):
+        from radar.conclusions.ground_truth_etl import (
+            AUTO_ANALYST_SEQUENCE, EvidenceSource, ExternalEvent, _provenance,
+        )
+        events = [ExternalEvent(
+            source=EvidenceSource.SEQUENCE,
+            country="UA", event_at=_NOW, severity=1,
+            url="radar://sequence_events/SURGE", summary="sequence_event SURGE",
+        )]
+        analyst, _, notes = _provenance(events)
+        assert analyst == AUTO_ANALYST_SEQUENCE
+        assert "SEQUENCE=1" in notes
+
+    def test_provenance_mixed_internal_sources(self):
+        from radar.conclusions.ground_truth_etl import (
+            AUTO_ANALYST_MIXED, EvidenceSource, ExternalEvent, _provenance,
+        )
+        events = [
+            ExternalEvent(EvidenceSource.LLM_INTEL, "IL", _NOW, 1, "u1", "s1"),
+            ExternalEvent(EvidenceSource.SEQUENCE, "IL", _NOW, 1, "u2", "s2"),
+        ]
+        analyst, _, _ = _provenance(events)
+        assert analyst == AUTO_ANALYST_MIXED
+
+    def test_provenance_acled_overrides_internal(self):
+        """ACLED is human-curated and outranks internal sources for analyst_id."""
+        from radar.conclusions.ground_truth_etl import (
+            AUTO_ANALYST_ACLED, EvidenceSource, ExternalEvent, _provenance,
+        )
+        events = [
+            ExternalEvent(EvidenceSource.ACLED, "TW", _NOW, 5, "u1", "acled"),
+            ExternalEvent(EvidenceSource.LLM_INTEL, "TW", _NOW, 1, "u2", "llm"),
+        ]
+        analyst, _, _ = _provenance(events)
+        assert analyst == AUTO_ANALYST_ACLED
+
+
+class TestInternalSourceFalseNegative:
+    """Rule 1 (FALSE_NEGATIVE) accepts ≥2 distinct internal sources as
+    ACLED substitute when ACLED is unavailable."""
+
+    def test_two_internal_sources_trigger_false_negative_on_quiet_tl(self):
+        from radar.conclusions.ground_truth_etl import (
+            EvidenceSource, ExternalEvent, classify_conclusion,
+        )
+        c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="1",
+                             observed_at=_NOW - 3600)
+        events = [
+            ExternalEvent(EvidenceSource.LLM_INTEL, "TW", _NOW, 1, "u1", "llm"),
+            ExternalEvent(EvidenceSource.SEQUENCE, "TW", _NOW, 1, "u2", "seq"),
+        ]
+        verdict = classify_conclusion(
+            c, events, participant_countries=["TW"],
+        )
+        assert verdict is not None
+        assert verdict.label.value == "FALSE_NEGATIVE"
+
+    def test_one_internal_source_alone_does_not_trigger(self):
+        """Single LLM_INTEL event is too weak to flip TL=1 alone."""
+        from radar.conclusions.ground_truth_etl import (
+            EvidenceSource, ExternalEvent, classify_conclusion,
+        )
+        c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="1",
+                             observed_at=_NOW - 3600)
+        events = [
+            ExternalEvent(EvidenceSource.LLM_INTEL, "TW", _NOW, 1, "u1", "llm"),
+        ]
+        verdict = classify_conclusion(
+            c, events, participant_countries=["TW"],
+        )
+        if verdict is not None:
+            assert verdict.label.value != "FALSE_NEGATIVE"
+
+    def test_two_same_source_internal_does_not_trigger(self):
+        """Two LLM_INTEL events (same source) → only 1 distinct internal
+        source → still not enough for the substitute rule."""
+        from radar.conclusions.ground_truth_etl import (
+            EvidenceSource, ExternalEvent, classify_conclusion,
+        )
+        c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="1",
+                             observed_at=_NOW - 3600)
+        events = [
+            ExternalEvent(EvidenceSource.LLM_INTEL, "TW", _NOW, 1, "u1", "llm-1"),
+            ExternalEvent(EvidenceSource.LLM_INTEL, "TW", _NOW, 1, "u2", "llm-2"),
+        ]
+        verdict = classify_conclusion(
+            c, events, participant_countries=["TW"],
+        )
+        if verdict is not None:
+            assert verdict.label.value != "FALSE_NEGATIVE"

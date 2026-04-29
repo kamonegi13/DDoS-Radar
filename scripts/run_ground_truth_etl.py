@@ -74,13 +74,16 @@ logging.basicConfig(
 )
 
 
-# GDELT tone spike conversion: a same-weekday Z-score below -2.0 is the
-# threshold the live sensor uses for ALERT (radar/sensors/gdelt.py:73).
-# We mirror that threshold here so auto-correlation aligns with what the
-# tool was already calling sentiment escalation. severity is ordinal:
-# 1 = single-day negative spike, 2 = sustained 3+ days.
-_GDELT_SPIKE_Z_THRESHOLD = -2.0
-_GDELT_SUSTAINED_DAYS = 3
+# GDELT tone spike conversion. Default Z-threshold = -1.5 (loosened
+# 2026-04-29 from -2.0 to -1.5; the original -2.0 mirrored the live
+# sensor's ALERT band but proved too strict for ACLED-free recall
+# bootstrapping — most participant countries have ≤25 weekday samples
+# in the retention window, which makes |z| ≥ 2 statistically unreachable).
+# Operators can tighten via env GROUND_TRUTH_GDELT_Z_THRESHOLD when they
+# accumulate more samples. severity is ordinal: 1 = single-day spike,
+# 2 = sustained 3+ days.
+_GDELT_SPIKE_Z_THRESHOLD = float(os.getenv("GROUND_TRUTH_GDELT_Z_THRESHOLD", "-1.5"))
+_GDELT_SUSTAINED_DAYS = int(os.getenv("GROUND_TRUTH_GDELT_SUSTAINED_DAYS", "3"))
 
 
 def _gdelt_evidence_for_scenario(
@@ -174,6 +177,102 @@ def _acled_evidence_for_scenario(
     return out
 
 
+def _llm_intel_evidence_for_scenario(
+    db: RadarDB,
+    countries: list[str],
+    since: float,
+    until: float,
+) -> list[ExternalEvent]:
+    """Read confirmed/auto_confirmed llm_intel rows whose theater is in the
+    scenario's participant countries during the window. These are escalation
+    signals our own LLM pipeline already vetted (ecosystem-gated, confidence
+    floor passed, optionally corroborated). Treated as severity=1 so the
+    classifier gives them positive weight without letting a single LLM call
+    push a TL=1 conclusion to FALSE_NEGATIVE on its own (FN rule requires
+    ≥2 distinct internal sources).
+
+    Added 2026-04-29 for ACLED-free recall bootstrapping.
+    """
+    if not countries:
+        return []
+    placeholders = ",".join("?" * len(countries))
+    rows = db._get_conn().execute(  # noqa: SLF001
+        f"SELECT id, theater, ts, confidence, headline FROM llm_intel "
+        f"WHERE status IN ('confirmed','auto_confirmed') "
+        f"  AND theater IN ({placeholders}) "
+        f"  AND ts BETWEEN ? AND ?",
+        [c.upper() for c in countries] + [int(since), int(until)],
+    ).fetchall()
+    out: list[ExternalEvent] = []
+    for r in rows:
+        item_id, theater, ts, confidence, headline = r
+        if float(confidence or 0) < 0.7:
+            continue  # low-confidence intel is too noisy to count as evidence
+        out.append(ExternalEvent(
+            source=EvidenceSource.LLM_INTEL,
+            country=(theater or "").upper(),
+            event_at=float(ts),
+            severity=1,
+            url=f"radar://llm_intel/{item_id}",
+            summary=f"llm_intel conf={confidence:.2f} {(headline or '')[:80]}",
+        ))
+    return out
+
+
+def _sequence_evidence_for_scenario(
+    db: RadarDB,
+    countries: list[str],
+    since: float,
+    until: float,
+) -> list[ExternalEvent]:
+    """Derive evidence from sequence_events (BURST / SURGE / DDOS / CHAIN
+    fired by the scoring layer). These are signals the radar's own
+    convergence engine flagged as escalation activity, distinct from the
+    raw LLM intel pipeline.
+
+    Treated as severity=1 like llm_intel — same rationale: not strong
+    enough alone to flip a TL=1, but combined with other internal evidence
+    forms a meaningful corroboration set.
+
+    Added 2026-04-29 for ACLED-free recall bootstrapping.
+    """
+    if not countries:
+        return []
+    placeholders = ",".join("?" * len(countries))
+    try:
+        rows = db._get_conn().execute(  # noqa: SLF001
+            f"SELECT theater, event_type, ts FROM sequence_events "
+            f"WHERE theater IN ({placeholders}) AND ts BETWEEN ? AND ?",
+            [c.upper() for c in countries] + [int(since), int(until)],
+        ).fetchall()
+    except Exception as exc:
+        log.warning("sequence_events query failed: %s", exc)
+        return []
+    out: list[ExternalEvent] = []
+    # Filter to escalation-style event_types only. Live sequence_events
+    # uses these tags (verified 2026-04-29 against production DB). Lower-
+    # severity tags like TL_CHANGE that just track threat-level deltas
+    # are intentionally excluded.
+    escalation_tags = {
+        "SYNC_DDOS", "ISR_SURGE", "BURST", "SURGE", "DDOS", "CHAIN",
+        "C2_SYNC", "CRITICAL_BURST", "DEFCON_CHANGE", "MIL_AIR_SURGE",
+        "AMBUSH", "AIS_DARK_GAP", "CONVERGENCE",
+    }
+    for r in rows:
+        theater, event_type, ts = r
+        if event_type not in escalation_tags:
+            continue
+        out.append(ExternalEvent(
+            source=EvidenceSource.SEQUENCE,
+            country=(theater or "").upper(),
+            event_at=float(ts),
+            severity=1,
+            url=f"radar://sequence_events/{event_type}",
+            summary=f"sequence_event {event_type} theater={theater}",
+        ))
+    return out
+
+
 def _participants_for(scenario_id: str) -> list[str]:
     """Look up the scenario's participant ISO-2 codes. Returns ``[]`` if
     the scenario is unknown (deleted, renamed) — the conclusion still gets
@@ -194,6 +293,8 @@ def run_etl(
     dry_run: bool = False,
     enable_gdelt: bool = True,
     enable_acled: bool = True,
+    enable_llm_intel: bool = True,
+    enable_sequence: bool = True,
 ) -> dict:
     """Drive one ETL pass. Returns a counter dict for the caller to log.
 
@@ -201,12 +302,18 @@ def run_etl(
     ACLED_API_KEY/EMAIL, ACLED fetches are skipped entirely. GDELT-only
     operation is the OPSEC-friendly default for deployments that don't
     want to register an ACLED API key.
+
+    Internal-source evidence (LLM_INTEL, SEQUENCE) is always read from
+    our own DB. Disable individually via enable_llm_intel / enable_sequence
+    if needed; default-on because they cost nothing and are the primary
+    bootstrap for ACLED-free recall calculation.
     """
-    if not enable_gdelt and not enable_acled:
+    if (not enable_gdelt and not enable_acled
+            and not enable_llm_intel and not enable_sequence):
         log.warning(
-            "Both --no-gdelt and --no-acled were passed — nothing to correlate."
+            "All evidence sources disabled — nothing to correlate."
         )
-        return {"scanned": 0, "skipped_both_sources_disabled": 1}
+        return {"scanned": 0, "skipped_all_sources_disabled": 1}
 
     conclusions = list_conclusions_in_window(
         db, since=since, until=until, limit=limit,
@@ -240,10 +347,19 @@ def run_etl(
             _gdelt_evidence_for_scenario(db, countries, ev_since, ev_until)
             if enable_gdelt else []
         )
-        evidence = acled + gdelt
+        llm_intel = (
+            _llm_intel_evidence_for_scenario(db, countries, ev_since, ev_until)
+            if enable_llm_intel else []
+        )
+        sequence = (
+            _sequence_evidence_for_scenario(db, countries, ev_since, ev_until)
+            if enable_sequence else []
+        )
+        evidence = acled + gdelt + llm_intel + sequence
         log.info(
-            "scenario=%s conclusions=%d acled_events=%d gdelt_events=%d",
-            scenario_id, len(items), len(acled), len(gdelt),
+            "scenario=%s conclusions=%d acled=%d gdelt=%d llm_intel=%d sequence=%d",
+            scenario_id, len(items),
+            len(acled), len(gdelt), len(llm_intel), len(sequence),
         )
 
         for c in items:
@@ -286,6 +402,17 @@ def main() -> int:
         help="Skip ACLED entirely (OPSEC-friendly: avoids registering an API key). "
              "GDELT-only mode still produces auto-feedback rows but with somewhat "
              "lower recall recovery (no fatality counts).",
+    )
+    parser.add_argument(
+        "--no-llm-intel", action="store_true",
+        help="Skip the LLM_INTEL evidence collector (confirmed/auto_confirmed "
+             "rows from llm_intel). Default-on; only disable for testing.",
+    )
+    parser.add_argument(
+        "--no-sequence", action="store_true",
+        help="Skip the SEQUENCE evidence collector (BURST/SURGE/DDOS/CHAIN "
+             "fired by the convergence engine). Default-on; only disable "
+             "for testing.",
     )
     parser.add_argument(
         "--force", action="store_true",
@@ -336,6 +463,8 @@ def main() -> int:
         dry_run=args.dry_run,
         enable_gdelt=not args.no_gdelt,
         enable_acled=enable_acled,
+        enable_llm_intel=not args.no_llm_intel,
+        enable_sequence=not args.no_sequence,
     )
     log.info("ETL summary: %s", summary)
     return 0
