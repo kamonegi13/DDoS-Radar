@@ -296,6 +296,7 @@
                     <div class="tools-menu-item" id="tm-item-wp" onclick="handleToolToggle('sensor-watchpane', toggleSensorWatchpane, 'tm-dot-wp', 'tm-item-wp')"><span class="tools-menu-icon">&#x1F441;</span><span class="tools-menu-label" data-i18n="tools.sensor_watchpane">Sensor Watchpane</span><span class="tools-menu-dot" id="tm-dot-wp"></span></div>
                     <div class="tools-menu-section-header" data-i18n="tools.section.admin">ADMIN</div>
                     <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();"><span class="tools-menu-icon">&#x1F464;</span><span class="tools-menu-label" data-i18n="tools.user_management">User Management</span></div>
+                    <div class="tools-menu-item" id="tm-item-autotune" onclick="window._wizardOpen && window._wizardOpen()"><span class="tools-menu-icon">&#x2699;</span><span class="tools-menu-label" data-i18n="tools.autotune_wizard">Auto-tune Wizard</span></div>
                 </div>
             </div>
         </div>
@@ -3050,6 +3051,26 @@
             <li><b>Per-Scenario Breakdown</b>: Table showing switches, misses, and avg_delta for each scenario that was the target of a focus switch. Identifies which specific scenarios are most affected by LITE mode limitations.</li>
         </ul>
 
+        <p><b>J. Auto-tune Wizard</b> — <span class="code-block">TOOLS ▾</span> → Auto-tune Wizard</p>
+        <ul>
+            <li><b>Purpose</b>: Single-screen review surface for every Phase A-F1+F3 + Tier 3 discovery proposal. Analysts apply / dismiss / defer in one place. <b>Structural changes (adversary additions, role reclassifications) MUST pass the NP7 confirmation modal</b> before they take effect.</li>
+            <li><b>Five tabs</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Scenario Improver</b>: Phase F1 proposals (weight_too_low / weight_too_high / missing_participant).</li>
+                    <li><b>Structure (F2-a)</b>: Role reclassification + dormant participant detection. Surfaces participants whose configured role disagrees with their observed signal mix.</li>
+                    <li><b>Sensor Disable</b>: α-broken sensor auto-disable proposals with a 24h analyst ack window. Auto-escalates if no ack arrives.</li>
+                    <li><b>Drift Signals</b>: F3 drift events that have crossed the dwell threshold (≥3 consecutive runs). Color-coded amber/red by severity.</li>
+                    <li><b>Discovery</b>: G.2 cooccurrence matrix → G.3a DBSCAN candidate scenarios (read-only). G3b LLM annotations appear once <span class="code-block">G3B_SHADOW_ENABLED=true</span>.</li>
+                </ul>
+            </li>
+            <li><b>NP7 confirm modal</b>: When applying a proposal flagged <span class="code-block">is_recall_reducing=true</span>, a sub-modal (autotune-confirm-modal) shows the rationale + evidence and disables Apply until the analyst clicks Confirm.</li>
+            <li><b>Transparency (NP6)</b>: Every row exposes <span class="code-block">formula_ref</span>, <span class="code-block">sample_n</span>, and a structured <span class="code-block">evidence_json</span> block — full reproducibility from inside the wizard.</li>
+            <li><b>API endpoints</b>: <span class="code-block">GET /api/v2/proposals/{scenario_improver,sensor_disable}</span>, <span class="code-block">GET /api/v2/drift_signals</span>, <span class="code-block">GET /api/v2/discovery/clusters</span>, <span class="code-block">POST /api/v2/proposals/scenario_improver/&lt;id&gt;/{apply,dismiss,defer}</span>, <span class="code-block">POST /api/v2/proposals/sensor_disable/&lt;id&gt;/ack</span>, <span class="code-block">POST /api/v2/drift_signals/&lt;id&gt;/ack</span>.</li>
+            <li><b>Audit</b>: Every apply records <span class="code-block">admin:&lt;username&gt;</span> in <span class="code-block">scenario_proposals.state_changed_by</span>. <span class="code-block">GET /api/v2/threshold_history/&lt;id&gt;/lineage</span> walks the derivation chain backwards and forwards.</li>
+            <li><b>Discovery tab caveats</b>: G.3b LLM annotation follows a strict shadow → opt-in → default-on rollout: <span class="code-block">G3B_SHADOW_ENABLED=true</span> first (observation), then <span class="code-block">G3B_LLM_ENABLED=true</span> (UI surfacing). Default is both off (hallucination-safe). Annotations with <span class="code-block">confidence_self_reported &lt; 0.5</span> are dimmed in the UI.</li>
+            <li><b>Manual triggers</b>: Admins can fire individual phases via <span class="code-block">POST /api/v2/calibration/run_now?phase=&lt;name&gt;</span> (phase ∈ {tl, llm_conf, sensor_disable, scenario, structure, discovery, g3b, drift, all}).</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3147,6 +3168,26 @@
                 </ul>
             </li>
             <li><b>シナリオ別内訳</b>: フォーカス切替の対象となった各シナリオの切替回数、ミス、平均Δを表示するテーブル。LITEモードの制約により最も影響を受けているシナリオを特定。</li>
+        </ul>
+
+        <p><b>J. オートチューニング Wizard</b> — <span class="code-block">TOOLS ▾</span> → Auto-tune Wizard</p>
+        <ul>
+            <li><b>目的</b>: Phase A-F1+F3 のオートチューニング機構が累積した提案・履歴・ドリフトシグナルをアナリストが 1 画面でレビューし、apply / dismiss / defer する単一導線を提供。<b>NP7 違反防止のため、構造変更（adversary 追加 / 役割再分類）は必ず確認モーダル経由</b>で適用される。</li>
+            <li><b>5 タブ構成</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Scenario Improver</b>: Phase F1 の提案（weight_too_low / weight_too_high / missing_participant）を一覧。</li>
+                    <li><b>Structure (F2-a)</b>: 役割再分類 / dormant 参加者検出。シグナルミックスから観測された役割と設定値の乖離を可視化。</li>
+                    <li><b>Sensor Disable</b>: 24h ack 待ちの α-broken センサー無効化提案。analyst が ack しなければ自動エスカレーション。</li>
+                    <li><b>Drift Signals</b>: dwell-time（≥3 サイクル）を満たした F3 ドリフトイベント。amber / red 重要度で色分け。</li>
+                    <li><b>Discovery</b>: G.2 共起行列 + G.3a DBSCAN で発見された候補シナリオクラスタ（読み取り専用）。<span class="code-block">G3B_SHADOW_ENABLED=true</span> で LLM 注釈が表示される。</li>
+                </ul>
+            </li>
+            <li><b>NP7 確認モーダル</b>: <span class="code-block">is_recall_reducing=true</span> の提案を Apply するときは別の確認モーダル（autotune-confirm-modal）が表示される。理由文と evidence を再確認した上で「Confirm Apply」を押すまで確定しない。</li>
+            <li><b>透明性（NP6）</b>: 全行に <span class="code-block">formula_ref</span>、<span class="code-block">sample_n</span>、構造化された <span class="code-block">evidence_json</span> が表示される。再現可能性の保証。</li>
+            <li><b>API エンドポイント</b>: <span class="code-block">GET /api/v2/proposals/{scenario_improver,sensor_disable}</span>、<span class="code-block">GET /api/v2/drift_signals</span>、<span class="code-block">GET /api/v2/discovery/clusters</span>、<span class="code-block">POST /api/v2/proposals/scenario_improver/&lt;id&gt;/{apply,dismiss,defer}</span>、<span class="code-block">POST /api/v2/proposals/sensor_disable/&lt;id&gt;/ack</span>、<span class="code-block">POST /api/v2/drift_signals/&lt;id&gt;/ack</span>。</li>
+            <li><b>監査</b>: 全 apply 操作は <span class="code-block">scenario_proposals.state_changed_by</span> に <span class="code-block">admin:&lt;username&gt;</span> として記録。<span class="code-block">GET /api/v2/threshold_history/&lt;id&gt;/lineage</span> で derivation chain を遡及可能。</li>
+            <li><b>Discovery タブの注意</b>: G.3b LLM 注釈は <span class="code-block">G3B_SHADOW_ENABLED=true</span>（観察期間）→ <span class="code-block">G3B_LLM_ENABLED=true</span>（本番）の段階移行を経て初めて UI に出る。デフォルトは両方 false（ハルシネーション防止のため安全側デフォルト）。confidence_self_reported &lt; 0.5 の注釈は灰色化される。</li>
+            <li><b>手動トリガー</b>: 管理者は <span class="code-block">POST /api/v2/calibration/run_now?phase=&lt;name&gt;</span> で個別フェーズを即座に実行可能（phase ∈ {tl, llm_conf, sensor_disable, scenario, structure, discovery, g3b, drift, all}）。</li>
         </ul>
 
         </div>

@@ -1709,6 +1709,7 @@ const STRINGS = {
     'autotune.chip.recall_red':        'recall RED',
     'autotune.chip.recall_ok':         'recall OK',
     'autotune.chip.open_wizard':       'Open Wizard',
+    'tools.autotune_wizard':           'Auto-tune Wizard',
 
 };
 
