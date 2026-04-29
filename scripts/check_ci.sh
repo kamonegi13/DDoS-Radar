@@ -48,6 +48,15 @@ if ! python scripts/check_recall_baseline.py; then
     FAIL=1
 fi
 
+step "Post-autotune recall gate (warn-only)"
+# Warn-only by default — short-term post-autotune recall changes are
+# advisory until the post-autotune feedback set is large enough. Flip
+# to --strict once observation period concludes.
+if ! python scripts/check_recall_post_autotune.py; then
+    echo "FAIL: post-autotune recall gate. See output above." >&2
+    FAIL=1
+fi
+
 step "i18n key parity (EN-only UI + INTEL GUIDE bilingual, 2026-04-28 PM)"
 # GUIDE parity is fatal in the script. STRINGS undefined_refs/unused are
 # warn-only here — flip to --strict once the unused-key cleanup lands.
