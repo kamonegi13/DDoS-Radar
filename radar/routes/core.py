@@ -262,30 +262,14 @@ def scenario_whatif_weights(scenario_id: str):
     }
     return jsonify(sd)
 
-@bp.route("/api/scenario/<scenario_id>/breakdown", methods=["GET"])
-def scenario_breakdown(scenario_id: str):
-    from radar.scenarios import scenario_store
-    sc = scenario_store.get(scenario_id)
-    if not sc:
-        return jsonify({"error": f"Scenario '{scenario_id}' not found"}), 404
 
-    breakdown = {}
-    for cc, p in sorted(sc.participants.items()):
-        breakdown[cc] = {
-            "weight": p.weight,
-            "role": p.role.value,
-        }
+# /api/scenario/<id>/breakdown removed 2026-04-29 (early sunset, ADR-V2-003).
+# Successor: /api/v2/scenarios/<id>/conclusions returns the same per-scenario
+# state + participants + state metadata in the v2 conclusion envelope shape.
+# Production telemetry showed 0 hits over the 3-day Mode C window, so the
+# 90-day deprecation buffer was not protecting any caller. ADR-V2-003 closed
+# in commit that introduces this comment; see docs/_archive/v1-sunset-inventory.md.
 
-    return jsonify({
-        "scenario_id": scenario_id,
-        "name_en": sc.name_en,
-        "name_ja": sc.name_ja,
-        "core_country": sc.core_country,
-        "state": sc.state,
-        "enabled": sc.enabled,
-        "is_scorable": sc.is_scorable,
-        "participants": breakdown,
-    })
 
 def _compute_airspace_status(airspace_data, weather_conditions, current_time,
                              db, airspace_window, hod_baseline_days, hod_min_same_hour):

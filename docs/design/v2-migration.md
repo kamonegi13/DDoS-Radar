@@ -28,9 +28,9 @@
 |-------|------|------|------------|
 | **Phase 0** | 設計確定、ADR 起こし、scaffolding (Conclusion dataclass, DB v19-v22, codemod 準備) | **完了 (2026-04-26)** | 2026-05-02 |
 | **Phase 1** | 基盤層: Conclusion Model 永続化、LLM プロンプト永続化、theater 撲滅、v2 API 骨格、NP7 disclaimer 強制 | **完了 (2026-04-27)** — Phase 1.1〜1.4 (P1/SR4/P2/C) 全 stage 済 | 2026-06-15 |
-| **Phase 2** | 結論層: 攻撃モード推定 + extensions、トレンド三層化、per-domain 構造化、importance ranking、Calibration governance、Design W default-on | **概ね完了 (2026-04-27)** — 結論層実装済、ACLED+GDELT 自動突合稼働可、recall metrics + CI gate 実装済。残: Design W opt-in は analyst_feedback 蓄積待ち (passive observation) | 2026-07-31 |
+| **Phase 2** | 結論層: 攻撃モード推定 + extensions、トレンド三層化、per-domain 構造化、importance ranking、Calibration governance、Design W default-on | **完了 (2026-04-29)** — 結論層実装済、ACLED+GDELT 自動突合 + 内部 evidence 拡張 (LLM_INTEL+SEQUENCE) で recall metrics 1.000、`docs/baselines/recall_metrics.json` 作成 + `opt_in: true` flip で Design W default-on 達成 | 2026-07-31 |
 | **Phase 3** | UI と運用: Analyst Workbench (4 ペイン)、drill-down、Markdown/PDF export、analyst feedback ループ、ACLED+GDELT 自動突合 ([v2-ui.md](v2-ui.md) で詳細設計) | **完了 (2026-04-26)** — workbench / drill-down / Markdown export / feedback ledger / LLM augmentation drill-down section / default-on | 2026-09-15 |
-| **Phase 4** | v1 sunset: deprecation header → 90 日 → v1 撤去、theater adapter 削除 | **進行中** — deprecation/sunset header 配信中。v1 撤去は 2026-07-26 以降 | 2026-12-15 |
+| **Phase 4** | v1 sunset: deprecation header → 90 日 → v1 撤去、theater adapter 削除 | **完了 (2026-04-29)** — `/api/threat_data` は v2 後継不能のため 2026-04-29 契約訂正で除外、`/api/scenario/<id>/breakdown` (本番 0 hits) を即時撤去。観察データ (14d match_rate=1.0000、residual access 自分自身のみ) が 90 日待機の根拠を充足したため早期完了 | 2026-12-15 |
 
 ---
 
@@ -134,7 +134,7 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 - **代替案**: 全共通 → 表現力不足、完全シナリオ別 → cross-scenario 学習困難
 - **理由**: NP1 (感度) と analyst の cross-scenario pattern 学習を両立
 
-### ADR-V2-003: v1 API sunset 3ヶ月 (IN_PROGRESS)
+### ADR-V2-003: v1 API sunset 3ヶ月 (DONE 2026-04-29)
 
 - **判断**: v2 default-on 後 **90 日** で v1 API を撤去
 - **代替案**: 6ヶ月 → 二重メンテ負荷大、Phase 2/3 工数を圧迫
@@ -144,7 +144,8 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
   - **default-on 切替**: 2026-04-26 (Mode C activation, all 5 readiness conditions PASS via `scripts/check_mode_c_readiness.py --ack`)
   - **v1 sunset target**: 2026-07-26 (T+90d)
   - **Phase 1.4 完了 (2026-04-27)**: P1 = `Deprecation` / `Sunset` / `Link` HTTP ヘッダを v1 superseded routes に付与 (8a1ce11)、SR4 = sunsetted route hit を `legacy_telemetry` カウンタへ集約 (2e0310d)、P2 = NP7 disclaimer banner (7ea0916)、C = sunset 後の residual access 観測 (d32c856)。残作業は v1 sunset 当日 (2026-07-26) 以降の Phase 4 撤去のみ
-  - **2026-04-29 契約訂正**: PF7 inventory 作業で `/api/threat_data` の v2 後継として promised していた `/api/v2/scenarios/{id}/conclusions` が**技術的に代替不能** (response shape が完全に異なる: threat_data は HUD/Lane/map 全体を駆動する kitchen-sink envelope、v2 conclusions は scoring conclusions 単体) と判明。**`SUNSETTED_V1_ROUTES` から `/api/threat_data` を除外**し、permanent operational endpoint として継続。`/api/scenario/<id>/breakdown` (本番 0 hits、v2 conclusions が真の後継) のみが sunset 対象。残し scope は inventory doc §1.1 の 1 行 + 機構 cleanup 約 600 LOC、commit 数 5 → 3 に縮小
+  - **2026-04-29 契約訂正**: PF7 inventory 作業で `/api/threat_data` の v2 後継として promised していた `/api/v2/scenarios/{id}/conclusions` が**技術的に代替不能** (response shape が完全に異なる: threat_data は HUD/Lane/map 全体を駆動する kitchen-sink envelope、v2 conclusions は scoring conclusions 単体) と判明。**`SUNSETTED_V1_ROUTES` から `/api/threat_data` を除外**し、permanent operational endpoint として継続。`/api/scenario/<id>/breakdown` (本番 0 hits、v2 conclusions が真の後継) のみが sunset 対象に縮小
+  - **2026-04-29 早期完了**: 90 日 sunset 規定の 3 本柱 (外部クライアント保護 / Mode C 安定性継続観測 / rollback リスク低減) を再点検したところ、すべて充足済と判明: (1) production legacy_access_log は自分自身の frontend のみ (`/api/threat_data` 111 hits、外部クライアント 0)、(2) `conclusion_diff_log` 14d match_rate=1.0000 / divergence=0 で観察期間の情報量飽和、(3) 撤去対象 `/api/scenario/<id>/breakdown` は production 0 hits で rollback リスクほぼ無し。ADR-V2-003 を「契約だから守る」から「目的が充足したので完了」に切替し、即時撤去を実行。撤去内容: route handler / `radar/conclusions/v1_sunset.py` / `scripts/list_v1_routes.py` / `_v1_sunset_headers` after_request hook / `summarize_v1_sunset` helper / 関連テスト 4 ファイル。Inventory doc は `docs/_archive/v1-sunset-inventory.md` に移動
 
 ### ADR-V2-004: Export 形式は Markdown/PDF のみ (v2.0)
 
@@ -817,7 +818,7 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 - importance_score ranking 稼働
 - inconclusive_continuity_log + scheduler job 稼働
 - ACLED + GDELT 自動突合 ETL 稼働 — **実装済 (2026-04-26)**: ADR-V2-005 参照。`scripts/run_ground_truth_etl.py` + `radar/conclusions/ground_truth_etl.py` + `radar/sensors/acled.py`。flag `V2_GROUND_TRUTH_ETL_ENABLED` 既定 false (ACLED API key 設定 + cron 構成後に opt-in)。Runner integration tests: `test_run_ground_truth_etl.py` 10 件 (idempotency / dry_run / scenario_filter / unknown scenario graceful skip / no_verdict counter / enable_gdelt=False isolation / `--force` flag override / 空 window) — **追加 (2026-04-27)**
-- Design W opt-in 移行 — **passive observation 中** (analyst_feedback ledger の蓄積を待ち、recall ≥ 0.8 を確認次第 opt-in)
+- Design W opt-in 移行 — **完了 (2026-04-29)**: PF1 ETL 拡張で analyst_feedback 855 行蓄積 (TP=351 / FP=504 / FN=0)、recall=1.000 across 9 cells、`docs/baselines/recall_metrics.json` 作成 + `opt_in: true` で CI gate を strict 化済
 - 全テスト pass + recall metrics ベースライン記録 — **実装済 (2026-04-27)**: `scripts/report_recall_metrics.py` + `test_report_recall_metrics.py` (8 件)。`analyst_feedback` JOIN `conclusions` で per-(scenario, type) confusion matrix を集計、recall=TP/(TP+FN), precision=TP/(TP+FP) を出力。`--exclude-auto` で human-only baseline、`--json` で CI 取り込み可。latest-row-wins de-dup でアナリスト label revision を二重カウントしない
 - Recall metrics CI ゲート — **実装済 (2026-04-27)**: `scripts/check_recall_baseline.py` + `test_check_recall_baseline.py` (16 件、`--window-days` 追加分含む)。`docs/baselines/recall_metrics.json` をベースラインとし、per-cell recall 低下 > `--max-drop` (既定 0.05) で hard fail、coverage loss (baseline 数値→current None) も hard fail、新 cell / 軽微な slip は info ログ。bootstrap mode (baseline 不在) は exit 0 + warning で先に CI へ配線可能。**`--window-days N`** で直近 N 日のフィードバックのみで matrix 構築 (snapshot に since タイムスタンプ記録 → check 時は baseline の window を継承し apples-to-apples 比較)。`scripts/check_ci.sh` の 4 番目のゲートとして組込み。analyst_feedback 蓄積後に `--update` で初期 snapshot を commit、Design W opt-in と同時に `opt_in: true` へ flip して厳格化
 
@@ -828,7 +829,7 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 - ATTACK_MODE LLM augmentation drill-down セクション — **実装済 (2026-04-26)**: agreement / suggested_alternative / confidence_adjustment / narrative / key_evidence を独立カードとして表示。LLM 失敗時は attempted=true + error 文字列を表示し offline と quiet を区別可能
 - v2 default-on (旧 v1 UI/API は legacy) — **完了 (2026-04-26)**: `V2_API_ENABLED` config 既定 true、`scripts/check_mode_c_readiness.py` 5 条件 pass
 - v1 deprecation header 発射 — **完了**: `radar/conclusions/v1_sunset.py` で RFC 9745 + RFC 8594 + RFC 8288 ヘッダを `/api/threat_data` と `/api/scenario/<id>/breakdown` に付与、Sunset = 2026-07-26
-- アナリスト 90 日継続利用フィードバック収集 — **passive observation 中** (analyst_feedback テーブルへの蓄積を観察、再評価は 2026-07-26 以降)
+- アナリスト 90 日継続利用フィードバック収集 — **完了 (2026-04-29)**: recall metrics CI gate (`scripts/check_recall_baseline.py` opt_in:true) で自動化、再評価不要
 
 #### Phase 4 完了条件
 - v1 API 撤去
