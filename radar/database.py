@@ -779,6 +779,31 @@ CREATE TABLE IF NOT EXISTS user_attention_thresholds (
     PRIMARY KEY (user_id, rule_id)
 );
 
+-- Decision Layer ledger (migration v34, 2026-04-30). Unified store for
+-- analyst decisions on TRIAGE / calibration / threshold actions.
+-- Columns and semantics documented in the v34 migration block.
+CREATE TABLE IF NOT EXISTS decisions (
+    id              TEXT PRIMARY KEY,
+    decision_type   TEXT NOT NULL,
+    target_kind     TEXT NOT NULL,
+    target_id       TEXT,
+    action          TEXT NOT NULL,
+    actor           TEXT NOT NULL,
+    reason          TEXT,
+    parameters      TEXT,
+    decided_at      REAL NOT NULL,
+    expires_at      REAL,
+    superseded_by   TEXT,
+    FOREIGN KEY (superseded_by) REFERENCES decisions (id)
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_target
+    ON decisions (target_kind, target_id, decided_at DESC);
+CREATE INDEX IF NOT EXISTS idx_decisions_type_ts
+    ON decisions (decision_type, decided_at DESC);
+CREATE INDEX IF NOT EXISTS idx_decisions_active_expiry
+    ON decisions (decision_type, expires_at)
+    WHERE superseded_by IS NULL;
+
 -- Phase 4 B2 (2026-04-29): auto-judge calibration ledger.
 -- Mirrored in migration 27 for upgraded DBs; this ensures fresh DBs get
 -- the table without depending on migration runs.
@@ -929,6 +954,10 @@ class RadarDB:
         self._write_lock = threading.Lock()
         self._check_integrity_or_recreate()
         self._ensure_schema()
+        # Decision Layer ledger (migration v34, 2026-04-30). Lazy import
+        # to avoid circular dependency with radar.decisions.
+        from radar.decisions import DecisionLedger
+        self.decisions = DecisionLedger(self)
 
     def _check_integrity_or_recreate(self):
         """Run PRAGMA integrity_check on startup. If the DB is corrupted,
@@ -1843,6 +1872,55 @@ class RadarDB:
             -- runs AFTER all migrations so the column exists on both
             -- fresh and upgraded DBs.
             ALTER TABLE threat_history ADD COLUMN scenario_id TEXT;
+        """),
+
+        (34, "Decision Layer ledger (operations + governance + AP4 trail) — 2026-04-30", """
+            -- Unified ledger for analyst decisions across triage, calibration,
+            -- and threshold operations. Sits beside (not above) existing
+            -- distributed implementations like attention_snooze and
+            -- scenario_proposals.state_changed_by — Decision History UI
+            -- merges this and the legacy stores into one timeline (AP4).
+            --
+            -- decision_type values currently in use:
+            --   'triage_snooze'         — TRIAGE Lane mute (max 24h)
+            --   'triage_visibility'     — always-visible toggle
+            --   'triage_dismiss'        — hide until next fire
+            --   'tl_recal_accept'       — accept current TL thresholds
+            --   'tl_recal_extend'       — extend TL recal deadline
+            --   'tl_recal_raise'        — apply RAISE_THRESHOLDS
+            --   'dual_weight_accept'    — accept dual-weight result
+            --   'dual_weight_extend'    — extend dual-weight evaluation
+            --   'dual_weight_rollback'  — rollback to single-weight (NP7)
+            --   'triage_threshold_override' — per-user dormant/critical set
+            --
+            -- target_kind: 'global' | 'scenario' | 'conclusion' | 'user'
+            -- action:      'accept' | 'extend' | 'raise' | 'rollback'
+            --              | 'snooze' | 'dismiss' | 'set' | 'apply'
+            -- expires_at:  unix seconds; NULL = no expiry; past = inactive
+            -- superseded_by: decision_id of the next decision on the same
+            --                (decision_type, target_kind, target_id);
+            --                NULL = current
+            CREATE TABLE IF NOT EXISTS decisions (
+                id              TEXT PRIMARY KEY,
+                decision_type   TEXT NOT NULL,
+                target_kind     TEXT NOT NULL,
+                target_id       TEXT,
+                action          TEXT NOT NULL,
+                actor           TEXT NOT NULL,
+                reason          TEXT,
+                parameters      TEXT,
+                decided_at      REAL NOT NULL,
+                expires_at      REAL,
+                superseded_by   TEXT,
+                FOREIGN KEY (superseded_by) REFERENCES decisions (id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_decisions_target
+                ON decisions (target_kind, target_id, decided_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_decisions_type_ts
+                ON decisions (decision_type, decided_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_decisions_active_expiry
+                ON decisions (decision_type, expires_at)
+                WHERE superseded_by IS NULL;
         """),
 
         (32, "ATTENTION snooze + adaptive learning observation tables (CONTROLS redesign 2026-04-29)", """

@@ -1,0 +1,593 @@
+"""Decision Layer API — analyst response surface.
+
+Endpoint families:
+  /api/v2/decisions/triage/*           — TRIAGE Lane operations
+  /api/v2/decisions/tl_recalibration/* — TL recal calibration governance
+  /api/v2/decisions/dual_weight/*      — Dual-weight calibration governance
+  /api/v2/decisions/threshold/*        — TRIAGE per-user thresholds
+  /api/v2/decisions/history            — Decision History timeline (AP4)
+
+All POST endpoints record into the unified `decisions` ledger, then
+optionally apply side effects (deadline extension, threshold update).
+NP6: actor + reason + parameters travel through to the audit trail.
+
+NP1: snooze and dismiss decisions DO NOT silence critical events. The
+client-side display layer combines is_active(snooze) with the
+critical-event check to decide actual suppression — see
+_refreshTriageDisplayMode in radar.js.
+
+NP7: destructive actions (rollback, raise) require a `reason` field
+and an `np7_confirmed: true` flag in the body. The endpoint returns
+400 if these are missing, so the UI must show the confirm modal
+before submitting.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any
+
+from flask import jsonify, request
+from flask_jwt_extended import get_jwt_identity, jwt_required
+
+from radar.routes import bp, _require_admin, _require_analyst
+
+log = logging.getLogger("radar.routes.decisions")
+
+
+# ── auth helpers ────────────────────────────────────────────────────────
+
+def _v2_enabled_or_503():
+    from radar import config
+    if not getattr(config, "V2_API_ENABLED", True):
+        return jsonify({"error": "v2 API disabled (V2_API_ENABLED=false)"}), 503
+    return None
+
+
+def _actor_string() -> str:
+    """Return 'admin:<name>' or 'analyst:<name>' for ledger actor."""
+    from radar.database import db
+    identity = get_jwt_identity() or "unknown"
+    try:
+        role = db.user_get_role(identity) or "analyst"
+    except Exception:
+        role = "analyst"
+    return f"{role}:{identity}"
+
+
+def _require_np7_confirm(body: dict, *, action_name: str):
+    """Returns None if confirmed, or (response, status) tuple if blocked.
+    Used for recall-reducing actions: rollback, raise."""
+    if not body.get("np7_confirmed") is True:
+        return jsonify({
+            "error": "np7_confirmation_required",
+            "action": action_name,
+            "message": "This action is recall-reducing or destructive. "
+                       "Set np7_confirmed=true and provide reason to proceed.",
+        }), 400
+    if not body.get("reason"):
+        return jsonify({
+            "error": "reason_required",
+            "action": action_name,
+            "message": "Recall-reducing actions require a non-empty reason.",
+        }), 400
+    return None
+
+
+# ── TRIAGE operations ──────────────────────────────────────────────────
+
+@bp.route("/api/v2/decisions/triage/snooze", methods=["POST"])
+@jwt_required()
+def triage_snooze():
+    """Mute the TRIAGE Lane for N minutes (1..1440). Critical events
+    bypass the mute (NP1). Replaces any prior active snooze."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    try:
+        minutes = int(body.get("minutes", 30))
+    except (ValueError, TypeError):
+        minutes = 30
+    minutes = max(1, min(minutes, 24 * 60))  # cap at 24h per spec
+    until = time.time() + minutes * 60
+
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="triage_snooze",
+        target_kind="global",
+        target_id=None,
+        action="snooze",
+        actor=_actor_string(),
+        reason=body.get("reason"),
+        parameters={"minutes": minutes},
+        expires_at=until,
+    )
+    return jsonify({
+        "decision_id": decision_id,
+        "minutes": minutes,
+        "expires_at": until,
+    })
+
+
+@bp.route("/api/v2/decisions/triage/snooze", methods=["DELETE"])
+@jwt_required()
+def triage_snooze_release():
+    """Cancel the active snooze (if any)."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    from radar.database import db
+    cur = db.decisions.latest(
+        decision_type="triage_snooze", target_kind="global", target_id=None,
+    )
+    if cur is None:
+        return jsonify({"released": False, "reason": "no active snooze"})
+    db.decisions.revoke(cur["id"], by=_actor_string(), reason="manual release")
+    return jsonify({"released": True, "decision_id": cur["id"]})
+
+
+@bp.route("/api/v2/decisions/triage/visibility", methods=["POST"])
+@jwt_required()
+def triage_visibility():
+    """Toggle always-visible mode (suppress dormant). Body: {mode: 'default' | 'always'}."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    mode = body.get("mode", "default")
+    if mode not in ("default", "always"):
+        return jsonify({"error": "mode must be 'default' or 'always'"}), 400
+
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="triage_visibility",
+        target_kind="user",
+        target_id=get_jwt_identity() or "unknown",
+        action="set",
+        actor=_actor_string(),
+        reason=body.get("reason"),
+        parameters={"mode": mode},
+        expires_at=None,  # persists until next set
+    )
+    return jsonify({"decision_id": decision_id, "mode": mode})
+
+
+@bp.route("/api/v2/decisions/triage/dismiss", methods=["POST"])
+@jwt_required()
+def triage_dismiss():
+    """Hide TRIAGE until the next new-fire event. Body: {fingerprint?: str}.
+    Stored with a short TTL (24h) — if no new fire happens by then, the
+    dismiss expires and TRIAGE re-appears anyway."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    fingerprint = body.get("fingerprint", "")  # opaque id of current top item
+    until = time.time() + 24 * 3600
+
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="triage_dismiss",
+        target_kind="global",
+        target_id=None,
+        action="dismiss",
+        actor=_actor_string(),
+        reason=body.get("reason"),
+        parameters={"fingerprint": fingerprint},
+        expires_at=until,
+    )
+    return jsonify({
+        "decision_id": decision_id,
+        "fingerprint": fingerprint,
+        "expires_at": until,
+    })
+
+
+@bp.route("/api/v2/decisions/triage/state", methods=["GET"])
+@jwt_required()
+def triage_state():
+    """Current TRIAGE-related decision state for the requesting user.
+
+    Returns:
+      {
+        snooze: {active, expires_at, minutes} | null,
+        visibility: 'default' | 'always',
+        dismiss: {active, expires_at, fingerprint} | null,
+      }
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    from radar.database import db
+    user_id = get_jwt_identity() or "unknown"
+
+    snooze = db.decisions.latest(
+        decision_type="triage_snooze", target_kind="global", target_id=None,
+    )
+    snooze_active = (snooze is not None
+                     and snooze.get("expires_at") is not None
+                     and snooze["expires_at"] > time.time())
+    vis = db.decisions.latest(
+        decision_type="triage_visibility", target_kind="user", target_id=user_id,
+    )
+    dismiss = db.decisions.latest(
+        decision_type="triage_dismiss", target_kind="global", target_id=None,
+    )
+    dismiss_active = (dismiss is not None
+                      and dismiss.get("expires_at") is not None
+                      and dismiss["expires_at"] > time.time())
+
+    return jsonify({
+        "snooze": {
+            "active": snooze_active,
+            "expires_at": snooze["expires_at"] if snooze_active else None,
+            "minutes": (snooze["parameters"].get("minutes")
+                        if snooze_active and snooze.get("parameters") else None),
+            "decision_id": snooze["id"] if snooze_active else None,
+        } if snooze_active else None,
+        "visibility": (vis["parameters"].get("mode")
+                       if vis and vis.get("parameters") else "default"),
+        "dismiss": {
+            "active": dismiss_active,
+            "expires_at": dismiss["expires_at"] if dismiss_active else None,
+            "fingerprint": (dismiss["parameters"].get("fingerprint")
+                            if dismiss_active and dismiss.get("parameters") else None),
+        } if dismiss_active else None,
+    })
+
+
+# ── TL Recalibration governance ────────────────────────────────────────
+
+@bp.route("/api/v2/decisions/tl_recalibration/accept", methods=["POST"])
+@jwt_required()
+def tl_recal_accept():
+    """Accept current TL thresholds for a scenario. Extends the
+    recalibration deadline by 30 days. Admin only — calibration
+    governance is admin-scope.
+
+    Body: { scenario_id: str, reason?: str }
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_admin()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    sid = body.get("scenario_id")
+    if not sid:
+        return jsonify({"error": "scenario_id required"}), 400
+
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="tl_recal_accept",
+        target_kind="scenario",
+        target_id=sid,
+        action="accept",
+        actor=_actor_string(),
+        reason=body.get("reason"),
+        parameters={"thresholds_kept": True, "extension_days": 30},
+        expires_at=time.time() + 30 * 86400,
+    )
+    return jsonify({"decision_id": decision_id, "scenario_id": sid,
+                    "extension_days": 30})
+
+
+@bp.route("/api/v2/decisions/tl_recalibration/extend", methods=["POST"])
+@jwt_required()
+def tl_recal_extend():
+    """Extend the TL recalibration deadline. Body: { scenario_id, days, reason? }.
+    days clamped to [1, 90]."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_admin()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    sid = body.get("scenario_id")
+    if not sid:
+        return jsonify({"error": "scenario_id required"}), 400
+    try:
+        days = int(body.get("days", 14))
+    except (ValueError, TypeError):
+        days = 14
+    days = max(1, min(days, 90))
+
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="tl_recal_extend",
+        target_kind="scenario",
+        target_id=sid,
+        action="extend",
+        actor=_actor_string(),
+        reason=body.get("reason"),
+        parameters={"days": days},
+        expires_at=time.time() + days * 86400,
+    )
+    return jsonify({"decision_id": decision_id, "scenario_id": sid, "days": days})
+
+
+@bp.route("/api/v2/decisions/tl_recalibration/raise", methods=["POST"])
+@jwt_required()
+def tl_recal_raise():
+    """Apply RAISE_THRESHOLDS recommendation. Recall-reducing — requires
+    np7_confirmed=true and a reason.
+    Body: { scenario_id, new_thresholds, reason, np7_confirmed }."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_admin()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    confirm_err = _require_np7_confirm(body, action_name="tl_recal_raise")
+    if confirm_err is not None:
+        return confirm_err
+
+    sid = body.get("scenario_id")
+    new_thr = body.get("new_thresholds")
+    if not sid or not isinstance(new_thr, dict):
+        return jsonify({"error": "scenario_id and new_thresholds required"}), 400
+
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="tl_recal_raise",
+        target_kind="scenario",
+        target_id=sid,
+        action="raise",
+        actor=_actor_string(),
+        reason=body["reason"],
+        parameters={"new_thresholds": new_thr, "np7_confirmed": True},
+        expires_at=None,
+    )
+    return jsonify({"decision_id": decision_id, "scenario_id": sid,
+                    "new_thresholds": new_thr})
+
+
+# ── Dual-weight governance ─────────────────────────────────────────────
+
+@bp.route("/api/v2/decisions/dual_weight/accept", methods=["POST"])
+@jwt_required()
+def dual_weight_accept():
+    """Accept current dual-weight calibration. 30d hold."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_admin()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="dual_weight_accept",
+        target_kind="global",
+        target_id=None,
+        action="accept",
+        actor=_actor_string(),
+        reason=body.get("reason"),
+        parameters={"extension_days": 30},
+        expires_at=time.time() + 30 * 86400,
+    )
+    return jsonify({"decision_id": decision_id, "extension_days": 30})
+
+
+@bp.route("/api/v2/decisions/dual_weight/extend", methods=["POST"])
+@jwt_required()
+def dual_weight_extend():
+    """Extend dual-weight evaluation deadline. Body: { days, reason? }, days [1..90]."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_admin()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    try:
+        days = int(body.get("days", 14))
+    except (ValueError, TypeError):
+        days = 14
+    days = max(1, min(days, 90))
+
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="dual_weight_extend",
+        target_kind="global",
+        target_id=None,
+        action="extend",
+        actor=_actor_string(),
+        reason=body.get("reason"),
+        parameters={"days": days},
+        expires_at=time.time() + days * 86400,
+    )
+    return jsonify({"decision_id": decision_id, "days": days})
+
+
+@bp.route("/api/v2/decisions/dual_weight/rollback", methods=["POST"])
+@jwt_required()
+def dual_weight_rollback():
+    """Rollback to single-weight. Recall-reducing — np7_confirmed required.
+    Body: { reason, np7_confirmed }."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_admin()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    confirm_err = _require_np7_confirm(body, action_name="dual_weight_rollback")
+    if confirm_err is not None:
+        return confirm_err
+
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="dual_weight_rollback",
+        target_kind="global",
+        target_id=None,
+        action="rollback",
+        actor=_actor_string(),
+        reason=body["reason"],
+        parameters={"np7_confirmed": True},
+        expires_at=None,
+    )
+    return jsonify({"decision_id": decision_id})
+
+
+# ── Per-user TRIAGE thresholds ─────────────────────────────────────────
+
+@bp.route("/api/v2/decisions/threshold", methods=["PUT"])
+@jwt_required()
+def triage_threshold_set():
+    """Set per-user TRIAGE display thresholds.
+    Body: { dormant_enter, critical_enter, reason? }
+    Both clamped to [0.0, 1.0]; auto-corrected if inverted (handled
+    client-side in TriageDisplayMode anyway)."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    body = request.get_json(silent=True) or {}
+    try:
+        dormant = float(body.get("dormant_enter", 0.40))
+        critical = float(body.get("critical_enter", 0.85))
+    except (ValueError, TypeError):
+        return jsonify({"error": "thresholds must be numeric"}), 400
+    dormant = max(0.0, min(dormant, 1.0))
+    critical = max(0.0, min(critical, 1.0))
+
+    from radar.database import db
+    decision_id = db.decisions.record(
+        decision_type="triage_threshold_override",
+        target_kind="user",
+        target_id=get_jwt_identity() or "unknown",
+        action="set",
+        actor=_actor_string(),
+        reason=body.get("reason"),
+        parameters={"dormant_enter": dormant, "critical_enter": critical},
+        expires_at=None,
+    )
+    return jsonify({"decision_id": decision_id,
+                    "dormant_enter": dormant, "critical_enter": critical})
+
+
+@bp.route("/api/v2/decisions/threshold", methods=["GET"])
+@jwt_required()
+def triage_threshold_get():
+    """Returns the analyst's current threshold override or defaults."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    from radar.database import db
+    user_id = get_jwt_identity() or "unknown"
+    cur = db.decisions.latest(
+        decision_type="triage_threshold_override",
+        target_kind="user", target_id=user_id,
+    )
+    if cur and cur.get("parameters"):
+        return jsonify({
+            "dormant_enter": cur["parameters"].get("dormant_enter", 0.40),
+            "critical_enter": cur["parameters"].get("critical_enter", 0.85),
+            "set_at": cur.get("decided_at"),
+            "is_default": False,
+        })
+    return jsonify({
+        "dormant_enter": 0.40,
+        "critical_enter": 0.85,
+        "is_default": True,
+    })
+
+
+# ── Decision History (AP4) ─────────────────────────────────────────────
+
+@bp.route("/api/v2/decisions/history", methods=["GET"])
+@jwt_required()
+def decisions_history():
+    """Filtered, time-ordered listing of decisions for the History UI.
+
+    Query params (all optional):
+      decision_type, target_kind, target_id, actor, action,
+      since_ts (unix sec), until_ts (unix sec),
+      limit (default 200, max 1000)
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    args = request.args
+    def _f(name):
+        v = args.get(name)
+        return v if v else None
+    try:
+        since_ts = float(args["since_ts"]) if args.get("since_ts") else None
+        until_ts = float(args["until_ts"]) if args.get("until_ts") else None
+        limit = int(args.get("limit", "200"))
+    except (ValueError, TypeError):
+        return jsonify({"error": "since_ts/until_ts must be numeric, limit must be integer"}), 400
+
+    from radar.database import db
+    rows = db.decisions.history(
+        decision_type=_f("decision_type"),
+        target_kind=_f("target_kind"),
+        target_id=_f("target_id"),
+        actor=_f("actor"),
+        action=_f("action"),
+        since_ts=since_ts,
+        until_ts=until_ts,
+        limit=limit,
+    )
+    return jsonify({"decisions": rows, "count": len(rows)})
+
+
+@bp.route("/api/v2/decisions/<decision_id>", methods=["GET"])
+@jwt_required()
+def decisions_get(decision_id: str):
+    """Single decision detail."""
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    from radar.database import db
+    row = db.decisions.get(decision_id)
+    if row is None:
+        return jsonify({"error": "decision not found"}), 404
+    return jsonify(row)

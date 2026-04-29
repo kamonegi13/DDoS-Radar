@@ -107,3 +107,4 @@ from radar.routes import calibration_v2  # noqa: E402,F401  -- v2 auto-tune API 
 from radar.routes import llm_features_v2  # noqa: E402,F401  -- v2 LLM Feature Hub control plane (commit H, gated by V2_API_ENABLED)
 from radar.routes import triage_narrative  # noqa: E402,F401  -- v2 triage natural-language narrative endpoint (commit K, gated by V2_API_ENABLED)
 from radar.routes import attention_v2  # noqa: E402,F401  -- v2 ATTENTION rules + adaptive learning API (commits M+O)
+from radar.routes import decisions as _decisions_routes  # noqa: E402,F401  -- v2 Decision Layer (Phase 1, 2026-04-30)
