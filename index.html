@@ -3135,6 +3135,28 @@
             <li><b>HUD chip</b>: Row 3 right side shows <span class="code-block">LLM N/M</span> (N on / M total) with optional <span class="code-block">+Ks</span> shadow tail. Color: green = all on, amber = any shadow, red = kill switch engaged. Click opens the Hub.</li>
         </ul>
 
+        <p><b>L. CONTROLS Tools Hub</b> — hamburger menu → CONTROLS → Open Tools Hub ⇲</p>
+        <ul>
+            <li><b>Purpose</b>: Replaces the legacy three-step (hamburger → CONTROLS → TOOLS-dropdown) flow with a single modal grid of cards. Each card shows panel state (open/closed, dock position) and a live data badge (pending counts, sensor health, error states). Surfaces ATTENTION rules so analysts know what to look at first.</li>
+            <li><b>Six sections</b> grouped by intent rather than category:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>INTELLIGENCE</b>: LLM Intelligence / Attack Origin / Telegram SIGINT / Evidence Chain / GreyNoise</li>
+                    <li><b>SCENARIO &amp; TARGETING</b>: Target Visibility / Strategic Climate / Weather Brief</li>
+                    <li><b>SIMULATION &amp; ANALYSIS</b>: What-If / SPOF / Sensor Heatmap</li>
+                    <li><b>TRADECRAFT</b>: Analyst Tradecraft / Sensor Watchpane / History Analysis</li>
+                    <li><b>AUTOMATION</b>: Auto-tune Wizard / LLM Features (analyst-toggleable; not gated by ADMIN)</li>
+                    <li><b>ADMIN</b>: User &amp; Role Management</li>
+                </ul>
+            </li>
+            <li><b>ATTENTION section</b>: Rules engine evaluates 12 conditions every 5s and ranks them by severity (CRITICAL > WARNING > INFO). CRITICAL examples: recall-reducing proposal pending, kill switch engaged, sensor in ERROR. Each ATTENTION card shows the rule's current value, threshold, and a humanised reason (NP6).</li>
+            <li><b>Hysteresis</b>: every rule has separate enter/exit thresholds. The rule fires when value reaches enter (inclusive) and clears when value drops strictly below exit. Prevents UI flicker when metrics oscillate around the boundary.</li>
+            <li><b>Snooze</b>: WARNING / INFO rules can be snoozed for 24h via the per-card button. CRITICAL rules cannot be snoozed (NP1 — recall-affecting events must remain visible). Snoozes persist across browser reloads via <span class="code-block">attention_snooze</span> table.</li>
+            <li><b>Adaptive learning</b>: every 5-minute polling tick records the metric value into <span class="code-block">attention_metric_observation</span>. Nightly cron computes p50/p95/p99 over a 30d window and writes to <span class="code-block">attention_metric_p95</span>. The suggestions section displays a recommended threshold (p95 × 1.20) when the analyst's observed pattern differs ≥30% from the hardcoded default. Bootstrap mode (sample_count &lt; 30) suppresses suggestions to avoid noisy early proposals.</li>
+            <li><b>Per-user thresholds</b>: each analyst can override any rule's enter threshold via <span class="code-block">PUT /api/v2/attention/thresholds/&lt;rule_id&gt;</span>. Falls back to default when no override exists.</li>
+            <li><b>Search + keyboard</b>: search box filters cards by name + description (substring match). Pressing <span class="code-block">/</span> focuses search; <span class="code-block">Esc</span> closes the modal.</li>
+            <li><b>API</b>: <span class="code-block">GET /api/v2/attention</span> (rules + tool_status + suggestions), <span class="code-block">POST /api/v2/attention/&lt;rid&gt;/snooze</span>, <span class="code-block">GET /api/v2/attention/thresholds</span>, <span class="code-block">PUT /api/v2/attention/thresholds/&lt;rid&gt;</span>, <span class="code-block">DELETE /api/v2/attention/thresholds/&lt;rid&gt;</span>.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3288,6 +3310,28 @@
             <li><b>監査（NP6）</b>: 全状態変更で old_state / new_state / 実行者（<span class="code-block">admin:&lt;name&gt;</span> / <span class="code-block">analyst:&lt;name&gt;</span>）/ 任意理由を記録。Hub の History トグル または <span class="code-block">GET /api/v2/llm_features/audit?hours=720&amp;limit=200</span> で確認。</li>
             <li><b>API</b>: <span class="code-block">GET /api/v2/llm_features</span>、<span class="code-block">GET /api/v2/llm_features/&lt;key&gt;</span>、<span class="code-block">POST /api/v2/llm_features/&lt;key&gt;/{set,clear}</span>、<span class="code-block">POST /api/v2/llm_features/kill_switch</span>、<span class="code-block">GET /api/v2/llm_features/audit</span>。</li>
             <li><b>HUD chip</b>: Row 3 右側に <span class="code-block">LLM N/M</span>（N 個 on / 計 M 個）形式で表示。shadow 件数は <span class="code-block">+Ks</span> として末尾追加。色: 緑=全 on、橙=shadow あり、赤=kill switch engaged。クリックで Hub を開く。</li>
+        </ul>
+
+        <p><b>L. CONTROLS Tools Hub</b> — ハンバーガーメニュー → CONTROLS → Open Tools Hub ⇲</p>
+        <ul>
+            <li><b>目的</b>: 旧来の 3 段階フロー（ハンバーガー → CONTROLS → TOOLS ドロップダウン）を、単一モーダルのカードグリッドに置換。各カードが panel 状態（開/閉、ドック位置）と動的データバッジ（pending 件数、センサー健全性、エラー状態）を表示。ATTENTION ルールにより「次に注目すべきツール」を自動上位表示。</li>
+            <li><b>意図ベース 6 区分</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>INTELLIGENCE</b>: LLM Intelligence / Attack Origin / Telegram SIGINT / Evidence Chain / GreyNoise</li>
+                    <li><b>SCENARIO &amp; TARGETING</b>: Target Visibility / Strategic Climate / Weather Brief</li>
+                    <li><b>SIMULATION &amp; ANALYSIS</b>: What-If / SPOF / Sensor Heatmap</li>
+                    <li><b>TRADECRAFT</b>: Analyst Tradecraft / Sensor Watchpane / History Analysis</li>
+                    <li><b>AUTOMATION</b>: Auto-tune Wizard / LLM Features（analyst でも切替可能、ADMIN gate なし）</li>
+                    <li><b>ADMIN</b>: ユーザ管理</li>
+                </ul>
+            </li>
+            <li><b>ATTENTION セクション</b>: ルールエンジンが 12 条件を 5 秒ごとに評価し重要度（CRITICAL &gt; WARNING &gt; INFO）でランク付け。CRITICAL 例: recall 低下提案 pending、kill switch engaged、センサー ERROR。各 ATTENTION カードは現在値・閾値・人間可読の理由を表示（NP6）。</li>
+            <li><b>ヒステリシス</b>: 各ルールに enter/exit 閾値を別設定。値が enter 以上で発火、exit 未満で解消。境界付近の振動で UI が点滅するのを防止。</li>
+            <li><b>Snooze</b>: WARNING / INFO ルールは 24h スヌーズ可能（カードのボタンから）。CRITICAL ルールはスヌーズ不可（NP1 — recall 影響イベントは非可視化禁止）。スヌーズはブラウザ再読込後も <span class="code-block">attention_snooze</span> テーブルで保持。</li>
+            <li><b>適応学習</b>: 5 分毎の poll tick で metric 値を <span class="code-block">attention_metric_observation</span> に記録。夜間 cron で 30 日 window の p50/p95/p99 を計算し <span class="code-block">attention_metric_p95</span> に保存。analyst のパターンが固定デフォルトから ≥30% 乖離したら、Suggestions セクションで p95 × 1.20 を推奨閾値として提示。bootstrap mode（sample_count &lt; 30）は suggestion 抑制でノイズ防止。</li>
+            <li><b>Per-user 閾値</b>: 各 analyst が任意ルールの enter 閾値を <span class="code-block">PUT /api/v2/attention/thresholds/&lt;rule_id&gt;</span> で個別 override 可能。override 不在時は default にフォールバック。</li>
+            <li><b>検索 + キーボード</b>: 検索ボックスでカード名 + 説明文を部分一致フィルタ。<span class="code-block">/</span> キーで検索フォーカス、<span class="code-block">Esc</span> でモーダル閉じる。</li>
+            <li><b>API</b>: <span class="code-block">GET /api/v2/attention</span>（rules + tool_status + suggestions）、<span class="code-block">POST /api/v2/attention/&lt;rid&gt;/snooze</span>、<span class="code-block">GET /api/v2/attention/thresholds</span>、<span class="code-block">PUT /api/v2/attention/thresholds/&lt;rid&gt;</span>、<span class="code-block">DELETE /api/v2/attention/thresholds/&lt;rid&gt;</span>。</li>
         </ul>
 
         </div>

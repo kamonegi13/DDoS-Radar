@@ -31,6 +31,7 @@ COPY tradecraft.js   .
 COPY tradecraft.css  .
 COPY autotune_wizard.js .
 COPY llm_features_hub.js .
+COPY controls_panel.js .
 COPY scripts/        scripts/
 
 # Ensure persistence directory exists (mounted as volume in production)
