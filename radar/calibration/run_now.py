@@ -48,6 +48,7 @@ _PHASE_ORDER: tuple[str, ...] = (
     "scenario",
     "structure",
     "discovery",
+    "g3b",
     "drift",
 )
 
@@ -87,6 +88,9 @@ def _phase_func(phase: str) -> Callable[[], dict]:
         return run_once
     if phase == "discovery":
         from radar.calibration.scenario_discoverer import run_once
+        return run_once
+    if phase == "g3b":
+        from radar.calibration.g3b_llm_annotator import run_once
         return run_once
     if phase == "drift":
         from radar.calibration.drift_watchdog import run_once

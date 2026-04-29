@@ -372,6 +372,27 @@ def _cache_cleanup_worker(registry=None):
                 except Exception as _disc_exc:
                     log.warning("[Discovery] run_once failed: %s", _disc_exc)
 
+            # Tier 4 G.3b: LLM annotator for discovery clusters.
+            # Default: both env flags off — annotator is a no-op. Enable
+            # via G3B_SHADOW_ENABLED=true to start observation period;
+            # G3B_LLM_ENABLED=true to surface annotations to UI.
+            if _cycle % 24 == 5:
+                try:
+                    from radar.calibration.g3b_llm_annotator import (
+                        run_once as _g3b_once,
+                    )
+                    g3b_result = _g3b_once()
+                    if not g3b_result.get("skipped") and g3b_result.get("annotated"):
+                        log.info(
+                            "[G3B] %s annotations=%d errors=%d circuit_open=%s",
+                            g3b_result.get("state"),
+                            g3b_result.get("annotated", 0),
+                            g3b_result.get("errors", 0),
+                            g3b_result.get("circuit_open", False),
+                        )
+                except Exception as _g3b_exc:
+                    log.warning("[G3B] run_once failed: %s", _g3b_exc)
+
             # Phase F3: scenario drift watchdog (per-scenario).
             # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
             # surfacing in <1 day. Records each detection; the API render
