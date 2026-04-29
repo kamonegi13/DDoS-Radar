@@ -8459,20 +8459,6 @@
         if (tm) tm.classList.remove('open');
     }
     window.toggleHudHamburger = toggleHudHamburger;
-
-    // Expose tool-panel toggle functions on window so the redesigned
-    // CONTROLS panel (controls_panel.js) can dispatch click handlers
-    // by name. The legacy TOOLS dropdown (tools-menu) keeps using the
-    // closure references inline.
-    window.toggleTargetPanel    = toggleTargetPanel;
-    window.toggleDashboardPanel = toggleDashboardPanel;
-    window.toggleTgSigint       = toggleTgSigint;
-    window.toggleChainPanel     = toggleChainPanel;
-    window.toggleWeatherBrief   = toggleWeatherBrief;
-    window.toggleGnPanel        = toggleGnPanel;
-    window.toggleWhatIfPanel    = toggleWhatIfPanel;
-    window.toggleSpofPanel      = toggleSpofPanel;
-    window.toggleCorrHeatmap    = toggleCorrHeatmap;
     window.closeHudHamburger  = closeHudHamburger;
     document.addEventListener('keydown', (ev) => {
         if (ev.key === 'Escape') closeHudHamburger();
@@ -8501,6 +8487,19 @@
     // Phase 3 → Phase 4: Sensor × Theater Heatmap
     // ═══════════════════════════════════════════════════════════════
     const toggleCorrHeatmap = _createPanelToggle('corr-heatmap-panel', { floating: false, onShow: renderCorrHeatmap });
+
+    // ── Tool-panel toggle exports (CONTROLS Tools Hub commit L) ──
+    // Placed AFTER all the const-declared toggles to avoid TDZ errors.
+    // controls_panel.js dispatches by name through these window hooks.
+    window.toggleTargetPanel    = toggleTargetPanel;
+    window.toggleDashboardPanel = toggleDashboardPanel;
+    window.toggleTgSigint       = toggleTgSigint;
+    window.toggleChainPanel     = toggleChainPanel;
+    window.toggleWeatherBrief   = toggleWeatherBrief;
+    window.toggleGnPanel        = toggleGnPanel;
+    window.toggleWhatIfPanel    = toggleWhatIfPanel;
+    window.toggleSpofPanel      = toggleSpofPanel;
+    window.toggleCorrHeatmap    = toggleCorrHeatmap;
     let _heatmapDomain = 'all'; // 'all' | 'cyber' | 'physical' | 'info'
 
     // Sensor definitions for the heatmap: name, short label, domain, data extractor
