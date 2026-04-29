@@ -271,6 +271,65 @@ def _cache_cleanup_worker(registry=None):
                 except Exception as _tlc_exc:
                     log.warning("[TLCalib] calibrate_all_scenarios failed: %s", _tlc_exc)
 
+            # Phase C: per-sensor LLM_CONFIDENCE_MIN calibrator.
+            # Daily pass; emits proposals to threshold_history.
+            if _cycle % 24 == 1:
+                try:
+                    from radar.calibration.llm_confidence_calibrator import (
+                        calibrate_all_sensors,
+                    )
+                    cal_c = calibrate_all_sensors()
+                    accepted_c = sum(
+                        1 for r in cal_c.values()
+                        if r.get("accepted")
+                    )
+                    if accepted_c:
+                        log.info(
+                            "[LLMConfCalib] %d/%d sensors → %d accepted",
+                            len(cal_c), len(cal_c), accepted_c,
+                        )
+                except Exception as _llmc_exc:
+                    log.warning(
+                        "[LLMConfCalib] calibrate_all_sensors failed: %s",
+                        _llmc_exc,
+                    )
+
+            # Phase D: α-broken sensor disable proposer (24h ack window).
+            # Daily classify pass; per-tick escalation check.
+            try:
+                from radar.calibration.sensor_disable_proposer import (
+                    propose_disables,
+                )
+                d_counts = propose_disables()
+                if d_counts.get("new_proposals") or d_counts.get("escalated"):
+                    log.info(
+                        "[SensorDisable] classified=%d alpha=%d new=%d escalated=%d",
+                        d_counts["classified"], d_counts["alpha"],
+                        d_counts["new_proposals"], d_counts["escalated"],
+                    )
+            except Exception as _d_exc:
+                log.warning("[SensorDisable] propose_disables failed: %s", _d_exc)
+
+            # Phase F1: scenario improvement proposer (daily).
+            if _cycle % 24 == 2:  # offset by 2 cycles vs other dailies
+                try:
+                    from radar.calibration.scenario_improver import (
+                        run_once as _improver_once,
+                    )
+                    f1_result = _improver_once()
+                    total = sum(
+                        sum(per.values()) for per in f1_result.values()
+                    )
+                    if total:
+                        log.info(
+                            "[ScenarioImprover] %d scenarios scanned, %d proposals emitted",
+                            len(f1_result), total,
+                        )
+                except Exception as _f1_exc:
+                    log.warning(
+                        "[ScenarioImprover] run_once failed: %s", _f1_exc,
+                    )
+
             # Phase F3: scenario drift watchdog (per-scenario).
             # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
             # surfacing in <1 day. Records each detection; the API render
