@@ -3704,3 +3704,13 @@ body[data-replay-on="1"] #top-hud {
     background: rgba(128, 128, 128, 0.2);
     color: #888;
 }
+
+/* ── Wizard diagnostic rows (post-incident commit E) ─────────── */
+.wizard-modal .wizard-row-diagnostic {
+    border-left: 3px solid #555;
+    background: rgba(40, 40, 40, 0.4);
+}
+.wizard-modal .wizard-row-diagnostic .wizard-row-type {
+    text-transform: lowercase;
+    letter-spacing: 0;
+}

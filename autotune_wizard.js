@@ -24,38 +24,69 @@
 (function () {
     'use strict';
 
+    // Post-incident redesign: tab structure now mirrors the
+    // ProposalKind taxonomy from radar/calibration/_proposal_writer.py.
+    // Each tab pulls from /api/v2/proposals/scenario_improver and
+    // filters by proposal_type so a single API gives the analyst the
+    // four kinds of proposals (recall_positive / recall_negative /
+    // structure / diagnostic) cleanly separated.
+    const RECALL_POSITIVE_TYPES = ['weight_too_low', 'missing_participant'];
+    const RECALL_NEGATIVE_TYPES = ['weight_too_high', 'dormant_participant'];
+    const STRUCTURE_TYPES = ['role_reclassify'];
+    const DIAGNOSTIC_TYPES = [
+        'sensor_gap_detected', 'scenario_dormant', 'needs_more_data',
+    ];
+
     const TABS = {
-        scenario_improver: {
+        recall_positive: {
             api: '/api/v2/proposals/scenario_improver',
             renderer: renderProposalRow,
             actions: { apply: '/apply', dismiss: '/dismiss', defer: '/defer' },
-            proposalTypeFilter: null,  // show all types
+            proposalTypeFilter: RECALL_POSITIVE_TYPES,
+            kind: 'recall_positive',
+        },
+        recall_negative: {
+            api: '/api/v2/proposals/scenario_improver',
+            renderer: renderProposalRow,
+            actions: { apply: '/apply', dismiss: '/dismiss', defer: '/defer' },
+            proposalTypeFilter: RECALL_NEGATIVE_TYPES,
+            kind: 'recall_negative',
         },
         structure: {
             api: '/api/v2/proposals/scenario_improver',
             renderer: renderProposalRow,
             actions: { apply: '/apply', dismiss: '/dismiss', defer: '/defer' },
-            proposalTypeFilter: ['role_reclassify', 'dormant_participant'],
+            proposalTypeFilter: STRUCTURE_TYPES,
+            kind: 'structure',
+        },
+        diagnostic: {
+            api: '/api/v2/proposals/scenario_improver',
+            renderer: renderDiagnosticRow,
+            actions: { dismiss: '/dismiss' },
+            proposalTypeFilter: DIAGNOSTIC_TYPES,
+            kind: 'diagnostic',
         },
         sensor_disable: {
             api: '/api/v2/proposals/sensor_disable',
             renderer: renderSensorDisableRow,
             actions: { ack: '/ack' },
+            kind: 'sensor',
         },
         drift: {
             api: '/api/v2/drift_signals',
             renderer: renderDriftRow,
             actions: { ack: '/ack' },
-            apiBase: '/api/v2/drift_signals',
+            kind: 'drift',
         },
         discovery: {
             api: '/api/v2/discovery/clusters',
             renderer: renderDiscoveryRow,
             actions: {},
+            kind: 'discovery',
         },
     };
 
-    let currentTab = 'scenario_improver';
+    let currentTab = 'recall_positive';
     let pendingConfirm = null;  // {endpoint, kind, label}
 
     // ── Public entry points (referenced from inline onclick) ──────────────
@@ -166,6 +197,32 @@
             `    <button class="btn-tactical wizard-btn-defer" `,
             `      onclick="window._wizardActionScenario(${p.id}, 'defer', false)">`,
             `      ${_escHtml(_t('wizard.row.btn.defer'))}</button>`,
+            `    <button class="btn-tactical wizard-btn-dismiss" `,
+            `      onclick="window._wizardActionScenario(${p.id}, 'dismiss', false)">`,
+            `      ${_escHtml(_t('wizard.row.btn.dismiss'))}</button>`,
+            `  </div>`,
+            `</div>`,
+        ].join('');
+    }
+
+    function renderDiagnosticRow(p) {
+        // Diagnostic proposals: gray border, no Apply, only Dismiss.
+        // These are informational — sensor_gap / scenario_dormant /
+        // needs_more_data — and represent NP5+8 transitional 結論不可.
+        const evidence = JSON.stringify(p.evidence || {}, null, 2);
+        const target = p.target_country
+            ? p.target_country
+            : (p.scenario_id || '?');
+        return [
+            `<div class="wizard-row wizard-row-diagnostic">`,
+            `  <div class="wizard-row-head">`,
+            `    <span class="wizard-row-type" style="color:#aaa;">${
+                _escHtml(p.proposal_type)}</span>`,
+            `    <span class="wizard-row-target">${_escHtml(target)}</span>`,
+            `  </div>`,
+            `  <div class="wizard-row-why">${_escHtml(p.why_string || '')}</div>`,
+            `  <div class="wizard-row-evidence">${_escHtml(evidence)}</div>`,
+            `  <div class="wizard-row-actions">`,
             `    <button class="btn-tactical wizard-btn-dismiss" `,
             `      onclick="window._wizardActionScenario(${p.id}, 'dismiss', false)">`,
             `      ${_escHtml(_t('wizard.row.btn.dismiss'))}</button>`,
@@ -330,27 +387,39 @@
             }
             const body = await resp.json();
             const data = (body && body.data) || {};
-            const proposals = data.scenario_proposals || {};
-            // Sum keys with form 'type|state' where state == 'pending'
-            let pending = 0;
-            for (const k of Object.keys(proposals)) {
-                if (k.endsWith('|pending')) pending += proposals[k] || 0;
-            }
+            const quality = data.proposal_quality || {};
+            const recallPos = quality.recall_positive || 0;
+            const recallNeg = quality.recall_negative || 0;
+            const structure = quality.structure || 0;
+            const diagnostic = quality.diagnostic || 0;
             const drift = data.actionable_drift_count || 0;
-            const recallRed = false;  // populated when post-autotune gate exposes it
-            const parts = [];
-            parts.push(`P${pending}`);
-            parts.push(`D${drift}`);
-            valueEl.textContent = parts.join(' / ');
+            const totalActionable = recallPos + recallNeg + structure;
+
+            // Display: P+/P- format prioritizes recall-asymmetry visibility.
+            // Diagnostic count goes after a slash so analysts can see how
+            // much of the pending volume is informational vs structural.
+            valueEl.textContent =
+                `+${recallPos} -${recallNeg} S${structure} / D${drift}`;
+
             const chip = document.getElementById('hud-autotune-chip');
             if (chip) {
-                if (drift > 0 || pending > 5) {
+                // Color logic:
+                //   - drift > 0 or recall- proposals > 0 → amber (review needed)
+                //   - any actionable structural pending → accent
+                //   - only diagnostic pending or empty → default
+                if (drift > 0 || recallNeg > 0) {
                     chip.style.color = '#ff8800';
-                } else if (pending > 0) {
+                } else if (totalActionable > 0) {
                     chip.style.color = 'var(--color-accent)';
                 } else {
                     chip.style.color = '';
                 }
+                // Tooltip gives the breakdown plus diagnostic count
+                chip.title = (
+                    `Recall+ ${recallPos}, Recall- ${recallNeg}, ` +
+                    `Structure ${structure}, Diagnostic ${diagnostic}, ` +
+                    `Drift unack ${drift}. Click to open the Wizard.`
+                );
             }
         } catch (err) {
             valueEl.textContent = '—';

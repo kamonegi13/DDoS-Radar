@@ -480,7 +480,12 @@ def v2_calibration_health():
 def _collect_health_stats(cutoff: float) -> dict:
     """Aggregate threshold_history + scenario_proposals + scenario_drift_events
     counts since `cutoff`. NP3: each query is fault-tolerant; one missing
-    table does not break the whole snapshot."""
+    table does not break the whole snapshot.
+
+    Post-incident addition (commit E): proposal_quality breaks down
+    pending proposals by ProposalKind so AP3 can show "are recall-
+    reducing proposals dominating?" at a glance.
+    """
     from radar.database import db as _db
     conn = _db._get_conn()  # noqa: SLF001
 
@@ -510,12 +515,40 @@ def _collect_health_stats(cutoff: float) -> dict:
         actionable_drift = (row[0] if row else 0) or 0
     except Exception:
         actionable_drift = 0
+
+    # Post-incident: proposal_quality breakdown by ProposalKind for AP3.
+    proposal_quality = _proposal_quality_breakdown(conn, cutoff)
+
     return {
         "threshold_history": threshold_counts,
         "scenario_proposals": proposal_counts,
         "scenario_drift_events": drift_counts,
         "actionable_drift_count": actionable_drift,
+        "proposal_quality": proposal_quality,
     }
+
+
+def _proposal_quality_breakdown(conn, cutoff: float) -> dict:
+    """Return {kind: count} for pending proposals since cutoff. The kind
+    mapping comes from radar.calibration._proposal_writer.TYPE_TO_KIND."""
+    try:
+        from radar.calibration._proposal_writer import TYPE_TO_KIND, ProposalKind
+    except Exception:
+        return {}
+    try:
+        rows = conn.execute(
+            "SELECT proposal_type, COUNT(*) FROM scenario_proposals "
+            "WHERE state='pending' AND emitted_at >= ? "
+            "GROUP BY proposal_type",
+            (cutoff,),
+        ).fetchall()
+    except Exception:
+        return {}
+    out: dict[str, int] = {k.value: 0 for k in ProposalKind}
+    for proposal_type, count in rows:
+        kind = TYPE_TO_KIND.get(proposal_type, ProposalKind.STRUCTURE)
+        out[kind.value] = out.get(kind.value, 0) + int(count or 0)
+    return out
 
 
 def _safe_count_by(conn, sql: str, params: tuple, *, key_columns: int = 1) -> dict:
