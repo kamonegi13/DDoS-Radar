@@ -646,6 +646,8 @@ CREATE TABLE IF NOT EXISTS scenario_proposals (
     formula_ref         TEXT NOT NULL,
     sample_n            INTEGER NOT NULL DEFAULT 0,
     why_string          TEXT,
+    evidence_strength   TEXT,    -- post-incident: 'strong'|'moderate'|'weak'|'insufficient'
+    vitality_state      TEXT,    -- post-incident: 'active'|'dormant'|'data_gap'
     state               TEXT NOT NULL DEFAULT 'pending'
         CHECK (state IN ('pending','applied','dismissed','snoozed_30d','reverted')),
     state_changed_at    REAL,
@@ -1733,6 +1735,17 @@ class RadarDB:
             );
             CREATE INDEX IF NOT EXISTS idx_discovery_cluster_run
                 ON discovery_cluster (run_id);
+        """),
+
+        (30, "Post-incident redesign: scenario_proposals.evidence_strength + vitality_state for guard-aware emission", """
+            -- Post-incident redesign (2026-04-29 Wizard incident).
+            -- Each emitted proposal records the evidence_strength + scenario
+            -- vitality_state so the UI can route it to the right tab
+            -- (Recall+ / Structure / Recall- / Diagnostic) and color it
+            -- correctly. Both columns are nullable for back-compat with
+            -- pre-redesign rows.
+            ALTER TABLE scenario_proposals ADD COLUMN evidence_strength TEXT;
+            ALTER TABLE scenario_proposals ADD COLUMN vitality_state TEXT;
         """),
     ]
 
