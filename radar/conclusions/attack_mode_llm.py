@@ -110,8 +110,16 @@ def augment_attack_mode_with_llm(
     Errors are swallowed (NP3); on any failure path the original is returned
     so the rule conclusion still persists.
     """
-    if not config.V2_ATTACK_MODE_LLM_AUGMENT_ENABLED:
-        return rule_conclusion
+    # Resolved via the LLM Feature Hub. Falls back to the legacy
+    # config flag when the registry is unavailable (NP3 import-cycle
+    # protection during early bootstrap).
+    try:
+        from radar.llm_features import is_enabled
+        if not is_enabled("attack_mode_augment"):
+            return rule_conclusion
+    except Exception:
+        if not config.V2_ATTACK_MODE_LLM_AUGMENT_ENABLED:
+            return rule_conclusion
     if not rule_conclusion.is_available():
         # NP4 + NP1: do not invent an attack mode when rules abstained.
         return rule_conclusion

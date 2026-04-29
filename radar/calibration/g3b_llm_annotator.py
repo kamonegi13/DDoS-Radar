@@ -92,15 +92,27 @@ def _daily_call_cap() -> int:
 
 
 def _is_shadow_enabled() -> bool:
-    return os.getenv("G3B_SHADOW_ENABLED", "false").strip().lower() in (
-        "1", "true", "yes", "on"
-    )
+    """Shadow mode for G.3b cluster annotation — resolved via the
+    LLM Feature Hub ('g3b_cluster_annotator') so the UI can flip it
+    without restarting Docker. Falls back to env on import failure."""
+    try:
+        from radar.llm_features import is_shadow
+        return is_shadow("g3b_cluster_annotator")
+    except Exception:
+        return os.getenv("G3B_SHADOW_ENABLED", "false").strip().lower() in (
+            "1", "true", "yes", "on"
+        )
 
 
 def _is_production_enabled() -> bool:
-    return os.getenv("G3B_LLM_ENABLED", "false").strip().lower() in (
-        "1", "true", "yes", "on"
-    )
+    """Production mode for G.3b — resolved via the LLM Feature Hub."""
+    try:
+        from radar.llm_features import is_enabled
+        return is_enabled("g3b_cluster_annotator")
+    except Exception:
+        return os.getenv("G3B_LLM_ENABLED", "false").strip().lower() in (
+            "1", "true", "yes", "on"
+        )
 
 
 def _annotation_state() -> str:

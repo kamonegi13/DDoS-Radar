@@ -198,9 +198,21 @@ def record_sensor_skip(reason: str, caller: str = "", headline: str = "") -> Non
 
 # ── Core API functions ────────────────────────────────────────────────────────
 
+def _global_llm_enabled() -> bool:
+    """Resolve the global LLM enable state through the Feature Hub
+    ('sensor_intel_extraction' is the registered key for the global
+    LLM_ENABLED flag — same default ON, same kill-switch coverage).
+    Falls back to the original env on import failure."""
+    try:
+        from radar.llm_features import is_enabled
+        return is_enabled("sensor_intel_extraction")
+    except Exception:
+        return LLM_ENABLED
+
+
 def llm_available() -> bool:
     """Check if Ollama is reachable and the configured model is available."""
-    if not LLM_ENABLED:
+    if not _global_llm_enabled():
         return False
     try:
         res = requests.get(_TAGS_URL, timeout=5,
@@ -229,7 +241,7 @@ def llm_analyze(prompt: str, system: str = "",
         {"ok": True,  "text": "<response text>"}
         {"ok": False, "text": "", "error": "<reason>"}
     """
-    if not LLM_ENABLED:
+    if not _global_llm_enabled():
         return {"ok": False, "text": "", "error": "LLM_ENABLED=false"}
 
     payload: dict = {
@@ -283,7 +295,7 @@ def llm_analyze_json(prompt: str, system: str = "",
     if not caller:
         caller = _infer_caller()
 
-    if not LLM_ENABLED:
+    if not _global_llm_enabled():
         _log_call(caller, 0, "disabled", error="LLM_ENABLED=false")
         return {"ok": False, "data": {}, "error": "LLM_ENABLED=false"}
 

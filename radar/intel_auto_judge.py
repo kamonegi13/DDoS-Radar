@@ -123,21 +123,32 @@ ANALYST_LLM_REJECT = "auto:llm_recheck_reject"
 def _llm_recheck_enabled() -> bool:
     """LLM second-pass on the deterministic-pending tail. OFF by default —
     every air-gapped / LLM-disabled deployment must keep working without
-    it (NP3, AP1). Operators opt in via LLM_AUTO_JUDGE_RECHECK=true after
-    observing the calibration ledger for ≥1 week of shadow data.
+    it (NP3, AP1). Operators flip via the LLM Feature Hub
+    ('auto_judge_recheck' key) which honors UI override → env →
+    registry default in priority order. Legacy env LLM_AUTO_JUDGE_RECHECK
+    still works as the env-default layer.
     """
-    val = os.getenv("LLM_AUTO_JUDGE_RECHECK", "false").strip().lower()
-    return val in ("1", "true", "yes", "on")
+    try:
+        from radar.llm_features import is_enabled
+        return is_enabled("auto_judge_recheck")
+    except Exception:
+        # NP3 fallback to env-only when llm_features import fails (e.g.
+        # during early bootstrap or DB outage).
+        val = os.getenv("LLM_AUTO_JUDGE_RECHECK", "false").strip().lower()
+        return val in ("1", "true", "yes", "on")
 
 
 def _llm_shadow_enabled() -> bool:
     """Shadow mode: invoke the LLM second pass and write the verdict to
-    the calibration ledger, but DO NOT apply it. Used for the 1-week
-    pre-rollout observation period before flipping LLM_AUTO_JUDGE_RECHECK
-    to true. Defaults true so calibration data accrues from day 1.
+    the calibration ledger, but DO NOT apply it. Resolved through the
+    same LLM Feature Hub ('auto_judge_recheck') with shadow state.
     """
-    val = os.getenv("LLM_AUTO_JUDGE_SHADOW", "true").strip().lower()
-    return val in ("1", "true", "yes", "on")
+    try:
+        from radar.llm_features import is_shadow
+        return is_shadow("auto_judge_recheck")
+    except Exception:
+        val = os.getenv("LLM_AUTO_JUDGE_SHADOW", "true").strip().lower()
+        return val in ("1", "true", "yes", "on")
 
 
 def _llm_confidence_floor() -> float:
