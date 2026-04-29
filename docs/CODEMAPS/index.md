@@ -7,7 +7,7 @@ structural changes to keep maps in sync.
 
 | Source file | Codemap | Lines |
 |-------------|---------|-------|
-| `radar/database.py` | [radar.database.md](radar.database.md) | 4982 |
+| `radar/database.py` | [radar.database.md](radar.database.md) | 4995 |
 | `radar/scoring.py` | [radar.scoring.md](radar.scoring.md) | 1601 |
 | `radar/intel_queue.py` | [radar.intel_queue.md](radar.intel_queue.md) | 1084 |
 | `radar/intel_auto_judge.py` | [radar.intel_auto_judge.md](radar.intel_auto_judge.md) | 572 |
