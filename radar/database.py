@@ -657,6 +657,53 @@ CREATE INDEX IF NOT EXISTS idx_scenario_proposals_scenario
 CREATE INDEX IF NOT EXISTS idx_scenario_proposals_pending
     ON scenario_proposals (state, emitted_at DESC);
 
+-- Tier 3 (2026-04-29): G.2 + G.3a discovery foundation. Migration v29
+-- creates these for upgraded DBs; mirrored here so fresh DBs get them.
+CREATE TABLE IF NOT EXISTS cooccurrence_matrix_snapshot (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    emitted_at        REAL NOT NULL,
+    window_days       INTEGER NOT NULL,
+    bucket_hours      INTEGER NOT NULL DEFAULT 24,
+    cell_count        INTEGER NOT NULL,
+    matrix_json       TEXT NOT NULL,
+    formula_ref       TEXT NOT NULL,
+    evidence_json     TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_cooccurrence_emitted_at
+    ON cooccurrence_matrix_snapshot (emitted_at DESC);
+
+CREATE TABLE IF NOT EXISTS scenario_discovery_run (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    emitted_at          REAL NOT NULL,
+    matrix_snapshot_id  INTEGER NOT NULL
+        REFERENCES cooccurrence_matrix_snapshot(id),
+    algorithm           TEXT NOT NULL DEFAULT 'dbscan',
+    eps                 REAL,
+    min_samples         INTEGER,
+    n_clusters          INTEGER NOT NULL DEFAULT 0,
+    n_noise             INTEGER NOT NULL DEFAULT 0,
+    formula_ref         TEXT NOT NULL,
+    metadata_json       TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_discovery_run_emitted_at
+    ON scenario_discovery_run (emitted_at DESC);
+
+CREATE TABLE IF NOT EXISTS discovery_cluster (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id                INTEGER NOT NULL
+        REFERENCES scenario_discovery_run(id),
+    cluster_index         INTEGER NOT NULL,
+    countries_json        TEXT NOT NULL,
+    centroid_json         TEXT,
+    annotation_json       TEXT,
+    annotation_state      TEXT NOT NULL DEFAULT 'none'
+        CHECK (annotation_state IN ('none','shadow','production')),
+    suggested_scenario_id TEXT,
+    formula_ref           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_discovery_cluster_run
+    ON discovery_cluster (run_id);
+
 -- Phase 4 B2 (2026-04-29): auto-judge calibration ledger.
 -- Mirrored in migration 27 for upgraded DBs; this ensures fresh DBs get
 -- the table without depending on migration runs.
@@ -1632,6 +1679,60 @@ class RadarDB:
                 ON scenario_proposals (scenario_id, emitted_at DESC);
             CREATE INDEX IF NOT EXISTS idx_scenario_proposals_pending
                 ON scenario_proposals (state, emitted_at DESC);
+        """),
+
+        (29, "Tier 3: cooccurrence_matrix_snapshot + scenario_discovery_run + discovery_cluster (G.2 + G.3a foundation)", """
+            -- G.2: Co-occurrence matrix snapshots. Each row captures one
+            -- ETL run's pairwise country co-occurrence over a time window.
+            -- matrix_json shape: {countries: [...], pairs: [{a, b, count, share}]}
+            -- cell_count caps the matrix size — refuse > 5000 to avoid bloat.
+            CREATE TABLE IF NOT EXISTS cooccurrence_matrix_snapshot (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                emitted_at        REAL NOT NULL,
+                window_days       INTEGER NOT NULL,
+                bucket_hours      INTEGER NOT NULL DEFAULT 24,
+                cell_count        INTEGER NOT NULL,
+                matrix_json       TEXT NOT NULL,
+                formula_ref       TEXT NOT NULL,
+                evidence_json     TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_cooccurrence_emitted_at
+                ON cooccurrence_matrix_snapshot (emitted_at DESC);
+
+            -- G.3a: DBSCAN run records. One row per discovery pass.
+            CREATE TABLE IF NOT EXISTS scenario_discovery_run (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                emitted_at          REAL NOT NULL,
+                matrix_snapshot_id  INTEGER NOT NULL
+                    REFERENCES cooccurrence_matrix_snapshot(id),
+                algorithm           TEXT NOT NULL DEFAULT 'dbscan',
+                eps                 REAL,
+                min_samples         INTEGER,
+                n_clusters          INTEGER NOT NULL DEFAULT 0,
+                n_noise             INTEGER NOT NULL DEFAULT 0,
+                formula_ref         TEXT NOT NULL,
+                metadata_json       TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_discovery_run_emitted_at
+                ON scenario_discovery_run (emitted_at DESC);
+
+            -- One row per cluster found in a discovery_run. annotation_json
+            -- is filled in commit 12 (G.3b LLM annotator) when shadow opt-in.
+            CREATE TABLE IF NOT EXISTS discovery_cluster (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                INTEGER NOT NULL
+                    REFERENCES scenario_discovery_run(id),
+                cluster_index         INTEGER NOT NULL,
+                countries_json        TEXT NOT NULL,
+                centroid_json         TEXT,
+                annotation_json       TEXT,
+                annotation_state      TEXT NOT NULL DEFAULT 'none'
+                    CHECK (annotation_state IN ('none','shadow','production')),
+                suggested_scenario_id TEXT,
+                formula_ref           TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_discovery_cluster_run
+                ON discovery_cluster (run_id);
         """),
     ]
 
