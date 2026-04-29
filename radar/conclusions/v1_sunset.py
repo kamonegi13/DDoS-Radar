@@ -26,11 +26,26 @@ from typing import Mapping
 # ADR-V2-003 — adding a route here promises clients a 90-day migration
 # window.
 SUNSETTED_V1_ROUTES: tuple[tuple[re.Pattern[str], str, str], ...] = (
-    (
-        re.compile(r"^/api/threat_data/?$"),
-        "/api/v2/scenarios/{scenario_id}/conclusions",
-        "v1_sunset_route:/api/threat_data",
-    ),
+    # 2026-04-29 contract revision: /api/threat_data was originally listed
+    # here with successor /api/v2/scenarios/{id}/conclusions, but PF7
+    # inventory work revealed the v2 conclusions endpoint cannot replace
+    # threat_data — they have completely different response shapes.
+    # threat_data is the HUD/Lane/map kitchen-sink driver (latestData is
+    # consumed at 14+ frontend sites for sensor caches, scenario state,
+    # chain events, analytics envelopes etc.); v2 conclusions returns
+    # only scoring conclusions (state/confidence/formula_ref tuples).
+    #
+    # The contract was technically infeasible. Rather than rush a
+    # large-surface frontend rewrite to invent a non-existent v2
+    # threat_data successor before 2026-07-26, threat_data is removed
+    # from the sunset list and stays as a permanent operational
+    # endpoint. The operational state stream is no longer 'v1' in any
+    # meaningful sense — it just happens to have a /api/ prefix that
+    # predates the /api/v2/ scoring conclusions surface.
+    #
+    # /api/scenario/<id>/breakdown stays in the sunset — it has zero
+    # production hits and the v2 conclusions endpoint is a genuine
+    # successor (it returns the same per-scenario conclusion data).
     (
         re.compile(r"^/api/scenario/(?P<scenario_id>[^/]+)/breakdown/?$"),
         "/api/v2/scenarios/{scenario_id}/conclusions",

@@ -144,6 +144,7 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
   - **default-on 切替**: 2026-04-26 (Mode C activation, all 5 readiness conditions PASS via `scripts/check_mode_c_readiness.py --ack`)
   - **v1 sunset target**: 2026-07-26 (T+90d)
   - **Phase 1.4 完了 (2026-04-27)**: P1 = `Deprecation` / `Sunset` / `Link` HTTP ヘッダを v1 superseded routes に付与 (8a1ce11)、SR4 = sunsetted route hit を `legacy_telemetry` カウンタへ集約 (2e0310d)、P2 = NP7 disclaimer banner (7ea0916)、C = sunset 後の residual access 観測 (d32c856)。残作業は v1 sunset 当日 (2026-07-26) 以降の Phase 4 撤去のみ
+  - **2026-04-29 契約訂正**: PF7 inventory 作業で `/api/threat_data` の v2 後継として promised していた `/api/v2/scenarios/{id}/conclusions` が**技術的に代替不能** (response shape が完全に異なる: threat_data は HUD/Lane/map 全体を駆動する kitchen-sink envelope、v2 conclusions は scoring conclusions 単体) と判明。**`SUNSETTED_V1_ROUTES` から `/api/threat_data` を除外**し、permanent operational endpoint として継続。`/api/scenario/<id>/breakdown` (本番 0 hits、v2 conclusions が真の後継) のみが sunset 対象。残し scope は inventory doc §1.1 の 1 行 + 機構 cleanup 約 600 LOC、commit 数 5 → 3 に縮小
 
 ### ADR-V2-004: Export 形式は Markdown/PDF のみ (v2.0)
 

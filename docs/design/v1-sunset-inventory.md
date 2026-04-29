@@ -4,6 +4,64 @@
 **Purpose**: Operator checklist. Walk top-to-bottom on sunset day; the actual
 removal should be a focused 1-2 hour execution, not a discovery exercise.
 
+## ⏰ When you open this on 2026-07-26 — quick start
+
+1. Confirm today's date is on or after 2026-07-26 UTC (the contract date).
+2. Run the pre-flight gate (Appendix bottom of this file):
+   ```bash
+   docker exec ddos-radar python /app/scripts/list_v1_routes.py --check-stale --max-7d-hits 5
+   ```
+   exit 0 → proceed; exit 1 → STOP and read the residual-traffic block in §6.
+3. Execute the 3 commits in §7 sequentially. Each one is mechanical
+   text deletion at known file:line locations, ≤30 minutes total.
+4. Rebuild + smoke test (§ Appendix step 5). If healthy, push and
+   close ADR-V2-003 by flipping its status to `DONE` in
+   `docs/design/v2-migration.md`.
+
+If you came here from a calendar reminder set on 2026-04-29: the
+contract was revised that same day to drop `/api/threat_data` from the
+sunset list (see banner block immediately below). Only
+`/api/scenario/<id>/breakdown` removal + machinery cleanup remain.
+
+## ⚠️ 2026-04-29 contract revision — `/api/threat_data` REMOVED from sunset list
+
+When PF7 inventory work probed the `latestData` consumer surface in
+`radar.js`, it surfaced that the v2 successor route promised in
+ADR-V2-003 (`/api/v2/scenarios/{id}/conclusions`) **cannot replace**
+`/api/threat_data`. The two endpoints have completely incompatible
+response shapes:
+
+- `/api/threat_data` returns the HUD/Lane/map kitchen-sink envelope
+  (`strategic_alert`, `scenarios`, `focused_scenario`, sensor caches,
+  chain log, analytics — consumed at 14+ frontend sites).
+- `/api/v2/scenarios/{id}/conclusions` returns ONLY scoring conclusions
+  (state / confidence / formula_ref tuples per conclusion type).
+
+The original contract was technically infeasible. Rather than rush a
+multi-hour frontend rewrite to invent a non-existent v2 threat_data
+successor before 2026-07-26, **`/api/threat_data` is removed from the
+sunset list** and stays as a permanent operational endpoint (it is no
+longer 'v1' in any meaningful sense — it just happens to predate the
+`/api/v2/` scoring surface).
+
+`SUNSETTED_V1_ROUTES` in `radar/conclusions/v1_sunset.py` now only
+covers `/api/scenario/<id>/breakdown` (zero production hits, v2
+conclusions endpoint is a genuine successor).
+
+**Effect on this inventory**:
+- §1.1 row for `/api/threat_data` no longer applies (route stays).
+- §6 'frontend is still hitting /api/threat_data' is no longer a
+  blocker — the route is permanent. radar.js:3873 stays.
+- The 8 frontend `?? legacy_theater_*` fallbacks that were tied to the
+  ADR-V2-003 sunset have been dropped early (they were safe to remove
+  the moment backend dual-write was confirmed; the sunset wasn't
+  actually gating them). Search for the previous `?? *theater` pattern
+  in `radar.js` returns only 2 hits now, both on intel_queue row
+  display fields which are on the separate SR4 / 2026-10-01 schedule.
+- §7 LOC estimate drops from ~1,240 to ~600 (no /api/threat_data
+  handler removal, no frontend fetch migration).
+- Sunset day commit count drops from 5 to ~3.
+
 **Pre-flight gate** (run on sunset day before any removal):
 
 ```bash

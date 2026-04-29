@@ -37,17 +37,14 @@ from radar.database import db
 # Pure-function tests (no Flask, no DB)
 # ─────────────────────────────────────────────────────────────────────────
 
-def test_match_sunsetted_route_threat_data():
-    result = match_sunsetted_route("/api/threat_data")
-    assert result is not None
-    template, groups, key = result
-    assert template == "/api/v2/scenarios/{scenario_id}/conclusions"
-    assert groups == {}
-    assert key == "v1_sunset_route:/api/threat_data"
-
-
-def test_match_sunsetted_route_threat_data_trailing_slash():
-    assert match_sunsetted_route("/api/threat_data/") is not None
+def test_match_sunsetted_route_threat_data_no_longer_in_sunset_list():
+    """2026-04-29 contract revision (PF7 / v1-sunset-inventory.md):
+    /api/threat_data was removed from SUNSETTED_V1_ROUTES because v2
+    conclusions endpoint cannot replace its kitchen-sink HUD/Lane/map
+    response shape. The route stays as a permanent operational endpoint.
+    """
+    assert match_sunsetted_route("/api/threat_data") is None
+    assert match_sunsetted_route("/api/threat_data/") is None
 
 
 def test_match_sunsetted_route_breakdown_extracts_scenario_id():
@@ -181,12 +178,23 @@ def _assert_no_sunset_headers(resp):
         assert "successor-version" not in link, link
 
 
-def test_threat_data_response_carries_sunset_headers(client, auth_headers):
-    """Even if the underlying route returns 4xx (no scenarios pinned, etc.),
-    the sunset headers must still be present — they advertise route status,
-    not response status."""
+def test_threat_data_response_no_longer_carries_route_sunset_headers(client, auth_headers):
+    """2026-04-29 contract revision: /api/threat_data is permanent at the
+    ROUTE level (no longer in SUNSETTED_V1_ROUTES), but it still emits
+    its own FIELD-level Deprecation/Sunset for `targets` /
+    `strategic_alert` / `threat_history` (Sunset 2026-10-01, separate
+    SR4 contract). Distinguish: the route-level sunset uses
+    SUNSET_DATE_HEADER (2026-07-26) and a Link to `/api/v2/scenarios/`.
+    """
     resp = client.get("/api/threat_data", headers=auth_headers)
-    _assert_has_sunset_headers(resp)
+    # Route-level sunset machinery (ADR-V2-003) must be absent:
+    assert resp.headers.get("Sunset") != SUNSET_DATE_HEADER
+    link = resp.headers.get("Link", "")
+    assert "/api/v2/scenarios/" not in link, (
+        f"route-level Link header still points to v2 successor: {link!r}"
+    )
+    # Field-level deprecation may still be present — that's a separate
+    # contract not affected by the route sunset revision.
 
 
 def test_breakdown_response_carries_sunset_headers_with_scenario_id(client, auth_headers):
@@ -218,12 +226,14 @@ def test_other_v1_routes_do_not_carry_sunset_headers(client, auth_headers):
         _assert_no_sunset_headers(resp)
 
 
-def test_unauthenticated_v1_response_still_carries_sunset_headers(client):
-    """Even an unauthenticated 401 response must carry the headers — clients
-    that don't yet have credentials still need to learn about the sunset."""
-    resp = client.get("/api/threat_data")
-    # 401 expected
-    _assert_has_sunset_headers(resp)
+def test_unauthenticated_breakdown_response_still_carries_sunset_headers(client):
+    """Even an unauthenticated 401 response on a sunsetted route must
+    carry the headers — clients that don't yet have credentials still
+    need to learn about the sunset. Uses /api/scenario/<id>/breakdown
+    since it is the only remaining route in SUNSETTED_V1_ROUTES after
+    the 2026-04-29 contract revision."""
+    resp = client.get("/api/scenario/test_phase14_sunset/breakdown")
+    _assert_has_sunset_headers(resp, scenario_id="test_phase14_sunset")
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -233,13 +243,18 @@ def test_unauthenticated_v1_response_still_carries_sunset_headers(client):
 # ─────────────────────────────────────────────────────────────────────────
 
 def test_apply_sunset_records_legacy_access_with_canonical_key():
+    """Sunsetted route hits should increment the canonical telemetry key
+    so operators can monitor 90-day window usage. Uses
+    /api/scenario/<id>/breakdown (only remaining sunsetted route)."""
     from radar import legacy_telemetry as lt
     lt.reset_for_test()
     headers: dict[str, str] = {}
-    apply_sunset_headers_if_needed("/api/threat_data", headers)
+    apply_sunset_headers_if_needed(
+        "/api/scenario/taiwan_contingency/breakdown", headers,
+    )
     snap = lt.snapshot()
-    assert "v1_sunset_route:/api/threat_data" in snap, snap
-    assert snap["v1_sunset_route:/api/threat_data"].count == 1
+    assert "v1_sunset_route:/api/scenario/<id>/breakdown" in snap, snap
+    assert snap["v1_sunset_route:/api/scenario/<id>/breakdown"].count == 1
 
 
 def test_apply_sunset_collapses_scenario_id_into_canonical_key():
