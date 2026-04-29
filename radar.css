@@ -2509,6 +2509,135 @@ body[data-replay-on="1"] #top-hud {
     #alert-lane .al-narrative { padding-left: 88px; }
 }
 
+/* ── TRIAGE Lane display modes (commit B/C) ───────────────────────────
+   Three modes share the #alert-lane node, switched by JS via class.
+   Geometry rules below; commit C adds animations + polish.
+
+   Portal slots:
+   #triage-lane-critical-slot — HUD flow (above #scenario-bar)
+   #triage-lane-dock-slot     — absolute corner inside #map-wrapper
+
+   Default state when no class is set: legacy HUD-flow lane (back-compat).
+*/
+#alert-lane.tm-pin-dock {
+    /* Compact corner overlay on top of the map. */
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    right: auto;
+    top: auto;
+    width: 220px;
+    max-height: 56px;
+    z-index: 800;            /* above Leaflet panes (default 700), below modals */
+    border: 1px solid rgba(0, 200, 255, 0.45);
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: pointer;
+    /* keep the same warm bg but a touch darker for legibility */
+    background: rgba(0, 0, 0, 0.72);
+    padding: 0;
+    transition: max-height 0.22s ease, width 0.22s ease;
+}
+#alert-lane.tm-pin-dock.tm-expanded {
+    max-height: 360px;
+    width: 360px;
+    overflow-y: auto;
+    cursor: default;
+}
+#alert-lane.tm-pin-dock .al-toolbar,
+#alert-lane.tm-pin-dock .al-list {
+    /* Hide the legacy toolbar+list when collapsed. */
+    display: none;
+}
+#alert-lane.tm-pin-dock.tm-expanded .al-toolbar,
+#alert-lane.tm-pin-dock.tm-expanded .al-list {
+    display: flex;
+}
+#alert-lane.tm-pin-dock.tm-expanded .al-list { flex-direction: column; }
+
+/* Compact bar (top row, always visible in pin-dock collapsed) */
+#alert-lane .tm-compact-bar {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.4px;
+    color: rgba(255, 220, 200, 0.92);
+    border-bottom: 1px solid rgba(0, 200, 255, 0.18);
+}
+#alert-lane.tm-pin-dock .tm-compact-bar,
+#alert-lane.tm-critical-banner .tm-compact-bar {
+    display: flex;
+}
+#alert-lane .tm-cb-label {
+    color: rgba(0, 200, 255, 0.85);
+    font-weight: bold;
+    font-size: 10px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+#alert-lane.tm-critical-banner .tm-cb-label {
+    color: #ffffff;
+}
+#alert-lane .tm-cb-items {
+    display: flex;
+    gap: 6px;
+    overflow: hidden;
+    flex: 1 1 auto;
+    white-space: nowrap;
+}
+#alert-lane .tm-cb-pill {
+    padding: 1px 6px;
+    border: 1px solid rgba(0, 200, 255, 0.25);
+    border-radius: 2px;
+    font-size: 10px;
+    color: rgba(255, 220, 200, 0.85);
+}
+#alert-lane.tm-critical-banner .tm-cb-pill {
+    border-color: rgba(255, 255, 255, 0.4);
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+}
+#alert-lane .tm-cb-pin {
+    flex-shrink: 0;
+    color: rgba(0, 200, 255, 0.55);
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 12px;
+}
+#alert-lane .tm-cb-pin:hover { color: rgba(0, 200, 255, 0.95); }
+
+/* Critical banner mode: HUD flow, slim, alarm color */
+#alert-lane.tm-critical-banner {
+    position: relative;
+    width: 100%;
+    height: 28px;
+    padding: 0;
+    background: linear-gradient(90deg,
+        rgba(255, 60, 60, 0.85) 0%,
+        rgba(200, 30, 30, 0.85) 100%);
+    border: none;
+    border-bottom: 1px solid rgba(255, 80, 80, 0.55);
+    overflow: hidden;
+    cursor: pointer;
+}
+#alert-lane.tm-critical-banner .al-toolbar,
+#alert-lane.tm-critical-banner .al-list {
+    display: none;
+}
+#alert-lane.tm-critical-banner .tm-compact-bar {
+    border-bottom: none;
+    padding: 5px 14px;
+}
+
+/* Dormant mode: hidden via lane.hidden=true. Kept here for clarity. */
+#alert-lane.tm-dormant { display: none; }
+
+/* Map wrapper needs position:relative so the dock-slot can overlay. */
+#map-wrapper { position: relative; }
+
 /* ── Scenario Bar (Phase 4) ───────────────────────────────────────── */
 #scenario-bar {
     background: var(--color-surface);

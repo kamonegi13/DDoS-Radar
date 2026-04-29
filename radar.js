@@ -2590,7 +2590,156 @@
                               'tm-critical-banner', 'tm-expanded');
         lane.classList.add('tm-' + mode);
 
+        // Restore expanded pin if the analyst pinned it.
+        if (mode === 'pin-dock' && localStorage.getItem('triage_pinned') === '1') {
+            lane.classList.add('tm-expanded');
+        }
+
+        // Pulse on first transition into pin-dock from dormant — draws
+        // the eye to the corner overlay without being alarming.
+        if (mode === 'pin-dock' && _triageCurrentMode === 'dormant') {
+            lane.classList.add('tm-pulsing');
+            setTimeout(() => lane.classList.remove('tm-pulsing'), 1700);
+        }
+
         _triageCurrentMode = mode;
+        _ensureTriageHoverWired(lane);
+        _ensureTriageCompactBar(lane);
+    }
+
+    // ── Compact bar (commit B) ────────────────────────────────────────
+    // The collapsed pin-dock view shows a single row: TRIAGE label,
+    // top-3 scenario IDs with TL + delta arrows. CSS hides it in
+    // expanded / critical-banner modes. Built once, then updated in
+    // place from _refreshTriageDisplayMode so pin-dock collapsed →
+    // expanded transitions don't rebuild the listeners.
+    function _ensureTriageCompactBar(lane) {
+        if (!lane || lane.querySelector('.tm-compact-bar')) return;
+        const bar = document.createElement('div');
+        bar.className = 'tm-compact-bar';
+        bar.innerHTML =
+            '<span class="tm-cb-label">TRIAGE</span>'
+            + '<span class="tm-cb-items"></span>'
+            + '<span class="tm-cb-pin" title="Click to pin expanded view">⌖</span>';
+        // Click on label or items area: toggle expand-pin.
+        bar.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _triageTogglePin(lane);
+        });
+        lane.insertBefore(bar, lane.firstChild);
+    }
+
+    function _updateTriageCompactBar(lane, ranked, focusedId, mode) {
+        if (!lane) return;
+        const items = lane.querySelector('.tm-cb-items');
+        const label = lane.querySelector('.tm-cb-label');
+        if (!items || !label) return;
+        if (mode === 'critical-banner') {
+            label.textContent = '⚠ TRIAGE ALERT';
+        } else {
+            label.textContent = 'TRIAGE';
+        }
+        const top3 = (ranked || []).slice(0, 3);
+        items.innerHTML = top3.map((it) => {
+            const conf = it.conclusion && typeof it.conclusion.confidence === 'number'
+                ? it.conclusion.confidence : 0;
+            const prev = it.history && typeof it.history.prevConfidence === 'number'
+                ? it.history.prevConfidence : null;
+            let arrow = '·';
+            if (prev != null) arrow = (conf > prev) ? '▲' : (conf < prev) ? '▼' : '·';
+            const kind = it.kindLabel ? String(it.kindLabel).split(':')[0].trim() : '';
+            const score = (typeof it.score === 'number') ? it.score.toFixed(2) : '—';
+            return '<span class="tm-cb-pill" title="'
+                 + 'attention_score=' + score + ' · ' + (it.why || []).join('; ') + '">'
+                 + _escHtml(kind) + ' ' + arrow + ' ' + score
+                 + '</span>';
+        }).join('');
+    }
+
+    // ── Hover-expand + pin (commit B) ─────────────────────────────────
+    function _ensureTriageHoverWired(lane) {
+        if (!lane || lane.dataset.tmHoverWired === '1') return;
+        let collapseTimer = null;
+        lane.addEventListener('mouseenter', () => {
+            if (_triageCurrentMode !== 'pin-dock') return;
+            if (collapseTimer) { clearTimeout(collapseTimer); collapseTimer = null; }
+            lane.classList.add('tm-expanded');
+        });
+        lane.addEventListener('mouseleave', () => {
+            if (_triageCurrentMode !== 'pin-dock') return;
+            if (localStorage.getItem('triage_pinned') === '1') return;
+            if (collapseTimer) clearTimeout(collapseTimer);
+            collapseTimer = setTimeout(() => {
+                lane.classList.remove('tm-expanded');
+            }, 2000);
+        });
+        lane.dataset.tmHoverWired = '1';
+    }
+
+    function _triageTogglePin(lane) {
+        if (!lane) return;
+        const pinned = localStorage.getItem('triage_pinned') === '1';
+        if (pinned) {
+            localStorage.removeItem('triage_pinned');
+            lane.classList.remove('tm-expanded');
+        } else {
+            localStorage.setItem('triage_pinned', '1');
+            lane.classList.add('tm-expanded');
+        }
+    }
+
+    // ── Mode resolver glue (commit B) ─────────────────────────────────
+    // Reads ranked items + focused threat_level conclusion, computes
+    // maxScore + hasCritical, and applies the resolved mode. Pure
+    // module TriageDisplayMode does the state-machine math; this glue
+    // function handles per-item augmentation (TL, scoreDelta, critical
+    // heuristics) and the analyst's always-visible override.
+    function _refreshTriageDisplayMode(byType, focusedId, ranked) {
+        const dm = window.TriageDisplayMode;
+        if (!dm || typeof dm.resolveMode !== 'function') {
+            return;  // pure module not loaded — leave legacy behavior
+        }
+
+        // Augment ranked items so summarizeItems can decide critical.
+        const tlConc = byType && byType.threat_level;
+        const tlNum = (tlConc && tlConc.conclusion_unavailable_reason == null)
+            ? parseInt(tlConc.state, 10) : NaN;
+        const augmented = (ranked || []).map((it) => {
+            const conf = it.conclusion && typeof it.conclusion.confidence === 'number'
+                ? it.conclusion.confidence : 0;
+            const prev = it.history && typeof it.history.prevConfidence === 'number'
+                ? it.history.prevConfidence : null;
+            const scoreDelta = prev != null ? (conf - prev) : conf;
+            return Object.assign({}, it, {
+                tl: Number.isFinite(tlNum) ? tlNum : null,
+                scoreDelta: scoreDelta,
+                criticalFlag: false,  // commit C wires server signals
+            });
+        });
+
+        const summary = dm.summarizeItems(augmented);
+        const alwaysVisible = localStorage.getItem('triage_always_visible') === '1';
+        const result = dm.resolveMode({
+            maxScore: summary.maxScore,
+            hasCritical: summary.hasCritical,
+            prevMode: _triageCurrentMode,
+            alwaysVisible: alwaysVisible,
+        });
+
+        const lane = document.getElementById('alert-lane');
+        if (!lane) return;
+
+        if (result.mode === 'dormant') {
+            // Dormant overrides anything below.
+            _setTriageMode('dormant');
+            lane.hidden = true;
+            return;
+        }
+
+        // Non-dormant: lane visible. Apply mode + render compact bar.
+        _setTriageMode(result.mode);
+        lane.hidden = false;
+        _updateTriageCompactBar(lane, ranked, focusedId, result.mode);
     }
 
     function _refreshAlertLane(focusedId) {
@@ -2601,6 +2750,10 @@
         const byType = _hudFreshEnvelopeByType(focusedId);
         const triage = window.TriageScore;
         if (!byType || !triage || !triage.rankItems) {
+            // Legacy path: no envelope or no triage module → drop to
+            // dormant rather than leaving the lane stranded in
+            // pin-dock/critical from a previous render.
+            try { _setTriageMode('dormant'); } catch (_) { /* defensive */ }
             lane.hidden = true;
             return;
         }
@@ -2634,6 +2787,17 @@
             ackedIds: _alAckedIdSet(persisted, focusedId),
         };
         const ranked = triage.rankItems(candidates, analystState).slice(0, _AL_MAX_ROWS);
+
+        // ── Display mode resolution (commit B) ────────────────────────
+        // Decide where the lane lives (HUD flow / map overlay / hidden)
+        // BEFORE we touch lane.hidden — the portal move is a structural
+        // change and we want it to happen at most once per refresh.
+        // NP3: any failure here falls back to legacy hidden+show.
+        try {
+            _refreshTriageDisplayMode(byType, focusedId, ranked);
+        } catch (e) {
+            console && console.warn && console.warn('[triage display] resolve failed:', e);
+        }
 
         if (ranked.length === 0) {
             lane.hidden = true;
