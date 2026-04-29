@@ -291,7 +291,13 @@
         </div>
         <div class="hh-section hh-tools-section">
             <div class="hh-section-label" data-i18n="hud.hh.section.tools">TOOLS &amp; PANELS</div>
-            <button class="btn-tactical btn-action hh-action-wide" id="tools-hub-open-btn" onclick="window._controlsOpenHub && window._controlsOpenHub(); closeHudHamburger();" data-i18n="hud.btn.tools_hub">Open Tools Hub &#x21F2;</button>
+            <!-- Tools Hub embedded directly into CONTROLS (commits Q-U).
+                 controls_panel.js renders cards + ATTENTION + suggestions
+                 into #controls-tools-embedded. The section stays
+                 collapsed-by-default-section-headers via accordion. -->
+            <div id="controls-tools-embedded" class="cp-embedded">
+                <div class="cp-loading" data-i18n="controls.loading">Loading…</div>
+            </div>
             <div class="tools-dropdown-wrap" style="display:none;" aria-hidden="true">
                 <button class="btn-tactical btn-action hh-action-wide" id="tools-dropdown-btn" onclick="toggleToolsMenu()" data-i18n="hud.btn.tools">TOOLS &#x25BE;</button>
                 <div id="tools-menu" class="tools-menu">
@@ -3956,21 +3962,6 @@
                 Tool conclusion only — final judgment by organizational process. Apply requires explicit confirmation.
             </span>
         </div>
-    </div>
-</div>
-
-<!-- ── Tools Hub modal (CONTROLS redesign 2026-04-29 commits L–P) ───────── -->
-<div id="controls-tools-modal" class="modal-window controls-modal"
-     role="dialog" aria-modal="true" aria-labelledby="controls-tools-title"
-     style="width:880px; max-height:88vh;">
-    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555;">
-        <div id="controls-tools-title" data-i18n="controls.title">Tools Hub</div>
-        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;"
-                onclick="window._controlsCloseHub && window._controlsCloseHub()"
-                data-i18n="controls.close">[ X ] Close</button>
-    </div>
-    <div class="cp-body" id="controls-panel-body">
-        <div class="cp-loading" data-i18n="controls.loading">Loading…</div>
     </div>
 </div>
 

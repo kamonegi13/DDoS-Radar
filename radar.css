@@ -4072,235 +4072,266 @@ body[data-replay-on="1"] #top-hud {
     font-style: italic;
 }
 
+
 /* ════════════════════════════════════════════════════════════════════════
- * CONTROLS Tools Hub modal (commits L–P, 2026-04-29 redesign)
+ * CONTROLS embedded Tools Hub (commits Q–U, 2026-04-29 redesign)
  * ──────────────────────────────────────────────────────────────────────
- * Replaces the legacy hamburger → CONTROLS → TOOLS dropdown 3-step flow
- * with a single modal grid of cards. Each card surfaces panel state +
- * live data badge. ATTENTION section auto-promotes urgent tools.
+ * Embedded directly into the CONTROLS panel (#hud-hamburger-panel) —
+ * replaces the modal version. Each tool card has explicit Open/Close
+ * buttons + dock target buttons; sections fold via accordion; ATTENTION
+ * stays expanded at the top.
  * ════════════════════════════════════════════════════════════════════════ */
 
-.controls-modal .cp-body {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 8px 12px;
+#hud-hamburger-panel .cp-embedded {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 6px;
+    padding: 4px 0;
 }
-.controls-modal .cp-loading {
+#hud-hamburger-panel .cp-loading {
     color: #555;
     font-style: italic;
-    padding: 24px 0;
+    padding: 12px 0;
     text-align: center;
+    font-size: 10px;
 }
 
 /* Search bar */
-.controls-modal .cp-search {
-    position: sticky;
-    top: 0;
-    background: rgba(15, 15, 15, 0.95);
-    padding: 8px 4px;
-    margin: -8px -12px 6px -12px;
-    border-bottom: 1px solid #1f1f1f;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    z-index: 10;
+#hud-hamburger-panel .cp-search {
+    margin-bottom: 4px;
 }
-.controls-modal .cp-search input {
-    flex: 1;
+#hud-hamburger-panel .cp-search input {
+    width: 100%;
     background: rgba(0, 0, 0, 0.45);
     border: 1px solid #333;
     color: #ddd;
-    padding: 6px 10px;
+    padding: 4px 8px;
     border-radius: 3px;
     font-family: inherit;
-    font-size: 12px;
-    min-width: 0;
+    font-size: 11px;
+    box-sizing: border-box;
 }
-.controls-modal .cp-search input:focus {
+#hud-hamburger-panel .cp-search input:focus {
     border-color: var(--color-accent);
     outline: none;
 }
-.controls-modal .cp-search-hint {
-    color: #555;
-    font-size: 9px;
-    letter-spacing: 0.4px;
-    white-space: nowrap;
-}
 
 /* Section block */
-.controls-modal .cp-section { margin-bottom: 4px; }
-.controls-modal .cp-section-title {
+#hud-hamburger-panel .cp-section { display: flex; flex-direction: column; gap: 4px; }
+#hud-hamburger-panel .cp-section-title {
     color: var(--color-accent);
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.6px;
-    margin-bottom: 6px;
     padding: 2px 0;
     border-bottom: 1px dashed #2a2a2a;
 }
-.controls-modal .cp-section-attention .cp-section-title { color: #ff8800; }
-.controls-modal .cp-section-suggestions .cp-section-title { color: #66ddff; }
+#hud-hamburger-panel .cp-section-attention .cp-section-title { color: #ff8800; }
+#hud-hamburger-panel .cp-section-suggestions .cp-section-title { color: #66ddff; }
 
-/* Tool grid */
-.controls-modal .cp-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 6px;
-}
-
-/* Tool card */
-.controls-modal .cp-card {
-    border: 1px solid #2a2a2a;
-    border-radius: 4px;
-    padding: 8px 10px;
-    background: rgba(20, 20, 20, 0.7);
-    cursor: pointer;
-    user-select: none;
-    transition: all 0.15s;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-height: 56px;
-}
-.controls-modal .cp-card:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: var(--color-accent);
-    transform: translateY(-1px);
-}
-.controls-modal .cp-card-dimmed {
-    opacity: 0.25;
-    pointer-events: none;
-}
-.controls-modal .cp-card-head {
+/* Accordion header */
+#hud-hamburger-panel .cp-acc-head {
     display: flex;
     align-items: center;
     gap: 6px;
+    padding: 4px 6px;
+    cursor: pointer;
+    color: #aaa;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    border-radius: 2px;
+    user-select: none;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid #1f1f1f;
 }
-.controls-modal .cp-icon { font-size: 14px; flex: 0 0 auto; }
-.controls-modal .cp-name {
+#hud-hamburger-panel .cp-acc-head:hover { background: rgba(255,255,255,0.04); color: #ccc; }
+#hud-hamburger-panel .cp-acc-head.open { color: var(--color-accent); border-color: rgba(0,255,255,0.35); }
+#hud-hamburger-panel .cp-acc-chev { width: 10px; flex: 0 0 auto; }
+#hud-hamburger-panel .cp-acc-title { flex: 1; }
+#hud-hamburger-panel .cp-acc-count { color: #666; font-size: 9px; }
+#hud-hamburger-panel .cp-acc-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 0 4px 4px;
+    border-left: 2px solid rgba(0, 255, 255, 0.15);
+    margin: 2px 0 6px 6px;
+}
+
+/* Tool card */
+#hud-hamburger-panel .cp-card {
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    padding: 6px 8px;
+    background: rgba(20, 20, 20, 0.7);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: background 0.12s;
+}
+#hud-hamburger-panel .cp-card:hover { background: rgba(255, 255, 255, 0.04); border-color: #444; }
+#hud-hamburger-panel .cp-card-dimmed { opacity: 0.25; pointer-events: none; }
+
+#hud-hamburger-panel .cp-card-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+#hud-hamburger-panel .cp-icon { font-size: 13px; flex: 0 0 auto; }
+#hud-hamburger-panel .cp-name {
     font-size: 11px;
     color: #ddd;
     font-weight: 600;
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.controls-modal .cp-card-state {
+#hud-hamburger-panel .cp-card-state {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     font-size: 9px;
+    flex-shrink: 0;
 }
-.controls-modal .cp-dock {
+#hud-hamburger-panel .cp-dock {
     font-family: 'Courier New', monospace;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.3px;
 }
-.controls-modal .cp-dock-open { color: #44cc66; }
-.controls-modal .cp-dock-closed { color: #555; }
-.controls-modal .cp-status {
+#hud-hamburger-panel .cp-dock-open { color: #44cc66; }
+#hud-hamburger-panel .cp-dock-closed { color: #555; }
+#hud-hamburger-panel .cp-status {
     color: #aaa;
     font-style: italic;
+    font-size: 9px;
 }
-.controls-modal .cp-status.cp-sev-critical { color: #ff5555; font-weight: 600; font-style: normal; }
-.controls-modal .cp-status.cp-sev-warning  { color: #ffaa00; font-weight: 600; font-style: normal; }
-.controls-modal .cp-status.cp-sev-info     { color: #66ccff; font-style: normal; }
+#hud-hamburger-panel .cp-status.cp-sev-critical { color: #ff5555; font-weight: 600; font-style: normal; }
+#hud-hamburger-panel .cp-status.cp-sev-warning  { color: #ffaa00; font-weight: 600; font-style: normal; }
+#hud-hamburger-panel .cp-status.cp-sev-info     { color: #66ccff; font-style: normal; }
 
-/* ATTENTION cards */
-.controls-modal .cp-attention {
-    border: 1px solid #2a2a2a;
-    border-left-width: 4px;
-    border-radius: 4px;
-    padding: 8px 12px;
-    margin-bottom: 6px;
-    background: rgba(20, 20, 20, 0.65);
-}
-.controls-modal .cp-attention.cp-sev-critical {
-    border-left-color: #ff3333;
-    background: rgba(40, 10, 10, 0.55);
-}
-.controls-modal .cp-attention.cp-sev-warning {
-    border-left-color: #ff8800;
-    background: rgba(40, 25, 0, 0.45);
-}
-.controls-modal .cp-attention.cp-sev-info {
-    border-left-color: #66bbff;
-    background: rgba(15, 30, 50, 0.4);
-}
-.controls-modal .cp-att-head {
+/* Action button row */
+#hud-hamburger-panel .cp-card-actions {
     display: flex;
-    gap: 12px;
-    margin-bottom: 4px;
-    align-items: baseline;
-}
-.controls-modal .cp-att-sev {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-}
-.controls-modal .cp-sev-critical .cp-att-sev { color: #ff5555; }
-.controls-modal .cp-sev-warning  .cp-att-sev { color: #ffaa00; }
-.controls-modal .cp-sev-info     .cp-att-sev { color: #66ccff; }
-.controls-modal .cp-att-tool {
-    font-size: 11px;
-    color: #ccc;
-    font-weight: 600;
-}
-.controls-modal .cp-att-msg {
-    font-size: 10px;
-    color: #aaa;
-    line-height: 1.5;
-    margin: 4px 0;
-}
-.controls-modal .cp-att-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 6px;
-}
-
-/* Suggestions */
-.controls-modal .cp-suggestion {
-    display: flex;
-    gap: 8px;
-    padding: 6px 10px;
-    border: 1px dashed #444;
-    border-radius: 3px;
-    margin-bottom: 4px;
-    background: rgba(10, 30, 50, 0.3);
-    font-size: 11px;
     align-items: center;
+    gap: 3px;
+    flex-wrap: wrap;
 }
-.controls-modal .cp-sug-icon { flex: 0 0 auto; }
-.controls-modal .cp-sug-text { flex: 1; color: #ccc; }
+#hud-hamburger-panel .cp-btn-spacer {
+    flex: 1;
+    min-width: 4px;
+}
 
-/* Buttons */
-.controls-modal .cp-btn {
-    background: transparent;
-    border: 1px solid #444;
-    color: #aaa;
+#hud-hamburger-panel .cp-btn {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid #333;
+    color: #888;
     font-family: inherit;
-    font-size: 10px;
-    padding: 2px 8px;
+    font-size: 9px;
+    padding: 2px 6px;
     cursor: pointer;
     border-radius: 2px;
     transition: all 0.12s;
+    letter-spacing: 0.3px;
+    user-select: none;
+    text-transform: uppercase;
 }
-.controls-modal .cp-btn:hover {
-    background: rgba(255, 255, 255, 0.04);
+#hud-hamburger-panel .cp-btn:hover {
+    border-color: #555;
     color: #ddd;
-    border-color: #666;
 }
-.controls-modal .cp-btn-open {
+#hud-hamburger-panel .cp-btn.cp-active {
+    background: rgba(0, 255, 255, 0.12);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    font-weight: 700;
+}
+#hud-hamburger-panel .cp-btn-open.cp-active {
+    background: rgba(68, 204, 102, 0.18);
+    border-color: rgba(68, 204, 102, 0.7);
+    color: #66ff88;
+}
+#hud-hamburger-panel .cp-btn-close.cp-active {
+    background: rgba(120, 120, 120, 0.15);
+    border-color: #666;
+    color: #aaa;
+}
+#hud-hamburger-panel .cp-btn-dock { padding: 2px 4px; min-width: 28px; }
+
+/* ATTENTION cards */
+#hud-hamburger-panel .cp-attention {
+    border: 1px solid #2a2a2a;
+    border-left-width: 4px;
+    border-radius: 3px;
+    padding: 6px 8px;
+    background: rgba(20, 20, 20, 0.7);
+}
+#hud-hamburger-panel .cp-attention.cp-sev-critical {
+    border-left-color: #ff3333;
+    background: rgba(40, 10, 10, 0.55);
+}
+#hud-hamburger-panel .cp-attention.cp-sev-warning {
+    border-left-color: #ff8800;
+    background: rgba(40, 25, 0, 0.45);
+}
+#hud-hamburger-panel .cp-attention.cp-sev-info {
+    border-left-color: #66bbff;
+    background: rgba(15, 30, 50, 0.4);
+}
+#hud-hamburger-panel .cp-att-head {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    margin-bottom: 3px;
+}
+#hud-hamburger-panel .cp-att-sev {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+#hud-hamburger-panel .cp-sev-critical .cp-att-sev { color: #ff5555; }
+#hud-hamburger-panel .cp-sev-warning  .cp-att-sev { color: #ffaa00; }
+#hud-hamburger-panel .cp-sev-info     .cp-att-sev { color: #66ccff; }
+#hud-hamburger-panel .cp-att-tool { font-size: 10px; color: #ccc; font-weight: 600; }
+#hud-hamburger-panel .cp-att-msg {
+    font-size: 9px;
+    color: #aaa;
+    line-height: 1.4;
+    margin: 2px 0;
+}
+#hud-hamburger-panel .cp-att-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 3px;
+}
+#hud-hamburger-panel .cp-btn-attn-open {
     color: var(--color-accent);
     border-color: rgba(0, 255, 255, 0.4);
 }
-.controls-modal .cp-btn-snooze { color: #888; }
-.controls-modal .cp-btn-suggest {
+
+/* Suggestions */
+#hud-hamburger-panel .cp-suggestion {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 5px 8px;
+    border: 1px dashed #444;
+    border-radius: 3px;
+    background: rgba(10, 30, 50, 0.3);
+    font-size: 10px;
+}
+#hud-hamburger-panel .cp-sug-text { color: #ccc; line-height: 1.4; }
+#hud-hamburger-panel .cp-btn-suggest {
     color: #66ddff;
     border-color: rgba(102, 221, 255, 0.4);
 }
-.controls-modal .cp-btn-dismiss { color: #666; }
+
+#hud-hamburger-panel .cp-empty-tip {
+    color: #555;
+    font-style: italic;
+    font-size: 10px;
+    padding: 4px 0;
+    text-align: center;
+}

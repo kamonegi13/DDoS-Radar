@@ -1756,12 +1756,23 @@ const STRINGS = {
     // ══════════════════════════════════════════════════════════════
     // CONTROLS Tools Hub redesign (commits L–P, 2026-04-29)
     // ══════════════════════════════════════════════════════════════
-    'hud.btn.tools_hub':               'Open Tools Hub ⇲',
+    'hud.btn.tools_hub':               'Open Tools Hub ⇲',     /* legacy */
     'controls.title':                  'Tools Hub',
     'controls.close':                  '[ X ] Close',
-    'controls.loading':                'Loading…',
-    'controls.search_placeholder':     'Search tools by name or description…',
+    'controls.loading':                'Loading tools…',
+    'controls.search_placeholder':     'Search tools…  (/ to focus, Esc to close)',
     'controls.search_hint':            '/ to focus · Esc to close',
+    'controls.no_match':               'No tools match this query.',
+    'controls.btn.open':               'Open',
+    'controls.btn.open_tip':           'Open this panel (no-op if already open)',
+    'controls.btn.close':              'Close',
+    'controls.btn.close_tip':          'Close this panel',
+    'controls.btn.dock_left_tip':      'Dock this panel into the left sidebar',
+    'controls.btn.dock_right_tip':     'Dock this panel into the right sidebar',
+    'controls.btn.float_tip':          'Detach this panel as a floating window',
+    'controls.btn.snooze':             'Snooze 24h',
+    'controls.btn.dismiss':            'Dismiss',
+    'controls.btn.apply_threshold':    'Apply {value}',
     'controls.section.intelligence':       'INTELLIGENCE',
     'controls.section.scenario_targeting': 'SCENARIO & TARGETING',
     'controls.section.simulation_analysis':'SIMULATION & ANALYSIS',
