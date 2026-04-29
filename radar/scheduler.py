@@ -411,6 +411,31 @@ def _cache_cleanup_worker(registry=None):
             except Exception as _drift_exc:
                 log.warning("[DriftWatchdog] run_once failed: %s", _drift_exc)
 
+            # ATTENTION adaptive learning (commit O): hourly observation
+            # tick + nightly p95 recompute + nightly cleanup.
+            try:
+                from radar.attention_learning import (
+                    observe as _att_observe,
+                    recompute_p95 as _att_recompute,
+                    cleanup_old_observations as _att_cleanup,
+                )
+                obs_result = _att_observe()
+                if obs_result.get("recorded", 0) > 0:
+                    log.debug(
+                        "[ATTENTION] observed %d rules, skipped %d",
+                        obs_result["recorded"], obs_result["skipped"],
+                    )
+                if _cycle % 24 == 6:  # nightly
+                    rec = _att_recompute()
+                    cleaned = _att_cleanup()
+                    log.info(
+                        "[ATTENTION] nightly: p95 updated %d rules, "
+                        "%d obs cleaned",
+                        rec.get("rules_updated", 0), cleaned,
+                    )
+            except Exception as _att_exc:
+                log.warning("[ATTENTION] tick failed: %s", _att_exc)
+
             # LLM pipeline health summary (hourly visibility)
             try:
                 from radar.config import LLM_ENABLED

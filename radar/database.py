@@ -736,6 +736,43 @@ CREATE INDEX IF NOT EXISTS idx_llm_feature_state_history_key
 CREATE INDEX IF NOT EXISTS idx_llm_feature_state_history_ts
     ON llm_feature_state_history (changed_at DESC);
 
+-- ATTENTION rules engine (migration v32, 2026-04-29). Mirrored here so
+-- fresh DBs include the snooze + adaptive-learning tables.
+CREATE TABLE IF NOT EXISTS attention_snooze (
+    rule_id        TEXT PRIMARY KEY,
+    snooze_until   REAL NOT NULL,
+    by             TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attention_snooze_until
+    ON attention_snooze (snooze_until DESC);
+
+CREATE TABLE IF NOT EXISTS attention_metric_observation (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id        TEXT NOT NULL,
+    observed_at    REAL NOT NULL,
+    observed_value REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attention_metric_obs_rule_ts
+    ON attention_metric_observation (rule_id, observed_at DESC);
+
+CREATE TABLE IF NOT EXISTS attention_metric_p95 (
+    rule_id        TEXT PRIMARY KEY,
+    p50            REAL NOT NULL,
+    p95            REAL NOT NULL,
+    p99            REAL,
+    sample_count   INTEGER NOT NULL,
+    computed_at    REAL NOT NULL,
+    window_days    INTEGER NOT NULL DEFAULT 30
+);
+
+CREATE TABLE IF NOT EXISTS user_attention_thresholds (
+    user_id        INTEGER NOT NULL,
+    rule_id        TEXT NOT NULL,
+    threshold      REAL NOT NULL,
+    set_at         REAL NOT NULL,
+    PRIMARY KEY (user_id, rule_id)
+);
+
 -- Phase 4 B2 (2026-04-29): auto-judge calibration ledger.
 -- Mirrored in migration 27 for upgraded DBs; this ensures fresh DBs get
 -- the table without depending on migration runs.
@@ -1776,6 +1813,48 @@ class RadarDB:
             -- pre-redesign rows.
             ALTER TABLE scenario_proposals ADD COLUMN evidence_strength TEXT;
             ALTER TABLE scenario_proposals ADD COLUMN vitality_state TEXT;
+        """),
+
+        (32, "ATTENTION snooze + adaptive learning observation tables (CONTROLS redesign 2026-04-29)", """
+            -- Snooze surface for ATTENTION rules (commit M).
+            CREATE TABLE IF NOT EXISTS attention_snooze (
+                rule_id        TEXT PRIMARY KEY,
+                snooze_until   REAL NOT NULL,
+                by             TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_attention_snooze_until
+                ON attention_snooze (snooze_until DESC);
+
+            -- Adaptive learning observations (commit O). One row per
+            -- 5-minute polling tick × rule. Retention 30d.
+            CREATE TABLE IF NOT EXISTS attention_metric_observation (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id        TEXT NOT NULL,
+                observed_at    REAL NOT NULL,
+                observed_value REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_attention_metric_obs_rule_ts
+                ON attention_metric_observation (rule_id, observed_at DESC);
+
+            -- Aggregated per-rule p50/p95 statistics (computed nightly).
+            CREATE TABLE IF NOT EXISTS attention_metric_p95 (
+                rule_id        TEXT PRIMARY KEY,
+                p50            REAL NOT NULL,
+                p95            REAL NOT NULL,
+                p99            REAL,
+                sample_count   INTEGER NOT NULL,
+                computed_at    REAL NOT NULL,
+                window_days    INTEGER NOT NULL DEFAULT 30
+            );
+
+            -- Per-user threshold overrides (commit O).
+            CREATE TABLE IF NOT EXISTS user_attention_thresholds (
+                user_id        INTEGER NOT NULL,
+                rule_id        TEXT NOT NULL,
+                threshold      REAL NOT NULL,
+                set_at         REAL NOT NULL,
+                PRIMARY KEY (user_id, rule_id)
+            );
         """),
 
         (31, "LLM Feature Hub: feature_state runtime control plane + audit history", """
