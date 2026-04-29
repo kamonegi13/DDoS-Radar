@@ -297,6 +297,29 @@ def render_text(pop: dict, sweep: list[dict], divers: dict, dbpath: str) -> str:
     return "\n".join(out)
 
 
+def analyze(db_path: str = "radar/persistence/radar.db") -> dict:
+    """Run the backtest and return a structured result dict.
+
+    Programmatic entry point — read-only, no LLM calls. Raises
+    sqlite3.OperationalError if the DB cannot be opened.
+    """
+    items = load_items(db_path)
+    return {
+        "population": population_breakdown(items),
+        "diversity": diversity_summary(items),
+        "parameter_sweep": parameter_sweep(items),
+        "db_path": db_path,
+    }
+
+
+def format_text(result: dict) -> str:
+    """Render an analyze() result as the human-readable text report."""
+    return render_text(
+        result["population"], result["parameter_sweep"], result["diversity"],
+        result.get("db_path", "<unknown>"),
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", default="radar/persistence/radar.db",
@@ -306,14 +329,14 @@ def main() -> int:
     args = ap.parse_args()
 
     try:
-        items = load_items(args.db)
+        result = analyze(args.db)
     except sqlite3.OperationalError as exc:
         print(f"could not open db {args.db!r}: {exc}", file=sys.stderr)
         return 2
 
-    pop = population_breakdown(items)
-    divers = diversity_summary(items)
-    sweep = parameter_sweep(items)
+    pop = result["population"]
+    divers = result["diversity"]
+    sweep = result["parameter_sweep"]
 
     if args.json:
         print(json.dumps({

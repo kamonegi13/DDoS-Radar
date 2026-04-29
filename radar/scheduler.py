@@ -235,6 +235,16 @@ def _cache_cleanup_worker(registry=None):
             except Exception as _aj_exc:
                 log.warning("[AutoJudge] sweep failed: %s", _aj_exc)
 
+            # Weekly observability: intel sensor audit + Layer 1 backtest.
+            # Cadence-gated inside maybe_run() to once per
+            # WEEKLY_DIAGNOSTICS_INTERVAL_HOURS (default 168h = 7d).
+            # Read-only — no DB writes, no LLM calls (Phase 4 N3).
+            try:
+                from radar import diagnostics as _diag
+                _diag.maybe_run()
+            except Exception as _diag_exc:
+                log.warning("[WeeklyDiag] maybe_run failed: %s", _diag_exc)
+
             # LLM pipeline health summary (hourly visibility)
             try:
                 from radar.config import LLM_ENABLED

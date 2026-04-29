@@ -285,6 +285,47 @@ def render(call_log_7d, intel_7d, intel_24h, divers_7d, divers_24h, classificati
     return "\n".join(out)
 
 
+def analyze(db_path: str = "radar/persistence/radar.db") -> dict:
+    """Run the full audit and return a structured result dict.
+
+    Programmatic entry point for callers (scheduler, tests). Read-only.
+    Raises sqlite3.OperationalError if the DB cannot be opened.
+    """
+    conn = _open(db_path)
+    try:
+        call_log_7d = per_sensor_call_log(conn, hours=7 * 24)
+        pre_reasons_7d = per_sensor_pre_filter_reasons(conn, hours=7 * 24)
+        intel_7d = per_source_type_intel(conn, hours=7 * 24)
+        intel_24h = per_source_type_intel(conn, hours=24)
+        divers_7d = diversity_now(conn, hours=7 * 24)
+        divers_24h = diversity_now(conn, hours=24)
+    finally:
+        conn.close()
+
+    classifications: dict[str, tuple[str, str]] = {
+        s: classify(call_log_7d, intel_7d, s) for s in INTEL_SENSORS
+    }
+    return {
+        "call_log_7d": call_log_7d,
+        "pre_filter_reasons_7d": pre_reasons_7d,
+        "intel_7d": intel_7d,
+        "intel_24h": intel_24h,
+        "diversity_7d": divers_7d,
+        "diversity_24h": divers_24h,
+        "classifications": classifications,
+    }
+
+
+def format_text(result: dict) -> str:
+    """Render an analyze() result as the human-readable text report."""
+    return render(
+        result["call_log_7d"], result["intel_7d"], result["intel_24h"],
+        result["diversity_7d"], result["diversity_24h"],
+        result["classifications"],
+        pre_reasons_7d=result.get("pre_filter_reasons_7d"),
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", default="radar/persistence/radar.db")
@@ -292,21 +333,18 @@ def main() -> int:
     args = ap.parse_args()
 
     try:
-        conn = _open(args.db)
+        result = analyze(args.db)
     except sqlite3.OperationalError as exc:
         print(f"could not open db {args.db!r}: {exc}", file=sys.stderr)
         return 2
 
-    call_log_7d = per_sensor_call_log(conn, hours=7 * 24)
-    pre_reasons_7d = per_sensor_pre_filter_reasons(conn, hours=7 * 24)
-    intel_7d = per_source_type_intel(conn, hours=7 * 24)
-    intel_24h = per_source_type_intel(conn, hours=24)
-    divers_7d = diversity_now(conn, hours=7 * 24)
-    divers_24h = diversity_now(conn, hours=24)
-
-    classifications: dict[str, tuple[str, str]] = {
-        s: classify(call_log_7d, intel_7d, s) for s in INTEL_SENSORS
-    }
+    call_log_7d = result["call_log_7d"]
+    pre_reasons_7d = result["pre_filter_reasons_7d"]
+    intel_7d = result["intel_7d"]
+    intel_24h = result["intel_24h"]
+    divers_7d = result["diversity_7d"]
+    divers_24h = result["diversity_24h"]
+    classifications = result["classifications"]
 
     if args.json:
         print(json.dumps({
