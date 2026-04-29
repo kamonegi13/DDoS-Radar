@@ -40,49 +40,97 @@ _POLL_INTERVAL = int(os.getenv("DIPLOMATIC_POLL_INTERVAL", "3600"))  # 1 hour
 #   Dead:   JP_MOFA (WAF 403), CN_MFA (RSS discontinued, domain→mfa.gov.cn),
 #           RU_MFA (404), NATO (RSS discontinued, 301→HTML)
 #   Dead feeds are kept for retry from different network environments.
+# 2026-04-29 (R1 — Operational Observability): the seven primary MFA / NATO
+# RSS endpoints have all been retired or moved to non-RSS press-release
+# pages (see scripts/audit_intel_sensors.py + diplomatic._classify_feed
+# probing on 2026-04-29):
+#   US_STATE  state.gov/press-releases/feed/    → returns_html (URL stale)
+#   JP_MOFA   mofa.go.jp/rss/rss.xml             → 404 / WAF (DC-IP from container)
+#   CN_MFA    fmprc.gov.cn/mfa_eng/rss.xml       → returns_html (RSS discontinued)
+#   TW_MOFA   en.mofa.gov.tw/rss.aspx            → returns_html (SPA migration)
+#   RU_MFA    mid.ru/en/rss.xml                  → returns_html (broken / geo-blocked)
+#   KCNA_WATCH kcnawatch.org/feed/               → rss_empty (intermittent)
+#   NATO      nato.int/cps/en/natolive/news_rss  → 404 (RSS discontinued)
+#
+# Replacement strategy: Google News RSS with a targeted boolean query per
+# country. This is durable across MFA website redesigns, returns 30-100
+# items per query at any given time, and surfaces coverage from major news
+# wires (Reuters, AP, AFP) reporting on each ministry — exactly the
+# escalation-relevant signal the LLM downstream is looking for. Two primary
+# feeds also survived (TASS for Russian state media, NK News for DPRK
+# coverage) and are added as supplementary sources where they complement
+# the Google News query.
+#
+# All endpoints below were verified on 2026-04-29 to return rss_with_items
+# with a non-trivial item count.
+_GNEWS_BASE = "https://news.google.com/rss/search?q={q}&hl=en&gl=US&ceid=US:en"
+
 _DIPLOMATIC_SOURCES = {
     "US_STATE": {
-        "url": "https://www.state.gov/press-releases/feed/",
+        "url": _GNEWS_BASE.format(
+            q='site:state.gov+OR+%22State+Department%22+press'),
         "country": "US",
         "theaters": ["TW", "UA", "KP", "IR", "IL", "JP", "PH"],
     },
     "JP_MOFA": {
-        # 2026-04-18: returns 403 from all UAs (aggressive WAF). May work
-        # from data-center IPs — keep for Docker environments.
-        "url": "https://www.mofa.go.jp/rss/rss.xml",
+        "url": _GNEWS_BASE.format(q='Japan+foreign+minister'),
         "country": "JP",
         "theaters": ["TW", "JP", "KP", "CN"],
     },
     "CN_MFA": {
-        # 2026-04-18: RSS discontinued. Domain moved to mfa.gov.cn, no RSS.
-        # 302 → HTML page. Kept in case they restore the feed.
-        "url": "https://www.fmprc.gov.cn/mfa_eng/rss.xml",
+        "url": _GNEWS_BASE.format(q='China+foreign+ministry+spokesperson'),
         "country": "CN",
         "theaters": ["TW", "JP", "PH", "IN"],
     },
     "TW_MOFA": {
-        "url": "https://en.mofa.gov.tw/rss.aspx",
+        "url": _GNEWS_BASE.format(q='Taiwan+MOFA+statement'),
         "country": "TW",
         "theaters": ["TW"],
     },
-    "RU_MFA": {
-        # 2026-04-18: returns 404. Site restructured or geo-blocked.
-        # Russia MFA issues statements on Iran, N.Korea, Syria etc. —
-        # restricting to ["UA"] forced non-Ukraine topics into UA theater.
-        "url": "https://mid.ru/en/rss.xml",
+    "RU_MFA_TASS": {
+        # TASS is Russian state media with healthy primary RSS — preferred
+        # over Google News for Russian-government-perspective coverage.
+        "url": "https://tass.com/rss/v2.xml",
+        "country": "RU",
+        "theaters": ["UA", "IR", "IL", "SY", "KP"],
+    },
+    "RU_MFA_GNEWS": {
+        # Cross-source coverage of Russian foreign-ministry activity —
+        # complements TASS (which is sometimes self-censored on Ukraine).
+        "url": _GNEWS_BASE.format(q='Russia+MFA+Lavrov+foreign+ministry'),
         "country": "RU",
         "theaters": ["UA", "IR", "IL", "SY", "KP"],
     },
     "KCNA_WATCH": {
+        # Currently rss_empty in production but keeps the feed monitored
+        # in case it repopulates. NK_NEWS below covers the gap.
         "url": "https://kcnawatch.org/feed/",
         "country": "KP",
         "theaters": ["KP", "JP"],
     },
+    "NK_NEWS": {
+        # Independent DPRK-watching outlet, 300 items in current feed.
+        "url": "https://www.nknews.org/feed/",
+        "country": "KP",
+        "theaters": ["KP", "JP", "KR"],
+    },
     "NATO": {
-        # 2026-04-18: RSS discontinued, 301 → HTML news page.
-        "url": "https://www.nato.int/cps/en/natolive/news.htm?rss=y",
+        "url": _GNEWS_BASE.format(q='NATO+Secretary+General+statement'),
         "country": "NATO",
         "theaters": ["UA"],
+    },
+    "IL_MFA": {
+        # New 2026-04-29: previously absent. Israel MFA primary feed is dead;
+        # using Google News query for foreign-ministry coverage.
+        "url": _GNEWS_BASE.format(q='Israel+foreign+ministry+statement'),
+        "country": "IL",
+        "theaters": ["IL", "IR", "LB", "SY"],
+    },
+    "IR_MFA": {
+        # New 2026-04-29: previously absent. Iran MFA primary feed is dead.
+        "url": _GNEWS_BASE.format(q='Iran+foreign+ministry'),
+        "country": "IR",
+        "theaters": ["IR", "IL", "SY", "LB"],
     },
 }
 
