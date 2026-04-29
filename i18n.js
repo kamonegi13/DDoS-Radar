@@ -249,6 +249,20 @@ const STRINGS = {
     // ── HUD redesign additions ────────────────────────────────────
     'hud.tooltip.tl_duration':        'Time spent at the current Threat Level (counters normalcy bias — long stays at elevated TL deserve scrutiny)',
     'hud.tooltip.tl_divergence':      'v1 derive_tl() and v2 conclusion ledger disagree on the current TL. The badge shows the v2 verdict (overlay priority); HUD sparkline and FOCUS card also follow v2. Usually clears within 10–30s of a TL transition. Click the THREAT LV badge to inspect the v2 audit trace.',
+
+    // ── TRIAGE Lane display modes (commit C, 2026-04-30) ─────────────
+    // The TRIAGE Lane no longer always pushes the map down. It runs in
+    // 3 modes: dormant (hidden), pin-dock (corner overlay on the map),
+    // critical-banner (HUD-flow slim banner). Mode is auto-selected
+    // from max attention_score + critical-event flags. Analyst can
+    // pin the corner overlay expanded or force always-visible mode
+    // via CONTROLS.
+    'triage.tooltip.pin_dock':         'Top-3 ranked items by attention_score (novelty × Δconfidence × analyst_blindness). Hover to expand, click to pin. Hidden when no item crosses the dormant threshold (default 0.40).',
+    'triage.tooltip.pin_dock_pin':     'Click to pin expanded view (persists across hovers and reloads).',
+    'triage.tooltip.critical_banner':  'A scenario crossed the critical threshold (default 0.85) or TL5 escalation fired. Click items to inspect the v2 audit trace. Cannot be dismissed — NP1 (sensitivity priority).',
+    'triage.tooltip.dormant_explain':  'TRIAGE is dormant — no item has attention_score ≥ 0.40 for the focused scenario. The lane re-appears as soon as one does.',
+    'triage.label.compact':            'TRIAGE',
+    'triage.label.critical':           '⚠ TRIAGE ALERT',
     'hud.label.eta':                  'ETA',
     'hud.tooltip.eta':                'ETA: projected time to next TL boundary based on current velocity. Suppressed when velocity is too small to be meaningful.',
     'hud.eta.tooltip_up':             '{pts}pt → TL{tl}, est. ~{eta} at current rate',

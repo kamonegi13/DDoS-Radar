@@ -2617,10 +2617,15 @@
         if (!lane || lane.querySelector('.tm-compact-bar')) return;
         const bar = document.createElement('div');
         bar.className = 'tm-compact-bar';
+        const pinTip = (typeof _t === 'function')
+            ? _t('triage.tooltip.pin_dock_pin') : 'Click to pin expanded view';
+        const barTip = (typeof _t === 'function')
+            ? _t('triage.tooltip.pin_dock') : '';
+        bar.title = barTip;
         bar.innerHTML =
             '<span class="tm-cb-label">TRIAGE</span>'
             + '<span class="tm-cb-items"></span>'
-            + '<span class="tm-cb-pin" title="Click to pin expanded view">⌖</span>';
+            + '<span class="tm-cb-pin" title="' + pinTip + '">⌖</span>';
         // Click on label or items area: toggle expand-pin.
         bar.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2710,10 +2715,23 @@
             const prev = it.history && typeof it.history.prevConfidence === 'number'
                 ? it.history.prevConfidence : null;
             const scoreDelta = prev != null ? (conf - prev) : conf;
+            // Critical heuristics (commit C):
+            //   1. Item has explicit critical metadata (server-side)
+            //   2. Focused threat_level is 5 AND this item's score
+            //      rose this tick (recall-positive escalation)
+            //   3. Item's attention_score is itself in the critical
+            //      band (covered by maxScore in summarizeItems too)
+            const meta = it.conclusion && it.conclusion.metadata || {};
+            const explicitCrit = meta.critical === true
+                || meta.recall_reducing === true
+                || meta.kill_switch === true;
+            const tl5Escalating = Number.isFinite(tlNum)
+                && tlNum >= 5
+                && scoreDelta > 0;
             return Object.assign({}, it, {
                 tl: Number.isFinite(tlNum) ? tlNum : null,
                 scoreDelta: scoreDelta,
-                criticalFlag: false,  // commit C wires server signals
+                criticalFlag: explicitCrit || tl5Escalating,
             });
         });
 

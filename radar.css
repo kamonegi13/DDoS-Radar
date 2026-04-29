@@ -2638,6 +2638,46 @@ body[data-replay-on="1"] #top-hud {
 /* Map wrapper needs position:relative so the dock-slot can overlay. */
 #map-wrapper { position: relative; }
 
+/* ── Animations (commit C) ────────────────────────────────────────── */
+/* Pulse on first dormant → pin-dock transition. Single-shot
+   (1.7s in JS), draws the eye to the corner without alarming. */
+#alert-lane.tm-pin-dock.tm-pulsing {
+    animation: tm-fadepulse 1.6s ease-out 1;
+}
+@keyframes tm-fadepulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 200, 255, 0.55); }
+    50%  { box-shadow: 0 0 0 10px rgba(0, 200, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 200, 255, 0); }
+}
+
+/* Critical banner: continuous slow pulse. Loud enough to be noticed
+   without flashing — the criticality is encoded in color too. */
+#alert-lane.tm-critical-banner {
+    animation: tm-banner-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tm-banner-pulse {
+    0%, 100% {
+        background: linear-gradient(90deg,
+            rgba(255, 60, 60, 0.85) 0%,
+            rgba(200, 30, 30, 0.85) 100%);
+    }
+    50% {
+        background: linear-gradient(90deg,
+            rgba(255, 100, 100, 0.95) 0%,
+            rgba(255, 60, 60, 0.95) 100%);
+    }
+}
+
+/* @supports fallback for browsers without backdrop-filter
+   (kept opaque-ish so the corner overlay stays legible). */
+@supports (backdrop-filter: blur(4px)) {
+    #alert-lane.tm-pin-dock {
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+    }
+}
+
 /* ── Scenario Bar (Phase 4) ───────────────────────────────────────── */
 #scenario-bar {
     background: var(--color-surface);
