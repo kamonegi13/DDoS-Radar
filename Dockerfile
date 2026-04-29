@@ -29,6 +29,7 @@ COPY map_dim.js .
 COPY index.html      .
 COPY tradecraft.js   .
 COPY tradecraft.css  .
+COPY autotune_wizard.js .
 COPY scripts/        scripts/
 
 # Ensure persistence directory exists (mounted as volume in production)
