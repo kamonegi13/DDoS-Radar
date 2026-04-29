@@ -4701,9 +4701,16 @@
                 convEl.setAttribute('data-tooltip', `Score: ${b.total_score} + Bonus: ${bonus} = ${b.score_with_bonus} → Threat Lv ${b.threat_raw}${held}`);
             }
 
-            if (data.threat_history) {
-                updateThreatSparkline(data.threat_history);
-            }
+            // Per-scenario sparkline (commit W). The legacy
+            // data.threat_history is a global stream (all scenarios
+            // mixed) — drawing it here misled analysts after focus
+            // switches because past bars belonged to whichever
+            // scenario was focused at the time, not the current one.
+            // _refreshSparklineFor(focused) fetches
+            // /api/v2/scenarios/<id>/threat_history asynchronously
+            // and falls back to the legacy stream while the request
+            // is in flight (NP3).
+            _refreshSparklineFor(data.focused_scenario, data.threat_history);
 
             // NP6 transparency: prefer the v2 drill-down (formula / thresholds /
             // sources / llm_prompt / calibration) over the v1 evidence panel
@@ -6143,6 +6150,62 @@
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         });
         ctx.stroke();
+    }
+
+    // ── Per-scenario sparkline (commit W) ──────────────────────────────
+    // Caches /api/v2/scenarios/<id>/threat_history per scenario with a
+    // short TTL. Falls back to the legacy global stream while the fetch
+    // is pending or on hard failure (NP3).
+    const _SPARK_TTL_MS = 60_000;       // refresh every 60s
+    const _sparklineCache = new Map();   // scenario_id -> {ts, data}
+    let _sparklineLastFocus = null;
+
+    async function _refreshSparklineFor(scenarioId, fallbackHistory) {
+        if (!scenarioId) {
+            if (fallbackHistory) updateThreatSparkline(fallbackHistory);
+            return;
+        }
+        // Focus changed — clear cached buffer immediately so the user
+        // never sees stale bars from the previous scenario.
+        if (_sparklineLastFocus !== scenarioId) {
+            _sparklineLastFocus = scenarioId;
+            // Render any cached data for the NEW scenario if present;
+            // otherwise show legacy fallback to avoid empty flash.
+            const hit = _sparklineCache.get(scenarioId);
+            if (hit && hit.data && hit.data.length) {
+                updateThreatSparkline(hit.data);
+            } else if (fallbackHistory) {
+                updateThreatSparkline(fallbackHistory);
+            }
+        }
+
+        const cached = _sparklineCache.get(scenarioId);
+        const now = Date.now();
+        if (cached && (now - cached.ts) < _SPARK_TTL_MS) {
+            // Cache fresh — render and return without re-fetching.
+            updateThreatSparkline(cached.data);
+            return;
+        }
+        try {
+            const resp = await fetch(
+                `/api/v2/scenarios/${encodeURIComponent(scenarioId)}/threat_history?hours=24`
+            );
+            if (!resp.ok) {
+                // Degraded — keep legacy fallback up so analyst is never blank.
+                if (fallbackHistory) updateThreatSparkline(fallbackHistory);
+                return;
+            }
+            const body = await resp.json();
+            const series = Array.isArray(body && body.history) ? body.history : [];
+            _sparklineCache.set(scenarioId, { ts: now, data: series });
+            // Only render if focus is still on this scenario.
+            if (_sparklineLastFocus === scenarioId) {
+                updateThreatSparkline(series.length ? series : fallbackHistory || []);
+            }
+        } catch (_) {
+            // NP3 — silent fallback to legacy if fetch fails.
+            if (fallbackHistory) updateThreatSparkline(fallbackHistory);
+        }
     }
 
     function updateThreatSparkline(threatHistory) {
@@ -9374,7 +9437,21 @@
             const sc = scenarios[sid];
             const isFocused = (sid === focusedId);
             const name = sc.name_en || sid;
-            const tl = sc.tl;
+            // FOCUS card TL — apply v2 overlay when fresh so the card and
+            // HUD-Row-1 cannot disagree (commit W). Background cards
+            // continue to use v1 sc.tl because v2 envelopes are only
+            // fetched for the focused scenario.
+            let tl = sc.tl;
+            if (isFocused) {
+                try {
+                    const byType = _hudFreshEnvelopeByType(sid);
+                    const tlC = byType && byType.threat_level;
+                    if (tlC && tlC.conclusion_unavailable_reason == null) {
+                        const overlayed = parseInt(tlC.state, 10);
+                        if (Number.isFinite(overlayed)) tl = overlayed;
+                    }
+                } catch (_) { /* NP3 fallback */ }
+            }
             const score = (sc.score || 0).toFixed(2);
             const mode = sc.scoring_mode || 'lite';
             const domains = sc.domains || {};
