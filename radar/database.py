@@ -541,6 +541,74 @@ CREATE TABLE IF NOT EXISTS ct_log_domain_first_observed (
     first_observed  REAL NOT NULL
 );
 
+-- Phase A foundation (2026-04-29): auto-tune ledgers.
+CREATE TABLE IF NOT EXISTS threshold_history (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    emitted_at          REAL NOT NULL,
+    key                 TEXT NOT NULL,
+    value               TEXT NOT NULL,
+    scope_scenario_id   TEXT,
+    effective_from      REAL NOT NULL,
+    effective_to        REAL,
+    derived_from        TEXT NOT NULL,
+    applied_by          TEXT NOT NULL,
+    revertible_to_id    INTEGER REFERENCES threshold_history(id),
+    sample_n            INTEGER NOT NULL DEFAULT 0,
+    formula_ref         TEXT NOT NULL,
+    evidence_json       TEXT NOT NULL DEFAULT '{}',
+    magnitude_pct       REAL NOT NULL DEFAULT 0,
+    state               TEXT NOT NULL DEFAULT 'active'
+        CHECK (state IN ('active','reverted','superseded'))
+);
+CREATE INDEX IF NOT EXISTS idx_threshold_history_key_time
+    ON threshold_history (key, effective_from DESC);
+CREATE INDEX IF NOT EXISTS idx_threshold_history_scope_active
+    ON threshold_history (scope_scenario_id, state, effective_from DESC);
+
+CREATE TABLE IF NOT EXISTS scenario_drift_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    emitted_at          REAL NOT NULL,
+    scenario_id         TEXT NOT NULL,
+    drift_signal        TEXT NOT NULL,
+    severity            TEXT NOT NULL CHECK (severity IN ('amber','red')),
+    target_country      TEXT,
+    evidence_json       TEXT NOT NULL DEFAULT '{}',
+    formula_ref         TEXT NOT NULL,
+    sample_n            INTEGER NOT NULL DEFAULT 0,
+    why_string          TEXT,
+    ack_state           TEXT NOT NULL DEFAULT 'unack'
+        CHECK (ack_state IN ('unack','acknowledged','dismissed_as_false_positive')),
+    ack_at              REAL,
+    ack_by              TEXT,
+    consecutive_runs    INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_scenario_drift_events_scenario
+    ON scenario_drift_events (scenario_id, emitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scenario_drift_events_unack
+    ON scenario_drift_events (ack_state, severity, emitted_at DESC);
+
+CREATE TABLE IF NOT EXISTS scenario_proposals (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    emitted_at          REAL NOT NULL,
+    scenario_id         TEXT NOT NULL,
+    proposal_type       TEXT NOT NULL,
+    target_country      TEXT,
+    suggested_value_json TEXT NOT NULL DEFAULT '{}',
+    evidence_json       TEXT NOT NULL DEFAULT '{}',
+    formula_ref         TEXT NOT NULL,
+    sample_n            INTEGER NOT NULL DEFAULT 0,
+    why_string          TEXT,
+    state               TEXT NOT NULL DEFAULT 'pending'
+        CHECK (state IN ('pending','applied','dismissed','snoozed_30d','reverted')),
+    state_changed_at    REAL,
+    state_changed_by    TEXT,
+    revertible_to_json  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scenario_proposals_scenario
+    ON scenario_proposals (scenario_id, emitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scenario_proposals_pending
+    ON scenario_proposals (state, emitted_at DESC);
+
 -- Phase 4 B2 (2026-04-29): auto-judge calibration ledger.
 -- Mirrored in migration 27 for upgraded DBs; this ensures fresh DBs get
 -- the table without depending on migration runs.
@@ -1439,6 +1507,83 @@ class RadarDB:
                 ON auto_judge_decisions (item_id, ts);
             CREATE INDEX IF NOT EXISTS idx_auto_judge_decisions_applied
                 ON auto_judge_decisions (applied, ts);
+        """),
+
+        (28, "Phase A: threshold_history ledger + scenario_drift_events + scenario_proposals (auto-tune foundation)", """
+            -- Phase A foundation (2026-04-29): every auto-tune decision is
+            -- recorded as a ledger row so the conclusion's threshold_ref
+            -- resolves at-decision-time (not from a mutable global). This
+            -- is the load-bearing piece for NP6 transparency under
+            -- automated tuning. See docs/design/v2-migration.md Phase F.
+            CREATE TABLE IF NOT EXISTS threshold_history (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                emitted_at          REAL NOT NULL,
+                key                 TEXT NOT NULL,
+                value               TEXT NOT NULL,
+                scope_scenario_id   TEXT,
+                effective_from      REAL NOT NULL,
+                effective_to        REAL,
+                derived_from        TEXT NOT NULL,
+                applied_by          TEXT NOT NULL,
+                revertible_to_id    INTEGER REFERENCES threshold_history(id),
+                sample_n            INTEGER NOT NULL DEFAULT 0,
+                formula_ref         TEXT NOT NULL,
+                evidence_json       TEXT NOT NULL DEFAULT '{}',
+                magnitude_pct       REAL NOT NULL DEFAULT 0,
+                state               TEXT NOT NULL DEFAULT 'active'
+                    CHECK (state IN ('active', 'reverted', 'superseded'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_threshold_history_key_time
+                ON threshold_history (key, effective_from DESC);
+            CREATE INDEX IF NOT EXISTS idx_threshold_history_scope_active
+                ON threshold_history (scope_scenario_id, state, effective_from DESC);
+
+            -- F3 drift watchdog ledger (sibling to threshold_history).
+            CREATE TABLE IF NOT EXISTS scenario_drift_events (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                emitted_at          REAL NOT NULL,
+                scenario_id         TEXT NOT NULL,
+                drift_signal        TEXT NOT NULL,
+                severity            TEXT NOT NULL CHECK (severity IN ('amber','red')),
+                target_country      TEXT,
+                evidence_json       TEXT NOT NULL DEFAULT '{}',
+                formula_ref         TEXT NOT NULL,
+                sample_n            INTEGER NOT NULL DEFAULT 0,
+                why_string          TEXT,
+                ack_state           TEXT NOT NULL DEFAULT 'unack'
+                    CHECK (ack_state IN ('unack','acknowledged','dismissed_as_false_positive')),
+                ack_at              REAL,
+                ack_by              TEXT,
+                consecutive_runs    INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS idx_scenario_drift_events_scenario
+                ON scenario_drift_events (scenario_id, emitted_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_scenario_drift_events_unack
+                ON scenario_drift_events (ack_state, severity, emitted_at DESC);
+
+            -- F1 improvement proposals ledger (used in next phase, schema
+            -- defined here so the migration is atomic).
+            CREATE TABLE IF NOT EXISTS scenario_proposals (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                emitted_at          REAL NOT NULL,
+                scenario_id         TEXT NOT NULL,
+                proposal_type       TEXT NOT NULL,
+                target_country      TEXT,
+                suggested_value_json TEXT NOT NULL DEFAULT '{}',
+                evidence_json       TEXT NOT NULL DEFAULT '{}',
+                formula_ref         TEXT NOT NULL,
+                sample_n            INTEGER NOT NULL DEFAULT 0,
+                why_string          TEXT,
+                state               TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (state IN ('pending','applied','dismissed','snoozed_30d','reverted')),
+                state_changed_at    REAL,
+                state_changed_by    TEXT,
+                revertible_to_json  TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_scenario_proposals_scenario
+                ON scenario_proposals (scenario_id, emitted_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_scenario_proposals_pending
+                ON scenario_proposals (state, emitted_at DESC);
         """),
     ]
 
