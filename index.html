@@ -3729,6 +3729,70 @@
     </div>
 </div>
 
+<!-- ── Auto-tuning Wizard modal (Tier 4 commit 13) ─────────────────────── -->
+<div id="autotune-wizard-modal" class="modal-window wizard-modal"
+     role="dialog" aria-modal="true" aria-labelledby="autotune-wizard-title"
+     style="width:760px; max-height:80vh;">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555;">
+        <div id="autotune-wizard-title" data-i18n="wizard.title">Auto-tune Proposals</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;"
+                onclick="window._wizardClose && window._wizardClose()"
+                data-i18n="wizard.close">[ X ] Close</button>
+    </div>
+    <div class="wizard-body">
+        <div class="wizard-tabs">
+            <div class="wizard-tab active" data-wizard-tab="scenario_improver"
+                 onclick="window._wizardSwitchTab && window._wizardSwitchTab('scenario_improver')"
+                 data-i18n="wizard.tab.scenario_improver">Scenario Improver</div>
+            <div class="wizard-tab" data-wizard-tab="structure"
+                 onclick="window._wizardSwitchTab && window._wizardSwitchTab('structure')"
+                 data-i18n="wizard.tab.structure">Structure (F2-a)</div>
+            <div class="wizard-tab" data-wizard-tab="sensor_disable"
+                 onclick="window._wizardSwitchTab && window._wizardSwitchTab('sensor_disable')"
+                 data-i18n="wizard.tab.sensor_disable">Sensor Disable</div>
+            <div class="wizard-tab" data-wizard-tab="drift"
+                 onclick="window._wizardSwitchTab && window._wizardSwitchTab('drift')"
+                 data-i18n="wizard.tab.drift">Drift Signals</div>
+            <div class="wizard-tab" data-wizard-tab="discovery"
+                 onclick="window._wizardSwitchTab && window._wizardSwitchTab('discovery')"
+                 data-i18n="wizard.tab.discovery">Discovery</div>
+        </div>
+        <div class="wizard-content">
+            <div class="wizard-empty" data-i18n="wizard.loading">Loading proposals...</div>
+        </div>
+        <div class="wizard-footer">
+            <span class="wizard-disclaimer" data-i18n="wizard.disclaimer">
+                Tool conclusion only — final judgment by organizational process. Apply requires explicit confirmation.
+            </span>
+        </div>
+    </div>
+</div>
+
+<!-- ── NP7 Confirmation modal (used by Wizard apply for recall-reducing proposals) ── -->
+<div id="autotune-confirm-modal" class="modal-window wizard-confirm"
+     role="dialog" aria-modal="true" aria-labelledby="autotune-confirm-title"
+     style="width:520px; max-height:60vh;">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #ff8800;">
+        <div id="autotune-confirm-title" data-i18n="wizard.confirm.title">
+            Confirm Apply (Recall-Reducing)
+        </div>
+    </div>
+    <div class="wizard-confirm-body">
+        <p class="wizard-confirm-warn" data-i18n="wizard.confirm.warn">
+            This change may reduce recall. Review the rationale and confirm before applying.
+        </p>
+        <div id="autotune-confirm-detail" class="wizard-confirm-detail"></div>
+        <div class="wizard-confirm-actions">
+            <button class="btn-tactical wizard-btn-cancel"
+                    onclick="window._wizardConfirmCancel && window._wizardConfirmCancel()"
+                    data-i18n="wizard.confirm.cancel">Cancel</button>
+            <button class="btn-tactical wizard-btn-apply"
+                    onclick="window._wizardConfirmApply && window._wizardConfirmApply()"
+                    data-i18n="wizard.confirm.apply">Confirm Apply</button>
+        </div>
+    </div>
+</div>
+
 <script src="wp_alarm.js"></script>
 <script src="hud_v2_overlay.js"></script>
 <script src="triage_score.js"></script>

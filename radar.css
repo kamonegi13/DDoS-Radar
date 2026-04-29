@@ -3518,3 +3518,189 @@ body[data-replay-on="1"] #top-hud {
     font-size: 10px;
 }
 .sc-ind-label { color: #ccc; font-weight: bold; }
+
+/* ════════════════════════════════════════════════════════════════════════
+ * Auto-tuning Wizard modal (Tier 4 commit 13)
+ * Scoped to .wizard-modal / .wizard-confirm so panel-chrome shared rules
+ * are not perturbed.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+.wizard-modal .wizard-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.wizard-modal .wizard-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid #333;
+    flex-shrink: 0;
+}
+
+.wizard-modal .wizard-tab {
+    padding: 6px 14px;
+    cursor: pointer;
+    color: #888;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+}
+.wizard-modal .wizard-tab:hover { color: #ccc; }
+.wizard-modal .wizard-tab.active {
+    color: var(--color-accent);
+    border-bottom-color: var(--color-accent);
+}
+
+.wizard-modal .wizard-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px 4px;
+}
+
+.wizard-modal .wizard-empty {
+    color: #555;
+    font-style: italic;
+    padding: 24px 0;
+    text-align: center;
+}
+
+.wizard-modal .wizard-row {
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: rgba(20, 20, 20, 0.65);
+}
+.wizard-modal .wizard-row.is-recall-reducing {
+    border-left: 3px solid #ff8800;
+}
+.wizard-modal .wizard-row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.wizard-modal .wizard-row-type {
+    font-size: 11px;
+    color: var(--color-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.wizard-modal .wizard-row-target {
+    font-size: 12px;
+    color: #ccc;
+}
+.wizard-modal .wizard-row-why {
+    font-size: 12px;
+    color: #aaa;
+    margin: 4px 0;
+    line-height: 1.45;
+}
+.wizard-modal .wizard-row-evidence {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: #777;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 6px 8px;
+    border-radius: 2px;
+    margin: 6px 0;
+    max-height: 80px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.wizard-modal .wizard-row-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-top: 6px;
+}
+.wizard-modal .wizard-row-actions .btn-tactical {
+    padding: 4px 10px;
+    font-size: 11px;
+}
+.wizard-modal .wizard-btn-apply { color: #66ff66; border-color: #66ff6655; }
+.wizard-modal .wizard-btn-dismiss { color: #ff8866; border-color: #ff886655; }
+.wizard-modal .wizard-btn-defer { color: #aaa; border-color: #555; }
+
+.wizard-modal .wizard-footer {
+    flex-shrink: 0;
+    border-top: 1px solid #333;
+    padding-top: 6px;
+    color: #666;
+    font-size: 10px;
+    line-height: 1.4;
+}
+.wizard-modal .wizard-disclaimer {
+    display: block;
+    color: #777;
+    font-style: italic;
+}
+
+/* ── Confirm sub-modal (NP7) ───────────────────────── */
+.wizard-confirm {
+    z-index: 5500;  /* above wizard modal */
+}
+.wizard-confirm .wizard-confirm-body {
+    margin-top: 10px;
+    flex: 1;
+    overflow-y: auto;
+}
+.wizard-confirm .wizard-confirm-warn {
+    color: #ff8800;
+    font-weight: bold;
+    padding: 8px 0;
+    border-bottom: 1px dashed #ff880055;
+    margin-bottom: 10px;
+}
+.wizard-confirm .wizard-confirm-detail {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #ccc;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 8px;
+    border-radius: 2px;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 12px;
+}
+.wizard-confirm .wizard-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #333;
+}
+.wizard-confirm .wizard-btn-apply {
+    color: #ff8800;
+    border-color: #ff880088;
+}
+.wizard-confirm .wizard-btn-cancel {
+    color: #aaa;
+    border-color: #555;
+}
+
+/* ── Discovery panel chip badges (commit 15) ────────── */
+.wizard-modal .wizard-row-confidence {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 10px;
+    margin-left: 6px;
+    background: rgba(0, 255, 255, 0.1);
+    color: var(--color-accent);
+}
+.wizard-modal .wizard-row-confidence.is-low {
+    background: rgba(128, 128, 128, 0.2);
+    color: #888;
+}

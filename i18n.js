@@ -1639,6 +1639,77 @@ const STRINGS = {
     'scenario.mgr.no_scenarios':       'No scenarios found.',
     'scenario.mgr.err.id_required':    'ID required',
 
+    // ══════════════════════════════════════════════════════════════
+    // Auto-tuning Wizard (Tier 4 commits 13-15)
+    // ══════════════════════════════════════════════════════════════
+    'wizard.title':                    'Auto-tune Proposals',
+    'wizard.close':                    '[ X ] Close',
+    'wizard.loading':                  'Loading proposals...',
+    'wizard.empty':                    'No pending proposals.',
+    'wizard.disclaimer':               'Tool conclusion only — final judgment by organizational process. Apply requires explicit confirmation.',
+    'wizard.tab.scenario_improver':    'Scenario Improver',
+    'wizard.tab.structure':            'Structure (F2-a)',
+    'wizard.tab.sensor_disable':       'Sensor Disable',
+    'wizard.tab.drift':                'Drift Signals',
+    'wizard.tab.discovery':            'Discovery',
+    'wizard.row.target':               'Target: {target}',
+    'wizard.row.scenario':             'Scenario: {scenario}',
+    'wizard.row.formula_ref':          'formula: {formula}',
+    'wizard.row.sample_n':             'n={n}',
+    'wizard.row.emitted_at':           'emitted {ago}',
+    'wizard.row.recall_warning':       '⚠ Recall-reducing — confirmation required',
+    'wizard.row.btn.apply':            'Apply',
+    'wizard.row.btn.dismiss':          'Dismiss',
+    'wizard.row.btn.defer':            'Defer 30d',
+    'wizard.row.btn.ack':              'Acknowledge',
+    'wizard.row.btn.preview':          'Preview',
+    'wizard.row.evidence_label':       'Evidence:',
+    'wizard.row.confidence':           'conf {value}',
+    'wizard.row.confidence_low':       'low confidence',
+    'wizard.confirm.title':            'Confirm Apply (Recall-Reducing)',
+    'wizard.confirm.warn':             'This change may reduce recall. Review the rationale and confirm before applying.',
+    'wizard.confirm.cancel':           'Cancel',
+    'wizard.confirm.apply':            'Confirm Apply',
+    'wizard.confirm.success':          'Applied successfully.',
+    'wizard.confirm.failed':           'Apply failed: {error}',
+    'wizard.action.dismissed':         'Dismissed.',
+    'wizard.action.deferred':          'Deferred (30d).',
+    'wizard.action.acknowledged':      'Acknowledged.',
+    'wizard.action.failed':            'Action failed: {error}',
+    'wizard.discovery.cluster':        'Cluster #{idx}',
+    'wizard.discovery.countries':      'Countries: {countries}',
+    'wizard.discovery.centroid':       'Centroid: {centroid}',
+    'wizard.discovery.annotation_kind': 'Annotation: {kind}',
+    'wizard.discovery.suggested_name': 'Suggested: {name}',
+    'wizard.discovery.no_annotation':  '(no LLM annotation yet)',
+    'wizard.discovery.shadow_mode':    'shadow',
+    'wizard.discovery.production_mode': 'production',
+
+    // ══════════════════════════════════════════════════════════════
+    // Discovery panel (Tier 4 commit 15)
+    // ══════════════════════════════════════════════════════════════
+    'discovery.panel.title':           'Scenario Discovery',
+    'discovery.panel.empty':           'No discovery clusters yet.',
+    'discovery.panel.refresh':         'Refresh',
+    'discovery.panel.run_id':          'run #{id}',
+    'discovery.panel.eps':             'eps={eps}',
+    'discovery.panel.min_samples':     'min_samples={n}',
+    'discovery.panel.n_clusters':      '{n} clusters',
+    'discovery.panel.btn.review':      'Review in Wizard',
+    'discovery.panel.btn.replay':      'Replay',
+    'discovery.panel.replay_title':    'Discovery Run Replay',
+
+    // ══════════════════════════════════════════════════════════════
+    // AP3 self-eval HUD chip (Tier 4 commit 16)
+    // ══════════════════════════════════════════════════════════════
+    'autotune.chip.title':             'Auto-tune Health',
+    'autotune.chip.applied':           '{n} applied (7d)',
+    'autotune.chip.pending':           '{n} pending',
+    'autotune.chip.drift':             '{n} drift unack',
+    'autotune.chip.recall_red':        'recall RED',
+    'autotune.chip.recall_ok':         'recall OK',
+    'autotune.chip.open_wizard':       'Open Wizard',
+
 };
 
 // ============================================================
