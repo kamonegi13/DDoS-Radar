@@ -372,6 +372,103 @@ def _read_recall_per_scenario() -> dict:
     return out
 
 
+def _signal_proposal_quality_inversion() -> list[DriftEvent]:
+    """Post-incident drift signal — fires when the proposal generator's
+    output is dominated by recall-reducing proposals or has a high
+    analyst rejection rate. This is the system telling itself "your
+    rules are misfiring".
+
+    Triggers:
+      - recall_negative_pct > 30% of pending proposals (last 30d)
+      - dismissed_pct > 50% of all closed proposals (last 30d)
+        (analysts are rejecting more than they accept)
+
+    Severity:
+      - amber when either threshold crosses
+      - red   when both cross OR recall_negative_pct > 60%
+    """
+    cutoff = time.time() - 30 * 86400
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        rows = conn.execute(
+            "SELECT proposal_type, state, COUNT(*) FROM scenario_proposals "
+            "WHERE emitted_at > ? GROUP BY proposal_type, state",
+            (cutoff,),
+        ).fetchall()
+    except Exception as exc:
+        log.debug("drift quality query failed: %s", exc)
+        return []
+    if not rows:
+        return []
+
+    try:
+        from radar.calibration._proposal_writer import (
+            TYPE_TO_KIND, ProposalKind,
+        )
+    except Exception:
+        return []
+
+    pending_by_kind: dict[str, int] = {}
+    closed_total = 0
+    closed_dismissed = 0
+    for ptype, state, count in rows:
+        n = int(count or 0)
+        if state == "pending":
+            kind = TYPE_TO_KIND.get(ptype, ProposalKind.STRUCTURE)
+            pending_by_kind[kind.value] = pending_by_kind.get(kind.value, 0) + n
+        if state in ("applied", "dismissed", "snoozed_30d", "reverted"):
+            closed_total += n
+            if state == "dismissed":
+                closed_dismissed += n
+
+    pending_total = sum(pending_by_kind.values())
+    recall_neg_pct = (
+        pending_by_kind.get("recall_negative", 0) / pending_total
+        if pending_total > 0 else 0.0
+    )
+    dismissed_pct = (
+        closed_dismissed / closed_total if closed_total > 0 else 0.0
+    )
+
+    # Both thresholds need a minimum sample to fire — avoids noise on
+    # fresh deployments.
+    if pending_total < 10 and closed_total < 10:
+        return []
+
+    breaches: list[str] = []
+    if recall_neg_pct > 0.30:
+        breaches.append(f"recall_negative_pct={recall_neg_pct:.0%}>30%")
+    if closed_total >= 10 and dismissed_pct > 0.50:
+        breaches.append(f"dismissed_pct={dismissed_pct:.0%}>50%")
+    if not breaches:
+        return []
+
+    severity = "red" if (
+        len(breaches) >= 2 or recall_neg_pct > 0.60
+    ) else "amber"
+
+    return [DriftEvent(
+        scenario_id="__system__",  # cross-scenario signal
+        drift_signal="proposal_quality_inversion",
+        severity=severity,
+        target_country=None,
+        evidence={
+            "recall_negative_pct": round(recall_neg_pct, 3),
+            "dismissed_pct": round(dismissed_pct, 3),
+            "pending_total": pending_total,
+            "closed_total": closed_total,
+            "pending_by_kind": pending_by_kind,
+            "breaches": breaches,
+        },
+        why_string=(
+            f"Proposal generator quality inversion: {' and '.join(breaches)}. "
+            f"This indicates the rules are misfiring (the 2026-04-29 incident "
+            f"shape) — review _rule_weight_too_high / _rule_dormant_participant "
+            f"before applying any pending recall-reducing proposals."
+        ),
+    )]
+
+
 def run_once() -> dict:
     """Run all signals across all registered scenarios. Returns a dict
     keyed by scenario_id with the count of events emitted per signal."""
@@ -387,6 +484,17 @@ def run_once() -> dict:
     except Exception as exc:
         log.debug("drift_watchdog: recall read failed (non-fatal): %s", exc)
         all_recall = {}
+
+    # Cross-scenario signal: proposal_quality_inversion (post-incident).
+    # Records under '__system__' scenario_id; surfaces in the UI alongside
+    # per-scenario drift events.
+    try:
+        sys_events = _signal_proposal_quality_inversion()
+        if sys_events:
+            n_sys = sum(1 for ev in sys_events if _record_event(ev) is not None)
+            out.setdefault("__system__", {})["proposal_quality_inversion"] = n_sys
+    except Exception as exc:
+        log.debug("drift_watchdog: quality-inversion failed: %s", exc)
 
     for sc in scenarios:
         per_sig: dict[str, int] = {}

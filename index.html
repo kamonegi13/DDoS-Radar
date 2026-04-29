@@ -3063,13 +3063,15 @@
         <p><b>J. Auto-tune Wizard</b> — <span class="code-block">TOOLS ▾</span> → Auto-tune Wizard</p>
         <ul>
             <li><b>Purpose</b>: Single-screen review surface for every Phase A-F1+F3 + Tier 3 discovery proposal. Analysts apply / dismiss / defer in one place. <b>Structural changes (adversary additions, role reclassifications) MUST pass the NP7 confirmation modal</b> before they take effect.</li>
-            <li><b>Five tabs</b>:
+            <li><b>Seven tabs</b> (post-incident redesign 2026-04-29):
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
-                    <li><b>Scenario Improver</b>: Phase F1 proposals (weight_too_low / weight_too_high / missing_participant).</li>
-                    <li><b>Structure (F2-a)</b>: Role reclassification + dormant participant detection. Surfaces participants whose configured role disagrees with their observed signal mix.</li>
-                    <li><b>Sensor Disable</b>: α-broken sensor auto-disable proposals with a 24h analyst ack window. Auto-escalates if no ack arrives.</li>
-                    <li><b>Drift Signals</b>: F3 drift events that have crossed the dwell threshold (≥3 consecutive runs). Color-coded amber/red by severity.</li>
-                    <li><b>Discovery</b>: G.2 cooccurrence matrix → G.3a DBSCAN candidate scenarios (read-only). G3b LLM annotations appear once <span class="code-block">G3B_SHADOW_ENABLED=true</span>.</li>
+                    <li><b>Recall+</b>: Recall-positive proposals (weight_too_low, missing_participant). Safe to Apply with single-source evidence.</li>
+                    <li><b>Recall-</b>: Recall-reducing proposals (weight_too_high, dormant_participant). Requires <i>strong</i> evidence (5/5 sources zero) AND non-protected role AND scenario vitality=active. Apply gated by NP7 confirmation modal.</li>
+                    <li><b>Structure</b>: role_reclassify proposals. Analyst review with NP7 confirmation.</li>
+                    <li><b>Diagnostic</b>: sensor_gap_detected / scenario_dormant / needs_more_data. <i>Informational only</i> — no Apply path. Surfaces NP5+8 transitional 結論不可 directly so analysts know whether to investigate sensors, retire scenarios, or wait for data.</li>
+                    <li><b>Sensor Disable</b>: α-broken sensor auto-disable proposals with a 24h analyst ack window.</li>
+                    <li><b>Drift Signals</b>: F3 drift events past the dwell threshold (≥3 consecutive runs). Color-coded amber/red.</li>
+                    <li><b>Discovery</b>: G.2 cooccurrence + G.3a DBSCAN candidate scenarios (read-only). G3b LLM annotations appear once <span class="code-block">G3B_SHADOW_ENABLED=true</span>.</li>
                 </ul>
             </li>
             <li><b>NP7 confirm modal</b>: When applying a proposal flagged <span class="code-block">is_recall_reducing=true</span>, a sub-modal (autotune-confirm-modal) shows the rationale + evidence and disables Apply until the analyst clicks Confirm.</li>
@@ -3182,12 +3184,14 @@
         <p><b>J. オートチューニング Wizard</b> — <span class="code-block">TOOLS ▾</span> → Auto-tune Wizard</p>
         <ul>
             <li><b>目的</b>: Phase A-F1+F3 のオートチューニング機構が累積した提案・履歴・ドリフトシグナルをアナリストが 1 画面でレビューし、apply / dismiss / defer する単一導線を提供。<b>NP7 違反防止のため、構造変更（adversary 追加 / 役割再分類）は必ず確認モーダル経由</b>で適用される。</li>
-            <li><b>5 タブ構成</b>:
+            <li><b>7 タブ構成</b>（2026-04-29 ポストインシデント再設計）:
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
-                    <li><b>Scenario Improver</b>: Phase F1 の提案（weight_too_low / weight_too_high / missing_participant）を一覧。</li>
-                    <li><b>Structure (F2-a)</b>: 役割再分類 / dormant 参加者検出。シグナルミックスから観測された役割と設定値の乖離を可視化。</li>
-                    <li><b>Sensor Disable</b>: 24h ack 待ちの α-broken センサー無効化提案。analyst が ack しなければ自動エスカレーション。</li>
-                    <li><b>Drift Signals</b>: dwell-time（≥3 サイクル）を満たした F3 ドリフトイベント。amber / red 重要度で色分け。</li>
+                    <li><b>Recall+</b>: recall を上げる提案（weight_too_low / missing_participant）。1 ソース証拠で安全に Apply 可能。</li>
+                    <li><b>Recall-</b>: recall を下げる提案（weight_too_high / dormant_participant）。5/5 ソースゼロの「strong」証拠 AND 非保護ロール AND シナリオ vitality=active を全て満たす場合のみ表示。Apply は NP7 確認モーダル経由必須。</li>
+                    <li><b>Structure</b>: role_reclassify 提案。NP7 確認モーダル経由でアナリスト承認。</li>
+                    <li><b>Diagnostic</b>: sensor_gap_detected / scenario_dormant / needs_more_data。<i>情報提示のみ</i> — Apply 動作なし。NP5+8 の過渡的「結論不可」を能動的に表現し、センサー側を疑うべきか・シナリオ廃止すべきか・データ蓄積待ちかをアナリストに明示する。</li>
+                    <li><b>Sensor Disable</b>: 24h ack 待ちの α-broken センサー無効化提案。</li>
+                    <li><b>Drift Signals</b>: dwell-time（≥3 連続検出）を満たした F3 ドリフトイベント。amber/red 重要度で色分け。<span class="code-block">proposal_quality_inversion</span> シグナル（post-incident）はルール誤動作を検知する system-wide 警告。</li>
                     <li><b>Discovery</b>: G.2 共起行列 + G.3a DBSCAN で発見された候補シナリオクラスタ（読み取り専用）。<span class="code-block">G3B_SHADOW_ENABLED=true</span> で LLM 注釈が表示される。</li>
                 </ul>
             </li>
