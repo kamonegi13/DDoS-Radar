@@ -291,7 +291,8 @@
         </div>
         <div class="hh-section hh-tools-section">
             <div class="hh-section-label" data-i18n="hud.hh.section.tools">TOOLS &amp; PANELS</div>
-            <div class="tools-dropdown-wrap">
+            <button class="btn-tactical btn-action hh-action-wide" id="tools-hub-open-btn" onclick="window._controlsOpenHub && window._controlsOpenHub(); closeHudHamburger();" data-i18n="hud.btn.tools_hub">Open Tools Hub &#x21F2;</button>
+            <div class="tools-dropdown-wrap" style="display:none;" aria-hidden="true">
                 <button class="btn-tactical btn-action hh-action-wide" id="tools-dropdown-btn" onclick="toggleToolsMenu()" data-i18n="hud.btn.tools">TOOLS &#x25BE;</button>
                 <div id="tools-menu" class="tools-menu">
                     <div class="tools-menu-section-header" data-i18n="tools.section.core">CORE</div>
@@ -3914,6 +3915,21 @@
     </div>
 </div>
 
+<!-- ── Tools Hub modal (CONTROLS redesign 2026-04-29 commits L–P) ───────── -->
+<div id="controls-tools-modal" class="modal-window controls-modal"
+     role="dialog" aria-modal="true" aria-labelledby="controls-tools-title"
+     style="width:880px; max-height:88vh;">
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555;">
+        <div id="controls-tools-title" data-i18n="controls.title">Tools Hub</div>
+        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;"
+                onclick="window._controlsCloseHub && window._controlsCloseHub()"
+                data-i18n="controls.close">[ X ] Close</button>
+    </div>
+    <div class="cp-body" id="controls-panel-body">
+        <div class="cp-loading" data-i18n="controls.loading">Loading…</div>
+    </div>
+</div>
+
 <!-- ── LLM Feature Hub modal (commit J) ─────────────────────────────────── -->
 <div id="llm-features-modal" class="modal-window lfh-modal"
      role="dialog" aria-modal="true" aria-labelledby="lfh-title"
@@ -3968,6 +3984,7 @@
 <script src="tradecraft.js"></script>
 <script src="autotune_wizard.js"></script>
 <script src="llm_features_hub.js"></script>
+<script src="controls_panel.js"></script>
 
 </body>
 </html>

@@ -4071,3 +4071,236 @@ body[data-replay-on="1"] #top-hud {
     font-size: 9px;
     font-style: italic;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+ * CONTROLS Tools Hub modal (commits L–P, 2026-04-29 redesign)
+ * ──────────────────────────────────────────────────────────────────────
+ * Replaces the legacy hamburger → CONTROLS → TOOLS dropdown 3-step flow
+ * with a single modal grid of cards. Each card surfaces panel state +
+ * live data badge. ATTENTION section auto-promotes urgent tools.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+.controls-modal .cp-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.controls-modal .cp-loading {
+    color: #555;
+    font-style: italic;
+    padding: 24px 0;
+    text-align: center;
+}
+
+/* Search bar */
+.controls-modal .cp-search {
+    position: sticky;
+    top: 0;
+    background: rgba(15, 15, 15, 0.95);
+    padding: 8px 4px;
+    margin: -8px -12px 6px -12px;
+    border-bottom: 1px solid #1f1f1f;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 10;
+}
+.controls-modal .cp-search input {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid #333;
+    color: #ddd;
+    padding: 6px 10px;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 12px;
+    min-width: 0;
+}
+.controls-modal .cp-search input:focus {
+    border-color: var(--color-accent);
+    outline: none;
+}
+.controls-modal .cp-search-hint {
+    color: #555;
+    font-size: 9px;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+}
+
+/* Section block */
+.controls-modal .cp-section { margin-bottom: 4px; }
+.controls-modal .cp-section-title {
+    color: var(--color-accent);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 6px;
+    padding: 2px 0;
+    border-bottom: 1px dashed #2a2a2a;
+}
+.controls-modal .cp-section-attention .cp-section-title { color: #ff8800; }
+.controls-modal .cp-section-suggestions .cp-section-title { color: #66ddff; }
+
+/* Tool grid */
+.controls-modal .cp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 6px;
+}
+
+/* Tool card */
+.controls-modal .cp-card {
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    padding: 8px 10px;
+    background: rgba(20, 20, 20, 0.7);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 56px;
+}
+.controls-modal .cp-card:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--color-accent);
+    transform: translateY(-1px);
+}
+.controls-modal .cp-card-dimmed {
+    opacity: 0.25;
+    pointer-events: none;
+}
+.controls-modal .cp-card-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.controls-modal .cp-icon { font-size: 14px; flex: 0 0 auto; }
+.controls-modal .cp-name {
+    font-size: 11px;
+    color: #ddd;
+    font-weight: 600;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.controls-modal .cp-card-state {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 9px;
+}
+.controls-modal .cp-dock {
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.4px;
+}
+.controls-modal .cp-dock-open { color: #44cc66; }
+.controls-modal .cp-dock-closed { color: #555; }
+.controls-modal .cp-status {
+    color: #aaa;
+    font-style: italic;
+}
+.controls-modal .cp-status.cp-sev-critical { color: #ff5555; font-weight: 600; font-style: normal; }
+.controls-modal .cp-status.cp-sev-warning  { color: #ffaa00; font-weight: 600; font-style: normal; }
+.controls-modal .cp-status.cp-sev-info     { color: #66ccff; font-style: normal; }
+
+/* ATTENTION cards */
+.controls-modal .cp-attention {
+    border: 1px solid #2a2a2a;
+    border-left-width: 4px;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    background: rgba(20, 20, 20, 0.65);
+}
+.controls-modal .cp-attention.cp-sev-critical {
+    border-left-color: #ff3333;
+    background: rgba(40, 10, 10, 0.55);
+}
+.controls-modal .cp-attention.cp-sev-warning {
+    border-left-color: #ff8800;
+    background: rgba(40, 25, 0, 0.45);
+}
+.controls-modal .cp-attention.cp-sev-info {
+    border-left-color: #66bbff;
+    background: rgba(15, 30, 50, 0.4);
+}
+.controls-modal .cp-att-head {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 4px;
+    align-items: baseline;
+}
+.controls-modal .cp-att-sev {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+.controls-modal .cp-sev-critical .cp-att-sev { color: #ff5555; }
+.controls-modal .cp-sev-warning  .cp-att-sev { color: #ffaa00; }
+.controls-modal .cp-sev-info     .cp-att-sev { color: #66ccff; }
+.controls-modal .cp-att-tool {
+    font-size: 11px;
+    color: #ccc;
+    font-weight: 600;
+}
+.controls-modal .cp-att-msg {
+    font-size: 10px;
+    color: #aaa;
+    line-height: 1.5;
+    margin: 4px 0;
+}
+.controls-modal .cp-att-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+/* Suggestions */
+.controls-modal .cp-suggestion {
+    display: flex;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px dashed #444;
+    border-radius: 3px;
+    margin-bottom: 4px;
+    background: rgba(10, 30, 50, 0.3);
+    font-size: 11px;
+    align-items: center;
+}
+.controls-modal .cp-sug-icon { flex: 0 0 auto; }
+.controls-modal .cp-sug-text { flex: 1; color: #ccc; }
+
+/* Buttons */
+.controls-modal .cp-btn {
+    background: transparent;
+    border: 1px solid #444;
+    color: #aaa;
+    font-family: inherit;
+    font-size: 10px;
+    padding: 2px 8px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.12s;
+}
+.controls-modal .cp-btn:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #ddd;
+    border-color: #666;
+}
+.controls-modal .cp-btn-open {
+    color: var(--color-accent);
+    border-color: rgba(0, 255, 255, 0.4);
+}
+.controls-modal .cp-btn-snooze { color: #888; }
+.controls-modal .cp-btn-suggest {
+    color: #66ddff;
+    border-color: rgba(102, 221, 255, 0.4);
+}
+.controls-modal .cp-btn-dismiss { color: #666; }

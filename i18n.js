@@ -1753,6 +1753,41 @@ const STRINGS = {
     'llm_features.chip.title':         'LLM',
     'llm_features.chip.tip':           'LLM features active. Click to manage.',
 
+    // ══════════════════════════════════════════════════════════════
+    // CONTROLS Tools Hub redesign (commits L–P, 2026-04-29)
+    // ══════════════════════════════════════════════════════════════
+    'hud.btn.tools_hub':               'Open Tools Hub ⇲',
+    'controls.title':                  'Tools Hub',
+    'controls.close':                  '[ X ] Close',
+    'controls.loading':                'Loading…',
+    'controls.search_placeholder':     'Search tools by name or description…',
+    'controls.search_hint':            '/ to focus · Esc to close',
+    'controls.section.intelligence':       'INTELLIGENCE',
+    'controls.section.scenario_targeting': 'SCENARIO & TARGETING',
+    'controls.section.simulation_analysis':'SIMULATION & ANALYSIS',
+    'controls.section.tradecraft':         'TRADECRAFT',
+    'controls.section.automation':         'AUTOMATION',
+    'controls.section.admin':              'ADMIN',
+    'controls.section.suggestions':        'Suggested threshold updates',
+
+    'controls.tool.llm_intel.desc':    'LLM-extracted intelligence items pending analyst review.',
+    'controls.tool.dashboard.desc':    'Live attack origin telemetry feed.',
+    'controls.tool.tg.desc':           'Telegram SIGINT mirror — narrative bursts, channel activity.',
+    'controls.tool.chain.desc':        'Evidence chain across sensors and conclusions.',
+    'controls.tool.gn.desc':           'GreyNoise IP reputation lookup + cache.',
+    'controls.tool.target.desc':       'Per-country visibility, sensor coverage, threat overlay.',
+    'controls.tool.climate.desc':      'Strategic climate gauge — long-horizon escalation indicators.',
+    'controls.tool.weather.desc':      'Weather brief for AOR + forecast confidence.',
+    'controls.tool.whatif.desc':       'What-If simulator — perturb inputs, observe impact.',
+    'controls.tool.spof.desc':         'Single-point-of-failure analysis across the sensor mesh.',
+    'controls.tool.corr.desc':         'Sensor correlation heatmap.',
+    'controls.tool.tradecraft.desc':   'Analyst tradecraft toolkit (decision ledger, hypotheses, …).',
+    'controls.tool.watchpane.desc':    'Sensor watch panel — health states, mute, classify-noise.',
+    'controls.tool.history.desc':      'Historical analysis (28-day window) for trends + replay.',
+    'controls.tool.autotune.desc':     'Auto-tune Wizard — pending proposals, drift signals, discovery clusters.',
+    'controls.tool.llm_features.desc': 'LLM Feature Hub — control which AI capabilities are active.',
+    'controls.tool.usrmgr.desc':       'User & role management.',
+
 };
 
 // ============================================================
