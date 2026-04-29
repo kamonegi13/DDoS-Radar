@@ -2320,17 +2320,26 @@ body[data-replay-on="1"] #top-hud {
    nothing fires — Stage A.3 ships empty infrastructure; Stage B.7 fills
    it with attention_score-ranked items + rationale. Each entry is one
    line: pill | mode | confidence | "why ranked #N" toggle | drill ▶. */
+/* ── Alert Lane / TRIAGE bar — post-redesign 2026-04-29 ──
+ * Two-row layout per item:
+ *   Row 1: rank · score · kind label · confidence · actions
+ *   Row 2: full-width natural-language narrative (AP2 self-explanation)
+ *
+ * Uses CSS grid template-areas so the narrative row spans the full
+ * width regardless of viewport. The previous 6-column single-row
+ * layout left ~40% of the lane unused on 1920px screens.
+ */
 #alert-lane[hidden] { display: none; }
 #alert-lane {
     background: rgba(20, 5, 0, 0.55);
     border-bottom: 1px solid rgba(255, 80, 0, 0.35);
-    padding: 4px 10px;
+    padding: 6px 12px;
     font-family: 'Courier New', monospace;
     font-size: 11px;
     color: rgba(255, 220, 200, 0.92);
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
 }
 #alert-lane .al-toolbar {
     display: flex;
@@ -2343,38 +2352,91 @@ body[data-replay-on="1"] #top-hud {
     font-size: 10px;
 }
 #alert-lane .al-title { padding: 0 4px; }
+#alert-lane .al-subtitle {
+    color: rgba(255, 220, 200, 0.55);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 9px;
+    font-style: italic;
+}
+#alert-lane .al-count {
+    color: rgba(255, 220, 200, 0.6);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+}
 #alert-lane .al-list {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 4px;
 }
+
+/* Each item is now a 2-row grid spanning full width. The first row is
+ * rank | score | kind | conf | actions (with auto-flex on kind so it
+ * absorbs leftover space). The second row is the narrative, padded to
+ * line up under the kind label for readability. */
 #alert-lane .al-item {
     display: grid;
-    grid-template-columns: 32px 200px 1fr 80px auto auto;
-    gap: 8px;
+    grid-template-columns: 36px 48px minmax(180px, 1fr) auto auto;
+    grid-template-rows: auto auto;
+    grid-template-areas:
+        "rank score mode conf actions"
+        "narrative narrative narrative narrative narrative";
+    gap: 4px 12px;
     align-items: center;
-    padding: 2px 0;
-    border-top: 1px dashed rgba(255, 80, 0, 0.15);
+    padding: 6px 0;
+    border-top: 1px dashed rgba(255, 80, 0, 0.18);
 }
 #alert-lane .al-item:first-child { border-top: none; }
+
 #alert-lane .al-rank {
-    color: rgba(255, 140, 60, 0.75);
+    grid-area: rank;
+    color: rgba(255, 140, 60, 0.85);
     text-align: right;
-    font-weight: 600;
+    font-weight: 700;
+    font-size: 12px;
+    cursor: help;
+}
+#alert-lane .al-score {
+    grid-area: score;
+    color: rgba(255, 220, 200, 0.65);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    cursor: help;
 }
 #alert-lane .al-mode {
-    color: rgba(255, 220, 200, 0.95);
-    font-weight: 600;
-}
-#alert-lane .al-why {
-    color: rgba(255, 220, 200, 0.75);
-    font-size: 10px;
-    line-height: 1.3;
+    grid-area: mode;
+    color: rgba(255, 220, 200, 0.98);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 #alert-lane .al-conf {
+    grid-area: conf;
     color: rgba(255, 220, 200, 0.85);
     text-align: right;
     font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    padding: 0 8px;
+    border-left: 1px solid rgba(255, 80, 0, 0.15);
+    border-right: 1px solid rgba(255, 80, 0, 0.15);
+}
+#alert-lane .al-actions {
+    grid-area: actions;
+    display: flex;
+    gap: 4px;
+}
+#alert-lane .al-narrative {
+    grid-area: narrative;
+    color: rgba(255, 220, 200, 0.78);
+    font-size: 10px;
+    line-height: 1.55;
+    padding-left: 96px;     /* aligns under .al-mode */
+    padding-right: 4px;
 }
 #alert-lane .al-btn {
     background: transparent;
@@ -2382,13 +2444,40 @@ body[data-replay-on="1"] #top-hud {
     color: rgba(255, 220, 200, 0.85);
     font-family: inherit;
     font-size: 10px;
-    padding: 1px 6px;
+    padding: 2px 8px;
     cursor: pointer;
     border-radius: 2px;
+    transition: all 0.12s;
 }
 #alert-lane .al-btn:hover {
     border-color: rgba(255, 140, 60, 0.60);
     background: rgba(255, 140, 60, 0.08);
+}
+#alert-lane .al-btn-primary {
+    border-color: rgba(255, 140, 60, 0.55);
+    color: rgba(255, 220, 200, 0.95);
+}
+#alert-lane .al-btn-primary:hover {
+    background: rgba(255, 140, 60, 0.18);
+}
+
+/* Narrow-viewport collapse: keep the narrative readable when the
+ * sidebar is open and the lane width drops below ~900px. */
+@media (max-width: 1100px) {
+    #alert-lane .al-item {
+        grid-template-columns: 36px 48px 1fr auto;
+        grid-template-areas:
+            "rank score mode    actions"
+            ".    .     conf    actions"
+            "narrative narrative narrative narrative";
+    }
+    #alert-lane .al-conf {
+        grid-area: conf;
+        text-align: left;
+        border: none;
+        padding: 0;
+    }
+    #alert-lane .al-narrative { padding-left: 88px; }
 }
 
 /* ── Scenario Bar (Phase 4) ───────────────────────────────────────── */

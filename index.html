@@ -348,7 +348,11 @@
      infrastructure; Stage B.7 (AP1 — Active Triage) populates it with
      attention_score-ranked items and "why ranked #N" rationale. -->
 <div id="alert-lane" role="region" aria-live="polite" aria-label="Active triage alerts" hidden>
-    <div class="al-toolbar" id="al-toolbar"><span class="al-title">TRIAGE</span></div>
+    <div class="al-toolbar" id="al-toolbar"
+         title="TRIAGE: ranked attention queue. attention_score = novelty × confidence_delta × analyst_blindness. Higher rank = more deserving of immediate analyst attention.">
+        <span class="al-title" data-i18n="alert_lane.title">TRIAGE</span>
+        <span class="al-subtitle" data-i18n="alert_lane.subtitle">— ranked by attention score (novelty × confidence change × time since last viewed)</span>
+    </div>
     <div class="al-list" id="al-list"></div>
 </div>
 

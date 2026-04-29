@@ -2604,32 +2604,42 @@
             const row = document.createElement('div');
             row.className = 'al-item';
 
+            // Row 1: rank + label + confidence + actions ─────────────────
             const rank = document.createElement('span');
             rank.className = 'al-rank';
-            rank.textContent = '#' + it.rank + ' · ' + it.score.toFixed(2);
-            const rankTip = (it.why || []).join('\n');
-            rank.setAttribute('title', rankTip);
+            rank.textContent = '#' + it.rank;
+            rank.title = 'Triage attention score: ' + it.score.toFixed(2)
+                + (it.why && it.why.length
+                    ? '\n\nWhy ranked here:\n  · ' + it.why.join('\n  · ')
+                    : '');
+
+            const score = document.createElement('span');
+            score.className = 'al-score';
+            score.textContent = it.score.toFixed(2);
+            score.title = 'attention_score = novelty × confidence_delta × analyst_blindness';
 
             const mode = document.createElement('span');
             mode.className = 'al-mode';
             mode.textContent = it.kindLabel;
 
-            const why = document.createElement('span');
-            why.className = 'al-why';
-            // Keep the row terse; full rationale lives in the rank-cell tooltip.
-            const headWhy = (it.why && it.why.length > 0) ? it.why[0] : '';
-            why.textContent = headWhy;
-
             const conf = document.createElement('span');
             conf.className = 'al-conf';
             const c = it.conclusion.confidence;
-            conf.textContent = (typeof c === 'number') ? ('conf ' + c.toFixed(2)) : '—';
+            conf.textContent = (typeof c === 'number')
+                ? ('conf ' + Math.round(c * 100) + '%')
+                : 'conf —';
+
+            const actions = document.createElement('span');
+            actions.className = 'al-actions';
 
             const ackBtn = document.createElement('button');
             ackBtn.type = 'button';
             ackBtn.className = 'al-btn';
-            ackBtn.textContent = 'ack';
-            ackBtn.title = 'Acknowledge — drop until next change';
+            ackBtn.textContent = (typeof _t === 'function')
+                ? _t('alert_lane.btn_ack') : 'Acknowledge';
+            ackBtn.title = (typeof _t === 'function')
+                ? _t('alert_lane.btn_ack_tip')
+                : 'Acknowledge — drop until next state change';
             ackBtn.addEventListener('click', () => {
                 _alAcknowledge(focusedId, it.conclusion.id);
                 _refreshAlertLane(focusedId);
@@ -2637,18 +2647,59 @@
 
             const drillBtn = document.createElement('button');
             drillBtn.type = 'button';
-            drillBtn.className = 'al-btn';
-            drillBtn.textContent = 'drill ▶';
+            drillBtn.className = 'al-btn al-btn-primary';
+            drillBtn.textContent = (typeof _t === 'function')
+                ? _t('alert_lane.btn_drill') : 'Inspect ▶';
+            drillBtn.title = (typeof _t === 'function')
+                ? _t('alert_lane.btn_drill_tip')
+                : 'Open the audit-trace drilldown for this conclusion';
             drillBtn.addEventListener('click', () => _ccOpenDrillModal(it.conclusion));
 
+            actions.appendChild(ackBtn);
+            actions.appendChild(drillBtn);
+
             row.appendChild(rank);
+            row.appendChild(score);
             row.appendChild(mode);
-            row.appendChild(why);
             row.appendChild(conf);
-            row.appendChild(ackBtn);
-            row.appendChild(drillBtn);
+            row.appendChild(actions);
+
+            // Row 2: full-width natural-language narrative ──────────────────
+            const narrative = document.createElement('div');
+            narrative.className = 'al-narrative';
+            let text = '';
+            try {
+                if (window.SelfExplanation
+                        && typeof window.SelfExplanation.narrateTriage === 'function') {
+                    text = window.SelfExplanation.narrateTriage(it);
+                }
+            } catch (e) { /* NP3: fallback to terse */ }
+            if (!text) {
+                // Fallback: concatenate why list when SelfExplanation absent.
+                text = (it.why && it.why.length)
+                    ? (it.kindLabel + ': ' + it.why.join('; '))
+                    : it.kindLabel;
+            }
+            narrative.textContent = text;
+            row.appendChild(narrative);
+
             list.appendChild(row);
         });
+
+        // Update the toolbar count badge so analysts see at a glance how
+        // many items are surfaced — and link the title to the count.
+        const toolbar = document.getElementById('al-toolbar');
+        if (toolbar) {
+            let countEl = toolbar.querySelector('.al-count');
+            if (!countEl) {
+                countEl = document.createElement('span');
+                countEl.className = 'al-count';
+                toolbar.appendChild(countEl);
+            }
+            countEl.textContent = '· ' + ranked.length
+                + (ranked.length === 1 ? ' item' : ' items');
+        }
+
         lane.hidden = false;
     }
 

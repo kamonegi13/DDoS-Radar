@@ -1013,6 +1013,16 @@ const STRINGS = {
     'panel.llm_intel.diag_lc_pending':      'PENDING',
     'panel.llm_intel.diag_lc_review':       'REVIEW',
     'panel.llm_intel.diag_lc_rejected':     'REJECTED',
+
+    // ══════════════════════════════════════════════════════════════
+    // Alert Lane / TRIAGE bar (post-redesign 2026-04-29)
+    // ══════════════════════════════════════════════════════════════
+    'alert_lane.title':                     'TRIAGE',
+    'alert_lane.subtitle':                  '— ranked by attention score (novelty × confidence change × time since last viewed)',
+    'alert_lane.btn_ack':                   'Acknowledge',
+    'alert_lane.btn_ack_tip':               'Acknowledge — drop this item until its state changes',
+    'alert_lane.btn_drill':                 'Inspect ▶',
+    'alert_lane.btn_drill_tip':             'Open the audit-trace drilldown (formula, sensors, sources)',
     // ══════════════════════════════════════════════════════════════
     // Strategic Climate Feed
     // ══════════════════════════════════════════════════════════════

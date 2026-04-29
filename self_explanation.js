@@ -177,8 +177,69 @@
         return lines.join('\n');
     }
 
+    /**
+     * Build a single-sentence narrative for an Alert Lane (TRIAGE) item.
+     * Pure template-based composition — same NP6 transparency / AP2
+     * self-explanation contract as narrateTL / narrateDomain. Caller
+     * gets a humanised line that survives without LLM availability.
+     *
+     * Input shape (from triage_score.rankItems):
+     *   item.rank          : 1..N
+     *   item.score         : attention score (0..1)
+     *   item.kindLabel     : 'ATTACK_MODE: COORDINATED_DDOS' | 'ANOMALY: BURST'
+     *   item.why           : list of short reason strings
+     *   item.conclusion    : full Conclusion object
+     *
+     * @param {object} item
+     * @param {{ now?: number, locale?: string }} [opts]
+     * @returns {string}
+     */
+    function narrateTriage(item, opts) {
+        if (!item || !item.conclusion) return '';
+        const o = opts || {};
+        const now = o.now || (Date.now() / 1000);
+        const c = item.conclusion;
+        const why = (Array.isArray(item.why) ? item.why : []).filter(Boolean);
+
+        const parts = [];
+
+        // Subject — kindLabel already expands to "ATTACK_MODE: COORDINATED_DDOS"
+        const kind = item.kindLabel
+            || String(c.conclusion_type || 'event').toUpperCase();
+        parts.push(kind);
+
+        // Scenario subject — wrapped in "on" so the sentence reads naturally.
+        if (c.scenario_id) {
+            parts.push('on ' + String(c.scenario_id));
+        }
+
+        // Confidence as percent.
+        if (typeof c.confidence === 'number') {
+            parts.push('confidence ' + Math.round(c.confidence * 100) + '%');
+        }
+
+        // Age — observed_at is unix seconds.
+        const observedAt = (typeof c.observed_at === 'number') ? c.observed_at : null;
+        if (observedAt) {
+            parts.push('observed ' + _fmtAge(observedAt, now));
+        }
+
+        // Ranking rationale — chain the reasons with semicolons.
+        if (why.length > 0) {
+            parts.push('— ranked #' + item.rank + ' because ' + why.join('; '));
+        } else if (typeof item.score === 'number') {
+            parts.push('— ranked #' + item.rank
+                      + ' (score ' + item.score.toFixed(2) + ')');
+        }
+
+        // Compose with comma joins. Defensive against accidental commas inside
+        // why-strings: keep whitespace clean by trimming first.
+        return parts.map(s => String(s).trim()).filter(Boolean).join(', ');
+    }
+
     return {
         narrateTL: narrateTL,
         narrateDomain: narrateDomain,
+        narrateTriage: narrateTriage,
     };
 });
