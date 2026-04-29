@@ -3214,6 +3214,29 @@
             <li><b>API</b>: <span class="code-block">GET /api/v2/scenarios/&lt;scenario_id&gt;/threat_history?hours=24&amp;limit=1000</span> — per-scenario TL series. <span class="code-block">hours</span> capped at 168, <span class="code-block">limit</span> capped at 5000. Returns <span class="code-block">{api_version, scenario_id, hours, history: [[ts, level], ...], final_judgment_disclaimer}</span>.</li>
         </ul>
 
+        <p><b>N. TRIAGE Lane Display Modes</b> — bottom of HUD / corner of map (commits A/B/C/D, 2026-04-30)</p>
+        <ul>
+            <li><b>Symptom (before)</b>: When ranked items fired, the TRIAGE Lane occupied a fixed slab between HUD and map, pushing left/right sidebars and the map down. With more than 1–2 items the map viewport shrank to the point of being unusable, even though the analyst frequently only needed a quick glance at the top item.</li>
+            <li><b>Three display modes</b> (auto-selected from <span class="code-block">attention_score</span> + critical-event flags):
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Dormant</b>: hidden when max <span class="code-block">attention_score</span> &lt; 0.40. The map gets the full viewport. Re-appears as soon as any ranked item crosses the threshold.</li>
+                    <li><b>Pin-dock</b>: compact 220×56 corner overlay at the bottom-left of the map (above Leaflet zoom controls). Shows top-3 items as <span class="code-block">KIND ▲ 0.62</span> pills with attention score and confidence delta arrow. Hover expands to a full 360×360 panel (shown over the map for 2s after mouseleave). Click the bar to pin expanded — persists across reloads via <span class="code-block">localStorage.triage_pinned</span>.</li>
+                    <li><b>Critical-banner</b>: HUD-flow 28px slim red banner with continuous slow pulse. Triggered by max <span class="code-block">attention_score</span> ≥ 0.85, OR an item with explicit <span class="code-block">metadata.critical / .recall_reducing / .kill_switch</span>, OR TL5 escalation (current TL=5 with positive scoreDelta). Cannot be dismissed — NP1 (sensitivity priority).</li>
+                </ul>
+            </li>
+            <li><b>Hysteresis</b>: dormant↔pin-dock uses enter=0.40 / exit=0.50; pin-dock↔critical uses enter=0.85 / exit=0.78. Prevents UI flicker when scores oscillate around the boundary. Defaults are recommended values; per-user override via the <span class="code-block">triage_thresholds</span> override table (slated for follow-up commit).</li>
+            <li><b>Always-visible override</b>: analyst can set <span class="code-block">localStorage.triage_always_visible='1'</span> to suppress dormant mode (lane stays in pin-dock at minimum). Useful for pre-incident watch posture; default is off.</li>
+            <li><b>Transition cues</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>Dormant → pin-dock: 1.6s cyan ring pulse (single shot) so the corner overlay is noticed without alarm.</li>
+                    <li>Any → critical-banner: continuous 1.8s red gradient pulse until condition clears.</li>
+                    <li>Pin-dock collapsed → expanded: 0.22s smooth height/width tween.</li>
+                </ul>
+            </li>
+            <li><b>Implementation (NP6)</b>: <span class="code-block">triage_display_mode.js</span> is a pure module (no LLM, no random) that takes <span class="code-block">{maxScore, hasCritical, prevMode, thresholds, alwaysVisible}</span> and returns <span class="code-block">{mode, reason, maxScore, thresholds}</span>. The reason string is debuggable ("sticky critical; 0.80 still ≥ criticalExit 0.78"). 34 unit tests cover the band logic, hysteresis, override precedence, and the summarizeItems heuristics.</li>
+            <li><b>NP3 fallback</b>: any exception in the resolver falls back to legacy <span class="code-block">lane.hidden</span> show/hide. <span class="code-block">@supports (backdrop-filter)</span> gates the glass effect — older browsers get an opaque background instead.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3419,6 +3442,29 @@
             <li><b>divergence chip の見た目</b>: duration タグの隣に小さなアンバー pill <span class="code-block">⚠ v1 TL3 / v2 TL2</span>。両層が確定 TL を出していて、かつ値が異なる時のみ可視化（一致時・どちらか欠落時は非表示）。</li>
             <li><b>NP6 透明性</b>: 不一致を黙って解決するのではなく可視化。THREAT LV バッジクリックで v2 結論の詳細（formula / threshold / sources / llm_prompt / calibration）を確認可能。HUD スパークラインと FOCUS カードは常に v2 を優先（overlay priority）、v2 不在/stale 時のみ v1 にフォールバック（NP3）。</li>
             <li><b>API</b>: <span class="code-block">GET /api/v2/scenarios/&lt;scenario_id&gt;/threat_history?hours=24&amp;limit=1000</span> — シナリオ別 TL 系列。<span class="code-block">hours</span> は 168 上限、<span class="code-block">limit</span> は 5000 上限。レスポンス: <span class="code-block">{api_version, scenario_id, hours, history: [[ts, level], ...], final_judgment_disclaimer}</span>。</li>
+        </ul>
+
+        <p><b>N. TRIAGE Lane 表示モード</b> — HUD 直下 / 地図隅オーバーレイ（commits A/B/C/D、2026-04-30）</p>
+        <ul>
+            <li><b>修正前の症状</b>: ランク済アイテムが発火すると TRIAGE Lane が HUD と地図の間で固定領域を占有し、左右サイドバーと地図が下に押された。アイテムが 2 件以上になると地図ビューポートが実用に耐えないほど狭くなる一方、analyst は最上位アイテムをチラ見できれば十分な場面が多かった。</li>
+            <li><b>3 つの表示モード</b>（<span class="code-block">attention_score</span> + critical イベントから自動選択）:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Dormant</b>: 全アイテムの最大 <span class="code-block">attention_score</span> &lt; 0.40 で非表示。地図がフル表示。閾値超のアイテムが現れた瞬間に再表示。</li>
+                    <li><b>Pin-dock</b>: 地図左下に 220×56 のコンパクトオーバーレイ（Leaflet zoom コントロールの上）。top-3 アイテムを <span class="code-block">KIND ▲ 0.62</span> ピル形式（attention score + 信頼度差矢印）で表示。ホバーで 360×360 の展開ビュー（mouseleave 後 2s で自動格納）。バーをクリックすると展開状態が固定され、<span class="code-block">localStorage.triage_pinned</span> でブラウザ再読込後も維持。</li>
+                    <li><b>Critical-banner</b>: HUD フローの 28px スリム赤バナー、連続パルス。発火条件は最大 <span class="code-block">attention_score</span> ≥ 0.85、または item の明示 <span class="code-block">metadata.critical / .recall_reducing / .kill_switch</span>、または TL5 escalation（現在 TL=5 かつ scoreDelta &gt; 0）。dismiss 不可（NP1 感度優先）。</li>
+                </ul>
+            </li>
+            <li><b>ヒステリシス</b>: dormant↔pin-dock は enter=0.40 / exit=0.50、pin-dock↔critical は enter=0.85 / exit=0.78。境界振動による UI 点滅を防止。デフォルトは推奨値、per-user override は <span class="code-block">triage_thresholds</span> override テーブル（追加コミット予定）で実装予定。</li>
+            <li><b>Always-visible override</b>: <span class="code-block">localStorage.triage_always_visible='1'</span> で dormant モードを抑制（最低 pin-dock 表示）。事前監視態勢で常時可視化したい場合に使用。デフォルトは off。</li>
+            <li><b>遷移時のキュー</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li>Dormant → pin-dock: 1.6s シアンリングパルス（単発）。隅オーバーレイの出現を alarm せず気付かせる。</li>
+                    <li>任意 → critical-banner: 条件解消まで 1.8s 赤グラデーションパルス（連続）。</li>
+                    <li>Pin-dock collapsed → expanded: 0.22s smooth tween。</li>
+                </ul>
+            </li>
+            <li><b>実装（NP6）</b>: <span class="code-block">triage_display_mode.js</span> は pure module（LLM・乱数なし）。入力 <span class="code-block">{maxScore, hasCritical, prevMode, thresholds, alwaysVisible}</span>、出力 <span class="code-block">{mode, reason, maxScore, thresholds}</span>。reason は debug 可能（"sticky critical; 0.80 still ≥ criticalExit 0.78"）。バンド判定 / ヒステリシス / override 優先順位 / summarizeItems ヒューリスティクスを 34 件のユニットテストでカバー。</li>
+            <li><b>NP3 フォールバック</b>: resolver 例外時は legacy <span class="code-block">lane.hidden</span> show/hide にフォールバック。<span class="code-block">@supports (backdrop-filter)</span> でガラス効果をゲートし、未対応ブラウザは不透明背景にフォールバック。</li>
         </ul>
 
         </div>
