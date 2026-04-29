@@ -8721,8 +8721,19 @@
     }
 
     function _renderLlmStats(stats) {
+        // Post auto-judge redesign (2026-04-29): split CONFIRMED into
+        // AUTO (auto-judge + legacy ingest-time) and MANUAL (analyst).
+        // Falls back to legacy auto_confirmed when the new fields are
+        // absent (mid-rebuild safety; doesn't crash the panel).
         const setEl = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
-        setEl('llm-stat-auto',    '● AUTO '    + (stats.auto_confirmed || 0));
+        const autoTotal = (typeof stats.auto_confirmed_total === 'number')
+            ? stats.auto_confirmed_total
+            : (stats.auto_confirmed || 0);
+        const manualTotal = (typeof stats.manual_confirmed === 'number')
+            ? stats.manual_confirmed
+            : 0;
+        setEl('llm-stat-auto',    '● ' + _t('panel.llm_intel.stat_auto')    + ' ' + autoTotal);
+        setEl('llm-stat-manual',  '✓ ' + _t('panel.llm_intel.stat_manual')  + ' ' + manualTotal);
         setEl('llm-stat-pending', '⚠ ' + _t('panel.llm_intel.stat_pending') + ' ' + (stats.pending || 0));
         setEl('llm-stat-reject',  '✗ ' + _t('panel.llm_intel.stat_rejected') + ' ' + ((stats.rejected || 0) + (stats.overridden || 0)));
         const reviewEl = document.getElementById('llm-stat-review');

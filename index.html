@@ -1202,12 +1202,16 @@
             <button class="llm-filter-btn" data-src="convergence"                  onclick="_llmFilter('convergence')" data-i18n="panel.llm_intel.filter_convergence">CONV</button>
             <button class="llm-filter-btn" data-src="corroborated"                 onclick="_llmFilter('corroborated')" data-i18n="panel.llm_intel.filter_corroborated">CORR</button>
         </div>
-        <!-- Stats summary bar -->
+        <!-- Stats summary bar — post auto-judge redesign (2026-04-29).
+             Splits CONFIRMED into AUTO (auto-judge + ingest-time) and
+             MANUAL (analyst confirms) so the analyst can see at a glance
+             how much of the load the automation is carrying. -->
         <div class="llm-stats-bar" id="llm-stats-bar">
-            <span class="llm-stat-auto"    id="llm-stat-auto">● AUTO 0</span>
-            <span class="llm-stat-pending" id="llm-stat-pending">⚠ PENDING 0</span>
-            <span class="llm-stat-review"  id="llm-stat-review" style="display:none">🔴 REVIEW 0</span>
-            <span class="llm-stat-reject"  id="llm-stat-reject">✗ REJ. 0</span>
+            <span class="llm-stat-auto"    id="llm-stat-auto"    title="Auto-confirmed: ingestion-time threshold + auto-judge background apply"  data-i18n-tip="panel.llm_intel.stat_auto_tip">● AUTO 0</span>
+            <span class="llm-stat-manual"  id="llm-stat-manual"  title="Confirmed by an analyst (manual review)"                                  data-i18n-tip="panel.llm_intel.stat_manual_tip">✓ MANUAL 0</span>
+            <span class="llm-stat-pending" id="llm-stat-pending" title="Awaiting analyst review or auto-judge insufficient evidence"               data-i18n-tip="panel.llm_intel.stat_pending_tip">⚠ PENDING 0</span>
+            <span class="llm-stat-review"  id="llm-stat-review"  title="Flagged for explicit analyst review" style="display:none">🔴 REVIEW 0</span>
+            <span class="llm-stat-reject"  id="llm-stat-reject"  title="Rejected (auto-judge or analyst)"                                          data-i18n-tip="panel.llm_intel.stat_reject_tip">✗ REJECTED 0</span>
         </div>
         <!-- Diagnostics: per-sensor LLM call observability + filter breakdown -->
         <div class="llm-diag-section">

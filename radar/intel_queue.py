@@ -1063,15 +1063,56 @@ class IntelQueue:
         return promoted
 
     def stats(self) -> dict:
+        """Return aggregated intel queue stats for the LLM Intelligence
+        panel. Three distinct confirmation paths are surfaced separately
+        so AUTO vs MANUAL is accurate post auto-judge enablement:
+
+          auto_confirmed_total — sum of:
+              status='auto_confirmed'  (legacy ingest-time path,
+                                         confidence ≥ LLM_AUTO_CONFIRM_THRESHOLD
+                                         at submission time)
+            + status='confirmed' AND confirmed_by LIKE 'auto:%'
+                                       (auto-judge background apply,
+                                         e.g. 'auto:llm_recheck_confirm')
+
+          manual_confirmed     — status='confirmed' AND human analyst.
+
+          confirmed (legacy)    — kept for back-compat callers; sum of
+                                  all 'confirmed' status regardless of
+                                  author kind. New UI should use the
+                                  split fields above.
+
+        The split prevents the 2026-04-29 misread where AUTO=0 was shown
+        despite 24 auto-judged items, because the panel was counting only
+        the legacy auto_confirmed status (which is unused once auto-judge
+        is enabled — apply() routes through confirm() and writes
+        'confirmed').
+        """
         counts = db.intel_status_counts()
+        legacy_auto = counts.get("auto_confirmed", 0)
+        confirmed_auto = counts.get("confirmed_auto", 0)
+        confirmed_manual = counts.get("confirmed_manual", 0)
+        # confirmed_unknown is items with status='confirmed' but no
+        # confirmed_by — pre-auto-judge / migration era. Treat as manual
+        # (the conservative default — they were not stamped 'auto:').
+        confirmed_unknown = counts.get("confirmed_unknown", 0)
         return {
-            "auto_confirmed": counts.get("auto_confirmed", 0),
+            # Legacy alias — pre-redesign callers still get a value.
+            "auto_confirmed": legacy_auto,
+            # New explicit fields used by the redesigned panel.
+            "auto_confirmed_total": legacy_auto + confirmed_auto,
+            "manual_confirmed":     confirmed_manual + confirmed_unknown,
             "pending":        counts.get("pending", 0),
             "confirmed":      counts.get("confirmed", 0),
             "rejected":       counts.get("rejected", 0),
             "overridden":     counts.get("overridden", 0),
             "review_needed":  counts.get("review_needed", 0),
-            "total":          sum(counts.values()),
+            "total":          sum(
+                v for k, v in counts.items()
+                # filter synthetic keys so total still reflects rows
+                if k not in ("confirmed_auto", "confirmed_manual",
+                             "confirmed_unknown")
+            ),
             "llm_enabled":    LLM_ENABLED,
             "auto_threshold": _auto_confirm_threshold(),
             "confidence_min": _confidence_min(),

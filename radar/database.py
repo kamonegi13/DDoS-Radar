@@ -4098,11 +4098,33 @@ class RadarDB:
         return [self._intel_row_to_dict(r) for r in rows]
 
     def intel_status_counts(self) -> dict[str, int]:
-        """Return {status: count} for all intel items using GROUP BY."""
-        rows = self._get_conn().execute(
+        """Return {status: count} for all intel items using GROUP BY.
+
+        Plus extra synthetic keys that split 'confirmed' by author kind:
+            confirmed_auto    — confirmed_by starts with 'auto:'
+                                (auto-judge background apply or other
+                                automated marker)
+            confirmed_manual  — confirmed_by is a human (not auto:* and
+                                not None)
+        These let the UI report "AUTO" and "MANUAL" tallies without
+        losing back-compat for the legacy 'auto_confirmed' status.
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
             "SELECT status, COUNT(*) FROM llm_intel GROUP BY status"
         ).fetchall()
-        return {row[0]: row[1] for row in rows}
+        out = {row[0]: row[1] for row in rows}
+        # Split status='confirmed' into auto vs manual based on confirmed_by.
+        rows2 = conn.execute(
+            "SELECT CASE "
+            "  WHEN confirmed_by LIKE 'auto:%' THEN 'confirmed_auto' "
+            "  WHEN confirmed_by IS NULL OR confirmed_by='' THEN 'confirmed_unknown' "
+            "  ELSE 'confirmed_manual' END AS kind, COUNT(*) "
+            "FROM llm_intel WHERE status='confirmed' GROUP BY kind"
+        ).fetchall()
+        for kind, n in rows2:
+            out[kind] = int(n or 0)
+        return out
 
     def intel_update_llm_fields(self, item_id: str, llm_fields: dict):
         """Merge new key/value pairs into an existing item's llm_fields JSON blob.

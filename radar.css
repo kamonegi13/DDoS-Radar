@@ -1270,11 +1270,13 @@
 .llm-filter-btn { font-size: 9px; padding: 2px 7px; border: 1px solid #333; background: #111; color: #666; border-radius: 2px; cursor: pointer; letter-spacing: 0.5px; transition: all .15s; }
 .llm-filter-btn:hover { background: #1a1a1a; color: #aaa; }
 .llm-filter-btn.llm-filter-active { background: #0d2233; border-color: #0af; color: #0af; }
-.llm-stats-bar { display: flex; gap: 10px; padding: 4px 10px; font-size: 9px; background: rgba(0,0,0,0.2); border-bottom: 1px solid #1a1a1a; }
-.llm-stat-auto    { color: #44cc66; }
+.llm-stats-bar { display: flex; flex-wrap: wrap; gap: 10px 14px; padding: 4px 10px; font-size: 9px; background: rgba(0,0,0,0.2); border-bottom: 1px solid #1a1a1a; }
+.llm-stat-auto    { color: #44cc66; }   /* green — auto-judge / ingest auto-confirmed */
+.llm-stat-manual  { color: #66bbff; }   /* blue — analyst confirms */
 .llm-stat-pending { color: #ffaa00; }
 .llm-stat-review  { color: #ff4444; }
 .llm-stat-reject  { color: #555; }
+.llm-stats-bar > span { cursor: help; user-select: none; }
 /* Diagnostics section (sensor-layer LLM call observability) */
 .llm-diag-section { border-bottom: 1px solid #1a1a1a; background: rgba(0,0,0,0.25); }
 .llm-diag-toggle { display: flex; align-items: center; gap: 4px; padding: 4px 10px; font-size: 9px; color: #889; cursor: pointer; user-select: none; letter-spacing: 0.5px; }
