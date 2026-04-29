@@ -263,6 +263,16 @@ const STRINGS = {
     'triage.tooltip.dormant_explain':  'TRIAGE is dormant — no item has attention_score ≥ 0.40 for the focused scenario. The lane re-appears as soon as one does.',
     'triage.label.compact':            'TRIAGE',
     'triage.label.critical':           '⚠ TRIAGE ALERT',
+
+    // ── TRIAGE actions popover (Phase 2 of Decision Layer, 2026-04-30) ─
+    // Right-side ⋯ menu on the compact bar. Snooze / dismiss / visibility
+    // all record into the unified decisions ledger. NP1 invariant:
+    // critical events bypass snooze + dismiss in the client display
+    // resolver, NOT in the server endpoint (the ledger records facts;
+    // suppression is a UI decision).
+    'triage.tooltip.menu':             'TRIAGE actions: Inspect / Acknowledge / Snooze / Visibility. Critical events bypass snooze (NP1).',
+    'triage.snooze.chip':              '⏸ TRIAGE muted {n}m',
+    'triage.snooze.chip.tooltip':      'TRIAGE Lane is muted (NP1: critical events still surface). Click to release.',
     'hud.label.eta':                  'ETA',
     'hud.tooltip.eta':                'ETA: projected time to next TL boundary based on current velocity. Suppressed when velocity is too small to be meaningful.',
     'hud.eta.tooltip_up':             '{pts}pt → TL{tl}, est. ~{eta} at current rate',

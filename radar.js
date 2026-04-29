@@ -2621,17 +2621,287 @@
             ? _t('triage.tooltip.pin_dock_pin') : 'Click to pin expanded view';
         const barTip = (typeof _t === 'function')
             ? _t('triage.tooltip.pin_dock') : '';
+        const menuTip = (typeof _t === 'function')
+            ? _t('triage.tooltip.menu') : 'TRIAGE actions';
         bar.title = barTip;
         bar.innerHTML =
             '<span class="tm-cb-label">TRIAGE</span>'
             + '<span class="tm-cb-items"></span>'
-            + '<span class="tm-cb-pin" title="' + pinTip + '">⌖</span>';
-        // Click on label or items area: toggle expand-pin.
+            + '<span class="tm-cb-pin" title="' + pinTip + '">⌖</span>'
+            + '<span class="tm-cb-menu" title="' + menuTip + '">⋯</span>';
+        // Click on label or items area: toggle expand-pin (but NOT
+        // the ⋯ — it has its own handler that stops propagation).
         bar.addEventListener('click', (e) => {
+            // Skip pin-toggle if click came from ⋯ menu button.
+            if (e.target.classList.contains('tm-cb-menu')) return;
+            if (e.target.closest('.tm-triage-popover')) return;
             e.stopPropagation();
             _triageTogglePin(lane);
         });
+        // ⋯ opens the actions popover.
+        const menuBtn = bar.querySelector('.tm-cb-menu');
+        menuBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _triageOpenPopover(lane);
+        });
         lane.insertBefore(bar, lane.firstChild);
+    }
+
+    // ── TRIAGE actions popover (Phase 2) ──────────────────────────────
+    // Shown when ⋯ is clicked. Quick-actions section (inspect/ack top)
+    // operates on the current top-1 item. Snooze section invokes the
+    // /api/v2/decisions/triage/snooze endpoint. Visibility section
+    // toggles the analyst's per-user mode override.
+    let _triageStateCache = { snooze: null, visibility: 'default', dismiss: null };
+    let _triageStateLastFetched = 0;
+    const _TRIAGE_STATE_TTL_MS = 30_000;
+
+    async function _triageRefreshServerState(force) {
+        const now = Date.now();
+        if (!force && now - _triageStateLastFetched < _TRIAGE_STATE_TTL_MS) return _triageStateCache;
+        try {
+            const resp = await fetch('/api/v2/decisions/triage/state');
+            if (!resp.ok) return _triageStateCache;
+            _triageStateCache = await resp.json();
+            _triageStateLastFetched = now;
+            // Surface snooze indicator if active.
+            _renderTriageSnoozeIndicator(_triageStateCache);
+        } catch (_) { /* NP3 fallback: keep prev cache */ }
+        return _triageStateCache;
+    }
+
+    function _triageIsSnoozed() {
+        const s = _triageStateCache && _triageStateCache.snooze;
+        return !!(s && s.active && s.expires_at
+                  && (s.expires_at * 1000) > Date.now());
+    }
+
+    function _triageIsDismissed() {
+        const d = _triageStateCache && _triageStateCache.dismiss;
+        return !!(d && d.active && d.expires_at
+                  && (d.expires_at * 1000) > Date.now());
+    }
+
+    function _triageAlwaysVisible() {
+        return _triageStateCache && _triageStateCache.visibility === 'always';
+    }
+
+    function _triageOpenPopover(lane) {
+        // Close any existing popover first.
+        const existing = document.querySelector('.tm-triage-popover');
+        if (existing) {
+            existing.remove();
+            return;
+        }
+        const pop = document.createElement('div');
+        pop.className = 'tm-triage-popover';
+        const visMode = _triageStateCache.visibility === 'always' ? 'always' : 'default';
+        const visChecked = visMode === 'always' ? 'checked' : '';
+        const snoozeStatus = _triageIsSnoozed()
+            ? '<div class="tm-pop-status">⏸ Snoozed (active)</div>'
+            : '';
+        const dismissStatus = _triageIsDismissed()
+            ? '<div class="tm-pop-status">✕ Dismissed (active)</div>'
+            : '';
+        pop.innerHTML = `
+            <div class="tm-pop-section">
+                <div class="tm-pop-header">Quick actions</div>
+                <button type="button" class="tm-pop-btn" data-act="inspect">▶ Inspect top item</button>
+                <button type="button" class="tm-pop-btn" data-act="ack">✓ Acknowledge top</button>
+            </div>
+            <div class="tm-pop-section">
+                <div class="tm-pop-header">Suspend display</div>
+                ${snoozeStatus}
+                <button type="button" class="tm-pop-btn" data-act="snooze" data-min="30">⏸ Snooze 30 min</button>
+                <button type="button" class="tm-pop-btn" data-act="snooze" data-min="120">⏸ Snooze 2 hours</button>
+                <button type="button" class="tm-pop-btn" data-act="snooze" data-min="240">⏸ Snooze 4 hours</button>
+                <button type="button" class="tm-pop-btn" data-act="snooze-custom">⏸ Snooze custom...</button>
+                ${_triageIsSnoozed() ? '<button type="button" class="tm-pop-btn tm-pop-btn-danger" data-act="snooze-release">⏵ Release snooze</button>' : ''}
+            </div>
+            <div class="tm-pop-section">
+                <div class="tm-pop-header">Visibility</div>
+                <label class="tm-pop-toggle">
+                    <input type="checkbox" data-act="visibility" ${visChecked}>
+                    Always visible (suppress dormant)
+                </label>
+                ${dismissStatus}
+                <button type="button" class="tm-pop-btn" data-act="dismiss">✕ Hide until next fire</button>
+            </div>
+            <div class="tm-pop-footer">
+                <span class="tm-pop-np1-note">⚠ Critical events bypass snooze + dismiss (NP1).</span>
+            </div>
+        `;
+        // Position next to the ⋯ button.
+        document.body.appendChild(pop);
+        const menuBtn = lane.querySelector('.tm-cb-menu');
+        if (menuBtn) {
+            const rect = menuBtn.getBoundingClientRect();
+            // Place popover to the right of ⋯, then if it overflows, flip left.
+            const popW = 260;
+            let left = rect.right + 6;
+            if (left + popW > window.innerWidth - 8) {
+                left = rect.left - popW - 6;
+            }
+            pop.style.left = Math.max(8, left) + 'px';
+            pop.style.top = Math.max(8, rect.top) + 'px';
+        }
+        // Wire button handlers.
+        pop.addEventListener('click', async (e) => {
+            const target = e.target;
+            if (target.classList.contains('tm-pop-toggle')
+                || target.classList.contains('tm-pop-section')
+                || target.classList.contains('tm-pop-header')) return;
+            const act = target.getAttribute('data-act');
+            if (!act) return;
+            e.stopPropagation();
+            try {
+                if (act === 'inspect') await _triageActionInspect();
+                else if (act === 'ack') await _triageActionAck();
+                else if (act === 'snooze') {
+                    const min = parseInt(target.getAttribute('data-min'), 10) || 30;
+                    await _triageActionSnooze(min);
+                } else if (act === 'snooze-custom') {
+                    const ans = prompt('Snooze for how many minutes? (1–1440)', '60');
+                    const min = Math.max(1, Math.min(parseInt(ans, 10) || 0, 1440));
+                    if (min > 0) await _triageActionSnooze(min);
+                } else if (act === 'snooze-release') {
+                    await _triageActionSnoozeRelease();
+                } else if (act === 'visibility') {
+                    await _triageActionVisibility(target.checked ? 'always' : 'default');
+                } else if (act === 'dismiss') {
+                    await _triageActionDismiss();
+                }
+            } catch (err) {
+                console && console.warn && console.warn('[triage action]', act, err);
+            }
+            pop.remove();
+        });
+        // Click-outside-to-close.
+        setTimeout(() => {
+            document.addEventListener('click', _triagePopoverDismiss, { once: true });
+        }, 0);
+    }
+
+    function _triagePopoverDismiss() {
+        const pop = document.querySelector('.tm-triage-popover');
+        if (pop) pop.remove();
+    }
+
+    async function _triageActionInspect() {
+        // Inspect the top-1 item via existing drilldown mechanism.
+        const lane = document.getElementById('alert-lane');
+        const firstRow = lane && lane.querySelector('.al-item');
+        if (!firstRow) return;
+        const drill = firstRow.querySelector('.al-btn-primary');
+        if (drill) drill.click();
+    }
+
+    async function _triageActionAck() {
+        const lane = document.getElementById('alert-lane');
+        const firstRow = lane && lane.querySelector('.al-item');
+        if (!firstRow) return;
+        const ackBtn = firstRow.querySelector('.al-btn:not(.al-btn-primary)');
+        if (ackBtn) ackBtn.click();
+    }
+
+    async function _triageActionSnooze(minutes) {
+        const resp = await fetch('/api/v2/decisions/triage/snooze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ minutes: minutes }),
+        });
+        if (!resp.ok) throw new Error('snooze failed: ' + resp.status);
+        await _triageRefreshServerState(true);
+        // Force-refresh the lane: snooze → dormant (unless critical).
+        const fid = (window._currentFocusedScenario || null);
+        if (typeof _refreshAlertLane === 'function') _refreshAlertLane(fid);
+    }
+
+    async function _triageActionSnoozeRelease() {
+        const resp = await fetch('/api/v2/decisions/triage/snooze', {
+            method: 'DELETE',
+        });
+        if (!resp.ok) throw new Error('release failed: ' + resp.status);
+        await _triageRefreshServerState(true);
+        const fid = (window._currentFocusedScenario || null);
+        if (typeof _refreshAlertLane === 'function') _refreshAlertLane(fid);
+    }
+
+    async function _triageActionVisibility(mode) {
+        const resp = await fetch('/api/v2/decisions/triage/visibility', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: mode }),
+        });
+        if (!resp.ok) throw new Error('visibility failed: ' + resp.status);
+        // Mirror to localStorage so the resolver (sync code path) reads
+        // the right value without waiting for state polling.
+        if (mode === 'always') localStorage.setItem('triage_always_visible', '1');
+        else localStorage.removeItem('triage_always_visible');
+        await _triageRefreshServerState(true);
+        const fid = (window._currentFocusedScenario || null);
+        if (typeof _refreshAlertLane === 'function') _refreshAlertLane(fid);
+    }
+
+    async function _triageActionDismiss() {
+        // Build a fingerprint of the current top item so we can detect
+        // a "new fire" later (different conclusion id → re-show).
+        const lane = document.getElementById('alert-lane');
+        const firstScore = lane && lane.querySelector('.al-score');
+        const fingerprint = firstScore
+            ? (firstScore.textContent + ':' + Date.now())
+            : ('anon:' + Date.now());
+        const resp = await fetch('/api/v2/decisions/triage/dismiss', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fingerprint: fingerprint }),
+        });
+        if (!resp.ok) throw new Error('dismiss failed: ' + resp.status);
+        await _triageRefreshServerState(true);
+        const fid = (window._currentFocusedScenario || null);
+        if (typeof _refreshAlertLane === 'function') _refreshAlertLane(fid);
+    }
+
+    // ── HUD snooze indicator ──────────────────────────────────────────
+    function _renderTriageSnoozeIndicator(state) {
+        let chip = document.getElementById('hud-triage-snooze');
+        const snoozed = state && state.snooze && state.snooze.active
+            && state.snooze.expires_at
+            && (state.snooze.expires_at * 1000) > Date.now();
+        if (!snoozed) {
+            if (chip) chip.style.display = 'none';
+            return;
+        }
+        // Compute remaining minutes for the label.
+        const remainingMs = state.snooze.expires_at * 1000 - Date.now();
+        const remMin = Math.max(1, Math.ceil(remainingMs / 60000));
+        // Lazily create chip + attach to HUD if not yet done.
+        if (!chip) {
+            chip = document.createElement('span');
+            chip.id = 'hud-triage-snooze';
+            chip.className = 'hud-triage-snooze-chip';
+            chip.title = 'TRIAGE Lane is muted (NP1: critical events still surface). Click to release.';
+            chip.addEventListener('click', () => _triageActionSnoozeRelease());
+            // Attach near other HUD chips. Look for hud-tl-group or HUD root.
+            const target = document.getElementById('hud-tl-group')
+                || document.querySelector('.hud-tl-group')
+                || document.getElementById('hud');
+            if (target) target.appendChild(chip);
+        }
+        chip.textContent = '⏸ TRIAGE muted ' + remMin + 'm';
+        chip.style.display = 'inline-block';
+    }
+
+    // Periodic state refresh so the chip's countdown stays current and
+    // expired snoozes auto-clear without a page reload.
+    setInterval(() => {
+        _triageRefreshServerState(true).catch(() => { /* NP3 */ });
+    }, 30_000);
+    // Initial fetch on load.
+    if (typeof window !== 'undefined') {
+        window.addEventListener('DOMContentLoaded', () => {
+            _triageRefreshServerState(true).catch(() => { /* NP3 */ });
+        });
     }
 
     function _updateTriageCompactBar(lane, ranked, focusedId, mode) {
@@ -2736,19 +3006,32 @@
         });
 
         const summary = dm.summarizeItems(augmented);
-        const alwaysVisible = localStorage.getItem('triage_always_visible') === '1';
+        // alwaysVisible: prefer server-side state (per-user), fall back to
+        // localStorage mirror (set by the visibility action) for sync read.
+        const alwaysVisible = _triageAlwaysVisible()
+            || localStorage.getItem('triage_always_visible') === '1';
+
+        // NP1-respecting suppression: snooze/dismiss are recorded in the
+        // ledger but ONLY take effect when there is no critical event.
+        // This is the load-bearing check that prevents an analyst from
+        // accidentally silencing a TL5 escalation.
+        const suppressByDecision =
+            (_triageIsSnoozed() || _triageIsDismissed())
+            && !summary.hasCritical;
+
         const result = dm.resolveMode({
             maxScore: summary.maxScore,
             hasCritical: summary.hasCritical,
             prevMode: _triageCurrentMode,
-            alwaysVisible: alwaysVisible,
+            alwaysVisible: alwaysVisible && !suppressByDecision,
         });
 
         const lane = document.getElementById('alert-lane');
         if (!lane) return;
 
-        if (result.mode === 'dormant') {
-            // Dormant overrides anything below.
+        if (suppressByDecision || result.mode === 'dormant') {
+            // Either the analyst muted it (and no critical) or the
+            // resolver itself said dormant. Either way: hide.
             _setTriageMode('dormant');
             lane.hidden = true;
             return;
