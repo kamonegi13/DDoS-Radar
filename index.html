@@ -3237,6 +3237,38 @@
             <li><b>NP3 fallback</b>: any exception in the resolver falls back to legacy <span class="code-block">lane.hidden</span> show/hide. <span class="code-block">@supports (backdrop-filter)</span> gates the glass effect — older browsers get an opaque background instead.</li>
         </ul>
 
+        <p><b>O. Decision Layer — Analyst Response Surface</b> (Phase 1–5, 2026-04-30)</p>
+        <ul>
+            <li><b>Symptom (before)</b>: TRIAGE could only ack/inspect individual items; there was no snooze, no dismiss, no visibility toggle, no per-user threshold. Pending Decisions pin opened the Scenarios tab but offered no Accept / Extend / Rollback button — analysts had to leave the tool to act on the recommendation. Existing ack mechanisms (auto-judge, sensor_disable, attention_snooze, scenario_proposals.state_changed_by) were siloed; "what was decided in the last 30 days" was not answerable from one place.</li>
+            <li><b>Unified ledger (NP6)</b>: migration v34 adds a <span class="code-block">decisions</span> table indexed by (decision_type, target_kind, target_id). Every analyst response is recorded with <i>actor</i> (admin:&lt;name&gt; / analyst:&lt;name&gt;), <i>reason</i>, <i>parameters</i> (JSON), <i>decided_at</i>, <i>expires_at</i>, <i>superseded_by</i> (FK self). Recording a 2nd decision for the same (type, kind, id) tuple supersedes the first in a single transaction — single-writer guarantee per target. <span class="code-block">DecisionLedger</span> in <span class="code-block">radar/decisions.py</span> exposes <span class="code-block">record/latest/is_active/history/revoke</span>.</li>
+            <li><b>TRIAGE actions menu</b> (⋯ on the compact bar):
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Inspect top / Acknowledge top</b>: shortcuts to the existing al-btn-primary / al-btn flow on the top-1 ranked item.</li>
+                    <li><b>Snooze</b> 30m / 2h / 4h / custom (1–1440min). Records into <span class="code-block">decisions</span> with <span class="code-block">expires_at</span>. The TRIAGE display layer combines <span class="code-block">is_active(snooze)</span> with the critical-event check before suppressing UI. <b>Critical events bypass snooze</b> — the ledger records facts; the client refuses to suppress when <span class="code-block">hasCritical=true</span> (NP1 invariant).</li>
+                    <li><b>Visibility</b>: per-user always-visible mode (suppress dormant). Mirrored to <span class="code-block">localStorage.triage_always_visible</span> for sync read.</li>
+                    <li><b>Hide until next fire</b>: 24h TTL dismiss. Auto-clears at expiry; new fire (different fingerprint) re-shows immediately.</li>
+                </ul>
+            </li>
+            <li><b>HUD snooze indicator</b>: <span class="code-block">⏸ TRIAGE muted Nm</span> chip in the HUD TL group while a snooze is active. Click to release. Always visible while muted so analysts never wonder why TRIAGE is silent.</li>
+            <li><b>Pending Decisions actions</b>: each calibration card now carries [Accept] / [Extend +14d] / [Raise|Rollback ⚠] buttons. The button matching the current recommendation is emphasized green; non-recommended buttons stay visible but muted (override mode). Per-scenario [✓] [⏵+14d] inline on each TL roll-up row.</li>
+            <li><b>NP7 confirmation</b>: <span class="code-block">tl_recal_raise</span> and <span class="code-block">dual_weight_rollback</span> require <span class="code-block">np7_confirmed=true</span> AND a non-empty <span class="code-block">reason</span> in the request body. Server returns 400 if missing — UI must show the confirm modal first. Client-side <span class="code-block">prompt()</span> rejects empty reasons before submission (defense in depth).</li>
+            <li><b>Decision History (AP4)</b>: <span class="code-block">TOOLS ▾</span> → Decision History opens a 880px modal with filters (decision_type / window 24h-90d / action) and a time-descending list. Each row shows actor, action chip (color-coded), decision_type, target, NP7-confirmed badge, superseded badge (dimmed 55% opacity), reason, expiry, and parameters JSON. Single-place forensic timeline.</li>
+            <li><b>API endpoints</b> (14 total):
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span class="code-block">POST/DELETE /api/v2/decisions/triage/snooze</span></li>
+                    <li><span class="code-block">POST /api/v2/decisions/triage/visibility</span></li>
+                    <li><span class="code-block">POST /api/v2/decisions/triage/dismiss</span></li>
+                    <li><span class="code-block">GET /api/v2/decisions/triage/state</span></li>
+                    <li><span class="code-block">POST /api/v2/decisions/tl_recalibration/{accept,extend,raise}</span></li>
+                    <li><span class="code-block">POST /api/v2/decisions/dual_weight/{accept,extend,rollback}</span></li>
+                    <li><span class="code-block">GET/PUT /api/v2/decisions/threshold</span> — per-user TRIAGE thresholds</li>
+                    <li><span class="code-block">GET /api/v2/decisions/history</span>, <span class="code-block">GET /api/v2/decisions/&lt;id&gt;</span></li>
+                </ul>
+            </li>
+            <li><b>Authorization</b>: triage operations + threshold = analyst+admin (operational scope). TL/dual_weight calibration governance = admin only (governance scope). History + single-decision GET = analyst+admin (transparent forensics).</li>
+            <li><b>Tests</b>: <span class="code-block">test_decisions.py</span> covers 37 cases — schema, supersede chains, target isolation, expiry semantics, revoke idempotence, history filter combinations, and every endpoint's auth + NP7 + V2 gate behaviour.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3465,6 +3497,38 @@
             </li>
             <li><b>実装（NP6）</b>: <span class="code-block">triage_display_mode.js</span> は pure module（LLM・乱数なし）。入力 <span class="code-block">{maxScore, hasCritical, prevMode, thresholds, alwaysVisible}</span>、出力 <span class="code-block">{mode, reason, maxScore, thresholds}</span>。reason は debug 可能（"sticky critical; 0.80 still ≥ criticalExit 0.78"）。バンド判定 / ヒステリシス / override 優先順位 / summarizeItems ヒューリスティクスを 34 件のユニットテストでカバー。</li>
             <li><b>NP3 フォールバック</b>: resolver 例外時は legacy <span class="code-block">lane.hidden</span> show/hide にフォールバック。<span class="code-block">@supports (backdrop-filter)</span> でガラス効果をゲートし、未対応ブラウザは不透明背景にフォールバック。</li>
+        </ul>
+
+        <p><b>O. Decision Layer — アナリスト応答面</b>（Phase 1–5、2026-04-30）</p>
+        <ul>
+            <li><b>修正前の症状</b>: TRIAGE は個別アイテムの ack/inspect しかできず、snooze・dismiss・visibility 切替・per-user 閾値が無かった。Pending Decisions ピンは Scenarios タブを開くだけで Accept / Extend / Rollback ボタンが存在せず、analyst は推奨を読んだ後ツールの外で対処するしかなかった。既存 ack 機構（auto-judge / sensor_disable / attention_snooze / scenario_proposals.state_changed_by）は分散実装で「過去 30 日に何が決断されたか」を一望する経路が無かった。</li>
+            <li><b>統一台帳（NP6）</b>: マイグレーション v34 で <span class="code-block">decisions</span> テーブルを追加（(decision_type, target_kind, target_id) で索引）。analyst のあらゆる応答を <i>actor</i>（admin:&lt;name&gt; / analyst:&lt;name&gt;）、<i>reason</i>、<i>parameters</i>（JSON）、<i>decided_at</i>、<i>expires_at</i>、<i>superseded_by</i>（自己 FK）と共に記録。同じ (type, kind, id) tuple に対する 2 回目の record は前回を superseded_by でマーク（target 毎の単一書き手保証）。<span class="code-block">radar/decisions.py</span> の <span class="code-block">DecisionLedger</span> クラスが <span class="code-block">record/latest/is_active/history/revoke</span> を提供。</li>
+            <li><b>TRIAGE 操作メニュー</b>（コンパクトバーの ⋯ ボタン）:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Inspect top / Acknowledge top</b>: top-1 ランクアイテムの既存 al-btn-primary / al-btn フローへのショートカット。</li>
+                    <li><b>Snooze</b> 30m / 2h / 4h / カスタム（1〜1440 分）。<span class="code-block">decisions</span> に <span class="code-block">expires_at</span> 付きで記録。TRIAGE 表示層は <span class="code-block">is_active(snooze)</span> と critical イベントチェックを組合せて UI 抑制を判定。<b>critical イベントは snooze をバイパス</b> — 台帳は事実を記録、クライアントが <span class="code-block">hasCritical=true</span> 時に抑制を拒否（NP1 不可侵）。</li>
+                    <li><b>Visibility</b>: per-user always-visible モード（dormant 抑制）。同期読込用に <span class="code-block">localStorage.triage_always_visible</span> にミラー。</li>
+                    <li><b>Hide until next fire</b>: 24 時間 TTL の dismiss。期限自動解除、別 fingerprint の new fire で即時再表示。</li>
+                </ul>
+            </li>
+            <li><b>HUD snooze indicator</b>: snooze アクティブ中は HUD TL group 内に <span class="code-block">⏸ TRIAGE muted Nm</span> chip を常時表示。クリックで解除。muted 中であることを analyst が見落とせない設計。</li>
+            <li><b>Pending Decisions アクション</b>: 各 calibration カードに [Accept] / [Extend +14d] / [Raise|Rollback ⚠] ボタンを追加。現在の recommendation に対応するボタンを緑強調、それ以外は muted（override モード）。TL ロールアップ各シナリオ行にも [✓] [⏵+14d] をインライン配置。</li>
+            <li><b>NP7 confirmation</b>: <span class="code-block">tl_recal_raise</span> と <span class="code-block">dual_weight_rollback</span> はリクエスト body に <span class="code-block">np7_confirmed=true</span> AND 非空の <span class="code-block">reason</span> を要求。欠落時はサーバが 400 を返す — UI が confirm modal を出してから submit する義務。クライアント側 <span class="code-block">prompt()</span> も submit 前に空 reason を拒否（多層防御）。</li>
+            <li><b>Decision History（AP4）</b>: <span class="code-block">TOOLS ▾</span> → Decision History で 880px モーダルを開く。フィルタ（decision_type / window 24h-90d / action）+ 時系列降順リスト。各行は actor、action chip（色分け）、decision_type、target、NP7-confirmed バッジ、superseded バッジ（55% dim）、reason、expiry、parameters JSON を表示。一画面で過去の決断を監査可能。</li>
+            <li><b>API endpoints</b>（合計 14 本）:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span class="code-block">POST/DELETE /api/v2/decisions/triage/snooze</span></li>
+                    <li><span class="code-block">POST /api/v2/decisions/triage/visibility</span></li>
+                    <li><span class="code-block">POST /api/v2/decisions/triage/dismiss</span></li>
+                    <li><span class="code-block">GET /api/v2/decisions/triage/state</span></li>
+                    <li><span class="code-block">POST /api/v2/decisions/tl_recalibration/{accept,extend,raise}</span></li>
+                    <li><span class="code-block">POST /api/v2/decisions/dual_weight/{accept,extend,rollback}</span></li>
+                    <li><span class="code-block">GET/PUT /api/v2/decisions/threshold</span> — per-user TRIAGE 閾値</li>
+                    <li><span class="code-block">GET /api/v2/decisions/history</span>、<span class="code-block">GET /api/v2/decisions/&lt;id&gt;</span></li>
+                </ul>
+            </li>
+            <li><b>認可</b>: triage 操作 + threshold = analyst+admin（運用スコープ）。TL/dual_weight calibration governance = admin のみ（ガバナンススコープ）。History + 単一 decision GET = analyst+admin（透明 forensics）。</li>
+            <li><b>テスト</b>: <span class="code-block">test_decisions.py</span> が 37 ケース（schema / supersede chains / target isolation / expiry semantics / revoke idempotence / history filter combinations / 全 endpoint の auth + NP7 + V2 gate behaviour）をカバー。</li>
         </ul>
 
         </div>
