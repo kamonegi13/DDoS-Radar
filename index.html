@@ -52,6 +52,14 @@
         <div class="hud-tl-group">
             <div id="hud-threat" class="threat-hud threat-5-hud" data-tooltip="Click to view Analytic Rationale">THREAT Lv 5: NORMAL</div>
             <span id="hud-tl-duration" class="hud-tl-duration" data-i18n-tip="hud.tooltip.tl_duration"></span>
+            <!-- Divergence chip (commit X): visible only when the v1
+                 derive_tl() result differs from the v2 ledger
+                 conclusion for the focused scenario. Helps analysts
+                 see "the system disagrees with itself" rather than
+                 silently picking one and burying the other. NP6. -->
+            <span id="hud-tl-divergence" class="hud-tl-divergence"
+                  style="display:none;"
+                  data-i18n-tip="hud.tooltip.tl_divergence"></span>
         </div>
 
         <!-- 24h sparkline -->

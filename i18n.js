@@ -248,6 +248,7 @@ const STRINGS = {
     'tl_prox.tooltip_down':           '{pts} points to de-escalation (TL{tl})',
     // ── HUD redesign additions ────────────────────────────────────
     'hud.tooltip.tl_duration':        'Time spent at the current Threat Level (counters normalcy bias — long stays at elevated TL deserve scrutiny)',
+    'hud.tooltip.tl_divergence':      'v1 derive_tl() and v2 conclusion ledger disagree on the current TL. The badge shows the v2 verdict (overlay priority); HUD sparkline and FOCUS card also follow v2. Usually clears within 10–30s of a TL transition. Click the THREAT LV badge to inspect the v2 audit trace.',
     'hud.label.eta':                  'ETA',
     'hud.tooltip.eta':                'ETA: projected time to next TL boundary based on current velocity. Suppressed when velocity is too small to be meaningful.',
     'hud.eta.tooltip_up':             '{pts}pt → TL{tl}, est. ~{eta} at current rate',

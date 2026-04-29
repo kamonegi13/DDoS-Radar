@@ -2017,7 +2017,12 @@
     let _ccInflightFocus = null;
     let _ccAbort = null;
     const _ccEnvelopeCache = {};
-    const _CC_ENVELOPE_TTL_MS = 180_000;
+    // Tightened from 180s → 30s (commit X). The original 3 minutes was
+    // chosen pre-auto-judge when v2 envelopes only updated on analyst
+    // feedback; with continuous scoring producing fresh conclusions
+    // every 10s, a long TTL only created HUD-vs-card lag without saving
+    // any work. NP3 fallback to v1 still applies on stale cache.
+    const _CC_ENVELOPE_TTL_MS = 30_000;
     let _ccExportInflight = false;
 
     // Phase 3 — Markdown export. Fetches the .md endpoint (JWT auto-injected
@@ -4712,6 +4717,14 @@
             // is in flight (NP3).
             _refreshSparklineFor(data.focused_scenario, data.threat_history);
 
+            // Divergence chip (commit X). Compare v1 derive_tl
+            // (data.strategic_alert.threat_level) with v2 overlay TL
+            // (strat.threat_level after _hudV2OverlayStrat). When they
+            // differ — the system is internally inconsistent and the
+            // analyst should know which ledger drove the badge.
+            _updateTlDivergenceChip(data.strategic_alert, strat,
+                                    data.focused_scenario);
+
             // NP6 transparency: prefer the v2 drill-down (formula / thresholds /
             // sources / llm_prompt / calibration) over the v1 evidence panel
             // when a fresh threat_level conclusion is cached. Falls back to
@@ -6150,6 +6163,35 @@
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         });
         ctx.stroke();
+    }
+
+    // ── TL divergence chip (commit X) ──────────────────────────────
+    // Surfaces the case where v1 derive_tl() and v2 conclusion ledger
+    // disagree on the focused scenario's TL. Analysts can decide which
+    // they trust; either way they know the badge is contested.
+    function _updateTlDivergenceChip(rawStrat, overlayStrat, focusedId) {
+        const el = document.getElementById('hud-tl-divergence');
+        if (!el) return;
+        const v1Tl = rawStrat && Number.isFinite(rawStrat.threat_level)
+            ? rawStrat.threat_level : null;
+        const v2Tl = overlayStrat && Number.isFinite(overlayStrat.threat_level)
+            ? overlayStrat.threat_level : null;
+        // Only show when both layers produced a definite TL and they
+        // disagree. Same value or either-side-missing → hide.
+        if (v1Tl == null || v2Tl == null || v1Tl === v2Tl) {
+            el.style.display = 'none';
+            el.textContent = '';
+            return;
+        }
+        el.style.display = 'inline-block';
+        el.textContent = '⚠ v1 TL' + v1Tl + ' / v2 TL' + v2Tl;
+        el.title = 'v1 derive_tl() returned TL' + v1Tl
+            + ' but v2 conclusion ledger says TL' + v2Tl
+            + ' for ' + (focusedId || '?')
+            + '. The badge above shows v2 (overlay priority); HUD sparkline'
+            + ' and FOCUS card now also follow v2. Click the THREAT LV badge'
+            + ' for the v2 audit trace, or wait one scoring tick — the'
+            + ' difference usually clears within 10–30s of TL transitions.';
     }
 
     // ── Per-scenario sparkline (commit W) ──────────────────────────────
