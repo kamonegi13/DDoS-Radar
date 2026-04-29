@@ -229,3 +229,106 @@ def test_persistence_failure_is_swallowed(monkeypatch, db: RadarDB) -> None:
     )
     # Must NOT raise.
     scoring._maybe_persist_tl_conclusion(state)
+
+
+# ── ADR-V2-010 inconclusive_continuity_log wiring (PF3 2026-04-29) ─────
+
+
+class TestContinuityLog:
+    """save_conclusion side-effects into inconclusive_continuity_log so the
+    7-day chronic-failure rule has data to compute against."""
+
+    def test_unavailable_conclusion_opens_run(self, db):
+        from radar.conclusions.base import ConclusionUnavailableReason
+        c = _make_conclusion(
+            id="c-unavail-1",
+            scenario_id="taiwan_contingency",
+            state=None,
+            confidence=0.0,
+            observed_at=1000.0,
+            conclusion_unavailable_reason=ConclusionUnavailableReason.INSUFFICIENT_DATA,
+        )
+        save_conclusion(db, c)
+        rows = db._get_conn().execute(
+            "SELECT * FROM inconclusive_continuity_log "
+            "WHERE scenario_id=? AND conclusion_type=? "
+            "ORDER BY observed_at DESC",
+            ("taiwan_contingency", "threat_level"),
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["is_available"] == 0
+        assert rows[0]["reason"].upper() == "INSUFFICIENT_DATA"
+        assert rows[0]["run_length_sec"] == 0
+        assert rows[0]["first_seen_at"] == 1000.0
+
+    def test_consecutive_unavailable_extends_run_length(self, db):
+        from radar.conclusions.base import ConclusionUnavailableReason
+        for i, ts in enumerate([1000.0, 1300.0, 1900.0]):
+            c = _make_conclusion(
+                id=f"c-cont-{i}",
+                scenario_id="middle_east",
+                state=None,
+                confidence=0.0,
+                observed_at=ts,
+                conclusion_unavailable_reason=ConclusionUnavailableReason.INSUFFICIENT_DATA,
+            )
+            save_conclusion(db, c)
+        rows = db._get_conn().execute(
+            "SELECT observed_at, run_length_sec, first_seen_at FROM "
+            "inconclusive_continuity_log WHERE scenario_id=? "
+            "ORDER BY observed_at ASC",
+            ("middle_east",),
+        ).fetchall()
+        assert len(rows) == 3
+        assert rows[0]["run_length_sec"] == 0
+        assert rows[1]["run_length_sec"] == 300.0
+        assert rows[2]["run_length_sec"] == 900.0
+        assert all(r["first_seen_at"] == 1000.0 for r in rows)
+
+    def test_available_after_unavailable_closes_run(self, db):
+        from radar.conclusions.base import ConclusionUnavailableReason
+        # Open the run with an unavailable conclusion.
+        save_conclusion(db, _make_conclusion(
+            id="c-close-open",
+            scenario_id="korean_peninsula",
+            state=None,
+            confidence=0.0,
+            observed_at=1000.0,
+            conclusion_unavailable_reason=ConclusionUnavailableReason.INSUFFICIENT_DATA,
+        ))
+        # Resolve.
+        save_conclusion(db, _make_conclusion(
+            id="c-close-resolved",
+            scenario_id="korean_peninsula",
+            state="3",
+            confidence=0.85,
+            observed_at=1500.0,
+        ))
+        rows = db._get_conn().execute(
+            "SELECT observed_at, is_available, run_length_sec, reason "
+            "FROM inconclusive_continuity_log WHERE scenario_id=? "
+            "ORDER BY observed_at ASC",
+            ("korean_peninsula",),
+        ).fetchall()
+        assert len(rows) == 2
+        assert rows[0]["is_available"] == 0
+        assert rows[1]["is_available"] == 1
+        assert rows[1]["run_length_sec"] == 500.0
+        assert rows[1]["reason"] == "resolved"
+
+    def test_steady_state_available_writes_nothing(self, db):
+        """Two consecutive available conclusions should NOT add continuity
+        rows — the table only tracks transitions and unavailable runs."""
+        for i, ts in enumerate([2000.0, 2300.0]):
+            save_conclusion(db, _make_conclusion(
+                id=f"c-steady-{i}",
+                scenario_id="south_china_sea",
+                state="3",
+                confidence=0.85,
+                observed_at=ts,
+            ))
+        rows = db._get_conn().execute(
+            "SELECT COUNT(*) FROM inconclusive_continuity_log WHERE scenario_id=?",
+            ("south_china_sea",),
+        ).fetchone()
+        assert rows[0] == 0
