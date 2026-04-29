@@ -134,9 +134,20 @@ def _active_proposal_count(scenario_id: str) -> int:
         return 0
 
 
-def _emit(event: ProposalEvent) -> Optional[int]:
+def _emit(
+    event: ProposalEvent,
+    *,
+    evidence_strength: Optional[str] = None,
+    vitality_state: Optional[str] = None,
+) -> Optional[int]:
     """Insert a pending proposal row. Skips if dedup or active-count
-    cap blocks it. Returns row id on success, None on skip."""
+    cap blocks it. Returns row id on success, None on skip.
+
+    Post-incident (migration v30): evidence_strength + vitality_state
+    are stamped onto the row when the caller has already evaluated the
+    guards. Both default to None for legacy callers (rows show as
+    uncategorized in the Wizard until re-emitted).
+    """
     if _has_recent_pending_for(
             event.scenario_id, event.proposal_type, event.target_country):
         return None
@@ -152,13 +163,14 @@ def _emit(event: ProposalEvent) -> Optional[int]:
             "INSERT INTO scenario_proposals "
             "(emitted_at, scenario_id, proposal_type, target_country, "
             " suggested_value_json, evidence_json, formula_ref, sample_n, "
-            " why_string, state) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+            " why_string, evidence_strength, vitality_state, state) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
             (time.time(), event.scenario_id, event.proposal_type,
              event.target_country,
              json.dumps(event.suggested_value, sort_keys=True),
              json.dumps(event.evidence, sort_keys=True),
-             event.formula_ref, int(event.sample_n), event.why_string),
+             event.formula_ref, int(event.sample_n), event.why_string,
+             evidence_strength, vitality_state),
         )
         return cur.lastrowid
 
@@ -343,6 +355,31 @@ def _rule_missing_participant(scenario) -> list[ProposalEvent]:
     return out
 
 
+# ── Diagnostic rule (post-incident, commit D) ──
+
+
+def _rule_scenario_diagnostic(scenario) -> list[ProposalEvent]:
+    """Emit scenario-level diagnostic when vitality is dormant or data_gap.
+
+    NP5+8 transitional 結論不可 made explicit:
+      - data_gap → sensor_gap_detected (sensor side suspected)
+      - dormant  → scenario_dormant    (scenario relevance suspected)
+
+    These are informational; the Wizard's Diagnostic tab surfaces them
+    without an Apply path. NP7 — never auto-mutates anything.
+    """
+    from radar.calibration import _proposal_guards as _guards
+    from radar.calibration import _proposal_writer as _writer
+    vitality = _guards.scenario_vitality(scenario, days=int(_stale_days()))
+    if vitality.state == "active":
+        return []
+    if vitality.state == "data_gap":
+        return [_writer.build_sensor_gap_event(scenario, vitality)]
+    if vitality.state == "dormant":
+        return [_writer.build_scenario_dormant_event(scenario, vitality)]
+    return []
+
+
 # ── Driver ──
 
 
@@ -356,13 +393,29 @@ def run_once() -> dict:
     except Exception as exc:
         log.warning("scenario_improver: failed to enumerate scenarios: %s", exc)
         return out
+    # Diagnostic rule runs first; if it fires, structural rules will also
+    # run for the active subset (guards inside each rule short-circuit
+    # by vitality), so per-scenario the right shape always emerges.
     rules = [
+        ("scenario_diagnostic", _rule_scenario_diagnostic),  # post-incident
         ("weight_too_low", _rule_weight_too_low),
         ("weight_too_high", _rule_weight_too_high),
         ("missing_participant", _rule_missing_participant),
     ]
+    # Guard-aware emit pulls evidence_strength + vitality_state from the
+    # event's evidence dict when present (rules write them there).
+    from radar.calibration import _proposal_guards as _guards
+
+    def _vitality_for(sc):
+        try:
+            return _guards.scenario_vitality(sc, days=int(_stale_days()))
+        except Exception:
+            return None
+
     for sc in scenarios:
         per_rule: dict[str, int] = {}
+        vitality = _vitality_for(sc)
+        vitality_state = vitality.state if vitality else None
         for name, fn in rules:
             try:
                 events = fn(sc) or []
@@ -374,7 +427,16 @@ def run_once() -> dict:
                 events = []
             emitted = 0
             for ev in events:
-                if _emit(ev) is not None:
+                strength = ev.evidence.get("evidence_strength") if isinstance(
+                    ev.evidence, dict) else None
+                vitality_in_ev = ev.evidence.get("vitality_state") if isinstance(
+                    ev.evidence, dict) else None
+                rid = _emit(
+                    ev,
+                    evidence_strength=strength,
+                    vitality_state=vitality_in_ev or vitality_state,
+                )
+                if rid is not None:
                     emitted += 1
             per_rule[name] = emitted
         out[sc.id] = per_rule

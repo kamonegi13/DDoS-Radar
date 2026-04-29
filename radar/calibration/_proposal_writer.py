@@ -37,21 +37,13 @@ NP integrity:
 """
 from __future__ import annotations
 
-import json
 import logging
-import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
 from radar.calibration import _proposal_guards as guards
-from radar.calibration.scenario_improver import (
-    ProposalEvent,
-    _has_recent_pending_for,
-    _active_proposal_count,
-    _max_active_per_scenario,
-)
-from radar.database import db
+from radar.calibration.scenario_improver import ProposalEvent
 
 log = logging.getLogger("radar.calibration._proposal_writer")
 
@@ -110,40 +102,22 @@ def emit(
     evidence_strength: Optional[str] = None,
     vitality_state: Optional[str] = None,
 ) -> Optional[int]:
-    """Insert a scenario_proposals row, stamping the new evidence_strength
-    + vitality_state columns (migration v30).
+    """Insert a scenario_proposals row with evidence_strength + vitality_state
+    stamped per migration v30.
 
-    Honors the existing dedup window + per-scenario active cap.
+    Delegates to scenario_improver._emit (single INSERT chokepoint) so
+    dedup window + per-scenario active cap are honored consistently.
     Returns the new row id, or None on dedup/cap/error.
     """
-    if _has_recent_pending_for(
-            event.scenario_id, event.proposal_type, event.target_country):
-        return None
-    if _active_proposal_count(event.scenario_id) >= _max_active_per_scenario():
-        log.debug(
-            "[writer] %s active cap hit, skipping %s",
-            event.scenario_id, event.proposal_type,
-        )
-        return None
+    from radar.calibration.scenario_improver import _emit as _improver_emit
     try:
-        conn = db._get_conn()  # noqa: SLF001
-        with conn.writing():
-            cur = conn.execute(
-                "INSERT INTO scenario_proposals "
-                "(emitted_at, scenario_id, proposal_type, target_country, "
-                " suggested_value_json, evidence_json, formula_ref, sample_n, "
-                " why_string, evidence_strength, vitality_state, state) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
-                (time.time(), event.scenario_id, event.proposal_type,
-                 event.target_country,
-                 json.dumps(event.suggested_value, sort_keys=True),
-                 json.dumps(event.evidence, sort_keys=True),
-                 event.formula_ref, int(event.sample_n), event.why_string,
-                 evidence_strength, vitality_state),
-            )
-            return cur.lastrowid
+        return _improver_emit(
+            event,
+            evidence_strength=evidence_strength,
+            vitality_state=vitality_state,
+        )
     except Exception as exc:
-        log.warning("[writer] insert failed: %s", exc)
+        log.warning("[writer] emit failed: %s", exc)
         return None
 
 

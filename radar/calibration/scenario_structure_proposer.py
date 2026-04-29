@@ -42,9 +42,23 @@ from typing import Optional
 
 from radar.calibration.scenario_improver import (
     ProposalEvent,
-    _emit as _emit_proposal,
+    _emit as _emit_raw,
 )
 from radar.database import db
+
+
+def _emit_proposal(event: ProposalEvent) -> Optional[int]:
+    """Guard-aware wrapper: stamp evidence_strength + vitality_state from
+    the event's evidence dict when the rule populated them."""
+    strength = event.evidence.get("evidence_strength") if isinstance(
+        event.evidence, dict) else None
+    vitality_state = event.evidence.get("vitality_state") if isinstance(
+        event.evidence, dict) else None
+    return _emit_raw(
+        event,
+        evidence_strength=strength,
+        vitality_state=vitality_state,
+    )
 
 log = logging.getLogger("radar.calibration.scenario_structure_proposer")
 

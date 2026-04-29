@@ -22,7 +22,6 @@ def fresh_db(tmp_path, monkeypatch):
     p = tmp_path / "writer.db"
     tdb = RadarDB(str(p))
     monkeypatch.setattr("radar.calibration.scenario_improver.db", tdb)
-    monkeypatch.setattr("radar.calibration._proposal_writer.db", tdb)
     monkeypatch.setattr("radar.calibration._proposal_guards.db", tdb)
     yield tdb
     tdb.close()

@@ -144,11 +144,37 @@ class TestScenarioImprover:
         from radar.calibration.scenario_improver import run_once
         result = run_once()
         assert isinstance(result, dict)
-        # Should iterate the registered scenarios and run all 3 rules.
+        # Should iterate the registered scenarios and run all 4 rules
+        # (post-incident: scenario_diagnostic added).
         for sid, rules in result.items():
+            assert "scenario_diagnostic" in rules
             assert "weight_too_low" in rules
             assert "weight_too_high" in rules
             assert "missing_participant" in rules
+
+    def test_diagnostic_emits_for_data_gap_scenario(self, db, monkeypatch):
+        """Empty DB → vitality is data_gap → scenario_diagnostic emits
+        sensor_gap_detected, while weight_too_high stays at zero (the
+        original incident is fixed)."""
+        # Force vitality to data_gap by patching guards to return that.
+        from radar.calibration import _proposal_guards as _guards
+        from radar.calibration import scenario_improver as _improver
+
+        fake_vitality = _guards.VitalityReport(
+            state="data_gap", total_signals=0,
+            active_participant_count=0, total_participant_count=5,
+            sensor_coverage_ratio=0.0, detail="forced",
+        )
+        monkeypatch.setattr(
+            _guards, "scenario_vitality", lambda *a, **kw: fake_vitality,
+        )
+        result = _improver.run_once()
+        # data_gap blocks weight_too_high; emits scenario_diagnostic
+        for sid, rules in result.items():
+            assert rules["weight_too_high"] == 0
+        # At least one scenario_diagnostic emitted across 5 scenarios
+        total_diag = sum(r.get("scenario_diagnostic", 0) for r in result.values())
+        assert total_diag >= 1
 
     def test_dedup_blocks_duplicate_within_window(self, db, monkeypatch):
         from radar.calibration.scenario_improver import (
