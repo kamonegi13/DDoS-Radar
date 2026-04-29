@@ -24,6 +24,7 @@ def fresh_db(tmp_path, monkeypatch):
     monkeypatch.setattr("radar.calibration.scenario_improver.db", tdb)
     monkeypatch.setattr("radar.calibration.scenario_structure_proposer.db",
                         tdb)
+    monkeypatch.setattr("radar.calibration._proposal_guards.db", tdb)
     yield tdb
     tdb.close()
 
@@ -179,31 +180,77 @@ class TestRoleReclassify:
 
 
 class TestDormantParticipant:
-    def test_proposes_for_high_weight_no_signals(self, fresh_db):
-        scenario = _make_scenario("test_dormant", participants={
-            "JP": {"weight": 0.7, "role": Role.PRIMARY_ALLY},
+    def test_proposes_in_active_scenario_with_truly_dormant_participant(
+        self, fresh_db,
+    ):
+        # Active scenario (4+ participants firing) + 1 truly dormant
+        # non-protected participant → propose dormant_participant
+        scenario = _make_scenario("test_dormant_active", participants={
+            "CN": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "JP": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "TW": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "US": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "DORMANT_X": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+        })
+        # Seed 4 active participants
+        for c in ("CN", "JP", "TW", "US"):
+            _seed_intel(fresh_db, "test_dormant_active", c, "apt_intel", 20)
+        # DORMANT_X has zero signals
+        events = ssp._rule_dormant_participant(scenario)
+        # New design: only the non-protected truly-dormant participant
+        # in an active scenario emits a recall-reducing proposal.
+        assert len(events) == 1
+        assert events[0].target_country == "DORMANT_X"
+        assert events[0].evidence["evidence_strength"] == "strong"
+        assert events[0].evidence["vitality_state"] == "active"
+
+    def test_blocks_protected_role_even_when_dormant(self, fresh_db):
+        # Same active scenario but the dormant one is primary_target →
+        # PROTECTED_ROLES guard blocks proposal.
+        scenario = _make_scenario("test_dormant_protected", participants={
+            "CN": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "JP": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "TW": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "US": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "PROT_X": {"weight": 1.0, "role": Role.PRIMARY_TARGET},
+        })
+        for c in ("CN", "JP", "TW", "US"):
+            _seed_intel(fresh_db, "test_dormant_protected", c,
+                        "apt_intel", 20)
+        events = ssp._rule_dormant_participant(scenario)
+        assert events == []
+
+    def test_blocks_in_data_gap_scenario(self, fresh_db):
+        # Data_gap scenario (no active participants) → rule skips entirely
+        # regardless of individual dormancy.
+        scenario = _make_scenario("test_dormant_gap", participants={
+            "JP": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
         })
         events = ssp._rule_dormant_participant(scenario)
-        assert len(events) == 1
-        ev = events[0]
-        assert ev.proposal_type == "dormant_participant"
-        assert ev.target_country == "JP"
-        assert ev.suggested_value["weight_from"] == 0.7
-        assert ev.suggested_value["weight_to"] < 0.7
+        assert events == []
 
     def test_skips_low_weight_participants(self, fresh_db, monkeypatch):
         monkeypatch.setenv("STRUCTURE_PROPOSER_DORMANT_WEIGHT", "0.50")
-        scenario = _make_scenario("test_dormant", participants={
+        scenario = _make_scenario("test_dormant_low", participants={
             "PH": {"weight": 0.20, "role": Role.STRATEGIC_OBSERVER},
         })
         events = ssp._rule_dormant_participant(scenario)
         assert events == []
 
     def test_skips_when_signals_present(self, fresh_db):
-        _seed_intel(fresh_db, "test_dormant", "JP", "diplomatic", 2)
-        scenario = _make_scenario("test_dormant", participants={
-            "JP": {"weight": 0.7, "role": Role.PRIMARY_ALLY},
+        # Even in active scenario, if the participant has signals the
+        # rule must not fire (multi-source guard rejects 'strong').
+        scenario = _make_scenario("test_dormant_active2", participants={
+            "CN": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "JP": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "TW": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "US": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
+            "ALMOST_DORMANT": {"weight": 0.7, "role": Role.SECONDARY_ALLY},
         })
+        for c in ("CN", "JP", "TW", "US"):
+            _seed_intel(fresh_db, "x", c, "apt_intel", 20)
+        # ALMOST_DORMANT has 1 signal — not strong dormancy
+        _seed_intel(fresh_db, "x", "ALMOST_DORMANT", "diplomatic", 2)
         events = ssp._rule_dormant_participant(scenario)
         assert events == []
 

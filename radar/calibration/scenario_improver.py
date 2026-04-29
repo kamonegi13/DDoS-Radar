@@ -226,36 +226,47 @@ def _rule_weight_too_low(scenario) -> list[ProposalEvent]:
 
 
 def _rule_weight_too_high(scenario) -> list[ProposalEvent]:
-    """Participant with 30d zero contribution AND no FN involving the country."""
-    out = []
-    cutoff = time.time() - _stale_days() * 86400
-    conn = db._get_conn()  # noqa: SLF001
+    """Recall-reducing rule — strict guards per post-incident redesign.
+
+    Emits weight_too_high ONLY when:
+      P1: role NOT in PROTECTED_ROLES (primary_target / principal_belligerent
+          / adversary / core_country are recall-load-bearing)
+      P2: ≥4 of 5 data sources show zero AND analyst_feedback_fn == 0
+      P3: scenario vitality is 'active' (data_gap or dormant scenarios
+          emit a diagnostic-level proposal instead, see commit D)
+
+    NP1 — recall-reducing path is the strictest in the system.
+    NP3 — guard module is fault-tolerant; this rule itself never raises.
+    NP6 — evidence_json carries the full multi-source signal dict so the
+          analyst can reproduce the dormancy claim.
+    """
+    # Lazy import to avoid circular dep with _proposal_guards (which can
+    # itself read this module's helpers in the future).
+    from radar.calibration import _proposal_guards as _guards
+
+    vitality = _guards.scenario_vitality(scenario, days=int(_stale_days()))
+    if vitality.state != "active":
+        # Dormant or data_gap scenarios produce a diagnostic proposal at
+        # the scenario level, not weight_too_high per participant.
+        # Diagnostic emission lives in commit D's _rule_scenario_diagnostic.
+        return []
+
+    out: list[ProposalEvent] = []
     for cc, p in scenario.participants.items():
         if p.weight <= 0:
             continue
-        try:
-            contrib = conn.execute(
-                "SELECT COUNT(*) FROM sensor_observation_ts "
-                "WHERE scope=? AND ts > ?",
-                (f"theater:{cc}", cutoff),
-            ).fetchone()
-            n_contrib = contrib[0] if contrib else 0
-        except Exception:
-            n_contrib = 0
-        if n_contrib > 0:
+        if _guards.is_role_protected(p):
+            # P1: identity-load-bearing role; never propose weight reduction.
             continue
-        try:
-            fn_row = conn.execute(
-                "SELECT COUNT(*) FROM analyst_feedback af "
-                "JOIN conclusions c ON af.conclusion_id = c.id "
-                "WHERE c.scenario_id=? AND af.label='FALSE_NEGATIVE' "
-                "AND af.observed_at > ?",
-                (scenario.id, cutoff),
-            ).fetchone()
-            n_fn = fn_row[0] if fn_row else 0
-        except Exception:
-            n_fn = 0
-        if n_fn > 0:
+        signals = _guards.collect_multi_source_signals(
+            cc, days=int(_stale_days()),
+        )
+        strength = _guards.evidence_strength(
+            signals, role_protected=False,
+        )
+        if strength != "strong":
+            # Insufficient evidence for a recall-reducing proposal.
+            # Caller (commit D's diagnostic emitter) handles needs_more_data.
             continue
         new_weight = round(max(0.10, p.weight - _weight_step()), 2)
         if new_weight == p.weight:
@@ -268,16 +279,21 @@ def _rule_weight_too_high(scenario) -> list[ProposalEvent]:
             evidence={
                 "stale_days": int(_stale_days()),
                 "current_weight": p.weight,
-                "sensor_observations": n_contrib,
-                "false_negatives": n_fn,
+                "signals": signals,
+                "evidence_strength": strength,
+                "vitality_state": vitality.state,
+                "role": p.role.value if hasattr(p.role, "value") else str(p.role),
             },
             formula_ref=f"{PROPOSER_VERSION}#weight_too_high",
-            sample_n=int(_stale_days()),
+            sample_n=sum(int(v or 0) for v in signals.values()),
             why_string=(
-                f"{cc} has weight {p.weight:.2f} but contributed nothing for "
-                f"{int(_stale_days())} days AND no analyst flagged a missed "
-                f"event. Suggest lowering weight to {new_weight:.2f} (or "
-                f"removing the participant entirely if this persists)."
+                f"{cc} (weight {p.weight:.2f}, role={p.role.value if hasattr(p.role,'value') else p.role}) "
+                f"is dormant across {_guards.zero_source_count(signals)}/5 "
+                f"data sources over {int(_stale_days())}d, with zero analyst "
+                f"FN labels for this scenario. Evidence strength: {strength}. "
+                f"Scenario vitality: {vitality.state}. Suggest lowering "
+                f"weight to {new_weight:.2f}. Recall-reducing proposal — "
+                f"requires NP7 confirmation before apply."
             ),
         ))
     return out

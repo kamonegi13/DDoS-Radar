@@ -168,29 +168,36 @@ class TestZeroSourceCount:
 
 
 class TestIsTrulyDormant:
-    def test_all_zero_with_min_4_dormant(self):
+    def test_all_zero_with_default_5_dormant(self):
         sigs = {n: 0 for n in guards.SOURCE_NAMES}
-        assert guards.is_truly_dormant(sigs, min_zero_sources=4) is True
+        assert guards.is_truly_dormant(sigs) is True
 
-    def test_one_active_below_threshold(self):
+    def test_one_active_blocks_dormancy_at_default_threshold(self):
+        # 4 zeros + 1 active → not 'strong' dormancy under tightened design
         sigs = {"llm_intel": 5, "sequence_events": 0,
                 "sensor_observation_ts": 0, "analyst_feedback_fn": 0,
                 "conclusions_contribution": 0}
-        # 4 zeros, but FN is 0, role is irrelevant here
+        assert guards.is_truly_dormant(sigs) is False  # default min=5
+
+    def test_relaxed_threshold_4_admits_one_active(self):
+        # When caller explicitly relaxes to 4, single-active is OK
+        sigs = {"llm_intel": 5, "sequence_events": 0,
+                "sensor_observation_ts": 0, "analyst_feedback_fn": 0,
+                "conclusions_contribution": 0}
         assert guards.is_truly_dormant(sigs, min_zero_sources=4) is True
 
     def test_with_fn_blocks_dormancy(self):
         sigs = {"llm_intel": 0, "sequence_events": 0,
                 "sensor_observation_ts": 0, "analyst_feedback_fn": 1,
                 "conclusions_contribution": 0}
-        # 4 zeros but FN > 0 → analyst flagged something missed
+        # FN > 0 → analyst flagged something missed
         assert guards.is_truly_dormant(sigs) is False
 
     def test_few_zeros_not_dormant(self):
         sigs = {"llm_intel": 5, "sequence_events": 5,
                 "sensor_observation_ts": 5, "analyst_feedback_fn": 0,
                 "conclusions_contribution": 0}
-        assert guards.is_truly_dormant(sigs, min_zero_sources=4) is False
+        assert guards.is_truly_dormant(sigs) is False
 
 
 # ── P3: Scenario Vitality ───────────────────────────────────────────────────
@@ -252,11 +259,17 @@ class TestEvidenceStrength:
                 "conclusions_contribution": 0}
         assert guards.evidence_strength(sigs, role_protected=False) == "insufficient"
 
-    def test_4_zeros_strong(self):
+    def test_5_zeros_strong(self):
+        sigs = {n: 0 for n in guards.SOURCE_NAMES}
+        assert guards.evidence_strength(sigs, role_protected=False) == "strong"
+
+    def test_4_zeros_no_longer_strong(self):
+        # Tightened post-incident: 4 zeros = moderate, not strong
         sigs = {"llm_intel": 5, "sequence_events": 0,
                 "sensor_observation_ts": 0, "analyst_feedback_fn": 0,
                 "conclusions_contribution": 0}
-        assert guards.evidence_strength(sigs, role_protected=False) == "strong"
+        # 4 zeros → moderate (NOT strong; need 5 zeros for strong)
+        assert guards.evidence_strength(sigs, role_protected=False) == "moderate"
 
     def test_3_zeros_moderate(self):
         sigs = {"llm_intel": 5, "sequence_events": 5,
@@ -319,17 +332,6 @@ class TestEvaluateForCountry:
     def test_active_scenario_dormant_country_allows_recall_negative(
         self, fresh_db,
     ):
-        s = _make_scenario("test", participants={
-            cc: {"weight": 0.5, "role": Role.SECONDARY_ALLY}
-            for cc in ("CN", "JP", "TW")
-        })
-        # Active scenario: CN+JP+TW have data
-        for c in ("CN", "JP", "TW"):
-            _seed_intel(fresh_db, c, n=20)
-        # But for the test, we evaluate a country with no data ("PH" not
-        # in scenario) — we need a participant who's truly dormant in
-        # an otherwise active scenario.
-        # Re-make: 4 active participants + 1 dormant ZZ
         s2 = _make_scenario("test2", participants={
             "CN": {"weight": 0.5, "role": Role.SECONDARY_ALLY},
             "JP": {"weight": 0.5, "role": Role.SECONDARY_ALLY},
@@ -339,6 +341,7 @@ class TestEvaluateForCountry:
         })
         for c in ("CN", "JP", "TW", "US"):
             _seed_intel(fresh_db, c, n=20)
+        # ZZ has no signals at all → all 5 sources zero → strong
         decision = guards.evaluate_for_country(s2, "ZZ")
         assert decision.vitality.state == "active"
         assert decision.strength == "strong"

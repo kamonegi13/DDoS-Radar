@@ -200,12 +200,17 @@ def zero_source_count(signals: dict[str, int]) -> int:
 def is_truly_dormant(
     signals: dict[str, int],
     *,
-    min_zero_sources: int = 4,
+    min_zero_sources: int = 5,
     require_zero_fn: bool = True,
 ) -> bool:
     """Return True iff dormancy claim is supported by P2 evidence:
 
       ≥ min_zero_sources of 5 sources at zero AND analyst FN == 0.
+
+    Default min_zero_sources=5 (all sources zero) is the strict bar for
+    recall-reducing proposals. Loosening to 4 admits participants with
+    a single observable source (e.g. 2 llm_intel rows in 30d) which
+    reliably misclassifies "low but nonzero activity" as "dormant".
 
     Returning False does NOT mean "active" — it means "evidence
     insufficient to call dormant" (which is the safe default under
@@ -345,9 +350,12 @@ def evidence_strength(
     if signals.get("analyst_feedback_fn", 0) > 0:
         return "insufficient"
     zeros = zero_source_count(signals)
-    if zeros >= 4:
+    # 'strong' requires ALL 5 sources at zero. 4 zeros admits a
+    # participant with one observable source as 'dormant', which flagged
+    # actively-monitored countries during the 2026-04-29 incident.
+    if zeros >= 5:
         return "strong"
-    if zeros >= 2:
+    if zeros >= 3:
         return "moderate"
     if zeros >= 1:
         return "weak"

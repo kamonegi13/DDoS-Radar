@@ -210,22 +210,33 @@ def _rule_role_reclassify(scenario) -> list[ProposalEvent]:
 
 
 def _rule_dormant_participant(scenario) -> list[ProposalEvent]:
-    """Detect non-trivial participants with zero signal contribution.
+    """Recall-reducing rule — strict guards per post-incident redesign.
 
-    Softer than F1's weight_too_high (which fires only when an analyst
-    FN excludes the country). Dormant fires earlier as a "please
-    review" hint.
+    Mirrors F1's _rule_weight_too_high logic: emits dormant_participant
+    ONLY for non-protected roles in active scenarios with strong
+    multi-source dormancy evidence. data_gap / dormant scenarios skip
+    this rule entirely (commit D emits scenario-level diagnostics
+    instead).
     """
-    mix = _read_signal_mix(scenario)
+    from radar.calibration import _proposal_guards as _guards
+
+    vitality = _guards.scenario_vitality(scenario, days=int(_lookback_days()))
+    if vitality.state != "active":
+        return []
+
     floor = _dormant_weight_floor()
     out: list[ProposalEvent] = []
     for country_iso, participant in scenario.participants.items():
         weight = getattr(participant, "weight", 0.0) or 0.0
         if weight < floor:
             continue
-        per = mix.get(country_iso) or mix.get(country_iso.upper()) or {}
-        total = sum(per.values()) if per else 0
-        if total > 0:
+        if _guards.is_role_protected(participant):
+            continue
+        signals = _guards.collect_multi_source_signals(
+            country_iso, days=int(_lookback_days()),
+        )
+        strength = _guards.evidence_strength(signals, role_protected=False)
+        if strength != "strong":
             continue
         try:
             current_role_value = participant.role.value
@@ -243,18 +254,20 @@ def _rule_dormant_participant(scenario) -> list[ProposalEvent]:
             evidence={
                 "weight": weight,
                 "role": current_role_value,
-                "signal_count_30d": 0,
+                "signals": signals,
+                "evidence_strength": strength,
+                "vitality_state": vitality.state,
                 "lookback_days": _lookback_days(),
             },
             formula_ref=f"{PROPOSER_VERSION}#dormant_participant",
-            sample_n=0,
+            sample_n=sum(int(v or 0) for v in signals.values()),
             why_string=(
                 f"Country {country_iso} (weight={weight:.2f}, "
-                f"role={current_role_value}) produced zero llm_intel "
-                f"signals in the last {_lookback_days():.0f}d. Consider "
-                f"reviewing relevance — either the country is dormant "
-                f"and weight should be reduced, or the sensors covering "
-                f"it are degraded (check /api/v2/proposals/sensor_disable)."
+                f"role={current_role_value}) is dormant across "
+                f"{_guards.zero_source_count(signals)}/5 data sources "
+                f"over {_lookback_days():.0f}d. Evidence strength: "
+                f"{strength}, scenario vitality: {vitality.state}. "
+                f"Recall-reducing — requires NP7 confirmation."
             ),
         ))
     return out
