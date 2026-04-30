@@ -187,6 +187,96 @@ class DecisionLedger:
             return False
         return True
 
+    def active_for_target(
+        self,
+        *,
+        decision_types: list[str],
+        target_kind: str,
+        target_id: Optional[str],
+        now: Optional[float] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Return the single currently-active decision for a target across
+        a list of candidate decision_types, or None.
+
+        Used by advisory endpoints to ask "is there any analyst response
+        on this scenario right now?". The list of candidate types is
+        category-specific (e.g., for TL recal advisory the candidates
+        are tl_recal_accept / tl_recal_extend / tl_recal_raise).
+
+        If multiple types are active for the same target (which can
+        happen if extend was followed by accept), the most recently
+        decided one wins — that matches the supersession semantics
+        of record() within a single decision_type.
+        """
+        ts = now if (now is not None) else time.time()
+        if target_id is None:
+            placeholders = ",".join("?" for _ in decision_types)
+            rows = self._db._get_conn().execute(
+                f"SELECT * FROM decisions "
+                f"WHERE decision_type IN ({placeholders}) "
+                f"  AND target_kind = ? "
+                f"  AND target_id IS NULL "
+                f"  AND superseded_by IS NULL "
+                f"  AND (expires_at IS NULL OR expires_at > ?) "
+                f"ORDER BY decided_at DESC LIMIT 1",
+                (*decision_types, target_kind, ts),
+            ).fetchall()
+        else:
+            placeholders = ",".join("?" for _ in decision_types)
+            rows = self._db._get_conn().execute(
+                f"SELECT * FROM decisions "
+                f"WHERE decision_type IN ({placeholders}) "
+                f"  AND target_kind = ? "
+                f"  AND target_id = ? "
+                f"  AND superseded_by IS NULL "
+                f"  AND (expires_at IS NULL OR expires_at > ?) "
+                f"ORDER BY decided_at DESC LIMIT 1",
+                (*decision_types, target_kind, target_id, ts),
+            ).fetchall()
+        if not rows:
+            return None
+        return self._row_to_dict(rows[0])
+
+    def active_for_targets_batch(
+        self,
+        *,
+        decision_types: list[str],
+        target_kind: str,
+        target_ids: list[str],
+        now: Optional[float] = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Bulk variant: returns {target_id: active_decision_dict, ...}
+        keyed only for targets that have an active decision. Empty dict
+        when nothing is active.
+
+        Avoids N+1 queries when an advisory has many targets (e.g., 5
+        scenarios in TL recal). Single SQL roundtrip."""
+        if not target_ids or not decision_types:
+            return {}
+        ts = now if (now is not None) else time.time()
+        type_ph = ",".join("?" for _ in decision_types)
+        id_ph = ",".join("?" for _ in target_ids)
+        rows = self._db._get_conn().execute(
+            f"SELECT * FROM decisions "
+            f"WHERE decision_type IN ({type_ph}) "
+            f"  AND target_kind = ? "
+            f"  AND target_id IN ({id_ph}) "
+            f"  AND superseded_by IS NULL "
+            f"  AND (expires_at IS NULL OR expires_at > ?) "
+            f"ORDER BY decided_at DESC",
+            (*decision_types, target_kind, *target_ids, ts),
+        ).fetchall()
+        # Multiple rows may match the same target_id if multiple types
+        # are concurrently active (e.g., extend followed by accept).
+        # Keep the most recently decided per target_id.
+        out: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            d = self._row_to_dict(r)
+            tid = d.get("target_id")
+            if tid and tid not in out:
+                out[tid] = d
+        return out
+
     def history(
         self,
         *,

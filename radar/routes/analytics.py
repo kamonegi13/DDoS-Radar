@@ -1258,8 +1258,82 @@ def api_tl_recalibration_advisory():
             "decision": decision,
         })
 
-    days_remaining = (TL_RECALIBRATION_DEADLINE_TS - now_ts) / 86400.0
-    days_remaining_extended = (TL_RECALIBRATION_EXTENDED_DEADLINE_TS - now_ts) / 86400.0
+    # ── Decision Layer integration (governance_state, F1) ─────────────
+    # Merge any active analyst decisions per scenario_id. The advisory
+    # is now the union of "what the data says" (decision.recommendation)
+    # and "what the analyst already decided" (governance_state). Client
+    # uses governance_state when present, otherwise falls back to
+    # decision.recommendation for action prompting.
+    _TL_RECAL_TYPES = ["tl_recal_accept", "tl_recal_extend", "tl_recal_raise"]
+    target_ids = [a["scenario_id"] for a in advisories]
+    active_per_scenario = _db.decisions.active_for_targets_batch(
+        decision_types=_TL_RECAL_TYPES,
+        target_kind="scenario",
+        target_ids=target_ids,
+    ) if target_ids else {}
+
+    earliest_open_expires_at = None  # for the top-level deadline summary
+
+    for adv in advisories:
+        active = active_per_scenario.get(adv["scenario_id"])
+        if active is None:
+            adv["governance_state"] = {"status": "open"}
+            # Open scenarios contribute to the global deadline summary.
+            # Use the hardcoded primary deadline as their effective
+            # expiry — that's still the governance horizon for them.
+            if earliest_open_expires_at is None \
+                    or TL_RECALIBRATION_DEADLINE_TS < earliest_open_expires_at:
+                earliest_open_expires_at = TL_RECALIBRATION_DEADLINE_TS
+            continue
+        # Map decision_type → governance status.
+        gs_status = {
+            "tl_recal_accept": "accepted",
+            "tl_recal_extend": "extended",
+            "tl_recal_raise":  "raised",
+        }.get(active["decision_type"], "open")
+        adv["governance_state"] = {
+            "status": gs_status,
+            "actor": active["actor"],
+            "decided_at": active["decided_at"],
+            "expires_at": active["expires_at"],
+            "reason": active.get("reason"),
+            "decision_id": active["id"],
+            "parameters": active.get("parameters"),
+        }
+        # Per-scenario deadline override: when the analyst has accepted
+        # or extended, the ledger expiry IS the new deadline. Surface
+        # it inline so the card renders the right number of days.
+        if active["expires_at"]:
+            adv["effective_expires_at"] = active["expires_at"]
+            ddays = (active["expires_at"] - now_ts) / 86400.0
+            adv["effective_days_remaining"] = round(ddays, 1)
+
+    # Top-level deadline summary: prefer the earliest open-state
+    # scenario's hardcoded deadline. If everything is settled
+    # (accepted/extended/raised), surface the latest expiry instead so
+    # the analyst sees "next re-eval needed in N days".
+    if earliest_open_expires_at is not None:
+        deadline_ts = earliest_open_expires_at
+        deadline_label = "2026-04-28"
+        deadline_extended = "2026-05-12"
+    else:
+        # All scenarios settled. Use the latest expiry across active
+        # decisions as the "next decision point".
+        latest_exp = max(
+            (d.get("expires_at") or 0) for d in active_per_scenario.values()
+        ) if active_per_scenario else 0
+        deadline_ts = latest_exp if latest_exp else TL_RECALIBRATION_DEADLINE_TS
+        deadline_label = "settled"
+        deadline_extended = "settled"
+
+    days_remaining = (deadline_ts - now_ts) / 86400.0
+    days_remaining_extended = (
+        TL_RECALIBRATION_EXTENDED_DEADLINE_TS - now_ts
+    ) / 86400.0
+
+    open_count = sum(1 for a in advisories
+                     if a["governance_state"]["status"] == "open")
+
     return jsonify({
         "hours": hours,
         "config": {
@@ -1269,13 +1343,14 @@ def api_tl_recalibration_advisory():
             "tl1_target_per_week_max": TL1_TARGET_PER_WEEK_MAX,
         },
         "deadline": {
-            "primary": "2026-04-28",
-            "extended_hard": "2026-05-12",
+            "primary": deadline_label,
+            "extended_hard": deadline_extended,
             "days_remaining": round(days_remaining, 1),
             "days_remaining_extended": round(days_remaining_extended, 1),
             "past_primary": days_remaining < 0,
             "past_extended": days_remaining_extended < 0,
         },
+        "open_count": open_count,  # F3 dashboard pin uses this
         "scenarios": advisories,
     })
 
@@ -1599,7 +1674,51 @@ def api_dual_weight_evaluation():
             },
         }
 
-    days_remaining          = (DUAL_WEIGHT_DEADLINE_TS - now_ts) / 86400.0
+    # ── Decision Layer integration (governance_state, F1) ─────────────
+    # Dual-weight is global (target_kind='global', target_id=NULL).
+    # Active analyst decisions trump the data-driven recommendation
+    # for governance status display, but the underlying recommendation
+    # stays in `decision` for transparency (NP6 — analyst can compare
+    # what the data says now vs what they decided last time).
+    _DUAL_WEIGHT_TYPES = ["dual_weight_accept", "dual_weight_extend",
+                          "dual_weight_rollback"]
+    active_dw = _db.decisions.active_for_target(
+        decision_types=_DUAL_WEIGHT_TYPES,
+        target_kind="global",
+        target_id=None,
+    )
+    if active_dw is None:
+        governance_state = {"status": "open"}
+        deadline_ts = DUAL_WEIGHT_DEADLINE_TS
+        deadline_label = "2026-05-12"
+        deadline_extended = "2026-05-26"
+    else:
+        gs_status = {
+            "dual_weight_accept":  "accepted",
+            "dual_weight_extend":  "extended",
+            "dual_weight_rollback": "rolled_back",
+        }.get(active_dw["decision_type"], "open")
+        governance_state = {
+            "status": gs_status,
+            "actor": active_dw["actor"],
+            "decided_at": active_dw["decided_at"],
+            "expires_at": active_dw["expires_at"],
+            "reason": active_dw.get("reason"),
+            "decision_id": active_dw["id"],
+            "parameters": active_dw.get("parameters"),
+        }
+        # rollback has no expires_at → treat as permanent settlement
+        # until revoked. Other actions use ledger expiry.
+        if active_dw["expires_at"]:
+            deadline_ts = active_dw["expires_at"]
+            deadline_label = "settled"
+            deadline_extended = "settled"
+        else:
+            deadline_ts = DUAL_WEIGHT_DEADLINE_TS
+            deadline_label = "settled (rolled_back)"
+            deadline_extended = "settled (rolled_back)"
+
+    days_remaining = (deadline_ts - now_ts) / 86400.0
     days_remaining_extended = (DUAL_WEIGHT_EXTENDED_DEADLINE_TS - now_ts) / 86400.0
     return jsonify({
         "hours": hours,
@@ -1609,14 +1728,16 @@ def api_dual_weight_evaluation():
             "low_weight_pct_rollback_threshold": DUAL_WEIGHT_LOW_WEIGHT_PCT_THRESHOLD,
         },
         "deadline": {
-            "primary": "2026-05-12",
-            "extended_hard": "2026-05-26",
+            "primary": deadline_label,
+            "extended_hard": deadline_extended,
             "days_remaining": round(days_remaining, 1),
             "days_remaining_extended": round(days_remaining_extended, 1),
             "past_primary": days_remaining < 0,
             "past_extended": days_remaining_extended < 0,
         },
         "decision": decision,
+        "governance_state": governance_state,  # F1 — Decision Layer
+        "open_count": 0 if governance_state["status"] != "open" else 1,
         "scenarios": results,
     })
 
