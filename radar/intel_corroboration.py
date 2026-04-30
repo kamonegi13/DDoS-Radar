@@ -55,8 +55,10 @@ _INDEPENDENCE: dict[frozenset, float] = {
     # Same Telegram data stream: hacktivist and ground_osint both read _intercept_log
     frozenset({"ground_osint", "hacktivist"}):   0.15,
 
-    # Wire-service amplification: multiple defense outlets often cite the same press release
-    frozenset({"military", "military"}):         0.20,
+    # Wire-service amplification: two military-tagged items often cite the same press release.
+    # Singleton frozenset matches `_independence("military", "military")` because
+    # `frozenset({a, b})` collapses to `frozenset({a})` when a == b.
+    frozenset({"military"}):                     0.20,
 
     # RSS narrative monitors adversary media; diplomatic monitors official statements —
     # they often cover the same event from different angles.  Moderate independence.

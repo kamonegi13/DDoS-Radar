@@ -382,6 +382,7 @@ const STRINGS = {
     // Footer / status bar
     // ══════════════════════════════════════════════════════════════
     'footer.system_init':             'System Initializing...',
+    'status.sync':                    'SYNC',
     'status.syncing':                 'SYNCING...',
     'status.sync_done':               'Data Synced: {time} (Next in 15 min)',
     'status.pending':                 'Changes pending. Press SYNC.',

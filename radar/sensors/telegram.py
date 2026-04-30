@@ -244,9 +244,12 @@ class TelegramMirrorSensor(BaseSensor):
         if status == "CLEAR":
             return
         import hashlib as _hl
-        content_hash = _hl.md5(
-            f"{channel}:{theater}:{snippet[:200]}:{','.join(targets[:5])}".encode()
-        ).hexdigest()
+        # SHA-256 used for content dedup fingerprint (non-security);
+        # usedforsecurity=False avoids ruff S324 without changing semantics.
+        content_hash = _hl.sha256(
+            f"{channel}:{theater}:{snippet[:200]}:{','.join(targets[:5])}".encode(),
+            usedforsecurity=False,
+        ).hexdigest()[:32]
         key = (channel, theater)
         with cls._intercept_lock:
             if cls._last_seen.get(key) == content_hash:

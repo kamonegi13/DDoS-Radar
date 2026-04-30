@@ -85,6 +85,22 @@ def _get_or_create_jwt_secret() -> str:
     _config_path = os.path.join(_project_root, "config.env")
     persisted = False
     try:
+        # Existence check: avoid appending duplicate JWT_SECRET_KEY entries
+        # if config.env already contains one (python-dotenv would silently
+        # take the last occurrence, but the duplication is confusing).
+        already_present = False
+        if os.path.exists(_config_path):
+            with open(_config_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith("JWT_SECRET_KEY=") and len(stripped) > len("JWT_SECRET_KEY="):
+                        already_present = True
+                        break
+        if already_present:
+            log.warning("[Auth] JWT_SECRET_KEY already exists in config.env; "
+                        "skipping append to avoid duplicates. "
+                        "Restart the process so dotenv reloads the existing value.")
+            return generated  # ephemeral fallback; restart will pick up persisted value
         with open(_config_path, "a", encoding="utf-8") as f:
             f.write(f"\nJWT_SECRET_KEY={generated}\n")
         # Restrict file permissions to owner-only (ignored on Windows)
@@ -142,11 +158,19 @@ def _create_default_admin(db):
     default_pw = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
     if not default_pw:
         default_pw = secrets.token_urlsafe(16)
-        log.warning("=" * 60)
-        log.warning("[Auth] No DEFAULT_ADMIN_PASSWORD set.")
-        log.warning("[Auth] Generated temporary admin password: %s", default_pw)
-        log.warning("[Auth] Change this password immediately after first login.")
-        log.warning("=" * 60)
+        # Avoid emitting the password through the structured logger; log
+        # forwarders (ELK, Splunk, Datadog) commonly persist warnings with
+        # long retention. Stdout is captured by the operator console only.
+        import sys as _sys
+        print("=" * 60, file=_sys.stdout, flush=True)
+        print(f"[SECURITY] Generated temporary admin password: {default_pw}",
+              file=_sys.stdout, flush=True)
+        print("[SECURITY] Change this password immediately after first login.",
+              file=_sys.stdout, flush=True)
+        print("=" * 60, file=_sys.stdout, flush=True)
+        log.warning("[Auth] No DEFAULT_ADMIN_PASSWORD set; "
+                    "temporary admin password written to stdout. "
+                    "Change immediately after first login.")
     salt = secrets.token_hex(16)
     pw_hash = _hash_password(default_pw, salt)
     now = time.time()

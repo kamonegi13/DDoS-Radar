@@ -51,11 +51,14 @@ class NasaFirmsSensor(BaseSensor):
                 record_count = len(events)
                 self.log_fetch(True, duration, res.status_code, record_count)
 
-                # Skip spatial scan when wildfire set is unchanged
+                # Skip spatial scan when wildfire set is unchanged.
+                # SHA-256 used for content fingerprint (non-security); usedforsecurity=False
+                # avoids ruff S324 noise without changing semantics.
                 import hashlib as _hl
-                sig = _hl.md5(
-                    (f"{record_count}|" + "|".join(e.get("id", "") for e in events[:10])).encode()
-                ).hexdigest()
+                sig = _hl.sha256(
+                    (f"{record_count}|" + "|".join(e.get("id", "") for e in events[:10])).encode(),
+                    usedforsecurity=False,
+                ).hexdigest()[:32]
                 if sig == self._last_event_sig:
                     cached = self.get_cache()
                     if cached:

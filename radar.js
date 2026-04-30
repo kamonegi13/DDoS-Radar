@@ -4773,10 +4773,18 @@
             }
 
         } catch (error) {
-            console.error("API Error:", error); 
+            console.error("API Error:", error);
         } finally {
-            syncBtnTop.innerText = "SYNC"; syncBtnTop.classList.remove("syncing");
-            syncBtnSide.innerText = "SYNC"; syncBtnSide.classList.remove("syncing");
+            // Null-guard: panel teardown / partial DOM load can leave these missing.
+            // Throwing in `finally` would mask the catch above and freeze the UI.
+            if (syncBtnTop) {
+                syncBtnTop.innerText = _t('status.sync');
+                syncBtnTop.classList.remove("syncing");
+            }
+            if (syncBtnSide) {
+                syncBtnSide.innerText = _t('status.sync');
+                syncBtnSide.classList.remove("syncing");
+            }
             checkPendingState();
 
             if (isFirstLoad) {

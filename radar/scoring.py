@@ -157,7 +157,7 @@ def select_secondary_ec_hits(
     return out
 
 
-def register_sequence_event(theater: str, event_type: str, meta: dict = None,
+def register_sequence_event(theater: str, event_type: str, meta: Optional[dict] = None,
                             dedup_window: int = 300,
                             scenario_id: str | None = None):
     """Register an event in the escalation chain log.

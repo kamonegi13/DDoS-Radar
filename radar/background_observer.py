@@ -49,7 +49,7 @@ import logging
 import threading
 import time
 import urllib.request
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional

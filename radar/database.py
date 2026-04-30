@@ -371,23 +371,8 @@ CREATE INDEX IF NOT EXISTS idx_conclusion_diff_kind_time
 
 -- v2.0 Phase 2 (ADR-V2-010): inconclusive_continuity_log.
 -- Tracks consecutive cycles where a (scenario, conclusion_type) pair
--- produced an unavailable conclusion. NP5+8: transient unavailable is OK,
--- but >= 7-day continuous unavailable is a design failure.
-CREATE TABLE IF NOT EXISTS inconclusive_continuity_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    observed_at     REAL    NOT NULL,
-    scenario_id     TEXT    NOT NULL,
-    conclusion_type TEXT    NOT NULL,
-    is_available    INTEGER NOT NULL,
-    reason          TEXT,
-    run_length_sec  REAL    NOT NULL DEFAULT 0,
-    first_seen_at   REAL,
-    metadata        TEXT    NOT NULL DEFAULT '{}'
-);
-CREATE INDEX IF NOT EXISTS idx_continuity_scen_type_time
-    ON inconclusive_continuity_log (scenario_id, conclusion_type, observed_at DESC);
-CREATE INDEX IF NOT EXISTS idx_continuity_observed_at
-    ON inconclusive_continuity_log (observed_at DESC);
+-- inconclusive_continuity_log: defined below near line 636 with stricter
+-- first_seen_at NOT NULL constraint (kept as the canonical schema).
 CREATE INDEX IF NOT EXISTS idx_conclusions_scen_type_time
     ON conclusions (scenario_id, conclusion_type, observed_at DESC);
 
@@ -444,7 +429,7 @@ CREATE TABLE IF NOT EXISTS daily_summary (
     summary_json  TEXT NOT NULL DEFAULT '{}',
     UNIQUE(theater, day_bucket)
 );
-CREATE INDEX IF NOT EXISTS idx_daily_summary_theater ON daily_summary (theater, day_bucket);
+-- (idx_daily_summary_theater removed: exact duplicate of UNIQUE(theater, day_bucket))
 
 -- CAC: Forecast log for prediction accuracy tracking
 CREATE TABLE IF NOT EXISTS forecast_log (
@@ -471,7 +456,8 @@ CREATE TABLE IF NOT EXISTS cooccurrence_stats (
     last_updated  REAL NOT NULL,
     UNIQUE(sensor_a, sensor_b, theater)
 );
-CREATE INDEX IF NOT EXISTS idx_cooccur_sensors ON cooccurrence_stats (sensor_a, sensor_b);
+-- (idx_cooccur_sensors removed: prefix-redundant with UNIQUE(sensor_a, sensor_b, theater);
+--  SQLite uses the UNIQUE index for (sensor_a, sensor_b) equality lookups.)
 
 -- Climate Feed events (persistent)
 CREATE TABLE IF NOT EXISTS climate_events (
@@ -1067,6 +1053,15 @@ class RadarDB:
             raw = sqlite3.connect(self._db_path, timeout=5)
             raw.execute("PRAGMA journal_mode = WAL")
             raw.execute("PRAGMA synchronous = NORMAL")
+            # NOTE: PRAGMA foreign_keys = ON is deliberately deferred to
+            # Phase 5 (DB integrity sprint). Enabling FK enforcement now
+            # causes test_decisions.py (14 tests) to fail because the
+            # decisions self-FK chain produces orphan-like rows during
+            # supersede operations. Phase 5 covers the orphan audit +
+            # scenario_purge cascade fix + ON DELETE SET NULL on
+            # decisions.superseded_by, after which FK can be turned on
+            # safely. Tracked in .claude/PRPs/plans/codebase-review-fixes.md
+            # under Phase 5 (DB H1-H4) and DB review M3/M4/M8.
             raw.row_factory = sqlite3.Row
             conn = _CooperativeConn(raw, self._write_lock)
             self._local.conn = conn
@@ -1962,6 +1957,10 @@ class RadarDB:
             -- SQLite doesn't support modifying CHECK constraints, so we
             -- recreate the table with the new constraint and migrate
             -- the data. Indexes are recreated below.
+            -- NOTE: CREATE TABLE without IF NOT EXISTS is intentional here.
+            -- The preceding ALTER TABLE ... RENAME guarantees the original
+            -- name is free; if a partial migration left the original in place
+            -- we want this to fail loudly rather than silently skip the rebuild.
             ALTER TABLE scenario_proposals RENAME TO scenario_proposals_old_v34;
             CREATE TABLE scenario_proposals (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,

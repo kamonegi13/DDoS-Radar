@@ -104,6 +104,14 @@ class Scenario:
     def is_scorable(self) -> bool:
         return self.state == "active" and self.enabled
 
+    @property
+    def adversaries(self) -> list[str]:
+        # ADR-V2-016 / drift_watchdog compatibility: list of countries
+        # whose participant role is ADVERSARY. Derived from participants
+        # at access time (not stored) to keep Role as the single source.
+        return [country for country, p in self.participants.items()
+                if p.role == Role.ADVERSARY]
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
