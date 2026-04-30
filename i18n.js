@@ -281,6 +281,17 @@ const STRINGS = {
     'decision_history.close':          '[ X ] Close',
     'decision_history.loading':        'Loading…',
     'decision_history.disclaimer':     'AP4 Decision Trail — every analyst action recorded with actor, reason, and parameters. Combine with the LLM Features audit log and scenario_change_log for the full forensic timeline.',
+
+    // ── Pending Decisions governance_state (F3 of fix series, 2026-04-30) ─
+    // Labels for the inline badge that appears next to a settled card's
+    // heading. Open cards have no badge. After Re-evaluate the card
+    // returns to open state and these labels disappear.
+    'pd.gs.accepted':                  '✓ Accepted',
+    'pd.gs.extended':                  '⏵ Extended',
+    'pd.gs.raised':                    '↑ Raised',
+    'pd.gs.rolled_back':               '↩ Rolled back',
+    'pd.gs.reeval':                    '↻ Re-evaluate',
+    'pd.gs.reeval.tooltip':            'Reopen this decision — the data-driven recommendation will surface again on next refresh. Action recorded in the audit log (NP6).',
     'hud.label.eta':                  'ETA',
     'hud.tooltip.eta':                'ETA: projected time to next TL boundary based on current velocity. Suppressed when velocity is too small to be meaningful.',
     'hud.eta.tooltip_up':             '{pts}pt → TL{tl}, est. ~{eta} at current rate',

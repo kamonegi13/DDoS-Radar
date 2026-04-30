@@ -3266,7 +3266,19 @@
                 </ul>
             </li>
             <li><b>Authorization</b>: triage operations + threshold = analyst+admin (operational scope). TL/dual_weight calibration governance = admin only (governance scope). History + single-decision GET = analyst+admin (transparent forensics).</li>
-            <li><b>Tests</b>: <span class="code-block">test_decisions.py</span> covers 37 cases — schema, supersede chains, target isolation, expiry semantics, revoke idempotence, history filter combinations, and every endpoint's auth + NP7 + V2 gate behaviour.</li>
+            <li><b>Tests</b>: <span class="code-block">test_decisions.py</span> covers 47 cases — schema, supersede chains, target isolation, expiry semantics, revoke idempotence, history filter combinations, advisory + ledger end-to-end integration (per-scenario isolation, open_count drop after acceptance, deadline override by extend, rollback permanence), and every endpoint's auth + NP7 + V2 gate behaviour.</li>
+        </ul>
+
+        <p><b>O.1 Bug fix — buttons did not make cards disappear (F1–F4, 2026-04-30 PM)</b></p>
+        <ul>
+            <li><b>Symptom</b>: Clicking [Accept] / [Extend] / [Rollback] on a Pending Decisions card recorded the analyst's decision in the ledger but the card re-rendered identically. Analyst could not tell their decision had been accepted.</li>
+            <li><b>Root cause</b>: <span class="code-block">/api/analytics/tl_recalibration_advisory</span> and <span class="code-block">/api/analytics/dual_weight_evaluation</span> kept returning the same hardcoded recommendation regardless of what was in the ledger. The data-driven recommendation and the analyst's response were on parallel tracks that never met.</li>
+            <li><b>Fix (F1)</b>: both advisory endpoints became ledger-aware. Each scenario (or the global dual-weight fleet) now carries a <span class="code-block">governance_state</span> block summarising the active analyst decision: <span class="code-block">{status: 'open' | 'accepted' | 'extended' | 'raised' | 'rolled_back', actor, decided_at, expires_at, reason, decision_id, parameters}</span>. Per-scenario deadline is overridden by ledger expiry when settled. Top-level <span class="code-block">open_count</span> tells the dashboard pin how many real pending items remain.</li>
+            <li><b>Fix (F2)</b>: <span class="code-block">POST /api/v2/decisions/&lt;id&gt;/revoke</span> endpoint added so settled decisions can be undone (with reason). Auth scope mirrors the original write (governance = admin, operational = analyst+admin). Returns 409 on already-inactive (race / double-click safety). 7 advisory-integration tests verify the ledger writes show up correctly in the next advisory fetch.</li>
+            <li><b>Fix (F3)</b>: TL recalibration rollup card removed. Each scenario now gets its own card so governance_state, deadline, and Accept/Extend/Raise wiring are per-scenario as they always should have been (NP6 — the data-driven recommendation is itself per-scenario; the rollup was a fabrication that hid which scenarios were actually settled). Settled cards dim to 62% opacity with an inline status badge (✓ / ⏵ / ↑ / ↩) and replace their action row with a single [↻ Re-evaluate] button that calls the F2 revoke endpoint.</li>
+            <li><b>Dashboard pin behavior</b>: visibility now driven by <span class="code-block">open_count</span> from the advisories. Pin shows "pending N" per category. When every category is settled (totalOpen=0) the pin auto-hides; the next "pending" event re-shows it. No more "pin stays visible after I already accepted everything".</li>
+            <li><b>Re-evaluate flow</b>: clicking [↻ Re-evaluate] on a settled card prompts for an optional reason, POSTs to <span class="code-block">/api/v2/decisions/&lt;decision_id&gt;/revoke</span>, then reloads. The original decision row is preserved (NP6 audit) — <span class="code-block">superseded_by</span> gets a synthetic <span class="code-block">revoked:&lt;actor&gt;:&lt;ts&gt;</span> marker. Card returns to its data-driven recommendation on next fetch.</li>
+            <li><b>Back-compat</b>: every advisory response field present before F1 is still present and unchanged. <span class="code-block">governance_state</span> and <span class="code-block">open_count</span> are additive — clients that don't know about them keep working.</li>
         </ul>
 
         </div>
@@ -3528,7 +3540,19 @@
                 </ul>
             </li>
             <li><b>認可</b>: triage 操作 + threshold = analyst+admin（運用スコープ）。TL/dual_weight calibration governance = admin のみ（ガバナンススコープ）。History + 単一 decision GET = analyst+admin（透明 forensics）。</li>
-            <li><b>テスト</b>: <span class="code-block">test_decisions.py</span> が 37 ケース（schema / supersede chains / target isolation / expiry semantics / revoke idempotence / history filter combinations / 全 endpoint の auth + NP7 + V2 gate behaviour）をカバー。</li>
+            <li><b>テスト</b>: <span class="code-block">test_decisions.py</span> が 47 ケース（schema / supersede chains / target isolation / expiry semantics / revoke idempotence / history filter combinations / advisory + ledger end-to-end 統合（per-scenario isolation、accept 後の open_count 減算、extend による deadline 上書き、rollback の永続化）/ 全 endpoint の auth + NP7 + V2 gate behaviour）をカバー。</li>
+        </ul>
+
+        <p><b>O.1 バグ修正 — ボタン押下後にカードが消えない問題（F1〜F4、2026-04-30 PM）</b></p>
+        <ul>
+            <li><b>症状</b>: Pending Decisions カードで [Accept] / [Extend] / [Rollback] を押下しても、analyst の決断は ledger に記録されているのにカードが同じ内容で再描画されていた。analyst から見ると「決断が受理されたか不明」な状態。</li>
+            <li><b>根本原因</b>: <span class="code-block">/api/analytics/tl_recalibration_advisory</span> および <span class="code-block">/api/analytics/dual_weight_evaluation</span> が ledger の内容に関係なくハードコードされた recommendation を返し続けていた。データ駆動 recommendation と analyst 応答が並行レーンで交わらない設計欠陥。</li>
+            <li><b>修正 (F1)</b>: 両 advisory endpoints を ledger-aware 化。各シナリオ（dual-weight は global）に <span class="code-block">governance_state</span> ブロック付与: <span class="code-block">{status: 'open' | 'accepted' | 'extended' | 'raised' | 'rolled_back', actor, decided_at, expires_at, reason, decision_id, parameters}</span>。settled 時は per-scenario deadline を ledger expiry で上書き。トップレベル <span class="code-block">open_count</span> でダッシュボードピンに「真の保留件数」を伝達。</li>
+            <li><b>修正 (F2)</b>: <span class="code-block">POST /api/v2/decisions/&lt;id&gt;/revoke</span> エンドポイント追加。settled な decision を取り消し可能（reason 任意）。認可スコープは元の write と同じ（governance = admin、operational = analyst+admin）。すでに inactive な ID への revoke は 409 を返す（race / double-click 対策）。advisory + ledger 統合テスト 7 件追加。</li>
+            <li><b>修正 (F3)</b>: TL recalibration の rollup カードを廃止。各シナリオが独立カードを持ち、governance_state / deadline / Accept/Extend/Raise wiring すべて per-scenario に統一（NP6 — データ駆動 recommendation 自体が per-scenario なのに rollup でぼかしていた設計欠陥を是正）。settled カードは 62% に dim され、ヘッダ横にステータスバッジ（✓ / ⏵ / ↑ / ↩）、アクション行は単一の [↻ Re-evaluate] ボタンに置換され F2 revoke エンドポイントを呼ぶ。</li>
+            <li><b>ダッシュボードピン挙動</b>: 表示判定を advisory の <span class="code-block">open_count</span> に統一。各カテゴリで「pending N」を表示。全カテゴリ settled（totalOpen=0）になるとピン自動非表示。次の pending イベントで再表示。「全部 accept したのにピンが残る」現象を解消。</li>
+            <li><b>Re-evaluate フロー</b>: settled カードの [↻ Re-evaluate] クリック → reason の任意入力プロンプト → <span class="code-block">/api/v2/decisions/&lt;decision_id&gt;/revoke</span> へ POST → 再描画。元 decision 行は保持（NP6 監査）— <span class="code-block">superseded_by</span> に <span class="code-block">revoked:&lt;actor&gt;:&lt;ts&gt;</span> という合成マーカーを付与。次フェッチでデータ駆動 recommendation に戻る。</li>
+            <li><b>後方互換</b>: F1 以前から存在した advisory レスポンスのフィールドはすべて保持・不変。<span class="code-block">governance_state</span> と <span class="code-block">open_count</span> は additive — 知らないクライアントもそのまま動作。</li>
         </ul>
 
         </div>
