@@ -892,6 +892,25 @@
         document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
         document.getElementById('settings-backdrop').style.display = 'none';
     }
+    // Selective close — hides one modal by id, leaves others alone.
+    // The backdrop is hidden only when no modal remains visible. Used
+    // by per-modal close handlers (Decision History, future single-
+    // close paths) instead of the legacy closeAllModals which is a
+    // sledgehammer.
+    function closeModal(modalId) {
+        const m = document.getElementById(modalId);
+        if (m) m.style.display = 'none';
+        const anyOpen = !!document.querySelector('.modal-window[style*="display: flex"], .modal-window[style*="display:flex"]');
+        if (!anyOpen) {
+            const bd = document.getElementById('settings-backdrop');
+            if (bd) bd.style.display = 'none';
+        }
+    }
+    // Expose to other scripts (autotune_wizard.js / controls_panel.js
+    // run in their own IIFEs and need explicit globals).
+    window.closeModal = closeModal;
+    window.closeAllModals = closeAllModals;
+    window.openModal = openModal;
 
     // ── Intuition UI: TOOLS Dropdown ──────────────────────────────────────────
     const TOOL_MAP = [
@@ -2908,7 +2927,14 @@
     };
 
     window._decisionHistoryClose = function () {
-        if (typeof closeModal === 'function') closeModal('decision-history-modal');
+        // Prefer selective close (newly added closeModal) so other
+        // modals stay visible if any. Fallback to closeAllModals when
+        // running an older bundle without closeModal.
+        if (typeof window.closeModal === 'function') {
+            window.closeModal('decision-history-modal');
+        } else if (typeof closeAllModals === 'function') {
+            closeAllModals();
+        }
     };
 
     async function _dhLoad() {

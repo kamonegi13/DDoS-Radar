@@ -103,30 +103,45 @@
           kind: 'floating', toggleFn: () => window.toggleHistoryPanel && window.toggleHistoryPanel() },
 
         // ─ Automation (modal) ─
+        // For kind:'modal' we provide BOTH openFn (idempotent: opens
+        // even if already open) and closeFn (idempotent: closes even
+        // if already closed). _ensureOpen/_ensureClosed dispatch to
+        // these instead of treating toggleFn as a real toggle —
+        // avoids the bug where calling _wizardOpen on an open wizard
+        // does nothing useful and the [Close] button never closes.
         { id: 'autotune', section: 'automation', icon: '⚙',
           labelKey: 'tools.autotune_wizard', descKey: 'controls.tool.autotune.desc',
           panelId: 'autotune-wizard-modal', placeholderId: null,
-          kind: 'modal', toggleFn: () => window._wizardOpen && window._wizardOpen() },
+          kind: 'modal',
+          openFn:  () => window._wizardOpen  && window._wizardOpen(),
+          closeFn: () => window._wizardClose && window._wizardClose() },
         { id: 'llm-features', section: 'automation', icon: '🤖',
           labelKey: 'tools.llm_features', descKey: 'controls.tool.llm_features.desc',
           panelId: 'llm-features-modal', placeholderId: null,
-          kind: 'modal', toggleFn: () => window._llmFeaturesOpen && window._llmFeaturesOpen() },
+          kind: 'modal',
+          openFn:  () => window._llmFeaturesOpen  && window._llmFeaturesOpen(),
+          closeFn: () => window._llmFeaturesClose && window._llmFeaturesClose() },
         { id: 'decision-history', section: 'automation', icon: '📜',
           labelKey: 'tools.decision_history', descKey: 'controls.tool.decision_history.desc',
           panelId: 'decision-history-modal', placeholderId: null,
-          kind: 'modal', toggleFn: () => window._decisionHistoryOpen && window._decisionHistoryOpen() },
+          kind: 'modal',
+          openFn:  () => window._decisionHistoryOpen  && window._decisionHistoryOpen(),
+          closeFn: () => window._decisionHistoryClose && window._decisionHistoryClose() },
 
         // ─ Admin (modal) ─
         { id: 'usrmgr', section: 'admin', icon: '👤',
           labelKey: 'tools.user_management', descKey: 'controls.tool.usrmgr.desc',
           panelId: 'settings-modal', placeholderId: null,
           kind: 'modal',
-          toggleFn: () => {
+          openFn: () => {
               if (typeof openModal === 'function') {
                   openModal('settings-modal');
                   if (typeof switchTab === 'function') switchTab('users');
                   if (typeof umgrLoadUsers === 'function') umgrLoadUsers();
               }
+          },
+          closeFn: () => {
+              if (typeof closeAllModals === 'function') closeAllModals();
           } },
     ];
 
@@ -243,17 +258,27 @@
     function _ensureOpen(toolId) {
         const tool = getTool(toolId);
         if (!tool) return;
-        if (!isPanelOpen(tool.panelId)) {
-            try { tool.toggleFn(); } catch (e) {}
-        }
+        if (isPanelOpen(tool.panelId)) return;
+        // Modal kinds use explicit openFn (toggleFn is reserved for
+        // panels whose toggleFn is genuinely a toggle).
+        try {
+            if (tool.openFn) tool.openFn();
+            else if (tool.toggleFn) tool.toggleFn();
+        } catch (e) {}
     }
 
     function _ensureClosed(toolId) {
         const tool = getTool(toolId);
         if (!tool) return;
-        if (isPanelOpen(tool.panelId)) {
-            try { tool.toggleFn(); } catch (e) {}
-        }
+        if (!isPanelOpen(tool.panelId)) return;
+        // Modal kinds use explicit closeFn — calling their open-only
+        // toggleFn again on an already-open modal does nothing useful
+        // and that was the original bug. Non-modal panels still rely
+        // on toggleFn because their toggle truly toggles.
+        try {
+            if (tool.closeFn) tool.closeFn();
+            else if (tool.toggleFn) tool.toggleFn();
+        } catch (e) {}
     }
 
     // ── Render ──────────────────────────────────────────────────────────
