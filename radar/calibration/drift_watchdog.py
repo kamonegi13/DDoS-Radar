@@ -125,13 +125,39 @@ def _signal_weight_stale(scenario) -> list[DriftEvent]:
     """Each participant with weight > 0 but zero signal contribution
     over the stale window AND zero analyst feedback gets a row.
 
-    Approximation: sensor_observation_ts has scope='theater:<cc>' rows
-    we can sum. If the country has no rows in the window, treat as
-    zero contribution.
+    Phase F (2026-04-30): split the diagnosis into two sub-signals so
+    the analyst can tell measurement-side problems apart from
+    participant-side relevance issues:
+
+      * sensor_outage      — global sensor coverage is degraded right
+                             now (sum of all signals across the fleet
+                             is below the minimum healthy threshold).
+                             Investigate sensors before adjusting
+                             weights.
+      * participant_silent — sensors are healthy globally but produce
+                             zero signal for THIS country over 30d.
+                             Lowering weight is justified.
+
+    Both surface as drift events but with different drift_signal
+    strings, severities, and why_strings — this avoids the pre-fix
+    behavior where a global sensor outage flooded the Wizard with 39
+    weight_stale events that an analyst applying any of would
+    permanently lower a working participant's weight after sensors
+    recover (NP1 violation).
     """
+    from radar.calibration import _proposal_guards as _guards
     out: list[DriftEvent] = []
     cutoff = time.time() - _stale_threshold_days() * 86400
     conn = db._get_conn()  # noqa: SLF001
+
+    # Phase F: pre-compute global sensor coverage once per scenario
+    # pass. When degraded, EVERY participant_silent claim collapses to
+    # sensor_outage so the analyst sees a clear measurement problem
+    # rather than dozens of weight-cut suggestions.
+    coverage_ok, coverage_details = _guards.sensor_coverage_healthy(
+        days=int(_stale_threshold_days()),
+    )
+
     for cc, p in scenario.participants.items():
         if p.weight <= 0:
             continue
@@ -164,27 +190,54 @@ def _signal_weight_stale(scenario) -> list[DriftEvent]:
             n_fn = 0
         if n_fn > 0:
             continue
+
+        # Phase F branching: sensor_outage vs participant_silent.
+        if not coverage_ok:
+            signal_type = "sensor_outage"
+            severity = "red"
+            formula_suffix = "sensor_outage"
+            why = (
+                f"Participant {cc} (weight={p.weight:.2f}) shows zero "
+                f"signal over {int(_stale_threshold_days())}d, but the "
+                f"sensor fleet is globally degraded "
+                f"(total_signals={coverage_details.get('total_global_signals',0)} "
+                f"< min={coverage_details.get('min_threshold',0)}). "
+                f"This is likely a measurement-side outage — investigate "
+                f"sensors BEFORE adjusting participant weight (NP1)."
+            )
+        else:
+            signal_type = "participant_silent"
+            severity = "amber"
+            formula_suffix = "participant_silent"
+            why = (
+                f"Participant {cc} (weight={p.weight:.2f}) has produced no "
+                f"sensor signal over {int(_stale_threshold_days())}d while "
+                f"the sensor fleet is healthy globally "
+                f"(total_signals={coverage_details.get('total_global_signals',0)}). "
+                f"Lowering weight or removing from scenario reflects "
+                f"observed irrelevance."
+            )
+
         out.append(DriftEvent(
             scenario_id=scenario.id,
-            drift_signal="weight_stale",
-            severity="amber",
+            drift_signal=signal_type,
+            severity=severity,
             target_country=cc,
-            formula_ref=f"{WATCHDOG_VERSION}#weight_stale",
+            formula_ref=f"{WATCHDOG_VERSION}#{formula_suffix}",
             sample_n=int(_stale_threshold_days()),
-            why_string=(
-                f"Participant {cc} (weight={p.weight:.2f}) has produced no "
-                f"sensor signal AND no analyst false-negative reports for "
-                f"{int(_stale_threshold_days())} days. Consider lowering "
-                f"weight or removing from scenario."
-            ),
+            why_string=why,
             evidence={
                 "weight": p.weight,
                 "stale_days": int(_stale_threshold_days()),
                 "sensor_observations": n_contrib,
                 "false_negatives": n_fn,
+                "coverage_ok": coverage_ok,
+                "coverage_details": coverage_details,
             },
         ))
     return out
+
+
 
 
 def _signal_adversary_mismatch(scenario) -> list[DriftEvent]:

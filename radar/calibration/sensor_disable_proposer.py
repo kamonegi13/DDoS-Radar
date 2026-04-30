@@ -89,6 +89,70 @@ def _min_call_log_n() -> int:
     return int(os.getenv("SENSOR_DISABLE_MIN_CALLS", "100"))
 
 
+def _sensor_fetch_layer_healthy(sensor_name: str) -> tuple[bool, str]:
+    """Phase A guard (2026-04-30): consult the sensor's own
+    fetch-layer health BEFORE proposing disable based on LLM
+    call-log statistics.
+
+    Rationale: the existing α-broken classifier reads `llm_call_log`
+    (LLM-side statistics — pre_filter / parse_failed / timeout /
+    http_error). A high pre_filter ratio can mean either:
+      (a) the SENSOR genuinely produces low-value content → disable
+          is correct; or
+      (b) the LLM PROMPT is too strict / the sensor is in a brief
+          quiet period → disable is wrong (we'd lose a healthy
+          information source for nothing). NP1 violation.
+
+    The fetch layer (sensor.py / SensorRegistry.health_snapshot)
+    knows whether the sensor is actually pulling data successfully.
+    If the fetch layer says the sensor is healthy AND its circuit
+    breaker is closed AND it's actively producing fetches, we
+    refuse to emit the disable proposal regardless of LLM-side α
+    signal — under the rule "tighten the LLM prompt before
+    disabling a working sensor".
+
+    Returns (is_healthy, reason). If healthy, the proposer skips
+    emitting the disable proposal.
+    """
+    try:
+        import radar.routes as _routes
+        sensor = _routes.registry._sensors.get(sensor_name)  # noqa: SLF001
+    except Exception as exc:
+        return (False, f"registry_lookup_failed: {exc}")
+    if sensor is None:
+        return (False, "sensor_not_in_registry")
+    # If the sensor is already disabled, don't re-propose.
+    if not getattr(sensor, "enabled", True):
+        return (False, "already_disabled")
+    # Circuit breaker open → genuinely broken at fetch layer.
+    cb_state = getattr(sensor, "cb_state", None)
+    if cb_state and str(cb_state).upper() == "OPEN":
+        return (False, "cb_open")
+    # Read reliability from the sensor's call ledger if available.
+    try:
+        from radar.database import db as _db
+        cutoff = time.time() - 24 * 3600
+        rows = _db._get_conn().execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM sensor_call_log "
+            "WHERE sensor_name=? AND ts > ? AND status='ok'",
+            (sensor_name, cutoff),
+        ).fetchone()
+        ok_24h = rows[0] if rows else 0
+    except Exception:
+        ok_24h = None
+    # Healthy gate: at least 10 successful fetches in 24h AND no recent
+    # error AND CB closed. 10 picks up daily-poll sensors but excludes
+    # truly silent ones.
+    last_err = getattr(sensor, "last_error", "") or ""
+    if ok_24h is not None and ok_24h >= 10 and not last_err:
+        return (True, f"fetch_healthy: {ok_24h} ok fetches in 24h, cb={cb_state}")
+    if ok_24h is None:
+        # Cannot verify either way — be conservative and DO NOT block
+        # the proposal. The LLM-side α signal stands.
+        return (False, "fetch_telemetry_unavailable")
+    return (False, f"fetch_unhealthy: ok_24h={ok_24h}, last_err={last_err[:60]!r}")
+
+
 def _classify_sensor_health(sensor_name: str) -> Optional[dict]:
     """Read llm_call_log per-outcome counts for sensor over 7d window.
     Returns dict with classification, or None on insufficient data."""
@@ -242,7 +306,8 @@ def propose_disables() -> dict:
     """Run one pass: for each sensor, classify health and emit/escalate
     proposals. Returns counts."""
     counts = {"classified": 0, "alpha": 0, "new_proposals": 0,
-              "escalated": 0, "skipped_existing": 0}
+              "escalated": 0, "skipped_existing": 0,
+              "skipped_fetch_healthy": 0}
     for s in LLM_GATED_SENSORS:
         cls = _classify_sensor_health(s)
         if cls is None:
@@ -251,6 +316,21 @@ def propose_disables() -> dict:
         if not cls["alpha"]:
             continue
         counts["alpha"] += 1
+
+        # Phase A guard (2026-04-30): even when LLM-side α is true,
+        # if the sensor's own fetch layer is healthy, prefer prompt
+        # tightening over sensor disable. NP1 — never sever a working
+        # data source on LLM-side evidence alone.
+        is_healthy, reason = _sensor_fetch_layer_healthy(s)
+        if is_healthy:
+            counts["skipped_fetch_healthy"] += 1
+            log.info(
+                "[sensor_disable_proposer] %s α=true at LLM layer but "
+                "skipping disable proposal — fetch layer healthy (%s). "
+                "Tighten LLM prompt before disabling working sensor.",
+                s, reason,
+            )
+            continue
 
         existing = _existing_pending(s)
         if existing is None:

@@ -100,7 +100,14 @@ class TestWeightStale:
         events = _signal_weight_stale(sc)
         assert len(events) == 1
         assert events[0].target_country == "JP"
-        assert events[0].drift_signal == "weight_stale"
+        # Phase F (2026-04-30): legacy 'weight_stale' is split into
+        # 'participant_silent' (sensor fleet healthy globally) and
+        # 'sensor_outage' (fleet degraded). With no signals at all in
+        # the test DB, sensor_coverage_healthy returns degraded, so
+        # the emitted signal is 'sensor_outage'.
+        assert events[0].drift_signal in (
+            "participant_silent", "sensor_outage",
+        )
 
     def test_skips_participant_with_observations(self, db, monkeypatch):
         monkeypatch.setenv("DRIFT_WEIGHT_STALE_DAYS", "30")

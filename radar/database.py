@@ -659,8 +659,11 @@ CREATE TABLE IF NOT EXISTS scenario_proposals (
     why_string          TEXT,
     evidence_strength   TEXT,    -- post-incident: 'strong'|'moderate'|'weak'|'insufficient'
     vitality_state      TEXT,    -- post-incident: 'active'|'dormant'|'data_gap'
+    -- Phase D (2026-04-30): 'superseded' added so the discovery
+    -- proposer can mark prior pendings inactive when a new run produces
+    -- the same cluster fingerprint. Migration v35 extends existing DBs.
     state               TEXT NOT NULL DEFAULT 'pending'
-        CHECK (state IN ('pending','applied','dismissed','snoozed_30d','reverted')),
+        CHECK (state IN ('pending','applied','dismissed','snoozed_30d','reverted','superseded')),
     state_changed_at    REAL,
     state_changed_by    TEXT,
     revertible_to_json  TEXT
@@ -1872,6 +1875,53 @@ class RadarDB:
             -- runs AFTER all migrations so the column exists on both
             -- fresh and upgraded DBs.
             ALTER TABLE threat_history ADD COLUMN scenario_id TEXT;
+        """),
+
+        (35, "scenario_proposals.state allows 'superseded' (Phase D autotune fix 2026-04-30)", """
+            -- Phase D of the autotune audit fix (2026-04-30 PM).
+            -- Adds 'superseded' to the allowed states so the discovery
+            -- proposer can mark prior pendings inactive when a new
+            -- calibration run emits the same countries cluster.
+            -- SQLite doesn't support modifying CHECK constraints, so we
+            -- recreate the table with the new constraint and migrate
+            -- the data. Indexes are recreated below.
+            ALTER TABLE scenario_proposals RENAME TO scenario_proposals_old_v34;
+            CREATE TABLE scenario_proposals (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                emitted_at          REAL NOT NULL,
+                scenario_id         TEXT NOT NULL,
+                proposal_type       TEXT NOT NULL,
+                target_country      TEXT,
+                suggested_value_json TEXT NOT NULL DEFAULT '{}',
+                evidence_json       TEXT NOT NULL DEFAULT '{}',
+                formula_ref         TEXT NOT NULL,
+                sample_n            INTEGER NOT NULL DEFAULT 0,
+                why_string          TEXT,
+                evidence_strength   TEXT,
+                vitality_state      TEXT,
+                state               TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (state IN ('pending','applied','dismissed',
+                                     'snoozed_30d','reverted','superseded')),
+                state_changed_at    REAL,
+                state_changed_by    TEXT,
+                revertible_to_json  TEXT
+            );
+            INSERT INTO scenario_proposals
+                (id, emitted_at, scenario_id, proposal_type, target_country,
+                 suggested_value_json, evidence_json, formula_ref, sample_n,
+                 why_string, evidence_strength, vitality_state, state,
+                 state_changed_at, state_changed_by, revertible_to_json)
+            SELECT
+                id, emitted_at, scenario_id, proposal_type, target_country,
+                suggested_value_json, evidence_json, formula_ref, sample_n,
+                why_string, evidence_strength, vitality_state, state,
+                state_changed_at, state_changed_by, revertible_to_json
+            FROM scenario_proposals_old_v34;
+            DROP TABLE scenario_proposals_old_v34;
+            CREATE INDEX IF NOT EXISTS idx_scenario_proposals_scenario
+                ON scenario_proposals (scenario_id, emitted_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_scenario_proposals_pending
+                ON scenario_proposals (state, emitted_at DESC);
         """),
 
         (34, "Decision Layer ledger (operations + governance + AP4 trail) — 2026-04-30", """

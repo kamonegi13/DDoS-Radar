@@ -339,6 +339,59 @@ def scenario_vitality(scenario, *, days: int = 30) -> VitalityReport:
 EvidenceStrength = Literal["strong", "moderate", "weak", "insufficient"]
 
 
+def sensor_coverage_healthy(*, days: int = 30,
+                             min_global_signals: int = 50) -> tuple[bool, dict]:
+    """Phase B guard (2026-04-30) — sanity-check that the sensor fleet
+    is producing SOMETHING globally before we declare any one country
+    'dormant'.
+
+    Rationale: a participant gets evidence_strength='strong' (5/5
+    sources zero) when the sensors that should produce its signals are
+    not running properly — for example, an upstream API outage that
+    silenced llm_intel and sensor_observation_ts globally. Without
+    this guard, the proposer would emit dormant_participant for every
+    participant of every scenario during the outage, and an analyst
+    applying any of them would permanently disable a fully-functional
+    monitoring path.
+
+    Healthy = global counts across all 5 source tables exceed the
+    minimum threshold over the lookback window. Dropping below
+    threshold means a measurement-side problem; dormancy claims are
+    suspended until coverage recovers.
+
+    Returns (is_healthy, details). The details dict is suitable for
+    inclusion in proposal evidence_json so analyst can audit.
+    """
+    cutoff = time.time() - _lookback_seconds(days)
+    global_counts: dict[str, int] = {}
+    global_counts["llm_intel"] = _safe_count(
+        "SELECT COUNT(*) FROM llm_intel WHERE ts > ?", (cutoff,),
+    )
+    global_counts["sequence_events"] = _safe_count(
+        "SELECT COUNT(*) FROM sequence_events WHERE ts > ?", (cutoff,),
+    )
+    global_counts["sensor_observation_ts"] = _safe_count(
+        "SELECT COUNT(*) FROM sensor_observation_ts WHERE ts > ?", (cutoff,),
+    )
+    # Conclusions contribution log is optional — keep separate so its
+    # absence doesn't drag the verdict down.
+    global_counts["scenario_contribution_log"] = _safe_count(
+        "SELECT COUNT(*) FROM scenario_contribution_log WHERE ts > ?",
+        (cutoff,),
+    )
+    total_global = (global_counts["llm_intel"]
+                    + global_counts["sequence_events"]
+                    + global_counts["sensor_observation_ts"])
+    healthy = total_global >= min_global_signals
+    return (healthy, {
+        "global_counts": global_counts,
+        "total_global_signals": total_global,
+        "min_threshold": min_global_signals,
+        "lookback_days": days,
+        "verdict": "healthy" if healthy else "degraded",
+    })
+
+
 def evidence_strength(
     signals: dict[str, int], *, role_protected: bool,
 ) -> EvidenceStrength:

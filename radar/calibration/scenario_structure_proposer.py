@@ -238,6 +238,26 @@ def _rule_dormant_participant(scenario) -> list[ProposalEvent]:
     if vitality.state != "active":
         return []
 
+    # Phase B guard (2026-04-30): refuse to claim dormancy when sensor
+    # coverage is globally degraded. A measurement-side outage that
+    # silences signals across the fleet would otherwise produce a flood
+    # of "dormant" proposals — applying any of them permanently
+    # disables a working monitoring path. NP1 priority.
+    coverage_ok, coverage_details = _guards.sensor_coverage_healthy(
+        days=int(_lookback_days()),
+    )
+    if not coverage_ok:
+        log.info(
+            "[scenario_structure_proposer] dormant_participant rule "
+            "skipped for %s — global sensor coverage degraded "
+            "(total_signals=%d < min=%d). Investigate sensors before "
+            "trusting per-country dormancy.",
+            scenario.id,
+            coverage_details.get("total_global_signals", -1),
+            coverage_details.get("min_threshold", -1),
+        )
+        return []
+
     floor = _dormant_weight_floor()
     out: list[ProposalEvent] = []
     for country_iso, participant in scenario.participants.items():

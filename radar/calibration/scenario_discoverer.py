@@ -162,6 +162,18 @@ def _jaccard(a: set, b: set) -> float:
     return inter / union if union else 0.0
 
 
+def _cluster_fingerprint(countries: list[str]) -> str:
+    """Phase D (2026-04-30) — stable cluster identity for dedup.
+
+    Two discovery proposals describe the same cluster when their
+    countries SETS match, regardless of run_id or cluster_index. Using
+    a sorted CSV string as a fingerprint stored in formula_ref's
+    qualifier portion lets us SELECT prior pendings with the same set
+    in one indexed lookup.
+    """
+    return ",".join(sorted(countries))
+
+
 def _emit_one_proposal(run_id: int, cluster_id: int,
                         countries: list[str]) -> Optional[int]:
     """Write one scenario_proposals row for a discovery cluster.
@@ -169,7 +181,15 @@ def _emit_one_proposal(run_id: int, cluster_id: int,
     proposal_type='scenario_discovery' is new; the Wizard's apply path
     interprets it as 'create scenario' rather than 'mutate participant'.
     NP7: this stays pending until analyst confirmation.
+
+    Phase D (2026-04-30): supersession by fingerprint. If a pending
+    discovery proposal with the same countries SET already exists, we
+    mark it 'superseded' and emit the new one (with the latest run_id
+    and the fingerprint stamped in evidence_json). This stops the
+    pre-fix behavior where every calibration tick added another copy
+    of the same cluster (two IL/IR/UA proposals in the audit log).
     """
+    fingerprint = _cluster_fingerprint(countries)
     why = (
         f"Discovery cluster {cluster_id} from run {run_id} groups "
         f"{len(countries)} countries that frequently co-occur in "
@@ -180,6 +200,29 @@ def _emit_one_proposal(run_id: int, cluster_id: int,
     try:
         conn = db._get_conn()  # noqa: SLF001
         with conn.writing():
+            # Supersede any prior pending discovery proposals with the
+            # same countries fingerprint. We match on fingerprint stored
+            # in evidence_json — falling back to a LIKE pattern over
+            # suggested_value_json for back-compat with rows emitted
+            # before this commit.
+            now_ts = time.time()
+            superseded = conn.execute(
+                "UPDATE scenario_proposals "
+                "SET state='superseded', state_changed_at=?, "
+                "    state_changed_by='auto:phase_d_fingerprint' "
+                "WHERE proposal_type='scenario_discovery' "
+                "AND state='pending' "
+                "AND (json_extract(evidence_json, '$.cluster_fingerprint')=? "
+                "     OR suggested_value_json LIKE ?)",
+                (now_ts, fingerprint,
+                 f'%"{countries[0]}"%' if countries else '%'),
+            )
+            if superseded.rowcount > 0:
+                log.info(
+                    "[scenario_discoverer] superseded %d prior pending "
+                    "proposal(s) with same countries fingerprint=%s",
+                    superseded.rowcount, fingerprint,
+                )
             cur = conn.execute(
                 "INSERT INTO scenario_proposals "
                 "(emitted_at, scenario_id, proposal_type, target_country, "
@@ -190,11 +233,13 @@ def _emit_one_proposal(run_id: int, cluster_id: int,
                 (time.time(),
                  json.dumps({"countries": countries,
                              "discovery_run_id": run_id,
-                             "cluster_index": cluster_id},
+                             "cluster_index": cluster_id,
+                             "cluster_fingerprint": fingerprint},
                             sort_keys=True),
                  json.dumps({"discovery_run_id": run_id,
                              "cluster_index": cluster_id,
-                             "country_count": len(countries)},
+                             "country_count": len(countries),
+                             "cluster_fingerprint": fingerprint},
                             sort_keys=True),
                  f"{PIPELINE_VERSION}#cluster_{cluster_id}",
                  len(countries), why),

@@ -263,6 +263,24 @@ def _rule_weight_too_high(scenario) -> list[ProposalEvent]:
         # Diagnostic emission lives in commit D's _rule_scenario_diagnostic.
         return []
 
+    # Phase B guard (2026-04-30): same sensor-coverage check as
+    # _rule_dormant_participant. weight_too_high uses the same 5/5
+    # zero-source evidence as dormant_participant, so it is exposed to
+    # the same false-positive when sensors are silent globally. NP1.
+    coverage_ok, coverage_details = _guards.sensor_coverage_healthy(
+        days=int(_stale_days()),
+    )
+    if not coverage_ok:
+        log.info(
+            "[scenario_improver] weight_too_high rule skipped for %s — "
+            "global sensor coverage degraded (total_signals=%d < min=%d). "
+            "Investigate sensors before trusting per-country dormancy.",
+            scenario.id,
+            coverage_details.get("total_global_signals", -1),
+            coverage_details.get("min_threshold", -1),
+        )
+        return []
+
     out: list[ProposalEvent] = []
     for cc, p in scenario.participants.items():
         if p.weight <= 0:
@@ -450,27 +468,35 @@ def run_once() -> dict:
 
 def list_pending(*, scenario_id: Optional[str] = None,
                   hours: int = 168) -> list[dict]:
-    """Return pending proposals for analyst UI."""
+    """Return pending proposals for analyst UI.
+
+    Phase C/E (2026-04-30): SELECT now includes evidence_strength,
+    vitality_state, and state so the Wizard can route rows to the
+    correct tab and show settled/superseded items in the history view.
+    Earlier rows (pre-Phase C) may have NULL evidence_strength —
+    those show as 'unrated' in the UI.
+    """
     try:
         conn = db._get_conn()  # noqa: SLF001
         cutoff = time.time() - hours * 3600
+        select_cols = (
+            "SELECT id, scenario_id, proposal_type, target_country, "
+            "suggested_value_json, evidence_json, formula_ref, "
+            "sample_n, why_string, emitted_at, "
+            "evidence_strength, vitality_state, state "
+            "FROM scenario_proposals "
+        )
         if scenario_id:
             rows = conn.execute(
-                "SELECT id, scenario_id, proposal_type, target_country, "
-                "suggested_value_json, evidence_json, formula_ref, "
-                "sample_n, why_string, emitted_at "
-                "FROM scenario_proposals "
-                "WHERE state='pending' AND scenario_id=? "
+                select_cols
+                + "WHERE state='pending' AND scenario_id=? "
                 "AND emitted_at > ? ORDER BY emitted_at DESC",
                 (scenario_id, cutoff),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, scenario_id, proposal_type, target_country, "
-                "suggested_value_json, evidence_json, formula_ref, "
-                "sample_n, why_string, emitted_at "
-                "FROM scenario_proposals "
-                "WHERE state='pending' AND emitted_at > ? "
+                select_cols
+                + "WHERE state='pending' AND emitted_at > ? "
                 "ORDER BY emitted_at DESC",
                 (cutoff,),
             ).fetchall()
@@ -495,6 +521,9 @@ def list_pending(*, scenario_id: Optional[str] = None,
             "sample_n": r[7],
             "why_string": r[8],
             "emitted_at": r[9],
+            "evidence_strength": r[10],
+            "vitality_state": r[11],
+            "state": r[12] or "pending",
             "is_recall_reducing": _is_recall_reducing(r[2]),
         })
     return out
@@ -504,7 +533,8 @@ def update_state(proposal_id: int, *, new_state: str, by: str) -> bool:
     """Apply / dismiss / snooze. Caller is responsible for the actual
     apply mutation (geo_data.json or scenario_store live state); this
     function only updates the ledger."""
-    if new_state not in ("applied", "dismissed", "snoozed_30d", "reverted"):
+    if new_state not in ("applied", "dismissed", "snoozed_30d",
+                          "reverted", "superseded"):
         return False
     try:
         conn = db._get_conn()  # noqa: SLF001
