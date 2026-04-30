@@ -41,8 +41,24 @@ from radar.scoring import ScenarioContribution, ScenarioState, Signal
 @pytest.fixture(autouse=True)
 def _enable_llm_augment(monkeypatch):
     """All tests in this module default to flag ON; individual tests flip off
-    when they need to verify the gate."""
+    when they need to verify the gate.
+
+    The augmentation path now consults the LLM Feature Hub
+    (``radar.llm_features.is_enabled``) before falling back to the legacy
+    config flag, so the Hub must also be force-enabled here. Without the
+    Hub mock the registry returns its DB-backed default (False at test
+    time), short-circuiting the augmentation and producing the original
+    rule conclusion — which the contract assertions reject with
+    KeyError('llm_augmentation') / identity mismatches.
+    """
     monkeypatch.setattr(config, "V2_ATTACK_MODE_LLM_AUGMENT_ENABLED", True)
+    # The augmentation path imports is_enabled lazily inside the function
+    # body (`from radar.llm_features import is_enabled`), so we have to
+    # patch the source module rather than the consumer.
+    monkeypatch.setattr(
+        "radar.llm_features.is_enabled",
+        lambda _key: True,
+    )
 
 
 @pytest.fixture

@@ -151,10 +151,21 @@ def test_returns_list_of_anomaly_conclusions(db: RadarDB, now: float) -> None:
     assert all(c.conclusion_type is ConclusionType.ANOMALY for c in out)
 
 
-def test_state_summary_includes_signal_source_and_value(db: RadarDB, now: float) -> None:
+def test_state_summary_uses_signal_source_with_value_in_metadata(
+    db: RadarDB, now: float,
+) -> None:
+    """Phase G (2026-04-30) controlled-vocabulary contract for ANOMALY.state.
+
+    Pre-Phase G: ``state == f"{signal_source}: {value_display}"`` produced
+    unique strings per anomaly, defeating pattern aggregation by source.
+    Post-Phase G: ``state == signal_source`` (controlled vocab) and the
+    free-form value moves to ``metadata['value_display']`` so analysts
+    can still inspect the detail without polluting the queryable state.
+    """
     sig = _signal(value_display="BGP withdrawal surge from AS4134", observed_at=now)
     out = derive_anomaly(db, _state([_contribution(sig)]), now=now)
-    assert out[0].state == "apt_intel: BGP withdrawal surge from AS4134"
+    assert out[0].state == "apt_intel"
+    assert out[0].metadata.get("value_display") == "BGP withdrawal surge from AS4134"
 
 
 def test_state_summary_falls_back_to_signal_source_when_no_value(
