@@ -2335,20 +2335,28 @@ def get_threat_data():
                 # /api/scenario/<id>/weight_advisory endpoint to detect
                 # static participant weights that have drifted from
                 # observed traffic. Best-effort: never break scoring.
+                #
+                # ADR-V2-015 Phase 1: persist with per-(country, sensor)
+                # breakdown so the AP3 OBS chip / recall baseline /
+                # scenario_improver can isolate bg_observer / llm_intel
+                # contributions from per-country sensor signals.
                 try:
-                    _contrib_by_country: dict[str, float] = {}
+                    _contrib_by_cc_sensor: dict[tuple[str, str], float] = {}
                     for _c in _state.contributions:
                         _cc = _c.contributing_country
                         if _cc and _cc != "GLOBAL":
-                            _contrib_by_country[_cc] = (
-                                _contrib_by_country.get(_cc, 0.0)
+                            _snr = _c.signal.sensor or "unknown"
+                            _key = (_cc, _snr)
+                            _contrib_by_cc_sensor[_key] = (
+                                _contrib_by_cc_sensor.get(_key, 0.0)
                                 + _c.final_contribution
                             )
-                    if _contrib_by_country:
+                    if _contrib_by_cc_sensor:
                         _db.scenario_contribution_append(
                             scenario_id=_sc.id,
-                            contributions_by_country=_contrib_by_country,
+                            contributions_by_country={},
                             logged_at=current_time,
+                            contributions_by_country_sensor=_contrib_by_cc_sensor,
                         )
                 except Exception:
                     pass

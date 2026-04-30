@@ -227,6 +227,15 @@
             <span class="hud-chip-label">DRIFT</span>
             <span id="hud-drift-value" class="hud-chip-value">—</span>
         </div>
+        <!-- ADR-V2-015 Phase 5: bg_observer health (BACKGROUND_ELIGIBLE).
+             Shows matches/cycle avg in the value slot. Green ≤50% empty,
+             amber ≤80% empty, red on alias_gap or 0 cycles. "OFF" when
+             BG_OBSERVER_ENABLED=false (legitimate OPSEC choice). -->
+        <div class="hud-chip hud-self-eval" id="hud-bg-observer-chip"
+             title="bg_observer (BACKGROUND_ELIGIBLE sensor) health — per-cycle match rate over 24h.">
+            <span class="hud-chip-label">OBS-BG</span>
+            <span id="hud-bg-observer-value" class="hud-chip-value">—</span>
+        </div>
         <!-- AP3: auto-tune health chip — pending proposals and drift signal counts.
              Click opens the Auto-tune Wizard so analysts can act immediately. -->
         <div class="hud-chip hud-self-eval" id="hud-autotune-chip"
@@ -3305,6 +3314,19 @@
             <li><b>Env overrides</b>: <span class="code-block">PROPOSAL_SNOOZE_DAYS</span> (default 30), <span class="code-block">TL_CALIB_PRECISION_MIN_FLOOR</span> (default 0.10).</li>
         </ul>
 
+        <p><b>R. bg_observer reify — first BACKGROUND_ELIGIBLE sensor (ADR-V2-015, 2026-04-30)</b></p>
+        <ul>
+            <li><b>Background</b>: bg_observer is the only mechanism producing per-country signals for non-focused scenarios in C-lite mode. A live audit found it firing only ~25% of cycles (1 of 4 in a one-hour observation window) due to three structural defects: (1) single-country scope per cycle threw away 8/9 of potential matches, (2) 11 scenario participants (AU, BY, EE, FI, GU, LT, LV, MD, MY, RO, SK) had no alias entry — 0% recall on their cycles, (3) the worker lived outside the BaseSensor framework, so health / circuit-breaker / cycle audit had no representation in the AP3 self-eval surface.</li>
+            <li><b>Phase 1 — sensor column on contribution_log</b>: <span class="code-block">scenario_contribution_log.sensor</span> added (migration v36) so the OBS chip / recall baseline / scenario_improver can isolate bg_observer / llm_intel / per-country sensor contribution. Existing rows render as 'legacy'.</li>
+            <li><b>Phase 2 — alias coverage invariant</b>: 11 ISO-2 codes added to <span class="code-block">_COUNTRY_ALIASES</span>. <span class="code-block">verify_alias_coverage()</span> + <span class="code-block">scripts/check_alias_coverage.py</span> wired into <span class="code-block">scripts/check_ci.sh</span>; CI fails if a new scenario participant is added without a matching alias.</li>
+            <li><b>Phase 3 — broadcast scan</b>: <span class="code-block">extract_kinetic_regex_all()</span> emits one <span class="code-block">KineticMatch</span> per detected country in a single feed item. <span class="code-block">BackgroundObserver.tick()</span> now scans the union of all scorable scenarios' participants every cycle (round-robin retired). The scoring layer's per-scenario participant filter routes each match to its correct scenario.</li>
+            <li><b>Phase 4 — BaseSensor reification</b>: <span class="code-block">radar/sensors/bg_observer.py</span> wraps the broadcast observer in <span class="code-block">BackgroundObserverSensor(BaseSensor)</span> with <span class="code-block">tier=SensorTier.BACKGROUND_ELIGIBLE</span> — the first concrete BG_ELIGIBLE sensor, satisfying ADR-002 / ADR-017. Health, circuit breaker, fetch_log, and registry membership now flow through the standard pipeline. <span class="code-block">radar.background_observer.start_worker()</span> is preserved as a deprecated no-op shim for one release.</li>
+            <li><b>Phase 5 — per-cycle audit</b>: new table <span class="code-block">bg_observer_cycle_log</span> (migration v36) records every cycle's gate-level counters: feeds attempted/failed, items with country/kinetic/fatalities, matches by country, alias_gap. Surfaced in <span class="code-block">/api/v2/self_eval</span> under <span class="code-block">bg_observer</span> and rendered by the new HUD <b>OBS-BG</b> chip (Row 3, next to RECALL / NULL-ZONE / DRIFT). Bands: green ≤50% empty cycles, amber ≤80%, red on alias_gap or 0 cycles in 24h, "OFF" when BG_OBSERVER_ENABLED=false (legitimate OPSEC choice).</li>
+            <li><b>Phase 6 — recall ladder</b>: confidence ladder extended from 2 to 3 tiers — fatality count (0.85), kinetic verb only (0.60), <i>escalation verb only</i> (0.40, NEW). Escalation verbs include <span class="code-block">mobilize</span>, <span class="code-block">deploy</span>, <span class="code-block">scramble</span>, <span class="code-block">missile test</span>, <span class="code-block">recall ambassador</span>, <span class="code-block">sever ties</span>, <span class="code-block">expel diplomat</span>, <span class="code-block">troop buildup</span>, <span class="code-block">military exercise</span>. Per NP1 (recall &gt; precision), low-confidence early-warning matches enter scoring at reduced raw_score (0.25) so analyst can override via Decision Layer.</li>
+            <li><b>Tests</b>: <span class="code-block">test_rss_extractor.py</span> +14 cases (alias coverage gate, multi-country broadcast, escalation-verb ladder, kinetic outranks escalation), <span class="code-block">test_background_observer.py</span> rewritten for broadcast (8 cases). 38 + 13 tests pass.</li>
+            <li><b>Foundation for upper layers</b>: with the sensor column on contribution_log + cycle audit + first BG_ELIGIBLE sensor, the C-lite → C-medium migration now has an actual reference implementation. Future sensor promotions (GDELT / ACLED) can follow the same pattern. The OBS chip is no longer aggregate-only — analyst can finally see <i>which</i> sensor is supplying observation per scenario.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3601,6 +3623,19 @@
             <li><b>問題 49 — Admin-override 警告 chip</b>: preset (<span class="code-block">geo_data.json</span>) で disabled なシナリオを admin が enable した場合、シナリオカードに琥珀色 <span class="code-block">⚠ Admin override</span> chip を表示し、disabled_reason を tooltip に提示。実装: <span class="code-block">geo_data.json</span> に <span class="code-block">_preset_metadata.disabled_reason</span> 追加 + <span class="code-block">ScenarioStore._preset_originals</span> snapshot at load + <span class="code-block">/api/threat_data</span> および <span class="code-block">/api/scenarios</span> レスポンスの全 scenario に <span class="code-block">is_admin_override</span> 露出。現状 <span class="code-block">south_china_sea</span> のみ発火。</li>
             <li><b>テスト</b>: <span class="code-block">test_proposal_snooze_revival.py</span> (5 ケース)、<span class="code-block">test_tl_calibrator_guards.py</span> (5 ケース)、<span class="code-block">test_scenario_admin_override.py</span> (9 ケース)。全ゲート緑。</li>
             <li><b>Env override</b>: <span class="code-block">PROPOSAL_SNOOZE_DAYS</span> (既定 30)、<span class="code-block">TL_CALIB_PRECISION_MIN_FLOOR</span> (既定 0.10)。</li>
+        </ul>
+
+        <p><b>R. bg_observer 再構成 — 最初の BACKGROUND_ELIGIBLE センサー（ADR-V2-015、2026-04-30）</b></p>
+        <ul>
+            <li><b>背景</b>: bg_observer は C-lite モードで非フォーカスシナリオ向けの per-country シグナルを供給する唯一のメカニズム。本番監査で 1 時間 4 サイクル中 1 サイクルしかマッチを産まない（25%）ことが判明。3 つの構造的欠陥が原因: (1) サイクルごとに 1 国スコープに絞っており 9 国中 8 国分の potential match を捨てていた、(2) 11 のシナリオ参加国 (AU, BY, EE, FI, GU, LT, LV, MD, MY, RO, SK) に alias エントリが無く該当サイクルの recall は 0%、(3) BaseSensor 体系の外で動いており health / circuit-breaker / cycle audit が AP3 self-eval に露出していない。</li>
+            <li><b>Phase 1 — contribution_log の sensor 列</b>: <span class="code-block">scenario_contribution_log.sensor</span> 追加（migration v36）。OBS chip / recall baseline / scenario_improver が bg_observer / llm_intel / per-country sensor の寄与を分離可能に。既存行は 'legacy' として render。</li>
+            <li><b>Phase 2 — alias coverage 不変条件</b>: 11 ISO-2 コードを <span class="code-block">_COUNTRY_ALIASES</span> に追加。<span class="code-block">verify_alias_coverage()</span> + <span class="code-block">scripts/check_alias_coverage.py</span> を <span class="code-block">scripts/check_ci.sh</span> に組み込み。新シナリオ参加国を追加した時に alias を忘れると CI が落ちる。</li>
+            <li><b>Phase 3 — broadcast スキャン</b>: <span class="code-block">extract_kinetic_regex_all()</span> が 1 アイテム中の検出全国に対し <span class="code-block">KineticMatch</span> を発行。<span class="code-block">BackgroundObserver.tick()</span> は全 scorable シナリオ参加国の和集合を毎サイクルスキャン（round-robin 廃止）。scoring 層の per-scenario 参加国フィルタが各マッチを正しいシナリオへルーティング。</li>
+            <li><b>Phase 4 — BaseSensor 化</b>: <span class="code-block">radar/sensors/bg_observer.py</span> で broadcast observer を <span class="code-block">BackgroundObserverSensor(BaseSensor)</span> に包含し <span class="code-block">tier=SensorTier.BACKGROUND_ELIGIBLE</span> を設定 — ADR-002 / ADR-017 を満たす最初の具体的 BG_ELIGIBLE sensor。health / circuit breaker / fetch_log / registry membership がすべて標準パイプラインを経由。<span class="code-block">radar.background_observer.start_worker()</span> は 1 リリース猶予の deprecated no-op shim として保持。</li>
+            <li><b>Phase 5 — per-cycle 監査</b>: 新テーブル <span class="code-block">bg_observer_cycle_log</span>（migration v36）が各サイクルの gate-level カウンタを記録（feeds 試行/失敗、items_with_country/kinetic/fatalities、matches_by_country、alias_gap）。<span class="code-block">/api/v2/self_eval</span> の <span class="code-block">bg_observer</span> フィールドで露出し、HUD の新 <b>OBS-BG</b> chip（Row 3、RECALL / NULL-ZONE / DRIFT の隣）で表示。バンド: 緑 ≤50% empty、琥珀 ≤80%、赤 alias_gap 非空または 24h 中 0 サイクル、"OFF" は <span class="code-block">BG_OBSERVER_ENABLED=false</span>（OPSEC 上の正当な選択）。</li>
+            <li><b>Phase 6 — recall ladder</b>: confidence 階梯を 2 段階から 3 段階へ拡張 — fatality count (0.85) / kinetic verb のみ (0.60) / <i>escalation verb のみ (0.40、新設)</i>。escalation 動詞群: <span class="code-block">mobilize</span>, <span class="code-block">deploy</span>, <span class="code-block">scramble</span>, <span class="code-block">missile test</span>, <span class="code-block">recall ambassador</span>, <span class="code-block">sever ties</span>, <span class="code-block">expel diplomat</span>, <span class="code-block">troop buildup</span>, <span class="code-block">military exercise</span>。NP1（recall &gt; precision）に基づき、低 confidence の早期警戒マッチが reduced raw_score (0.25) で scoring に入り、analyst が Decision Layer で override 可能。</li>
+            <li><b>テスト</b>: <span class="code-block">test_rss_extractor.py</span> +14 ケース（alias coverage gate / multi-country broadcast / escalation-verb ladder / kinetic outranks escalation）、<span class="code-block">test_background_observer.py</span> を broadcast 用に書き直し（8 ケース）。38 + 13 ケース全 pass。</li>
+            <li><b>上位機能の基盤としての位置づけ</b>: contribution_log への sensor 列 + cycle 監査 + 第一号 BG_ELIGIBLE sensor が揃ったことで、C-lite → C-medium 移行は具体的な reference 実装を持つようになった。今後の sensor promotion (GDELT / ACLED) は同じパターンに従える。OBS chip は集約値だけではなく <i>どの sensor が</i> どのシナリオの観測を供給しているかを analyst が見られるようになった。</li>
         </ul>
 
         </div>

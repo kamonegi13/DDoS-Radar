@@ -46,6 +46,72 @@ _A4_THEATER_TABLES: tuple[str, ...] = (
 )
 
 
+def _migration_v36_bg_observer(conn) -> None:
+    """ADR-V2-015 Phase 1+5: per-sensor contribution log + bg_observer cycle log.
+
+    Idempotent — safe on fresh DB (no contribution_log baseline), upgraded
+    DB (contribution_log from migration v18 needs ALTER), and re-run.
+    Both tables use ``CREATE TABLE IF NOT EXISTS`` semantics so the
+    migration is a no-op once both shapes are present.
+    """
+    # (1) scenario_contribution_log — ensure exists (v18 created it, but
+    # fresh DBs that skip migrations need it created here) and ensure
+    # the `sensor` column is present.
+    cols = conn.execute(
+        "PRAGMA table_info(scenario_contribution_log)"
+    ).fetchall()
+    if not cols:
+        # Fresh DB path — table doesn't exist; create with v18 + v36 shape.
+        conn.execute("""
+            CREATE TABLE scenario_contribution_log (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id      TEXT NOT NULL,
+                country          TEXT NOT NULL,
+                contribution_sum REAL NOT NULL,
+                logged_at        REAL NOT NULL,
+                sensor           TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scenario_contrib_log "
+            "ON scenario_contribution_log (scenario_id, logged_at DESC)"
+        )
+    else:
+        col_names = {r[1] for r in cols}
+        if "sensor" not in col_names:
+            conn.execute(
+                "ALTER TABLE scenario_contribution_log ADD COLUMN sensor TEXT"
+            )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scenario_contribution_log_sensor "
+        "ON scenario_contribution_log (sensor, logged_at DESC)"
+    )
+
+    # (2) bg_observer_cycle_log — per-cycle audit trail.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bg_observer_cycle_log (
+            cycle_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at            REAL NOT NULL,
+            duration_ms           INTEGER NOT NULL DEFAULT 0,
+            feeds_attempted       INTEGER NOT NULL DEFAULT 0,
+            feeds_failed          INTEGER NOT NULL DEFAULT 0,
+            items_total           INTEGER NOT NULL DEFAULT 0,
+            items_with_country    INTEGER NOT NULL DEFAULT 0,
+            items_with_kinetic    INTEGER NOT NULL DEFAULT 0,
+            items_with_fatalities INTEGER NOT NULL DEFAULT 0,
+            matches_emitted       INTEGER NOT NULL DEFAULT 0,
+            matches_by_country    TEXT NOT NULL DEFAULT '{}',
+            alias_gap             TEXT NOT NULL DEFAULT '[]',
+            scenarios_observed    TEXT NOT NULL DEFAULT '[]',
+            drop_reason           TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bg_observer_cycle_log_ts "
+        "ON bg_observer_cycle_log (started_at DESC)"
+    )
+
+
 def _migration_v24_generated_country(conn) -> None:
     """Add `country` GENERATED VIRTUAL column mirroring `theater` on each table.
 
@@ -1049,6 +1115,17 @@ class RadarDB:
         except sqlite3.OperationalError as e:
             log.warning("[DB] A-4 generated column setup skipped: %s", e)
 
+        # ADR-V2-015: ensure scenario_contribution_log carries `sensor` and
+        # bg_observer_cycle_log exists. Fresh DBs skip migration v36
+        # entirely (the migration engine sets schema_version to baseline
+        # without running migrations on a brand-new DB), so the migration
+        # helper is invoked here as well. Idempotent on upgraded DBs.
+        try:
+            with conn.writing():
+                _migration_v36_bg_observer(conn)
+        except sqlite3.OperationalError as e:
+            log.warning("[DB] v36 bg_observer setup skipped: %s", e)
+
     def schema_version(self) -> int:
         try:
             row = self._get_conn().execute(
@@ -2047,6 +2124,9 @@ class RadarDB:
             CREATE INDEX IF NOT EXISTS idx_llm_feature_state_history_ts
                 ON llm_feature_state_history (changed_at DESC);
         """),
+
+        (36, "bg_observer phase 6: sensor column on contribution_log + cycle_log table (ADR-V2-015)",
+         _migration_v36_bg_observer),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -2511,24 +2591,46 @@ class RadarDB:
     # ── scenario_contribution_log (Item 2.2 weight advisory) ───────────────
     def scenario_contribution_append(self, scenario_id: str,
                                      contributions_by_country: dict[str, float],
-                                     logged_at: float) -> None:
+                                     logged_at: float,
+                                     sensor: Optional[str] = None,
+                                     contributions_by_country_sensor: Optional[
+                                         dict[tuple[str, str], float]
+                                     ] = None) -> None:
         """Persist this cycle's per-country contribution sums for a scenario.
+
+        Two call shapes are supported (one per call):
+
+        - ``contributions_by_country={'IL': 0.42}`` + optional ``sensor='bg_observer_rss'``:
+          all entries share the same sensor (back-compat behaviour when no
+          sensor is supplied: persisted with sensor=NULL = 'legacy').
+        - ``contributions_by_country_sensor={('IL','bg_observer_rss'): 0.42, ...}``:
+          per-(country, sensor) breakdown for callers that have already
+          partitioned by sensor (ADR-V2-015 Phase 1).
 
         Empty contributions are intentionally still appended as a row with
         contribution_sum=0 so the aggregator can distinguish "no signal in
         the window" from "scenario was inactive in the window".
         """
-        if not contributions_by_country:
+        if not contributions_by_country and not contributions_by_country_sensor:
             return
         conn = self._get_conn()
         with conn.writing():
-            for country, total in contributions_by_country.items():
-                conn.execute(
-                    "INSERT INTO scenario_contribution_log "
-                    "(scenario_id, country, contribution_sum, logged_at) "
-                    "VALUES (?, ?, ?, ?)",
-                    (scenario_id, country, float(total), logged_at),
-                )
+            if contributions_by_country_sensor:
+                for (country, snr), total in contributions_by_country_sensor.items():
+                    conn.execute(
+                        "INSERT INTO scenario_contribution_log "
+                        "(scenario_id, country, contribution_sum, logged_at, sensor) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (scenario_id, country, float(total), logged_at, snr),
+                    )
+            else:
+                for country, total in contributions_by_country.items():
+                    conn.execute(
+                        "INSERT INTO scenario_contribution_log "
+                        "(scenario_id, country, contribution_sum, logged_at, sensor) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (scenario_id, country, float(total), logged_at, sensor),
+                    )
 
     def scenario_contributions_aggregate(self, scenario_id: str,
                                          hours: int = 168) -> dict[str, float]:
@@ -2587,6 +2689,11 @@ class RadarDB:
 
         Used to identify scenarios whose lite-mode score is being driven
         only by global signals (chronic blind-spot per NP5+8).
+
+        Phase 6 (ADR-V2-015): also returns ``by_sensor`` so the AP3 OBS
+        chip can disaggregate bg_observer / llm_intel / per-country
+        sensors. Legacy rows without a sensor value are bucketed under
+        'legacy'.
         """
         cutoff = time.time() - hours * 3600
         conn = self._get_conn()
@@ -2607,6 +2714,17 @@ class RadarDB:
             "GROUP BY country ORDER BY total DESC LIMIT 5",
             (scenario_id, cutoff),
         ).fetchall()
+        by_sensor_rows = conn.execute(
+            "SELECT COALESCE(sensor, 'legacy') AS s, "
+            "       COUNT(*) AS n, "
+            "       SUM(contribution_sum) AS total, "
+            "       COUNT(DISTINCT country) AS n_countries "
+            "FROM scenario_contribution_log "
+            "WHERE scenario_id = ? AND logged_at > ? "
+            "  AND contribution_sum > 0 "
+            "GROUP BY COALESCE(sensor, 'legacy')",
+            (scenario_id, cutoff),
+        ).fetchall()
         return {
             "row_count": int(agg["n"] or 0) if agg else 0,
             "distinct_countries": int(agg["n_countries"] or 0) if agg else 0,
@@ -2614,6 +2732,90 @@ class RadarDB:
             "top_countries": [
                 (r["country"], float(r["total"] or 0.0)) for r in top
             ],
+            "by_sensor": {
+                r["s"]: {
+                    "row_count": int(r["n"] or 0),
+                    "total": float(r["total"] or 0.0),
+                    "distinct_countries": int(r["n_countries"] or 0),
+                }
+                for r in by_sensor_rows
+            },
+        }
+
+    # ── bg_observer cycle_log (ADR-V2-015 Phase 5) ─────────────────────────
+    def bg_observer_cycle_append(self, row: dict) -> None:
+        """Persist one bg_observer cycle audit row.
+
+        ``row`` must contain the columns of bg_observer_cycle_log. JSON
+        fields (matches_by_country, alias_gap, scenarios_observed) may be
+        passed as Python objects and will be serialised here.
+        """
+        import json as _json
+        conn = self._get_conn()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO bg_observer_cycle_log "
+                "(started_at, duration_ms, feeds_attempted, feeds_failed, "
+                " items_total, items_with_country, items_with_kinetic, "
+                " items_with_fatalities, matches_emitted, matches_by_country, "
+                " alias_gap, scenarios_observed, drop_reason) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    float(row.get("started_at", time.time())),
+                    int(row.get("duration_ms", 0)),
+                    int(row.get("feeds_attempted", 0)),
+                    int(row.get("feeds_failed", 0)),
+                    int(row.get("items_total", 0)),
+                    int(row.get("items_with_country", 0)),
+                    int(row.get("items_with_kinetic", 0)),
+                    int(row.get("items_with_fatalities", 0)),
+                    int(row.get("matches_emitted", 0)),
+                    _json.dumps(row.get("matches_by_country", {})),
+                    _json.dumps(row.get("alias_gap", [])),
+                    _json.dumps(row.get("scenarios_observed", [])),
+                    row.get("drop_reason"),
+                ),
+            )
+
+    def bg_observer_cycle_summary(self, hours: int = 24) -> dict:
+        """Aggregate stats for the AP3 self-eval HUD chip.
+
+        Returns counts of cycles, empty-cycle ratio, median matches per
+        cycle, and the most recent alias_gap observation.
+        """
+        cutoff = time.time() - hours * 3600
+        conn = self._get_conn()
+        agg = conn.execute(
+            "SELECT COUNT(*) AS n, "
+            "       SUM(CASE WHEN matches_emitted = 0 THEN 1 ELSE 0 END) AS n_empty, "
+            "       SUM(matches_emitted) AS sum_matches, "
+            "       MAX(started_at) AS last_at "
+            "FROM bg_observer_cycle_log "
+            "WHERE started_at > ?",
+            (cutoff,),
+        ).fetchone()
+        last_gap_row = conn.execute(
+            "SELECT alias_gap FROM bg_observer_cycle_log "
+            "WHERE started_at > ? "
+            "ORDER BY started_at DESC LIMIT 1",
+            (cutoff,),
+        ).fetchone()
+        n = int(agg["n"] or 0) if agg else 0
+        n_empty = int(agg["n_empty"] or 0) if agg else 0
+        sum_m = int(agg["sum_matches"] or 0) if agg else 0
+        import json as _json
+        try:
+            alias_gap = _json.loads(last_gap_row["alias_gap"]) if last_gap_row else []
+        except Exception:
+            alias_gap = []
+        return {
+            "cycles": n,
+            "empty_cycles": n_empty,
+            "empty_rate": round(n_empty / n, 3) if n else None,
+            "matches_total": sum_m,
+            "matches_per_cycle_avg": round(sum_m / n, 2) if n else None,
+            "last_at": float(agg["last_at"]) if agg and agg["last_at"] else None,
+            "alias_gap": alias_gap,
         }
 
     # ── focus_switch_log (Section 9.3.1) ───────────────────────────────────
@@ -4351,6 +4553,17 @@ class RadarDB:
             "DELETE FROM scenario_contribution_log WHERE logged_at < ?",
             (cutoff_ctb,))
         deleted["scenario_contribution_log"] = cur.rowcount
+        conn.commit()
+
+        # bg_observer_cycle_log: per-cycle audit (ADR-V2-015 Phase 5).
+        # ~1 row per BG_OBSERVER_INTERVAL_SEC (default 300s) = ~288/day.
+        # 30d retention = ~8.6k rows is plenty for AP3/AP4 introspection.
+        _bgo_days = int(_os.getenv("BG_OBSERVER_CYCLE_LOG_RETENTION_DAYS", "30"))
+        cutoff_bgo = now - _bgo_days * 86400
+        cur = conn.execute(
+            "DELETE FROM bg_observer_cycle_log WHERE started_at < ?",
+            (cutoff_bgo,))
+        deleted["bg_observer_cycle_log"] = cur.rowcount
         conn.commit()
 
         # NOTE: scenario_change_log and confirmed_threats are intentionally

@@ -19,6 +19,9 @@ from radar.conclusions.rss_extractor import (
     KineticMatch,
     extract_kinetic,
     extract_kinetic_regex,
+    extract_kinetic_regex_all,
+    verify_alias_coverage,
+    _COUNTRY_ALIASES,
 )
 
 
@@ -212,3 +215,143 @@ def test_llm_path_returns_none_when_regex_also_misses():
         return "{}"
     assert extract_kinetic("Markets opened mixed in early trading",
                            use_llm=True, llm_invoke=empty) is None
+
+
+# ── ADR-V2-015 Phase 2: alias coverage invariant ──────────────────────────
+
+def test_alias_coverage_against_geo_data_json():
+    """Every scenario participant in geo_data.json must have an alias.
+    A new participant added without an alias breaks bg_observer recall."""
+    import json
+    import pathlib
+    geo_path = pathlib.Path(__file__).resolve().parent / "geo_data.json"
+    with geo_path.open() as f:
+        geo = json.load(f)
+    participants: set[str] = set()
+    for sc in geo.get("SCENARIOS", {}).values():
+        for cc in sc.get("participants", {}).keys():
+            participants.add(cc)
+    gap = verify_alias_coverage(participants)
+    assert gap == [], (
+        f"alias coverage gap — {gap} have no entry in _COUNTRY_ALIASES. "
+        f"Add them to radar/conclusions/rss_extractor.py."
+    )
+
+
+def test_verify_alias_coverage_returns_missing_codes_sorted():
+    gap = verify_alias_coverage({"US", "ZZ", "AAA"})
+    assert gap == ["AAA", "ZZ"]
+    assert verify_alias_coverage({"US"}) == []
+    assert verify_alias_coverage(set()) == []
+
+
+def test_phase2_added_aliases_present():
+    """The 11 codes added in Phase 2 must all be present."""
+    for cc in ("AU", "BY", "EE", "FI", "GU", "LT", "LV",
+               "MD", "MY", "RO", "SK"):
+        assert cc in _COUNTRY_ALIASES, f"{cc} missing from _COUNTRY_ALIASES"
+
+
+def test_belarus_alias_detects_lukashenko_and_minsk():
+    # Use BY-only headline (no other country mentioned) so first-wins
+    # alias iteration doesn't pick PL/RU/UA.
+    out = extract_kinetic_regex("Lukashenko orders Minsk mobilization of reservists")
+    assert isinstance(out, KineticMatch)
+    assert out.country == "BY"
+    assert out.confidence == 0.40  # escalation verb only
+
+
+# ── ADR-V2-015 Phase 3: multi-country broadcast extraction ────────────────
+
+def test_extract_all_returns_multi_country_for_dual_actor_headline():
+    # Phrase chosen to match _NUMERIC_FATALITIES_INVERTED: "killed 12".
+    out = extract_kinetic_regex_all(
+        "Russian forces attack Ukraine; killed 12"
+    )
+    assert isinstance(out, list)
+    countries = {m.country for m in out}
+    assert {"RU", "UA"}.issubset(countries)
+    for m in out:
+        assert m.fatalities == 12
+        assert m.confidence == 0.85
+
+
+def test_extract_all_returns_empty_when_no_country():
+    assert extract_kinetic_regex_all("Markets closed flat") == []
+
+
+def test_extract_all_returns_empty_when_no_verb_or_fatality():
+    """Country alone is not enough — needs a verb or fatality."""
+    assert extract_kinetic_regex_all("Trade ministers from Japan and South Korea meet") == []
+
+
+def test_extract_all_respects_allowed_countries():
+    out = extract_kinetic_regex_all(
+        "Russian forces attack Ukraine; killed 5",
+        allowed_countries=["UA"],
+    )
+    countries = {m.country for m in out}
+    assert countries == {"UA"}
+
+
+def test_extract_all_dedupes_duplicate_country_mentions():
+    out = extract_kinetic_regex_all(
+        "Russia attacks Russia again — Russian forces deploy"
+    )
+    countries = [m.country for m in out]
+    assert countries.count("RU") == 1
+
+
+# ── ADR-V2-015 Phase 6: escalation-verb (no-fatality) detection ───────────
+
+def test_escalation_verb_mobilization_low_confidence():
+    # BY-only mention (no PL collision) — verifies escalation-verb path.
+    out = extract_kinetic_regex(
+        "Belarus mobilizes additional reservists this week, Minsk announces"
+    )
+    assert isinstance(out, KineticMatch)
+    assert out.country == "BY"
+    assert out.fatalities == 0
+    assert out.confidence == 0.40
+
+
+def test_escalation_verb_diplomatic_break():
+    out = extract_kinetic_regex(
+        "China recalls its ambassador from the Philippines amid maritime row"
+    )
+    assert isinstance(out, KineticMatch)
+    assert out.country in ("CN", "PH")
+    assert out.confidence == 0.40
+
+
+def test_escalation_verb_missile_test():
+    # 'missile' alone is in _KINETIC_VERBS so it returns 0.60 — that
+    # is the correct ladder behaviour. The escalation-verb path only
+    # kicks in when no kinetic verb is present, e.g. 'troop buildup'
+    # without 'missile'/'airstrike'/etc.
+    out = extract_kinetic_regex(
+        "Pyongyang announces troop buildup near the DMZ"
+    )
+    assert isinstance(out, KineticMatch)
+    assert out.country == "KP"
+    assert out.confidence == 0.40
+    assert out.fatalities == 0
+
+
+def test_kinetic_verb_outranks_escalation_verb():
+    """When kinetic + escalation both present, fatalities path wins."""
+    # Use numeric digits + 'killed N' so _NUMERIC_FATALITIES_INVERTED matches.
+    out = extract_kinetic_regex(
+        "Russian airstrike killed 3 as Ukraine mobilizes reservists"
+    )
+    assert isinstance(out, KineticMatch)
+    # numeric fatalities path takes precedence over verb-only paths
+    assert out.confidence == 0.85
+    assert out.fatalities == 3
+
+
+def test_pure_protest_not_treated_as_escalation():
+    """'protest' is intentionally NOT in _ESCALATION_VERBS."""
+    assert extract_kinetic_regex(
+        "Protesters gathered outside the Russian embassy in London"
+    ) is None

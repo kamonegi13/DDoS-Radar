@@ -55,7 +55,12 @@ from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
 from radar import config
-from radar.conclusions.rss_extractor import KineticMatch, extract_kinetic_regex
+from radar.conclusions.rss_extractor import (
+    KineticMatch,
+    extract_kinetic_regex,
+    extract_kinetic_regex_all,
+    verify_alias_coverage,
+)
 
 log = logging.getLogger("bg_observer")
 
@@ -168,11 +173,22 @@ def _default_fetch_feed(url: str) -> list[dict]:
 
 
 class BackgroundObserver:
-    """Round-robin scheduler over non-focused scenarios + their participants.
+    """Broadcast scanner over all scorable scenarios' participant unions.
 
-    Stateless across cycles except for two indices (scenario rotation +
-    per-scenario country rotation). Fetcher and clock are injectable so
-    tests run offline.
+    ADR-V2-015 Phase 3: replaced the round-robin (1 scenario × 1 country
+    per cycle) with a broadcast scan that evaluates every fetched RSS
+    item against every participant simultaneously. The scoring layer's
+    per-scenario participant filter handles routing — emitting one
+    Signal per detected country lets the same item count toward every
+    scenario whose participants include that country.
+
+    Why broadcast? The old design fetched all 9 feeds (~360 items)
+    every cycle but kept matches for only one country, throwing away
+    the other 8/9 of potential matches. Fetch cost is scope-independent;
+    only the filter was scoped. Recall improvement is structural, not
+    statistical.
+
+    Fetcher and clock are injectable so tests run offline.
     """
 
     def __init__(
@@ -183,90 +199,203 @@ class BackgroundObserver:
         fetch_feed_fn: Callable[[str], list[dict]] = _default_fetch_feed,
         now_fn: Callable[[], float] = time.time,
         log_fn: Optional[Callable[..., None]] = None,
+        cycle_log_fn: Optional[Callable[[dict], None]] = None,
     ) -> None:
         self._scorable_fn = scorable_scenarios_fn
         self._focused_fn = focused_id_fn
         self._feeds = list(feeds) if feeds is not None else list(config.BG_OBSERVER_FEEDS)
         self._fetch_feed = fetch_feed_fn
         self._now = now_fn
-        self._scenario_idx = 0
-        self._country_idx_per_scenario: dict[str, int] = {}
         self._log = log_fn or log.info
+        # Persistence hook for AP3/AP4 cycle audit. Default: lazy-import
+        # radar.database so unit tests can run without a DB; injected
+        # callable for test fixtures.
+        self._cycle_log_fn = cycle_log_fn
 
-    def _pick_scenario(self):
+    def _fetch_all(self) -> tuple[list[dict], int, int]:
+        """Fetch every configured feed. Returns (items, attempted, failed).
+
+        Per-feed exceptions are absorbed so one bad feed cannot starve
+        the cycle; the failure count is surfaced in the cycle log so
+        AP3 can detect chronic feed outages.
+        """
+        items: list[dict] = []
+        attempted = 0
+        failed = 0
+        for url in self._feeds:
+            attempted += 1
+            try:
+                feed_items = self._fetch_feed(url)
+                if not feed_items:
+                    # Empty result is treated as failure for AP3 visibility
+                    # — distinguishes "fetched but empty" from "fetched and
+                    # parsed N items". Real causes: 403, malformed XML,
+                    # rate-limit. Either way, recall is reduced.
+                    failed += 1
+                else:
+                    items.extend(feed_items)
+            except Exception:  # noqa: BLE001
+                failed += 1
+        return items, attempted, failed
+
+    def _gather_participants(self) -> tuple[list[str], list, str | None]:
+        """Return (participants_union, scenarios_observed, focused_id).
+
+        The participant union is **all** scorable scenarios' participants
+        (focused included) — bg_observer no longer skips the focused
+        scenario because the broadcast scan is far cheaper than the
+        per-cycle fetch and the duplicate signals are de-duped by the
+        scoring layer's ``dedup_by_source_country_max``. Including the
+        focused scenario also gives the AP3 OBS chip a consistent
+        per-country view across focus changes.
+        """
         scenarios = list(self._scorable_fn())
         focused = self._focused_fn()
-        candidates = [s for s in scenarios if s.id != focused]
-        if not candidates:
-            return None
-        # Sort for determinism so round-robin is stable across restarts
-        candidates.sort(key=lambda s: s.id)
-        sc = candidates[self._scenario_idx % len(candidates)]
-        self._scenario_idx += 1
-        return sc
+        participants: set[str] = set()
+        for sc in scenarios:
+            participants.update(getattr(sc, "participants", {}).keys())
+        return sorted(participants), scenarios, focused
 
-    def _pick_country(self, scenario) -> Optional[str]:
-        participants = sorted(getattr(scenario, "participants", {}).keys())
-        if not participants:
-            return None
-        idx = self._country_idx_per_scenario.get(scenario.id, 0)
-        country = participants[idx % len(participants)]
-        self._country_idx_per_scenario[scenario.id] = idx + 1
-        return country
-
-    def _fetch_all(self) -> list[dict]:
-        items: list[dict] = []
-        for url in self._feeds:
-            items.extend(self._fetch_feed(url))
-        return items
+    def _persist_cycle_log(self, row: dict) -> None:
+        """Persist a cycle audit row. Falls back silently on any error
+        (NP3 — observer must not break itself by trying to log)."""
+        if self._cycle_log_fn is not None:
+            try:
+                self._cycle_log_fn(row)
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        try:
+            from radar.database import db as _db
+            _db.bg_observer_cycle_append(row)
+        except Exception:  # noqa: BLE001
+            pass
 
     def tick(self) -> dict:
-        """One observation cycle. Returns a small status dict for monitoring.
+        """One observation cycle (broadcast). Returns a status dict.
 
-        Caller is responsible for sleeping between ticks. Non-fatal: any
-        exception during fetch / extract is caught at the per-feed level
-        so a single bad feed cannot starve the rotation.
+        Each cycle:
+          1. Resolve the participant union over all scorable scenarios.
+          2. Verify alias coverage (NP6 — record any gap).
+          3. Fetch every feed once.
+          4. For each item, run multi-country extraction scoped to the
+             participant union.
+          5. Emit one Signal per (country, item) match.
+          6. Persist a cycle log row for AP3/AP4.
+
+        Non-fatal: per-feed and per-item exceptions are absorbed.
         """
+        started_at = self._now()
         if not config.BG_OBSERVER_ENABLED:
             return {"enabled": False}
 
-        scenario = self._pick_scenario()
-        if scenario is None:
-            return {"reason": "no_non_focused_scenario"}
-        country = self._pick_country(scenario)
-        if country is None:
-            return {"reason": "no_participants", "scenario_id": scenario.id}
+        participants, scenarios, focused = self._gather_participants()
+        scenarios_observed = sorted(s.id for s in scenarios)
 
-        items = self._fetch_all()
+        # Coverage gap surfaces in cycle log for AP3 self-eval; we still
+        # proceed because uncovered countries simply produce no matches
+        # — having SOME observation is better than none (NP1).
+        alias_gap = verify_alias_coverage(set(participants))
+
+        if not participants:
+            row = {
+                "started_at": started_at,
+                "duration_ms": int((self._now() - started_at) * 1000),
+                "feeds_attempted": 0,
+                "feeds_failed": 0,
+                "items_total": 0,
+                "items_with_country": 0,
+                "items_with_kinetic": 0,
+                "items_with_fatalities": 0,
+                "matches_emitted": 0,
+                "matches_by_country": {},
+                "alias_gap": alias_gap,
+                "scenarios_observed": scenarios_observed,
+                "drop_reason": "no_participants",
+            }
+            self._persist_cycle_log(row)
+            return {"enabled": True, "reason": "no_participants"}
+
+        items, feeds_attempted, feeds_failed = self._fetch_all()
+
+        items_with_country = 0
+        items_with_kinetic = 0
+        items_with_fatalities = 0
         matches: list[KineticMatch] = []
         for item in items:
-            text = ((item.get("title") or "") + " — " + (item.get("summary") or "")).strip()
+            text = ((item.get("title") or "") + " — "
+                    + (item.get("summary") or "")).strip()
             if not text:
                 continue
-            m = extract_kinetic_regex(text, allowed_countries=[country])
-            if m is not None:
+            try:
+                item_matches = extract_kinetic_regex_all(
+                    text, allowed_countries=participants,
+                )
+            except Exception:  # noqa: BLE001
+                continue
+            if not item_matches:
+                continue
+            items_with_country += 1
+            for m in item_matches:
+                if m.fatalities > 0 and m.confidence >= 0.85:
+                    items_with_fatalities += 1
+                if m.confidence == 0.60:
+                    items_with_kinetic += 1
                 matches.append(m)
 
         now = self._now()
+        matches_by_country: dict[str, int] = {}
         for m in matches:
             sig = _PendingSignal(
                 observed_at=now,
-                domain="info",  # RSS narrative → information-domain by default
+                domain="info",
                 countries=(m.country,),
-                raw_score=min(1.0, 0.4 + 0.05 * m.fatalities),  # cap at 1.0
+                # 3-tier raw_score per ADR-V2-015 Phase 6:
+                #   conf 0.85 (fatalities): 0.4 + 0.05 * fatalities (capped)
+                #   conf 0.60 (kinetic verb only):    0.45
+                #   conf 0.40 (escalation verb only): 0.25
+                raw_score=(
+                    min(1.0, 0.4 + 0.05 * m.fatalities) if m.confidence >= 0.85
+                    else 0.45 if m.confidence >= 0.60
+                    else 0.25
+                ),
                 sensor="bg_observer_rss",
                 signal_source="bg_observer",
-                value_display=f"rss:{m.country} fatalities={m.fatalities}",
+                value_display=(
+                    f"rss:{m.country} fatalities={m.fatalities} "
+                    f"conf={m.confidence:.2f}"
+                ),
                 evidence_url=None,
             )
             _enqueue(sig)
+            matches_by_country[m.country] = matches_by_country.get(m.country, 0) + 1
+
+        row = {
+            "started_at": started_at,
+            "duration_ms": int((self._now() - started_at) * 1000),
+            "feeds_attempted": feeds_attempted,
+            "feeds_failed": feeds_failed,
+            "items_total": len(items),
+            "items_with_country": items_with_country,
+            "items_with_kinetic": items_with_kinetic,
+            "items_with_fatalities": items_with_fatalities,
+            "matches_emitted": len(matches),
+            "matches_by_country": matches_by_country,
+            "alias_gap": alias_gap,
+            "scenarios_observed": scenarios_observed,
+            "drop_reason": None,
+        }
+        self._persist_cycle_log(row)
 
         result = {
             "enabled": True,
-            "scenario_id": scenario.id,
-            "country": country,
+            "participants": len(participants),
+            "scenarios_observed": len(scenarios_observed),
             "feeds_items": len(items),
+            "feeds_failed": feeds_failed,
             "matches": len(matches),
+            "matches_by_country": matches_by_country,
+            "alias_gap": alias_gap,
             "queued_total": queue_size(),
         }
         try:
@@ -294,40 +423,15 @@ def _worker_loop(observer: "BackgroundObserver") -> None:
 
 
 def start_worker() -> Optional[threading.Thread]:
-    """Spawn the background daemon. Returns the thread (None if disabled).
+    """DEPRECATED (ADR-V2-015 Phase 4) — kept as a no-op compat shim.
 
-    Imported and called from radar/__init__.py during application startup.
-    The deferred imports here avoid circular dependencies during module
-    loading (scenario_store loads geo_data.json which references config).
+    The ticker is now owned by ``BackgroundObserverSensor`` registered
+    in ``radar/__init__.py``. Calling this function would either
+    double-start the worker or have no effect, so it logs a warning
+    and returns None. Removed in the release after Phase 4 lands.
     """
-    if not config.BG_OBSERVER_ENABLED:
-        log.info("[bg_observer] disabled (BG_OBSERVER_ENABLED=false)")
-        return None
-
-    from radar.scenarios import scenario_store
-
-    def scorable():
-        return scenario_store.scorable() if scenario_store.loaded else []
-
-    def focused_id():
-        # The "currently focused scenario" lives in process state per-request,
-        # not globally. For the background observer the safest signal is
-        # "default focused scenario" from config. The observer is harmless
-        # if it accidentally polls the focused scenario (just one extra
-        # signal; OBS chip still shows the same green health). The tradeoff
-        # is acceptable to avoid leaking request state into a daemon thread.
-        from radar.config import DEFAULT_FOCUSED_SCENARIO
-        return DEFAULT_FOCUSED_SCENARIO
-
-    observer = BackgroundObserver(
-        scorable_scenarios_fn=scorable,
-        focused_id_fn=focused_id,
+    log.warning(
+        "[bg_observer] start_worker() is deprecated — "
+        "BackgroundObserverSensor now owns the ticker (ADR-V2-015 Phase 4)"
     )
-    t = threading.Thread(
-        target=_worker_loop, args=(observer,),
-        daemon=True, name="bg_observer",
-    )
-    t.start()
-    log.info("[bg_observer] started — interval=%ds, feeds=%d",
-             config.BG_OBSERVER_INTERVAL_SEC, len(observer._feeds))
-    return t
+    return None

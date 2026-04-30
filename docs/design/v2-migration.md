@@ -383,6 +383,38 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
   - **NP5+8 (結論品質規律)**: `replay_tag` で「実 live ではない」ことを明示しており、品質指標への混入は ADR-V2-014 で別途規律化
   - **NP6 (透明性)**: スクリプト本体 + replay_tag で導出経路を完全開示
 
+### ADR-V2-015: bg_observer を BACKGROUND_ELIGIBLE 第一号 sensor として reify (Phase 6)
+
+- **状態**: ACCEPTED (2026-04-30)
+- **背景**: 2026-04-30 の調査で 3 つの構造的事実が判明した:
+  1. `SensorTier.BACKGROUND_ELIGIBLE` は ADR-002 / ADR-017 で予約された C-medium 用 tier だが、**12 sensor のいずれも採用していない**。enum は定義されているが実装ゼロ。
+  2. `radar/background_observer.py` は v1.8 から続く埋め草で、BaseSensor 体系の **外** に居る独立 worker。`SensorTier` 概念を持たず、circuit breaker / health 監視 / `scenario_sensor_coverage` 連動なし。
+  3. bg_observer は本番で 1 cycle 中 1/4 しか matches を産まない。原因は単一国スコープ + multi-country 不対応 + alias 11 件欠落 (AU/BY/EE/FI/GU/LT/LV/MD/MY/RO/SK)。これにより AP3 OBS chip が偽陽性緑表示となり NP5+8 (恒常的 NULL-ZONE = 設計失敗) の検知機構そのものが沈黙する入れ子問題を生じている。
+- **検討した代替案**:
+  - **Option A (sunset bg_observer + GDELT を BG_ELIGIBLE 化)**: ADR-017 整合は最高だが、(1) GDELT は LLM intel queue 経由で動作するため bg_observer の **LLM 非依存 OPSEC niche** を捨てる、(2) C-medium reference 実装完成までに 1-3 ヶ月かかり、その間 NP1 (recall) / NP5+8 違反が進行する。
+  - **Option C (alias 補修と broadcast 化のみ)**: 工数最小 (3-5h) だが NP3 / NP6 / AP1 / AP4 違反を温存し、bg_observer の戦略的位置づけが宙に浮く。
+- **判断**: **Option B 採用**。bg_observer を BaseSensor 化し、`tier=SensorTier.BACKGROUND_ELIGIBLE` の **第一号 reference 実装** として位置づける。後続の sensor promotion (GDELT / ACLED 等) はこの reference に倣う。
+- **実装計画 (Phase 6 = Operational Recall Repair)**:
+  1. **Phase 1**: `scenario_contribution_log.sensor` 列追加 (migration v36) — sensor 別 OBS chip / recall baseline / scenario_improver の前提
+  2. **Phase 2**: alias 補修 + `verify_alias_coverage()` + CI gate + startup gate (恒久不変条件化)
+  3. **Phase 3**: `extract_kinetic_regex_all()` + `tick()` broadcast 化 (round-robin 廃止)
+  4. **Phase 4**: `BackgroundObserverSensor(BaseSensor)` 化、scheduler 統合、circuit breaker / health
+  5. **Phase 5**: `bg_observer_cycle_log` テーブル + `/api/v2/self_eval` 拡張 + HUD `OBS-BG` chip
+  6. **Phase 6**: kinetic verb 群拡張 (mobiliz*, deploy, scramble*, missile test, recall ambassador) + 3 段階 raw_score (0.85 / 0.45 / 0.25)
+  7. **Phase 7**: 上位機能整合性検証 + recall metrics baseline 再収集
+  8. **Phase 8**: ADR 確定 + INTEL GUIDE Ch.10 §R bilingual
+- **NP 整合性**:
+  - **NP1 (感度)**: alias 補修 + broadcast 化で recall 構造的回復、Phase 6 で動員/外交断絶検出を低 confidence で追加
+  - **NP3 (耐障害性)**: BaseSensor 化で circuit breaker / health / graceful degrade を取得
+  - **NP5+8 (品質規律)**: OBS chip の sensor 別分解で「観測無し」状態を真に表示可能、AP3 chip による自己診断
+  - **NP6 (透明性)**: cycle_log + per-feed audit + sensor framework の standard log
+  - **AP1 (能動的トリアージ)**: bg_observer signals を attention_score 計算に取り込む (Phase 4 内)
+  - **AP4 (判断履歴)**: cycle_log で replay 時の bg_observer 観測を時刻 T で復元可能
+- **依存**: ADR-002 (C-lite 採用) / ADR-017 (SensorTier 予約) を実体化する位置づけ
+- **後方互換**: `radar/background_observer.py` を thin wrapper として 1 リリース猶予で維持、Phase 4 完了後の次リリースで削除
+
+---
+
 ### ADR-V2-014: calibration への replay 行採用ポリシー (Phase 1.3 加速)
 
 - **状態**: ACCEPTED (2026-04-26)

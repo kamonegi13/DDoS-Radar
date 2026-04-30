@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
@@ -81,10 +82,34 @@ _KINETIC_VERBS = re.compile(
     re.IGNORECASE,
 )
 
+# Diplomatic / mobilization verbs that signal escalation without a
+# fatality count. NP1 (recall over precision): low-confidence early
+# warning is worth more than under-reporting. Kept conservative — only
+# verbs with strong inter-state escalation semantics. Citizen-X words
+# like "protest" or "rally" are deliberately excluded — they fire
+# constantly in non-escalatory contexts.
+_ESCALATION_VERBS = re.compile(
+    r"\b(mobiliz(?:e|es|ed|ing|ation)|"
+    r"deploy(?:s|ed|ing|ment)?|"
+    r"scrambl(?:e|es|ed|ing)|"
+    r"intercept(?:s|ed|ing|ion)?|"
+    r"missile\s+test|test\s+launch|"
+    r"recall(?:s|ed|ing)?\s+(?:its\s+)?ambassador|"
+    r"sever(?:s|ed|ing)?\s+(?:diplomatic\s+)?(?:ties|relations)|"
+    r"expel(?:s|led|ling)?\s+(?:the\s+)?diplomat|"
+    r"troop\s+buildup|military\s+exercise|war\s+games)\b",
+    re.IGNORECASE,
+)
+
+
 # ISO-2 country code → list of search aliases. Kept conservative — only
 # names whose appearance in a news headline reliably implicates the
 # country itself, not a citizen-of-X mention. Edit this map carefully:
 # adding a permissive alias bloats false positives.
+#
+# Coverage invariant (ADR-V2-015 Phase 2): every country that appears as
+# a participant in any geo_data.json scenario MUST have an alias entry.
+# Verified at startup + CI by `verify_alias_coverage()` below.
 _COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
     "TW": ("Taiwan", "Taiwanese"),
     "CN": ("China", "Chinese", "PRC", "PLA"),
@@ -107,7 +132,64 @@ _COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
     "SY": ("Syria", "Syrian", "Damascus"),
     "IQ": ("Iraq", "Iraqi", "Baghdad"),
     "SA": ("Saudi Arabia", "Saudi", "Riyadh"),
+    # ADR-V2-015 Phase 2 — coverage of all v2 scenario participants:
+    "AU": ("Australia", "Australian", "Canberra"),
+    "BY": ("Belarus", "Belarusian", "Minsk", "Lukashenko"),
+    "EE": ("Estonia", "Estonian", "Tallinn"),
+    "FI": ("Finland", "Finnish", "Helsinki"),
+    "GU": ("Guam",),
+    "LT": ("Lithuania", "Lithuanian", "Vilnius"),
+    "LV": ("Latvia", "Latvian", "Riga"),
+    "MD": ("Moldova", "Moldovan", "Chisinau", "Transnistria"),
+    "MY": ("Malaysia", "Malaysian", "Kuala Lumpur", "Putrajaya"),
+    "RO": ("Romania", "Romanian", "Bucharest"),
+    "SK": ("Slovakia", "Slovak", "Bratislava"),
 }
+
+
+def verify_alias_coverage(participants: set[str]) -> list[str]:
+    """Return ISO-2 codes that appear in `participants` but have no alias.
+
+    Used by the CI gate (`scripts/check_ci.sh`) and the bg_observer
+    startup self-check to enforce the "every scenario participant has
+    an alias" invariant declared in ADR-V2-015 Phase 2.
+    """
+    return sorted(c for c in participants if c not in _COUNTRY_ALIASES)
+
+
+def _detect_all_countries(
+    text: str, allowed: Optional[Sequence[str]] = None,
+) -> list[str]:
+    """Return every ISO-2 code whose alias appears in `text`, deduped.
+
+    Multi-country variant of ``_detect_country`` (ADR-V2-015 Phase 3).
+    Used by ``extract_kinetic_regex_all`` to recover signals from
+    headlines like "Russia–Ukraine border clash" where the single-
+    country detector would arbitrarily return only one. Order is the
+    iteration order of ``_COUNTRY_ALIASES``, which is dict-insertion
+    (Python 3.7+) and therefore deterministic.
+    """
+    if not text:
+        return []
+    candidates = (
+        _COUNTRY_ALIASES.items() if allowed is None
+        else ((c, _COUNTRY_ALIASES[c]) for c in allowed if c in _COUNTRY_ALIASES)
+    )
+    found: list[str] = []
+    seen: set[str] = set()
+    for cc, aliases in candidates:
+        if cc in seen:
+            continue
+        for alias in aliases:
+            if re.search(r"\b" + re.escape(alias) + r"\b", text, re.IGNORECASE):
+                found.append(cc)
+                seen.add(cc)
+                break
+    return found
+
+
+def _has_escalation_verb(text: str) -> bool:
+    return bool(text and _ESCALATION_VERBS.search(text))
 
 
 @dataclass(frozen=True)
@@ -187,7 +269,13 @@ def extract_kinetic_regex(
 
     Returns None when:
       - no recognized country alias appears, OR
-      - neither a fatality count nor a kinetic verb appears.
+      - none of {fatality count, kinetic verb, escalation verb} appears.
+
+    Severity / confidence ladder (NP1 — recall over precision; ADR-V2-015 Phase 6):
+      - fatality count present:   confidence 0.85, fatalities = parsed number
+      - kinetic verb only:        confidence 0.60, fatalities = 1
+      - escalation verb only:     confidence 0.40, fatalities = 0  (NEW)
+        (mobilization / diplomatic break / missile test / scramble etc.)
     """
     if not text:
         return None
@@ -195,12 +283,19 @@ def extract_kinetic_regex(
     if country is None:
         return None
     fatalities = _detect_fatalities(text)
-    has_verb = _has_kinetic_verb(text)
-    if fatalities is None and not has_verb:
+    has_kinetic = _has_kinetic_verb(text)
+    has_escalation = _has_escalation_verb(text)
+    if fatalities is None and not has_kinetic and not has_escalation:
         return None
-    if fatalities is None:
-        # Verb-only match — record severity 1 with mid-range confidence so
-        # downstream classifiers can choose to weight it down.
+    if fatalities is not None:
+        return KineticMatch(
+            country=country,
+            fatalities=int(fatalities),
+            summary=text.strip()[:240],
+            source="regex",
+            confidence=0.85,
+        )
+    if has_kinetic:
         return KineticMatch(
             country=country,
             fatalities=1,
@@ -208,13 +303,62 @@ def extract_kinetic_regex(
             source="regex",
             confidence=0.60,
         )
+    # Escalation verb only (low-confidence early warning per NP1).
     return KineticMatch(
         country=country,
-        fatalities=int(fatalities),
+        fatalities=0,
         summary=text.strip()[:240],
         source="regex",
-        confidence=0.85,
+        confidence=0.40,
     )
+
+
+def extract_kinetic_regex_all(
+    text: str,
+    *,
+    allowed_countries: Optional[Sequence[str]] = None,
+) -> list[KineticMatch]:
+    """Multi-country variant of ``extract_kinetic_regex`` (ADR-V2-015 Phase 3).
+
+    Returns one ``KineticMatch`` per detected country. The kinetic /
+    escalation gate is shared across all countries in the same text:
+    if the verb is present at all, every detected country emits a
+    match. This is intentional — a single article like "Russia attacks
+    Ukraine, kills 12" describes an event involving both countries; the
+    scoring layer's per-scenario participant filter still routes each
+    country's contribution to the correct scenario.
+
+    Returns ``[]`` if no country is detected or no verb / fatality is
+    present.
+    """
+    if not text:
+        return []
+    countries = _detect_all_countries(text, allowed=allowed_countries)
+    if not countries:
+        return []
+    fatalities = _detect_fatalities(text)
+    has_kinetic = _has_kinetic_verb(text)
+    has_escalation = _has_escalation_verb(text)
+    if fatalities is None and not has_kinetic and not has_escalation:
+        return []
+    summary = text.strip()[:240]
+    if fatalities is not None:
+        return [
+            KineticMatch(country=c, fatalities=int(fatalities),
+                         summary=summary, source="regex", confidence=0.85)
+            for c in countries
+        ]
+    if has_kinetic:
+        return [
+            KineticMatch(country=c, fatalities=1,
+                         summary=summary, source="regex", confidence=0.60)
+            for c in countries
+        ]
+    return [
+        KineticMatch(country=c, fatalities=0,
+                     summary=summary, source="regex", confidence=0.40)
+        for c in countries
+    ]
 
 
 def extract_kinetic(
@@ -292,3 +436,57 @@ def _build_llm_prompt(text: str, allowed: Optional[Sequence[str]]) -> str:
         "\"confidence\": 0.0-1.0}.\n\nText:\n"
         + text.strip()[:1200]
     )
+
+
+# ── CLI gate for CI (ADR-V2-015 Phase 2) ──────────────────────────────────
+
+
+def _cli_check_coverage() -> int:
+    """Verify alias coverage against geo_data.json scenario participants.
+
+    Exit 0 = all participants covered. Exit 1 = at least one uncovered
+    code (printed). Wired into ``scripts/check_ci.sh`` so a new scenario
+    participant added without a matching alias breaks CI before merge.
+    """
+    import json
+    import pathlib
+    repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
+    geo_path = repo_root / "geo_data.json"
+    if not geo_path.exists():
+        print(f"[rss_extractor] geo_data.json not found at {geo_path}",
+              file=sys.stderr)
+        return 1
+    with geo_path.open() as f:
+        geo = json.load(f)
+    participants: set[str] = set()
+    for sid, sc in geo.get("SCENARIOS", {}).items():
+        for cc in sc.get("participants", {}).keys():
+            participants.add(cc)
+    gap = verify_alias_coverage(participants)
+    if gap:
+        print(
+            f"[rss_extractor] alias coverage gap — these participants "
+            f"have no alias entry: {gap}\n"
+            f"  Add entries to _COUNTRY_ALIASES in "
+            f"radar/conclusions/rss_extractor.py",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"[rss_extractor] alias coverage OK — "
+        f"{len(participants)} participants, {len(_COUNTRY_ALIASES)} aliases",
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    # Note: prefer ``scripts/check_alias_coverage.py`` for CI invocation —
+    # that script avoids importing the full radar package (which would
+    # trigger DB / sensor startup) and only depends on this module's
+    # ``verify_alias_coverage`` function.
+    args = sys.argv[1:]
+    if args and args[0] == "--check-coverage":
+        sys.exit(_cli_check_coverage())
+    print("usage: python -m radar.conclusions.rss_extractor --check-coverage",
+          file=sys.stderr)
+    sys.exit(2)

@@ -2476,6 +2476,54 @@
                     _applySelfEvalClass('hud-drift-chip', 'na');
                 }
             }
+
+            // OBS-BG chip (ADR-V2-015 Phase 5) — bg_observer health.
+            // Bands:
+            //   good:  enabled, ≥1 cycle in 24h, alias_gap empty, empty_rate ≤ 0.5
+            //   warn:  enabled but empty_rate > 0.5 OR cycles == 0 in 24h
+            //   crit:  alias_gap non-empty (recall hole) OR observer disabled
+            //          while expected on
+            //   na:    flag explicitly off (legitimate OPSEC choice)
+            const bgEl = document.getElementById('hud-bg-observer-value');
+            const bg = data.bg_observer || null;
+            if (bgEl) {
+                if (!bg) {
+                    bgEl.textContent = '—';
+                    _applySelfEvalClass('hud-bg-observer-chip', 'na');
+                } else if (!bg.enabled) {
+                    bgEl.textContent = 'OFF';
+                    _applySelfEvalClass('hud-bg-observer-chip', 'na');
+                } else if (Array.isArray(bg.alias_gap) && bg.alias_gap.length > 0) {
+                    bgEl.textContent = 'GAP:' + bg.alias_gap.length;
+                    _applySelfEvalClass('hud-bg-observer-chip', 'crit');
+                } else if (!bg.cycles_24h || bg.cycles_24h === 0) {
+                    bgEl.textContent = '0 cyc';
+                    _applySelfEvalClass('hud-bg-observer-chip', 'warn');
+                } else {
+                    const avg = typeof bg.matches_per_cycle_avg === 'number'
+                        ? bg.matches_per_cycle_avg : 0;
+                    const empty = typeof bg.empty_rate_24h === 'number'
+                        ? bg.empty_rate_24h : 1;
+                    bgEl.textContent = avg.toFixed(1) + '/cyc';
+                    const band = empty <= 0.5 ? 'good'
+                               : empty <= 0.8 ? 'warn' : 'crit';
+                    _applySelfEvalClass('hud-bg-observer-chip', band);
+                }
+                const chip = document.getElementById('hud-bg-observer-chip');
+                if (chip && bg) {
+                    const parts = [
+                        'bg_observer (BACKGROUND_ELIGIBLE sensor)',
+                        '  enabled: ' + (bg.enabled ? 'yes' : 'no'),
+                        '  cycles 24h: ' + (bg.cycles_24h ?? 0),
+                        '  matches total: ' + (bg.matches_total_24h ?? 0),
+                        '  matches/cyc avg: ' + (bg.matches_per_cycle_avg ?? '—'),
+                        '  empty cycle rate: ' + (bg.empty_rate_24h ?? '—'),
+                        '  alias gap: ' + (bg.alias_gap && bg.alias_gap.length
+                            ? bg.alias_gap.join(',') : 'none'),
+                    ];
+                    chip.title = parts.join('\n');
+                }
+            }
         } catch (_) {
             // NP3 — leave previous chip values; the chip stays in the prior
             // band class so a transient network blip doesn't flicker the UI.

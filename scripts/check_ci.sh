@@ -57,6 +57,12 @@ if ! python scripts/check_recall_post_autotune.py; then
     FAIL=1
 fi
 
+step "bg_observer alias coverage (ADR-V2-015 Phase 2)"
+if ! python scripts/check_alias_coverage.py; then
+    echo "FAIL: scenario participants missing from rss_extractor _COUNTRY_ALIASES." >&2
+    FAIL=1
+fi
+
 step "i18n key parity (EN-only UI + INTEL GUIDE bilingual, 2026-04-28 PM)"
 # GUIDE parity is fatal in the script. STRINGS undefined_refs/unused are
 # warn-only here — flip to --strict once the unused-key cleanup lands.

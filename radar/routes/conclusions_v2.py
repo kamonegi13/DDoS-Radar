@@ -633,6 +633,27 @@ def v2_self_eval():
     # a long enough analyst_feedback ledger to compute it.
     out["drift"] = None
 
+    # bg_observer — per-cycle audit summary (ADR-V2-015 Phase 5).
+    # Never errors out (NP3); returns nulls if the table is empty or
+    # the worker is disabled. The OBS-BG chip reads these fields.
+    try:
+        from radar.database import db as _shared_db
+        bg_summary = _shared_db.bg_observer_cycle_summary(hours=24)
+        out["bg_observer"] = {
+            "enabled": bool(_config.BG_OBSERVER_ENABLED),
+            "cycles_24h": bg_summary.get("cycles", 0),
+            "empty_rate_24h": bg_summary.get("empty_rate"),
+            "matches_per_cycle_avg": bg_summary.get("matches_per_cycle_avg"),
+            "matches_total_24h": bg_summary.get("matches_total", 0),
+            "alias_gap": bg_summary.get("alias_gap", []),
+            "last_cycle_at": bg_summary.get("last_at"),
+        }
+    except Exception as e:  # noqa: BLE001
+        out["bg_observer"] = {
+            "enabled": bool(_config.BG_OBSERVER_ENABLED),
+            "error": str(e),
+        }
+
     return jsonify(out)
 
 

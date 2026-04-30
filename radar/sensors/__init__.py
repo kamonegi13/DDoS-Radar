@@ -33,9 +33,11 @@ from radar.sensors.military_exercise import MilitaryExerciseSensor
 from radar.sensors.apt_intel import AptIntelSensor
 from radar.sensors.convergence_tracker import ConvergenceTrackerSensor
 from radar.sensors.hacktivist_news_sensor import HacktivistNewsSensor
+from radar.sensors.bg_observer import BackgroundObserverSensor
 
 __all__ = [
     "BaseSensor",
+    "BackgroundObserverSensor",
     "IodaSensor",
     "CloudflareSensor",
     "OpenSkySensor",

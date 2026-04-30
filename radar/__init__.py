@@ -83,7 +83,13 @@ from radar.sensors import (  # noqa: E402
     MilSupportAirSensor, GpsJammingSensor, CtLogSensor,
     HacktiivistIntelSensor, GroundOsintSensor, DiplomaticSensor, MilitaryExerciseSensor,
     AptIntelSensor, ConvergenceTrackerSensor, HacktivistNewsSensor,
+    BackgroundObserverSensor,
 )
+# ADR-V2-015 Phase 4: BackgroundObserverSensor is the first
+# BACKGROUND_ELIGIBLE sensor. It owns its own ticker thread (the
+# focused-only scheduler in radar/scheduler.py is bypassed for it),
+# but is still registered so AP3 / health UI / fetch_log all see it.
+_bg_observer_sensor = BackgroundObserverSensor()
 for _s in [
     CloudflareSensor(), IodaSensor(), OpenSkySensor(), OpenWeatherSensor(),
     GDELTSensor(), PeeringDbSensor(), BgpRoutingSensor(), NasaFirmsSensor(), ThreatFoxSensor(),
@@ -94,6 +100,7 @@ for _s in [
     MilSupportAirSensor(), GpsJammingSensor(), CtLogSensor(),
     HacktiivistIntelSensor(), GroundOsintSensor(), DiplomaticSensor(), MilitaryExerciseSensor(),
     AptIntelSensor(), ConvergenceTrackerSensor(), HacktivistNewsSensor(),
+    _bg_observer_sensor,
 ]:
     registry.register(_s)
 
@@ -245,8 +252,16 @@ threading.Thread(target=_persistence_worker, daemon=True, name='persistence').st
 # Spread sensor starts over ~60s to avoid DB write contention, API burst,
 # and gevent event loop starvation (each initial fetch blocks its greenlet).
 # OpenSky-dependent sensors get additional stagger for 429 avoidance.
+#
+# bg_observer_rss is excluded — it owns its own ticker thread because
+# it is a broadcast scanner (BACKGROUND_ELIGIBLE per ADR-V2-015 Phase 4)
+# rather than a focused-target poller. Its scheduler bypass is
+# intentional; the registry still sees the sensor for AP3 / health UI.
 _OPENSKY_STAGGER = {"opensky": 0, "isr_hotspot": 120, "mil_support_air": 240}
+_SCHEDULER_BYPASS = {"bg_observer_rss"}
 for _i, _s in enumerate(registry._sensors.values()):
+    if _s.name in _SCHEDULER_BYPASS:
+        continue
     _delay = _OPENSKY_STAGGER.get(_s.name, 2.0 + _i * 1.5)  # 1.5s apart, 2s base
     threading.Thread(target=_sensor_scheduler_worker, args=(_s, registry, _delay),
                      daemon=True, name=f'sensor-{_s.name}').start()
@@ -275,9 +290,11 @@ threading.Thread(target=_corroboration_worker,
 
 # AP3 Background Observer (per-scenario observation health, opt-in via
 # BG_OBSERVER_ENABLED). No-ops silently when the flag is off.
+# ADR-V2-015 Phase 4: the sensor instance owns the ticker thread; the
+# legacy radar.background_observer.start_worker() is preserved as a
+# no-op compat shim during the deprecation window.
 try:
-    from radar import background_observer as _bg_obs  # noqa: E402
-    _bg_obs.start_worker()
+    _bg_observer_sensor.start()
 except Exception:
     _log.exception("[bg_observer] startup failed (non-fatal, observer disabled)")
 

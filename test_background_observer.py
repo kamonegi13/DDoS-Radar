@@ -1,14 +1,15 @@
 """Tests for radar/background_observer.py — per-scenario obs health (AP3).
 
-Pins:
-  - cycle skips when no non-focused scenario exists
-  - round-robin scenario rotation across cycles
-  - round-robin participant country rotation per scenario
-  - regex extractor scoping (matches only when country is in scenario)
+Pins (ADR-V2-015 Phase 3 — broadcast scan replaces round-robin):
+  - broadcast scan emits a Signal per (country, item) match across the
+    union of all scorable scenarios' participants
+  - extractor scoping respects the participant union (off-list mentions
+    are ignored)
   - signals queued + drained, with TTL aging out stale entries
   - default disabled — no work happens when the flag is off
   - HTTP / parse errors at fetch time don't crash the cycle
   - Max queue cap evicts oldest when over capacity
+  - cycle audit row is persisted per tick (AP3/AP4)
 """
 
 from __future__ import annotations
@@ -74,70 +75,42 @@ def test_tick_no_op_when_disabled(monkeypatch):
     assert bgo.queue_size() == 0
 
 
-# ── pick_scenario / pick_country round-robin ─────────────────────────────
+# ── broadcast scan over participant union ────────────────────────────────
 
 
-def test_round_robin_scenario(enable_bg):
+def test_broadcast_emits_one_signal_per_country_per_match(enable_bg):
+    """One feed item with two participant countries should emit two Signals."""
+    items = [
+        # Single article mentioning both Russia and Ukraine; broadcast
+        # scan should produce a Signal for each.
+        {"title": "Russian forces attack Ukraine; killed 5",
+         "summary": "", "link": ""},
+    ]
+    fixed_now = 1_800_000_000.0
+    captured: list[dict] = []
     obs = bgo.BackgroundObserver(
         scorable_scenarios_fn=lambda: _SCENARIOS,
         focused_id_fn=lambda: "taiwan_contingency",
-        feeds=[],  # no feeds → no matches, only rotation visible
-        fetch_feed_fn=lambda u: [],
-    )
-    seen = []
-    # Two non-focused scenarios available (eastern_europe, korean_peninsula)
-    for _ in range(4):
-        seen.append(obs.tick()["scenario_id"])
-    # Sorted alphabetically: eastern_europe < korean_peninsula
-    assert seen == [
-        "eastern_europe", "korean_peninsula",
-        "eastern_europe", "korean_peninsula",
-    ]
-
-
-def test_round_robin_country_within_scenario(enable_bg):
-    """Each tick on the same scenario advances the country index."""
-    obs = bgo.BackgroundObserver(
-        scorable_scenarios_fn=lambda: [_SCENARIOS[1]],   # only eastern_europe
-        focused_id_fn=lambda: "taiwan_contingency",       # not in list → all candidates
-        feeds=[], fetch_feed_fn=lambda u: [],
-    )
-    countries = []
-    for _ in range(6):
-        countries.append(obs.tick()["country"])
-    # eastern_europe.participants sorted: PL, RU, UA → cycle of 3
-    assert countries == ["PL", "RU", "UA", "PL", "RU", "UA"]
-
-
-def test_skip_when_no_non_focused_scenario(enable_bg):
-    obs = bgo.BackgroundObserver(
-        scorable_scenarios_fn=lambda: [_SCENARIOS[0]],
-        focused_id_fn=lambda: "taiwan_contingency",
-        feeds=[], fetch_feed_fn=lambda u: [],
+        feeds=["http://x"],
+        fetch_feed_fn=lambda u: items,
+        now_fn=lambda: fixed_now,
+        cycle_log_fn=captured.append,
     )
     out = obs.tick()
-    assert out.get("reason") == "no_non_focused_scenario"
+    assert out["enabled"] is True
+    assert out["matches"] == 2
+    assert set(out["matches_by_country"].keys()) == {"RU", "UA"}
+    sigs = bgo.drain_signals(now=fixed_now + 30)
+    assert {s.countries for s in sigs} == {("RU",), ("UA",)}
 
 
-def test_skip_when_no_participants(enable_bg):
-    sc = _FakeScenario("empty_scenario", {})
-    obs = bgo.BackgroundObserver(
-        scorable_scenarios_fn=lambda: [sc],
-        focused_id_fn=lambda: "other",
-        feeds=[], fetch_feed_fn=lambda u: [],
-    )
-    out = obs.tick()
-    assert out.get("reason") == "no_participants"
-
-
-# ── extractor scoping: only signals for the picked country are queued ────
-
-
-def test_match_filtered_to_picked_country(enable_bg):
-    # Cycle 1 picks eastern_europe + first country (PL).
+def test_broadcast_scope_respects_participant_union(enable_bg):
+    """Off-participant mentions (e.g. 'Iran') in the feed are ignored."""
     items = [
-        {"title": "Russian missile kills 5 in Ukraine border zone", "summary": "", "link": ""},
-        {"title": "Polish border incident: 2 killed", "summary": "", "link": ""},
+        {"title": "Iranian airstrike kills 12 in Yemen",
+         "summary": "", "link": ""},  # IR/YE not in any test scenario
+        {"title": "Russian missile killed 5 in Ukraine",
+         "summary": "", "link": ""},
     ]
     fixed_now = 1_800_000_000.0
     obs = bgo.BackgroundObserver(
@@ -146,15 +119,117 @@ def test_match_filtered_to_picked_country(enable_bg):
         feeds=["http://x"],
         fetch_feed_fn=lambda u: items,
         now_fn=lambda: fixed_now,
+        cycle_log_fn=lambda r: None,
     )
     out = obs.tick()
-    assert out["scenario_id"] == "eastern_europe"
-    assert out["country"] == "PL"
-    # The Russian/Ukraine match should NOT enqueue (filtered out — country=PL).
-    # The Polish match SHOULD enqueue.
-    sigs = bgo.drain_signals(now=fixed_now + 30)
-    assert len(sigs) == 1
-    assert sigs[0].countries == ("PL",)
+    # Only RU/UA should match (Iran/Yemen filtered out by scope)
+    assert set(out["matches_by_country"].keys()) == {"RU", "UA"}
+
+
+def test_broadcast_records_no_participants_when_empty(enable_bg):
+    sc = _FakeScenario("empty_scenario", {})
+    captured: list[dict] = []
+    obs = bgo.BackgroundObserver(
+        scorable_scenarios_fn=lambda: [sc],
+        focused_id_fn=lambda: "other",
+        feeds=[], fetch_feed_fn=lambda u: [],
+        cycle_log_fn=captured.append,
+    )
+    out = obs.tick()
+    assert out.get("reason") == "no_participants"
+    assert captured and captured[0]["drop_reason"] == "no_participants"
+
+
+def test_broadcast_includes_focused_in_participant_union(enable_bg):
+    """Phase 3: bg_observer no longer skips the focused scenario.
+
+    The dedup_by_source_country_max in scoring handles any duplicate
+    contribution; the OBS chip benefits from a consistent per-country
+    view across focus changes.
+    """
+    items = [
+        {"title": "Taiwan air-defence intercept; 0 casualties",
+         "summary": "", "link": ""},
+    ]
+    fixed_now = 1_800_000_000.0
+    obs = bgo.BackgroundObserver(
+        scorable_scenarios_fn=lambda: _SCENARIOS,
+        focused_id_fn=lambda: "taiwan_contingency",
+        feeds=["http://x"],
+        fetch_feed_fn=lambda u: items,
+        now_fn=lambda: fixed_now,
+        cycle_log_fn=lambda r: None,
+    )
+    out = obs.tick()
+    # TW is the focused scenario's participant — broadcast scan must
+    # still detect it.
+    assert "TW" in out["matches_by_country"]
+
+
+def test_cycle_log_records_per_gate_counters(enable_bg):
+    """AP3/AP4: cycle log captures gate-level statistics for self-eval."""
+    items = [
+        {"title": "Russian airstrike killed 8 in Ukraine",
+         "summary": "", "link": ""},  # fatality + kinetic + 2 countries
+        {"title": "Polish border patrol report quiet day",
+         "summary": "", "link": ""},  # country only, no verb → dropped
+    ]
+    fixed_now = 1_800_000_000.0
+    captured: list[dict] = []
+    obs = bgo.BackgroundObserver(
+        scorable_scenarios_fn=lambda: _SCENARIOS,
+        focused_id_fn=lambda: "taiwan_contingency",
+        feeds=["http://x"],
+        fetch_feed_fn=lambda u: items,
+        now_fn=lambda: fixed_now,
+        cycle_log_fn=captured.append,
+    )
+    obs.tick()
+    assert len(captured) == 1
+    row = captured[0]
+    assert row["items_total"] == 2
+    assert row["matches_emitted"] == 2  # RU + UA from the first item
+    assert row["matches_by_country"] == {"RU": 1, "UA": 1}
+    assert row["alias_gap"] == []
+    assert row["feeds_attempted"] == 1
+    assert row["feeds_failed"] == 0
+
+
+def test_cycle_log_surfaces_alias_gap(enable_bg):
+    """Phase 2 invariant: gap is surfaced in cycle audit (NP6)."""
+    sc = _FakeScenario("imaginary",
+                       {"ZZ": object(), "RU": object()})  # ZZ has no alias
+    captured: list[dict] = []
+    obs = bgo.BackgroundObserver(
+        scorable_scenarios_fn=lambda: [sc],
+        focused_id_fn=lambda: "x",
+        feeds=[], fetch_feed_fn=lambda u: [],
+        cycle_log_fn=captured.append,
+    )
+    obs.tick()
+    assert "ZZ" in captured[0]["alias_gap"]
+    assert "RU" not in captured[0]["alias_gap"]
+
+
+def test_cycle_log_counts_failed_feeds(enable_bg):
+    """Empty / errored fetches count as failures so AP3 can detect them."""
+    captured: list[dict] = []
+    fetched = [True, False]  # two feeds: first returns items, second empty
+
+    def fake_fetch(_url):
+        ok = fetched.pop(0) if fetched else False
+        return [{"title": "Russian airstrike killed 1 in Ukraine",
+                 "summary": "", "link": ""}] if ok else []
+    obs = bgo.BackgroundObserver(
+        scorable_scenarios_fn=lambda: _SCENARIOS,
+        focused_id_fn=lambda: "x",
+        feeds=["http://a", "http://b"],
+        fetch_feed_fn=fake_fetch,
+        cycle_log_fn=captured.append,
+    )
+    obs.tick()
+    assert captured[0]["feeds_attempted"] == 2
+    assert captured[0]["feeds_failed"] == 1
 
 
 # ── queue + TTL ──────────────────────────────────────────────────────────
@@ -167,14 +242,14 @@ def test_drain_filters_stale_signals(enable_bg, monkeypatch):
         focused_id_fn=lambda: "x",
         feeds=["http://x"],
         fetch_feed_fn=lambda u: [
-            {"title": "Russian missile kills 5 in Ukraine", "summary": "", "link": ""},
+            {"title": "Russian forces attack Ukraine; killed 5",
+             "summary": "", "link": ""},
         ],
         now_fn=lambda: 1_800_000_000.0,
+        cycle_log_fn=lambda r: None,
     )
-    obs.tick()  # picks PL → no match (regex filter on PL drops Russian/Ukraine)
-    obs.tick()  # picks RU → match (RU appears in "Russian missile")
-    obs.tick()  # picks UA → match
-    # Drain at far-future time so all should be stale
+    obs.tick()  # broadcast — emits RU + UA Signals
+    # Drain at far-future time so all should be stale (TTL=60s)
     sigs = bgo.drain_signals(now=1_800_000_000.0 + 10_000)
     assert sigs == []
 
@@ -185,15 +260,17 @@ def test_drain_returns_fresh_signals(enable_bg):
         focused_id_fn=lambda: "x",
         feeds=["http://x"],
         fetch_feed_fn=lambda u: [
-            {"title": "Russian missile kills 5 in Ukraine", "summary": "", "link": ""},
+            {"title": "Russian forces attack Ukraine; killed 5",
+             "summary": "", "link": ""},
         ],
         now_fn=lambda: 1_800_000_000.0,
+        cycle_log_fn=lambda r: None,
     )
-    obs.tick()  # PL
-    obs.tick()  # RU — match
+    obs.tick()
     sigs = bgo.drain_signals(now=1_800_000_000.0 + 30)
     assert len(sigs) >= 1
     assert any(s.countries == ("RU",) for s in sigs)
+    assert any(s.countries == ("UA",) for s in sigs)
 
 
 def test_max_queue_cap_evicts_oldest(enable_bg, monkeypatch):
@@ -232,6 +309,7 @@ def test_fetch_error_does_not_crash_cycle(enable_bg):
         focused_id_fn=lambda: "taiwan_contingency",
         feeds=["http://x"],
         fetch_feed_fn=lambda u: [],
+        cycle_log_fn=lambda r: None,
     )
     out = obs2.tick()
     assert out["matches"] == 0
