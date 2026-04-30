@@ -187,29 +187,31 @@ def test_count_guide_blocks_paired(tmp_path):
     p = tmp_path / "index.html"
     p.write_text(
         """
-<div class="guide-lang-en">EN content</div>
-<div class="guide-lang-ja" style="display:none;">JA content</div>
-<div class="guide-lang-en">More EN</div>
-<div class="guide-lang-ja">More JA</div>
+<div class="guide-lang-en" lang="en">EN content</div>
+<div class="guide-lang-ja" lang="ja" style="display:none;">JA content</div>
+<div class="guide-lang-en" lang="en">More EN</div>
+<div class="guide-lang-ja" lang="ja">More JA</div>
 """,
         encoding="utf-8",
     )
-    en, ja = count_guide_blocks(p)
+    en, ja, en_lang, ja_lang = count_guide_blocks(p)
     assert en == 2
     assert ja == 2
+    assert en_lang == 2
+    assert ja_lang == 2
 
 
 def test_count_guide_blocks_detects_orphan(tmp_path):
     p = tmp_path / "index.html"
     p.write_text(
         """
-<div class="guide-lang-en">EN content</div>
-<div class="guide-lang-ja">JA content</div>
-<div class="guide-lang-ja">orphan JA</div>
+<div class="guide-lang-en" lang="en">EN content</div>
+<div class="guide-lang-ja" lang="ja">JA content</div>
+<div class="guide-lang-ja" lang="ja">orphan JA</div>
 """,
         encoding="utf-8",
     )
-    en, ja = count_guide_blocks(p)
+    en, ja, _en_lang, _ja_lang = count_guide_blocks(p)
     assert en == 1
     assert ja == 2
 
@@ -218,14 +220,33 @@ def test_count_guide_blocks_handles_multi_class(tmp_path):
     p = tmp_path / "index.html"
     p.write_text(
         """
-<div class="guide-section guide-lang-en">EN</div>
-<div class="guide-lang-ja some-other-class">JA</div>
+<div class="guide-section guide-lang-en" lang="en">EN</div>
+<div class="guide-lang-ja some-other-class" lang="ja">JA</div>
 """,
         encoding="utf-8",
     )
-    en, ja = count_guide_blocks(p)
+    en, ja, _en_lang, _ja_lang = count_guide_blocks(p)
     assert en == 1
     assert ja == 1
+
+
+def test_count_guide_blocks_lang_attribute_required(tmp_path):
+    """WCAG 3.1.2 — guide blocks without the matching `lang` attribute are
+    counted under the block totals but excluded from the with-lang totals,
+    so the `guide_lang_attr_ok` gate fires."""
+    p = tmp_path / "index.html"
+    p.write_text(
+        """
+<div class="guide-lang-en" lang="en">EN with lang</div>
+<div class="guide-lang-en">EN missing lang</div>
+<div class="guide-lang-ja" lang="ja">JA with lang</div>
+<div class="guide-lang-ja">JA missing lang</div>
+""",
+        encoding="utf-8",
+    )
+    en, ja, en_lang, ja_lang = count_guide_blocks(p)
+    assert (en, ja) == (2, 2)
+    assert (en_lang, ja_lang) == (1, 1)
 
 
 # ── Report (derived sets + parity) ────────────────────────────────────────

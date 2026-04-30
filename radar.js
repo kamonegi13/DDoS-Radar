@@ -2294,7 +2294,13 @@
         const human = _replayFmtOffset(delta);
         const date = new Date(atSec * 1000);
         const stamp = date.toISOString().replace('T', ' ').slice(0, 19) + 'Z';
-        lbl.textContent = human + ' (' + stamp + ')';
+        const text = human + ' (' + stamp + ')';
+        lbl.textContent = text;
+        // WCAG 4.1.2 / 1.3.1 — screen readers otherwise announce the raw
+        // -86400..0 seconds value. aria-valuetext makes them speak the
+        // human-readable offset and absolute timestamp instead.
+        const slider = document.getElementById('rb-slider');
+        if (slider) slider.setAttribute('aria-valuetext', text);
     }
 
     window.openReplayMode = function () {

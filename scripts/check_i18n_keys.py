@@ -58,6 +58,19 @@ _T_OPAQUE = re.compile(r"""(?<![A-Za-z0-9_])_t\(\s*(?!['"])""")
 _GUIDE_LANG_EN = re.compile(r'class\s*=\s*"[^"]*\bguide-lang-en\b[^"]*"')
 _GUIDE_LANG_JA = re.compile(r'class\s*=\s*"[^"]*\bguide-lang-ja\b[^"]*"')
 
+# WCAG 2.2 SC 3.1.2 — every guide-lang-XX block must declare its language
+# so screen readers (VoiceOver / NVDA / JAWS) pick the correct TTS voice.
+# We assert presence of `lang="en"` for EN blocks and `lang="ja"` for JA
+# blocks on the SAME tag (any attribute order). Phase 6 / A11Y-006.
+_GUIDE_LANG_EN_WITH_LANG = re.compile(
+    r'<div\b(?=[^>]*\bclass\s*=\s*"[^"]*\bguide-lang-en\b[^"]*")'
+    r'(?=[^>]*\blang\s*=\s*"en")'
+)
+_GUIDE_LANG_JA_WITH_LANG = re.compile(
+    r'<div\b(?=[^>]*\bclass\s*=\s*"[^"]*\bguide-lang-ja\b[^"]*")'
+    r'(?=[^>]*\blang\s*=\s*"ja")'
+)
+
 
 @dataclass(frozen=True)
 class Report:
@@ -66,6 +79,8 @@ class Report:
     opaque_calls: tuple[tuple[str, int], ...] = field(default_factory=tuple)
     guide_en_count: int = 0
     guide_ja_count: int = 0
+    guide_en_with_lang: int = 0
+    guide_ja_with_lang: int = 0
 
     @property
     def undefined_refs(self) -> frozenset[str]:
@@ -79,6 +94,12 @@ class Report:
     def guide_parity_ok(self) -> bool:
         return self.guide_en_count == self.guide_ja_count
 
+    @property
+    def guide_lang_attr_ok(self) -> bool:
+        # Every guide block must carry the matching lang attribute (WCAG 3.1.2).
+        return (self.guide_en_with_lang == self.guide_en_count
+                and self.guide_ja_with_lang == self.guide_ja_count)
+
     def to_dict(self) -> dict:
         return {
             "defined_count": len(self.defined_keys),
@@ -90,7 +111,10 @@ class Report:
             ],
             "guide_en_blocks": self.guide_en_count,
             "guide_ja_blocks": self.guide_ja_count,
+            "guide_en_with_lang": self.guide_en_with_lang,
+            "guide_ja_with_lang": self.guide_ja_with_lang,
             "guide_parity_ok": self.guide_parity_ok,
+            "guide_lang_attr_ok": self.guide_lang_attr_ok,
         }
 
 
@@ -141,16 +165,20 @@ def scan_js(path: Path) -> tuple[set[str], list[tuple[str, int]]]:
     return refs, opaque
 
 
-def count_guide_blocks(html_path: Path) -> tuple[int, int]:
-    """Count `.guide-lang-en` and `.guide-lang-ja` element occurrences in HTML.
+def count_guide_blocks(html_path: Path) -> tuple[int, int, int, int]:
+    """Count `.guide-lang-en` / `.guide-lang-ja` blocks and how many of each
+    also declare the matching `lang="..."` attribute on the same tag.
 
-    Used to enforce INTEL GUIDE bilingual parity — every EN block needs a
-    JA block and vice versa.
+    Used to enforce INTEL GUIDE bilingual parity (every EN block needs a JA
+    block) plus the WCAG 3.1.2 lang-attribute contract (every block must
+    declare its language so screen readers pick the right TTS voice).
     """
     text = html_path.read_text(encoding="utf-8")
     en = len(_GUIDE_LANG_EN.findall(text))
     ja = len(_GUIDE_LANG_JA.findall(text))
-    return en, ja
+    en_with_lang = len(_GUIDE_LANG_EN_WITH_LANG.findall(text))
+    ja_with_lang = len(_GUIDE_LANG_JA_WITH_LANG.findall(text))
+    return en, ja, en_with_lang, ja_with_lang
 
 
 def build_report() -> Report:
@@ -171,7 +199,9 @@ def build_report() -> Report:
         referenced |= refs
         opaque.extend(op)
 
-    en_count, ja_count = count_guide_blocks(_REPO_ROOT / "index.html")
+    en_count, ja_count, en_with_lang, ja_with_lang = count_guide_blocks(
+        _REPO_ROOT / "index.html"
+    )
 
     return Report(
         defined_keys=frozenset(defined),
@@ -179,6 +209,8 @@ def build_report() -> Report:
         opaque_calls=tuple(opaque),
         guide_en_count=en_count,
         guide_ja_count=ja_count,
+        guide_en_with_lang=en_with_lang,
+        guide_ja_with_lang=ja_with_lang,
     )
 
 
@@ -211,9 +243,13 @@ def main(argv: list[str]) -> int:
               f"(template literals / variables — manual review)")
         print()
         print(f"INTEL GUIDE parity (.guide-lang-en vs .guide-lang-ja):")
-        print(f"  EN blocks: {report.guide_en_count}")
-        print(f"  JA blocks: {report.guide_ja_count}")
+        print(f"  EN blocks: {report.guide_en_count} "
+              f"(with lang=\"en\": {report.guide_en_with_lang})")
+        print(f"  JA blocks: {report.guide_ja_count} "
+              f"(with lang=\"ja\": {report.guide_ja_with_lang})")
         print(f"  parity:    {'OK' if report.guide_parity_ok else 'FAIL'}")
+        print(f"  lang attr: {'OK' if report.guide_lang_attr_ok else 'FAIL'} "
+              f"(WCAG 3.1.2)")
 
         if report.undefined_refs:
             print("\nUndefined references (top 30):", file=sys.stderr)
@@ -230,8 +266,20 @@ def main(argv: list[str]) -> int:
             if len(report.unused_keys) > 30:
                 print(f"  ... and {len(report.unused_keys) - 30} more")
 
-    # GUIDE parity is always fatal — bilingual contract is the ONE place we
-    # gate hard, since machine translation cannot rescue long-form prose.
+    # GUIDE parity AND lang-attribute presence are always fatal — bilingual
+    # contract + WCAG 3.1.2 are the gates we hold hard, since machine
+    # translation cannot rescue long-form prose and screen-reader voice
+    # selection breaks silently if `lang` is missing.
+    if not report.guide_lang_attr_ok:
+        print(
+            f"\nFAIL: INTEL GUIDE lang attribute missing on some blocks "
+            f"(EN: {report.guide_en_with_lang}/{report.guide_en_count}, "
+            f"JA: {report.guide_ja_with_lang}/{report.guide_ja_count}). "
+            f"Every .guide-lang-en must carry lang=\"en\" and every "
+            f".guide-lang-ja must carry lang=\"ja\" (WCAG 3.1.2).",
+            file=sys.stderr,
+        )
+        return 1
     if not report.guide_parity_ok:
         print(
             f"\nFAIL: INTEL GUIDE bilingual parity broken "

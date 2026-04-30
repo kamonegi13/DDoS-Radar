@@ -4932,3 +4932,74 @@ body[data-replay-on="1"] #top-hud {
     padding: 4px 0;
     text-align: center;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   WCAG 2.2 SC 2.4.7 / 2.4.11 — Restore focus indicators (Phase 6 / A11Y-007).
+   The codebase aggressively suppresses outlines for visual polish, but that
+   strips keyboard-only users of any focus signal. Use :focus-visible so the
+   indicator only appears for keyboard navigation (mouse clicks still get the
+   silent UX). Cyan accent + 4px transparent halo gives a non-color cue too.
+   ────────────────────────────────────────────────────────────────────────── */
+:focus-visible {
+    outline: 2px solid var(--color-accent, #00ffff) !important;
+    outline-offset: 2px !important;
+    box-shadow: 0 0 0 4px rgba(0, 255, 255, 0.25) !important;
+}
+
+/* Visually-hidden helper for screen-reader-only labels (e.g. <label> tied
+   to inputs whose text label is rendered separately). Standard implementation
+   — clip-path keeps the element discoverable by AT but invisible visually. */
+.sr-only {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   WCAG 2.2 SC 2.2.2 / 2.3.3 — Reduced motion (Phase 6 / A11Y-001).
+   Honors the OS-level "Reduce motion" preference. Blink / pulse / scan
+   animations are disabled — most run on every tick at TL1 (worst case) and
+   would be physiologically distressing for vestibular-sensitive users.
+   Static high-contrast fallbacks preserve the semantic differentiation
+   (border, color) that the animation was carrying.
+   ────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    /* Stop every keyframe animation. *::before/::after included so generated
+       content can't sneak motion back in via pseudo-elements. */
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        animation-delay: 0ms !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+    /* Static fallbacks for animation-only state markers. */
+    .threat-1-hud {
+        background: rgba(255, 0, 0, 0.55) !important;
+        outline: 2px solid #ff0000 !important;
+        outline-offset: -2px;
+    }
+    .hud-discrepancy-border {
+        outline: 2px solid #ff2200 !important;
+        box-shadow: 0 0 12px rgba(255, 34, 0, 0.5) !important;
+    }
+    .map-anomaly--discrepancy,
+    .map-anomaly--ambush,
+    .warn-text,
+    .spike-alert {
+        /* Keep the color signal that `blink` was carrying without the flash. */
+        text-decoration: underline wavy currentColor;
+    }
+    .node-dots-asphyx .node-dot {
+        opacity: 0.85;
+        box-shadow: 0 0 6px #ff8800aa;
+    }
+}

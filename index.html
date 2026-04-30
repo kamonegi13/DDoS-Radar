@@ -367,10 +367,12 @@
      while replay is active the HUD overlay + Triage Lane consume the
      replay envelope instead of polling. The badge on HUD makes it
      impossible to mistake replay state for live state. -->
-<div id="replay-bar" hidden>
+<div id="replay-bar" role="region" aria-label="Replay timeline" hidden>
     <span class="rb-label">REPLAY</span>
+    <label for="rb-slider" class="sr-only">Replay timeline offset (seconds before now)</label>
     <span id="rb-time" class="rb-time">—</span>
     <input type="range" id="rb-slider" min="-86400" max="0" step="60" value="0"
+           aria-describedby="rb-time"
            title="Drag back to step the conclusions ledger time-travel pointer (1 minute resolution).">
     <button type="button" id="rb-live" class="rb-btn" onclick="exitReplayMode()" title="Return to live polling">LIVE</button>
 </div>
@@ -1463,11 +1465,11 @@
     </div>
     <div class="manual-content">
 
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <p>This platform is an <b>MDO C4ISR Strategic OSINT Radar</b> designed to detect precursor indicators of kinetic operations by correlating signals across three domains: Cyber, Physical, and Information. All data is sourced exclusively from open-source intelligence (OSINT). Sensors run on independent background schedules, and the convergence score is recalculated every <span class="code-block">SCORE_REFRESH_SEC=60</span> seconds from the latest cached data. The <span class="code-block">SYNC</span> button forces an immediate fetch and score update across all active sensors.</p>
         <p style="border-left: 3px solid var(--color-accent); padding: 6px 10px; background: rgba(0,80,120,0.1);"><b>Tool conclusion only — final judgment by organizational process.</b> This radar functions as one node in an organizational intelligence assessment process. Every output (threat level, trend, per-domain status, anomalies, attack-mode estimates) is a <i>tool conclusion</i> derived from transparent formulas and primary sources. Final situation assessment is performed by your organization, integrating this output with other sources (HUMINT, SIGINT, etc.). The persistent banner at the top of the page is the formal disclaimer; the v2 conclusions API exposes the full derivation path (formula reference, threshold values, source URLs, LLM prompt hashes) for every conclusion to support analyst verification.</p>
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <p>本プラットフォームは <b>MDO C4ISR 戦略OSINTレーダー</b> です。サイバー・物理・情報の3ドメインにわたるシグナルを相関分析し、動態作戦の前兆指標を検出します。すべてのデータはオープンソースインテリジェンス（OSINT）のみから取得しています。各センサーは独立したバックグラウンドスケジュールで稼働し、収束スコアは最新キャッシュデータから <span class="code-block">SCORE_REFRESH_SEC=60</span> 秒ごとに再計算されます。<span class="code-block">SYNC</span> ボタンで全アクティブセンサーの即時取得とスコア更新を強制実行できます。</p>
         <p style="border-left: 3px solid var(--color-accent); padding: 6px 10px; background: rgba(0,80,120,0.1);"><b>本ツールの結論であり、最終判断は組織のプロセスによって行われます。</b>本レーダーは、組織的なインテリジェンス判断プロセスにおける一つのノードとして機能します。出力（脅威レベル、トレンド、ドメイン別ステータス、異常事象、推定攻撃モード）はすべて、透明な計算式と一次ソースから導出された <i>ツールの結論</i> です。最終的な状況判断は、本ツールの出力を他の情報源（HUMINT、SIGINT 等）と統合した上で組織が行います。ページ上部に常時表示される disclaimer バナーが正式な注意書きであり、v2 conclusions API は各結論の完全な導出経路（formula 参照、閾値、ソース URL、LLM プロンプトハッシュ）を公開してアナリストの検証を支援します。</p>
         </div>
@@ -1489,7 +1491,7 @@
         </div>
 
         <div class="guide-chapter active" id="guide-ch-1">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>1. Multi-Domain Sensor Architecture (33 Sensors)</h4>
 
         <p><b>Cyber Domain (weight 0.50 default)</b> — Highest-weighted domain. State-directed cyber operations typically precede kinetic action by 24–72 hours. <span style="color:#888; font-size:11px;">Weights configurable via <code>DOMAIN_WEIGHT_CYBER</code>, <code>DOMAIN_WEIGHT_PHYSICAL</code>, <code>DOMAIN_WEIGHT_INFO</code> (must sum to 1.0).</span></p>
@@ -1532,7 +1534,7 @@
         </ul>
 
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>1. マルチドメイン・センサー・アーキテクチャ（33センサー）</h4>
 
         <p><b>サイバードメイン（重み 0.50 デフォルト）</b> — 最も重みが高いドメイン。国家指揮による サイバー作戦は、運動学的行動に24〜72時間先行するのが一般的。<span style="color:#888; font-size:11px;">重みは<code>DOMAIN_WEIGHT_CYBER</code>、<code>DOMAIN_WEIGHT_PHYSICAL</code>、<code>DOMAIN_WEIGHT_INFO</code>で設定可能（合計1.0）。</span></p>
@@ -1577,7 +1579,7 @@
         </div>
         </div><!-- /guide-ch-1 -->
         <div class="guide-chapter" id="guide-ch-2">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>2. Map Symbols &amp; Overlay Layers</h4>
         <ul>
             <li><b>Target Nodes (Defensive Infrastructure)</b>
@@ -1649,7 +1651,7 @@
         </ul>
 
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>2. 地図シンボル &amp; オーバーレイレイヤー</h4>
         <ul>
             <li><b>標的ノード（防衛インフラ）</b>
@@ -1723,7 +1725,7 @@
         </div>
         </div><!-- /guide-ch-2 -->
         <div class="guide-chapter" id="guide-ch-3">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>3. Scoring Engine &amp; Convergence Algorithm</h4>
         <p>The <b>WeightedConvergenceEngine</b> computes a <b>raw threat score</b> from all active, non-suppressed sensor signals, then adds domain convergence bonuses and a sequence bonus. The final score is capped at 15 pts to prevent bonus stacking from producing unrealistic values.</p>
 
@@ -1852,7 +1854,7 @@
         <p style="font-size:11px; color:#888;"><span style="color:#dd88ff;">■</span> = WorldMonitor-inspired analytical enhancements.</p>
 
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>3. スコアリングエンジン &amp; 収束アルゴリズム</h4>
         <p><b>WeightedConvergenceEngine</b> は、すべてのアクティブかつ非抑制センサーシグナルから<b>生の脅威スコア</b>を算出し、ドメイン収束ボーナスとシーケンスボーナスを加算する。最終スコアはボーナス積み重ねによる非現実的な値を防ぐため、上限15点でキャップされる。</p>
 
@@ -1983,7 +1985,7 @@
         </div>
         </div><!-- /guide-ch-3 -->
         <div class="guide-chapter" id="guide-ch-4">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>4. Threat Levels</h4>
         <p><b>Final Score = Raw Score + Convergence Bonus + Sequence Bonus.</b> A 1-cycle hysteresis delay is applied on downgrade only (prevents threshold oscillation). Upgrades are immediate.</p>
         <ul>
@@ -1995,7 +1997,7 @@
         </ul>
 
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>4. 脅威レベル</h4>
         <p><b>最終スコア = 生スコア + 収束ボーナス + シーケンスボーナス。</b> ダウングレード時のみ1サイクルのヒステリシス遅延を適用（しきい値振動を防止）。アップグレードは即時。</p>
         <ul>
@@ -2009,7 +2011,7 @@
         </div>
         </div><!-- /guide-ch-4 -->
         <div class="guide-chapter" id="guide-ch-5">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>5. Threshold Calibration Reference</h4>
         <p style="color:#888; font-size:11px;">System thresholds are calibrated against the following confirmed historical cases:</p>
         <ul style="font-size:11px; color:#aaa;">
@@ -2021,7 +2023,7 @@
         </ul>
 
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>5. しきい値キャリブレーション参考資料</h4>
         <p style="color:#888; font-size:11px;">システムしきい値は以下の確認済み歴史的事例に対してキャリブレーション済み:</p>
         <ul style="font-size:11px; color:#aaa;">
@@ -2035,7 +2037,7 @@
         </div>
         </div><!-- /guide-ch-5 -->
         <div class="guide-chapter" id="guide-ch-6">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>6. Analyst Workflow &amp; Best Practices</h4>
         <ul>
             <li><b>Prioritize cross-domain corroboration.</b> Do not escalate on single-domain indicators alone. Civilian botnets regularly produce 3–5× DDoS spikes without any military significance. The minimum standard for recommending a Level 2 escalation is FULL CONVERGENCE (Cyber + Physical + Info).</li>
@@ -2053,7 +2055,7 @@
         </ul>
 
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>6. アナリストのワークフロー &amp; ベストプラクティス</h4>
         <ul>
             <li><b>クロスドメインの裏付けを優先する。</b> 単一ドメインの指標だけでエスカレーションしないこと。民間ボットネットは軍事的意義なしに定期的に3〜5倍の DDoS スパイクを生成する。レベル2のエスカレーションを推奨するための最低基準は FULL CONVERGENCE（サイバードメイン + 物理ドメイン + 情報ドメイン）である。</li>
@@ -2073,7 +2075,7 @@
         </div>
         </div><!-- /guide-ch-6 -->
         <div class="guide-chapter" id="guide-ch-7">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>7. Config &amp; Monitoring Management</h4>
         <p>Open the master settings modal via the <span class="code-block">Config</span> button in the toolbar. It consists of six tabs.</p>
         <ul>
@@ -2088,7 +2090,7 @@
         <p style="color:#888; font-size:11px;"><b>Scope is scenario-driven, not tab-driven.</b> The legacy Strategy / Threat Actors / Quick Pins tabs were removed when the system migrated from country-unit to scenario-unit scoring (see <span class="code-block">docs/design/scenario-refactor.md</span>). All per-country lists — participants, adversaries, correlate targets — are now derived from the focused scenario's <span class="code-block">participants</span> map, which is managed in the Scenarios tab.</p>
 
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>7. 設定 &amp; 監視管理</h4>
         <p>ツールバーの <span class="code-block">Config</span> ボタンからマスター設定モーダルを開く。6つのタブで構成される。</p>
         <ul>
@@ -2105,7 +2107,7 @@
         </div>
         </div><!-- /guide-ch-7 -->
         <div class="guide-chapter" id="guide-ch-8">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>8. Intuition UI — Recognition-Primed Decision (RPD) Components</h4>
         <p>Twenty visual components designed to engage analyst intuition and pattern-recognition (Recognition-Primed Decision) in parallel with numerical computation. Based on Naturalistic Decision Making (NDM) theory; intended for immediate situational awareness formation.</p>
 
@@ -2406,7 +2408,7 @@
         </ul>
 
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>8. 直感 UI — 識別先行意思決定（RPD）コンポーネント</h4>
         <p>数値計算と並行してアナリストの直感とパターン認識（識別先行意思決定）を活性化するために設計された20のビジュアルコンポーネント。自然主義的意思決定（NDM）理論に基づく；即時の状況認識形成を目的とする。</p>
 
@@ -2707,7 +2709,7 @@
         </ul>
 
         </div>
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h5>H. Scenario Bar</h5>
         <ul>
             <li><b>Scenario cards</b> appear as a horizontal strip below the HUD. Each registered scenario has a card showing its name, score, TL (for focused), and domain activity dots (C/P/I).</li>
@@ -2752,7 +2754,7 @@
         </ul>
 
         </div>
-        <div class="guide-lang-ja">
+        <div class="guide-lang-ja" lang="ja">
         <h5>H. シナリオバー</h5>
         <ul>
             <li><b>シナリオカード</b>はHUD下部に水平バーとして表示されます。登録済みの各シナリオが名称、スコア、TL（フォーカス時）、ドメイン活動ドット(C/P/I)と共にカード表示されます。</li>
@@ -2799,7 +2801,7 @@
         </div>
         </div><!-- /guide-ch-8 -->
         <div class="guide-chapter" id="guide-ch-9">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>9. API Reference (Analyst / Integration Endpoints)</h4>
         <p style="font-size: 11px; color: #66ffcc;">Note (ADR-V2-006): endpoints below take <span class="code-block">?country=TW</span>. The legacy <span class="code-block">?theater=TW</span> alias is still accepted but recorded via SR4 telemetry; sunset planned 90 days after rollout.</p>
         <p style="font-size: 11px; color: #66ffcc;"><b>v2 surfaces</b> (gated by <span class="code-block">V2_API_ENABLED</span>; analyst role required): power Layer 1 / 2 / 3 of the Phase 3 UI (see Ch.8 §0).</p>
@@ -2907,7 +2909,7 @@
         </ul>
         <p style="font-size: 11px;">These fields appear only when <span class="code-block">INTEL_AGE_DECAY_ENABLED=true</span> (default). Set to <span class="code-block">false</span> to revert to binary TTL behavior for regression testing. Per-source τ override via <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_&lt;SOURCE_TYPE&gt;</span> environment variables (e.g. <span class="code-block">INTEL_AGE_DECAY_TAU_HOURS_DIPLOMATIC=6</span>).</p>
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>9. API リファレンス（アナリスト / 統合エンドポイント）</h4>
         <p style="font-size: 11px; color: #66ffcc;">注（ADR-V2-006）: 以下のエンドポイントは <span class="code-block">?country=TW</span> を受け付けます。レガシーエイリアス <span class="code-block">?theater=TW</span> も互換のため受理されますが、SR4 telemetry に記録され、ロールアウト後 90 日でサンセット予定です。</p>
         <p style="font-size: 11px; color: #66ffcc;"><b>v2 サーフェス</b>（<span class="code-block">V2_API_ENABLED</span> でゲート、analyst ロール必須）: Phase 3 UI のレイヤ 1 / 2 / 3 を駆動（Ch.8 §0 参照）。</p>
@@ -3017,7 +3019,7 @@
         </div>
         </div><!-- /guide-ch-9 -->
         <div class="guide-chapter" id="guide-ch-10">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>10. Administration &amp; Extended Features</h4>
         <p>Features added for production deployment: user authentication, alert notifications, plugin sensors, and historical analysis.</p>
 
@@ -3339,7 +3341,7 @@
         </ul>
 
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
         <p>本番運用向けに追加された機能: ユーザー認証、アラート通知、プラグインセンサー、履歴分析。</p>
 
@@ -3664,7 +3666,7 @@
         </div><!-- /guide-ch-10 -->
 
         <div class="guide-chapter" id="guide-ch-11">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>11. System Limitations &amp; Monitoring Directionality</h4>
 
         <p><b>This chapter is required reading for all operators.</b> The tool emits the maximum technically derivable assessment under OSINT-only constraints (NP4) and discloses every formula, threshold, source, and LLM prompt that produced it (NP6). Understanding the inherent limitations below is what lets analyst organizations integrate this output as one node in their decision process (NP7) — alongside HUMINT, SIGINT, and other inputs the tool cannot see.</p>
@@ -3707,7 +3709,7 @@
         </ul>
         </div>
 
-        <div class="guide-lang-ja">
+        <div class="guide-lang-ja" lang="ja">
         <h4>11. システムの限界と監視方向性</h4>
 
         <p><b>本章はすべてのオペレーターの必読事項です。</b>本ツールは OSINT のみという制約下で技術的に実行可能な最大の評価結論を出力し（NP4）、その導出に用いた式・閾値・一次ソース・LLM プロンプトをすべて開示します（NP6）。以下の固有の限界を理解することで、本ツールの出力を組織の意思決定プロセスにおける一つのノードとして（NP7）、HUMINT・SIGINT 等の本ツールが見ることのできない他情報源と統合して活用できます。</p>
@@ -3752,7 +3754,7 @@
         </div><!-- /guide-ch-11 -->
 
         <div class="guide-chapter" id="guide-ch-12">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>12. Analyst Tradecraft</h4>
 
         <p>The <b>Analyst Tradecraft</b> panel (<code>TOOLS &rarr; TRADECRAFT &rarr; Analyst Tradecraft</code>) bundles 10 structured-analytic-technique (SAT) surfaces that supplement the automated scoring with deliberate cognitive checks. The panel is scoped to the current focused scenario — switching the focused scenario refreshes the active tab.</p>
@@ -3820,7 +3822,7 @@
         <p style="color:#779;font-size:10px;margin-top:12px;">Methodological background: Heuer R.J., <i>Psychology of Intelligence Analysis</i> (1999, ACH Ch.8); CIA <i>Tradecraft Primer</i> (2009, KAC + ACH + Pre-Mortem); Klein G., <i>Performing a Project Premortem</i> (HBR 2007). The names "Key Assumptions Check" and "Devil's Advocacy" are used in the standard SAT sense from the Primer.</p>
         </div>
 
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>12. アナリスト・トレードクラフト</h4>
 
         <p><b>アナリスト・トレードクラフト</b>パネル（<code>TOOLS → TRADECRAFT → Analyst Tradecraft</code>）は、自動スコアリングを補完する10種類の構造化分析技法（SAT: Structured Analytic Techniques）の作業面をまとめたものです。パネルは現在 focus 中のシナリオにスコープされており、focus シナリオを切り替えるとアクティブタブが再描画されます。</p>
@@ -3890,7 +3892,7 @@
         </div><!-- /guide-ch-12 -->
 
         <div class="guide-chapter" id="guide-ch-13">
-        <div class="guide-lang-en">
+        <div class="guide-lang-en" lang="en">
         <h4>13. Analyst Feedback &amp; Recall (AP3 / AP4)</h4>
         <p>The HUD's <b>RECALL</b> chip (Row 3, right) is computed from the <span class="code-block">analyst_feedback</span> ledger. Until the ledger has labelled rows, the chip stays at <code>—</code>. Two ways to populate it:</p>
 
@@ -3942,7 +3944,7 @@
         </ul>
         <p>The same numerator/denominator drives the CI baseline gate (<span class="code-block">scripts/check_recall_baseline.py</span>) so chip and gate cannot disagree.</p>
         </div>
-        <div class="guide-lang-ja" style="display:none;">
+        <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>13. アナリスト feedback と recall (AP3 / AP4)</h4>
         <p>HUD 右下の <b>RECALL</b> チップ（Row 3 右端）は <span class="code-block">analyst_feedback</span> 台帳から計算されます。ラベル付きの行がゼロの間チップは <code>—</code> のままです。値を点灯させるには 2 通りあります：</p>
 
