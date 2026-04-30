@@ -4358,6 +4358,78 @@ class RadarDB:
         # (~4 MB/decade); confirmed_threats is human-generated ground truth
         # (~3 KB/year). Both have increasing analytical value over time.
 
+        # ── Phase D retention additions (2026-04-30) ──────────────────────
+        # Tables added between Phase 0 and Phase 5 that lacked retention.
+        # Defaults are conservative; override via env vars below.
+
+        # conclusions: highest-volume ledger (~1700 rows/day pre-fix). NP6
+        # transparency requires audit trail, but unbounded growth threatens
+        # query performance. 90d covers two calibration cycles + monthly
+        # cross-scenario validation.
+        _conc_days = int(_os.getenv("CONCLUSIONS_RETENTION_DAYS", "90"))
+        cutoff_conc = now - _conc_days * 86400
+        cur = conn.execute(
+            "DELETE FROM conclusions WHERE observed_at < ?",
+            (cutoff_conc,))
+        deleted["conclusions"] = cur.rowcount
+        conn.commit()
+
+        # llm_call_log: per-call ledger (~1500 rows/day). 30d sufficient
+        # for the LLM Feature Hub audit + caller-level α/β classification
+        # (which uses last 7d). NP6 audit retained for 30d.
+        _lcl_days = int(_os.getenv("LLM_CALL_LOG_RETENTION_DAYS", "30"))
+        cutoff_lcl = now - _lcl_days * 86400
+        cur = conn.execute(
+            "DELETE FROM llm_call_log WHERE ts < ?",
+            (cutoff_lcl,))
+        deleted["llm_call_log"] = cur.rowcount
+        conn.commit()
+
+        # analyst_feedback: ground-truth labels (FALSE_NEGATIVE /
+        # TRUE_POSITIVE / FALSE_POSITIVE). Used by recall calibration over
+        # 30d windows; 180d gives 6 months of forensic context.
+        _af_days = int(_os.getenv("ANALYST_FEEDBACK_RETENTION_DAYS", "180"))
+        cutoff_af = now - _af_days * 86400
+        cur = conn.execute(
+            "DELETE FROM analyst_feedback WHERE observed_at < ?",
+            (cutoff_af,))
+        deleted["analyst_feedback"] = cur.rowcount
+        conn.commit()
+
+        # inconclusive_continuity_log: tracks how long a (scenario, type)
+        # has been stuck at insufficient_data. NP5+8 governance metric.
+        # 60d covers two months of continuity context.
+        _icl_days = int(_os.getenv("INCONCLUSIVE_LOG_RETENTION_DAYS", "60"))
+        cutoff_icl = now - _icl_days * 86400
+        cur = conn.execute(
+            "DELETE FROM inconclusive_continuity_log WHERE observed_at < ?",
+            (cutoff_icl,))
+        deleted["inconclusive_continuity_log"] = cur.rowcount
+        conn.commit()
+
+        # decisions (Decision Layer, migration v34): superseded rows lose
+        # operational meaning after the next decision overwrites them. We
+        # keep current decisions indefinitely; superseded ones for 90d for
+        # forensic timeline (AP4 Decision Trail).
+        _dec_days = int(_os.getenv("DECISIONS_SUPERSEDED_RETENTION_DAYS", "90"))
+        cutoff_dec = now - _dec_days * 86400
+        cur = conn.execute(
+            "DELETE FROM decisions WHERE superseded_by IS NOT NULL "
+            "AND decided_at < ?",
+            (cutoff_dec,))
+        deleted["decisions_superseded"] = cur.rowcount
+        conn.commit()
+
+        # legacy_access_log: v1 sunset telemetry. 90d covers post-sunset
+        # observation period; older rows have no operational value.
+        _lal_days = int(_os.getenv("LEGACY_ACCESS_LOG_RETENTION_DAYS", "90"))
+        cutoff_lal = now - _lal_days * 86400
+        cur = conn.execute(
+            "DELETE FROM legacy_access_log WHERE last_seen < ?",
+            (cutoff_lal,))
+        deleted["legacy_access_log"] = cur.rowcount
+        conn.commit()
+
         return deleted
 
     # ── Climate Events ─────────────────────────────────────────────────────

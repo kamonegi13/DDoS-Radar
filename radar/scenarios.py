@@ -393,6 +393,46 @@ class ScenarioStore:
             "[Scenarios] Store ready: %d total, %d scorable",
             len(merged), len(scorable),
         )
+        # Phase F (2026-04-30): ensure every preset scenario has a row in
+        # the scenarios DB table so children tables (conclusions /
+        # scenario_proposals / scenario_drift_events / scenario_tl_observation)
+        # have a defined parent row. Pre-fix only south_china_sea was
+        # registered (because admin had toggled it via the UI); the other
+        # 4 preset scenarios produced thousands of orphan child rows.
+        try:
+            self._upsert_to_db()
+        except Exception as exc:
+            log.warning("[Scenarios] _upsert_to_db failed (non-fatal): %s", exc)
+
+    def _upsert_to_db(self) -> None:
+        """Idempotent INSERT-OR-IGNORE for every preset scenario.
+
+        We do NOT overwrite an existing DB row — admin overrides
+        (Layer 2) take precedence over preset (Layer 1). This only
+        fills in missing rows so referential integrity holds.
+        """
+        from radar.database import db
+        import time
+        conn = db._get_conn()  # noqa: SLF001
+        now_ts = time.time()
+        with conn.writing():
+            for sid, sc in self._scenarios.items():
+                state = sc.state.value if hasattr(sc.state, 'value') else str(sc.state)
+                # Use INSERT OR IGNORE so existing admin overrides are preserved.
+                conn.execute(
+                    "INSERT OR IGNORE INTO scenarios "
+                    "(id, name_en, name_ja, description_en, description_ja, "
+                    " core_country, state, enabled, tier, created_at, "
+                    " updated_at, updated_by) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'auto:preset_load')",
+                    (sid, sc.name_en, sc.name_ja,
+                     getattr(sc, 'description_en', ''),
+                     getattr(sc, 'description_ja', ''),
+                     sc.core_country, state,
+                     1 if sc.enabled else 0,
+                     getattr(sc, 'tier', None),
+                     now_ts, now_ts),
+                )
         # Validate that all participant country codes have coordinates
         from radar.config import COUNTRY_COORDS
         for sc in merged.values():

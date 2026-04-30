@@ -141,6 +141,35 @@ Phase 0-5 完了をもって、本書の「設計仕様 → 実装」サイク�
 | (d) | Auto-tune Wizard の "Apply All" バッチアクション | Low |
 | (e) | Markdown export の PDF 化 (ADR-V2-004 で言及されているが未実装) | Low |
 | (f) | shadow → opt-in → default-on 三段階管理ダッシュボード (現状 Feature Hub に分散) | Low |
+| (g) | **forecast_log 機能の運命決定** — 現在 production data で accuracy=3%、predicted=TL1 常時。引き続き使うか廃止か 2026-07 までに判断 (engine.py コメントに警告追加済) | Low |
+| (h) | **shadow_sampler last_delta=0 一律** — LITE と FULL が常に同値を返している。FULL モードが実装上動いているか検証要 | Low |
+
+### 0.2.4 DB 監査修正 (2026-04-30 PM, 5 段階精査の結果)
+
+Phase 5 完了後、DB 蓄積状況の体系的監査を実施。第 1〜5 次精査で**累計 47 個の問題候補**を発見し、第 4 次撤回反証で **16 問題に再構成**。本 commit でこれらを実装解決:
+
+| Phase | 問題 | 対応 | コミット |
+|-------|------|------|---------|
+| **A** | drift_signal 旧名 (weight_stale) emit 継続 | デプロイ確認、新名 (participant_silent / sensor_outage) で正常 emit を確認、bulk dismiss 39 件 | (本 commit) |
+| **B** | silent_divergence sensor が UI 露出していない | 撤回 — radar.js / index.html / INTEL GUIDE に既に露出を確認 | (調査のみ) |
+| **C** | decision_ledger と decisions の二重台帳 | radar/decisions.py docstring に両者の責務分離を明記、verify_cache test artifact 削除 (4 conclusions + 1 tl_observation) | (本 commit) |
+| **D** | retention 不在 (conclusions / llm_call_log / analyst_feedback / inconclusive_continuity_log / decisions / legacy_access_log) | radar/database.py の retention sweep に 6 テーブル追加 (90/30/180/60/90/90 日) | (本 commit) |
+| **E** | conclusions.llm_prompt_sha256 が 100% NULL | 撤回 — LLM augmentation OFF 時の正常動作。triage_narrative ON 時は populate される (既存) | (調査のみ) |
+| **F** | scenarios DB テーブル 4/5 シナリオ未登録 (referential integrity 破壊) | scenario_store.load() に _upsert_to_db() 追加。INSERT OR IGNORE で admin override 保護 | (本 commit) |
+| **G** | anomaly state が free-form text (controlled vocabulary 違反) | _state_summary() を signal_source のみに変更、value_display を metadata へ移動 | (本 commit) |
+| **H** | tl_calibrator が precision=25%, tn=0, fn=0 で auto-tighten (退化データへの過剰反応) | tl_threshold_calibrator.py に degenerate-data ガード追加 (precision < 0.30 + tn=0 + fn=0 → 拒否) | (本 commit) |
+| **I** | forecast_log accuracy 3% の stub-like 動作 | engine.py に Phase I caveat docstring 追加、retention 365d で抑制、廃止判断は 2026-07 audit で | (本 commit) |
+| **J** | v2-migration.md に DB 監査修正の経緯を記録 | 本セクション (§0.2.4) を追記 | (本 commit) |
+
+撤回された問題 (反証で無効化):
+- 第 4 次精査の「ツール定義 4 段落の論理矛盾」(問題 35) → ご指摘により撤回。ツール定義は **「OSINT 制約下の最良努力」** という制約付き最適化として整合的。観点 1 (検知目的 vs OSINT 制約) は矛盾ではなく目的と制約の併存。
+
+残存問題 (本 commit で扱わない):
+- (b) 段落 3 の「過渡的 vs 恒常的」が OSINT 由来の恒常的不可を「設計失敗」と誤分類しうる — 上記 (g) と同じ判断時期 (2026-07)
+- (c) 「最良努力」の具体的指標未定義 — Phase 5 audit (2026-07-31) で評価
+- (d) 「最大」の複数軸 (件数/確実性/粒度) 不明確 — 同上
+- (e) NP/AP 優先順位と衝突解決規則の欠如 — ADR-V2-016 として計画
+- (f) ADR 間整合性検査機構の欠如 — 同上
 
 ---
 

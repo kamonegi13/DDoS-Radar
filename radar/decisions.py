@@ -6,6 +6,17 @@ distributed implementations like attention_snooze and
 scenario_proposals.state_changed_by; the Decision History UI merges
 all stores into a single timeline (AP4).
 
+Relationship with `decision_ledger` (F14, predates Phase 5):
+  `decision_ledger` is the analyst tradecraft ledger — records ad-hoc
+  analyst notes (threshold tweaks, key assumption additions, disconfirming
+  evidence). Schema:
+    (id, logged_at, user_id, username, session_id, scenario_id,
+     decision_type, summary, detail_json)
+  Its decision_type values are domain-tradecraft (e.g. 'threshold',
+  'disconf_add', 'assumption_add'), not the structured governance
+  decisions handled here. Both ledgers coexist intentionally; the
+  Decision History UI should surface both for full auditability.
+
 Decision lifecycle:
   1. Caller invokes record() with decision_type + target + action
   2. Any prior active decision for the same (decision_type, target_kind,

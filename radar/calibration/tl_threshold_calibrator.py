@@ -176,8 +176,32 @@ def calibrate_scenario(scenario_id: str) -> CalibrationResult:
         )
 
     direction: Optional[str]
+    # Phase H guard (2026-04-30): degenerate-data protection.
+    # If TN=0 and FP is large compared to TP, the precision metric is
+    # measured against a population where no negative was ever
+    # confirmed. Tightening based on that biases the system toward
+    # under-firing. Phase 5 audit observed precision=25%, fp=497,
+    # tp=167, fn=0, tn=0 — calibrator tightened 5 bands. With this
+    # guard, that case now skips the tightening and waits for
+    # negative-class feedback.
+    PRECISION_MIN_FLOOR = float(os.getenv("TL_CALIB_PRECISION_MIN_FLOOR", "0.10"))
+    is_degenerate = (
+        metrics["tn"] == 0
+        and metrics["fn"] == 0
+        and metrics["precision"] < PRECISION_MIN_FLOOR + 0.20
+    )
+
     if metrics["recall"] < _recall_floor():
         direction = "looser"
+    elif is_degenerate:
+        # Refuse to tighten on degenerate data.
+        log.warning(
+            "tl_calibrator: %s degenerate-data guard fired "
+            "(recall=%.3f precision=%.3f tn=%d fn=%d) — refuse to tighten",
+            scenario_id, metrics["recall"], metrics["precision"],
+            metrics["tn"], metrics["fn"],
+        )
+        direction = None
     elif (metrics["recall"] >= 0.99
             and metrics["precision"] < _precision_ceiling_for_tighten()):
         direction = "tighter"

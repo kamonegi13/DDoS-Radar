@@ -94,9 +94,21 @@ def _scenario_relevance(contribution: "ScenarioContribution") -> float:
 
 
 def _state_summary(contribution: "ScenarioContribution") -> str:
+    """Phase G (2026-04-30): controlled vocabulary for ANOMALY.state.
+
+    Pre-fix this function returned `f"{signal_source}: {value_display}"`
+    which produced unique strings per anomaly (e.g.
+    "cf_botnet_overlap: 9.58 IDF overlap"). That made
+    pattern recognition impossible — analysts could not query "all
+    cf_botnet_overlap anomalies" because each row had a unique state.
+
+    Now state is just `signal_source` (a controlled vocabulary of
+    sensor names: 'cf_botnet_overlap', 'llm_intel', 'isr_hotspot',
+    etc.). The detail (value_display) moves to metadata.value_display
+    for analyst inspection without polluting the controlled state
+    field. NP6: anomaly history can now be aggregated by signal_source.
+    """
     sig = contribution.signal
-    if sig.value_display:
-        return f"{sig.signal_source}: {sig.value_display.strip()}"
     return sig.signal_source
 
 
@@ -217,6 +229,10 @@ def derive_anomaly(
                 "domain": sig.domain,
                 "contributing_country": c.contributing_country,
                 "signal_source": sig.signal_source,
+                # Phase G: free-form value description moved here from
+                # state field. UI can render this for inspection.
+                "value_display": (sig.value_display.strip()
+                                  if sig.value_display else None),
                 "sensor": sig.sensor,
                 "novelty_source": novelty_source,
             },
