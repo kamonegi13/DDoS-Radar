@@ -445,6 +445,12 @@ def api_admin_scenario_list():
         d = sc.to_dict()
         d["source"] = "db" if sid in db_ids else "preset"
         d["is_scorable"] = sc.is_scorable
+        # Phase 3.2 (problem 49): expose admin-override status so the
+        # UI can warn analysts when a preset-disabled scenario was
+        # turned on via Layer-2 override.
+        d["is_admin_override"] = scenario_store.is_enabled_overridden(sid)
+        d["preset_enabled"] = scenario_store.preset_enabled(sid)
+        d["preset_metadata"] = scenario_store.preset_metadata(sid)
         result.append(d)
     return jsonify({"scenarios": result})
 

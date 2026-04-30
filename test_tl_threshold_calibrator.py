@@ -102,9 +102,14 @@ class TestCalibratorLowPrecision:
         monkeypatch.setenv("TL_CALIB_PRECISION_CEILING", "0.30")
         from radar.calibration import auto_tune_governor
         monkeypatch.setattr(auto_tune_governor, "_recall_gate_is_red", lambda: False)
-        # Recall=1.0 (no FN), but heavy FP → precision << 0.30
+        # Recall=1.0 (no FN), heavy FP → precision << 0.30.
+        # Phase 2 (problem 50) added a degenerate-data guard that
+        # refuses to tighten when tn=0 AND fn=0. Seed at least one
+        # TRUE_NEGATIVE so the guard does not fire and the original
+        # 'tighten on low precision' path remains exercised.
         _seed_feedback(db, "middle_east", "TRUE_POSITIVE", 5)
         _seed_feedback(db, "middle_east", "FALSE_POSITIVE", 50)
+        _seed_feedback(db, "middle_east", "TRUE_NEGATIVE", 5)
         from radar.calibration.tl_threshold_calibrator import calibrate_scenario
         result = calibrate_scenario("middle_east")
         assert result.proposals_submitted == 5

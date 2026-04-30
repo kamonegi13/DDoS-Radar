@@ -4430,7 +4430,40 @@ class RadarDB:
         deleted["legacy_access_log"] = cur.rowcount
         conn.commit()
 
+        # Phase 1 fix (2026-04-30 PM, problem 48): see
+        # _revive_expired_snoozed_proposals() for details. Extracted
+        # so unit tests can target the sweep without exercising every
+        # other DELETE in this method.
+        deleted["proposals_snooze_revived"] = (
+            self._revive_expired_snoozed_proposals(now=now)
+        )
+
         return deleted
+
+    def _revive_expired_snoozed_proposals(self, *, now: float = None) -> int:
+        """Phase 1 fix (problem 48): scenario_proposals rows in
+        'snoozed_30d' state must auto-revive to 'pending' after
+        PROPOSAL_SNOOZE_DAYS days. Pre-fix the state had no sweep, so
+        analyst's "Defer 30 days" was effectively "Defer forever".
+
+        Returns the number of revived rows.
+        """
+        import os as _os
+        import time as _time
+        if now is None:
+            now = _time.time()
+        snooze_days = int(_os.getenv("PROPOSAL_SNOOZE_DAYS", "30"))
+        cutoff = now - snooze_days * 86400
+        conn = self._get_conn()
+        with conn.writing():
+            cur = conn.execute(
+                "UPDATE scenario_proposals "
+                "SET state='pending', state_changed_at=?, "
+                "    state_changed_by='auto:snooze_expired' "
+                "WHERE state='snoozed_30d' AND state_changed_at < ?",
+                (now, cutoff),
+            )
+            return cur.rowcount
 
     # ── Climate Events ─────────────────────────────────────────────────────
     def climate_events_save(self, events: list[dict]):

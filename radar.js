@@ -10290,6 +10290,23 @@
             html += `<div class="sc-row-primary">`;
             html += tlHtml;
             html += `<span class="sc-name" title="${_escHtml(name)}">${_escHtml(name)}</span>`;
+            // Phase 3.3 (problem 49, 2026-04-30 PM): admin-override
+            // warning chip. Visible only when the scenario's `enabled`
+            // is the result of an admin override against the preset
+            // (geo_data.json _preset_metadata.disabled_reason). NP6
+            // surfaces the rationale via tooltip.
+            if (sc && sc.is_admin_override === true) {
+                const reason = (sc.preset_metadata && sc.preset_metadata.disabled_reason)
+                    || 'Preset (geo_data.json) recommends this scenario disabled.';
+                const tip = (typeof _t === 'function')
+                    ? _t('scenario.warning.admin_override_enabled.tooltip',
+                          { reason: reason })
+                    : 'Admin override: ' + reason;
+                const lbl = (typeof _t === 'function')
+                    ? _t('scenario.warning.admin_override_enabled.label')
+                    : '⚠ Admin override';
+                html += `<span class="scenario-warning-chip" title="${_escHtml(tip)}">${_escHtml(lbl)}</span>`;
+            }
             html += patternHtml;
             html += focusBtnHtml;
             html += `</div>`;

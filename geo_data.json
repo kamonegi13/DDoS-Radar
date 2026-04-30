@@ -4947,6 +4947,11 @@
       "core_country": "PH",
       "state": "active",
       "enabled": false,
+      "_preset_metadata": {
+        "disabled_reason": "Insufficient OSINT sensor coverage for SCS participants beyond CN/TW/PH; admin can enable for tier-2 monitoring only with awareness that participant-level proposals (weight_too_high / dormant_participant) for VN/MY may carry false-positive risk.",
+        "added_at": "2026-04-30",
+        "policy_owner": "ops"
+      },
       "tier": 2,
       "participants": {
         "PH": {

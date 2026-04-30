@@ -94,6 +94,11 @@ class Scenario:
     created_at: float = 0.0
     updated_at: float = 0.0
     updated_by: str = ""
+    # Phase 3.1 (problem 49): preset metadata block from geo_data.json
+    # explaining why a scenario is `enabled=False` in preset. Surfaced
+    # in API responses so analyst UI can warn when admin overrides
+    # enable a preset-disabled scenario.
+    preset_metadata: Optional[dict] = None
 
     @property
     def is_scorable(self) -> bool:
@@ -115,6 +120,7 @@ class Scenario:
             },
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "preset_metadata": self.preset_metadata,
         }
 
 
@@ -264,6 +270,7 @@ def _parse_scenario_json(scenario_id: str, raw: dict) -> Scenario:
         participants=participants,
         created_at=raw.get("created_at", now),
         updated_at=raw.get("updated_at", now),
+        preset_metadata=raw.get("_preset_metadata"),
     )
 
 
@@ -380,10 +387,19 @@ def load_layer2(layer1: dict[str, Scenario]) -> dict[str, Scenario]:
 class ScenarioStore:
     def __init__(self):
         self._scenarios: dict[str, Scenario] = {}
+        # Phase 3.2 (problem 49): retain Layer-1 raw scenarios so the API
+        # can compute is_admin_override = (preset.enabled != merged.enabled).
+        # Memory cost ~5KB for current 5 scenarios; negligible.
+        self._preset_originals: dict[str, Scenario] = {}
         self._loaded = False
 
     def load(self, geo_data: dict) -> None:
         layer1 = load_layer1(geo_data)
+        # Snapshot Layer-1 raw BEFORE Layer-2 merge so override detection
+        # can compare preset vs effective. NOTE: Layer-3 session overlays
+        # are NOT reflected here (per ADR-011); preset_originals captures
+        # the geo_data.json baseline only.
+        self._preset_originals = dict(layer1)
         merged = load_layer2(layer1)
         self._scenarios = merged
         self._loaded = True
@@ -449,6 +465,34 @@ class ScenarioStore:
 
     def all(self) -> dict[str, Scenario]:
         return dict(self._scenarios)
+
+    def is_enabled_overridden(self, scenario_id: str) -> bool:
+        """Phase 3.2 (problem 49): True iff the effective `enabled`
+        flag differs from the preset (Layer-1) `enabled` flag.
+
+        - True when preset says disabled but admin enabled it (or vice
+          versa) — UI should warn analysts.
+        - False when preset and effective agree.
+        - False when preset doesn't exist (DB-only scenario; no
+          override concept).
+        - False when scenario doesn't exist in either store.
+        """
+        preset = self._preset_originals.get(scenario_id)
+        current = self._scenarios.get(scenario_id)
+        if preset is None or current is None:
+            return False
+        return preset.enabled != current.enabled
+
+    def preset_enabled(self, scenario_id: str) -> Optional[bool]:
+        """Return the Layer-1 preset `enabled` value, or None if no
+        preset row exists. Used by API to expose the comparison."""
+        preset = self._preset_originals.get(scenario_id)
+        return preset.enabled if preset is not None else None
+
+    def preset_metadata(self, scenario_id: str) -> Optional[dict]:
+        """Return the Layer-1 preset_metadata dict, or None."""
+        preset = self._preset_originals.get(scenario_id)
+        return preset.preset_metadata if preset is not None else None
 
     def scorable(self) -> list[Scenario]:
         return [s for s in self._scenarios.values() if s.is_scorable]

@@ -176,6 +176,11 @@ def calibrate_scenario(scenario_id: str) -> CalibrationResult:
         )
 
     direction: Optional[str]
+    # Phase 2 fix (2026-04-30 PM, problem 50): track WHY direction is
+    # None so analysts can distinguish "genuinely no action" from
+    # "Phase H guard blocked tighten on degenerate data".
+    no_action_reason: str = "no_action_needed"
+
     # Phase H guard (2026-04-30): degenerate-data protection.
     # If TN=0 and FP is large compared to TP, the precision metric is
     # measured against a population where no negative was ever
@@ -202,6 +207,7 @@ def calibrate_scenario(scenario_id: str) -> CalibrationResult:
             metrics["tn"], metrics["fn"],
         )
         direction = None
+        no_action_reason = "degenerate_data_guard"
     elif (metrics["recall"] >= 0.99
             and metrics["precision"] < _precision_ceiling_for_tighten()):
         direction = "tighter"
@@ -211,13 +217,14 @@ def calibrate_scenario(scenario_id: str) -> CalibrationResult:
 
     if direction is None:
         log.info(
-            "tl_calibrator: %s recall=%.3f precision=%.3f → no action",
+            "tl_calibrator: %s recall=%.3f precision=%.3f → %s",
             scenario_id, metrics["recall"], metrics["precision"],
+            no_action_reason,
         )
         return CalibrationResult(
             scenario_id=scenario_id, proposals_submitted=0,
             proposals_accepted=0, proposals_rejected=0,
-            rejection_reasons={"no_action_needed": 1},
+            rejection_reasons={no_action_reason: 1},
         )
 
     # Read current threshold values from threshold_history (or fall

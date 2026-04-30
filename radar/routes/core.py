@@ -132,11 +132,22 @@ def list_scenarios():
     from radar.scenarios import scenario_store
     from radar.config import DEFAULT_FOCUSED_SCENARIO
     scenarios = scenario_store.all()
+    # Phase 3.2 (problem 49): expose admin-override status here too so
+    # non-admin analyst UIs (scenario card, HUD) can render the warning
+    # chip without an admin endpoint round-trip.
+    out = {}
+    for sid, s in sorted(scenarios.items()):
+        d = s.to_dict()
+        d["is_admin_override"] = scenario_store.is_enabled_overridden(sid)
+        d["preset_enabled"] = scenario_store.preset_enabled(sid)
+        # Pull preset_metadata from the Layer-1 store (the merged
+        # scenario's preset_metadata is None because DB rows don't
+        # carry that column).
+        d["preset_metadata"] = scenario_store.preset_metadata(sid)
+        out[sid] = d
     return jsonify({
         "focused_scenario": DEFAULT_FOCUSED_SCENARIO,
-        "scenarios": {
-            sid: s.to_dict() for sid, s in sorted(scenarios.items())
-        },
+        "scenarios": out,
     })
 
 
@@ -2127,6 +2138,14 @@ def get_threat_data():
                 _sd = _state.to_dict()
                 _sd["name_en"] = _sc.name_en
                 _sd["name_ja"] = _sc.name_ja
+                # Phase 3.3 (problem 49, 2026-04-30 PM): expose admin
+                # override status so the scenario bar UI can render the
+                # warning chip without an extra API roundtrip.
+                _sd["is_admin_override"] = (
+                    scenario_store.is_enabled_overridden(_sc.id)
+                )
+                _sd["preset_enabled"] = scenario_store.preset_enabled(_sc.id)
+                _sd["preset_metadata"] = scenario_store.preset_metadata(_sc.id)
                 # Expose participant weights so the Layer 3 overlay UI
                 # (ADR-003) can show effective weights and offer editing.
                 # `weight` is the effective value (post-overlay for focused),

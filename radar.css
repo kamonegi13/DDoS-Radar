@@ -2968,6 +2968,26 @@ body[data-replay-on="1"] #top-hud {
     line-height: 1.2;
 }
 .sc-card-focused .sc-name { color: var(--color-accent); }
+
+/* Phase 3.3 (problem 49, 2026-04-30 PM): scenario card warning chip
+   shown when admin has overridden the preset's `enabled` flag. Cursor
+   help reveals the disabled_reason via title tooltip. */
+.scenario-warning-chip {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border: 1px solid var(--color-warning);
+    border-radius: 2px;
+    background: rgba(255, 170, 0, 0.10);
+    color: var(--color-warning);
+    font-size: 9px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.3px;
+    line-height: 12px;
+    cursor: help;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
 .sc-tl {
     font-weight: bold;
     font-size: 11px;

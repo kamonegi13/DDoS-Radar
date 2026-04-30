@@ -292,6 +292,13 @@ const STRINGS = {
     'pd.gs.rolled_back':               '↩ Rolled back',
     'pd.gs.reeval':                    '↻ Re-evaluate',
     'pd.gs.reeval.tooltip':            'Reopen this decision — the data-driven recommendation will surface again on next refresh. Action recorded in the audit log (NP6).',
+
+    // ── Scenario admin-override warning (Phase 3.3, problem 49, 2026-04-30 PM) ─
+    // Surfaces when an admin has overridden the preset's enabled flag.
+    // Tooltip carries the disabled_reason from geo_data.json so the
+    // analyst sees the policy rationale without leaving the card.
+    'scenario.warning.admin_override_enabled.label':   '⚠ Admin override',
+    'scenario.warning.admin_override_enabled.tooltip': 'This scenario is enabled via Layer-2 admin override despite the preset (geo_data.json) marking it disabled. Reason: {reason}',
     'hud.label.eta':                  'ETA',
     'hud.tooltip.eta':                'ETA: projected time to next TL boundary based on current velocity. Suppressed when velocity is too small to be meaningful.',
     'hud.eta.tooltip_up':             '{pts}pt → TL{tl}, est. ~{eta} at current rate',
