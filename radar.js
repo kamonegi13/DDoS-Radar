@@ -1927,7 +1927,11 @@
             const t = THEATERS.find(theater => theater.code === code);
             if (!t) return;
             const lbl = document.createElement('label');
-            lbl.innerHTML = `<input type="checkbox" class="check-display" value="${code}" checked disabled> ${t.name}`;
+            // Phase 4 (audit): both `code` (from strategic_alert.active_theaters)
+            // and `t.name` (from /api/app_config available_countries) are
+            // server-sourced and could carry HTML if the API is ever crafted
+            // or compromised. Escape both before innerHTML.
+            lbl.innerHTML = `<input type="checkbox" class="check-display" value="${esc(code)}" checked disabled> ${esc(t.name)}`;
             displayGrid.appendChild(lbl);
         });
         if (displayGrid.innerHTML === '') {
@@ -3102,8 +3106,13 @@
             if (prev != null) arrow = (conf > prev) ? '▲' : (conf < prev) ? '▼' : '·';
             const kind = it.kindLabel ? String(it.kindLabel).split(':')[0].trim() : '';
             const score = (typeof it.score === 'number') ? it.score.toFixed(2) : '—';
+            // Phase 4 (audit M2): it.why entries come from triage scoring API
+            // and are placed inside a title="..." attribute, so a quote in
+            // any why-string would terminate the attribute and could inject
+            // additional attributes. Escape via _escAttr.
+            const whyJoined = (it.why || []).join('; ');
             return '<span class="tm-cb-pill" title="'
-                 + 'attention_score=' + score + ' · ' + (it.why || []).join('; ') + '">'
+                 + _escAttr('attention_score=' + score + ' · ' + whyJoined) + '">'
                  + _escHtml(kind) + ' ' + arrow + ' ' + score
                  + '</span>';
         }).join('');
@@ -6186,8 +6195,13 @@
         const wxTxt  = wx.condition
             ? `${esc(wx.condition)} — ${esc(wx.description || '')} (wind ${esc(String(wx.wind_speed || 0))}m/s)`
             : '—';
-        const wxSev  = wx.severity || 'NORMAL';
-        const wxCol  = wxSev === 'SEVERE' ? 'cip-alert' : wxSev === 'MODERATE' ? 'cip-warn' : 'cip-ok';
+        // Phase 4 (audit): esc() all server-sourced status strings before
+        // they reach innerHTML below. bgpLbl mixes HTML markup, so escape
+        // the substituted fields at construction time rather than wrapping
+        // the final string.
+        const wxSevRaw = wx.severity || 'NORMAL';
+        const wxSev    = esc(wxSevRaw);
+        const wxCol    = wxSevRaw === 'SEVERE' ? 'cip-alert' : wxSevRaw === 'MODERATE' ? 'cip-warn' : 'cip-ok';
 
         const air    = intel.airspace || {};
         const airTxt = air.status
@@ -6195,14 +6209,16 @@
             : '—';
         const airCol = (air.status === 'CLOSURE' || air.status === 'ANOMALY') ? 'cip-alert'
                      : air.status === 'WEATHER_NOISE' ? 'cip-warn' : 'cip-ok';
-        const airLbl = air.status || '—';
+        const airLbl = esc(air.status || '—');
 
         const bgpR   = intel.bgp_routing || {};
         const bgpTxt = bgpR.announced_prefixes != null
-            ? `${bgpR.announced_prefixes} pfx / ${bgpR.seen_ases || '?'} ASes`
+            ? `${bgpR.announced_prefixes} pfx / ${esc(String(bgpR.seen_ases || '?'))} ASes`
             : '—';
         const bgpCol = bgpR.is_anomaly ? 'cip-alert' : 'cip-ok';
-        let bgpLbl = bgpR.is_anomaly ? `⚠ DROP ${bgpR.drop_pct}%` : (bgpR.status || '—');
+        let bgpLbl = bgpR.is_anomaly
+            ? `⚠ DROP ${esc(String(bgpR.drop_pct))}%`
+            : esc(bgpR.status || '—');
         if (bgpR.prefix_trend) {
             const trendCol = bgpR.prefix_trend === 'WITHDRAWING' ? '#ff4444' : bgpR.prefix_trend === 'GROWING' ? '#00ff88' : '#888';
             const trendPct = bgpR.prefix_trend_pct != null ? ` (${bgpR.prefix_trend_pct > 0 ? '+' : ''}${bgpR.prefix_trend_pct.toFixed(1)}%)` : '';
@@ -6214,10 +6230,10 @@
         const gdBase = gdelt.tone_baseline != null ? gdelt.tone_baseline.toFixed(1) : '—';
         const gdDelta= gdelt.delta != null ? `${gdelt.delta > 0 ? '+' : ''}${gdelt.delta.toFixed(1)}` : '—';
         const gdCol  = gdelt.status === 'ALERT' ? 'cip-alert' : gdelt.status === 'WEATHER_NOISE' ? 'cip-warn' : 'cip-ok';
-        const gdLbl  = gdelt.status || '—';
+        const gdLbl  = esc(gdelt.status || '—');
 
         const ixpCnt   = intel.ixp_count || 0;
-        const ixpNames = (intel.ixp_names || []).slice(0, 4).join(', ') || '—';
+        const ixpNames = (intel.ixp_names || []).slice(0, 4).map(esc).join(', ') || '—';
 
         // IHR data
         const ihrSt    = intel.ihr_status || 'NORMAL';
@@ -6302,7 +6318,7 @@
                 <div class="cip-card">
                     <div class="cip-card-label">${_t('cip.label.airspace', {airport: air.airport || '?'})}</div>
                     <div class="cip-card-value ${airCol}" style="font-size:12px;">${airTxt}</div>
-                    <div class="cip-card-sub">${airLbl}${air.drop_pct != null ? ' — drop ' + air.drop_pct + '%' : ''}</div>
+                    <div class="cip-card-sub">${airLbl}${air.drop_pct != null ? ' — drop ' + esc(String(air.drop_pct)) + '%' : ''}</div>
                 </div>
                 <div class="cip-card">
                     <div class="cip-card-label">${_t('cip.label.ixp_nodes')}</div>
@@ -9455,7 +9471,8 @@
         const _coreCode = resolveChainTargetCountry(sa);
         theaters.forEach(t => {
             const isCore = t === _coreCode;
-            html += `<div class="corr-col-label" style="${isCore ? 'color:#00ffff;font-weight:bold;' : ''}">${t}</div>`;
+            // Phase 4 (audit M1): theater code is server-sourced.
+            html += `<div class="corr-col-label" style="${isCore ? 'color:#00ffff;font-weight:bold;' : ''}">${esc(t)}</div>`;
         });
 
         // Sensor rows
