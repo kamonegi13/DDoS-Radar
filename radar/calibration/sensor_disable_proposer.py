@@ -128,13 +128,15 @@ def _sensor_fetch_layer_healthy(sensor_name: str) -> tuple[bool, str]:
     cb_state = getattr(sensor, "cb_state", None)
     if cb_state and str(cb_state).upper() == "OPEN":
         return (False, "cb_open")
-    # Read reliability from the sensor's call ledger if available.
+    # Read reliability from the sensor_fetch_log ledger (not
+    # sensor_call_log — that's the LLM call ledger, this guard needs
+    # the upstream HTTP fetch outcome).
     try:
         from radar.database import db as _db
         cutoff = time.time() - 24 * 3600
         rows = _db._get_conn().execute(  # noqa: SLF001
-            "SELECT COUNT(*) FROM sensor_call_log "
-            "WHERE sensor_name=? AND ts > ? AND status='ok'",
+            "SELECT COUNT(*) FROM sensor_fetch_log "
+            "WHERE sensor_name=? AND ts > ? AND success=1",
             (sensor_name, cutoff),
         ).fetchone()
         ok_24h = rows[0] if rows else 0
