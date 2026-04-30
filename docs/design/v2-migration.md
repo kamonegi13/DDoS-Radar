@@ -13,13 +13,13 @@
 
 | 項目 | 値 |
 |------|-----|
-| **現バージョン** | 2.0.0-design |
+| **現バージョン** | 2.1.0-operational-maturation |
 | **作成日** | 2026-04-25 |
-| **最終更新** | 2026-04-25 |
-| **現在のフェーズ** | **Phase 0: 設計確定 / Phase 0 scaffolding 着手中** |
-| **採用方針** | **v1 並走 → shadow → opt-in → default-on の三段階で v2 へ移行**、v1 sunset 3ヶ月 |
+| **最終更新** | 2026-04-30 |
+| **現在のフェーズ** | **Phase 5 完了 — 安定運用フェーズへ移行** |
+| **採用方針** | **v1 並走 → shadow → opt-in → default-on の三段階で v2 へ移行**、v1 sunset 早期完了 (2026-04-29) |
 | **責任者** | kamonegi13(@juzo1192) |
-| **想定総工数** | **約 12 人月 (専任 12 週、3 Phase + 予備)** |
+| **想定総工数** | **約 12 人月 (専任 12 週、3 Phase + 予備)** → **実工数 5 日 (2026-04-26〜04-30)** で Phase 0-5 完遂 |
 | **前提資料** | CLAUDE.md (NP1-NP7 と用語定義), scenario-refactor.md v1.8.0 (v1 系列の最終仕様) |
 
 ### v2.0 Phase 進行表
@@ -31,6 +31,116 @@
 | **Phase 2** | 結論層: 攻撃モード推定 + extensions、トレンド三層化、per-domain 構造化、importance ranking、Calibration governance、Design W default-on | **完了 (2026-04-29)** — 結論層実装済、ACLED+GDELT 自動突合 + 内部 evidence 拡張 (LLM_INTEL+SEQUENCE) で recall metrics 1.000、`docs/baselines/recall_metrics.json` 作成 + `opt_in: true` flip で Design W default-on 達成 | 2026-07-31 |
 | **Phase 3** | UI と運用: Analyst Workbench (4 ペイン)、drill-down、Markdown/PDF export、analyst feedback ループ、ACLED+GDELT 自動突合 ([v2-ui.md](v2-ui.md) で詳細設計) | **完了 (2026-04-26)** — workbench / drill-down / Markdown export / feedback ledger / LLM augmentation drill-down section / default-on | 2026-09-15 |
 | **Phase 4** | v1 sunset: deprecation header → 90 日 → v1 撤去、theater adapter 削除 | **完了 (2026-04-29)** — `/api/threat_data` は v2 後継不能のため 2026-04-29 契約訂正で除外、`/api/scenario/<id>/breakdown` (本番 0 hits) を即時撤去。観察データ (14d match_rate=1.0000、residual access 自分自身のみ) が 90 日待機の根拠を充足したため早期完了 | 2026-12-15 |
+| **Phase 5** | **Operational Maturation**: AP1-AP4 自動化原則実装、Operational Observability、CONTROLS Tools Hub redesign、ATTENTION rules engine、LLM Feature Hub、HUD divergence fix (V/W/X/Y)、TRIAGE display modes (A-D)、Decision Layer (5 phases + F1-F4)、Autotune audit fix (Phases 0-F) | **完了 (2026-04-30)** — 当初計画外の運用層拡充。詳細は §0.1 | — (2026-04-29〜04-30) |
+
+### 0.1 Phase 5: Operational Maturation 詳細 (2026-04-29 〜 2026-04-30)
+
+Phase 0-4 で「結論を出すツール」としての骨格が完成した後、運用上の盲点と analyst 体験の改善を一括投入したフェーズ。当初計画には無かったが、**実運用で明らかになった構造的問題を体系的に解消**するために起こした。
+
+#### 0.1.1 自動化原則 AP1-AP4 (2026-04-28)
+
+NP6 透明性を「結論」から「自動化判断」へ拡張する 4 原則を CLAUDE.md に追加し、対応する実装を投入:
+
+| 原則 | 実装 | コミット系列 |
+|------|------|-------------|
+| **AP1 — 能動的トリアージ** | `triage_score.js` (pure module, novelty × confidence_delta × analyst_blindness) + Triage Lane | wp_alarm 系 |
+| **AP2 — 自己説明** | `self_explanation.js` (テンプレート + slot 埋め込み、再現性確保) + HUD TL pill / per-domain narrative | wp_alarm 系 |
+| **AP3 — 自己評価** | `/api/v2/self_eval` + HUD Row 3 RECALL / NULL-ZONE / DRIFT chips | observability 系 |
+| **AP4 — 判断履歴** | `/api/v2/replay/<sid>?at=<ts>` + Replay Mode bar (timeline slider + amber state badge) → Decision History UI で完成 | replay + Decision Layer |
+
+#### 0.1.2 Operational Observability (2026-04-29)
+
+3 件の user-reported issue + 観察網診断:
+- **Issue A** focus 切替遅延 → `force=snapshot/sensors` 分離、MapDim two-phase
+- **Issue B** LLM ONLINE 表示位置 → HUD Row 3 LLM chip
+- **Issue C** auto-judge recheck → `intel_auto_judge.py` 7 ルール、後に D5 で LLM 第二パス削除
+- **D6/D7/N3** — 観察網診断 (audit + backtest)、5 sensor 修正、週次 cron
+
+#### 0.1.3 Calibration Post-Incident Redesign (2026-04-29)
+
+Auto-tune Wizard の Bug 1 (UA spreading) + Bug 2 (CN/KR/PH false positive) 発覚を契機に、proposer 全層を再設計:
+- evidence_strength + vitality_state 列追加 (migration v30)
+- Wizard tab を 7 構成に再編 (Recall+ / Recall- / Structure / Diagnostic / Sensor Disable / Drift / Discovery)
+- AP3 quality scoring、quality_inversion drift signal、`_proposal_writer` 抽出
+
+#### 0.1.4 UI 大規模改修 (2026-04-29 〜 2026-04-30)
+
+- **CONTROLS Tools Hub redesign** (commits L〜U) — dropdown → カードグリッド → 埋込み式 + DOCK + accordion
+- **ATTENTION rules engine** (commits M+N+O) — 12 ルール + ヒステリシス + snooze + 適応学習 (p95 推奨閾値)
+- **LLM Feature Hub** (commits G〜K) — Tier 0-3 制御プレーン + kill switch + audit + HUD chip
+- **HUD divergence fix** (V/W/X/Y) — per-scenario threat_history (migration v33) + sparkline overlay + TTL 短縮 + divergence chip
+- **TRIAGE display modes** (A/B/C/D) — dormant / pin-dock / critical-banner 状態機械 + animations
+
+#### 0.1.5 Decision Layer (2026-04-30)
+
+「analyst が推奨を読んだ後の応答経路」を統一する新レイヤー (migration v34):
+
+| Phase | 内容 |
+|-------|------|
+| **1** | `decisions` テーブル + `DecisionLedger` クラス + 14 endpoints |
+| **2** | TRIAGE 操作メニュー (⋯) + HUD snooze indicator + NP1 critical bypass |
+| **3** | Pending Decisions アクションボタン + NP7 confirm modal |
+| **4** | Decision History モーダル (AP4 forensic timeline) |
+| **5** | テスト 47 件 + INTEL GUIDE §O bilingual |
+
+その後 F1-F4 で advisory endpoint を ledger-aware 化、per-scenario カード化、Re-evaluate ボタン追加。
+
+#### 0.1.6 Autotune Audit Fix (2026-04-30 PM)
+
+Auto-tune Wizard の本番状態を監査し、4 系統の false-positive を体系的に解消 (migration v35):
+
+| Phase | 内容 |
+|-------|------|
+| **0** | 既存 26 proposals + 39 drift signals 一括 dismiss |
+| **A** | sensor_disable proposer に fetch-layer ガード追加 (健全 sensor を disable 候補から除外) |
+| **B** | sensor_coverage_healthy() 新設、dormant_participant + weight_too_high で fleet 劣化時に短絡 |
+| **C** | list_pending SELECT 拡張 (evidence_strength / vitality_state / state を返却) |
+| **D** | discovery cluster fingerprint supersession + state CHECK 制約に 'superseded' 追加 |
+| **E** | Wizard pending filter は SQL 層で完結、state field を UI 側で render 可能に |
+| **F** | drift signal を sensor_outage (red) / participant_silent (amber) に分類 |
+
+検証: production で `skipped_fetch_healthy=4, new_proposals=0` 達成 (4 件すべての false positive を Phase A ガードが遮断)。
+
+#### 0.1.7 Phase 5 集計
+
+- **commits**: 約 80 件 (4-28 〜 4-30 の 3 日間)
+- **migrations 追加**: v31 (LLM Feature Hub) / v32 (ATTENTION) / v33 (per-scenario threat_history) / v34 (Decision Layer) / v35 (proposal supersession)
+- **テスト追加**: 約 100 件 (test_decisions 47, test_autotune_proposer_guards 13, test_triage_display_mode 34, test_threat_history_scoped 16, etc.)
+- **新規 UI 面**: TRIAGE Lane 表示モード、CONTROLS Tools Hub、ATTENTION セクション、Decision History モーダル、Pending Decisions アクション、HUD divergence chip、HUD snooze chip
+- **API endpoints 追加**: 14 (decisions) + 数件 (attention / llm_features / triage / etc.)
+
+### 0.2 安定運用フェーズへの移行 (Phase 5+, 2026-04-30 以降)
+
+Phase 0-5 完了をもって、本書の「設計仕様 → 実装」サイクルは終了。以降は **保守・微調整・運用フィードバック** のフェーズに入る。**新規大規模設計は本書を更新せず、別 issue として独立管理する**。
+
+#### 0.2.1 計画済の運用観察ポイント
+
+| 時期 | 観察項目 | 期待される判断 |
+|------|---------|---------------|
+| **2026-07-31** | Calibration governor audit (Phase A/B ガードが false negative を生んでいないか) | gate 閾値の微調整 / 新 sensor 追加時のガード再評価 |
+| **継続** | 週次 cron diversity avg/max | avg ≥ 2.0 / max ≥ 2 を crossing したら Layer 1 cross-evidence + LLM 第二パス再導入条件成立 |
+| **継続** | `decisions` テーブル retention | 1 年経過時に retention policy 設定要検討 |
+
+#### 0.2.2 非コード課題 (intel research、別 issue 管理)
+
+- diplomatic 7 feed の現行 RSS endpoint 探索 (state.gov, mofa.gov.tw, fmprc.gov.cn, mid.ru, etc.)
+- hacktivist 12 channel 中 7 (noname05716 等) の preview-enabled 代替探索
+- 解消すれば diversity が avg=1.0 → ≥2.0 に上昇 → Layer 1 + LLM 第二パスの再導入条件成立
+
+これらは「コード」ではなく「世界知識」の更新であり、別 issue として独立管理する。
+
+#### 0.2.3 オプショナルな改善候補 (優先度低)
+
+実害は出ていないが品質改善余地のある項目:
+
+| # | 内容 | 優先度 |
+|---|------|--------|
+| (a) | TRIAGE per-user 閾値 UI (現状 `localStorage.triage_always_visible` 直接編集に依存) | Low |
+| (b) | dormant_participant proposer の評価閾値を per-scenario / per-role で micro-tune | Low |
+| (c) | Decision History の WebSocket push (現状 30s polling) | Low |
+| (d) | Auto-tune Wizard の "Apply All" バッチアクション | Low |
+| (e) | Markdown export の PDF 化 (ADR-V2-004 で言及されているが未実装) | Low |
+| (f) | shadow → opt-in → default-on 三段階管理ダッシュボード (現状 Feature Hub に分散) | Low |
 
 ---
 
