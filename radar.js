@@ -2690,22 +2690,39 @@
             ? _t('triage.tooltip.pin_dock') : '';
         const menuTip = (typeof _t === 'function')
             ? _t('triage.tooltip.menu') : 'TRIAGE actions';
+        const actionsLabel = (typeof _t === 'function')
+            ? _t('triage.label.actions') : 'ACTIONS';
         bar.title = barTip;
         bar.innerHTML =
             '<span class="tm-cb-label">TRIAGE</span>'
             + '<span class="tm-cb-items"></span>'
             + '<span class="tm-cb-pin" title="' + pinTip + '">⌖</span>'
-            + '<span class="tm-cb-menu" title="' + menuTip + '">⋯</span>';
-        // Click on label or items area: toggle expand-pin (but NOT
-        // the ⋯ — it has its own handler that stops propagation).
+            + '<span class="tm-cb-menu" title="' + menuTip + '">'
+            +     '<span class="tm-cb-menu-label">' + actionsLabel + '</span>'
+            +     '<span class="tm-cb-menu-icon">⋯</span>'
+            + '</span>';
+        // Bar click contract:
+        //   - critical-banner mode: open actions popover (the .al-list
+        //     is force-hidden in this mode by CSS, so pin-toggle would
+        //     have nothing to expand to → analyst sees no response).
+        //     This is the NP1 affordance: clicking the alert exposes
+        //     the action surface immediately.
+        //   - pin-dock mode: toggle expand-pin so the analyst can
+        //     enlarge the corner overlay to read full row details.
+        //   - dormant: lane is hidden, click cannot reach.
         bar.addEventListener('click', (e) => {
-            // Skip pin-toggle if click came from ⋯ menu button.
-            if (e.target.classList.contains('tm-cb-menu')) return;
+            // Always let the ⋯ button handle its own click.
+            if (e.target.closest('.tm-cb-menu')) return;
             if (e.target.closest('.tm-triage-popover')) return;
             e.stopPropagation();
-            _triageTogglePin(lane);
+            const lane = document.getElementById('alert-lane');
+            if (lane && lane.classList.contains('tm-critical-banner')) {
+                _triageOpenPopover(lane);
+            } else {
+                _triageTogglePin(lane);
+            }
         });
-        // ⋯ opens the actions popover.
+        // ⋯ explicitly opens the actions popover in any mode.
         const menuBtn = bar.querySelector('.tm-cb-menu');
         menuBtn.addEventListener('click', (e) => {
             e.stopPropagation();

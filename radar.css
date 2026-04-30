@@ -2687,9 +2687,43 @@ body[data-replay-on="1"] #top-hud {
     font-size: 14px;
     line-height: 14px;
     user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
 #alert-lane .tm-cb-menu:hover { color: rgba(0, 200, 255, 0.95); }
 #alert-lane.tm-critical-banner .tm-cb-menu { color: #ffffff; }
+
+/* ACTIONS label is hidden in pin-dock (icon-only ⋯) but visible in
+   critical-banner so the analyst sees the affordance unambiguously. */
+#alert-lane .tm-cb-menu-label {
+    display: none;
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+}
+#alert-lane .tm-cb-menu-icon { font-size: 14px; line-height: 14px; }
+#alert-lane.tm-critical-banner .tm-cb-menu {
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 10px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+#alert-lane.tm-critical-banner .tm-cb-menu:hover {
+    background: rgba(255, 255, 255, 0.32);
+    border-color: rgba(255, 255, 255, 0.65);
+}
+#alert-lane.tm-critical-banner .tm-cb-menu-label { display: inline; }
+/* Pin (⌖) is meaningless in critical-banner: the .al-list is hidden,
+   so "expand pin" has nothing to expand to. Hide it; the analyst's
+   action path is the popover from ⋯ (or banner click). */
+#alert-lane.tm-critical-banner .tm-cb-pin { display: none; }
+/* Banner-wide hover affordance: brighten when the analyst can click. */
+#alert-lane.tm-critical-banner .tm-compact-bar { transition: filter 0.15s ease; }
+#alert-lane.tm-critical-banner:hover .tm-compact-bar { filter: brightness(1.12); }
 
 .tm-triage-popover {
     position: fixed;

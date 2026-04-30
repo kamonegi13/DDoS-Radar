@@ -263,6 +263,7 @@ const STRINGS = {
     'triage.tooltip.dormant_explain':  'TRIAGE is dormant — no item has attention_score ≥ 0.40 for the focused scenario. The lane re-appears as soon as one does.',
     'triage.label.compact':            'TRIAGE',
     'triage.label.critical':           '⚠ TRIAGE ALERT',
+    'triage.label.actions':            'ACTIONS',
 
     // ── TRIAGE actions popover (Phase 2 of Decision Layer, 2026-04-30) ─
     // Right-side ⋯ menu on the compact bar. Snooze / dismiss / visibility
