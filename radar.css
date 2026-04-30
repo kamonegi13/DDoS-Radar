@@ -3392,6 +3392,78 @@ body[data-replay-on="1"] #top-hud {
     cursor: not-allowed;
 }
 
+/* ── F3: governance_state visualisation ───────────────────────────── */
+/* Settled cards (accepted/extended/raised/rolled_back) dim 60% so
+   open cards visually dominate the panel — analyst's eye is drawn to
+   what still needs action. */
+.pending-decision-card.pd-settled {
+    opacity: 0.62;
+    background: rgba(255, 255, 255, 0.012);
+}
+.pending-decision-card.pd-settled:hover {
+    opacity: 0.92;
+    transition: opacity 0.18s ease;
+}
+
+/* Status badge next to the card name. */
+.pd-gs-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 2px;
+    font-size: 9px;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    font-family: var(--font-mono, monospace);
+}
+.pd-gs-badge.pd-gs-accepted {
+    background: rgba(0, 255, 128, 0.14);
+    color: #88ff99;
+    border: 1px solid #00ff8855;
+}
+.pd-gs-badge.pd-gs-extended {
+    background: rgba(0, 200, 255, 0.14);
+    color: #88ddff;
+    border: 1px solid #00ccff55;
+}
+.pd-gs-badge.pd-gs-raised {
+    background: rgba(255, 200, 80, 0.14);
+    color: #ffd88a;
+    border: 1px solid #ffaa0055;
+}
+.pd-gs-badge.pd-gs-rolled_back {
+    background: rgba(255, 80, 80, 0.14);
+    color: #ff8888;
+    border: 1px solid #ff444455;
+}
+
+/* Per-card actor + decided-date line under the heading. */
+.pd-gs-details {
+    margin-top: 4px;
+    color: #888;
+    font-size: 10px;
+    font-family: var(--font-mono, monospace);
+    font-style: normal;
+}
+.pd-gs-actor { color: #66ccff; }
+
+/* Re-evaluate button — distinct from accept/extend/etc. */
+.pd-action-reeval {
+    border-color: rgba(255, 200, 80, 0.55);
+    color: rgba(255, 220, 140, 0.92);
+}
+.pd-action-reeval:hover {
+    background: rgba(255, 200, 80, 0.10);
+    color: #ffffff;
+}
+
+/* Pin: pending count chip. */
+.pd-pin-item-count {
+    color: #ffcc66;
+    font-weight: bold;
+    padding: 0 4px;
+}
+
 /* ── §10.5 deadline pin (dashboard) ─────────────────────────────────── */
 #pending-decisions-pin {
     margin: 4px 12px 0 12px;

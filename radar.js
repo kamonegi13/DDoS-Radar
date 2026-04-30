@@ -11172,12 +11172,37 @@
             ? _t('scenario.pending.extended_past')
             : _t('scenario.pending.extended_hard', { d: _escHtml(deadline.extended_hard) });
         const cardId = 'pd-card-' + Math.random().toString(36).slice(2, 10);
-        let html = `<div class="pending-decision-card pd-${sev}" id="${cardId}">`;
+
+        // F3: governance_state drives the card visual state. When the
+        // analyst has already accepted/extended/raised/rolled_back this
+        // target, the card dims and shows the "Settled by X" badge.
+        const gs = (opts && opts.governance_state) || { status: 'open' };
+        const gsCls = (gs.status && gs.status !== 'open') ? 'pd-settled pd-settled-' + gs.status : '';
+
+        let html = `<div class="pending-decision-card pd-${sev} ${gsCls}" id="${cardId}">`;
         html += `<div class="pending-decision-head">`;
         html += `<span class="pending-decision-name">${_escHtml(name)}</span>`;
+        // Governance status badge (when settled).
+        if (gs.status && gs.status !== 'open') {
+            html += `<span class="pd-gs-badge pd-gs-${_escHtml(gs.status)}">`;
+            html += `${_escHtml(_pdGsLabel(gs.status))}</span>`;
+        }
         html += `<span class="pending-decision-deadline pd-${sev}">`;
         html += `${_escHtml(deadline.primary)} · ${_escHtml(daysLabel)}`;
         html += `</span></div>`;
+        // Governance details line (actor, reason, decided_at).
+        if (gs.status && gs.status !== 'open') {
+            const decidedDate = gs.decided_at
+                ? new Date(gs.decided_at * 1000).toISOString().slice(0, 10)
+                : '?';
+            html += `<div class="pd-gs-details">`;
+            html += `<span class="pd-gs-actor">${_escHtml(gs.actor || '?')}</span>`;
+            html += ` · ${_escHtml(decidedDate)}`;
+            if (gs.reason) {
+                html += ` · <i>"${_escHtml(gs.reason)}"</i>`;
+            }
+            html += `</div>`;
+        }
         html += `<div class="pending-decision-rec ${recCls}">${_escHtml(_pdRecI18n(decision.recommendation))}</div>`;
         if (decision.reason) {
             html += `<div class="pending-decision-reason">${_escHtml(decision.reason)}</div>`;
@@ -11188,12 +11213,47 @@
             html += `<div class="pending-decision-manual">${_escHtml(decision.manual_review_needed)}</div>`;
         }
         // Action row (Phase 3 of Decision Layer). opts.category === 'tl' or 'dual_weight'.
-        // Buttons emphasized vs muted based on the current recommendation.
+        // F3 update: when settled, show Re-evaluate (revoke) instead of
+        // Accept/Extend/Raise. Open state still shows the recommendation
+        // buttons as before.
         if (opts && opts.category) {
-            html += _renderPendingDecisionActions(opts.category, decision, opts);
+            if (gs.status && gs.status !== 'open' && gs.decision_id) {
+                html += `<div class="pending-decision-actions">`
+                     +  `<button type="button" class="pd-action-btn pd-action-reeval" `
+                     +  `data-pd-action="revoke" data-pd-decision-id="${_escHtml(gs.decision_id)}" `
+                     +  `title="Reopen this decision — the data-driven recommendation will surface again on next refresh.">`
+                     +  `↻ Re-evaluate</button>`
+                     +  `</div>`;
+            } else {
+                html += _renderPendingDecisionActions(opts.category, decision, opts);
+            }
         }
         html += `</div>`;
         return html;
+    }
+
+    // Build a deadline-style object from a unix-second expires_at, used
+    // when governance_state.expires_at overrides the global deadline.
+    function _pdDeadlineFromTs(expiresAtSec) {
+        const days = (expiresAtSec - Date.now() / 1000) / 86400.0;
+        const primary = new Date(expiresAtSec * 1000).toISOString().slice(0, 10);
+        return {
+            primary: primary,
+            extended_hard: 'settled',
+            days_remaining: days,
+            past_primary: days < 0,
+            past_extended: false,
+        };
+    }
+
+    function _pdGsLabel(status) {
+        const labels = {
+            'accepted':    '✓ Accepted',
+            'extended':    '⏵ Extended',
+            'raised':      '↑ Raised',
+            'rolled_back': '↩ Rolled back',
+        };
+        return labels[status] || status;
     }
 
     // ── Pending Decisions actions (Phase 3) ──────────────────────────
@@ -11206,19 +11266,12 @@
         let buttons = '';
         if (category === 'tl') {
             const sid = (opts && opts.scenario_id) ? opts.scenario_id : '';
-            const sidEsc = _escHtml(sid);
             buttons += _pdActionBtn('accept', 'tl', sid,
                 rec === 'ACCEPT_CURRENT', '✓ Accept current');
             buttons += _pdActionBtn('extend', 'tl', sid,
                 rec === 'EXTEND_OR_WAIT', '⏵ Extend +14d');
             buttons += _pdActionBtn('raise', 'tl', sid,
                 rec === 'RAISE_THRESHOLDS', '↑ Raise thresholds (⚠ NP7)');
-            // sid="" means roll-up card; per-scenario buttons live in body rows.
-            if (!sid) {
-                buttons = '<span class="pd-action-note">'
-                    + 'Per-scenario buttons appear in scenario rows above. '
-                    + 'Or open Auto-tune Wizard for the proposal flow.</span>';
-            }
         } else if (category === 'dual_weight') {
             buttons += _pdActionBtn('accept', 'dual_weight', '',
                 rec === 'ACCEPT_CURRENT', '✓ Accept');
@@ -11264,6 +11317,36 @@
     }
 
     async function _pdHandleAction(action, category, targetId, btn) {
+        // F3: Re-evaluate (revoke) takes a different endpoint shape —
+        // /api/v2/decisions/<id>/revoke. The decision_id is encoded
+        // on the button via data-pd-decision-id.
+        if (action === 'revoke') {
+            const decisionId = btn.getAttribute('data-pd-decision-id');
+            if (!decisionId) throw new Error('missing decision_id');
+            const reason = prompt(
+                'Reopen this decision? Optional reason for the audit log:',
+                '');
+            if (reason === null) return;  // cancel
+            btn.disabled = true;
+            btn.textContent = '… revoking';
+            const resp = await fetch(
+                '/api/v2/decisions/' + encodeURIComponent(decisionId) + '/revoke',
+                { method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ reason: reason || null }) });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.error || ('HTTP ' + resp.status));
+            }
+            if (typeof window.loadPendingDecisions === 'function') {
+                await window.loadPendingDecisions();
+            }
+            if (typeof _refreshPendingDecisionsPin === 'function') {
+                _refreshPendingDecisionsPin();
+            }
+            return;
+        }
+
         // Build endpoint URL.
         const baseMap = {
             'tl': '/api/v2/decisions/tl_recalibration/',
@@ -11363,7 +11446,7 @@
             let html = `<div class="pending-decisions">`;
             html += `<div class="pending-decisions-title">${_t('scenario.pending.title')}</div>`;
 
-            // Dual-weight (fleet-level decision)
+            // ── Dual-weight (fleet-level) ────────────────────────────────
             {
                 const m         = dw.decision.measured || {};
                 const sdPct     = (m.sample_weighted_sd || 0).toFixed(3);
@@ -11377,55 +11460,37 @@
                 html += _renderPendingDecisionCard(
                     _t('scenario.pending.dual_weight_name'),
                     dw.deadline, dw.decision, body,
-                    { category: 'dual_weight' });
+                    { category: 'dual_weight',
+                      governance_state: dw.governance_state });
             }
 
-            // TL recalibration (per-scenario with roll-up)
-            {
-                const dueCount = (tl.scenarios || []).filter(
-                    s => s.decision && s.decision.recommendation === 'RAISE_THRESHOLDS').length;
-                const extCount = (tl.scenarios || []).filter(
-                    s => s.decision && s.decision.recommendation === 'EXTEND_OR_WAIT').length;
-                const acceptCount = (tl.scenarios || []).filter(
-                    s => s.decision && s.decision.recommendation === 'ACCEPT_CURRENT').length;
-                const rollupDecision = {
-                    recommendation: dueCount > 0 ? 'RAISE_THRESHOLDS'
-                                   : extCount > 0 ? 'EXTEND_OR_WAIT'
-                                   : 'ACCEPT_CURRENT',
-                    reason: _t('scenario.pending.tl_rollup', {
-                        raise: dueCount, extend: extCount, accept: acceptCount,
-                    }),
-                    manual_review_needed:
-                        (tl.scenarios[0] && tl.scenarios[0].decision &&
-                         tl.scenarios[0].decision.manual_review_needed) || '',
-                };
-                let body = '<div class="pending-decision-scenarios">';
-                for (const s of (tl.scenarios || [])) {
-                    const rec = (s.decision && s.decision.recommendation) || 'EXTEND_OR_WAIT';
-                    const m = s.decision && s.decision.measured;
-                    const label = s.label || s.scenario_id;
-                    const sid = s.scenario_id || '';
-                    body += `<div class="pd-sc-row">`;
-                    body += `<span>${_escHtml(label)}</span>`;
-                    if (m) {
-                        body += `<span>obs ${s.observations} · TL2 ${m.tl2_per_week}/wk · TL1 ${m.tl1_per_week}/wk · ${_escHtml(rec)}</span>`;
-                    } else {
-                        body += `<span>obs ${s.observations}/${s.min_required} · ${_escHtml(rec)}</span>`;
-                    }
-                    // Per-scenario actions inline.
-                    body += `<span class="pd-sc-actions">`;
-                    body += _pdActionBtn('accept', 'tl', sid,
-                        rec === 'ACCEPT_CURRENT', '✓');
-                    body += _pdActionBtn('extend', 'tl', sid,
-                        rec === 'EXTEND_OR_WAIT', '⏵+14d');
-                    body += `</span>`;
-                    body += `</div>`;
+            // ── TL recalibration: ONE CARD PER SCENARIO ───────────────────
+            // F3: rollup is gone — each scenario gets its own card so
+            // governance_state, deadline, and Accept/Extend/Raise wiring
+            // are all per-scenario as they should be (NP6).
+            for (const s of (tl.scenarios || [])) {
+                const sid = s.scenario_id || '';
+                const m = s.decision && s.decision.measured;
+                let body = '<div class="pending-decision-meta">';
+                if (m) {
+                    body += `<b>obs:</b> ${s.observations} &nbsp; `;
+                    body += `<b>TL2/wk:</b> ${m.tl2_per_week} &nbsp; `;
+                    body += `<b>TL1/wk:</b> ${m.tl1_per_week}`;
+                } else {
+                    body += `<b>obs:</b> ${s.observations}/${s.min_required}`;
                 }
                 body += '</div>';
+                // Per-scenario deadline override: if governance_state has
+                // its own expires_at, use it; else fall back to global.
+                const perScDeadline = (s.effective_expires_at)
+                    ? _pdDeadlineFromTs(s.effective_expires_at)
+                    : tl.deadline;
+                const cardName = (s.label || s.scenario_id) + ' — ' + _t('scenario.pending.tl_recal_name');
                 html += _renderPendingDecisionCard(
-                    _t('scenario.pending.tl_recal_name'),
-                    tl.deadline, rollupDecision, body,
-                    { category: 'tl', scenario_id: '' });  // roll-up card
+                    cardName,
+                    perScDeadline, s.decision, body,
+                    { category: 'tl', scenario_id: sid,
+                      governance_state: s.governance_state });
             }
 
             html += `</div>`;
@@ -11437,36 +11502,56 @@
         }
     };
 
-    // Dashboard pin: auto-loads once on boot and every hour; hides when no
-    // deadline is soon/overdue. Click → opens Scenario Manager tab.
+    // Dashboard pin: auto-loads once on boot and every hour. F3:
+    // visibility now driven by `open_count` from the ledger-aware
+    // advisory — pin hides when every decision category is settled
+    // (accepted/extended/raised/rolled_back). Click → opens Scenario
+    // Manager tab where the action buttons live.
     async function _refreshPendingDecisionsPin() {
         const pin = document.getElementById('pending-decisions-pin');
         if (!pin) return;
         try {
             const { tl, dw } = await _fetchPendingDecisions();
-            const items = [
-                { name: _t('scenario.pending.tl_recal_name'),
-                  deadline: tl.deadline, rec: _pickTlRollupRec(tl) },
-                { name: _t('scenario.pending.dual_weight_name'),
-                  deadline: dw.deadline, rec: dw.decision.recommendation },
-            ];
-            const visible = items.filter(it =>
-                it.deadline.past_primary || it.deadline.days_remaining <= 14
-                || it.rec === 'ROLLBACK_TO_SINGLE_WEIGHT'
-                || it.rec === 'RAISE_THRESHOLDS');
-            if (visible.length === 0) { pin.style.display = 'none'; return; }
-            const overdueAny = visible.some(it => it.deadline.past_primary);
+            const tlOpen = (tl.open_count != null) ? tl.open_count
+                : (tl.scenarios || []).filter(
+                    s => !s.governance_state || s.governance_state.status === 'open').length;
+            const dwOpen = (dw.open_count != null) ? dw.open_count
+                : (dw.governance_state && dw.governance_state.status !== 'open' ? 0 : 1);
+            const totalOpen = tlOpen + dwOpen;
+            if (totalOpen === 0) { pin.style.display = 'none'; return; }
+
+            // Show how many in each category are still pending.
+            const items = [];
+            if (tlOpen > 0) {
+                items.push({
+                    name: _t('scenario.pending.tl_recal_name'),
+                    count: tlOpen,
+                    deadline: tl.deadline,
+                });
+            }
+            if (dwOpen > 0) {
+                items.push({
+                    name: _t('scenario.pending.dual_weight_name'),
+                    count: dwOpen,
+                    deadline: dw.deadline,
+                });
+            }
+            const overdueAny = items.some(it =>
+                it.deadline && it.deadline.past_primary);
             pin.className = overdueAny ? 'pd-pin-overdue' : 'pd-pin-soon';
             let html = `<span class="pd-pin-label">${_t('scenario.pending.pin_label')}</span>`;
-            for (const it of visible) {
-                const daysCls = it.deadline.past_primary ? 'pd-overdue' : '';
-                const daysTxt = it.deadline.past_primary
-                    ? _t('scenario.pending.overdue_by', { n: Math.abs(it.deadline.days_remaining).toFixed(0) })
-                    : _t('scenario.pending.days_remaining', { n: it.deadline.days_remaining.toFixed(0) });
+            for (const it of items) {
+                const dl = it.deadline || {};
+                const daysCls = dl.past_primary ? 'pd-overdue' : '';
+                const daysTxt = dl.past_primary
+                    ? _t('scenario.pending.overdue_by',
+                         { n: Math.abs(dl.days_remaining || 0).toFixed(0) })
+                    : _t('scenario.pending.days_remaining',
+                         { n: (dl.days_remaining || 0).toFixed(0) });
                 html += `<span class="pd-pin-item">`;
                 html += `<span class="pd-pin-item-name">${_escHtml(it.name)}:</span>`;
-                html += `<span class="pd-pin-item-days ${daysCls}">${_escHtml(daysTxt)}</span>`;
-                html += `<span class="pd-pin-item-rec">· ${_escHtml(_pdRecI18n(it.rec))}</span>`;
+                html += `<span class="pd-pin-item-count">pending ${it.count}</span>`;
+                html += `<span class="pd-pin-item-days ${daysCls}">· ${_escHtml(daysTxt)}</span>`;
                 html += `</span>`;
             }
             pin.innerHTML = html;
@@ -11475,6 +11560,9 @@
             pin.style.display = 'none';
         }
     }
+    // Legacy rollup picker — retained as a no-op shim for any external
+    // caller that still imports it. F3 dropped the rollup card concept;
+    // pin and panel now use governance_state directly.
     function _pickTlRollupRec(tl) {
         const scs = tl.scenarios || [];
         if (scs.some(s => s.decision && s.decision.recommendation === 'RAISE_THRESHOLDS'))
