@@ -591,3 +591,54 @@ def decisions_get(decision_id: str):
     if row is None:
         return jsonify({"error": "decision not found"}), 404
     return jsonify(row)
+
+
+@bp.route("/api/v2/decisions/<decision_id>/revoke", methods=["POST"])
+@jwt_required()
+def decisions_revoke(decision_id: str):
+    """Revoke an active decision without inserting a replacement.
+
+    Used by the [Re-evaluate] button on accepted/extended/raised
+    Pending Decisions cards to undo the analyst's prior decision and
+    let the data-driven recommendation surface again. The original
+    decision row is preserved for audit (NP6) — superseded_by gets a
+    synthetic 'revoked:<actor>:<ts>' marker.
+
+    Authorization mirrors the original decision's authorization scope:
+    governance decisions (tl_recal_*, dual_weight_*) admin-only;
+    operational decisions (triage_*) analyst+admin.
+
+    Body: { reason?: str }
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+
+    from radar.database import db
+    row = db.decisions.get(decision_id)
+    if row is None:
+        return jsonify({"error": "decision not found"}), 404
+
+    # Match the auth scope of the original write. Operational decisions
+    # can be revoked by any analyst; governance decisions require admin.
+    is_governance = row["decision_type"].startswith("tl_recal_") \
+                    or row["decision_type"].startswith("dual_weight_")
+    auth_err = _require_admin() if is_governance else _require_analyst()
+    if auth_err is not None:
+        return auth_err
+
+    if row["superseded_by"] is not None:
+        return jsonify({
+            "error": "already_inactive",
+            "message": "decision is already superseded or revoked",
+        }), 409
+
+    body = request.get_json(silent=True) or {}
+    revoked = db.decisions.revoke(
+        decision_id, by=_actor_string(),
+        reason=body.get("reason"),
+    )
+    if not revoked:
+        # Race: another writer revoked it between our check and our update.
+        return jsonify({"error": "revoke_race"}), 409
+    return jsonify({"revoked": True, "decision_id": decision_id})

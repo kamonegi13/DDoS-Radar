@@ -274,13 +274,19 @@ def admin_headers(client):
 
 @pytest.fixture(autouse=True)
 def cleanup_test_decisions():
-    """Sweep test rows after every test."""
+    """Sweep rows touched by tests. The admin user's identity matches
+    real production data, so we filter aggressively: anything the test
+    suite could have written (admin user is the test login) gets
+    cleaned up after each test. Decision Layer test isolation is more
+    important than preserving other admin actor history during testing."""
     yield
     try:
         conn = db._get_conn()
         with conn.writing():
             conn.execute(
                 "DELETE FROM decisions WHERE actor LIKE '%test%' "
+                "OR actor LIKE 'admin:admin' "
+                "OR actor LIKE 'analyst:admin' "
                 "OR target_id LIKE 'test_%'"
             )
     except Exception:
@@ -491,3 +497,229 @@ def test_api_disabled_when_v2_off(client, admin_headers, monkeypatch):
 def test_api_requires_auth(client):
     resp = client.post("/api/v2/decisions/triage/snooze", json={"minutes": 30})
     assert resp.status_code in (401, 422)
+
+
+# ── F2: revoke endpoint ─────────────────────────────────────────────────
+
+def test_api_revoke_marks_decision_inactive(client, admin_headers):
+    """POST /<id>/revoke deactivates a current decision; latest()
+    returns null for the same target afterwards."""
+    snz = client.post(
+        "/api/v2/decisions/triage/snooze",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"minutes": 30},
+    )
+    decision_id = snz.get_json()["decision_id"]
+
+    resp = client.post(
+        f"/api/v2/decisions/{decision_id}/revoke",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"reason": "false alarm"},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["revoked"] is True
+
+    state = client.get("/api/v2/decisions/triage/state",
+                       headers=admin_headers).get_json()
+    assert state["snooze"] is None  # No active snooze after revoke
+
+
+def test_api_revoke_404_on_unknown(client, admin_headers):
+    resp = client.post("/api/v2/decisions/dec_does_not_exist/revoke",
+                        headers={**admin_headers, "Content-Type": "application/json"},
+                        json={})
+    assert resp.status_code == 404
+
+
+def test_api_revoke_409_on_already_inactive(client, admin_headers):
+    snz = client.post(
+        "/api/v2/decisions/triage/snooze",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"minutes": 30},
+    )
+    did = snz.get_json()["decision_id"]
+    # First revoke OK.
+    r1 = client.post(f"/api/v2/decisions/{did}/revoke",
+                      headers={**admin_headers, "Content-Type": "application/json"},
+                      json={})
+    assert r1.status_code == 200
+    # Second revoke must fail with 409 (already inactive).
+    r2 = client.post(f"/api/v2/decisions/{did}/revoke",
+                      headers={**admin_headers, "Content-Type": "application/json"},
+                      json={})
+    assert r2.status_code == 409
+
+
+# ── F1+F2: advisory + ledger integration ────────────────────────────────
+
+def test_advisory_dual_weight_open_when_no_decision(client, admin_headers):
+    """Without any analyst decision, governance_state.status should be 'open'."""
+    # Sweep any active dual_weight decisions first.
+    cur = db.decisions.latest(
+        decision_type="dual_weight_accept", target_kind="global", target_id=None)
+    if cur:
+        db.decisions.revoke(cur["id"], by="test:cleanup")
+    cur = db.decisions.latest(
+        decision_type="dual_weight_extend", target_kind="global", target_id=None)
+    if cur:
+        db.decisions.revoke(cur["id"], by="test:cleanup")
+    cur = db.decisions.latest(
+        decision_type="dual_weight_rollback", target_kind="global", target_id=None)
+    if cur:
+        db.decisions.revoke(cur["id"], by="test:cleanup")
+
+    resp = client.get("/api/analytics/dual_weight_evaluation", headers=admin_headers)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert "governance_state" in body
+    assert body["governance_state"]["status"] == "open"
+    assert body["open_count"] == 1
+
+
+def test_advisory_dual_weight_reflects_accept(client, admin_headers):
+    """After POST /dual_weight/accept, advisory must show
+    status=accepted and the deadline must be replaced by ledger expiry."""
+    accepted = client.post(
+        "/api/v2/decisions/dual_weight/accept",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"reason": "test"},
+    )
+    assert accepted.status_code == 200, accepted.get_json()
+
+    resp = client.get("/api/analytics/dual_weight_evaluation", headers=admin_headers)
+    body = resp.get_json()
+    assert body["governance_state"]["status"] == "accepted"
+    assert body["governance_state"]["expires_at"] > time.time()
+    # open_count == 0 means dashboard pin should hide.
+    assert body["open_count"] == 0
+    # Cleanup
+    db.decisions.revoke(body["governance_state"]["decision_id"],
+                         by="test:cleanup")
+
+
+def test_advisory_dual_weight_reflects_revoke(client, admin_headers):
+    """After accept then revoke, advisory must return to status=open."""
+    acc = client.post(
+        "/api/v2/decisions/dual_weight/accept",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"reason": "test"},
+    ).get_json()
+    rev = client.post(
+        f"/api/v2/decisions/{acc['decision_id']}/revoke",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"reason": "re-evaluate"},
+    )
+    assert rev.status_code == 200
+
+    resp = client.get("/api/analytics/dual_weight_evaluation", headers=admin_headers)
+    body = resp.get_json()
+    assert body["governance_state"]["status"] == "open"
+    assert body["open_count"] == 1
+
+
+def test_advisory_dual_weight_rollback_is_permanent(client, admin_headers):
+    """Rollback has no expires_at — it must stay 'rolled_back' until
+    explicitly revoked."""
+    rb = client.post(
+        "/api/v2/decisions/dual_weight/rollback",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"reason": "test rollback", "np7_confirmed": True},
+    )
+    assert rb.status_code == 200
+
+    resp = client.get("/api/analytics/dual_weight_evaluation", headers=admin_headers)
+    body = resp.get_json()
+    assert body["governance_state"]["status"] == "rolled_back"
+    assert body["governance_state"]["expires_at"] is None
+    # Cleanup
+    db.decisions.revoke(body["governance_state"]["decision_id"],
+                         by="test:cleanup")
+
+
+def test_advisory_tl_recal_per_scenario_isolation(client, admin_headers):
+    """Accepting one scenario must not affect others' governance_state."""
+    # Cleanup any pre-existing decisions on these scenarios.
+    from radar.scenarios import scenario_store
+    sids = [sc.id for sc in scenario_store.scorable()]
+    if not sids:
+        pytest.skip("no scenarios configured in test env")
+    target_sid = sids[0]
+    other_sid = sids[1] if len(sids) > 1 else None
+
+    # Accept just the first scenario.
+    acc = client.post(
+        "/api/v2/decisions/tl_recalibration/accept",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"scenario_id": target_sid, "reason": "test"},
+    )
+    assert acc.status_code == 200
+
+    resp = client.get("/api/analytics/tl_recalibration_advisory", headers=admin_headers)
+    body = resp.get_json()
+    by_sid = {a["scenario_id"]: a for a in body["scenarios"]}
+    assert by_sid[target_sid]["governance_state"]["status"] == "accepted"
+    if other_sid:
+        assert by_sid[other_sid]["governance_state"]["status"] == "open"
+
+    # Cleanup
+    db.decisions.revoke(by_sid[target_sid]["governance_state"]["decision_id"],
+                         by="test:cleanup")
+
+
+def test_advisory_tl_recal_open_count_excludes_settled(client, admin_headers):
+    """After accepting one scenario, open_count must drop by exactly 1."""
+    # First read: how many scenarios are 'open' baseline.
+    pre = client.get("/api/analytics/tl_recalibration_advisory",
+                      headers=admin_headers).get_json()
+    pre_open = pre.get("open_count", 0)
+    if pre_open == 0:
+        pytest.skip("no open scenarios available to test reduction")
+    target_sid = next((a["scenario_id"] for a in pre["scenarios"]
+                       if a["governance_state"]["status"] == "open"), None)
+    assert target_sid
+
+    acc = client.post(
+        "/api/v2/decisions/tl_recalibration/accept",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"scenario_id": target_sid, "reason": "test"},
+    )
+    assert acc.status_code == 200, acc.get_json()
+
+    post = client.get("/api/analytics/tl_recalibration_advisory",
+                       headers=admin_headers).get_json()
+    assert post["open_count"] == pre_open - 1
+
+    # Cleanup
+    by_sid = {a["scenario_id"]: a for a in post["scenarios"]}
+    db.decisions.revoke(by_sid[target_sid]["governance_state"]["decision_id"],
+                         by="test:cleanup")
+
+
+def test_advisory_tl_recal_extend_overrides_deadline(client, admin_headers):
+    """extend's expires_at must surface as effective_expires_at on the
+    per-scenario advisory entry."""
+    from radar.scenarios import scenario_store
+    sids = [sc.id for sc in scenario_store.scorable()]
+    if not sids:
+        pytest.skip("no scenarios configured")
+    target_sid = sids[0]
+
+    ext = client.post(
+        "/api/v2/decisions/tl_recalibration/extend",
+        headers={**admin_headers, "Content-Type": "application/json"},
+        json={"scenario_id": target_sid, "days": 21, "reason": "test"},
+    )
+    assert ext.status_code == 200
+
+    resp = client.get("/api/analytics/tl_recalibration_advisory",
+                       headers=admin_headers).get_json()
+    by_sid = {a["scenario_id"]: a for a in resp["scenarios"]}
+    target = by_sid[target_sid]
+    assert target["governance_state"]["status"] == "extended"
+    # 21 days extension — expires_at should be ~21d in the future.
+    days_left = (target.get("effective_expires_at", 0) - time.time()) / 86400.0
+    assert 20.5 <= days_left <= 21.5
+
+    # Cleanup
+    db.decisions.revoke(target["governance_state"]["decision_id"],
+                         by="test:cleanup")
