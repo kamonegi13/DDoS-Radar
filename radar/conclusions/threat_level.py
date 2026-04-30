@@ -29,6 +29,7 @@ from radar.conclusions.base import (
     new_conclusion_id,
 )
 from radar.conclusions.calibration import calibration_status_for
+from radar.conclusions.sensitivity import compute_falsification
 
 if TYPE_CHECKING:
     from radar.database import RadarDB
@@ -132,6 +133,21 @@ def derive_threat_level(
 
     confidence = round(min(1.0, max(0.0, float(state.score) / _CONFIDENCE_DENOM)), 3)
 
+    active_domain_count = sum(1 for v in state.domains.values() if v > 0)
+    physical_score = float(state.domains.get("physical", 0.0))
+
+    # NP6 — falsification report: deterministic "what would change this"
+    # analysis (ADR-V2-016). Pure arithmetic against the rationale_matrix
+    # + threshold ladder; no LLM, no learned weights.
+    falsification = compute_falsification(
+        score=float(state.score),
+        active_domain_count=active_domain_count,
+        physical_score=physical_score,
+        convergence_bonus=float(state.convergence_bonus),
+        rationale_matrix=rationale_matrix,
+        current_tl=state.tl,
+    )
+
     return Conclusion(
         id=new_conclusion_id(),
         scenario_id=state.scenario_id,
@@ -149,7 +165,9 @@ def derive_threat_level(
             "active_countries": list(state.active_countries),
             "convergence_bonus": round(float(state.convergence_bonus), 3),
             "scoring_mode": state.scoring_mode,
-            "active_domain_count": sum(1 for v in state.domains.values() if v > 0),
+            "active_domain_count": active_domain_count,
+            "physical_score": round(physical_score, 3),
             "rationale_matrix": rationale_matrix,
+            "falsification": falsification,
         },
     )

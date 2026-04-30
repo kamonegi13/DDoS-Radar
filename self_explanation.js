@@ -105,6 +105,19 @@
             if (calBits.length) lines.push('Calibration: ' + calBits.join(' · '));
         }
 
+        // What would change this (ADR-V2-016 — NP6 falsification view).
+        // Renders only when the conclusion carries a non-empty
+        // metadata.falsification block. Skipped on INSUFFICIENT_DATA.
+        const flip = !opts || opts.includeFalsification !== false;
+        const fals = md.falsification || null;
+        if (flip && fals && (fals.threshold_distance || fals.signal_sensitivity)) {
+            const flLines = _renderFalsificationLines(fals);
+            if (flLines.length) {
+                lines.push('What would change this:');
+                flLines.forEach(l => lines.push('  ' + l));
+            }
+        }
+
         // Analyst review recency
         const lastView = opts && opts.lastViewTs;
         const ageStr = _fmtAge(lastView, now);
@@ -112,6 +125,85 @@
 
         lines.push('Tool conclusion only — final judgment org-side.');
         return lines.join('\n');
+    }
+
+    /**
+     * Render the "What would change this" lines from a falsification
+     * metadata block. Returns ≤ 4 lines so the narrative stays
+     * glance-readable. Lower TL number = more severe (radar.scoring.derive_tl).
+     */
+    function _renderFalsificationLines(fals) {
+        const out = [];
+        const dist = fals && fals.threshold_distance || {};
+        const upObj = dist.to_higher_tl || {};
+        const downObj = dist.to_lower_tl || {};
+
+        // Higher severity (lower TL number).
+        if (upObj.target_tl != null) {
+            const conds = upObj.conditions || [];
+            if (conds.length === 0) {
+                out.push('Would rise to TL' + upObj.target_tl
+                         + ' (all conditions already met)');
+            } else {
+                const parts = conds.map(_fmtFalsCondGap);
+                out.push('Rise to TL' + upObj.target_tl + ' if '
+                         + parts.join(' AND '));
+            }
+        } else {
+            out.push('Already at TL1 (no higher severity defined)');
+        }
+
+        // Lower severity (higher TL number) — what would trigger drop.
+        if (downObj.target_tl != null) {
+            const conds = downObj.conditions || [];
+            if (conds.length) {
+                const parts = conds.map(_fmtFalsCondTrigger);
+                // Take the closest trigger (smallest gap) to keep the
+                // narrative tight. Sort by absolute gap.
+                parts.sort((a, b) => a.gap - b.gap);
+                const closest = parts[0];
+                out.push('Drop to TL' + downObj.target_tl + ' if ' + closest.text);
+            }
+        }
+
+        // Top signal sensitivity — show up to 2 signals that, if
+        // dropped to zero, would shift TL.
+        const sens = (fals.signal_sensitivity || [])
+            .filter(s => s && Number.isFinite(s.moves_tl_by) && s.moves_tl_by !== 0)
+            .slice(0, 2);
+        sens.forEach(s => {
+            const dir = s.moves_tl_by > 0 ? 'fall' : 'rise';
+            out.push('If ' + (s.sensor || '?') + ' (' + (s.domain || '?')
+                     + ' contrib ' + _fmtNum(s.current_contribution)
+                     + ') drops to 0, TL would ' + dir
+                     + ' to TL' + s.hypothetical_tl_if_drops_to_zero);
+        });
+
+        return out;
+    }
+
+    function _fmtFalsCondGap(c) {
+        // Used in to_higher_tl: "score reaches 6.0 (currently 4.2, gap +1.8)"
+        const field = c.field === 'active_domain_count' ? 'active domains'
+                    : c.field === 'physical_score'      ? 'physical score'
+                    : 'score';
+        return field + ' ≥ ' + _fmtNum(c.target)
+             + ' (currently ' + _fmtNum(c.current)
+             + ', gap +' + _fmtNum(c.gap) + ')';
+    }
+
+    function _fmtFalsCondTrigger(c) {
+        // Used in to_lower_tl: returns a {text, gap} so the caller
+        // can sort by closest trigger.
+        const field = c.field === 'active_domain_count' ? 'active domains'
+                    : c.field === 'physical_score'      ? 'physical score'
+                    : 'score';
+        return {
+            text: field + ' < ' + _fmtNum(c.trigger_below)
+                + ' (currently ' + _fmtNum(c.current)
+                + ', margin ' + _fmtNum(c.gap) + ')',
+            gap: Math.abs(c.gap || 0),
+        };
     }
 
     /**

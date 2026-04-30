@@ -32,7 +32,7 @@ structural changes to keep maps in sync.
 | `radar/conclusions/per_domain.py` | [radar.conclusions.per_domain.md](radar.conclusions.per_domain.md) | 173 |
 | `radar/conclusions/attack_mode.py` | [radar.conclusions.attack_mode.md](radar.conclusions.attack_mode.md) | 180 |
 | `radar/conclusions/attack_mode_extensions.py` | [radar.conclusions.attack_mode_extensions.md](radar.conclusions.attack_mode_extensions.md) | 227 |
-| `radar/conclusions/threat_level.py` | [radar.conclusions.threat_level.md](radar.conclusions.threat_level.md) | 155 |
+| `radar/conclusions/threat_level.py` | [radar.conclusions.threat_level.md](radar.conclusions.threat_level.md) | 173 |
 | `radar/conclusions/anomaly.py` | [radar.conclusions.anomaly.md](radar.conclusions.anomaly.md) | 246 |
 | `radar/conclusions/shadow_metrics.py` | [radar.conclusions.shadow_metrics.md](radar.conclusions.shadow_metrics.md) | 125 |
 | `radar/conclusions/ground_truth_etl.py` | [radar.conclusions.ground_truth_etl.md](radar.conclusions.ground_truth_etl.md) | 407 |

@@ -113,7 +113,7 @@ test('narrateTL is deterministic (same input → same output)', () => {
     assert.strictEqual(a, b);
 });
 
-test('narrateTL output stays compact (≤ 12 lines)', () => {
+test('narrateTL output stays compact (≤ 16 lines)', () => {
     const c = {
         state: 1,
         confidence: 0.95,
@@ -125,7 +125,100 @@ test('narrateTL output stays compact (≤ 12 lines)', () => {
         calibration_status: { sample_size: 100, status: 'calibrated', recall: 0.91 },
     };
     const out = narrateTL(c, { now: NOW, lastViewTs: NOW - 1800 });
-    assert.ok(out.split('\n').length <= 12, 'too many narrative lines');
+    // Bumped from 12 → 16 in ADR-V2-016 to accommodate the
+    // "What would change this" falsification block.
+    assert.ok(out.split('\n').length <= 16, 'too many narrative lines: ' + out.split('\n').length);
+});
+
+// ── ADR-V2-016 Falsification block ─────────────────────────────────────────
+
+test('narrateTL renders falsification block when metadata present', () => {
+    const c = {
+        state: 3,
+        confidence: 0.5,
+        metadata: {
+            score: 4.5, active_domain_count: 1, physical_score: 0,
+            falsification: {
+                threshold_distance: {
+                    to_higher_tl: {
+                        target_tl: 2,
+                        all_satisfied: false,
+                        conditions: [
+                            { field: 'score', current: 4.5, target: 6.0, gap: 1.5 },
+                            { field: 'active_domain_count', current: 1, target: 2, gap: 1 },
+                        ],
+                    },
+                    to_lower_tl: {
+                        target_tl: 4,
+                        conditions: [
+                            { field: 'score', current: 4.5, trigger_below: 4.0, gap: 0.5 },
+                        ],
+                    },
+                },
+                signal_sensitivity: [
+                    {
+                        sensor: 'ct_log', domain: 'cyber',
+                        current_contribution: 1.4,
+                        hypothetical_tl_if_drops_to_zero: 4,
+                        moves_tl_by: 1,
+                    },
+                ],
+            },
+        },
+    };
+    const out = narrateTL(c, { now: NOW });
+    assert.ok(/What would change this:/.test(out), 'header missing');
+    assert.ok(/Rise to TL2/.test(out), 'rise-to-higher missing');
+    assert.ok(/Drop to TL4/.test(out), 'drop-to-lower missing');
+    assert.ok(/ct_log/.test(out), 'top signal sensitivity missing');
+});
+
+test('narrateTL omits falsification when opts.includeFalsification=false', () => {
+    const c = {
+        state: 3, confidence: 0.5,
+        metadata: {
+            score: 4.5,
+            falsification: {
+                threshold_distance: { to_higher_tl: { target_tl: 2, conditions: [] } },
+                signal_sensitivity: [],
+            },
+        },
+    };
+    const out = narrateTL(c, { now: NOW, includeFalsification: false });
+    assert.ok(!/What would change this/.test(out));
+});
+
+test('narrateTL surfaces "Already at TL1" when no higher rung exists', () => {
+    const c = {
+        state: 1,
+        metadata: {
+            score: 12, active_domain_count: 3,
+            falsification: {
+                threshold_distance: {
+                    to_higher_tl: { target_tl: null, conditions: [], all_satisfied: false },
+                    to_lower_tl: {
+                        target_tl: 2,
+                        conditions: [
+                            { field: 'physical_score', current: 4.0, trigger_below: 3.0, gap: 1.0 },
+                        ],
+                    },
+                },
+                signal_sensitivity: [],
+            },
+        },
+    };
+    const out = narrateTL(c, { now: NOW });
+    assert.ok(/Already at TL1/.test(out));
+    assert.ok(/Drop to TL2/.test(out));
+});
+
+test('narrateTL skips falsification block when metadata.falsification is empty {}', () => {
+    const c = {
+        state: 3, confidence: 0.5,
+        metadata: { score: 4.5, falsification: {} },
+    };
+    const out = narrateTL(c, { now: NOW });
+    assert.ok(!/What would change this/.test(out));
 });
 
 // ── narrateDomain ─────────────────────────────────────────────────────────
