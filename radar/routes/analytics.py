@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import datetime
 from flask import jsonify, request
+from radar.auth import require_role
 from radar.config import (
     ADAPTIVE_ZSCORE_ENABLED, ADAPTIVE_ZSCORE_MIN_SAMPLES,
     SEQUENCE_WINDOW,
@@ -24,7 +25,19 @@ from radar.scoring import (
 import radar.routes as _routes
 from radar.routes import bp, _safe_int, _country_param
 
+# Phase 7.5c (audit Security H1): defence-in-depth role gate. Every
+# route in this module is read-only and surfaces aggregated OSINT data
+# that, while same-origin and JWT-gated by the global before_request
+# hook, deserves an explicit per-route check so a future hook bypass
+# (selective exception, decorator drop) cannot accidentally expose
+# scoring/intel/calibration data to anonymous clients. The role tuple
+# matches the global gate ("admin", "analyst", "viewer") — these
+# endpoints intentionally accept all three roles.
+_ANALYTICS_READ_ROLES = ("admin", "analyst", "viewer")
+_analytics_read = require_role(*_ANALYTICS_READ_ROLES)
+
 @bp.route("/api/data_status", methods=["GET"])
+@_analytics_read
 def data_status():
     now = time.time(); sensors_status = []
     for s in _routes.registry._sensors.values():
@@ -49,6 +62,7 @@ def data_status():
     return jsonify({"ts": datetime.datetime.now().isoformat(), "sensors": sensors_status})
 
 @bp.route("/api/sensor_reliability", methods=["GET"])
+@_analytics_read
 def sensor_reliability():
     """Per-sensor fetch reliability over a given time window (default 24h, max 168h)."""
     hours = _safe_int(request.args.get("hours", 24), 24, min_val=1, max_val=168)
@@ -56,12 +70,14 @@ def sensor_reliability():
     return jsonify({"ts": datetime.datetime.now().isoformat(), "hours": hours, "sensors": rows})
 
 @bp.route("/api/alert_timeline", methods=["GET"])
+@_analytics_read
 def api_alert_timeline():
     limit = _safe_int(request.args.get("limit", 288), 288, min_val=1, max_val=288)
     return jsonify({"ts": datetime.datetime.now().isoformat(), "count": _db.alert_count(), "timeline": _db.alert_list(limit)})
 
 
 @bp.route("/api/sitrep", methods=["GET"])
+@_analytics_read
 def api_sitrep():
     now_ts = datetime.datetime.now(datetime.timezone.utc)
     _tl = _db.alert_list()
@@ -149,6 +165,7 @@ def api_sitrep():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @bp.route("/api/sequence_chain", methods=["GET"])
+@_analytics_read
 def api_sequence_chain():
     """
     Return escalation chain status for all countries.
@@ -177,6 +194,7 @@ def api_sequence_chain():
 
 
 @bp.route("/api/deep_analytics", methods=["GET"])
+@_analytics_read
 def api_deep_analytics():
     """
     Detailed endpoint for deep analysis results.
@@ -288,6 +306,7 @@ def api_deep_analytics():
 
 
 @bp.route("/api/salute_report", methods=["GET"])
+@_analytics_read
 def api_salute_report():
     """
     Generate the current threat situation as a SALUTE format (Size/Activity/Location/Unit/Time/Equipment)
@@ -463,6 +482,7 @@ def api_salute_report():
 
 
 @bp.route("/api/weather_brief", methods=["GET"])
+@_analytics_read
 def api_weather_brief():
     """
     Convert current sensor data to an "Operational Weather Brief" format and return it.
@@ -581,6 +601,7 @@ def api_weather_brief():
 
 
 @bp.route("/api/ip_check", methods=["GET"])
+@_analytics_read
 def api_ip_check():
     """Look up IP address noise/classification info via GreyNoise Community API.
 
@@ -627,6 +648,7 @@ def api_ip_check():
 # Removes old entries from global caches every hour to prevent memory leaks in long-running processes.
 
 @bp.route("/api/score_breakdown", methods=["GET"])
+@_analytics_read
 def api_score_breakdown():
     """
     Per-sensor score breakdown for the current threat assessment.
@@ -708,12 +730,14 @@ WHATIF_SENSOR_CATALOG = [
 
 
 @bp.route("/api/whatif/catalog", methods=["GET"])
+@_analytics_read
 def whatif_catalog():
     """Return the sensor catalog for the What-If simulation UI."""
     return jsonify({"sensors": WHATIF_SENSOR_CATALOG})
 
 
 @bp.route("/api/whatif/simulate", methods=["POST"])
+@_analytics_read
 def whatif_simulate():
     """
     Run a What-If simulation with user-injected virtual sensor events.
@@ -820,6 +844,7 @@ def whatif_simulate():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @bp.route("/api/spof_analysis", methods=["GET"])
+@_analytics_read
 def spof_analysis():
     """
     Compute sensor SPOF (single point of failure) analysis.
@@ -958,6 +983,7 @@ def spof_analysis():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @bp.route("/api/adaptive_zscore_status", methods=["GET"])
+@_analytics_read
 def adaptive_zscore_status():
     """
     Return per-sensor/per-theater adaptive Z-score statistics.
@@ -995,6 +1021,7 @@ def _parse_source(raw: str | None) -> str | None:
 
 
 @bp.route("/api/analytics/focus_switches", methods=["GET"])
+@_analytics_read
 def api_focus_switch_stats():
     """C-medium migration metric: focus switch miss rate (Section 9.3.1).
 
@@ -1008,6 +1035,7 @@ def api_focus_switch_stats():
 
 
 @bp.route("/api/analytics/clite_evaluation", methods=["GET"])
+@_analytics_read
 def api_clite_evaluation():
     """Comprehensive C-lite vs C-medium evaluation dashboard.
 
@@ -1024,6 +1052,7 @@ def api_clite_evaluation():
 
 
 @bp.route("/api/analytics/cmedium_recommendation", methods=["GET"])
+@_analytics_read
 def api_cmedium_recommendation():
     """Per-scenario C-medium migration recommendation (scenario-refactor §9.3.1).
 
@@ -1098,6 +1127,7 @@ def api_cmedium_recommendation():
 
 
 @bp.route("/api/analytics/shadow_drift", methods=["GET"])
+@_analytics_read
 def api_shadow_drift():
     """Per-scenario calibration drift detection over shadow_sampler rows.
 
@@ -1145,6 +1175,7 @@ TL1_TARGET_PER_WEEK_MAX = 1.0 / 13.0    # 1/quarter
 
 
 @bp.route("/api/analytics/tl_recalibration_advisory", methods=["GET"])
+@_analytics_read
 def api_tl_recalibration_advisory():
     """TL threshold recalibration trigger advisory (scenario-refactor §7.3.1 / §10.5).
 
@@ -1356,6 +1387,7 @@ def api_tl_recalibration_advisory():
 
 
 @bp.route("/api/scenario/<scenario_id>/weight_advisory", methods=["GET"])
+@_analytics_read
 def api_scenario_weight_advisory(scenario_id):
     """Per-participant weight calibration advisory (NP4 / NP6 / NP7).
 
@@ -1412,6 +1444,7 @@ def api_scenario_weight_advisory(scenario_id):
 
 
 @bp.route("/api/scenario/<scenario_id>/weight_advisory/timeseries", methods=["GET"])
+@_analytics_read
 def api_scenario_weight_advisory_timeseries(scenario_id):
     """Time-bucketed weight utilization for trend analysis.
 
@@ -1449,6 +1482,7 @@ def api_scenario_weight_advisory_timeseries(scenario_id):
 
 
 @bp.route("/api/scenario/<scenario_id>/timeseries", methods=["GET"])
+@_analytics_read
 def api_scenario_timeseries(scenario_id):
     """Return TL observation timeseries for a scenario (ADR-010)."""
     hours = _safe_int(request.args.get("hours", "72"), 72, min_val=1, max_val=720)
@@ -1460,6 +1494,7 @@ def api_scenario_timeseries(scenario_id):
 
 
 @bp.route("/api/scenario/<scenario_id>/country/<country>/timeseries", methods=["GET"])
+@_analytics_read
 def api_scenario_country_timeseries(scenario_id, country):
     """Return TL observation timeseries filtered to a specific country's
     active periods within a scenario (ADR-010)."""
@@ -1475,6 +1510,7 @@ def api_scenario_country_timeseries(scenario_id, country):
 
 
 @bp.route("/api/analytics/tl_calibration", methods=["GET"])
+@_analytics_read
 def api_tl_calibration():
     """TL threshold recalibration monitoring (Section 7.3.1).
 
@@ -1500,6 +1536,7 @@ def _scenario_label(sc, lang: str | None = None) -> str:
 
 
 @bp.route("/api/analytics/scenarios/compare", methods=["GET"])
+@_analytics_read
 def api_scenario_compare():
     """Side-by-side scenario comparison: latest TL, score trend, and domain
     breakdown for all scorable scenarios.  Designed for multi-scenario
@@ -1537,6 +1574,7 @@ def api_scenario_compare():
 
 
 @bp.route("/api/analytics/source_credibility", methods=["GET"])
+@_analytics_read
 def api_source_credibility():
     """Source credibility overview: current weights, analyst feedback counts,
     and ecosystem classification for all known LLM intel sources."""
@@ -1561,6 +1599,7 @@ DUAL_WEIGHT_LOW_WEIGHT_PCT_THRESHOLD = 30.0
 
 
 @bp.route("/api/analytics/dual_weight_evaluation", methods=["GET"])
+@_analytics_read
 def api_dual_weight_evaluation():
     """Dual-weight observability (ADR-015 / scenario-refactor §10.5).
 
@@ -1743,6 +1782,7 @@ def api_dual_weight_evaluation():
 
 
 @bp.route("/api/analytics/calibration_advisory", methods=["GET"])
+@_analytics_read
 def api_calibration_advisory():
     """Weight calibration advisory: analyzes scenario participant weight
     distribution and suggests adjustments based on observed signal patterns.
@@ -1817,6 +1857,7 @@ def api_calibration_advisory():
 
 
 @bp.route("/api/analytics/confidence_distribution", methods=["GET"])
+@_analytics_read
 def api_confidence_distribution():
     """LLM intel confidence distribution for pipeline tuning.
 
@@ -1830,6 +1871,7 @@ def api_confidence_distribution():
 
 
 @bp.route("/api/analytics/scenario_phases", methods=["GET"])
+@_analytics_read
 def api_scenario_phases():
     """Scenario implementation phase annotation for operational awareness.
 

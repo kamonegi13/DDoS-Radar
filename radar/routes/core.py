@@ -8,6 +8,7 @@ import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import jsonify, request
 from flask_jwt_extended import get_jwt_identity
+from radar.auth import require_role
 from radar.config import (  # noqa: E501
     AIRSPACE_WINDOW, BASELINE_DATE_RANGE, CABLE_ROUTES, CF_HEADERS,
     CHOKEPOINTS, COUNTRY_BLOC_TAGS, COUNTRY_COORDS, COUNTRY_REGIONS,
@@ -114,6 +115,10 @@ _LATEST_SIGNALS_SNAPSHOT: dict = {
     "scenario_baselines": {},  # scenario_id -> {"score": float, "tl": int|None}
 }
 
+# /api/app_config is intentionally listed in _AUTH_PUBLIC_ENDPOINTS in
+# radar/__init__.py because the login flow reads it before a token is
+# issued. We keep it unprotected here too — adding @require_role would
+# make the login screen 401 on the very first paint.
 @bp.route("/api/app_config", methods=["GET"])
 def app_config():
     return jsonify({
@@ -127,7 +132,14 @@ def app_config():
         ],
     })
 
+# Phase 7.5d (audit Security H1): defence-in-depth role gate on the
+# read endpoints in this module. The global before_request hook is the
+# primary auth boundary; explicit decorators ensure a future selective
+# bypass cannot reach this data anonymously. Roles match the global
+# gate ("admin", "analyst", "viewer") for read endpoints; write paths
+# tighten to ("admin", "analyst") since "viewer" is read-only.
 @bp.route("/api/scenarios", methods=["GET"])
+@require_role("admin", "analyst", "viewer")
 def list_scenarios():
     from radar.scenarios import scenario_store
     from radar.config import DEFAULT_FOCUSED_SCENARIO
@@ -152,6 +164,7 @@ def list_scenarios():
 
 
 @bp.route("/api/scenarios/compare", methods=["GET"])
+@require_role("admin", "analyst", "viewer")
 def scenarios_compare():
     """F7 Scenario Comparison — side-by-side snapshot of N scenarios using
     the most recent signal snapshot. Each scenario is rescored in LITE
@@ -208,6 +221,7 @@ def scenarios_compare():
 
 
 @bp.route("/api/scenarios/<scenario_id>/whatif_weights", methods=["POST"])
+@require_role("admin", "analyst")  # write path — viewer excluded
 def scenario_whatif_weights(scenario_id: str):
     """F9 What-If Weight Slider — recompute scenario score with overlaid
     participant weights against the most recent signal snapshot.
@@ -495,6 +509,7 @@ def _read_sensor_caches(registry):
 
 
 @bp.route("/api/threat_data", methods=["GET"])
+@require_role("admin", "analyst", "viewer")
 def get_threat_data():
     current_time = time.time()
     # ADR-005/P1: scoring is scenario-driven. All per-country lists are derived
