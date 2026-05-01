@@ -77,13 +77,20 @@ class TestComputeMatrix:
         assert "TW" in m.countries
 
     def test_multiple_buckets_aggregate(self, fresh_db):
-        now = time.time()
-        # Bucket 1: CN, JP
+        # `compute_matrix` buckets by `int(ts // bucket_size)`, which uses
+        # absolute Unix-epoch alignment. To make this test deterministic
+        # regardless of when in the day it runs, anchor `now` to the
+        # midpoint of the current 24h bucket so that ±N*86400 + small
+        # offset always lands in adjacent buckets, never on the seam.
+        bucket_size = 24 * 3600
+        bucket_now = int(time.time() // bucket_size) * bucket_size
+        now = bucket_now + bucket_size // 2  # mid-bucket anchor
+        # Bucket A: CN, JP within the same 24h window.
         _seed_intel(fresh_db, "CN", now - 100)
         _seed_intel(fresh_db, "JP", now - 200)
-        # Bucket 2 (24h+ later): CN, JP again
-        _seed_intel(fresh_db, "CN", now - 25 * 3600)
-        _seed_intel(fresh_db, "JP", now - 26 * 3600)
+        # Bucket B: exactly one day earlier so the bucket index differs by 1.
+        _seed_intel(fresh_db, "CN", now - bucket_size - 100)
+        _seed_intel(fresh_db, "JP", now - bucket_size - 200)
         m = cc.compute_matrix(window_days=30, bucket_hours=24)
         # Same pair counted twice (across 2 buckets)
         cn_jp = next((p for p in m.pairs if (p.a, p.b) == ("CN", "JP")), None)

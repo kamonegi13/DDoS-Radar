@@ -46,6 +46,131 @@ _A4_THEATER_TABLES: tuple[str, ...] = (
 )
 
 
+def _migration_v37_decisions_revocation(conn) -> None:
+    """Phase 5 (audit) — split revocation out of `superseded_by` so the FK
+    constraint REFERENCES decisions(id) can be enforced.
+
+    Pre-fix design wrote a synthetic ``"revoked:<by>:<unix_ts>"`` marker
+    into superseded_by on revoke(), which is intentionally NOT a valid
+    decisions(id) — that prevented turning PRAGMA foreign_keys = ON.
+
+    This migration:
+      1. Adds revoked_at / revoked_by columns.
+      2. Backfills from existing 'revoked:%' markers (best-effort parse).
+      3. Clears superseded_by on those rows so the FK becomes valid.
+
+    Idempotent: ALTER ... ADD COLUMN IF NOT EXISTS not supported by SQLite,
+    so we probe with PRAGMA table_info first.
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(decisions)").fetchall()}
+    if "revoked_at" not in cols:
+        conn.execute("ALTER TABLE decisions ADD COLUMN revoked_at REAL")
+    if "revoked_by" not in cols:
+        conn.execute("ALTER TABLE decisions ADD COLUMN revoked_by TEXT")
+
+    # Backfill: marker shape is `revoked:<by>:<unix_ts>` where <by> may
+    # contain ':' itself in pathological cases — we split from the right
+    # to extract the timestamp, then everything between the two colons.
+    rows = conn.execute(
+        "SELECT id, superseded_by FROM decisions "
+        "WHERE superseded_by LIKE 'revoked:%'"
+    ).fetchall()
+    for row in rows:
+        marker = row[1] or ""
+        try:
+            # Drop the leading 'revoked:'
+            body = marker[len("revoked:"):]
+            # Last ':' separates ts from by-name (by-name comes before).
+            sep = body.rfind(":")
+            if sep < 0:
+                # Malformed marker — leave the timestamp NULL.
+                by = body or "unknown"
+                ts: float | None = None
+            else:
+                by = body[:sep] or "unknown"
+                try:
+                    ts = float(body[sep + 1:])
+                except ValueError:
+                    ts = None
+        except Exception:
+            by = "unknown"
+            ts = None
+        conn.execute(
+            "UPDATE decisions SET revoked_at = ?, revoked_by = ?, "
+            "                     superseded_by = NULL "
+            "WHERE id = ?",
+            (ts, by, row[0]),
+        )
+
+    # Rebuild the partial index to also exclude revoked rows from the
+    # active-expiry scan (matches schema baseline above).
+    conn.execute("DROP INDEX IF EXISTS idx_decisions_active_expiry")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_decisions_active_expiry "
+        "ON decisions (decision_type, expires_at) "
+        "WHERE superseded_by IS NULL AND revoked_at IS NULL"
+    )
+
+
+def _migration_v38_sensor_observation_ts_pk(conn) -> None:
+    """Phase 5 (audit / DB H1) — give sensor_observation_ts a proper PK.
+
+    The original baseline left the table without PRIMARY KEY or UNIQUE,
+    so retried scoring-cycle inserts produced silent duplicate rows.
+
+    Rebuild: rename, recreate with PRIMARY KEY (sensor, scope, ts),
+    INSERT OR IGNORE (silently dropping duplicates), drop old, restore
+    indexes. Idempotent via PRAGMA table_info probe.
+    """
+    cols = conn.execute("PRAGMA table_info(sensor_observation_ts)").fetchall()
+    if not cols:
+        # Fresh DB without the table — nothing to do; the baseline now
+        # ships with PRIMARY KEY directly.
+        return
+    # Detect whether the PK is already in place.
+    pk_cols = sorted(c[1] for c in cols if c[5])  # column 5 = pk
+    if pk_cols == ["scope", "sensor", "ts"]:
+        return  # already migrated
+    conn.execute("ALTER TABLE sensor_observation_ts RENAME TO sensor_observation_ts_old_v37")
+    conn.execute("""
+        CREATE TABLE sensor_observation_ts (
+            sensor    TEXT NOT NULL,
+            scope     TEXT NOT NULL,
+            ts        REAL NOT NULL,
+            value     REAL,
+            PRIMARY KEY (sensor, scope, ts)
+        )
+    """)
+    conn.execute(
+        "INSERT OR IGNORE INTO sensor_observation_ts (sensor, scope, ts, value) "
+        "SELECT sensor, scope, ts, value FROM sensor_observation_ts_old_v37"
+    )
+    conn.execute("DROP TABLE sensor_observation_ts_old_v37")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sensor_obs_lookup "
+        "ON sensor_observation_ts (sensor, scope, ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sensor_obs_ttl "
+        "ON sensor_observation_ts (ts)"
+    )
+
+
+def _migration_v39_scenario_tl_obs_mode_index(conn) -> None:
+    """Phase 5 (audit / DB H3) — covering index for scenario_prev_lite_score.
+
+    The hot query filters on (scenario_id, scoring_mode='lite', observed_at <
+    cutoff). Existing index covers (scenario_id, observed_at DESC) only —
+    SQLite has to post-filter every range row by scoring_mode. At 42-day
+    retention (~60k rows / scenario / mode at 1-min ticks) this is
+    measurable. Composite index makes the lookup index-only.
+    """
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tl_obs_sid_mode_ts "
+        "ON scenario_tl_observation (scenario_id, scoring_mode, observed_at DESC)"
+    )
+
+
 def _migration_v36_bg_observer(conn) -> None:
     """ADR-V2-015 Phase 1+5: per-sensor contribution log + bg_observer cycle log.
 
@@ -849,7 +974,13 @@ CREATE TABLE IF NOT EXISTS decisions (
     decided_at      REAL NOT NULL,
     expires_at      REAL,
     superseded_by   TEXT,
-    FOREIGN KEY (superseded_by) REFERENCES decisions (id)
+    -- Phase 5 (audit) — revocation now has dedicated columns instead of
+    -- abusing superseded_by with a synthetic 'revoked:<by>:<ts>' marker.
+    -- The marker abuse violated the FK on superseded_by REFERENCES
+    -- decisions(id) and prevented enabling PRAGMA foreign_keys = ON.
+    revoked_at      REAL,
+    revoked_by      TEXT,
+    FOREIGN KEY (superseded_by) REFERENCES decisions (id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_decisions_target
     ON decisions (target_kind, target_id, decided_at DESC);
@@ -857,7 +988,7 @@ CREATE INDEX IF NOT EXISTS idx_decisions_type_ts
     ON decisions (decision_type, decided_at DESC);
 CREATE INDEX IF NOT EXISTS idx_decisions_active_expiry
     ON decisions (decision_type, expires_at)
-    WHERE superseded_by IS NULL;
+    WHERE superseded_by IS NULL AND revoked_at IS NULL;
 
 -- Phase 4 B2 (2026-04-29): auto-judge calibration ledger.
 -- Mirrored in migration 27 for upgraded DBs; this ensures fresh DBs get
@@ -1053,15 +1184,18 @@ class RadarDB:
             raw = sqlite3.connect(self._db_path, timeout=5)
             raw.execute("PRAGMA journal_mode = WAL")
             raw.execute("PRAGMA synchronous = NORMAL")
-            # NOTE: PRAGMA foreign_keys = ON is deliberately deferred to
-            # Phase 5 (DB integrity sprint). Enabling FK enforcement now
-            # causes test_decisions.py (14 tests) to fail because the
-            # decisions self-FK chain produces orphan-like rows during
-            # supersede operations. Phase 5 covers the orphan audit +
-            # scenario_purge cascade fix + ON DELETE SET NULL on
-            # decisions.superseded_by, after which FK can be turned on
-            # safely. Tracked in .claude/PRPs/plans/codebase-review-fixes.md
-            # under Phase 5 (DB H1-H4) and DB review M3/M4/M8.
+            # Phase 5 (audit) — FK enforcement enabled. Three changes
+            # together unblocked this:
+            #   - decisions.record() now INSERTs the new row before
+            #     UPDATEing prior rows' superseded_by, so the FK target
+            #     row exists at constraint-check time.
+            #   - decisions.revoke() writes revoked_at/revoked_by columns
+            #     instead of stuffing a synthetic 'revoked:<by>:<ts>'
+            #     marker into superseded_by — the marker abused the FK
+            #     target since it is intentionally not a valid id.
+            #   - decisions.superseded_by FK gained ON DELETE SET NULL.
+            # See migration v37 for the data backfill.
+            raw.execute("PRAGMA foreign_keys = ON")
             raw.row_factory = sqlite3.Row
             conn = _CooperativeConn(raw, self._write_lock)
             self._local.conn = conn
@@ -2126,6 +2260,15 @@ class RadarDB:
 
         (36, "bg_observer phase 6: sensor column on contribution_log + cycle_log table (ADR-V2-015)",
          _migration_v36_bg_observer),
+
+        (37, "decisions: revoked_at/revoked_by columns + backfill (Phase 5 audit fix)",
+         _migration_v37_decisions_revocation),
+
+        (38, "sensor_observation_ts: rebuild with PRIMARY KEY (sensor, scope, ts) (DB H1)",
+         _migration_v38_sensor_observation_ts_pk),
+
+        (39, "scenario_tl_observation: composite index incl scoring_mode (DB H3)",
+         _migration_v39_scenario_tl_obs_mode_index),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -2612,24 +2755,33 @@ class RadarDB:
         """
         if not contributions_by_country and not contributions_by_country_sensor:
             return
+        # Phase 5 (audit / DB H2): batch inserts via executemany. The
+        # previous per-row execute() loop held the cooperative write
+        # lock for the full loop duration on every 30-second scoring
+        # tick, producing ~11,520 lock-protected calls per day for a
+        # 4-country scenario. executemany serialises into a single
+        # parameterised statement, dropping the lock-held window
+        # significantly under load.
+        if contributions_by_country_sensor:
+            rows = [
+                (scenario_id, country, float(total), logged_at, snr)
+                for (country, snr), total in contributions_by_country_sensor.items()
+            ]
+        else:
+            rows = [
+                (scenario_id, country, float(total), logged_at, sensor)
+                for country, total in contributions_by_country.items()
+            ]
+        if not rows:
+            return
         conn = self._get_conn()
         with conn.writing():
-            if contributions_by_country_sensor:
-                for (country, snr), total in contributions_by_country_sensor.items():
-                    conn.execute(
-                        "INSERT INTO scenario_contribution_log "
-                        "(scenario_id, country, contribution_sum, logged_at, sensor) "
-                        "VALUES (?, ?, ?, ?, ?)",
-                        (scenario_id, country, float(total), logged_at, snr),
-                    )
-            else:
-                for country, total in contributions_by_country.items():
-                    conn.execute(
-                        "INSERT INTO scenario_contribution_log "
-                        "(scenario_id, country, contribution_sum, logged_at, sensor) "
-                        "VALUES (?, ?, ?, ?, ?)",
-                        (scenario_id, country, float(total), logged_at, sensor),
-                    )
+            conn.executemany(
+                "INSERT INTO scenario_contribution_log "
+                "(scenario_id, country, contribution_sum, logged_at, sensor) "
+                "VALUES (?, ?, ?, ?, ?)",
+                rows,
+            )
 
     def scenario_contributions_aggregate(self, scenario_id: str,
                                          hours: int = 168) -> dict[str, float]:
@@ -5193,12 +5345,31 @@ class RadarDB:
     # SAFETY: column names used in f-string SQL are restricted to this allowlist
     _USER_SETTINGS_COLS = frozenset({"focused_scenario", "muted", "lang", "updated_at"})
 
+    # Phase 5 (audit / DB H4) — explicit per-column SQL fragments. Replaces
+    # the previous f"{k}=?" interpolation. The runtime allowlist guard is
+    # still useful as a defence-in-depth check for unknown keys, but the
+    # SQL itself no longer contains any caller-supplied identifier text,
+    # so a future regression that drops the guard cannot create an
+    # injection surface.
+    _USER_SETTINGS_COL_SQL: dict[str, str] = {
+        "focused_scenario": "focused_scenario = ?",
+        "muted":            "muted = ?",
+        "lang":             "lang = ?",
+        "updated_at":       "updated_at = ?",
+    }
+
     def user_settings_update(self, user_id: int, updates: dict):
         bad = set(updates.keys()) - self._USER_SETTINGS_COLS
         if bad:
             raise ValueError(f"Disallowed user_settings columns: {bad}")
+        if not updates:
+            return
+        # Build the SET clause from the static SQL map keyed by allowlist
+        # membership; iterate in dict-insertion order so the parameter
+        # tuple lines up with the fragments.
+        set_fragments = [self._USER_SETTINGS_COL_SQL[k] for k in updates]
+        set_clause = ", ".join(set_fragments)
         conn = self._get_conn()
-        set_clause = ", ".join(f"{k}=?" for k in updates)
         with conn.writing():
             conn.execute(
                 f"UPDATE user_settings SET {set_clause} WHERE user_id=?",

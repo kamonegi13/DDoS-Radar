@@ -27,7 +27,10 @@ Decision lifecycle:
      even though superseded_by is still NULL
 
 Active decision predicate:
-  superseded_by IS NULL AND (expires_at IS NULL OR expires_at > now)
+  superseded_by IS NULL
+    AND revoked_at IS NULL                    -- Phase 5 (audit): revocation
+                                              --   moved out of superseded_by
+    AND (expires_at IS NULL OR expires_at > now)
 
 NP6: every decision carries actor + reason + parameters JSON, so the
 audit trail is complete from inside this table alone.
@@ -110,26 +113,14 @@ class DecisionLedger:
 
         conn = self._db._get_conn()
         with conn.writing():
-            # Supersede any prior current decision with same key tuple.
-            # NULL-safe match for target_id via IS / IS NOT semantics.
-            if target_id is None:
-                conn.execute(
-                    "UPDATE decisions SET superseded_by = ? "
-                    "WHERE decision_type = ? "
-                    "  AND target_kind = ? "
-                    "  AND target_id IS NULL "
-                    "  AND superseded_by IS NULL",
-                    (new_id, decision_type, target_kind),
-                )
-            else:
-                conn.execute(
-                    "UPDATE decisions SET superseded_by = ? "
-                    "WHERE decision_type = ? "
-                    "  AND target_kind = ? "
-                    "  AND target_id = ? "
-                    "  AND superseded_by IS NULL",
-                    (new_id, decision_type, target_kind, target_id),
-                )
+            # Phase 5 (audit): INSERT must precede UPDATE so the
+            # `superseded_by` FK target row exists at constraint-check
+            # time. Pre-fix the UPDATE wrote `new_id` into existing rows
+            # before the INSERT created the row with that id; with
+            # PRAGMA foreign_keys = ON SQLite raises IntegrityError on
+            # the UPDATE. The INSERT-first order is correct regardless
+            # of FK enforcement and matches the supersede semantics
+            # documented at the top of this file.
             conn.execute(
                 "INSERT INTO decisions "
                 "(id, decision_type, target_kind, target_id, action, "
@@ -139,6 +130,34 @@ class DecisionLedger:
                 (new_id, decision_type, target_kind, target_id, action,
                  actor, reason, params_json, ts, expires_at),
             )
+            # Now point any prior current decision (excluding the row we
+            # just inserted) at the new id. NULL-safe match on target_id.
+            # Phase 5 (audit): exclude revoked rows from supersession.
+            # Once a decision is revoked, it stays revoked — recording a
+            # replacement should not reach back and rewrite the revoked
+            # row's superseded_by, since revoked != superseded.
+            if target_id is None:
+                conn.execute(
+                    "UPDATE decisions SET superseded_by = ? "
+                    "WHERE decision_type = ? "
+                    "  AND target_kind = ? "
+                    "  AND target_id IS NULL "
+                    "  AND superseded_by IS NULL "
+                    "  AND revoked_at IS NULL "
+                    "  AND id <> ?",
+                    (new_id, decision_type, target_kind, new_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE decisions SET superseded_by = ? "
+                    "WHERE decision_type = ? "
+                    "  AND target_kind = ? "
+                    "  AND target_id = ? "
+                    "  AND superseded_by IS NULL "
+                    "  AND revoked_at IS NULL "
+                    "  AND id <> ?",
+                    (new_id, decision_type, target_kind, target_id, new_id),
+                )
         return new_id
 
     # ── read ───────────────────────────────────────────────────────────
@@ -154,6 +173,7 @@ class DecisionLedger:
         or None. Does not check expiry — caller decides whether expired
         decisions are interesting."""
         conn = self._db._get_conn()
+        # Phase 5 (audit): "active" excludes revoked rows.
         if target_id is None:
             row = conn.execute(
                 "SELECT * FROM decisions "
@@ -161,6 +181,7 @@ class DecisionLedger:
                 "  AND target_kind = ? "
                 "  AND target_id IS NULL "
                 "  AND superseded_by IS NULL "
+                "  AND revoked_at IS NULL "
                 "ORDER BY decided_at DESC LIMIT 1",
                 (decision_type, target_kind),
             ).fetchone()
@@ -171,6 +192,7 @@ class DecisionLedger:
                 "  AND target_kind = ? "
                 "  AND target_id = ? "
                 "  AND superseded_by IS NULL "
+                "  AND revoked_at IS NULL "
                 "ORDER BY decided_at DESC LIMIT 1",
                 (decision_type, target_kind, target_id),
             ).fetchone()
@@ -220,6 +242,7 @@ class DecisionLedger:
         of record() within a single decision_type.
         """
         ts = now if (now is not None) else time.time()
+        # Phase 5 (audit): exclude revoked rows.
         if target_id is None:
             placeholders = ",".join("?" for _ in decision_types)
             rows = self._db._get_conn().execute(
@@ -228,6 +251,7 @@ class DecisionLedger:
                 f"  AND target_kind = ? "
                 f"  AND target_id IS NULL "
                 f"  AND superseded_by IS NULL "
+                f"  AND revoked_at IS NULL "
                 f"  AND (expires_at IS NULL OR expires_at > ?) "
                 f"ORDER BY decided_at DESC LIMIT 1",
                 (*decision_types, target_kind, ts),
@@ -240,6 +264,7 @@ class DecisionLedger:
                 f"  AND target_kind = ? "
                 f"  AND target_id = ? "
                 f"  AND superseded_by IS NULL "
+                f"  AND revoked_at IS NULL "
                 f"  AND (expires_at IS NULL OR expires_at > ?) "
                 f"ORDER BY decided_at DESC LIMIT 1",
                 (*decision_types, target_kind, target_id, ts),
@@ -273,6 +298,7 @@ class DecisionLedger:
             f"  AND target_kind = ? "
             f"  AND target_id IN ({id_ph}) "
             f"  AND superseded_by IS NULL "
+            f"  AND revoked_at IS NULL "  # Phase 5 (audit): exclude revoked
             f"  AND (expires_at IS NULL OR expires_at > ?) "
             f"ORDER BY decided_at DESC",
             (*decision_types, target_kind, *target_ids, ts),
@@ -349,18 +375,26 @@ class DecisionLedger:
     def revoke(self, decision_id: str, *, by: str,
                reason: Optional[str] = None) -> bool:
         """Mark a decision as no-longer-current without inserting a
-        replacement. Sets superseded_by to a synthetic 'revoked:<by>'
-        marker (id is preserved so audit trail still resolves).
+        replacement.
 
-        Returns True if the row was updated.
+        Phase 5 (audit): now writes `revoked_at` + `revoked_by` columns
+        instead of stuffing a synthetic 'revoked:<by>:<ts>' marker into
+        `superseded_by` — that marker abuse violated the FK constraint
+        REFERENCES decisions(id) and prevented enabling
+        PRAGMA foreign_keys = ON.
+
+        Idempotent on already-revoked rows (returns False — only the
+        first revocation reports True).
         """
         conn = self._db._get_conn()
-        marker = f"revoked:{by}:{int(time.time())}"
+        ts = time.time()
         with conn.writing():
             cur = conn.execute(
-                "UPDATE decisions SET superseded_by = ? "
-                "WHERE id = ? AND superseded_by IS NULL",
-                (marker, decision_id),
+                "UPDATE decisions SET revoked_at = ?, revoked_by = ? "
+                "WHERE id = ? "
+                "  AND superseded_by IS NULL "
+                "  AND revoked_at IS NULL",
+                (ts, by, decision_id),
             )
             return cur.rowcount > 0
 
