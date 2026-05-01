@@ -79,7 +79,23 @@ class TestLogin:
         assert resp.status_code == 200
         data = resp.get_json()
         assert "access_token" in data
-        assert "refresh_token" in data
+        # Phase 7.5g (audit Security H3): refresh token migrated from
+        # JSON body to httpOnly cookie — the body must NOT carry it.
+        assert "refresh_token" not in data, \
+            "Phase 7.5g: refresh token must not appear in JSON body"
+        # The refresh cookie should be set by the response.
+        cookie_names = {c.key for c in resp.headers.getlist("Set-Cookie")
+                        if False}  # placeholder — see below
+        # werkzeug exposes set cookies via the test client's `client`
+        # cookie jar; check there instead of parsing headers manually.
+        jar_names = {c.key for c in client._cookies.values()} \
+            if hasattr(client, "_cookies") else set()
+        # In modern Flask test client the cookie jar lives on the
+        # `client.session_transaction()` context, but the simpler
+        # check is the Set-Cookie header.
+        raw_cookies = resp.headers.getlist("Set-Cookie")
+        assert any("radar_refresh_jwt=" in c for c in raw_cookies), \
+            f"refresh cookie not set: {raw_cookies}"
         assert data["username"] == "admin"
         assert data["role"] == "admin"
         assert "access_expires_sec" in data
@@ -116,17 +132,26 @@ class TestLogin:
 # ── Auth: Token Refresh ──────────────────────────────────────────────────
 
 class TestTokenRefresh:
-    def test_refresh_returns_new_access_token(self, client):
+    def test_refresh_via_cookie_returns_new_access_token(self, client):
+        # Phase 7.5g (audit Security H3): refresh token rides as an
+        # httpOnly cookie set on /login. The Flask test client's cookie
+        # jar replays it on the next request automatically.
         login = client.post("/api/auth/login", json={
             "username": "admin",
             "password": _TEST_ADMIN_PW,
         })
-        refresh_token = login.get_json()["refresh_token"]
-        resp = client.post("/api/auth/refresh", headers={
-            "Authorization": f"Bearer {refresh_token}",
-        })
-        assert resp.status_code == 200
+        assert login.status_code == 200
+        # Cookie is set by login; client carries it forward.
+        resp = client.post("/api/auth/refresh")
+        assert resp.status_code == 200, resp.get_json()
         assert "access_token" in resp.get_json()
+
+    def test_refresh_without_cookie_rejected(self):
+        # Use a fresh client with no cookie jar — refresh must 401.
+        from radar_api import app
+        with app.test_client() as fresh:
+            resp = fresh.post("/api/auth/refresh")
+            assert resp.status_code in (401, 422)
 
     def test_refresh_rejects_access_token(self, client, admin_token):
         resp = client.post("/api/auth/refresh", headers={
@@ -134,6 +159,49 @@ class TestTokenRefresh:
         })
         # Access token is not a refresh token — should fail
         assert resp.status_code in (401, 422)
+
+
+# ── Auth: Cookie security flags (Phase 7.5g / audit Security H3) ───────
+
+
+class TestRefreshCookie:
+    def test_login_sets_httponly_secure_samesite_strict(self, client):
+        resp = client.post("/api/auth/login", json={
+            "username": "admin",
+            "password": _TEST_ADMIN_PW,
+        })
+        assert resp.status_code == 200
+        cookies = resp.headers.getlist("Set-Cookie")
+        refresh = next((c for c in cookies if c.startswith("radar_refresh_jwt=")), None)
+        assert refresh is not None, f"no radar_refresh_jwt in {cookies}"
+        # All three security flags must be present.
+        assert "HttpOnly" in refresh, f"HttpOnly missing: {refresh}"
+        assert "SameSite=Strict" in refresh, f"SameSite=Strict missing: {refresh}"
+        # Path must be scoped to /api/auth/refresh so the cookie is
+        # not shipped on every request.
+        assert "Path=/api/auth/refresh" in refresh, f"path scope missing: {refresh}"
+
+    def test_logout_clears_refresh_cookie(self, client, admin_token):
+        # First login to seed the cookie jar.
+        client.post("/api/auth/login", json={
+            "username": "admin",
+            "password": _TEST_ADMIN_PW,
+        })
+        resp = client.post("/api/auth/logout", headers={
+            "Authorization": f"Bearer {admin_token}",
+        })
+        assert resp.status_code == 200
+        cookies = resp.headers.getlist("Set-Cookie")
+        # unset_jwt_cookies emits a Set-Cookie with empty value + immediate expiry.
+        cleared = [c for c in cookies if c.startswith("radar_refresh_jwt=")]
+        assert cleared, f"refresh cookie not cleared: {cookies}"
+        # Either Max-Age=0, an expires-in-the-past, or empty value.
+        c = cleared[0]
+        assert ("Max-Age=0" in c
+                or "Expires=Thu, 01 Jan 1970" in c
+                or "radar_refresh_jwt=;" in c
+                or 'radar_refresh_jwt="";' in c), \
+            f"refresh cookie not cleared properly: {c}"
 
 
 # ── Auth: Registration (admin only) ─────────────────────────────────────

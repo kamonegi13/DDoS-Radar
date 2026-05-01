@@ -13,23 +13,51 @@
     const _REFRESH_THRESHOLD = 0.8; // refresh at 80% of lifetime
     let _tokenAcquiredAt = Date.now();
 
+    // Phase 7.5g (audit Security H3): refresh token migration.
+    // The refresh token used to live in localStorage; an XSS execution
+    // context could exfiltrate it and obtain a long-lived session.
+    // It now rides as an httpOnly + Secure + SameSite=Strict cookie
+    // scoped to /api/auth/refresh, set by the backend on /login. The
+    // SPA can no longer read it, only the browser can attach it on
+    // refresh requests. CSRF protection: flask-jwt-extended issues a
+    // paired non-httpOnly `csrf_refresh_token` cookie which we read
+    // and echo back as X-CSRF-TOKEN on the refresh fetch.
+    function _readCookie(name) {
+        const m = document.cookie.match(
+            new RegExp('(?:^|; )' + name.replace(/[$()*+./?[\\\]^{|}]/g, '\\$&') + '=([^;]*)')
+        );
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+
     function _scheduleProactiveRefresh() {
         const delay = _TOKEN_LIFETIME_MS * _REFRESH_THRESHOLD;
         setTimeout(() => {
-            const refreshToken = localStorage.getItem('radar_refresh_token');
-            if (!refreshToken) return;
-            _doTokenRefresh(refreshToken).then(ok => {
+            // The cookie is httpOnly so we cannot inspect its existence
+            // from JS. We treat "have an access token" as proxy and
+            // optimistically attempt the refresh; the server rejects
+            // with 401 if the cookie is missing/expired and we fall
+            // through to the login gate.
+            if (!localStorage.getItem('radar_access_token')) return;
+            _doTokenRefresh().then(ok => {
                 if (ok) _scheduleProactiveRefresh();
             });
         }, delay);
     }
 
-    function _doTokenRefresh(refreshToken) {
+    function _doTokenRefresh() {
         // Serialize: if already refreshing, reuse the same promise
         if (_refreshPromise) return _refreshPromise;
+        // CSRF token comes from the non-httpOnly `csrf_refresh_token`
+        // cookie pair issued by flask-jwt-extended at login time.
+        // Without it the backend rejects the refresh even if the
+        // httpOnly cookie was present.
+        const csrf = _readCookie('csrf_refresh_token');
+        const headers = { 'Content-Type': 'application/json' };
+        if (csrf) headers['X-CSRF-TOKEN'] = csrf;
         _refreshPromise = _origFetch('/api/auth/refresh', {
             method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + refreshToken }
+            headers,
+            credentials: 'same-origin',  // ensure the httpOnly cookie is sent
         }).then(rr => {
             if (rr.ok) {
                 return rr.json().then(d => {
@@ -51,7 +79,12 @@
 
     function _showLoginGate() {
         localStorage.removeItem('radar_access_token');
-        localStorage.removeItem('radar_refresh_token');
+        // The refresh token cookie is httpOnly so we cannot delete it
+        // from JS. Calling /api/auth/logout would clear it server-side
+        // (via unset_jwt_cookies), but that endpoint requires a valid
+        // access token which we may not have here. The backend treats
+        // a request without the cookie as unauthenticated, so the
+        // residual cookie is functionally inert until the next /login.
         const gate = document.getElementById('login-gate');
         if (gate) gate.style.display = 'flex';
     }
@@ -92,19 +125,19 @@
         return _origFetch(url, opts).then(res => {
             if (res.status === 401 && typeof url === 'string' && url.startsWith('/api/')
                 && !url.includes('/api/auth/login') && !url.includes('/api/auth/refresh')) {
-                const refreshToken = localStorage.getItem('radar_refresh_token');
-                if (refreshToken) {
-                    return _doTokenRefresh(refreshToken).then(ok => {
-                        if (ok) {
-                            // Retry original request with new token
-                            opts.headers = opts.headers || {};
-                            opts.headers['Authorization'] = 'Bearer ' + localStorage.getItem('radar_access_token');
-                            return _origFetch(url, opts);
-                        }
-                        return res;
-                    });
-                }
-                _showLoginGate();
+                // Phase 7.5g: try a cookie-driven refresh on every 401;
+                // the server rejects it (and we fall through to the
+                // login gate inside _doTokenRefresh) when the httpOnly
+                // refresh cookie is missing or expired.
+                return _doTokenRefresh().then(ok => {
+                    if (ok) {
+                        // Retry original request with new token
+                        opts.headers = opts.headers || {};
+                        opts.headers['Authorization'] = 'Bearer ' + localStorage.getItem('radar_access_token');
+                        return _origFetch(url, opts);
+                    }
+                    return res;
+                });
             }
             return res;
         });
@@ -8334,8 +8367,19 @@
     window.umgrLogout = function() {
         _umgrToken = null;
         _umgrUser = null;
+        // Phase 7.5g: hit the backend logout endpoint so unset_jwt_cookies
+        // can clear the httpOnly refresh cookie. We can't delete the
+        // httpOnly cookie from JS — the server-side delete is the only
+        // way to terminate the refresh capability on this browser.
+        const tok = localStorage.getItem('radar_access_token');
+        if (tok) {
+            fetch('/api/auth/logout', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Authorization': 'Bearer ' + tok },
+            }).catch(() => { /* best-effort: cookie expires regardless */ });
+        }
         localStorage.removeItem('radar_access_token');
-        localStorage.removeItem('radar_refresh_token');
         localStorage.removeItem('radar_username');
         localStorage.removeItem('radar_role');
         // Show login gate

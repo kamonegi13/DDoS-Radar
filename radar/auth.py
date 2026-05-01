@@ -15,6 +15,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     jwt_required, get_jwt_identity, get_jwt,
+    set_refresh_cookies, unset_jwt_cookies,
 )
 
 log = logging.getLogger("radar")
@@ -204,6 +205,52 @@ def init_auth(app):
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = int(os.getenv("JWT_ACCESS_EXPIRES", "3600"))
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = int(os.getenv("JWT_REFRESH_EXPIRES", "86400"))
 
+    # Phase 7.5g (audit Security H3) — refresh token via httpOnly cookie.
+    # Pre-fix the refresh token rode in the JSON body and was persisted by
+    # the frontend in localStorage, where any XSS execution context could
+    # exfiltrate it. We split the two token classes:
+    #   - access tokens: JS-readable (Authorization header) so the SPA can
+    #     attach them to fetch() — short-lived (default 1h) so the XSS
+    #     window is bounded.
+    #   - refresh tokens: cookie-only, httpOnly + Secure + SameSite=Strict
+    #     so JS cannot reach them. The cookie is path-scoped to
+    #     /api/auth/refresh so it is not sent on every request, only on
+    #     the explicit refresh call.
+    # CSRF protection: flask-jwt-extended issues a paired non-httpOnly
+    # CSRF cookie that the SPA reads and echoes back as the
+    # X-CSRF-TOKEN header on the refresh request. Without the header
+    # the refresh is rejected even if the httpOnly cookie was sent.
+    app.config["JWT_TOKEN_LOCATION"] = ["headers", "cookies"]
+    app.config["JWT_REFRESH_COOKIE_NAME"] = "radar_refresh_jwt"
+    app.config["JWT_REFRESH_COOKIE_PATH"] = "/api/auth/refresh"
+    app.config["JWT_COOKIE_HTTPONLY"] = True
+    app.config["JWT_COOKIE_SAMESITE"] = "Strict"
+    # Secure=True is required by browsers to set Secure cookies; in
+    # local dev (http://) the cookie would be silently dropped, so the
+    # opt-out env var preserves dev ergonomics. Production deployments
+    # MUST leave this default (true) — log a warning if disabled so the
+    # operator notices it in container startup.
+    _cookie_secure = os.getenv("JWT_COOKIE_SECURE", "true").lower() not in (
+        "0", "false", "no", "off",
+    )
+    app.config["JWT_COOKIE_SECURE"] = _cookie_secure
+    if not _cookie_secure:
+        log.warning("[Auth] JWT_COOKIE_SECURE=false — refresh cookie will be "
+                    "sent over plain HTTP. Acceptable for local dev only; "
+                    "production deployments MUST run behind TLS.")
+    # CSRF protection on the refresh path. Access tokens travel via the
+    # Authorization header (no CSRF needed). The `RADAR_JWT_CSRF_DISABLED`
+    # env var is checked at init time so pytest can opt out before
+    # collecting tests — the in-process test client cannot ergonomically
+    # round-trip the CSRF cookie through every fixture.
+    _csrf_disabled = os.getenv("RADAR_JWT_CSRF_DISABLED", "false").lower() in (
+        "1", "true", "yes", "on",
+    )
+    app.config["JWT_COOKIE_CSRF_PROTECT"] = not _csrf_disabled
+    app.config["JWT_CSRF_IN_COOKIES"] = True
+    app.config["JWT_CSRF_CHECK_FORM"] = False  # SPA uses XHR header only
+    app.config["JWT_REFRESH_CSRF_HEADER_NAME"] = "X-CSRF-TOKEN"
+
     jwt.init_app(app)
 
     # Auth tables are now part of the main _SCHEMA_SQL (database.py).
@@ -358,25 +405,37 @@ def login():
             log.warning("[Auth] Lazy rehash failed for user '%s': %s",
                         username, exc)
 
-    from flask import current_app
+    from flask import current_app, make_response
     access_token = create_access_token(identity=username, additional_claims={"role": user["role"]})
     refresh_token = create_refresh_token(identity=username)
     access_expires = current_app.config.get("JWT_ACCESS_TOKEN_EXPIRES", 3600)
     if hasattr(access_expires, "total_seconds"):
         access_expires = int(access_expires.total_seconds())
-    return jsonify({
+    # Phase 7.5g (audit Security H3): the refresh token now rides as an
+    # httpOnly + Secure + SameSite=Strict cookie scoped to the refresh
+    # path. The access token still goes in the JSON body (the SPA needs
+    # JS access to attach it to fetch() Authorization headers) but is
+    # short-lived so the XSS window is bounded. The legacy
+    # `refresh_token` JSON field is intentionally REMOVED — clients
+    # that still read it will silently fall back to a re-login next
+    # time the access token expires, which is the desired migration
+    # path (no breaking 4xx).
+    resp = make_response(jsonify({
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "username": username,
         "role": user["role"],
         "access_expires_sec": access_expires,
-    })
+    }))
+    set_refresh_cookies(resp, refresh_token)
+    return resp
 
 
 @bp.route("/refresh", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh():
-    """Get a new access token using refresh token."""
+    """Get a new access token. The refresh token is read from the
+    httpOnly cookie set at /login time; the SPA only needs to send the
+    paired CSRF token in the X-CSRF-TOKEN header (Phase 7.5g)."""
     identity = get_jwt_identity()
     from radar.database import db
     role = db.user_get_role(identity) or "viewer"
@@ -387,16 +446,25 @@ def refresh():
 @bp.route("/logout", methods=["POST"])
 @jwt_required()
 def logout():
-    """Revoke current access token and optionally the refresh token."""
+    """Revoke the current access token and clear the refresh cookie.
+
+    Phase 7.5g (audit Security H3): unset_jwt_cookies wipes the
+    httpOnly refresh cookie set at /login time so a stolen access
+    token cannot be parlayed into a long-lived session by abusing
+    the cookie. The refresh JTI is no longer carried in the request
+    body (it is in the httpOnly cookie which we cannot read here);
+    the cookie deletion is sufficient to terminate the refresh
+    capability for this browser. Per-JTI revocation of refresh
+    tokens still happens via the password-change invalidate_ts and
+    the existing token_revoke path on explicit admin actions.
+    """
+    from flask import make_response
     jti = get_jwt()["jti"]
     from radar.database import db
     db.token_revoke(jti, time.time())
-    # Also revoke refresh token if the client provides its JTI
-    body = request.get_json(silent=True) or {}
-    refresh_jti = body.get("refresh_jti")
-    if refresh_jti:
-        db.token_revoke(refresh_jti, time.time())
-    return jsonify({"status": "ok"})
+    resp = make_response(jsonify({"status": "ok"}))
+    unset_jwt_cookies(resp)
+    return resp
 
 
 @bp.route("/settings", methods=["GET"])

@@ -59,8 +59,13 @@
         errEl.style.display = '';
         return;
       }
+      // Phase 7.5g (audit Security H3): the refresh token is now
+      // delivered as an httpOnly cookie by the backend (/api/auth/login
+      // → set_refresh_cookies). The JSON body no longer carries
+      // `data.refresh_token` — we only persist the short-lived access
+      // token in localStorage. The browser stores and replays the
+      // refresh cookie automatically; we cannot read it from JS.
       localStorage.setItem('radar_access_token', data.access_token);
-      localStorage.setItem('radar_refresh_token', data.refresh_token);
       localStorage.setItem('radar_username', data.username);
       localStorage.setItem('radar_role', data.role);
       if (data.access_expires_sec)

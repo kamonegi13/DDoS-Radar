@@ -25,3 +25,12 @@ _monkey.patch_all()
 # any test imports `radar` so the limiter constructor sees enabled=False.
 import os as _os
 _os.environ.setdefault("RADAR_RATE_LIMIT_ENABLED", "false")
+
+# Phase 7.5g (audit Security H3): the cookie-based refresh flow uses
+# CSRF double-submit by default. The Flask test client cannot easily
+# round-trip the CSRF cookie through every fixture, so opt out at
+# import time. Production keeps the protection on (default).
+_os.environ.setdefault("RADAR_JWT_CSRF_DISABLED", "true")
+# Cookie Secure=true would force the test client (HTTP, no TLS) to
+# silently drop the refresh cookie. Disable for the test environment.
+_os.environ.setdefault("JWT_COOKIE_SECURE", "false")
