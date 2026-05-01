@@ -16,6 +16,7 @@ import logging
 import re
 import sys
 import time
+import unicodedata
 import requests
 from datetime import date
 from radar.config import (
@@ -31,13 +32,69 @@ _GENERATE_URL = f"{LLM_HOST}/api/generate"
 # Known small models that produce lower-quality structured output
 _LOW_QUALITY_MODEL_PATTERNS = ("1b", "3b", "0.5b", "1.5b")
 
-# Prompt injection patterns to detect and neutralize in untrusted text
+# Prompt injection patterns to detect and neutralize in untrusted text.
+# Phase 7.5e (audit Security H6) — broadened beyond the original
+# English-only pattern set:
+#   - English variants tightened (instruction, prompt, system message,
+#     act as / pretend / roleplay, jailbreak, reveal/print/show prompt)
+#   - Japanese ("無視", "指示", "システムプロンプト", "新しい指示", etc.)
+#   - Chinese / Russian basic instruction-override phrases
+#   - System / chat delimiter tokens: <|im_start|>, <|system|>, [INST]
+#     / [/INST], ###, BEGIN/END markers commonly used in fine-tuned
+#     model templates
+# Single-pass IGNORECASE regex so the call cost stays at one substitution
+# per sanitize_llm_input invocation.
 _INJECTION_PATTERNS = re.compile(
-    r"(ignore\s+(previous|all|prior)|forget\s+(previous|all|prior)|disregard\s+(previous|all)|"
-    r"instead\s+return|return\s+the\s+following|respond\s+with\s*[:{]|"
+    # ── English: instruction overrides ─────────────────────────────────
+    # Determiner ("the", "any", "all") may sit between the verb and the
+    # target word ("ignore the above instructions").
+    r"(ignore(\s+(the|any|all))?\s+(previous|all|prior|above|earlier)|"
+    r"forget(\s+(the|any|all))?\s+(previous|all|prior|above|everything)|"
+    r"disregard(\s+(the|any|all))?\s+(previous|all|above)|"
+    r"instead\s+return|return\s+the\s+following|"
+    r"respond\s+with\s*[:{]|reply\s+only\s+with|"
     r"your\s+new\s+instructions|override\s+(previous|all)|"
-    r"output\s+the\s+following|new\s+task\s*:)",
+    r"output\s+the\s+following|new\s+task\s*:|new\s+system\s*:|"
+    # ── English: persona / jailbreak vectors ────────────────────────────
+    r"act\s+as\s+(a|an|the)|pretend\s+(to\s+be|you\s+are)|"
+    r"roleplay\s+as|you\s+are\s+now\s+(a|an)|"
+    r"do\s+anything\s+now|jailbreak|developer\s+mode|"
+    r"reveal\s+(your\s+)?(prompt|instructions|system\s+message)|"
+    r"print\s+(your\s+)?(prompt|instructions|system\s+message)|"
+    r"show\s+(me\s+)?(your\s+)?(prompt|instructions|system\s+message)|"
+    # ── Japanese ───────────────────────────────────────────────────────
+    r"これまでの(指示|命令|プロンプト)を(無視|忘れ)|"
+    r"以前の(指示|命令)を(無視|忘れ)|"
+    r"新しい指示\s*[::]|新しいタスク\s*[::]|"
+    r"システム(プロンプト|メッセージ)を(表示|出力|教え)|"
+    # ── Chinese ────────────────────────────────────────────────────────
+    r"忽略(以前|之前|上面)的?(指令|指示|提示)|"
+    r"忘记(以前|之前|上面)的?(指令|指示|提示)|"
+    r"新的?(指令|指示|任务)\s*[::]|"
+    # ── Russian ────────────────────────────────────────────────────────
+    r"игнорир(уй|овать)\s+(предыдущи|все|выше)|"
+    r"забуд(ь|ьте)\s+(предыдущи|все)|"
+    r"новая\s+задача\s*:|"
+    # ── Template / chat delimiter tokens (any model family) ─────────────
+    r"<\|im_(start|end)\|>|<\|system\|>|<\|user\|>|<\|assistant\|>|"
+    r"\[/?INST\]|\[/?SYS\]|"
+    r"###\s*(system|instruction|new\s+instruction|task)\b|"
+    r"begin\s+(system|new)\s+(prompt|instruction)|"
+    r"end\s+(system|prompt|instruction))",
     re.IGNORECASE,
+)
+
+# Control characters that must never reach the model unchanged.
+# Keeps \t (U+0009), \n (U+000A), \r (U+000D); strips everything else
+# in the C0 / C1 ranges plus the Unicode bidi-override and zero-width
+# joiner family that has been used in homograph-style injection PoCs.
+_CONTROL_CHAR_PATTERN = re.compile(
+    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f"        # C0 / DEL / C1
+    r"​-‏"                               # zero-width + LRM/RLM
+    r"  "                                # line/paragraph sep
+    r"‪-‮"                               # explicit bidi overrides
+    r"⁠-⁤﻿"                         # word-joiner, BOM
+    r"]"
 )
 
 
@@ -79,15 +136,35 @@ def safe_enum(val, allowed: set, default: str) -> str:
 
 
 def sanitize_llm_input(text: str, max_len: int = 1000) -> str:
-    """Basic prompt injection mitigation for untrusted external text.
+    """Prompt injection mitigation for untrusted external text.
 
-    Truncates to max_len and neutralizes common instruction-injection patterns
-    by replacing them with [...]. Does NOT guarantee safety against all attacks,
-    but raises the bar for opportunistic injection via RSS/Telegram content.
+    Phase 7.5e (audit Security H6) hardening — the previous version
+    matched only English instruction-override phrases against the raw
+    input text, which Unicode homoglyph and control-character tricks
+    could trivially bypass. The pipeline is now:
+
+      1. Drop falsy input and truncate to ``max_len`` (keeps the model
+         within its context budget regardless of upstream).
+      2. NFKC normalisation collapses fullwidth, compatibility, and
+         circled forms back to canonical ASCII (e.g. "ｉｇｎｏｒｅ" →
+         "ignore", "①" → "1") so a single regex pass covers all
+         visually-equivalent variants.
+      3. Strip C0 / C1 control characters, the zero-width family, and
+         explicit bidi overrides — these are commonly chained with
+         homograph attacks to slip an injection past pattern matchers.
+      4. Apply the broadened ``_INJECTION_PATTERNS`` regex (English +
+         Japanese + Chinese + Russian basics, plus chat-template
+         delimiter tokens) and replace matches with ``[...]``.
+
+    Does NOT guarantee safety against all attacks, but raises the bar
+    significantly versus the pre-Phase-7.5e version, especially against
+    Unicode homoglyph / control-char bypasses that were trivial before.
     """
     if not text:
         return ""
     text = text[:max_len]
+    text = unicodedata.normalize("NFKC", text)
+    text = _CONTROL_CHAR_PATTERN.sub("", text)
     text = _INJECTION_PATTERNS.sub("[...]", text)
     return text
 
