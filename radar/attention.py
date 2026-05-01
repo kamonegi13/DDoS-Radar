@@ -100,8 +100,12 @@ def _collect_metrics() -> dict:
             (cutoff,),
         ).fetchone()
         metrics["drift_unack"] = int((row[0] if row else 0) or 0)
-    except Exception:
-        pass
+    except Exception as _exc:
+        # SF5 (audit fix): silent failure here lets a DB schema change
+        # silently zero out drift alerts. Log + bump the per-collector
+        # error counter so /api/v2/self_eval can surface the degradation.
+        log.debug("drift_unack metric failed: %s", _exc)
+        metrics["_collection_errors"] = metrics.get("_collection_errors", 0) + 1
 
     # Sensor disable proposals approaching ack expiry
     try:
@@ -119,11 +123,13 @@ def _collect_metrics() -> dict:
                 ack_due = sv.get("ack_due_at")
                 if isinstance(ack_due, (int, float)) and (ack_due - now) < 4 * 3600:
                     ack_imminent += 1
-            except Exception:
+            except Exception as _row_exc:
+                log.debug("sensor_disable row parse failed: %s", _row_exc)
                 continue
         metrics["sensor_disable_ack_imminent"] = ack_imminent
-    except Exception:
-        pass
+    except Exception as _exc:
+        log.debug("sensor_disable_ack_imminent metric failed: %s", _exc)
+        metrics["_collection_errors"] = metrics.get("_collection_errors", 0) + 1
 
     # Proposal-quality inversion: dismissed_pct over closed proposals (30d)
     try:
@@ -140,8 +146,9 @@ def _collect_metrics() -> dict:
         dismissed_pct = ((d.get("dismissed", 0) / total_closed)
                          if total_closed >= 10 else 0.0)
         metrics["dismissed_pct_30d"] = dismissed_pct
-    except Exception:
-        pass
+    except Exception as _exc:
+        log.debug("dismissed_pct_30d metric failed: %s", _exc)
+        metrics["_collection_errors"] = metrics.get("_collection_errors", 0) + 1
 
     # LLM Feature Hub metrics
     try:
@@ -167,8 +174,9 @@ def _collect_metrics() -> dict:
                 if last_changed and (time.time() - last_changed) > 7 * 86400:
                     feature_in_long_shadow += 1
         metrics["feature_long_shadow"] = feature_in_long_shadow
-    except Exception:
-        pass
+    except Exception as _exc:
+        log.debug("feature_long_shadow metric failed: %s", _exc)
+        metrics["_collection_errors"] = metrics.get("_collection_errors", 0) + 1
 
     # LLM Intel queue metrics
     try:
@@ -176,8 +184,9 @@ def _collect_metrics() -> dict:
         s = intel_queue.stats()
         metrics["llm_intel_pending"] = int(s.get("pending", 0) or 0)
         metrics["llm_intel_review_needed"] = int(s.get("review_needed", 0) or 0)
-    except Exception:
-        pass
+    except Exception as _exc:
+        log.debug("llm_intel queue metrics failed: %s", _exc)
+        metrics["_collection_errors"] = metrics.get("_collection_errors", 0) + 1
 
     # LLM Intel: oldest pending age
     try:
@@ -187,8 +196,9 @@ def _collect_metrics() -> dict:
         ).fetchone()
         if row and row[0]:
             metrics["llm_intel_oldest_age_h"] = (time.time() - row[0]) / 3600.0
-    except Exception:
-        pass
+    except Exception as _exc:
+        log.debug("llm_intel_oldest_age_h metric failed: %s", _exc)
+        metrics["_collection_errors"] = metrics.get("_collection_errors", 0) + 1
 
     # Sensor health (rough — count from sensor registry if available)
     try:
@@ -206,8 +216,9 @@ def _collect_metrics() -> dict:
                     stale += 1
             metrics["sensor_error"] = err
             metrics["sensor_stale"] = stale
-    except Exception:
-        pass
+    except Exception as _exc:
+        log.debug("sensor_health metric failed: %s", _exc)
+        metrics["_collection_errors"] = metrics.get("_collection_errors", 0) + 1
 
     return metrics
 
@@ -387,7 +398,8 @@ def _is_snoozed(rule_id: str) -> bool:
         if not row:
             return False
         return float(row[0] or 0) > time.time()
-    except Exception:
+    except Exception as _exc:
+        log.debug("_is_snoozed(%s) failed: %s", rule_id, _exc)
         return False
 
 
@@ -434,7 +446,8 @@ def _format_message(rule: AttentionRule, value: Optional[float]) -> str:
             pct=f"{(value or 0) * 100:.0f}%" if rule.rule_id.endswith(
                 "quality_inversion") else (value or 0),
         )
-    except Exception:
+    except Exception as _exc:
+        log.debug("_format_message(%s) failed: %s", rule.rule_id, _exc)
         return rule.message_template
 
 

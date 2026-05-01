@@ -2026,15 +2026,25 @@ def get_threat_data():
                         evidence_url=_lr.get("raw_url", "") or None,
                         llm_reasoning=_lr.get("llm_reasoning", "") or None,
                     ))
-            except Exception:
-                pass
+            except Exception as _llm_intel_err:
+                # SF2 (audit / NP1+NP6 fix, 2026-05-01): silently dropping
+                # confirmed LLM intel signals every scoring tick directly
+                # masks threats. Log + record_failure so the AP3 self-eval
+                # registry sees the degradation and the operator has a
+                # diagnosable trace instead of an empty signal set.
+                log.warning("[Scoring] LLM intel signal ingestion failed: %s",
+                            _llm_intel_err, exc_info=True)
+                try:
+                    from radar.conclusions.shadow_metrics import record_failure
+                    record_failure("llm_intel_signals", _llm_intel_err)
+                except Exception:
+                    pass
 
             # Drain background observer queue (AP3 — per-scenario obs health).
             # Each pending signal is a per-country RSS finding for a non-
             # focused scenario; converting to scoring.Signal here lets them
             # flow through the same dedup + per-scenario contribution path
-            # the rest of _signals uses. Defensive: if the module isn't
-            # loadable (missing dependency), skip silently — NP3.
+            # the rest of _signals uses.
             try:
                 from radar import background_observer as _bg_obs
                 for _ps in _bg_obs.drain_signals(now=current_time):
@@ -2049,8 +2059,21 @@ def get_threat_data():
                         value_display=_ps.value_display,
                         evidence_url=_ps.evidence_url,
                     ))
-            except Exception:
-                pass
+            except Exception as _bg_drain_err:
+                # SF3 (audit / NP1+NP6 fix, 2026-05-01): the previous comment
+                # claimed NP3 justified silence, but NP3 covers fault
+                # tolerance, not telemetry suppression. drain_signals()
+                # clears the queue on call, so a swallowed exception here
+                # permanently loses every queued bg_observer signal with
+                # zero observable trace. Log + record_failure restores AP3
+                # observability without changing fault tolerance.
+                log.warning("[Scoring] bg_observer drain failed: %s",
+                            _bg_drain_err, exc_info=True)
+                try:
+                    from radar.conclusions.shadow_metrics import record_failure
+                    record_failure("bg_observer_drain", _bg_drain_err)
+                except Exception:
+                    pass
 
             # Compute context alignment early so scenario scoring can use it
             context_alignment = _routes.engine.compute_context_alignment(rationale)
@@ -2417,17 +2440,43 @@ def get_threat_data():
             except Exception:
                 pass
         except Exception as _sc_err:
-            log.warning("[Scoring] Scenario scoring failed: %s", _sc_err)
+            # SF4 (audit / NP1+NP6 fix, 2026-05-01): the previous behaviour
+            # logged a warning, left _focused_tl == None, and the fallback
+            # below silently wrote TL5 (= "normal") into threat_history.
+            # That poisons trend / calibration / diff_sampler with phantom
+            # quiet ticks every time the scoring engine crashes — a direct
+            # NP1 violation (sensitivity > precision: hiding a failure as
+            # normality is the worst possible outcome).
+            log.exception("[Scoring] Scenario scoring failed: %s", _sc_err)
+            try:
+                from radar.conclusions.shadow_metrics import record_failure
+                record_failure("focused_scoring", _sc_err)
+            except Exception:
+                # NP3: telemetry must never crash the main path.
+                pass
+            _scoring_failed = True
+        else:
+            _scoring_failed = False
 
         # Derive legacy threat_level from focused scenario TL.
         # This is the single source of truth — HUD top TL and scenario card
-        # TL now always agree. Fallback to TL5 (normal) only if no focused
-        # scenario is available (should not happen with DEFAULT_FOCUSED_SCENARIO).
+        # TL now always agree.
+        scoring_error_reason: str | None = None
         if _focused_tl is not None:
             threat_level = _focused_tl
             tl_raw = _focused_tl_raw if _focused_tl_raw is not None else _focused_tl
             tl_held = _tl_held_focused
+        elif _scoring_failed:
+            # Scoring engine crashed — emit `null` so the frontend renders
+            # "—" instead of fabricating "TL5 / normal". threat_history is
+            # NOT touched on this path so the historical record stays clean.
+            threat_level = None
+            tl_raw = None
+            tl_held = False
+            scoring_error_reason = "focused_scoring_failure"
         else:
+            # No focused scenario available (rare; DEFAULT_FOCUSED_SCENARIO
+            # should always be set). Treat as transient INSUFFICIENT_DATA.
             threat_level = 5
             tl_raw = 5
             tl_held = False
@@ -2435,12 +2484,13 @@ def get_threat_data():
         prev_threat_level = prev_threat[1] if prev_threat else 5
         # Per-scenario history (migration v33): append to threat_history
         # with the focused scenario_id so the HUD sparkline can pull a
-        # scenario-specific series. Falls back to legacy unscoped append
-        # only when no scenario context is available (defensive).
-        if focused_id:
-            _db.threat_append_scoped(current_time, threat_level, focused_id)
-        else:
-            _db.threat_append(current_time, threat_level)
+        # scenario-specific series. SKIP this on scoring_error so a crash
+        # cannot pollute the historical TL series with a phantom value.
+        if not _scoring_failed:
+            if focused_id:
+                _db.threat_append_scoped(current_time, threat_level, focused_id)
+            else:
+                _db.threat_append(current_time, threat_level)
 
         # F5: snapshot sensor coverage for the focused scenario so the
         # /api/analyst/coverage endpoint reflects current health.
@@ -3047,7 +3097,7 @@ def get_threat_data():
             "active": _pc in _active_codes,
         }
 
-    _resp = jsonify({
+    _resp_payload: dict = {
         "timestamp":       datetime.datetime.now().isoformat(),
         "sensor_health":   _routes.registry.health_report(),
         "strategic_alert": _snap_strategic,
@@ -3058,7 +3108,19 @@ def get_threat_data():
         "scenarios":       _scenario_results,
         "scenario_history_starts_at": _cache_snap.get("scenario_history_starts_at"),
         "participants":    _participant_map,
-    })
+    }
+    # SF4 (audit): surface scoring failure to the frontend so the HUD can
+    # render "—" / "ENGINE ERROR" instead of fabricating "TL5 / normal".
+    # `threat_level` lives at the strategic_alert level above; the explicit
+    # boolean here makes the failure self-documenting (NP6).
+    if scoring_error_reason is not None:
+        _resp_payload["scoring_error"] = True
+        _resp_payload["scoring_error_reason"] = scoring_error_reason
+        _resp_payload["scoring_error_disclaimer"] = (
+            "Scoring engine encountered an exception. Conclusion unavailable "
+            "for this tick — historical TL series was not updated."
+        )
+    _resp = jsonify(_resp_payload)
     _resp.headers["Deprecation"] = "true"
     _resp.headers["Sunset"] = "2026-10-01"
     _resp.headers["X-Deprecation-Notice"] = (

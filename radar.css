@@ -1235,6 +1235,8 @@
 .ws-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle; }
 .ws-dot-connected { background:#00ff88; box-shadow:0 0 4px #00ff88; }
 .ws-dot-disconnected { background:#ff8800; box-shadow:0 0 4px #ff880066; }
+/* SF7: WS upgrade failed; the client is silently polling at ~15-min cycles. */
+.ws-dot-degraded { background:#ff4444; box-shadow:0 0 4px #ff444488; outline:1px solid #ff4444; }
 
 /* (Phase 3 collapsible-row primitives replaced by .hud-row-* family above) */
 

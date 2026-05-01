@@ -23,7 +23,18 @@
           }, 300);
         }
       })
-      .catch(function () {});
+      .catch(function (err) {
+        // SF8 (audit fix): a network error here used to be silent,
+        // leaving the analyst staring at the login gate with no
+        // explanation. Surface a hint so the user can distinguish
+        // "actually logged out" from "network down".
+        console.warn('[login-init] token validation failed:', err);
+        var errEl = document.getElementById('login-error');
+        if (errEl) {
+          errEl.textContent = 'Could not verify saved session — check connection or sign in again.';
+          errEl.style.display = '';
+        }
+      });
   }
 
   window._doLogin = async function () {

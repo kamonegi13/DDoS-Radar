@@ -6037,9 +6037,20 @@
                 _wsSocket.on('disconnect', () => {
                     _wsConnected = false;
                     _wsSubscribedTheater = '';
-                    console.log('[WS] Disconnected — polling fallback active');
+                    console.info('[WS] Disconnected — polling fallback active');
                     const dot = document.getElementById('ws-status-dot');
                     if (dot) dot.className = 'ws-dot ws-dot-disconnected';
+                });
+                // SF7 (audit fix): without a connect_error handler, a failed
+                // upgrade (JWT expired, CORS, server overload) silently falls
+                // back to polling while the dot may stay in its last state —
+                // the analyst cannot distinguish "WS connected" from "WS
+                // silently polling at a 15-min cycle" in an active crisis.
+                _wsSocket.on('connect_error', (err) => {
+                    _wsConnected = false;
+                    console.warn('[WS] connect_error (degraded to polling):', err && err.message ? err.message : err);
+                    const dot = document.getElementById('ws-status-dot');
+                    if (dot) dot.className = 'ws-dot ws-dot-degraded';
                 });
                 _wsSocket.on('threat_update', (data) => {
                     // WS pushes only strategic_alert — merge into existing latestData
@@ -9816,40 +9827,54 @@
         if (el) el.classList.toggle('visible');
     };
 
-    window._llmConfirm = function(itemId) {
-        fetch('/api/intel/' + encodeURIComponent(itemId) + '/confirm', { method: 'POST' })
-            .then(r => r.json())
+    // SF1 (audit / NP1+NP6 fix, 2026-05-01): all LLM intel actions used
+    // `.catch(() => {})` and refreshed the panel on failure, making a
+    // failed confirm/reject look identical to a successful one. The
+    // analyst could not tell whether their action was applied. Now each
+    // failure is surfaced via alert() and the panel is NOT refreshed —
+    // the item stays in its prior state so the analyst can retry.
+    function _llmActionFetch(itemId, path, opts, failedKey) {
+        return fetch('/api/intel/' + encodeURIComponent(itemId) + path, opts)
+            .then(r => {
+                if (!r.ok) {
+                    return r.text().then(t => { throw new Error('HTTP ' + r.status + (t ? ' — ' + t.slice(0, 80) : '')); });
+                }
+                return r.json();
+            })
             .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
-            .catch(() => {});
+            .catch(err => {
+                console.warn('[Intel] ' + path + ' failed:', err);
+                alert(_t(failedKey, { reason: err && err.message ? err.message : 'network error' }));
+                // Do NOT call _fetchLlmIntel/fetchDDoSData on failure — keep
+                // the item visibly in its prior state so the analyst sees
+                // the failure happened.
+            });
+    }
+
+    window._llmConfirm = function(itemId) {
+        _llmActionFetch(itemId, '/confirm', { method: 'POST' },
+                        'panel.llm_intel.confirm_failed');
     };
 
     window._llmReject = function(itemId) {
-        fetch('/api/intel/' + encodeURIComponent(itemId) + '/reject', {
+        _llmActionFetch(itemId, '/reject', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ classification: 'irrelevant' }),
-        })
-            .then(r => r.json())
-            .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
-            .catch(() => {});
+        }, 'panel.llm_intel.reject_failed');
     };
 
     window._llmRejectFP = function(itemId) {
-        fetch('/api/intel/' + encodeURIComponent(itemId) + '/reject', {
+        _llmActionFetch(itemId, '/reject', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ classification: 'false_positive' }),
-        })
-            .then(r => r.json())
-            .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
-            .catch(() => {});
+        }, 'panel.llm_intel.reject_failed');
     };
 
     window._llmRevert = function(itemId) {
-        fetch('/api/intel/' + encodeURIComponent(itemId) + '/revert', { method: 'POST' })
-            .then(r => r.json())
-            .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
-            .catch(() => {});
+        _llmActionFetch(itemId, '/revert', { method: 'POST' },
+                        'panel.llm_intel.revert_failed');
     };
 
     window._llmOverride = function(itemId) {

@@ -745,8 +745,23 @@ class IntelQueue:
                 db.auto_judge_decision_mark_overridden(
                     item_id, override_action="confirm", analyst_id=analyst,
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                # SF6 (audit fix): the auto-judge decision trail (AP4) is
+                # audit-critical. Silent DB write failures here cause the
+                # ledger to diverge from reality without any observable
+                # signal — auto-judge recall/precision metrics derived from
+                # the ledger become systematically wrong. Log + record_failure
+                # so the operator can see degradation.
+                log.warning(
+                    "[Intel] auto_judge_decision_mark_overridden(confirm) "
+                    "failed for item_id=%s analyst=%s: %s",
+                    item_id, analyst, _exc,
+                )
+                try:
+                    from radar.conclusions.shadow_metrics import record_failure
+                    record_failure("auto_judge_override_trail", _exc)
+                except Exception:
+                    pass
         return True
 
     def reject(self, item_id: str, analyst: str = "analyst",
@@ -776,8 +791,18 @@ class IntelQueue:
                 db.auto_judge_decision_mark_overridden(
                     item_id, override_action="reject", analyst_id=analyst,
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                # SF6 (audit fix): see confirm() for rationale.
+                log.warning(
+                    "[Intel] auto_judge_decision_mark_overridden(reject) "
+                    "failed for item_id=%s analyst=%s: %s",
+                    item_id, analyst, _exc,
+                )
+                try:
+                    from radar.conclusions.shadow_metrics import record_failure
+                    record_failure("auto_judge_override_trail", _exc)
+                except Exception:
+                    pass
         return True
 
     def revert(self, item_id: str, analyst: str = "analyst") -> bool:

@@ -528,11 +528,29 @@
     window._controlsAcknowledge = async function (ruleId) {
         _snoozedUntil[ruleId] = (Date.now() / 1000) + 24 * 3600;
         try {
-            await fetch('/api/v2/attention/' + encodeURIComponent(ruleId) + '/snooze', {
+            const r = await fetch('/api/v2/attention/' + encodeURIComponent(ruleId) + '/snooze', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ hours: 24 }),
             });
-        } catch (e) {}
+            if (!r.ok) {
+                throw new Error('HTTP ' + r.status);
+            }
+        } catch (e) {
+            // SF9 (audit fix): a swallowed POST failure left the rule
+            // appearing snoozed in local memory while the server-side
+            // snooze was never recorded. After a refresh the rule
+            // re-fired and the analyst could not tell the snooze had
+            // not been persisted. Surface a brief warning so the
+            // analyst knows to retry.
+            console.warn('[Controls] snooze POST failed for', ruleId, e);
+            if (typeof window.showToast === 'function') {
+                window.showToast('Snooze could not be saved to server — will reappear on refresh.');
+            } else {
+                alert('Snooze could not be saved to server — will reappear on refresh.');
+            }
+            // Roll back the optimistic local snooze so render() reflects truth.
+            delete _snoozedUntil[ruleId];
+        }
         render();
     };
 

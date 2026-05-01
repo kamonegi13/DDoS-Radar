@@ -654,6 +654,54 @@ def v2_self_eval():
             "error": str(e),
         }
 
+    # silent_failures — Phase 2 audit follow-up. Every NP1-violating
+    # silent except now calls record_failure(<category>, exc) so the
+    # operator can distinguish "everything is fine" from "the engine
+    # has been silently dropping signals all afternoon". Categories
+    # surfaced here:
+    #   - focused_scoring         (SF4: scoring outer except)
+    #   - llm_intel_signals       (SF2: drop of confirmed LLM intel)
+    #   - bg_observer_drain       (SF3: bg_observer queue drain)
+    #   - auto_judge_override_trail (SF6: AP4 ledger DB write)
+    # Plus the existing builder-level categories already populated by
+    # _maybe_persist_* in scoring.py (threat_level, per_domain, trend,
+    # attack_mode, ...). The HUD FAULT chip reads `total_recent_failures`.
+    try:
+        from radar.conclusions.shadow_metrics import snapshot as _sm_snapshot
+        snap = _sm_snapshot()
+        # Aggregate failure_count over a 1-hour window so the chip
+        # reflects current degradation, not lifetime totals. Lacking
+        # per-bucket time series, we surface lifetime failure_count and
+        # last_failure_at so the HUD can compute "recent" client-side.
+        np1_categories = {
+            "focused_scoring",
+            "llm_intel_signals",
+            "bg_observer_drain",
+            "auto_judge_override_trail",
+        }
+        np1_failure_count = sum(
+            int(by.get("failure_count", 0))
+            for ct, by in snap.get("by_type", {}).items()
+            if ct in np1_categories
+        )
+        out["silent_failures"] = {
+            "uptime_sec": snap.get("uptime_sec"),
+            "by_category": snap.get("by_type", {}),
+            "np1_categories": sorted(np1_categories),
+            "np1_failure_count_lifetime": np1_failure_count,
+        }
+    except Exception as e:  # noqa: BLE001
+        out["silent_failures"] = {"error": str(e)}
+
+    # attention metrics collection errors (SF5).
+    try:
+        from radar.attention import _collect_metrics as _att_metrics  # noqa: SLF001
+        m = _att_metrics()
+        out["attention_collection_errors"] = int(m.get("_collection_errors", 0))
+    except Exception as e:  # noqa: BLE001
+        out["attention_collection_errors"] = None
+        out["attention_error"] = str(e)
+
     return jsonify(out)
 
 
