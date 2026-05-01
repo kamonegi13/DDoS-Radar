@@ -3947,6 +3947,23 @@
         </ul>
         <p>To enable the observer: set <span class="code-block">BG_OBSERVER_ENABLED=true</span> in <span class="code-block">config.env</span> and restart. Override <span class="code-block">BG_OBSERVER_FEEDS</span> with regional sources (Kyodo News, Korea Herald, Taipei Times, etc.) to improve Asia-Pacific scenario coverage.</p>
 
+        <h5>E. FAULT chip — NP1-violating silent failures (Phase 2 audit)</h5>
+        <p>The <b>FAULT</b> chip (Row 3, between DRIFT and OBS-BG) counts silent failures recorded across the Phase 2 audit categories. These are paths that historically swallowed exceptions with <code>except Exception: pass</code> on the NP3 (fault tolerance) rationale but were actually masking NP1-violating signal drops. Each path now calls <span class="code-block">record_failure(category, exc)</span> instead so the chip can show the operator that the engine has been silently degrading.</p>
+        <ul>
+            <li><span class="code-block">focused_scoring</span> — outer scoring exception (SF4). The previous behaviour persisted a phantom TL5 row to <span class="code-block">threat_history</span>; now the response carries <span class="code-block">scoring_error: true</span> and the historical record is left untouched.</li>
+            <li><span class="code-block">llm_intel_signals</span> — confirmed LLM intel signal drop on a tick (SF2).</li>
+            <li><span class="code-block">bg_observer_drain</span> — bg_observer queue drain failure (SF3); a swallowed exception used to permanently lose every queued signal.</li>
+            <li><span class="code-block">auto_judge_override_trail</span> — AP4 ledger DB write failure when an analyst overrides an auto-judge decision (SF6).</li>
+            <li><b>attention metric collection errors</b> — <span class="code-block">_collect_metrics()</span> bare-except sites (SF5); a DB schema change that breaks one collector now bumps a counter instead of silently zeroing the rule out.</li>
+        </ul>
+        <p>Chip bands (lifetime counts, since process start):</p>
+        <ul>
+            <li>Green at <code>0</code> — no silent failures recorded.</li>
+            <li>Amber at <code>≥1</code> — at least one path has degraded; hover the chip for the per-category breakdown (<span class="code-block">/api/v2/self_eval.silent_failures.by_category</span>).</li>
+            <li>Red at <code>≥10</code> — investigate immediately; sustained NP1-class failures indicate the engine cannot trust its own output stream.</li>
+        </ul>
+        <p>The counter is process-local and resets on container restart; <span class="code-block">last_failure_kind</span> in the breakdown shows the most recent exception class so the operator can grep the container log for the corresponding stack trace.</p>
+
         <h5>How recall feeds the HUD</h5>
         <p>The <span class="code-block">/api/v2/self_eval</span> endpoint aggregates labelled rows into <code>recall = TP / (TP + FN)</code>. The HUD chip polls every 5 minutes:</p>
         <ul>
@@ -3998,6 +4015,23 @@
             <li><b>Background Observer</b>（<span class="code-block">radar/background_observer.py</span>、<span class="code-block">BG_OBSERVER_ENABLED=true</span> で opt-in）: 非 focus シナリオとその participant 国を round-robin で巡回し、公開 RSS を anonymous HTTP GET でフェッチ（API key 不要、登録不要、LLM 不要）、対象国に scope した正規表現抽出を実行、findings を ephemeral signal として次の scoring tick に注入。デフォルト 5 分サイクル、signal は 30 分で失効するので、durable record は OBS チップを駆動する <span class="code-block">scenario_contribution_log</span> 行。</li>
         </ul>
         <p>有効化: <span class="code-block">config.env</span> で <span class="code-block">BG_OBSERVER_ENABLED=true</span> 設定 + 再起動。Asia-Pacific シナリオのカバレッジ向上には <span class="code-block">BG_OBSERVER_FEEDS</span> を地域ソース（Kyodo News、Korea Herald、Taipei Times 等）で上書き推奨。</p>
+
+        <h5>E. FAULT チップ — NP1 違反の silent failure（Phase 2 監査）</h5>
+        <p><b>FAULT</b> チップ（Row 3、DRIFT と OBS-BG の間）は Phase 2 監査で特定された silent failure カテゴリの累計件数を表示します。これらは元々 <code>except Exception: pass</code> で NP3（耐障害性）を理由に例外を握りつぶしていたパスですが、実際は NP1 に違反する signal drop を隠蔽していました。各パスは <span class="code-block">record_failure(category, exc)</span> を呼ぶよう修正済で、エンジンが silent に劣化していることがチップで可視化されます。</p>
+        <ul>
+            <li><span class="code-block">focused_scoring</span> — scoring 外側 except（SF4）。以前は phantom TL5 行を <span class="code-block">threat_history</span> に永続化していましたが、現在はレスポンスに <span class="code-block">scoring_error: true</span> を載せ、履歴は触りません。</li>
+            <li><span class="code-block">llm_intel_signals</span> — confirmed LLM intel 信号の tick あたり drop（SF2）。</li>
+            <li><span class="code-block">bg_observer_drain</span> — bg_observer キュー drain 失敗（SF3）。握り潰された例外は queued signal を永久に失っていました。</li>
+            <li><span class="code-block">auto_judge_override_trail</span> — auto-judge 上書き時の AP4 台帳 DB write 失敗（SF6）。</li>
+            <li><b>attention metric collection errors</b> — <span class="code-block">_collect_metrics()</span> の bare-except サイト（SF5）。1 つの collector を壊す DB スキーマ変更が、ルールを silent に無効化する代わりにカウンタを増やします。</li>
+        </ul>
+        <p>チップのバンド（プロセス起動以来の累計）:</p>
+        <ul>
+            <li>緑 <code>0</code> — silent failure なし。</li>
+            <li>アンバー <code>≥1</code> — 1 つ以上のパスで劣化発生。チップにホバーするとカテゴリ別ブレークダウン表示（<span class="code-block">/api/v2/self_eval.silent_failures.by_category</span>）。</li>
+            <li>赤 <code>≥10</code> — 即調査。持続的な NP1 級失敗はエンジンが自身の出力を信頼できない状態。</li>
+        </ul>
+        <p>カウンタはプロセスローカルでコンテナ再起動でリセット。ブレークダウンの <span class="code-block">last_failure_kind</span> が最新の例外クラスを示すので、コンテナログから該当スタックトレースを grep できます。</p>
 
         <h5>recall が HUD に届く経路</h5>
         <p><span class="code-block">/api/v2/self_eval</span> エンドポイントがラベル付き行を集計し <code>recall = TP / (TP + FN)</code> を計算。HUD チップは 5 分ごとにポーリング：</p>
