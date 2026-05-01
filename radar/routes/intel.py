@@ -23,7 +23,13 @@ def _safe_float_env(name: str, default: float) -> float:
         return default
 
 
+# Phase 7.5b (audit Security H1): per-route role gate on read endpoints.
+# The global before_request hook in radar/__init__.py is the primary
+# auth layer; these decorators are defence-in-depth so a future
+# refactor that drops the hook (e.g. selective endpoint exception)
+# cannot accidentally expose intel data to anonymous clients.
 @bp.route("/api/intel")
+@require_role("admin", "analyst", "viewer")
 def intel_list():
     """List LLM intel items with optional filters.
 
@@ -84,6 +90,7 @@ def intel_list():
 
 
 @bp.route("/api/intel/pending/triage")
+@require_role("admin", "analyst", "viewer")
 def intel_pending_triage():
     """Return pending intel items ranked by triage priority.
 
@@ -144,6 +151,7 @@ def intel_pending_triage():
 
 
 @bp.route("/api/intel/stats")
+@require_role("admin", "analyst", "viewer")
 def intel_stats():
     """Return LLM intel queue statistics and LLM status.
 
@@ -289,6 +297,7 @@ def intel_override(item_id: str):
 
 
 @bp.route("/api/intel/sources")
+@require_role("admin", "analyst", "viewer")
 def intel_sources():
     """List LLM source credibility data."""
     from radar.intel_queue import intel_queue
@@ -296,6 +305,7 @@ def intel_sources():
 
 
 @bp.route("/api/intel/llm_call_stats")
+@require_role("admin", "analyst", "viewer")
 def intel_llm_call_stats():
     """Aggregate LLM call observability over the given window.
 

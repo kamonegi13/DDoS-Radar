@@ -9,6 +9,8 @@ import os
 import threading
 from flask import Flask
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # ── Logging ──
 logging.basicConfig(
@@ -139,10 +141,47 @@ from radar.scoring import (  # noqa: E402,F401
     calculate_overlap, compute_confidence,
 )
 
+# ── Rate limiting (Phase 7.5 / audit Security H5) ──
+# In-process token-bucket via flask-limiter. Default rate is conservative
+# so a single misbehaving client cannot flood the engine; per-route
+# decorators raise the cap on read endpoints and tighten it on write /
+# LLM-triggering endpoints. Storage is in-memory: gunicorn runs a single
+# gevent worker (radar_api.py monkey-patches at module top), so per-process
+# state is the authoritative observation. RAM-only buckets reset on
+# restart, which is acceptable for an OSINT analyst tool with bounded
+# user count — Redis backend is the upgrade path for multi-worker setups.
+# Rate-limiter is disabled when the test suite imports the app — pytest
+# fires hundreds of requests per minute against the in-process client,
+# which would otherwise trip the default 120/min cap and turn legitimate
+# behaviour-under-test into a 429 storm. Production / dev set
+# RADAR_RATE_LIMIT_ENABLED=true (the default) so the production rule
+# stays "limited unless explicitly opted out".
+_rate_limit_enabled = os.getenv("RADAR_RATE_LIMIT_ENABLED", "true").lower() not in (
+    "0", "false", "no", "off",
+)
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["120 per minute", "2000 per hour"] if _rate_limit_enabled else [],
+    storage_uri="memory://",
+    headers_enabled=True,  # surface X-RateLimit-* headers so the analyst
+                           # client can back off cleanly on 429
+    strategy="fixed-window",
+    swallow_errors=True,   # NP3 — limiter failures must never crash the
+                           # main path. A storage hiccup degrades to "no
+                           # limit" rather than 500.
+    enabled=_rate_limit_enabled,
+)
+
 # ── Auth (JWT + user management) ──
 from radar.auth import init_auth, bp as _auth_bp  # noqa: E402
 init_auth(app)
 app.register_blueprint(_auth_bp)
+# Tighten the login endpoint to 5/minute on top of auth.py's in-memory
+# IP guard. Both layers cooperate: the auth.py guard runs first
+# (unauthenticated path) and the limiter sees only the requests that
+# pass through the route.
+limiter.limit("5 per minute")(_auth_bp)
 
 # ── Global JWT enforcement on /api/* routes ──
 from flask import request as _req, jsonify as _jsonify  # noqa: E402

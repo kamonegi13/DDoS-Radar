@@ -16,3 +16,12 @@ single consistent patched runtime for the entire test session.
 from gevent import monkey as _monkey
 
 _monkey.patch_all()
+
+# Phase 7.5a (audit Security H5): flask-limiter is initialised at import
+# time in radar/__init__.py with default limits of 120/min + 2000/hour.
+# pytest fires hundreds of requests per minute against the in-process
+# Flask test client, which would trip the cap and convert legitimate
+# behaviour-under-test into 429 storms. Set the opt-out env var BEFORE
+# any test imports `radar` so the limiter constructor sees enabled=False.
+import os as _os
+_os.environ.setdefault("RADAR_RATE_LIMIT_ENABLED", "false")

@@ -1,6 +1,7 @@
 flask>=3.0
 flask-cors>=4.0
 flask-jwt-extended>=4.6
+flask-limiter>=3.5
 flask-socketio>=5.3
 requests>=2.31
 python-dotenv>=1.0
