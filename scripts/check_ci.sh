@@ -68,6 +68,15 @@ step "i18n key parity (EN-only UI + INTEL GUIDE bilingual, 2026-04-28 PM)"
 # warn-only here — flip to --strict once the unused-key cleanup lands.
 python scripts/check_i18n_keys.py || { echo "FAIL: i18n audit reported issues. See output above." >&2; FAIL=1; }
 
+step "Secret scan (Phase 1 audit follow-up)"
+# Pure-Python scanner; no external dependency. Conservative regexes, with
+# placeholder/identifier suppression. Flips fatal so leaked credentials
+# can never be re-introduced silently.
+if ! python scripts/check_secrets.py; then
+    echo "FAIL: potential secrets detected. See output above." >&2
+    FAIL=1
+fi
+
 if [[ $FAIL -eq 0 ]]; then
     echo
     echo "All gates passed."

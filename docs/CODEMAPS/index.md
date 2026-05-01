@@ -7,13 +7,13 @@ structural changes to keep maps in sync.
 
 | Source file | Codemap | Lines |
 |-------------|---------|-------|
-| `radar/database.py` | [radar.database.md](radar.database.md) | 5737 |
+| `radar/database.py` | [radar.database.md](radar.database.md) | 5736 |
 | `radar/scoring.py` | [radar.scoring.md](radar.scoring.md) | 1601 |
 | `radar/intel_queue.py` | [radar.intel_queue.md](radar.intel_queue.md) | 1125 |
 | `radar/intel_auto_judge.py` | [radar.intel_auto_judge.md](radar.intel_auto_judge.md) | 583 |
 | `radar/diagnostics.py` | [radar.diagnostics.md](radar.diagnostics.md) | 144 |
 | `radar/engine.py` | [radar.engine.md](radar.engine.md) | 1068 |
-| `radar/scenarios.py` | [radar.scenarios.md](radar.scenarios.md) | 589 |
+| `radar/scenarios.py` | [radar.scenarios.md](radar.scenarios.md) | 597 |
 | `radar/llm_client.py` | [radar.llm_client.md](radar.llm_client.md) | 382 |
 | `radar/persistence.py` | [radar.persistence.md](radar.persistence.md) | 139 |
 | `radar/scheduler.py` | [radar.scheduler.md](radar.scheduler.md) | 502 |

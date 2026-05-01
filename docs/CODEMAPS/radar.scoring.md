@@ -110,7 +110,7 @@ def resolve_seq_fire_targets(core_theater: str | None, effective_cores: list, sc
 # L131
 def select_secondary_ec_hits(effective_cores: list, primary_ec: str, data: list, country_field: str) -> dict
 # L160
-def register_sequence_event(theater: str, event_type: str, meta: dict, dedup_window: int, scenario_id: str | None)
+def register_sequence_event(theater: str, event_type: str, meta: Optional[dict], dedup_window: int, scenario_id: str | None)
 # L185
 def compute_sequence_bonus(theater: str) -> tuple
 # L242
