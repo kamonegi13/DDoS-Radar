@@ -68,9 +68,87 @@ jwt = JWTManager()
 
 
 def _hash_password(password: str, salt: str) -> str:
+    """Legacy PBKDF2-SHA256 hasher (100k iterations).
+
+    Phase 7.5f (audit Security H2): retained for backward-compat with
+    rows that have not yet been lazily rehashed to argon2id. See
+    ``_hash_password_argon2`` and ``_verify_password`` below for the
+    transitional contract.
+    """
     return hashlib.pbkdf2_hmac(
         "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000
     ).hex()
+
+
+# ── Argon2id transition (Phase 7.5f / audit Security H2) ─────────────────
+# argon2-cffi's PasswordHasher is the production-recommended interface:
+# it picks sane parameters (RFC 9106 second recommended set, m=64 MiB,
+# t=3, p=4) and prepends them to the encoded hash so a future cost
+# bump can re-derive without a schema migration. We reuse a single
+# module-level instance — argon2.PasswordHasher is thread-safe and
+# parameterless mutations carry through.
+try:
+    from argon2 import PasswordHasher as _Argon2Hasher
+    from argon2.exceptions import VerifyMismatchError as _Argon2Mismatch
+    _argon2 = _Argon2Hasher()
+except ImportError:
+    # NP3 — running without argon2-cffi keeps the legacy PBKDF2 path
+    # working; the lazy rehash and new-account path simply fall back
+    # to PBKDF2 with a warning rather than crashing the process.
+    _argon2 = None
+    _Argon2Mismatch = Exception  # type: ignore[assignment]
+    log.warning("[Auth] argon2-cffi unavailable — using PBKDF2-SHA256 fallback. "
+                "Install argon2-cffi to enable argon2id hashing.")
+
+
+def _hash_password_argon2(password: str) -> str:
+    """Return an argon2id-encoded hash. Falls back to PBKDF2 with a
+    fresh hex-encoded salt (length 32) when argon2-cffi is missing.
+
+    The encoded argon2 string starts with ``$argon2id$`` so
+    ``_verify_password`` can identify the hash family at verify time.
+    """
+    if _argon2 is None:
+        salt = secrets.token_hex(16)
+        return _hash_password(password, salt)
+    return _argon2.hash(password)
+
+
+def _is_argon2_hash(stored_hash: str) -> bool:
+    """Cheap discriminator. argon2 PHC strings always start with
+    ``$argon2`` — PBKDF2 hashes in this codebase are bare hex strings."""
+    return isinstance(stored_hash, str) and stored_hash.startswith("$argon2")
+
+
+def _verify_password(password: str, stored_hash: str, stored_salt: str) -> bool:
+    """Constant-time password verification with hash-format auto-detect.
+
+    - argon2id hashes (PHC string starting ``$argon2``): the salt is
+      embedded; ``stored_salt`` is ignored. argon2-cffi's verify is
+      already constant-time.
+    - PBKDF2 hashes (legacy): rederive with PBKDF2-SHA256 and the
+      stored hex salt, compare with secrets.compare_digest.
+
+    Returns True iff the password matches. Never raises on a wrong
+    password — only on a malformed hash, which we treat as "wrong"
+    rather than 500-ing.
+    """
+    if not stored_hash:
+        return False
+    if _is_argon2_hash(stored_hash):
+        if _argon2 is None:
+            # Hash exists but the library is gone — degrade safely.
+            return False
+        try:
+            _argon2.verify(stored_hash, password)
+            return True
+        except _Argon2Mismatch:
+            return False
+        except Exception:
+            return False
+    return secrets.compare_digest(
+        _hash_password(password, stored_salt), stored_hash
+    )
 
 
 def _get_or_create_jwt_secret() -> str:
@@ -171,8 +249,9 @@ def _create_default_admin(db):
         log.warning("[Auth] No DEFAULT_ADMIN_PASSWORD set; "
                     "temporary admin password written to stdout. "
                     "Change immediately after first login.")
+    # Phase 7.5f (audit Security H2): default admin uses argon2id.
     salt = secrets.token_hex(16)
-    pw_hash = _hash_password(default_pw, salt)
+    pw_hash = _hash_password_argon2(default_pw)
     now = time.time()
     user_id = db.user_create("admin", pw_hash, salt, "admin", now)
     db.user_settings_create(user_id, None, "[]", "en", now)
@@ -221,8 +300,13 @@ def register():
     if db.user_exists(username):
         return jsonify({"error": "Username already exists"}), 409
 
+    # Phase 7.5f (audit Security H2): new accounts are created with
+    # argon2id directly. The schema still keeps a `salt` column for
+    # backward compatibility with PBKDF2 rows; argon2id embeds its
+    # salt in the PHC string, so we just store an unused random salt
+    # to keep the column non-NULL.
     salt = secrets.token_hex(16)
-    pw_hash = _hash_password(password, salt)
+    pw_hash = _hash_password_argon2(password)
     now = time.time()
     user_id = db.user_create(username, pw_hash, salt, role, now)
     db.user_settings_create(user_id, None, "[]", "en", now)
@@ -249,15 +333,30 @@ def login():
         _record_login_attempt(ip)
         return jsonify({"error": "Invalid credentials"}), 401
 
-    if not secrets.compare_digest(
-        _hash_password(password, user["salt"]), user["password_hash"]
-    ):
+    if not _verify_password(password, user["password_hash"], user["salt"]):
         _record_login_attempt(ip)
         return jsonify({"error": "Invalid credentials"}), 401
 
     # Reset attempt count on success but keep the IP entry for tracking
     _login_attempts[ip] = []
     db.user_update_last_login(user["id"], time.time())
+
+    # Phase 7.5f (audit Security H2) — lazy rehash on successful login.
+    # If the stored hash is still PBKDF2-SHA256 100k, transparently
+    # upgrade it to argon2id. This means active users migrate over
+    # the next login cycle; idle accounts retain their PBKDF2 hash
+    # until they next log in (or are purged by a future idle-account
+    # policy). Failure here must never block a successful login —
+    # NP3 + the user has already authenticated successfully.
+    if not _is_argon2_hash(user["password_hash"]) and _argon2 is not None:
+        try:
+            new_hash = _hash_password_argon2(password)
+            new_salt = secrets.token_hex(16)  # unused for argon2 but keeps schema
+            db.user_update_password(user["id"], new_hash, new_salt)
+            log.info("[Auth] Lazy-rehashed user '%s' from PBKDF2 to argon2id", username)
+        except Exception as exc:
+            log.warning("[Auth] Lazy rehash failed for user '%s': %s",
+                        username, exc)
 
     from flask import current_app
     access_token = create_access_token(identity=username, additional_claims={"role": user["role"]})
@@ -425,8 +524,9 @@ def admin_reset_password(username):
     if not user:
         return jsonify({"error": "User not found"}), 404
 
+    # Phase 7.5f (audit Security H2): admin-driven resets emit argon2id.
     new_salt = secrets.token_hex(16)
-    new_hash = _hash_password(new_pw, new_salt)
+    new_hash = _hash_password_argon2(new_pw)
     # user_update_password sets invalidate_tokens_before, revoking all of the
     # target user's sessions.  The admin's own session is unaffected.
     db.user_update_password(user["id"], new_hash, new_salt)
@@ -451,13 +551,12 @@ def change_password():
     user = db.user_get(identity)
     if not user:
         return jsonify({"error": "User not found"}), 404
-    if not secrets.compare_digest(
-        _hash_password(old_pw, user["salt"]), user["password_hash"]
-    ):
+    if not _verify_password(old_pw, user["password_hash"], user["salt"]):
         return jsonify({"error": "Invalid current password"}), 401
 
+    # Phase 7.5f (audit Security H2): emit argon2id on every password change.
     new_salt = secrets.token_hex(16)
-    new_hash = _hash_password(new_pw, new_salt)
+    new_hash = _hash_password_argon2(new_pw)
     # user_update_password sets invalidate_tokens_before, which revokes all
     # existing sessions (access + refresh) for this user via the blocklist loader.
     db.user_update_password(user["id"], new_hash, new_salt)
