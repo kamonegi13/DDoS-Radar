@@ -2534,6 +2534,54 @@
                     chip.title = parts.join('\n');
                 }
             }
+
+            // FAULT chip (Phase 2 audit) — NP1-violating silent failures.
+            // Counts come from /api/v2/self_eval `silent_failures.np1_failure_count_lifetime`
+            // (focused_scoring + llm_intel_signals + bg_observer_drain +
+            //  auto_judge_override_trail) plus `attention_collection_errors`.
+            // The chip turns amber on the first failure ever recorded so a
+            // crashed scoring tick or dropped intel signal cannot hide.
+            const faultEl = document.getElementById('hud-fault-value');
+            if (faultEl) {
+                const sf = data.silent_failures || null;
+                const np1 = (sf && typeof sf.np1_failure_count_lifetime === 'number')
+                    ? sf.np1_failure_count_lifetime : null;
+                const attn = (typeof data.attention_collection_errors === 'number')
+                    ? data.attention_collection_errors : null;
+                if (np1 === null && attn === null) {
+                    faultEl.textContent = '—';
+                    _applySelfEvalClass('hud-fault-chip', 'na');
+                } else {
+                    const total = (np1 || 0) + (attn || 0);
+                    faultEl.textContent = String(total);
+                    const band = total === 0 ? 'good'
+                               : total < 10  ? 'warn' : 'crit';
+                    _applySelfEvalClass('hud-fault-chip', band);
+                    const chip = document.getElementById('hud-fault-chip');
+                    if (chip) {
+                        const lines = ['NP1-violating silent failures (lifetime)'];
+                        if (sf && sf.by_category) {
+                            const cats = Object.keys(sf.by_category).sort();
+                            const np1Set = new Set(sf.np1_categories || []);
+                            for (const c of cats) {
+                                if (!np1Set.has(c)) continue;
+                                const m = sf.by_category[c] || {};
+                                const fc = m.failure_count || 0;
+                                if (fc > 0) {
+                                    const last = m.last_failure_kind || '';
+                                    lines.push('  ' + c + ': ' + fc
+                                              + (last ? ' (' + last + ')' : ''));
+                                }
+                            }
+                        }
+                        if (attn !== null) {
+                            lines.push('  attention metric collection errors: ' + attn);
+                        }
+                        if (lines.length === 1) lines.push('  (no failures)');
+                        chip.title = lines.join('\n');
+                    }
+                }
+            }
         } catch (_) {
             // NP3 — leave previous chip values; the chip stays in the prior
             // band class so a transient network blip doesn't flicker the UI.

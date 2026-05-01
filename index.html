@@ -227,6 +227,19 @@
             <span class="hud-chip-label">DRIFT</span>
             <span id="hud-drift-value" class="hud-chip-value">—</span>
         </div>
+        <!-- Phase 2 (audit) — FAULT chip. Surfaces NP1-violating silent
+             failures (focused_scoring crash, llm_intel signal drop,
+             bg_observer drain failure, auto-judge override-trail loss)
+             counted by /api/v2/self_eval `silent_failures.np1_failure_count_lifetime`
+             plus the attention metric collection error counter. The
+             chip turns amber as soon as one failure is recorded so the
+             analyst can see "the engine has been silently dropping
+             signals" instead of having to read container logs. -->
+        <div class="hud-chip hud-self-eval" id="hud-fault-chip"
+             title="NP1-violating silent failures recorded by record_failure(). Green 0, amber ≥1, red ≥10. Click for the /api/v2/self_eval breakdown.">
+            <span class="hud-chip-label">FAULT</span>
+            <span id="hud-fault-value" class="hud-chip-value">—</span>
+        </div>
         <!-- ADR-V2-015 Phase 5: bg_observer health (BACKGROUND_ELIGIBLE).
              Shows matches/cycle avg in the value slot. Green ≤50% empty,
              amber ≤80% empty, red on alias_gap or 0 cycles. "OFF" when
