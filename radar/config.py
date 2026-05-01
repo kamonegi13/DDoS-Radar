@@ -526,13 +526,18 @@ BG_OBSERVER_ENABLED        = os.getenv("BG_OBSERVER_ENABLED", "false").lower() i
 BG_OBSERVER_INTERVAL_SEC   = int(os.getenv("BG_OBSERVER_INTERVAL_SEC", "300"))    # 5 min cycle
 BG_OBSERVER_SIGNAL_TTL_SEC = int(os.getenv("BG_OBSERVER_SIGNAL_TTL_SEC", "1800")) # signals age out after 30m
 BG_OBSERVER_MAX_QUEUE      = int(os.getenv("BG_OBSERVER_MAX_QUEUE", "200"))       # hard cap to bound memory
+# Phase 7.5h (audit Security L1) — every default feed must be HTTPS
+# so a network-path adversary cannot inject malicious RSS that flows
+# into the LLM analysis pipeline. The previous Xinhua entry used
+# plain HTTP; it has been removed from the default list. Operators
+# can re-add it (or any regional source) via the BG_OBSERVER_FEEDS
+# env var, but the default ships with TLS-only feeds.
 BG_OBSERVER_FEEDS          = [
     u.strip() for u in os.getenv(
         "BG_OBSERVER_FEEDS",
         "https://feeds.bbci.co.uk/news/world/rss.xml,"
         "https://www.aljazeera.com/xml/rss/all.xml,"
-        "https://apnews.com/rss/apf-topnews,"
-        "http://www.xinhuanet.com/english/rss/worldrss.xml",
+        "https://apnews.com/rss/apf-topnews",
     ).split(",") if u.strip()
 ]
 

@@ -46,6 +46,50 @@ _A4_THEATER_TABLES: tuple[str, ...] = (
 )
 
 
+def _migration_v40_schema_version_singleton(conn) -> None:
+    """Phase 7.5h (audit DB L1) — collapse schema_version into a single
+    row keyed by id=1.
+
+    Pre-fix the table accumulated one row per migration (39 rows at
+    v40 install time). Logically the table only ever describes "the
+    current schema version", so a singleton with INSERT OR REPLACE
+    semantics is the correct shape. Idempotent: detects whether the
+    `id` column already exists (fresh DBs created from the v7.5h+
+    baseline) and skips the rebuild.
+    """
+    cols = {r[1] for r in conn.execute(
+        "PRAGMA table_info(schema_version)"
+    ).fetchall()}
+    if "id" in cols:
+        return  # already migrated (fresh DB or re-run)
+    # Capture the highest applied version before rebuild so we can
+    # restore it as the single-row state.
+    row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+    current = int(row[0] or 0) if row else 0
+    last_at = conn.execute(
+        "SELECT migrated_at FROM schema_version WHERE version = ?",
+        (current,),
+    ).fetchone()
+    last_at = float(last_at[0]) if last_at and last_at[0] is not None else 0.0
+    conn.execute("ALTER TABLE schema_version RENAME TO schema_version_old_v39")
+    conn.execute("""
+        CREATE TABLE schema_version (
+            id          INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+            version     INTEGER NOT NULL,
+            migrated_at REAL NOT NULL
+        )
+    """)
+    # Use the v40 number itself rather than `current` because the
+    # migration engine will call set_schema_version(40) after this
+    # callable returns; pre-seeding with 40 keeps the row consistent
+    # in the failure window if the post-migration write loses.
+    conn.execute(
+        "INSERT INTO schema_version (id, version, migrated_at) VALUES (1, ?, ?)",
+        (max(current, 40), last_at or time.time()),
+    )
+    conn.execute("DROP TABLE schema_version_old_v39")
+
+
 def _migration_v37_decisions_revocation(conn) -> None:
     """Phase 5 (audit) — split revocation out of `superseded_by` so the FK
     constraint REFERENCES decisions(id) can be enforced.
@@ -273,7 +317,14 @@ PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA wal_autocheckpoint = 1000;
 
+-- Phase 7.5h (audit DB L1) — schema_version is logically a single
+-- "current schema" row. Pre-fix the table accumulated one row per
+-- applied migration, so MAX(version) was needed at every read and
+-- the table grew indefinitely. Fresh DBs ship with the single-row
+-- shape (id PK, CHECK constraint); upgraded DBs converge via
+-- migration v40.
 CREATE TABLE IF NOT EXISTS schema_version (
+    id          INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     version     INTEGER NOT NULL,
     migrated_at REAL NOT NULL
 );
@@ -1265,12 +1316,29 @@ class RadarDB:
             return 0
 
     def set_schema_version(self, ver: int):
+        # Phase 7.5h (audit DB L1) — runtime shape detection. Old DBs
+        # (pre-migration v40) have no `id` column and accumulate one
+        # row per migration; new DBs have a single-row PK with a
+        # CHECK(id = 1) constraint. We detect once per call (cheap)
+        # and emit the right INSERT shape so the migration engine
+        # works during the v40 transition itself.
         conn = self._get_conn()
+        cols = {r[1] for r in conn.execute(
+            "PRAGMA table_info(schema_version)"
+        ).fetchall()}
         with conn.writing():
-            conn.execute(
-                "INSERT INTO schema_version (version, migrated_at) VALUES (?, ?)",
-                (ver, time.time()),
-            )
+            if "id" in cols:
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_version "
+                    "(id, version, migrated_at) VALUES (1, ?, ?)",
+                    (ver, time.time()),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO schema_version (version, migrated_at) "
+                    "VALUES (?, ?)",
+                    (ver, time.time()),
+                )
 
     # ── Auto-migration engine ─────────────────────────────────────────────
     # Each entry: (version_number, description, sql_or_callable)
@@ -2269,6 +2337,9 @@ class RadarDB:
 
         (39, "scenario_tl_observation: composite index incl scoring_mode (DB H3)",
          _migration_v39_scenario_tl_obs_mode_index),
+
+        (40, "schema_version: collapse to singleton row (DB L1)",
+         _migration_v40_schema_version_singleton),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -4609,12 +4680,26 @@ class RadarDB:
 
     def _prune_stale_rows(self) -> dict:
         """Execute all time-based DELETE statements. Returns counts of deleted rows."""
+        import os as _os
         import time as _time
         conn = self._get_conn()
         now = _time.time()
         cutoff_30d = now - 30 * 86400
         cutoff_7d  = now - 7 * 86400
         cutoff_48h = now - 48 * 3600
+
+        # Phase 7.5h (audit Security L4) — revoked_tokens retention must
+        # cover the full lifetime of any token that could replay. The
+        # blocklist only matters until the token expires on its own; any
+        # row older than max(access_ttl, refresh_ttl) is dead weight, but
+        # any row younger than that MUST be kept or a revoked-but-not-
+        # yet-expired token would be re-accepted. Use the JWT refresh
+        # TTL (longest of the two) plus a 1h grace window.
+        try:
+            _refresh_ttl = int(_os.getenv("JWT_REFRESH_EXPIRES", "86400"))
+        except (TypeError, ValueError):
+            _refresh_ttl = 86400
+        cutoff_revoked = now - max(_refresh_ttl + 3600, 86400)
 
         deleted: dict[str, int] = {}
 
@@ -4624,7 +4709,10 @@ class RadarDB:
         deleted["sequence_events"] = cur.rowcount
         conn.commit()
 
-        cur = conn.execute("DELETE FROM revoked_tokens WHERE revoked_at < ?", (cutoff_7d,))
+        cur = conn.execute(
+            "DELETE FROM revoked_tokens WHERE revoked_at < ?",
+            (cutoff_revoked,),
+        )
         deleted["revoked_tokens"] = cur.rowcount
         conn.commit()
 
