@@ -195,16 +195,33 @@ def _infer_caller() -> str:
 
 def _log_call(caller: str, duration_ms: int, outcome: str,
               confidence: float = 0.0, headline: str = "", error: str = "",
-              prompt_sha256: str = ""):
+              prompt_sha256: str = "",
+              model: str = "",
+              use_case: str = "",
+              shadow_model_choice: str = "",
+              thinking_trace: str = ""):
     """Best-effort logging of an LLM call to llm_call_log.
     Verdict (auto_confirmed/pending/discarded_*) is recorded later by intel_queue.
-    prompt_sha256 links the call to the persisted llm_prompts row (ADR-V2-009)."""
+    prompt_sha256 links the call to the persisted llm_prompts row (ADR-V2-009).
+
+    Phase 8 (LLM survey v10):
+      - ``model``               : actual model that ran (defaults to LLM_MODEL
+                                  when caller didn't go through routing)
+      - ``use_case``            : routing bucket name (sensor_extract, verdict, …)
+      - ``shadow_model_choice`` : model v2 routing *would* have picked when in
+                                  SHADOW state; empty otherwise
+      - ``thinking_trace``      : reasoning text captured from <|think|> /
+                                  Reasoning: high modes; empty when thinking OFF
+    """
     try:
         from radar.database import db
         db.llm_call_log_append(
-            caller=caller, model=LLM_MODEL, duration_ms=duration_ms,
+            caller=caller, model=model or LLM_MODEL, duration_ms=duration_ms,
             outcome=outcome, verdict="", confidence=confidence,
             headline=headline, error=error, prompt_sha256=prompt_sha256,
+            use_case=use_case or None,
+            shadow_model_choice=shadow_model_choice or None,
+            thinking_trace=thinking_trace or None,
         )
     except Exception:
         pass  # never let observability break the main flow
@@ -310,9 +327,37 @@ def llm_available() -> bool:
         return False
 
 
+def _build_options(temperature: float, max_tokens: int,
+                   choice=None) -> dict:
+    """Merge caller-supplied (temperature, max_tokens) with the routing
+    choice's sampling parameters. Choice values win when present.
+    """
+    opts: dict = {"temperature": temperature, "num_predict": max_tokens}
+    if choice is None:
+        return opts
+    # Routing choice overrides sampling — verdict needs determinism, sensor
+    # follows Mistral's recommended low-temperature defaults, etc.
+    opts["temperature"] = choice.temperature
+    opts["num_predict"] = choice.num_predict or max_tokens
+    if choice.top_p and choice.top_p < 1.0:
+        opts["top_p"] = choice.top_p
+    if choice.top_k:
+        opts["top_k"] = choice.top_k
+    if choice.seed is not None:
+        opts["seed"] = choice.seed
+    if choice.repeat_penalty and choice.repeat_penalty != 1.0:
+        opts["repeat_penalty"] = choice.repeat_penalty
+    return opts
+
+
 def llm_analyze(prompt: str, system: str = "",
-                temperature: float = 0.1, max_tokens: int = 512) -> dict:
+                temperature: float = 0.1, max_tokens: int = 512,
+                use_case=None) -> dict:
     """Send a prompt to Ollama and return the response.
+
+    ``use_case`` (radar.llm_routing.UseCase, optional): when provided, the
+    Phase 8 routing layer picks the model + sampling. When None, falls back
+    to the legacy single-``LLM_MODEL`` path.
 
     Returns:
         {"ok": True,  "text": "<response text>"}
@@ -321,14 +366,25 @@ def llm_analyze(prompt: str, system: str = "",
     if not _global_llm_enabled():
         return {"ok": False, "text": "", "error": "LLM_ENABLED=false"}
 
+    # Resolve routing — never raises; falls through to legacy on failure.
+    try:
+        from radar.llm_routing import choose_model
+        routing = choose_model(use_case)
+        choice = routing.active
+    except Exception:
+        choice = None
+
+    model = choice.model if choice is not None else LLM_MODEL
+    eff_system = choice.merge_system(system) if choice is not None else system
+
     payload: dict = {
-        "model": LLM_MODEL,
+        "model": model,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": temperature, "num_predict": max_tokens},
+        "options": _build_options(temperature, max_tokens, choice),
     }
-    if system:
-        payload["system"] = system
+    if eff_system:
+        payload["system"] = eff_system
 
     try:
         res = requests.post(
@@ -357,13 +413,17 @@ def llm_analyze(prompt: str, system: str = "",
 
 def llm_analyze_json(prompt: str, system: str = "",
                      temperature: float = 0.1, max_tokens: int = 512,
-                     caller: str = "") -> dict:
+                     caller: str = "",
+                     use_case=None) -> dict:
     """Like llm_analyze but forces JSON output via Ollama format param and parses result.
 
     Logs every call to llm_call_log so operators can distinguish "sensor silent"
     from "LLM unreachable" from "parse failure" without trawling logs.
 
-    caller : optional explicit name for logging. Inferred from stack if empty.
+    caller   : optional explicit name for logging. Inferred from stack if empty.
+    use_case : :class:`radar.llm_routing.UseCase` — when set, the Phase 8 routing
+               layer picks model + sampling per the LLM survey v10 stack.
+               When None, falls back to the legacy single-``LLM_MODEL`` path.
 
     Returns:
         {"ok": True,  "data": {...}}
@@ -372,23 +432,45 @@ def llm_analyze_json(prompt: str, system: str = "",
     if not caller:
         caller = _infer_caller()
 
+    # Resolve routing first so logs always carry use_case + active model.
+    use_case_str = ""
+    shadow_model_choice = ""
+    choice = None
+    try:
+        from radar.llm_routing import choose_model
+        routing = choose_model(use_case)
+        choice = routing.active
+        if use_case is not None:
+            use_case_str = use_case.value if hasattr(use_case, "value") else str(use_case)
+        if routing.shadow_choice:
+            shadow_model_choice = routing.shadow_choice
+    except Exception:
+        choice = None
+
+    model = choice.model if choice is not None else LLM_MODEL
+
     if not _global_llm_enabled():
-        _log_call(caller, 0, "disabled", error="LLM_ENABLED=false")
+        _log_call(caller, 0, "disabled", error="LLM_ENABLED=false",
+                  model=model, use_case=use_case_str,
+                  shadow_model_choice=shadow_model_choice)
         return {"ok": False, "data": {}, "error": "LLM_ENABLED=false"}
 
+    eff_system = choice.merge_system(system) if choice is not None else system
+
     # v2.0 ADR-V2-009: persist (system, prompt) and capture sha256 for FK linking.
-    prompt_sha = _maybe_persist_prompt(prompt, system, temperature)
+    eff_temperature = choice.temperature if choice is not None else temperature
+    prompt_sha = _maybe_persist_prompt(prompt, eff_system, eff_temperature)
 
     # Use format="json" to force Ollama to output valid JSON regardless of model
     payload: dict = {
-        "model": LLM_MODEL,
+        "model": model,
         "prompt": prompt,
         "stream": False,
         "format": "json",
-        "options": {"temperature": temperature, "num_predict": max_tokens},
+        "options": _build_options(temperature, max_tokens, choice),
     }
-    if system:
-        payload["system"] = system
+    if eff_system:
+        payload["system"] = eff_system
 
     t0 = time.time()
     try:
@@ -403,22 +485,36 @@ def llm_analyze_json(prompt: str, system: str = "",
         if res.status_code != 200:
             log.warning(f"[LLM] HTTP {res.status_code}: {res.text[:200]}")
             _log_call(caller, duration_ms, "http_error",
-                      error=f"HTTP {res.status_code}", prompt_sha256=prompt_sha)
+                      error=f"HTTP {res.status_code}", prompt_sha256=prompt_sha,
+                      model=model, use_case=use_case_str,
+                      shadow_model_choice=shadow_model_choice)
             return {"ok": False, "data": {}, "error": f"HTTP {res.status_code}"}
         rj = res.json()
-        # Some models (e.g. Qwen3.5) put output in "thinking" field instead of "response"
+        # Some models put reasoning in the "thinking" field; capture both so the
+        # call log records the trace separately from the JSON response (NP6).
         text = rj.get("response", "").strip()
-        if not text:
-            text = rj.get("thinking", "").strip()
+        thinking_text = rj.get("thinking", "").strip()
+        if not text and thinking_text:
+            text = thinking_text
+            thinking_text = ""  # used as response, no separate trace
+        thinking_trace = thinking_text if (
+            choice is not None and choice.thinking_enabled
+        ) else ""
     except requests.Timeout:
         duration_ms = int((time.time() - t0) * 1000)
         log.warning("[LLM] JSON request timed out")
-        _log_call(caller, duration_ms, "timeout", error="timeout", prompt_sha256=prompt_sha)
+        _log_call(caller, duration_ms, "timeout", error="timeout",
+                  prompt_sha256=prompt_sha, model=model,
+                  use_case=use_case_str,
+                  shadow_model_choice=shadow_model_choice)
         return {"ok": False, "data": {}, "error": "timeout"}
     except Exception as e:
         duration_ms = int((time.time() - t0) * 1000)
         log.error(f"[LLM] JSON request error: {e}")
-        _log_call(caller, duration_ms, "exception", error=str(e), prompt_sha256=prompt_sha)
+        _log_call(caller, duration_ms, "exception", error=str(e),
+                  prompt_sha256=prompt_sha, model=model,
+                  use_case=use_case_str,
+                  shadow_model_choice=shadow_model_choice)
         return {"ok": False, "data": {}, "error": str(e)}
 
     # Strip markdown code fences if present
@@ -435,6 +531,9 @@ def llm_analyze_json(prompt: str, system: str = "",
             confidence=safe_float(data.get("confidence"), 0.0),
             headline=str(data.get("headline", ""))[:200],
             prompt_sha256=prompt_sha,
+            model=model, use_case=use_case_str,
+            shadow_model_choice=shadow_model_choice,
+            thinking_trace=thinking_trace,
         )
         return {"ok": True, "data": data}
     except json.JSONDecodeError:
@@ -449,11 +548,16 @@ def llm_analyze_json(prompt: str, system: str = "",
                     confidence=safe_float(data.get("confidence"), 0.0),
                     headline=str(data.get("headline", ""))[:200],
                     prompt_sha256=prompt_sha,
+                    model=model, use_case=use_case_str,
+                    shadow_model_choice=shadow_model_choice,
+                    thinking_trace=thinking_trace,
                 )
                 return {"ok": True, "data": data}
             except json.JSONDecodeError:
                 pass
         log.warning(f"[LLM] JSON parse failed: {text[:200]}")
         _log_call(caller, duration_ms, "parse_failed",
-                  error=text[:200], prompt_sha256=prompt_sha)
+                  error=text[:200], prompt_sha256=prompt_sha,
+                  model=model, use_case=use_case_str,
+                  shadow_model_choice=shadow_model_choice)
         return {"ok": False, "data": {}, "error": "json_parse_failed"}
