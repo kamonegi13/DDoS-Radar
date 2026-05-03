@@ -2472,6 +2472,171 @@
         el.classList.add('hud-self-eval-' + band);
     }
 
+    // ── Phase 8 (LLM survey v10) — MODEL chip + routing modal ───────────
+    // Polls /api/v2/llm_preflight (5min cadence) and renders N/M where N
+    // = primary models pulled locally, M = primary models the routing
+    // layer would pick. Click opens a modal listing every (use_case,
+    // slot) effective model so analysts can override at runtime via
+    // /api/v2/llm_routing/overrides.
+
+    let _modelChipLastFetchMs = 0;
+    const _MODEL_CHIP_TTL_MS = 5 * 60 * 1000;
+    let _modelPreflight = null;
+    let _modelEffective = null;
+
+    async function _refreshModelChip() {
+        const now = Date.now();
+        if (now - _modelChipLastFetchMs < _MODEL_CHIP_TTL_MS) return;
+        _modelChipLastFetchMs = now;
+        const valEl = document.getElementById('hud-model-value');
+        const chipEl = document.getElementById('hud-model-chip');
+        if (!valEl || !chipEl) return;
+        try {
+            const resp = await fetch('/api/v2/llm_preflight');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            _modelPreflight = data;
+            _modelEffective = Array.isArray(data.models) ? data.models : [];
+            const ollama = data.ollama || {};
+            const missing = Array.isArray(data.missing) ? data.missing : [];
+            const primaryCount = _modelEffective.filter(
+                e => e && e.slot === 'primary'
+            ).length;
+            const availableCount = primaryCount - missing.length;
+            if (!ollama.reachable) {
+                valEl.textContent = 'OFF';
+                _applySelfEvalClass('hud-model-chip', 'crit');
+            } else if (missing.length === 0 && primaryCount > 0) {
+                valEl.textContent = availableCount + '/' + primaryCount;
+                _applySelfEvalClass('hud-model-chip', 'good');
+            } else if (primaryCount === 0) {
+                valEl.textContent = '—';
+                _applySelfEvalClass('hud-model-chip', 'na');
+            } else {
+                valEl.textContent = availableCount + '/' + primaryCount;
+                _applySelfEvalClass('hud-model-chip', 'warn');
+            }
+            const tip = [
+                'LLM model routing (v10 5-model stack)',
+                '  ollama: ' + (ollama.reachable ? 'reachable' : 'offline'),
+                '  ollama version: ' + (ollama.version || '—')
+                  + (data.version_ok ? ' ✓' : ' (need ≥0.22.0)'),
+                '  primary models pulled: ' + availableCount + '/' + primaryCount,
+            ];
+            if (missing.length > 0) {
+                tip.push('  missing: ' + missing.join(', '));
+            }
+            tip.push('  click to open routing controls');
+            chipEl.title = tip.join('\n');
+        } catch (_) { /* NP3 — keep prior value on transient blip */ }
+    }
+
+    function _llmRoutingOpen() {
+        // Builds an in-page modal with the effective routing snapshot +
+        // override controls. Re-uses fetched preflight data when fresh,
+        // otherwise refreshes once before rendering.
+        const render = () => {
+            const eff = Array.isArray(_modelEffective) ? _modelEffective : [];
+            const pre = _modelPreflight || {};
+            const oll = pre.ollama || {};
+            const rows = eff.map(e => {
+                const avail = e.available
+                    ? '<span style="color:var(--color-good,#3a3)">✓</span>'
+                    : '<span style="color:var(--color-warning,#c80)">×</span>';
+                const fs = e.feature_state || '?';
+                const think = e.thinking_enabled ? 'think:on' : 'think:off';
+                const sp = e.system_prefix
+                    ? ' · prefix=' + _escHtml(e.system_prefix)
+                    : '';
+                return ''
+                    + '<tr>'
+                    + '<td>' + _escHtml(e.use_case) + '</td>'
+                    + '<td>' + _escHtml(e.slot) + '</td>'
+                    + '<td><code>' + _escHtml(e.model) + '</code> ' + avail + '</td>'
+                    + '<td>' + _escHtml(fs) + '</td>'
+                    + '<td>temp=' + e.temperature
+                          + ' · top_p=' + (e.top_p ?? '—')
+                          + ' · top_k=' + (e.top_k ?? '—')
+                          + ' · seed=' + (e.seed ?? '—')
+                          + ' · ' + think + sp
+                    + '</td>'
+                    + '</tr>';
+            }).join('');
+            const head = ''
+                + '<thead><tr>'
+                + '<th>use_case</th><th>slot</th><th>model</th>'
+                + '<th>feature</th><th>sampling</th>'
+                + '</tr></thead>';
+            const versionMsg = oll.version
+                ? 'Ollama ' + _escHtml(oll.version)
+                  + (pre.version_ok ? ' (≥0.22.0 OK)'
+                                    : ' — survey v10 requires ≥0.22.0')
+                : 'Ollama unreachable';
+            const goNoGo = pre.go_no_go
+                ? '<b style="color:var(--color-good,#3a3)">GO</b>'
+                : '<b style="color:var(--color-warning,#c80)">NO-GO</b>';
+            const missing = Array.isArray(pre.missing) && pre.missing.length
+                ? '<p>Missing primary models: <code>'
+                  + pre.missing.map(_escHtml).join('</code>, <code>')
+                  + '</code></p>'
+                : '';
+            const html = ''
+                + '<div class="modal-section">'
+                + '<p>' + versionMsg + ' · preflight: ' + goNoGo + '</p>'
+                + missing
+                + '<table class="rad-table">' + head
+                + '<tbody>' + rows + '</tbody></table>'
+                + '<p style="margin-top:1em;font-size:0.85em;opacity:0.7">'
+                + 'Routing follows DB override → env var → code default. '
+                + 'Use <code>POST /api/v2/llm_routing/overrides</code> '
+                + 'to change a (use_case, slot) at runtime.'
+                + '</p>'
+                + '</div>';
+            // Lightweight single-instance modal — destroyed on close so the
+            // chip refresh always re-renders fresh data.
+            const old = document.getElementById('llm-routing-modal-overlay');
+            if (old) old.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'llm-routing-modal-overlay';
+            overlay.style.cssText = ''
+                + 'position:fixed;inset:0;background:rgba(0,0,0,0.55);'
+                + 'z-index:7000;display:flex;align-items:center;'
+                + 'justify-content:center;';
+            overlay.addEventListener('click', e => {
+                if (e.target === overlay) overlay.remove();
+            });
+            const box = document.createElement('div');
+            box.className = 'llm-routing-modal';
+            box.style.cssText = ''
+                + 'background:var(--color-panel-bg,#101418);'
+                + 'color:var(--color-text,#dde);'
+                + 'border:1px solid var(--color-panel-border,#2a3138);'
+                + 'border-radius:6px;max-width:980px;width:90%;'
+                + 'max-height:85vh;overflow:auto;padding:20px;';
+            box.innerHTML = ''
+                + '<div style="display:flex;justify-content:space-between;'
+                + 'align-items:center;margin-bottom:12px;">'
+                + '<h3 style="margin:0">LLM Model Routing (v10)</h3>'
+                + '<button id="llm-routing-modal-close" style="'
+                + 'background:transparent;border:none;color:inherit;'
+                + 'font-size:1.4em;cursor:pointer;line-height:1">&times;</button>'
+                + '</div>' + html;
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            const closeBtn = document.getElementById('llm-routing-modal-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => overlay.remove());
+            }
+        };
+        if (!_modelEffective) {
+            _modelChipLastFetchMs = 0;
+            _refreshModelChip().then(render);
+        } else {
+            render();
+        }
+    }
+    window._llmRoutingOpen = _llmRoutingOpen;
+
     async function _refreshSelfEval() {
         const now = Date.now();
         if (now - _selfEvalLastFetchMs < _SELF_EVAL_TTL_MS) return;
@@ -2632,6 +2797,10 @@
         // so renderTelemetry calls during heavy polling are cheap).
         _refreshLlmChip();
         setInterval(_refreshLlmChip, 60 * 1000);
+        // Phase 8 — MODEL chip. 5min TTL is enforced inside the function
+        // so the setInterval cadence is just the upper bound.
+        _refreshModelChip();
+        setInterval(_refreshModelChip, 5 * 60 * 1000);
     });
 
     // ── Triage Lane / Alert Lane (AP1 — Active Triage) ──────────────────

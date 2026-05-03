@@ -267,6 +267,18 @@
             <span class="hud-chip-label" data-i18n="llm_features.chip.title">LLM</span>
             <span id="hud-llm-feat-value" class="hud-chip-value">—</span>
         </div>
+        <!-- Phase 8 (LLM survey v10) — model availability chip. Shows
+             N/M where N = primary models pulled locally, M = primary
+             models the routing layer would pick. Green = all available,
+             amber = at least one missing, red = ollama unreachable.
+             Click opens the model routing modal. -->
+        <div class="hud-chip hud-self-eval" id="hud-model-chip"
+             title="LLM model routing: primary-model availability across the v10 5-model stack. Click to open the routing modal."
+             onclick="window._llmRoutingOpen && window._llmRoutingOpen()"
+             style="cursor:pointer;">
+            <span class="hud-chip-label" data-i18n="llm_routing.chip.title">MODEL</span>
+            <span id="hud-model-value" class="hud-chip-value">—</span>
+        </div>
     </div>
 
 </div>
@@ -2884,6 +2896,13 @@
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/weight_advisory?hours=168&amp;threshold_pct=30</span> — <span style="color:#66ffcc;">[Scenario]</span> Per-participant static weight calibration advisory (P5/NP4/NP6/NP7). Compares each participant's configured share (Layer 2 weight) against the observed contribution share over the lookback window. Underperformers (utilization &lt; 1−threshold and configured_weight ≥ 0.30) are flagged <code>ADVISORY_REVIEW_NEEDED</code> with a human-readable reason; overperformers carry an informational <code>note: "overperforming"</code> with no flag. The system never auto-mutates weights — that remains an analyst decision via the scenario admin UI. Backed by the per-cycle <code>scenario_contribution_log</code> table.</li>
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/weight_advisory/timeseries?hours=168&amp;bucket_count=12</span> — <span style="color:#66ffcc;">[Scenario]</span> Time-series variant of <code>weight_advisory</code>. Splits the lookback window into <code>bucket_count</code> equal buckets (max 48) and reports per-bucket utilization per participant, enabling drift visualization and trend detection beyond the single aggregate snapshot. Backed by the same <code>scenario_contribution_log</code> table.</li>
             <li><span class="code-block">GET /api/analytics/shadow_drift?days=14&amp;noise_band_pct=10</span> — <span style="color:#66ffcc;">[Scenario]</span> Calibration drift detection from the shadow_sampler stream (ADR-025). Splits the lookback window in half and compares early vs recent (lite, full) score deltas per scenario. Returns <code>drift_direction</code> ∈ {<code>increasing</code>, <code>decreasing</code>, <code>stable</code>, <code>insufficient_data</code>} and <code>drift_magnitude_pct</code>. <code>noise_band_pct</code> sets the stable/drift boundary (1–100, default 10). NP5+8 (calibration regularity) instrumentation.</li>
+            <li><span class="code-block">GET /api/v2/llm_routing</span> — <span style="color:#aa88ff;">[Phase 8]</span> Effective routing snapshot for every (use_case, slot). Each entry includes the resolved <code>model</code>, sampling parameters, <code>thinking_enabled</code>, <code>system_prefix</code>, the <code>feature_state</code> from the Feature Hub, and a live <code>available</code> probe against <code>/api/tags</code>. Used by the MODEL chip on the HUD.</li>
+            <li><span class="code-block">GET /api/v2/llm_routing/overrides</span> — <span style="color:#aa88ff;">[Phase 8]</span> Current DB-backed routing overrides (Layer 3 in the override chain).</li>
+            <li><span class="code-block">POST /api/v2/llm_routing/overrides</span> — <span style="color:#aa88ff;">[Phase 8]</span> (Admin) Upsert one (use_case, slot) override. Body: <span class="code-block">{"use_case":"verdict","slot":"primary","model":"gemma4:31b","temperature":0.0,"thinking_enabled":false,"reason":"swap to 31b for higher quality"}</span>. Any field omitted inherits from env or code default. Every change is appended to <code>llm_routing_override_history</code>.</li>
+            <li><span class="code-block">DELETE /api/v2/llm_routing/overrides?use_case=X&amp;slot=primary</span> — <span style="color:#aa88ff;">[Phase 8]</span> (Admin) Clear an override row → reverts to env / code default.</li>
+            <li><span class="code-block">GET /api/v2/llm_routing/audit?hours=720&amp;limit=200</span> — <span style="color:#aa88ff;">[Phase 8]</span> Routing override change history (NP6).</li>
+            <li><span class="code-block">GET /api/v2/llm_preflight</span> — <span style="color:#aa88ff;">[Phase 8]</span> Self-diagnosis for the v10 5-model stack. Returns <code>ollama.{reachable,version}</code>, per-(use_case, slot) effective model + availability, embedding probe (<code>granite-embedding:278m</code>), and a <code>go_no_go</code> boolean (true iff Ollama ≥ 0.22.0 AND every PRIMARY model is locally pulled). Drives the HUD MODEL chip's amber/red bands.</li>
+            <li><span class="code-block">GET /api/v2/self_eval</span> — <span style="color:#aa88ff;">[Phase 8 ext]</span> AP3 self-evaluation now also includes <code>by_model</code> (per-model ok rate, parse_failed, avg_confidence, avg_duration_ms, auto_confirmed_rate), <code>by_use_case</code> (per-bucket rollup with primary_model), and <code>shadow_diff</code> (when a routing feature is in SHADOW state, the rate at which the legacy and v10 model picks were in the same family).</li>
         </ul>
         <p><b>Response Field Additions</b> <span style="color:#66ffcc;">[Engine Enhancement]</span></p>
         <ul style="font-size: 11px; line-height: 1.8;">
@@ -2992,6 +3011,13 @@
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/weight_advisory?hours=168&amp;threshold_pct=30</span> — <span style="color:#66ffcc;">[シナリオ]</span> participant 静的重みのキャリブレーション助言（P5/NP4/NP6/NP7）。各 participant の設定 share（Layer 2 重み）と観測 contribution share を期間内で比較し、過小寄与（utilization &lt; 1−threshold かつ configured_weight ≥ 0.30）を <code>ADVISORY_REVIEW_NEEDED</code> として人間可読な reason 付きでフラグする。過大寄与は <code>note: "overperforming"</code> の情報のみ（フラグ無し）。システムは重みを自動変更しない — それはアナリストが scenario admin UI で行う判断。サイクル毎の <code>scenario_contribution_log</code> テーブルに基づく。</li>
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/weight_advisory/timeseries?hours=168&amp;bucket_count=12</span> — <span style="color:#66ffcc;">[シナリオ]</span> <code>weight_advisory</code> の時系列版。期間を <code>bucket_count</code> 等分（最大48）に区切り、participant 毎のバケット別 utilization を返す。単一スナップショットでは見えない drift やトレンドの可視化に使用。同じ <code>scenario_contribution_log</code> テーブルに基づく。</li>
             <li><span class="code-block">GET /api/analytics/shadow_drift?days=14&amp;noise_band_pct=10</span> — <span style="color:#66ffcc;">[シナリオ]</span> shadow_sampler ストリーム（ADR-025）に基づく calibration drift 検出。期間を前半／後半に分割し、scenario 毎の (lite, full) スコア差の早期 vs 直近を比較。<code>drift_direction</code> ∈ {<code>increasing</code>, <code>decreasing</code>, <code>stable</code>, <code>insufficient_data</code>} と <code>drift_magnitude_pct</code> を返す。<code>noise_band_pct</code> は安定／drift 判定の境界（1–100、既定 10）。NP5+8（calibration 規律）の計装。</li>
+            <li><span class="code-block">GET /api/v2/llm_routing</span> — <span style="color:#aa88ff;">[Phase 8]</span> 全 (use_case, slot) 組み合わせの実効ルーティングスナップショット。解決後の <code>model</code>、サンプリングパラメータ、<code>thinking_enabled</code>、<code>system_prefix</code>、Feature Hub の <code>feature_state</code>、<code>/api/tags</code> による <code>available</code> プローブ結果を含む。HUD の MODEL chip が参照。</li>
+            <li><span class="code-block">GET /api/v2/llm_routing/overrides</span> — <span style="color:#aa88ff;">[Phase 8]</span> 現在の DB ベース ルーティングオーバーライド一覧（オーバーライドチェーンの Layer 3）。</li>
+            <li><span class="code-block">POST /api/v2/llm_routing/overrides</span> — <span style="color:#aa88ff;">[Phase 8]</span> (Admin) (use_case, slot) のオーバーライド upsert。ボディ例: <span class="code-block">{"use_case":"verdict","slot":"primary","model":"gemma4:31b","temperature":0.0,"thinking_enabled":false,"reason":"高品質化のため 31b に変更"}</span>。省略フィールドは env / コードデフォルトを継承。変更は <code>llm_routing_override_history</code> に追記。</li>
+            <li><span class="code-block">DELETE /api/v2/llm_routing/overrides?use_case=X&amp;slot=primary</span> — <span style="color:#aa88ff;">[Phase 8]</span> (Admin) オーバーライド行を削除 → env / コードデフォルトへ revert。</li>
+            <li><span class="code-block">GET /api/v2/llm_routing/audit?hours=720&amp;limit=200</span> — <span style="color:#aa88ff;">[Phase 8]</span> ルーティングオーバーライド変更履歴（NP6）。</li>
+            <li><span class="code-block">GET /api/v2/llm_preflight</span> — <span style="color:#aa88ff;">[Phase 8]</span> v10 5モデルスタックの自己診断。<code>ollama.{reachable,version}</code>、(use_case, slot) 別の実効モデル + 取得状況、embedding プローブ（<code>granite-embedding:278m</code>）、<code>go_no_go</code>（Ollama ≥ 0.22.0 かつ全 PRIMARY モデルが pull 済の時のみ true）を返す。HUD の MODEL chip の amber/red バンドを駆動。</li>
+            <li><span class="code-block">GET /api/v2/self_eval</span> — <span style="color:#aa88ff;">[Phase 8 拡張]</span> AP3 自己評価に <code>by_model</code>（モデル別 ok rate / parse_failed / avg_confidence / avg_duration_ms / auto_confirmed_rate）、<code>by_use_case</code>（バケット別ロールアップ + primary_model）、<code>shadow_diff</code>（routing feature が SHADOW 状態時、レガシーモデルと v10 候補が同じファミリーだった割合）を追加。</li>
         </ul>
         <p><b>レスポンスフィールド追加</b> <span style="color:#66ffcc;">[エンジン強化]</span></p>
         <ul style="font-size: 11px; line-height: 1.8;">
@@ -3184,6 +3210,34 @@
             <li><b>Audit (NP6)</b>: Every state flip records old_state, new_state, actor (<span class="code-block">admin:&lt;name&gt;</span> / <span class="code-block">analyst:&lt;name&gt;</span>), and optional reason. View via the History toggle or <span class="code-block">GET /api/v2/llm_features/audit?hours=720&amp;limit=200</span>.</li>
             <li><b>API</b>: <span class="code-block">GET /api/v2/llm_features</span>, <span class="code-block">GET /api/v2/llm_features/&lt;key&gt;</span>, <span class="code-block">POST /api/v2/llm_features/&lt;key&gt;/{set,clear}</span>, <span class="code-block">POST /api/v2/llm_features/kill_switch</span>, <span class="code-block">GET /api/v2/llm_features/audit</span>.</li>
             <li><b>HUD chip</b>: Row 3 right side shows <span class="code-block">LLM N/M</span> (N on / M total) with optional <span class="code-block">+Ks</span> shadow tail. Color: green = all on, amber = any shadow, red = kill switch engaged. Click opens the Hub.</li>
+        </ul>
+
+        <p><b>K.2 LLM Model Routing v10</b> — HUD <span class="code-block">MODEL</span> chip / <span class="code-block">/api/v2/llm_routing</span></p>
+        <ul>
+            <li><b>Purpose</b>: The 2026-05 LLM survey v10 replaces the single <span class="code-block">LLM_MODEL</span> env var with use-case-aware routing across the 5-model stack: <span class="code-block">mistral-small3.2:24b</span> (sensor primary, verdict secondary), <span class="code-block">gemma4:26b</span> (sensor secondary, verdict primary, narrative), <span class="code-block">gemma4:31b</span> (conclusion + ETL/discovery), <span class="code-block">gpt-oss-safeguard:20b</span> (ETL on-demand 2nd opinion), <span class="code-block">granite-embedding:278m</span> (dedupe).</li>
+            <li><b>Three-layer override chain</b> (highest priority first):
+                <ol style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>DB override</b> — analyst-set per (use_case, slot) row in <span class="code-block">llm_routing_override</span>. Set via <span class="code-block">POST /api/v2/llm_routing/overrides</span>.</li>
+                    <li><b>Env vars</b> — operator deployment knobs <span class="code-block">LLM_ROUTING_&lt;USECASE&gt;_PRIMARY_{MODEL,TEMP,TOP_P,TOP_K,SEED,NUM_PREDICT,REPEAT_PENALTY,THINK}</span> (and <span class="code-block">_SECONDARY_*</span>). USECASE ∈ {SENSOR, VERDICT, CONCLUSION, DISCOVERY, NARRATIVE}. See <span class="code-block">config.env.example</span> for the full surface.</li>
+                    <li><b>Code defaults</b> — survey v10 recommended ModelChoice in <span class="code-block">radar/llm_routing.py</span>.</li>
+                </ol>
+                Layers are applied per parameter, so an operator can override only the model and inherit the survey-recommended sampling, or vice versa.
+            </li>
+            <li><b>Feature Hub gating</b>: Each use_case is gated by a separate Feature Hub key so analysts can roll out the v10 stack in the survey-recommended order:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span class="code-block">model_routing_verdict</span> — roll out FIRST (re-runs verifiable)</li>
+                    <li><span class="code-block">model_routing_sensor</span></li>
+                    <li><span class="code-block">model_routing_etl</span></li>
+                    <li><span class="code-block">model_routing_conclusion</span> — roll out LAST (highest visibility regression risk)</li>
+                </ul>
+                All start at OFF (legacy <span class="code-block">LLM_MODEL</span>). Promote to SHADOW first to record what v10 would have picked without changing the live model, then to ON to apply v10 routing.
+            </li>
+            <li><b>HUD MODEL chip</b>: Row 3 shows <span class="code-block">MODEL N/M</span> (N primary models pulled / M expected). Green = all available, amber = at least one missing, red = Ollama unreachable, "OFF" = Ollama down. Click opens the routing modal listing every (use_case, slot), the resolved model, sampling, and Feature Hub state.</li>
+            <li><b>Preflight</b>: <span class="code-block">GET /api/v2/llm_preflight</span> returns <code>go_no_go</code> = true iff Ollama ≥ 0.22.0 (survey v10 prereq for MLX runtime + FA-fix) AND every PRIMARY model is locally pulled. Use this before promoting any routing feature to ON.</li>
+            <li><b>thinking trace</b>: When the resolved model has <code>thinking_enabled=true</code> (gemma4:31b conclusion / discovery via <span class="code-block">&lt;|think|&gt;</span> token, gpt-oss-safeguard via "Reasoning: high"), the reasoning text is captured in <span class="code-block">llm_call_log.thinking_trace</span> for NP6 audit.</li>
+            <li><b>Audit (NP6)</b>: Every override change appends to <span class="code-block">llm_routing_override_history</span> with old_json, new_json, changed_by (JWT identity), reason. View via <span class="code-block">GET /api/v2/llm_routing/audit</span>.</li>
+            <li><b>Per-model self_eval</b>: <span class="code-block">/api/v2/self_eval</span> now includes <code>by_model</code> (per-model ok rate, parse_failed, avg_confidence, latency, auto_confirmed_rate) and <code>by_use_case</code> (per-bucket rollup with primary_model). When a routing feature is in SHADOW, <code>shadow_diff</code> reports the rate at which the legacy and v10 model picks landed in the same family.</li>
+            <li><b>Embedding (granite-embedding:278m)</b>: Optional dedupe via <span class="code-block">embedding_dedupe</span> Feature Hub key (default OFF). Module: <span class="code-block">radar/llm_embedding.py</span>. Russian-source quality is degraded (the model card lists 12 languages but ru is not 1st-class) — measure during Phase 1 SHADOW before promoting to ON.</li>
         </ul>
 
         <p><b>L. CONTROLS Tools Hub</b> — hamburger menu → CONTROLS panel (Tools Hub embedded inline)</p>
@@ -3506,6 +3560,34 @@
             <li><b>監査（NP6）</b>: 全状態変更で old_state / new_state / 実行者（<span class="code-block">admin:&lt;name&gt;</span> / <span class="code-block">analyst:&lt;name&gt;</span>）/ 任意理由を記録。Hub の History トグル または <span class="code-block">GET /api/v2/llm_features/audit?hours=720&amp;limit=200</span> で確認。</li>
             <li><b>API</b>: <span class="code-block">GET /api/v2/llm_features</span>、<span class="code-block">GET /api/v2/llm_features/&lt;key&gt;</span>、<span class="code-block">POST /api/v2/llm_features/&lt;key&gt;/{set,clear}</span>、<span class="code-block">POST /api/v2/llm_features/kill_switch</span>、<span class="code-block">GET /api/v2/llm_features/audit</span>。</li>
             <li><b>HUD chip</b>: Row 3 右側に <span class="code-block">LLM N/M</span>（N 個 on / 計 M 個）形式で表示。shadow 件数は <span class="code-block">+Ks</span> として末尾追加。色: 緑=全 on、橙=shadow あり、赤=kill switch engaged。クリックで Hub を開く。</li>
+        </ul>
+
+        <p><b>K.2 LLM モデルルーティング v10</b> — HUD <span class="code-block">MODEL</span> chip / <span class="code-block">/api/v2/llm_routing</span></p>
+        <ul>
+            <li><b>目的</b>: 2026-05 LLM サーベイ v10 により、単一 <span class="code-block">LLM_MODEL</span> 環境変数を use_case ベースの 5 モデルルーティングに置換: <span class="code-block">mistral-small3.2:24b</span>（sensor 主、verdict 副）、<span class="code-block">gemma4:26b</span>（sensor 副、verdict 主、narrative）、<span class="code-block">gemma4:31b</span>（conclusion + ETL/discovery）、<span class="code-block">gpt-oss-safeguard:20b</span>（ETL on-demand 2nd opinion）、<span class="code-block">granite-embedding:278m</span>（dedupe）。</li>
+            <li><b>3 層オーバーライドチェーン</b>（優先順位降順）:
+                <ol style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>DB オーバーライド</b> — <span class="code-block">llm_routing_override</span> テーブルの (use_case, slot) 行。<span class="code-block">POST /api/v2/llm_routing/overrides</span> で設定。</li>
+                    <li><b>環境変数</b> — オペレータ deployment 設定 <span class="code-block">LLM_ROUTING_&lt;USECASE&gt;_PRIMARY_{MODEL,TEMP,TOP_P,TOP_K,SEED,NUM_PREDICT,REPEAT_PENALTY,THINK}</span>（および <span class="code-block">_SECONDARY_*</span>）。USECASE ∈ {SENSOR, VERDICT, CONCLUSION, DISCOVERY, NARRATIVE}。完全な surface は <span class="code-block">config.env.example</span> 参照。</li>
+                    <li><b>コードデフォルト</b> — <span class="code-block">radar/llm_routing.py</span> のサーベイ v10 推奨値。</li>
+                </ol>
+                各パラメータごとに layer が独立適用されるので、モデル名だけ override してサンプリングは推奨値を継承、といった使い方も可能。
+            </li>
+            <li><b>Feature Hub ゲート</b>: use_case ごとに別の Feature Hub key で制御するので、サーベイ推奨順序での段階的ロールアウトが可能:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span class="code-block">model_routing_verdict</span> — 最初（再現性が見やすい）</li>
+                    <li><span class="code-block">model_routing_sensor</span></li>
+                    <li><span class="code-block">model_routing_etl</span></li>
+                    <li><span class="code-block">model_routing_conclusion</span> — 最後（回帰インパクト最大）</li>
+                </ul>
+                既定は全 OFF（レガシー <span class="code-block">LLM_MODEL</span> 使用）。先に SHADOW で「v10 が選ぶはずだったモデル」を非破壊で記録し、検証後に ON で実切替。
+            </li>
+            <li><b>HUD MODEL chip</b>: Row 3 に <span class="code-block">MODEL N/M</span>（N 個取得済 / M 個必要）形式で表示。緑=全取得済、橙=1 個以上未取得、赤=Ollama 不通、"OFF"=Ollama down。クリックでルーティングモーダルを開き、(use_case, slot) ごとの解決モデル / サンプリング / Feature Hub state を一覧表示。</li>
+            <li><b>Preflight</b>: <span class="code-block">GET /api/v2/llm_preflight</span> は Ollama ≥ 0.22.0（サーベイ v10 が要求する MLX runtime + FA-fix の前提）かつ全 PRIMARY モデルが pull 済の時のみ <code>go_no_go</code> = true を返す。routing feature を ON に promote する前にこれで確認。</li>
+            <li><b>thinking trace</b>: 解決モデルが <code>thinking_enabled=true</code>（gemma4:31b の <span class="code-block">&lt;|think|&gt;</span> token、gpt-oss-safeguard の "Reasoning: high"）の時、reasoning テキストを <span class="code-block">llm_call_log.thinking_trace</span> に記録（NP6 監査）。</li>
+            <li><b>監査（NP6）</b>: 全 override 変更を <span class="code-block">llm_routing_override_history</span> に old_json, new_json, changed_by（JWT identity）, reason を append。<span class="code-block">GET /api/v2/llm_routing/audit</span> で確認。</li>
+            <li><b>モデル別 self_eval</b>: <span class="code-block">/api/v2/self_eval</span> に <code>by_model</code>（モデル別 ok rate / parse_failed / avg_confidence / latency / auto_confirmed_rate）と <code>by_use_case</code>（バケット別ロールアップ + primary_model）を追加。SHADOW 状態時は <code>shadow_diff</code> でレガシーと v10 候補が同じモデルファミリーだった割合を返す。</li>
+            <li><b>Embedding（granite-embedding:278m）</b>: <span class="code-block">embedding_dedupe</span> Feature Hub key で制御（既定 OFF）。モジュール: <span class="code-block">radar/llm_embedding.py</span>。ロシア語ソースの精度は劣る（model card は 12 言語サポートだが ru は 1st-class でない）— Phase 1 SHADOW で計測してから ON 化。</li>
         </ul>
 
         <p><b>L. CONTROLS Tools Hub</b> — ハンバーガーメニュー → CONTROLS パネル（Tools Hub をパネル内に埋込み）</p>

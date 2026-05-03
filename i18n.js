@@ -1808,6 +1808,9 @@ const STRINGS = {
     'llm_features.disclaimer':         'Tool conclusion only — final judgment by organizational process. State changes are recorded in the audit log (NP6).',
     'llm_features.chip.title':         'LLM',
     'llm_features.chip.tip':           'LLM features active. Click to manage.',
+    // Phase 8 (LLM survey v10) — model routing chip.
+    'llm_routing.chip.title':          'MODEL',
+    'llm_routing.chip.tip':            'LLM model routing — primary-model availability across the v10 stack.',
 
     // ══════════════════════════════════════════════════════════════
     // CONTROLS Tools Hub redesign (commits L–P, 2026-04-29)
