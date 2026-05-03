@@ -90,6 +90,96 @@ def _migration_v40_schema_version_singleton(conn) -> None:
     conn.execute("DROP TABLE schema_version_old_v39")
 
 
+def _migration_v42_llm_routing_overrides(conn) -> None:
+    """Phase 8 (LLM survey v10) — analyst-driven routing overrides.
+
+    Two tables, mirroring the Feature Hub pattern (commit G):
+
+      llm_routing_override          one row per (use_case, slot)
+      llm_routing_override_history  append-only audit ledger
+
+    Columns are NULLABLE so an analyst can override only the model
+    while inheriting sampling from the env / code default. The hot-path
+    resolver in radar.llm_routing._apply_db_layer walks every column and
+    picks the row's value only when non-NULL.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_routing_override (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            use_case          TEXT NOT NULL,
+            slot              TEXT NOT NULL,
+            model             TEXT,
+            temperature       REAL,
+            top_p             REAL,
+            top_k             INTEGER,
+            seed              INTEGER,
+            num_predict       INTEGER,
+            repeat_penalty    REAL,
+            thinking_enabled  INTEGER,
+            set_at            REAL NOT NULL,
+            set_by            TEXT NOT NULL,
+            reason            TEXT,
+            UNIQUE (use_case, slot)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_routing_override_history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            use_case    TEXT NOT NULL,
+            slot        TEXT NOT NULL,
+            old_json    TEXT,
+            new_json    TEXT,
+            changed_at  REAL NOT NULL,
+            changed_by  TEXT NOT NULL,
+            reason      TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_routing_override_hist_ts "
+        "ON llm_routing_override_history (changed_at DESC)"
+    )
+
+
+def _migration_v41_llm_routing_v10(conn) -> None:
+    """Phase 8 (LLM survey v10) — capture per-call thinking trace, the
+    routing use-case bucket, and the model that v2 routing *would* have
+    chosen when the feature is in SHADOW state.
+
+    Adds three columns to ``llm_call_log``:
+
+      - ``thinking_trace``      : reasoning text from <|think|> token
+                                  (Gemma 4) or "Reasoning: high" (gpt-oss).
+                                  NULL when thinking was OFF.
+      - ``use_case``            : routing bucket (sensor_extract, verdict,
+                                  conclusion, discovery, narrative). NULL
+                                  for pre-Phase-8 rows + callers that
+                                  didn't go through the routing layer.
+      - ``shadow_model_choice`` : when model_routing_*=SHADOW, the model
+                                  v10 routing would have picked but did
+                                  not actually run.
+
+    Plus an index on (use_case, ts) so the per-use-case AP3 self_eval
+    rollups don't trigger a full table scan.
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(llm_call_log)").fetchall()}
+    if "thinking_trace" not in cols:
+        conn.execute("ALTER TABLE llm_call_log ADD COLUMN thinking_trace TEXT")
+    if "use_case" not in cols:
+        conn.execute("ALTER TABLE llm_call_log ADD COLUMN use_case TEXT")
+    if "shadow_model_choice" not in cols:
+        conn.execute(
+            "ALTER TABLE llm_call_log ADD COLUMN shadow_model_choice TEXT"
+        )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_call_log_usecase_ts "
+        "ON llm_call_log (use_case, ts)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_call_log_model_ts "
+        "ON llm_call_log (model, ts)"
+    )
+
+
 def _migration_v37_decisions_revocation(conn) -> None:
     """Phase 5 (audit) — split revocation out of `superseded_by` so the FK
     constraint REFERENCES decisions(id) can be enforced.
@@ -480,10 +570,51 @@ CREATE TABLE IF NOT EXISTS llm_call_log (
     headline        TEXT DEFAULT '',
     error           TEXT DEFAULT '',
     -- v2.0 ADR-V2-009: FK to llm_prompts.prompt_sha256 (NP6 disclosure).
-    prompt_sha256   TEXT
+    prompt_sha256   TEXT,
+    -- Phase 8 (LLM survey v10) — routing telemetry. Migration v41 adds
+    -- these via ALTER for upgraded DBs; the inline schema mirrors the
+    -- ALTER so fresh DBs (which skip migrations) get them up-front.
+    use_case            TEXT,
+    shadow_model_choice TEXT,
+    thinking_trace      TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_llm_call_log_ts     ON llm_call_log (ts);
-CREATE INDEX IF NOT EXISTS idx_llm_call_log_caller ON llm_call_log (caller, ts);
+CREATE INDEX IF NOT EXISTS idx_llm_call_log_ts          ON llm_call_log (ts);
+CREATE INDEX IF NOT EXISTS idx_llm_call_log_caller      ON llm_call_log (caller, ts);
+-- Phase 8 indexes (use_case, model) are created in _post_baseline_indexes()
+-- so they apply AFTER migration v41 has added the columns on upgraded DBs.
+
+-- Phase 8 (LLM survey v10) — analyst-driven routing overrides. Mirrored
+-- by migration v42 ALTERs for upgraded DBs; this inline form covers fresh
+-- DBs (which skip migrations).
+CREATE TABLE IF NOT EXISTS llm_routing_override (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    use_case          TEXT NOT NULL,
+    slot              TEXT NOT NULL,
+    model             TEXT,
+    temperature       REAL,
+    top_p             REAL,
+    top_k             INTEGER,
+    seed              INTEGER,
+    num_predict       INTEGER,
+    repeat_penalty    REAL,
+    thinking_enabled  INTEGER,
+    set_at            REAL NOT NULL,
+    set_by            TEXT NOT NULL,
+    reason            TEXT,
+    UNIQUE (use_case, slot)
+);
+CREATE TABLE IF NOT EXISTS llm_routing_override_history (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    use_case    TEXT NOT NULL,
+    slot        TEXT NOT NULL,
+    old_json    TEXT,
+    new_json    TEXT,
+    changed_at  REAL NOT NULL,
+    changed_by  TEXT NOT NULL,
+    reason      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_routing_override_hist_ts
+    ON llm_routing_override_history (changed_at DESC);
 
 -- v2.0 ADR-V2-009: sha256-deduplicated LLM prompt store.
 -- Every llm_client invocation persists its prompt here; llm_call_log.prompt_sha256
@@ -1284,6 +1415,23 @@ class RadarDB:
             conn.commit()
         except sqlite3.OperationalError as e:
             log.warning("[DB] threat_history index skipped: %s", e)
+
+        # Phase 8 (LLM survey v10) — llm_call_log.use_case + .model indexes.
+        # These columns are added by migration v41 on upgraded DBs and by
+        # the inline schema on fresh DBs; the indexes are deferred here so
+        # both paths converge. Idempotent.
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_llm_call_log_usecase_ts "
+                "ON llm_call_log (use_case, ts)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_llm_call_log_model_ts "
+                "ON llm_call_log (model, ts)"
+            )
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            log.warning("[DB] llm_call_log Phase 8 indexes skipped: %s", e)
 
         # ADR-V2-006 A-4: ensure `country` generated column exists on every
         # table that carries `theater`, regardless of whether this DB was
@@ -2340,6 +2488,12 @@ class RadarDB:
 
         (40, "schema_version: collapse to singleton row (DB L1)",
          _migration_v40_schema_version_singleton),
+
+        (41, "llm_call_log: thinking_trace + use_case + shadow_model_choice (Phase 8 LLM survey v10)",
+         _migration_v41_llm_routing_v10),
+
+        (42, "llm_routing_override + history (Phase 8 analyst override surface)",
+         _migration_v42_llm_routing_overrides),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -4049,22 +4203,37 @@ class RadarDB:
     def llm_call_log_append(self, caller: str, model: str, duration_ms: int,
                             outcome: str, verdict: str = "",
                             confidence: float = 0.0, headline: str = "",
-                            error: str = "", prompt_sha256: str = ""):
+                            error: str = "", prompt_sha256: str = "",
+                            use_case: "str | None" = None,
+                            shadow_model_choice: "str | None" = None,
+                            thinking_trace: "str | None" = None):
         """Persist a single LLM call attempt and its downstream queue verdict.
 
-        prompt_sha256: optional FK to llm_prompts (ADR-V2-009). Empty string
-        when prompt persistence is disabled or persistence failed.
+        prompt_sha256        : optional FK to llm_prompts (ADR-V2-009). Empty
+                               string when prompt persistence is disabled.
+        use_case             : Phase 8 routing bucket. None for legacy callers.
+        shadow_model_choice  : when v10 routing is in SHADOW state, the model
+                               that would have been picked. None otherwise.
+        thinking_trace       : reasoning text captured from <|think|> /
+                               Reasoning: high modes. None when thinking OFF.
         """
         import time as _time
         conn = self._get_conn()
+        # Capped at generous bounds so a runaway model can't blow the row.
+        trace = (thinking_trace or "")[:4000] or None
+        sm_choice = (shadow_model_choice or "")[:80] or None
+        uc = (use_case or "")[:32] or None
         with conn.writing():
             conn.execute(
                 "INSERT INTO llm_call_log "
-                "(ts, caller, model, duration_ms, outcome, verdict, confidence, headline, error, prompt_sha256) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(ts, caller, model, duration_ms, outcome, verdict, "
+                " confidence, headline, error, prompt_sha256, "
+                " use_case, shadow_model_choice, thinking_trace) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (_time.time(), caller, model[:80], duration_ms, outcome,
-                 verdict, float(confidence), (headline or "")[:200], (error or "")[:300],
-                 prompt_sha256 or None),
+                 verdict, float(confidence), (headline or "")[:200],
+                 (error or "")[:300], prompt_sha256 or None,
+                 uc, sm_choice, trace),
             )
 
     def auto_judge_decision_log(self, item_id: str, action_proposed: str,
@@ -4248,6 +4417,155 @@ class RadarDB:
             "per_caller": per_caller,
             "sensor_filter_breakdown": sensor_filter_breakdown,
             "lifecycle": lifecycle,
+        }
+
+    def llm_routing_stats(self, hours: int = 24) -> dict:
+        """Phase 8 (LLM survey v10) — per-model + per-use_case rollups.
+
+        Conclusion-level recall isn't directly attributable to a single LLM
+        model (calls feed deterministic scoring), so this surfaces the
+        operational metrics that *are* per-model:
+
+          - call counts, ok / parse_failed / timeout / http_error rates
+          - avg confidence (proxy for model self-assessed signal strength)
+          - avg duration_ms (latency)
+          - auto_confirmed share of verdicts (proxy for analyst-acceptable
+            output)
+          - shadow agreement: fraction of SHADOW rows where the active
+            (legacy) model and the v10 candidate would have been the same
+            family (gemma vs mistral vs gpt-oss).
+
+        AP3 reads this to render per-model trust chips.
+        """
+        import time as _time
+        cutoff = _time.time() - hours * 3600
+        conn = self._get_conn()
+
+        # Per-model aggregates.
+        model_rows = conn.execute(
+            "SELECT model, "
+            "       COUNT(*) AS total, "
+            "       SUM(CASE WHEN outcome='ok' THEN 1 ELSE 0 END) AS ok, "
+            "       SUM(CASE WHEN outcome='parse_failed' THEN 1 ELSE 0 END) AS parse_failed, "
+            "       SUM(CASE WHEN outcome='timeout' THEN 1 ELSE 0 END) AS timeout_, "
+            "       SUM(CASE WHEN outcome='http_error' THEN 1 ELSE 0 END) AS http_error, "
+            "       SUM(CASE WHEN outcome='exception' THEN 1 ELSE 0 END) AS exception_, "
+            "       SUM(CASE WHEN verdict='auto_confirmed' THEN 1 ELSE 0 END) AS auto_confirmed, "
+            "       AVG(CASE WHEN outcome='ok' THEN duration_ms END) AS avg_ms, "
+            "       AVG(CASE WHEN outcome='ok' THEN confidence END) AS avg_conf "
+            "FROM llm_call_log "
+            "WHERE ts>=? AND model<>'' "
+            "GROUP BY model ORDER BY total DESC",
+            (cutoff,),
+        ).fetchall()
+        # Map model → use_cases observed (so the chip can show what bucket
+        # this model was used for).
+        usecase_rows = conn.execute(
+            "SELECT model, use_case FROM llm_call_log "
+            "WHERE ts>=? AND model<>'' AND use_case IS NOT NULL "
+            "GROUP BY model, use_case",
+            (cutoff,),
+        ).fetchall()
+        model_to_usecases: dict[str, list[str]] = {}
+        for r in usecase_rows:
+            model_to_usecases.setdefault(r[0], []).append(r[1])
+        by_model: dict[str, dict] = {}
+        for r in model_rows:
+            total = r[1] or 0
+            ok = r[2] or 0
+            by_model[r[0]] = {
+                "n": total,
+                "ok_rate": round(ok / total, 3) if total else None,
+                "parse_failed": r[3] or 0,
+                "timeout": r[4] or 0,
+                "http_error": r[5] or 0,
+                "exception": r[6] or 0,
+                "auto_confirmed_rate": (
+                    round((r[7] or 0) / ok, 3) if ok else None
+                ),
+                "avg_duration_ms": round(r[8]) if r[8] else 0,
+                "avg_confidence": round(r[9], 3) if r[9] else None,
+                "use_cases": sorted(model_to_usecases.get(r[0], [])),
+            }
+
+        # Per-use_case aggregates (cuts across models, useful when v10 is
+        # SHADOW so v1 model dominates calls but use_case routing is recorded).
+        uc_rows = conn.execute(
+            "SELECT use_case, "
+            "       COUNT(*) AS total, "
+            "       SUM(CASE WHEN outcome='ok' THEN 1 ELSE 0 END) AS ok, "
+            "       SUM(CASE WHEN verdict='auto_confirmed' THEN 1 ELSE 0 END) AS auto_confirmed, "
+            "       AVG(CASE WHEN outcome='ok' THEN confidence END) AS avg_conf "
+            "FROM llm_call_log "
+            "WHERE ts>=? AND use_case IS NOT NULL "
+            "GROUP BY use_case ORDER BY total DESC",
+            (cutoff,),
+        ).fetchall()
+        # For each use_case find the most-used model (effective primary).
+        uc_primary_rows = conn.execute(
+            "SELECT use_case, model, COUNT(*) AS n FROM llm_call_log "
+            "WHERE ts>=? AND use_case IS NOT NULL AND model<>'' "
+            "GROUP BY use_case, model",
+            (cutoff,),
+        ).fetchall()
+        uc_primary: dict[str, tuple[str, int]] = {}
+        for r in uc_primary_rows:
+            uc, model_name, n = r[0], r[1], r[2]
+            cur = uc_primary.get(uc)
+            if cur is None or n > cur[1]:
+                uc_primary[uc] = (model_name, n)
+        by_use_case: dict[str, dict] = {}
+        for r in uc_rows:
+            total = r[1] or 0
+            ok = r[2] or 0
+            primary = uc_primary.get(r[0], (None, 0))[0]
+            by_use_case[r[0]] = {
+                "n": total,
+                "ok_rate": round(ok / total, 3) if total else None,
+                "auto_confirmed_rate": (
+                    round((r[3] or 0) / ok, 3) if ok else None
+                ),
+                "avg_confidence": round(r[4], 3) if r[4] else None,
+                "primary_model": primary,
+            }
+
+        # Shadow agreement — for rows where shadow_model_choice is set
+        # (v10 is in SHADOW for that use_case), how often did the active
+        # legacy model belong to the same model-family as the v10 pick?
+        shadow_rows = conn.execute(
+            "SELECT use_case, model, shadow_model_choice "
+            "FROM llm_call_log "
+            "WHERE ts>=? AND shadow_model_choice IS NOT NULL "
+            "  AND use_case IS NOT NULL",
+            (cutoff,),
+        ).fetchall()
+        shadow_agg: dict[str, dict] = {}
+        for r in shadow_rows:
+            uc = r[0]
+            v1 = (r[1] or "").split(":", 1)[0]
+            v2 = (r[2] or "").split(":", 1)[0]
+            entry = shadow_agg.setdefault(
+                uc, {"n": 0, "same_family": 0, "v2_model": r[2]},
+            )
+            entry["n"] += 1
+            if v1 and v2 and v1 == v2:
+                entry["same_family"] += 1
+        shadow_diff: dict[str, dict] = {}
+        for uc, agg in shadow_agg.items():
+            n = agg["n"]
+            shadow_diff[uc] = {
+                "n": n,
+                "same_family_rate": (
+                    round(agg["same_family"] / n, 3) if n else None
+                ),
+                "v2_model": agg["v2_model"],
+            }
+
+        return {
+            "window_hours": hours,
+            "by_model": by_model,
+            "by_use_case": by_use_case,
+            "shadow_diff": shadow_diff,
         }
 
     # ── CT Log per-domain known-CA history (ADR-024) ──────────────────────
