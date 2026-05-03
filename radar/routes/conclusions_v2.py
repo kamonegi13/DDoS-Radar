@@ -702,6 +702,25 @@ def v2_self_eval():
         out["attention_collection_errors"] = None
         out["attention_error"] = str(e)
 
+    # Phase 8 (LLM survey v10) — per-model + per-use_case operational
+    # metrics. Conclusion-level recall is overall-only because a single
+    # conclusion can be informed by multiple LLM calls; the per-model
+    # rollup surfaces operational quality (ok rate, latency, confidence,
+    # auto_confirmed share) which is the meaningful AP3 signal once the
+    # 5-model stack is rolled out. Falls back to empty dicts on any
+    # failure so the chip can render "—" without breaking the response.
+    try:
+        from radar.database import db as _shared_db
+        routing = _shared_db.llm_routing_stats(hours=24)
+        out["by_model"] = routing.get("by_model", {})
+        out["by_use_case"] = routing.get("by_use_case", {})
+        out["shadow_diff"] = routing.get("shadow_diff", {})
+    except Exception as e:  # noqa: BLE001
+        out["by_model"] = {}
+        out["by_use_case"] = {}
+        out["shadow_diff"] = {}
+        out["routing_error"] = str(e)
+
     return jsonify(out)
 
 
