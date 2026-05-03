@@ -465,7 +465,9 @@ class DiplomaticSensor(BaseSensor):
                     "- <0.40: Routine statement, no escalation signal — set escalation_signal=false, theater=null"
                 )
 
-                result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
+                from radar.llm_routing import UseCase
+                result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256,
+                                          use_case=UseCase.SENSOR_EXTRACT)
 
                 if not result["ok"]:
                     log.debug(f"[Diplomatic] LLM parse failed {source_name}: {result.get('error')}")

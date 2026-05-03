@@ -217,7 +217,9 @@ class GroundOsintSensor(BaseSensor):
                 "an ongoing or just-launched attack. Do not factor in sensor data from the context header."
             )
 
-            result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256)
+            from radar.llm_routing import UseCase
+            result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=256,
+                                      use_case=UseCase.SENSOR_EXTRACT)
 
             if not result["ok"]:
                 log.debug(f"[GroundOsint] LLM parse failed for {channel}: {result.get('error')}")

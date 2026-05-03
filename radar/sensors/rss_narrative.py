@@ -405,7 +405,9 @@ class RssNarrativeSensor(BaseSensor):
             "- <0.55: Routine burst, no new trigger — set escalation_signal=false"
         )
 
-        result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=512)
+        from radar.llm_routing import UseCase
+        result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=512,
+                                  use_case=UseCase.SENSOR_EXTRACT)
 
         if not result["ok"]:
             return 0

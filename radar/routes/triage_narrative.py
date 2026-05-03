@@ -137,12 +137,14 @@ def v2_triage_narrate():
         if not isinstance(item, dict) or "id" not in item:
             continue
         prompt = _build_prompt(item)
+        from radar.llm_routing import UseCase
         result = llm_analyze_json(
             system=_SYSTEM_PROMPT,
             prompt=prompt,
             temperature=0.2,
             max_tokens=180,
             caller=_CALLER,
+            use_case=UseCase.NARRATIVE,
         )
         if not result.get("ok"):
             out.append({

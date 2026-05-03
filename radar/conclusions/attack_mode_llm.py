@@ -140,12 +140,14 @@ def augment_attack_mode_with_llm(
         ranked_modes=ranked,
     )
 
+    from radar.llm_routing import UseCase
     result = llm_analyze_json(
         prompt=user_prompt,
         system=_SYSTEM_PROMPT,
         temperature=0.1,
         max_tokens=384,
         caller="attack_mode_llm_augment",
+        use_case=UseCase.CONCLUSION,
     )
     if not result.get("ok"):
         # NP3: rule row still gets written by caller. Mark the augmentation

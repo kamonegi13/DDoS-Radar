@@ -279,7 +279,9 @@ class CorroborationEngine:
             "If same_event=false, still return the JSON but set confidence<0.55."
         )
 
-        result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=300)
+        from radar.llm_routing import UseCase
+        result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=300,
+                                  use_case=UseCase.VERDICT)
         if not result["ok"]:
             log.debug(f"[Corroboration] LLM parse failed for {theater}: {result.get('error')}")
             return None

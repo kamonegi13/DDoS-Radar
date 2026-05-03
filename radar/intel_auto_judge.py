@@ -436,10 +436,12 @@ def _llm_recheck(item: dict, *, deterministic_pending: AutoJudgeVerdict,
         "Return PENDING if uncertain — that is the safe default."
     )
     try:
+        from radar.llm_routing import UseCase
         resp = llm_analyze_json(
             prompt, system=_LLM_RECHECK_SYSTEM,
             temperature=0.0, max_tokens=200,
             caller="intel_auto_judge.recheck",
+            use_case=UseCase.VERDICT,
         )
     except Exception as exc:
         log.debug("auto_judge LLM recheck call failed: %s", exc)

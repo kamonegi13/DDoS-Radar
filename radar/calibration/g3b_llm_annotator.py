@@ -230,12 +230,14 @@ def _annotate_one(cluster_id: int, countries: list[str],
         countries=", ".join(countries),
         centroid=centroid or "(none)",
     )
+    from radar.llm_routing import UseCase
     result = llm_analyze_json(
         system=_SYSTEM_PROMPT,
         prompt=prompt,
         temperature=0.1,
         max_tokens=300,
         caller=CALLER_NAME,
+        use_case=UseCase.DISCOVERY,
     )
     if not result.get("ok"):
         _consecutive_failures += 1

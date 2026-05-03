@@ -311,7 +311,9 @@ class MilitaryExerciseSensor(BaseSensor):
                     "or location, even if the event is routine — analysts will triage."
                 )
 
-                result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=300)
+                from radar.llm_routing import UseCase
+                result = llm_analyze_json(user_prompt, system=system_prompt, max_tokens=300,
+                                          use_case=UseCase.SENSOR_EXTRACT)
 
                 if not result["ok"]:
                     log.debug(f"[MilExercise] LLM parse failed {source_name}: {result.get('error')}")

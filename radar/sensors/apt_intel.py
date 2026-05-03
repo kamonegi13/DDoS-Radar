@@ -424,7 +424,9 @@ class AptIntelSensor(BaseSensor):
                     "(e.g. 'patch this CVE', global supply chain with no actor, no named sector)."
                 )
 
-                gate_result = llm_analyze_json(gate_prompt, system=gate_system, max_tokens=200)
+                from radar.llm_routing import UseCase
+                gate_result = llm_analyze_json(gate_prompt, system=gate_system, max_tokens=200,
+                                               use_case=UseCase.SENSOR_EXTRACT)
                 if not gate_result["ok"]:
                     log.debug(f"[AptIntel] Stage1 parse failed {source_name}: {gate_result.get('error')}")
                     continue
@@ -499,7 +501,8 @@ class AptIntelSensor(BaseSensor):
                     "- <0.40: Insufficient specificity even after Stage 1 (set theater=null)"
                 )
 
-                result = llm_analyze_json(analysis_prompt, system=analysis_system, max_tokens=280)
+                result = llm_analyze_json(analysis_prompt, system=analysis_system, max_tokens=280,
+                                          use_case=UseCase.SENSOR_EXTRACT)
                 if not result["ok"]:
                     log.debug(f"[AptIntel] Stage2 parse failed {source_name}: {result.get('error')}")
                     continue
