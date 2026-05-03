@@ -193,6 +193,106 @@ LLM_FEATURES: tuple[LLMFeature, ...] = (
         requires_admin=True,
         supports_shadow=True,
     ),
+    # ── Phase 8 (LLM survey v10) — model routing ─────────────────────────
+    # One feature per use-case bucket so analysts can roll out the v10
+    # 5-model stack in the survey-recommended order:
+    #   verdict → sensor → ETL → conclusion
+    # SHADOW state records what the v10 router would have picked without
+    # actually switching models; ON applies the new routing live.
+    LLMFeature(
+        key="model_routing_verdict",
+        tier=FeatureTier.AUGMENT,
+        name="Model routing v10 — verdict layer",
+        description=(
+            "Routes verdict-layer LLM calls (intel auto-judge, queue) to "
+            "gemma4:26b primary + mistral-small3.2:24b secondary with "
+            "deterministic sampling (temp=0, top_k=1, seed=42). SHADOW "
+            "records both v1 and v2 model choices for A/B; ON applies "
+            "v2 routing only. First in the survey-recommended rollout "
+            "order because verdict re-runs are easiest to verify."
+        ),
+        env_var="LLM_ROUTING_VERDICT_ENABLED",
+        shadow_env_var="LLM_ROUTING_VERDICT_SHADOW",
+        default_state=FeatureState.OFF,
+        np7_concern=False,
+        requires_admin=True,
+        supports_shadow=True,
+    ),
+    LLMFeature(
+        key="model_routing_sensor",
+        tier=FeatureTier.AUGMENT,
+        name="Model routing v10 — sensor extraction",
+        description=(
+            "Routes sensor-layer OSINT extraction calls to "
+            "mistral-small3.2:24b primary + gemma4:26b secondary "
+            "(20+ language 1st-class, native function calling). SHADOW "
+            "records v2 choice without switching; ON applies v2."
+        ),
+        env_var="LLM_ROUTING_SENSOR_ENABLED",
+        shadow_env_var="LLM_ROUTING_SENSOR_SHADOW",
+        default_state=FeatureState.OFF,
+        np7_concern=False,
+        requires_admin=True,
+        supports_shadow=True,
+    ),
+    LLMFeature(
+        key="model_routing_etl",
+        tier=FeatureTier.AUGMENT,
+        name="Model routing v10 — ETL / discovery layer",
+        description=(
+            "Routes ETL batch + g3b cluster annotation to gemma4:31b "
+            "primary + gpt-oss-safeguard:20b on-demand 2nd opinion "
+            "with thinking enabled (<|think|> / Reasoning: high). "
+            "SHADOW records v2 choice; ON applies v2."
+        ),
+        env_var="LLM_ROUTING_ETL_ENABLED",
+        shadow_env_var="LLM_ROUTING_ETL_SHADOW",
+        default_state=FeatureState.OFF,
+        np7_concern=False,
+        requires_admin=True,
+        supports_shadow=True,
+    ),
+    LLMFeature(
+        key="model_routing_conclusion",
+        tier=FeatureTier.NARRATIVE,
+        name="Model routing v10 — conclusion + narrative",
+        description=(
+            "Routes conclusion narrative + display narrative to "
+            "gemma4:31b (conclusion) and gemma4:26b (display narrative). "
+            "Last in the rollout order because conclusion regressions "
+            "are highest visibility."
+        ),
+        env_var="LLM_ROUTING_CONCLUSION_ENABLED",
+        shadow_env_var="LLM_ROUTING_CONCLUSION_SHADOW",
+        default_state=FeatureState.OFF,
+        np7_concern=False,
+        requires_admin=True,
+        supports_shadow=True,
+    ),
+    # ── Phase 8 — embedding-driven dedupe ────────────────────────────────
+    # Multilingual OSINT collection produces near-duplicate articles
+    # across sources / translations / republications. The radar.llm_embedding
+    # module gates on this key — when OFF every embed_text call returns
+    # None, so sensors must fall back to substring or hash dedupe.
+    LLMFeature(
+        key="embedding_dedupe",
+        tier=FeatureTier.AUGMENT,
+        name="Embedding-based OSINT dedupe",
+        description=(
+            "Encodes incoming OSINT text via granite-embedding:278m "
+            "(IBM, Apache 2.0, 12 languages) so the sensor pipeline can "
+            "drop near-duplicate items before they hit the LLM extraction "
+            "stage. Russian-language quality is degraded (model card "
+            "doesn't list ru as 1st-class); operators must measure during "
+            "Phase 1 shadow before promoting to ON."
+        ),
+        env_var="EMBEDDING_DEDUPE_ENABLED",
+        shadow_env_var="EMBEDDING_DEDUPE_SHADOW",
+        default_state=FeatureState.OFF,
+        np7_concern=False,
+        requires_admin=True,
+        supports_shadow=True,
+    ),
 )
 
 
