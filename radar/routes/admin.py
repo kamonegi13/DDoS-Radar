@@ -14,6 +14,7 @@ from radar.persistence import save_state
 from radar.sensors.telegram import TelegramMirrorSensor
 import radar.routes as _routes
 from radar.routes import bp, _require_admin, _require_analyst, _safe_int, _country_param
+from radar.audit_middleware import audit  # Phase 9.6 C20 — NP6 unified audit
 
 # -- Secret masking for GET /api/env_config -----------------------------------
 _SECRET_PATTERNS = ("SECRET", "PASSWORD", "TOKEN", "WEBHOOK", "API_KEY")
@@ -104,6 +105,10 @@ def api_env_config_get():
 
 
 @bp.route("/api/env_config", methods=["POST"])
+@audit(domain="sysconfig.env",
+       key_fn=lambda body, resp:
+           ",".join(sorted((body or {}).keys()))[:120] or "(empty)",
+       new_value_fn=lambda body, resp: body)
 def api_env_config_post():
     """Write updated key=value pairs to config.env, preserving comments and structure."""
     auth_err = _require_admin()
@@ -243,6 +248,9 @@ def api_env_config_reload():
 
 
 @bp.route("/api/sensor_config", methods=["GET", "POST"])
+@audit(domain="sensor.enabled",
+       key_fn=lambda body, resp: (body or {}).get("name"),
+       new_value_fn=lambda body, resp: {"enabled": (body or {}).get("enabled")})
 def sensor_config():
     if request.method == "GET": return jsonify({"sensors": _routes.registry.config_list(), "domain_weights": _routes.engine.DOMAIN_WEIGHTS})
     auth_err = _require_admin()
@@ -298,6 +306,8 @@ def api_noise_exclusion_list():
 
 
 @bp.route("/api/noise_exclusion", methods=["POST"])
+@audit(domain="sensor.noise_exclusion",
+       key_fn=lambda body, resp: (body or {}).get("sensor"))
 def api_noise_exclusion_add():
     """Add a noise exclusion rule. Body: {sensor, theater, pattern, reason, expires_hours?}"""
     auth_err = _require_admin()
@@ -332,6 +342,8 @@ def api_noise_exclusion_add():
 
 
 @bp.route("/api/noise_exclusion/<int:rule_id>", methods=["DELETE"])
+@audit(domain="sensor.noise_exclusion",
+       key_fn=lambda body, resp: f"rule_id={request.view_args.get('rule_id') if hasattr(request,'view_args') else '?'}")
 def api_noise_exclusion_delete(rule_id):
     """Remove a noise exclusion rule."""
     auth_err = _require_admin()
@@ -578,6 +590,9 @@ def api_admin_scenario_delete(scenario_id: str):
 
 
 @bp.route("/api/admin/scenarios/<scenario_id>/state", methods=["POST"])
+@audit(domain="scenario.state",
+       key_fn=lambda body, resp:
+           (request.view_args or {}).get("scenario_id"))
 def api_admin_scenario_state(scenario_id: str):
     auth_err = _require_admin()
     if auth_err: return auth_err
@@ -610,6 +625,9 @@ def api_admin_scenario_state(scenario_id: str):
 
 
 @bp.route("/api/admin/scenarios/<scenario_id>/enabled", methods=["POST"])
+@audit(domain="scenario.enabled",
+       key_fn=lambda body, resp:
+           (request.view_args or {}).get("scenario_id"))
 def api_admin_scenario_enabled(scenario_id: str):
     auth_err = _require_admin()
     if auth_err: return auth_err
@@ -632,6 +650,9 @@ def api_admin_scenario_enabled(scenario_id: str):
 
 
 @bp.route("/api/admin/scenarios/<scenario_id>/reset", methods=["POST"])
+@audit(domain="scenario.reset",
+       key_fn=lambda body, resp:
+           (request.view_args or {}).get("scenario_id"))
 def api_admin_scenario_reset(scenario_id: str):
     auth_err = _require_admin()
     if auth_err: return auth_err
