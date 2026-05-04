@@ -90,6 +90,46 @@ def _migration_v40_schema_version_singleton(conn) -> None:
     conn.execute("DROP TABLE schema_version_old_v39")
 
 
+def _migration_v47_llm_shadow_invocation(conn) -> None:
+    """Phase 9.2 C4 — dedicated table for SHADOW_DUAL parallel invocations.
+
+    When a feature is in SHADOW_DUAL state, llm_client invokes BOTH the
+    legacy (active) model AND the v10 candidate. The active call's result
+    is what the caller receives; the v10 result is recorded here so
+    /api/v2/self_eval can surface schema_compliance / agreement_rate /
+    verdict_reproducibility per Phase 1 GO judgment.
+
+    response_text is capped at 8KB and TTL'd via the existing 7d cleanup
+    sweep so the table doesn't unbound."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_shadow_invocation (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            primary_call_id INTEGER NOT NULL,
+            ts              REAL NOT NULL,
+            model           TEXT NOT NULL,
+            duration_ms     INTEGER,
+            outcome         TEXT NOT NULL DEFAULT '',
+            response_text   TEXT,
+            response_sha256 TEXT,
+            confidence      REAL,
+            prompt_sha256   TEXT,
+            error           TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_primary "
+        "ON llm_shadow_invocation (primary_call_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_ts "
+        "ON llm_shadow_invocation (ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_model "
+        "ON llm_shadow_invocation (model, ts DESC)"
+    )
+
+
 def _migration_v45b_config_runtime_value(conn) -> None:
     """Phase 9.1 — runtime override values for declarative config keys.
     Created alongside config_change_log so config_layered.set_config has
@@ -707,6 +747,29 @@ CREATE TABLE IF NOT EXISTS config_runtime_value (
     set_at      REAL NOT NULL,
     set_by      TEXT NOT NULL
 );
+
+-- Phase 9.2 C4 — dedicated table for SHADOW_DUAL parallel invocations.
+-- Only populated when a Feature Hub key is in SHADOW_DUAL state; the v10
+-- candidate's full response is recorded here for A/B with the legacy run.
+CREATE TABLE IF NOT EXISTS llm_shadow_invocation (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    primary_call_id INTEGER NOT NULL,
+    ts              REAL NOT NULL,
+    model           TEXT NOT NULL,
+    duration_ms     INTEGER,
+    outcome         TEXT NOT NULL DEFAULT '',
+    response_text   TEXT,
+    response_sha256 TEXT,
+    confidence      REAL,
+    prompt_sha256   TEXT,
+    error           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_primary
+    ON llm_shadow_invocation (primary_call_id);
+CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_ts
+    ON llm_shadow_invocation (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_model
+    ON llm_shadow_invocation (model, ts DESC);
 
 -- v2.0 ADR-V2-009: sha256-deduplicated LLM prompt store.
 -- Every llm_client invocation persists its prompt here; llm_call_log.prompt_sha256
@@ -2592,6 +2655,9 @@ class RadarDB:
 
         (46, "config_runtime_value runtime override store (Phase 9.1)",
          _migration_v45b_config_runtime_value),
+
+        (47, "llm_shadow_invocation table for SHADOW_DUAL A/B (Phase 9.2 C4)",
+         _migration_v47_llm_shadow_invocation),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -4412,7 +4478,7 @@ class RadarDB:
         sm_choice = (shadow_model_choice or "")[:80] or None
         uc = (use_case or "")[:32] or None
         with conn.writing():
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO llm_call_log "
                 "(ts, caller, model, duration_ms, outcome, verdict, "
                 " confidence, headline, error, prompt_sha256, "
@@ -4423,6 +4489,41 @@ class RadarDB:
                  (error or "")[:300], prompt_sha256 or None,
                  uc, sm_choice, trace),
             )
+            return cur.lastrowid or -1
+
+    def llm_shadow_invocation_append(self, *, primary_call_id: int,
+                                      model: str, duration_ms: int,
+                                      outcome: str,
+                                      response_text: "str | None" = None,
+                                      confidence: "float | None" = None,
+                                      prompt_sha256: "str | None" = None,
+                                      error: "str | None" = None) -> int:
+        """Phase 9.2 C4 — record a SHADOW_DUAL parallel invocation. Linked
+        to the primary llm_call_log row by primary_call_id. NP3."""
+        import hashlib
+        import time as _time
+        try:
+            text = (response_text or "")[:8000]
+            sha = (
+                hashlib.sha256(text.encode("utf-8")).hexdigest()
+                if text else None
+            )
+            conn = self._get_conn()
+            with conn.writing():
+                cur = conn.execute(
+                    "INSERT INTO llm_shadow_invocation "
+                    "(primary_call_id, ts, model, duration_ms, outcome, "
+                    " response_text, response_sha256, confidence, "
+                    " prompt_sha256, error) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (primary_call_id, _time.time(), model[:80], duration_ms,
+                     outcome[:32], text or None, sha,
+                     float(confidence) if confidence is not None else None,
+                     prompt_sha256, (error or "")[:300] or None),
+                )
+                return cur.lastrowid or -1
+        except Exception:
+            return -1
 
     def auto_judge_decision_log(self, item_id: str, action_proposed: str,
                                  confidence: float, reason: str,
