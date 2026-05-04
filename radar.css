@@ -604,6 +604,37 @@
         .cfg-role-viewer  { color:#66ccff; font-weight:bold; }
         /* Align help-text visual weight inside settings tabs. */
         .tab-content .help-text { font-size:12px; line-height:1.5; padding:10px 12px; margin-bottom:12px; }
+        /* SETTINGS table — consistent visual weight with cfg-section rows. */
+        .cfg-table { width:100%; border-collapse:collapse; font-size:12px; color:#ccc; margin-top:4px; }
+        .cfg-table th { font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--color-accent); font-weight:bold; text-align:left; padding:6px 8px; border-bottom:1px solid #1a3a3a; background:rgba(0,255,255,0.03); }
+        .cfg-table td { padding:6px 8px; border-bottom:1px solid #1a1a1a; vertical-align:middle; font-size:12px; color:#ccc; }
+        .cfg-table tr:last-child td { border-bottom:none; }
+        .cfg-table tr:hover td { background:rgba(255,255,255,0.02); }
+        .cfg-table code { font-family:'Courier New',monospace; font-size:11px; color:#aaa; background:#0a0a0a; padding:1px 5px; border-radius:2px; }
+        .cfg-table .ok  { color: var(--color-ok, #00ff88); }
+        .cfg-table .err { color:#ff6666; }
+        .cfg-table .warn { color:#ffaa00; }
+        .cfg-table .dim { color:#666; }
+        .cfg-table select, .cfg-table input { background:#111; border:1px solid #333; color:#ddd; padding:3px 6px; font-size:11px; border-radius:3px; font-family:inherit; box-sizing:border-box; }
+        .cfg-meta { font-size:11px; color:#666; line-height:1.5; margin-top:8px; padding-top:6px; border-top:1px solid #1a1a1a; }
+        .cfg-kv { display:grid; grid-template-columns:180px 1fr; gap:6px 12px; font-size:12px; line-height:1.6; }
+        .cfg-kv > .k { color:#888; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
+        .cfg-kv > .v { color:#ddd; }
+        .cfg-status-chip { display:inline-block; font-size:10px; font-weight:bold; padding:2px 8px; border-radius:2px; letter-spacing:0.5px; text-transform:uppercase; vertical-align:middle; }
+        .cfg-status-chip.ok   { background:#00cc6622; color:#00cc66; border:1px solid #00cc6644; }
+        .cfg-status-chip.warn { background:#ffaa0022; color:#ffaa00; border:1px solid #ffaa0044; }
+        .cfg-status-chip.err  { background:#ff444422; color:#ff4444; border:1px solid #ff444444; }
+        .cfg-status-chip.dim  { background:#33333322; color:#888;   border:1px solid #44444444; }
+
+        /* SETTINGS shell nav — matches INTEL GUIDE nav (.guide-ch-btn). */
+        .settings-v2-nav .settings-nav-group { margin-bottom:6px; }
+        .settings-v2-nav .settings-nav-group-label { padding:10px 12px 4px; font-size:9px; text-transform:uppercase; letter-spacing:1px; color:#444; font-weight:bold; }
+        .settings-v2-nav .settings-nav-item { display:block; background:transparent; border:none; border-left:2px solid #2a3a3a; color:#888; font-size:11px; padding:6px 12px; cursor:pointer; letter-spacing:0.3px; text-align:left; line-height:1.4; transition:color 0.15s, border-color 0.15s, background 0.15s; }
+        .settings-v2-nav .settings-nav-item:hover { border-left-color:#00ffff44; color:#ccc; background:rgba(0,255,255,0.03); }
+        .settings-v2-nav .settings-nav-item.active { border-left-color:var(--color-accent); color:var(--color-accent); background:#00ffff08; }
+        /* SETTINGS pane — match tab-content padding/density. */
+        .settings-v2-pane #settings-v2-render { padding:0; }
+        .settings-v2-pane .cfg-scroll { flex:1; min-height:0; overflow-y:auto; padding-right:6px; }
 
         /* System Config tab ─────────────────────────── */
         #sysconfig-scroll { width:100%; box-sizing:border-box; }

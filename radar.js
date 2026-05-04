@@ -2894,25 +2894,16 @@
         if (!nav) return;
         const html = _SETTINGS_DOMAINS.map(grp => {
             const items = grp.sub.map(s => {
-                const active = s.id === _settingsCurrentDomain;
-                return ''
-                    + '<div class="settings-nav-item" '
-                    +   'data-domain="' + _escHtml(s.id) + '" '
-                    +   'style="padding:5px 14px;cursor:pointer;'
-                    +   'font-size:0.88em;'
-                    +   (active
-                        ? 'background:var(--color-accent-bg,#1c2530);color:var(--color-accent,#88f)'
-                        : '') + '">'
-                    +   _t(s.labelKey)
-                    + '</div>';
+                const cls = 'settings-nav-item'
+                    + (s.id === _settingsCurrentDomain ? ' active' : '');
+                return '<div class="' + cls + '" '
+                    + 'data-domain="' + _escHtml(s.id) + '">'
+                    + _t(s.labelKey) + '</div>';
             }).join('');
-            return ''
-                + '<div class="settings-nav-group" style="margin-bottom:6px">'
-                + '<div style="padding:8px 12px 4px;font-size:0.7em;'
-                + 'text-transform:uppercase;letter-spacing:0.08em;'
-                + 'opacity:0.55">' + _escHtml(grp.label) + '</div>'
-                + items
-                + '</div>';
+            return '<div class="settings-nav-group">'
+                + '<div class="settings-nav-group-label">'
+                + _escHtml(grp.label) + '</div>'
+                + items + '</div>';
         }).join('');
         nav.innerHTML = html;
         nav.querySelectorAll('[data-domain]').forEach(el => {
@@ -2922,6 +2913,48 @@
                 _settingsRenderPane(_settingsCurrentDomain);
             });
         });
+    }
+
+    // ── Phase 11 — cfg-* design system helpers ────────────────────────
+    // Wrap pane content in the same visual idiom as the legacy MASTER
+    // CONFIGURATION tabs so SETTINGS feels consistent across every
+    // domain. All renderers below build their content via these
+    // helpers instead of hand-authoring h3 / inline-styled blocks.
+    function _settingsCfgPage(parts) {
+        // parts: { help: string|null, sections: [{title, body, danger?}] }
+        const help = parts.help
+            ? '<div class="help-text">' + parts.help + '</div>' : '';
+        const sections = (parts.sections || []).map(s => {
+            const cls = 'cfg-section' + (s.danger ? ' danger' : '');
+            const badges = (s.badges || []).join(' ');
+            const title = '<div class="cfg-section-title">'
+                + _escHtml(s.title)
+                + (badges ? ' ' + badges : '') + '</div>';
+            return '<div class="' + cls + '">' + title + s.body + '</div>';
+        }).join('');
+        return '<div class="cfg-scroll">' + help + sections + '</div>';
+    }
+    function _settingsCfgKV(rows) {
+        // rows: [{k: label, v: html}]
+        const inner = rows.map(r =>
+            '<div class="k">' + _escHtml(r.k) + '</div>'
+            + '<div class="v">' + r.v + '</div>'
+        ).join('');
+        return '<div class="cfg-kv">' + inner + '</div>';
+    }
+    function _settingsCfgChip(text, kind) {
+        return '<span class="cfg-status-chip ' + (kind || 'dim') + '">'
+            + _escHtml(text) + '</span>';
+    }
+    function _settingsCfgStatusEl() {
+        // Inline status span used by save/reset buttons.
+        return '<span class="cfg-status" data-cfg-status></span>';
+    }
+    function _settingsCfgSetStatus(pane, msg, kind) {
+        const el = pane.querySelector('[data-cfg-status]');
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'cfg-status ' + (kind || '');
     }
 
     function _settingsRenderPane(domain) {
@@ -2998,41 +3031,63 @@
         _settingsLoading(pane);
         const pre = await _fetchPreflight();
         const oll = (pre && pre.ollama) || {};
-        const reach = oll.reachable
-            ? '<b style="color:var(--color-good,#3a3)">reachable</b>'
-            : '<b style="color:var(--color-warning,#c80)">offline</b>';
-        const ver = oll.version
-            ? _escHtml(oll.version)
-              + (pre.version_ok ? ' ✓ (≥0.22.0)' : ' (need ≥0.22.0)')
-            : '—';
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t('settings.llm.connection') + '</h3>'
-            + '<table class="rad-table">'
-            +   '<tr><th>Ollama</th><td>' + reach + ' · version ' + ver + '</td></tr>'
-            +   '<tr><th>Preflight go/no-go</th><td>'
-            +     ((pre && pre.go_no_go)
-                ? '<b style="color:var(--color-good,#3a3)">GO</b>'
-                : '<b style="color:var(--color-warning,#c80)">NO-GO</b>')
-            +   '</td></tr>'
-            + '</table>'
-            + '<p style="margin-top:1em;font-size:0.85em;opacity:0.7">'
-            + 'LLM_HOST and LLM_TIMEOUT are env-backed (restart-required).'
-            + ' Edit <code>config.env</code> and redeploy to change.'
-            + ' Per-feature kill switch and runtime knobs are on the '
-            + '<a href="javascript:void(0)" onclick="window._settingsOpen(\'llm.features\')">'
-            + 'LLM Features</a> tab.</p>';
+        const reachChip = oll.reachable
+            ? _settingsCfgChip('reachable', 'ok')
+            : _settingsCfgChip('offline', 'warn');
+        const verVal = oll.version
+            ? _escHtml(oll.version) + ' '
+              + (pre.version_ok
+                  ? _settingsCfgChip('≥0.22.0', 'ok')
+                  : _settingsCfgChip('need ≥0.22.0', 'warn'))
+            : '<span class="cfg-table dim">—</span>';
+        const goChip = (pre && pre.go_no_go)
+            ? _settingsCfgChip('GO', 'ok')
+            : _settingsCfgChip('NO-GO', 'warn');
+        const statusBody = _settingsCfgKV([
+            { k: 'Ollama endpoint', v: reachChip },
+            { k: 'Server version',  v: verVal },
+            { k: 'Preflight gate',  v: goChip },
+            { k: 'Host',
+              v: '<code>' + _escHtml(oll.host || '—') + '</code>' },
+        ]);
+        const noteBody =
+            '<div class="cfg-hint">'
+            + '<code>LLM_HOST</code> and <code>LLM_TIMEOUT</code> are '
+            + 'env-backed and require a container restart. Edit '
+            + '<code>config.env</code> and run <code>docker compose '
+            + 'restart</code>.'
+            + '</div>'
+            + '<div class="cfg-hint">'
+            + 'Runtime knobs (per-feature kill switch, override window) '
+            + 'live on the <a href="javascript:void(0)" '
+            + 'onclick="window._settingsOpen(\'llm.features\')">'
+            + 'Features</a> page and persist live.'
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'LLM connection health and Ollama compatibility. '
+                + 'This page is read-only — edit credentials in '
+                + 'config.env and restart the container to apply.',
+            sections: [
+                { title: 'CONNECTION STATUS', body: statusBody,
+                  badges: ['<span class="cfg-restart-badge">restart</span>'] },
+                { title: 'WHERE TO EDIT',     body: noteBody },
+            ],
+        });
     };
 
     window._settingsRenderLlmFeatures = async function (pane) {
         _settingsLoading(pane);
         const data = await _fetchFeatures();
         if (!data) {
-            pane.innerHTML = '<div style="opacity:0.6">'
-                + 'Feature Hub API unavailable (auth or v2 disabled).'
-                + '</div>'; return;
+            pane.innerHTML = _settingsCfgPage({
+                help: 'Feature Hub API unavailable. Authenticate '
+                    + 'as analyst or enable v2 endpoints.',
+                sections: [],
+            });
+            return;
         }
         const features = data.features || [];
-        const rows = features.map(f => {
+        const tableRows = features.map(f => {
             const state = String(f.current_state || 'off');
             const opts = ['off','shadow','shadow_dual','on'].map(s =>
                 '<option value="' + s + '"'
@@ -3043,20 +3098,34 @@
             ).join('');
             return ''
                 + '<tr data-key="' + _escHtml(f.key) + '">'
-                + '<td><b>' + _escHtml(f.name) + '</b><br>'
-                +   '<span style="font-size:0.78em;opacity:0.55">'
-                +     _escHtml(f.key) + '</span></td>'
+                + '<td><b>' + _escHtml(f.name) + '</b>'
+                + '<div class="cfg-meta" style="margin:0;border:none;padding:0">'
+                +   '<code>' + _escHtml(f.key) + '</code></div></td>'
                 + '<td>' + _escHtml(f.tier) + '</td>'
-                + '<td><select class="lf-state">' + opts + '</select></td>'
-                + '<td><button class="lf-save">Save</button></td>'
+                + '<td><select class="cfg-select lf-state">' + opts + '</select></td>'
+                + '<td><button class="btn-tactical lf-save">SAVE</button></td>'
                 + '</tr>';
         }).join('');
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t('settings.llm.features') + '</h3>'
-            + '<table class="rad-table"><thead><tr>'
-            + '<th>Feature</th><th>Tier</th><th>State</th><th></th>'
-            + '</tr></thead><tbody>' + rows + '</tbody></table>'
-            + '<div id="lf-status" style="margin-top:0.6em;font-size:0.85em"></div>';
+        const tableBody =
+            '<table class="cfg-table">'
+            + '<thead><tr>'
+            +   '<th>Feature</th><th>Tier</th><th>State</th><th></th>'
+            + '</tr></thead><tbody>' + tableRows + '</tbody></table>'
+            + '<div class="cfg-meta">' + _settingsCfgStatusEl()
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Per-feature LLM kill switches. State changes are '
+                + 'recorded in the audit log (NP6). '
+                + '<b>off</b> = disabled · '
+                + '<b>shadow</b> = run silently for evaluation · '
+                + '<b>shadow_dual</b> = run legacy + v10 in parallel · '
+                + '<b>on</b> = production. See INTEL GUIDE Ch.10 for '
+                + 'tier definitions.',
+            sections: [
+                { title: 'FEATURE STATES', body: tableBody,
+                  badges: ['<span class="cfg-live-badge">live</span>'] },
+            ],
+        });
         pane.querySelectorAll('tr[data-key]').forEach(tr => {
             const key = tr.getAttribute('data-key');
             const sel = tr.querySelector('.lf-state');
@@ -3071,15 +3140,12 @@
                           body: JSON.stringify({state: sel.value,
                                                 reason: 'Settings UI'}) }
                     );
-                    const status = document.getElementById('lf-status');
-                    if (status) status.textContent = r.ok
-                        ? 'Saved ' + key + ' → ' + sel.value
-                        : 'Save failed: HTTP ' + r.status;
-                    if (status) status.style.color = r.ok
-                        ? 'var(--color-good,#3a3)' : 'var(--color-warning,#c80)';
+                    _settingsCfgSetStatus(pane,
+                        r.ok ? 'Saved ' + key + ' → ' + sel.value
+                             : 'Save failed: HTTP ' + r.status,
+                        r.ok ? 'ok' : 'err');
                 } catch (e) {
-                    const status = document.getElementById('lf-status');
-                    if (status) status.textContent = 'Error: ' + e;
+                    _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
                 }
                 btn.disabled = false;
             });
@@ -3104,45 +3170,50 @@
             ).join('');
             const tempVal = (typeof e.temperature === 'number')
                 ? e.temperature.toFixed(2) : '';
+            const availChip = e.available
+                ? _settingsCfgChip('AVAIL', 'ok')
+                : _settingsCfgChip('MISSING', 'warn');
             return ''
                 + '<tr data-uc="' + escAttr(e.use_case) + '" '
                 +   'data-slot="' + escAttr(e.slot) + '">'
-                + '<td>' + _escHtml(e.use_case) + '/' + _escHtml(e.slot) + '</td>'
-                + '<td><select class="r-model" style="min-width:200px">'
+                + '<td><b>' + _escHtml(e.use_case) + '</b>'
+                +   '<div class="cfg-meta" style="margin:0;border:none;padding:0">'
+                +   _escHtml(e.slot) + '</div></td>'
+                + '<td><select class="cfg-select r-model" style="min-width:200px">'
                 +   opts + '</select></td>'
-                + '<td><input type="number" class="r-temp" min="0" max="2" '
-                +   'step="0.05" value="' + tempVal + '" style="width:65px"></td>'
-                + '<td><label><input type="checkbox" class="r-think" '
+                + '<td><input type="number" class="cfg-input r-temp" min="0" max="2" '
+                +   'step="0.05" value="' + tempVal + '" style="width:70px"></td>'
+                + '<td><label style="font-size:11px;color:#aaa"><input type="checkbox" class="r-think" '
                 +   (e.thinking_enabled ? 'checked' : '') + '> think</label></td>'
-                + '<td>' + (e.available
-                    ? '<span style="color:var(--color-good,#3a3)">✓</span>'
-                    : '<span style="color:var(--color-warning,#c80)">×</span>')
-                + '</td>'
-                + '<td><span style="font-size:0.85em;opacity:0.6">'
-                +   _escHtml(e.feature_state) + '</span></td>'
-                + '<td><button class="r-save">Save</button> '
-                + '<button class="r-reset">Reset</button></td>'
+                + '<td>' + availChip + '</td>'
+                + '<td><code>' + _escHtml(e.feature_state) + '</code></td>'
+                + '<td><button class="btn-tactical r-save">SAVE</button> '
+                + '<button class="btn-tactical r-reset">RESET</button></td>'
                 + '</tr>';
         }).join('');
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t('settings.llm.routing') + '</h3>'
-            + '<table class="rad-table"><thead><tr>'
-            + '<th>use_case/slot</th><th>model</th><th>temp</th>'
-            + '<th>think</th><th>avail</th><th>state</th><th></th>'
+        const tableBody =
+            '<table class="cfg-table">'
+            + '<thead><tr>'
+            +   '<th>use_case / slot</th><th>model</th><th>temp</th>'
+            +   '<th>think</th><th>avail</th><th>state</th><th></th>'
             + '</tr></thead><tbody>' + rows + '</tbody></table>'
-            + '<div id="r-status" style="margin-top:0.6em;font-size:0.85em"></div>'
-            + '<p style="margin-top:1em;font-size:0.78em;opacity:0.65">'
-            + 'Routing follows DB override → env var → code default.'
-            + ' Overrides are recorded in <code>config_change_log</code> + '
-            + '<code>llm_routing_override_history</code> for NP6 audit.</p>';
-        const setStatus = (msg, ok) => {
-            const el = document.getElementById('r-status');
-            if (el) {
-                el.textContent = msg;
-                el.style.color = ok
-                    ? 'var(--color-good,#3a3)' : 'var(--color-warning,#c80)';
-            }
-        };
+            + '<div class="cfg-meta">' + _settingsCfgStatusEl() + '</div>';
+        const noteBody =
+            '<div class="cfg-hint">Routing follows '
+            + '<b>DB override → env var → code default</b>. '
+            + 'Overrides are recorded in <code>config_change_log</code> '
+            + 'and <code>llm_routing_override_history</code> for NP6 '
+            + 'audit. Reset clears the DB row, falling back to env/code.'
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Per-use-case LLM model routing. Edits persist to the '
+                + 'database and take effect on the next call (no restart).',
+            sections: [
+                { title: 'EFFECTIVE ROUTING', body: tableBody,
+                  badges: ['<span class="cfg-live-badge">live</span>'] },
+                { title: 'OVERRIDE PRECEDENCE', body: noteBody },
+            ],
+        });
         pane.querySelectorAll('tr[data-uc]').forEach(tr => {
             const uc = tr.getAttribute('data-uc');
             const slot = tr.getAttribute('data-slot');
@@ -3164,10 +3235,13 @@
                         headers: {'Content-Type':'application/json'},
                         body: JSON.stringify(body),
                     });
-                    setStatus(r.ok ? 'Saved ' + uc + '/' + slot
-                                   : 'Save failed', r.ok);
+                    _settingsCfgSetStatus(pane,
+                        r.ok ? 'Saved ' + uc + '/' + slot
+                             : 'Save failed', r.ok ? 'ok' : 'err');
                     if (r.ok) _settingsRenderPane('llm.routing');
-                } catch (e) { setStatus('Error: ' + e, false); }
+                } catch (e) {
+                    _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+                }
                 sb.disabled = false;
             });
             if (rb) rb.addEventListener('click', async () => {
@@ -3180,27 +3254,35 @@
                         + '&reason=' + encodeURIComponent('Settings UI reset'),
                         { method: 'DELETE' }
                     );
-                    setStatus(r.ok ? 'Reset ' + uc + '/' + slot
-                                   : 'Reset failed', r.ok);
+                    _settingsCfgSetStatus(pane,
+                        r.ok ? 'Reset ' + uc + '/' + slot
+                             : 'Reset failed', r.ok ? 'ok' : 'err');
                     if (r.ok) _settingsRenderPane('llm.routing');
-                } catch (e) { setStatus('Error: ' + e, false); }
+                } catch (e) {
+                    _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+                }
                 rb.disabled = false;
             });
         });
     };
 
     window._settingsRenderLlmIntelPipeline = async function (pane) {
-        // Read-only view of the live thresholds. The editable surface
-        // is on the System tab (sysconfig) within this same SETTINGS
-        // window — no second modal is opened.
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t('settings.llm.intel_pipeline') + '</h3>'
-            + '<p style="font-size:0.85em;opacity:0.7">'
-            + 'These thresholds govern when LLM-extracted intel is '
-            + 'auto-confirmed, discarded, or kept for analyst review.'
-            + ' Edit via <a href="javascript:void(0)" '
-            + 'onclick="window._settingsOpen(\'system.config\')">'
-            + 'System → Config</a>.</p>';
+        const body =
+            '<div class="cfg-hint">'
+            + 'Auto-confirm threshold, retention window, age-decay τ, '
+            + 'and override timer are env/DB-backed and tunable in '
+            + '<a href="javascript:void(0)" onclick="window._settingsOpen(\'system.config\')">'
+            + 'System → Config</a> (Intel Queue Thresholds section). '
+            + 'Phase 9.6 will surface them inline here.'
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Thresholds that govern when LLM-extracted intel is '
+                + 'auto-confirmed, discarded, or kept for analyst review.',
+            sections: [
+                { title: 'INTEL PIPELINE THRESHOLDS', body: body,
+                  badges: ['<span class="cfg-live-badge">live</span>'] },
+            ],
+        });
     };
 
     window._settingsRenderLlmEmbedding = async function (pane) {
@@ -3210,89 +3292,116 @@
         const se = await _fetchSelfEval();
         const stat = (se && se.embedding_dedupe) || {};
         const lang = stat.by_language || {};
-        const langRows = Object.keys(lang).map(L => {
-            const v = lang[L] || {};
-            return '<tr><td>' + _escHtml(L) + '</td>'
-                + '<td>' + (v.detected ?? 0) + '</td>'
-                + '<td>' + (v.applied ?? 0) + '</td>'
-                + '<td>' + (v.precision_proxy ?? '—') + '</td>'
-                + '<td>' + (v.avg_score ?? '—') + '</td></tr>';
-        }).join('');
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t('settings.llm.embedding') + '</h3>'
-            + '<table class="rad-table">'
-            +   '<tr><th>Model</th><td><code>' + _escHtml(emb.model || '—') + '</code> '
-            +     (emb.available
-                ? '<span style="color:var(--color-good,#3a3)">✓ pulled</span>'
-                : '<span style="color:var(--color-warning,#c80)">× missing</span>')
-            +   '</td></tr>'
-            +   '<tr><th>Feature state</th><td>'
-            +     (emb.feature_active ? 'active (shadow or on)' : 'inactive') + '</td></tr>'
-            +   '<tr><th>Calls 24h</th><td>' + (stat.calls_24h ?? 0) + '</td></tr>'
-            +   '<tr><th>OK rate</th><td>' + (stat.ok_rate ?? '—') + '</td></tr>'
-            +   '<tr><th>Cache hit rate</th><td>' + (stat.cache_hit_rate ?? '—') + '</td></tr>'
-            +   '<tr><th>Avg ms</th><td>' + (stat.avg_duration_ms ?? '—') + '</td></tr>'
-            + '</table>'
-            + (langRows
-                ? '<h4>By language</h4>'
-                + '<table class="rad-table"><thead><tr>'
-                + '<th>lang</th><th>detected</th><th>applied</th>'
-                + '<th>precision_proxy</th><th>avg_score</th>'
-                + '</tr></thead><tbody>' + langRows + '</tbody></table>'
-                : '<p style="opacity:0.6">No dedup decisions in last 24h '
-                + '(activate <code>embedding_dedupe</code> in Features).</p>');
+        const modelChip = emb.available
+            ? _settingsCfgChip('pulled', 'ok')
+            : _settingsCfgChip('missing', 'warn');
+        const stateChip = emb.feature_active
+            ? _settingsCfgChip('active', 'ok')
+            : _settingsCfgChip('inactive', 'dim');
+        const overviewBody = _settingsCfgKV([
+            { k: 'Model',          v: '<code>' + _escHtml(emb.model || '—') + '</code> ' + modelChip },
+            { k: 'Feature state',  v: stateChip + ' '
+                + '<span class="cfg-hint" style="margin:0;display:inline">'
+                + (emb.feature_active ? '(shadow or on)' : '(off)') + '</span>' },
+            { k: 'Calls (24h)',    v: stat.calls_24h ?? 0 },
+            { k: 'OK rate',        v: stat.ok_rate ?? '—' },
+            { k: 'Cache hit rate', v: stat.cache_hit_rate ?? '—' },
+            { k: 'Avg latency',    v: (stat.avg_duration_ms ?? '—') + ' ms' },
+        ]);
+        const langSection = Object.keys(lang).length === 0
+            ? '<div class="cfg-hint">No dedup decisions in the last 24 h. '
+              + 'Activate <code>embedding_dedupe</code> on the '
+              + '<a href="javascript:void(0)" '
+              + 'onclick="window._settingsOpen(\'llm.features\')">'
+              + 'Features</a> page to start collecting.</div>'
+            : '<table class="cfg-table"><thead><tr>'
+              + '<th>lang</th><th>detected</th><th>applied</th>'
+              + '<th>precision proxy</th><th>avg score</th>'
+              + '</tr></thead><tbody>'
+              + Object.keys(lang).map(L => {
+                  const v = lang[L] || {};
+                  return '<tr><td><code>' + _escHtml(L) + '</code></td>'
+                      + '<td>' + (v.detected ?? 0) + '</td>'
+                      + '<td>' + (v.applied ?? 0) + '</td>'
+                      + '<td>' + (v.precision_proxy ?? '—') + '</td>'
+                      + '<td>' + (v.avg_score ?? '—') + '</td></tr>';
+              }).join('') + '</tbody></table>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'OSINT dedupe via granite-embedding multilingual '
+                + 'vectors. Phase 1 GO requires per-language precision '
+                + 'thresholds (zh/ja/ar ≥ 0.90, ru ≥ 0.70).',
+            sections: [
+                { title: 'OVERVIEW',  body: overviewBody },
+                { title: 'BY LANGUAGE (24 H)', body: langSection },
+            ],
+        });
     };
 
     window._settingsRenderLlmSelfEval = async function (pane) {
         _settingsLoading(pane);
         const se = await _fetchSelfEval();
         if (!se) {
-            pane.innerHTML = '<div style="opacity:0.6">/api/v2/self_eval unavailable</div>';
+            pane.innerHTML = _settingsCfgPage({
+                help: '/api/v2/self_eval unavailable. Check JWT '
+                    + 'authentication and that the v2 endpoint is '
+                    + 'enabled.',
+                sections: [],
+            });
             return;
         }
         const go = se.phase8_go_status || {};
         const byUc = go.by_use_case || {};
         const overall = go.overall_go;
         const overallChip = overall === true
-            ? '<span style="background:var(--color-good,#3a3);color:#fff;'
-              + 'padding:2px 8px;border-radius:3px">GO</span>'
-            : (overall === false
-                ? '<span style="background:var(--color-warning,#c80);color:#fff;'
-                  + 'padding:2px 8px;border-radius:3px">NO-GO</span>'
-                : '<span style="opacity:0.6">— (no SHADOW_DUAL data yet)</span>');
+            ? _settingsCfgChip('GO', 'ok')
+            : overall === false
+                ? _settingsCfgChip('NO-GO', 'warn')
+                : _settingsCfgChip('— (no data)', 'dim');
         const rows = Object.keys(byUc).map(uc => {
             const e = byUc[uc] || {};
             const sc = e.schema_compliance || {};
             const ag = e.agreement_rate || {};
             const rp = e.verdict_reproducibility || {};
+            const cellCls = ok => ok === true ? 'ok'
+                : ok === false ? 'warn' : 'dim';
             const cell = (m, ok) =>
-                '<td style="background:'
-                + (ok === true ? 'rgba(60,180,60,0.15)'
-                   : ok === false ? 'rgba(200,120,0,0.15)' : 'transparent')
-                + '">' + (m && (m.value !== null && m.value !== undefined)
-                    ? m.value : '—') + '</td>';
-            return '<tr><td>' + _escHtml(uc) + '</td>'
+                '<td><span class="' + cellCls(ok) + '">'
+                + (m && (m.value !== null && m.value !== undefined)
+                    ? m.value : '—') + '</span></td>';
+            return '<tr><td><code>' + _escHtml(uc) + '</code></td>'
                 + cell(sc, sc.ok)
                 + cell(ag, ag.ok)
                 + cell(rp, rp.ok)
                 + '<td>' + (e.n_paired ?? 0) + '</td></tr>';
         }).join('');
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t('settings.llm.self_eval') + '</h3>'
-            + '<p>Phase 1 GO judgment: ' + overallChip + '</p>'
-            + '<table class="rad-table"><thead><tr>'
-            + '<th>use_case</th><th>schema ≥ 0.99</th>'
-            + '<th>agree ≥ 0.60</th><th>repro = 1.00</th>'
-            + '<th>n_paired</th></tr></thead><tbody>'
-            + (rows || '<tr><td colspan="5" style="opacity:0.6">'
-                + 'No SHADOW_DUAL data yet. Promote a routing feature '
-                + 'to SHADOW_DUAL on the Features tab to start collecting.'
-                + '</td></tr>')
-            + '</tbody></table>'
-            + '<p style="margin-top:1em;font-size:0.78em;opacity:0.65">'
-            + 'Recall (overall): <b>' + (se.recall ?? '—') + '</b>'
-            + ' · Null-zone: <b>' + (se.null_zone_days ?? '—') + 'd</b>'
-            + ' · Drift: <b>' + (se.drift ?? '—') + '</b></p>';
+        const tableBody = rows
+            ? '<table class="cfg-table"><thead><tr>'
+              + '<th>use_case</th><th>schema ≥ 0.99</th>'
+              + '<th>agree ≥ 0.60</th><th>repro = 1.00</th>'
+              + '<th>n_paired</th></tr></thead><tbody>'
+              + rows + '</tbody></table>'
+            : '<div class="cfg-hint">No SHADOW_DUAL data yet. '
+              + 'Promote a routing feature to '
+              + '<code>shadow_dual</code> on the '
+              + '<a href="javascript:void(0)" '
+              + 'onclick="window._settingsOpen(\'llm.features\')">'
+              + 'Features</a> page to start collecting.</div>';
+        const aggBody = _settingsCfgKV([
+            { k: 'Phase 1 GO judgment', v: overallChip },
+            { k: 'Recall (overall)',    v: '<b>' + (se.recall ?? '—') + '</b>' },
+            { k: 'Null-zone',           v: '<b>' + (se.null_zone_days ?? '—') + ' d</b>' },
+            { k: 'Drift',               v: '<b>' + (se.drift ?? '—') + '</b>' },
+        ]);
+        pane.innerHTML = _settingsCfgPage({
+            help: 'AP3 self-evaluation — recall, null-zone, drift, '
+                + 'and Phase 1 GO criteria per use_case (schema '
+                + 'compliance, agreement rate vs. legacy, verdict '
+                + 'reproducibility).',
+            sections: [
+                { title: 'OVERALL HEALTH', body: aggBody },
+                { title: 'PER USE_CASE',   body: tableBody },
+            ],
+        });
     };
 
     // ── Phase 10 — legacy tabs rendered inline in SETTINGS pane ───────
@@ -3351,16 +3460,22 @@
     // not a modal-in-modal: SETTINGS closes before the panel opens.
 
     function _renderToolHandoff(pane, titleKey, hint, openFn) {
-        const labelGo = _t('settings.legacy.go') || 'OPEN AS PANEL';
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t(titleKey) + '</h3>'
-            + (hint ? '<p style="font-size:0.85em;opacity:0.7">'
-                    + _escHtml(hint) + '</p>' : '')
-            + '<button class="btn-tactical" '
-            +   'style="padding:6px 14px;cursor:pointer">'
-            +   _escHtml(labelGo) + ' →'
-            + '</button>';
-        const btn = pane.querySelector('button');
+        const labelGo = _t('settings.legacy.go') || 'OPEN';
+        const sectionBody =
+            '<div class="cfg-hint">' + _escHtml(hint) + '</div>'
+            + '<div class="cfg-row" style="margin-top:10px">'
+            + '<button class="btn-tactical btn-action">'
+            +   _escHtml(labelGo) + ' →</button>'
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Workspace tool — opens as a draggable panel that '
+                + 'coexists with the map. SETTINGS closes first to '
+                + 'avoid stacked surfaces.',
+            sections: [
+                { title: _t(titleKey), body: sectionBody },
+            ],
+        });
+        const btn = pane.querySelector('button.btn-action');
         if (btn) btn.addEventListener('click', () => {
             if (typeof window._settingsClose === 'function') {
                 window._settingsClose();
@@ -3399,21 +3514,33 @@
     // its own dedicated SETTINGS domain (sensors / fetchlog /
     // upstreams / fleet / scenarios / system.config / operators).
     window._settingsRenderSystemLegacy = async function (pane) {
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">Legacy CONFIG (deprecated)</h3>'
-            + '<p style="font-size:0.85em;opacity:0.7">'
-            + 'The original MASTER CONFIGURATION modal has been merged '
-            + 'into this SETTINGS shell. All previous tabs are now '
-            + 'first-class SETTINGS domains:</p>'
-            + '<ul style="font-size:0.85em;line-height:1.8">'
-            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'sensors.catalog\')">Sensors</a></li>'
-            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'sensors.fetch_log\')">Fetch Log</a></li>'
-            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'infra.upstreams\')">Upstreams</a></li>'
-            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'infra.fleet\')">Fleet Health</a></li>'
-            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'scenarios.list\')">Scenarios</a></li>'
-            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'system.config\')">System config (env)</a></li>'
-            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'operators.users\')">Users</a></li>'
+        const link = (id, label) =>
+            '<li><a href="javascript:void(0)" '
+            + 'onclick="_settingsOpen(\'' + id + '\')">'
+            + _escHtml(label) + '</a></li>';
+        const body =
+            '<div class="cfg-hint">'
+            + 'The original MASTER CONFIGURATION modal has been '
+            + 'merged into this SETTINGS shell. All previous tabs '
+            + 'are now first-class SETTINGS domains.'
+            + '</div>'
+            + '<ul style="font-size:12px;line-height:1.8;color:#ccc;'
+            + 'padding-left:20px;margin:8px 0 0">'
+            + link('sensors.catalog',   'Sensors')
+            + link('sensors.fetch_log', 'Fetch Log')
+            + link('infra.upstreams',   'Upstreams')
+            + link('infra.fleet',       'Fleet Health')
+            + link('scenarios.list',    'Scenarios')
+            + link('system.config',     'System config (env)')
+            + link('operators.users',   'Users')
             + '</ul>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Legacy MASTER CONFIGURATION (deprecated). Use the '
+                + 'first-class entries below instead.',
+            sections: [
+                { title: 'WHERE THINGS MOVED', body: body },
+            ],
+        });
     };
 
     let _settingsAuditDomain = '';   // active filter
@@ -3462,55 +3589,57 @@
             + '>' + label + '</option>'
         ).join('');
         const fmtVal = v => {
-            if (v == null) return '<i style="opacity:0.55">null</i>';
+            if (v == null) return '<span class="dim">null</span>';
             const s = typeof v === 'string' ? v : JSON.stringify(v);
-            return '<code style="font-size:0.78em">'
+            return '<code>'
                 + _escHtml(s.length > 80 ? s.slice(0, 80) + '…' : s)
                 + '</code>';
         };
         const tableRows = rows.map(r => ''
             + '<tr>'
-            + '<td style="white-space:nowrap;font-size:0.82em">'
+            + '<td style="white-space:nowrap"><code>'
             +   new Date((r.ts||0)*1000).toISOString().slice(0,19)
-            + '</td>'
-            + '<td><code style="font-size:0.78em">'
-            +   _escHtml(r.domain || '') + '</code></td>'
-            + '<td><code style="font-size:0.78em">'
-            +   _escHtml(r.config_key || '') + '</code></td>'
+            + '</code></td>'
+            + '<td><code>' + _escHtml(r.domain || '') + '</code></td>'
+            + '<td><code>' + _escHtml(r.config_key || '') + '</code></td>'
             + '<td>' + fmtVal(r.old_value) + '</td>'
             + '<td>' + fmtVal(r.new_value) + '</td>'
-            + '<td style="font-size:0.82em">'
-            +   _escHtml(r.changed_by || '') + '</td>'
-            + '<td style="font-size:0.78em;opacity:0.7">'
-            +   _escHtml((r.reason || '').slice(0, 60)) + '</td>'
+            + '<td>' + _escHtml(r.changed_by || '') + '</td>'
+            + '<td><span class="dim">'
+            +   _escHtml((r.reason || '').slice(0, 60)) + '</span></td>'
             + '</tr>'
         ).join('');
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t('settings.audit.changes') + '</h3>'
-            + '<p style="font-size:0.85em;opacity:0.7">'
-            + 'NP6 unified ledger across every domain that touches '
-            + '<code>config_change_log</code>: LLM features, routing, '
-            + 'sensor toggles, scenario state, sysconfig env edits, '
-            + 'noise exclusion rules.</p>'
-            + '<div style="margin:12px 0;display:flex;gap:8px;align-items:center">'
-            + '<label style="font-size:0.85em">Domain '
-            +   '<select id="audit-domain-filter">' + domainOpts + '</select>'
-            + '</label>'
-            + '<label style="font-size:0.85em">Window '
-            +   '<select id="audit-hours-filter">' + hoursOpts + '</select>'
-            + '</label>'
-            + '<span style="font-size:0.78em;opacity:0.6">'
-            +   rows.length + ' rows</span>'
-            + '</div>'
-            + '<table class="rad-table" style="font-size:0.88em"><thead><tr>'
-            + '<th>when (UTC)</th><th>domain</th><th>key</th>'
-            + '<th>old</th><th>new</th><th>by</th><th>reason</th>'
+        const filterRow =
+            '<div class="cfg-row" style="margin-bottom:10px">'
+            + '<label class="cfg-label">Domain</label>'
+            + '<select class="cfg-select" id="audit-domain-filter">'
+            +   domainOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Window</label>'
+            + '<select class="cfg-select" id="audit-hours-filter">'
+            +   hoursOpts + '</select>'
+            + '<span class="cfg-status">' + rows.length + ' rows</span>'
+            + '</div>';
+        const tableBody =
+            filterRow
+            + '<table class="cfg-table"><thead><tr>'
+            +   '<th>when (UTC)</th><th>domain</th><th>key</th>'
+            +   '<th>old</th><th>new</th><th>by</th><th>reason</th>'
             + '</tr></thead><tbody>'
             + (tableRows
                 ? tableRows
-                : '<tr><td colspan="7" style="opacity:0.6;padding:1em">'
+                : '<tr><td colspan="7" class="dim" style="padding:1em">'
                   + 'no changes in window</td></tr>')
             + '</tbody></table>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'NP6 unified audit ledger. Every config change — LLM '
+                + 'features, routing, sensor toggles, scenario state, '
+                + 'sysconfig env edits, noise exclusion rules — flows '
+                + 'through <code>config_change_log</code> and surfaces '
+                + 'here. Filter by domain or time window.',
+            sections: [
+                { title: 'CHANGE LEDGER', body: tableBody },
+            ],
+        });
         const dEl = document.getElementById('audit-domain-filter');
         const hEl = document.getElementById('audit-hours-filter');
         if (dEl) dEl.addEventListener('change', () => {
@@ -4138,58 +4267,62 @@
         }
     };
 
-    // SETTINGS sub-page renderer for AP4 Decision Trail. Renders the
-    // filter row + list inline inside #settings-v2-render. Same data
-    // path (/api/v2/decisions/history) and same row markup as before.
+    // SETTINGS sub-page renderer for AP4 Decision Trail. Same data
+    // path (/api/v2/decisions/history) and same row markup as the
+    // legacy modal, restyled to the cfg-* design system.
     window._settingsRenderAuditDecisions = async function (pane) {
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t('settings.audit.decisions') + '</h3>'
-            + '<p style="font-size:0.85em;opacity:0.7">'
-            + 'AP4 Decision Trail — every analyst action recorded with '
-            + 'actor, reason, and parameters. Combine with the LLM Features '
-            + 'audit log and Audit Changes ledger for the full forensic '
-            + 'timeline.</p>'
-            + '<div class="dh-filters">'
-            + '  <label>Type: '
-            + '    <select id="dh-filter-type">'
-            + '      <option value="">All</option>'
-            + '      <option value="triage_snooze">TRIAGE snooze</option>'
-            + '      <option value="triage_visibility">TRIAGE visibility</option>'
-            + '      <option value="triage_dismiss">TRIAGE dismiss</option>'
-            + '      <option value="triage_threshold_override">TRIAGE threshold</option>'
-            + '      <option value="tl_recal_accept">TL recal accept</option>'
-            + '      <option value="tl_recal_extend">TL recal extend</option>'
-            + '      <option value="tl_recal_raise">TL recal raise</option>'
-            + '      <option value="dual_weight_accept">Dual-weight accept</option>'
-            + '      <option value="dual_weight_extend">Dual-weight extend</option>'
-            + '      <option value="dual_weight_rollback">Dual-weight rollback</option>'
-            + '    </select>'
-            + '  </label>'
-            + '  <label>Window: '
-            + '    <select id="dh-filter-window">'
-            + '      <option value="86400">24h</option>'
-            + '      <option value="604800" selected>7d</option>'
-            + '      <option value="2592000">30d</option>'
-            + '      <option value="7776000">90d</option>'
-            + '    </select>'
-            + '  </label>'
-            + '  <label>Action: '
-            + '    <select id="dh-filter-action">'
-            + '      <option value="">All</option>'
-            + '      <option value="accept">accept</option>'
-            + '      <option value="extend">extend</option>'
-            + '      <option value="raise">raise</option>'
-            + '      <option value="rollback">rollback</option>'
-            + '      <option value="snooze">snooze</option>'
-            + '      <option value="dismiss">dismiss</option>'
-            + '      <option value="set">set</option>'
-            + '    </select>'
-            + '  </label>'
-            + '  <button type="button" id="dh-filter-apply" class="btn-tactical">Apply filters</button>'
-            + '</div>'
-            + '<div class="dh-body" id="decision-history-body">'
-            + '  <div class="dh-loading">Loading…</div>'
+        const filterBody =
+            '<div class="cfg-row">'
+            + '<label class="cfg-label">Type</label>'
+            + '<select id="dh-filter-type" class="cfg-select">'
+            +   '<option value="">All</option>'
+            +   '<option value="triage_snooze">TRIAGE snooze</option>'
+            +   '<option value="triage_visibility">TRIAGE visibility</option>'
+            +   '<option value="triage_dismiss">TRIAGE dismiss</option>'
+            +   '<option value="triage_threshold_override">TRIAGE threshold</option>'
+            +   '<option value="tl_recal_accept">TL recal accept</option>'
+            +   '<option value="tl_recal_extend">TL recal extend</option>'
+            +   '<option value="tl_recal_raise">TL recal raise</option>'
+            +   '<option value="dual_weight_accept">Dual-weight accept</option>'
+            +   '<option value="dual_weight_extend">Dual-weight extend</option>'
+            +   '<option value="dual_weight_rollback">Dual-weight rollback</option>'
+            + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Window</label>'
+            + '<select id="dh-filter-window" class="cfg-select">'
+            +   '<option value="86400">24 h</option>'
+            +   '<option value="604800" selected>7 d</option>'
+            +   '<option value="2592000">30 d</option>'
+            +   '<option value="7776000">90 d</option>'
+            + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Action</label>'
+            + '<select id="dh-filter-action" class="cfg-select">'
+            +   '<option value="">All</option>'
+            +   '<option value="accept">accept</option>'
+            +   '<option value="extend">extend</option>'
+            +   '<option value="raise">raise</option>'
+            +   '<option value="rollback">rollback</option>'
+            +   '<option value="snooze">snooze</option>'
+            +   '<option value="dismiss">dismiss</option>'
+            +   '<option value="set">set</option>'
+            + '</select>'
+            + '<button type="button" id="dh-filter-apply" class="btn-tactical btn-action">'
+            +   'APPLY FILTERS</button>'
             + '</div>';
+        const trailBody =
+            '<div class="dh-body" id="decision-history-body">'
+            + '<div class="dh-loading">Loading…</div></div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'AP4 Decision Trail — every analyst action recorded '
+                + 'with actor, reason, and parameters. Combine with '
+                + 'the <a href="javascript:void(0)" '
+                + 'onclick="window._settingsOpen(\'audit.changes\')">'
+                + 'Audit Changes</a> ledger for the full forensic '
+                + 'timeline.',
+            sections: [
+                { title: 'FILTERS',        body: filterBody },
+                { title: 'DECISION TRAIL', body: trailBody },
+            ],
+        });
         const apply = document.getElementById('dh-filter-apply');
         if (apply) apply.addEventListener('click', _dhLoad);
         _dhLoad();
