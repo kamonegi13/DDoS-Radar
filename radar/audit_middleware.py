@@ -91,6 +91,10 @@ def audit(*, domain: str,
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
+            # Capture body BEFORE running the route; Flask consumes the
+            # request stream during the route, so reading get_json()
+            # after may return None.
+            body = _safe_json_body()
             old_v = None
             if callable(old_value_fn):
                 try:
@@ -100,19 +104,23 @@ def audit(*, domain: str,
             response = fn(*args, **kwargs)
             try:
                 # Only audit successful mutations (2xx).
-                status = (
-                    getattr(response, "status_code", None)
-                    or (response[1] if isinstance(response, tuple) and len(response) > 1 else 200)
-                )
-                if status is None or 200 <= int(status) < 300:
-                    body = _safe_json_body()
-                    resp_json = (
-                        _safe_json_response(response)
-                        if hasattr(response, "get_json")
-                        else (response[0].get_json(silent=True)
-                              if isinstance(response, tuple) and hasattr(response[0], "get_json")
-                              else None)
-                    )
+                if isinstance(response, tuple):
+                    resp_obj = response[0] if len(response) > 0 else None
+                    status = response[1] if len(response) > 1 else 200
+                else:
+                    resp_obj = response
+                    status = getattr(response, "status_code", 200)
+                try:
+                    status_int = int(status)
+                except (TypeError, ValueError):
+                    status_int = 200
+                if 200 <= status_int < 300:
+                    resp_json = None
+                    try:
+                        if resp_obj is not None and hasattr(resp_obj, "get_json"):
+                            resp_json = resp_obj.get_json(silent=True)
+                    except Exception:
+                        resp_json = None
                     config_key = (
                         key_fn(body, resp_json)
                         if callable(key_fn) else request.endpoint or "unknown"
