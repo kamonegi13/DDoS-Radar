@@ -90,6 +90,53 @@ def _migration_v40_schema_version_singleton(conn) -> None:
     conn.execute("DROP TABLE schema_version_old_v39")
 
 
+def _migration_v45_config_change_log(conn) -> None:
+    """Phase 9.1 (Foundation) — unified audit ledger for every analyst-driven
+    runtime configuration change.
+
+    Today, runtime config changes are scattered across multiple tables:
+      - llm_feature_state_history (Feature Hub flips)
+      - llm_routing_override_history (Phase 8 routing override)
+      - sensor mute / unmute (no audit)
+      - scenario weight edits (no audit)
+      - sysconfig 'live' field edits (no audit)
+      - threat scoring threshold changes (no audit)
+
+    Phase 9 collapses this into ONE table that EVERY runtime config write
+    appends to. Domain-specific history tables (llm_feature_state_history
+    and llm_routing_override_history) remain as legacy mirrors for a 6-month
+    deprecation window; new code SHOULD use config_change_log.
+
+    NP6: every change carries actor identity, timestamp, old/new value, and
+    reason. UI surfaces this in Settings > Operators > Audit.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS config_change_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts           REAL NOT NULL,
+            domain       TEXT NOT NULL,
+            config_key   TEXT NOT NULL,
+            old_value    TEXT,
+            new_value    TEXT,
+            changed_by   TEXT NOT NULL,
+            reason       TEXT,
+            request_id   TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_config_change_log_ts "
+        "ON config_change_log (ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_config_change_log_domain "
+        "ON config_change_log (domain, ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_config_change_log_key "
+        "ON config_change_log (config_key, ts DESC)"
+    )
+
+
 def _migration_v42_llm_routing_overrides(conn) -> None:
     """Phase 8 (LLM survey v10) — analyst-driven routing overrides.
 
@@ -615,6 +662,28 @@ CREATE TABLE IF NOT EXISTS llm_routing_override_history (
 );
 CREATE INDEX IF NOT EXISTS idx_llm_routing_override_hist_ts
     ON llm_routing_override_history (changed_at DESC);
+
+-- Phase 9.1 (Foundation) — unified audit ledger for every runtime config
+-- change. Domain-specific history tables (llm_feature_state_history,
+-- llm_routing_override_history) remain as legacy mirrors; new code writes
+-- here too. NP6 single source of truth.
+CREATE TABLE IF NOT EXISTS config_change_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts           REAL NOT NULL,
+    domain       TEXT NOT NULL,
+    config_key   TEXT NOT NULL,
+    old_value    TEXT,
+    new_value    TEXT,
+    changed_by   TEXT NOT NULL,
+    reason       TEXT,
+    request_id   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_config_change_log_ts
+    ON config_change_log (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_config_change_log_domain
+    ON config_change_log (domain, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_config_change_log_key
+    ON config_change_log (config_key, ts DESC);
 
 -- v2.0 ADR-V2-009: sha256-deduplicated LLM prompt store.
 -- Every llm_client invocation persists its prompt here; llm_call_log.prompt_sha256
@@ -2494,6 +2563,9 @@ class RadarDB:
 
         (42, "llm_routing_override + history (Phase 8 analyst override surface)",
          _migration_v42_llm_routing_overrides),
+
+        (45, "config_change_log unified audit ledger (Phase 9 NP6)",
+         _migration_v45_config_change_log),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -4198,6 +4270,96 @@ class RadarDB:
             }
             for r in rows
         ]
+
+    # ── config_change_log (Phase 9.1 unified audit) ──────────────────────────
+    def config_change_log_append(self, *, domain: str, config_key: str,
+                                 old_value: "object" = None,
+                                 new_value: "object" = None,
+                                 changed_by: str = "unknown",
+                                 reason: "str | None" = None,
+                                 request_id: "str | None" = None) -> int:
+        """Append a row to the unified config audit ledger. Returns the new
+        row id. Old/new values are JSON-serialized so the column can hold
+        scalars, dicts, lists alike. NP3 — never raises; returns -1 on DB
+        failure so the caller's primary write path is not broken."""
+        import json
+        import time as _time
+
+        def _enc(v) -> "str | None":
+            if v is None:
+                return None
+            try:
+                return json.dumps(v, default=str, ensure_ascii=False)[:8000]
+            except Exception:
+                return str(v)[:8000]
+
+        try:
+            conn = self._get_conn()
+            with conn.writing():
+                cur = conn.execute(
+                    "INSERT INTO config_change_log "
+                    "(ts, domain, config_key, old_value, new_value, "
+                    " changed_by, reason, request_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (_time.time(), domain[:64], config_key[:128],
+                     _enc(old_value), _enc(new_value),
+                     (changed_by or "unknown")[:64],
+                     (reason or "")[:300] or None,
+                     request_id),
+                )
+                return cur.lastrowid or -1
+        except Exception:
+            log.debug("config_change_log_append failed", exc_info=True)
+            return -1
+
+    def config_change_log_recent(self, *, hours: int = 720,
+                                 domain: "str | None" = None,
+                                 limit: int = 200) -> list:
+        """Return recent config change rows for the Audit UI. Optional domain
+        filter (e.g. 'llm.routing', 'sensor.mute', 'scoring.threshold')."""
+        import time as _time
+        cutoff = _time.time() - hours * 3600
+        conn = self._get_conn()
+        try:
+            if domain:
+                rows = conn.execute(
+                    "SELECT id, ts, domain, config_key, old_value, new_value, "
+                    "       changed_by, reason, request_id "
+                    "FROM config_change_log WHERE ts >= ? AND domain = ? "
+                    "ORDER BY ts DESC LIMIT ?",
+                    (cutoff, domain, max(1, min(limit, 2000))),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, ts, domain, config_key, old_value, new_value, "
+                    "       changed_by, reason, request_id "
+                    "FROM config_change_log WHERE ts >= ? "
+                    "ORDER BY ts DESC LIMIT ?",
+                    (cutoff, max(1, min(limit, 2000))),
+                ).fetchall()
+        except Exception:
+            return []
+        return [
+            {"id": r[0], "ts": r[1], "domain": r[2], "config_key": r[3],
+             "old_value": r[4], "new_value": r[5], "changed_by": r[6],
+             "reason": r[7], "request_id": r[8]}
+            for r in rows
+        ]
+
+    def config_change_log_domains(self, *, hours: int = 720) -> list:
+        """Return distinct domains observed in the audit ledger over the
+        window so the Audit UI can populate its filter dropdown."""
+        import time as _time
+        cutoff = _time.time() - hours * 3600
+        try:
+            rows = self._get_conn().execute(
+                "SELECT domain, COUNT(*) AS n FROM config_change_log "
+                "WHERE ts >= ? GROUP BY domain ORDER BY n DESC",
+                (cutoff,),
+            ).fetchall()
+        except Exception:
+            return []
+        return [{"domain": r[0], "count": r[1]} for r in rows]
 
     # ── llm_call_log ─────────────────────────────────────────────────────────
     def llm_call_log_append(self, caller: str, model: str, duration_ms: int,
