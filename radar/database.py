@@ -90,6 +90,20 @@ def _migration_v40_schema_version_singleton(conn) -> None:
     conn.execute("DROP TABLE schema_version_old_v39")
 
 
+def _migration_v45b_config_runtime_value(conn) -> None:
+    """Phase 9.1 — runtime override values for declarative config keys.
+    Created alongside config_change_log so config_layered.set_config has
+    both tables on upgrade. Idempotent."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS config_runtime_value (
+            config_key  TEXT PRIMARY KEY,
+            value_json  TEXT NOT NULL,
+            set_at      REAL NOT NULL,
+            set_by      TEXT NOT NULL
+        )
+    """)
+
+
 def _migration_v45_config_change_log(conn) -> None:
     """Phase 9.1 (Foundation) — unified audit ledger for every analyst-driven
     runtime configuration change.
@@ -684,6 +698,15 @@ CREATE INDEX IF NOT EXISTS idx_config_change_log_domain
     ON config_change_log (domain, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_config_change_log_key
     ON config_change_log (config_key, ts DESC);
+
+-- Phase 9.1 (Foundation) — runtime override values for declarative config
+-- keys. Layer 3 in radar/config_layered.py. Single row per key (UNIQUE PK).
+CREATE TABLE IF NOT EXISTS config_runtime_value (
+    config_key  TEXT PRIMARY KEY,
+    value_json  TEXT NOT NULL,
+    set_at      REAL NOT NULL,
+    set_by      TEXT NOT NULL
+);
 
 -- v2.0 ADR-V2-009: sha256-deduplicated LLM prompt store.
 -- Every llm_client invocation persists its prompt here; llm_call_log.prompt_sha256
@@ -2566,6 +2589,9 @@ class RadarDB:
 
         (45, "config_change_log unified audit ledger (Phase 9 NP6)",
          _migration_v45_config_change_log),
+
+        (46, "config_runtime_value runtime override store (Phase 9.1)",
+         _migration_v45b_config_runtime_value),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
