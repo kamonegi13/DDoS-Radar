@@ -726,6 +726,14 @@ def v2_self_eval():
         out["shadow_dual_diff"] = {}
         out["routing_error"] = str(e)
 
+    # Phase 9.2 C9 — embedding pipeline rollup.
+    try:
+        from radar.database import db as _shared_db
+        out["embedding_dedupe"] = _shared_db.llm_embedding_stats(hours=24)
+    except Exception as e:  # noqa: BLE001
+        out["embedding_dedupe"] = {}
+        out["embedding_error"] = str(e)
+
     # Phase 9.2 C6 — derived Phase 1 GO judgment. Single scalar boolean
     # plus per-axis breakdown so the LLM Console "Self-Eval" tab can
     # render a green/red GO chip without analyst SQL.
