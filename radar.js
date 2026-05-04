@@ -2539,33 +2539,67 @@
             const eff = Array.isArray(_modelEffective) ? _modelEffective : [];
             const pre = _modelPreflight || {};
             const oll = pre.ollama || {};
-            const rows = eff.map(e => {
+            // Build the model option list from what the preflight reported as
+            // probed locally, plus the v10 survey-recommended stack so an
+            // analyst can pick a model that's expected to be pulled even when
+            // probe is currently degraded. Deduped + sorted.
+            const v10Stack = [
+                'mistral-small3.2:24b', 'gemma4:26b', 'gemma4:31b',
+                'gpt-oss-safeguard:20b', 'gemma4:e4b', 'gpt-oss:120b',
+            ];
+            const observed = new Set(
+                eff.map(e => e.model).filter(Boolean).concat(v10Stack)
+            );
+            const modelOptions = Array.from(observed).sort();
+            const escAttr = s => _escHtml(s).replace(/"/g, '&quot;');
+            const rows = eff.map((e, i) => {
                 const avail = e.available
-                    ? '<span style="color:var(--color-good,#3a3)">✓</span>'
-                    : '<span style="color:var(--color-warning,#c80)">×</span>';
+                    ? '<span style="color:var(--color-good,#3a3)" title="model pulled locally">✓</span>'
+                    : '<span style="color:var(--color-warning,#c80)" title="model NOT pulled — preflight will downgrade go_no_go">×</span>';
                 const fs = e.feature_state || '?';
-                const think = e.thinking_enabled ? 'think:on' : 'think:off';
-                const sp = e.system_prefix
-                    ? ' · prefix=' + _escHtml(e.system_prefix)
-                    : '';
+                const fsBand = fs === 'on'      ? 'good'
+                             : fs === 'shadow'  ? 'warn'
+                             : 'na';
+                const opts = modelOptions.map(m =>
+                    '<option value="' + escAttr(m) + '"'
+                    + (m === e.model ? ' selected' : '') + '>'
+                    + _escHtml(m) + '</option>'
+                ).join('');
+                const tempVal = (e.temperature !== null && e.temperature !== undefined)
+                    ? Number(e.temperature).toFixed(2) : '';
                 return ''
-                    + '<tr>'
+                    + '<tr data-row-idx="' + i + '" '
+                    + 'data-use-case="' + escAttr(e.use_case) + '" '
+                    + 'data-slot="' + escAttr(e.slot) + '">'
                     + '<td>' + _escHtml(e.use_case) + '</td>'
                     + '<td>' + _escHtml(e.slot) + '</td>'
-                    + '<td><code>' + _escHtml(e.model) + '</code> ' + avail + '</td>'
-                    + '<td>' + _escHtml(fs) + '</td>'
-                    + '<td>temp=' + e.temperature
-                          + ' · top_p=' + (e.top_p ?? '—')
-                          + ' · top_k=' + (e.top_k ?? '—')
-                          + ' · seed=' + (e.seed ?? '—')
-                          + ' · ' + think + sp
+                    + '<td>'
+                    +   '<select class="lr-model" style="min-width:200px">'
+                    +     opts
+                    +   '</select> ' + avail
+                    + '</td>'
+                    + '<td><span class="hud-self-eval-' + fsBand + '" '
+                    +   'style="padding:1px 6px;border-radius:3px">'
+                    +   _escHtml(fs) + '</span></td>'
+                    + '<td>'
+                    +   '<input type="number" class="lr-temp" min="0" max="2" '
+                    +     'step="0.05" value="' + tempVal + '" '
+                    +     'style="width:65px"> '
+                    +   '<label style="font-size:0.85em;margin-left:6px">'
+                    +     '<input type="checkbox" class="lr-think" '
+                    +     (e.thinking_enabled ? 'checked' : '') + '> think'
+                    +   '</label>'
+                    + '</td>'
+                    + '<td style="white-space:nowrap">'
+                    +   '<button class="lr-save" data-i18n="llm_routing.save">Save</button> '
+                    +   '<button class="lr-reset" title="clear DB override → revert to env / code default" data-i18n="llm_routing.reset">Reset</button>'
                     + '</td>'
                     + '</tr>';
             }).join('');
             const head = ''
                 + '<thead><tr>'
                 + '<th>use_case</th><th>slot</th><th>model</th>'
-                + '<th>feature</th><th>sampling</th>'
+                + '<th>feature</th><th>sampling</th><th>action</th>'
                 + '</tr></thead>';
             const versionMsg = oll.version
                 ? 'Ollama ' + _escHtml(oll.version)
@@ -2580,16 +2614,38 @@
                   + pre.missing.map(_escHtml).join('</code>, <code>')
                   + '</code></p>'
                 : '';
+            // Embedding panel — independent of the routing table, but lives in
+            // the same modal because analysts think of it as part of the v10
+            // stack.
+            const emb = pre.embedding || {};
+            const embHtml = ''
+                + '<div style="margin-top:1em;padding:8px;border:1px solid '
+                +   'var(--color-panel-border,#2a3138);border-radius:4px">'
+                + '<b>Embedding (dedupe)</b><br>'
+                + 'model = <code>' + _escHtml(emb.model || '—') + '</code> '
+                + (emb.available
+                    ? '<span style="color:var(--color-good,#3a3)">✓ pulled</span>'
+                    : '<span style="color:var(--color-warning,#c80)">× not pulled</span>')
+                + ' · feature = <code>' + (emb.feature_active ? 'active' : 'inactive')
+                + '</code><br>'
+                + '<span style="font-size:0.85em;opacity:0.7">'
+                + 'Toggle the embedding_dedupe Feature Hub key in '
+                + '<a href="javascript:void(0)" onclick="(window._llmFeaturesOpen||function(){})()">LLM Features</a>'
+                + ' to control whether embed_text() runs on incoming OSINT.'
+                + '</span></div>';
             const html = ''
                 + '<div class="modal-section">'
                 + '<p>' + versionMsg + ' · preflight: ' + goNoGo + '</p>'
                 + missing
-                + '<table class="rad-table">' + head
-                + '<tbody>' + rows + '</tbody></table>'
-                + '<p style="margin-top:1em;font-size:0.85em;opacity:0.7">'
-                + 'Routing follows DB override → env var → code default. '
-                + 'Use <code>POST /api/v2/llm_routing/overrides</code> '
-                + 'to change a (use_case, slot) at runtime.'
+                + '<table class="rad-table" id="llm-routing-table">'
+                +   head + '<tbody>' + rows + '</tbody></table>'
+                + embHtml
+                + '<div id="llm-routing-status" style="margin-top:0.6em;font-size:0.85em;min-height:1.2em"></div>'
+                + '<p style="margin-top:1em;font-size:0.8em;opacity:0.65">'
+                + 'Save writes a row to <code>llm_routing_override</code> (DB layer, '
+                + 'highest precedence). Reset deletes the override → reverts to env '
+                + 'var or code default. Every change is appended to '
+                + '<code>llm_routing_override_history</code> (NP6 audit).'
                 + '</p>'
                 + '</div>';
             // Lightweight single-instance modal — destroyed on close so the
@@ -2627,6 +2683,95 @@
             if (closeBtn) {
                 closeBtn.addEventListener('click', () => overlay.remove());
             }
+            // ── Inline override controls ────────────────────────────────
+            // Save button → POST /api/v2/llm_routing/overrides
+            // Reset button → DELETE /api/v2/llm_routing/overrides
+            // After either, refresh the modal so feature_state and
+            // model badges reflect the new state.
+            const setStatus = (msg, ok) => {
+                const el = document.getElementById('llm-routing-status');
+                if (!el) return;
+                el.style.color = ok
+                    ? 'var(--color-good,#3a3)'
+                    : 'var(--color-warning,#c80)';
+                el.textContent = msg;
+            };
+            const refreshAfterChange = async () => {
+                _modelChipLastFetchMs = 0;          // bust the cache
+                await _refreshModelChip();
+                overlay.remove();
+                _llmRoutingOpen();                  // re-render with fresh data
+            };
+            box.querySelectorAll('tr[data-use-case]').forEach(tr => {
+                const useCase = tr.getAttribute('data-use-case');
+                const slot    = tr.getAttribute('data-slot');
+                const modelEl = tr.querySelector('.lr-model');
+                const tempEl  = tr.querySelector('.lr-temp');
+                const thinkEl = tr.querySelector('.lr-think');
+                const saveBtn = tr.querySelector('.lr-save');
+                const resetBtn = tr.querySelector('.lr-reset');
+                if (saveBtn) {
+                    saveBtn.addEventListener('click', async () => {
+                        saveBtn.disabled = true;
+                        const body = {
+                            use_case: useCase,
+                            slot: slot,
+                            model: modelEl ? modelEl.value : null,
+                            thinking_enabled: thinkEl ? thinkEl.checked : null,
+                            reason: 'analyst override via routing modal',
+                        };
+                        const t = tempEl && tempEl.value !== ''
+                            ? Number(tempEl.value) : null;
+                        if (t !== null && !Number.isNaN(t)) body.temperature = t;
+                        try {
+                            const r = await fetch(
+                                '/api/v2/llm_routing/overrides',
+                                {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify(body),
+                                }
+                            );
+                            if (r.ok) {
+                                setStatus('Saved ' + useCase + '/' + slot, true);
+                                await refreshAfterChange();
+                            } else {
+                                const err = await r.text();
+                                setStatus('Save failed: HTTP ' + r.status
+                                          + ' — ' + err.slice(0, 120), false);
+                                saveBtn.disabled = false;
+                            }
+                        } catch (e) {
+                            setStatus('Save error: ' + (e && e.message || e), false);
+                            saveBtn.disabled = false;
+                        }
+                    });
+                }
+                if (resetBtn) {
+                    resetBtn.addEventListener('click', async () => {
+                        resetBtn.disabled = true;
+                        const url = '/api/v2/llm_routing/overrides'
+                            + '?use_case=' + encodeURIComponent(useCase)
+                            + '&slot=' + encodeURIComponent(slot)
+                            + '&reason=' + encodeURIComponent('reset to default');
+                        try {
+                            const r = await fetch(url, {method: 'DELETE'});
+                            if (r.ok) {
+                                setStatus('Reset ' + useCase + '/' + slot, true);
+                                await refreshAfterChange();
+                            } else {
+                                const err = await r.text();
+                                setStatus('Reset failed: HTTP ' + r.status
+                                          + ' — ' + err.slice(0, 120), false);
+                                resetBtn.disabled = false;
+                            }
+                        } catch (e) {
+                            setStatus('Reset error: ' + (e && e.message || e), false);
+                            resetBtn.disabled = false;
+                        }
+                    });
+                }
+            });
         };
         if (!_modelEffective) {
             _modelChipLastFetchMs = 0;
@@ -2636,6 +2781,515 @@
         }
     }
     window._llmRoutingOpen = _llmRoutingOpen;
+
+    // ════════════════════════════════════════════════════════════════════
+    // Settings shell — Phase 9.3 C10-C12 + 9.4 C13-C15 unified surface
+    //
+    // One modal, one left-nav, one right-pane renderer. Domains keyed by
+    // dotted-path string. Calling _settingsOpen('llm.routing') shows the
+    // modal pre-selected on that domain.
+    //
+    // Design intent:
+    //   - Every LLM setting reachable from one place (resolves user
+    //     complaint about 4-way LLM split: CONFIG SYSTEM + LLM Features
+    //     Hub + LLM Routing modal + config.env).
+    //   - Existing legacy modals (settings-modal, llm-features-modal,
+    //     llm-routing-modal-overlay) remain functional via their old
+    //     entry points; the new shell is additive in this commit, with
+    //     legacy redirect in C16.
+    // ════════════════════════════════════════════════════════════════════
+
+    const _SETTINGS_DOMAINS = [
+        // group, label, dotted-id, render fn name
+        { group: 'llm', label: 'LLM',                 sub: [
+            { id: 'llm.connection',     labelKey: 'settings.llm.connection',
+              fn: '_settingsRenderLlmConnection' },
+            { id: 'llm.intel_pipeline', labelKey: 'settings.llm.intel_pipeline',
+              fn: '_settingsRenderLlmIntelPipeline' },
+            { id: 'llm.features',       labelKey: 'settings.llm.features',
+              fn: '_settingsRenderLlmFeatures' },
+            { id: 'llm.routing',        labelKey: 'settings.llm.routing',
+              fn: '_settingsRenderLlmRouting' },
+            { id: 'llm.embedding',      labelKey: 'settings.llm.embedding',
+              fn: '_settingsRenderLlmEmbedding' },
+            { id: 'llm.self_eval',      labelKey: 'settings.llm.self_eval',
+              fn: '_settingsRenderLlmSelfEval' },
+        ]},
+        { group: 'system', label: 'System',           sub: [
+            { id: 'system.legacy', labelKey: 'settings.system.legacy',
+              fn: '_settingsRenderSystemLegacy' },
+        ]},
+        { group: 'audit', label: 'Audit',              sub: [
+            { id: 'audit.changes', labelKey: 'settings.audit.changes',
+              fn: '_settingsRenderAuditChanges' },
+        ]},
+    ];
+
+    let _settingsCurrentDomain = 'llm.connection';
+
+    function _settingsOpen(domain) {
+        const modal = document.getElementById('settings-modal-v2');
+        if (!modal) return;
+        if (typeof domain === 'string' && domain) {
+            _settingsCurrentDomain = domain;
+        }
+        modal.style.display = 'block';
+        // Center the modal (legacy modal-window class doesn't always position).
+        modal.style.position = 'fixed';
+        modal.style.top = '50%';
+        modal.style.left = '50%';
+        modal.style.transform = 'translate(-50%, -50%)';
+        modal.style.zIndex = 7000;
+        modal.style.background = 'var(--color-panel-bg,#101418)';
+        modal.style.color = 'var(--color-text,#dde)';
+        modal.style.border = '1px solid var(--color-panel-border,#2a3138)';
+        modal.style.borderRadius = '6px';
+        _settingsRenderNav();
+        _settingsRenderPane(_settingsCurrentDomain);
+    }
+    function _settingsClose() {
+        const modal = document.getElementById('settings-modal-v2');
+        if (modal) modal.style.display = 'none';
+    }
+    window._settingsOpen = _settingsOpen;
+    window._settingsClose = _settingsClose;
+
+    function _settingsRenderNav() {
+        const nav = document.getElementById('settings-v2-nav');
+        if (!nav) return;
+        const html = _SETTINGS_DOMAINS.map(grp => {
+            const items = grp.sub.map(s => {
+                const active = s.id === _settingsCurrentDomain;
+                return ''
+                    + '<div class="settings-nav-item" '
+                    +   'data-domain="' + _escHtml(s.id) + '" '
+                    +   'style="padding:5px 14px;cursor:pointer;'
+                    +   'font-size:0.88em;'
+                    +   (active
+                        ? 'background:var(--color-accent-bg,#1c2530);color:var(--color-accent,#88f)'
+                        : '') + '">'
+                    +   _t(s.labelKey)
+                    + '</div>';
+            }).join('');
+            return ''
+                + '<div class="settings-nav-group" style="margin-bottom:6px">'
+                + '<div style="padding:8px 12px 4px;font-size:0.7em;'
+                + 'text-transform:uppercase;letter-spacing:0.08em;'
+                + 'opacity:0.55">' + _escHtml(grp.label) + '</div>'
+                + items
+                + '</div>';
+        }).join('');
+        nav.innerHTML = html;
+        nav.querySelectorAll('[data-domain]').forEach(el => {
+            el.addEventListener('click', () => {
+                _settingsCurrentDomain = el.getAttribute('data-domain');
+                _settingsRenderNav();
+                _settingsRenderPane(_settingsCurrentDomain);
+            });
+        });
+    }
+
+    function _settingsRenderPane(domain) {
+        const pane = document.getElementById('settings-v2-pane');
+        if (!pane) return;
+        // Find render fn name from registry
+        let fn = null;
+        for (const grp of _SETTINGS_DOMAINS) {
+            for (const s of grp.sub) {
+                if (s.id === domain) { fn = s.fn; break; }
+            }
+        }
+        const handler = fn && window[fn];
+        if (typeof handler === 'function') {
+            handler(pane);
+        } else {
+            pane.innerHTML = '<div style="opacity:0.6">Section not yet '
+                + 'available: <code>' + _escHtml(domain) + '</code></div>';
+        }
+    }
+
+    // ── Domain renderers ────────────────────────────────────────────────
+
+    async function _fetchEffectiveRouting() {
+        try {
+            const r = await fetch('/api/v2/llm_routing');
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+    async function _fetchPreflight() {
+        try {
+            const r = await fetch('/api/v2/llm_preflight');
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+    async function _fetchFeatures() {
+        try {
+            const r = await fetch('/api/v2/llm_features');
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+    async function _fetchSelfEval() {
+        try {
+            const r = await fetch('/api/v2/self_eval');
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+    async function _fetchAudit(domain) {
+        try {
+            const url = '/api/v2/llm_routing/audit?hours=720&limit=200';
+            const r = await fetch(url);
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+
+    function _settingsLoading(pane) {
+        pane.innerHTML = '<div style="opacity:0.6">Loading…</div>';
+    }
+
+    window._settingsRenderLlmConnection = async function (pane) {
+        _settingsLoading(pane);
+        const pre = await _fetchPreflight();
+        const oll = (pre && pre.ollama) || {};
+        const reach = oll.reachable
+            ? '<b style="color:var(--color-good,#3a3)">reachable</b>'
+            : '<b style="color:var(--color-warning,#c80)">offline</b>';
+        const ver = oll.version
+            ? _escHtml(oll.version)
+              + (pre.version_ok ? ' ✓ (≥0.22.0)' : ' (need ≥0.22.0)')
+            : '—';
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t('settings.llm.connection') + '</h3>'
+            + '<table class="rad-table">'
+            +   '<tr><th>Ollama</th><td>' + reach + ' · version ' + ver + '</td></tr>'
+            +   '<tr><th>Preflight go/no-go</th><td>'
+            +     ((pre && pre.go_no_go)
+                ? '<b style="color:var(--color-good,#3a3)">GO</b>'
+                : '<b style="color:var(--color-warning,#c80)">NO-GO</b>')
+            +   '</td></tr>'
+            + '</table>'
+            + '<p style="margin-top:1em;font-size:0.85em;opacity:0.7">'
+            + 'LLM_HOST and LLM_TIMEOUT are env-backed (restart-required).'
+            + ' Edit <code>config.env</code> and redeploy to change.'
+            + ' Per-feature kill switch and runtime knobs are on the '
+            + '<a href="javascript:void(0)" onclick="window._settingsOpen(\'llm.features\')">'
+            + 'LLM Features</a> tab.</p>';
+    };
+
+    window._settingsRenderLlmFeatures = async function (pane) {
+        _settingsLoading(pane);
+        const data = await _fetchFeatures();
+        if (!data) {
+            pane.innerHTML = '<div style="opacity:0.6">'
+                + 'Feature Hub API unavailable (auth or v2 disabled).'
+                + '</div>'; return;
+        }
+        const features = data.features || [];
+        const rows = features.map(f => {
+            const state = String(f.current_state || 'off');
+            const opts = ['off','shadow','shadow_dual','on'].map(s =>
+                '<option value="' + s + '"'
+                + (s === state ? ' selected' : '')
+                + (s === 'shadow' && !f.supports_shadow ? ' disabled' : '')
+                + (s === 'shadow_dual' && !f.supports_shadow ? ' disabled' : '')
+                + '>' + s + '</option>'
+            ).join('');
+            return ''
+                + '<tr data-key="' + _escHtml(f.key) + '">'
+                + '<td><b>' + _escHtml(f.name) + '</b><br>'
+                +   '<span style="font-size:0.78em;opacity:0.55">'
+                +     _escHtml(f.key) + '</span></td>'
+                + '<td>' + _escHtml(f.tier) + '</td>'
+                + '<td><select class="lf-state">' + opts + '</select></td>'
+                + '<td><button class="lf-save">Save</button></td>'
+                + '</tr>';
+        }).join('');
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t('settings.llm.features') + '</h3>'
+            + '<table class="rad-table"><thead><tr>'
+            + '<th>Feature</th><th>Tier</th><th>State</th><th></th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table>'
+            + '<div id="lf-status" style="margin-top:0.6em;font-size:0.85em"></div>';
+        pane.querySelectorAll('tr[data-key]').forEach(tr => {
+            const key = tr.getAttribute('data-key');
+            const sel = tr.querySelector('.lf-state');
+            const btn = tr.querySelector('.lf-save');
+            if (btn) btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                try {
+                    const r = await fetch(
+                        '/api/v2/llm_features/' + encodeURIComponent(key) + '/set',
+                        { method: 'POST',
+                          headers: {'Content-Type':'application/json'},
+                          body: JSON.stringify({state: sel.value,
+                                                reason: 'Settings UI'}) }
+                    );
+                    const status = document.getElementById('lf-status');
+                    if (status) status.textContent = r.ok
+                        ? 'Saved ' + key + ' → ' + sel.value
+                        : 'Save failed: HTTP ' + r.status;
+                    if (status) status.style.color = r.ok
+                        ? 'var(--color-good,#3a3)' : 'var(--color-warning,#c80)';
+                } catch (e) {
+                    const status = document.getElementById('lf-status');
+                    if (status) status.textContent = 'Error: ' + e;
+                }
+                btn.disabled = false;
+            });
+        });
+    };
+
+    window._settingsRenderLlmRouting = async function (pane) {
+        _settingsLoading(pane);
+        const data = await _fetchEffectiveRouting();
+        const eff = (data && data.effective) || [];
+        const escAttr = s => _escHtml(s).replace(/"/g, '&quot;');
+        const v10Stack = ['mistral-small3.2:24b','gemma4:26b','gemma4:31b',
+                          'gpt-oss-safeguard:20b','gemma4:e4b','gpt-oss:120b'];
+        const observed = new Set(
+            eff.map(e => e.model).filter(Boolean).concat(v10Stack)
+        );
+        const modelOpts = Array.from(observed).sort();
+        const rows = eff.map(e => {
+            const opts = modelOpts.map(m =>
+                '<option value="' + escAttr(m) + '"'
+                + (m === e.model ? ' selected' : '') + '>' + _escHtml(m) + '</option>'
+            ).join('');
+            const tempVal = (typeof e.temperature === 'number')
+                ? e.temperature.toFixed(2) : '';
+            return ''
+                + '<tr data-uc="' + escAttr(e.use_case) + '" '
+                +   'data-slot="' + escAttr(e.slot) + '">'
+                + '<td>' + _escHtml(e.use_case) + '/' + _escHtml(e.slot) + '</td>'
+                + '<td><select class="r-model" style="min-width:200px">'
+                +   opts + '</select></td>'
+                + '<td><input type="number" class="r-temp" min="0" max="2" '
+                +   'step="0.05" value="' + tempVal + '" style="width:65px"></td>'
+                + '<td><label><input type="checkbox" class="r-think" '
+                +   (e.thinking_enabled ? 'checked' : '') + '> think</label></td>'
+                + '<td>' + (e.available
+                    ? '<span style="color:var(--color-good,#3a3)">✓</span>'
+                    : '<span style="color:var(--color-warning,#c80)">×</span>')
+                + '</td>'
+                + '<td><span style="font-size:0.85em;opacity:0.6">'
+                +   _escHtml(e.feature_state) + '</span></td>'
+                + '<td><button class="r-save">Save</button> '
+                + '<button class="r-reset">Reset</button></td>'
+                + '</tr>';
+        }).join('');
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t('settings.llm.routing') + '</h3>'
+            + '<table class="rad-table"><thead><tr>'
+            + '<th>use_case/slot</th><th>model</th><th>temp</th>'
+            + '<th>think</th><th>avail</th><th>state</th><th></th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table>'
+            + '<div id="r-status" style="margin-top:0.6em;font-size:0.85em"></div>'
+            + '<p style="margin-top:1em;font-size:0.78em;opacity:0.65">'
+            + 'Routing follows DB override → env var → code default.'
+            + ' Overrides are recorded in <code>config_change_log</code> + '
+            + '<code>llm_routing_override_history</code> for NP6 audit.</p>';
+        const setStatus = (msg, ok) => {
+            const el = document.getElementById('r-status');
+            if (el) {
+                el.textContent = msg;
+                el.style.color = ok
+                    ? 'var(--color-good,#3a3)' : 'var(--color-warning,#c80)';
+            }
+        };
+        pane.querySelectorAll('tr[data-uc]').forEach(tr => {
+            const uc = tr.getAttribute('data-uc');
+            const slot = tr.getAttribute('data-slot');
+            const m = tr.querySelector('.r-model');
+            const t = tr.querySelector('.r-temp');
+            const th = tr.querySelector('.r-think');
+            const sb = tr.querySelector('.r-save');
+            const rb = tr.querySelector('.r-reset');
+            if (sb) sb.addEventListener('click', async () => {
+                sb.disabled = true;
+                const body = {use_case: uc, slot, model: m.value,
+                              thinking_enabled: th.checked,
+                              reason: 'Settings UI'};
+                const tv = t.value !== '' ? Number(t.value) : null;
+                if (tv !== null && !Number.isNaN(tv)) body.temperature = tv;
+                try {
+                    const r = await fetch('/api/v2/llm_routing/overrides', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify(body),
+                    });
+                    setStatus(r.ok ? 'Saved ' + uc + '/' + slot
+                                   : 'Save failed', r.ok);
+                    if (r.ok) _settingsRenderPane('llm.routing');
+                } catch (e) { setStatus('Error: ' + e, false); }
+                sb.disabled = false;
+            });
+            if (rb) rb.addEventListener('click', async () => {
+                rb.disabled = true;
+                try {
+                    const r = await fetch(
+                        '/api/v2/llm_routing/overrides?use_case='
+                        + encodeURIComponent(uc) + '&slot='
+                        + encodeURIComponent(slot)
+                        + '&reason=' + encodeURIComponent('Settings UI reset'),
+                        { method: 'DELETE' }
+                    );
+                    setStatus(r.ok ? 'Reset ' + uc + '/' + slot
+                                   : 'Reset failed', r.ok);
+                    if (r.ok) _settingsRenderPane('llm.routing');
+                } catch (e) { setStatus('Error: ' + e, false); }
+                rb.disabled = false;
+            });
+        });
+    };
+
+    window._settingsRenderLlmIntelPipeline = async function (pane) {
+        // Read-only view of the live thresholds. Phase 9.6 wires the
+        // editable surface via /api/v2/config (config_layered) — kept
+        // read-only here so we don't risk breaking the existing
+        // SYSTEM-tab edit path before C18 migrates it.
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t('settings.llm.intel_pipeline') + '</h3>'
+            + '<p style="font-size:0.85em;opacity:0.7">'
+            + 'These thresholds govern when LLM-extracted intel is '
+            + 'auto-confirmed, discarded, or kept for analyst review.'
+            + ' Edit via the legacy CONFIG → System tab; the new '
+            + 'editable surface lands in Phase 9.6 via config_layered.</p>'
+            + '<button onclick="(window.openModal||function(){})(\'settings-modal\');'
+            + '(window.switchTab||function(){})(\'sysconfig\');">'
+            + 'Open legacy CONFIG → System</button>';
+    };
+
+    window._settingsRenderLlmEmbedding = async function (pane) {
+        _settingsLoading(pane);
+        const pre = await _fetchPreflight();
+        const emb = (pre && pre.embedding) || {};
+        const se = await _fetchSelfEval();
+        const stat = (se && se.embedding_dedupe) || {};
+        const lang = stat.by_language || {};
+        const langRows = Object.keys(lang).map(L => {
+            const v = lang[L] || {};
+            return '<tr><td>' + _escHtml(L) + '</td>'
+                + '<td>' + (v.detected ?? 0) + '</td>'
+                + '<td>' + (v.applied ?? 0) + '</td>'
+                + '<td>' + (v.precision_proxy ?? '—') + '</td>'
+                + '<td>' + (v.avg_score ?? '—') + '</td></tr>';
+        }).join('');
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t('settings.llm.embedding') + '</h3>'
+            + '<table class="rad-table">'
+            +   '<tr><th>Model</th><td><code>' + _escHtml(emb.model || '—') + '</code> '
+            +     (emb.available
+                ? '<span style="color:var(--color-good,#3a3)">✓ pulled</span>'
+                : '<span style="color:var(--color-warning,#c80)">× missing</span>')
+            +   '</td></tr>'
+            +   '<tr><th>Feature state</th><td>'
+            +     (emb.feature_active ? 'active (shadow or on)' : 'inactive') + '</td></tr>'
+            +   '<tr><th>Calls 24h</th><td>' + (stat.calls_24h ?? 0) + '</td></tr>'
+            +   '<tr><th>OK rate</th><td>' + (stat.ok_rate ?? '—') + '</td></tr>'
+            +   '<tr><th>Cache hit rate</th><td>' + (stat.cache_hit_rate ?? '—') + '</td></tr>'
+            +   '<tr><th>Avg ms</th><td>' + (stat.avg_duration_ms ?? '—') + '</td></tr>'
+            + '</table>'
+            + (langRows
+                ? '<h4>By language</h4>'
+                + '<table class="rad-table"><thead><tr>'
+                + '<th>lang</th><th>detected</th><th>applied</th>'
+                + '<th>precision_proxy</th><th>avg_score</th>'
+                + '</tr></thead><tbody>' + langRows + '</tbody></table>'
+                : '<p style="opacity:0.6">No dedup decisions in last 24h '
+                + '(activate <code>embedding_dedupe</code> in Features).</p>');
+    };
+
+    window._settingsRenderLlmSelfEval = async function (pane) {
+        _settingsLoading(pane);
+        const se = await _fetchSelfEval();
+        if (!se) {
+            pane.innerHTML = '<div style="opacity:0.6">/api/v2/self_eval unavailable</div>';
+            return;
+        }
+        const go = se.phase8_go_status || {};
+        const byUc = go.by_use_case || {};
+        const overall = go.overall_go;
+        const overallChip = overall === true
+            ? '<span style="background:var(--color-good,#3a3);color:#fff;'
+              + 'padding:2px 8px;border-radius:3px">GO</span>'
+            : (overall === false
+                ? '<span style="background:var(--color-warning,#c80);color:#fff;'
+                  + 'padding:2px 8px;border-radius:3px">NO-GO</span>'
+                : '<span style="opacity:0.6">— (no SHADOW_DUAL data yet)</span>');
+        const rows = Object.keys(byUc).map(uc => {
+            const e = byUc[uc] || {};
+            const sc = e.schema_compliance || {};
+            const ag = e.agreement_rate || {};
+            const rp = e.verdict_reproducibility || {};
+            const cell = (m, ok) =>
+                '<td style="background:'
+                + (ok === true ? 'rgba(60,180,60,0.15)'
+                   : ok === false ? 'rgba(200,120,0,0.15)' : 'transparent')
+                + '">' + (m && (m.value !== null && m.value !== undefined)
+                    ? m.value : '—') + '</td>';
+            return '<tr><td>' + _escHtml(uc) + '</td>'
+                + cell(sc, sc.ok)
+                + cell(ag, ag.ok)
+                + cell(rp, rp.ok)
+                + '<td>' + (e.n_paired ?? 0) + '</td></tr>';
+        }).join('');
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t('settings.llm.self_eval') + '</h3>'
+            + '<p>Phase 1 GO judgment: ' + overallChip + '</p>'
+            + '<table class="rad-table"><thead><tr>'
+            + '<th>use_case</th><th>schema ≥ 0.99</th>'
+            + '<th>agree ≥ 0.60</th><th>repro = 1.00</th>'
+            + '<th>n_paired</th></tr></thead><tbody>'
+            + (rows || '<tr><td colspan="5" style="opacity:0.6">'
+                + 'No SHADOW_DUAL data yet. Promote a routing feature '
+                + 'to SHADOW_DUAL on the Features tab to start collecting.'
+                + '</td></tr>')
+            + '</tbody></table>'
+            + '<p style="margin-top:1em;font-size:0.78em;opacity:0.65">'
+            + 'Recall (overall): <b>' + (se.recall ?? '—') + '</b>'
+            + ' · Null-zone: <b>' + (se.null_zone_days ?? '—') + 'd</b>'
+            + ' · Drift: <b>' + (se.drift ?? '—') + '</b></p>';
+    };
+
+    window._settingsRenderSystemLegacy = async function (pane) {
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t('settings.system.legacy') + '</h3>'
+            + '<p>Sensors / Fetch Log / Upstreams / Fleet Health / Scenarios / '
+            + 'Users / System config tabs are still served by the original '
+            + 'modal during Phase 9.5 migration.</p>'
+            + '<button onclick="(window.openModal||function(){})(\'settings-modal\');">'
+            + 'Open legacy Settings modal</button>';
+    };
+
+    window._settingsRenderAuditChanges = async function (pane) {
+        _settingsLoading(pane);
+        const audit = await _fetchAudit('llm.routing');
+        const hist = (audit && audit.history) || [];
+        const rows = hist.slice(0, 100).map(h => ''
+            + '<tr><td>' + new Date((h.changed_at||0)*1000).toISOString().slice(0,19) + '</td>'
+            + '<td>' + _escHtml(h.use_case || '') + '/' + _escHtml(h.slot || '') + '</td>'
+            + '<td>' + _escHtml(h.changed_by || '') + '</td>'
+            + '<td style="font-size:0.78em;opacity:0.7">'
+            +   _escHtml((h.reason || '').slice(0, 80)) + '</td>'
+            + '</tr>'
+        ).join('');
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t('settings.audit.changes') + '</h3>'
+            + '<p style="font-size:0.85em;opacity:0.7">'
+            + 'NP6 audit ledger. The cross-domain unified view '
+            + '(config_change_log) lands in Phase 9.6 C21; today shows '
+            + 'LLM routing override history.</p>'
+            + '<table class="rad-table"><thead><tr>'
+            + '<th>when</th><th>use_case/slot</th><th>by</th><th>reason</th>'
+            + '</tr></thead><tbody>'
+            + (rows || '<tr><td colspan="4" style="opacity:0.6">'
+                + 'no changes in window</td></tr>')
+            + '</tbody></table>';
+    };
 
     async function _refreshSelfEval() {
         const now = Date.now();

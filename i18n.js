@@ -1798,6 +1798,21 @@ const STRINGS = {
     'autotune.chip.open_wizard':       'Open Wizard',
     'tools.autotune_wizard':           'Auto-tune Wizard',
     'tools.llm_features':              'LLM Features',
+    'tools.llm_routing':               'LLM Model Routing',
+
+    // ──────────────────────────────────────────────────────────────────
+    // Phase 9.3+9.4 — Settings shell + LLM Console
+    // ──────────────────────────────────────────────────────────────────
+    'settings.v2.title':               'Settings',
+    'settings.v2.search_ph':           '/ search…',
+    'settings.llm.connection':         'Connection',
+    'settings.llm.intel_pipeline':     'Intel Pipeline',
+    'settings.llm.features':           'Features',
+    'settings.llm.routing':            'Routing',
+    'settings.llm.embedding':          'Embedding',
+    'settings.llm.self_eval':          'Self-Eval',
+    'settings.system.legacy':          'Legacy CONFIG',
+    'settings.audit.changes':          'Audit Changes',
 
     // ══════════════════════════════════════════════════════════════
     // LLM Feature Hub (commit J)
@@ -1811,6 +1826,8 @@ const STRINGS = {
     // Phase 8 (LLM survey v10) — model routing chip.
     'llm_routing.chip.title':          'MODEL',
     'llm_routing.chip.tip':            'LLM model routing — primary-model availability across the v10 stack.',
+    'llm_routing.save':                'Save',
+    'llm_routing.reset':               'Reset',
 
     // ══════════════════════════════════════════════════════════════
     // CONTROLS Tools Hub redesign (commits L–P, 2026-04-29)
@@ -1856,6 +1873,7 @@ const STRINGS = {
     'controls.tool.history.desc':      'Historical analysis (28-day window) for trends + replay.',
     'controls.tool.autotune.desc':     'Auto-tune Wizard — pending proposals, drift signals, discovery clusters.',
     'controls.tool.llm_features.desc': 'LLM Feature Hub — control which AI capabilities are active.',
+    'controls.tool.llm_routing.desc':  'LLM Model Routing (v10) — which model each use_case calls, three-layer override (DB/env/code), preflight go/no-go.',
     'controls.tool.usrmgr.desc':       'User & role management.',
 
 };
