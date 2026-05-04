@@ -1306,21 +1306,21 @@
             .catch(() => {});
     }
     function switchTab(tabId) {
-        document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        const tabBtn = document.querySelector(`.tab[onclick*="'${tabId}'"]`);
-        if (tabBtn) tabBtn.classList.add('active');
-        document.getElementById(`tab-${tabId}`).classList.add('active');
-        const mapPanel = document.getElementById('modal-map-panel');
-        const showMap  = false;
-        if (mapPanel) mapPanel.style.display = 'none';
-        if (showMap) {
-            _initMinimap();
-            _minimapFlyTo(_activeRegion);
-            _syncPillsVisual();   // sync all tab pills to current selected region
-            _reapplyFilters();    // reapply current region filter
-            requestAnimationFrame(() => { _minimap?.invalidateSize(); _updateMinimap(); });
-        }
+        // Phase 10 — legacy MASTER CONFIGURATION shell removed. The
+        // tabs nav (.tabs > .tab) no longer exists; only the
+        // .tab-content children survive (orphaned then transplanted
+        // into #settings-v2-legacy-host). switchTab is kept as a
+        // compatibility wrapper for legacy callers (loadXxx() helpers
+        // that still call switchTab as part of their open path).
+        const target = document.getElementById(`tab-${tabId}`);
+        if (!target) return;
+        document.querySelectorAll('.tab-content').forEach(el => {
+            el.classList.remove('active');
+            el.style.display = 'none';
+        });
+        target.classList.add('active');
+        target.style.display = 'flex';
+        target.style.flexDirection = 'column';
     }
 
     // ── Panel Registry & Sidebar Order ──────────────────────────────────────────
@@ -1844,79 +1844,14 @@
     // THEATERS: dynamically fetched from app_config — initially empty
     let THEATERS = [];
 
-    // ── Region Preview Mini-map ────────────────────────────────────────────────
-    let _minimap = null;
-    let _minimapMarkers = null;
-    let _activeRegion    = '';          // selected region shared across tabs
-    let _syncPillsVisual = () => {};    // sync active state across all pill containers
+    // Phase 10 — Region Preview minimap removed along with the legacy
+    // MASTER CONFIGURATION shell. The minimap only ever appeared inside
+    // that modal's modal-map-panel; the main map provides the same
+    // information at full scale. _activeRegion is retained because a
+    // few legacy callers still reference it as a string filter token.
+    let _activeRegion    = '';
+    let _syncPillsVisual = () => {};
     let _reapplyFilters  = () => {};
-
-    const REGION_BOUNDS = {
-        "East Asia":   [[18, 98],  [52, 150]],
-        "SE Asia":     [[-10, 92], [28, 142]],
-        "S. Asia":     [[4, 58],   [38, 100]],
-        "C. Asia":     [[35, 42],  [62, 92]],
-        "Middle East": [[10, 30],  [44, 66]],
-        "N. Africa":   [[14, -20], [38, 58]],
-        "Africa":      [[-36, -22], [28, 58]],
-        "W. Europe":   [[34, -16], [72, 32]],
-        "N. Europe":   [[54, 4],   [72, 32]],
-        "E. Europe":   [[40, 12],  [62, 44]],
-        "Russia":      [[48, 28],  [78, 180]],
-        "N. America":  [[13, -170], [73, -52]],
-        "L. America":  [[-56, -84], [14, -33]],
-        "Caribbean":   [[4, -93],  [26, -57]],
-        "Oceania":     [[-48, 108], [5, 180]],
-    };
-
-    function _initMinimap() {
-        if (_minimap) return;
-        _minimap = L.map('modal-minimap', {
-            zoomControl: false, attributionControl: false,
-            dragging: true, scrollWheelZoom: true, doubleClickZoom: true, boxZoom: false,
-            maxBoundsViscosity: 0.6,
-        }).fitWorld();
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 8, subdomains: 'abcd',
-        }).addTo(_minimap);
-        _minimapMarkers = L.layerGroup().addTo(_minimap);
-    }
-
-    function _updateMinimap() {
-        if (!_minimap || !_minimapMarkers) return;
-        _minimapMarkers.clearLayers();
-        // Scope is now scenario-driven: participants come from the focused
-        // scenario's strategic_alert payload, not from DOM toggles.
-        const strat = (latestData || {}).strategic_alert || {};
-        const coreVal = resolveChainTargetCountry(strat);
-        const advSet  = new Set(strat.adversary_states || []);
-        const partSet = new Set(strat.active_theaters || []);
-        if (coreVal) partSet.add(coreVal);
-
-        THEATERS.forEach(t => {
-            if (t.lat == null || t.lng == null) return;
-            let color, radius, fillOpacity, weight, opacity;
-            if (t.code === coreVal)        { color = '#00ffff'; radius = 7; fillOpacity = 0.9; weight = 2;   opacity = 1.0; }
-            else if (advSet.has(t.code))   { color = '#ff5555'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
-            else if (partSet.has(t.code))  { color = '#ffaa00'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
-            else                           { color = '#334455'; radius = 2; fillOpacity = 0.5; weight = 0;   opacity = 0.5; }
-
-            L.circleMarker([t.lat, t.lng], { radius, color, fillColor: color, fillOpacity, weight, opacity })
-             .bindTooltip(`${t.name} (${t.code})`, { sticky: true, className: 'minimap-tooltip' })
-             .addTo(_minimapMarkers);
-        });
-        setTimeout(() => _minimap.invalidateSize(), 50);
-    }
-
-    function _minimapFlyTo(region) {
-        if (!_minimap) return;
-        if (!region) {
-            _minimap.flyToBounds([[-78, -175], [78, 175]], { padding: [4, 4], animate: true, duration: 0.4 });
-        } else {
-            const b = REGION_BOUNDS[region];
-            if (b) _minimap.flyToBounds(b, { padding: [8, 8], maxZoom: 6, animate: true, duration: 0.4 });
-        }
-    }
 
     // Region display order
     const REGION_ORDER = [
@@ -2863,6 +2798,8 @@
         { group: 'audit', label: 'Audit',              sub: [
             { id: 'audit.changes',      labelKey: 'settings.audit.changes',
               fn: '_settingsRenderAuditChanges' },
+            { id: 'audit.decisions',    labelKey: 'settings.audit.decisions',
+              fn: '_settingsRenderAuditDecisions' },
         ]},
     ];
 
@@ -4185,30 +4122,77 @@
         chip.style.display = 'inline-block';
     }
 
-    // ── Decision History modal (AP4, Phase 4) ─────────────────────────
-    // Loads /api/v2/decisions/history with the user's filter selections
-    // and renders a chronological list. Single-modal pattern matching
-    // the LLM Feature Hub UX.
+    // ── Decision History — Phase 10: absorbed into SETTINGS ──────────
+    // Decision History (AP4 audit trail) used to be a standalone
+    // modal. It is now SETTINGS → Audit → Decisions (audit.decisions
+    // domain). The legacy _decisionHistoryOpen entry point redirects
+    // to _settingsOpen('audit.decisions').
     window._decisionHistoryOpen = function () {
-        if (typeof openModal === 'function') openModal('decision-history-modal');
-        // Wire filter controls once.
-        const apply = document.getElementById('dh-filter-apply');
-        if (apply && apply.dataset.dhWired !== '1') {
-            apply.addEventListener('click', _dhLoad);
-            apply.dataset.dhWired = '1';
+        if (typeof window._settingsOpen === 'function') {
+            window._settingsOpen('audit.decisions');
         }
-        _dhLoad();
+    };
+    window._decisionHistoryClose = function () {
+        if (typeof window._settingsClose === 'function') {
+            window._settingsClose();
+        }
     };
 
-    window._decisionHistoryClose = function () {
-        // Prefer selective close (newly added closeModal) so other
-        // modals stay visible if any. Fallback to closeAllModals when
-        // running an older bundle without closeModal.
-        if (typeof window.closeModal === 'function') {
-            window.closeModal('decision-history-modal');
-        } else if (typeof closeAllModals === 'function') {
-            closeAllModals();
-        }
+    // SETTINGS sub-page renderer for AP4 Decision Trail. Renders the
+    // filter row + list inline inside #settings-v2-render. Same data
+    // path (/api/v2/decisions/history) and same row markup as before.
+    window._settingsRenderAuditDecisions = async function (pane) {
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t('settings.audit.decisions') + '</h3>'
+            + '<p style="font-size:0.85em;opacity:0.7">'
+            + 'AP4 Decision Trail — every analyst action recorded with '
+            + 'actor, reason, and parameters. Combine with the LLM Features '
+            + 'audit log and Audit Changes ledger for the full forensic '
+            + 'timeline.</p>'
+            + '<div class="dh-filters">'
+            + '  <label>Type: '
+            + '    <select id="dh-filter-type">'
+            + '      <option value="">All</option>'
+            + '      <option value="triage_snooze">TRIAGE snooze</option>'
+            + '      <option value="triage_visibility">TRIAGE visibility</option>'
+            + '      <option value="triage_dismiss">TRIAGE dismiss</option>'
+            + '      <option value="triage_threshold_override">TRIAGE threshold</option>'
+            + '      <option value="tl_recal_accept">TL recal accept</option>'
+            + '      <option value="tl_recal_extend">TL recal extend</option>'
+            + '      <option value="tl_recal_raise">TL recal raise</option>'
+            + '      <option value="dual_weight_accept">Dual-weight accept</option>'
+            + '      <option value="dual_weight_extend">Dual-weight extend</option>'
+            + '      <option value="dual_weight_rollback">Dual-weight rollback</option>'
+            + '    </select>'
+            + '  </label>'
+            + '  <label>Window: '
+            + '    <select id="dh-filter-window">'
+            + '      <option value="86400">24h</option>'
+            + '      <option value="604800" selected>7d</option>'
+            + '      <option value="2592000">30d</option>'
+            + '      <option value="7776000">90d</option>'
+            + '    </select>'
+            + '  </label>'
+            + '  <label>Action: '
+            + '    <select id="dh-filter-action">'
+            + '      <option value="">All</option>'
+            + '      <option value="accept">accept</option>'
+            + '      <option value="extend">extend</option>'
+            + '      <option value="raise">raise</option>'
+            + '      <option value="rollback">rollback</option>'
+            + '      <option value="snooze">snooze</option>'
+            + '      <option value="dismiss">dismiss</option>'
+            + '      <option value="set">set</option>'
+            + '    </select>'
+            + '  </label>'
+            + '  <button type="button" id="dh-filter-apply" class="btn-tactical">Apply filters</button>'
+            + '</div>'
+            + '<div class="dh-body" id="decision-history-body">'
+            + '  <div class="dh-loading">Loading…</div>'
+            + '</div>';
+        const apply = document.getElementById('dh-filter-apply');
+        if (apply) apply.addEventListener('click', _dhLoad);
+        _dhLoad();
     };
 
     async function _dhLoad() {

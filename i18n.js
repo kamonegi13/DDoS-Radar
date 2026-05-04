@@ -1815,6 +1815,7 @@ const STRINGS = {
     'settings.system.legacy':          'Legacy CONFIG',
     'settings.system.config':          'System Config',
     'settings.audit.changes':          'Audit Changes',
+    'settings.audit.decisions':        'Decision Trail',
     'settings.legacy.go':              'Open',
     // Phase 9.5 C17 — legacy tab ingestion labels
     'settings.sensors.catalog':        'Sensor Catalog',
