@@ -174,8 +174,8 @@ def v2_llm_routing_audit():
     auth = _require_analyst()
     if auth is not None:
         return auth
-    hours = _safe_int(request.args.get("hours"), 720, lo=1, hi=8760)
-    limit = _safe_int(request.args.get("limit"), 200, lo=1, hi=2000)
+    hours = _safe_int(request.args.get("hours"), 720, min_val=1, max_val=8760)
+    limit = _safe_int(request.args.get("limit"), 200, min_val=1, max_val=2000)
     return jsonify({
         "history": lr.list_override_history(hours=hours, limit=limit),
     })

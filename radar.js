@@ -2630,7 +2630,7 @@
                 + '</code><br>'
                 + '<span style="font-size:0.85em;opacity:0.7">'
                 + 'Toggle the embedding_dedupe Feature Hub key in '
-                + '<a href="javascript:void(0)" onclick="(window._llmFeaturesOpen||function(){})()">LLM Features</a>'
+                + '<a href="javascript:void(0)" onclick="(window._settingsOpen||window._llmFeaturesOpen||function(){})(\'llm.features\')">LLM Features</a>'
                 + ' to control whether embed_text() runs on incoming OSINT.'
                 + '</span></div>';
             const html = ''
@@ -2780,7 +2780,19 @@
             render();
         }
     }
-    window._llmRoutingOpen = _llmRoutingOpen;
+    // Phase 9.4 C16 — _llmRoutingOpen is no longer the canonical entry
+    // point. The old routing-modal-overlay implementation remains as a
+    // fallback (auto-tune wizard deeplinks etc.), but new callers should
+    // use _settingsOpen('llm.routing'). When the Settings shell is
+    // available we redirect transparently so any future caller of
+    // _llmRoutingOpen lands in the unified surface.
+    window._llmRoutingOpen = function legacyRoutingOpen() {
+        if (typeof window._settingsOpen === 'function') {
+            return window._settingsOpen('llm.routing');
+        }
+        return _llmRoutingOpen();
+    };
+    window._llmRoutingOpenLegacy = _llmRoutingOpen;  // escape hatch
 
     // ════════════════════════════════════════════════════════════════════
     // Settings shell — Phase 9.3 C10-C12 + 9.4 C13-C15 unified surface
