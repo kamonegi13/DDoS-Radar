@@ -29,6 +29,20 @@ log = logging.getLogger("radar")
 _TAGS_URL    = f"{LLM_HOST}/api/tags"
 _GENERATE_URL = f"{LLM_HOST}/api/generate"
 
+
+def _live_timeout() -> int:
+    """Phase 9.6 C23 — read LLM_TIMEOUT through the layered config so DB
+    overrides take effect without a container restart. Falls back to the
+    module-level constant captured from env at boot."""
+    try:
+        from radar.config_layered import get_config
+        v = get_config("LLM_TIMEOUT")
+        if v is not None:
+            return int(v)
+    except Exception:
+        pass
+    return LLM_TIMEOUT
+
 # Known small models that produce lower-quality structured output
 _LOW_QUALITY_MODEL_PATTERNS = ("1b", "3b", "0.5b", "1.5b")
 
@@ -254,7 +268,7 @@ def _invoke_shadow(choice, prompt: str, system: str, max_tokens: int,
         t0 = time.time()
         try:
             res = requests.post(
-                _GENERATE_URL, json=payload, timeout=LLM_TIMEOUT,
+                _GENERATE_URL, json=payload, timeout=_live_timeout(),
                 proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
             )
             duration_ms = int((time.time() - t0) * 1000)
@@ -488,7 +502,7 @@ def llm_analyze(prompt: str, system: str = "",
         res = requests.post(
             _GENERATE_URL,
             json=payload,
-            timeout=LLM_TIMEOUT,
+            timeout=_live_timeout(),
             proxies=GLOBAL_PROXIES,
             verify=SSL_VERIFY,
         )
@@ -577,7 +591,7 @@ def llm_analyze_json(prompt: str, system: str = "",
         res = requests.post(
             _GENERATE_URL,
             json=payload,
-            timeout=LLM_TIMEOUT,
+            timeout=_live_timeout(),
             proxies=GLOBAL_PROXIES,
             verify=SSL_VERIFY,
         )

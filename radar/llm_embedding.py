@@ -38,6 +38,19 @@ import requests
 from radar.config import GLOBAL_PROXIES, LLM_HOST, LLM_TIMEOUT, SSL_VERIFY
 
 
+def _live_timeout() -> int:
+    """Phase 9.6 C23 — read LLM_TIMEOUT through layered config; falls
+    back to module-level constant captured from env at boot."""
+    try:
+        from radar.config_layered import get_config
+        v = get_config("LLM_TIMEOUT")
+        if v is not None:
+            return int(v)
+    except Exception:
+        pass
+    return LLM_TIMEOUT
+
+
 # ── Language detection (Phase 9.2 C8) ──────────────────────────────────────
 #
 # Lightweight Unicode-block-ratio classifier. Goal is to bucket items for
@@ -223,7 +236,7 @@ def embed_text(text: str, *, caller: str = "") -> EmbeddingResult:
     t0 = time.time()
     try:
         res = requests.post(
-            _EMBED_URL, json=payload, timeout=LLM_TIMEOUT,
+            _EMBED_URL, json=payload, timeout=_live_timeout(),
             proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
         )
         duration_ms = int((time.time() - t0) * 1000)

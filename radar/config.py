@@ -633,8 +633,11 @@ try:  # pragma: no cover — registration is best-effort, never fatal
         ConfigKey(
             key="LLM_TIMEOUT", domain="llm.connection",
             default=30, type_="int",
-            description="Per-call HTTP timeout in seconds.",
+            description="Per-call HTTP timeout in seconds. Read at call "
+                        "time via radar.llm_client._live_timeout() so DB "
+                        "overrides take effect without a restart.",
             validator=lambda v: 5 <= v <= 600,
+            # restart_required defaults to False — explicit here for clarity
         ),
 
         # ── llm.intel_pipeline ──────────────────────────────────────────
