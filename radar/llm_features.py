@@ -65,9 +65,14 @@ class FeatureTier(str, Enum):
 
 
 class FeatureState(str, Enum):
-    OFF    = "off"      # feature inert
-    SHADOW = "shadow"   # runs but does not apply / does not surface
-    ON     = "on"       # fully active
+    OFF         = "off"          # feature inert
+    SHADOW      = "shadow"       # runs but does not apply / does not surface
+    SHADOW_DUAL = "shadow_dual"  # Phase 9.2: legacy runs AND v10 candidate
+                                 # is invoked in parallel for A/B logging.
+                                 # Doubles cost during the measurement window
+                                 # but is the only way to get true v10
+                                 # schema compliance + reproducibility data.
+    ON          = "on"           # fully active
 
 
 @dataclass(frozen=True)
