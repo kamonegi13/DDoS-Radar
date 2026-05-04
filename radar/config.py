@@ -543,6 +543,13 @@ BG_OBSERVER_FEEDS          = [
 
 
 # ── LLM Intelligence ──────────────────────────────────────────────────────────
+# Phase 9.1 C3 — these keys are now registered with radar/config_layered.py
+# below so the Settings UI can edit them through the unified surface. The
+# module-level constants here remain for backward compatibility (existing
+# `from radar.config import LLM_TIMEOUT` keeps working) but they reflect the
+# value AT IMPORT TIME ONLY. Code paths that mutate config at runtime should
+# read via `from radar.config_layered import get_config; get_config('LLM_TIMEOUT')`
+# instead so DB overrides take effect without a restart.
 LLM_ENABLED               = os.getenv("LLM_ENABLED", "false").lower() in ("true", "1", "yes")
 LLM_HOST                  = os.getenv("LLM_HOST", "http://localhost:11434")
 LLM_MODEL                 = os.getenv("LLM_MODEL", "llama3.2:3b")
@@ -580,3 +587,140 @@ CORROBORATION_MIN_INDEPENDENCE = float(os.getenv("CORROBORATION_MIN_INDEPENDENCE
 # CT_LOG_GOV_TLDS removed — last used by the legacy `gov_count` metric the
 # ADR-024 redesign deprecated. The wildcard-TLD detector now uses the
 # canonical _GOV_TLD_WILDCARD_TARGETS frozenset in radar/sensors/ct_log.py.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 9.1 C3 — declarative key registration with config_layered
+#
+# Every key listed here becomes editable through the unified Settings UI
+# (Phase 9.4). Three flags drive UI behavior:
+#
+#   restart_required=True   — DB write succeeds but takes effect after redeploy
+#                              (UI shows a "restart pending" badge)
+#   immutable=True          — env-only; UI displays read-only with an
+#                              "edit in config.env" hint (typically ports,
+#                              host names, transport-level settings)
+#   secret=True             — value is never echoed back over the API
+#
+# domain= prefixes group keys for the Settings left-nav. Convention:
+#   llm.connection / llm.intel_pipeline / llm.routing / llm.embedding
+#   sensor.* / scoring.* / network / server / api_keys
+# ─────────────────────────────────────────────────────────────────────────────
+try:  # pragma: no cover — registration is best-effort, never fatal
+    from radar.config_layered import ConfigKey, register
+
+    register(
+        # ── llm.connection ──────────────────────────────────────────────
+        ConfigKey(
+            key="LLM_ENABLED", domain="llm.connection",
+            default=False, type_="bool",
+            description="Master switch for LLM-powered text analysis. "
+                        "When false, all llm_analyze* calls short-circuit.",
+        ),
+        ConfigKey(
+            key="LLM_HOST", domain="llm.connection",
+            default="http://localhost:11434", type_="str",
+            description="Ollama API endpoint URL. Inside Docker on Mac/Win "
+                        "use http://host.docker.internal:11434.",
+            restart_required=True,
+        ),
+        ConfigKey(
+            key="LLM_MODEL", domain="llm.connection",
+            default="llama3.2:3b", type_="str",
+            description="Legacy single-model fallback. Used when no use_case "
+                        "is supplied to llm_analyze* (i.e. routing layer OFF).",
+        ),
+        ConfigKey(
+            key="LLM_TIMEOUT", domain="llm.connection",
+            default=30, type_="int",
+            description="Per-call HTTP timeout in seconds.",
+            validator=lambda v: 5 <= v <= 600,
+        ),
+
+        # ── llm.intel_pipeline ──────────────────────────────────────────
+        ConfigKey(
+            key="LLM_AUTO_CONFIRM_THRESHOLD", domain="llm.intel_pipeline",
+            default=0.80, type_="float",
+            description="confidence ≥ this → AUTO-CONFIRMED on submission.",
+            validator=lambda v: 0.0 <= v <= 1.0,
+        ),
+        ConfigKey(
+            key="LLM_CONFIDENCE_MIN", domain="llm.intel_pipeline",
+            default=0.35, type_="float",
+            description="confidence < this → silently discarded.",
+            validator=lambda v: 0.0 <= v <= 1.0,
+        ),
+        ConfigKey(
+            key="LLM_PENDING_AUTO_REJECT_HOURS",
+            domain="llm.intel_pipeline",
+            default=24.0, type_="float",
+            description="Hours after which unreviewed PENDING items are "
+                        "auto-rejected. 0 = disabled.",
+            validator=lambda v: v >= 0,
+        ),
+        ConfigKey(
+            key="INTEL_RETENTION_DAYS", domain="llm.intel_pipeline",
+            default=7, type_="int",
+            description="Days to retain intel rows in the DB.",
+            validator=lambda v: 1 <= v <= 365,
+        ),
+        ConfigKey(
+            key="INTEL_ITEM_TTL_HOURS", domain="llm.intel_pipeline",
+            default=48.0, type_="float",
+            description="Hours a confirmed intel item contributes to score.",
+            validator=lambda v: v > 0,
+        ),
+        ConfigKey(
+            key="INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+            domain="llm.intel_pipeline",
+            default=2, type_="int",
+            description="Cap on active intel items per (source, theater) "
+                        "that contribute to threat score.",
+            validator=lambda v: 1 <= v <= 50,
+        ),
+        ConfigKey(
+            key="INTEL_AGE_DECAY_ENABLED", domain="llm.intel_pipeline",
+            default=True, type_="bool",
+            description="Exponential age-decay on confirmed intel score "
+                        "contributions (ADR-023).",
+        ),
+        ConfigKey(
+            key="INTEL_AGE_DECAY_TAU_HOURS", domain="llm.intel_pipeline",
+            default=12.0, type_="float",
+            description="Decay time constant: weight=1/e at age=tau.",
+            validator=lambda v: 0.5 <= v <= 168,
+        ),
+        ConfigKey(
+            key="LLM_OVERRIDE_WINDOW", domain="llm.intel_pipeline",
+            default=3600, type_="int",
+            description="Seconds within which an AUTO-CONFIRMED item can "
+                        "still be overridden by an analyst.",
+            validator=lambda v: 60 <= v <= 86400,
+        ),
+
+        # ── llm.embedding (Phase 8) ─────────────────────────────────────
+        ConfigKey(
+            key="LLM_EMBEDDING_MODEL", domain="llm.embedding",
+            default="granite-embedding:278m", type_="str",
+            description="Ollama tag of the embedding model used by "
+                        "radar.llm_embedding for OSINT dedupe.",
+        ),
+
+        # ── llm.routing kill switch ─────────────────────────────────────
+        # The 4 model_routing_* + embedding_dedupe Feature Hub keys are
+        # registered separately in radar/llm_features.py so they keep their
+        # tier metadata. Only the truly orthogonal kill switch lives here.
+        ConfigKey(
+            key="LLM_FEATURE_KILL_SWITCH", domain="llm.connection",
+            default=False, type_="bool",
+            description="Global kill switch. When true, every LLM feature "
+                        "is forced OFF regardless of per-feature state.",
+        ),
+    )
+except Exception:
+    # Registration is best-effort. If config_layered isn't importable
+    # (circular import during early bootstrap), we log nothing and fall
+    # back to the env-only constants above. Phase 9.6 will detect missing
+    # registrations by walking the registry and reporting unregistered
+    # keys that are referenced via config_layered.get_config(...).
+    pass
