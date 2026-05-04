@@ -3095,17 +3095,21 @@
             + 'Features</a> page and persist live (no restart).'
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
-            help: 'LLM connection health and Ollama compatibility. '
-                + 'This page is read-only — edit credentials and the '
-                + 'production fallback model in '
-                + '<a href="javascript:void(0)" '
+            help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
+                + 'only.</b> Connection details and the production '
+                + 'fallback model are env-backed (restart-required). '
+                + 'Edit in <a href="javascript:void(0)" '
                 + 'onclick="window._settingsOpen(\'system.config\')">'
-                + 'System → Config</a> and restart the container to apply.',
+                + 'System → Config</a> then run <code>docker compose '
+                + 'restart</code>.</div>'
+                + 'LLM connection health and Ollama compatibility.',
             sections: [
                 { title: 'CONNECTION STATUS', body: statusBody,
-                  badges: ['<span class="cfg-restart-badge">restart</span>'] },
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>',
+                           '<span class="cfg-restart-badge">restart</span>'] },
                 { title: 'PRODUCTION FALLBACK MODEL', body: fallbackBody,
-                  badges: ['<span class="cfg-restart-badge">restart</span>'] },
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>',
+                           '<span class="cfg-restart-badge">restart</span>'] },
                 { title: 'WHERE TO EDIT',     body: noteBody },
             ],
         });
@@ -3116,8 +3120,9 @@
         const data = await _fetchFeatures();
         if (!data) {
             pane.innerHTML = _settingsCfgPage({
-                help: 'Feature Hub API unavailable. Authenticate '
-                    + 'as analyst or enable v2 endpoints.',
+                help: '<div class="cfg-status-banner">Feature Hub API '
+                    + 'unavailable. Authenticate as analyst or enable '
+                    + 'v2 endpoints.</div>',
                 sections: [],
             });
             return;
@@ -3303,21 +3308,130 @@
     };
 
     window._settingsRenderLlmIntelPipeline = async function (pane) {
-        const body =
-            '<div class="cfg-hint">'
-            + 'Auto-confirm threshold, retention window, age-decay τ, '
-            + 'and override timer are env/DB-backed and tunable in '
-            + '<a href="javascript:void(0)" onclick="window._settingsOpen(\'system.config\')">'
-            + 'System → Config</a> (Intel Queue Thresholds section). '
-            + 'Phase 9.6 will surface them inline here.'
+        // Pull current env values via the existing env_config endpoint.
+        // These keys are in _RELOADABLE_KEYS so writes are live.
+        _settingsLoading(pane);
+        let env = {};
+        try {
+            const r = await fetch('/api/env_config',
+                { headers: typeof _adminHeaders === 'function' ? _adminHeaders() : {} });
+            if (r.ok) env = await r.json();
+        } catch (_) {}
+        const v = k => env[k] != null ? String(env[k]) : '';
+        const fld = (id, label, hint, attrs) =>
+            '<div class="cfg-row">'
+            + '<label class="cfg-label" style="width:240px">'
+            +   _escHtml(label) + '</label>'
+            + '<input id="ip-' + id + '" class="cfg-input" '
+            +   (attrs || '') + ' value="' + _escHtml(v(id)) + '">'
+            + '</div>'
+            + (hint
+                ? '<div class="cfg-hint" style="margin-left:248px">'
+                  + hint + '</div>'
+                : '');
+        const sel = (id, label, opts) =>
+            '<div class="cfg-row">'
+            + '<label class="cfg-label" style="width:240px">'
+            +   _escHtml(label) + '</label>'
+            + '<select id="ip-' + id + '" class="cfg-select">'
+            +   opts.map(([val, lab]) =>
+                  '<option value="' + val + '"'
+                  + (v(id) === val ? ' selected' : '') + '>'
+                  + _escHtml(lab) + '</option>').join('')
+            + '</select>'
+            + '</div>';
+        const triageBody =
+            fld('LLM_AUTO_CONFIRM_THRESHOLD',
+                'Auto-confirm threshold',
+                'Confidence ≥ this → AUTO-CONFIRMED (no analyst review).',
+                'type="number" min="0.5" max="1.0" step="0.05" '
+                + 'placeholder="0.80" style="max-width:100px"')
+            + fld('LLM_CONFIDENCE_MIN',
+                'Min confidence',
+                'Items below this are silently discarded.',
+                'type="number" min="0.1" max="0.9" step="0.05" '
+                + 'placeholder="0.35" style="max-width:100px"')
+            + fld('LLM_OVERRIDE_WINDOW',
+                'Override window (seconds)',
+                'Seconds within which AUTO-CONFIRMED items can be '
+                + 'overridden by an analyst.',
+                'type="number" min="300" max="86400" '
+                + 'placeholder="3600" style="max-width:120px"')
+            + fld('LLM_PENDING_AUTO_REJECT_HOURS',
+                'Auto-reject pending after (h)',
+                'Hours until unreviewed PENDING items are auto-rejected '
+                + '(0 = disabled).',
+                'type="number" min="0" max="168" step="1" '
+                + 'placeholder="24" style="max-width:100px"');
+        const retentionBody =
+            fld('INTEL_RETENTION_DAYS',
+                'Intel retention (days)',
+                'How long to keep intel rows after confirmation.',
+                'type="number" min="1" max="90" '
+                + 'placeholder="7" style="max-width:100px"')
+            + sel('INTEL_AGE_DECAY_ENABLED',
+                'Age-decay enabled (ADR-023)',
+                [['true','true'], ['false','false']])
+            + fld('INTEL_AGE_DECAY_TAU_HOURS',
+                'Age-decay τ (hours)',
+                'Time constant: weight=1/e at age=τ, ~0.05 at 3·τ. '
+                + 'Default 12 h ≈ 1 work cycle.',
+                'type="number" min="1" max="72" step="0.5" '
+                + 'placeholder="12" style="max-width:100px"');
+        const saveRow =
+            '<div class="cfg-row" style="margin-top:10px">'
+            + '<button class="btn-tactical btn-action" id="ip-save">SAVE</button>'
+            + _settingsCfgStatusEl()
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
             help: 'Thresholds that govern when LLM-extracted intel is '
-                + 'auto-confirmed, discarded, or kept for analyst review.',
+                + 'auto-confirmed, discarded, or kept for analyst review. '
+                + 'All knobs here are <b>live</b> — saved values take '
+                + 'effect on the next intel queue cycle without restart.',
             sections: [
-                { title: 'INTEL PIPELINE THRESHOLDS', body: body,
+                { title: 'TRIAGE THRESHOLDS', body: triageBody,
                   badges: ['<span class="cfg-live-badge">live</span>'] },
+                { title: 'RETENTION & AGE-DECAY', body: retentionBody,
+                  badges: ['<span class="cfg-live-badge">live</span>'] },
+                { title: 'APPLY', body: saveRow },
             ],
+        });
+        const saveBtn = pane.querySelector('#ip-save');
+        if (saveBtn) saveBtn.addEventListener('click', async () => {
+            saveBtn.disabled = true;
+            const keys = ['LLM_AUTO_CONFIRM_THRESHOLD', 'LLM_CONFIDENCE_MIN',
+                          'LLM_OVERRIDE_WINDOW', 'LLM_PENDING_AUTO_REJECT_HOURS',
+                          'INTEL_RETENTION_DAYS', 'INTEL_AGE_DECAY_ENABLED',
+                          'INTEL_AGE_DECAY_TAU_HOURS'];
+            const body = {};
+            keys.forEach(k => {
+                const el = pane.querySelector('#ip-' + k);
+                if (el && el.value !== '') body[k] = el.value;
+            });
+            try {
+                const r = await fetch('/api/env_config', {
+                    method: 'POST',
+                    headers: Object.assign({'Content-Type':'application/json'},
+                        typeof _adminHeaders === 'function' ? _adminHeaders() : {}),
+                    body: JSON.stringify(body),
+                });
+                if (r.ok) {
+                    // Trigger reload so live keys take effect immediately.
+                    await fetch('/api/env_config/reload', {
+                        method: 'POST',
+                        headers: typeof _adminHeaders === 'function' ? _adminHeaders() : {},
+                    });
+                    _settingsCfgSetStatus(pane, 'Saved · live (no restart)', 'ok');
+                } else {
+                    const e = await r.json().catch(() => ({}));
+                    _settingsCfgSetStatus(pane,
+                        'Save failed: ' + (e.error || ('HTTP ' + r.status)),
+                        'err');
+                }
+            } catch (e) {
+                _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+            }
+            saveBtn.disabled = false;
         });
     };
 
@@ -3363,12 +3477,21 @@
                       + '<td>' + (v.avg_score ?? '—') + '</td></tr>';
               }).join('') + '</tbody></table>';
         pane.innerHTML = _settingsCfgPage({
-            help: 'OSINT dedupe via granite-embedding multilingual '
+            help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
+                + 'only.</b> Embedding dedupe instrumentation. To '
+                + 'activate or change state, use '
+                + '<a href="javascript:void(0)" '
+                + 'onclick="window._settingsOpen(\'llm.features\')">'
+                + 'LLM → Features</a> '
+                + '(<code>embedding_dedupe</code>).</div>'
+                + 'OSINT dedupe via granite-embedding multilingual '
                 + 'vectors. Phase 1 GO requires per-language precision '
                 + 'thresholds (zh/ja/ar ≥ 0.90, ru ≥ 0.70).',
             sections: [
-                { title: 'OVERVIEW',  body: overviewBody },
-                { title: 'BY LANGUAGE (24 H)', body: langSection },
+                { title: 'OVERVIEW',  body: overviewBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'BY LANGUAGE (24 H)', body: langSection,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });
     };
@@ -3429,13 +3552,21 @@
             { k: 'Drift',               v: '<b>' + (se.drift ?? '—') + '</b>' },
         ]);
         pane.innerHTML = _settingsCfgPage({
-            help: 'AP3 self-evaluation — recall, null-zone, drift, '
-                + 'and Phase 1 GO criteria per use_case (schema '
-                + 'compliance, agreement rate vs. legacy, verdict '
-                + 'reproducibility).',
+            help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
+                + 'only.</b> AP3 self-evaluation. Promote a routing '
+                + 'feature to <code>shadow_dual</code> on '
+                + '<a href="javascript:void(0)" '
+                + 'onclick="window._settingsOpen(\'llm.features\')">'
+                + 'LLM → Features</a> to start collecting paired '
+                + 'samples.</div>'
+                + 'Recall, null-zone, drift, and Phase 1 GO criteria '
+                + 'per use_case (schema compliance, agreement rate vs. '
+                + 'legacy, verdict reproducibility).',
             sections: [
-                { title: 'OVERALL HEALTH', body: aggBody },
-                { title: 'PER USE_CASE',   body: tableBody },
+                { title: 'OVERALL HEALTH', body: aggBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'PER USE_CASE',   body: tableBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });
     };
@@ -3667,13 +3798,17 @@
                   + 'no changes in window</td></tr>')
             + '</tbody></table>';
         pane.innerHTML = _settingsCfgPage({
-            help: 'NP6 unified audit ledger. Every config change — LLM '
+            help: '<div class="cfg-status-banner"><b>AUDIT LEDGER — '
+                + 'view only.</b> Append-only NP6 disclosure surface. '
+                + 'No edit controls here by design.</div>'
+                + 'Unified audit ledger. Every config change — LLM '
                 + 'features, routing, sensor toggles, scenario state, '
                 + 'sysconfig env edits, noise exclusion rules — flows '
                 + 'through <code>config_change_log</code> and surfaces '
                 + 'here. Filter by domain or time window.',
             sections: [
-                { title: 'CHANGE LEDGER', body: tableBody },
+                { title: 'CHANGE LEDGER', body: tableBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });
         const dEl = document.getElementById('audit-domain-filter');
@@ -4348,15 +4483,19 @@
             '<div class="dh-body" id="decision-history-body">'
             + '<div class="dh-loading">Loading…</div></div>';
         pane.innerHTML = _settingsCfgPage({
-            help: 'AP4 Decision Trail — every analyst action recorded '
-                + 'with actor, reason, and parameters. Combine with '
-                + 'the <a href="javascript:void(0)" '
+            help: '<div class="cfg-status-banner"><b>AUDIT LEDGER — '
+                + 'view only.</b> Append-only AP4 Decision Trail. '
+                + 'No edit controls here by design.</div>'
+                + 'Every analyst action recorded with actor, reason, '
+                + 'and parameters. Combine with the '
+                + '<a href="javascript:void(0)" '
                 + 'onclick="window._settingsOpen(\'audit.changes\')">'
                 + 'Audit Changes</a> ledger for the full forensic '
                 + 'timeline.',
             sections: [
                 { title: 'FILTERS',        body: filterBody },
-                { title: 'DECISION TRAIL', body: trailBody },
+                { title: 'DECISION TRAIL', body: trailBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });
         const apply = document.getElementById('dh-filter-apply');
