@@ -885,6 +885,7 @@
         else { content.classList.add('content-collapsed'); btn.innerText = '＋'; }
     }
     const _ROLE_LEVEL = { viewer: 0, analyst: 1, admin: 2 };
+    window._applyRoleVisibility = _applyRoleVisibility;
     function _applyRoleVisibility(container) {
         const role = localStorage.getItem('radar_role') || 'viewer';
         const level = _ROLE_LEVEL[role] ?? 0;
@@ -904,15 +905,9 @@
         document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
         const modal = document.getElementById(modalId);
+        if (!modal) return;
         modal.style.display = 'flex';
         document.getElementById('settings-backdrop').style.display = 'block';
-        if (modalId === 'settings-modal') {
-            _applyRoleVisibility(modal);
-            requestAnimationFrame(() => { _initMinimap(); _minimapFlyTo(_activeRegion); _updateMinimap(); });
-            // Auto-load the active tab's data on first open
-            const activeTab = modal.querySelector('.tab.active');
-            if (activeTab) activeTab.click();
-        }
     }
     function switchGuideChapter(n) {
         document.querySelectorAll('.guide-chapter').forEach(el => el.classList.remove('active'));
@@ -2855,16 +2850,12 @@
             { id: 'system.legacy',      labelKey: 'settings.system.legacy',
               fn: '_settingsRenderSystemLegacy' },
         ]},
-        { group: 'tools', label: 'Tools & Tradecraft', sub: [
-            { id: 'tools.tradecraft',   labelKey: 'settings.tools.tradecraft',
-              fn: '_settingsRenderToolsTradecraft' },
-            { id: 'tools.watchpane',    labelKey: 'settings.tools.watchpane',
-              fn: '_settingsRenderToolsWatchpane' },
-            { id: 'tools.autotune',     labelKey: 'settings.tools.autotune',
-              fn: '_settingsRenderToolsAutotune' },
-            { id: 'tools.attention',    labelKey: 'settings.tools.attention',
-              fn: '_settingsRenderToolsAttention' },
-        ]},
+        // Tools (tradecraft / watchpane / autotune wizard / etc.) are
+        // workspace panels by design — accessed via the Tools menu
+        // (top nav). They don't belong in SETTINGS because SETTINGS is
+        // for configuration values, not for opening tools. Removing
+        // this group eliminates the modal-in-modal antipattern the
+        // user flagged. Tools menu remains the single canonical entry.
         { group: 'operators', label: 'Operators',      sub: [
             { id: 'operators.users',    labelKey: 'settings.operators.users',
               fn: '_settingsRenderOperatorsUsers' },
@@ -2875,42 +2866,63 @@
         ]},
     ];
 
-    // Helper: render a "this domain delegates to a legacy modal" pane.
-    // C17/C18/C19 uses this for surfaces whose backend logic is too
-    // intertwined with the existing modal markup to extract cheaply
-    // in this PR. Phase 10 can fully migrate them; for now Settings
-    // shell is the canonical entry point and the legacy DOM remains
-    // functional behind the deeplink.
-    function _legacyDelegate(pane, opts) {
-        const { titleKey, modalId, tabName, loader, hint } = opts;
-        const labelGo = _t('settings.legacy.go');
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t(titleKey) + '</h3>'
-            + (hint
-                ? '<p style="font-size:0.85em;opacity:0.7">' + _escHtml(hint) + '</p>'
-                : '')
-            + '<button class="settings-delegate-btn" '
-            +   'style="padding:6px 14px;cursor:pointer;'
-            +   'background:var(--color-accent-bg,#1c2530);'
-            +   'border:1px solid var(--color-panel-border,#2a3138);'
-            +   'color:inherit;border-radius:4px">'
-            +   _escHtml(labelGo)
-            + '</button>';
-        const btn = pane.querySelector('.settings-delegate-btn');
-        if (btn) btn.addEventListener('click', () => {
-            // Close Settings shell to get the legacy modal a clean stage.
-            if (typeof window._settingsClose === 'function') {
-                window._settingsClose();
+    // ── Phase 10 — legacy tab transplant + inline render ─────────────
+    // The legacy MASTER CONFIGURATION modal (#settings-modal) hosted
+    // 7 tab-content elements (sensors, fetchlog, upstreams, fleet,
+    // scenarios, sysconfig, users). At first call we *physically move*
+    // those <div class="tab-content"> nodes into the SETTINGS pane's
+    // legacy-host. The legacy modal shell becomes empty but the
+    // tab-content children continue to work because their IDs are
+    // stable and switchTab() / loadXxx() functions target them by id.
+    // This eliminates the modal-in-modal pattern: legacy tabs are
+    // rendered inline inside SETTINGS, sharing its panel-header-unified
+    // chrome.
+    let _settingsLegacyAdopted = false;
+    function _settingsAdoptLegacyTabs() {
+        if (_settingsLegacyAdopted) return;
+        const host = document.getElementById('settings-v2-legacy-host');
+        if (!host) return;
+        const ids = ['tab-sensors','tab-fetchlog','tab-upstreams',
+                     'tab-fleet','tab-scenarios','tab-sysconfig','tab-users'];
+        ids.forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.parentElement !== host) {
+                host.appendChild(el);
             }
-            if (modalId && typeof window.openModal === 'function') {
-                window.openModal(modalId);
-            }
-            if (tabName && typeof window.switchTab === 'function') {
-                window.switchTab(tabName);
-            }
-            try { typeof loader === 'function' && loader(); } catch (_) {}
         });
+        _settingsLegacyAdopted = true;
     }
+
+    // Replacement for _legacyDelegate. Shows the requested tab-content
+    // inline within SETTINGS pane and triggers its loader. Does NOT
+    // open another modal.
+    function _settingsShowLegacyTab(tabId, loaderFn) {
+        _settingsAdoptLegacyTabs();
+        const render = document.getElementById('settings-v2-render');
+        const host = document.getElementById('settings-v2-legacy-host');
+        if (render) { render.innerHTML = ''; render.style.display = 'none'; }
+        if (!host) return;
+        host.style.display = 'flex';
+        host.querySelectorAll('.tab-content').forEach(t => {
+            t.classList.remove('active');
+            t.style.display = 'none';
+        });
+        const target = document.getElementById(tabId);
+        if (target) {
+            target.classList.add('active');
+            target.style.display = 'flex';
+            target.style.flexDirection = 'column';
+        }
+        // Re-apply role visibility for transplanted admin-gated panels
+        // (Scenarios / System / Users tabs use [data-role-min]).
+        if (typeof window._applyRoleVisibility === 'function') {
+            try { window._applyRoleVisibility(host); } catch (_) {}
+        }
+        if (typeof loaderFn === 'function') {
+            try { loaderFn(); } catch (_) {}
+        }
+    }
+    window._settingsShowLegacyTab = _settingsShowLegacyTab;
 
     let _settingsCurrentDomain = 'llm.connection';
 
@@ -2920,23 +2932,22 @@
         if (typeof domain === 'string' && domain) {
             _settingsCurrentDomain = domain;
         }
-        modal.style.display = 'block';
-        // Center the modal (legacy modal-window class doesn't always position).
-        modal.style.position = 'fixed';
-        modal.style.top = '50%';
-        modal.style.left = '50%';
-        modal.style.transform = 'translate(-50%, -50%)';
-        modal.style.zIndex = 7000;
-        modal.style.background = 'var(--color-panel-bg,#101418)';
-        modal.style.color = 'var(--color-text,#dde)';
-        modal.style.border = '1px solid var(--color-panel-border,#2a3138)';
-        modal.style.borderRadius = '6px';
+        // Use the standard modal-window display path so SETTINGS shares
+        // the same chrome / backdrop / dismiss behavior as every other
+        // modal in the app (country / sitrep / evidence / help / etc.).
+        openModal('settings-modal-v2');
         _settingsRenderNav();
         _settingsRenderPane(_settingsCurrentDomain);
     }
     function _settingsClose() {
         const modal = document.getElementById('settings-modal-v2');
         if (modal) modal.style.display = 'none';
+        const bd = document.getElementById('settings-backdrop');
+        const stillOpen = document.querySelector(
+            '.modal-window[style*="display: flex"], '
+            + '.modal-window[style*="display:flex"]'
+        );
+        if (bd && !stillOpen) bd.style.display = 'none';
     }
     window._settingsOpen = _settingsOpen;
     window._settingsClose = _settingsClose;
@@ -2978,8 +2989,16 @@
 
     function _settingsRenderPane(domain) {
         const pane = document.getElementById('settings-v2-pane');
-        if (!pane) return;
-        // Find render fn name from registry
+        const render = document.getElementById('settings-v2-render');
+        const host = document.getElementById('settings-v2-legacy-host');
+        if (!pane || !render) return;
+        // Reset both areas; renderer chooses which to populate.
+        // Dynamic LLM/embedding/audit renderers fill `render` via
+        // innerHTML (passed below). Legacy-tab renderers call
+        // _settingsShowLegacyTab() which flips visibility.
+        render.style.display = 'block';
+        render.innerHTML = '';
+        if (host) host.style.display = 'none';
         let fn = null;
         for (const grp of _SETTINGS_DOMAINS) {
             for (const s of grp.sub) {
@@ -2988,9 +3007,9 @@
         }
         const handler = fn && window[fn];
         if (typeof handler === 'function') {
-            handler(pane);
+            handler(render);
         } else {
-            pane.innerHTML = '<div style="opacity:0.6">Section not yet '
+            render.innerHTML = '<div style="opacity:0.6">Section not yet '
                 + 'available: <code>' + _escHtml(domain) + '</code></div>';
         }
     }
@@ -3234,20 +3253,17 @@
     };
 
     window._settingsRenderLlmIntelPipeline = async function (pane) {
-        // Read-only view of the live thresholds. Phase 9.6 wires the
-        // editable surface via /api/v2/config (config_layered) — kept
-        // read-only here so we don't risk breaking the existing
-        // SYSTEM-tab edit path before C18 migrates it.
+        // Read-only view of the live thresholds. The editable surface
+        // is on the System tab (sysconfig) within this same SETTINGS
+        // window — no second modal is opened.
         pane.innerHTML = ''
             + '<h3 style="margin-top:0">' + _t('settings.llm.intel_pipeline') + '</h3>'
             + '<p style="font-size:0.85em;opacity:0.7">'
             + 'These thresholds govern when LLM-extracted intel is '
             + 'auto-confirmed, discarded, or kept for analyst review.'
-            + ' Edit via the legacy CONFIG → System tab; the new '
-            + 'editable surface lands in Phase 9.6 via config_layered.</p>'
-            + '<button onclick="(window.openModal||function(){})(\'settings-modal\');'
-            + '(window.switchTab||function(){})(\'sysconfig\');">'
-            + 'Open legacy CONFIG → System</button>';
+            + ' Edit via <a href="javascript:void(0)" '
+            + 'onclick="window._settingsOpen(\'system.config\')">'
+            + 'System → Config</a>.</p>';
     };
 
     window._settingsRenderLlmEmbedding = async function (pane) {
@@ -3342,153 +3358,125 @@
             + ' · Drift: <b>' + (se.drift ?? '—') + '</b></p>';
     };
 
-    window._settingsRenderSystemLegacy = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.system.legacy',
-            modalId: 'settings-modal',
-            tabName: null,
-            hint: 'Browse the original Settings modal (read-only fall-back '
-                + 'while Phase 9.5 ingestion is in progress).',
-        });
+    // ── Phase 10 — legacy tabs rendered inline in SETTINGS pane ───────
+    // Each renderer calls _settingsShowLegacyTab() which:
+    //   1. Adopts the legacy tab-content elements into legacy-host
+    //      (one-time DOM transplant, idempotent).
+    //   2. Hides the dynamic render area.
+    //   3. Shows the requested tab inside legacy-host.
+    //   4. Triggers the loader function.
+    // No second modal is opened — content renders inside the SETTINGS
+    // pane that is already open.
+
+    window._settingsRenderSensorsCatalog = async function () {
+        _settingsShowLegacyTab('tab-sensors',
+            typeof loadSensorConfig === 'function' ? loadSensorConfig : null);
     };
 
-    // ── Phase 9.5 C17 — legacy tabs surfaced as Settings shell domains ──
-
-    window._settingsRenderSensorsCatalog = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.sensors.catalog',
-            modalId: 'settings-modal',
-            tabName: 'sensors',
-            loader: typeof loadSensorConfig === 'function'
-                ? loadSensorConfig : null,
-            hint: 'Per-sensor enable/disable across all 33 sensors. '
-                + 'Toggles persist in DB (live).',
-        });
+    window._settingsRenderSensorsFetchLog = async function () {
+        _settingsShowLegacyTab('tab-fetchlog',
+            typeof loadFetchLog === 'function' ? loadFetchLog : null);
     };
 
-    window._settingsRenderSensorsFetchLog = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.sensors.fetch_log',
-            modalId: 'settings-modal',
-            tabName: 'fetchlog',
-            loader: typeof loadFetchLog === 'function'
-                ? loadFetchLog : null,
-            hint: 'Read-only — last fetch attempt per sensor with success rate.',
-        });
+    window._settingsRenderInfraUpstreams = async function () {
+        _settingsShowLegacyTab('tab-upstreams',
+            typeof loadUpstreams === 'function' ? loadUpstreams : null);
     };
 
-    window._settingsRenderInfraUpstreams = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.infra.upstreams',
-            modalId: 'settings-modal',
-            tabName: 'upstreams',
-            loader: typeof loadUpstreams === 'function'
-                ? loadUpstreams : null,
-            hint: 'External API health (Cloudflare, OpenSky, GreyNoise, etc.).',
-        });
+    window._settingsRenderInfraFleet = async function () {
+        _settingsShowLegacyTab('tab-fleet',
+            typeof loadFleetHealth === 'function' ? loadFleetHealth : null);
     };
 
-    window._settingsRenderInfraFleet = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.infra.fleet',
-            modalId: 'settings-modal',
-            tabName: 'fleet',
-            loader: typeof loadFleetHealth === 'function'
-                ? loadFleetHealth : null,
-            hint: 'Multi-instance fleet health (read-only).',
-        });
+    window._settingsRenderScenariosList = async function () {
+        _settingsShowLegacyTab('tab-scenarios',
+            typeof loadScenarioManager === 'function' ? loadScenarioManager : null);
     };
 
-    window._settingsRenderScenariosList = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.scenarios.list',
-            modalId: 'settings-modal',
-            tabName: 'scenarios',
-            loader: typeof loadScenarioManager === 'function'
-                ? loadScenarioManager : null,
-            hint: 'Layer 2 scenario customization (admin role required).',
-        });
+    window._settingsRenderSystemConfig = async function () {
+        _settingsShowLegacyTab('tab-sysconfig',
+            typeof loadEnvConfig === 'function' ? loadEnvConfig : null);
     };
 
-    window._settingsRenderSystemConfig = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.system.config',
-            modalId: 'settings-modal',
-            tabName: 'sysconfig',
-            loader: typeof loadEnvConfig === 'function'
-                ? loadEnvConfig : null,
-            hint: 'Server / API keys / network / cache / threat scoring / '
-                + 'maritime / ISR — env-backed and DB-backed (live) fields.',
-        });
+    window._settingsRenderOperatorsUsers = async function () {
+        _settingsShowLegacyTab('tab-users',
+            typeof umgrLoadUsers === 'function' ? umgrLoadUsers : null);
     };
 
-    window._settingsRenderOperatorsUsers = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.operators.users',
-            modalId: 'settings-modal',
-            tabName: 'users',
-            loader: typeof umgrLoadUsers === 'function'
-                ? umgrLoadUsers : null,
-            hint: 'User management (admin role required).',
-        });
-    };
+    // ── Tools → operate as workspace panels, not settings ────────────
+    // Tools (tradecraft, watchpane, autotune, attention) are workspace
+    // panels by design (`.draggable-panel`) — they coexist with the
+    // map for active analyst work. They don't fit inside the SETTINGS
+    // modal pattern. Each domain renderer surfaces a clear "OPEN AS
+    // PANEL" action that closes SETTINGS first to avoid the
+    // modal-stays-on-top + panel-behind antipattern. This is the
+    // single intentional exception to "no modal-in-modal" — and it's
+    // not a modal-in-modal: SETTINGS closes before the panel opens.
 
-    // ── Phase 9.5 C19 — Tradecraft / Watchpane / Auto-tune / Attention ──
+    function _renderToolHandoff(pane, titleKey, hint, openFn) {
+        const labelGo = _t('settings.legacy.go') || 'OPEN AS PANEL';
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t(titleKey) + '</h3>'
+            + (hint ? '<p style="font-size:0.85em;opacity:0.7">'
+                    + _escHtml(hint) + '</p>' : '')
+            + '<button class="btn-tactical" '
+            +   'style="padding:6px 14px;cursor:pointer">'
+            +   _escHtml(labelGo) + ' →'
+            + '</button>';
+        const btn = pane.querySelector('button');
+        if (btn) btn.addEventListener('click', () => {
+            if (typeof window._settingsClose === 'function') {
+                window._settingsClose();
+            }
+            try { typeof openFn === 'function' && openFn(); } catch (_) {}
+        });
+    }
 
     window._settingsRenderToolsTradecraft = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.tools.tradecraft',
-            hint: 'Analyst tradecraft rules (adaptive learning, attention).',
-        });
-        const btn = pane.querySelector('.settings-delegate-btn');
-        if (btn) btn.onclick = () => {
-            if (typeof window._settingsClose === 'function') window._settingsClose();
-            if (typeof window.toggleTradecraftPanel === 'function') {
-                window.toggleTradecraftPanel();
-            }
-        };
+        _renderToolHandoff(pane, 'settings.tools.tradecraft',
+            'Analyst tradecraft rules. Opens as a draggable workspace panel '
+            + '(coexists with the map). SETTINGS closes first.',
+            window.toggleTradecraftPanel);
     };
 
     window._settingsRenderToolsWatchpane = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.tools.watchpane',
-            hint: 'Per-sensor observation panel + mute controls.',
-        });
-        const btn = pane.querySelector('.settings-delegate-btn');
-        if (btn) btn.onclick = () => {
-            if (typeof window._settingsClose === 'function') window._settingsClose();
-            if (typeof window.toggleSensorWatchpane === 'function') {
-                window.toggleSensorWatchpane();
-            }
-        };
+        _renderToolHandoff(pane, 'settings.tools.watchpane',
+            'Per-sensor observation panel + mute controls. Opens as a '
+            + 'draggable workspace panel.',
+            window.toggleSensorWatchpane);
     };
 
     window._settingsRenderToolsAutotune = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.tools.autotune',
-            hint: 'Auto-tune wizard — pending proposals + drift signals + '
-                + 'discovery clusters.',
-        });
-        const btn = pane.querySelector('.settings-delegate-btn');
-        if (btn) btn.onclick = () => {
-            if (typeof window._settingsClose === 'function') window._settingsClose();
-            if (typeof window._wizardOpen === 'function') window._wizardOpen();
-        };
+        _renderToolHandoff(pane, 'settings.tools.autotune',
+            'Auto-tune wizard. Opens as a stepwise modal (separate flow).',
+            window._wizardOpen);
     };
 
     window._settingsRenderToolsAttention = async function (pane) {
-        _legacyDelegate(pane, {
-            titleKey: 'settings.tools.attention',
-            hint: 'Attention rules — analyst-defined trigger conditions.',
-        });
-        const btn = pane.querySelector('.settings-delegate-btn');
-        if (btn) btn.onclick = () => {
-            // Attention rules live inside Tradecraft today
-            if (typeof window._settingsClose === 'function') window._settingsClose();
-            if (typeof window.toggleTradecraftPanel === 'function') {
-                window.toggleTradecraftPanel();
-            }
-        };
+        _renderToolHandoff(pane, 'settings.tools.attention',
+            'Attention rules live inside the Tradecraft panel.',
+            window.toggleTradecraftPanel);
+    };
+
+    // System.legacy is removed — every legacy field is reachable via
+    // its own dedicated SETTINGS domain (sensors / fetchlog /
+    // upstreams / fleet / scenarios / system.config / operators).
+    window._settingsRenderSystemLegacy = async function (pane) {
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">Legacy CONFIG (deprecated)</h3>'
+            + '<p style="font-size:0.85em;opacity:0.7">'
+            + 'The original MASTER CONFIGURATION modal has been merged '
+            + 'into this SETTINGS shell. All previous tabs are now '
+            + 'first-class SETTINGS domains:</p>'
+            + '<ul style="font-size:0.85em;line-height:1.8">'
+            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'sensors.catalog\')">Sensors</a></li>'
+            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'sensors.fetch_log\')">Fetch Log</a></li>'
+            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'infra.upstreams\')">Upstreams</a></li>'
+            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'infra.fleet\')">Fleet Health</a></li>'
+            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'scenarios.list\')">Scenarios</a></li>'
+            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'system.config\')">System config (env)</a></li>'
+            + '<li><a href="javascript:void(0)" onclick="_settingsOpen(\'operators.users\')">Users</a></li>'
+            + '</ul>';
     };
 
     let _settingsAuditDomain = '';   // active filter
@@ -9489,7 +9477,10 @@
     let _umgrUser = localStorage.getItem('radar_username');
 
     window.toggleUserMgr = function() {
-        openModal('settings-modal');
+        if (typeof window._settingsOpen === 'function') {
+            window._settingsOpen('operators.users');
+            return;
+        }
         switchTab('users');
         umgrLoadUsers();
     };
@@ -12532,7 +12523,10 @@
         return _t(key);
     }
     window.openScenarioMgrTab = function () {
-        openModal('settings-modal');
+        if (typeof window._settingsOpen === 'function') {
+            window._settingsOpen('scenarios.list');
+            return;
+        }
         switchTab('scenarios');
     };
     async function _fetchPendingDecisions() {

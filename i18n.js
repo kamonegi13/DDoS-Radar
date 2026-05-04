@@ -1803,8 +1803,9 @@ const STRINGS = {
     // ──────────────────────────────────────────────────────────────────
     // Phase 9.3+9.4 — Settings shell + LLM Console
     // ──────────────────────────────────────────────────────────────────
-    'settings.v2.title':               'Settings',
+    'settings.v2.title':               'SETTINGS',
     'settings.v2.search_ph':           '/ search…',
+    'settings.v2.close':               '[ X ] Close',
     'settings.llm.connection':         'Connection',
     'settings.llm.intel_pipeline':     'Intel Pipeline',
     'settings.llm.features':           'Features',

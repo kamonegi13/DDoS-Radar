@@ -328,7 +328,7 @@
             <div class="hh-section-label" data-i18n="hud.hh.section.settings">SETTINGS</div>
             <div class="hh-action-row">
                 <button class="hh-action" onclick="openModal('help-modal'); closeHudHamburger();" data-i18n="hud.btn.intel_guide">Intel Guide</button>
-                <button class="hh-action" onclick="(window._settingsOpen||function(){openModal('settings-modal');})(); closeHudHamburger();" data-i18n="hud.btn.config">Config</button>
+                <button class="hh-action" onclick="(window._settingsOpen||function(){})(); closeHudHamburger();" data-i18n="hud.btn.config">Config</button>
             </div>
         </div>
         <div class="hh-section hh-tools-section">
@@ -362,7 +362,7 @@
                     <div class="tools-menu-item" id="tm-item-tc" onclick="handleToolToggle('tradecraft-panel', toggleTradecraftPanel, 'tm-dot-tc', 'tm-item-tc')"><span class="tools-menu-icon">&#x1F4D6;</span><span class="tools-menu-label" data-i18n="tools.tradecraft">Analyst Tradecraft</span><span class="tools-menu-dot" id="tm-dot-tc"></span></div>
                     <div class="tools-menu-item" id="tm-item-wp" onclick="handleToolToggle('sensor-watchpane', toggleSensorWatchpane, 'tm-dot-wp', 'tm-item-wp')"><span class="tools-menu-icon">&#x1F441;</span><span class="tools-menu-label" data-i18n="tools.sensor_watchpane">Sensor Watchpane</span><span class="tools-menu-dot" id="tm-dot-wp"></span></div>
                     <div class="tools-menu-section-header" data-i18n="tools.section.admin">ADMIN</div>
-                    <div class="tools-menu-item" id="tm-item-usrmgr" onclick="openModal('settings-modal'); switchTab('users'); umgrLoadUsers();"><span class="tools-menu-icon">&#x1F464;</span><span class="tools-menu-label" data-i18n="tools.user_management">User Management</span></div>
+                    <div class="tools-menu-item" id="tm-item-usrmgr" onclick="(window._settingsOpen||function(){})('operators.users');"><span class="tools-menu-icon">&#x1F464;</span><span class="tools-menu-label" data-i18n="tools.user_management">User Management</span></div>
                     <div class="tools-menu-item" id="tm-item-autotune" onclick="window._wizardOpen && window._wizardOpen()"><span class="tools-menu-icon">&#x2699;</span><span class="tools-menu-label" data-i18n="tools.autotune_wizard">Auto-tune Wizard</span></div>
                     <div class="tools-menu-item" id="tm-item-llm-features" onclick="(window._settingsOpen||window._llmFeaturesOpen||function(){})('llm.features')"><span class="tools-menu-icon">&#x1F916;</span><span class="tools-menu-label" data-i18n="tools.llm_features">LLM Features</span></div>
                     <div class="tools-menu-item" id="tm-item-llm-routing" onclick="(window._settingsOpen||window._llmRoutingOpen||function(){})('llm.routing')"><span class="tools-menu-icon">&#x1F9E9;</span><span class="tools-menu-label" data-i18n="tools.llm_routing">LLM Model Routing</span></div>
@@ -4489,35 +4489,42 @@
      role="dialog" aria-modal="true" aria-labelledby="settings-v2-title"
      style="display:none; width:1080px; max-width:96vw; max-height:88vh;
             padding:0; overflow:hidden;">
-    <div class="settings-v2-header" style="display:flex;align-items:center;
-         justify-content:space-between;padding:12px 18px;
-         border-bottom:1px solid var(--color-panel-border,#2a3138);">
-        <div id="settings-v2-title" style="font-weight:600"
-             data-i18n="settings.v2.title">Settings</div>
+    <div class="modal-header panel-header-unified" style="border-bottom: 1px solid #555; padding:10px 18px; display:flex; align-items:center; justify-content:space-between;">
+        <div id="settings-v2-title" data-i18n="settings.v2.title">SETTINGS</div>
         <div style="display:flex;gap:8px;align-items:center">
             <input id="settings-v2-search" type="text" autocomplete="off"
                    placeholder="/ search…"
                    data-i18n-ph="settings.v2.search_ph"
                    style="padding:4px 8px;border-radius:4px;
-                          border:1px solid var(--color-panel-border,#2a3138);
-                          background:var(--color-input-bg,#0c0e11);
+                          border:1px solid #444;
+                          background:#0c0e11;
                           color:inherit;font-size:0.85em;width:220px">
-            <button onclick="window._settingsClose && window._settingsClose()"
-                    aria-label="Close" style="background:transparent;
-                    border:none;color:inherit;font-size:1.4em;cursor:pointer;
-                    line-height:1">&times;</button>
+            <button class="btn-tactical"
+                    style="color:#ff2a2a; border-color:#ff2a2a66;"
+                    onclick="window._settingsClose && window._settingsClose()"
+                    data-i18n="settings.v2.close">[ X ] Close</button>
         </div>
     </div>
-    <div class="settings-v2-body" style="display:flex;height:calc(88vh - 54px)">
+    <div class="settings-v2-body" style="display:flex;flex:1;min-height:0;">
         <nav id="settings-v2-nav" class="settings-v2-nav"
-             style="width:200px;border-right:1px solid var(--color-panel-border,#2a3138);
-                    overflow-y:auto;padding:6px 0">
+             style="width:200px;border-right:1px solid #2a3138;
+                    overflow-y:auto;padding:6px 0;flex-shrink:0;">
             <!-- Populated by radar.js — _settingsRenderNav() -->
         </nav>
         <main id="settings-v2-pane" class="settings-v2-pane"
-              style="flex:1;overflow-y:auto;padding:18px"
+              style="flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;min-width:0;"
               role="region">
-            <!-- Populated by radar.js — _settingsRenderPane(domain) -->
+            <div id="settings-v2-render" style="flex:1;min-height:0;">
+                <!-- LLM / embedding / audit / etc renderers write innerHTML here -->
+            </div>
+            <div id="settings-v2-legacy-host" style="display:none;flex:1;min-height:0;flex-direction:column;">
+                <!-- At boot, legacy tab-content blocks (sensors, fetchlog,
+                     upstreams, fleet, scenarios, sysconfig, users) are
+                     transplanted here. Each domain renderer toggles which
+                     .tab-content child is visible via _settingsShowLegacyTab().
+                     `flex-direction:column` so the active .tab-content's
+                     own flex-grow:1 + overflow-y:auto continues to work. -->
+            </div>
         </main>
     </div>
 </div>
