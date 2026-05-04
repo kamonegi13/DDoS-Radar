@@ -3039,7 +3039,7 @@
               + (pre.version_ok
                   ? _settingsCfgChip('≥0.22.0', 'ok')
                   : _settingsCfgChip('need ≥0.22.0', 'warn'))
-            : '<span class="cfg-table dim">—</span>';
+            : '<span class="dim">—</span>';
         const goChip = (pre && pre.go_no_go)
             ? _settingsCfgChip('GO', 'ok')
             : _settingsCfgChip('NO-GO', 'warn');
@@ -3050,25 +3050,61 @@
             { k: 'Host',
               v: '<code>' + _escHtml(oll.host || '—') + '</code>' },
         ]);
+        // Production fallback model — LLM_MODEL is what runs whenever
+        // a use_case feature is OFF, SHADOW, or SHADOW_DUAL. Today every
+        // model_routing_* feature defaults to OFF, so LLM_MODEL is the
+        // model actually serving production calls. Surface it here so
+        // operators don't mistakenly think the Routing page is the
+        // single source of truth.
+        const fallbackModel = (pre && pre.model) || oll.model || '—';
+        const fallbackBody = _settingsCfgKV([
+            { k: 'LLM_MODEL (env)',
+              v: '<code>' + _escHtml(fallbackModel) + '</code> '
+                 + _settingsCfgChip('production', 'ok') },
+            { k: 'When it runs',
+              v: '<span class="cfg-hint" style="margin:0;display:inline">'
+                 + 'all use-cases whose <code>model_routing_*</code> '
+                 + 'feature is <b>off</b>, <b>shadow</b>, or '
+                 + '<b>shadow_dual</b> (NP3 fallback path).'
+                 + '</span>' },
+            { k: 'When it is bypassed',
+              v: '<span class="cfg-hint" style="margin:0;display:inline">'
+                 + 'only when the corresponding feature is set to '
+                 + '<b>on</b> in '
+                 + '<a href="javascript:void(0)" '
+                 + 'onclick="window._settingsOpen(\'llm.features\')">'
+                 + 'Features</a>; then '
+                 + '<a href="javascript:void(0)" '
+                 + 'onclick="window._settingsOpen(\'llm.routing\')">'
+                 + 'Routing</a> per-use_case overrides apply.'
+                 + '</span>' },
+        ]);
         const noteBody =
             '<div class="cfg-hint">'
-            + '<code>LLM_HOST</code> and <code>LLM_TIMEOUT</code> are '
-            + 'env-backed and require a container restart. Edit '
-            + '<code>config.env</code> and run <code>docker compose '
+            + '<code>LLM_HOST</code>, <code>LLM_MODEL</code>, and '
+            + '<code>LLM_TIMEOUT</code> are env-backed and require a '
+            + 'container restart. Edit <code>config.env</code> via '
+            + '<a href="javascript:void(0)" '
+            + 'onclick="window._settingsOpen(\'system.config\')">'
+            + 'System → Config</a> and run <code>docker compose '
             + 'restart</code>.'
             + '</div>'
             + '<div class="cfg-hint">'
-            + 'Runtime knobs (per-feature kill switch, override window) '
-            + 'live on the <a href="javascript:void(0)" '
-            + 'onclick="window._settingsOpen(\'llm.features\')">'
-            + 'Features</a> page and persist live.'
+            + 'Per-feature kill switch and runtime knobs live on the '
+            + '<a href="javascript:void(0)" onclick="window._settingsOpen(\'llm.features\')">'
+            + 'Features</a> page and persist live (no restart).'
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
             help: 'LLM connection health and Ollama compatibility. '
-                + 'This page is read-only — edit credentials in '
-                + 'config.env and restart the container to apply.',
+                + 'This page is read-only — edit credentials and the '
+                + 'production fallback model in '
+                + '<a href="javascript:void(0)" '
+                + 'onclick="window._settingsOpen(\'system.config\')">'
+                + 'System → Config</a> and restart the container to apply.',
             sections: [
                 { title: 'CONNECTION STATUS', body: statusBody,
+                  badges: ['<span class="cfg-restart-badge">restart</span>'] },
+                { title: 'PRODUCTION FALLBACK MODEL', body: fallbackBody,
                   badges: ['<span class="cfg-restart-badge">restart</span>'] },
                 { title: 'WHERE TO EDIT',     body: noteBody },
             ],

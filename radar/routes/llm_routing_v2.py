@@ -249,10 +249,16 @@ def v2_llm_preflight():
         return auth
 
     import requests
-    from radar.config import GLOBAL_PROXIES, LLM_HOST, SSL_VERIFY
+    from radar.config import GLOBAL_PROXIES, LLM_HOST, LLM_MODEL, SSL_VERIFY
 
     out: dict = {
-        "ollama": {"reachable": False, "version": None, "error": None},
+        # Connection status. `host` and `model` echo the env so the
+        # SETTINGS Connection page can display them inline (Phase 11.A).
+        "ollama": {
+            "reachable": False, "version": None, "error": None,
+            "host": LLM_HOST,
+        },
+        "model": LLM_MODEL,           # production fallback model (LLM_MODEL env)
         "models": [],
         "embedding": None,
         "go_no_go": False,

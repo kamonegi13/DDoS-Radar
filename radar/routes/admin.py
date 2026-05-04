@@ -117,14 +117,43 @@ def api_env_config_post():
     if not updates:
         return jsonify({"error": "No data provided"}), 400
 
-    # Sanitize: reject unknown keys and strip control characters from values
+    # Sanitize: reject unknown keys and strip control characters from values.
+    # Anything posted by the System Config tab in index.html must appear here
+    # (or in _RELOADABLE_KEYS below, which is folded in via union).
     _KNOWN_KEYS = set(_RELOADABLE_KEYS) | {
-        "LLM_HOST", "LLM_MODEL", "SERVER_PORT", "SERVER_HOST",
-        "JWT_SECRET_KEY", "DEFAULT_ADMIN_PASSWORD",
+        # Server / network
+        "SERVER_HOST", "SERVER_PORT", "CORS_ALLOWED_ORIGINS",
+        "HTTP_PROXY", "HTTPS_PROXY", "SSL_VERIFY",
+        # API keys / secrets
         "CF_API_TOKEN", "CF_ZONE_ID", "OWM_API_KEY",
+        "GREYNOISE_API_KEY", "THREATFOX_API_KEY",
+        "OPENSKY_CLIENT_ID", "OPENSKY_CLIENT_SECRET",
+        # Default focus
+        "DEFAULT_FOCUSED_SCENARIO",
+        # LLM connection / runtime
+        "LLM_ENABLED", "LLM_HOST", "LLM_MODEL", "LLM_TIMEOUT",
+        "LLM_OVERRIDE_WINDOW",
+        # Cache / polling intervals
+        "CACHE_EXPIRY", "OPENSKY_MIN_INTERVAL",
+        "NARRATIVE_POLL_INTERVAL", "TELEGRAM_MIRROR_POLL_INTERVAL",
+        "CHECKHOST_POLL_INTERVAL", "CHECKHOST_TIMEOUT_MS", "CHECKHOST_NODES",
+        # Sensor windows / params
+        "AIRSPACE_WINDOW", "DERIVATIVE_WINDOW",
+        "AIS_DARK_GAP_THRESHOLD", "AIS_ANCHOR_RADIUS_KM",
+        "ISR_ICAO_TYPES",
+        # Auth / JWT
+        "JWT_SECRET_KEY", "DEFAULT_ADMIN_PASSWORD",
+        "JWT_ACCESS_EXPIRES", "JWT_REFRESH_EXPIRES",
+        # Notifications (webhooks — write only, payload is sent dynamically)
         "NOTIFY_SLACK_WEBHOOK", "NOTIFY_TEAMS_WEBHOOK", "NOTIFY_WEBHOOK_URL",
-        "CORS_ALLOWED_ORIGINS",
+        # Plugins
+        "PLUGIN_DIR", "PLUGIN_ENABLED", "PLUGIN_DISABLED",
     }
+    # UI-only fields posted by index.html that are not config keys —
+    # silently dropped instead of rejected.
+    _UI_ONLY_FIELDS = {"admin-token", "LLM_MODEL_manual"}
+    for f in _UI_ONLY_FIELDS:
+        updates.pop(f, None)
     for key in list(updates.keys()):
         if key not in _KNOWN_KEYS:
             return jsonify({"error": f"Unknown config key: {key}"}), 400
@@ -156,11 +185,10 @@ def api_env_config_post():
                 continue
         new_lines.append(line)
 
-    # Append new keys that were not found in the file
+    # Append new keys that were not found in the file. UI-only fields
+    # were already stripped above, so anything left in `updates` is a
+    # legitimate config key.
     new_keys = set(updates.keys()) - updated_keys
-    # Skip non-config keys
-    new_keys.discard("admin-token")
-    new_keys.discard("LLM_MODEL_manual")  # UI-only fallback field, not a real config key
     if new_keys:
         new_lines.append("\n")
         for key in sorted(new_keys):
