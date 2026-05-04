@@ -715,13 +715,89 @@ def v2_self_eval():
         out["by_model"] = routing.get("by_model", {})
         out["by_use_case"] = routing.get("by_use_case", {})
         out["shadow_diff"] = routing.get("shadow_diff", {})
+        # Phase 9.2 C6 — SHADOW_DUAL A/B between legacy and v10 candidate.
+        # Only populated when at least one routing feature is in
+        # SHADOW_DUAL state and the joined table has paired rows.
+        out["shadow_dual_diff"] = routing.get("shadow_dual_diff", {})
     except Exception as e:  # noqa: BLE001
         out["by_model"] = {}
         out["by_use_case"] = {}
         out["shadow_diff"] = {}
+        out["shadow_dual_diff"] = {}
         out["routing_error"] = str(e)
 
+    # Phase 9.2 C6 — derived Phase 1 GO judgment. Single scalar boolean
+    # plus per-axis breakdown so the LLM Console "Self-Eval" tab can
+    # render a green/red GO chip without analyst SQL.
+    out["phase8_go_status"] = _compute_phase8_go(out.get("shadow_dual_diff", {}))
+
     return jsonify(out)
+
+
+# ── Phase 1 GO judgment ────────────────────────────────────────────────────
+
+
+_PHASE1_GO_THRESHOLDS = {
+    "schema_compliance": 0.99,        # primary or shadow must hit
+    "agreement_rate":    0.60,        # ≥ 60% agreement required
+    "verdict_reproducibility": 1.00,  # = 1.00 required (deterministic)
+}
+
+
+def _compute_phase8_go(shadow_dual_diff: dict) -> dict:
+    """Reduce shadow_dual_diff into a per-use_case GO/NO-GO breakdown
+    plus an overall_go scalar so the UI chip renders without parsing
+    nested objects."""
+    out: dict = {}
+    overall = True
+    have_data = False
+    for uc, diff in (shadow_dual_diff or {}).items():
+        if not isinstance(diff, dict):
+            continue
+        have_data = True
+        sc = diff.get("schema_compliance") or {}
+        agree = diff.get("agreement_rate")
+        repro = diff.get("verdict_reproducibility")
+
+        sc_ok = (
+            isinstance(sc.get("shadow"), (int, float))
+            and sc["shadow"] >= _PHASE1_GO_THRESHOLDS["schema_compliance"]
+        )
+        agree_ok = (
+            isinstance(agree, (int, float))
+            and agree >= _PHASE1_GO_THRESHOLDS["agreement_rate"]
+        )
+        repro_ok = (
+            repro is None
+            or repro >= _PHASE1_GO_THRESHOLDS["verdict_reproducibility"]
+        )
+        all_ok = sc_ok and agree_ok and repro_ok
+        out[uc] = {
+            "schema_compliance": {
+                "value": sc.get("shadow"),
+                "ok": sc_ok,
+                "threshold": _PHASE1_GO_THRESHOLDS["schema_compliance"],
+            },
+            "agreement_rate": {
+                "value": agree,
+                "ok": agree_ok,
+                "threshold": _PHASE1_GO_THRESHOLDS["agreement_rate"],
+            },
+            "verdict_reproducibility": {
+                "value": repro,
+                "ok": repro_ok,
+                "threshold": _PHASE1_GO_THRESHOLDS["verdict_reproducibility"],
+            },
+            "n_paired": diff.get("n_paired"),
+            "use_case_go": all_ok,
+        }
+        if not all_ok:
+            overall = False
+    return {
+        "by_use_case": out,
+        "overall_go": overall if have_data else None,
+        "have_data": have_data,
+    }
 
 
 def _resolve_llm_prompt(db, sha256: str) -> dict:

@@ -4850,11 +4850,104 @@ class RadarDB:
                 "v2_model": agg["v2_model"],
             }
 
+        # Phase 9.2 C6 — SHADOW_DUAL A/B between legacy and v10 candidate.
+        # When a feature is in SHADOW_DUAL, llm_shadow_invocation rows pair
+        # 1:1 with llm_call_log rows (FK primary_call_id). We compute
+        # per-use_case schema compliance + agreement + reproducibility +
+        # latency from the joined view.
+        shadow_dual_diff: dict[str, dict] = {}
+        try:
+            paired_rows = conn.execute(
+                "SELECT lcl.use_case AS use_case, "
+                "       lcl.outcome AS p_outcome, "
+                "       lcl.confidence AS p_conf, "
+                "       lcl.duration_ms AS p_ms, "
+                "       lcl.prompt_sha256 AS p_sha, "
+                "       lsi.model AS s_model, "
+                "       lsi.outcome AS s_outcome, "
+                "       lsi.confidence AS s_conf, "
+                "       lsi.duration_ms AS s_ms, "
+                "       lsi.response_sha256 AS s_resp_sha "
+                "FROM llm_call_log lcl "
+                "JOIN llm_shadow_invocation lsi "
+                "  ON lsi.primary_call_id = lcl.id "
+                "WHERE lcl.ts >= ? AND lcl.use_case IS NOT NULL",
+                (cutoff,),
+            ).fetchall()
+        except Exception:
+            paired_rows = []
+
+        # Bucket by use_case
+        per_uc: dict[str, list] = {}
+        for r in paired_rows:
+            per_uc.setdefault(r[0], []).append(r)
+
+        for uc, rows in per_uc.items():
+            n = len(rows)
+            if n == 0:
+                continue
+            p_ok = sum(1 for r in rows if r[1] == "ok")
+            s_ok = sum(1 for r in rows if r[6] == "ok")
+            both_ok = sum(1 for r in rows if r[1] == "ok" and r[6] == "ok")
+            agree = sum(
+                1 for r in rows
+                if r[1] == r[6] and r[1] == "ok"
+            )  # Both succeeded — count as agreement (P1 GO proxy)
+
+            # Reproducibility: same prompt_sha256 must produce same v10
+            # response_sha256 (deterministic with seed=42 for verdict).
+            prompt_to_resps: dict = {}
+            for r in rows:
+                if r[4] and r[9]:
+                    prompt_to_resps.setdefault(r[4], set()).add(r[9])
+            multi = sum(1 for v in prompt_to_resps.values() if len(v) > 1)
+            denom = sum(1 for v in prompt_to_resps.values() if len(v) > 0)
+            repro = (
+                round((denom - multi) / denom, 3) if denom > 0 else None
+            )
+
+            # Latency p99 (cheap via sort)
+            p_lats = sorted(r[3] for r in rows if r[1] == "ok" and r[3])
+            s_lats = sorted(r[8] for r in rows if r[6] == "ok" and r[8])
+            def _p99(xs):
+                if not xs:
+                    return None
+                idx = max(0, int(len(xs) * 0.99) - 1)
+                return xs[idx]
+
+            shadow_dual_diff[uc] = {
+                "n_paired": n,
+                "schema_compliance": {
+                    "primary": round(p_ok / n, 3),
+                    "shadow":  round(s_ok / n, 3),
+                },
+                "agreement_rate": (
+                    round(agree / n, 3) if n else None
+                ),
+                "v10_model": rows[0][5],
+                "verdict_reproducibility": repro,
+                "p99_latency_ms": {
+                    "primary": _p99(p_lats),
+                    "shadow":  _p99(s_lats),
+                },
+                "avg_confidence": {
+                    "primary": (
+                        round(sum(r[2] or 0 for r in rows if r[1] == "ok")
+                              / max(p_ok, 1), 3) if p_ok else None
+                    ),
+                    "shadow": (
+                        round(sum(r[7] or 0 for r in rows if r[6] == "ok")
+                              / max(s_ok, 1), 3) if s_ok else None
+                    ),
+                },
+            }
+
         return {
             "window_hours": hours,
             "by_model": by_model,
             "by_use_case": by_use_case,
             "shadow_diff": shadow_diff,
+            "shadow_dual_diff": shadow_dual_diff,
         }
 
     # ── CT Log per-domain known-CA history (ADR-024) ──────────────────────
