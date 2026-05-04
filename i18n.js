@@ -1812,7 +1812,21 @@ const STRINGS = {
     'settings.llm.embedding':          'Embedding',
     'settings.llm.self_eval':          'Self-Eval',
     'settings.system.legacy':          'Legacy CONFIG',
+    'settings.system.config':          'System Config',
     'settings.audit.changes':          'Audit Changes',
+    'settings.legacy.go':              'Open',
+    // Phase 9.5 C17 — legacy tab ingestion labels
+    'settings.sensors.catalog':        'Sensor Catalog',
+    'settings.sensors.fetch_log':      'Fetch Log',
+    'settings.infra.upstreams':        'Upstreams',
+    'settings.infra.fleet':            'Fleet Health',
+    'settings.scenarios.list':         'Scenarios',
+    'settings.operators.users':        'Users / Roles',
+    // Phase 9.5 C19 — tool deeplinks
+    'settings.tools.tradecraft':       'Tradecraft Rules',
+    'settings.tools.watchpane':        'Sensor Watchpane',
+    'settings.tools.autotune':         'Auto-tune Wizard',
+    'settings.tools.attention':        'Attention Rules',
 
     // ══════════════════════════════════════════════════════════════
     // LLM Feature Hub (commit J)

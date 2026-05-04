@@ -2827,15 +2827,90 @@
             { id: 'llm.self_eval',      labelKey: 'settings.llm.self_eval',
               fn: '_settingsRenderLlmSelfEval' },
         ]},
+        // ── Phase 9.5 C17 — legacy SETTINGS tabs ingested as Settings
+        // shell domains. Each renders the legacy tab inline via an
+        // iframe-less postMessage-free pattern: we delegate to the
+        // existing modal's loader, then capture & re-mount the
+        // rendered DOM into our pane. Falls back to a "open legacy
+        // modal" button if the loader fn is unavailable.
+        { group: 'sensors', label: 'Sensors',          sub: [
+            { id: 'sensors.catalog',    labelKey: 'settings.sensors.catalog',
+              fn: '_settingsRenderSensorsCatalog' },
+            { id: 'sensors.fetch_log',  labelKey: 'settings.sensors.fetch_log',
+              fn: '_settingsRenderSensorsFetchLog' },
+        ]},
+        { group: 'infra', label: 'Infrastructure',     sub: [
+            { id: 'infra.upstreams',    labelKey: 'settings.infra.upstreams',
+              fn: '_settingsRenderInfraUpstreams' },
+            { id: 'infra.fleet',        labelKey: 'settings.infra.fleet',
+              fn: '_settingsRenderInfraFleet' },
+        ]},
+        { group: 'scenarios', label: 'Scenarios',      sub: [
+            { id: 'scenarios.list',     labelKey: 'settings.scenarios.list',
+              fn: '_settingsRenderScenariosList' },
+        ]},
         { group: 'system', label: 'System',           sub: [
-            { id: 'system.legacy', labelKey: 'settings.system.legacy',
+            { id: 'system.config',      labelKey: 'settings.system.config',
+              fn: '_settingsRenderSystemConfig' },
+            { id: 'system.legacy',      labelKey: 'settings.system.legacy',
               fn: '_settingsRenderSystemLegacy' },
         ]},
+        { group: 'tools', label: 'Tools & Tradecraft', sub: [
+            { id: 'tools.tradecraft',   labelKey: 'settings.tools.tradecraft',
+              fn: '_settingsRenderToolsTradecraft' },
+            { id: 'tools.watchpane',    labelKey: 'settings.tools.watchpane',
+              fn: '_settingsRenderToolsWatchpane' },
+            { id: 'tools.autotune',     labelKey: 'settings.tools.autotune',
+              fn: '_settingsRenderToolsAutotune' },
+            { id: 'tools.attention',    labelKey: 'settings.tools.attention',
+              fn: '_settingsRenderToolsAttention' },
+        ]},
+        { group: 'operators', label: 'Operators',      sub: [
+            { id: 'operators.users',    labelKey: 'settings.operators.users',
+              fn: '_settingsRenderOperatorsUsers' },
+        ]},
         { group: 'audit', label: 'Audit',              sub: [
-            { id: 'audit.changes', labelKey: 'settings.audit.changes',
+            { id: 'audit.changes',      labelKey: 'settings.audit.changes',
               fn: '_settingsRenderAuditChanges' },
         ]},
     ];
+
+    // Helper: render a "this domain delegates to a legacy modal" pane.
+    // C17/C18/C19 uses this for surfaces whose backend logic is too
+    // intertwined with the existing modal markup to extract cheaply
+    // in this PR. Phase 10 can fully migrate them; for now Settings
+    // shell is the canonical entry point and the legacy DOM remains
+    // functional behind the deeplink.
+    function _legacyDelegate(pane, opts) {
+        const { titleKey, modalId, tabName, loader, hint } = opts;
+        const labelGo = _t('settings.legacy.go');
+        pane.innerHTML = ''
+            + '<h3 style="margin-top:0">' + _t(titleKey) + '</h3>'
+            + (hint
+                ? '<p style="font-size:0.85em;opacity:0.7">' + _escHtml(hint) + '</p>'
+                : '')
+            + '<button class="settings-delegate-btn" '
+            +   'style="padding:6px 14px;cursor:pointer;'
+            +   'background:var(--color-accent-bg,#1c2530);'
+            +   'border:1px solid var(--color-panel-border,#2a3138);'
+            +   'color:inherit;border-radius:4px">'
+            +   _escHtml(labelGo)
+            + '</button>';
+        const btn = pane.querySelector('.settings-delegate-btn');
+        if (btn) btn.addEventListener('click', () => {
+            // Close Settings shell to get the legacy modal a clean stage.
+            if (typeof window._settingsClose === 'function') {
+                window._settingsClose();
+            }
+            if (modalId && typeof window.openModal === 'function') {
+                window.openModal(modalId);
+            }
+            if (tabName && typeof window.switchTab === 'function') {
+                window.switchTab(tabName);
+            }
+            try { typeof loader === 'function' && loader(); } catch (_) {}
+        });
+    }
 
     let _settingsCurrentDomain = 'llm.connection';
 
@@ -3268,13 +3343,152 @@
     };
 
     window._settingsRenderSystemLegacy = async function (pane) {
-        pane.innerHTML = ''
-            + '<h3 style="margin-top:0">' + _t('settings.system.legacy') + '</h3>'
-            + '<p>Sensors / Fetch Log / Upstreams / Fleet Health / Scenarios / '
-            + 'Users / System config tabs are still served by the original '
-            + 'modal during Phase 9.5 migration.</p>'
-            + '<button onclick="(window.openModal||function(){})(\'settings-modal\');">'
-            + 'Open legacy Settings modal</button>';
+        _legacyDelegate(pane, {
+            titleKey: 'settings.system.legacy',
+            modalId: 'settings-modal',
+            tabName: null,
+            hint: 'Browse the original Settings modal (read-only fall-back '
+                + 'while Phase 9.5 ingestion is in progress).',
+        });
+    };
+
+    // ── Phase 9.5 C17 — legacy tabs surfaced as Settings shell domains ──
+
+    window._settingsRenderSensorsCatalog = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.sensors.catalog',
+            modalId: 'settings-modal',
+            tabName: 'sensors',
+            loader: typeof loadSensorConfig === 'function'
+                ? loadSensorConfig : null,
+            hint: 'Per-sensor enable/disable across all 33 sensors. '
+                + 'Toggles persist in DB (live).',
+        });
+    };
+
+    window._settingsRenderSensorsFetchLog = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.sensors.fetch_log',
+            modalId: 'settings-modal',
+            tabName: 'fetchlog',
+            loader: typeof loadFetchLog === 'function'
+                ? loadFetchLog : null,
+            hint: 'Read-only — last fetch attempt per sensor with success rate.',
+        });
+    };
+
+    window._settingsRenderInfraUpstreams = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.infra.upstreams',
+            modalId: 'settings-modal',
+            tabName: 'upstreams',
+            loader: typeof loadUpstreams === 'function'
+                ? loadUpstreams : null,
+            hint: 'External API health (Cloudflare, OpenSky, GreyNoise, etc.).',
+        });
+    };
+
+    window._settingsRenderInfraFleet = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.infra.fleet',
+            modalId: 'settings-modal',
+            tabName: 'fleet',
+            loader: typeof loadFleetHealth === 'function'
+                ? loadFleetHealth : null,
+            hint: 'Multi-instance fleet health (read-only).',
+        });
+    };
+
+    window._settingsRenderScenariosList = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.scenarios.list',
+            modalId: 'settings-modal',
+            tabName: 'scenarios',
+            loader: typeof loadScenarioManager === 'function'
+                ? loadScenarioManager : null,
+            hint: 'Layer 2 scenario customization (admin role required).',
+        });
+    };
+
+    window._settingsRenderSystemConfig = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.system.config',
+            modalId: 'settings-modal',
+            tabName: 'sysconfig',
+            loader: typeof loadEnvConfig === 'function'
+                ? loadEnvConfig : null,
+            hint: 'Server / API keys / network / cache / threat scoring / '
+                + 'maritime / ISR — env-backed and DB-backed (live) fields.',
+        });
+    };
+
+    window._settingsRenderOperatorsUsers = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.operators.users',
+            modalId: 'settings-modal',
+            tabName: 'users',
+            loader: typeof umgrLoadUsers === 'function'
+                ? umgrLoadUsers : null,
+            hint: 'User management (admin role required).',
+        });
+    };
+
+    // ── Phase 9.5 C19 — Tradecraft / Watchpane / Auto-tune / Attention ──
+
+    window._settingsRenderToolsTradecraft = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.tools.tradecraft',
+            hint: 'Analyst tradecraft rules (adaptive learning, attention).',
+        });
+        const btn = pane.querySelector('.settings-delegate-btn');
+        if (btn) btn.onclick = () => {
+            if (typeof window._settingsClose === 'function') window._settingsClose();
+            if (typeof window.toggleTradecraftPanel === 'function') {
+                window.toggleTradecraftPanel();
+            }
+        };
+    };
+
+    window._settingsRenderToolsWatchpane = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.tools.watchpane',
+            hint: 'Per-sensor observation panel + mute controls.',
+        });
+        const btn = pane.querySelector('.settings-delegate-btn');
+        if (btn) btn.onclick = () => {
+            if (typeof window._settingsClose === 'function') window._settingsClose();
+            if (typeof window.toggleSensorWatchpane === 'function') {
+                window.toggleSensorWatchpane();
+            }
+        };
+    };
+
+    window._settingsRenderToolsAutotune = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.tools.autotune',
+            hint: 'Auto-tune wizard — pending proposals + drift signals + '
+                + 'discovery clusters.',
+        });
+        const btn = pane.querySelector('.settings-delegate-btn');
+        if (btn) btn.onclick = () => {
+            if (typeof window._settingsClose === 'function') window._settingsClose();
+            if (typeof window._wizardOpen === 'function') window._wizardOpen();
+        };
+    };
+
+    window._settingsRenderToolsAttention = async function (pane) {
+        _legacyDelegate(pane, {
+            titleKey: 'settings.tools.attention',
+            hint: 'Attention rules — analyst-defined trigger conditions.',
+        });
+        const btn = pane.querySelector('.settings-delegate-btn');
+        if (btn) btn.onclick = () => {
+            // Attention rules live inside Tradecraft today
+            if (typeof window._settingsClose === 'function') window._settingsClose();
+            if (typeof window.toggleTradecraftPanel === 'function') {
+                window.toggleTradecraftPanel();
+            }
+        };
     };
 
     window._settingsRenderAuditChanges = async function (pane) {
