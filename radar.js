@@ -3491,30 +3491,111 @@
         };
     };
 
+    let _settingsAuditDomain = '';   // active filter
+    let _settingsAuditHours = 168;   // 7 days default
+
+    async function _fetchConfigAudit(domain, hours, limit) {
+        try {
+            const params = new URLSearchParams();
+            params.set('hours', String(hours || 168));
+            params.set('limit', String(limit || 200));
+            if (domain) params.set('domain', domain);
+            const r = await fetch('/api/v2/config_audit?' + params.toString());
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+
     window._settingsRenderAuditChanges = async function (pane) {
         _settingsLoading(pane);
-        const audit = await _fetchAudit('llm.routing');
-        const hist = (audit && audit.history) || [];
-        const rows = hist.slice(0, 100).map(h => ''
-            + '<tr><td>' + new Date((h.changed_at||0)*1000).toISOString().slice(0,19) + '</td>'
-            + '<td>' + _escHtml(h.use_case || '') + '/' + _escHtml(h.slot || '') + '</td>'
-            + '<td>' + _escHtml(h.changed_by || '') + '</td>'
+        const data = await _fetchConfigAudit(
+            _settingsAuditDomain, _settingsAuditHours, 200,
+        );
+        if (!data) {
+            pane.innerHTML = '<div style="opacity:0.6">'
+                + 'config_audit endpoint unavailable</div>';
+            return;
+        }
+        const domains = data.domains || [];
+        const rows = data.rows || [];
+        const domainOpts = '<option value="">All domains ('
+            + rows.length + ')</option>'
+            + domains.map(d =>
+                '<option value="' + _escHtml(d.domain) + '"'
+                + (d.domain === _settingsAuditDomain ? ' selected' : '')
+                + '>' + _escHtml(d.domain) + ' (' + d.count + ')</option>'
+            ).join('');
+        const hoursOpts = [
+            [24,    '24 h'],
+            [168,   '7 d'],
+            [720,   '30 d'],
+            [2160,  '90 d'],
+            [8760,  '1 y'],
+        ].map(([h, label]) =>
+            '<option value="' + h + '"'
+            + (h === _settingsAuditHours ? ' selected' : '')
+            + '>' + label + '</option>'
+        ).join('');
+        const fmtVal = v => {
+            if (v == null) return '<i style="opacity:0.55">null</i>';
+            const s = typeof v === 'string' ? v : JSON.stringify(v);
+            return '<code style="font-size:0.78em">'
+                + _escHtml(s.length > 80 ? s.slice(0, 80) + '…' : s)
+                + '</code>';
+        };
+        const tableRows = rows.map(r => ''
+            + '<tr>'
+            + '<td style="white-space:nowrap;font-size:0.82em">'
+            +   new Date((r.ts||0)*1000).toISOString().slice(0,19)
+            + '</td>'
+            + '<td><code style="font-size:0.78em">'
+            +   _escHtml(r.domain || '') + '</code></td>'
+            + '<td><code style="font-size:0.78em">'
+            +   _escHtml(r.config_key || '') + '</code></td>'
+            + '<td>' + fmtVal(r.old_value) + '</td>'
+            + '<td>' + fmtVal(r.new_value) + '</td>'
+            + '<td style="font-size:0.82em">'
+            +   _escHtml(r.changed_by || '') + '</td>'
             + '<td style="font-size:0.78em;opacity:0.7">'
-            +   _escHtml((h.reason || '').slice(0, 80)) + '</td>'
+            +   _escHtml((r.reason || '').slice(0, 60)) + '</td>'
             + '</tr>'
         ).join('');
         pane.innerHTML = ''
             + '<h3 style="margin-top:0">' + _t('settings.audit.changes') + '</h3>'
             + '<p style="font-size:0.85em;opacity:0.7">'
-            + 'NP6 audit ledger. The cross-domain unified view '
-            + '(config_change_log) lands in Phase 9.6 C21; today shows '
-            + 'LLM routing override history.</p>'
-            + '<table class="rad-table"><thead><tr>'
-            + '<th>when</th><th>use_case/slot</th><th>by</th><th>reason</th>'
+            + 'NP6 unified ledger across every domain that touches '
+            + '<code>config_change_log</code>: LLM features, routing, '
+            + 'sensor toggles, scenario state, sysconfig env edits, '
+            + 'noise exclusion rules.</p>'
+            + '<div style="margin:12px 0;display:flex;gap:8px;align-items:center">'
+            + '<label style="font-size:0.85em">Domain '
+            +   '<select id="audit-domain-filter">' + domainOpts + '</select>'
+            + '</label>'
+            + '<label style="font-size:0.85em">Window '
+            +   '<select id="audit-hours-filter">' + hoursOpts + '</select>'
+            + '</label>'
+            + '<span style="font-size:0.78em;opacity:0.6">'
+            +   rows.length + ' rows</span>'
+            + '</div>'
+            + '<table class="rad-table" style="font-size:0.88em"><thead><tr>'
+            + '<th>when (UTC)</th><th>domain</th><th>key</th>'
+            + '<th>old</th><th>new</th><th>by</th><th>reason</th>'
             + '</tr></thead><tbody>'
-            + (rows || '<tr><td colspan="4" style="opacity:0.6">'
-                + 'no changes in window</td></tr>')
+            + (tableRows
+                ? tableRows
+                : '<tr><td colspan="7" style="opacity:0.6;padding:1em">'
+                  + 'no changes in window</td></tr>')
             + '</tbody></table>';
+        const dEl = document.getElementById('audit-domain-filter');
+        const hEl = document.getElementById('audit-hours-filter');
+        if (dEl) dEl.addEventListener('change', () => {
+            _settingsAuditDomain = dEl.value;
+            _settingsRenderPane('audit.changes');
+        });
+        if (hEl) hEl.addEventListener('change', () => {
+            _settingsAuditHours = Number(hEl.value) || 168;
+            _settingsRenderPane('audit.changes');
+        });
     };
 
     async function _refreshSelfEval() {

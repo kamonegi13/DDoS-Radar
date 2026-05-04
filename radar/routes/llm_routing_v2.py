@@ -165,6 +165,50 @@ def v2_llm_routing_overrides_clear():
     return jsonify({"ok": True, "use_case": uc.value, "slot": slot})
 
 
+@bp.route("/api/v2/config_audit", methods=["GET"])
+@jwt_required()
+def v2_config_audit():
+    """Phase 9.6 C21 — cross-domain audit ledger feed.
+
+    Reads from the unified ``config_change_log`` populated by every
+    flow that uses ``config_layered.set_config()`` or the
+    ``audit()`` middleware decorator.
+
+    Query params:
+      hours   window (default 720 = 30d, max 8760)
+      limit   max rows (default 200, max 2000)
+      domain  filter to a single domain (e.g. 'llm.routing',
+              'sensor.noise_exclusion'). When omitted returns all.
+
+    Response:
+      {
+        domains: [{domain, count}, ...]   # populates a filter dropdown
+        rows:    [{ts, domain, config_key, old_value, new_value,
+                   changed_by, reason, request_id}, ...]
+      }
+    """
+    guard = _v2_enabled_or_503()
+    if guard is not None:
+        return guard
+    auth = _require_analyst()
+    if auth is not None:
+        return auth
+    hours = _safe_int(request.args.get("hours"), 720, min_val=1, max_val=8760)
+    limit = _safe_int(request.args.get("limit"), 200, min_val=1, max_val=2000)
+    domain = (request.args.get("domain") or "").strip() or None
+    try:
+        from radar.database import db
+        out = {
+            "domains": db.config_change_log_domains(hours=hours),
+            "rows": db.config_change_log_recent(
+                hours=hours, domain=domain, limit=limit,
+            ),
+        }
+        return jsonify(out)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"domains": [], "rows": [], "error": str(exc)})
+
+
 @bp.route("/api/v2/llm_routing/audit", methods=["GET"])
 @jwt_required()
 def v2_llm_routing_audit():
