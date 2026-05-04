@@ -1,45 +1,28 @@
-"""Layered configuration — Phase 9.1 (Foundation).
+"""Layered configuration — Phases 9.1 / R1-R6.
 
-Replaces the flat ``radar/config.py`` import-time mutation pattern with a
-3-layer lookup chain that resolves a config key to its effective value:
+Single entry point for every config read in the codebase. Resolves a key
+through a 3-layer chain:
 
-    1. **DB override** (if mutable & present)  — set by analyst at runtime
-    2. **Env var**                              — populated from config.env
-       at startup, immutable at runtime
-    3. **Code default**                         — declared in this registry
+    1. **DB override** (mutable keys only, recently-cached)
+    2. **Env var**     (populated from config.env at startup)
+    3. **Code default** (registered metadata)
 
-A key is registered once with metadata: type, default, restart-required
-flag, secret flag, scope domain (``llm.connection``, ``intel.queue`` …),
-and an optional validator.
+Every key is registered once with rich metadata (type, default,
+secret/immutable/restart/bootstrap flags, validator, group, impact_level,
+apply timing label). The Settings UI is rendered from the registry; CI
+gates assert no `os.getenv` for registered keys outside this module.
 
-Why a layer pattern matters
----------------------------
-- ``restart`` badges across the SYSTEM tab today exist because there's no
-  layer that survives a process restart without re-reading env. With this
-  module, mutating an env-only key at runtime simply isn't possible (the
-  setter rejects it), and the UI can render that as a read-only field
-  with an "edit in config.env" hint.
-- Mutable keys ALL flow through ``set_config()`` which audits every change
-  via ``db.config_change_log_append()``. This is the structural fix to
-  the NP6 violation noted in Phase 9 design.
-
-Design constraints
-------------------
-- Backward-compatible: ``radar/config.py`` becomes a thin shim (Phase 9.1
-  C3) that re-exports module-level constants populated from this layer.
-  Existing ``from radar.config import LLM_TIMEOUT`` keeps working.
-- NP3: every read path is fault-tolerant. DB lookup failure → falls
-  through to env+default. DB lookup result that's None / unparseable →
-  same fallback. Never raises on the hot path.
-- Secret values (JWT_SECRET_KEY, API tokens) are **NEVER** writable from
-  the DB layer — secrets are env-only with ``immutable=True``.
+NP3: never raises on the hot path. NP6: every mutation flows through
+``set_config()`` which writes to ``config_change_log`` for audit.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass, field
+from threading import RLock
 from typing import Any, Callable, Optional
 
 log = logging.getLogger("radar.config_layered")
@@ -48,42 +31,88 @@ log = logging.getLogger("radar.config_layered")
 # ── Type registry ──────────────────────────────────────────────────────────
 
 
+# Verb-based UI groups (R3). Each registered key belongs to exactly one.
+GROUP_OPERATE        = "OPERATE"          # weekly+: scenarios, sensors, alert routing
+GROUP_TUNE           = "TUNE"             # monthly: thresholds, weights, scoring knobs
+GROUP_LLM_HEALTH     = "LLM_HEALTH"       # LLM connection/features/routing/embedding
+GROUP_INFRASTRUCTURE = "INFRASTRUCTURE"   # restart-required: ports, proxy, cache, polls
+GROUP_ACCESS         = "ACCESS"           # secrets, JWT, admin
+GROUP_AUDIT          = "AUDIT"            # read-only ledgers (UI side only — no keys)
+
+ALL_GROUPS = (GROUP_OPERATE, GROUP_TUNE, GROUP_LLM_HEALTH,
+              GROUP_INFRASTRUCTURE, GROUP_ACCESS)
+
+
+# Apply-timing labels (R3 + R5). Plain English so the UI can show
+# "saved values take effect…" without per-key UI logic.
+TIMING_LIVE_NEXT_TICK   = "Live — next scoring tick (~30s)"
+TIMING_LIVE_IMMEDIATE   = "Live — immediate (next API call)"
+TIMING_LIVE_NEXT_CYCLE  = "Live — next intel queue cycle"
+TIMING_RESTART_REQUIRED = "Restart required — docker compose restart"
+TIMING_READ_ONLY        = "Read-only"
+
+
 @dataclass(frozen=True)
 class ConfigKey:
     """Declarative description of one config key."""
     key: str
-    domain: str
+    domain: str                     # legacy dot-namespace, kept for back-compat
     default: Any
-    type_: str            # 'str' | 'int' | 'float' | 'bool' | 'list[str]' | 'json'
+    type_: str                      # 'str' | 'int' | 'float' | 'bool' | 'list[str]' | 'json'
     description: str = ""
-    secret: bool = False           # never expose value in API surface
-    immutable: bool = False        # env-only; DB writes rejected
-    restart_required: bool = False # mutating requires container restart
+    secret: bool = False            # never expose value
+    immutable: bool = False         # env-only; DB writes rejected
+    restart_required: bool = False  # mutating requires container restart
+    bootstrap: bool = False         # needed before DB exists; never DB-overridable
     validator: Optional[Callable[[Any], bool]] = None
-    enum: tuple = field(default_factory=tuple)  # allowed values for str types
+    enum: tuple = field(default_factory=tuple)
+    # R1 — UI metadata
+    group: str = GROUP_OPERATE
+    apply_timing: str = TIMING_LIVE_NEXT_TICK
+    impact_level: str = "low"       # 'low' | 'med' | 'high' (drives R5 warning)
+    impact_warning: str = ""        # shown in modal for impact_level='high'
+    unit: str = ""                  # 's', 'min', 'h', 'd', '%', etc. — UI hint
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
 
 
 _REGISTRY: dict[str, ConfigKey] = {}
 
 
 def register(*keys: ConfigKey) -> None:
-    """Register one or more keys. Idempotent — re-registering the same key
-    overwrites (so config.py shim can register at import without crashing
-    on hot reload)."""
+    """Register one or more keys. Idempotent."""
     for k in keys:
         _REGISTRY[k.key] = k
+    # Bumping cache generation invalidates all cached reads — important
+    # if a re-register changes a key's metadata mid-run (test harnesses).
+    _bump_cache_gen()
 
 
 def get_meta(key: str) -> Optional[ConfigKey]:
     return _REGISTRY.get(key)
 
 
-def all_keys() -> list[ConfigKey]:
-    return sorted(_REGISTRY.values(), key=lambda k: (k.domain, k.key))
+def all_keys(include_secrets: bool = True,
+             group: Optional[str] = None) -> list[ConfigKey]:
+    """List registered keys, optionally filtered by group / secret flag."""
+    out = []
+    for k in _REGISTRY.values():
+        if not include_secrets and k.secret:
+            continue
+        if group is not None and k.group != group:
+            continue
+        out.append(k)
+    out.sort(key=lambda k: (k.group, k.domain, k.key))
+    return out
 
 
 def domains() -> list[str]:
     return sorted({k.domain for k in _REGISTRY.values()})
+
+
+def groups() -> list[str]:
+    """Verb-based groups in display order."""
+    return list(ALL_GROUPS)
 
 
 # ── Type coercion ──────────────────────────────────────────────────────────
@@ -103,7 +132,10 @@ def _coerce(value: Any, type_: str) -> Any:
         try:
             return int(value)
         except (TypeError, ValueError):
-            return None
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return None
     if type_ == "float":
         try:
             return float(value)
@@ -130,6 +162,61 @@ def _coerce(value: Any, type_: str) -> Any:
     return value
 
 
+# ── Hot-path cache (X5 mitigation) ─────────────────────────────────────────
+#
+# Sensor scoring loops call get_config() many times per second. Without
+# caching, every call hits SQLite. We use a process-local cache with:
+#   - 30s TTL  → bounded staleness on env-only keys (fine)
+#   - generation counter → set_config() / clear_config() / register() bump
+#     the generation, invalidating every cached read on the next call
+#
+# This is monotonically safe under concurrent reads because the cache is
+# advisory: stale reads at most return the value that WAS effective up to
+# 30s ago, which is the same guarantee scoring already accepts (sensors
+# tick at intervals ≥ 30s).
+
+
+_CACHE_TTL_SEC = 30.0
+_cache_lock = RLock()
+_cache: dict[str, tuple[float, int, Any]] = {}  # key -> (expires_at, gen, value)
+_cache_gen = 0
+
+
+def _bump_cache_gen() -> None:
+    global _cache_gen
+    with _cache_lock:
+        _cache_gen += 1
+        _cache.clear()
+
+
+def _cache_get(key: str) -> tuple[bool, Any]:
+    """Return (hit, value). hit=False on miss / expired / stale generation."""
+    with _cache_lock:
+        ent = _cache.get(key)
+        if ent is None:
+            return (False, None)
+        expires_at, gen, value = ent
+        if gen != _cache_gen:
+            return (False, None)
+        if time.monotonic() > expires_at:
+            return (False, None)
+        return (True, value)
+
+
+def _cache_put(key: str, value: Any) -> None:
+    with _cache_lock:
+        _cache[key] = (time.monotonic() + _CACHE_TTL_SEC, _cache_gen, value)
+
+
+def invalidate_cache(key: Optional[str] = None) -> None:
+    """Public hook so /api/env_config/reload (legacy) can flush the cache."""
+    with _cache_lock:
+        if key is None:
+            _cache.clear()
+        else:
+            _cache.pop(key, None)
+
+
 # ── Read path ──────────────────────────────────────────────────────────────
 
 
@@ -138,7 +225,7 @@ def _read_db(key: str) -> Any:
     unavailable. NP3."""
     try:
         from radar.database import db
-        row = db._get_conn().execute(  # noqa: SLF001 — established pattern
+        row = db._get_conn().execute(  # noqa: SLF001
             "SELECT value_json FROM config_runtime_value WHERE config_key=?",
             (key,),
         ).fetchone()
@@ -160,16 +247,13 @@ def _read_env(key: str) -> Any:
     return raw
 
 
-def get_config(key: str) -> Any:
-    """Resolve a key through the 3-layer chain. Returns the typed value or
-    the registered default. NP3 — never raises."""
+def _resolve_uncached(key: str) -> Any:
     meta = _REGISTRY.get(key)
     if meta is None:
-        # Unknown key — fall back to env-only behavior so callers that
-        # haven't migrated to layered config keep working.
         return _read_env(key)
 
-    if not meta.immutable:
+    # Bootstrap & immutable keys skip the DB layer.
+    if not meta.immutable and not meta.bootstrap:
         db_v = _coerce(_read_db(key), meta.type_)
         if db_v is not None:
             return db_v
@@ -181,11 +265,23 @@ def get_config(key: str) -> Any:
     return meta.default
 
 
+def get_config(key: str) -> Any:
+    """Resolve a key through the 3-layer chain. NP3 — never raises.
+
+    Caches results for 30s. Cache is invalidated on every set_config /
+    clear_config / register, so analyst writes propagate immediately.
+    """
+    hit, cached = _cache_get(key)
+    if hit:
+        return cached
+    value = _resolve_uncached(key)
+    _cache_put(key, value)
+    return value
+
+
 def is_restart_pending(key: str) -> bool:
     """True iff a key declared ``restart_required=True`` has a DB override
-    that differs from the running env value. The Settings UI badges these
-    keys with "restart pending" so analysts know a redeploy is needed
-    even though the value was successfully written."""
+    that differs from the running env value."""
     meta = _REGISTRY.get(key)
     if meta is None or not meta.restart_required:
         return False
@@ -198,6 +294,21 @@ def is_restart_pending(key: str) -> bool:
     return db_v != env_v
 
 
+def get_value_source(key: str) -> str:
+    """Return 'db' | 'env' | 'default' — which layer is providing the
+    current effective value. UI shows this so analysts know whether
+    their last edit actually landed."""
+    meta = _REGISTRY.get(key)
+    if meta is None:
+        return "env" if os.getenv(key) is not None else "default"
+    if not meta.immutable and not meta.bootstrap:
+        if _coerce(_read_db(key), meta.type_) is not None:
+            return "db"
+    if _coerce(_read_env(key), meta.type_) is not None:
+        return "env"
+    return "default"
+
+
 # ── Write path ──────────────────────────────────────────────────────────────
 
 
@@ -206,16 +317,7 @@ def set_config(key: str, value: Any, *,
                request_id: Optional[str] = None) -> tuple[bool, str]:
     """Persist a runtime override + write the audit row.
 
-    Returns ``(ok, message)``. NP3 — never raises; messages explain validation
-    failures so the API surface can return them as 400s.
-
-    Rejected if:
-      - key is not registered
-      - key is marked secret (UI must never write secrets)
-      - key is marked immutable (env-only)
-      - value fails coercion for the declared type
-      - value fails the optional validator
-      - value is not in the enum (when one is declared)
+    Returns ``(ok, message)``. NP3 — never raises.
     """
     meta = _REGISTRY.get(key)
     if meta is None:
@@ -224,13 +326,27 @@ def set_config(key: str, value: Any, *,
         return (False, f"key {key!r} is secret — refuse to write via UI")
     if meta.immutable:
         return (False, f"key {key!r} is immutable — edit config.env + restart")
+    if meta.bootstrap:
+        return (False, f"key {key!r} is bootstrap-only — edit config.env + restart")
     coerced = _coerce(value, meta.type_)
-    if coerced is None and value is not None:
+    if coerced is None and value is not None and value != "":
         return (False, f"value {value!r} not coercible to {meta.type_}")
+    if value == "" and meta.type_ != "str" and meta.type_ != "list[str]":
+        # Empty input on a non-string field clears the override.
+        return clear_config(key, by=by, reason=reason or "empty value submitted")
     if meta.enum and coerced not in meta.enum:
         return (False, f"value {coerced!r} not in allowed {meta.enum}")
+    if meta.min_value is not None and isinstance(coerced, (int, float)) \
+            and coerced < meta.min_value:
+        return (False, f"value {coerced} below minimum {meta.min_value}")
+    if meta.max_value is not None and isinstance(coerced, (int, float)) \
+            and coerced > meta.max_value:
+        return (False, f"value {coerced} above maximum {meta.max_value}")
     if meta.validator and not meta.validator(coerced):
         return (False, f"value {coerced!r} failed validator")
+    if meta.impact_level == "high" and not (reason and reason.strip()):
+        return (False,
+                f"key {key!r} has high impact — reason field is required")
 
     old_value = get_config(key)
 
@@ -257,7 +373,7 @@ def set_config(key: str, value: Any, *,
                 (key, json.dumps(coerced, default=str), _time.time(), by),
             )
         # Audit unconditionally — separate try so a failed audit doesn't
-        # roll back the write (NP3 priority order: write > audit > read).
+        # roll back the write.
         try:
             db.config_change_log_append(
                 domain=meta.domain,
@@ -270,6 +386,7 @@ def set_config(key: str, value: Any, *,
             )
         except Exception:
             log.debug("audit append failed for %s", key, exc_info=True)
+        invalidate_cache(key)
         return (True, "ok")
     except Exception as exc:
         log.warning("set_config(%s) failed: %s", key, exc)
@@ -282,7 +399,7 @@ def clear_config(key: str, *, by: str,
     meta = _REGISTRY.get(key)
     if meta is None:
         return (False, f"unknown config key {key!r}")
-    if meta.immutable:
+    if meta.immutable or meta.bootstrap:
         return (False, f"key {key!r} is immutable")
     old_value = get_config(key)
     try:
@@ -303,24 +420,13 @@ def clear_config(key: str, *, by: str,
             )
         except Exception:
             pass
+        invalidate_cache(key)
         return (True, "ok")
     except Exception as exc:
         return (False, f"db delete failed: {exc}")
 
 
 # ── Bootstrap registration ─────────────────────────────────────────────────
-#
-# The full registry is populated at config.py import time (Phase 9.1 C3) so
-# circular-import concerns are localized. This module ships an EMPTY
-# registry by default; the shim layer is responsible for declaring keys.
-#
-# Public API:
-#   register(*keys)
-#   get_meta(key) / all_keys() / domains()
-#   get_config(key)
-#   set_config(key, value, by=..., reason=..., request_id=...)
-#   clear_config(key, by=..., reason=...)
-#   is_restart_pending(key)
 
 
 __all__ = [
@@ -329,8 +435,17 @@ __all__ = [
     "get_meta",
     "all_keys",
     "domains",
+    "groups",
     "get_config",
     "set_config",
     "clear_config",
     "is_restart_pending",
+    "get_value_source",
+    "invalidate_cache",
+    # Group constants
+    "GROUP_OPERATE", "GROUP_TUNE", "GROUP_LLM_HEALTH",
+    "GROUP_INFRASTRUCTURE", "GROUP_ACCESS", "GROUP_AUDIT", "ALL_GROUPS",
+    # Timing labels
+    "TIMING_LIVE_NEXT_TICK", "TIMING_LIVE_IMMEDIATE",
+    "TIMING_LIVE_NEXT_CYCLE", "TIMING_RESTART_REQUIRED", "TIMING_READ_ONLY",
 ]

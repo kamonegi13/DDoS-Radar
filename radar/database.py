@@ -90,6 +90,100 @@ def _migration_v40_schema_version_singleton(conn) -> None:
     conn.execute("DROP TABLE schema_version_old_v39")
 
 
+def _migration_v49_seed_config_runtime_from_env(conn) -> None:
+    """R4 — seed config_runtime_value from running os.environ for every
+    registered, mutable, non-secret/non-bootstrap key.
+
+    Idempotent: skips keys that already have a row. Safe to run on a
+    populated DB — only fills gaps. Env values are read at migration
+    time so the post-migration effective value matches pre-migration
+    exactly (no scoring drift).
+
+    Audit: each seeded row writes one config_change_log entry with
+    changed_by='migration:v49' for NP6 traceability.
+    """
+    import os as _os
+    import json as _json
+    import time as _time
+    try:
+        from radar.config_layered import all_keys, _coerce
+    except Exception:
+        # Registry not importable (very early bootstrap) — skip silently.
+        # Operators can re-run by deleting schema_version row v49 and
+        # restarting; the migration will retry.
+        return
+
+    # Ensure target table exists (v45b creates it; defensive create here
+    # protects against ordering anomalies).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS config_runtime_value (
+            config_key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            set_at     REAL NOT NULL,
+            set_by     TEXT NOT NULL
+        )
+    """)
+
+    seeded = 0
+    skipped_existing = 0
+    skipped_no_env = 0
+    now = _time.time()
+
+    for meta in all_keys(include_secrets=True):
+        if meta.secret or meta.immutable or meta.bootstrap:
+            continue
+        # Skip if a row already exists (idempotency).
+        existing = conn.execute(
+            "SELECT 1 FROM config_runtime_value WHERE config_key=?",
+            (meta.key,),
+        ).fetchone()
+        if existing:
+            skipped_existing += 1
+            continue
+        env_raw = _os.environ.get(meta.key)
+        if env_raw is None or env_raw == "":
+            skipped_no_env += 1
+            continue
+        coerced = _coerce(env_raw, meta.type_)
+        if coerced is None:
+            skipped_no_env += 1
+            continue
+        try:
+            conn.execute(
+                "INSERT INTO config_runtime_value "
+                "(config_key, value_json, set_at, set_by) "
+                "VALUES (?, ?, ?, ?)",
+                (meta.key, _json.dumps(coerced, default=str), now, "migration:v49"),
+            )
+            # Audit row — best effort. Column names per
+            # _migration_v45_config_change_log: ts, domain, config_key,
+            # old_value, new_value, changed_by, reason, request_id.
+            try:
+                conn.execute(
+                    "INSERT INTO config_change_log "
+                    "(ts, domain, config_key, old_value, new_value, "
+                    " changed_by, reason, request_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (now, meta.domain, meta.key,
+                     _json.dumps(None),
+                     _json.dumps(coerced, default=str),
+                     "migration:v49",
+                     "R4 seed from os.environ",
+                     None),
+                )
+            except Exception as exc:
+                log.debug("v49 audit insert failed for %s: %s", meta.key, exc)
+            seeded += 1
+        except Exception as exc:
+            log.warning("v49 seed %s failed: %s", meta.key, exc)
+
+    log.info(
+        "[migration v49] config_runtime_value seed — seeded=%d, "
+        "skipped_existing=%d, skipped_no_env=%d",
+        seeded, skipped_existing, skipped_no_env,
+    )
+
+
 def _migration_v48_llm_embedding_ledger(conn) -> None:
     """Phase 9.2 C7 — per-call ledger for the embedding pipeline.
 
@@ -2747,6 +2841,9 @@ class RadarDB:
 
         (48, "llm_embed_call_log + llm_embed_dedup_log (Phase 9.2 C7)",
          _migration_v48_llm_embedding_ledger),
+
+        (49, "R4 seed config_runtime_value from os.environ for registry keys",
+         _migration_v49_seed_config_runtime_from_env),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):

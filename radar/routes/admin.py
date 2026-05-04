@@ -19,6 +19,22 @@ from radar.audit_middleware import audit  # Phase 9.6 C20 — NP6 unified audit
 # -- Secret masking for GET /api/env_config -----------------------------------
 _SECRET_PATTERNS = ("SECRET", "PASSWORD", "TOKEN", "WEBHOOK", "API_KEY")
 
+
+def _deprecate(resp, sunset_iso="2026-06-04",
+               replacement="/api/v2/config (POST/GET) and /api/v2/config/values"):
+    """R6 — soft cutover. Adds RFC 8594 Sunset + Deprecation hints so any
+    external caller of /api/env_config* has a clear signal to migrate."""
+    try:
+        from flask import make_response
+        if not hasattr(resp, "headers"):
+            resp = make_response(resp)
+        resp.headers["Deprecation"] = "true"
+        resp.headers["Sunset"] = sunset_iso
+        resp.headers["Link"] = f'<{replacement}>; rel="successor-version"'
+    except Exception:
+        pass
+    return resp
+
 def _mask_value(key: str, val: str) -> str:
     """Mask sensitive config values, showing only the last 4 characters."""
     if any(p in key.upper() for p in _SECRET_PATTERNS):
@@ -26,6 +42,9 @@ def _mask_value(key: str, val: str) -> str:
     return val
 
 @bp.route("/api/env_config", methods=["GET"])
+@audit(domain="config.legacy_access",
+       key_fn=lambda body, resp: "GET",
+       new_value_fn=lambda body, resp: None)
 def api_env_config_get():
     """Read config.env and return all key=value pairs as JSON (excluding comments).
     For keys missing from config.env, fall back to the currently running radar.config
@@ -101,7 +120,7 @@ def api_env_config_get():
 
     # Mask sensitive values before returning
     masked = {k: _mask_value(k, v) for k, v in config.items()}
-    return jsonify(masked)
+    return _deprecate(jsonify(masked))
 
 
 @bp.route("/api/env_config", methods=["POST"])
@@ -201,7 +220,7 @@ def api_env_config_post():
     except OSError as exc:
         return jsonify({"error": f"Cannot write config.env: {exc}"}), 500
 
-    return jsonify({"ok": True, "updated": sorted(updated_keys)})
+    return _deprecate(jsonify({"ok": True, "updated": sorted(updated_keys)}))
 
 
 # Keys that can be reloaded without a server restart
@@ -272,7 +291,207 @@ def api_env_config_reload():
         elif os.environ.get(key) != val:
             needs_restart.append(key)
 
-    return jsonify({"ok": True, "reloaded": sorted(reloaded), "needs_restart": sorted(needs_restart)})
+    return _deprecate(jsonify({
+        "ok": True,
+        "reloaded": sorted(reloaded),
+        "needs_restart": sorted(needs_restart),
+    }))
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase R3 — v2 config endpoints (registry-driven)
+#
+# These supersede /api/env_config* once the UI is migrated. Reads /writes
+# go through radar.config_layered which:
+#   - returns the registered metadata (so the UI auto-renders forms)
+#   - resolves values via DB → env → default chain
+#   - audits every write to config_change_log (NP6)
+#   - rejects secret/immutable/bootstrap keys with 403/422
+#
+# Soft cutover: /api/env_config* keep working with a Deprecation header
+# so external scripts have a 30-day window to migrate.
+# ════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/v2/config/registry", methods=["GET"])
+def api_v2_config_registry():
+    """Return the full config registry (metadata only — no values).
+    Drives the registry-driven Settings form generator. Admin-only.
+
+    Optional query params:
+      group=OPERATE|TUNE|LLM_HEALTH|INFRASTRUCTURE|ACCESS
+      include_secrets=true|false (default false; secret metadata never
+        includes the value, but the metadata itself can be restricted)
+    """
+    auth_err = _require_admin()
+    if auth_err:
+        return auth_err
+    try:
+        from radar.config_layered import all_keys, groups, ALL_GROUPS
+    except Exception as exc:
+        return jsonify({"error": f"registry unavailable: {exc}"}), 503
+
+    inc_secrets = request.args.get("include_secrets", "true").lower() in ("1","true","yes")
+    group = request.args.get("group") or None
+    if group is not None and group not in ALL_GROUPS:
+        return jsonify({"error": f"unknown group {group!r}"}), 400
+
+    out = []
+    for k in all_keys(include_secrets=inc_secrets, group=group):
+        out.append({
+            "key": k.key,
+            "domain": k.domain,
+            "group": k.group,
+            "type": k.type_,
+            "default": (None if k.secret else k.default),
+            "description": k.description,
+            "secret": k.secret,
+            "immutable": k.immutable,
+            "restart_required": k.restart_required,
+            "bootstrap": k.bootstrap,
+            "apply_timing": k.apply_timing,
+            "impact_level": k.impact_level,
+            "impact_warning": k.impact_warning,
+            "unit": k.unit,
+            "min_value": k.min_value,
+            "max_value": k.max_value,
+            "enum": list(k.enum) if k.enum else [],
+        })
+    return jsonify({
+        "registry": out,
+        "groups": list(ALL_GROUPS),
+        "generated_at": _time.time(),
+    })
+
+
+@bp.route("/api/v2/config/values", methods=["GET"])
+def api_v2_config_values():
+    """Return current effective values for non-secret keys.
+
+    Each entry: {key, value, source, restart_pending}
+      source: 'db' | 'env' | 'default'
+      restart_pending: True if DB has an override on a restart_required key
+                       and it differs from running env value.
+    Secret values are NEVER returned; secret keys appear with value=None
+    and source='secret' so the UI can render a masked field.
+    """
+    auth_err = _require_admin()
+    if auth_err:
+        return auth_err
+    try:
+        from radar.config_layered import (
+            all_keys, get_config, get_value_source, is_restart_pending,
+        )
+    except Exception as exc:
+        return jsonify({"error": f"registry unavailable: {exc}"}), 503
+
+    out = []
+    for k in all_keys(include_secrets=True):
+        if k.secret:
+            out.append({
+                "key": k.key, "value": None, "source": "secret",
+                "restart_pending": False,
+            })
+            continue
+        out.append({
+            "key": k.key,
+            "value": get_config(k.key),
+            "source": get_value_source(k.key),
+            "restart_pending": is_restart_pending(k.key),
+        })
+    return jsonify({"values": out, "generated_at": _time.time()})
+
+
+@bp.route("/api/v2/config", methods=["POST"])
+@audit(domain="config.runtime",
+       key_fn=lambda body, resp: (body or {}).get("key", "(missing)"),
+       new_value_fn=lambda body, resp: (body or {}).get("value"))
+def api_v2_config_post():
+    """Persist a config override.
+    Body: {key: str, value: any, reason: str?}
+    Returns: {ok, source, restart_pending} or {error}.
+
+    Errors:
+      400 — body missing key/value
+      403 — key is secret (UI must never write secrets)
+      404 — key not in registry
+      422 — validation failed (type / range / enum / impact-reason missing)
+    """
+    auth_err = _require_admin()
+    if auth_err:
+        return auth_err
+    body = request.get_json(silent=True) or {}
+    key = body.get("key")
+    if not key:
+        return jsonify({"error": "missing 'key'"}), 400
+    if "value" not in body:
+        return jsonify({"error": "missing 'value'"}), 400
+    value = body.get("value")
+    reason = (body.get("reason") or "").strip() or None
+
+    try:
+        from radar.config_layered import (
+            set_config, get_meta, get_value_source, is_restart_pending,
+        )
+    except Exception as exc:
+        return jsonify({"error": f"registry unavailable: {exc}"}), 503
+
+    meta = get_meta(key)
+    if meta is None:
+        return jsonify({"error": f"unknown config key {key!r}"}), 404
+    if meta.secret:
+        return jsonify({"error": f"key {key!r} is secret — refuse to write"}), 403
+    if meta.immutable or meta.bootstrap:
+        return jsonify({
+            "error": f"key {key!r} is env-only — edit config.env + restart"
+        }), 422
+
+    by = get_jwt_identity() or "unknown"
+    ok, msg = set_config(key, value, by=by, reason=reason)
+    if not ok:
+        # set_config returns False with a descriptive message for any
+        # validator/coercion failure. Map all to 422 (semantic invalid).
+        return jsonify({"error": msg}), 422
+    return jsonify({
+        "ok": True,
+        "source": get_value_source(key),
+        "restart_pending": is_restart_pending(key),
+    })
+
+
+@bp.route("/api/v2/config", methods=["DELETE"])
+@audit(domain="config.runtime",
+       key_fn=lambda body, resp: (body or {}).get("key", "(missing)"))
+def api_v2_config_clear():
+    """Drop the DB override for a key (revert to env / code default).
+    Body: {key: str, reason: str?}
+    """
+    auth_err = _require_admin()
+    if auth_err:
+        return auth_err
+    body = request.get_json(silent=True) or {}
+    key = body.get("key")
+    if not key:
+        return jsonify({"error": "missing 'key'"}), 400
+    reason = (body.get("reason") or "").strip() or None
+
+    try:
+        from radar.config_layered import clear_config, get_meta
+    except Exception as exc:
+        return jsonify({"error": f"registry unavailable: {exc}"}), 503
+
+    meta = get_meta(key)
+    if meta is None:
+        return jsonify({"error": f"unknown config key {key!r}"}), 404
+    if meta.immutable or meta.bootstrap:
+        return jsonify({
+            "error": f"key {key!r} is env-only — no DB override to clear"
+        }), 422
+
+    by = get_jwt_identity() or "unknown"
+    ok, msg = clear_config(key, by=by, reason=reason)
+    if not ok:
+        return jsonify({"error": msg}), 422
+    return jsonify({"ok": True})
 
 
 @bp.route("/api/sensor_config", methods=["GET", "POST"])

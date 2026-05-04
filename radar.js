@@ -2741,64 +2741,98 @@
     //     legacy redirect in C16.
     // ════════════════════════════════════════════════════════════════════
 
+    // ── Phase R3 — verb-based group taxonomy ───────────────────────────
+    // SETTINGS is now organised by analyst workflow frequency:
+    //   OPERATE         — weekly tuning (scenarios, sensors, intel queue)
+    //   TUNE            — monthly tuning (scoring weights, thresholds)
+    //   LLM HEALTH      — LLM connection / features / routing / observability
+    //   INFRASTRUCTURE  — restart-required transport / cache / polling
+    //   ACCESS          — secrets / JWT / users (high-risk)
+    //   AUDIT           — read-only ledgers
+    //
+    // Most pages are auto-generated from the registry (config_layered).
+    // A handful keep custom renderers because their UI is too rich for
+    // generic forms (Sensor toggle list, LLM Routing matrix, Scenarios
+    // admin, Users admin, Decision Trail).
     const _SETTINGS_DOMAINS = [
-        // group, label, dotted-id, render fn name
-        { group: 'llm', label: 'LLM',                 sub: [
-            { id: 'llm.connection',     labelKey: 'settings.llm.connection',
-              fn: '_settingsRenderLlmConnection' },
-            { id: 'llm.intel_pipeline', labelKey: 'settings.llm.intel_pipeline',
-              fn: '_settingsRenderLlmIntelPipeline' },
-            { id: 'llm.features',       labelKey: 'settings.llm.features',
-              fn: '_settingsRenderLlmFeatures' },
-            { id: 'llm.routing',        labelKey: 'settings.llm.routing',
-              fn: '_settingsRenderLlmRouting' },
-            { id: 'llm.embedding',      labelKey: 'settings.llm.embedding',
-              fn: '_settingsRenderLlmEmbedding' },
-            { id: 'llm.self_eval',      labelKey: 'settings.llm.self_eval',
-              fn: '_settingsRenderLlmSelfEval' },
-        ]},
-        // ── Phase 9.5 C17 — legacy SETTINGS tabs ingested as Settings
-        // shell domains. Each renders the legacy tab inline via an
-        // iframe-less postMessage-free pattern: we delegate to the
-        // existing modal's loader, then capture & re-mount the
-        // rendered DOM into our pane. Falls back to a "open legacy
-        // modal" button if the loader fn is unavailable.
-        { group: 'sensors', label: 'Sensors',          sub: [
-            { id: 'sensors.catalog',    labelKey: 'settings.sensors.catalog',
+        { group: 'OPERATE', label: 'Operate', sub: [
+            { id: 'operate.scope',       labelKey: 'settings.operate.scope',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.scope' },
+            { id: 'operate.intel',       labelKey: 'settings.operate.intel',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.intel' },
+            { id: 'operate.corroboration', labelKey: 'settings.operate.corroboration',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.corroboration' },
+            { id: 'operate.notifications', labelKey: 'settings.operate.notifications',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.notifications' },
+            { id: 'operate.sensors',     labelKey: 'settings.operate.sensors',
               fn: '_settingsRenderSensorsCatalog' },
-            { id: 'sensors.fetch_log',  labelKey: 'settings.sensors.fetch_log',
-              fn: '_settingsRenderSensorsFetchLog' },
-        ]},
-        { group: 'infra', label: 'Infrastructure',     sub: [
-            { id: 'infra.upstreams',    labelKey: 'settings.infra.upstreams',
-              fn: '_settingsRenderInfraUpstreams' },
-            { id: 'infra.fleet',        labelKey: 'settings.infra.fleet',
-              fn: '_settingsRenderInfraFleet' },
-        ]},
-        { group: 'scenarios', label: 'Scenarios',      sub: [
-            { id: 'scenarios.list',     labelKey: 'settings.scenarios.list',
+            { id: 'operate.scenarios',   labelKey: 'settings.operate.scenarios',
               fn: '_settingsRenderScenariosList' },
         ]},
-        { group: 'system', label: 'System',           sub: [
-            { id: 'system.config',      labelKey: 'settings.system.config',
-              fn: '_settingsRenderSystemConfig' },
-            { id: 'system.legacy',      labelKey: 'settings.system.legacy',
-              fn: '_settingsRenderSystemLegacy' },
+        { group: 'TUNE', label: 'Tune (Scoring)', sub: [
+            { id: 'tune.scoring',        labelKey: 'settings.tune.scoring',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.scoring' },
+            { id: 'tune.zscore',         labelKey: 'settings.tune.zscore',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.zscore' },
+            { id: 'tune.sequence',       labelKey: 'settings.tune.sequence',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.sequence' },
+            { id: 'tune.ddos',           labelKey: 'settings.tune.ddos',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.ddos' },
+            { id: 'tune.narrative',      labelKey: 'settings.tune.narrative',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.narrative' },
+            { id: 'tune.airspace',       labelKey: 'settings.tune.airspace',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.airspace' },
+            { id: 'tune.maritime',       labelKey: 'settings.tune.maritime',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.maritime' },
+            { id: 'tune.gdelt',          labelKey: 'settings.tune.gdelt',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.gdelt' },
         ]},
-        // Tools (tradecraft / watchpane / autotune wizard / etc.) are
-        // workspace panels by design — accessed via the Tools menu
-        // (top nav). They don't belong in SETTINGS because SETTINGS is
-        // for configuration values, not for opening tools. Removing
-        // this group eliminates the modal-in-modal antipattern the
-        // user flagged. Tools menu remains the single canonical entry.
-        { group: 'operators', label: 'Operators',      sub: [
-            { id: 'operators.users',    labelKey: 'settings.operators.users',
+        { group: 'LLM_HEALTH', label: 'LLM Health', sub: [
+            { id: 'llm.connection',      labelKey: 'settings.llm.connection',
+              fn: '_settingsRenderLlmConnection' },
+            { id: 'llm.features',        labelKey: 'settings.llm.features',
+              fn: '_settingsRenderLlmFeatures' },
+            { id: 'llm.routing',         labelKey: 'settings.llm.routing',
+              fn: '_settingsRenderLlmRouting' },
+            { id: 'llm.embedding',       labelKey: 'settings.llm.embedding',
+              fn: '_settingsRenderLlmEmbedding' },
+            { id: 'llm.self_eval',       labelKey: 'settings.llm.self_eval',
+              fn: '_settingsRenderLlmSelfEval' },
+        ]},
+        { group: 'INFRASTRUCTURE', label: 'Infrastructure', sub: [
+            { id: 'infra.network',       labelKey: 'settings.infra.network',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.network' },
+            { id: 'infra.cache',         labelKey: 'settings.infra.cache',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.cache' },
+            { id: 'infra.poll',          labelKey: 'settings.infra.poll',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.poll' },
+            { id: 'infra.server',        labelKey: 'settings.infra.server',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.server' },
+            { id: 'infra.plugins',       labelKey: 'settings.infra.plugins',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.plugins' },
+            { id: 'infra.upstreams',     labelKey: 'settings.infra.upstreams',
+              fn: '_settingsRenderInfraUpstreams' },
+            { id: 'infra.fleet',         labelKey: 'settings.infra.fleet',
+              fn: '_settingsRenderInfraFleet' },
+            { id: 'infra.fetch_log',     labelKey: 'settings.infra.fetch_log',
+              fn: '_settingsRenderSensorsFetchLog' },
+        ]},
+        { group: 'ACCESS', label: 'Access', sub: [
+            { id: 'access.users',        labelKey: 'settings.access.users',
               fn: '_settingsRenderOperatorsUsers' },
+            { id: 'access.api_keys',     labelKey: 'settings.access.api_keys',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'access.api_keys' },
+            { id: 'access.webhooks',     labelKey: 'settings.access.webhooks',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'access.webhooks' },
+            { id: 'access.jwt',          labelKey: 'settings.access.jwt',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'access.jwt' },
+            { id: 'access.admin',        labelKey: 'settings.access.admin',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'access.admin' },
         ]},
-        { group: 'audit', label: 'Audit',              sub: [
-            { id: 'audit.changes',      labelKey: 'settings.audit.changes',
+        { group: 'AUDIT', label: 'Audit', sub: [
+            { id: 'audit.changes',       labelKey: 'settings.audit.changes',
               fn: '_settingsRenderAuditChanges' },
-            { id: 'audit.decisions',    labelKey: 'settings.audit.decisions',
+            { id: 'audit.decisions',     labelKey: 'settings.audit.decisions',
               fn: '_settingsRenderAuditDecisions' },
         ]},
     ];
@@ -2861,7 +2895,7 @@
     }
     window._settingsShowLegacyTab = _settingsShowLegacyTab;
 
-    let _settingsCurrentDomain = 'llm.connection';
+    let _settingsCurrentDomain = 'operate.scope';
 
     function _settingsOpen(domain) {
         const modal = document.getElementById('settings-modal-v2');
@@ -2962,26 +2996,314 @@
         const render = document.getElementById('settings-v2-render');
         const host = document.getElementById('settings-v2-legacy-host');
         if (!pane || !render) return;
-        // Reset both areas; renderer chooses which to populate.
-        // Dynamic LLM/embedding/audit renderers fill `render` via
-        // innerHTML (passed below). Legacy-tab renderers call
-        // _settingsShowLegacyTab() which flips visibility.
         render.style.display = 'block';
         render.innerHTML = '';
         if (host) host.style.display = 'none';
-        let fn = null;
+        let fn = null, registryDomain = null;
         for (const grp of _SETTINGS_DOMAINS) {
             for (const s of grp.sub) {
-                if (s.id === domain) { fn = s.fn; break; }
+                if (s.id === domain) {
+                    fn = s.fn;
+                    registryDomain = s.registryDomain || null;
+                    break;
+                }
             }
         }
         const handler = fn && window[fn];
         if (typeof handler === 'function') {
-            handler(render);
+            // Pass the render element AND a context object so the generic
+            // registry-driven renderer knows which domain it's rendering.
+            handler(render, { domain, registryDomain });
         } else {
             render.innerHTML = '<div style="opacity:0.6">Section not yet '
                 + 'available: <code>' + _escHtml(domain) + '</code></div>';
         }
+    }
+
+    // ── Phase R3 — registry-driven generic renderer ───────────────────
+    // Fetches /api/v2/config/registry + /api/v2/config/values once per
+    // pane open, renders every key in the requested registry-domain
+    // (e.g. 'tune.scoring', 'operate.intel') as a labeled cfg-row form
+    // field. Save button POSTs to /api/v2/config; reset button DELETEs.
+    // No per-key UI code — adding a new field to the registry makes it
+    // appear in SETTINGS automatically.
+    let _settingsRegistryCache = null;       // {ts, registry, values}
+    const _SETTINGS_REGISTRY_TTL_MS = 5000;  // refetch each pane open
+
+    async function _settingsFetchRegistry() {
+        const now = Date.now();
+        if (_settingsRegistryCache &&
+            now - _settingsRegistryCache.ts < _SETTINGS_REGISTRY_TTL_MS) {
+            return _settingsRegistryCache;
+        }
+        try {
+            const [rReg, rVal] = await Promise.all([
+                fetch('/api/v2/config/registry'),
+                fetch('/api/v2/config/values'),
+            ]);
+            if (!rReg.ok || !rVal.ok) return null;
+            const reg = await rReg.json();
+            const val = await rVal.json();
+            const valIdx = {};
+            (val.values || []).forEach(v => { valIdx[v.key] = v; });
+            _settingsRegistryCache = {
+                ts: now,
+                registry: reg.registry || [],
+                groups: reg.groups || [],
+                values: valIdx,
+            };
+            return _settingsRegistryCache;
+        } catch (_) { return null; }
+    }
+
+    function _settingsApplyTimingBadge(meta) {
+        if (meta.restart_required) {
+            return '<span class="cfg-restart-badge">restart</span>';
+        }
+        if (meta.bootstrap || meta.immutable) {
+            return '<span class="cfg-readonly-badge">env-only</span>';
+        }
+        if (meta.secret) {
+            return '<span class="cfg-readonly-badge">secret</span>';
+        }
+        return '<span class="cfg-live-badge">live</span>';
+    }
+
+    function _settingsImpactChip(meta) {
+        if (meta.impact_level === 'high') {
+            return ' <span class="cfg-status-chip warn">HIGH IMPACT</span>';
+        }
+        if (meta.impact_level === 'med') {
+            return ' <span class="cfg-status-chip dim">med impact</span>';
+        }
+        return '';
+    }
+
+    function _settingsFieldHtml(meta, valueRow) {
+        const id = 'cfg-' + meta.key;
+        const cur = valueRow ? valueRow.value : meta.default;
+        const readOnly = meta.secret || meta.immutable || meta.bootstrap;
+        if (meta.type === 'bool') {
+            return ''
+                + '<select id="' + id + '" class="cfg-select" '
+                + (readOnly ? 'disabled' : '') + '>'
+                +   '<option value="false"' + (cur === false ? ' selected' : '') + '>false</option>'
+                +   '<option value="true"'  + (cur === true  ? ' selected' : '') + '>true</option>'
+                + '</select>';
+        }
+        if (meta.enum && meta.enum.length) {
+            const opts = meta.enum.map(e =>
+                '<option value="' + _escHtml(String(e)) + '"'
+                + (String(cur) === String(e) ? ' selected' : '') + '>'
+                + _escHtml(String(e)) + '</option>').join('');
+            return '<select id="' + id + '" class="cfg-select"'
+                + (readOnly ? ' disabled' : '') + '>' + opts + '</select>';
+        }
+        if (meta.type === 'int' || meta.type === 'float') {
+            const step = meta.type === 'float' ? '0.01' : '1';
+            const minA = meta.min_value != null ? ` min="${meta.min_value}"` : '';
+            const maxA = meta.max_value != null ? ` max="${meta.max_value}"` : '';
+            const valA = (cur != null && cur !== '') ? ` value="${_escHtml(String(cur))}"` : '';
+            return '<input type="number" id="' + id + '" class="cfg-input"'
+                + ' step="' + step + '"' + minA + maxA + valA
+                + (readOnly ? ' disabled' : '')
+                + ' style="max-width:140px">'
+                + (meta.unit ? ' <span class="cfg-hint" style="margin:0;display:inline">'
+                  + _escHtml(meta.unit) + '</span>' : '');
+        }
+        if (meta.type === 'list[str]') {
+            const v = Array.isArray(cur) ? cur.join(',') : (cur || '');
+            return '<input type="text" id="' + id + '" class="cfg-input"'
+                + ' value="' + _escHtml(String(v)) + '"'
+                + (readOnly ? ' disabled' : '')
+                + ' placeholder="comma,separated,list"'
+                + ' style="width:100%;max-width:560px">';
+        }
+        // 'str' / 'json' — single-line text. Secrets render as masked input.
+        if (meta.secret) {
+            return '<input type="text" id="' + id + '" class="cfg-input secret-field"'
+                + ' value="********" disabled'
+                + ' style="width:100%;max-width:560px">'
+                + ' <span class="cfg-hint" style="margin:0;display:inline">'
+                + 'edit in <code>config.env</code></span>';
+        }
+        return '<input type="text" id="' + id + '" class="cfg-input"'
+            + ' value="' + _escHtml(String(cur ?? '')) + '"'
+            + (readOnly ? ' disabled' : '')
+            + ' style="width:100%;max-width:560px">';
+    }
+
+    function _settingsRowHtml(meta, valueRow) {
+        const sourceTag = (() => {
+            if (!valueRow) return '';
+            const s = valueRow.source;
+            if (s === 'db')      return ' <span class="cfg-status-chip ok">db override</span>';
+            if (s === 'env')     return ' <span class="cfg-status-chip dim">env</span>';
+            if (s === 'default') return ' <span class="cfg-status-chip dim">default</span>';
+            if (s === 'secret')  return '';
+            return '';
+        })();
+        const restartTag = (valueRow && valueRow.restart_pending)
+            ? ' <span class="cfg-status-chip warn">restart pending</span>' : '';
+        const head = ''
+            + '<div class="cfg-row" data-key="' + _escHtml(meta.key) + '" '
+            +   'style="flex-wrap:nowrap;align-items:flex-start;gap:14px;'
+            +   'padding:8px 0;border-bottom:1px solid #161616">'
+            + '  <div style="min-width:240px;flex-shrink:0">'
+            + '    <div style="font-size:12px;color:#ccc;font-weight:bold">'
+            +       _escHtml(meta.key)
+            +       _settingsImpactChip(meta)
+            +     '</div>'
+            + '    <div class="cfg-hint" style="margin:2px 0 0">'
+            +       _escHtml(meta.description) + '</div>'
+            + '  </div>'
+            + '  <div style="flex:1;min-width:0">'
+            +      _settingsFieldHtml(meta, valueRow)
+            + '    <div class="cfg-meta" style="margin-top:4px;border:none;padding:0">'
+            +        sourceTag + restartTag + '</div>'
+            + '  </div>'
+            + '  <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">'
+            + (meta.secret || meta.immutable || meta.bootstrap
+                ? ''
+                : '    <button class="btn-tactical cfg-save" '
+                  + '            data-key="' + _escHtml(meta.key) + '">SAVE</button>'
+                  + '    <button class="btn-tactical cfg-reset" '
+                  + '            data-key="' + _escHtml(meta.key) + '">RESET</button>')
+            + '  </div>'
+            + '</div>';
+        return head;
+    }
+
+    window._settingsRenderRegistryGroup = async function (pane, ctx) {
+        _settingsLoading(pane);
+        const cache = await _settingsFetchRegistry();
+        if (!cache) {
+            pane.innerHTML = _settingsCfgPage({
+                help: '<div class="cfg-status-banner">Registry API '
+                    + 'unavailable. Authenticate as admin and reload.</div>',
+                sections: [],
+            });
+            return;
+        }
+        const dom = ctx && ctx.registryDomain;
+        const keys = cache.registry.filter(k => k.domain === dom);
+        if (keys.length === 0) {
+            pane.innerHTML = _settingsCfgPage({
+                help: 'No registered keys in domain <code>'
+                    + _escHtml(String(dom)) + '</code>.',
+                sections: [],
+            });
+            return;
+        }
+        // Group banner — reflects the apply-timing of the majority.
+        const liveCount = keys.filter(k =>
+            !k.restart_required && !k.immutable && !k.bootstrap && !k.secret).length;
+        const banner = liveCount === keys.length
+            ? '<div class="cfg-status-banner"><b>All knobs here are '
+              + 'live</b> — saved values take effect on the next scoring '
+              + 'tick (~30s) without a restart.</div>'
+            : '<div class="cfg-status-banner">Some keys in this section '
+              + 'are env-only or secret (badged accordingly). Live keys '
+              + 'apply on next tick; restart-required keys persist to '
+              + 'DB but only take effect after <code>docker compose '
+              + 'restart</code>.</div>';
+        const rows = keys.map(k =>
+            _settingsRowHtml(k, cache.values[k.key])).join('');
+        pane.innerHTML = _settingsCfgPage({
+            help: banner + 'Configuration domain: <code>'
+                + _escHtml(String(dom)) + '</code> · '
+                + keys.length + ' key' + (keys.length === 1 ? '' : 's')
+                + '.',
+            sections: [{
+                title: dom.replace(/\./g, ' / ').toUpperCase(),
+                body: rows + '<div class="cfg-meta" style="margin-top:10px">'
+                    + _settingsCfgStatusEl() + '</div>',
+            }],
+        });
+        _wireRegistryRowHandlers(pane);
+    };
+
+    function _wireRegistryRowHandlers(pane) {
+        const setStatus = (msg, kind) => _settingsCfgSetStatus(pane, msg, kind);
+        const readField = (key, meta) => {
+            const el = pane.querySelector('#cfg-' + CSS.escape(key));
+            if (!el) return undefined;
+            const v = el.value;
+            if (meta.type === 'bool') return v === 'true';
+            if (meta.type === 'int') return v === '' ? null : Number(v);
+            if (meta.type === 'float') return v === '' ? null : Number(v);
+            return v;
+        };
+        const metaByKey = {};
+        const cache = _settingsRegistryCache || {registry: []};
+        cache.registry.forEach(m => { metaByKey[m.key] = m; });
+
+        pane.querySelectorAll('button.cfg-save').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const key = btn.getAttribute('data-key');
+                const meta = metaByKey[key];
+                if (!meta) return;
+                let value = readField(key, meta);
+                let reason = '';
+                if (meta.impact_level === 'high') {
+                    reason = window.prompt(
+                        'HIGH IMPACT — please record a reason for this change:\n\n'
+                        + (meta.impact_warning || ''));
+                    if (reason === null || !reason.trim()) {
+                        setStatus('Cancelled — reason required for high-impact keys', 'err');
+                        return;
+                    }
+                }
+                btn.disabled = true;
+                try {
+                    const r = await fetch('/api/v2/config', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({key, value, reason: reason || 'Settings UI'}),
+                    });
+                    const data = await r.json().catch(() => ({}));
+                    if (r.ok) {
+                        const tag = data.restart_pending
+                            ? ' (restart pending)' : '';
+                        setStatus('Saved ' + key + tag, 'ok');
+                        _settingsRegistryCache = null;
+                        // Refresh the pane so the source chip updates.
+                        setTimeout(() => _settingsRenderPane(_settingsCurrentDomain), 200);
+                    } else {
+                        setStatus('Save failed: ' + (data.error || ('HTTP ' + r.status)), 'err');
+                    }
+                } catch (e) {
+                    setStatus('Error: ' + e, 'err');
+                }
+                btn.disabled = false;
+            });
+        });
+        pane.querySelectorAll('button.cfg-reset').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const key = btn.getAttribute('data-key');
+                if (!window.confirm('Clear the runtime override for ' + key
+                    + '? Value reverts to env / code default.')) return;
+                btn.disabled = true;
+                try {
+                    const r = await fetch('/api/v2/config', {
+                        method: 'DELETE',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({key, reason: 'Settings UI reset'}),
+                    });
+                    const data = await r.json().catch(() => ({}));
+                    if (r.ok) {
+                        setStatus('Reset ' + key, 'ok');
+                        _settingsRegistryCache = null;
+                        setTimeout(() => _settingsRenderPane(_settingsCurrentDomain), 200);
+                    } else {
+                        setStatus('Reset failed: ' + (data.error || ('HTTP ' + r.status)), 'err');
+                    }
+                } catch (e) {
+                    setStatus('Error: ' + e, 'err');
+                }
+                btn.disabled = false;
+            });
+        });
     }
 
     // ── Domain renderers ────────────────────────────────────────────────
