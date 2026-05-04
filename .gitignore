@@ -4,3 +4,4 @@ CLAUDE.md
 .DS_Store
 persistence/
 __pycache__/
+radar/llm_client.py.bak
