@@ -3241,6 +3241,34 @@
             <li><b>Embedding (granite-embedding:278m)</b>: Optional dedupe via <span class="code-block">embedding_dedupe</span> Feature Hub key (default OFF). Module: <span class="code-block">radar/llm_embedding.py</span>. Russian-source quality is degraded (the model card lists 12 languages but ru is not 1st-class) — measure during Phase 1 SHADOW before promoting to ON.</li>
         </ul>
 
+        <p><b>K.3 Unified Settings shell (Phase 9)</b> — hamburger → Config / HUD chips / Tools menu</p>
+        <ul>
+            <li><b>Purpose</b>: Resolves the 4-way LLM configuration split (CONFIG → SYSTEM → LLM Intelligence section + LLM Features Hub modal + LLM Model Routing modal + <span class="code-block">config.env</span>) by collapsing all LLM-related controls into a single Settings modal with domain-keyed left navigation.</li>
+            <li><b>Domain layout</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span class="code-block">llm.connection</span> — Ollama version, kill switch, env-only host fields.</li>
+                    <li><span class="code-block">llm.intel_pipeline</span> — auto-confirm thresholds, age-decay parameters (Phase 9.6 makes editable via <span class="code-block">config_layered</span>).</li>
+                    <li><span class="code-block">llm.features</span> — Feature Hub keys with state dropdown including the new <b>SHADOW_DUAL</b> state.</li>
+                    <li><span class="code-block">llm.routing</span> — per-(use_case, slot) model selector + sampling controls + Save/Reset buttons. Replaces the stand-alone routing modal.</li>
+                    <li><span class="code-block">llm.embedding</span> — granite-embedding probe + by_language Phase 1 GO precision_proxy table.</li>
+                    <li><span class="code-block">llm.self_eval</span> — Phase 1 GO chip dashboard (single-glance verdict with per-use_case axis breakdown).</li>
+                    <li><span class="code-block">audit.changes</span> — NP6 ledger (Phase 9.6 unifies into <span class="code-block">config_change_log</span>).</li>
+                </ul>
+            </li>
+            <li><b>Three-layer configuration</b> (declarative, <span class="code-block">radar/config_layered.py</span>):
+                <ol style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>DB override</b> (<span class="code-block">config_runtime_value</span>) — analyst-set, instant.</li>
+                    <li><b>Env var</b> (<span class="code-block">config.env</span>) — operator-set, requires restart for keys flagged <code>restart_required=True</code>.</li>
+                    <li><b>Code default</b> — declared in the registry.</li>
+                </ol>
+                Secrets (<code>secret=True</code>) and immutable keys (<code>immutable=True</code>) are read-only in the UI.
+            </li>
+            <li><b>SHADOW_DUAL state</b> (Phase 9.2): when a routing feature is in this state, llm_client invokes BOTH the legacy active model AND the v10 candidate in parallel. v10's response is logged to <span class="code-block">llm_shadow_invocation</span> linked by FK to the primary call, enabling /api/v2/self_eval to compute schema_compliance / agreement_rate / verdict_reproducibility — the Phase 1 GO criteria. Cost is 2× during the SHADOW_DUAL window so it is opt-in per use_case.</li>
+            <li><b>Audit (NP6)</b>: every set/clear from the Settings UI flows through <span class="code-block">config_layered.set_config()</span> which appends to <span class="code-block">config_change_log</span> with domain, key, old, new, changed_by, reason. Cross-domain audit is one query (<span class="code-block">SELECT * FROM config_change_log WHERE domain LIKE 'llm.%'</span>).</li>
+            <li><b>Embedding ledger</b> (Phase 9.2 C7): <span class="code-block">llm_embed_call_log</span> + <span class="code-block">llm_embed_dedup_log</span> capture every embed_text() call and dedup decision with detected language. Phase 1 GO: zh/ja/ar ≥ 0.90 precision_proxy, ru ≥ 0.70.</li>
+            <li><b>Migrations applied</b>: v45 (config_change_log), v46 (config_runtime_value), v47 (llm_shadow_invocation), v48 (embedding ledgers).</li>
+        </ul>
+
         <p><b>L. CONTROLS Tools Hub</b> — hamburger menu → CONTROLS panel (Tools Hub embedded inline)</p>
         <ul>
             <li><b>Purpose</b>: Replaces the legacy three-step (hamburger → CONTROLS → TOOLS-dropdown) flow with an embedded card layout inside the CONTROLS panel itself. Each card shows panel state (open/closed, dock position) and a live data badge (pending counts, sensor health, error states). Surfaces ATTENTION rules so analysts know what to look at first.</li>
@@ -3589,6 +3617,34 @@
             <li><b>監査（NP6）</b>: 全 override 変更を <span class="code-block">llm_routing_override_history</span> に old_json, new_json, changed_by（JWT identity）, reason を append。<span class="code-block">GET /api/v2/llm_routing/audit</span> で確認。</li>
             <li><b>モデル別 self_eval</b>: <span class="code-block">/api/v2/self_eval</span> に <code>by_model</code>（モデル別 ok rate / parse_failed / avg_confidence / latency / auto_confirmed_rate）と <code>by_use_case</code>（バケット別ロールアップ + primary_model）を追加。SHADOW 状態時は <code>shadow_diff</code> でレガシーと v10 候補が同じモデルファミリーだった割合を返す。</li>
             <li><b>Embedding（granite-embedding:278m）</b>: <span class="code-block">embedding_dedupe</span> Feature Hub key で制御（既定 OFF）。モジュール: <span class="code-block">radar/llm_embedding.py</span>。ロシア語ソースの精度は劣る（model card は 12 言語サポートだが ru は 1st-class でない）— Phase 1 SHADOW で計測してから ON 化。</li>
+        </ul>
+
+        <p><b>K.3 統合 Settings シェル（Phase 9）</b> — ハンバーガー → Config / HUD chip / Tools メニュー</p>
+        <ul>
+            <li><b>目的</b>: LLM 設定の 4 surface 分散（CONFIG → SYSTEM → LLM Intelligence セクション + LLM Features Hub modal + LLM Model Routing modal + <span class="code-block">config.env</span>）を、ドメイン別左ナビ付きの単一 Settings モーダルに統合解消。</li>
+            <li><b>ドメイン構成</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><span class="code-block">llm.connection</span> — Ollama バージョン、kill switch、env-only ホスト項目。</li>
+                    <li><span class="code-block">llm.intel_pipeline</span> — auto-confirm 閾値、age-decay パラメータ（Phase 9.6 で <span class="code-block">config_layered</span> 経由の編集 UI を追加予定）。</li>
+                    <li><span class="code-block">llm.features</span> — Feature Hub key の state ドロップダウン（新 <b>SHADOW_DUAL</b> 状態を含む）。</li>
+                    <li><span class="code-block">llm.routing</span> — (use_case, slot) ごとの model + sampling + Save/Reset ボタン。旧 routing modal を置換。</li>
+                    <li><span class="code-block">llm.embedding</span> — granite-embedding プローブ + by_language Phase 1 GO precision_proxy 表。</li>
+                    <li><span class="code-block">llm.self_eval</span> — Phase 1 GO chip dashboard（一目で判定 + use_case 別軸内訳）。</li>
+                    <li><span class="code-block">audit.changes</span> — NP6 監査 ledger（Phase 9.6 で <span class="code-block">config_change_log</span> に統合予定）。</li>
+                </ul>
+            </li>
+            <li><b>3 層設定</b>（宣言的、<span class="code-block">radar/config_layered.py</span>）:
+                <ol style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>DB override</b>（<span class="code-block">config_runtime_value</span>）— analyst 設定、即時反映。</li>
+                    <li><b>Env var</b>（<span class="code-block">config.env</span>）— operator 設定、<code>restart_required=True</code> の key は再起動必須。</li>
+                    <li><b>コードデフォルト</b> — registry 宣言。</li>
+                </ol>
+                シークレット（<code>secret=True</code>）と immutable key（<code>immutable=True</code>）は UI で read-only。
+            </li>
+            <li><b>SHADOW_DUAL 状態</b>（Phase 9.2）: routing feature がこの状態の時、llm_client は legacy active モデルと v10 候補を並行呼び出しする。v10 のレスポンスは <span class="code-block">llm_shadow_invocation</span> に primary call の FK 付きで保存される。これにより /api/v2/self_eval が schema_compliance / agreement_rate / verdict_reproducibility（Phase 1 GO 条件）を計算可能になる。コストは use_case あたり 2 倍なので opt-in 必須。</li>
+            <li><b>監査（NP6）</b>: Settings UI からの全 set/clear は <span class="code-block">config_layered.set_config()</span> 経由で <span class="code-block">config_change_log</span> に domain、key、old、new、changed_by、reason を append。ドメイン横断監査は 1 クエリ（<span class="code-block">SELECT * FROM config_change_log WHERE domain LIKE 'llm.%'</span>）。</li>
+            <li><b>Embedding ledger</b>（Phase 9.2 C7）: <span class="code-block">llm_embed_call_log</span> + <span class="code-block">llm_embed_dedup_log</span> が embed_text() 呼び出しと dedup 決定を言語検出付きで記録。Phase 1 GO: 中・日・阿で precision_proxy ≥ 0.90、ru ≥ 0.70。</li>
+            <li><b>適用済 migration</b>: v45 (config_change_log)、v46 (config_runtime_value)、v47 (llm_shadow_invocation)、v48 (embedding ledger)。</li>
         </ul>
 
         <p><b>L. CONTROLS Tools Hub</b> — ハンバーガーメニュー → CONTROLS パネル（Tools Hub をパネル内に埋込み）</p>
