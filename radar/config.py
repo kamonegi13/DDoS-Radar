@@ -1438,6 +1438,32 @@ try:  # pragma: no cover — registration is best-effort, never fatal
                  "shorten to 12h once the system shows stable behaviour "
                  "across multiple HIGH changes.",
         ),
+        ConfigKey(
+            key="CHRONIC_INCONCLUSIVE_THRESHOLD_DAYS",
+            domain="operate.calibration",
+            default=7.0, type_="float",
+            description="Days an UNAVAILABLE conclusion may persist before "
+                        "it counts as chronic (NP5+8 design failure).",
+            group=GROUP_OPERATE, min_value=3.0, max_value=90.0, unit="d",
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+            what="Threshold for the chronic-inconclusive detector "
+                 "(ADR-V2-010). A scenario/conclusion-type pair whose "
+                 "open UNAVAILABLE run is older than this many days is "
+                 "flagged chronic; the daily scheduler hook calls "
+                 "record_failure('inconclusive_chronic', ...) so the "
+                 "HUD CHRONIC chip and the silent-failure ledger both "
+                 "reflect the breach.",
+            why="NP5+8: transient inconclusive is acceptable; chronic "
+                 "inconclusive after data has accumulated is a design "
+                 "failure. The threshold balances not crying wolf for a "
+                 "single-day sensor outage against catching genuine "
+                 "structural blind spots before they ossify.",
+            when="Reduce to 5d only if the false-positive rate is low "
+                 "AND the system has been live for >30d. Never below 3d "
+                 "(routine sensor outages would dominate). Raise to 14d "
+                 "during integration/testing windows where transient "
+                 "outages are expected.",
+        ),
     )
 except Exception:
     # Registration is best-effort. NP3 — never crash on registry errors.
