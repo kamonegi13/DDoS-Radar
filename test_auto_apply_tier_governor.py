@@ -183,15 +183,17 @@ class TestPromotion(unittest.TestCase):
         self.assertEqual(result.new_tier, 1)
 
     def test_no_promote_when_feedback_thin(self):
-        # Promotion 0→1 also needs governor_proposal_count ≥ 10 in
-        # window. Without threshold_history rows in the last 7d the
-        # promotion fails on that gate even when auto_feedback is
-        # plentiful, which is what this test verifies.
-        # (auto_feedback table may already contain production rows;
-        # the assertion is "no promotion happened", not "0 rows".)
-        result = tg.evaluate_and_transition()
-        self.assertIn(result.transition, ("init", "unchanged"))
-        self.assertEqual(result.new_tier, 0)
+        # Promotion 0→1 needs auto_feedback_rows ≥ 100. Simulate
+        # "thin feedback" by monkey-patching the counter rather than
+        # nuking the live analyst_feedback table.
+        original = tg._auto_feedback_rows
+        tg._auto_feedback_rows = lambda: 30
+        try:
+            result = tg.evaluate_and_transition()
+            self.assertIn(result.transition, ("init", "unchanged"))
+            self.assertEqual(result.new_tier, 0)
+        finally:
+            tg._auto_feedback_rows = original
 
     def test_promote_blocked_by_cap(self):
         _insert_state(tier=1, transition="promote",

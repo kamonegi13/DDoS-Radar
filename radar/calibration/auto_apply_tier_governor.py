@@ -90,11 +90,14 @@ APPLIED_BY_IMPACT: dict[str, str] = {
 }
 
 # Promotion thresholds (cautious by design).
+# 0→1 promotion intentionally does NOT require governor_proposal_count:
+# at Tier 0 the tier-gate blocks every proposal from landing, so
+# threshold_history stays empty by construction. Requiring "≥10 in
+# threshold_history" here would be a chicken-and-egg deadlock. We rely
+# instead on auto_feedback_rows as the signal that the upstream data
+# pipeline is alive enough to bootstrap the loop.
 PROMOTE_TIER0_TO_TIER1 = {
     "min_auto_feedback_rows": 100,
-    "min_governor_accept_rate": 0.50,  # at least half of proposals get
-                                        # past the per-proposal gates
-    "min_governor_proposal_count": 10,
 }
 PROMOTE_TIER1_TO_TIER2 = {
     "min_days_at_tier": 7.0,
@@ -378,13 +381,11 @@ def _check_promotion(
         return None  # already at the kill-switch ceiling
     if prior == TIER_PROPOSAL_ONLY:
         c = PROMOTE_TIER0_TO_TIER1
-        if (metrics["auto_feedback_rows"] >= c["min_auto_feedback_rows"]
-                and metrics["governor_proposal_count"] >= c["min_governor_proposal_count"]
-                and metrics["governor_accept_rate"] >= c["min_governor_accept_rate"]):
+        if metrics["auto_feedback_rows"] >= c["min_auto_feedback_rows"]:
             return (TIER_LOW,
-                    "auto_feedback={fb} rows, governor accept_rate={ar:.2f}".format(
+                    "auto_feedback={fb} rows ≥ bootstrap threshold ({thr})".format(
                         fb=metrics["auto_feedback_rows"],
-                        ar=metrics["governor_accept_rate"]))
+                        thr=c["min_auto_feedback_rows"]))
     elif prior == TIER_LOW:
         c = PROMOTE_TIER1_TO_TIER2
         if (metrics["days_at_tier"] >= c["min_days_at_tier"]
