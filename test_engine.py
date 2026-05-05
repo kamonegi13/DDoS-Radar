@@ -1497,21 +1497,32 @@ class TestSecretIndicator:
         assert _looks_like_mask("****************************680b")
         assert _looks_like_mask("************************************************************62f5")  # JWT case
         # NOT mask shapes
-        assert not _looks_like_mask("0123456789abcdef0123456789abcdef")  # real key
+        assert not _looks_like_mask("0123456789abcdef0123456789abcdef")  # 32-char hex (synthetic)
         assert not _looks_like_mask("0.40")  # threshold value
         assert not _looks_like_mask("")
         assert not _looks_like_mask("**ab**")  # not anchored
         assert not _looks_like_mask("****abcde")  # too many trailing chars
 
     def test_mask_string_never_matches_real_keys(self):
-        """Defensive — verify real-world API key formats are not flagged."""
+        """Defensive — verify real-world API key formats are not flagged.
+
+        Test fixtures use SHAPE-PRESERVING SYNTHETIC strings only.
+        Never embed actual production keys here (GitHub Push Protection
+        flags real-shape tokens; including real values would also leak
+        them into git history).
+        """
         from radar.routes.admin import _looks_like_mask
-        real_examples = [
-            "cfut_REDACTED_REDACTED_REDACTED_REDACTED_REDACTED_REDACTED",  # CF token
-            "0123456789abcdef0123456789abcdef",                       # OWM
-            "kamonegi.13-api-client",                                 # OpenSky ID
-            "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPP",  # GreyNoise
-            "ZZZZYYYYXXXXWWWWVVVVUUUUTTTTSSSSRRRRQQQQPPPPOOOONNNNMMMMLLLLKKKK",  # JWT
+        # Synthetic values matching each provider's documented shape:
+        # - CF token: "cfut_" + 50-char base64-url
+        # - OWM:      32-char hex
+        # - OpenSky:  human-readable client ID
+        # - GreyNoise/JWT: 64-char base64-url
+        synthetic_examples = [
+            "cfut_AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMM00",
+            "0123456789abcdef0123456789abcdef",
+            "test-client-id",
+            "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPP",
+            "ZZZZYYYYXXXXWWWWVVVVUUUUTTTTSSSSRRRRQQQQPPPPOOOONNNNMMMMLLLLKKKK",
         ]
-        for k in real_examples:
+        for k in synthetic_examples:
             assert not _looks_like_mask(k), f"false positive on {k[:8]}…"
