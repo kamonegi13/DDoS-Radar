@@ -3953,11 +3953,8 @@
             '<div class="cfg-hint">'
             + '<code>LLM_HOST</code>, <code>LLM_MODEL</code>, and '
             + '<code>LLM_TIMEOUT</code> are env-backed and require a '
-            + 'container restart. Edit <code>config.env</code> via '
-            + '<a href="javascript:void(0)" '
-            + 'onclick="window._settingsOpen(\'system.config\')">'
-            + 'System → Config</a> and run <code>docker compose '
-            + 'restart</code>.'
+            + 'container restart. Edit <code>config.env</code> on disk '
+            + 'and run <code>docker compose restart</code>.'
             + '</div>'
             + '<div class="cfg-hint">'
             + 'Per-feature kill switch and runtime knobs live on the '
@@ -3968,10 +3965,8 @@
             help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
                 + 'only.</b> Connection details and the production '
                 + 'fallback model are env-backed (restart-required). '
-                + 'Edit in <a href="javascript:void(0)" '
-                + 'onclick="window._settingsOpen(\'system.config\')">'
-                + 'System → Config</a> then run <code>docker compose '
-                + 'restart</code>.</div>'
+                + 'Edit <code>config.env</code> on disk and run '
+                + '<code>docker compose restart</code>.</div>'
                 + 'LLM connection health and Ollama compatibility.',
             sections: [
                 { title: 'CONNECTION STATUS', body: statusBody,
@@ -4550,13 +4545,13 @@
             + '</div>'
             + '<ul style="font-size:12px;line-height:1.8;color:#ccc;'
             + 'padding-left:20px;margin:8px 0 0">'
-            + link('sensors.catalog',   'Sensors')
-            + link('sensors.fetch_log', 'Fetch Log')
+            + link('operate.sensors',   'Sensors')
+            + link('infra.fetch_log',   'Fetch Log')
             + link('infra.upstreams',   'Upstreams')
             + link('infra.fleet',       'Fleet Health')
-            + link('scenarios.list',    'Scenarios')
-            + link('system.config',     'System config (env)')
-            + link('operators.users',   'Users')
+            + link('operate.scenarios', 'Scenarios')
+            + link('infra.server',      'Server / Env config')
+            + link('access.users',      'Users')
             + '</ul>';
         pane.innerHTML = _settingsCfgPage({
             help: 'Legacy MASTER CONFIGURATION (deprecated). Use the '
@@ -10703,7 +10698,7 @@
 
     window.toggleUserMgr = function() {
         if (typeof window._settingsOpen === 'function') {
-            window._settingsOpen('operators.users');
+            window._settingsOpen('access.users');
             return;
         }
         switchTab('users');
@@ -13749,7 +13744,7 @@
     }
     window.openScenarioMgrTab = function () {
         if (typeof window._settingsOpen === 'function') {
-            window._settingsOpen('scenarios.list');
+            window._settingsOpen('operate.scenarios');
             return;
         }
         switchTab('scenarios');
