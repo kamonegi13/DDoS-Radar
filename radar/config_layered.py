@@ -59,7 +59,7 @@ class ConfigKey:
     domain: str                     # legacy dot-namespace, kept for back-compat
     default: Any
     type_: str                      # 'str' | 'int' | 'float' | 'bool' | 'list[str]' | 'json'
-    description: str = ""
+    description: str = ""           # legacy short label (kept for fallback)
     secret: bool = False            # never expose value
     immutable: bool = False         # env-only; DB writes rejected
     restart_required: bool = False  # mutating requires container restart
@@ -74,6 +74,12 @@ class ConfigKey:
     unit: str = ""                  # 's', 'min', 'h', 'd', '%', etc. — UI hint
     min_value: Optional[float] = None
     max_value: Optional[float] = None
+    # SETTINGS UX redesign (2026-05-05) — three-line explanation block.
+    # `description` (above) is kept as the short label; the SETTINGS UI
+    # falls back to it when the three-line block is empty.
+    what: str = ""                  # what this knob controls (1 sentence)
+    why: str  = ""                  # design rationale + observed behaviour
+    when: str = ""                  # when an analyst should change it
 
 
 _REGISTRY: dict[str, ConfigKey] = {}

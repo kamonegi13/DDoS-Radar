@@ -614,6 +614,15 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             description="Startup default for the focused scenario.",
             group=GROUP_OPERATE, apply_timing=TIMING_RESTART_REQUIRED,
             restart_required=True,
+            what="Which scenario the engine boots into. The focused scenario "
+                 "runs every sensor at full coverage; non-focused scenarios "
+                 "run in C-lite mode (LLM intel + global signals only).",
+            why="Compute / API-quota budget. Running every sensor on every "
+                "scenario every cycle would saturate upstreams. Focusing one "
+                "scenario keeps recall high where it matters now.",
+            when="On deployment, set to your primary watch theatre. Analysts "
+                 "can re-focus at runtime via the scenario picker — this "
+                 "value is only the boot default.",
         ),
         ConfigKey(
             key="GLOBAL_SIGNAL_WEIGHT", domain="operate.scope",
@@ -656,6 +665,16 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             group=GROUP_OPERATE, min_value=0.5, max_value=1.0,
             apply_timing=TIMING_LIVE_NEXT_CYCLE,
             impact_level="med",
+            what="Confidence floor that promotes an LLM-extracted intel item "
+                 "from PENDING (analyst review) to AUTO-CONFIRMED (counted "
+                 "in scoring immediately).",
+            why="Trades analyst load against precision. Lower → more items "
+                 "auto-confirmed (less review burden, more false positives). "
+                 "Higher → safer, but analysts queue grows and reaction "
+                 "latency increases.",
+            when="Bump to 0.85 if the auto-judge audit shows reversal rate "
+                 "above ~10%. Drop to 0.75 if you observe known events "
+                 "stuck in PENDING for hours.",
         ),
         ConfigKey(
             key="LLM_CONFIDENCE_MIN", domain="operate.intel",
@@ -664,6 +683,16 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             group=GROUP_OPERATE, min_value=0.1, max_value=0.9,
             apply_timing=TIMING_LIVE_NEXT_CYCLE,
             impact_level="med",
+            what="Confidence floor below which an LLM extraction is "
+                 "discarded silently — never reaches PENDING or scoring.",
+            why="NP1 (recall > precision). Set lower than you think; many "
+                 "early-stage signals come back at 0.40-0.55 and are real. "
+                 "Raised from 0.55 → 0.35 in 2026-04 after observability "
+                 "showed military_exercise averaging 0.39 (all silently "
+                 "dropped).",
+            when="Drop further if you suspect a sensor (Telegram, ground "
+                 "OSINT) is dropping items the analyst would have wanted "
+                 "to see.",
         ),
         ConfigKey(
             key="LLM_PENDING_AUTO_REJECT_HOURS",
@@ -673,12 +702,25 @@ try:  # pragma: no cover — registration is best-effort, never fatal
                         "auto-rejected. 0 = disabled.",
             group=GROUP_OPERATE, min_value=0, max_value=168, unit="h",
             apply_timing=TIMING_LIVE_NEXT_CYCLE,
+            what="How long an item can sit in PENDING before the auto-judge "
+                 "marks it REJECTED (analyst can still override).",
+            why="Prevents unbounded PENDING queue growth. Stale uncorroborated "
+                 "items lose evidentiary value rapidly.",
+            when="Set lower (8-12h) for high-tempo operations; higher (48h+) "
+                 "if analyst coverage is gappy. 0 disables auto-reject.",
         ),
         ConfigKey(
             key="INTEL_RETENTION_DAYS", domain="operate.intel",
             default=7, type_="int",
             description="Days to retain intel rows in the DB.",
             group=GROUP_OPERATE, min_value=1, max_value=90, unit="d",
+            what="Days the radar.db keeps intel rows before periodic_cleanup "
+                 "deletes them.",
+            why="Bounds DB growth. After confirmation/rejection, the row's "
+                 "audit trail lives in conclusions_ledger anyway, so the "
+                 "intel row itself is short-lived.",
+            when="Raise to 30+d for long-arc analyses; lower to 3d if disk "
+                 "is constrained or you don't need historical re-scoring.",
         ),
         ConfigKey(
             key="INTEL_ITEM_TTL_HOURS", domain="operate.intel",
@@ -753,6 +795,16 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             impact_warning="Hysteresis controls how fast TL transitions. "
                           "Too low → TL flips on every tick (alarm fatigue). "
                           "Too high → real escalations are masked.",
+            what="Number of consecutive scoring ticks a new TL must hold "
+                 "before the system actually promotes/demotes the threat "
+                 "level on the HUD and alerts.",
+            why="Single-tick TL changes are mostly noise (one upstream "
+                 "blipped, one transient corroboration). Hysteresis "
+                 "filters those without losing real escalations, which "
+                 "almost always span ≥ 2 ticks.",
+            when="Raise to 2-3 if the HUD is flickering between TL bands. "
+                 "Drop to 0 only for a debugging session — never in "
+                 "production (false-alert generator).",
         ),
         ConfigKey(
             key="DOMAIN_WEIGHT_CYBER", domain="tune.scoring",
@@ -762,6 +814,16 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             impact_level="high",
             impact_warning="Domain weights must sum to 1.0. Changing this "
                           "rebalances all threat scores globally.",
+            what="Weight of the cyber-domain sub-score in the convergence "
+                 "formula. The 3 weights (cyber + physical + info) MUST "
+                 "sum to 1.0 — the registry validator rejects writes that "
+                 "violate this invariant.",
+            why="Cyber traditionally leads physical/info in pre-conflict "
+                 "phases (DDoS, BGP anomalies, CT-log shenanigans). The "
+                 "default 0.50 reflects that historic precedence.",
+            when="Lower (e.g. 0.40) when narrative-domain signal is "
+                 "dominating an analysis (ground OSINT cycle). Raise back "
+                 "to 0.50+ during ddos surge campaigns.",
         ),
         ConfigKey(
             key="DOMAIN_WEIGHT_PHYSICAL", domain="tune.scoring",
@@ -771,6 +833,14 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             impact_level="high",
             impact_warning="Domain weights must sum to 1.0. Changing this "
                           "rebalances all threat scores globally.",
+            what="Weight of the physical-domain sub-score (airspace, ISR, "
+                 "AIS, GPS jamming, seismic, FIRMS). 3 weights sum to 1.0.",
+            why="Physical signals are slower but more reliable. The 0.30 "
+                 "default keeps physical influence meaningful without "
+                 "letting an isolated airspace closure dominate.",
+            when="Raise during kinetic phases (active mobilisation). Lower "
+                 "if physical sensors are degraded (NOTAM disabled, IHR "
+                 "down) so you don't reward partial coverage.",
         ),
         ConfigKey(
             key="DOMAIN_WEIGHT_INFO", domain="tune.scoring",
@@ -780,6 +850,15 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             impact_level="high",
             impact_warning="Domain weights must sum to 1.0. Changing this "
                           "rebalances all threat scores globally.",
+            what="Weight of the info-domain sub-score (narrative bursts, "
+                 "diplomatic, military exercise, hacktivist news, GDELT "
+                 "tone). 3 weights sum to 1.0.",
+            why="Info-domain signals lead by 24-72h but are noisier "
+                 "(propaganda, off-topic news). The 0.20 default keeps "
+                 "info as a leading indicator without dominating the score.",
+            when="Raise (0.30+) during info-ops campaigns where the "
+                 "narrative signal is reliable. Lower if false-positive "
+                 "rate climbs from media cycles unrelated to the scenario.",
         ),
         ConfigKey(
             key="CONVERGENCE_DUAL_BONUS", domain="tune.scoring",
@@ -973,12 +1052,28 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             default=-15.0, type_="float",
             description="GDELT tone alert threshold (negative = hostile).",
             group=GROUP_TUNE, min_value=-100.0, max_value=0.0,
+            what="GDELT geopolitical tone score below which the sensor "
+                 "fires (range −100…+100; more negative = more hostile).",
+            why="Empirical baselines: −12…−15 precedes military tension; "
+                 "−18…−25 precedes invasion. -15.0 is the early-warning "
+                 "floor that catches escalation before kinetic onset.",
+            when="Tighten (e.g. −12) for earlier signal at the cost of "
+                 "more noise; loosen (−18) when tone is dominated by "
+                 "routine media cycles unrelated to the scenario.",
         ),
         ConfigKey(
             key="GDELT_HISTORY_WINDOW", domain="tune.gdelt",
             default=28, type_="int",
             description="GDELT history window (days).",
             group=GROUP_TUNE, min_value=7, max_value=180, unit="d",
+            what="Look-back window for the GDELT tone baseline used by "
+                 "the z-score detector.",
+            why="Long enough to absorb weekly news cycles (28d ≈ 4 weeks), "
+                 "short enough that a regime shift doesn't take months to "
+                 "show up as the new normal.",
+            when="Shorten to 14d during regime transitions so baseline "
+                 "reflects current reality. Lengthen for slow-news "
+                 "regions.",
         ),
 
         # ════════════════════════════════════════════════════════════════

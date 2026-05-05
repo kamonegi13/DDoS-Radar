@@ -3056,42 +3056,129 @@
         } catch (_) { return null; }
     }
 
-    function _settingsApplyTimingBadge(meta) {
-        if (meta.restart_required) {
-            return '<span class="cfg-restart-badge">restart</span>';
-        }
-        if (meta.bootstrap || meta.immutable) {
-            return '<span class="cfg-readonly-badge">env-only</span>';
-        }
-        if (meta.secret) {
-            return '<span class="cfg-readonly-badge">secret</span>';
-        }
-        return '<span class="cfg-live-badge">live</span>';
-    }
-
-    function _settingsImpactChip(meta) {
-        if (meta.impact_level === 'high') {
-            return ' <span class="cfg-status-chip warn">HIGH IMPACT</span>';
-        }
-        if (meta.impact_level === 'med') {
-            return ' <span class="cfg-status-chip dim">med impact</span>';
-        }
+    // ── SETTINGS UX redesign 2026-05-05 — unified 4-system badge taxonomy ──
+    //   1. value source  (where the displayed value came from)
+    //   2. apply timing  (when a saved change actually takes effect)
+    //   3. impact        (how dangerous a change is)
+    //   4. access        (icon-only — secret / immutable / bootstrap)
+    function _settingsBadgeSource(valueRow) {
+        if (!valueRow) return '';
+        const s = valueRow.source;
+        if (s === 'db')      return '<span class="cfg-badge cfg-badge-source-db" '
+            + 'title="Stored in DB (set via Settings UI). Overrides env / default.">DB</span>';
+        if (s === 'env')     return '<span class="cfg-badge cfg-badge-source-env" '
+            + 'title="Loaded from config.env on startup.">ENV</span>';
+        if (s === 'default') return '<span class="cfg-badge cfg-badge-source-default" '
+            + 'title="Using the registry default — no override in DB or env.">DEFAULT</span>';
         return '';
     }
+    function _settingsBadgeTiming(meta) {
+        // Read-only / env-only families never accept Settings-UI writes; they
+        // share one badge so the UI is honest about that fact.
+        if (meta.bootstrap || meta.immutable || meta.secret) {
+            return '<span class="cfg-badge cfg-badge-timing-readonly" '
+                + 'title="Read-only here. Edit in config.env (and restart) — '
+                + 'this key is bootstrap/immutable/secret.">READ-ONLY</span>';
+        }
+        if (meta.restart_required) {
+            return '<span class="cfg-badge cfg-badge-timing-restart" '
+                + 'title="Saved to DB now, but the new value only takes '
+                + 'effect after `docker compose restart`.">RESTART</span>';
+        }
+        // apply_timing label hint — TIMING_LIVE_NEXT_CYCLE keys take effect
+        // on next intel queue cycle (intel-related), not next scoring tick.
+        if (typeof meta.apply_timing === 'string'
+            && meta.apply_timing.indexOf('intel queue') >= 0) {
+            return '<span class="cfg-badge cfg-badge-timing-next-cycle" '
+                + 'title="Applies on the next intel queue cycle '
+                + '(typically &lt; 60s).">NEXT-CYCLE</span>';
+        }
+        return '<span class="cfg-badge cfg-badge-timing-live" '
+            + 'title="Applies live on the next scoring tick (~30s). '
+            + 'No restart required.">LIVE</span>';
+    }
+    function _settingsBadgeImpact(meta) {
+        if (meta.impact_level === 'high') {
+            const tip = meta.impact_warning
+                || 'High impact — changing this affects many downstream '
+                   + 'computations. A reason is required at SAVE time.';
+            return '<span class="cfg-badge cfg-badge-impact-high" '
+                + 'title="' + _escHtml(tip) + '">HIGH</span>';
+        }
+        if (meta.impact_level === 'med') {
+            return '<span class="cfg-badge cfg-badge-impact-med" '
+                + 'title="Medium impact — changes are visible in the next '
+                   + 'cycle, but rarely catastrophic.">MED</span>';
+        }
+        return '';  // LOW = no badge to keep the row uncluttered
+    }
+    function _settingsBadgeAccess(meta) {
+        // Icon-only chips — keep the row scan-able. Tooltip carries the
+        // explanation. Multiple flags can be present (e.g. JWT_SECRET_KEY
+        // is secret + immutable + bootstrap); render them in priority order.
+        const out = [];
+        if (meta.secret) {
+            out.push('<span class="cfg-badge cfg-badge-access" data-kind="secret" '
+                + 'title="Secret — the API never returns the plaintext value. '
+                + 'Set via config.env, then restart.">🔑</span>');
+        }
+        if (meta.bootstrap) {
+            out.push('<span class="cfg-badge cfg-badge-access" data-kind="bootstrap" '
+                + 'title="Bootstrap — read once at first startup, persisted to '
+                + 'DB. Cannot be edited from the UI.">★</span>');
+        } else if (meta.immutable) {
+            out.push('<span class="cfg-badge cfg-badge-access" data-kind="immutable" '
+                + 'title="Immutable — env-only. Edit config.env and restart.">🔒</span>');
+        }
+        return out.join('');
+    }
+    function _settingsKeyBadges(meta, valueRow) {
+        return [
+            _settingsBadgeSource(valueRow),
+            _settingsBadgeTiming(meta),
+            _settingsBadgeImpact(meta),
+            _settingsBadgeAccess(meta),
+        ].filter(Boolean).join(' ');
+    }
+    // Legacy helpers kept as thin shims — older renderers still call them.
+    function _settingsApplyTimingBadge(meta) { return _settingsBadgeTiming(meta); }
+    function _settingsImpactChip(meta) { return _settingsBadgeImpact(meta); }
 
+    // SETTINGS UX redesign 2026-05-05 — pick a widget based on the key's
+    // declared type, range, and enum so booleans / enums / ranges no longer
+    // render as plain text inputs.
     function _settingsFieldHtml(meta, valueRow) {
         const id = 'cfg-' + meta.key;
         const cur = valueRow ? valueRow.value : meta.default;
         const readOnly = meta.secret || meta.immutable || meta.bootstrap;
+        // (a) bool → toggle switch
         if (meta.type === 'bool') {
+            const on = cur === true || cur === 'true';
             return ''
-                + '<select id="' + id + '" class="cfg-select" '
-                + (readOnly ? 'disabled' : '') + '>'
-                +   '<option value="false"' + (cur === false ? ' selected' : '') + '>false</option>'
-                +   '<option value="true"'  + (cur === true  ? ' selected' : '') + '>true</option>'
-                + '</select>';
+                + '<label class="cfg-toggle">'
+                +   '<input type="checkbox" id="' + id + '"'
+                +     (on ? ' checked' : '')
+                +     (readOnly ? ' disabled' : '') + '>'
+                +   '<span class="cfg-toggle-slider"></span>'
+                + '</label>'
+                + '<span class="cfg-toggle-label" id="' + id + '-lbl">'
+                +   (on ? 'ON' : 'OFF') + '</span>';
         }
+        // (b) enum → segment (≤4) or select. Tooltip per option.
         if (meta.enum && meta.enum.length) {
+            if (meta.enum.length <= 4) {
+                const segs = meta.enum.map(e => {
+                    const sel = String(cur) === String(e) ? ' active' : '';
+                    return '<button type="button" class="cfg-seg-btn' + sel + '"'
+                        + ' data-cfg-target="' + id + '"'
+                        + ' data-cfg-value="' + _escHtml(String(e)) + '"'
+                        + (readOnly ? ' disabled' : '')
+                        + '>' + _escHtml(String(e)) + '</button>';
+                }).join('');
+                return '<div class="cfg-segment">' + segs + '</div>'
+                    + '<input type="hidden" id="' + id + '"'
+                    + ' value="' + _escHtml(String(cur ?? '')) + '">';
+            }
             const opts = meta.enum.map(e =>
                 '<option value="' + _escHtml(String(e)) + '"'
                 + (String(cur) === String(e) ? ' selected' : '') + '>'
@@ -3099,10 +3186,40 @@
             return '<select id="' + id + '" class="cfg-select"'
                 + (readOnly ? ' disabled' : '') + '>' + opts + '</select>';
         }
+        // (c) numeric — range slider + numeric input when both bounds exist
+        //     and the span is reasonable; otherwise plain numeric input.
         if (meta.type === 'int' || meta.type === 'float') {
             const step = meta.type === 'float' ? '0.01' : '1';
-            const minA = meta.min_value != null ? ` min="${meta.min_value}"` : '';
-            const maxA = meta.max_value != null ? ` max="${meta.max_value}"` : '';
+            const hasMin = meta.min_value != null;
+            const hasMax = meta.max_value != null;
+            const span = hasMin && hasMax ? meta.max_value - meta.min_value : null;
+            // Slider when both bounds defined and span is bounded enough to
+            // be useful (avoid sliders for unbounded counters).
+            if (hasMin && hasMax && span > 0 && span <= 200000) {
+                const valStr = (cur != null && cur !== '') ? String(cur) : String(meta.min_value);
+                return '<div class="cfg-range-wrap">'
+                    +   '<span class="cfg-range-bounds">'
+                    +     _escHtml(String(meta.min_value)) + '</span>'
+                    +   '<input type="range" id="' + id + '-rng"'
+                    +     ' min="' + meta.min_value + '"'
+                    +     ' max="' + meta.max_value + '"'
+                    +     ' step="' + step + '"'
+                    +     ' value="' + _escHtml(valStr) + '"'
+                    +     (readOnly ? ' disabled' : '') + '>'
+                    +   '<span class="cfg-range-bounds">'
+                    +     _escHtml(String(meta.max_value)) + '</span>'
+                    +   '<input type="number" id="' + id + '" class="cfg-input"'
+                    +     ' min="' + meta.min_value + '"'
+                    +     ' max="' + meta.max_value + '"'
+                    +     ' step="' + step + '"'
+                    +     ' value="' + _escHtml(valStr) + '"'
+                    +     (readOnly ? ' disabled' : '') + '>'
+                    +   (meta.unit ? ' <span class="cfg-hint" style="margin:0;display:inline">'
+                        + _escHtml(meta.unit) + '</span>' : '')
+                    + '</div>';
+            }
+            const minA = hasMin ? ` min="${meta.min_value}"` : '';
+            const maxA = hasMax ? ` max="${meta.max_value}"` : '';
             const valA = (cur != null && cur !== '') ? ` value="${_escHtml(String(cur))}"` : '';
             return '<input type="number" id="' + id + '" class="cfg-input"'
                 + ' step="' + step + '"' + minA + maxA + valA
@@ -3111,17 +3228,28 @@
                 + (meta.unit ? ' <span class="cfg-hint" style="margin:0;display:inline">'
                   + _escHtml(meta.unit) + '</span>' : '');
         }
+        // (d) list[str] → tag editor (chip input)
         if (meta.type === 'list[str]') {
-            const v = Array.isArray(cur) ? cur.join(',') : (cur || '');
-            return '<input type="text" id="' + id + '" class="cfg-input"'
-                + ' value="' + _escHtml(String(v)) + '"'
-                + (readOnly ? ' disabled' : '')
-                + ' placeholder="comma,separated,list"'
-                + ' style="width:100%;max-width:560px">';
+            const v = Array.isArray(cur) ? cur : (typeof cur === 'string' && cur
+                ? cur.split(',').map(s => s.trim()).filter(Boolean) : []);
+            const tags = v.map(t => '<span class="cfg-tag">'
+                + _escHtml(String(t))
+                + '<button type="button" class="cfg-tag-remove" '
+                +   'data-cfg-target="' + id + '" '
+                +   'data-cfg-tag="' + _escHtml(String(t)) + '"'
+                +   (readOnly ? ' disabled' : '')
+                +   '>×</button></span>').join('');
+            return '<div class="cfg-tags-wrap" data-cfg-target="' + id + '">'
+                +   tags
+                +   '<input type="text" class="cfg-tag-input"'
+                +     ' data-cfg-target="' + id + '"'
+                +     ' placeholder="add value, press Enter"'
+                +     (readOnly ? ' disabled' : '') + '>'
+                + '</div>'
+                + '<input type="hidden" id="' + id + '"'
+                + ' value="' + _escHtml(v.join(',')) + '">';
         }
-        // 'str' / 'json' — single-line text. Secrets render as DISABLED
-        // empty input with an indicator-derived placeholder. The plaintext
-        // value is never in the DOM. Editing is via config.env (env-only).
+        // (e) Secret string — disabled input + indicator placeholder.
         if (meta.secret) {
             const ind = valueRow && valueRow.indicator;
             const placeholder = ind && ind.set
@@ -3134,51 +3262,417 @@
                 + ' <span class="cfg-hint" style="margin:0;display:inline">'
                 + 'edit in <code>config.env</code></span>';
         }
+        // (f) plain string fallback
         return '<input type="text" id="' + id + '" class="cfg-input"'
             + ' value="' + _escHtml(String(cur ?? '')) + '"'
             + (readOnly ? ' disabled' : '')
             + ' style="width:100%;max-width:560px">';
     }
 
+    // SETTINGS UX redesign — wire up the new widget event handlers.
+    // Toggle, segment, slider+number sync, tag editor.
+    function _wireKeyWidgets(pane) {
+        // Toggle: keep ON/OFF label in sync with checkbox state.
+        pane.querySelectorAll('.cfg-toggle input[type="checkbox"]').forEach(cb => {
+            const lbl = pane.querySelector('#' + cb.id + '-lbl');
+            cb.addEventListener('change', () => {
+                if (lbl) lbl.textContent = cb.checked ? 'ON' : 'OFF';
+            });
+        });
+        // Segment: clicking a button toggles `.active` and writes the
+        // hidden input the row reader uses.
+        pane.querySelectorAll('.cfg-seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.disabled) return;
+                const tgt = btn.getAttribute('data-cfg-target');
+                const val = btn.getAttribute('data-cfg-value');
+                const hidden = pane.querySelector('#' + CSS.escape(tgt));
+                if (hidden) hidden.value = val;
+                // Mark only the clicked button active within the same group.
+                btn.parentElement.querySelectorAll('.cfg-seg-btn').forEach(b =>
+                    b.classList.toggle('active', b === btn));
+            });
+        });
+        // Slider ↔ number two-way sync, plus the gradient fill update.
+        pane.querySelectorAll('.cfg-range-wrap').forEach(wrap => {
+            const rng = wrap.querySelector('input[type="range"]');
+            const num = wrap.querySelector('input[type="number"]');
+            if (!rng || !num) return;
+            const update = (src, dst) => {
+                dst.value = src.value;
+                const min = parseFloat(rng.min) || 0;
+                const max = parseFloat(rng.max) || 100;
+                const v = parseFloat(rng.value);
+                const pct = max === min ? 0 : ((v - min) / (max - min)) * 100;
+                rng.style.setProperty('--cfg-pct', pct + '%');
+            };
+            update(rng, num);  // init gradient
+            rng.addEventListener('input', () => update(rng, num));
+            num.addEventListener('input', () => {
+                rng.value = num.value;
+                update(rng, num);
+            });
+        });
+        // Tag editor: Enter inserts a chip; click on × removes one. We
+        // serialise to the hidden input as a comma-separated string so the
+        // existing readField path (`type === 'list[str]'`) keeps working.
+        pane.querySelectorAll('.cfg-tags-wrap').forEach(wrap => {
+            const tgt = wrap.getAttribute('data-cfg-target');
+            const hidden = pane.querySelector('#' + CSS.escape(tgt));
+            const input = wrap.querySelector('.cfg-tag-input');
+            const sync = () => {
+                const tags = Array.from(wrap.querySelectorAll('.cfg-tag'))
+                    .map(t => t.firstChild ? t.firstChild.textContent : '')
+                    .filter(Boolean);
+                if (hidden) hidden.value = tags.join(',');
+            };
+            if (input) {
+                input.addEventListener('keydown', e => {
+                    if (e.key !== 'Enter' && e.key !== ',') return;
+                    e.preventDefault();
+                    const v = (input.value || '').trim();
+                    if (!v) return;
+                    const chip = document.createElement('span');
+                    chip.className = 'cfg-tag';
+                    chip.textContent = v;
+                    const x = document.createElement('button');
+                    x.type = 'button';
+                    x.className = 'cfg-tag-remove';
+                    x.textContent = '×';
+                    x.addEventListener('click', () => {
+                        chip.remove();
+                        sync();
+                    });
+                    chip.appendChild(x);
+                    wrap.insertBefore(chip, input);
+                    input.value = '';
+                    sync();
+                });
+                wrap.addEventListener('click', e => {
+                    if (e.target === wrap) input.focus();
+                });
+            }
+            wrap.querySelectorAll('.cfg-tag-remove').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tag = btn.closest('.cfg-tag');
+                    if (tag) tag.remove();
+                    sync();
+                });
+            });
+        });
+    }
+
+    // SETTINGS UX redesign 2026-05-05 — three-line explanation block
+    // (What / Why / When) per key. Falls back to legacy single-line
+    // `description` when the new fields are empty.
+    function _settingsKeyExplain(meta) {
+        const what = (meta.what || meta.description || '').trim();
+        const why  = (meta.why  || '').trim();
+        const when = (meta.when || '').trim();
+        if (!what && !why && !when) return '';
+        const row = (label, body) => body
+            ? '<dt>' + label + '</dt><dd>' + _escHtml(body) + '</dd>'
+            : '';
+        return '<dl class="cfg-key-explain">'
+            + row('What',  what)
+            + row('Why',   why)
+            + row('When',  when)
+            + '</dl>';
+    }
+    function _settingsKeyNow(meta, valueRow) {
+        // P5 — render a "Now" strip (current value provenance + restart-pending)
+        // for high-impact keys only, so the row doesn't get noisy for trivia.
+        if (meta.impact_level !== 'high') {
+            return (valueRow && valueRow.restart_pending)
+                ? '<div class="cfg-key-now" style="border-left-color:#ff9900">'
+                  + '<b>restart pending</b> — DB override saved, but the live '
+                  + 'process still runs the previous value.'
+                  + '</div>' : '';
+        }
+        const cur = valueRow ? valueRow.value : null;
+        const def = (meta.default !== null && meta.default !== undefined)
+            ? String(meta.default) : '—';
+        const fragments = [];
+        fragments.push('<b>Now:</b> ' + _escHtml(cur === null || cur === undefined
+            ? '(unset)' : String(cur)));
+        fragments.push('<b>Default:</b> ' + _escHtml(def));
+        if (meta.unit) fragments.push('<b>Unit:</b> ' + _escHtml(meta.unit));
+        if (meta.min_value != null && meta.max_value != null) {
+            fragments.push('<b>Range:</b> ' + _escHtml(String(meta.min_value))
+                + ' — ' + _escHtml(String(meta.max_value)));
+        }
+        if (valueRow && valueRow.restart_pending) {
+            fragments.push('<span style="color:#ffaa44">restart pending</span>');
+        }
+        return '<div class="cfg-key-now">' + fragments.join(' &nbsp;·&nbsp; ') + '</div>';
+    }
     function _settingsRowHtml(meta, valueRow) {
-        const sourceTag = (() => {
-            if (!valueRow) return '';
-            const s = valueRow.source;
-            if (s === 'db')      return ' <span class="cfg-status-chip ok">db override</span>';
-            if (s === 'env')     return ' <span class="cfg-status-chip dim">env</span>';
-            if (s === 'default') return ' <span class="cfg-status-chip dim">default</span>';
-            if (s === 'secret')  return '';
-            return '';
-        })();
-        const restartTag = (valueRow && valueRow.restart_pending)
-            ? ' <span class="cfg-status-chip warn">restart pending</span>' : '';
-        const head = ''
+        const widget   = _settingsFieldHtml(meta, valueRow);
+        const badges   = _settingsKeyBadges(meta, valueRow);
+        const explain  = _settingsKeyExplain(meta);
+        const now      = _settingsKeyNow(meta, valueRow);
+        const buttons  = (meta.secret || meta.immutable || meta.bootstrap)
+            ? ''
+            : '<button class="btn-tactical cfg-save" '
+              + '        data-key="' + _escHtml(meta.key) + '">SAVE</button>'
+              + '<button class="btn-tactical cfg-reset" '
+              + '        data-key="' + _escHtml(meta.key) + '">RESET</button>';
+        return ''
             + '<div class="cfg-row" data-key="' + _escHtml(meta.key) + '" '
             +   'style="flex-wrap:nowrap;align-items:flex-start;gap:14px;'
-            +   'padding:8px 0;border-bottom:1px solid #161616">'
+            +   'padding:10px 0;border-bottom:1px solid #161616">'
             + '  <div style="min-width:240px;flex-shrink:0">'
-            + '    <div style="font-size:12px;color:#ccc;font-weight:bold">'
-            +       _escHtml(meta.key)
-            +       _settingsImpactChip(meta)
-            +     '</div>'
-            + '    <div class="cfg-hint" style="margin:2px 0 0">'
-            +       _escHtml(meta.description) + '</div>'
+            + '    <div style="font-size:12px;color:#ccc;font-weight:bold;'
+            +       'word-break:break-all">' + _escHtml(meta.key) + '</div>'
+            + '    <div style="margin-top:4px">' + badges + '</div>'
             + '  </div>'
             + '  <div style="flex:1;min-width:0">'
-            +      _settingsFieldHtml(meta, valueRow)
-            + '    <div class="cfg-meta" style="margin-top:4px;border:none;padding:0">'
-            +        sourceTag + restartTag + '</div>'
+            +      widget
+            +      explain
+            +      now
             + '  </div>'
-            + '  <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">'
-            + (meta.secret || meta.immutable || meta.bootstrap
-                ? ''
-                : '    <button class="btn-tactical cfg-save" '
-                  + '            data-key="' + _escHtml(meta.key) + '">SAVE</button>'
-                  + '    <button class="btn-tactical cfg-reset" '
-                  + '            data-key="' + _escHtml(meta.key) + '">RESET</button>')
+            + '  <div style="display:flex;flex-direction:column;gap:4px;'
+            +    'flex-shrink:0;align-self:flex-start;padding-top:1px">'
+            +    buttons
             + '  </div>'
             + '</div>';
-        return head;
+    }
+
+    // SETTINGS UX redesign 2026-05-05 — page-level explanation per domain.
+    // Each entry is { title, what, why, when }. Domains without an entry
+    // get a generic auto-generated header from the registry domain string.
+    const _SETTINGS_PAGE_DESCRIPTIONS = {
+        'operate.scope': {
+            title: 'Scenario Focus',
+            what: 'The scenario the analyst is currently focused on. Sensors '
+                + 'run at full coverage on this scenario; others run in C-lite '
+                + 'mode (LLM intel + global signals only).',
+            why: 'Compute budget. Running every sensor for every scenario '
+                + 'every cycle would saturate API quotas and CPU. Focusing '
+                + 'one scenario keeps recall high where it matters today.',
+            when: 'Whenever your operational priority shifts. Typical change '
+                + 'cadence is daily-to-weekly during a crisis.',
+        },
+        'operate.intel': {
+            title: 'LLM Intel Triage Thresholds',
+            what: 'Confidence boundaries that decide whether an LLM-extracted '
+                + 'intel item is auto-confirmed, sent to analyst review, or '
+                + 'silently discarded.',
+            why: 'NP1 — recall before precision. Lower thresholds catch more '
+                + 'real signals at the cost of analyst review load. Set the '
+                + 'AUTO-CONFIRM floor based on observed reversal rate.',
+            when: 'Monthly review of the auto-judge audit. Bump when the '
+                + 'reversal rate rises above ~10% or when silent drops are '
+                + 'masking known events.',
+        },
+        'operate.corroboration': {
+            title: 'Multi-source Corroboration',
+            what: 'Cross-source confirmation rules used to upgrade an intel '
+                + 'item from PENDING → AUTO-CONFIRMED.',
+            why: 'NP2 — multi-source convergence. A single noisy source must '
+                + 'never be enough on its own to drive a TL change.',
+            when: 'When you see analyst feedback flagging premature confirms, '
+                + 'tighten min-sources or independence; loosen if recall is '
+                + 'leaking.',
+        },
+        'operate.notifications': {
+            title: 'Alert Notification Routing',
+            what: 'Slack / Teams / generic webhook delivery for TL changes '
+                + 'and high-confidence intel.',
+            why: 'Out-of-band visibility for analysts not actively watching '
+                + 'the dashboard. Debounce protects against alert storms.',
+            when: 'When integrating new channels, or when a debounce window '
+                + 'is too tight (duplicate alerts) or too loose (silence).',
+        },
+        'tune.scoring': {
+            title: 'Convergence Scoring Weights',
+            what: 'Domain weights for the multi-domain convergence formula '
+                + '(cyber / physical / info), plus the convergence bonus '
+                + 'and threat-level hysteresis.',
+            why: 'Heart of the scoring engine. The three weights MUST sum '
+                + 'to 1.0 — the registry validator rejects writes that '
+                + 'violate the invariant.',
+            when: 'Quarterly recalibration with at least 14d of post-event '
+                + 'analyst feedback. Single-cycle changes will swing TLs.',
+        },
+        'tune.zscore': {
+            title: 'Adaptive Z-score Baseline',
+            what: 'Sample-size and shape parameters for adaptive z-score '
+                + 'detection across sensors with seasonality.',
+            why: 'A static z-score threshold misses slow-onset anomalies and '
+                + 'over-fires on bursty channels. Adaptive baselines absorb '
+                + 'periodicity and quiet hours.',
+            when: 'When a new sensor is added or its variance pattern shifts '
+                + '(new feed source, traffic pattern change).',
+        },
+        'tune.sequence': {
+            title: 'Escalation Sequence Bonuses',
+            what: 'Window length and bonus magnitudes for the sequence '
+                + 'scorer (NARRATIVE_BURST → ISR_SURGE → SYNC_DDOS '
+                + '→ FIRMS_ANOMALY).',
+            why: 'Real escalations show ordered progression. Detecting the '
+                + 'sequence is stronger evidence than seeing each event '
+                + 'in isolation.',
+            when: 'Adjust window when reviewing post-incident timelines '
+                + 'and finding the sequence missed by < 1h or false-fired '
+                + 'across 24h+.',
+        },
+        'tune.ddos': {
+            title: 'DDoS Acceleration Detection',
+            what: 'Z-score and synchronization thresholds for the DDoS '
+                + 'acceleration engine (Ambush / C2 sync detection).',
+            why: 'Detects coordinated multi-source DDoS via 2nd-derivative '
+                + 'spike + cross-source timing alignment.',
+            when: 'Lower the C2 sync threshold during cooperative-attack '
+                + 'campaigns; raise it if individual large-volume sources '
+                + 'are over-flagged.',
+        },
+        'tune.narrative': {
+            title: 'Narrative Burst Detector',
+            what: 'RSS narrative volume z-score thresholds and baseline '
+                + 'retention.',
+            why: 'Information-domain signal. Narrative bursts often precede '
+                + 'kinetic events by 24-72h.',
+            when: 'When mainstream news cycles drown out signal — bump '
+                + 'CRITICAL up; when state-media silence masks events — '
+                + 'bring ALERT down.',
+        },
+        'tune.airspace': {
+            title: 'Airspace Anomaly Thresholds',
+            what: 'Closure rate and flight-anomaly thresholds for airspace '
+                + 'sensors (NOTAM / OpenSky / military air).',
+            why: 'Physical-domain leading indicator. Civilian airspace '
+                + 'closures and military air uplift are reliable warning '
+                + 'signs.',
+            when: 'Adjust when a participant nation publishes routine '
+                + 'NOTAM volume changes (exercise season, weather).',
+        },
+        'tune.maritime': {
+            title: 'Maritime / ISR Thresholds',
+            what: 'AIS dark-gap thresholds, anchoring radius, and ISR '
+                + 'aircraft surge thresholds.',
+            why: 'Physical-domain leading indicator. Dark gaps near choke '
+                + 'points and ISR concentration are pre-conflict signals.',
+            when: 'Tune to match shipping-lane geometry of newly-added '
+                + 'scenarios.',
+        },
+        'tune.gdelt': {
+            title: 'GDELT Geopolitical Tone',
+            what: 'Tone alert threshold and history window for the GDELT '
+                + 'geopolitical event monitor.',
+            why: 'Long-baseline information signal. -15.0 tone is a typical '
+                + 'pre-tension floor; -20.0+ is pre-invasion territory.',
+            when: 'Tighten window during quiet periods to spot small dips; '
+                + 'widen during high-activity periods to filter noise.',
+        },
+        'infra.network': {
+            title: 'Network & Proxy',
+            what: 'Outbound proxy and TLS verification policy for sensor '
+                + 'fetches.',
+            why: 'Restart-required because the requests session is built '
+                + 'once at startup. Behind a TLS-inspecting proxy you may '
+                + 'need to disable verification.',
+            when: 'On deployment to a new corporate environment, or when '
+                + 'the proxy CA chain changes.',
+        },
+        'infra.cache': {
+            title: 'Cache TTLs',
+            what: 'In-memory sensor-cache TTL settings.',
+            why: 'Trade freshness for upstream API quota. Most public OSINT '
+                + 'sources rate-limit aggressively.',
+            when: 'Lower TTL when investigating an active event in real '
+                + 'time; raise during quiet periods to spare quota.',
+        },
+        'infra.poll': {
+            title: 'Sensor Polling Cadence',
+            what: 'Per-sensor poll intervals (Diplomatic / Military / '
+                + 'Narrative / Telegram / Check-Host).',
+            why: 'Each upstream has its own quota and freshness. Telegram '
+                + 'channels need ≤15min for active campaigns; GDELT can '
+                + 'tolerate hourly.',
+            when: 'When you see "stale data" warnings on a sensor, or '
+                + 'rate-limit errors on an upstream.',
+        },
+        'infra.server': {
+            title: 'Server Bind & Ports',
+            what: 'Flask bind address / port and JWT expiry windows.',
+            why: 'Restart-required — Flask reads these once. Production '
+                + 'should bind 0.0.0.0 inside Docker; local dev uses '
+                + '127.0.0.1.',
+            when: 'On deployment to a new environment. Otherwise rarely.',
+        },
+        'infra.plugins': {
+            title: 'Plugin Sensor Loader',
+            what: 'Directory scan and enable/disable lists for BaseSensor '
+                + 'plugins under plugins/.',
+            why: 'Lets you ship optional sensors without modifying the '
+                + 'main image.',
+            when: 'When adding or removing plugins, or selectively '
+                + 'disabling one for triage.',
+        },
+        'access.api_keys': {
+            title: 'External API Keys',
+            what: 'Keys / tokens for upstream OSINT services (Cloudflare '
+                + 'Radar / OWM / GreyNoise / ThreatFox / OpenSky / ACLED).',
+            why: 'Secrets — never returned by the API. The UI shows only '
+                + 'a "configured · ends in …xxxx" indicator. Edit in '
+                + 'config.env, then docker compose restart.',
+            when: 'Rotate any key on suspected exposure. Provision '
+                + 'OpenSky OAuth2 credentials to lift the rate limit '
+                + 'from 400 → 4000 req/day.',
+        },
+        'access.webhooks': {
+            title: 'Notification Webhooks',
+            what: 'Slack / Teams / generic HTTP webhooks for outbound '
+                + 'alert delivery.',
+            why: 'Secrets — webhook URLs grant write access to a channel. '
+                + 'Edit in config.env to set; UI never returns the value.',
+            when: 'When connecting a new alerting channel, or when a '
+                + 'webhook is rotated by the receiving platform.',
+        },
+        'access.jwt': {
+            title: 'JWT Authentication',
+            what: 'JWT signing secret and access / refresh token expiry '
+                + 'windows.',
+            why: 'JWT_SECRET_KEY is bootstrap — auto-generated on first '
+                + 'start. Rotating it forces every user to re-authenticate.',
+            when: 'On suspected secret exposure (rotate). On compliance '
+                + 'audit findings (tighten access expiry).',
+        },
+        'access.admin': {
+            title: 'Admin Account',
+            what: 'Default password seeded for the admin user on first '
+                + 'startup.',
+            why: 'Bootstrap-only. Used once to create the admin row, '
+                + 'then ignored. Change the password via the user '
+                + 'management UI after first login.',
+            when: 'Never edit after first start. Use the user-management '
+                + 'reset flow if the password is lost.',
+        },
+    };
+    function _settingsPageHeader(dom, keysCount) {
+        const desc = _SETTINGS_PAGE_DESCRIPTIONS[dom];
+        const fallbackTitle = String(dom).replace(/\./g, ' / ').toUpperCase();
+        const title = desc ? desc.title : fallbackTitle;
+        const sub = String(dom) + '  ·  ' + keysCount + ' key'
+            + (keysCount === 1 ? '' : 's');
+        if (!desc) {
+            return '<div class="cfg-page-header">'
+                +    '<div class="cfg-page-title">' + _escHtml(title) + '</div>'
+                +    '<div class="cfg-page-subtitle">' + _escHtml(sub) + '</div>'
+                + '</div>';
+        }
+        const row = (label, body) =>
+            '<dt>' + label + '</dt><dd>' + _escHtml(body || '—') + '</dd>';
+        return '<div class="cfg-page-header">'
+            +    '<div class="cfg-page-title">' + _escHtml(title) + '</div>'
+            +    '<div class="cfg-page-subtitle">' + _escHtml(sub) + '</div>'
+            +    '<dl class="cfg-page-block">'
+            +       row('What',  desc.what)
+            +       row('Why',   desc.why)
+            +       row('When',  desc.when)
+            +    '</dl>'
+            + '</div>';
     }
 
     window._settingsRenderRegistryGroup = async function (pane, ctx) {
@@ -3202,29 +3696,24 @@
             });
             return;
         }
-        // Group banner — reflects the apply-timing of the majority.
-        const liveCount = keys.filter(k =>
-            !k.restart_required && !k.immutable && !k.bootstrap && !k.secret).length;
-        const banner = liveCount === keys.length
-            ? '<div class="cfg-status-banner"><b>All knobs here are '
-              + 'live</b> — saved values take effect on the next scoring '
-              + 'tick (~30s) without a restart.</div>'
-            : '<div class="cfg-status-banner">Some keys in this section '
-              + 'are env-only or secret (badged accordingly). Live keys '
-              + 'apply on next tick; restart-required keys persist to '
-              + 'DB but only take effect after <code>docker compose '
-              + 'restart</code>.</div>';
+        // Build the unified 3-section page: Page header / Configure / Apply.
+        const header = _settingsPageHeader(dom, keys.length);
         const rows = keys.map(k =>
             _settingsRowHtml(k, cache.values[k.key])).join('');
         pane.innerHTML = _settingsCfgPage({
-            help: banner + 'Configuration domain: <code>'
-                + _escHtml(String(dom)) + '</code> · '
-                + keys.length + ' key' + (keys.length === 1 ? '' : 's')
-                + '.',
+            help: header,
             sections: [{
-                title: dom.replace(/\./g, ' / ').toUpperCase(),
-                body: rows + '<div class="cfg-meta" style="margin-top:10px">'
-                    + _settingsCfgStatusEl() + '</div>',
+                title: 'Configure',
+                body: rows,
+            }, {
+                title: 'Apply',
+                body: '<div class="cfg-meta" style="margin:0;border:none">'
+                    + '<span style="color:#888;font-size:11px">'
+                    + 'Each row has its own SAVE / RESET. SAVE shows a '
+                    + 'diff confirmation; HIGH-impact keys also require '
+                    + 'a written reason.</span>'
+                    + '</div>'
+                    + _settingsCfgStatusEl(),
             }],
         });
         _wireRegistryRowHandlers(pane);
@@ -3233,17 +3722,66 @@
     function _wireRegistryRowHandlers(pane) {
         const setStatus = (msg, kind) => _settingsCfgSetStatus(pane, msg, kind);
         const readField = (key, meta) => {
+            // Bool: read the toggle checkbox state directly.
+            if (meta.type === 'bool') {
+                const cb = pane.querySelector('#cfg-' + CSS.escape(key));
+                return cb ? !!cb.checked : null;
+            }
             const el = pane.querySelector('#cfg-' + CSS.escape(key));
             if (!el) return undefined;
             const v = el.value;
-            if (meta.type === 'bool') return v === 'true';
-            if (meta.type === 'int') return v === '' ? null : Number(v);
+            if (meta.type === 'int')   return v === '' ? null : Number(v);
             if (meta.type === 'float') return v === '' ? null : Number(v);
+            // list[str]: hidden input is the comma-joined chip values.
+            if (meta.type === 'list[str]') {
+                return v === ''
+                    ? []
+                    : v.split(',').map(s => s.trim()).filter(Boolean);
+            }
             return v;
         };
+        // Wire the toggle / segment / slider / tag widgets.
+        _wireKeyWidgets(pane);
         const metaByKey = {};
         const cache = _settingsRegistryCache || {registry: []};
         cache.registry.forEach(m => { metaByKey[m.key] = m; });
+
+        // SETTINGS UX redesign — diff preview before SAVE.
+        // Confirms with the analyst exactly what will change and surfaces
+        // the impact warning. window.confirm so the change can still be
+        // cancelled. High-impact keys then prompt for a reason as before.
+        const confirmDiff = (meta, oldValue, newValue) => {
+            if (oldValue === newValue
+                || JSON.stringify(oldValue) === JSON.stringify(newValue)) {
+                return { proceed: false, reason: null,
+                         err: 'No change to save' };
+            }
+            const fmt = v => v === null || v === undefined ? '(unset)'
+                : (Array.isArray(v) ? v.join(', ') : String(v));
+            const lines = [
+                meta.key + '  :  ' + fmt(oldValue) + '  →  ' + fmt(newValue),
+                '',
+                meta.impact_level === 'high' ? '⚠ HIGH IMPACT'
+                    : meta.impact_level === 'med' ? '◇ medium impact' : '',
+                meta.impact_warning || '',
+                '',
+                'Apply timing: ' + (meta.apply_timing || 'live'),
+            ].filter(Boolean).join('\n');
+            if (!window.confirm(lines + '\n\nProceed?')) {
+                return { proceed: false, reason: null, err: 'Cancelled' };
+            }
+            let reason = 'Settings UI';
+            if (meta.impact_level === 'high') {
+                reason = window.prompt(
+                    'HIGH IMPACT — please record a reason for this change:',
+                    '');
+                if (reason === null || !reason.trim()) {
+                    return { proceed: false, reason: null,
+                             err: 'Reason required for high-impact keys' };
+                }
+            }
+            return { proceed: true, reason, err: null };
+        };
 
         pane.querySelectorAll('button.cfg-save').forEach(btn => {
             btn.addEventListener('click', async () => {
@@ -3251,16 +3789,14 @@
                 const meta = metaByKey[key];
                 if (!meta) return;
                 let value = readField(key, meta);
-                let reason = '';
-                if (meta.impact_level === 'high') {
-                    reason = window.prompt(
-                        'HIGH IMPACT — please record a reason for this change:\n\n'
-                        + (meta.impact_warning || ''));
-                    if (reason === null || !reason.trim()) {
-                        setStatus('Cancelled — reason required for high-impact keys', 'err');
-                        return;
-                    }
+                const oldRow = (cache.values && cache.values[key]) || null;
+                const oldValue = oldRow ? oldRow.value : meta.default;
+                const decision = confirmDiff(meta, oldValue, value);
+                if (!decision.proceed) {
+                    if (decision.err) setStatus(decision.err, 'err');
+                    return;
                 }
+                let reason = decision.reason;
                 btn.disabled = true;
                 try {
                     const r = await fetch('/api/v2/config', {
