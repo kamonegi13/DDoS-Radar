@@ -393,6 +393,57 @@ def _cache_cleanup_worker(registry=None):
                 except Exception as _g3b_exc:
                     log.warning("[G3B] run_once failed: %s", _g3b_exc)
 
+            # Phase G1: ground-truth correlation ETL (auto-feedback).
+            # Reads the conclusions ledger over the last 14 days, pulls
+            # GDELT tone spikes (+ ACLED fatality counts when API creds
+            # are configured), and writes auto-labelled rows into
+            # `analyst_feedback` with analyst_id `auto:gdelt` /
+            # `auto:acled` / `auto:both`. Without this pass the table is
+            # empty and the TL / LLM-confidence calibrators above have
+            # nothing to learn from. Gated on V2_GROUND_TRUTH_ETL_ENABLED.
+            if _cycle % 24 == 6:
+                try:
+                    from radar.calibration.auto_feedback_etl import (
+                        run_ground_truth_pass,
+                    )
+                    gt_counts = run_ground_truth_pass()
+                    if gt_counts:
+                        log.info(
+                            "[GroundTruthETL] daily pass: scanned=%d "
+                            "labelled=%d skipped=%d",
+                            gt_counts.get("scanned", 0),
+                            sum(v for k, v in gt_counts.items()
+                                if k.startswith("labelled_")),
+                            sum(v for k, v in gt_counts.items()
+                                if k.startswith("skipped_")),
+                        )
+                except Exception as _gt_exc:
+                    log.warning("[GroundTruthETL] daily pass failed: %s", _gt_exc)
+
+            # Phase G2: RSS narrative auto-feedback ETL.
+            # Same idea, but the evidence comes from the public-RSS
+            # kinetic-regex extractor (radar.conclusions.rss_extractor).
+            # No API key required; complements GDELT in regions where
+            # GDELT's English-press bias under-counts events.
+            if _cycle % 24 == 7:
+                try:
+                    from radar.calibration.auto_feedback_etl import (
+                        run_rss_narrative_pass,
+                    )
+                    rss_counts = run_rss_narrative_pass()
+                    if rss_counts:
+                        log.info(
+                            "[RssNarrativeETL] daily pass: feeds=%d "
+                            "matched=%d persisted=%d",
+                            rss_counts.get("feeds_fetched", 0),
+                            rss_counts.get("matched_items", 0),
+                            rss_counts.get("persisted", 0),
+                        )
+                except Exception as _rss_exc:
+                    log.warning(
+                        "[RssNarrativeETL] daily pass failed: %s", _rss_exc,
+                    )
+
             # Phase F3: scenario drift watchdog (per-scenario).
             # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
             # surfacing in <1 day. Records each detection; the API render
