@@ -49,13 +49,16 @@ NP integrity:
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
-import sqlite3
 import time
 from dataclasses import dataclass
 from typing import Optional
+
+from radar.calibration.auto_apply_tier_repository import (
+    TierGovernorRepository,
+    get_repository,
+)
 
 log = logging.getLogger("radar.calibration.auto_apply_tier_governor")
 
@@ -128,6 +131,11 @@ CONSECUTIVE_FAILURE_LIMIT = 3
 # proposals can't pile on a single unproven change.
 HIGH_COOLDOWN_HOURS_DEFAULT = 24.0
 
+# Marker recovery audit metadata key — set on the auto-inserted ``init``
+# row written by ``_days_at_current_tier`` when it detects a wiped
+# state table but a surviving marker (Phase 2).
+MARKER_RECOVERY_KEY = "recovery"
+
 
 # ── Data structures ──────────────────────────────────────────────────────────
 
@@ -154,12 +162,13 @@ class TransitionResult:
     metrics: dict
 
 
-# ── DB connection helper ─────────────────────────────────────────────────────
+# ── Repository accessor ──────────────────────────────────────────────────────
 
 
-def _conn():
-    from radar.database import db
-    return db._get_conn()  # noqa: SLF001 — established internal pattern
+def _repo() -> TierGovernorRepository:
+    """Resolve the active repository at call-time (not import-time) so
+    tests can swap it after the module is already imported."""
+    return get_repository()
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -168,13 +177,8 @@ def _conn():
 def _raw_stored_tier() -> int:
     """Tier as written to the DB — bypasses the kill-switch cap so the
     governor can detect "tier above the cap" and demote accordingly."""
-    try:
-        row = _conn().execute(
-            "SELECT tier FROM auto_apply_tier_state ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-    except Exception:
-        return 0
-    return int(row[0]) if row else 0
+    row = _repo().latest_state_row()
+    return row.tier if row is not None else 0
 
 
 def current_tier() -> TierSnapshot:
@@ -184,26 +188,14 @@ def current_tier() -> TierSnapshot:
     auto-apply pauses safely.
     """
     cap = _tier_cap_from_env()
-    try:
-        row = _conn().execute(
-            "SELECT tier, observed_at, transition FROM auto_apply_tier_state "
-            "ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-    except sqlite3.OperationalError:
-        # Table not present yet (migration v52 hasn't run). Treat as
-        # tier-0 — the safe default.
-        return TierSnapshot(tier=0, cap=cap)
-    except Exception as exc:
-        log.debug("current_tier() read failed (degrading to 0): %s", exc)
-        return TierSnapshot(tier=0, cap=cap)
+    row = _repo().latest_state_row()
     if row is None:
         return TierSnapshot(tier=0, cap=cap)
-    raw_tier = int(row[0])
     return TierSnapshot(
-        tier=min(raw_tier, cap),
+        tier=min(row.tier, cap),
         cap=cap,
-        last_transition_at=row[1],
-        last_transition_kind=row[2],
+        last_transition_at=row.observed_at,
+        last_transition_kind=row.transition,
     )
 
 
@@ -285,16 +277,11 @@ def trigger_high_cooldown(triggered_by: str = "") -> None:
         hours = float(os.getenv("AUTO_APPLY_HIGH_COOLDOWN_HOURS",
                                  str(HIGH_COOLDOWN_HOURS_DEFAULT)))
         until = time.time() + hours * 3600.0
-        with _conn().writing():
-            for impact in ("low", "med"):
-                _conn().execute(
-                    "INSERT INTO auto_apply_cooldown (impact_level, cooldown_until, "
-                    "triggered_by, set_at) VALUES (?, ?, ?, ?) "
-                    "ON CONFLICT(impact_level) DO UPDATE SET "
-                    "cooldown_until=excluded.cooldown_until, "
-                    "triggered_by=excluded.triggered_by, set_at=excluded.set_at",
-                    (impact, until, triggered_by, time.time()),
-                )
+        _repo().upsert_cooldowns(
+            impact_levels=("low", "med"),
+            cooldown_until=until,
+            triggered_by=triggered_by,
+        )
     except Exception as exc:
         log.debug("trigger_high_cooldown failed (non-fatal): %s", exc)
 
@@ -450,8 +437,14 @@ def _collect_metrics(current_tier_int: int) -> dict:
 
 
 def _auto_feedback_rows() -> int:
+    """Count of analyst_feedback rows written by automated processes
+    (analyst_id LIKE 'auto:%'). Lives outside the repository because
+    this table is owned by the v2 conclusions ledger, not the governor.
+    """
     try:
-        row = _conn().execute(
+        # Reach through the repo's conn factory — keeps "tests can run
+        # without the live DB" guarantee in the same place.
+        row = _repo()._conn().execute(  # noqa: SLF001 — repository internal
             "SELECT COUNT(*) FROM analyst_feedback "
             "WHERE analyst_id LIKE 'auto:%'"
         ).fetchone()
@@ -466,7 +459,7 @@ def _governor_proposal_count(window_days: float) -> int:
     "accepted in window"."""
     try:
         cutoff = time.time() - window_days * 86400.0
-        row = _conn().execute(
+        row = _repo()._conn().execute(  # noqa: SLF001
             "SELECT COUNT(*) FROM threshold_history WHERE emitted_at >= ?",
             (cutoff,),
         ).fetchone()
@@ -500,7 +493,7 @@ def _revert_rate(window_seconds: float) -> float:
     """
     try:
         cutoff = time.time() - window_seconds * 2.0
-        rows = list(_conn().execute(
+        rows = list(_repo()._conn().execute(  # noqa: SLF001
             "SELECT key, scope_scenario_id, emitted_at, value "
             "FROM threshold_history "
             "WHERE emitted_at >= ? "
@@ -547,13 +540,14 @@ def _revert_rate(window_seconds: float) -> float:
 def _diff_log_match_rate(window_days: float) -> float:
     try:
         cutoff = time.time() - window_days * 86400.0
-        total = _conn().execute(
+        c = _repo()._conn()  # noqa: SLF001
+        total = c.execute(
             "SELECT COUNT(*) FROM conclusion_diff_log WHERE sampled_at >= ?",
             (cutoff,),
         ).fetchone()[0]
         if total == 0:
             return 1.0  # no signal — don't penalise
-        match = _conn().execute(
+        match = c.execute(
             "SELECT COUNT(*) FROM conclusion_diff_log "
             "WHERE sampled_at >= ? AND diff_kind='match'",
             (cutoff,),
@@ -564,35 +558,71 @@ def _diff_log_match_rate(window_days: float) -> float:
 
 
 def _days_at_current_tier() -> float:
-    """Time since the most recent state-changing transition (i.e. not
-    'unchanged' / 'evaluation_failed' / 'init')."""
-    try:
-        row = _conn().execute(
-            "SELECT observed_at FROM auto_apply_tier_state "
-            "WHERE transition IN ('promote','demote','circuit_breaker',"
-            "                     'kill_switch_engaged','init') "
-            "ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if row is None:
-            return 0.0
-        return (time.time() - float(row[0])) / 86400.0
-    except Exception:
-        return 0.0
+    """Time since the current tier was entered.
+
+    Resolution order (Phase 2):
+      1. If a marker row exists AND its tier matches the raw stored
+         tier, return ``(now - marker.entered_at) / 86400``.
+      2. Else fall back to the most recent state-changing transition
+         row (``promote`` / ``demote`` / ``circuit_breaker`` /
+         ``kill_switch_engaged`` / ``init``).
+      3. If state table is empty BUT marker says tier > 0, log a
+         warning, write a recovery ``init`` row tagged
+         ``metadata.recovery=True`` (NP6 audit), and return the
+         marker-derived dwell time.
+      4. Neither marker nor state row available → 0.0.
+
+    The marker is what makes this resilient to ``auto_apply_tier_state``
+    truncation — the marker lives in a separate table that test
+    fixtures and operator cleanup scripts won't touch by default.
+    """
+    repo = _repo()
+    raw_tier = _raw_stored_tier()
+    marker = repo.marker_get()
+    state_row = repo.latest_state_changing_row()
+
+    if marker is not None and marker.tier == raw_tier and raw_tier > 0:
+        # Happy path: marker agrees with state, use marker as the SoT.
+        return max(0.0, (time.time() - marker.entered_at) / 86400.0)
+
+    if state_row is not None:
+        # Marker missing or mismatched (e.g. operator manually inserted
+        # a higher-tier state row). State row wins — it's the audit
+        # ledger of record.
+        return max(0.0, (time.time() - state_row.observed_at) / 86400.0)
+
+    if marker is not None and marker.tier > 0:
+        # State table appears truncated but marker survived. Trust the
+        # marker, but write a recovery row so the audit trail records
+        # that we re-derived dwell from a non-canonical source.
+        log.warning(
+            "[TierGovernor] state table appears truncated; restoring dwell "
+            "from marker (tier=%d, entered_at=%.0f)",
+            marker.tier, marker.entered_at,
+        )
+        try:
+            repo.insert_state(
+                observed_at=time.time(),
+                tier=marker.tier,
+                transition="init",
+                reason="recovery — marker survived state-table truncation",
+                metrics={MARKER_RECOVERY_KEY: True,
+                         "marker_entered_at": marker.entered_at},
+            )
+        except Exception as exc:
+            log.debug("recovery insert_state failed: %s", exc)
+        return max(0.0, (time.time() - marker.entered_at) / 86400.0)
+
+    return 0.0
 
 
 def _count_consecutive_failures() -> int:
     """Count adjacent 'evaluation_failed' rows ending at the latest
     row. Resets on any other transition kind."""
-    try:
-        rows = list(_conn().execute(
-            "SELECT transition FROM auto_apply_tier_state "
-            "ORDER BY id DESC LIMIT ?", (CONSECUTIVE_FAILURE_LIMIT * 2,),
-        ))
-    except Exception:
-        return 0
+    kinds = _repo().recent_transition_kinds(CONSECUTIVE_FAILURE_LIMIT * 2)
     n = 0
-    for r in rows:
-        if r[0] == "evaluation_failed":
+    for k in kinds:
+        if k == "evaluation_failed":
             n += 1
         else:
             break
@@ -603,22 +633,25 @@ def _count_consecutive_failures() -> int:
 
 
 def _is_in_cooldown(impact_level: str) -> bool:
-    try:
-        row = _conn().execute(
-            "SELECT cooldown_until FROM auto_apply_cooldown "
-            "WHERE impact_level=?",
-            (impact_level,),
-        ).fetchone()
-    except sqlite3.OperationalError:
+    until = _repo().cooldown_until(impact_level)
+    if until is None:
         return False
-    except Exception:
-        return False
-    if row is None:
-        return False
-    return float(row[0]) > time.time()
+    return until > time.time()
 
 
 # ── Audit row writer ─────────────────────────────────────────────────────────
+
+
+# Transitions that represent a real tier change (not heartbeat / failure).
+# When _record_transition observes one of these AND the marker would shift,
+# it also upserts the durable tier-entered marker (Phase 2).
+_TIER_CHANGE_TRANSITIONS = frozenset({
+    "promote",
+    "demote",
+    "circuit_breaker",
+    "kill_switch_engaged",
+    "init",
+})
 
 
 def _record_transition(
@@ -628,21 +661,38 @@ def _record_transition(
     reason: str,
     metrics: dict,
 ) -> None:
-    try:
-        with _conn().writing():
-            _conn().execute(
-                "INSERT INTO auto_apply_tier_state "
-                "(observed_at, tier, transition, reason, metrics_json) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (time.time(), int(new_tier), str(transition), str(reason),
-                 json.dumps(metrics, default=float)),
-            )
-        log.info(
-            "[TierGovernor] %s tier=%d reason=%s",
-            transition, new_tier, reason,
-        )
-    except Exception as exc:
-        log.warning("could not record tier transition: %s", exc)
+    repo = _repo()
+    now = time.time()
+    repo.insert_state(
+        observed_at=now,
+        tier=int(new_tier),
+        transition=str(transition),
+        reason=str(reason),
+        metrics=metrics,
+    )
+
+    # Phase 2: update the durable tier-entered marker on actual tier
+    # changes. ``unchanged`` and ``evaluation_failed`` heartbeats do NOT
+    # touch the marker — only state-changing transitions do.
+    if transition in _TIER_CHANGE_TRANSITIONS:
+        try:
+            existing = repo.marker_get()
+            if existing is None or existing.tier != int(new_tier):
+                repo.marker_set(
+                    tier=int(new_tier),
+                    entered_at=now,
+                    metadata={
+                        "transition": str(transition),
+                        "reason": str(reason)[:200],
+                    },
+                )
+        except Exception as exc:
+            log.debug("marker upsert in _record_transition failed: %s", exc)
+
+    log.info(
+        "[TierGovernor] %s tier=%d reason=%s",
+        transition, int(new_tier), reason,
+    )
 
 
 # ── Env gating ───────────────────────────────────────────────────────────────
