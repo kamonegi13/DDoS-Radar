@@ -104,7 +104,12 @@ def _patch_llm(monkeypatch, *, available=True, ok=True, data=None,
 # ---------- gating ----------
 
 def test_disabled_flag_returns_original_unchanged(monkeypatch, now):
+    # Both gates must be off: the LLM Feature Hub is checked first, then
+    # the legacy config flag is consulted only if the Hub raised an
+    # ImportError (NP3 fallback). The autouse fixture forces both ON, so
+    # this test reverses both.
     monkeypatch.setattr(config, "V2_ATTACK_MODE_LLM_AUGMENT_ENABLED", False)
+    monkeypatch.setattr("radar.llm_features.is_enabled", lambda _key: False)
     state = _ddos_state()
     rule = derive_attack_mode(state, now=now)
     out = augm.augment_attack_mode_with_llm(rule, state)

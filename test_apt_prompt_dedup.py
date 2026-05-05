@@ -22,13 +22,18 @@ _DISTINCTIVE_BODY = (
 
 
 def _build_rss(title: str, body: str) -> str:
+    """Build a single-item RSS XML with a fresh pubDate so the parser's
+    7-day age filter doesn't drop it."""
+    from email.utils import format_datetime
+    from datetime import datetime, timezone, timedelta
+    pubdate = format_datetime(datetime.now(timezone.utc) - timedelta(hours=2))
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<rss version="2.0"><channel>\n'
         f'<item><title>{title}</title>'
         f'<description>{body}</description>'
         '<link>https://example.gov/advisory/1</link>'
-        '<pubDate>Fri, 24 Apr 2026 12:00:00 +0000</pubDate>'
+        f'<pubDate>{pubdate}</pubDate>'
         '</item>\n'
         '</channel></rss>'
     )
@@ -79,12 +84,14 @@ def _capture_llm_calls(stage1_summary: str | None = "Volt Typhoon pre-positionin
     ]
     call_idx = {"n": 0}
 
-    def _mock(prompt, system="", temperature=0.1, max_tokens=512, caller=""):
+    def _mock(prompt, system="", temperature=0.1, max_tokens=512,
+              caller="", use_case=None, **_kwargs):
         captured.append({
             "stage": "stage1" if call_idx["n"] == 0 else "stage2",
             "prompt": prompt,
             "system": system,
             "max_tokens": max_tokens,
+            "use_case": use_case,
         })
         i = call_idx["n"]
         call_idx["n"] += 1
