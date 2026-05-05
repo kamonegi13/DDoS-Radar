@@ -30,7 +30,9 @@ from radar.database import db
 
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "scripts"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts"),
+)
 from report_recall_metrics import collect_metrics, render_text  # noqa: E402
 
 

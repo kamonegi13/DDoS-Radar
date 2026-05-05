@@ -42,7 +42,9 @@ from radar.conclusions.persistence import save_conclusion
 from radar.database import db
 from radar.scenarios import Participant, Role, Scenario, scenario_store
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "scripts"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts"),
+)
 import run_ground_truth_etl as runner  # noqa: E402
 
 

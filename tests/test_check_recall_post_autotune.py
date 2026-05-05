@@ -13,7 +13,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 os.environ.setdefault("DEFAULT_ADMIN_PASSWORD", "testpass")
 
 
-_REPO_ROOT = Path(__file__).resolve().parent
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPT_PATH = _REPO_ROOT / "scripts" / "check_recall_post_autotune.py"
 
 

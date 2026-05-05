@@ -224,7 +224,7 @@ def test_alias_coverage_against_geo_data_json():
     A new participant added without an alias breaks bg_observer recall."""
     import json
     import pathlib
-    geo_path = pathlib.Path(__file__).resolve().parent / "geo_data.json"
+    geo_path = pathlib.Path(__file__).resolve().parent.parent / "geo_data.json"
     with geo_path.open() as f:
         geo = json.load(f)
     participants: set[str] = set()

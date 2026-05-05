@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 I18N = ROOT / "i18n.js"
 HTML = ROOT / "index.html"
 JS = ROOT / "radar.js"
