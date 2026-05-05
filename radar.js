@@ -3725,24 +3725,164 @@
         const header = _settingsPageHeader(dom, keys.length);
         const rows = keys.map(k =>
             _settingsRowHtml(k, cache.values[k.key])).join('');
+        // Phase 3 hardening: operate.calibration gets a "Live status"
+        // section above Configure, fed from /api/v2/calibration/tier_governor.
+        // Other domains keep the canonical 2-section layout.
+        const sections = [];
+        if (dom === 'operate.calibration') {
+            sections.push({
+                title: 'Live status (Auto-Calibration)',
+                body: _autoCalLiveStatusPlaceholderHtml(),
+            });
+        }
+        sections.push({
+            title: 'Configure',
+            body: rows,
+        });
+        sections.push({
+            title: 'Apply',
+            body: '<div class="cfg-meta" style="margin:0;border:none">'
+                + '<span style="color:#888;font-size:11px">'
+                + 'Each row has its own SAVE / RESET. SAVE shows a '
+                + 'diff confirmation; HIGH-impact keys also require '
+                + 'a written reason.</span>'
+                + '</div>'
+                + _settingsCfgStatusEl(),
+        });
         pane.innerHTML = _settingsCfgPage({
             help: header,
-            sections: [{
-                title: 'Configure',
-                body: rows,
-            }, {
-                title: 'Apply',
-                body: '<div class="cfg-meta" style="margin:0;border:none">'
-                    + '<span style="color:#888;font-size:11px">'
-                    + 'Each row has its own SAVE / RESET. SAVE shows a '
-                    + 'diff confirmation; HIGH-impact keys also require '
-                    + 'a written reason.</span>'
-                    + '</div>'
-                    + _settingsCfgStatusEl(),
-            }],
+            sections,
         });
         _wireRegistryRowHandlers(pane);
+        if (dom === 'operate.calibration') {
+            _autoCalLiveStatusRefresh(pane);
+        }
     };
+
+    // ── Auto-Calibration live status block (Phase 3 hardening) ──────────
+    // Renders into the placeholder built by _autoCalLiveStatusPlaceholderHtml
+    // when the SETTINGS Operate>Auto-Calibration page is shown. Reuses the
+    // /api/v2/calibration/tier_governor snapshot the HUD chip already polls.
+
+    function _autoCalLiveStatusPlaceholderHtml() {
+        return '<div id="autocal-live-status" '
+             + 'style="font:11.5px var(--font-mono,monospace);color:#cfd2d6;'
+             +        'padding:6px 0;line-height:1.55">'
+             +   '<span style="color:#888">Loading tier governor snapshot…</span>'
+             + '</div>';
+    }
+
+    async function _autoCalLiveStatusRefresh(pane) {
+        const host = pane.querySelector('#autocal-live-status');
+        if (!host) return;
+        try {
+            const resp = await fetch('/api/v2/calibration/tier_governor');
+            if (!resp.ok) {
+                host.innerHTML = '<span style="color:#a55">'
+                    + 'tier_governor endpoint unavailable ('
+                    + resp.status + '). Auth as analyst-or-admin and reload.'
+                    + '</span>';
+                return;
+            }
+            const body = await resp.json();
+            const s = (body && body.data) || null;
+            if (!s) {
+                host.innerHTML = '<span style="color:#a55">No snapshot data.'
+                    + '</span>';
+                return;
+            }
+            host.innerHTML = _autoCalLiveStatusHtml(s);
+        } catch (err) {
+            host.innerHTML = '<span style="color:#a55">'
+                + 'Snapshot fetch failed: ' + _escHtml(String(err)) + '</span>';
+        }
+    }
+
+    function _autoCalLiveStatusHtml(s) {
+        const tierColor = s.kill_switch_engaged ? '#e88'
+            : s.consecutive_failures > 0 ? '#e88'
+            : s.current_tier === 0 ? '#888'
+            : '#9ec';
+        const tierBadge =
+            '<span style="display:inline-block;padding:2px 8px;'
+            +              'border-radius:3px;background:#2a2d33;'
+            +              'color:' + tierColor + ';font-weight:600">'
+            +   'T' + s.current_tier + ' — ' + _escHtml(s.current_tier_name || '')
+            + '</span>';
+        const capWarn = s.kill_switch_engaged
+            ? ' <span style="color:#e88">(cap=' + s.cap
+              + ' < raw=' + s.raw_stored_tier + ' — kill-switch engaged)</span>'
+            : '';
+        const dwell = (typeof s.days_at_current_tier === 'number')
+            ? s.days_at_current_tier.toFixed(2) + 'd' : '—';
+        const enteredAt = s.tier_entered_at
+            ? new Date(s.tier_entered_at * 1000).toLocaleString()
+            : '—';
+
+        let gatesHtml = '';
+        if (s.next_tier !== null) {
+            const rows = (s.promotion_gates || []).map(g => {
+                const mark = g.met
+                    ? '<span style="color:#9ec">✓</span>'
+                    : '<span style="color:#888">✗</span>';
+                return '<div style="margin-left:14px">'
+                    + mark + ' '
+                    + _escHtml(g.name)
+                    + ': <code style="color:#cfd2d6">' + _escHtml(String(g.current))
+                    + '</code> (need '
+                    + _escHtml(String(g.required)) + ')'
+                    + '</div>';
+            }).join('');
+            gatesHtml = '<div style="margin-top:6px">'
+                + 'Promotion to <b>T' + s.next_tier + '</b>: '
+                + s.gates_met + '/' + s.gates_total + ' gates met'
+                + '</div>'
+                + rows;
+        } else {
+            gatesHtml = '<div style="margin-top:6px;color:#888">'
+                + 'At ceiling tier (T' + s.current_tier + ').</div>';
+        }
+
+        let cdHtml = '';
+        const cd = s.active_cooldowns || [];
+        if (cd.length > 0) {
+            cdHtml = '<div style="margin-top:6px">Active cooldowns:</div>'
+                + cd.map(c => {
+                    const mins = Math.round(c.remaining_seconds / 60);
+                    return '<div style="margin-left:14px">'
+                        + _escHtml(c.impact_level) + ' for ~' + mins
+                        + 'm (triggered_by ' + _escHtml(c.triggered_by) + ')'
+                        + '</div>';
+                }).join('');
+        }
+
+        let recentHtml = '';
+        const recent = s.recent_transitions || [];
+        if (recent.length > 0) {
+            recentHtml = '<div style="margin-top:6px">'
+                + 'Recent transitions (last ' + Math.min(5, recent.length)
+                + '):</div>'
+                + recent.slice(0, 5).map(t => {
+                    const ts = new Date(t.observed_at * 1000).toLocaleString();
+                    return '<div style="margin-left:14px;color:#aab">'
+                        + _escHtml(ts) + '  '
+                        + 'tier=' + t.tier + '  '
+                        + _escHtml(t.transition) + '  '
+                        + '<span style="color:#888">'
+                        + _escHtml((t.reason || '').slice(0, 80)) + '</span>'
+                        + '</div>';
+                }).join('');
+        }
+
+        return ''
+            + '<div>Tier: ' + tierBadge + capWarn + '</div>'
+            + '<div style="margin-top:4px">'
+            +   'Entered: ' + _escHtml(enteredAt) + ' (' + dwell + ' ago)'
+            + '</div>'
+            + gatesHtml
+            + cdHtml
+            + recentHtml;
+    }
 
     function _wireRegistryRowHandlers(pane) {
         const setStatus = (msg, kind) => _settingsCfgSetStatus(pane, msg, kind);
@@ -4859,7 +4999,104 @@
         // so the setInterval cadence is just the upper bound.
         _refreshModelChip();
         setInterval(_refreshModelChip, 5 * 60 * 1000);
+        // AUTO-CAL chip (Phase 3 hardening) — auto-apply tier governor.
+        // 60s upper bound; the governor itself only mutates on a daily
+        // tick so polling more aggressively is wasted.
+        _refreshAutoCalChip();
+        setInterval(_refreshAutoCalChip, 60 * 1000);
     });
+
+    // ── AUTO-CAL chip (Phase 3 hardening) ────────────────────────────────
+    // Polls /api/v2/calibration/tier_governor and renders:
+    //   - Label "AUTO-CAL: T{n}" (with kill-switch / failure suffix)
+    //   - Band: good (cap not engaged + no consecutive failures),
+    //           warn  (≥1 gate met for next promotion OR cooldown active),
+    //           crit  (kill_switch_engaged OR consecutive_failures > 0).
+    //   - Tooltip: tier name, dwell time, gates met / total, cooldowns.
+    let _autoCalLastFetchMs = 0;
+    const _AUTOCAL_TTL_MS = 30 * 1000;  // do-not-thrash floor
+
+    async function _refreshAutoCalChip() {
+        const now = Date.now();
+        if (now - _autoCalLastFetchMs < _AUTOCAL_TTL_MS) return;
+        _autoCalLastFetchMs = now;
+        const valEl = document.getElementById('hud-autocal-value');
+        const chip = document.getElementById('hud-autocal-chip');
+        if (!valEl || !chip) return;
+        try {
+            const resp = await fetch('/api/v2/calibration/tier_governor');
+            if (!resp.ok) return;  // 401 / 503 → leave previous values
+            const body = await resp.json();
+            const s = (body && body.data) || null;
+            if (!s) return;
+
+            // Label.
+            let suffix = '';
+            if (s.kill_switch_engaged) suffix = '!';
+            else if (s.consecutive_failures > 0) suffix = '…';
+            else if (s.next_tier !== null && s.gates_met > 0
+                     && s.gates_met >= s.gates_total) suffix = '↑';
+            valEl.textContent = 'T' + s.current_tier + suffix;
+
+            // Band.
+            let band = 'good';
+            if (s.kill_switch_engaged) band = 'crit';
+            else if (s.consecutive_failures > 0) band = 'crit';
+            else if ((s.active_cooldowns || []).length > 0) band = 'warn';
+            else if (s.gates_met > 0 && s.gates_met < s.gates_total) band = 'warn';
+            _applySelfEvalClass('hud-autocal-chip', band);
+
+            // Tooltip narrative — AP2 template-driven (no LLM).
+            const lines = [];
+            const tierName = s.current_tier_name || ('Tier ' + s.current_tier);
+            lines.push('Auto-Calibration: ' + tierName
+                       + ' (T' + s.current_tier + ')');
+            if (typeof s.days_at_current_tier === 'number') {
+                lines.push('  entered ' + s.days_at_current_tier.toFixed(2)
+                           + 'd ago');
+            }
+            if (s.kill_switch_engaged) {
+                lines.push('  kill-switch engaged: cap=' + s.cap
+                           + ' < raw_tier=' + s.raw_stored_tier);
+            }
+            if (s.consecutive_failures > 0) {
+                lines.push('  consecutive_failures=' + s.consecutive_failures);
+            }
+            if (s.next_tier !== null) {
+                lines.push('  T' + s.current_tier + ' → T' + s.next_tier
+                           + ': ' + s.gates_met + '/' + s.gates_total + ' gates met');
+                for (const g of (s.promotion_gates || [])) {
+                    const mark = g.met ? '✓' : '✗';
+                    lines.push('    ' + mark + ' ' + g.name + ': '
+                               + g.current + ' (need ' + g.required + ')');
+                }
+            } else {
+                lines.push('  at ceiling tier');
+            }
+            const cd = s.active_cooldowns || [];
+            if (cd.length > 0) {
+                lines.push('  cooldowns:');
+                for (const c of cd) {
+                    const mins = Math.round(c.remaining_seconds / 60);
+                    lines.push('    ' + c.impact_level + ' for '
+                               + mins + 'm (by ' + c.triggered_by + ')');
+                }
+            }
+            chip.title = lines.join('\n');
+        } catch (_) {
+            // NP3 — leave previous values.
+        }
+    }
+
+    // Click-handler hook used by the AUTO-CAL chip in index.html. Opens
+    // the SETTINGS modal at the Operate > Auto-Calibration sub-page.
+    window._openAutoCalSettings = function _openAutoCalSettings() {
+        try {
+            if (typeof window._settingsOpen === 'function') {
+                window._settingsOpen('operate.calibration');
+            }
+        } catch (_) { /* NP3 — silent */ }
+    };
 
     // ── Triage Lane / Alert Lane (AP1 — Active Triage) ──────────────────
     // Active Triage: ranks event-shaped conclusions (anomaly + attack_mode

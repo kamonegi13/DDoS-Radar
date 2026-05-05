@@ -258,6 +258,17 @@
             <span class="hud-chip-label" data-i18n="autotune.chip.title">AUTO-TUNE</span>
             <span id="hud-autotune-value" class="hud-chip-value">—</span>
         </div>
+        <!-- AP3: auto-calibration tier governor chip — current tier + gates met
+             toward the next promotion. Tooltip is built dynamically from the
+             /api/v2/calibration/tier_governor snapshot. Click opens the
+             Operate > Auto-Calibration SETTINGS pane for the full status block. -->
+        <div class="hud-chip hud-self-eval" id="hud-autocal-chip"
+             title="Auto-Calibration tier governor (Phase 3). Polled from /api/v2/calibration/tier_governor."
+             onclick="window._openAutoCalSettings && window._openAutoCalSettings()"
+             style="cursor:pointer;">
+            <span class="hud-chip-label">AUTO-CAL</span>
+            <span id="hud-autocal-value" class="hud-chip-value">—</span>
+        </div>
         <!-- LLM Feature Hub chip — shows N on / total features with shadow tail.
              Click opens the Feature Hub modal. -->
         <div class="hud-chip hud-self-eval" id="hud-llm-feat-chip"
@@ -3410,6 +3421,35 @@
             <li><b>Foundation for upper layers</b>: with the sensor column on contribution_log + cycle audit + first BG_ELIGIBLE sensor, the C-lite → C-medium migration now has an actual reference implementation. Future sensor promotions (GDELT / ACLED) can follow the same pattern. The OBS chip is no longer aggregate-only — analyst can finally see <i>which</i> sensor is supplying observation per scenario.</li>
         </ul>
 
+        <p><b>O. Auto-Calibration Tier Governor</b> — HUD <span class="code-block">AUTO-CAL</span> chip / SETTINGS Operate &gt; Auto-Calibration / <span class="code-block">/api/v2/calibration/tier_governor</span></p>
+        <ul>
+            <li><b>Purpose</b>: Self-promoting confidence layer above the per-proposal calibration safety rules. Decides whether the whole auto-apply machinery is trustworthy enough yet to let calibrator proposals through, and adjusts itself based on the system's own observed behaviour. Bootstraps from Tier 0 (proposal-only — every calibration is recorded but nothing applies) and walks up to Tier 3 (full auto-apply across LOW/MED/HIGH-impact keys) only when sustained stability metrics support it.</li>
+            <li><b>Tier model</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>T0 — proposal-only</b>: every calibration writes to the ledger; downstream consumers ignore. Promotes to T1 when ≥100 auto-feedback rows exist.</li>
+                    <li><b>T1 — LOW</b>: per-scenario <span class="code-block">tl_thresholds.*</span> auto-apply. Promotes to T2 after ≥7 days at T1 with <span class="code-block">revert_rate_7d ≤ 5%</span>.</li>
+                    <li><b>T2 — LOW + MED</b>: adds per-sensor LLM confidence floors. Promotes to T3 after ≥14 days with <span class="code-block">diff_log_match_rate ≥ 0.99</span> and <span class="code-block">revert_rate_14d ≤ 5%</span>.</li>
+                    <li><b>T3 — FULL</b>: HIGH-impact keys (domain weights, hysteresis, convergence) become auto-apply targets, but each HIGH change still pauses LOW/MED for a 24h cool-down so chained proposals can't pile on top.</li>
+                </ul>
+            </li>
+            <li><b>Three safety nets (always on)</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Kill switch</b>: <span class="code-block">AUTO_CALIBRATION_TIER_CAP</span> env var caps the ceiling. Setting it to 0 halts auto-apply system-wide; the governor still records observations.</li>
+                    <li><b>Circuit breaker</b>: 3 consecutive failed governor evaluations force tier 0 regardless of metrics. Failure markers are recorded into the audit ledger.</li>
+                    <li><b>HIGH cool-down</b>: After every successful HIGH-impact write at T3, LOW and MED auto-apply is paused for <span class="code-block">AUTO_APPLY_HIGH_COOLDOWN_HOURS</span> (default 24h).</li>
+                </ul>
+            </li>
+            <li><b>Durable tier-entered marker (Phase 2 hardening)</b>: dwell-time at the current tier survives accidental truncation of the audit ledger. Stored in a separate single-row table that operator cleanup and tests don't touch by default. If the ledger is wiped, the next read writes a recovery <span class="code-block">init</span> audit row tagged <span class="code-block">metrics.recovery=true</span> so NP6 traceability is preserved.</li>
+            <li><b>Observability (Phase 3 hardening)</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>HUD <span class="code-block">AUTO-CAL</span> chip</b>: row 3 self-eval row. Label <span class="code-block">T{n}</span> (with suffix <span class="code-block">↑</span> when all gates met for next promotion, <span class="code-block">!</span> when kill-switch engaged, <span class="code-block">…</span> when consecutive failures). Tooltip lists the live promotion gates (✓/✗ per gate), active cooldowns, and recent transitions. Click opens this SETTINGS page.</li>
+                    <li><b>SETTINGS Operate &gt; Auto-Calibration</b>: live status block above the config knobs shows current tier badge + raw / cap, dwell time, full promotion gate checklist, active cooldowns, and last 5 transitions.</li>
+                    <li><b>Endpoint</b>: <span class="code-block">GET /api/v2/calibration/tier_governor</span> (analyst-or-admin). Single read-only snapshot used by both the HUD chip and the SETTINGS block.</li>
+                </ul>
+            </li>
+            <li><b>NP6 audit trail</b>: every tier transition (init / promote / demote / circuit_breaker / kill_switch_engaged) appends a row to <span class="code-block">auto_apply_tier_state</span> with the full <span class="code-block">metrics_json</span> snapshot that justified it. The endpoint exposes the last 10 transitions; deeper history is available via direct DB query (admin SQL audit).</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3786,6 +3826,35 @@
             <li><b>Phase 6 — recall ladder</b>: confidence 階梯を 2 段階から 3 段階へ拡張 — fatality count (0.85) / kinetic verb のみ (0.60) / <i>escalation verb のみ (0.40、新設)</i>。escalation 動詞群: <span class="code-block">mobilize</span>, <span class="code-block">deploy</span>, <span class="code-block">scramble</span>, <span class="code-block">missile test</span>, <span class="code-block">recall ambassador</span>, <span class="code-block">sever ties</span>, <span class="code-block">expel diplomat</span>, <span class="code-block">troop buildup</span>, <span class="code-block">military exercise</span>。NP1（recall &gt; precision）に基づき、低 confidence の早期警戒マッチが reduced raw_score (0.25) で scoring に入り、analyst が Decision Layer で override 可能。</li>
             <li><b>テスト</b>: <span class="code-block">test_rss_extractor.py</span> +14 ケース（alias coverage gate / multi-country broadcast / escalation-verb ladder / kinetic outranks escalation）、<span class="code-block">test_background_observer.py</span> を broadcast 用に書き直し（8 ケース）。38 + 13 ケース全 pass。</li>
             <li><b>上位機能の基盤としての位置づけ</b>: contribution_log への sensor 列 + cycle 監査 + 第一号 BG_ELIGIBLE sensor が揃ったことで、C-lite → C-medium 移行は具体的な reference 実装を持つようになった。今後の sensor promotion (GDELT / ACLED) は同じパターンに従える。OBS chip は集約値だけではなく <i>どの sensor が</i> どのシナリオの観測を供給しているかを analyst が見られるようになった。</li>
+        </ul>
+
+        <p><b>O. 自動キャリブレーション・ティアガバナー</b> — HUD <span class="code-block">AUTO-CAL</span> chip / SETTINGS Operate &gt; Auto-Calibration / <span class="code-block">/api/v2/calibration/tier_governor</span></p>
+        <ul>
+            <li><b>目的</b>: per-proposal の安全規則の上に乗る自己昇格的な信頼レイヤー。「自動 apply 機構全体としてどこまで信用できる段階に達しているか」をシステム自身が観測ベースで判定し調整する。Tier 0（proposal-only — 提案は記録するが apply はしない）から始まり、持続的な安定指標が満たされたときだけ Tier 3（LOW/MED/HIGH 全面 auto-apply）へと自動的に昇格する。</li>
+            <li><b>Tier モデル</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>T0 — proposal-only</b>: すべての calibration は ledger に書かれるが downstream consumer は無視。auto-feedback 行が 100 以上で T1 へ昇格。</li>
+                    <li><b>T1 — LOW</b>: シナリオ単位 <span class="code-block">tl_thresholds.*</span> の auto-apply。T1 で 7 日以上滞在しかつ <span class="code-block">revert_rate_7d ≤ 5%</span> なら T2 へ昇格。</li>
+                    <li><b>T2 — LOW + MED</b>: センサー単位の LLM confidence floor も追加。14 日以上の滞在に加え <span class="code-block">diff_log_match_rate ≥ 0.99</span> と <span class="code-block">revert_rate_14d ≤ 5%</span> を満たすと T3 へ昇格。</li>
+                    <li><b>T3 — FULL</b>: HIGH-impact キー（domain weight、hysteresis、convergence）も auto-apply の対象。ただし HIGH 1 件 commit のたびに LOW/MED は 24h cool-down がかかり、未検証の HIGH の上に下位の連鎖変更が積み重ならないようにする。</li>
+                </ul>
+            </li>
+            <li><b>3 つの常時稼働セーフティネット</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>Kill switch</b>: 環境変数 <span class="code-block">AUTO_CALIBRATION_TIER_CAP</span> で天井を制限。0 にすればシステム全体の auto-apply を停止できる（ガバナー自体は観測を継続）。</li>
+                    <li><b>サーキットブレーカー</b>: ガバナー評価が 3 回連続で失敗するとメトリクス如何にかかわらず Tier 0 に強制降格。失敗マーカーは ledger に記録される。</li>
+                    <li><b>HIGH cool-down</b>: T3 で HIGH-impact 書き込みが成功するたび、LOW と MED の auto-apply を <span class="code-block">AUTO_APPLY_HIGH_COOLDOWN_HOURS</span>（既定 24h）一時停止。</li>
+                </ul>
+            </li>
+            <li><b>Tier 滞在時刻マーカー（Phase 2 ハードニング）</b>: 現在 tier の滞在時間は audit ledger が誤って truncate されても保持される。別テーブルの 1 行スカラーとして保管し、operator の DB クリーンアップやテストの初期化対象から外れている。ledger が空になった場合、次の参照時に <span class="code-block">metrics.recovery=true</span> を付けた recovery <span class="code-block">init</span> 行が自動で書き戻され、NP6 の追跡可能性は維持される。</li>
+            <li><b>観測サーフェス（Phase 3 ハードニング）</b>:
+                <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
+                    <li><b>HUD <span class="code-block">AUTO-CAL</span> chip</b>: Row 3 self-eval 行。ラベルは <span class="code-block">T{n}</span>（接尾辞は次昇格条件全達成で <span class="code-block">↑</span>、kill switch 発動で <span class="code-block">!</span>、連続失敗中で <span class="code-block">…</span>）。tooltip にライブの昇格ゲート（各ゲートの ✓/✗）、有効な cooldown、直近の transition を表示。クリックでこの SETTINGS ページを開く。</li>
+                    <li><b>SETTINGS Operate &gt; Auto-Calibration</b>: 設定キーの上にライブステータスブロックを表示。現在 tier バッジ + raw / cap、滞在時間、昇格ゲートのチェックリスト、有効な cooldown、直近 5 件の transition。</li>
+                    <li><b>エンドポイント</b>: <span class="code-block">GET /api/v2/calibration/tier_governor</span>（analyst 以上）。HUD chip と SETTINGS ブロックが共有する単一の読み取り専用スナップショット。</li>
+                </ul>
+            </li>
+            <li><b>NP6 監査証跡</b>: tier の遷移（init / promote / demote / circuit_breaker / kill_switch_engaged）はすべて <span class="code-block">auto_apply_tier_state</span> に行追加され、判定根拠の <span class="code-block">metrics_json</span> も保存される。エンドポイントは直近 10 件を露出し、それより古い履歴は管理者が直接 DB を参照する形（SQL 監査）でアクセスできる。</li>
         </ul>
 
         </div>

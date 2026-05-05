@@ -722,3 +722,159 @@ def run_once() -> dict:
         "reason":     result.reason,
         "metrics":    result.metrics,
     }
+
+
+# ── Observability snapshot (Phase 3) ─────────────────────────────────────────
+
+
+_TIER_DISPLAY_NAMES = {
+    TIER_PROPOSAL_ONLY: "proposal-only",
+    TIER_LOW:           "LOW auto-apply",
+    TIER_LOW_MED:       "LOW+MED auto-apply",
+    TIER_FULL:          "FULL auto-apply",
+}
+
+
+def _gate_status(name: str, required, current, met: bool) -> dict:
+    return {
+        "name":     name,
+        "required": required,
+        "current":  current,
+        "met":      bool(met),
+    }
+
+
+def _next_promotion_gates(current: int, metrics: dict) -> tuple[Optional[int], list[dict]]:
+    """Return (next_tier_or_None, gate_list). Each gate row is shaped
+    for direct rendering in the SETTINGS panel and the HUD tooltip."""
+    if current == TIER_PROPOSAL_ONLY:
+        c = PROMOTE_TIER0_TO_TIER1
+        gates = [
+            _gate_status(
+                "min_auto_feedback_rows",
+                c["min_auto_feedback_rows"],
+                metrics.get("auto_feedback_rows", 0),
+                metrics.get("auto_feedback_rows", 0) >= c["min_auto_feedback_rows"],
+            ),
+        ]
+        return TIER_LOW, gates
+    if current == TIER_LOW:
+        c = PROMOTE_TIER1_TO_TIER2
+        gates = [
+            _gate_status(
+                "min_days_at_tier",
+                c["min_days_at_tier"],
+                round(metrics.get("days_at_tier", 0.0), 2),
+                metrics.get("days_at_tier", 0.0) >= c["min_days_at_tier"],
+            ),
+            _gate_status(
+                "max_revert_rate_7d",
+                c["max_revert_rate"],
+                round(metrics.get("revert_rate_7d", 0.0), 4),
+                metrics.get("revert_rate_7d", 0.0) <= c["max_revert_rate"],
+            ),
+        ]
+        return TIER_LOW_MED, gates
+    if current == TIER_LOW_MED:
+        c = PROMOTE_TIER2_TO_TIER3
+        gates = [
+            _gate_status(
+                "min_days_at_tier",
+                c["min_days_at_tier"],
+                round(metrics.get("days_at_tier", 0.0), 2),
+                metrics.get("days_at_tier", 0.0) >= c["min_days_at_tier"],
+            ),
+            _gate_status(
+                "min_diff_log_match_rate",
+                c["min_diff_log_match_rate"],
+                round(metrics.get("diff_log_match_rate", 0.0), 4),
+                metrics.get("diff_log_match_rate", 0.0) >= c["min_diff_log_match_rate"],
+            ),
+            _gate_status(
+                "max_revert_rate_14d",
+                c["max_revert_rate"],
+                round(metrics.get("revert_rate_14d", 0.0), 4),
+                metrics.get("revert_rate_14d", 0.0) <= c["max_revert_rate"],
+            ),
+        ]
+        return TIER_FULL, gates
+    # TIER_FULL — already at the ceiling.
+    return None, []
+
+
+def governor_snapshot() -> dict:
+    """Single source of truth for the API endpoint, the HUD chip, and
+    the SETTINGS live-status block. Pure read — no DB writes — so
+    callers can poll cheaply.
+
+    NP3: every helper this composes is already fault-tolerant; on a
+    catastrophic failure the snapshot still returns a well-formed
+    minimal payload (tier 0, empty lists) rather than raising.
+    """
+    try:
+        snap = current_tier()
+        raw_tier = _raw_stored_tier()
+        marker = _repo().marker_get()
+        metrics = _collect_metrics(snap.tier)
+        next_tier, gates = _next_promotion_gates(snap.tier, metrics)
+
+        cooldowns = []
+        now = time.time()
+        for cd in _repo().all_cooldowns():
+            if cd.cooldown_until <= now:
+                continue
+            cooldowns.append({
+                "impact_level":      cd.impact_level,
+                "cooldown_until":    cd.cooldown_until,
+                "remaining_seconds": max(0.0, cd.cooldown_until - now),
+                "triggered_by":      cd.triggered_by,
+                "set_at":            cd.set_at,
+            })
+
+        recent = []
+        for r in _repo().recent_transitions(10):
+            recent.append({
+                "id":           r.id,
+                "observed_at":  r.observed_at,
+                "tier":         r.tier,
+                "transition":   r.transition,
+                "reason":       (r.reason or "")[:200],
+            })
+
+        return {
+            "current_tier":         snap.tier,
+            "current_tier_name":    _TIER_DISPLAY_NAMES.get(snap.tier, "?"),
+            "raw_stored_tier":      raw_tier,
+            "cap":                  snap.cap,
+            "kill_switch_engaged":  snap.cap < raw_tier,
+            "tier_entered_at":      marker.entered_at if marker else None,
+            "days_at_current_tier": round(metrics.get("days_at_tier", 0.0), 4),
+            "next_tier":            next_tier,
+            "promotion_gates":      gates,
+            "gates_met":            sum(1 for g in gates if g["met"]),
+            "gates_total":          len(gates),
+            "metrics":              metrics,
+            "active_cooldowns":     cooldowns,
+            "recent_transitions":   recent,
+            "consecutive_failures": _count_consecutive_failures(),
+        }
+    except Exception as exc:
+        log.warning("governor_snapshot degraded: %s", exc)
+        return {
+            "current_tier":         0,
+            "current_tier_name":    _TIER_DISPLAY_NAMES.get(0, "?"),
+            "raw_stored_tier":      0,
+            "cap":                  _tier_cap_from_env(),
+            "kill_switch_engaged":  False,
+            "tier_entered_at":      None,
+            "days_at_current_tier": 0.0,
+            "next_tier":            None,
+            "promotion_gates":      [],
+            "gates_met":            0,
+            "gates_total":          0,
+            "metrics":              {},
+            "active_cooldowns":     [],
+            "recent_transitions":   [],
+            "consecutive_failures": 0,
+            "snapshot_error":       str(exc)[:200],
+        }

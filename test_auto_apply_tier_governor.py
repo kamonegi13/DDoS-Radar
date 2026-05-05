@@ -386,3 +386,70 @@ class TestTierEnteredMarker:
         marker_after = tier_governor_repo.marker_get()
         assert marker_after.tier == marker_before.tier
         assert marker_after.entered_at == marker_before.entered_at
+
+
+# ── Phase 3: governor_snapshot() observability surface ───────────────────────
+
+
+class TestGovernorSnapshot:
+    def test_snapshot_at_tier_0_default(self, tier_governor_repo):
+        snap = tg.governor_snapshot()
+        assert snap["current_tier"] == 0
+        assert snap["raw_stored_tier"] == 0
+        assert snap["cap"] == 3
+        assert snap["kill_switch_engaged"] is False
+        # 0 → 1 promotion gate is auto_feedback rows.
+        assert snap["next_tier"] == 1
+        assert len(snap["promotion_gates"]) == 1
+        assert snap["promotion_gates"][0]["name"] == "min_auto_feedback_rows"
+        assert snap["active_cooldowns"] == []
+        assert snap["recent_transitions"] == []
+
+    def test_snapshot_at_tier_1_after_promotion(
+        self, tier_governor_repo, monkeypatch,
+    ):
+        monkeypatch.setattr(tg, "_auto_feedback_rows", lambda: 200)
+        tg.evaluate_and_transition()
+        snap = tg.governor_snapshot()
+        assert snap["current_tier"] == 1
+        assert snap["raw_stored_tier"] == 1
+        assert snap["next_tier"] == 2
+        # 1 → 2 has two gates: dwell + 7d revert rate.
+        gate_names = {g["name"] for g in snap["promotion_gates"]}
+        assert gate_names == {"min_days_at_tier", "max_revert_rate_7d"}
+        # tier_entered_at populated by marker write.
+        assert snap["tier_entered_at"] is not None
+        # Transition history has the promote row.
+        assert len(snap["recent_transitions"]) == 1
+        assert snap["recent_transitions"][0]["transition"] == "promote"
+
+    def test_snapshot_includes_active_cooldown(self, tier_governor_conn):
+        _insert_state(tier_governor_conn, tier=3, transition="promote")
+        tg.trigger_high_cooldown(triggered_by="auto:domain_weight")
+        snap = tg.governor_snapshot()
+        assert len(snap["active_cooldowns"]) == 2
+        impacts = {c["impact_level"] for c in snap["active_cooldowns"]}
+        assert impacts == {"low", "med"}
+        for cd in snap["active_cooldowns"]:
+            assert cd["remaining_seconds"] > 0
+            assert cd["triggered_by"] == "auto:domain_weight"
+
+    def test_snapshot_kill_switch_flag(self, tier_governor_conn):
+        _insert_state(tier_governor_conn, tier=3, transition="promote")
+        os.environ["AUTO_CALIBRATION_TIER_CAP"] = "1"
+        try:
+            snap = tg.governor_snapshot()
+            assert snap["raw_stored_tier"] == 3
+            assert snap["cap"] == 1
+            assert snap["current_tier"] == 1
+            assert snap["kill_switch_engaged"] is True
+        finally:
+            os.environ.pop("AUTO_CALIBRATION_TIER_CAP", None)
+
+    def test_snapshot_at_tier_full_has_no_next(self, tier_governor_conn):
+        _insert_state(tier_governor_conn, tier=3, transition="promote")
+        snap = tg.governor_snapshot()
+        assert snap["current_tier"] == 3
+        assert snap["next_tier"] is None
+        assert snap["promotion_gates"] == []
+        assert snap["gates_total"] == 0
