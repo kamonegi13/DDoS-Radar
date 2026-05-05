@@ -3,7 +3,7 @@
  * picks dormant / pin-dock / critical-banner from the current
  * attention-score signals.
  *
- * Run:  node test_triage_display_mode.js
+ * Run:  node tests/test_triage_display_mode.js
  * Exit code 0 = all green, 1 = at least one failure.
  *
  * Mirrors the KISS pattern of test_triage_score.js / test_hud_v2_overlay.js.
@@ -15,7 +15,7 @@ const {
     resolveMode, summarizeItems,
     DEFAULT_THRESHOLDS,
     MODE_DORMANT, MODE_PIN_DOCK, MODE_CRITICAL,
-} = require('./triage_display_mode');
+} = require('../triage_display_mode');
 
 let passed = 0, failed = 0;
 const failures = [];

@@ -1,7 +1,7 @@
 /**
  * Unit tests for wp_alarm.js — pure evaluator + normaliser.
  *
- * Run:   node test_wp_alarm.js
+ * Run:   node tests/test_wp_alarm.js
  * Exit code 0 = all green, 1 = at least one failure.
  *
  * No external test framework — KISS, matches project's "外部フレームワーク不使用"
@@ -13,7 +13,7 @@ const assert = require('assert');
 const {
     normalizeAlarm, alarmMatches, alarmDescribe,
     loadStateFromRaw, evaluateAlarmsEdge, applyAlarmToState,
-} = require('./wp_alarm');
+} = require('../wp_alarm');
 
 let passed = 0;
 let failed = 0;

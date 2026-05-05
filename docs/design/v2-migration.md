@@ -1081,7 +1081,7 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 
   **検証**:
   - python `pytest tests/test_engine.py` → 153/153 green
-  - node `test_wp_alarm.js` → 46/46 green
+  - node `tests/test_wp_alarm.js` → 46/46 green
   - container rebuild → healthy、scoring tick エラーなし
   - `curl /radar.js | grep _COORD_DATA_SOURCE|rawParams|correlations_l3` → 0 hits
 

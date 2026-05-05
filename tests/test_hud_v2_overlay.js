@@ -1,7 +1,7 @@
 /**
  * Unit tests for hud_v2_overlay.js — pure HUD↔v2 reconciler.
  *
- * Run:   node test_hud_v2_overlay.js
+ * Run:   node tests/test_hud_v2_overlay.js
  * Exit code 0 = all green, 1 = at least one failure.
  *
  * Mirrors the KISS pattern of test_wp_alarm.js (no jest, no jsdom).
@@ -9,7 +9,7 @@
 'use strict';
 
 const assert = require('assert');
-const { applyOverlay, parseKvState } = require('./hud_v2_overlay');
+const { applyOverlay, parseKvState } = require('../hud_v2_overlay');
 
 let passed = 0;
 let failed = 0;

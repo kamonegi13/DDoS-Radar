@@ -1,7 +1,7 @@
 /**
  * Unit tests for map_dim.js — pure focus-change dim state machine.
  *
- * Run:   node test_map_dim.js
+ * Run:   node tests/test_map_dim.js
  * Exit code 0 = green, 1 = at least one failure.
  *
  * Mirrors the KISS pattern of test_wp_alarm.js / test_hud_v2_overlay.js
@@ -11,7 +11,7 @@
 'use strict';
 
 const assert = require('assert');
-const MapDim = require('./map_dim');
+const MapDim = require('../map_dim');
 
 let passed = 0, failed = 0;
 const failures = [];

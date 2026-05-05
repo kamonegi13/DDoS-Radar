@@ -1,7 +1,7 @@
 /**
  * Unit tests for triage_score.js — pure attention_score / ranking.
  *
- * Run:  node test_triage_score.js
+ * Run:  node tests/test_triage_score.js
  * Exit code 0 = all green, 1 = at least one failure.
  *
  * Mirrors the KISS pattern of test_wp_alarm.js / test_hud_v2_overlay.js.
@@ -12,7 +12,7 @@ const assert = require('assert');
 const {
     computeAttentionScore, rankItems,
     NOVELTY_HORIZON_SEC, BLINDNESS_HORIZON_SEC, MIN_FIRE_THRESHOLD,
-} = require('./triage_score');
+} = require('../triage_score');
 
 let passed = 0, failed = 0;
 const failures = [];

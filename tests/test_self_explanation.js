@@ -1,7 +1,7 @@
 /**
  * Unit tests for self_explanation.js — deterministic narrative generator (AP2).
  *
- * Run:   node test_self_explanation.js
+ * Run:   node tests/test_self_explanation.js
  * Exit code 0 = green, 1 = at least one failure.
  *
  * Pins the contract: same conclusion → same narrative every time, no RNG,
@@ -10,7 +10,7 @@
 'use strict';
 
 const assert = require('assert');
-const { narrateTL, narrateDomain } = require('./self_explanation');
+const { narrateTL, narrateDomain } = require('../self_explanation');
 
 let passed = 0, failed = 0;
 const failures = [];
