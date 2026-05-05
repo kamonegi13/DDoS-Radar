@@ -1394,13 +1394,11 @@ try:  # pragma: no cover — registration is best-effort, never fatal
         ),
 
         # ── Auto-apply tier governor (self-promoting calibration) ────────
-        # Cap on the auto_apply tier the system can promote itself to.
-        # 0 = halt all auto-apply (proposals still recorded for audit).
-        # 3 = full self-tuning, including HIGH-impact registry keys.
-        # The governor will never *exceed* this cap; analysts can pin
-        # the system at a lower tier even if metrics qualify for more.
+        # Surfaces under SETTINGS → OPERATE → Calibration. The
+        # `_SETTINGS_DOMAINS` entry in radar.js maps that menu item to
+        # the `operate.calibration` registry domain.
         ConfigKey(
-            key="AUTO_CALIBRATION_TIER_CAP", domain="audit.changes",
+            key="AUTO_CALIBRATION_TIER_CAP", domain="operate.calibration",
             default=3, type_="int",
             description="Auto-apply tier ceiling (0=off, 3=full).",
             group=GROUP_OPERATE, min_value=0, max_value=3,
@@ -1423,7 +1421,7 @@ try:  # pragma: no cover — registration is best-effort, never fatal
                  "conditions warrant.",
         ),
         ConfigKey(
-            key="AUTO_APPLY_HIGH_COOLDOWN_HOURS", domain="audit.changes",
+            key="AUTO_APPLY_HIGH_COOLDOWN_HOURS", domain="operate.calibration",
             default=24.0, type_="float",
             description="Cooldown for LOW/MED calibrators after a HIGH change.",
             group=GROUP_OPERATE, min_value=1.0, max_value=168.0, unit="h",

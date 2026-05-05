@@ -2764,6 +2764,8 @@
               fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.corroboration' },
             { id: 'operate.notifications', labelKey: 'settings.operate.notifications',
               fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.notifications' },
+            { id: 'operate.calibration', labelKey: 'settings.operate.calibration',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.calibration' },
             { id: 'operate.sensors',     labelKey: 'settings.operate.sensors',
               fn: '_settingsRenderSensorsCatalog' },
             { id: 'operate.scenarios',   labelKey: 'settings.operate.scenarios',
@@ -3488,6 +3490,24 @@
                 + 'the dashboard. Debounce protects against alert storms.',
             when: 'When integrating new channels, or when a debounce window '
                 + 'is too tight (duplicate alerts) or too loose (silence).',
+        },
+        'operate.calibration': {
+            title: 'Auto-Calibration Tier Governor',
+            what: 'Operator controls for the self-promoting auto-tune '
+                + 'system. Caps the maximum tier the governor can reach '
+                + 'and sets the post-HIGH-change cool-down so chained '
+                + 'proposals can\'t pile on an unproven change.',
+            why: 'The tier governor evaluates its own reliability daily '
+                + 'and promotes 0→1→2→3 (proposal-only → LOW → '
+                + 'LOW+MED → FULL). The cap here is the operator\'s '
+                + 'kill-switch / pin: setting it to 0 halts auto-apply, '
+                + 'setting it to 3 allows full self-tuning. The governor '
+                + 'never exceeds this cap regardless of metrics.',
+            when: 'Drop the cap to 0 immediately on any suspicion of '
+                + 'mis-tuning. Pin to 1 or 2 if you want to stay below '
+                + 'the auto-determined ceiling. Restore to 3 to let '
+                + 'the system promote on its own schedule once the '
+                + 'incident is understood.',
         },
         'tune.scoring': {
             title: 'Convergence Scoring Weights',

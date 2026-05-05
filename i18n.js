@@ -1821,6 +1821,7 @@ const STRINGS = {
     'settings.operate.intel':          'Intel Queue',
     'settings.operate.corroboration':  'Corroboration',
     'settings.operate.notifications':  'Notifications',
+    'settings.operate.calibration':    'Auto-Calibration',
     'settings.operate.sensors':        'Sensors',
     'settings.operate.scenarios':      'Scenarios',
     'settings.tune.scoring':           'Threat Scoring',
