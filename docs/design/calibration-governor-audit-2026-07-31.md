@@ -200,4 +200,4 @@ if oldest[0]:
 - 設計: [v2-migration.md §0.1.6 (Autotune Audit Fix)](v2-migration.md)
 - 実装コミット: `11721a0`, `c84d7d8` (2026-04-30)
 - ガードコード: [`radar/calibration/sensor_disable_proposer.py`](../radar/calibration/sensor_disable_proposer.py), [`radar/calibration/_proposal_guards.py`](../radar/calibration/_proposal_guards.py)
-- テスト: [`test_autotune_proposer_guards.py`](../test_autotune_proposer_guards.py)
+- テスト: [`test_autotune_proposer_guards.py`](../../tests/test_autotune_proposer_guards.py)

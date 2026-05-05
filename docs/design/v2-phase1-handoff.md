@@ -260,7 +260,7 @@ DB schema (generated VIRTUAL column 戦略):
 ## 着手前チェックリスト (次セッション必読)
 
 - [ ] `git status` がクリーン (Phase 0 の変更が commit 済 or stash 済)
-- [ ] `python -m pytest test_conclusions.py -v` が 17/17 pass
+- [ ] `python -m pytest tests/test_conclusions.py -v` が 17/17 pass
 - [ ] `python scripts/codemod_theater.py discover` が走る
 - [ ] CLAUDE.md と v2-migration.md を読み直し、NP4 と NP6 の責務が頭に入っている
 - [ ] **Phase 1 は API 互換性を壊さない** ことに合意 (壊すのは Phase 4 sunset)
@@ -281,7 +281,7 @@ DB schema (generated VIRTUAL column 戦略):
 | `radar/routes/core.py` | 2,840 | 該当 endpoint 関数だけ |
 | `radar/routes/analytics.py` | 1,739 | 同上 |
 | `radar/scoring.py` | 1,452 | scenario scoring の単一モノリス。dataclass / function 単位で Grep |
-| `test_engine.py` | 1,390 | 個別テストクラス単位で Read with offset/limit |
+| `tests/test_engine.py` | 1,528 | 個別テストクラス単位で Read with offset/limit |
 | `radar/intel_queue.py` | 1,056 | submit / dedup / verdict patch のいずれかに絞る |
 | `radar/engine.py` | 1,056 | WeightedConvergenceEngine のメソッド単位 |
 
