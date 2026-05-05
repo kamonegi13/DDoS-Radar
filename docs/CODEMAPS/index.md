@@ -18,7 +18,7 @@ structural changes to keep maps in sync.
 | `radar/persistence.py` | [radar.persistence.md](radar.persistence.md) | 139 |
 | `radar/scheduler.py` | [radar.scheduler.md](radar.scheduler.md) | 485 |
 | `radar/config.py` | [radar.config.md](radar.config.md) | 1399 |
-| `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 3139 |
+| `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 3146 |
 | `radar/routes/analytics.py` | [radar.routes.analytics.md](radar.routes.analytics.md) | 1911 |
 | `radar/routes/admin.py` | [radar.routes.admin.md](radar.routes.admin.md) | 786 |
 | `radar/routes/intel.py` | [radar.routes.intel.md](radar.routes.intel.md) | 389 |

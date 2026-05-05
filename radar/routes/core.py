@@ -666,6 +666,10 @@ def get_threat_data():
         _cache_ts = st.global_cache.get("time", 0)
         _cache_focus = st.global_cache.get("focused_scenario")
     _focus_changed = (_cache_focus is not None and _cache_focus != _req_focus)
+    # Initialised at function scope so the cache-hit path (where the
+    # recompute branch is skipped) can reference it safely. The recompute
+    # branch overwrites it inside the focused-TL derivation block.
+    scoring_error_reason: str | None = None
     if (current_time - _cache_ts > SCORE_REFRESH_SEC) or force_sync or _focus_changed:
         # Read all sensor caches (extracted for readability)
         _sc = _read_sensor_caches(_routes.registry)
@@ -2476,7 +2480,8 @@ def get_threat_data():
         # Derive legacy threat_level from focused scenario TL.
         # This is the single source of truth — HUD top TL and scenario card
         # TL now always agree.
-        scoring_error_reason: str | None = None
+        # (`scoring_error_reason` is hoisted to function scope above so the
+        # cache-hit path can also reference it.)
         if _focused_tl is not None:
             threat_level = _focused_tl
             tl_raw = _focused_tl_raw if _focused_tl_raw is not None else _focused_tl
@@ -3127,13 +3132,15 @@ def get_threat_data():
             "Scoring engine encountered an exception. Conclusion unavailable "
             "for this tick — historical TL series was not updated."
         )
-    _resp = jsonify(_resp_payload)
-    _resp.headers["Deprecation"] = "true"
-    _resp.headers["Sunset"] = "2026-10-01"
-    _resp.headers["X-Deprecation-Notice"] = (
-        "Fields 'targets', 'strategic_alert', 'threat_history' are deprecated. "
-        "Use 'scenarios' for scenario-centric data. "
-        "These fields will be removed after 2026-10-01."
-    )
-    return _resp
+    # ADR-V2-003 (2026-04-29 contract correction): /api/threat_data is a
+    # permanent operational endpoint. The v2 conclusions API was promised
+    # as the successor but PF7 inventory found it was technically unable
+    # to replace this kitchen-sink envelope (response shape mismatch:
+    # threat_data drives HUD/Lane/map/sparkline; v2 conclusions ships
+    # scoring conclusions only). The `targets`, `strategic_alert`, and
+    # `threat_history` fields are likewise irreplaceable — they aggregate
+    # focused-scenario context the v2 ledger does not carry. The previous
+    # `Sunset: 2026-10-01` headers were removed 2026-05-05 to bring code
+    # into alignment with the ADR.
+    return jsonify(_resp_payload)
 
