@@ -3119,10 +3119,17 @@
                 + ' placeholder="comma,separated,list"'
                 + ' style="width:100%;max-width:560px">';
         }
-        // 'str' / 'json' — single-line text. Secrets render as masked input.
+        // 'str' / 'json' — single-line text. Secrets render as DISABLED
+        // empty input with an indicator-derived placeholder. The plaintext
+        // value is never in the DOM. Editing is via config.env (env-only).
         if (meta.secret) {
+            const ind = valueRow && valueRow.indicator;
+            const placeholder = ind && ind.set
+                ? `configured · ends in …${ind.last4 || '????'}`
+                : '(unset)';
             return '<input type="text" id="' + id + '" class="cfg-input secret-field"'
-                + ' value="********" disabled'
+                + ' value="" disabled'
+                + ' placeholder="' + _escHtml(placeholder) + '"'
                 + ' style="width:100%;max-width:560px">'
                 + ' <span class="cfg-hint" style="margin:0;display:inline">'
                 + 'edit in <code>config.env</code></span>';
@@ -9707,6 +9714,18 @@
     }
 
     // ── System Config (env_config) ────────────────────────────────────────────
+    // Secret indicator handling — the API returns {set, last4} for secret
+    // keys, never the plaintext. We render an empty input with a placeholder
+    // showing "configured · …last4" or "(unset)" so the analyst can see
+    // whether the secret exists without ever having the value in the DOM.
+    // On SAVE, secret-flagged inputs are OMITTED from the payload when
+    // empty, signalling "leave the existing value alone". This is the
+    // root-cause fix for the 2026-05-04 mask-corruption incident.
+    function _isSecretIndicator(v) {
+        return v && typeof v === 'object' && !Array.isArray(v)
+            && 'set' in v && 'last4' in v;
+    }
+
     async function loadEnvConfig() {
         const _rn = document.getElementById('env-restart-note');
         if (_rn) _rn.style.display = 'none';
@@ -9717,9 +9736,22 @@
             document.querySelectorAll('[id^="ec-"]').forEach(el => {
                 const key = el.id.replace('ec-', '');
                 if (key === 'LLM_MODEL_manual') return; // skip manual fallback field
-                if (cfg[key] !== undefined) {
-                    el.value = cfg[key];
-                    if (key === 'LLM_MODEL') el.dataset.current = cfg[key];
+                const val = cfg[key];
+                if (val === undefined) return;
+                if (_isSecretIndicator(val)) {
+                    // Secret — render empty input + indicator placeholder.
+                    // Marking the element ensures saveEnvConfig() omits it
+                    // from the POST payload when left blank.
+                    el.value = '';
+                    el.dataset.secret = '1';
+                    el.placeholder = val.set
+                        ? `(configured · ends in …${val.last4 || '????'})`
+                        : '(unset — enter to set)';
+                    el.classList.add('secret-field');
+                } else {
+                    el.value = val;
+                    delete el.dataset.secret;
+                    if (key === 'LLM_MODEL') el.dataset.current = val;
                 }
             });
             const st = document.getElementById('env-status');
@@ -9739,6 +9771,9 @@
             if (el.type === 'hidden' && el.value === '') return; // skip empty hidden
             const key = el.id.replace('ec-', '');
             if (_skipKeys.has(key)) return; // UI-only field, not a real config key
+            // Secret fields: empty = "no change". Skip silently. The backend
+            // also rejects any mask-shaped value as defense-in-depth.
+            if (el.dataset.secret === '1' && el.value === '') return;
             if (el.value !== '') updates[key] = el.value;
         });
         const st = document.getElementById('env-status');

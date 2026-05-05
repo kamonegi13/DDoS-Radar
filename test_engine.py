@@ -1442,3 +1442,76 @@ class TestCircuitBreaker:
         s.cb_should_skip()  # → HALF_OPEN
         s.cb_record_success()
         assert s._cb_state == "CLOSED"
+
+
+class TestSecretIndicator:
+    """Anti-corruption tests for the secret-indicator pattern (2026-05-04 fix).
+
+    The bug: GET /api/env_config returned mask-strings like ***680b which the
+    UI would echo back on SAVE, overwriting the real value with literal
+    asterisks. The fix is structural: the API never returns the secret value,
+    only a {set, last4} indicator. POST guards against indicator/mask shapes.
+    """
+    def test_is_secret_key(self):
+        from radar.routes.admin import _is_secret_key
+        assert _is_secret_key("CF_API_TOKEN")
+        assert _is_secret_key("OPENSKY_CLIENT_SECRET")
+        assert _is_secret_key("NOTIFY_SLACK_WEBHOOK")
+        assert _is_secret_key("DEFAULT_ADMIN_PASSWORD")
+        assert not _is_secret_key("DOMAIN_WEIGHT_CYBER")
+        assert not _is_secret_key("LLM_TIMEOUT")
+        assert not _is_secret_key("AIRSPACE_WINDOW")
+
+    def test_secret_indicator_set(self):
+        from radar.routes.admin import _secret_indicator
+        ind = _secret_indicator("0123456789abcdef0123456789abcdef")
+        assert ind == {"set": True, "last4": "680b"}
+
+    def test_secret_indicator_short(self):
+        from radar.routes.admin import _secret_indicator
+        ind = _secret_indicator("abc")
+        # Short value still marks as set; last4 is None when too short.
+        assert ind["set"] is True
+        assert ind["last4"] is None
+
+    def test_secret_indicator_unset(self):
+        from radar.routes.admin import _secret_indicator
+        assert _secret_indicator("") == {"set": False, "last4": None}
+        assert _secret_indicator(None) == {"set": False, "last4": None}
+
+    def test_secret_indicator_no_plaintext(self):
+        """Ensure the plaintext value is NEVER in the indicator output."""
+        from radar.routes.admin import _secret_indicator
+        secret = "super-secret-must-not-leak-680b"
+        ind = _secret_indicator(secret)
+        # Only last4 is exposed; the full plaintext must not appear.
+        assert ind["last4"] == "680b"
+        for v in ind.values():
+            assert v is None or v is True or v is False or v == "680b"
+
+    def test_looks_like_mask(self):
+        from radar.routes.admin import _looks_like_mask
+        # The exact pattern that destroyed our keys
+        assert _looks_like_mask("***680b")
+        assert _looks_like_mask("****")  # ThreatFox got reduced to this
+        assert _looks_like_mask("****************************680b")
+        assert _looks_like_mask("************************************************************62f5")  # JWT case
+        # NOT mask shapes
+        assert not _looks_like_mask("0123456789abcdef0123456789abcdef")  # real key
+        assert not _looks_like_mask("0.40")  # threshold value
+        assert not _looks_like_mask("")
+        assert not _looks_like_mask("**ab**")  # not anchored
+        assert not _looks_like_mask("****abcde")  # too many trailing chars
+
+    def test_mask_string_never_matches_real_keys(self):
+        """Defensive — verify real-world API key formats are not flagged."""
+        from radar.routes.admin import _looks_like_mask
+        real_examples = [
+            "cfut_REDACTED_REDACTED_REDACTED_REDACTED_REDACTED_REDACTED",  # CF token
+            "0123456789abcdef0123456789abcdef",                       # OWM
+            "kamonegi.13-api-client",                                 # OpenSky ID
+            "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPP",  # GreyNoise
+            "ZZZZYYYYXXXXWWWWVVVVUUUUTTTTSSSSRRRRQQQQPPPPOOOONNNNMMMMLLLLKKKK",  # JWT
+        ]
+        for k in real_examples:
+            assert not _looks_like_mask(k), f"false positive on {k[:8]}…"

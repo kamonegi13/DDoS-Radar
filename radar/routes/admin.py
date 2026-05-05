@@ -35,11 +35,38 @@ def _deprecate(resp, sunset_iso="2026-06-04",
         pass
     return resp
 
-def _mask_value(key: str, val: str) -> str:
-    """Mask sensitive config values, showing only the last 4 characters."""
-    if any(p in key.upper() for p in _SECRET_PATTERNS):
-        return val[-4:].rjust(len(val), '*') if len(val) > 4 else '****'
-    return val
+
+def _is_secret_key(key: str) -> bool:
+    """True if a config key is a secret (API token, password, webhook URL)."""
+    return any(p in key.upper() for p in _SECRET_PATTERNS)
+
+
+def _secret_indicator(val: str) -> dict:
+    """Return a structured indicator object for a secret value.
+
+    The API NEVER returns the real secret value (this was the root cause of
+    the 2026-05-04 mask-corruption incident — a UI fed mask-string back into
+    POST and the backend wrote it to config.env). Instead we emit:
+      {"set": bool, "last4": str|None}
+    The frontend renders an empty input with a placeholder showing
+    set/unset state + the last 4 characters as proof-of-identity.
+    The POST handler refuses to accept a dict (or a mask-string) for secret
+    keys, requiring an empty string ("no change") or the new plaintext value.
+    """
+    if val is None or val == "":
+        return {"set": False, "last4": None}
+    s = str(val)
+    return {"set": True, "last4": s[-4:] if len(s) >= 4 else None}
+
+
+# Mask-string regex used to defend against legacy clients that still try to
+# send a masked string back as the value (defensive — should never trigger
+# now that the API returns structured indicators instead of mask strings).
+_MASK_STRING_RE = re.compile(r'^\*{3,}[A-Za-z0-9]{0,4}$')
+
+
+def _looks_like_mask(val: str) -> bool:
+    return isinstance(val, str) and bool(_MASK_STRING_RE.match(val))
 
 @bp.route("/api/env_config", methods=["GET"])
 @audit(domain="config.legacy_access",
@@ -118,9 +145,19 @@ def api_env_config_get():
         if key not in config:
             config[key] = default_val
 
-    # Mask sensitive values before returning
-    masked = {k: _mask_value(k, v) for k, v in config.items()}
-    return _deprecate(jsonify(masked))
+    # Secret values are NEVER returned. Each secret key becomes a structured
+    # indicator object {set, last4} so the UI can show "configured · ends in
+    # ...680b" without holding the plaintext. Non-secret values pass through
+    # unchanged. This is the root-cause fix for the 2026-05-04 mask-corruption
+    # incident — the API no longer hands the frontend a mask-string that
+    # could be POSTed back as a value.
+    out = {}
+    for k, v in config.items():
+        if _is_secret_key(k):
+            out[k] = _secret_indicator(v)
+        else:
+            out[k] = v
+    return _deprecate(jsonify(out))
 
 
 @bp.route("/api/env_config", methods=["POST"])
@@ -173,6 +210,42 @@ def api_env_config_post():
     _UI_ONLY_FIELDS = {"admin-token", "LLM_MODEL_manual"}
     for f in _UI_ONLY_FIELDS:
         updates.pop(f, None)
+
+    # Defense-in-depth — secrets must arrive either as plaintext or be
+    # absent (caller chose "don't change"). The API no longer returns
+    # mask-strings, so a mask string in the payload means a buggy / stale
+    # client; reject it with 422 to prevent silent corruption.
+    skipped_secret_unchanged = []
+    rejected_mask = []
+    for key in list(updates.keys()):
+        val = updates[key]
+        if _is_secret_key(key):
+            # Structured indicator dict {"set":..., "last4":...} → caller
+            # echoed the GET shape verbatim. Treat as "no change".
+            if isinstance(val, dict):
+                updates.pop(key)
+                skipped_secret_unchanged.append(key)
+                continue
+            # Empty string → "leave current value untouched". This lets
+            # the UI render an empty input with a placeholder and SAVE
+            # without overwriting the secret.
+            if val is None or val == "":
+                updates.pop(key)
+                skipped_secret_unchanged.append(key)
+                continue
+            # Mask-string lookalike → 422. This is the bug we are
+            # closing out: prior to this change, GET returned mask
+            # strings and SAVE wrote them back, destroying the secret.
+            if _looks_like_mask(str(val)):
+                rejected_mask.append(key)
+    if rejected_mask:
+        return jsonify({
+            "error": "Refusing mask-string secret writes (anti-corruption guard)",
+            "keys": sorted(rejected_mask),
+            "hint": "Leave the secret field empty to keep the existing value, "
+                    "or enter a new plaintext value.",
+        }), 422
+
     for key in list(updates.keys()):
         if key not in _KNOWN_KEYS:
             return jsonify({"error": f"Unknown config key: {key}"}), 400
@@ -220,7 +293,11 @@ def api_env_config_post():
     except OSError as exc:
         return jsonify({"error": f"Cannot write config.env: {exc}"}), 500
 
-    return _deprecate(jsonify({"ok": True, "updated": sorted(updated_keys)}))
+    return _deprecate(jsonify({
+        "ok": True,
+        "updated": sorted(updated_keys),
+        "skipped_secret_unchanged": sorted(skipped_secret_unchanged),
+    }))
 
 
 # Keys that can be reloaded without a server restart
@@ -387,9 +464,15 @@ def api_v2_config_values():
     out = []
     for k in all_keys(include_secrets=True):
         if k.secret:
+            # Structured indicator — value is NEVER returned. last4 lets
+            # the UI prove "this is the configured key" without exposing it.
+            raw = os.environ.get(k.key, "")
             out.append({
-                "key": k.key, "value": None, "source": "secret",
+                "key": k.key,
+                "value": None,
+                "source": "secret",
                 "restart_pending": False,
+                "indicator": _secret_indicator(raw),
             })
             continue
         out.append({
@@ -443,6 +526,17 @@ def api_v2_config_post():
     if meta.immutable or meta.bootstrap:
         return jsonify({
             "error": f"key {key!r} is env-only — edit config.env + restart"
+        }), 422
+
+    # Defense-in-depth — refuse mask-string writes. Should never trigger
+    # because secret keys are rejected with 403 above, but if any future
+    # non-secret key briefly passes a masked indicator, this catches it.
+    if isinstance(value, str) and _looks_like_mask(value):
+        return jsonify({
+            "error": "Refusing mask-string write (anti-corruption guard)",
+            "key": key,
+            "hint": "The API never returns secret values; masked indicators "
+                    "are display-only and must not be POSTed back.",
         }), 422
 
     by = get_jwt_identity() or "unknown"

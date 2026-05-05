@@ -20,7 +20,7 @@ structural changes to keep maps in sync.
 | `radar/config.py` | [radar.config.md](radar.config.md) | 1322 |
 | `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 3147 |
 | `radar/routes/analytics.py` | [radar.routes.analytics.md](radar.routes.analytics.md) | 1911 |
-| `radar/routes/admin.py` | [radar.routes.admin.md](radar.routes.admin.md) | 1052 |
+| `radar/routes/admin.py` | [radar.routes.admin.md](radar.routes.admin.md) | 1149 |
 | `radar/routes/intel.py` | [radar.routes.intel.md](radar.routes.intel.md) | 389 |
 | `radar/routes/conclusions_v2.py` | [radar.routes.conclusions_v2.md](radar.routes.conclusions_v2.md) | 828 |
 | `radar/conclusions/base.py` | [radar.conclusions.base.md](radar.conclusions.base.md) | 136 |
