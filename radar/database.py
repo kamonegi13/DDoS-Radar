@@ -2864,6 +2864,52 @@ class RadarDB:
                 set_at          REAL NOT NULL
             )"""),
         ]),
+
+        # v53: durable "current tier entered_at" marker. The
+        # `auto_apply_tier_state` table is the audit ledger of every
+        # transition, but it can be truncated by operator cleanup or by
+        # tests that run against the live DB (Phase 1 closed the latter
+        # but the former remains a real-world possibility). When the
+        # ledger is wiped, `_days_at_current_tier()` resets to 0.0,
+        # which delays / blocks the 7d / 14d promotion gates even
+        # though the tier itself was correctly re-derived. The marker
+        # is a single-row scalar that survives ledger wipes by living
+        # in a separate physical table — the governor reads it as the
+        # SoT for dwell time, falling back to the ledger only if the
+        # marker is missing or mismatched. NP6 is preserved: every
+        # tier transition still appends to `auto_apply_tier_state`
+        # with metrics_json; the marker is a denormalised cache.
+        (53, "auto-apply tier governor: durable tier-entered marker",
+         lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS auto_apply_tier_marker (
+                marker_key      TEXT PRIMARY KEY,
+                tier            INTEGER NOT NULL,
+                entered_at      REAL    NOT NULL,
+                updated_at      REAL    NOT NULL,
+                metadata_json   TEXT    NOT NULL DEFAULT '{}'
+            )"""),
+            # Backfill: if there's already an active tier history,
+            # seed the marker from the most recent state-changing row
+            # so dwell time doesn't reset to "0d at tier" on first
+            # boot after the migration. Idempotent: no-op when ledger
+            # is empty (governor populates marker on next tick).
+            conn.execute("""
+                INSERT OR IGNORE INTO auto_apply_tier_marker
+                    (marker_key, tier, entered_at, updated_at, metadata_json)
+                SELECT
+                    'current_tier_entered_at',
+                    tier,
+                    observed_at,
+                    observed_at,
+                    json_object('backfilled_from_state_id', id,
+                                'transition', transition)
+                FROM auto_apply_tier_state
+                WHERE transition IN ('promote','demote','circuit_breaker',
+                                     'kill_switch_engaged','init')
+                ORDER BY id DESC
+                LIMIT 1
+            """),
+        ]),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):

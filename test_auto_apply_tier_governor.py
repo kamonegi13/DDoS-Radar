@@ -271,3 +271,118 @@ class TestCircuitBreaker:
         result = tg.evaluate_and_transition()
         assert result.transition == "circuit_breaker"
         assert result.new_tier == 0
+
+
+# ── Phase 2: durable tier-entered marker ─────────────────────────────────────
+
+
+class TestTierEnteredMarker:
+    """Marker-based dwell-time durability (Phase 2 of the hardening
+    plan). The marker survives ledger truncation; ``_days_at_current_tier``
+    falls back to it; recovery writes an NP6 audit row."""
+
+    def test_promotion_writes_marker(
+        self, tier_governor_repo, monkeypatch,
+    ):
+        # Arrange: enough auto-feedback to trip 0→1 promotion.
+        monkeypatch.setattr(tg, "_auto_feedback_rows", lambda: 200)
+        # Act
+        before = time.time()
+        result = tg.evaluate_and_transition()
+        # Assert
+        assert result.transition == "promote"
+        marker = tier_governor_repo.marker_get()
+        assert marker is not None
+        assert marker.tier == 1
+        # entered_at should be within a couple of seconds of now.
+        assert before - 1 <= marker.entered_at <= time.time() + 1
+
+    def test_marker_survives_state_truncation(
+        self, tier_governor_repo, tier_governor_conn, monkeypatch,
+    ):
+        # Arrange: promote to tier 1 (writes both state row + marker).
+        monkeypatch.setattr(tg, "_auto_feedback_rows", lambda: 200)
+        tg.evaluate_and_transition()
+        marker_before = tier_governor_repo.marker_get()
+        assert marker_before is not None and marker_before.tier == 1
+        # Backdate the marker so dwell is measurably > 0.
+        tier_governor_repo.marker_set(
+            tier=1,
+            entered_at=marker_before.entered_at - 5 * 86400.0,  # 5 days ago
+            metadata={"test": "backdated"},
+        )
+
+        # Act: nuke the ledger (simulates operator manual cleanup).
+        with tier_governor_conn.writing():
+            tier_governor_conn.execute("DELETE FROM auto_apply_tier_state")
+
+        # Assert: dwell time still derives from marker, not from the
+        # (now empty) ledger. Should report ~5 days, not 0.
+        dwell = tg._days_at_current_tier()
+        assert 4.5 <= dwell <= 5.5, f"expected ~5 days, got {dwell}"
+
+    def test_marker_recovery_writes_audit_row(
+        self, tier_governor_repo, tier_governor_conn, monkeypatch,
+    ):
+        # Arrange: promote then truncate the ledger.
+        monkeypatch.setattr(tg, "_auto_feedback_rows", lambda: 200)
+        tg.evaluate_and_transition()
+        with tier_governor_conn.writing():
+            tier_governor_conn.execute("DELETE FROM auto_apply_tier_state")
+
+        # Act: any read that exercises the recovery path.
+        tg._days_at_current_tier()
+
+        # Assert: a recovery audit row appeared.
+        rows = list(tier_governor_conn.execute(
+            "SELECT tier, transition, metrics_json FROM auto_apply_tier_state"
+        ))
+        assert len(rows) == 1
+        tier, transition, metrics_json = rows[0]
+        assert int(tier) == 1
+        assert transition == "init"
+        assert tg.MARKER_RECOVERY_KEY in metrics_json
+
+    def test_marker_mismatch_falls_back_to_state(
+        self, tier_governor_repo, tier_governor_conn,
+    ):
+        # Arrange: marker says tier 1, but ledger says tier 3 (operator
+        # manually inserted a higher-tier row outside the governor).
+        tier_governor_repo.marker_set(
+            tier=1, entered_at=time.time() - 10 * 86400.0,
+        )
+        _insert_state(
+            tier_governor_conn, tier=3, transition="promote",
+            ago_seconds=2 * 86400.0,  # 2 days ago
+        )
+
+        # Act
+        dwell = tg._days_at_current_tier()
+
+        # Assert: falls back to state row (~2 days), NOT the marker
+        # (which would have said ~10 days).
+        assert 1.5 <= dwell <= 2.5, f"expected ~2 days, got {dwell}"
+
+    def test_unchanged_does_not_touch_marker(
+        self, tier_governor_repo, tier_governor_conn, monkeypatch,
+    ):
+        # Arrange: seed at tier 1 with a backdated marker.
+        _insert_state(tier_governor_conn, tier=1, transition="promote",
+                      ago_seconds=86400.0)
+        tier_governor_repo.marker_set(
+            tier=1, entered_at=time.time() - 86400.0,
+        )
+        marker_before = tier_governor_repo.marker_get()
+        # Force "no promotion conditions met" by zeroing feedback so 1→2
+        # gates fail (revert_rate test passes on empty data, but
+        # days_at_tier=1 is < 7d threshold).
+        monkeypatch.setattr(tg, "_auto_feedback_rows", lambda: 0)
+
+        # Act: an evaluate that returns 'unchanged'.
+        result = tg.evaluate_and_transition()
+        assert result.transition == "unchanged"
+
+        # Assert: marker entered_at and tier are byte-identical to before.
+        marker_after = tier_governor_repo.marker_get()
+        assert marker_after.tier == marker_before.tier
+        assert marker_after.entered_at == marker_before.entered_at
