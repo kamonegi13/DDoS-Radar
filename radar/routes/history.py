@@ -10,7 +10,7 @@ from radar.routes import bp, _require_admin, _country_param
 from radar.scenarios import scenario_store
 
 
-def _resolve_default_theater() -> str:
+def _resolve_default_country() -> str:
     """Pick a sensible default ISO country code from the first scorable scenario."""
     for sc in scenario_store.scorable():
         if sc.core_country:
@@ -23,17 +23,44 @@ def _resolve_default_theater() -> str:
 # Historical Analysis API
 # ─────────────────────────────────────────────────────────────────────────────
 
-@bp.route("/api/history/theaters", methods=["GET"])
-def api_history_theaters():
-    """Return all configured + historically recorded theaters.
+
+def _country_set_payload() -> list[str]:
+    """Union of (a) countries with persisted time-series, and (b) participants
+    of every scorable scenario."""
+    db_countries = set(_db.ts_distinct_theaters())
+    cfg_countries: set[str] = set()
+    for sc in scenario_store.scorable():
+        cfg_countries |= set(sc.participants.keys())
+    return sorted(db_countries | cfg_countries)
+
+
+@bp.route("/api/history/countries", methods=["GET"])
+def api_history_countries():
+    """Return all configured + historically recorded countries.
 
     Configured set = union of participants across all scorable scenarios.
     """
-    db_theaters = set(_db.ts_distinct_theaters())
-    cfg_theaters: set[str] = set()
-    for sc in scenario_store.scorable():
-        cfg_theaters |= set(sc.participants.keys())
-    return jsonify({"theaters": sorted(db_theaters | cfg_theaters)})
+    return jsonify({"countries": _country_set_payload()})
+
+
+@bp.route("/api/history/theaters", methods=["GET"])
+def api_history_theaters():
+    """Deprecated alias for /api/history/countries.
+
+    Kept so any external/embedded caller still using the legacy path keeps
+    working. Body includes BOTH ``theaters`` (legacy key) and ``countries``
+    (canonical key); ``Deprecation`` and ``Sunset`` headers signal the move.
+    """
+    items = _country_set_payload()
+    resp = jsonify({"theaters": items, "countries": items})
+    resp.headers["Deprecation"] = "true"
+    # Sunset 90 days out (RFC 8594 — informational only; we don't auto-cut).
+    resp.headers["Sunset"] = (
+        datetime.datetime.now(datetime.timezone.utc)
+        + datetime.timedelta(days=90)
+    ).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    resp.headers["Link"] = '</api/history/countries>; rel="successor-version"'
+    return resp
 
 
 @bp.route("/api/history/timeseries", methods=["GET"])
@@ -42,7 +69,7 @@ def api_history_timeseries():
     GET /api/history/timeseries?country=TW&hours=168&series=combined,l3,l7
     (legacy ?theater= still accepted, recorded via SR4 telemetry).
     """
-    theater = (_country_param("/api/history/timeseries") or _resolve_default_theater()).upper()
+    theater = (_country_param("/api/history/timeseries") or _resolve_default_country()).upper()
     if not theater:
         return jsonify({"error": "theater required"}), 400
     try:
@@ -76,7 +103,7 @@ def api_history_hod_baseline():
     GET /api/history/hod_baseline?country=TW&type=hod_baseline
     (legacy ?theater= still accepted, recorded via SR4 telemetry).
     """
-    theater = (_country_param("/api/history/hod_baseline") or _resolve_default_theater()).upper()
+    theater = (_country_param("/api/history/hod_baseline") or _resolve_default_country()).upper()
     if not theater:
         return jsonify({"error": "theater required"}), 400
     table = request.args.get("type", "hod_baseline")
@@ -191,7 +218,7 @@ def api_history_export():
     if auth_err:
         return auth_err
 
-    theater = (_country_param("/api/history/export") or _resolve_default_theater()).upper()
+    theater = (_country_param("/api/history/export") or _resolve_default_country()).upper()
     if not theater:
         return jsonify({"error": "theater required"}), 400
 

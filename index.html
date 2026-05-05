@@ -2329,7 +2329,7 @@
         <p><b>X. History Analysis Panel</b> — <span class="code-block">TOOLS ▾</span> → History Analysis (ANALYTICS)</p>
         <ul>
             <li><b>Purpose:</b> Temporal analysis of threat evolution — historical threat scores, patterns, and alert timelines to identify escalation trends and baseline deviations over 24h to 28-day windows.</li>
-            <li><b>Theater &amp; Range Selector:</b> Theater dropdown (auto-populated from <span class="code-block">/api/history/theaters</span>) + range selector: 24h / 3d / 7d / 14d / 28d (default: 7d). Refresh and Export buttons.</li>
+            <li><b>Theater &amp; Range Selector:</b> Theater dropdown (auto-populated from <span class="code-block">/api/history/countries</span>) + range selector: 24h / 3d / 7d / 14d / 28d (default: 7d). Refresh and Export buttons.</li>
             <li><b>Summary Stats Bar:</b> DATA PTS (data point count) / PEAK (highest TL in range) / AVG (average TL) / EVENTS (significant escalation count) / ALERTS (fired alert count).</li>
             <li><b>Threat Score Trend Chart:</b> Canvas line chart (580×160px) with multi-line visualization — Combined score + L3 + L7 over time. Color-coded per vector.</li>
             <li><b>Hour-of-Day Baseline Heatmap:</b> Canvas heatmap (580×110px) showing average threat spike pattern by hour across all days in range. Identifies time-of-day attack pattern dependencies.</li>
@@ -2630,7 +2630,7 @@
         <p><b>X. 履歴分析パネル</b> — <span class="code-block">TOOLS ▾</span> → History Analysis（ANALYTICS）</p>
         <ul>
             <li><b>目的:</b> 脅威進化の時間的分析 — 24時間から28日間のウィンドウで、過去の脅威スコア、パターン、アラートタイムラインを確認し、エスカレーション傾向とベースライン逸脱を特定。</li>
-            <li><b>シアター＆範囲セレクター:</b> シアタードロップダウン（<span class="code-block">/api/history/theaters</span>から自動取得）+ 範囲セレクター: 24h / 3d / 7d / 14d / 28d（デフォルト: 7d）。更新・エクスポートボタン付き。</li>
+            <li><b>シアター＆範囲セレクター:</b> シアタードロップダウン（<span class="code-block">/api/history/countries</span>から自動取得）+ 範囲セレクター: 24h / 3d / 7d / 14d / 28d（デフォルト: 7d）。更新・エクスポートボタン付き。</li>
             <li><b>サマリー統計バー:</b> DATA PTS（データポイント数）/ PEAK（範囲内最高TL）/ AVG（平均TL）/ EVENTS（重大エスカレーション数）/ ALERTS（発火アラート数）。</li>
             <li><b>脅威スコアトレンドチャート:</b> Canvasラインチャート（580×160px）、マルチライン可視化 — 統合スコア + L3 + L7の時系列。ベクターごとに色分け。</li>
             <li><b>時間帯別ベースラインヒートマップ:</b> Canvasヒートマップ（580×110px）、範囲内の全日にわたる時間帯別平均脅威スパイクパターンを表示。攻撃パターンの時間帯依存性を特定。</li>
@@ -2854,7 +2854,7 @@
             <li><span class="code-block">PUT /api/auth/users/{username}/role</span> — Change a user's role (admin only). Body: {role}.</li>
             <li><span class="code-block">DELETE /api/auth/users/{username}</span> — Delete a user (admin only).</li>
             <li><span class="code-block">POST /api/auth/users/{username}/reset-password</span> — Reset a user's password (admin only). Body: {new_password}.</li>
-            <li><span class="code-block">GET /api/history/theaters</span> — List all theaters with historical data or configured in settings. Used to populate the History panel theater selector.</li>
+            <li><span class="code-block">GET /api/history/countries</span> — List all countries with historical data or configured in settings. Used to populate the History panel selector. <span class="code-block">/api/history/theaters</span> is kept as a deprecated alias (responds with both <code>countries</code> and legacy <code>theaters</code> keys, plus <code>Deprecation: true</code> + 90-day <code>Sunset</code> headers).</li>
             <li><span class="code-block">GET /api/history/timeseries?country=TW&amp;hours=168&amp;series=combined,l3,l7</span> — Historical time-series data for the specified theater and time range (max 720h / 30 days). Returns scored (timestamped) and value-only series.</li>
             <li><span class="code-block">GET /api/history/hod_baseline?country=TW&amp;type=hod_baseline</span> — Hour-of-day baseline statistics. Type: hod_baseline | checkhost_hod | bgp_hod. Returns per-hour mean/std/min/max/n.</li>
             <li><span class="code-block">GET /api/history/alerts?limit=100&amp;since=1710000000</span> — Alert timeline with optional filtering by timestamp and limit (max 500).</li>
@@ -2968,7 +2968,7 @@
             <li><span class="code-block">PUT /api/auth/users/{username}/role</span> — ユーザーのロール変更（admin のみ）。ボディ: {role}。</li>
             <li><span class="code-block">DELETE /api/auth/users/{username}</span> — ユーザー削除（admin のみ）。</li>
             <li><span class="code-block">POST /api/auth/users/{username}/reset-password</span> — ユーザーのパスワードリセット（admin のみ）。ボディ: {new_password}。</li>
-            <li><span class="code-block">GET /api/history/theaters</span> — 履歴データがあるシアターまたは設定で構成されたシアターの一覧を返す。History パネルのシアターセレクターで使用。</li>
+            <li><span class="code-block">GET /api/history/countries</span> — 履歴データがある国または設定で構成された国の一覧を返す。History パネルのセレクターで使用。<span class="code-block">/api/history/theaters</span> は deprecated alias として保持（body には <code>countries</code> と従来の <code>theaters</code> 両キーを含み、<code>Deprecation: true</code> ヘッダ + 90 日後の <code>Sunset</code> を返す）。</li>
             <li><span class="code-block">GET /api/history/timeseries?country=TW&amp;hours=168&amp;series=combined,l3,l7</span> — 指定シアターと時間範囲の履歴時系列データ（最大720h / 30日）。スコア付き（タイムスタンプ）と値のみのシリーズを返す。</li>
             <li><span class="code-block">GET /api/history/hod_baseline?country=TW&amp;type=hod_baseline</span> — 時間帯別ベースライン統計。タイプ: hod_baseline | checkhost_hod | bgp_hod。時間帯ごとの mean/std/min/max/n を返す。</li>
             <li><span class="code-block">GET /api/history/alerts?limit=100&amp;since=1710000000</span> — タイムスタンプとリミットによるオプションフィルタリング付きアラートタイムライン（最大500件）。</li>
@@ -3073,7 +3073,7 @@
 
         <p><b>D. History Analysis</b> — <span class="code-block">TOOLS ▾</span> → History Analysis</p>
         <ul>
-            <li><b>Theater Selector</b>: Dynamically populated from all configured theaters (pins + correlates + core) and any theaters with recorded data. Fetched via <span class="code-block">/api/history/theaters</span>.</li>
+            <li><b>Theater Selector</b>: Dynamically populated from all configured theaters (pins + correlates + core) and any theaters with recorded data. Fetched via <span class="code-block">/api/history/countries</span>.</li>
             <li><b>Time Range</b>: 24h / 3 days / 7 days / 14 days / 28 days. Data is retained up to 28 days (8064 data points at 5-minute intervals).</li>
             <li><b>Threat Score Trend</b>: Canvas line chart with a fixed Y-axis (0–25) and severity zone backgrounds: Normal (0–2, green), Elevated (2–5), Warning (5–10, amber), Severe (10–18, orange), Critical (18–25, red). This fixed scale ensures that a score of 7 is always visually contextualized as "Warning zone" regardless of the current data range.</li>
             <li><b>Hour-of-Day Baseline</b>: Bar chart of CF Spike averages by hour (0–23), colored by intensity. Useful for identifying temporal attack patterns.</li>
@@ -3480,7 +3480,7 @@
 
         <p><b>D. 履歴分析</b> — <span class="code-block">TOOLS ▾</span> → History Analysis</p>
         <ul>
-            <li><b>シアターセレクター</b>: 設定済みの全シアター（ピン + 相関国 + コア）およびデータ記録のあるシアターから動的に生成。<span class="code-block">/api/history/theaters</span> から取得。</li>
+            <li><b>シアターセレクター</b>: 設定済みの全シアター（ピン + 相関国 + コア）およびデータ記録のあるシアターから動的に生成。<span class="code-block">/api/history/countries</span> から取得。</li>
             <li><b>時間範囲</b>: 24時間 / 3日間 / 7日間 / 14日間 / 28日間。データは最大28日間保持（5分間隔で8064データポイント）。</li>
             <li><b>脅威スコア推移</b>: 固定Y軸（0〜25）と重要度ゾーン背景色を持つ Canvas 折れ線グラフ: 正常（0〜2, 緑）、警戒（2〜5）、警告（5〜10, 琥珀）、深刻（10〜18, オレンジ）、危機的（18〜25, 赤）。この固定スケールにより、例えばスコア7は現在のデータ範囲に関係なく常に「警告ゾーン」として視覚的に文脈化される。</li>
             <li><b>時間帯別ベースライン</b>: CF スパイク平均を時間帯（0〜23時）ごとに棒グラフで表示、強度で色分け。時間的な攻撃パターンの特定に有用。</li>

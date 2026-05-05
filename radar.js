@@ -11203,14 +11203,16 @@
         const sel = document.getElementById('hist-theater');
         if (sel) {
             const prev = sel.value;
-            fetch('/api/history/theaters').then(r => {
+            fetch('/api/history/countries').then(r => {
                 if (!r.ok) throw new Error(r.status);
                 return r.json();
             }).then(data => {
-                const theaters = data.theaters || [];
-                if (!theaters.length) return;
+                // Canonical key is `countries`; tolerate the legacy
+                // `theaters` key if some intermediate proxy strips one.
+                const items = data.countries || data.theaters || [];
+                if (!items.length) return;
                 sel.innerHTML = '';
-                theaters.forEach(t => {
+                items.forEach(t => {
                     const o = document.createElement('option');
                     o.value = t; o.textContent = t;
                     sel.appendChild(o);
