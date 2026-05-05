@@ -701,7 +701,13 @@
         .cfg-page-header .cfg-page-block { display:grid; grid-template-columns:62px 1fr; gap:6px 12px; font-size:12px; line-height:1.5; color:#bbb; }
         .cfg-page-header .cfg-page-block dt { color:var(--color-accent); font-size:10px; text-transform:uppercase; letter-spacing:1px; font-weight:bold; padding-top:1px; }
         .cfg-page-header .cfg-page-block dd { margin:0; }
-        /* SETTINGS UX redesign — per-key explanation block */
+        /* SETTINGS UX redesign — per-key inline summary (What only).
+           Why / When live in a hover tooltip on the ⓘ icon to keep the
+           row visually scannable. */
+        .cfg-key-summary { font-size:11px; color:#9aa; line-height:1.5; margin-top:5px; }
+        .cfg-key-info { display:inline-block; margin-left:4px; width:14px; height:14px; line-height:14px; text-align:center; border-radius:50%; background:rgba(0,200,220,0.12); color:#7cc; font-size:10px; cursor:help; user-select:none; vertical-align:middle; }
+        .cfg-key-info:hover, .cfg-key-info:focus { background:rgba(0,200,220,0.28); color:#aff; outline:none; }
+        /* Legacy alias — older renderers still call .cfg-key-explain. */
         .cfg-key-explain { display:grid; grid-template-columns:50px 1fr; gap:3px 10px; margin-top:8px; padding:6px 8px; background:rgba(0,0,0,0.2); border-left:2px solid #2a4a55; border-radius:2px; font-size:11px; line-height:1.5; color:#aaa; }
         .cfg-key-explain dt { color:#7af; font-size:9px; text-transform:uppercase; letter-spacing:1px; font-weight:bold; padding-top:1px; }
         .cfg-key-explain dd { margin:0; color:#bbb; }

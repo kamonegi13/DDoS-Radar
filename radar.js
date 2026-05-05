@@ -3362,22 +3362,27 @@
         });
     }
 
-    // SETTINGS UX redesign 2026-05-05 — three-line explanation block
-    // (What / Why / When) per key. Falls back to legacy single-line
-    // `description` when the new fields are empty.
+    // SETTINGS UX redesign 2026-05-05 — single-line summary with `why` /
+    // `when` revealed on hover. Keeps the row scan-able while preserving
+    // the deeper rationale for analysts who want it.
     function _settingsKeyExplain(meta) {
         const what = (meta.what || meta.description || '').trim();
         const why  = (meta.why  || '').trim();
         const when = (meta.when || '').trim();
         if (!what && !why && !when) return '';
-        const row = (label, body) => body
-            ? '<dt>' + label + '</dt><dd>' + _escHtml(body) + '</dd>'
+        // Build the tooltip body — only show `i` icon when there's deeper
+        // content beyond the visible summary line.
+        const tipParts = [];
+        if (why)  tipParts.push('Why: '  + why);
+        if (when) tipParts.push('When: ' + when);
+        const tipHtml = tipParts.length
+            ? '<span class="cfg-key-info" tabindex="0" '
+              + 'title="' + _escHtml(tipParts.join('\n\n')) + '">ⓘ</span>'
             : '';
-        return '<dl class="cfg-key-explain">'
-            + row('What',  what)
-            + row('Why',   why)
-            + row('When',  when)
-            + '</dl>';
+        return '<div class="cfg-key-summary">'
+            +    (what ? _escHtml(what) : '')
+            +    (tipHtml ? ' ' + tipHtml : '')
+            + '</div>';
     }
     function _settingsKeyNow(meta, valueRow) {
         // P5 — render a "Now" strip (current value provenance + restart-pending)
