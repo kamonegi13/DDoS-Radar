@@ -1095,7 +1095,7 @@ v1 で shadow phase に留まる Design W (auto-calibration) を、v2.0 では:
 
 各 Phase で問題発生時:
 - **Phase 1**: feature flag `V2_API_ENABLED=false` で v2 API 無効化、DB migration は維持 (前方互換)
-- **Phase 2**: 個別機能ごとに feature flag (`V2_ATTACK_MODE_ENABLED` 等) で個別無効化
+- **Phase 2**: 当初は個別 feature flag (`V2_ATTACK_MODE_ENABLED` 等) を想定したが、実装過程で derivation gate に組み込まれず vestigial 化したため 2026-05-05 に撤去。個別ロールバックが必要な場合は `V2_CONCLUSION_LEDGER_ENABLED=false` で全停止後に問題 deriver を hot-fix する運用に切替
 - **Phase 3**: localStorage `ui_version=v1` で v1 UI 強制復帰
 - **Phase 4**: v1 撤去後は roll-forward のみ (DB は不可逆 migration を含む)
 

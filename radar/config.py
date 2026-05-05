@@ -240,14 +240,6 @@ V2_CONCLUSION_DIFF_SAMPLER_ENABLED = os.getenv(
     "V2_CONCLUSION_DIFF_SAMPLER_ENABLED", "false",
 ).lower() in ("true", "1", "yes")
 
-# v2.0 Phase 2 individual-rollback flags (per docs/design/v2-migration.md §10.3).
-# Each conclusion type ships behind its own flag so a misbehaving deriver can
-# be disabled without taking down THREAT_LEVEL. All imply V2_CONCLUSION_LEDGER_ENABLED.
-V2_TREND_ENABLED = os.getenv("V2_TREND_ENABLED", "false").lower() in ("true", "1", "yes")
-V2_PER_DOMAIN_ENABLED = os.getenv("V2_PER_DOMAIN_ENABLED", "false").lower() in ("true", "1", "yes")
-V2_ATTACK_MODE_ENABLED = os.getenv("V2_ATTACK_MODE_ENABLED", "false").lower() in ("true", "1", "yes")
-V2_CONTINUITY_LOG_ENABLED = os.getenv("V2_CONTINUITY_LOG_ENABLED", "false").lower() in ("true", "1", "yes")
-
 # v2.0 Phase 2 後半 (ADR-V2-005): LLM augmentation for ATTACK_MODE conclusions.
 # When ENABLED, every successful rule-based attack-mode classification is also
 # sent to the LLM for narrative + agreement + confidence nudge (±0.10 max).
