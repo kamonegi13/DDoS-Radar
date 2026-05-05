@@ -39,7 +39,6 @@ _A4_THEATER_TABLES: tuple[str, ...] = (
     "noise_exclusion",
     "confirmed_threats",
     "daily_summary",
-    "forecast_log",
     "cooccurrence_stats",
     "climate_events",
     "llm_intel",
@@ -1060,19 +1059,6 @@ CREATE TABLE IF NOT EXISTS daily_summary (
     UNIQUE(theater, day_bucket)
 );
 -- (idx_daily_summary_theater removed: exact duplicate of UNIQUE(theater, day_bucket))
-
--- CAC: Forecast log for prediction accuracy tracking
-CREATE TABLE IF NOT EXISTS forecast_log (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    theater       TEXT NOT NULL,
-    ts            REAL NOT NULL,
-    forecast_type TEXT NOT NULL DEFAULT '',
-    predicted     TEXT NOT NULL DEFAULT '',
-    actual        TEXT DEFAULT NULL,
-    resolved_at   REAL DEFAULT NULL,
-    accuracy      REAL DEFAULT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_forecast_theater_ts ON forecast_log (theater, ts);
 
 -- CAC: Co-occurrence statistics for sensor pattern learning (sensitivity UP only)
 CREATE TABLE IF NOT EXISTS cooccurrence_stats (
@@ -2839,6 +2825,16 @@ class RadarDB:
         (50, "drop legacy_access_log (SR4 telemetry retired)", lambda conn: [
             conn.execute("DROP INDEX IF EXISTS idx_legacy_access_last_seen"),
             conn.execute("DROP TABLE IF EXISTS legacy_access_log"),
+        ]),
+
+        # v51: drop forecast_log. The CAC Phase D forecast tracker had
+        # production accuracy ~3% with degenerate predicted=TL1 in every
+        # row; the conclusions_ledger TREND deriver supersedes it with
+        # NP6-compliant audit trail.
+        (51, "drop forecast_log (degenerate accuracy, superseded by TREND ledger)",
+         lambda conn: [
+            conn.execute("DROP INDEX IF EXISTS idx_forecast_theater_ts"),
+            conn.execute("DROP TABLE IF EXISTS forecast_log"),
         ]),
     ]
 
@@ -5452,68 +5448,8 @@ class RadarDB:
                  "context_alignment": json.loads(r[8]),
                  "summary": json.loads(r[9])} for r in rows]
 
-    # ── forecast_log ───────────────────────────────────────────────────────
-    def forecast_log_add(self, theater: str, ts: float, forecast_type: str,
-                         predicted: str) -> int:
-        conn = self._get_conn()
-        with conn.writing():
-            cur = conn.execute(
-                "INSERT INTO forecast_log (theater, ts, forecast_type, predicted) "
-                "VALUES (?, ?, ?, ?)",
-                (theater, ts, forecast_type, predicted),
-            )
-        return cur.lastrowid
-
-    def forecast_log_resolve(self, forecast_id: int, actual: str, accuracy: float):
-        import time as _time
-        conn = self._get_conn()
-        with conn.writing():
-            conn.execute(
-                "UPDATE forecast_log SET actual=?, resolved_at=?, accuracy=? WHERE id=?",
-                (actual, _time.time(), accuracy, forecast_id),
-            )
-
-    def forecast_log_get(self, theater: str = None, limit: int = 100) -> list[dict]:
-        conn = self._get_conn()
-        if theater:
-            rows = conn.execute(
-                "SELECT id, theater, ts, forecast_type, predicted, actual, "
-                "resolved_at, accuracy FROM forecast_log WHERE theater=? "
-                "ORDER BY ts DESC LIMIT ?", (theater, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT id, theater, ts, forecast_type, predicted, actual, "
-                "resolved_at, accuracy FROM forecast_log ORDER BY ts DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [{"id": r[0], "theater": r[1], "ts": r[2], "forecast_type": r[3],
-                 "predicted": r[4], "actual": r[5], "resolved_at": r[6],
-                 "accuracy": r[7]} for r in rows]
-
-    def forecast_accuracy_summary(self, theater: str = None) -> dict:
-        """Aggregate forecast accuracy for resolved forecasts."""
-        conn = self._get_conn()
-        if theater:
-            row = conn.execute(
-                "SELECT COUNT(*) AS total, "
-                "SUM(CASE WHEN accuracy IS NOT NULL THEN 1 ELSE 0 END) AS resolved, "
-                "AVG(accuracy) AS avg_accuracy "
-                "FROM forecast_log WHERE theater=? AND resolved_at IS NOT NULL",
-                (theater,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                "SELECT COUNT(*) AS total, "
-                "SUM(CASE WHEN accuracy IS NOT NULL THEN 1 ELSE 0 END) AS resolved, "
-                "AVG(accuracy) AS avg_accuracy "
-                "FROM forecast_log WHERE resolved_at IS NOT NULL",
-            ).fetchone()
-        return {
-            "total_forecasts": row[0] if row else 0,
-            "resolved": row[1] if row else 0,
-            "avg_accuracy": round(row[2], 4) if row and row[2] is not None else None,
-        }
+    # forecast_log retired 2026-05-05 (production accuracy ~3% with
+    # degenerate predicted=TL1 — superseded by conclusions_ledger TREND).
 
     # ── cooccurrence_stats ─────────────────────────────────────────────────
     def cooccurrence_update(self, sensor_a: str, sensor_b: str, theater: str,
@@ -5711,14 +5647,6 @@ class RadarDB:
         deleted["daily_summary"] = cur.rowcount
         conn.commit()
 
-        # forecast_log: prediction accuracy tracking.
-        # 365 days because forecast_accuracy_summary() aggregates all rows;
-        # shorter retention silently converts overall accuracy into a rolling window.
-        _fc_days = int(_os.getenv("FORECAST_RETENTION_DAYS", "365"))
-        cutoff_fc = now - _fc_days * 86400
-        cur = conn.execute("DELETE FROM forecast_log WHERE ts < ?", (cutoff_fc,))
-        deleted["forecast_log"] = cur.rowcount
-        conn.commit()
 
         # scenario_contribution_log: per-cycle per-country contribution
         # snapshots feeding the weight_advisory endpoint. ~1 row/country/

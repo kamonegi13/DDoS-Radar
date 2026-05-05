@@ -3637,15 +3637,12 @@
     };
 
     window._settingsRenderLlmIntelPipeline = async function (pane) {
-        // Pull current env values via the existing env_config endpoint.
-        // These keys are in _RELOADABLE_KEYS so writes are live.
+        // Pull current values via the registry-driven /api/v2/config shim.
+        // These keys all have apply_timing=live so writes take effect on the
+        // next intel cycle without restart.
         _settingsLoading(pane);
         let env = {};
-        try {
-            const r = await fetch('/api/env_config',
-                { headers: typeof _adminHeaders === 'function' ? _adminHeaders() : {} });
-            if (r.ok) env = await r.json();
-        } catch (_) {}
+        try { env = await _v2ConfigLoad(); } catch (_) {}
         const v = k => env[k] != null ? String(env[k]) : '';
         const fld = (id, label, hint, attrs) =>
             '<div class="cfg-row">'
@@ -3738,23 +3735,13 @@
                 if (el && el.value !== '') body[k] = el.value;
             });
             try {
-                const r = await fetch('/api/env_config', {
-                    method: 'POST',
-                    headers: Object.assign({'Content-Type':'application/json'},
-                        typeof _adminHeaders === 'function' ? _adminHeaders() : {}),
-                    body: JSON.stringify(body),
-                });
-                if (r.ok) {
-                    // Trigger reload so live keys take effect immediately.
-                    await fetch('/api/env_config/reload', {
-                        method: 'POST',
-                        headers: typeof _adminHeaders === 'function' ? _adminHeaders() : {},
-                    });
+                const result = await _v2ConfigSave(body);
+                if (result.ok) {
                     _settingsCfgSetStatus(pane, 'Saved · live (no restart)', 'ok');
                 } else {
-                    const e = await r.json().catch(() => ({}));
+                    const first = result.errors[0];
                     _settingsCfgSetStatus(pane,
-                        'Save failed: ' + (e.error || ('HTTP ' + r.status)),
+                        'Save failed' + (first ? `: ${first.key} — ${first.error}` : ''),
                         'err');
                 }
             } catch (e) {
@@ -9726,13 +9713,74 @@
             && 'set' in v && 'last4' in v;
     }
 
+    // ── /api/v2/config compatibility shim ─────────────────────────────────────
+    // Provides the legacy `{KEY: value | indicator}` shape over the v2
+    // registry-driven endpoints so existing form renderers keep working.
+    // The legacy /api/env_config* endpoints were retired 2026-05-05.
+    //
+    //  _v2ConfigLoad()              → flat dict {KEY: scalar | {set, last4}}
+    //  _v2ConfigSave(updates, opt)  → POSTs each key individually to
+    //                                  /api/v2/config; returns
+    //                                  {ok, updated, skipped, errors, needs_restart}.
+    //                                  opt.reason is forwarded for high-impact
+    //                                  keys (the v2 endpoint requires it).
+    async function _v2ConfigLoad() {
+        const r = await fetch('/api/v2/config/values',
+            { headers: typeof _adminHeaders === 'function' ? _adminHeaders() : {} });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const body = await r.json();
+        const flat = {};
+        (body.values || []).forEach(row => {
+            if (row.source === 'secret') {
+                flat[row.key] = row.indicator || { set: false, last4: null };
+            } else if (row.value !== null && row.value !== undefined) {
+                flat[row.key] = row.value;
+            }
+        });
+        return flat;
+    }
+
+    async function _v2ConfigSave(updates, opt) {
+        const reason = (opt && opt.reason) || null;
+        const headers = typeof _adminHeaders === 'function'
+            ? _adminHeaders({ 'Content-Type': 'application/json' })
+            : { 'Content-Type': 'application/json' };
+        const updated = [];
+        const skipped = [];
+        const errors = [];
+        const needs_restart = [];
+        for (const [key, value] of Object.entries(updates || {})) {
+            const body = reason ? { key, value, reason } : { key, value };
+            let r;
+            try {
+                r = await fetch('/api/v2/config', {
+                    method: 'POST', headers, body: JSON.stringify(body),
+                });
+            } catch (e) {
+                errors.push({ key, error: String(e) });
+                continue;
+            }
+            let data = {};
+            try { data = await r.json(); } catch (_) {}
+            if (r.ok && data.ok) {
+                updated.push(key);
+                if (data.restart_pending) needs_restart.push(key);
+            } else if (r.status === 403) {
+                // secret/immutable — silently skip (matches legacy behaviour
+                // where masked secrets weren't writeable either).
+                skipped.push(key);
+            } else {
+                errors.push({ key, error: data.error || ('HTTP ' + r.status) });
+            }
+        }
+        return { ok: errors.length === 0, updated, skipped, errors, needs_restart };
+    }
+
     async function loadEnvConfig() {
         const _rn = document.getElementById('env-restart-note');
         if (_rn) _rn.style.display = 'none';
         try {
-            const res = await fetch(`/api/env_config`, { headers: _adminHeaders() });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const cfg = await res.json();
+            const cfg = await _v2ConfigLoad();
             document.querySelectorAll('[id^="ec-"]').forEach(el => {
                 const key = el.id.replace('ec-', '');
                 if (key === 'LLM_MODEL_manual') return; // skip manual fallback field
@@ -9779,32 +9827,19 @@
         const st = document.getElementById('env-status');
         if (st) { st.textContent = _t('config.status.saving'); st.className = 'env-status'; }
         try {
-            const res = await fetch(`/api/env_config`, {
-                method: 'POST',
-                headers: _adminHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify(updates)
-            });
-            const data = await res.json();
-            if (data.ok) {
-                // Immediately reload reloadable keys (no restart needed for those)
-                let needsRestart = false;
-                try {
-                    const rel = await fetch('/api/env_config/reload', {
-                        method: 'POST',
-                        headers: _adminHeaders(),
-                    });
-                    const relData = await rel.json();
-                    needsRestart = relData.ok && relData.needs_restart && relData.needs_restart.length > 0;
-                } catch(_) {}
+            const result = await _v2ConfigSave(updates);
+            if (result.ok || result.errors.length === 0) {
                 const restartNote = document.getElementById('env-restart-note');
+                const needsRestart = result.needs_restart && result.needs_restart.length > 0;
                 if (restartNote) restartNote.style.display = needsRestart ? 'block' : 'none';
                 if (st) {
-                    st.textContent = _t('config.status.saved', {n: data.updated.length});
+                    st.textContent = _t('config.status.saved', {n: result.updated.length});
                     st.className = 'env-status ok';
                     setTimeout(() => { if (st) st.textContent = ''; }, 6000);
                 }
             } else {
-                throw new Error(data.error || 'Unknown error');
+                const first = result.errors[0];
+                throw new Error(first ? `${first.key}: ${first.error}` : 'Unknown error');
             }
         } catch(e) {
             if (st) { st.textContent = _t('config.status.error', {msg: e.message}); st.className = 'env-status err'; }

@@ -810,77 +810,12 @@ class WeightedConvergenceEngine:
             "contradiction_warnings": contradictions,
         }
 
-    # ── CAC Phase D: Forecast + Co-occurrence ─────────────────────────────
-
-    @staticmethod
-    def record_forecast(db, theater: str, current_time: float,
-                        threat_level: int, escalation_data: dict) -> int | None:
-        """
-        Record a TL forecast based on escalation prediction.
-        Only records when escalation predictor has sufficient confidence.
-        Returns forecast_log ID or None.
-
-        compute_escalation_progress() returns predicted_next_tl at the top
-        level (not nested under a "prediction" key) — until 2026-04 this
-        function read the wrong key and silently never recorded any forecasts.
-
-        Phase I caveat (2026-04-30 audit): production data shows
-        accuracy averaging ~3% with predicted=TL1 always. This indicates
-        the underlying compute_escalation_progress() returns a degenerate
-        prediction. Until the prediction model is replaced (or retired),
-        forecast_log entries should be treated as research-only — analyst
-        UIs that surface forecasts must include a warning chip.
-        See docs/design/v2-migration.md §0.2.3 (forecast retire candidate).
-        """
-        pred_tl = escalation_data.get("predicted_next_tl")
-        if pred_tl is None:
-            return None
-        # Only forecast if predicted TL differs from current
-        if pred_tl == threat_level:
-            return None
-        # Naming convention: forecast_type indicates direction relative
-        # to current TL. Lower numeric TL = HIGHER threat in this codebase
-        # (TL1=most severe, TL5=normal). So pred_tl < threat_level means
-        # the model expects an INCREASE in threat severity (escalation).
-        forecast_type = "tl_escalation" if pred_tl < threat_level else "tl_de_escalation"
-        predicted_str = f"TL{pred_tl}"
-        try:
-            return db.forecast_log_add(theater, current_time, forecast_type, predicted_str)
-        except Exception:
-            return None
-
-    @staticmethod
-    def resolve_pending_forecasts(db, theater: str, current_time: float,
-                                  current_tl: int):
-        """
-        Resolve any pending forecasts whose prediction window has elapsed.
-        Compares predicted TL against actual TL to compute accuracy.
-        """
-        try:
-            pending = db.forecast_log_get(theater, limit=50)
-        except Exception:
-            return
-        for f in pending:
-            if f.get("resolved_at") is not None:
-                continue  # Already resolved
-            age = current_time - f["ts"]
-            # Resolve forecasts after 1 hour (prediction window)
-            if age < 3600:
-                continue
-            predicted = f.get("predicted", "")
-            # Extract TL number from "TLn"
-            try:
-                pred_tl = int(predicted.replace("TL", ""))
-            except (ValueError, AttributeError):
-                continue
-            actual_str = f"TL{current_tl}"
-            # Accuracy: 1.0 = exact match, 0.5 = off by 1, 0.0 = off by ≥2
-            diff = abs(pred_tl - current_tl)
-            accuracy = 1.0 if diff == 0 else 0.5 if diff == 1 else 0.0
-            try:
-                db.forecast_log_resolve(f["id"], actual_str, accuracy)
-            except Exception:
-                pass
+    # ── CAC Phase D: Co-occurrence ────────────────────────────────────────
+    # forecast_log was retired 2026-05-05: production accuracy averaged ~3%
+    # with predicted_next_tl=TL1 in every recorded row, indicating the
+    # underlying compute_escalation_progress() returned a degenerate
+    # signal. The conclusion ledger (TREND / PER_DOMAIN) supersedes
+    # short-term forecast tracking with NP6-compliant audit trail.
 
     # ── A2: Theater Baseline Risk (auto-calculated) ──────────────────────────
 

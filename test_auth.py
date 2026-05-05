@@ -625,15 +625,6 @@ class TestDataRetention:
         rows = db.daily_summary_get("test_ds", days=90)
         assert any(r["day_bucket"] == recent_bucket for r in rows)
 
-    def test_forecast_log_pruned(self):
-        now = time.time()
-        old_ts = now - 400 * 86400  # 400 days ago (> 365-day default)
-        recent_ts = now - 30 * 86400  # 30 days ago
-        db.forecast_log_add("test_fc", old_ts, "trend", "up")
-        db.forecast_log_add("test_fc", recent_ts, "trend", "down")
-        deleted = db._prune_stale_rows()
-        assert deleted["forecast_log"] >= 1
-
     def test_confirmed_threats_not_pruned(self):
         """confirmed_threats must NOT be auto-deleted (ground truth data)."""
         now = time.time()

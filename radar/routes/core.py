@@ -2528,16 +2528,9 @@ def get_threat_data():
             _prox_score = score_with_bonus
         tl_proximity = _routes.engine.compute_tl_proximity(_prox_score, threat_level)
 
-        # ── CAC Phase D: Forecast recording & resolution ──────────────────
+        # CAC Phase D escalation summary (forecast_log retired 2026-05-05).
         _escalation = _routes.engine.compute_escalation_progress(
             _db.threat_list(), _db.alert_list(limit=100))
-        try:
-            _routes.engine.record_forecast(
-                _db, core_theater, current_time, threat_level, _escalation)
-            _routes.engine.resolve_pending_forecasts(
-                _db, core_theater, current_time, threat_level)
-        except Exception:
-            pass  # Non-critical
 
         system_note = _routes.engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
         # Append new analysis annotations
@@ -2801,9 +2794,8 @@ def get_threat_data():
                 "core": ct_data.get(core_theater),
                 "status": ct_country_status.get(core_theater, "NORMAL"),
             },
-            # Phase D: Co-occurrence boost & Forecast accuracy
+            # Phase D: Co-occurrence boost (forecast_accuracy retired 2026-05-05).
             "cooccurrence_boost": cooc_boost,
-            "forecast_accuracy": _db.forecast_accuracy_summary(core_theater),
         }
 
         score_breakdown = {
