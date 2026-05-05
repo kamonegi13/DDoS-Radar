@@ -1392,6 +1392,54 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             group=GROUP_ACCESS, secret=True,
             apply_timing=TIMING_LIVE_IMMEDIATE,
         ),
+
+        # ── Auto-apply tier governor (self-promoting calibration) ────────
+        # Cap on the auto_apply tier the system can promote itself to.
+        # 0 = halt all auto-apply (proposals still recorded for audit).
+        # 3 = full self-tuning, including HIGH-impact registry keys.
+        # The governor will never *exceed* this cap; analysts can pin
+        # the system at a lower tier even if metrics qualify for more.
+        ConfigKey(
+            key="AUTO_CALIBRATION_TIER_CAP", domain="audit.changes",
+            default=3, type_="int",
+            description="Auto-apply tier ceiling (0=off, 3=full).",
+            group=GROUP_OPERATE, min_value=0, max_value=3,
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+            impact_level="high",
+            impact_warning="Lowering this halts auto-tune at runtime; "
+                           "raising it lets the governor consider "
+                           "promotion on the next daily evaluation.",
+            what="Maximum auto-apply tier the self-promoting governor "
+                 "is allowed to reach. Tier 0 disables auto-apply "
+                 "system-wide; Tier 3 enables full self-tuning across "
+                 "LOW/MED/HIGH impact keys.",
+            why="Operator kill-switch separate from per-proposal safety "
+                 "rules. Independent of the tier governor's own "
+                 "evaluation so an analyst can pin the system back to "
+                 "a known-good state during an incident.",
+            when="Drop to 0 immediately on any suspicion of mis-tuning. "
+                 "Restore to 3 after the cause is understood; the "
+                 "governor will re-promote on its own schedule if "
+                 "conditions warrant.",
+        ),
+        ConfigKey(
+            key="AUTO_APPLY_HIGH_COOLDOWN_HOURS", domain="audit.changes",
+            default=24.0, type_="float",
+            description="Cooldown for LOW/MED calibrators after a HIGH change.",
+            group=GROUP_OPERATE, min_value=1.0, max_value=168.0, unit="h",
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+            what="When a HIGH-impact key is auto-applied at Tier 3, "
+                 "downstream LOW/MED calibrators are paused for this "
+                 "many hours so they don't pile chained proposals onto "
+                 "a single unproven change.",
+            why="Anti-oscillation. A HIGH change rebalances the entire "
+                 "scoring landscape; LOW/MED calibrators that propose "
+                 "during the absorption window are reacting to a "
+                 "transient state.",
+            when="Lengthen to 48-72h during initial Tier 3 operation; "
+                 "shorten to 12h once the system shows stable behaviour "
+                 "across multiple HIGH changes.",
+        ),
     )
 except Exception:
     # Registration is best-effort. NP3 — never crash on registry errors.

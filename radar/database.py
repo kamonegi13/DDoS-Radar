@@ -2836,6 +2836,34 @@ class RadarDB:
             conn.execute("DROP INDEX IF EXISTS idx_forecast_theater_ts"),
             conn.execute("DROP TABLE IF EXISTS forecast_log"),
         ]),
+
+        # v52: auto-apply tier governor (self-promoting calibration).
+        # `auto_apply_tier_state` records every tier transition (init /
+        # promote / demote / circuit_breaker / kill_switch) with the
+        # metrics that triggered it. NP6 — the audit log is the SoT for
+        # "why did the system change its own auto-apply confidence".
+        # `auto_apply_cooldown` lets a tier-3 HIGH-impact change halt
+        # downstream LOW/MED calibrators for a configurable window so
+        # chained proposals can't pile on top of an unproven change.
+        (52, "auto-apply tier governor (auto_apply_tier_state + cooldown)",
+         lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS auto_apply_tier_state (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                observed_at     REAL    NOT NULL,
+                tier            INTEGER NOT NULL,
+                transition      TEXT    NOT NULL,
+                reason          TEXT    NOT NULL DEFAULT '',
+                metrics_json    TEXT    NOT NULL DEFAULT '{}'
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_auto_apply_tier_state_observed
+                ON auto_apply_tier_state (observed_at DESC)"""),
+            conn.execute("""CREATE TABLE IF NOT EXISTS auto_apply_cooldown (
+                impact_level    TEXT PRIMARY KEY,
+                cooldown_until  REAL NOT NULL,
+                triggered_by    TEXT NOT NULL DEFAULT '',
+                set_at          REAL NOT NULL
+            )"""),
+        ]),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):

@@ -444,6 +444,32 @@ def _cache_cleanup_worker(registry=None):
                         "[RssNarrativeETL] daily pass failed: %s", _rss_exc,
                     )
 
+            # Phase G3: auto-apply tier governor (self-promoting).
+            # Reads its own audit log + threshold_history + diff_log to
+            # decide whether the system should promote (0→1→2→3) or
+            # demote based on observed reliability. Every transition
+            # is recorded to auto_apply_tier_state for NP6 audit.
+            # Failures here are caught inside the module; this outer
+            # try/except is the last-resort safety net.
+            if _cycle % 24 == 8:
+                try:
+                    from radar.calibration.auto_apply_tier_governor import (
+                        run_once as _tier_once,
+                    )
+                    tg = _tier_once()
+                    if tg.get("transition") not in (None, "unchanged"):
+                        log.info(
+                            "[TierGovernor] %s prior=%d new=%d reason=%s",
+                            tg.get("transition"),
+                            tg.get("prior_tier"),
+                            tg.get("new_tier"),
+                            tg.get("reason"),
+                        )
+                except Exception as _tg_exc:
+                    log.warning(
+                        "[TierGovernor] daily pass failed: %s", _tg_exc,
+                    )
+
             # Phase F3: scenario drift watchdog (per-scenario).
             # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
             # surfacing in <1 day. Records each detection; the API render
