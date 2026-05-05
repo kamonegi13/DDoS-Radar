@@ -628,10 +628,44 @@ def v2_self_eval():
         out["null_zone_days"] = None
         out["null_zone_error"] = str(e)
 
-    # Drift — placeholder. Phase 4+: stddev of recall over rolling 7d
-    # windows. Today returns None so the chip renders "—" until we have
-    # a long enough analyst_feedback ledger to compute it.
-    out["drift"] = None
+    # Drift — global aggregate of per-scenario shadow_sampler drift.
+    # The HUD chip (radar.js#hud-drift-value) reads `data.drift` as a
+    # flat fraction in [0, 1]; bands are good ≤0.05, warn ≤0.10,
+    # crit >0.10. We compute mean(|drift_magnitude_pct|)/100 across
+    # scenarios with sample_count ≥ _MIN_SAMPLES_FOR_VERDICT (8) — the
+    # same threshold per-scenario calibration_status_for() trusts.
+    # Mean (not max) avoids over-reacting to a single noisy scenario;
+    # max is exposed separately in `drift_meta` for tooltips.
+    try:
+        from radar.database import db as _shared_db
+        drift_stats = _shared_db.shadow_drift_stats()
+        magnitudes = []
+        for _sid, per in (drift_stats or {}).get("by_scenario", {}).items():
+            if int(per.get("sample_count", 0)) < 8:
+                continue
+            magnitudes.append(abs(float(per.get("drift_magnitude_pct", 0.0))))
+        if magnitudes:
+            mean_pct = sum(magnitudes) / len(magnitudes)
+            out["drift"] = round(mean_pct / 100.0, 4)
+            out["drift_meta"] = {
+                "method":         "mean_abs_drift_magnitude",
+                "scenarios_n":    len(magnitudes),
+                "max_pct":        round(max(magnitudes), 1),
+                "min_sample_n":   8,
+                "period_days":    drift_stats.get("period_days"),
+            }
+        else:
+            out["drift"] = None
+            out["drift_meta"] = {
+                "method":         "mean_abs_drift_magnitude",
+                "scenarios_n":    0,
+                "min_sample_n":   8,
+                "period_days":    drift_stats.get("period_days") if drift_stats else None,
+                "reason":         "no_scenarios_with_sufficient_samples",
+            }
+    except Exception as e:  # noqa: BLE001
+        out["drift"] = None
+        out["drift_meta"] = {"error": str(e)}
 
     # bg_observer — per-cycle audit summary (ADR-V2-015 Phase 5).
     # Never errors out (NP3); returns nulls if the table is empty or
