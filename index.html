@@ -269,6 +269,20 @@
             <span class="hud-chip-label">AUTO-CAL</span>
             <span id="hud-autocal-value" class="hud-chip-value">—</span>
         </div>
+        <!-- NP5+8 / ADR-V2-010 — chronic-inconclusive detector. Counts
+             (scenario, conclusion_type) pairs whose UNAVAILABLE run has
+             persisted past the configured threshold (default 7d). Bands:
+             0=good, 1-2=warn, ≥3=crit. Tooltip lists offending pairs.
+             Click opens Operate > Auto-Calibration SETTINGS so the
+             threshold knob and live status block are reachable in one
+             gesture. -->
+        <div class="hud-chip hud-self-eval" id="hud-chronic-chip"
+             title="Chronic-inconclusive detector (NP5+8 / ADR-V2-010). Polled from /api/v2/observability/chronic_inconclusive."
+             onclick="window._openAutoCalSettings && window._openAutoCalSettings()"
+             style="cursor:pointer;">
+            <span class="hud-chip-label">CHRONIC</span>
+            <span id="hud-chronic-value" class="hud-chip-value">—</span>
+        </div>
         <!-- LLM Feature Hub chip — shows N on / total features with shadow tail.
              Click opens the Feature Hub modal. -->
         <div class="hud-chip hud-self-eval" id="hud-llm-feat-chip"
@@ -3450,6 +3464,15 @@
             <li><b>NP6 audit trail</b>: every tier transition (init / promote / demote / circuit_breaker / kill_switch_engaged) appends a row to <span class="code-block">auto_apply_tier_state</span> with the full <span class="code-block">metrics_json</span> snapshot that justified it. The endpoint exposes the last 10 transitions; deeper history is available via direct DB query (admin SQL audit).</li>
         </ul>
 
+        <p><b>P. Chronic-Inconclusive Detector (NP5+8 / ADR-V2-010)</b> — HUD <span class="code-block">CHRONIC</span> chip / <span class="code-block">/api/v2/observability/chronic_inconclusive</span></p>
+        <ul>
+            <li><b>Contract</b>: CLAUDE.md states "transient inconclusive ok, chronic inconclusive after data has accumulated = design failure". The detector enforces this directly: any (scenario, conclusion_type) pair whose UNAVAILABLE run has lasted past <span class="code-block">CHRONIC_INCONCLUSIVE_THRESHOLD_DAYS</span> (default 7d, min 3d) is flagged chronic.</li>
+            <li><b>Data source</b>: <span class="code-block">inconclusive_continuity_log</span> — populated by <span class="code-block">_record_continuity</span> on every conclusion save (transition events: open / extend / close). The detector picks the latest row per pair and treats <span class="code-block">is_available=0</span> as "still unavailable since first_seen_at".</li>
+            <li><b>Daily scheduler hook</b>: at <span class="code-block">_cycle % 24 == 9</span> the snapshot fires; for every chronic state, <span class="code-block">record_failure("inconclusive_chronic", ...)</span> bumps the silent-failure ledger. Crucially, <span class="code-block">inconclusive_chronic</span> is <i>not</i> in the FAULT chip's NP1 category set — it is its own NP5+8 surface, with the dedicated CHRONIC chip.</li>
+            <li><b>HUD CHRONIC chip</b>: row 3, next to AUTO-CAL. Label is the chronic count. Bands: 0 → green, 1-2 → amber, ≥3 → red. Tooltip lists the worst 5 offending pairs with their dwell time. Click opens Operate &gt; Auto-Calibration SETTINGS where the threshold knob lives.</li>
+            <li><b>Tuning</b>: lower the threshold only after the false-positive rate has been observed for ≥30 days; never below 3d (routine sensor outages would dominate). When CHRONIC fires legitimately the answer is rarely "raise the threshold" — fix the upstream sensor or accept the design limit and document it.</li>
+        </ul>
+
         </div>
         <div class="guide-lang-ja" lang="ja" style="display:none;">
         <h4>10. 管理機能 &amp; 拡張機能</h4>
@@ -3855,6 +3878,15 @@
                 </ul>
             </li>
             <li><b>NP6 監査証跡</b>: tier の遷移（init / promote / demote / circuit_breaker / kill_switch_engaged）はすべて <span class="code-block">auto_apply_tier_state</span> に行追加され、判定根拠の <span class="code-block">metrics_json</span> も保存される。エンドポイントは直近 10 件を露出し、それより古い履歴は管理者が直接 DB を参照する形（SQL 監査）でアクセスできる。</li>
+        </ul>
+
+        <p><b>P. 恒常的結論不可検知 (NP5+8 / ADR-V2-010)</b> — HUD <span class="code-block">CHRONIC</span> chip / <span class="code-block">/api/v2/observability/chronic_inconclusive</span></p>
+        <ul>
+            <li><b>契約</b>: CLAUDE.md は「過渡的結論不可は許容、データ蓄積後の恒常的結論不可は設計失敗」と明記している。本検知器がこの契約を直接強制する: (シナリオ, conclusion_type) ペアの UNAVAILABLE 開始から <span class="code-block">CHRONIC_INCONCLUSIVE_THRESHOLD_DAYS</span>（既定 7d、最小 3d）を超過したものを chronic として flag する。</li>
+            <li><b>データソース</b>: <span class="code-block">inconclusive_continuity_log</span> — 結論保存ごとに <span class="code-block">_record_continuity</span> が記録（open / extend / close の遷移イベント）。検知器はペアごとに最新行を取り、<span class="code-block">is_available=0</span> なら「<span class="code-block">first_seen_at</span> から不可状態が継続中」と解釈する。</li>
+            <li><b>日次 scheduler hook</b>: <span class="code-block">_cycle % 24 == 9</span> でスナップショットを取り、chronic 1 件ごとに <span class="code-block">record_failure("inconclusive_chronic", ...)</span> を発火。重要な点は、<span class="code-block">inconclusive_chronic</span> は FAULT chip の NP1 カテゴリ集合には<i>含めない</i>こと — NP5+8 用の専用サーフェス（CHRONIC chip）として独立に表示する。</li>
+            <li><b>HUD CHRONIC chip</b>: row 3、AUTO-CAL の隣。ラベルは chronic 件数。バンド: 0 → 緑、1-2 → 琥珀、≥3 → 赤。tooltip に上位 5 件の offending ペアと滞在日数を表示。クリックで Operate &gt; Auto-Calibration SETTINGS を開く（閾値ノブの所在）。</li>
+            <li><b>チューニング</b>: 閾値を下げるのは false-positive 率を 30 日以上観察した後のみ。3d 未満には決して下げない（routine sensor outages が支配的になる）。CHRONIC が正当に発火した場合、答えはほぼ「閾値を上げる」ではなく「上流 sensor を直す」または「設計上の限界として記録する」。</li>
         </ul>
 
         </div>

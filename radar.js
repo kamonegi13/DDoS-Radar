@@ -5004,6 +5004,10 @@
         // tick so polling more aggressively is wasted.
         _refreshAutoCalChip();
         setInterval(_refreshAutoCalChip, 60 * 1000);
+        // CHRONIC chip (NP5+8 / ADR-V2-010 detector). 60s cadence;
+        // mutation is daily so a tighter poll is wasted.
+        _refreshChronicChip();
+        setInterval(_refreshChronicChip, 60 * 1000);
     });
 
     // ── AUTO-CAL chip (Phase 3 hardening) ────────────────────────────────
@@ -5097,6 +5101,68 @@
             }
         } catch (_) { /* NP3 — silent */ }
     };
+
+    // ── CHRONIC chip (NP5+8 / ADR-V2-010 detector) ───────────────────────
+    // Polls /api/v2/observability/chronic_inconclusive and renders the
+    // count of (scenario, conclusion_type) pairs whose UNAVAILABLE run
+    // has lasted past the operator-configurable threshold (default 7d).
+    // Bands: 0 → good, 1-2 → warn, ≥3 → crit. Tooltip lists the worst
+    // offending pairs (top 5) so an analyst can see *which* conclusions
+    // the system is structurally blind to.
+    let _chronicLastFetchMs = 0;
+    const _CHRONIC_TTL_MS = 30 * 1000;
+
+    async function _refreshChronicChip() {
+        const now = Date.now();
+        if (now - _chronicLastFetchMs < _CHRONIC_TTL_MS) return;
+        _chronicLastFetchMs = now;
+        const valEl = document.getElementById('hud-chronic-value');
+        const chip = document.getElementById('hud-chronic-chip');
+        if (!valEl || !chip) return;
+        try {
+            const resp = await fetch(
+                '/api/v2/observability/chronic_inconclusive');
+            if (!resp.ok) return;  // 401 / 503 → leave previous values
+            const body = await resp.json();
+            const s = (body && body.data) || null;
+            if (!s) return;
+
+            const summary = s.summary || {};
+            const chronicCount = Number(summary.chronic_count || 0);
+            const transientCount = Number(summary.transient_count || 0);
+            valEl.textContent = String(chronicCount);
+
+            let band = 'good';
+            if (chronicCount >= 3) band = 'crit';
+            else if (chronicCount >= 1) band = 'warn';
+            _applySelfEvalClass('hud-chronic-chip', band);
+
+            // Tooltip — template-driven (AP2: no LLM).
+            const lines = [];
+            const thr = (typeof s.threshold_days === 'number')
+                ? s.threshold_days.toFixed(1) : '?';
+            lines.push('Chronic inconclusive (NP5+8): '
+                       + chronicCount + ' state(s) past ' + thr + 'd');
+            lines.push('  transient: ' + transientCount);
+            const chronicList = (s.chronic || []).slice(0, 5);
+            if (chronicList.length > 0) {
+                lines.push('  worst:');
+                for (const st of chronicList) {
+                    const days = (typeof st.days_unavailable === 'number')
+                        ? st.days_unavailable.toFixed(1) + 'd'
+                        : '?d';
+                    lines.push('    ' + st.scenario_id + '/'
+                               + st.conclusion_type + ' — ' + days);
+                }
+            }
+            if (chronicCount === 0 && transientCount === 0) {
+                lines.push('  (no open unavailability runs — healthy)');
+            }
+            chip.title = lines.join('\n');
+        } catch (_) {
+            // NP3 — leave previous values.
+        }
+    }
 
     // ── Triage Lane / Alert Lane (AP1 — Active Triage) ──────────────────
     // Active Triage: ranks event-shaped conclusions (anomaly + attack_mode

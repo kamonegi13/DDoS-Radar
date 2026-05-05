@@ -470,6 +470,51 @@ def _cache_cleanup_worker(registry=None):
                         "[TierGovernor] daily pass failed: %s", _tg_exc,
                     )
 
+            # Chronic-inconclusive detector (ADR-V2-010 / NP5+8). Daily
+            # pass: snapshot the inconclusive_continuity_log, flag every
+            # (scenario, conclusion_type) whose open run has lasted past
+            # the threshold, and register one record_failure() per
+            # chronic state so the silent-failure ledger reflects the
+            # NP5+8 contract breach. The detector itself is NP3-tolerant
+            # — this outer try/except is just a safety net.
+            if _cycle % 24 == 9:
+                try:
+                    from radar.conclusions.inconclusive_continuity import (
+                        chronic_snapshot as _chronic_snap,
+                    )
+                    from radar.conclusions.shadow_metrics import (
+                        record_failure as _record_failure,
+                    )
+                    from radar.database import db as _shared_db
+                    snap = _chronic_snap(_shared_db)
+                    chronic = snap.get("chronic", []) or []
+                    for st in chronic:
+                        try:
+                            _record_failure(
+                                "inconclusive_chronic",
+                                RuntimeError(
+                                    f"chronic UNAVAILABLE: "
+                                    f"{st.get('scenario_id')}/"
+                                    f"{st.get('conclusion_type')} "
+                                    f"for {st.get('days_unavailable', 0):.1f}d"
+                                ),
+                            )
+                        except Exception:
+                            # record_failure must not be load-bearing.
+                            pass
+                    if chronic:
+                        log.warning(
+                            "[ChronicInconclusive] %d chronic state(s) "
+                            "flagged (threshold=%.1fd)",
+                            len(chronic),
+                            float(snap.get("threshold_days", 0)),
+                        )
+                except Exception as _chronic_exc:
+                    log.warning(
+                        "[ChronicInconclusive] daily pass failed: %s",
+                        _chronic_exc,
+                    )
+
             # Phase F3: scenario drift watchdog (per-scenario).
             # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
             # surfacing in <1 day. Records each detection; the API render
