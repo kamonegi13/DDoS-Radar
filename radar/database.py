@@ -1018,18 +1018,6 @@ CREATE INDEX IF NOT EXISTS idx_conclusion_diff_kind_time
 CREATE INDEX IF NOT EXISTS idx_conclusions_scen_type_time
     ON conclusions (scenario_id, conclusion_type, observed_at DESC);
 
--- v2.0 priority 3 (Safe Rename Pattern SR4): legacy_access_log.
--- Records every observed access of a deprecated identifier so that the
--- 90-day sunset criterion (ADR-V2-002) can be evaluated on data, not guesswork.
-CREATE TABLE IF NOT EXISTS legacy_access_log (
-    key         TEXT    PRIMARY KEY,
-    count       INTEGER NOT NULL DEFAULT 0,
-    first_seen  REAL    NOT NULL,
-    last_seen   REAL    NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_legacy_access_last_seen
-    ON legacy_access_log (last_seen DESC);
-
 -- CAC: Noise exclusion rules (analyst-defined)
 CREATE TABLE IF NOT EXISTS noise_exclusion (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2844,6 +2832,14 @@ class RadarDB:
 
         (49, "R4 seed config_runtime_value from os.environ for registry keys",
          _migration_v49_seed_config_runtime_from_env),
+
+        # v50: drop SR4 legacy_access_log telemetry table. The 14-day
+        # zero-hits cutover gate (ADR-V2-006 A-5) was met; the dual-read
+        # path for `?theater=` was removed alongside this migration.
+        (50, "drop legacy_access_log (SR4 telemetry retired)", lambda conn: [
+            conn.execute("DROP INDEX IF EXISTS idx_legacy_access_last_seen"),
+            conn.execute("DROP TABLE IF EXISTS legacy_access_log"),
+        ]),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -5815,16 +5811,6 @@ class RadarDB:
         deleted["decisions_superseded"] = cur.rowcount
         conn.commit()
 
-        # legacy_access_log: v1 sunset telemetry. 90d covers post-sunset
-        # observation period; older rows have no operational value.
-        _lal_days = int(_os.getenv("LEGACY_ACCESS_LOG_RETENTION_DAYS", "90"))
-        cutoff_lal = now - _lal_days * 86400
-        cur = conn.execute(
-            "DELETE FROM legacy_access_log WHERE last_seen < ?",
-            (cutoff_lal,))
-        deleted["legacy_access_log"] = cur.rowcount
-        conn.commit()
-
         # Phase 1 fix (2026-04-30 PM, problem 48): see
         # _revive_expired_snoozed_proposals() for details. Extracted
         # so unit tests can target the sweep without exercising every
@@ -6943,11 +6929,3 @@ from radar.config import PERSISTENCE_DIR  # noqa: E402
 _DB_PATH = os.path.join(PERSISTENCE_DIR, "radar.db")
 db = RadarDB(_DB_PATH)
 
-# Hydrate Safe Rename Pattern SR4 telemetry from disk so counters survive
-# restarts. Best-effort: if migration v23 has not yet run, the call is a no-op
-# and will succeed on the next module import (after migrations complete).
-try:
-    from radar import legacy_telemetry as _lt
-    _lt.hydrate_from_db(db)
-except Exception as _e:
-    log.warning("legacy_telemetry hydrate skipped: %s", _e)

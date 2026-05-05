@@ -456,23 +456,6 @@ def _cache_cleanup_worker(registry=None):
             # Hourly: WAL checkpoint (flush WAL to main DB file)
             _db.wal_checkpoint()
 
-            # Hourly: persist legacy access telemetry (Safe Rename Pattern SR4).
-            # Cheap UPSERT — runs after the WAL checkpoint so a crash here
-            # at worst loses the increments since the last hour, never
-            # data already on disk.
-            try:
-                from radar import legacy_telemetry as _lt
-                flushed = _lt.flush_to_db(_db)
-                if flushed:
-                    log.info(f"[Cleanup] legacy_access flushed: {flushed} keys")
-            except Exception as e:
-                log.error(f"[Cleanup] legacy_access flush error: {e}")
-
-            # v1 sunset observation hook removed 2026-04-29 alongside the
-            # early ADR-V2-003 sunset. The summarize_v1_sunset helper that
-            # used to live here was reading from radar.conclusions.v1_sunset,
-            # which has been deleted.
-
             # Daily: prune SQLite tables
             if _cycle % DB_CLEANUP_EVERY == 0:
                 _db.periodic_cleanup()

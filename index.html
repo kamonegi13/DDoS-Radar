@@ -602,15 +602,13 @@
     </div>
 </div>
 
-<!-- Phase 10 cleanup — legacy MASTER CONFIGURATION shell deleted.
-     The 7 .tab-content children below are orphaned at body level
-     (CSS .tab-content { display:none } keeps them invisible).
-     At first SETTINGS open, _settingsAdoptLegacyTabs() transplants
-     them into #settings-v2-legacy-host inside settings-modal-v2.
-     The deleted shell included: modal-header, tabs nav,
-     modal-main-area / modal-content-panel wrappers, and
-     modal-map-panel (Region Preview minimap — dropped: redundant
-     with the main map). -->
+<!-- Tab-content source container.
+     The 7 .tab-content children below are kept at body level (hidden
+     by CSS .tab-content { display:none }) and transplanted into
+     #settings-v2-legacy-host on first SETTINGS open by
+     _settingsAdoptLegacyTabs(). Living in a separate container at
+     body level keeps the source readable and avoids re-parenting
+     issues at modal initialisation. -->
 <div id="legacy-tabs-orphan-host" style="display:none;">
             <div id="tab-sensors" class="tab-content active">
                 <div class="help-text" data-i18n-html="modal.sensors.help">
@@ -961,10 +959,6 @@
                 <div class="env-field">
                     <label data-i18n="sysconfig.field.isr_surge">ISR Surge Threshold (aircraft) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
                     <input class="env-input" id="ec-ISR_SURGE_THRESHOLD" type="number" style="max-width:90px;">
-                </div>
-                <div class="env-field" style="flex-direction:column;align-items:flex-start;">
-                    <label style="margin-bottom:3px;" data-i18n="sysconfig.field.isr_icao">ISR ICAO Type Codes <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></label>
-                    <input class="env-input wide" id="ec-ISR_ICAO_TYPES" type="text" placeholder="RC135,RC-135,E3,...">
                 </div>
                 <div class="env-field">
                     <label data-i18n="sysconfig.field.gps_jam">GPS Jamming Threshold <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
@@ -3411,7 +3405,7 @@
             <li><b>Phase 1 — sensor column on contribution_log</b>: <span class="code-block">scenario_contribution_log.sensor</span> added (migration v36) so the OBS chip / recall baseline / scenario_improver can isolate bg_observer / llm_intel / per-country sensor contribution. Existing rows render as 'legacy'.</li>
             <li><b>Phase 2 — alias coverage invariant</b>: 11 ISO-2 codes added to <span class="code-block">_COUNTRY_ALIASES</span>. <span class="code-block">verify_alias_coverage()</span> + <span class="code-block">scripts/check_alias_coverage.py</span> wired into <span class="code-block">scripts/check_ci.sh</span>; CI fails if a new scenario participant is added without a matching alias.</li>
             <li><b>Phase 3 — broadcast scan</b>: <span class="code-block">extract_kinetic_regex_all()</span> emits one <span class="code-block">KineticMatch</span> per detected country in a single feed item. <span class="code-block">BackgroundObserver.tick()</span> now scans the union of all scorable scenarios' participants every cycle (round-robin retired). The scoring layer's per-scenario participant filter routes each match to its correct scenario.</li>
-            <li><b>Phase 4 — BaseSensor reification</b>: <span class="code-block">radar/sensors/bg_observer.py</span> wraps the broadcast observer in <span class="code-block">BackgroundObserverSensor(BaseSensor)</span> with <span class="code-block">tier=SensorTier.BACKGROUND_ELIGIBLE</span> — the first concrete BG_ELIGIBLE sensor, satisfying ADR-002 / ADR-017. Health, circuit breaker, fetch_log, and registry membership now flow through the standard pipeline. <span class="code-block">radar.background_observer.start_worker()</span> is preserved as a deprecated no-op shim for one release.</li>
+            <li><b>Phase 4 — BaseSensor reification</b>: <span class="code-block">radar/sensors/bg_observer.py</span> wraps the broadcast observer in <span class="code-block">BackgroundObserverSensor(BaseSensor)</span> with <span class="code-block">tier=SensorTier.BACKGROUND_ELIGIBLE</span> — the first concrete BG_ELIGIBLE sensor, satisfying ADR-002 / ADR-017. Health, circuit breaker, fetch_log, and registry membership now flow through the standard pipeline.</li>
             <li><b>Phase 5 — per-cycle audit</b>: new table <span class="code-block">bg_observer_cycle_log</span> (migration v36) records every cycle's gate-level counters: feeds attempted/failed, items with country/kinetic/fatalities, matches by country, alias_gap. Surfaced in <span class="code-block">/api/v2/self_eval</span> under <span class="code-block">bg_observer</span> and rendered by the new HUD <b>OBS-BG</b> chip (Row 3, next to RECALL / NULL-ZONE / DRIFT). Bands: green ≤50% empty cycles, amber ≤80%, red on alias_gap or 0 cycles in 24h, "OFF" when BG_OBSERVER_ENABLED=false (legitimate OPSEC choice).</li>
             <li><b>Phase 6 — recall ladder</b>: confidence ladder extended from 2 to 3 tiers — fatality count (0.85), kinetic verb only (0.60), <i>escalation verb only</i> (0.40, NEW). Escalation verbs include <span class="code-block">mobilize</span>, <span class="code-block">deploy</span>, <span class="code-block">scramble</span>, <span class="code-block">missile test</span>, <span class="code-block">recall ambassador</span>, <span class="code-block">sever ties</span>, <span class="code-block">expel diplomat</span>, <span class="code-block">troop buildup</span>, <span class="code-block">military exercise</span>. Per NP1 (recall &gt; precision), low-confidence early-warning matches enter scoring at reduced raw_score (0.25) so analyst can override via Decision Layer.</li>
             <li><b>Tests</b>: <span class="code-block">test_rss_extractor.py</span> +14 cases (alias coverage gate, multi-country broadcast, escalation-verb ladder, kinetic outranks escalation), <span class="code-block">test_background_observer.py</span> rewritten for broadcast (8 cases). 38 + 13 tests pass.</li>
@@ -3789,7 +3783,7 @@
             <li><b>Phase 1 — contribution_log の sensor 列</b>: <span class="code-block">scenario_contribution_log.sensor</span> 追加（migration v36）。OBS chip / recall baseline / scenario_improver が bg_observer / llm_intel / per-country sensor の寄与を分離可能に。既存行は 'legacy' として render。</li>
             <li><b>Phase 2 — alias coverage 不変条件</b>: 11 ISO-2 コードを <span class="code-block">_COUNTRY_ALIASES</span> に追加。<span class="code-block">verify_alias_coverage()</span> + <span class="code-block">scripts/check_alias_coverage.py</span> を <span class="code-block">scripts/check_ci.sh</span> に組み込み。新シナリオ参加国を追加した時に alias を忘れると CI が落ちる。</li>
             <li><b>Phase 3 — broadcast スキャン</b>: <span class="code-block">extract_kinetic_regex_all()</span> が 1 アイテム中の検出全国に対し <span class="code-block">KineticMatch</span> を発行。<span class="code-block">BackgroundObserver.tick()</span> は全 scorable シナリオ参加国の和集合を毎サイクルスキャン（round-robin 廃止）。scoring 層の per-scenario 参加国フィルタが各マッチを正しいシナリオへルーティング。</li>
-            <li><b>Phase 4 — BaseSensor 化</b>: <span class="code-block">radar/sensors/bg_observer.py</span> で broadcast observer を <span class="code-block">BackgroundObserverSensor(BaseSensor)</span> に包含し <span class="code-block">tier=SensorTier.BACKGROUND_ELIGIBLE</span> を設定 — ADR-002 / ADR-017 を満たす最初の具体的 BG_ELIGIBLE sensor。health / circuit breaker / fetch_log / registry membership がすべて標準パイプラインを経由。<span class="code-block">radar.background_observer.start_worker()</span> は 1 リリース猶予の deprecated no-op shim として保持。</li>
+            <li><b>Phase 4 — BaseSensor 化</b>: <span class="code-block">radar/sensors/bg_observer.py</span> で broadcast observer を <span class="code-block">BackgroundObserverSensor(BaseSensor)</span> に包含し <span class="code-block">tier=SensorTier.BACKGROUND_ELIGIBLE</span> を設定 — ADR-002 / ADR-017 を満たす最初の具体的 BG_ELIGIBLE sensor。health / circuit breaker / fetch_log / registry membership がすべて標準パイプラインを経由。</li>
             <li><b>Phase 5 — per-cycle 監査</b>: 新テーブル <span class="code-block">bg_observer_cycle_log</span>（migration v36）が各サイクルの gate-level カウンタを記録（feeds 試行/失敗、items_with_country/kinetic/fatalities、matches_by_country、alias_gap）。<span class="code-block">/api/v2/self_eval</span> の <span class="code-block">bg_observer</span> フィールドで露出し、HUD の新 <b>OBS-BG</b> chip（Row 3、RECALL / NULL-ZONE / DRIFT の隣）で表示。バンド: 緑 ≤50% empty、琥珀 ≤80%、赤 alias_gap 非空または 24h 中 0 サイクル、"OFF" は <span class="code-block">BG_OBSERVER_ENABLED=false</span>（OPSEC 上の正当な選択）。</li>
             <li><b>Phase 6 — recall ladder</b>: confidence 階梯を 2 段階から 3 段階へ拡張 — fatality count (0.85) / kinetic verb のみ (0.60) / <i>escalation verb のみ (0.40、新設)</i>。escalation 動詞群: <span class="code-block">mobilize</span>, <span class="code-block">deploy</span>, <span class="code-block">scramble</span>, <span class="code-block">missile test</span>, <span class="code-block">recall ambassador</span>, <span class="code-block">sever ties</span>, <span class="code-block">expel diplomat</span>, <span class="code-block">troop buildup</span>, <span class="code-block">military exercise</span>。NP1（recall &gt; precision）に基づき、低 confidence の早期警戒マッチが reduced raw_score (0.25) で scoring に入り、analyst が Decision Layer で override 可能。</li>
             <li><b>テスト</b>: <span class="code-block">test_rss_extractor.py</span> +14 ケース（alias coverage gate / multi-country broadcast / escalation-verb ladder / kinetic outranks escalation）、<span class="code-block">test_background_observer.py</span> を broadcast 用に書き直し（8 ケース）。38 + 13 ケース全 pass。</li>

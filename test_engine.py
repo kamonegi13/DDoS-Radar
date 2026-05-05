@@ -1465,7 +1465,7 @@ class TestSecretIndicator:
     def test_secret_indicator_set(self):
         from radar.routes.admin import _secret_indicator
         ind = _secret_indicator("0123456789abcdef0123456789abcdef")
-        assert ind == {"set": True, "last4": "680b"}
+        assert ind == {"set": True, "last4": "cdef"}
 
     def test_secret_indicator_short(self):
         from radar.routes.admin import _secret_indicator

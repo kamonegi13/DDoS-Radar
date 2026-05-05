@@ -328,10 +328,8 @@ threading.Thread(target=_corroboration_worker,
                  daemon=True, name='corroboration').start()
 
 # AP3 Background Observer (per-scenario observation health, opt-in via
-# BG_OBSERVER_ENABLED). No-ops silently when the flag is off.
-# ADR-V2-015 Phase 4: the sensor instance owns the ticker thread; the
-# legacy radar.background_observer.start_worker() is preserved as a
-# no-op compat shim during the deprecation window.
+# BG_OBSERVER_ENABLED). The sensor owns the ticker thread; no-ops
+# silently when the flag is off.
 try:
     _bg_observer_sensor.start()
 except Exception:

@@ -53,8 +53,6 @@ WRITE_SIDE_ALLOWLIST = {
     "radar/routes/history.py",
     "radar/routes/intel.py",
     "radar/routes/scenario.py",
-    # The legacy_telemetry module's keys are formatted with `?theater=`.
-    "radar/legacy_telemetry.py",
     # Existing v1 backend code still emits "theater" keys (dual-write).
     # These are audited; A-5 will sweep them.
     "radar/database.py",

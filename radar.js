@@ -13589,17 +13589,6 @@
             pin.style.display = 'none';
         }
     }
-    // Legacy rollup picker — retained as a no-op shim for any external
-    // caller that still imports it. F3 dropped the rollup card concept;
-    // pin and panel now use governance_state directly.
-    function _pickTlRollupRec(tl) {
-        const scs = tl.scenarios || [];
-        if (scs.some(s => s.decision && s.decision.recommendation === 'RAISE_THRESHOLDS'))
-            return 'RAISE_THRESHOLDS';
-        if (scs.some(s => s.decision && s.decision.recommendation === 'EXTEND_OR_WAIT'))
-            return 'EXTEND_OR_WAIT';
-        return 'ACCEPT_CURRENT';
-    }
     // Kick off once after initial boot, then refresh hourly.
     setTimeout(_refreshPendingDecisionsPin, 12000);
     setInterval(_refreshPendingDecisionsPin, 3600 * 1000);

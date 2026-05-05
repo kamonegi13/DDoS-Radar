@@ -123,10 +123,6 @@ def api_env_config_get():
         "ISR_SURGE_THRESHOLD":           str(_cfg.ISR_SURGE_THRESHOLD),
         "GPS_JAM_THRESHOLD":             str(_cfg.GPS_JAM_THRESHOLD),
         "GPS_JAM_CRITICAL_THRESHOLD":    str(_cfg.GPS_JAM_CRITICAL_THRESHOLD),
-        # CT_LOG_SURGE_THRESHOLD intentionally omitted — ADR-024 redesign
-        # replaced surge-based detection (cert volume) with trust-class
-        # signals (untrusted CA / wildcard TLD) so the legacy threshold
-        # has no operator effect. Hidden from the admin SYSCONFIG panel.
         "USGS_MIN_MAGNITUDE":            str(_cfg.USGS_MIN_MAGNITUDE),
         "LLM_AUTO_CONFIRM_THRESHOLD":    str(_cfg.LLM_AUTO_CONFIRM_THRESHOLD),
         "LLM_CONFIDENCE_MIN":            str(_cfg.LLM_CONFIDENCE_MIN),
@@ -196,7 +192,6 @@ def api_env_config_post():
         # Sensor windows / params
         "AIRSPACE_WINDOW", "DERIVATIVE_WINDOW",
         "AIS_DARK_GAP_THRESHOLD", "AIS_ANCHOR_RADIUS_KM",
-        "ISR_ICAO_TYPES",
         # Auth / JWT
         "JWT_SECRET_KEY", "DEFAULT_ADMIN_PASSWORD",
         "JWT_ACCESS_EXPIRES", "JWT_REFRESH_EXPIRES",
@@ -322,7 +317,6 @@ _RELOADABLE_KEYS = frozenset({
     # Sensor thresholds
     "ISR_SURGE_THRESHOLD",
     "GPS_JAM_THRESHOLD", "GPS_JAM_CRITICAL_THRESHOLD",
-    # CT_LOG_SURGE_THRESHOLD removed — see ADR-024; surge-based scoring is gone.
     "USGS_MIN_MAGNITUDE",
     # Domain weights
     "DOMAIN_WEIGHT_CYBER", "DOMAIN_WEIGHT_PHYSICAL", "DOMAIN_WEIGHT_INFO",
@@ -1110,40 +1104,4 @@ def api_admin_sensor_health():
         "sensors": out_sensors,
     })
 
-
-# ── Safe Rename Pattern (SR4) telemetry ──────────────────────────────────────
-
-@bp.route("/api/admin/legacy_access", methods=["GET"])
-def api_admin_legacy_access():
-    """Dump observed accesses to deprecated identifiers / dict keys / API params.
-
-    Each row is one deprecated surface (e.g. ``Participant.theater``,
-    ``GET /api/threat_data?theater=``) with its access count and
-    first/last-seen timestamps. Used by ADR-V2-002 sunset evaluation:
-    a key with ``last_seen`` older than 30 days and matching the 90-day
-    window since dual-write rollout is a sunset candidate.
-
-    Snapshot reflects the in-memory counter, which is flushed to
-    ``legacy_access_log`` hourly by the cleanup worker.
-    """
-    auth_err = _require_admin()
-    if auth_err:
-        return auth_err
-    from radar import legacy_telemetry as _lt
-    snap = _lt.snapshot()
-    now = _time.time()
-    out = []
-    for stat in sorted(snap.values(), key=lambda s: s.last_seen, reverse=True):
-        out.append({
-            "key": stat.key,
-            "count": stat.count,
-            "first_seen": stat.first_seen,
-            "last_seen": stat.last_seen,
-            "age_hours_since_last_seen": round((now - stat.last_seen) / 3600.0, 2),
-        })
-    return jsonify({
-        "now": now,
-        "total_keys": len(out),
-        "items": out,
-    })
 

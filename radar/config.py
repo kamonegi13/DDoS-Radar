@@ -334,9 +334,6 @@ SEQUENCE_PARTIAL_BONUS   = int(os.getenv("SEQUENCE_PARTIAL_BONUS", "2"))
 # D. Maritime / ISR
 AIS_DARK_GAP_THRESHOLD   = int(os.getenv("AIS_DARK_GAP_THRESHOLD", "3600"))
 AIS_ANCHOR_RADIUS_KM     = float(os.getenv("AIS_ANCHOR_RADIUS_KM", "50"))
-ISR_ICAO_TYPES           = [t.strip().upper() for t in os.getenv(
-    "ISR_ICAO_TYPES", "RC135,RC-135,E3,E-3,RQ4,RQ-4,P8,P-8,EP3,EP-3,U2,TR1,E8,E-8"
-).split(",") if t.strip()]
 ISR_SURGE_THRESHOLD      = int(os.getenv("ISR_SURGE_THRESHOLD", "3"))
 
 # ── Phase 2: Adaptive Z-score Config ─────────────────────────────────────────
@@ -395,9 +392,9 @@ GPS_JAM_THRESHOLD             = float(os.getenv("GPS_JAM_THRESHOLD", "3.0"))
 GPS_JAM_CRITICAL_THRESHOLD    = float(os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "7.0"))
 
 # S7: CT Log (signal-model redesign — see ADR-024)
-# Legacy CT_LOG_SURGE_THRESHOLD removed: the surge-volume scoring path was
-# replaced by identity-match scoring (untrusted CA / wildcard at gov-TLD).
-# New domain warm-up window: a domain whose first observation is younger than
+# Identity-match scoring (untrusted CA / wildcard at gov-TLD) replaces
+# surge-volume thresholding.
+# Domain warm-up window: a domain whose first observation is younger than
 # this is treated as "learning" — every CA seen is recorded into the known-CA
 # table without firing an anomaly. Without a warm-up the very first poll would
 # fire UNTRUSTED_CA_DETECTED for every CA the project has never recorded
@@ -958,13 +955,6 @@ try:  # pragma: no cover — registration is best-effort, never fatal
             default=3, type_="int",
             description="ISR surge threshold (aircraft).",
             group=GROUP_TUNE, min_value=1, max_value=50,
-        ),
-        ConfigKey(
-            key="ISR_ICAO_TYPES", domain="tune.maritime",
-            default=[], type_="list[str]",
-            description="ISR ICAO type codes (comma-separated).",
-            group=GROUP_TUNE,
-            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
         ),
         ConfigKey(
             key="GPS_JAM_THRESHOLD", domain="tune.maritime",
