@@ -515,6 +515,28 @@ def _cache_cleanup_worker(registry=None):
                         _chronic_exc,
                     )
 
+            # Follow-up watch — auto-detect when a deferred backlog
+            # item's trigger condition is met (B1 / B5+ / B7 / B9 from
+            # the 2026-05-05 audit). Emits a WARN on first transition
+            # to "met"; subsequent days log at INFO. Stateless across
+            # process restarts on purpose — false re-warns after a
+            # restart are cheaper than missed transitions.
+            if _cycle % 24 == 10:
+                try:
+                    from radar.observability.followup_watch import (
+                        run_once as _followup_once,
+                    )
+                    fw = _followup_once()
+                    if fw.get("fired"):
+                        log.debug(
+                            "[FollowupWatch] %d watch(es) currently met",
+                            len(fw["fired"]),
+                        )
+                except Exception as _fw_exc:
+                    log.warning(
+                        "[FollowupWatch] daily pass failed: %s", _fw_exc,
+                    )
+
             # Phase F3: scenario drift watchdog (per-scenario).
             # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
             # surfacing in <1 day. Records each detection; the API render
