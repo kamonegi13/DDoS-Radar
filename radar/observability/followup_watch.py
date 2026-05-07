@@ -127,6 +127,132 @@ def _check_b9_alias_gap_persistence() -> tuple[bool, str]:
         return (False, f"check_failed: {exc}")
 
 
+# ── Scenario proposal symmetry watches (2026-05-07 review) ───────────────────
+#
+# The chronic-inconclusive detector enforces NP5+8 on the *tool's own*
+# state. The same shape applies to the analyst-decision-process: a
+# proposal that is "still pending" past the human-judgement window
+# is the decision-process equivalent of chronic UNAVAILABLE. Without
+# these watches, recall-reducing proposals can sit in the pending
+# queue indefinitely without escalation; that is structurally
+# inconsistent with the rest of the auto-detection lattice.
+
+# Recall-reducing proposal types — types whose *application* would
+# narrow the scenario coverage. We surveil these because not acting
+# on them in time is the same shape of design failure as chronic
+# inconclusive: the system asked, the analyst never answered, and
+# the answer to "should we shrink?" defaulted to "no" by neglect.
+_RECALL_REDUCING_PROPOSAL_TYPES = (
+    "weight_too_high",
+    "dormant_participant",
+    "role_reclassify",
+)
+
+PROPOSAL_CHRONIC_PENDING_DAYS = 60.0
+PROPOSAL_DISMISSED_INVERSION_PCT = 0.50
+PROPOSAL_DISMISSED_INVERSION_DWELL_DAYS = 14.0
+
+
+def _check_proposal_chronic_pending() -> tuple[bool, str]:
+    """Recall-reducing scenario proposals that have been pending past
+    the chronic threshold. Default 60d ≫ the 30d snooze cycle so a
+    proposal that survived a full snooze loop without resolution
+    counts as a decision-process design failure."""
+    try:
+        from radar.database import db
+        cutoff = time.time() - PROPOSAL_CHRONIC_PENDING_DAYS * 86400.0
+        placeholders = ",".join(
+            "?" for _ in _RECALL_REDUCING_PROPOSAL_TYPES
+        )
+        row = db._get_conn().execute(  # noqa: SLF001
+            f"SELECT COUNT(*) FROM scenario_proposals "
+            f"WHERE state='pending' AND emitted_at < ? "
+            f"AND proposal_type IN ({placeholders})",
+            (cutoff, *_RECALL_REDUCING_PROPOSAL_TYPES),
+        ).fetchone()
+        n = int(row[0]) if row else 0
+        return (
+            n > 0,
+            f"chronic_pending_recall_reducing={n} "
+            f"(>{int(PROPOSAL_CHRONIC_PENDING_DAYS)}d, types="
+            f"{','.join(_RECALL_REDUCING_PROPOSAL_TYPES)})",
+        )
+    except Exception as exc:
+        return (False, f"check_failed: {exc}")
+
+
+def _check_proposal_inactive_scenario() -> tuple[bool, str]:
+    """Pending proposals whose target scenario has been moved to
+    ``paused`` or ``archived`` state. The proposer cannot apply them
+    (the wizard's apply path checks scenario state), and they will
+    never auto-clear. Any age — these are dead-letters by definition."""
+    try:
+        from radar.database import db
+        rows = list(db._get_conn().execute(  # noqa: SLF001
+            "SELECT sp.id "
+            "FROM scenario_proposals sp "
+            "JOIN scenarios s ON s.id = sp.scenario_id "
+            "WHERE sp.state='pending' "
+            "AND s.state IN ('paused','archived')"
+        ))
+        n = len(rows)
+        return (n > 0, f"pending_on_inactive_scenarios={n}")
+    except Exception as exc:
+        return (False, f"check_failed: {exc}")
+
+
+def _check_proposal_dismissed_inversion_persistent() -> tuple[bool, str]:
+    """`dismissed_pct_30d` (already collected by attention.py) above
+    the inversion threshold AND continuously above it for ≥ the dwell
+    window. Today we check the instant value; persistence is
+    approximated by the existence of an *active* attention rule
+    firing for ``autotune_quality_inversion`` AND a long-enough
+    consistent history of dismissed-heavy outcomes.
+
+    Approximation rationale: a dedicated time-series of dismissed_pct
+    is overkill given how rare proposer flips are; a 14-day window
+    sample of cumulative outcomes is a good proxy. We sample two
+    points: dismissed_pct over the last 14 days vs the last 30 days.
+    If both exceed the inversion threshold, the proposer has been
+    misfiring continuously for at least 14 days."""
+    try:
+        from radar.database import db
+        now = time.time()
+
+        def _ratio(window_days: float) -> tuple[float, int]:
+            cutoff = now - window_days * 86400.0
+            rows = db._get_conn().execute(  # noqa: SLF001
+                "SELECT state, COUNT(*) FROM scenario_proposals "
+                "WHERE state IN ('applied','dismissed','snoozed_30d','reverted') "
+                "AND emitted_at >= ? GROUP BY state",
+                (cutoff,),
+            ).fetchall()
+            d = {state: int(n or 0) for state, n in rows}
+            total = sum(d.values())
+            # Below sample-size floor we treat as "not enough signal".
+            if total < 10:
+                return (0.0, total)
+            return (d.get("dismissed", 0) / total, total)
+
+        pct_30, n_30 = _ratio(30.0)
+        pct_14, n_14 = _ratio(PROPOSAL_DISMISSED_INVERSION_DWELL_DAYS)
+
+        met = (
+            n_30 >= 10
+            and n_14 >= 10
+            and pct_30 > PROPOSAL_DISMISSED_INVERSION_PCT
+            and pct_14 > PROPOSAL_DISMISSED_INVERSION_PCT
+        )
+        return (
+            met,
+            f"dismissed_pct_30d={pct_30:.2%} (n={n_30}), "
+            f"dismissed_pct_14d={pct_14:.2%} (n={n_14}) "
+            f"threshold={PROPOSAL_DISMISSED_INVERSION_PCT:.0%}",
+        )
+    except Exception as exc:
+        return (False, f"check_failed: {exc}")
+
+
 # Registry. Append-only — never delete an entry without also
 # implementing the underlying backlog item. Order is the order in
 # which warnings fire on a tick.
@@ -160,6 +286,35 @@ _WATCHES: tuple[Watch, ...] = (
                      "24h — recall is being lost. Implement an alias "
                      "editor UI that writes into the gap. Bucket B item B9.",
         check=_check_b9_alias_gap_persistence,
+    ),
+    # Decision-process symmetry watches — same shape as B5 (chronic
+    # inconclusive) but applied to scenario proposals. A pending
+    # proposal that survived past these thresholds is the analyst-
+    # decision equivalent of a chronic UNAVAILABLE state.
+    Watch(
+        name="proposal.chronic_pending",
+        description="Recall-reducing scenario_proposals "
+                     "(weight_too_high / dormant_participant / "
+                     "role_reclassify) have been pending for >60 days. "
+                     "Decision process is in design-failure state — "
+                     "act in Wizard or revisit the proposer rule.",
+        check=_check_proposal_chronic_pending,
+    ),
+    Watch(
+        name="proposal.inactive_scenario",
+        description="Pending proposals exist on paused/archived "
+                     "scenarios. The wizard cannot apply them; they "
+                     "are dead-letters. Auto-dismiss them or revive "
+                     "the scenario.",
+        check=_check_proposal_inactive_scenario,
+    ),
+    Watch(
+        name="proposal.dismissed_inversion_persistent",
+        description="dismissed_pct over both 14d and 30d windows is "
+                     "above 50% with ≥10 closed proposals each — the "
+                     "proposer has been misfiring persistently. Tune "
+                     "the rule or stop emitting that proposal_type.",
+        check=_check_proposal_dismissed_inversion_persistent,
     ),
 )
 
