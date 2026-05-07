@@ -2838,6 +2838,8 @@
               fn: '_settingsRenderAuditDecisions' },
             { id: 'audit.feedback',      labelKey: 'settings.audit.feedback',
               fn: '_settingsRenderAuditFeedback' },
+            { id: 'audit.auto_judge',    labelKey: 'settings.audit.auto_judge',
+              fn: '_settingsRenderAuditAutoJudge' },
         ]},
     ];
 
@@ -5121,6 +5123,189 @@
         if (lEl) lEl.addEventListener('change', () => {
             _feedbackLabel = lEl.value || '';
             _settingsRenderPane('audit.feedback');
+        });
+    };
+
+    // ── B3: auto_judge_decisions read-only viewer ────────────────────────
+    let _ajHours = 720;
+    let _ajAction = '';     // '' | 'confirm' | 'reject' | 'pending'
+    let _ajApplied = '';    // '' | '1' | '0'
+    let _ajOverridden = ''; // '' | '1' | '0'
+
+    async function _fetchAutoJudgeDecisions(hours, action, applied,
+                                            overridden, limit) {
+        try {
+            const params = new URLSearchParams();
+            params.set('hours', String(hours || 720));
+            params.set('limit', String(limit || 200));
+            if (action) params.set('action', action);
+            if (applied !== '') params.set('applied', applied);
+            if (overridden !== '') params.set('overridden', overridden);
+            const r = await fetch('/api/v2/auto_judge/decisions?'
+                                  + params.toString());
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+
+    window._settingsRenderAuditAutoJudge = async function (pane) {
+        _settingsLoading(pane);
+        const data = await _fetchAutoJudgeDecisions(
+            _ajHours, _ajAction, _ajApplied, _ajOverridden, 200,
+        );
+        if (!data) {
+            pane.innerHTML = '<div style="opacity:0.6">'
+                + '/api/v2/auto_judge/decisions unavailable. '
+                + 'Authenticate as analyst-or-admin.</div>';
+            return;
+        }
+        const summary = data.summary || {};
+        const items = data.items || [];
+        const byAction = summary.by_action || {};
+        const overrideRate = (typeof summary.override_rate === 'number')
+            ? (summary.override_rate * 100).toFixed(2) + '%'
+            : '<span class="dim">— (no applied rows)</span>';
+        const overrideCls = (typeof summary.override_rate === 'number')
+            ? (summary.override_rate >= 0.20 ? 'crit'
+               : summary.override_rate >= 0.10 ? 'warn' : 'ok')
+            : 'dim';
+
+        const aggBody = _settingsCfgKV([
+            { k: 'Window',           v: '<b>' + (summary.window_hours ?? 720) + ' h</b>' },
+            { k: 'Total decisions',  v: '<b>' + (summary.total ?? 0) + '</b>' },
+            { k: 'confirm / reject / pending',
+              v: '<b>' + (byAction.confirm || 0) + '</b> / '
+                 + '<b>' + (byAction.reject || 0) + '</b> / '
+                 + '<b>' + (byAction.pending || 0) + '</b>' },
+            { k: 'Applied / Overridden',
+              v: '<b>' + (summary.applied_total || 0) + '</b> / '
+                 + '<b>' + (summary.overridden_total || 0) + '</b>' },
+            { k: 'Override rate (overridden / applied)',
+              v: '<span class="' + overrideCls + '">' + overrideRate
+                 + '</span>' },
+        ]);
+
+        // Filters.
+        const hoursOpts = [
+            [24, '24 h'], [168, '7 d'], [720, '30 d'],
+            [2160, '90 d'], [8760, '1 y'],
+        ].map(([h, lbl]) =>
+            '<option value="' + h + '"'
+            + (h === _ajHours ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const actionOpts = [
+            ['', 'all'], ['confirm', 'confirm'],
+            ['reject', 'reject'], ['pending', 'pending'],
+        ].map(([k, lbl]) =>
+            '<option value="' + k + '"'
+            + (k === _ajAction ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const trinaryOpts = (current) => [
+            ['', 'any'], ['1', 'yes'], ['0', 'no'],
+        ].map(([k, lbl]) =>
+            '<option value="' + k + '"'
+            + (k === current ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const filterRow =
+            '<div class="cfg-row" style="margin-bottom:10px">'
+            + '<label class="cfg-label">Window</label>'
+            + '<select class="cfg-select" id="aj-hours-filter">'
+            +   hoursOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Action</label>'
+            + '<select class="cfg-select" id="aj-action-filter">'
+            +   actionOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Applied</label>'
+            + '<select class="cfg-select" id="aj-applied-filter">'
+            +   trinaryOpts(_ajApplied) + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Overridden</label>'
+            + '<select class="cfg-select" id="aj-overridden-filter">'
+            +   trinaryOpts(_ajOverridden) + '</select>'
+            + '<span class="cfg-status">' + items.length + ' items</span>'
+            + '</div>';
+
+        // Items table.
+        const fmtConf = c => (typeof c === 'number')
+            ? c.toFixed(3) : '—';
+        const tableRows = items.map(it => {
+            const ts = new Date((it.ts || 0) * 1000)
+                          .toISOString().slice(0, 19);
+            const actCls = it.action_proposed === 'confirm' ? 'ok'
+                         : it.action_proposed === 'reject'  ? 'warn'
+                         : 'dim';
+            const overrideMark = it.analyst_overrode
+                ? '<span class="warn">↻ ' + _escHtml(
+                       it.analyst_override_action || '?')
+                  + (it.analyst_id ? ' ('
+                       + _escHtml(it.analyst_id) + ')' : '')
+                  + '</span>'
+                : '<span class="dim">—</span>';
+            return '<tr>'
+                + '<td style="white-space:nowrap"><code>' + ts + '</code></td>'
+                + '<td><code>' + _escHtml(it.item_id || '—').slice(0, 32)
+                  + '</code></td>'
+                + '<td><span class="' + actCls + '">'
+                  + _escHtml(it.action_proposed || '?') + '</span></td>'
+                + '<td>' + fmtConf(it.confidence) + '</td>'
+                + '<td>' + (it.layer1_corroborators || 0) + '</td>'
+                + '<td>' + (it.layer1_satisfied ? '✓' : '<span class="dim">—</span>') + '</td>'
+                + '<td>' + (it.applied ? '✓' : '<span class="dim">—</span>') + '</td>'
+                + '<td>' + overrideMark + '</td>'
+                + '<td><span class="dim">'
+                  + _escHtml((it.reason || '').slice(0, 60))
+                  + '</span></td>'
+                + '</tr>';
+        }).join('');
+        const itemsBody = filterRow
+            + '<table class="cfg-table"><thead><tr>'
+            + '<th>when (UTC)</th><th>item_id</th><th>action</th>'
+            + '<th>conf</th><th>l1_corr</th><th>l1_ok</th>'
+            + '<th>applied</th><th>override</th><th>reason</th>'
+            + '</tr></thead><tbody>'
+            + (tableRows || '<tr><td colspan="9" class="dim" '
+               + 'style="padding:1em">no decisions in window</td></tr>')
+            + '</tbody></table>';
+
+        pane.innerHTML = _settingsCfgPage({
+            help: '<div class="cfg-status-banner"><b>AUTO-JUDGE LEDGER — '
+                + 'view only.</b> Every Layer 1 / LLM-recheck second-pass '
+                + 'invocation appends a row to '
+                + '<code>auto_judge_decisions</code>. This page rolls '
+                + 'them up so an analyst can see what the auto-judge '
+                + 'has been confirming, rejecting, or applying — and '
+                + 'how often a human later overrode it.</div>'
+                + 'Override rate &gt; 20% suggests the auto-judge rules '
+                + 'are misfiring; investigate before raising the '
+                + 'auto-confirm tier.',
+            sections: [
+                { title: 'OVERALL', body: aggBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'RECENT DECISIONS', body: itemsBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+            ],
+        });
+
+        const hEl3 = document.getElementById('aj-hours-filter');
+        const aEl = document.getElementById('aj-action-filter');
+        const apEl = document.getElementById('aj-applied-filter');
+        const ovEl = document.getElementById('aj-overridden-filter');
+        if (hEl3) hEl3.addEventListener('change', () => {
+            _ajHours = Number(hEl3.value) || 720;
+            _settingsRenderPane('audit.auto_judge');
+        });
+        if (aEl) aEl.addEventListener('change', () => {
+            _ajAction = aEl.value || '';
+            _settingsRenderPane('audit.auto_judge');
+        });
+        if (apEl) apEl.addEventListener('change', () => {
+            _ajApplied = apEl.value || '';
+            _settingsRenderPane('audit.auto_judge');
+        });
+        if (ovEl) ovEl.addEventListener('change', () => {
+            _ajOverridden = ovEl.value || '';
+            _settingsRenderPane('audit.auto_judge');
         });
     };
 

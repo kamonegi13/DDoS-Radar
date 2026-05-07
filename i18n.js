@@ -1817,6 +1817,7 @@ const STRINGS = {
     'settings.audit.changes':          'Audit Changes',
     'settings.audit.decisions':        'Decision Trail',
     'settings.audit.feedback':         'Analyst Feedback',
+    'settings.audit.auto_judge':       'Auto-Judge Log',
     // R3 — verb-based group labels
     'settings.operate.scope':          'Scope & Defaults',
     'settings.operate.intel':          'Intel Queue',
