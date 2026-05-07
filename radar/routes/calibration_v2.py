@@ -278,11 +278,61 @@ def v2_proposals_scenario_improver_list():
 def _scenario_improver_state_change(
     proposal_id: int, new_state: str,
 ):
-    """Shared body for apply/dismiss/defer endpoints."""
+    """Shared body for apply/dismiss/defer endpoints.
+
+    For ``new_state='applied'`` we route through
+    ``scenario_apply.apply_scenario_improver_proposal`` so the proposal's
+    suggested mutation is **actually persisted** to the scenarios /
+    scenario_participants tables. Until the 2026-05-08 seam fix, this
+    branch only flipped the ledger row — the wizard recorded analyst
+    intent without acting on it. See radar/calibration/scenario_apply.py
+    for the mutation primitive shared between this analyst path and
+    the future tier-governor-gated auto-apply path (Phase 3).
+
+    For ``dismissed`` and ``snoozed_30d`` the historical
+    ledger-only behaviour is correct (no scenario mutation needed).
+    """
     by = (get_jwt_identity() or "unknown")
+    actor = f"admin:{by}"
+    if new_state == "applied":
+        from radar.calibration.scenario_apply import (
+            apply_scenario_improver_proposal,
+        )
+        try:
+            result = apply_scenario_improver_proposal(
+                proposal_id, applied_by=actor,
+            )
+        except Exception as exc:
+            return _wrap_error(500, "scenario_apply_failed",
+                               detail=str(exc)[:200])
+        if not result.ok:
+            # Map common error strings to appropriate HTTP shape.
+            err = (result.error or "")
+            if "proposal_not_found" in err:
+                return _not_found("proposal not found",
+                                  proposal_id=proposal_id)
+            if "proposal_not_pending" in err:
+                return _not_found("proposal not in pending state",
+                                  proposal_id=proposal_id, detail=err)
+            if "scenario_not_active" in err or "scenario_not_found" in err:
+                return _conflict("scenario state blocks apply",
+                                 proposal_id=proposal_id, detail=err)
+            return _wrap_error(500, "scenario_apply_failed",
+                               proposal_id=proposal_id, detail=err)
+        return jsonify(_wrap({
+            "proposal_id": proposal_id,
+            "new_state": "applied",
+            "by": actor,
+            "mutation": result.mutation,
+            "scenario_id": result.scenario_id,
+            "target_country": result.target_country,
+            "proposal_type": result.proposal_type,
+        }))
+
+    # dismissed / snoozed_30d → ledger flip only.
     try:
         ok = scenario_improver.update_state(
-            proposal_id, new_state=new_state, by=f"admin:{by}",
+            proposal_id, new_state=new_state, by=actor,
         )
     except Exception as exc:
         return _wrap_error(500, "scenario_improver_update_failed",
@@ -295,7 +345,7 @@ def _scenario_improver_state_change(
     return jsonify(_wrap({
         "proposal_id": proposal_id,
         "new_state": new_state,
-        "by": f"admin:{by}",
+        "by": actor,
     }))
 
 

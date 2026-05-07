@@ -301,15 +301,38 @@ def test_scenario_improver_list_with_filter(client, admin_headers):
 
 
 def test_scenario_improver_apply(client, admin_headers):
-    pid = _seed_scenario_proposal("test_calv2_apply")
-    r = client.post(
-        f"/api/v2/proposals/scenario_improver/{pid}/apply",
-        headers=admin_headers,
-    )
-    assert r.status_code == 200
-    body = r.get_json()
-    assert body["data"]["new_state"] == "applied"
-    assert body["data"]["proposal_id"] == pid
+    """Post-2026-05-08 (scenario_apply seam fix): applying now actually
+    mutates the scenarios / scenario_participants tables, so the test
+    must seed a real scenario for the mutation to land. Before the
+    fix the apply endpoint was a ledger-only no-op which masked the
+    fact that no mutation was occurring."""
+    sid = "test_calv2_apply"
+    from radar.database import db as _db
+    _db.scenario_upsert(sid, {
+        "name_en": sid, "name_ja": sid,
+        "description_en": "", "description_ja": "",
+        "core_country": "TC", "state": "active", "enabled": True,
+        "tier": 1,
+        "participants": {"TC": {"weight": 0.40, "role": "primary_target"}},
+    }, changed_by="test")
+    pid = _seed_scenario_proposal(sid)
+    try:
+        r = client.post(
+            f"/api/v2/proposals/scenario_improver/{pid}/apply",
+            headers=admin_headers,
+        )
+        assert r.status_code == 200, r.get_data(as_text=True)
+        body = r.get_json()
+        assert body["data"]["new_state"] == "applied"
+        assert body["data"]["proposal_id"] == pid
+        # Mutation actually persisted (the seam fix's contract).
+        assert _db.scenario_get(sid)["participants"]["TC"]["weight"] == 0.85
+    finally:
+        conn = _db._get_conn()  # noqa: SLF001
+        with conn.writing():
+            conn.execute("DELETE FROM scenario_participants WHERE scenario_id=?", (sid,))
+            conn.execute("DELETE FROM scenarios WHERE id=?", (sid,))
+            conn.execute("DELETE FROM scenario_change_log WHERE scenario_id=?", (sid,))
 
 
 # ── 13. scenario_improver dismiss ────────────────────────────────────────────
