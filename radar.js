@@ -4563,21 +4563,110 @@
             { k: 'Null-zone',           v: '<b>' + (se.null_zone_days ?? '—') + ' d</b>' },
             { k: 'Drift',               v: '<b>' + (se.drift ?? '—') + '</b>' },
         ]);
+
+        // ── Per-model health (B4 of the 2026-05-07 audit) ────────────
+        // by_model is computed regardless of whether SHADOW_DUAL is on
+        // — every llm_call_log row contributes. Surface it so analysts
+        // can see which model is failing parse / timing out / under-
+        // running before deciding to promote a use_case.
+        const byModel = se.by_model || {};
+        const modelRows = Object.keys(byModel).sort().map(m => {
+            const e = byModel[m] || {};
+            const okRateCls = (typeof e.ok_rate === 'number')
+                ? (e.ok_rate >= 0.95 ? 'ok'
+                   : e.ok_rate >= 0.80 ? 'warn' : 'crit')
+                : 'dim';
+            const okRateTxt = (typeof e.ok_rate === 'number')
+                ? (e.ok_rate * 100).toFixed(1) + '%' : '—';
+            const parseFailedTxt = (e.parse_failed ?? 0).toString();
+            const parseFailedCls = (e.parse_failed ?? 0) > 0 ? 'warn' : 'ok';
+            const timeoutCls = (e.timeout ?? 0) > 0 ? 'warn' : 'ok';
+            const avgConf = (typeof e.avg_confidence === 'number')
+                ? e.avg_confidence.toFixed(3) : '—';
+            const avgDur = (typeof e.avg_duration_ms === 'number')
+                ? Math.round(e.avg_duration_ms) + 'ms' : '—';
+            const useCases = Array.isArray(e.use_cases)
+                ? e.use_cases.join(', ') : '—';
+            const autoCnf = (typeof e.auto_confirmed_rate === 'number')
+                ? (e.auto_confirmed_rate * 100).toFixed(1) + '%' : '—';
+            return '<tr><td><code>' + _escHtml(m) + '</code></td>'
+                + '<td>' + (e.n ?? 0) + '</td>'
+                + '<td><span class="' + okRateCls + '">' + okRateTxt + '</span></td>'
+                + '<td><span class="' + parseFailedCls + '">' + parseFailedTxt + '</span></td>'
+                + '<td><span class="' + timeoutCls + '">' + (e.timeout ?? 0) + '</span></td>'
+                + '<td>' + (e.exception ?? 0) + '</td>'
+                + '<td>' + avgDur + '</td>'
+                + '<td>' + avgConf + '</td>'
+                + '<td>' + autoCnf + '</td>'
+                + '<td><code style="font-size:11px">' + _escHtml(useCases) + '</code></td>'
+                + '</tr>';
+        }).join('');
+        const modelTable = modelRows
+            ? '<table class="cfg-table"><thead><tr>'
+              + '<th>model</th><th>n</th><th>ok_rate</th>'
+              + '<th>parse_failed</th><th>timeout</th><th>exception</th>'
+              + '<th>avg_dur</th><th>avg_conf</th>'
+              + '<th>auto_confirmed</th><th>use_cases</th>'
+              + '</tr></thead><tbody>' + modelRows + '</tbody></table>'
+            : '<div class="cfg-hint">No LLM call activity in the '
+              + 'self_eval window. Either no LLM features have run, '
+              + 'or self_eval window pre-dates LLM activity.</div>';
+
+        // ── Per-use_case rollup (richer than Phase 8 SHADOW_DUAL go) ─
+        // by_use_case is a per-use-case summary derived from the same
+        // llm_call_log rows but bucketed by (use_case, primary_model).
+        // It exists even when SHADOW_DUAL is off, so we render both
+        // tables regardless of go-status.
+        const byUcRich = se.by_use_case || {};
+        const ucRichRows = Object.keys(byUcRich).sort().map(uc => {
+            const e = byUcRich[uc] || {};
+            const okRateCls = (typeof e.ok_rate === 'number')
+                ? (e.ok_rate >= 0.95 ? 'ok'
+                   : e.ok_rate >= 0.80 ? 'warn' : 'crit')
+                : 'dim';
+            const okRateTxt = (typeof e.ok_rate === 'number')
+                ? (e.ok_rate * 100).toFixed(1) + '%' : '—';
+            const avgConf = (typeof e.avg_confidence === 'number')
+                ? e.avg_confidence.toFixed(3) : '—';
+            const autoCnf = (typeof e.auto_confirmed_rate === 'number')
+                ? (e.auto_confirmed_rate * 100).toFixed(1) + '%' : '—';
+            return '<tr><td><code>' + _escHtml(uc) + '</code></td>'
+                + '<td>' + (e.n ?? 0) + '</td>'
+                + '<td><span class="' + okRateCls + '">' + okRateTxt + '</span></td>'
+                + '<td>' + avgConf + '</td>'
+                + '<td>' + autoCnf + '</td>'
+                + '<td><code>' + _escHtml(e.primary_model || '—') + '</code></td>'
+                + '</tr>';
+        }).join('');
+        const ucRichTable = ucRichRows
+            ? '<table class="cfg-table"><thead><tr>'
+              + '<th>use_case</th><th>n</th><th>ok_rate</th>'
+              + '<th>avg_conf</th><th>auto_confirmed</th>'
+              + '<th>primary_model</th>'
+              + '</tr></thead><tbody>' + ucRichRows + '</tbody></table>'
+            : '<div class="cfg-hint">No per-use_case data in window.</div>';
+
         pane.innerHTML = _settingsCfgPage({
             help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
-                + 'only.</b> AP3 self-evaluation. Promote a routing '
-                + 'feature to <code>shadow_dual</code> on '
+                + 'only.</b> AP3 self-evaluation. Per-model and '
+                + 'per-use_case rollups below come from llm_call_log '
+                + 'and are populated regardless of SHADOW_DUAL state. '
+                + 'Promote a routing feature to <code>shadow_dual</code> '
+                + 'on '
                 + '<a href="javascript:void(0)" '
                 + 'onclick="window._settingsOpen(\'llm.features\')">'
-                + 'LLM → Features</a> to start collecting paired '
-                + 'samples.</div>'
-                + 'Recall, null-zone, drift, and Phase 1 GO criteria '
-                + 'per use_case (schema compliance, agreement rate vs. '
-                + 'legacy, verdict reproducibility).',
+                + 'LLM → Features</a> to also populate the '
+                + 'PHASE 1 GO criteria below.</div>'
+                + 'Sections: overall health · per-model rollup · '
+                + 'per-use_case rollup · Phase 1 GO (SHADOW_DUAL only).',
             sections: [
                 { title: 'OVERALL HEALTH', body: aggBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
-                { title: 'PER USE_CASE',   body: tableBody,
+                { title: 'PER MODEL HEALTH', body: modelTable,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'PER USE_CASE ROLLUP', body: ucRichTable,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'PHASE 1 GO (SHADOW_DUAL)', body: tableBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });

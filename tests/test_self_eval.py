@@ -137,3 +137,64 @@ def test_self_eval_drift_handles_db_error(
     body = r.get_json()
     assert body["drift"] is None
     assert "error" in body["drift_meta"]
+
+
+# ── B4: per-model / per-use_case rollups exposed in response ─────────────────
+#
+# The frontend SETTINGS LLM Self-Eval page renders these rollups
+# directly (no separate endpoint). Pin the response shape so a
+# future refactor cannot silently drop them and leave the SETTINGS
+# table empty.
+
+
+def test_self_eval_exposes_by_model_rollup(client, admin_headers):
+    r = client.get("/api/v2/self_eval", headers=admin_headers)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "by_model" in body
+    # Even on a fresh-start system with no LLM calls yet, the key
+    # must be present (an empty dict, not null) so the renderer's
+    # `Object.keys()` iteration does not break.
+    assert isinstance(body["by_model"], dict)
+
+
+def test_self_eval_exposes_by_use_case_rollup(client, admin_headers):
+    r = client.get("/api/v2/self_eval", headers=admin_headers)
+    body = r.get_json()
+    assert "by_use_case" in body
+    assert isinstance(body["by_use_case"], dict)
+
+
+def test_self_eval_per_model_entry_shape(client, admin_headers):
+    """When at least one model has been called, its entry must
+    expose every field the frontend table reads."""
+    r = client.get("/api/v2/self_eval", headers=admin_headers)
+    body = r.get_json()
+    by_model = body.get("by_model", {})
+    if not by_model:
+        pytest.skip("no LLM call activity yet — shape pinned only "
+                    "when data exists")
+    sample = next(iter(by_model.values()))
+    expected_keys = {
+        "n", "ok_rate", "parse_failed", "timeout", "exception",
+        "avg_duration_ms", "avg_confidence",
+        "auto_confirmed_rate", "use_cases",
+    }
+    missing = expected_keys - set(sample.keys())
+    assert not missing, f"by_model entry missing keys: {missing}"
+    assert isinstance(sample.get("use_cases", []), list)
+
+
+def test_self_eval_per_use_case_entry_shape(client, admin_headers):
+    r = client.get("/api/v2/self_eval", headers=admin_headers)
+    body = r.get_json()
+    by_uc = body.get("by_use_case", {})
+    if not by_uc:
+        pytest.skip("no LLM call activity yet")
+    sample = next(iter(by_uc.values()))
+    expected_keys = {
+        "n", "ok_rate", "avg_confidence",
+        "auto_confirmed_rate", "primary_model",
+    }
+    missing = expected_keys - set(sample.keys())
+    assert not missing, f"by_use_case entry missing keys: {missing}"
