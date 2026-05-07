@@ -90,6 +90,22 @@ APPLIED_BY_IMPACT: dict[str, str] = {
     "auto:domain_weight":   "high",  # reserved — no calibrator yet
     "auto:hysteresis":      "high",  # reserved
     "auto:convergence":     "high",  # reserved
+    # ── scenario_improver / scenario_structure_proposer (Phase 2 of the
+    # 2026-05-08 seam closure). The proposer-emitted markers below are
+    # routed through is_apply_allowed() in Phase 3 of _emit(). NP1
+    # rationale: recall-positive proposals (weight_too_low,
+    # missing_participant) are LOW impact because applying them
+    # *increases* recall — withholding them is itself a recall
+    # reduction. Recall-reducing (weight_too_high, dormant_participant)
+    # is HIGH so it requires Tier 3 + triggers the HIGH cooldown after
+    # apply. Role reclassify is MED — neither raises nor lowers recall
+    # capacity directly, but it shifts which signals route to which
+    # role-bucket aggregator.
+    "auto:scenario_improver:weight_too_low":      "low",
+    "auto:scenario_improver:missing_participant": "low",
+    "auto:scenario_improver:role_reclassify":     "med",
+    "auto:scenario_improver:weight_too_high":     "high",
+    "auto:scenario_improver:dormant_participant": "high",
 }
 
 # Promotion thresholds (cautious by design).
@@ -199,9 +215,20 @@ def current_tier() -> TierSnapshot:
     )
 
 
-def is_apply_allowed(applied_by: str) -> bool:
-    """Tell `auto_tune_governor.commit()` whether this proposal can be
-    written to threshold_history at the current tier.
+def is_apply_allowed(
+    applied_by: str,
+    *,
+    impact_override: Optional[str] = None,
+) -> bool:
+    """Tell ``auto_tune_governor.commit()`` (and Phase-3 scenario_apply
+    auto-apply gate) whether this proposal can be written to the
+    live ledger at the current tier.
+
+    ``applied_by`` is matched against ``APPLIED_BY_IMPACT``. If the
+    caller has its own impact classification (e.g., the
+    ``auto:scenario_improver:*`` family that decides impact based on
+    proposal_type), pass ``impact_override='low'|'med'|'high'`` to
+    skip the table lookup.
 
     NP3: returns False on any error (safe default — proposal stays out
     of the live ledger; calibrator can still log to its own diagnostic
@@ -209,7 +236,10 @@ def is_apply_allowed(applied_by: str) -> bool:
     """
     try:
         snap = current_tier()
-        impact = APPLIED_BY_IMPACT.get(applied_by, "low")
+        if impact_override in ("low", "med", "high"):
+            impact = impact_override
+        else:
+            impact = APPLIED_BY_IMPACT.get(applied_by, "low")
         # HIGH cooldown: Tier 3 may be active but a recent HIGH change
         # has imposed a downstream pause on LOW/MED.
         if impact in ("low", "med") and _is_in_cooldown(impact):
@@ -220,7 +250,8 @@ def is_apply_allowed(applied_by: str) -> bool:
             return snap.tier >= TIER_LOW_MED
         if impact == "high":
             return snap.tier >= TIER_FULL
-        # Unknown applied_by → default to LOW (conservative).
+        # Unknown applied_by AND no override → default to LOW
+        # (conservative).
         return snap.tier >= TIER_LOW
     except Exception as exc:
         log.debug("is_apply_allowed degraded: %s", exc)

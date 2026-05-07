@@ -151,6 +151,73 @@ class TestTierGovernorBasics:
         assert not tg.is_apply_allowed("auto:llm_floor")
         assert not tg.is_apply_allowed("auto:domain_weight")
 
+    def test_apply_allowed_scenario_improver_markers_at_tier_1(
+        self, tier_governor_conn,
+    ):
+        """Phase 2 (2026-05-08): the new auto:scenario_improver:*
+        markers route through APPLIED_BY_IMPACT just like the legacy
+        calibrator markers. T1 enables LOW-impact recall-positive
+        proposals; MED and HIGH stay blocked."""
+        _insert_state(tier_governor_conn, tier=1, transition="promote")
+        # Recall-positive (LOW) — allowed at T1.
+        assert tg.is_apply_allowed(
+            "auto:scenario_improver:weight_too_low")
+        assert tg.is_apply_allowed(
+            "auto:scenario_improver:missing_participant")
+        # MED — blocked at T1.
+        assert not tg.is_apply_allowed(
+            "auto:scenario_improver:role_reclassify")
+        # HIGH — blocked at T1.
+        assert not tg.is_apply_allowed(
+            "auto:scenario_improver:weight_too_high")
+        assert not tg.is_apply_allowed(
+            "auto:scenario_improver:dormant_participant")
+
+    def test_apply_allowed_scenario_improver_markers_at_tier_3(
+        self, tier_governor_conn,
+    ):
+        """At T3 every scenario_improver marker is allowed, modulo
+        cooldowns set by HIGH applies."""
+        _insert_state(tier_governor_conn, tier=3, transition="promote")
+        for marker in (
+            "auto:scenario_improver:weight_too_low",
+            "auto:scenario_improver:missing_participant",
+            "auto:scenario_improver:role_reclassify",
+            "auto:scenario_improver:weight_too_high",
+            "auto:scenario_improver:dormant_participant",
+        ):
+            assert tg.is_apply_allowed(marker), marker
+
+    def test_impact_override_skips_table_lookup(
+        self, tier_governor_conn,
+    ):
+        """A caller with its own impact classification can pass
+        impact_override; the marker string is then ignored for impact
+        purposes (still used for HIGH cooldown attribution etc)."""
+        _insert_state(tier_governor_conn, tier=1, transition="promote")
+        # Unknown marker normally defaults to LOW (allowed at T1).
+        assert tg.is_apply_allowed("auto:unknown_marker")
+        # Force-override to HIGH → must be blocked at T1.
+        assert not tg.is_apply_allowed(
+            "auto:unknown_marker", impact_override="high")
+        # Force-override to MED → also blocked at T1.
+        assert not tg.is_apply_allowed(
+            "auto:unknown_marker", impact_override="med")
+        # Override to LOW → allowed.
+        assert tg.is_apply_allowed(
+            "auto:unknown_marker", impact_override="low")
+
+    def test_impact_override_ignores_invalid_value(
+        self, tier_governor_conn,
+    ):
+        """Invalid ``impact_override`` falls through to the table
+        lookup so callers can't accidentally bypass impact via typo."""
+        _insert_state(tier_governor_conn, tier=1, transition="promote")
+        assert tg.is_apply_allowed(
+            "auto:tl_calibrator", impact_override="extreme")
+        assert not tg.is_apply_allowed(
+            "auto:llm_floor", impact_override="lowish")
+
     def test_apply_allowed_at_tier_3(self, tier_governor_conn):
         _insert_state(tier_governor_conn, tier=3, transition="promote")
         for ab in ("auto:tl_calibrator", "auto:llm_floor", "auto:domain_weight"):
