@@ -172,7 +172,28 @@ def _emit(
              event.formula_ref, int(event.sample_n), event.why_string,
              evidence_strength, vitality_state),
         )
-        return cur.lastrowid
+        new_id = cur.lastrowid
+    # D2 (2026-05-08): supersede any older pending rows that survived
+    # past the dedup window (default 7 days). The dedup check at the
+    # top of this function only blocks duplicates *within* the window;
+    # an unresolved row from before the window is the symptom of an
+    # analyst who never closed it. The new emission is, by
+    # construction, the new authoritative version — mark the stragglers
+    # as ``superseded`` so the wizard's pending lists self-clear and
+    # the proposal.chronic_pending watch can settle.
+    try:
+        from radar.calibration.proposal_lifecycle import (
+            supersede_duplicate_pending,
+        )
+        supersede_duplicate_pending(
+            scenario_id=event.scenario_id,
+            proposal_type=event.proposal_type,
+            target_country=event.target_country,
+            new_proposal_id=int(new_id),
+        )
+    except Exception as _sd_exc:
+        log.debug("supersede hook (non-fatal): %s", _sd_exc)
+    return new_id
 
 
 # ── Rules ──

@@ -515,13 +515,43 @@ def _cache_cleanup_worker(registry=None):
                         _chronic_exc,
                     )
 
+            # Inactive-scenario auto-dismiss (D1, 2026-05-08). Closes
+            # the original "pending decisions should be auto-processed"
+            # ask: a pending scenario_proposal whose target scenario
+            # has been moved to paused / archived state can never be
+            # applied (the wizard's apply path checks scenario state),
+            # and is a dead-letter by definition. Mechanical cleanup —
+            # no statistical judgment, no false-positive risk: the
+            # operator's choice to pause/archive a scenario is the
+            # judgment, this hook just propagates it.
+            #
+            # Symmetric with the chronic-inconclusive scheduler hook
+            # (offset 9): both auto-react to a state the analyst has
+            # already implicitly declared.
+            if _cycle % 24 == 10:
+                try:
+                    from radar.calibration import (
+                        proposal_lifecycle as _plc,
+                    )
+                    n = _plc.auto_dismiss_inactive_scenario_proposals()
+                    if n > 0:
+                        log.info(
+                            "[ProposalLifecycle] auto-dismissed %d "
+                            "pending proposals on inactive scenarios", n,
+                        )
+                except Exception as _plc_exc:
+                    log.warning(
+                        "[ProposalLifecycle] inactive auto-dismiss "
+                        "failed: %s", _plc_exc,
+                    )
+
             # Follow-up watch — auto-detect when a deferred backlog
             # item's trigger condition is met (B1 / B5+ / B7 / B9 from
             # the 2026-05-05 audit). Emits a WARN on first transition
             # to "met"; subsequent days log at INFO. Stateless across
             # process restarts on purpose — false re-warns after a
             # restart are cheaper than missed transitions.
-            if _cycle % 24 == 10:
+            if _cycle % 24 == 11:
                 try:
                     from radar.observability.followup_watch import (
                         run_once as _followup_once,
