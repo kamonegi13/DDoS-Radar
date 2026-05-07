@@ -1816,6 +1816,7 @@ const STRINGS = {
     'settings.system.config':          'System Config',
     'settings.audit.changes':          'Audit Changes',
     'settings.audit.decisions':        'Decision Trail',
+    'settings.audit.feedback':         'Analyst Feedback',
     // R3 — verb-based group labels
     'settings.operate.scope':          'Scope & Defaults',
     'settings.operate.intel':          'Intel Queue',

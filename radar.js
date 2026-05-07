@@ -2836,6 +2836,8 @@
               fn: '_settingsRenderAuditChanges' },
             { id: 'audit.decisions',     labelKey: 'settings.audit.decisions',
               fn: '_settingsRenderAuditDecisions' },
+            { id: 'audit.feedback',      labelKey: 'settings.audit.feedback',
+              fn: '_settingsRenderAuditFeedback' },
         ]},
     ];
 
@@ -4921,6 +4923,204 @@
         if (hEl) hEl.addEventListener('change', () => {
             _settingsAuditHours = Number(hEl.value) || 168;
             _settingsRenderPane('audit.changes');
+        });
+    };
+
+    // ── B1: analyst_feedback read-only viewer ────────────────────────────
+    let _feedbackHours = 720;            // 30 days default
+    let _feedbackKind = '';              // '' | 'human' | 'auto'
+    let _feedbackLabel = '';             // '' | TP / FP / TN / FN
+
+    async function _fetchAnalystFeedback(hours, kind, label, limit) {
+        try {
+            const params = new URLSearchParams();
+            params.set('hours', String(hours || 720));
+            params.set('limit', String(limit || 200));
+            if (kind) params.set('analyst_kind', kind);
+            if (label) params.set('label', label);
+            const r = await fetch('/api/v2/analyst_feedback?'
+                                  + params.toString());
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+
+    window._settingsRenderAuditFeedback = async function (pane) {
+        _settingsLoading(pane);
+        const data = await _fetchAnalystFeedback(
+            _feedbackHours, _feedbackKind, _feedbackLabel, 200,
+        );
+        if (!data) {
+            pane.innerHTML = '<div style="opacity:0.6">'
+                + '/api/v2/analyst_feedback unavailable. '
+                + 'Authenticate as analyst-or-admin.</div>';
+            return;
+        }
+        const summary = data.summary || {};
+        const items = data.items || [];
+
+        // Summary KV
+        const recallTxt = (typeof summary.recall === 'number')
+            ? summary.recall.toFixed(3)
+            : '<span class="dim">— (no TP+FN signal)</span>';
+        const precTxt = (typeof summary.precision === 'number')
+            ? summary.precision.toFixed(3)
+            : '<span class="dim">— (no TP+FP signal)</span>';
+        const aggBody = _settingsCfgKV([
+            { k: 'Window',
+              v: '<b>' + (summary.window_hours ?? 720) + ' h</b>' },
+            { k: 'Total feedback rows',
+              v: '<b>' + (summary.total ?? 0) + '</b>' },
+            { k: 'Human-authored / Auto-authored',
+              v: '<b>' + (summary.human_total ?? 0) + '</b> / '
+                 + (summary.auto_total ?? 0) },
+            { k: 'Distinct analysts',
+              v: '<b>' + (summary.distinct_analysts ?? 0) + '</b>' },
+            { k: 'Recall (TP/(TP+FN))', v: recallTxt },
+            { k: 'Precision (TP/(TP+FP))', v: precTxt },
+        ]);
+
+        // Confusion matrix per label
+        const lbl = summary.by_label || {};
+        const matrixBody =
+            '<table class="cfg-table"><thead><tr>'
+            + '<th>label</th><th>count</th>'
+            + '</tr></thead><tbody>'
+            + '<tr><td>TRUE_POSITIVE</td><td>'
+            +   (lbl.TRUE_POSITIVE || 0) + '</td></tr>'
+            + '<tr><td>FALSE_POSITIVE</td><td>'
+            +   (lbl.FALSE_POSITIVE || 0) + '</td></tr>'
+            + '<tr><td>TRUE_NEGATIVE</td><td>'
+            +   (lbl.TRUE_NEGATIVE || 0) + '</td></tr>'
+            + '<tr><td>FALSE_NEGATIVE</td><td>'
+            +   (lbl.FALSE_NEGATIVE || 0) + '</td></tr>'
+            + '</tbody></table>';
+
+        // Per-conclusion-type breakdown
+        const byCt = summary.by_conclusion_type || {};
+        const ctRows = Object.keys(byCt).sort().map(ct => {
+            const e = byCt[ct] || {};
+            return '<tr><td><code>' + _escHtml(ct) + '</code></td>'
+                + '<td>' + (e.TRUE_POSITIVE || 0) + '</td>'
+                + '<td>' + (e.FALSE_POSITIVE || 0) + '</td>'
+                + '<td>' + (e.TRUE_NEGATIVE || 0) + '</td>'
+                + '<td>' + (e.FALSE_NEGATIVE || 0) + '</td>'
+                + '</tr>';
+        }).join('');
+        const ctTable = ctRows
+            ? '<table class="cfg-table"><thead><tr>'
+              + '<th>conclusion_type</th>'
+              + '<th>TP</th><th>FP</th><th>TN</th><th>FN</th>'
+              + '</tr></thead><tbody>' + ctRows + '</tbody></table>'
+            : '<div class="cfg-hint">No feedback in window.</div>';
+
+        // Filter row
+        const hoursOpts = [
+            [24,    '24 h'], [168, '7 d'], [720, '30 d'],
+            [2160,  '90 d'], [8760, '1 y'],
+        ].map(([h, lbl]) =>
+            '<option value="' + h + '"'
+            + (h === _feedbackHours ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const kindOpts = [
+            ['', 'all'], ['human', 'human-authored only'],
+            ['auto', 'auto-authored only'],
+        ].map(([k, lbl]) =>
+            '<option value="' + k + '"'
+            + (k === _feedbackKind ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const labelOpts = [
+            ['', 'all labels'],
+            ['TRUE_POSITIVE',  'TP'],
+            ['FALSE_POSITIVE', 'FP'],
+            ['TRUE_NEGATIVE',  'TN'],
+            ['FALSE_NEGATIVE', 'FN'],
+        ].map(([k, lbl]) =>
+            '<option value="' + k + '"'
+            + (k === _feedbackLabel ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const filterRow =
+            '<div class="cfg-row" style="margin-bottom:10px">'
+            + '<label class="cfg-label">Window</label>'
+            + '<select class="cfg-select" id="fb-hours-filter">'
+            +   hoursOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Kind</label>'
+            + '<select class="cfg-select" id="fb-kind-filter">'
+            +   kindOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Label</label>'
+            + '<select class="cfg-select" id="fb-label-filter">'
+            +   labelOpts + '</select>'
+            + '<span class="cfg-status">' + items.length + ' items</span>'
+            + '</div>';
+
+        // Recent items table
+        const itemRows = items.map(it => {
+            const ts = new Date((it.observed_at || 0) * 1000)
+                          .toISOString().slice(0, 19);
+            return '<tr>'
+                + '<td style="white-space:nowrap"><code>' + ts
+                  + '</code></td>'
+                + '<td><code>' + _escHtml(it.scenario_id || '—')
+                  + '</code></td>'
+                + '<td><code>' + _escHtml(it.conclusion_type || '—')
+                  + '</code></td>'
+                + '<td><code>' + _escHtml(it.label || '—')
+                  + '</code></td>'
+                + '<td><code>' + _escHtml(it.analyst_id || '—')
+                  + '</code></td>'
+                + '<td><span class="dim">'
+                  + _escHtml((it.notes || '').slice(0, 60))
+                  + '</span></td>'
+                + '</tr>';
+        }).join('');
+        const itemsBody = filterRow
+            + '<table class="cfg-table"><thead><tr>'
+            + '<th>when (UTC)</th><th>scenario</th><th>type</th>'
+            + '<th>label</th><th>analyst</th><th>notes</th>'
+            + '</tr></thead><tbody>'
+            + (itemRows || '<tr><td colspan="6" class="dim" '
+               + 'style="padding:1em">no feedback in window</td></tr>')
+            + '</tbody></table>';
+
+        pane.innerHTML = _settingsCfgPage({
+            help: '<div class="cfg-status-banner"><b>FEEDBACK LEDGER — '
+                + 'view only.</b> Append-only NP6 ledger of analyst '
+                + 'TP/FP/TN/FN labels against conclusions. The POST '
+                + 'side lives at <code>POST /api/v2/conclusions/&lt;id&gt;'
+                + '/feedback</code>; this page rolls all rows up '
+                + 'across conclusions for the audit trail (AP4).</div>'
+                + 'Recall and precision are computed when there is at '
+                + 'least one TP+FN (recall) or TP+FP (precision) row '
+                + 'in the window.',
+            sections: [
+                { title: 'OVERALL', body: aggBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'CONFUSION MATRIX', body: matrixBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'PER CONCLUSION_TYPE', body: ctTable,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'RECENT FEEDBACK', body: itemsBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+            ],
+        });
+
+        const hEl2 = document.getElementById('fb-hours-filter');
+        const kEl = document.getElementById('fb-kind-filter');
+        const lEl = document.getElementById('fb-label-filter');
+        if (hEl2) hEl2.addEventListener('change', () => {
+            _feedbackHours = Number(hEl2.value) || 720;
+            _settingsRenderPane('audit.feedback');
+        });
+        if (kEl) kEl.addEventListener('change', () => {
+            _feedbackKind = kEl.value || '';
+            _settingsRenderPane('audit.feedback');
+        });
+        if (lEl) lEl.addEventListener('change', () => {
+            _feedbackLabel = lEl.value || '';
+            _settingsRenderPane('audit.feedback');
         });
     };
 

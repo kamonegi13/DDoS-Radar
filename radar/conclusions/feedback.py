@@ -153,6 +153,153 @@ def coerce_label(raw: str) -> Optional[FeedbackLabel]:
         return None
 
 
+# ── B1: cross-conclusion read surfaces ───────────────────────────────────────
+#
+# The original B1 audit (2026-05-05) flagged that analyst_feedback
+# accumulates via the existing POST endpoint, but no UI exposes it
+# globally — only per-conclusion drill-down via `list_feedback`.
+# These helpers serve the SETTINGS audit.feedback page (read-only)
+# and any other cross-conclusion consumer that wants the rolled-up
+# confusion matrix or recent-activity view.
+
+def list_recent_feedback(
+    db: "RadarDB",
+    *,
+    hours: float = 720.0,
+    analyst_kind: Optional[str] = None,
+    label: Optional[FeedbackLabel] = None,
+    limit: int = 200,
+) -> list[dict]:
+    """Return recent analyst_feedback rows joined with the parent
+    conclusion's `conclusion_type` and `scenario_id` so the SETTINGS
+    table can show provenance without N+1 lookups.
+
+    Args:
+      hours: lookback window. Default 30 days; max 1 year.
+      analyst_kind: ``"human"`` filters to analyst_id NOT LIKE 'auto:%';
+                    ``"auto"`` filters to analyst_id LIKE 'auto:%';
+                    None returns both.
+      label: optional FeedbackLabel filter (TP/FP/TN/FN).
+      limit: row cap, clamped to [1, 2000].
+    """
+    import time as _time
+    cutoff = _time.time() - max(0.0, float(hours)) * 3600.0
+    where = ["af.observed_at >= ?"]
+    params: list = [cutoff]
+    if analyst_kind == "human":
+        where.append("af.analyst_id NOT LIKE 'auto:%'")
+    elif analyst_kind == "auto":
+        where.append("af.analyst_id LIKE 'auto:%'")
+    if label is not None:
+        where.append("af.label = ?")
+        params.append(label.value)
+    params.append(max(1, min(int(limit), 2000)))
+    sql = (
+        "SELECT af.id, af.conclusion_id, af.label, af.analyst_id, "
+        "       af.observed_at, af.notes, af.observed_outcome_url, "
+        "       c.conclusion_type, c.scenario_id "
+        "FROM analyst_feedback af "
+        "LEFT JOIN conclusions c ON c.id = af.conclusion_id "
+        f"WHERE {' AND '.join(where)} "
+        "ORDER BY af.observed_at DESC LIMIT ?"
+    )
+    rows = db._get_conn().execute(sql, tuple(params)).fetchall()  # noqa: SLF001
+    return [
+        {
+            "id": r["id"],
+            "conclusion_id": r["conclusion_id"],
+            "label": r["label"],
+            "analyst_id": r["analyst_id"],
+            "observed_at": r["observed_at"],
+            "notes": r["notes"],
+            "observed_outcome_url": r["observed_outcome_url"],
+            "conclusion_type": r["conclusion_type"],
+            "scenario_id": r["scenario_id"],
+        }
+        for r in rows
+    ]
+
+
+def aggregate_feedback_matrix(
+    db: "RadarDB",
+    *,
+    hours: float = 720.0,
+    analyst_kind: Optional[str] = None,
+) -> dict:
+    """Cross-conclusion confusion-matrix rollup. Used by the SETTINGS
+    audit.feedback page header so an analyst can see "how am I /
+    is the system labelling" at a glance.
+
+    Returns:
+      {
+        "window_hours":         float,
+        "total":                int,
+        "human_total":          int,
+        "auto_total":           int,
+        "distinct_analysts":    int,
+        "by_label":             {TP/FP/TN/FN: int},
+        "by_conclusion_type":   {ct: {label: count, ...}, ...},
+        "recall":               float | None,
+        "precision":            float | None,
+      }
+
+    recall = TP / (TP + FN); precision = TP / (TP + FP). Both return
+    None when the denominator is 0 (no signal).
+    """
+    import time as _time
+    cutoff = _time.time() - max(0.0, float(hours)) * 3600.0
+    extra = ""
+    params: list = [cutoff]
+    if analyst_kind == "human":
+        extra = " AND af.analyst_id NOT LIKE 'auto:%'"
+    elif analyst_kind == "auto":
+        extra = " AND af.analyst_id LIKE 'auto:%'"
+    by_label = {label.value: 0 for label in FeedbackLabel}
+    human_total = 0
+    auto_total = 0
+    by_ct: dict[str, dict[str, int]] = {}
+    rows = db._get_conn().execute(  # noqa: SLF001
+        "SELECT af.label, af.analyst_id, c.conclusion_type "
+        "FROM analyst_feedback af "
+        "LEFT JOIN conclusions c ON c.id = af.conclusion_id "
+        f"WHERE af.observed_at >= ?{extra}",
+        tuple(params),
+    ).fetchall()
+    for r in rows:
+        lab = r["label"]
+        by_label[lab] = by_label.get(lab, 0) + 1
+        aid = r["analyst_id"] or ""
+        if aid.startswith("auto:"):
+            auto_total += 1
+        else:
+            human_total += 1
+        ct = r["conclusion_type"] or "_unknown"
+        by_ct.setdefault(ct, {l.value: 0 for l in FeedbackLabel})
+        by_ct[ct][lab] = by_ct[ct].get(lab, 0) + 1
+    distinct_row = db._get_conn().execute(  # noqa: SLF001
+        "SELECT COUNT(DISTINCT analyst_id) AS n FROM analyst_feedback "
+        f"WHERE observed_at >= ?",
+        (cutoff,),
+    ).fetchone()
+    distinct = int(distinct_row["n"]) if distinct_row else 0
+    tp = by_label.get(FeedbackLabel.TRUE_POSITIVE.value, 0)
+    fp = by_label.get(FeedbackLabel.FALSE_POSITIVE.value, 0)
+    fn = by_label.get(FeedbackLabel.FALSE_NEGATIVE.value, 0)
+    recall = tp / (tp + fn) if (tp + fn) > 0 else None
+    precision = tp / (tp + fp) if (tp + fp) > 0 else None
+    return {
+        "window_hours":       float(hours),
+        "total":              sum(by_label.values()),
+        "human_total":        human_total,
+        "auto_total":         auto_total,
+        "distinct_analysts":  distinct,
+        "by_label":           by_label,
+        "by_conclusion_type": by_ct,
+        "recall":             round(recall, 4) if recall is not None else None,
+        "precision":          round(precision, 4) if precision is not None else None,
+    }
+
+
 def now_seconds() -> float:
     """Indirection for tests to monkeypatch time without touching `time.time`
     at the global level (other modules also patch it)."""
