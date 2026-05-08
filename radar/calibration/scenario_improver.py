@@ -96,7 +96,22 @@ def _is_recall_reducing(proposal_type: str) -> bool:
 
 def _has_recent_pending_for(scenario_id: str, proposal_type: str,
                              target_country: Optional[str]) -> bool:
-    """Dedup check: same (scenario, rule, target) within dedup window?"""
+    """Dedup check: same (scenario, rule, target) recently in the
+    ledger as either ``pending`` OR ``applied``?
+
+    Phase 3 (2026-05-08) widens this from the historical pending-only
+    check. Rationale: when the auto-apply path is enabled, a row that
+    was emitted, auto-applied, and now sits at ``state='applied'``
+    represents a change that's already in effect. Re-emitting another
+    pending of the same shape within the dedup window is wasted work
+    at best; at worst it would oscillate the live config if the
+    proposer's rule re-fires before the scenario's contribution
+    statistics catch up to the new weight.
+
+    Pre-fix this function only checked ``state='pending'`` so an
+    auto-applied row would NOT block a fresh emission in the
+    following tick — exactly the oscillation risk above.
+    """
     cutoff = time.time() - _dedup_window_days() * 86400
     conn = db._get_conn()  # noqa: SLF001
     try:
@@ -104,7 +119,8 @@ def _has_recent_pending_for(scenario_id: str, proposal_type: str,
             row = conn.execute(
                 "SELECT 1 FROM scenario_proposals "
                 "WHERE scenario_id=? AND proposal_type=? "
-                "AND target_country IS NULL AND state='pending' "
+                "AND target_country IS NULL "
+                "AND state IN ('pending','applied') "
                 "AND emitted_at > ? LIMIT 1",
                 (scenario_id, proposal_type, cutoff),
             ).fetchone()
@@ -112,7 +128,8 @@ def _has_recent_pending_for(scenario_id: str, proposal_type: str,
             row = conn.execute(
                 "SELECT 1 FROM scenario_proposals "
                 "WHERE scenario_id=? AND proposal_type=? "
-                "AND target_country=? AND state='pending' "
+                "AND target_country=? "
+                "AND state IN ('pending','applied') "
                 "AND emitted_at > ? LIMIT 1",
                 (scenario_id, proposal_type, target_country, cutoff),
             ).fetchone()
@@ -193,7 +210,162 @@ def _emit(
         )
     except Exception as _sd_exc:
         log.debug("supersede hook (non-fatal): %s", _sd_exc)
+
+    # ── Phase 3 (2026-05-08): tier-governor-gated auto-apply ─────────
+    # NP1: recall-positive proposals (weight_too_low / missing_participant)
+    # auto-apply at T1+ — withholding them is itself a recall reduction.
+    # NP7: recall-reducing proposals (weight_too_high / dormant_participant)
+    # require T3 + strong evidence + non-protected role; HIGH cooldown
+    # is triggered after a successful apply so chained changes can't
+    # pile on. role_reclassify is MED.
+    # Behind a flag (default OFF) for safe rollout.
+    try:
+        if _auto_apply_enabled():
+            _maybe_auto_apply(int(new_id), event,
+                               evidence_strength=evidence_strength,
+                               vitality_state=vitality_state)
+    except Exception as _aa_exc:
+        log.debug("auto-apply hook (non-fatal): %s", _aa_exc)
     return new_id
+
+
+# ── Phase 3 auto-apply helpers ───────────────────────────────────────────────
+
+
+def _auto_apply_enabled() -> bool:
+    """Master flag for the tier-governor-gated auto-apply path. Default
+    False so phase 3 ships dormant. Phase 5 flips it after monitoring
+    confirms tier governor is at T1+ and metrics are clean."""
+    raw = os.getenv("SCENARIO_IMPROVER_AUTO_APPLY_ENABLED", "false")
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+# Minimum evidence_strength required for each proposal_type's auto-apply.
+# 'weak' / 'insufficient' / None all fail the bar. The ladder
+# (insufficient < weak < moderate < strong) is the proposer's own
+# classification per _proposal_guards.
+_AUTO_APPLY_MIN_EVIDENCE: dict[str, str] = {
+    "weight_too_low":      "weak",      # recall+; weak OK (NP1 priority)
+    "missing_participant": "moderate",  # recall+; new participant needs more
+    "role_reclassify":     "strong",    # structural — strong evidence required
+    "weight_too_high":     "strong",    # recall-; strong required
+    "dormant_participant": "strong",    # recall-; strong required
+}
+
+_EVIDENCE_RANK = {
+    None: 0, "": 0, "insufficient": 0, "weak": 1, "moderate": 2, "strong": 3,
+}
+
+
+def _impact_for_type(proposal_type: str) -> Optional[str]:
+    """Return 'low' | 'med' | 'high' for proposal_types that may
+    auto-apply, else None (analyst-only / diagnostic / discovery)."""
+    if proposal_type in ("weight_too_low", "missing_participant"):
+        return "low"
+    if proposal_type == "role_reclassify":
+        return "med"
+    if proposal_type in ("weight_too_high", "dormant_participant"):
+        return "high"
+    return None
+
+
+def _maybe_auto_apply(
+    proposal_id: int, event: ProposalEvent, *,
+    evidence_strength: Optional[str], vitality_state: Optional[str],
+) -> None:
+    """Decision tree for auto-apply. Returns nothing — leaves the
+    proposal at ``state='pending'`` if any guard fails, in which case
+    the analyst path remains the only way to apply it."""
+    impact = _impact_for_type(event.proposal_type)
+    if impact is None:
+        # scenario_discovery / diagnostic / sensor_disable etc.
+        return
+
+    # Evidence floor.
+    min_required = _AUTO_APPLY_MIN_EVIDENCE.get(event.proposal_type, "strong")
+    if _EVIDENCE_RANK.get(evidence_strength, 0) \
+            < _EVIDENCE_RANK.get(min_required, 0):
+        log.debug(
+            "[auto-apply] %s id=%d skipped: evidence=%s < required=%s",
+            event.proposal_type, proposal_id, evidence_strength,
+            min_required,
+        )
+        return
+
+    # Recall-reducing proposals: must be against a non-protected role.
+    # The proposer's _rule_weight_too_high already filters at emit-time;
+    # this re-check is a defense-in-depth re-validation against the
+    # CURRENT scenario state (in case role was just reclassified).
+    if event.proposal_type in ("weight_too_high", "dormant_participant"):
+        try:
+            from radar.scenarios import scenario_store
+            sc = scenario_store.get(event.scenario_id)
+            if sc is None or event.target_country is None:
+                return
+            p = sc.participants.get(event.target_country)
+            if p is None:
+                return
+            from radar.calibration._proposal_guards import is_role_protected
+            if is_role_protected(p):
+                log.info(
+                    "[auto-apply] %s id=%d skipped: role protected",
+                    event.proposal_type, proposal_id,
+                )
+                return
+        except Exception as exc:
+            log.debug("[auto-apply] role re-check failed: %s", exc)
+            return
+
+    # Tier governor gate.
+    from radar.calibration import auto_apply_tier_governor as tg
+    marker = f"auto:scenario_improver:{event.proposal_type}"
+    if not tg.is_apply_allowed(marker, impact_override=impact):
+        log.debug(
+            "[auto-apply] %s id=%d skipped: tier governor "
+            "denied (impact=%s, current_tier=%d)",
+            event.proposal_type, proposal_id, impact,
+            tg.current_tier().tier,
+        )
+        return
+
+    # Apply.
+    try:
+        from radar.calibration.scenario_apply import (
+            apply_scenario_improver_proposal,
+        )
+        result = apply_scenario_improver_proposal(
+            proposal_id, applied_by=marker,
+        )
+    except Exception as exc:
+        try:
+            from radar.conclusions.shadow_metrics import record_failure
+            record_failure("scenario_improver_auto_apply", exc)
+        except Exception:
+            pass
+        log.warning("[auto-apply] %s id=%d crashed: %s",
+                    event.proposal_type, proposal_id, exc)
+        return
+
+    if not result.ok:
+        log.info(
+            "[auto-apply] %s id=%d not applied: %s",
+            event.proposal_type, proposal_id, result.error,
+        )
+        return
+
+    log.info(
+        "[auto-apply] %s id=%d applied at impact=%s by=%s",
+        event.proposal_type, proposal_id, impact, marker,
+    )
+
+    # HIGH cool-down: pause LOW/MED auto-apply for the configured
+    # window so chained changes can't pile on a freshly-applied HIGH.
+    if impact == "high":
+        try:
+            tg.trigger_high_cooldown(triggered_by=marker)
+        except Exception as exc:
+            log.debug("[auto-apply] HIGH cooldown trigger failed: %s",
+                      exc)
 
 
 # ── Rules ──
