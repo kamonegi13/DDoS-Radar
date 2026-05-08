@@ -1464,6 +1464,43 @@ try:  # pragma: no cover — registration is best-effort, never fatal
                  "during integration/testing windows where transient "
                  "outages are expected.",
         ),
+        ConfigKey(
+            key="SCENARIO_IMPROVER_AUTO_APPLY_ENABLED",
+            domain="operate.calibration",
+            default=False, type_="bool",
+            description="Master flag for scenario_improver tier-governor-"
+                        "gated auto-apply (2026-05-08 seam closure).",
+            group=GROUP_OPERATE,
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+            impact_level="high",
+            impact_warning="When enabled, recall-positive scenario "
+                           "proposals (weight_too_low / "
+                           "missing_participant) auto-apply at Tier 1+ "
+                           "and recall-reducing proposals "
+                           "(weight_too_high / dormant_participant) "
+                           "auto-apply at Tier 3 with strong evidence. "
+                           "Disable IMMEDIATELY if any auto-applied "
+                           "change looks wrong; the tier governor "
+                           "kill-switch (AUTO_CALIBRATION_TIER_CAP=0) "
+                           "is the emergency brake.",
+            what="Routes scenario_improver / scenario_structure_proposer "
+                 "emissions through the auto_apply_tier_governor's "
+                 "is_apply_allowed() gate. When the gate passes, the "
+                 "proposed mutation is applied directly to the "
+                 "scenarios / scenario_participants tables and the "
+                 "proposal row goes to state='applied'. When false, "
+                 "every emission stays at state='pending' and the "
+                 "Wizard is the only apply path (historical behaviour).",
+            why="NP1: recall-positive proposals withheld in pending are "
+                "themselves a recall reduction. The tier governor's "
+                "self-evaluation provides the safety the analyst gate "
+                "was a proxy for. Default off until tier governor "
+                "stability is observed at T1+ in production.",
+            when="Flip on after the tier governor reports Tier 1+ for "
+                 "≥7 consecutive days AND override_rate < 5% in the "
+                 "audit.auto_judge ledger. Drop back to off if any "
+                 "auto-applied change is reverted by the analyst.",
+        ),
     )
 except Exception:
     # Registration is best-effort. NP3 — never crash on registry errors.
