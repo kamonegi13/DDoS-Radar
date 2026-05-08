@@ -77,6 +77,165 @@ def auto_dismiss_inactive_scenario_proposals() -> int:
         return 0
 
 
+# ── D4: reprocess existing pending through the Phase 3 gate ──────────────────
+#
+# Phase 3 wired the auto-apply gate at the *emit* point (scenario_improver._emit).
+# Rows that were already in state='pending' before the flag was flipped on
+# never re-enter that path — the dedup window blocks the proposer from
+# re-emitting them, so they sit in the ledger forever even when the tier
+# governor has reached a level that would have auto-applied them.
+#
+# D4 (2026-05-08) drips those existing rows through the same gate the new
+# emissions go through. The drip rate is intentionally slow:
+#
+# - REPROCESS_MAX_PER_TICK caps applies per scheduler call so a sudden
+#   T1 → T3 promotion doesn't fire a flood. Tier governor metrics
+#   (revert_rate, diff_log_match_rate) need a tick or two to react before
+#   the next batch.
+#
+# - REPROCESS_MAX_AGE_DAYS skips chronic-pending territory. A proposal
+#   that's sat unresolved for 30+ days has become an analyst-decision
+#   problem, not a calibrator-decision problem; the followup_watch
+#   ``proposal.chronic_pending`` watch flags those for human attention.
+#
+# Skips happen silently (NP3) — no failures or noise. Applies log via
+# the underlying scenario_improver._maybe_auto_apply path.
+
+REPROCESS_MAX_AGE_DAYS = 30.0
+REPROCESS_MAX_PER_TICK = 3
+
+
+def reprocess_pending_through_gate() -> dict:
+    """Drip existing pending scenario_proposals through the Phase 3
+    auto-apply gate. NP3-tolerant — returns a benign summary on any
+    error so the scheduler never crashes."""
+    summary = {
+        "flag_off": False,
+        "checked": 0,
+        "applied": 0,
+        "skipped_type": 0,
+        "skipped_age": 0,
+        "skipped_state_changed": 0,
+        "errors": 0,
+    }
+    try:
+        from radar.calibration.scenario_improver import (
+            _auto_apply_enabled,
+            _impact_for_type,
+            _maybe_auto_apply,
+        )
+        from radar.calibration._proposal_writer import ProposalEvent
+        from radar.database import db
+    except Exception as exc:
+        log.warning("reprocess: import failed: %s", exc)
+        summary["errors"] = 1
+        return summary
+
+    if not _auto_apply_enabled():
+        summary["flag_off"] = True
+        return summary
+
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        cutoff = time.time() - REPROCESS_MAX_AGE_DAYS * 86400.0
+        rows = list(conn.execute(
+            "SELECT id, scenario_id, proposal_type, target_country, "
+            "       suggested_value_json, evidence_json, formula_ref, "
+            "       sample_n, why_string, evidence_strength, "
+            "       vitality_state, emitted_at "
+            "FROM scenario_proposals "
+            "WHERE state='pending' "
+            "ORDER BY emitted_at ASC LIMIT ?",
+            # Over-fetch so type-skip and age-skip don't starve the
+            # rate-limited apply slot.
+            (REPROCESS_MAX_PER_TICK * 8,),
+        ))
+    except Exception as exc:
+        log.warning("reprocess: ledger read failed: %s", exc)
+        summary["errors"] += 1
+        return summary
+
+    for r in rows:
+        if summary["applied"] >= REPROCESS_MAX_PER_TICK:
+            break
+
+        # Skip NP7-bound + diagnostic types — those go through D1/D3
+        # or stay analyst-only. _impact_for_type returns None for
+        # anything outside {weight_too_low, missing_participant,
+        # role_reclassify, weight_too_high, dormant_participant}.
+        if _impact_for_type(r["proposal_type"]) is None:
+            summary["skipped_type"] += 1
+            continue
+
+        # Skip stale rows — they're chronic_pending watch territory.
+        if r["emitted_at"] < cutoff:
+            summary["skipped_age"] += 1
+            continue
+
+        # Re-check state right before apply: another hook (D1/D2/D3)
+        # might have moved the row in this same tick.
+        try:
+            current = conn.execute(
+                "SELECT state FROM scenario_proposals WHERE id=?",
+                (r["id"],),
+            ).fetchone()
+        except Exception:
+            summary["errors"] += 1
+            continue
+        if not current or current["state"] != "pending":
+            summary["skipped_state_changed"] += 1
+            continue
+
+        summary["checked"] += 1
+
+        try:
+            import json as _json
+            event = ProposalEvent(
+                scenario_id=r["scenario_id"],
+                proposal_type=r["proposal_type"],
+                target_country=r["target_country"],
+                suggested_value=_json.loads(
+                    r["suggested_value_json"] or "{}"),
+                evidence=_json.loads(r["evidence_json"] or "{}"),
+                formula_ref=r["formula_ref"] or "reprocessed",
+                sample_n=int(r["sample_n"] or 0),
+                why_string=r["why_string"] or "reprocessed",
+            )
+        except Exception as exc:
+            log.debug("reprocess: synth event failed for id=%d: %s",
+                      r["id"], exc)
+            summary["errors"] += 1
+            continue
+
+        # Run the gate. _maybe_auto_apply is silent on skip
+        # (evidence floor, tier blocked, role protected) and writes
+        # state='applied' on success.
+        try:
+            _maybe_auto_apply(
+                int(r["id"]), event,
+                evidence_strength=r["evidence_strength"],
+                vitality_state=r["vitality_state"],
+            )
+        except Exception as exc:
+            log.debug("reprocess: gate raised for id=%d: %s",
+                      r["id"], exc)
+            summary["errors"] += 1
+            continue
+
+        # Did it apply? Re-read state.
+        try:
+            after = conn.execute(
+                "SELECT state FROM scenario_proposals WHERE id=?",
+                (r["id"],),
+            ).fetchone()
+            if after and after["state"] == "applied":
+                summary["applied"] += 1
+        except Exception:
+            summary["errors"] += 1
+
+    return summary
+
+
 _DIAGNOSTIC_PROPOSAL_TYPES = (
     "sensor_gap_detected",
     "scenario_dormant",

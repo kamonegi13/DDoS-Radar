@@ -83,18 +83,21 @@ def _insert_proposal(
     state: str = "pending",
     target_country: "str | None" = None,
     emitted_at: "float | None" = None,
+    suggested_value: dict | None = None,
 ) -> int:
     if emitted_at is None:
         emitted_at = time.time()
+    import json as _json
+    sv = _json.dumps(suggested_value) if suggested_value is not None else "{}"
     with conn.writing():
         cur = conn.execute(
             "INSERT INTO scenario_proposals "
             "(emitted_at, scenario_id, proposal_type, target_country, "
             " suggested_value_json, evidence_json, formula_ref, "
             " sample_n, why_string, state) "
-            "VALUES (?, ?, ?, ?, '{}', '{}', 'test#v1', 0, 'test', ?)",
+            "VALUES (?, ?, ?, ?, ?, '{}', 'test#v1', 0, 'test', ?)",
             (float(emitted_at), scenario_id, proposal_type,
-             target_country, state),
+             target_country, sv, state),
         )
         return int(cur.lastrowid)
 
@@ -385,3 +388,311 @@ class TestAutoAcknowledgeDiagnostic:
             emitted_at=time.time() - 30 * 86400.0,
         )
         assert pl.auto_acknowledge_diagnostic_proposals() == 0
+
+
+# ── D4: reprocess_pending_through_gate ──────────────────────────────────────
+
+
+class TestReprocessPendingThroughGate:
+    """Drip existing pending rows through the Phase 3 auto-apply gate.
+    These tests build full scenarios + tier governor state so the
+    underlying _maybe_auto_apply path can run end-to-end. Sandbox
+    fixture restores scenarios + tier_state at teardown."""
+
+    @pytest.fixture
+    def _full_sandbox(self, _proposals_sandbox):
+        conn = db._get_conn()  # noqa: SLF001
+        # snapshot scenarios + participants + tier governor state
+        sc_rows = list(conn.execute("SELECT * FROM scenarios"))
+        sc_cols = [d[0] for d in conn.execute(
+            "SELECT * FROM scenarios LIMIT 0").description]
+        p_rows = list(conn.execute(
+            "SELECT * FROM scenario_participants"))
+        p_cols = [d[0] for d in conn.execute(
+            "SELECT * FROM scenario_participants LIMIT 0").description]
+        ts_rows = list(conn.execute("SELECT * FROM auto_apply_tier_state"))
+        ts_cols = [d[0] for d in conn.execute(
+            "SELECT * FROM auto_apply_tier_state LIMIT 0").description]
+        with conn.writing():
+            conn.execute("DELETE FROM scenarios")
+            conn.execute("DELETE FROM scenario_participants")
+            conn.execute("DELETE FROM auto_apply_tier_state")
+            conn.execute("DELETE FROM auto_apply_tier_marker")
+            conn.execute("DELETE FROM auto_apply_cooldown")
+            conn.execute("DELETE FROM scenario_change_log")
+        test_ids: list[str] = []
+        yield (conn, test_ids)
+        with conn.writing():
+            conn.execute("DELETE FROM scenarios")
+            conn.execute("DELETE FROM scenario_participants")
+            conn.execute("DELETE FROM auto_apply_tier_state")
+            conn.execute("DELETE FROM auto_apply_tier_marker")
+            conn.execute("DELETE FROM auto_apply_cooldown")
+            conn.execute("DELETE FROM scenario_change_log")
+            if sc_rows:
+                ph = ",".join("?" for _ in sc_cols)
+                conn.executemany(
+                    f"INSERT INTO scenarios ({','.join(sc_cols)}) "
+                    f"VALUES ({ph})",
+                    [tuple(r) for r in sc_rows],
+                )
+            if p_rows:
+                ph = ",".join("?" for _ in p_cols)
+                conn.executemany(
+                    f"INSERT INTO scenario_participants "
+                    f"({','.join(p_cols)}) VALUES ({ph})",
+                    [tuple(r) for r in p_rows],
+                )
+            if ts_rows:
+                ph = ",".join("?" for _ in ts_cols)
+                conn.executemany(
+                    f"INSERT INTO auto_apply_tier_state "
+                    f"({','.join(ts_cols)}) VALUES ({ph})",
+                    [tuple(r) for r in ts_rows],
+                )
+
+    def _make_scenario(self, conn, sid, *, participants):
+        now = time.time()
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO scenarios "
+                "(id, name_en, name_ja, description_en, description_ja, "
+                " core_country, state, enabled, tier, created_at, updated_at) "
+                "VALUES (?, ?, ?, '', '', ?, 'active', 1, 'L1', ?, ?)",
+                (sid, sid, sid,
+                 list(participants.keys())[0], now, now),
+            )
+            for cc, pdata in participants.items():
+                conn.execute(
+                    "INSERT INTO scenario_participants "
+                    "(scenario_id, country, weight, role) "
+                    "VALUES (?, ?, ?, ?)",
+                    (sid, cc, float(pdata["weight"]), pdata["role"]),
+                )
+
+    def _set_tier(self, conn, tier):
+        with conn.writing():
+            conn.execute("DELETE FROM auto_apply_tier_state")
+            conn.execute("DELETE FROM auto_apply_tier_marker")
+            if tier > 0:
+                conn.execute(
+                    "INSERT INTO auto_apply_tier_state "
+                    "(observed_at, tier, transition, reason, metrics_json) "
+                    "VALUES (?, ?, 'promote', 'test', '{}')",
+                    (time.time(), tier),
+                )
+                conn.execute(
+                    "INSERT INTO auto_apply_tier_marker "
+                    "(marker_key, tier, entered_at, updated_at, "
+                    " metadata_json) "
+                    "VALUES ('current_tier_entered_at', ?, ?, ?, '{}')",
+                    (tier, time.time() - 60 * 86400, time.time()),
+                )
+
+    def test_flag_off_returns_early(self, _full_sandbox, monkeypatch):
+        from radar.calibration import scenario_improver as si
+        monkeypatch.setattr(si, "_auto_apply_enabled", lambda: False)
+        result = pl.reprocess_pending_through_gate()
+        assert result["flag_off"] is True
+        assert result["applied"] == 0
+
+    def test_skips_non_auto_applicable_types(
+        self, _full_sandbox, monkeypatch,
+    ):
+        """scenario_discovery / sensor_gap_detected / scenario_dormant
+        / needs_more_data are not auto-applicable. They must be
+        counted in skipped_type, not checked, and never applied."""
+        conn, _ = _full_sandbox
+        monkeypatch.setenv(
+            "SCENARIO_IMPROVER_AUTO_APPLY_ENABLED", "true")
+        from radar.calibration import scenario_improver as si
+        monkeypatch.setattr(si, "_auto_apply_enabled", lambda: True)
+        self._set_tier(conn, 3)
+        for ptype in ("scenario_discovery", "sensor_gap_detected",
+                      "scenario_dormant", "needs_more_data"):
+            _insert_proposal(
+                conn, scenario_id="__discovery__"
+                if ptype == "scenario_discovery" else "ee",
+                proposal_type=ptype,
+            )
+        result = pl.reprocess_pending_through_gate()
+        assert result["applied"] == 0
+        assert result["skipped_type"] == 4
+
+    def test_skips_too_old_rows(self, _full_sandbox, monkeypatch):
+        conn, test_ids = _full_sandbox
+        monkeypatch.setattr(
+            __import__("radar.calibration.scenario_improver",
+                        fromlist=["_auto_apply_enabled"]),
+            "_auto_apply_enabled", lambda: True,
+        )
+        self._make_scenario(conn, "test_old", participants={
+            "TC": {"weight": 0.40, "role": "primary_target"},
+        })
+        test_ids.append("test_old")
+        self._set_tier(conn, 3)
+        # 35 days old > 30d cap
+        _insert_proposal(
+            conn, scenario_id="test_old",
+            proposal_type="weight_too_low",
+            target_country="TC",
+            emitted_at=time.time() - 35 * 86400.0,
+        )
+        result = pl.reprocess_pending_through_gate()
+        assert result["applied"] == 0
+        assert result["skipped_age"] == 1
+
+    def test_recall_positive_at_t1_applies(
+        self, _full_sandbox, monkeypatch,
+    ):
+        conn, test_ids = _full_sandbox
+        monkeypatch.setattr(
+            __import__("radar.calibration.scenario_improver",
+                        fromlist=["_auto_apply_enabled"]),
+            "_auto_apply_enabled", lambda: True,
+        )
+        self._make_scenario(conn, "test_t1pos", participants={
+            "TC": {"weight": 0.40, "role": "primary_target"},
+        })
+        test_ids.append("test_t1pos")
+        self._set_tier(conn, 1)
+        pid = _insert_proposal(
+            conn, scenario_id="test_t1pos",
+            proposal_type="weight_too_low",
+            target_country="TC",
+            suggested_value={"weight": 0.85},
+        )
+        # Force the proposal row to have evidence_strength set so it
+        # passes the per-type evidence floor.
+        with conn.writing():
+            conn.execute(
+                "UPDATE scenario_proposals SET evidence_strength=?, "
+                "vitality_state=? WHERE id=?",
+                ("strong", "active", pid),
+            )
+
+        result = pl.reprocess_pending_through_gate()
+        assert result["applied"] == 1
+
+        row = conn.execute(
+            "SELECT state, state_changed_by FROM scenario_proposals "
+            "WHERE id=?", (pid,),
+        ).fetchone()
+        assert row["state"] == "applied"
+        assert row["state_changed_by"] \
+            == "auto:scenario_improver:weight_too_low"
+
+    def test_recall_reducing_at_t1_stays_pending(
+        self, _full_sandbox, monkeypatch,
+    ):
+        """Phase 3 gate logic: recall-reducing requires T3."""
+        conn, test_ids = _full_sandbox
+        monkeypatch.setattr(
+            __import__("radar.calibration.scenario_improver",
+                        fromlist=["_auto_apply_enabled"]),
+            "_auto_apply_enabled", lambda: True,
+        )
+        self._make_scenario(conn, "test_t1neg", participants={
+            "TC": {"weight": 0.95, "role": "secondary_ally"},
+        })
+        test_ids.append("test_t1neg")
+        self._set_tier(conn, 1)
+        pid = _insert_proposal(
+            conn, scenario_id="test_t1neg",
+            proposal_type="weight_too_high",
+            target_country="TC",
+            suggested_value={"weight": 0.40},
+        )
+        with conn.writing():
+            conn.execute(
+                "UPDATE scenario_proposals SET evidence_strength=?, "
+                "vitality_state=? WHERE id=?",
+                ("strong", "active", pid),
+            )
+        result = pl.reprocess_pending_through_gate()
+        # _maybe_auto_apply silently rejects → not in applied count.
+        assert result["applied"] == 0
+        # But it WAS checked (passed type + age filter).
+        assert result["checked"] >= 1
+        row = conn.execute(
+            "SELECT state FROM scenario_proposals WHERE id=?", (pid,),
+        ).fetchone()
+        assert row["state"] == "pending"
+
+    def test_rate_limit_caps_applies_per_call(
+        self, _full_sandbox, monkeypatch,
+    ):
+        """Insert MORE eligible rows than REPROCESS_MAX_PER_TICK and
+        verify only the cap is applied. The remaining rows stay
+        pending and will be picked up next call."""
+        conn, test_ids = _full_sandbox
+        monkeypatch.setattr(
+            __import__("radar.calibration.scenario_improver",
+                        fromlist=["_auto_apply_enabled"]),
+            "_auto_apply_enabled", lambda: True,
+        )
+        # Make several scenarios so each has a unique target.
+        ids = []
+        for i in range(pl.REPROCESS_MAX_PER_TICK + 2):
+            sid = f"test_rate_{i}"
+            self._make_scenario(conn, sid, participants={
+                "TC": {"weight": 0.40, "role": "primary_target"},
+            })
+            test_ids.append(sid)
+            pid = _insert_proposal(
+                conn, scenario_id=sid,
+                proposal_type="weight_too_low",
+                target_country="TC",
+                suggested_value={"weight": 0.85},
+            )
+            with conn.writing():
+                conn.execute(
+                    "UPDATE scenario_proposals SET evidence_strength=?, "
+                    "vitality_state=? WHERE id=?",
+                    ("strong", "active", pid),
+                )
+            ids.append(pid)
+        self._set_tier(conn, 1)
+
+        result = pl.reprocess_pending_through_gate()
+        assert result["applied"] == pl.REPROCESS_MAX_PER_TICK
+        # 2 rows stayed pending.
+        n_pending = conn.execute(
+            "SELECT COUNT(*) FROM scenario_proposals "
+            "WHERE state='pending' AND id IN (%s)" % (
+                ",".join(str(i) for i in ids),
+            ),
+        ).fetchone()[0]
+        assert n_pending == 2
+
+    def test_state_changed_mid_loop_skipped(
+        self, _full_sandbox, monkeypatch,
+    ):
+        """If another hook (D1/D2/D3) flips a row's state to dismissed
+        between the SELECT and the apply, reprocess must NOT touch it."""
+        conn, test_ids = _full_sandbox
+        monkeypatch.setattr(
+            __import__("radar.calibration.scenario_improver",
+                        fromlist=["_auto_apply_enabled"]),
+            "_auto_apply_enabled", lambda: True,
+        )
+        self._make_scenario(conn, "test_mid", participants={
+            "TC": {"weight": 0.40, "role": "primary_target"},
+        })
+        test_ids.append("test_mid")
+        self._set_tier(conn, 1)
+        pid = _insert_proposal(
+            conn, scenario_id="test_mid",
+            proposal_type="weight_too_low",
+            target_country="TC",
+            suggested_value={"weight": 0.85},
+        )
+        # Pre-flip the state to simulate a concurrent dismiss.
+        with conn.writing():
+            conn.execute(
+                "UPDATE scenario_proposals SET state='dismissed' "
+                "WHERE id=?", (pid,),
+            )
+        result = pl.reprocess_pending_through_gate()
+        # No pending rows remain; reprocess sees nothing.
+        assert result["applied"] == 0

@@ -558,6 +558,38 @@ def _cache_cleanup_worker(registry=None):
                         "failed: %s", _plc_exc,
                     )
 
+            # D4 (2026-05-08) — drip existing pending scenario_proposals
+            # through the Phase 3 auto-apply gate. Phase 3 only gates
+            # NEW emissions; rows that were already pending before the
+            # flag was flipped never see the gate (the dedup window
+            # blocks the proposer from re-emitting them). D4 closes
+            # that gap by drip-feeding existing pending through the
+            # same evaluation logic at scheduler tick rate. Rate-
+            # limited to REPROCESS_MAX_PER_TICK applies/call so a
+            # sudden tier promotion doesn't fire a flood.
+            if _cycle % 24 == 12:
+                try:
+                    from radar.calibration import (
+                        proposal_lifecycle as _plc,
+                    )
+                    summary = _plc.reprocess_pending_through_gate()
+                    if summary.get("applied", 0) > 0:
+                        log.info(
+                            "[ProposalLifecycle] reprocess: applied %d "
+                            "of %d checked (skipped: type=%d age=%d "
+                            "state_changed=%d, errors=%d)",
+                            summary["applied"], summary["checked"],
+                            summary["skipped_type"],
+                            summary["skipped_age"],
+                            summary["skipped_state_changed"],
+                            summary["errors"],
+                        )
+                except Exception as _rp_exc:
+                    log.warning(
+                        "[ProposalLifecycle] reprocess failed: %s",
+                        _rp_exc,
+                    )
+
             # Follow-up watch — auto-detect when a deferred backlog
             # item's trigger condition is met (B1 / B5+ / B7 / B9 from
             # the 2026-05-05 audit). Emits a WARN on first transition
