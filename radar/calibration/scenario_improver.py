@@ -234,10 +234,28 @@ def _emit(
 
 def _auto_apply_enabled() -> bool:
     """Master flag for the tier-governor-gated auto-apply path. Default
-    False so phase 3 ships dormant. Phase 5 flips it after monitoring
-    confirms tier governor is at T1+ and metrics are clean."""
-    raw = os.getenv("SCENARIO_IMPROVER_AUTO_APPLY_ENABLED", "false")
-    return raw.strip().lower() in ("1", "true", "yes", "on")
+    False so phase 3 ships dormant. Phase 5 registers the key in the
+    SETTINGS Operate>Auto-Calibration page (config_layered) so analysts
+    can flip it from the UI without redeploy.
+
+    Read order: DB override (SETTINGS save) → env (config.env) →
+    code default (False). config_layered.get_config returns the
+    coerced bool directly; on registry failure we fall back to the
+    raw os.getenv path so a pre-Phase-5 deployment still works.
+    """
+    try:
+        from radar.config_layered import get_config
+        v = get_config("SCENARIO_IMPROVER_AUTO_APPLY_ENABLED")
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() in ("1", "true", "yes", "on")
+        if v is None:
+            return False
+        return bool(v)
+    except Exception:
+        raw = os.getenv("SCENARIO_IMPROVER_AUTO_APPLY_ENABLED", "false")
+        return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 # Minimum evidence_strength required for each proposal_type's auto-apply.

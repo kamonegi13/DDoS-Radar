@@ -251,8 +251,13 @@ class TestFlagOff:
         _make_scenario(s_conn, sid)
         test_ids.append(sid)
         _set_tier(s_conn, 3)  # would-allow if flag were on
+        # Force the flag OFF at *both* layers (DB override + env)
+        # so a production-with-flag-on environment doesn't leak into
+        # this isolation test.
         monkeypatch.delenv(
             "SCENARIO_IMPROVER_AUTO_APPLY_ENABLED", raising=False)
+        from radar.calibration import scenario_improver as si
+        monkeypatch.setattr(si, "_auto_apply_enabled", lambda: False)
 
         pid = _emit_event(
             scenario_id=sid, proposal_type="weight_too_low",
@@ -468,6 +473,55 @@ class TestDiscoveryAndUnsupported:
 
 
 # ── Source-agnostic mutation symmetry ───────────────────────────────────────
+
+
+class TestFlagReadPath:
+    """Pin the contract that _auto_apply_enabled() reads via the
+    layered config registry (DB override → env → default), not just
+    the raw env. Regression test for the bug discovered during Phase
+    5 rollout: SETTINGS UI saves go to the DB layer, and an env-only
+    reader misses them entirely.
+    """
+
+    def test_db_override_takes_precedence_over_env_default(
+        self, monkeypatch,
+    ):
+        # Make sure env is unset so DB override is the only source.
+        monkeypatch.delenv(
+            "SCENARIO_IMPROVER_AUTO_APPLY_ENABLED", raising=False)
+        # Stub get_config to return True (simulating SETTINGS save).
+        from radar import config_layered
+        monkeypatch.setattr(
+            config_layered, "get_config",
+            lambda key: True if key == "SCENARIO_IMPROVER_AUTO_APPLY_ENABLED" else None,
+        )
+        from radar.calibration import scenario_improver as si
+        assert si._auto_apply_enabled() is True
+
+    def test_env_string_truthy_values_recognized(self, monkeypatch):
+        """When config_layered raises (older deployments) the function
+        falls back to env. The fallback must accept the same truthy
+        strings the layered code does."""
+        from radar import config_layered
+
+        def _boom(*_a, **_kw):
+            raise RuntimeError("registry unavailable")
+        monkeypatch.setattr(config_layered, "get_config", _boom)
+        from radar.calibration import scenario_improver as si
+        for truthy in ("1", "true", "TRUE", "yes", "on"):
+            monkeypatch.setenv(
+                "SCENARIO_IMPROVER_AUTO_APPLY_ENABLED", truthy)
+            assert si._auto_apply_enabled() is True, truthy
+
+    def test_unset_returns_false(self, monkeypatch):
+        from radar import config_layered
+        monkeypatch.setattr(
+            config_layered, "get_config", lambda key: False,
+        )
+        monkeypatch.delenv(
+            "SCENARIO_IMPROVER_AUTO_APPLY_ENABLED", raising=False)
+        from radar.calibration import scenario_improver as si
+        assert si._auto_apply_enabled() is False
 
 
 class TestSymmetryWithAnalystPath:
