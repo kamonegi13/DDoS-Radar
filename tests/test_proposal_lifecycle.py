@@ -298,3 +298,90 @@ class TestSupersedeDuplicatePending:
             (sole,),
         ).fetchone()
         assert sole_row["state"] == "pending"
+
+
+# ── D3: auto_acknowledge_diagnostic_proposals ───────────────────────────────
+
+
+class TestAutoAcknowledgeDiagnostic:
+    @pytest.mark.parametrize("ptype", [
+        "sensor_gap_detected",
+        "scenario_dormant",
+        "needs_more_data",
+    ])
+    def test_dismisses_old_diagnostic_proposals(
+        self, _proposals_sandbox, ptype,
+    ):
+        """Each of the three diagnostic types is auto-dismissed after
+        the staleness window, with a distinguishing
+        state_changed_by marker."""
+        conn, _ = _proposals_sandbox
+        pid = _insert_proposal(
+            conn, scenario_id="s1", proposal_type=ptype,
+            emitted_at=time.time() - 10 * 86400.0,  # 10 days old
+        )
+        n = pl.auto_acknowledge_diagnostic_proposals()
+        assert n >= 1
+        row = conn.execute(
+            "SELECT state, state_changed_by FROM scenario_proposals "
+            "WHERE id=?", (pid,),
+        ).fetchone()
+        assert row["state"] == "dismissed"
+        assert row["state_changed_by"] == "auto:diagnostic_acknowledged"
+
+    def test_does_not_dismiss_recent_diagnostic(
+        self, _proposals_sandbox,
+    ):
+        """Below the 7-day window the row stays pending — analyst may
+        still want to see it as 'recent observation'."""
+        conn, _ = _proposals_sandbox
+        pid = _insert_proposal(
+            conn, scenario_id="s1",
+            proposal_type="sensor_gap_detected",
+            emitted_at=time.time() - 1 * 86400.0,  # 1 day old
+        )
+        pl.auto_acknowledge_diagnostic_proposals()
+        row = conn.execute(
+            "SELECT state FROM scenario_proposals WHERE id=?", (pid,),
+        ).fetchone()
+        assert row["state"] == "pending"
+
+    def test_does_not_dismiss_actionable_proposal_types(
+        self, _proposals_sandbox,
+    ):
+        """Non-diagnostic types (e.g. weight_too_high) are NOT touched
+        by D3 even when old. Their lifecycle goes through other paths
+        (analyst Apply, auto-apply gate, chronic_pending watch)."""
+        conn, _ = _proposals_sandbox
+        pid = _insert_proposal(
+            conn, scenario_id="s1",
+            proposal_type="weight_too_high",
+            emitted_at=time.time() - 30 * 86400.0,  # 30 days old
+        )
+        pl.auto_acknowledge_diagnostic_proposals()
+        row = conn.execute(
+            "SELECT state FROM scenario_proposals WHERE id=?", (pid,),
+        ).fetchone()
+        assert row["state"] == "pending"
+
+    def test_idempotent(self, _proposals_sandbox):
+        conn, _ = _proposals_sandbox
+        _insert_proposal(
+            conn, scenario_id="s1",
+            proposal_type="sensor_gap_detected",
+            emitted_at=time.time() - 10 * 86400.0,
+        )
+        assert pl.auto_acknowledge_diagnostic_proposals() == 1
+        assert pl.auto_acknowledge_diagnostic_proposals() == 0
+
+    def test_already_resolved_rows_not_touched(
+        self, _proposals_sandbox,
+    ):
+        conn, _ = _proposals_sandbox
+        _insert_proposal(
+            conn, scenario_id="s1",
+            proposal_type="sensor_gap_detected",
+            state="dismissed",
+            emitted_at=time.time() - 30 * 86400.0,
+        )
+        assert pl.auto_acknowledge_diagnostic_proposals() == 0

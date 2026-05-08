@@ -539,9 +539,22 @@ def _cache_cleanup_worker(registry=None):
                             "[ProposalLifecycle] auto-dismissed %d "
                             "pending proposals on inactive scenarios", n,
                         )
+                    # D3 — diagnostic auto-acknowledge (Phase 4 of the
+                    # 2026-05-08 seam closure). Diagnostic-only types
+                    # (sensor_gap_detected / scenario_dormant /
+                    # needs_more_data) have no Apply path; their
+                    # 'pending' state is misleading. After 7 days we
+                    # mark them dismissed so the wizard's pending
+                    # lists self-clear.
+                    n_diag = _plc.auto_acknowledge_diagnostic_proposals()
+                    if n_diag > 0:
+                        log.info(
+                            "[ProposalLifecycle] auto-acknowledged %d "
+                            "diagnostic-only pending proposals", n_diag,
+                        )
                 except Exception as _plc_exc:
                     log.warning(
-                        "[ProposalLifecycle] inactive auto-dismiss "
+                        "[ProposalLifecycle] auto-dismiss/ack "
                         "failed: %s", _plc_exc,
                     )
 

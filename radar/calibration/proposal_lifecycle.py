@@ -77,6 +77,73 @@ def auto_dismiss_inactive_scenario_proposals() -> int:
         return 0
 
 
+_DIAGNOSTIC_PROPOSAL_TYPES = (
+    "sensor_gap_detected",
+    "scenario_dormant",
+    "needs_more_data",
+)
+
+DIAGNOSTIC_AUTO_ACK_DAYS = 7.0
+
+
+def auto_acknowledge_diagnostic_proposals(
+    *, stale_days: float = DIAGNOSTIC_AUTO_ACK_DAYS,
+) -> int:
+    """D3 — auto-acknowledge diagnostic-only scenario_proposals.
+
+    The Wizard's Diagnostic tab labels these types "informational
+    only — no Apply path". They sit at ``state='pending'`` forever
+    because there is no ledger transition that resolves them. After
+    ``stale_days`` we mark them as ``dismissed`` with
+    ``state_changed_by='auto:diagnostic_acknowledged'`` so:
+
+      - the wizard's pending lists self-clear
+      - the AUTO-TUNE chip's pending count reflects only items that
+        actually need analyst action
+      - the followup_watch ``proposal.chronic_pending`` watch isn't
+        polluted by informational rows that were never going to be
+        actioned
+
+    NP6 trail: each row's ``state_changed_by`` distinguishes
+    ``auto:diagnostic_acknowledged`` from ``auto:inactive_scenario``
+    (D1) and ``auto:supersede_by_id_*`` (D2) so audit forensics can
+    tell which mechanical hook handled each lifecycle event.
+
+    Returns the number of rows transitioned. Idempotent.
+    """
+    from radar.database import db
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        cutoff = time.time() - max(0.0, float(stale_days)) * 86400.0
+        placeholders = ",".join("?" for _ in _DIAGNOSTIC_PROPOSAL_TYPES)
+        rows = conn.execute(
+            f"SELECT id FROM scenario_proposals "
+            f"WHERE state='pending' "
+            f"AND proposal_type IN ({placeholders}) "
+            f"AND emitted_at < ?",
+            (*_DIAGNOSTIC_PROPOSAL_TYPES, cutoff),
+        ).fetchall()
+        ids = [int(r[0]) for r in rows]
+        if not ids:
+            return 0
+        now = time.time()
+        with conn.writing():
+            id_placeholders = ",".join("?" for _ in ids)
+            conn.execute(
+                "UPDATE scenario_proposals SET state='dismissed', "
+                "state_changed_at=?, "
+                "state_changed_by='auto:diagnostic_acknowledged' "
+                f"WHERE id IN ({id_placeholders}) AND state='pending'",
+                (now, *ids),
+            )
+        return len(ids)
+    except Exception as exc:
+        log.warning(
+            "auto_acknowledge_diagnostic_proposals failed: %s", exc,
+        )
+        return 0
+
+
 def supersede_duplicate_pending(
     *,
     scenario_id: str,

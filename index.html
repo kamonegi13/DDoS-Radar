@@ -3158,19 +3158,20 @@
 
         <p><b>J. Auto-tune Wizard</b> — <span class="code-block">TOOLS ▾</span> → Auto-tune Wizard</p>
         <ul>
-            <li><b>Purpose</b>: Single-screen review surface for every Phase A-F1+F3 + Tier 3 discovery proposal. Analysts apply / dismiss / defer in one place. <b>Structural changes (adversary additions, role reclassifications) MUST pass the NP7 confirmation modal</b> before they take effect.</li>
-            <li><b>Seven tabs</b> (post-incident redesign 2026-04-29):
+            <li><b>Purpose</b>: Single-screen review surface for proposals that did NOT auto-apply (per the tier governor + evidence floor) or that fall outside the auto-apply scope (NP7 boundaries — see below). Analysts apply / dismiss / defer the residual queue here.</li>
+            <li><b>Auto-apply integration (2026-05-08 seam closure)</b>: scenario_improver / scenario_structure_proposer emissions are gated through <code>auto_apply_tier_governor.is_apply_allowed()</code>. When the gate passes the proposal goes directly to <span class="code-block">state='applied'</span> via <code>apply_scenario_improver_proposal()</code>; the wizard never sees those rows.
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
-                    <li><b>Recall+</b>: Recall-positive proposals (weight_too_low, missing_participant). Safe to Apply with single-source evidence.</li>
-                    <li><b>Recall-</b>: Recall-reducing proposals (weight_too_high, dormant_participant). Requires <i>strong</i> evidence (5/5 sources zero) AND non-protected role AND scenario vitality=active. Apply gated by NP7 confirmation modal.</li>
-                    <li><b>Structure</b>: role_reclassify proposals. Analyst review with NP7 confirmation.</li>
-                    <li><b>Diagnostic</b>: sensor_gap_detected / scenario_dormant / needs_more_data. <i>Informational only</i> — no Apply path. Surfaces NP5+8 transitional 結論不可 directly so analysts know whether to investigate sensors, retire scenarios, or wait for data.</li>
-                    <li><b>Sensor Disable</b>: α-broken sensor auto-disable proposals with a 24h analyst ack window.</li>
+                    <li><b>Recall+</b> (<code>weight_too_low</code>, <code>missing_participant</code>) — auto-apply at <b>Tier 1+</b> with weak/moderate evidence (NP1 priority: withholding recall improvements is itself recall reduction).</li>
+                    <li><b>Recall-</b> (<code>weight_too_high</code>, <code>dormant_participant</code>) — auto-apply at <b>Tier 3</b> with <i>strong</i> evidence AND non-protected role AND scenario vitality=active. Triggers the 24h HIGH cool-down on LOW/MED auto-apply afterwards. The wizard's NP7 confirm modal still gates analyst-driven Apply for stragglers (e.g. weak-evidence cases).</li>
+                    <li><b>Structure</b> (<code>role_reclassify</code>) — auto-apply at <b>Tier 2+</b> with strong evidence on non-protected roles. Protected-role reclassifications stay analyst-only (NP7).</li>
+                    <li><b>Discovery</b> (<code>scenario_discovery</code>) — <b>never</b> auto-applies. NP7 boundary: scenario lifecycle (which conflicts to track) is an organizational decision, not a calibrator one.</li>
+                    <li><b>Diagnostic</b> (<code>sensor_gap_detected</code>, <code>scenario_dormant</code>, <code>needs_more_data</code>) — informational only. After 7 days the daily scheduler hook auto-acknowledges them (<code>state='dismissed'</code>, <code>state_changed_by='auto:diagnostic_acknowledged'</code>) so the wizard's pending lists self-clear. NP5+8 transitional 結論不可 surfaces are still recorded for analyst awareness.</li>
+                    <li><b>Sensor Disable</b>: α-broken sensor auto-disable proposals with a 24h analyst ack window (independent of the tier governor seam — governed by Phase D pipeline).</li>
                     <li><b>Drift Signals</b>: F3 drift events past the dwell threshold (≥3 consecutive runs). Color-coded amber/red.</li>
-                    <li><b>Discovery</b>: G.2 cooccurrence + G.3a DBSCAN candidate scenarios (read-only). G3b LLM annotations appear once <span class="code-block">G3B_SHADOW_ENABLED=true</span>.</li>
                 </ul>
             </li>
-            <li><b>NP7 confirm modal</b>: When applying a proposal flagged <span class="code-block">is_recall_reducing=true</span>, a sub-modal (autotune-confirm-modal) shows the rationale + evidence and disables Apply until the analyst clicks Confirm.</li>
+            <li><b>Master flag</b>: <span class="code-block">SCENARIO_IMPROVER_AUTO_APPLY_ENABLED</span> (default <code>false</code> until tier governor stability is observed at T1+). When false, every proposal stays at <span class="code-block">state='pending'</span> and the wizard is the only apply path — historical behaviour preserved.</li>
+            <li><b>NP7 confirm modal</b>: applies to the analyst path for any recall-reducing proposal that did NOT auto-apply (because evidence was below the strong floor, role was protected, or the flag was off). Sub-modal (autotune-confirm-modal) shows the rationale + evidence and disables Apply until the analyst clicks Confirm.</li>
             <li><b>Transparency (NP6)</b>: Every row exposes <span class="code-block">formula_ref</span>, <span class="code-block">sample_n</span>, and a structured <span class="code-block">evidence_json</span> block — full reproducibility from inside the wizard.</li>
             <li><b>API endpoints</b>: <span class="code-block">GET /api/v2/proposals/{scenario_improver,sensor_disable}</span>, <span class="code-block">GET /api/v2/drift_signals</span>, <span class="code-block">GET /api/v2/discovery/clusters</span>, <span class="code-block">POST /api/v2/proposals/scenario_improver/&lt;id&gt;/{apply,dismiss,defer}</span>, <span class="code-block">POST /api/v2/proposals/sensor_disable/&lt;id&gt;/ack</span>, <span class="code-block">POST /api/v2/drift_signals/&lt;id&gt;/ack</span>.</li>
             <li><b>Audit</b>: Every apply records <span class="code-block">admin:&lt;username&gt;</span> in <span class="code-block">scenario_proposals.state_changed_by</span>. <span class="code-block">GET /api/v2/threshold_history/&lt;id&gt;/lineage</span> walks the derivation chain backwards and forwards.</li>
@@ -3574,19 +3575,20 @@
 
         <p><b>J. オートチューニング Wizard</b> — <span class="code-block">TOOLS ▾</span> → Auto-tune Wizard</p>
         <ul>
-            <li><b>目的</b>: Phase A-F1+F3 のオートチューニング機構が累積した提案・履歴・ドリフトシグナルをアナリストが 1 画面でレビューし、apply / dismiss / defer する単一導線を提供。<b>NP7 違反防止のため、構造変更（adversary 追加 / 役割再分類）は必ず確認モーダル経由</b>で適用される。</li>
-            <li><b>7 タブ構成</b>（2026-04-29 ポストインシデント再設計）:
+            <li><b>目的</b>: tier governor + 証拠強度ゲートで自動適用されなかった提案、または NP7 境界外（後述）の提案を、アナリストが 1 画面で apply / dismiss / defer する残余キューのレビュー画面。</li>
+            <li><b>自動適用統合（2026-05-08 シーム閉鎖）</b>: scenario_improver / scenario_structure_proposer の発出は <code>auto_apply_tier_governor.is_apply_allowed()</code> でゲートされる。ゲートを通過した提案はそのまま <span class="code-block">state='applied'</span> へ遷移し（<code>apply_scenario_improver_proposal()</code> 経由）、Wizard には現れない。
                 <ul style="font-size:11px; color:#aaa; margin-top:4px; line-height:1.8;">
-                    <li><b>Recall+</b>: recall を上げる提案（weight_too_low / missing_participant）。1 ソース証拠で安全に Apply 可能。</li>
-                    <li><b>Recall-</b>: recall を下げる提案（weight_too_high / dormant_participant）。5/5 ソースゼロの「strong」証拠 AND 非保護ロール AND シナリオ vitality=active を全て満たす場合のみ表示。Apply は NP7 確認モーダル経由必須。</li>
-                    <li><b>Structure</b>: role_reclassify 提案。NP7 確認モーダル経由でアナリスト承認。</li>
-                    <li><b>Diagnostic</b>: sensor_gap_detected / scenario_dormant / needs_more_data。<i>情報提示のみ</i> — Apply 動作なし。NP5+8 の過渡的「結論不可」を能動的に表現し、センサー側を疑うべきか・シナリオ廃止すべきか・データ蓄積待ちかをアナリストに明示する。</li>
-                    <li><b>Sensor Disable</b>: 24h ack 待ちの α-broken センサー無効化提案。</li>
-                    <li><b>Drift Signals</b>: dwell-time（≥3 連続検出）を満たした F3 ドリフトイベント。amber/red 重要度で色分け。<span class="code-block">proposal_quality_inversion</span> シグナル（post-incident）はルール誤動作を検知する system-wide 警告。</li>
-                    <li><b>Discovery</b>: G.2 共起行列 + G.3a DBSCAN で発見された候補シナリオクラスタ（読み取り専用）。<span class="code-block">G3B_SHADOW_ENABLED=true</span> で LLM 注釈が表示される。</li>
+                    <li><b>Recall+</b>（<code>weight_too_low</code> / <code>missing_participant</code>）— <b>Tier 1+</b> で weak/moderate 証拠で自動適用（NP1 優先：recall 改善を保留すること自体が recall 削減）。</li>
+                    <li><b>Recall-</b>（<code>weight_too_high</code> / <code>dormant_participant</code>）— <b>Tier 3</b> で <i>strong</i> 証拠 AND 非保護ロール AND vitality=active のときのみ自動適用。適用後 24h HIGH cool-down で LOW/MED 自動適用を停止する。弱い証拠の場合は Wizard でアナリスト判断（NP7 確認モーダル経由）。</li>
+                    <li><b>Structure</b>（<code>role_reclassify</code>）— 非保護ロール対象なら <b>Tier 2+</b> で strong 証拠で自動適用。保護ロールはアナリスト専用（NP7）。</li>
+                    <li><b>Discovery</b>（<code>scenario_discovery</code>）— <b>絶対に自動適用しない</b>。NP7 境界：シナリオライフサイクル（どの紛争を追跡するか）はキャリブレータの判断ではなく組織の判断。</li>
+                    <li><b>Diagnostic</b>（<code>sensor_gap_detected</code> / <code>scenario_dormant</code> / <code>needs_more_data</code>）— 情報提示のみ。7 日経過で日次 scheduler hook が自動 ack（<code>state='dismissed'</code>, <code>state_changed_by='auto:diagnostic_acknowledged'</code>）するので Wizard の pending リストが自動で片付く。NP5+8 の過渡的「結論不可」はアナリスト確認のため記録は残る。</li>
+                    <li><b>Sensor Disable</b>: 24h ack 待ちの α-broken センサー無効化提案（tier governor シームとは独立、Phase D pipeline 管轄）。</li>
+                    <li><b>Drift Signals</b>: dwell-time（≥3 連続検出）を満たした F3 ドリフトイベント。amber/red 重要度で色分け。</li>
                 </ul>
             </li>
-            <li><b>NP7 確認モーダル</b>: <span class="code-block">is_recall_reducing=true</span> の提案を Apply するときは別の確認モーダル（autotune-confirm-modal）が表示される。理由文と evidence を再確認した上で「Confirm Apply」を押すまで確定しない。</li>
+            <li><b>マスターフラグ</b>: <span class="code-block">SCENARIO_IMPROVER_AUTO_APPLY_ENABLED</span>（tier governor の T1+ 安定が観察できるまでデフォルト <code>false</code>）。false の間は全ての提案が <span class="code-block">state='pending'</span> のままで、Wizard が唯一の apply 経路となり従来挙動が維持される。</li>
+            <li><b>NP7 確認モーダル</b>: 自動適用されなかった recall 削減提案（証拠が strong 未満、保護ロール対象、フラグ OFF 状態など）にアナリストパスで対応する際に使用。確認モーダル（autotune-confirm-modal）が rationale と evidence を再表示し、「Confirm Apply」を押すまで適用は確定しない。</li>
             <li><b>透明性（NP6）</b>: 全行に <span class="code-block">formula_ref</span>、<span class="code-block">sample_n</span>、構造化された <span class="code-block">evidence_json</span> が表示される。再現可能性の保証。</li>
             <li><b>API エンドポイント</b>: <span class="code-block">GET /api/v2/proposals/{scenario_improver,sensor_disable}</span>、<span class="code-block">GET /api/v2/drift_signals</span>、<span class="code-block">GET /api/v2/discovery/clusters</span>、<span class="code-block">POST /api/v2/proposals/scenario_improver/&lt;id&gt;/{apply,dismiss,defer}</span>、<span class="code-block">POST /api/v2/proposals/sensor_disable/&lt;id&gt;/ack</span>、<span class="code-block">POST /api/v2/drift_signals/&lt;id&gt;/ack</span>。</li>
             <li><b>監査</b>: 全 apply 操作は <span class="code-block">scenario_proposals.state_changed_by</span> に <span class="code-block">admin:&lt;username&gt;</span> として記録。<span class="code-block">GET /api/v2/threshold_history/&lt;id&gt;/lineage</span> で derivation chain を遡及可能。</li>
