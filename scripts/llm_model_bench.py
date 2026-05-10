@@ -222,18 +222,26 @@ def score_output(raw: str) -> tuple[bool, tuple[str, ...], tuple[str, ...], bool
 
 
 def call_ollama(model: str, prompt: str, *,
-                timeout: int = DEFAULT_TIMEOUT) -> tuple[str, float, Optional[str]]:
+                timeout: int = DEFAULT_TIMEOUT,
+                use_format_json: bool = True) -> tuple[str, float, Optional[str]]:
     """Single Ollama generate. Returns (raw_text, duration_ms, http_error).
+
+    Methodology fix (2026-05-10): production's ``llm_analyze_json``
+    passes ``format='json'`` to Ollama (structured-output mode). Without
+    that flag gemma family produces empty responses. To match production
+    we now default to ``use_format_json=True``.
 
     stdlib-only so the script runs on a vanilla host Python without
     needing to install a venv.
     """
-    payload = {
+    payload: dict = {
         "model": model,
         "prompt": prompt,
         "stream": False,
         "options": SENSOR_EXTRACT_OPTIONS,
     }
+    if use_format_json:
+        payload["format"] = "json"
     body_bytes = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         OLLAMA_URL, data=body_bytes,

@@ -1,0 +1,63 @@
+{
+  "started_at": "2026-05-10T15:11:12.408742",
+  "use_case": "sensor_extract",
+  "n_prompts": 6,
+  "stats": {
+    "gemma4:26b": {
+      "n_total": 6,
+      "n_parsed_ok": 0,
+      "n_required_complete": 0,
+      "n_degenerate": 5,
+      "n_http_error": 0,
+      "parse_rate": 0.0,
+      "field_complete_rate": 0.0,
+      "avg_duration_ms": 10617.4,
+      "p95_duration_ms": 12642.8
+    },
+    "gemma4:31b": {
+      "n_total": 6,
+      "n_parsed_ok": 5,
+      "n_required_complete": 5,
+      "n_degenerate": 1,
+      "n_http_error": 0,
+      "parse_rate": 0.8333,
+      "field_complete_rate": 0.8333,
+      "avg_duration_ms": 16564.7,
+      "p95_duration_ms": 17844.6
+    },
+    "gemma4:31b-coding-mtp-bf16": {
+      "n_total": 6,
+      "n_parsed_ok": 0,
+      "n_required_complete": 0,
+      "n_degenerate": 0,
+      "n_http_error": 0,
+      "parse_rate": 0.0,
+      "field_complete_rate": 0.0,
+      "avg_duration_ms": 92805.0,
+      "p95_duration_ms": 83062.5
+    },
+    "qwen3.5:35b": {
+      "n_total": 6,
+      "n_parsed_ok": 6,
+      "n_required_complete": 6,
+      "n_degenerate": 0,
+      "n_http_error": 0,
+      "parse_rate": 1.0,
+      "field_complete_rate": 1.0,
+      "avg_duration_ms": 10602.2,
+      "p95_duration_ms": 10994.9
+    },
+    "mistral-small3.2:24b": {
+      "n_total": 6,
+      "n_parsed_ok": 6,
+      "n_required_complete": 6,
+      "n_degenerate": 0,
+      "n_http_error": 0,
+      "parse_rate": 1.0,
+      "field_complete_rate": 1.0,
+      "avg_duration_ms": 14623.5,
+      "p95_duration_ms": 16677.8
+    }
+  },
+  "raw_results_count": 30
+}
