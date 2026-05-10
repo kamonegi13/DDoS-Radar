@@ -150,6 +150,86 @@ def _insert_drift_event(
         return int(cur.lastrowid)
 
 
+class TestAutoDismissStalePending:
+    """D5 (2026-05-10): auto-dismiss long-stale actionable proposals."""
+
+    def test_stale_actionable_pending_gets_dismissed(
+        self, _proposals_sandbox, _scenarios_sandbox,
+    ):
+        conn, _ = _proposals_sandbox
+        _, test_ids = _scenarios_sandbox
+        sid = "test_sc_d5_stale"
+        test_ids.append(sid)
+        _insert_scenario(conn, sid=sid, state="active")
+        old = time.time() - 35 * 86400
+        pid = _insert_proposal(
+            conn, scenario_id=sid,
+            proposal_type="weight_too_high",
+            state="pending", emitted_at=old,
+        )
+        n = pl.auto_dismiss_stale_pending_proposals(stale_days=30.0)
+        assert n == 1
+        row = conn.execute(
+            "SELECT state, state_changed_by FROM scenario_proposals WHERE id=?",
+            (pid,),
+        ).fetchone()
+        assert row[0] == "dismissed"
+        assert row[1] == "auto:timeout_no_action"
+
+    def test_recent_pending_unchanged(
+        self, _proposals_sandbox, _scenarios_sandbox,
+    ):
+        conn, _ = _proposals_sandbox
+        _, test_ids = _scenarios_sandbox
+        sid = "test_sc_d5_recent"
+        test_ids.append(sid)
+        _insert_scenario(conn, sid=sid, state="active")
+        recent = time.time() - 10 * 86400  # below 30d threshold
+        _insert_proposal(
+            conn, scenario_id=sid,
+            proposal_type="weight_too_high",
+            state="pending", emitted_at=recent,
+        )
+        n = pl.auto_dismiss_stale_pending_proposals(stale_days=30.0)
+        assert n == 0
+
+    def test_diagnostic_types_skipped(
+        self, _proposals_sandbox, _scenarios_sandbox,
+    ):
+        """Diagnostic types are handled by D3 at 7d — D5 must not double-process."""
+        conn, _ = _proposals_sandbox
+        _, test_ids = _scenarios_sandbox
+        sid = "test_sc_d5_diag"
+        test_ids.append(sid)
+        _insert_scenario(conn, sid=sid, state="active")
+        old = time.time() - 35 * 86400
+        _insert_proposal(
+            conn, scenario_id=sid,
+            proposal_type="needs_more_data",  # diagnostic type
+            state="pending", emitted_at=old,
+        )
+        n = pl.auto_dismiss_stale_pending_proposals(stale_days=30.0)
+        assert n == 0  # D3 handles this, not D5
+
+    def test_inactive_scenario_skipped(
+        self, _proposals_sandbox, _scenarios_sandbox,
+    ):
+        """Inactive scenarios are handled by D1 — D5 must not double-process."""
+        conn, _ = _proposals_sandbox
+        _, test_ids = _scenarios_sandbox
+        sid = "test_sc_d5_paused"
+        test_ids.append(sid)
+        _insert_scenario(conn, sid=sid, state="paused")
+        old = time.time() - 35 * 86400
+        _insert_proposal(
+            conn, scenario_id=sid,
+            proposal_type="weight_too_high",
+            state="pending", emitted_at=old,
+        )
+        n = pl.auto_dismiss_stale_pending_proposals(stale_days=30.0)
+        assert n == 0  # D1 handles paused scenarios
+
+
 class TestDriftAutoAcknowledge:
     def test_amber_unack_old_gets_acknowledged(self, _drift_events_sandbox):
         conn, _ = _drift_events_sandbox

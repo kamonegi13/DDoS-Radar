@@ -306,6 +306,73 @@ def auto_acknowledge_diagnostic_proposals(
 DRIFT_AMBER_AUTO_ACK_DAYS = 3.0
 DRIFT_RED_NOTIFY_DAYS = 1.0
 
+PROPOSAL_STALE_TIMEOUT_DAYS = 30.0
+
+
+def auto_dismiss_stale_pending_proposals(
+    *, stale_days: float = PROPOSAL_STALE_TIMEOUT_DAYS,
+) -> int:
+    """Auto-dismiss pending ``scenario_proposals`` that have stayed
+    pending past ``stale_days`` without analyst action.
+
+    Complements:
+      - D1 (auto_dismiss_inactive_scenario_proposals): dismisses
+        proposals on inactive scenarios immediately.
+      - D3 (auto_acknowledge_diagnostic_proposals): dismisses
+        diagnostic-only types after 7 days because they have no
+        Apply path.
+      - This function (D5, 2026-05-10): dismisses ACTIONABLE
+        proposals that simply weren't acted on. The signal the
+        proposal was built on is stale by 30 days, so applying it
+        would mean tuning against historical traffic that no longer
+        reflects current conditions.
+
+    Excludes diagnostic types (handled by D3) and proposals on
+    inactive scenarios (handled by D1). Operates only on pending rows
+    of ACTIVE scenarios with non-diagnostic proposal_type. Idempotent.
+
+    NP6 trail: state_changed_by='auto:timeout_no_action' distinguishes
+    from D1 ('auto:inactive_scenario') and D3
+    ('auto:diagnostic_acknowledged').
+
+    Returns the number of rows transitioned.
+    """
+    from radar.database import db
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        cutoff = time.time() - max(0.0, float(stale_days)) * 86400.0
+        diag_placeholders = ",".join("?" for _ in _DIAGNOSTIC_PROPOSAL_TYPES)
+        # Subquery selects pending proposals older than cutoff whose
+        # type is NOT diagnostic AND whose target scenario is active.
+        rows = conn.execute(
+            f"SELECT p.id FROM scenario_proposals p "
+            f"INNER JOIN scenarios s ON s.id = p.scenario_id "
+            f"WHERE p.state='pending' "
+            f"AND p.emitted_at < ? "
+            f"AND p.proposal_type NOT IN ({diag_placeholders}) "
+            f"AND s.state='active'",
+            (cutoff, *_DIAGNOSTIC_PROPOSAL_TYPES),
+        ).fetchall()
+        ids = [int(r[0]) for r in rows]
+        if not ids:
+            return 0
+        now = time.time()
+        with conn.writing():
+            id_placeholders = ",".join("?" for _ in ids)
+            conn.execute(
+                "UPDATE scenario_proposals SET state='dismissed', "
+                "state_changed_at=?, "
+                "state_changed_by='auto:timeout_no_action' "
+                f"WHERE id IN ({id_placeholders}) AND state='pending'",
+                (now, *ids),
+            )
+        return len(ids)
+    except Exception as exc:
+        log.warning(
+            "auto_dismiss_stale_pending_proposals failed: %s", exc,
+        )
+        return 0
+
 
 def auto_acknowledge_amber_drift_events(
     *, stale_days: float = DRIFT_AMBER_AUTO_ACK_DAYS,

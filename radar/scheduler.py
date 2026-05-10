@@ -566,6 +566,16 @@ def _cache_cleanup_worker(registry=None):
                             "[DriftLifecycle] auto-acknowledged %d "
                             "amber drift events past timeout", n_amber,
                         )
+                    # Stale actionable proposals (D5, 2026-05-10):
+                    # dismiss non-diagnostic pending rows on active
+                    # scenarios after 30d of inactivity. The underlying
+                    # signal is too old to drive a valid weight change.
+                    n_stale = _plc.auto_dismiss_stale_pending_proposals()
+                    if n_stale > 0:
+                        log.info(
+                            "[ProposalLifecycle] auto-dismissed %d stale "
+                            "pending proposals past 30d timeout", n_stale,
+                        )
                     red_events = _plc.list_old_unack_red_drift_events()
                     if red_events:
                         try:
