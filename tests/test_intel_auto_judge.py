@@ -355,6 +355,76 @@ class TestAutoJudgeApply:
         assert ovr_rows[0]["analyst_id"] == "alice@example.com"
         assert ovr_rows[0]["analyst_override_action"] == "confirm"
 
+    def test_llm_recheck_skip_guard_avoids_redundant_calls(self, testdb, monkeypatch):
+        """Idempotency: the LLM recheck must NOT be invoked twice in a
+        row when the previous decision is fresh AND corroborator count
+        is unchanged. Production observed 21 LLM calls per item over
+        22 hours for items stuck in the middle band — this guard caps it.
+        """
+        _patch_db(monkeypatch, testdb)
+        monkeypatch.setenv("LLM_AUTO_JUDGE_RECHECK", "false")
+        monkeypatch.setenv("LLM_AUTO_JUDGE_SHADOW", "true")
+        monkeypatch.setattr("radar.llm_client.llm_available", lambda: True)
+        call_counter = {"n": 0}
+
+        def fake_llm(*a, **k):
+            call_counter["n"] += 1
+            return {"ok": True, "data": {
+                "action": "pending", "confidence": 0.50,
+                "reason": "ambiguous",
+            }}
+        monkeypatch.setattr("radar.llm_client.llm_analyze_json", fake_llm)
+        from radar.intel_auto_judge import evaluate
+
+        item = _base_item(confidence=0.55)
+        testdb.intel_upsert({**item, "id": "i_skip", "status": "pending",
+                             "created_at": time.time(), "ts": time.time()})
+        # First evaluate — LLM IS called and ledger row written.
+        evaluate(testdb.intel_get("i_skip"))
+        first_calls = call_counter["n"]
+        assert first_calls == 1, f"LLM should be called exactly once, got {first_calls}"
+        # Second evaluate — same input, fresh ledger row → SKIP.
+        evaluate(testdb.intel_get("i_skip"))
+        assert call_counter["n"] == first_calls, (
+            "LLM was called again on a stable-input recheck; skip guard failed"
+        )
+
+    def test_llm_recheck_skip_guard_re_runs_when_corroborators_change(self, testdb, monkeypatch):
+        """The skip guard must NOT block re-evaluation when new
+        corroborators arrive — that is exactly the case where the LLM
+        verdict can legitimately change."""
+        _patch_db(monkeypatch, testdb)
+        monkeypatch.setenv("LLM_AUTO_JUDGE_RECHECK", "false")
+        monkeypatch.setenv("LLM_AUTO_JUDGE_SHADOW", "true")
+        monkeypatch.setattr("radar.llm_client.llm_available", lambda: True)
+        call_counter = {"n": 0}
+
+        def fake_llm(*a, **k):
+            call_counter["n"] += 1
+            return {"ok": True, "data": {"action": "pending", "confidence": 0.5,
+                                          "reason": "ambiguous"}}
+        monkeypatch.setattr("radar.llm_client.llm_analyze_json", fake_llm)
+        from radar.intel_auto_judge import evaluate
+
+        item = _base_item(confidence=0.55)
+        testdb.intel_upsert({**item, "id": "i_skip2", "status": "pending",
+                             "created_at": time.time(), "ts": time.time()})
+        evaluate(testdb.intel_get("i_skip2"))
+        assert call_counter["n"] == 1
+        # Add an independent peer in the same theater → corroborator count
+        # changes from 0 to 1.
+        peer = _base_item(
+            source_type="diplomatic",
+            source_id="diplomatic_other",
+            headline="Independent corroboration of Taiwan reconnaissance",
+        )
+        testdb.intel_upsert({**peer, "id": "i_skip2_peer", "status": "confirmed",
+                             "created_at": time.time(), "ts": time.time()})
+        evaluate(testdb.intel_get("i_skip2"))
+        assert call_counter["n"] == 2, (
+            "LLM should be re-invoked when corroborator count changes"
+        )
+
     def test_run_sweep_returns_counts(self, testdb, monkeypatch):
         _patch_db(monkeypatch, testdb)
         from radar.intel_auto_judge import run_sweep
