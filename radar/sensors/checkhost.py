@@ -205,6 +205,15 @@ class CheckHostSensor(BaseSensor):
                     if prev:
                         url_results[url] = prev
                         url_count += 1
+                        # 2026-05-10: count valid cached reuses toward the
+                        # fetch-log success/records counters. Without this
+                        # branch, when all URLs were within the 5-minute
+                        # cooldown the loop produced any_success=False and
+                        # records=0, masquerading as a silent fail
+                        # (observed at ~53% of check_host fetch_log rows).
+                        if prev.get("success_rate") is not None:
+                            any_success = True
+                            total_checked += 1
                         if prev.get("success_rate", 0) >= 0.8:
                             ok_count += 1
                         if prev.get("asphyxiation"):
