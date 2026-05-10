@@ -641,3 +641,79 @@ class TestDataRetention:
         """scenario_change_log must NOT be auto-deleted (audit trail)."""
         deleted = db._prune_stale_rows()
         assert "scenario_change_log" not in deleted
+
+
+class TestStartupPasswordVerification:
+    """Startup-time check that DEFAULT_ADMIN_PASSWORD env value still
+    verifies against the stored admin hash. Added 2026-05-10 after a
+    production lockout where config.env restore left env=`admin` while
+    the DB hash still encoded the original auto-generated password.
+    """
+
+    def test_match_logs_info(self, monkeypatch, caplog):
+        from radar.auth import _verify_admin_password_consistency
+        monkeypatch.setenv("DEFAULT_ADMIN_PASSWORD", _TEST_ADMIN_PW)
+        with caplog.at_level("INFO", logger="radar"):
+            _verify_admin_password_consistency(db)
+        assert any(
+            "matches stored admin hash" in r.message for r in caplog.records
+        ), "expected INFO line confirming env match"
+
+    def test_mismatch_logs_critical_and_records_failure(self, monkeypatch, caplog):
+        from radar.auth import _verify_admin_password_consistency
+        from radar.conclusions import shadow_metrics
+        monkeypatch.setenv(
+            "DEFAULT_ADMIN_PASSWORD", "WRONG_PASSWORD_NEVER_USED_xyz123",
+        )
+        # Snapshot the current failure count for the mismatch metric so the
+        # assertion is robust against any prior recordings within the test
+        # process.
+        before = shadow_metrics.snapshot()
+        before_count = (
+            before.get("by_type", {})
+            .get("admin_password_mismatch", {})
+            .get("failure_count", 0)
+        )
+        with caplog.at_level("CRITICAL", logger="radar"):
+            _verify_admin_password_consistency(db)
+        crit_msgs = [
+            r for r in caplog.records
+            if r.levelname == "CRITICAL"
+            and "DEFAULT_ADMIN_PASSWORD does NOT match" in r.message
+        ]
+        assert crit_msgs, "expected CRITICAL log on mismatch"
+        after = shadow_metrics.snapshot()
+        after_count = (
+            after.get("by_type", {})
+            .get("admin_password_mismatch", {})
+            .get("failure_count", 0)
+        )
+        assert after_count == before_count + 1, (
+            "shadow_metrics should record one new admin_password_mismatch "
+            f"failure (before={before_count}, after={after_count})"
+        )
+
+    def test_empty_env_is_silent(self, monkeypatch, caplog):
+        from radar.auth import _verify_admin_password_consistency
+        monkeypatch.delenv("DEFAULT_ADMIN_PASSWORD", raising=False)
+        with caplog.at_level("INFO", logger="radar"):
+            _verify_admin_password_consistency(db)
+        # Empty env: no INFO match line, no CRITICAL — verification is
+        # a no-op when there's nothing to verify against.
+        for r in caplog.records:
+            assert "DEFAULT_ADMIN_PASSWORD" not in r.message or \
+                   r.levelname == "DEBUG", (
+                f"unexpected log line for empty env: {r.levelname} {r.message}"
+            )
+
+    def test_failure_swallowed_nonfatal(self, monkeypatch):
+        """Verification must never raise — startup integrity > diagnostic."""
+        from radar.auth import _verify_admin_password_consistency
+        monkeypatch.setenv("DEFAULT_ADMIN_PASSWORD", _TEST_ADMIN_PW)
+
+        # Simulate a DB outage: user_get raises.
+        def _boom(*a, **k):
+            raise RuntimeError("simulated DB outage")
+        monkeypatch.setattr(db, "user_get", _boom)
+        # Must NOT raise — function returns None on any internal exception.
+        _verify_admin_password_consistency(db)

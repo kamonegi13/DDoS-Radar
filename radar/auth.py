@@ -258,6 +258,8 @@ def init_auth(app):
     from radar.database import db
     if db.user_count() == 0:
         _create_default_admin(db)
+    else:
+        _verify_admin_password_consistency(db)
 
     # Token revocation check — per-JTI revocation + per-user session invalidation
     @jwt.token_in_blocklist_loader
@@ -276,6 +278,75 @@ def init_auth(app):
             if token_iat < int(invalidate_ts):
                 return True
         return False
+
+
+def _verify_admin_password_consistency(db) -> None:
+    """Detect drift between ``DEFAULT_ADMIN_PASSWORD`` env and the admin
+    user's stored hash so the failure mode discovered on 2026-05-10
+    cannot recur silently.
+
+    The original admin row is hashed once during ``_create_default_admin``
+    using whatever ``DEFAULT_ADMIN_PASSWORD`` was set at first boot. If
+    config.env is later restored from a placeholder template (or edited
+    by hand), the env value can diverge from the DB hash. The login path
+    quietly returns 401 with no diagnostic — and existing JWT sessions
+    can keep refreshing for hours, masking the lockout until the next
+    fresh-login attempt.
+
+    This check runs at every startup when the admin user already exists:
+
+    - If ``DEFAULT_ADMIN_PASSWORD`` is empty: skip silently. Either the
+      operator removed it (cleaner production posture) or never set it;
+      either way there's nothing to verify against.
+    - If set and verifies: log a single INFO line so operators have
+      positive evidence in startup logs.
+    - If set and mismatches: log CRITICAL + record_failure into the
+      shadow_metrics registry so AP3 self-eval surfaces it. Never raises;
+      the app continues to start. Operators reset via UI or
+      ``db.user_update_password`` from inside the container.
+
+    NP3-tolerant: any unexpected exception is swallowed with a warning.
+    Verification cannot break startup.
+    """
+    try:
+        env_pw = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
+        if not env_pw:
+            return
+        admin = db.user_get("admin")
+        if admin is None:
+            # user_count() said >0 but no admin specifically. Operator
+            # may have renamed; nothing for us to verify.
+            return
+        ok = _verify_password(env_pw, admin["password_hash"], admin["salt"])
+        if ok:
+            log.info(
+                "[Auth] Startup password verification: "
+                "DEFAULT_ADMIN_PASSWORD matches stored admin hash"
+            )
+            return
+        # Mismatch — operator-visible breach of the env<->DB invariant.
+        log.critical(
+            "[Auth] DEFAULT_ADMIN_PASSWORD does NOT match the stored admin "
+            "password hash. Login with the env value will fail. Either "
+            "(a) reset the admin password via the UI / db.user_update_password "
+            "to match the env, or (b) set DEFAULT_ADMIN_PASSWORD to the value "
+            "that was used when the admin user was created. The app will "
+            "continue running on existing JWT sessions but new logins will 401."
+        )
+        try:
+            from radar.conclusions.shadow_metrics import record_failure
+            record_failure(
+                "admin_password_mismatch",
+                RuntimeError(
+                    "DEFAULT_ADMIN_PASSWORD env value does not verify "
+                    "against the stored admin password hash"
+                ),
+            )
+        except Exception:
+            # AP3 surfacing is best-effort — never block startup.
+            pass
+    except Exception as exc:
+        log.warning("[Auth] startup password verification failed: %s", exc)
 
 
 def _create_default_admin(db):
