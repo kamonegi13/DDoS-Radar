@@ -1454,8 +1454,16 @@ def _maybe_sample_v1_v2_diff(state: "ScenarioState") -> None:
     if not state.is_focused:
         return
     try:
-        from radar.conclusions.diff_sampler import sample_focused_tl_diff
+        from radar.conclusions.diff_sampler import (
+            sample_focused_tl_diff, sample_v2_only_diffs,
+        )
         sample_focused_tl_diff(_db, state)
+        # Also append diff rows for the v2-only conclusion types
+        # (attack_mode, per_domain, trend). v1 has no equivalent so
+        # these always record diff_kind='v2_only_available' or
+        # 'v2_only_unavailable' — letting analysts query the diff log
+        # for null-zone patterns instead of scraping conclusions.
+        sample_v2_only_diffs(_db, state)
     except Exception:
         log.exception("v2 diff sampler failed (non-fatal)")
 

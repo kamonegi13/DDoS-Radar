@@ -230,6 +230,72 @@ def test_sampler_failure_does_not_raise():
     assert result is None
 
 
+# ── v2-only sampling (P2-3, 2026-05-10) ─────────────────────────────────
+
+def test_v2_only_sampler_writes_one_row_per_v2_only_type():
+    """sample_v2_only_diffs writes one row per v2-only conclusion type
+    (attack_mode, per_domain, trend) so analysts can query the diff log
+    for null-zone patterns without scraping conclusions."""
+    from radar.conclusions.diff_sampler import sample_v2_only_diffs
+    sid = "test_v2only_basic"
+    # No v2 rows exist yet → all three types record diff_kind='v2_missing'.
+    n = sample_v2_only_diffs(db, _make_state(sid, tl=3))
+    assert n == 3
+    rows = _read_diff_rows(sid)
+    types = {r["conclusion_type"] for r in rows}
+    assert types == {"attack_mode", "per_domain", "trend"}
+    for r in rows:
+        assert r["v1_state"] is None
+        assert r["is_match"] == 0
+
+
+def test_v2_only_sampler_classifies_unavailable_state():
+    """When v2 has a row but its state is None (INSUFFICIENT_DATA),
+    diff_kind should be 'v2_only_unavailable' so query filters can find
+    null-zone history."""
+    from radar.conclusions.diff_sampler import sample_v2_only_diffs
+    sid = "test_v2only_null"
+    from radar.conclusions.base import ConclusionUnavailableReason
+    null_attack_mode = Conclusion(
+        id=new_conclusion_id(),
+        scenario_id=sid,
+        conclusion_type=ConclusionType.ATTACK_MODE,
+        state=None,  # INSUFFICIENT_DATA
+        confidence=0.0,
+        observed_at=time.time(),
+        formula_ref="radar/conclusions/attack_mode.py#derive@v2.0.0",
+        threshold_ref={},
+        source_urls=(),
+        final_judgment_disclaimer=config.V2_NP7_DISCLAIMER,
+        conclusion_unavailable_reason=ConclusionUnavailableReason.INSUFFICIENT_DATA,
+    )
+    save_conclusion(db, null_attack_mode)
+    sample_v2_only_diffs(db, _make_state(sid, tl=3))
+    rows = [r for r in _read_diff_rows(sid)
+            if r["conclusion_type"] == "attack_mode"]
+    assert len(rows) == 1
+    assert rows[0]["diff_kind"] == "v2_only_unavailable"
+    assert rows[0]["v2_state"] is None
+
+
+def test_v2_only_sampler_skips_when_unfocused():
+    """v2-only sampling, like the TL sampler, runs only on focused
+    scenarios — background scenarios produce no rows."""
+    from radar.conclusions.diff_sampler import sample_v2_only_diffs
+    sid = "test_v2only_unfocus"
+    n = sample_v2_only_diffs(db, _make_state(sid, tl=3, is_focused=False))
+    assert n == 0
+    assert _read_diff_rows(sid) == []
+
+
+def test_v2_only_sampler_respects_disabled_flags(monkeypatch):
+    from radar.conclusions.diff_sampler import sample_v2_only_diffs
+    monkeypatch.setattr(config, "V2_CONCLUSION_DIFF_SAMPLER_ENABLED", False)
+    sid = "test_v2only_disabled"
+    n = sample_v2_only_diffs(db, _make_state(sid, tl=3))
+    assert n == 0
+
+
 # ── analytics endpoint ──────────────────────────────────────────────────
 
 def test_diff_stats_endpoint_returns_counts(client, auth_headers):

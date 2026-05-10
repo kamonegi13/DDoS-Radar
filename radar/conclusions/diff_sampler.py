@@ -118,3 +118,81 @@ def _classify(v1: Optional[str], v2: Optional[str], v2_present: bool) -> str:
     if v1 == v2:
         return "match"
     return "divergence"
+
+
+# v2-only conclusion types — v1 has no equivalent of these. Sampling
+# them as diff rows lets analysts query conclusion_diff_log for null
+# patterns (`v2_state IS NULL`) without crawling the full conclusions
+# ledger. These rows always carry diff_kind in {'v2_only_available',
+# 'v2_only_unavailable'} so downstream filters can stay simple.
+_V2_ONLY_CONCLUSION_TYPES: tuple[ConclusionType, ...] = (
+    ConclusionType.ATTACK_MODE,
+    ConclusionType.PER_DOMAIN,
+    ConclusionType.TREND,
+)
+
+
+def sample_v2_only_diffs(db: "RadarDB", state: "ScenarioState") -> int:
+    """Append one diff row per v2-only conclusion type for the focused
+    scenario. Returns the number of rows written. Mirrors
+    ``sample_focused_tl_diff`` semantics — gated by the same flags,
+    NP3 swallowing, focused-only scope.
+
+    diff_kind values for these rows:
+      v2_only_available   — v2 produced a state
+      v2_only_unavailable — v2 produced INSUFFICIENT_DATA / NULL state.
+                            High count over time = NP5+8 violation
+                            candidate (already monitored via the
+                            chronic-inconclusive detector; this is the
+                            tick-by-tick view).
+    """
+    if not config.V2_CONCLUSION_DIFF_SAMPLER_ENABLED:
+        return 0
+    if not config.V2_CONCLUSION_LEDGER_ENABLED:
+        return 0
+    if not state.is_focused:
+        return 0
+    try:
+        return _sample_v2_only_inner(db, state)
+    except Exception:
+        log.exception("[ConclusionDiffSampler] v2-only sampling failed (non-fatal)")
+        return 0
+
+
+def _sample_v2_only_inner(db: "RadarDB", state: "ScenarioState") -> int:
+    sampled_at = time.time()
+    conn = db._get_conn()  # noqa: SLF001
+    rows: list[tuple] = []
+    for ctype in _V2_ONLY_CONCLUSION_TYPES:
+        v2_row = latest_conclusion(db, state.scenario_id, ctype)
+        if v2_row is None:
+            # No row yet — diff_kind reuses the existing v2_missing label
+            # so consumers don't need new branches just for warm-up.
+            diff_kind = "v2_missing"
+            v2_state = None
+            v2_id = None
+        elif v2_row.state is None:
+            diff_kind = "v2_only_unavailable"
+            v2_state = None
+            v2_id = v2_row.id
+        else:
+            diff_kind = "v2_only_available"
+            v2_state = v2_row.state
+            v2_id = v2_row.id
+        metadata = {
+            "scoring_mode": state.scoring_mode,
+            "is_focused": state.is_focused,
+        }
+        if v2_row is not None and v2_row.confidence:
+            metadata["v2_confidence"] = v2_row.confidence
+        rows.append((
+            sampled_at, state.scenario_id, ctype.value,
+            None, v2_state, v2_id,
+            0,  # is_match — v2-only rows never "match" since v1 has no equivalent
+            diff_kind, json.dumps(metadata, sort_keys=True),
+        ))
+    if not rows:
+        return 0
+    with conn.writing():
+        conn.executemany(_INSERT_SQL, rows)
+    return len(rows)
