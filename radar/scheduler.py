@@ -552,6 +552,30 @@ def _cache_cleanup_worker(registry=None):
                             "[ProposalLifecycle] auto-acknowledged %d "
                             "diagnostic-only pending proposals", n_diag,
                         )
+                    # Drift event lifecycle (P1-2, 2026-05-10): same daily
+                    # hook handles drift events symmetrically with proposals.
+                    # Amber events older than 3d -> auto-acknowledged so the
+                    # AUTO-TUNE chip's unack count reflects only attention-
+                    # worthy items. Red events older than 1d are escalated
+                    # via the notification channels (Slack/Teams/Discord
+                    # webhook) so an analyst is paged before the dashboard
+                    # check.
+                    n_amber = _plc.auto_acknowledge_amber_drift_events()
+                    if n_amber > 0:
+                        log.info(
+                            "[DriftLifecycle] auto-acknowledged %d "
+                            "amber drift events past timeout", n_amber,
+                        )
+                    red_events = _plc.list_old_unack_red_drift_events()
+                    if red_events:
+                        try:
+                            from radar.notifications import notify_drift_unack
+                            notify_drift_unack(red_events)
+                        except Exception as _drift_notify_exc:
+                            log.warning(
+                                "[DriftLifecycle] notify_drift_unack failed: %s",
+                                _drift_notify_exc,
+                            )
                 except Exception as _plc_exc:
                     log.warning(
                         "[ProposalLifecycle] auto-dismiss/ack "

@@ -257,6 +257,53 @@ def notify_sequence_complete(theater: str, chain_status: str, events: list):
               color_slack=color, color_teams=color.replace("#", ""))
 
 
+def notify_drift_unack(events: list[dict]):
+    """Notify operators when red-severity drift events have stayed unack.
+
+    Called by the daily scheduler hook when amber events have been
+    auto-ack'd but red ones remain. Delivers via the existing
+    Slack / Teams / generic webhook channels — the generic webhook is
+    the path used for Discord (set NOTIFY_WEBHOOK_URL to a Discord
+    webhook URL).
+
+    Each call is alert-keyed by the count + earliest event id so a
+    single send happens per (count, id) tuple, not per row, avoiding
+    spam if the daily hook fires while the queue is unchanged.
+    """
+    if not events:
+        return
+    # Use a stable alert key — one notification per (count, oldest id).
+    earliest = min(int(e.get("id") or 0) for e in events) if events else 0
+    alert_key = f"drift_unack:{len(events)}:{earliest}"
+    if not _should_send(alert_key):
+        return
+
+    title = f"Drift events unacknowledged: {len(events)} red"
+    lines = []
+    for e in events[:5]:
+        sc = e.get("scenario_id") or "?"
+        sig = e.get("drift_signal") or "?"
+        d = e.get("days_unack", 0)
+        cc = e.get("target_country") or ""
+        suffix = f" [{cc}]" if cc else ""
+        lines.append(f"  - {sc} / {sig}{suffix} ({d:.1f}d unack)")
+    if len(events) > 5:
+        lines.append(f"  ... and {len(events) - 5} more")
+    text = (
+        f"{len(events)} red-severity calibration drift event(s) "
+        f"have been unacknowledged longer than the notify threshold. "
+        f"Review on the AUTO-TUNE dashboard.\n" + "\n".join(lines)
+    )
+    data = {
+        "count": len(events),
+        "earliest_id": earliest,
+        "events": events[:10],  # cap payload size
+    }
+    log.warning(f"[Notify] {title}")
+    _dispatch("drift_unack", title, text, data,
+              color_slack="#cc0000", color_teams="CC0000")
+
+
 def notify_sensor_failure(sensor_name: str, error: str):
     """Notify on persistent sensor failure (after retries exhausted)."""
     alert_key = f"sensor_fail:{sensor_name}"

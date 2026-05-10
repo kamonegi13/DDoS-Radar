@@ -303,6 +303,107 @@ def auto_acknowledge_diagnostic_proposals(
         return 0
 
 
+DRIFT_AMBER_AUTO_ACK_DAYS = 3.0
+DRIFT_RED_NOTIFY_DAYS = 1.0
+
+
+def auto_acknowledge_amber_drift_events(
+    *, stale_days: float = DRIFT_AMBER_AUTO_ACK_DAYS,
+) -> int:
+    """Auto-acknowledge amber (low-severity) ``scenario_drift_events``
+    that have stayed ``unack`` past ``stale_days``.
+
+    Symmetric with :func:`auto_acknowledge_diagnostic_proposals`. Drift
+    events accumulate when no analyst is watching the calibration
+    dashboard (production observed 81 unack events stretching 10 days).
+    Amber severity means the drift detector is flagging a soft anomaly
+    (e.g., participant_silent over 30d with no analyst feedback) — the
+    auto-ack treats long inaction as implicit acknowledgement so the
+    AUTO-TUNE chip's unack count reflects only events that actually
+    need attention.
+
+    Red severity events are NEVER auto-ack'd here — they go through the
+    notification path so an operator is paged before the deadline.
+
+    NP6 audit: ack_by='system_timeout_amber' distinguishes the auto-ack
+    from analyst clicks.
+
+    Returns the number of rows transitioned. Idempotent.
+    """
+    from radar.database import db
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        cutoff = time.time() - max(0.0, float(stale_days)) * 86400.0
+        rows = conn.execute(
+            "SELECT id FROM scenario_drift_events "
+            "WHERE ack_state='unack' "
+            "AND severity='amber' "
+            "AND emitted_at < ?",
+            (cutoff,),
+        ).fetchall()
+        ids = [int(r[0]) for r in rows]
+        if not ids:
+            return 0
+        now = time.time()
+        with conn.writing():
+            id_placeholders = ",".join("?" for _ in ids)
+            conn.execute(
+                "UPDATE scenario_drift_events SET ack_state='acknowledged', "
+                "ack_at=?, ack_by='system_timeout_amber' "
+                f"WHERE id IN ({id_placeholders}) AND ack_state='unack'",
+                (now, *ids),
+            )
+        return len(ids)
+    except Exception as exc:
+        log.warning(
+            "auto_acknowledge_amber_drift_events failed: %s", exc,
+        )
+        return 0
+
+
+def list_old_unack_red_drift_events(
+    *, stale_days: float = DRIFT_RED_NOTIFY_DAYS,
+) -> list[dict]:
+    """Return red-severity drift events that have been unack longer
+    than ``stale_days``. Used by the daily notify hook to surface
+    high-severity calibration drift to operators when the in-app
+    dashboard isn't being checked.
+
+    Returns a list of dicts with keys: id, scenario_id, drift_signal,
+    target_country, why_string, days_unack. NP3 — returns empty list
+    on any DB error.
+    """
+    from radar.database import db
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        now = time.time()
+        cutoff = now - max(0.0, float(stale_days)) * 86400.0
+        rows = conn.execute(
+            "SELECT id, scenario_id, drift_signal, target_country, "
+            "       why_string, emitted_at "
+            "FROM scenario_drift_events "
+            "WHERE ack_state='unack' AND severity='red' "
+            "AND emitted_at < ? "
+            "ORDER BY emitted_at ASC",
+            (cutoff,),
+        ).fetchall()
+    except Exception as exc:
+        log.warning("list_old_unack_red_drift_events failed: %s", exc)
+        return []
+    out = []
+    for r in rows:
+        emitted_at = float(r[5] or 0.0)
+        out.append({
+            "id": int(r[0]),
+            "scenario_id": str(r[1] or ""),
+            "drift_signal": str(r[2] or ""),
+            "target_country": str(r[3] or "") if r[3] else None,
+            "why_string": str(r[4] or "")[:200],
+            "days_unack": round((now - emitted_at) / 86400.0, 1),
+        })
+    return out
+
+
 def supersede_duplicate_pending(
     *,
     scenario_id: str,

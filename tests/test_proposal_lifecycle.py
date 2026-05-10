@@ -102,6 +102,108 @@ def _insert_proposal(
         return int(cur.lastrowid)
 
 
+@pytest.fixture
+def _drift_events_sandbox():
+    """Snapshot/restore scenario_drift_events around drift lifecycle tests."""
+    conn = db._get_conn()  # noqa: SLF001
+    cols = [d[0] for d in conn.execute(
+        "SELECT * FROM scenario_drift_events LIMIT 0"
+    ).description]
+    rows = list(conn.execute(
+        f"SELECT {','.join(cols)} FROM scenario_drift_events"
+    ))
+    with conn.writing():
+        conn.execute("DELETE FROM scenario_drift_events")
+    yield (conn, cols)
+    with conn.writing():
+        conn.execute("DELETE FROM scenario_drift_events")
+        if rows:
+            placeholders = ",".join("?" for _ in cols)
+            conn.executemany(
+                f"INSERT INTO scenario_drift_events ({','.join(cols)}) "
+                f"VALUES ({placeholders})",
+                [tuple(r) for r in rows],
+            )
+
+
+def _insert_drift_event(
+    conn, *,
+    scenario_id: str = "test_sc",
+    drift_signal: str = "weight_stale",
+    severity: str = "amber",
+    ack_state: str = "unack",
+    target_country: "str | None" = None,
+    emitted_at: "float | None" = None,
+) -> int:
+    if emitted_at is None:
+        emitted_at = time.time()
+    with conn.writing():
+        cur = conn.execute(
+            "INSERT INTO scenario_drift_events "
+            "(emitted_at, scenario_id, drift_signal, severity, target_country, "
+            " evidence_json, formula_ref, sample_n, why_string, ack_state, "
+            " consecutive_runs) "
+            "VALUES (?, ?, ?, ?, ?, '{}', 'test#v1', 1, 'test', ?, 1)",
+            (float(emitted_at), scenario_id, drift_signal, severity,
+             target_country, ack_state),
+        )
+        return int(cur.lastrowid)
+
+
+class TestDriftAutoAcknowledge:
+    def test_amber_unack_old_gets_acknowledged(self, _drift_events_sandbox):
+        conn, _ = _drift_events_sandbox
+        old = time.time() - 5 * 86400  # 5 days ago
+        eid = _insert_drift_event(conn, severity="amber",
+                                  ack_state="unack", emitted_at=old)
+        n = pl.auto_acknowledge_amber_drift_events(stale_days=3.0)
+        assert n == 1
+        row = conn.execute(
+            "SELECT ack_state, ack_by FROM scenario_drift_events WHERE id=?",
+            (eid,),
+        ).fetchone()
+        assert row[0] == "acknowledged"
+        assert row[1] == "system_timeout_amber"
+
+    def test_amber_recent_unchanged(self, _drift_events_sandbox):
+        conn, _ = _drift_events_sandbox
+        recent = time.time() - 1 * 86400  # 1 day ago
+        _insert_drift_event(conn, severity="amber",
+                            ack_state="unack", emitted_at=recent)
+        n = pl.auto_acknowledge_amber_drift_events(stale_days=3.0)
+        assert n == 0
+
+    def test_red_never_auto_ack(self, _drift_events_sandbox):
+        """Red severity must NOT be auto-ack'd — it goes through the
+        notification path so analysts are paged."""
+        conn, _ = _drift_events_sandbox
+        old = time.time() - 5 * 86400
+        eid = _insert_drift_event(conn, severity="red",
+                                  ack_state="unack", emitted_at=old)
+        n = pl.auto_acknowledge_amber_drift_events(stale_days=3.0)
+        assert n == 0
+        row = conn.execute(
+            "SELECT ack_state FROM scenario_drift_events WHERE id=?",
+            (eid,),
+        ).fetchone()
+        assert row[0] == "unack"
+
+    def test_red_old_unack_returned_for_notification(self, _drift_events_sandbox):
+        conn, _ = _drift_events_sandbox
+        old = time.time() - 2 * 86400
+        recent = time.time() - 0.5 * 86400  # too fresh
+        _insert_drift_event(conn, severity="red", ack_state="unack",
+                            emitted_at=old, drift_signal="participant_silent")
+        _insert_drift_event(conn, severity="red", ack_state="unack",
+                            emitted_at=recent, drift_signal="ignore_me")
+        events = pl.list_old_unack_red_drift_events(stale_days=1.0)
+        signals = {e["drift_signal"] for e in events}
+        assert signals == {"participant_silent"}
+        # Each row carries a days_unack number.
+        for e in events:
+            assert e["days_unack"] >= 1.0
+
+
 # ── D1: auto_dismiss_inactive_scenario_proposals ─────────────────────────────
 
 
