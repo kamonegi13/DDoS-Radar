@@ -8,7 +8,7 @@ import requests
 import threading
 import time
 import os as _os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 from radar.config import (
     CF_HEADERS, GLOBAL_PROXIES, SSL_VERIFY, CURRENT_DATE_RANGE,
@@ -1265,6 +1265,30 @@ def _maybe_persist_attack_mode_conclusion(state: "ScenarioState") -> None:
         # NP3: augmentation never raises; on LLM failure it returns the
         # rule-based row unchanged so the ledger still advances.
         c = augment_attack_mode_with_llm(c, state)
+        # NP5+8 / AP3: enrich INSUFFICIENT_DATA rows with per-conclusion
+        # null-run length so the analyst surface can show "this NULL has
+        # been ongoing for N min" without waiting for the daily chronic
+        # snapshot pass. Pure metadata addition; never blocks save.
+        if c.state is None and c.conclusion_unavailable_reason is not None:
+            try:
+                from radar.conclusions.inconclusive_continuity import (
+                    current_run_length_sec,
+                )
+                run_sec = current_run_length_sec(
+                    _db, state.scenario_id,
+                    c.conclusion_type.value,
+                )
+                if run_sec is not None:
+                    md = dict(c.metadata or {})
+                    md["null_run_minutes"] = round(run_sec / 60.0, 1)
+                    md["null_severity"] = (
+                        "chronic" if run_sec >= 7 * 86400
+                        else "extended" if run_sec >= 24 * 3600
+                        else "transient"
+                    )
+                    c = replace(c, metadata=md)
+            except Exception:
+                pass  # NP3 — metadata enrichment never breaks save
         save_conclusion(_db, c)
         record_success("attack_mode")
     except Exception as exc:

@@ -145,8 +145,10 @@ def test_no_signals_yields_insufficient_data(now: float) -> None:
 
 
 def test_below_all_floors_yields_insufficient_data(now: float) -> None:
+    # Values chosen below all current floors (CYBER=1.2, PHYSICAL=1.0,
+    # INFO=0.8) so no rule fires.
     out = derive_attack_mode(
-        _state(domains={"cyber": 1.0, "physical": 1.0, "info": 1.0}),
+        _state(domains={"cyber": 0.5, "physical": 0.5, "info": 0.5}),
         now=now,
     )
     assert not out.is_available()

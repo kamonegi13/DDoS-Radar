@@ -139,6 +139,39 @@ def compute_states(
     return out
 
 
+def current_run_length_sec(
+    db: "RadarDB",
+    scenario_id: str,
+    conclusion_type: str,
+    *,
+    now: Optional[float] = None,
+) -> Optional[float]:
+    """Return seconds since the latest open unavailability run started for
+    this (scenario_id, conclusion_type). Returns None if the latest entry
+    is closed (run already resolved) or no entry exists. NP3-tolerant —
+    never raises; returns None on any DB error.
+
+    Used by per-conclusion metadata enrichment so a single NULL row can
+    carry "this NULL has lasted N minutes" without waiting for the daily
+    chronic-snapshot pass.
+    """
+    n = float(now) if now is not None else time.time()
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        row = conn.execute(
+            "SELECT first_seen_at, is_available "
+            "FROM inconclusive_continuity_log "
+            "WHERE scenario_id=? AND conclusion_type=? "
+            "ORDER BY observed_at DESC LIMIT 1",
+            (scenario_id, conclusion_type),
+        ).fetchone()
+    except Exception:
+        return None
+    if row is None or int(row["is_available"]) == 1:
+        return None
+    return max(0.0, n - float(row["first_seen_at"]))
+
+
 def chronic_snapshot(
     db: "RadarDB",
     *,

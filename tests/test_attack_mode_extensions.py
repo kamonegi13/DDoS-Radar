@@ -270,19 +270,22 @@ def test_extension_appears_in_ranked_modes_metadata(patched_geo):
 def test_extension_can_become_top_mode_when_confidence_dominates(patched_geo):
     """If extension confidence > all base, it lands in `state` (top slot).
 
-    physical=3.5 puts the base KINETIC_PREPARATION rule barely over its
-    floor (conf ≈ 0.62), while a high-base_confidence extension lands
-    at ≈0.90 — so the extension dominates the ranked list.
+    physical=1.15 puts the base KINETIC_PREPARATION rule barely over its
+    floor (PHYSICAL_KINETIC_FLOOR=1.0 → margin≈0.15 → conf≈0.61), while a
+    high-base_confidence extension lands at ≈0.85 — so the extension
+    dominates the ranked list. Threshold values are tied to the
+    recalibrated floors (2026-05-10) and would need re-tuning if those
+    constants change again.
     """
     patched_geo({"taiwan_contingency": {"attack_mode_extensions": [
         {
             "mode": "PLA_AIR_INCURSION_SURGE",
-            "domain_floors": {"physical": 3.0},
+            "domain_floors": {"physical": 1.0},
             "requires_participant": ["TW", "CN"],
             "base_confidence": 0.85,
         }
     ]}})
-    state = _state(physical=3.5, active_countries=["TW", "CN"])
+    state = _state(physical=1.15, active_countries=["TW", "CN"])
     out = derive_attack_mode(state, now=_NOW)
     assert out.state == "PLA_AIR_INCURSION_SURGE"
 
