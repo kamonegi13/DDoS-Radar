@@ -1024,8 +1024,39 @@ def get_threat_data():
             # Raw saturated near P50≈53% in normal operation (commodity cloud
             # ASN co-occurrence), so the percent value was uninformative.
             # IDF range is 0–~5; values ≥1.5 mean meaningful rare-ASN overlap.
+            #
+            # 2026-05-10: graduated scoring added because flat score=1
+            # at IDF≥1.5 fired 395 times / 24h (≈ every other tick),
+            # contributing a constant cyber=1 baseline that pushed
+            # threat_level L5→L4 spuriously (47% FP rate observed in
+            # taiwan_contingency analyst feedback). Status remains
+            # "FIRED" at IDF≥1.5 for analyst visibility, but score=0
+            # below IDF<2.0 so the contribution path
+            # (rationale_to_signal requires score>0) excludes commodity
+            # ASN co-occurrence from scenario scoring. True rare-ASN
+            # overlap (IDF≥2.0) still contributes; high overlap (IDF≥3.5)
+            # contributes double.
             max_overlap_idf = max(correlations_idf_l3.values(), default=0.0)
-            _overlap_active = add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap_idf:.2f} IDF overlap", 1 if high_correlation else 0, "Shared botnet IDF≥1.5" if high_correlation else None, confidence=_cf_conf)
+            if max_overlap_idf >= 3.5:
+                _overlap_score = 2
+                _overlap_reason = f"Strong shared botnet IDF={max_overlap_idf:.2f} (≥3.5 — rare ASN overlap)"
+            elif max_overlap_idf >= 2.0:
+                _overlap_score = 1
+                _overlap_reason = f"Shared botnet IDF={max_overlap_idf:.2f} (≥2.0)"
+            elif high_correlation:
+                _overlap_score = 0
+                _overlap_reason = f"Marginal shared botnet IDF={max_overlap_idf:.2f} (≥1.5; below scoring floor)"
+            else:
+                _overlap_score = 0
+                _overlap_reason = None
+            _overlap_active = add_rat(
+                "cf_botnet_overlap", "cyber",
+                "FIRED" if high_correlation else "OK",
+                f"{max_overlap_idf:.2f} IDF overlap",
+                _overlap_score,
+                _overlap_reason,
+                confidence=_cf_conf,
+            )
             # Graduated L3→L7 vector shift scoring: moderate +1, severe +2
             _core_l7s = target_details.get(primary_ec, {}).get("avg_l7_spike", 0)
             _core_l3s = target_details.get(primary_ec, {}).get("avg_l3_spike", 0)
