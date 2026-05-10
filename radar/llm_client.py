@@ -265,6 +265,9 @@ def _invoke_shadow(choice, prompt: str, system: str, max_tokens: int,
         }
         if eff_system:
             payload["system"] = eff_system
+        # See llm_analyze_json for rationale — honor routing.thinking_enabled.
+        if not choice.thinking_enabled:
+            payload["think"] = False
         t0 = time.time()
         try:
             res = requests.post(
@@ -497,6 +500,9 @@ def llm_analyze(prompt: str, system: str = "",
     }
     if eff_system:
         payload["system"] = eff_system
+    # See llm_analyze_json for rationale — honor routing.thinking_enabled.
+    if choice is not None and not choice.thinking_enabled:
+        payload["think"] = False
 
     try:
         res = requests.post(
@@ -585,6 +591,14 @@ def llm_analyze_json(prompt: str, system: str = "",
     }
     if eff_system:
         payload["system"] = eff_system
+    # Bench (2026-05-10): gemma4 family burns the entire token budget on
+    # internal CoT when think mode is left enabled, returning empty
+    # responses (~60-80% parse_failed in production). Routing already
+    # tracks whether reasoning is wanted (choice.thinking_enabled); when
+    # it's False we must explicitly tell Ollama to skip thinking, otherwise
+    # the model defaults to thinking-on for thinking-capable families.
+    if choice is not None and not choice.thinking_enabled:
+        payload["think"] = False
 
     t0 = time.time()
     try:

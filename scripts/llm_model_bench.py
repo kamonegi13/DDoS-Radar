@@ -223,13 +223,22 @@ def score_output(raw: str) -> tuple[bool, tuple[str, ...], tuple[str, ...], bool
 
 def call_ollama(model: str, prompt: str, *,
                 timeout: int = DEFAULT_TIMEOUT,
-                use_format_json: bool = True) -> tuple[str, float, Optional[str]]:
+                use_format_json: bool = True,
+                use_think_false: bool = True) -> tuple[str, float, Optional[str]]:
     """Single Ollama generate. Returns (raw_text, duration_ms, http_error).
 
-    Methodology fix (2026-05-10): production's ``llm_analyze_json``
+    Methodology fix (2026-05-10 round 1): production's ``llm_analyze_json``
     passes ``format='json'`` to Ollama (structured-output mode). Without
-    that flag gemma family produces empty responses. To match production
-    we now default to ``use_format_json=True``.
+    that flag gemma family produces empty responses. We default to
+    ``use_format_json=True`` to match production.
+
+    Methodology fix (2026-05-10 round 2): gemma4 family supports thinking
+    mode and burns the entire token budget on internal CoT before emitting
+    any visible response. Smoke test confirmed gemma4:26b returns 0 chars
+    without ``think=false`` but valid JSON in 1.8s with it. Production
+    ``llm_analyze_json`` does NOT pass ``think=false`` — that's a real
+    production bug. Bench now defaults to ``use_think_false=True`` to give
+    every model a fair chance and to indicate the production fix path.
 
     stdlib-only so the script runs on a vanilla host Python without
     needing to install a venv.
@@ -242,6 +251,8 @@ def call_ollama(model: str, prompt: str, *,
     }
     if use_format_json:
         payload["format"] = "json"
+    if use_think_false:
+        payload["think"] = False
     body_bytes = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         OLLAMA_URL, data=body_bytes,
