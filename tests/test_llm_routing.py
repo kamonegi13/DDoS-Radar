@@ -176,7 +176,13 @@ class TestChooseModelOn:
         assert r.active.model == "mistral-small3.2:24b"
         assert r.active.thinking_enabled is False
 
-    def test_on_conclusion_picks_gemma4_31b_with_thinking(self, fresh_db):
+    def test_on_conclusion_picks_gemma4_31b_thinking_off(self, fresh_db):
+        # 2026-05-10: thinking_enabled flipped to False for the default
+        # CONCLUSION/DISCOVERY routes. All callers go through
+        # llm_analyze_json (JSON output required) and bench data showed
+        # thinking-on consumes the entire token budget, breaking parse.
+        # Operators wanting thinking can still flip it via
+        # LLM_ROUTING_CONCLUSION_PRIMARY_THINK=true (Layer 2 env override).
         lf.set_state(
             "model_routing_conclusion", FeatureState.ON,
             by="test", reason="unit",
@@ -184,11 +190,10 @@ class TestChooseModelOn:
         r = choose_model(UseCase.CONCLUSION)
         assert r.state == "on"
         assert r.active.model == "gemma4:31b"
-        assert r.active.thinking_enabled is True
-        # Gemma 4 thinking is gated by the <|think|> token in the system prompt.
-        assert "<|think|>" in r.active.system_prefix
+        assert r.active.thinking_enabled is False
+        assert r.active.system_prefix == ""
 
-    def test_on_etl_picks_gemma4_31b(self, fresh_db):
+    def test_on_etl_picks_gemma4_31b_thinking_off(self, fresh_db):
         lf.set_state(
             "model_routing_etl", FeatureState.ON,
             by="test", reason="unit",
@@ -196,7 +201,7 @@ class TestChooseModelOn:
         r = choose_model(UseCase.DISCOVERY)
         assert r.state == "on"
         assert r.active.model == "gemma4:31b"
-        assert r.active.thinking_enabled is True
+        assert r.active.thinking_enabled is False
 
 
 class TestSystemPromptMerge:

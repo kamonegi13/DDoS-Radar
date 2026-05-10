@@ -173,8 +173,17 @@ _CONCLUSION_GEMMA31 = ModelChoice(
     top_k=64,
     seed=None,
     num_predict=1024,
-    system_prefix="<|think|>",        # narrative: thinking ON for reasoning
-    thinking_enabled=True,
+    # 2026-05-10: thinking disabled. All conclusion calls go through
+    # llm_analyze_json which requires the model to emit JSON in the
+    # `response` field. Bench (sensor_extract, gemma4:31b at thinking-on,
+    # num_predict=512) showed 0% parse rate / 92.8s avg latency because
+    # internal CoT consumed the entire token budget. With num_predict=1024
+    # the budget is doubled but JSON output is still not guaranteed; the
+    # operationally safe stance is thinking-off + JSON-only response. If
+    # narrative reasoning is needed for AP3 audit, route via a separate
+    # raw-text path (currently no caller uses llm_analyze).
+    system_prefix="",
+    thinking_enabled=False,
     use_case=UseCase.CONCLUSION,
 )
 
@@ -197,8 +206,11 @@ _DISCOVERY_GEMMA31 = ModelChoice(
     top_k=64,
     seed=None,
     num_predict=1024,
-    system_prefix="<|think|>",
-    thinking_enabled=True,
+    # See _CONCLUSION_GEMMA31 — same rationale: llm_analyze_json requires
+    # JSON output, thinking-on at any current num_predict cannot
+    # guarantee both reasoning + JSON in a single response.
+    system_prefix="",
+    thinking_enabled=False,
     use_case=UseCase.DISCOVERY,
 )
 
@@ -209,8 +221,11 @@ _DISCOVERY_GPT_OSS = ModelChoice(
     top_k=0,
     seed=None,
     num_predict=1024,
-    system_prefix="Reasoning: high",  # gpt-oss-safeguard policy reasoning
-    thinking_enabled=True,
+    # gpt-oss-safeguard's "Reasoning: high" prefix likewise drives the
+    # model into a reasoning-heavy path that empties the JSON `response`
+    # field. Same llm_analyze_json constraint as _DISCOVERY_GEMMA31.
+    system_prefix="",
+    thinking_enabled=False,
     use_case=UseCase.DISCOVERY,
 )
 
