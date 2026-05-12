@@ -35,8 +35,7 @@ from radar.scoring import (
 )
 from radar.ws import emit_threat_update, emit_ambush_alert, emit_sequence_event
 from radar.notifications import (
-    notify_threat_level_change, notify_sequence_complete,
-    notify_scenario_tl_change,
+    notify_sequence_complete, notify_scenario_tl_change,
 )
 from radar.sensors.checkhost import CHECKHOST_NODES
 from radar.sensors.telegram import TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD, TelegramMirrorSensor
@@ -3041,17 +3040,19 @@ def get_threat_data():
         emit_threat_update(
             core_theater, _new_cache["strategic"], scenario_id=_focused_id or "",
         )
-        if threat_level != prev_threat_level:
-            notify_threat_level_change(core_theater, prev_threat_level, threat_level, score_with_bonus)
-            # Phase C: scenario-aware notification with what-changed
-            if _focused_id:
-                _sc_name = _scenario_results.get(
-                    _focused_id, {}).get("name_en", _focused_id)
-                notify_scenario_tl_change(
-                    _focused_id, _sc_name,
-                    prev_threat_level, threat_level,
-                    score_with_bonus, _what_changed,
-                )
+        # 2026-05-12: legacy theater-based notify_threat_level_change was
+        # removed — it fired alongside notify_scenario_tl_change on every
+        # TL transition, producing duplicate Discord/Slack notifications
+        # for the same event. CLAUDE.md flagged ``theater`` as a deprecated
+        # term; the scenario-aware notifier is the single source of truth.
+        if threat_level != prev_threat_level and _focused_id:
+            _sc_name = _scenario_results.get(
+                _focused_id, {}).get("name_en", _focused_id)
+            notify_scenario_tl_change(
+                _focused_id, _sc_name,
+                prev_threat_level, threat_level,
+                score_with_bonus, _what_changed,
+            )
         if is_ambush:
             emit_ambush_alert(core_theater, {
                 "z_score": ambush_z, "acceleration": acceleration_val,
