@@ -1453,12 +1453,30 @@ def compute_scenario_score(
             ))
             continue
 
+        # Phase 9-E (2026-05-13 PM) — compute the signal's max country
+        # weight once per signal so the per-country loop can compare
+        # against it. Multi-country LLM signals where this country is
+        # materially below the primary subject are skipped to prevent
+        # cross-scenario tag bleed (e.g. Russia-Iran-US middle east story
+        # contaminating taiwan_contingency via secondary US tag).
+        _signal_max_cw = (
+            max(signal.country_weights.values())
+            if signal.country_weights else 1.0
+        )
         for country in signal.countries:
             if country not in scenario.participants:
                 continue
 
             participant = scenario.participants[country]
             llm_cw = signal.country_weights.get(country, 1.0)
+            # Phase 9-E filter: drop materially-secondary country tags.
+            # Single-country sensor signals (max == this weight) always pass.
+            # Uniform multi-country tags (ratio = 1.0) also pass.
+            if (_scoring_config.LLM_INTEL_PRIMARY_COUNTRY_ONLY
+                and _signal_max_cw > 0
+                and (llm_cw / _signal_max_cw)
+                    < _scoring_config.LLM_INTEL_PRIMARY_THRESHOLD):
+                continue
             pw = participant.weight
             final = signal.raw_score * llm_cw * pw
 

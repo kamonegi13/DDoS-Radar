@@ -384,6 +384,28 @@ CALIBRATION_SKEW_WINDOW_DAYS   = int(os.getenv("CALIBRATION_SKEW_WINDOW_DAYS", "
 # Minimum observations in the window before we trust the skew measurement.
 CALIBRATION_SKEW_MIN_OBSERVATIONS = int(os.getenv("CALIBRATION_SKEW_MIN_OBSERVATIONS", "100"))
 
+# ── Phase 9-E (2026-05-13 PM) — LLM intel country-tag bleed mitigation ──────
+# Cross-scenario contamination observed: an article like "Russia reports
+# Iranian casualties from US-Israeli strikes" (a middle_east story) was
+# bleeding into taiwan_contingency because the LLM tagged US (weight 0.7)
+# alongside the primary subjects IR/IL (weight 1.0), and taiwan_contingency
+# treats US as primary_ally. The contribution chain pw(0.8) × llm_cw(0.7)
+# × raw_score(1.65) ≈ 0.92 added to taiwan score without the article
+# actually being about Taiwan.
+#
+# Fix: when a signal has graduated LLM country weights, only count
+# participant countries whose weight is within LLM_INTEL_PRIMARY_THRESHOLD
+# of the signal's max country weight. Single-country sensor signals
+# (max == this country's weight, ratio = 1.0) are always kept. Uniform
+# multi-country LLM tags (all weights identical) also keep all members.
+# The filter only drops countries the LLM judged as materially secondary.
+LLM_INTEL_PRIMARY_COUNTRY_ONLY = os.getenv("LLM_INTEL_PRIMARY_COUNTRY_ONLY", "true").lower() == "true"
+# Relative threshold: country_weight / max(country_weights) ≥ this.
+# 0.8 means a country tagged at ≤ 80% of the article's primary subject
+# is treated as incidental. Observed weights skew to {1.0, 0.9, 0.7},
+# so 0.8 drops 0.7 and keeps 0.9.
+LLM_INTEL_PRIMARY_THRESHOLD    = float(os.getenv("LLM_INTEL_PRIMARY_THRESHOLD", "0.8"))
+
 # ── Confidence Propagation Config ──────────────────────────────────────────
 CONFIDENCE_MIN_SAMPLES        = int(os.getenv("CONFIDENCE_MIN_SAMPLES", "10"))
 

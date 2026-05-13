@@ -372,9 +372,17 @@ class TestComputeScenarioScore:
 # ── Dual-weight contribution (ADR-015) ─────────────────────────────────────
 
 class TestDualWeight:
-    def test_llm_signal_dual_country(self):
+    def test_llm_signal_dual_country(self, monkeypatch):
         """LLM signal countries=["US","TW"] with country_weights generates
-        two contributions that both contribute to the scenario score."""
+        two contributions that both contribute to the scenario score.
+
+        Phase 9-E filter is disabled for this test because it asserts the
+        legacy dual-weight semantics; the 0.6 secondary weight here would
+        otherwise be filtered as "incidentally mentioned".
+        """
+        monkeypatch.setattr(
+            _radar_config, "LLM_INTEL_PRIMARY_COUNTRY_ONLY", False,
+        )
         sc = _taiwan_scenario()
         signals = [
             _signal("apt_intel", "apt_intel", "cyber", ["US", "TW"],
@@ -621,6 +629,105 @@ class TestRealGeoData:
                 assert len(global_contribs) == 0
             else:
                 assert state.tl is None
+
+
+# ── Phase 9-E (2026-05-13 PM): LLM intel country-tag bleed mitigation ──────
+
+class TestLlmIntelPrimaryCountry:
+    """Phase 9-E filter — a participant country whose LLM-emitted weight is
+    materially lower than the signal's primary subject weight is treated
+    as incidentally mentioned and dropped from per-scenario scoring.
+    """
+
+    def test_secondary_country_dropped_under_threshold(self):
+        """The Russia-Iran-US bleed case.
+
+        Signal countries={IR, IL, US} with weights {IR:1.0, IL:1.0, US:0.7}.
+        Taiwan's only matching participant is US. Ratio 0.7/1.0 = 0.7 falls
+        below the 0.8 default threshold ⇒ US is dropped ⇒ no contribution.
+        """
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("llm_intel", "llm_intel", "info",
+                    ["IR", "IL", "US"], raw_score=2.0,
+                    country_weights={"IR": 1.0, "IL": 1.0, "US": 0.7}),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True)
+        assert state.score == 0.0
+        assert state.domains["info"] == 0.0
+        assert len(state.contributions) == 0
+
+    def test_primary_country_retained(self):
+        """An article whose primary subject IS a Taiwan participant must
+        still contribute fully. country_weights={CN:1.0, JP:1.0} — both
+        within threshold of the max (ratio 1.0) ⇒ both kept.
+        """
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("llm_intel", "llm_intel", "info",
+                    ["CN", "JP"], raw_score=2.0,
+                    country_weights={"CN": 1.0, "JP": 1.0}),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True)
+        # Both CN (pw=0.7) and JP (pw=0.8) contribute, deduped by source-country.
+        assert state.score > 0
+        assert state.domains["info"] > 0
+        assert len(state.contributions) == 2
+
+    def test_single_country_sensor_unaffected(self):
+        """Sensor signals have a single country at weight 1.0 — max == this
+        weight, ratio = 1.0, always passes the filter.
+        """
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=2.0),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True)
+        assert state.score == 2.0
+        assert state.domains["cyber"] == 2.0
+
+    def test_borderline_at_threshold_kept(self):
+        """A country at exactly the threshold ratio is kept (≥ not >)."""
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("llm_intel", "llm_intel", "info",
+                    ["TW", "US"], raw_score=2.0,
+                    country_weights={"TW": 1.0, "US": 0.8}),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True)
+        # Both TW (ratio 1.0) and US (ratio 0.8, exactly at threshold) pass.
+        assert len(state.contributions) == 2
+
+    def test_flag_off_keeps_legacy_bleed(self, monkeypatch):
+        """Flag-off — the contamination case contributes as before."""
+        monkeypatch.setattr(
+            _radar_config, "LLM_INTEL_PRIMARY_COUNTRY_ONLY", False,
+        )
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("llm_intel", "llm_intel", "info",
+                    ["IR", "IL", "US"], raw_score=2.0,
+                    country_weights={"IR": 1.0, "IL": 1.0, "US": 0.7}),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True)
+        # Legacy: US still contributes: 2.0 × 0.7 (llm_cw) × 0.8 (pw US primary_ally) = 1.12
+        assert state.score == pytest.approx(1.12, abs=0.01)
+        assert len(state.contributions) == 1
+
+    def test_threshold_override(self, monkeypatch):
+        """Custom threshold tightens or loosens the cutoff."""
+        # Tighten to 0.95 — even 0.9 weight gets dropped.
+        monkeypatch.setattr(_radar_config, "LLM_INTEL_PRIMARY_THRESHOLD", 0.95)
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("llm_intel", "llm_intel", "info",
+                    ["TW", "US"], raw_score=2.0,
+                    country_weights={"TW": 1.0, "US": 0.9}),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True)
+        # Only TW survives at 0.95 threshold (US ratio 0.9 < 0.95).
+        assert len(state.contributions) == 1
+        assert state.contributions[0].contributing_country == "TW"
 
 
 # ── Phase 9 (2026-05-13): global_threat envelope ───────────────────────────
