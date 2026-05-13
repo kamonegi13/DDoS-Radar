@@ -241,6 +241,11 @@ const STRINGS = {
     'hud.label.sys':                  'SENSOR',
     'hud.tooltip.sys_chip':           'System status: WS link + sensor fleet health (OK / STALE / ERROR / DISABLED)',
     'hud.label.climate':              'CLIMATE',
+    // Phase 9 (2026-05-13) — calibration noise-floor remediation chips.
+    'hud.label.global_threat':        'GLOBAL',
+    'hud.tooltip.global_threat':      'GLOBAL: countryless threat indicator (cf_botnet_overlap, threatfox, …). Surfaced as an independent lane so it can no longer inflate every scenario uniformly. Value = sum of raw_score × global_signal_weight.',
+    'hud.label.skew':                 'SKEW',
+    'hud.tooltip.skew':               'TL Distribution Skew: TL=5 (peacetime calm) share over rolling 7d. Green ≥30%, amber 15-30%, red <15%. Catches "TL≥2 stuck for days" regimes that the legacy DRIFT chip misses.',
     'hud.tooltip.tl_proximity':       'TL Proximity: distance from current score to next Threat Level boundary',
     'tl_prox.near_esc':               '{pts}pt → TL{tl}',
     'tl_prox.near_deesc':             '{pts}pt → TL{tl}',

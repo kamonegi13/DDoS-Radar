@@ -347,6 +347,33 @@ ESCALATION_HISTORY_MAX        = int(os.getenv("ESCALATION_HISTORY_MAX", "100"))
 # TL thresholds (score_with_bonus boundaries): TL4=2, TL3=4, TL2=6, TL1=9
 ESCALATION_TL_THRESHOLDS      = {4: 2, 3: 4, 2: 6, 1: 9}
 
+# ── Phase 9 (2026-05-13) — TL calibration noise-floor remediation ────────────
+# Three independent feature flags addressing the chronic TL≥2 stickiness:
+#   A. GLOBAL_SIGNALS_DECOUPLED:
+#      Exclude global signals (signal.countries == []) from per-scenario score.
+#      They are summed separately into the `global_threat` envelope so analysts
+#      still see them, but they no longer add ~1.5 to every scenario uniformly.
+#      Addresses the structural cyber baseline contamination (cf_botnet_overlap
+#      + threatfox uniformly contributing to every scenario).
+#   B. CONVERGENCE_SCENARIO_SPECIFIC:
+#      Convergence bonus requires ≥2 distinct participant countries firing —
+#      not just ≥3 domains being non-zero. NP2's "multi-source convergence"
+#      now means actual independent participants, not "any 3 domains happen to
+#      have any signal".
+#   D. CALIBRATION_SKEW_METRIC_ENABLED:
+#      Surface TL=5 share over rolling 7d in /api/v2/self_eval so the AP3
+#      CALIBRATION chip can warn the operator before governance deadlines
+#      slip silently (as happened for the 2026-04-28 RAISE_THRESHOLDS advisory).
+GLOBAL_SIGNALS_DECOUPLED       = os.getenv("GLOBAL_SIGNALS_DECOUPLED", "true").lower() == "true"
+CONVERGENCE_SCENARIO_SPECIFIC  = os.getenv("CONVERGENCE_SCENARIO_SPECIFIC", "true").lower() == "true"
+CALIBRATION_SKEW_METRIC_ENABLED = os.getenv("CALIBRATION_SKEW_METRIC_ENABLED", "true").lower() == "true"
+# TL=5 share floor (percent) below which calibration_skew_alert fires.
+# 30% = if peacetime calm state holds <30% of last 7d, calibration is suspect.
+CALIBRATION_SKEW_TL5_MIN_PCT   = float(os.getenv("CALIBRATION_SKEW_TL5_MIN_PCT", "30.0"))
+CALIBRATION_SKEW_WINDOW_DAYS   = int(os.getenv("CALIBRATION_SKEW_WINDOW_DAYS", "7"))
+# Minimum observations in the window before we trust the skew measurement.
+CALIBRATION_SKEW_MIN_OBSERVATIONS = int(os.getenv("CALIBRATION_SKEW_MIN_OBSERVATIONS", "100"))
+
 # ── Confidence Propagation Config ──────────────────────────────────────────
 CONFIDENCE_MIN_SAMPLES        = int(os.getenv("CONFIDENCE_MIN_SAMPLES", "10"))
 

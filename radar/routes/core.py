@@ -2488,6 +2488,19 @@ def get_threat_data():
                     _LATEST_SIGNALS_SNAPSHOT["scenario_baselines"] = _baselines
             except Exception:
                 pass
+
+            # Phase 9 (2026-05-13) — compute global_threat envelope outside
+            # the scenario loop. With GLOBAL_SIGNALS_DECOUPLED on, country-
+            # less signals (cf_botnet_overlap, threatfox, …) are excluded
+            # from per-scenario score; they surface here so the HUD can
+            # render an independent global-cyber chip.
+            try:
+                from radar.scoring import compute_global_threat
+                _global_threat_payload = compute_global_threat(
+                    _signals, global_signal_weight=GLOBAL_SIGNAL_WEIGHT,
+                )
+            except Exception:
+                _global_threat_payload = None
         except Exception as _sc_err:
             # SF4 (audit / NP1+NP6 fix, 2026-05-01): the previous behaviour
             # logged a warning, left _focused_tl == None, and the fallback
@@ -2966,6 +2979,12 @@ def get_threat_data():
         # source of truth). Here we just propagate to cache.
         _new_cache["scenarios"] = _scenario_results
         _new_cache["scenario_history_starts_at"] = _db.scenario_history_start()
+        # Phase 9 (2026-05-13) — propagate global_threat envelope. May be
+        # None when the scoring block raised (SF4) or the helper failed.
+        try:
+            _new_cache["global_threat"] = _global_threat_payload
+        except NameError:
+            _new_cache["global_threat"] = None
 
         # ── Phase C: What-changed diff (under lock with cache swap) ────────
         global _prev_scenario_domains, _prev_scenario_signals
@@ -3152,6 +3171,11 @@ def get_threat_data():
         "scenarios":       _scenario_results,
         "scenario_history_starts_at": _cache_snap.get("scenario_history_starts_at"),
         "participants":    _participant_map,
+        # Phase 9 (2026-05-13) — global_threat envelope (countryless signals).
+        # When GLOBAL_SIGNALS_DECOUPLED is off, this still surfaces the same
+        # information for HUD parity; the decoupling flag only controls
+        # whether the same signals are *also* folded into per-scenario score.
+        "global_threat":   _cache_snap.get("global_threat"),
     }
     # SF4 (audit): surface scoring failure to the frontend so the HUD can
     # render "—" / "ENGINE ERROR" instead of fabricating "TL5 / normal".

@@ -773,6 +773,49 @@ def v2_self_eval():
     # render a green/red GO chip without analyst SQL.
     out["phase8_go_status"] = _compute_phase8_go(out.get("shadow_dual_diff", {}))
 
+    # Phase 9 (2026-05-13) — TL distribution skew metric.
+    # The existing `drift` metric measures per-scenario score-magnitude
+    # drift; it cannot detect "TL=5 share dropped to 0%" — the failure
+    # mode that left the 2026-04-28 RAISE_THRESHOLDS advisory unactioned
+    # for 15+ days. This block surfaces TL=5 (peacetime calm) share over a
+    # configurable rolling window so the AP3 CALIBRATION chip can warn
+    # before the next governance deadline slips silently.
+    try:
+        if _config.CALIBRATION_SKEW_METRIC_ENABLED:
+            from radar.database import db as _shared_db
+            _window_hours = _config.CALIBRATION_SKEW_WINDOW_DAYS * 24
+            _stats = _shared_db.tl_calibration_stats(hours=_window_hours)
+            _n_total = int(_stats.get("total_observations", 0))
+            _dist = _stats.get("distribution", {}) or {}
+            _tl5_pct = float(_dist.get("TL5", {}).get("pct", 0.0))
+            _has_enough = _n_total >= _config.CALIBRATION_SKEW_MIN_OBSERVATIONS
+            _alert = bool(
+                _has_enough and _tl5_pct < _config.CALIBRATION_SKEW_TL5_MIN_PCT
+            )
+            out["tl_distribution_skew"] = {
+                "tl5_pct":            round(_tl5_pct, 1),
+                "tl5_min_pct":        _config.CALIBRATION_SKEW_TL5_MIN_PCT,
+                "window_days":        _config.CALIBRATION_SKEW_WINDOW_DAYS,
+                "n_observations":     _n_total,
+                "min_observations":   _config.CALIBRATION_SKEW_MIN_OBSERVATIONS,
+                "have_enough_data":   _has_enough,
+                "calibration_skew_alert": _alert,
+                "distribution_pct":   {
+                    k: float(v.get("pct", 0.0)) for k, v in _dist.items()
+                },
+                "method":             "tl5_share_vs_floor",
+            }
+        else:
+            out["tl_distribution_skew"] = {
+                "enabled": False,
+                "calibration_skew_alert": False,
+            }
+    except Exception as e:  # noqa: BLE001
+        out["tl_distribution_skew"] = {
+            "calibration_skew_alert": False,
+            "error": str(e),
+        }
+
     return jsonify(out)
 
 

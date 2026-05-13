@@ -14,8 +14,9 @@ from radar.scoring import (
     Signal, ScenarioContribution, ScenarioState,
     compute_scenario_score, dedup_by_source_country_max,
     compute_convergence_bonus_scenario, derive_tl,
-    rationale_to_signal,
+    rationale_to_signal, compute_global_threat,
 )
+from radar import config as _radar_config
 from radar.models import RationaleEntry
 
 
@@ -79,6 +80,9 @@ def _signal(source: str, sensor: str, domain: str, countries: list,
 # ── Convergence bonus ──────────────────────────────────────────────────────
 
 class TestConvergenceBonus:
+    """Legacy semantics — no participant count supplied → backward-compatible
+    behaviour regardless of the CONVERGENCE_SCENARIO_SPECIFIC flag.
+    """
     def test_three_domains(self):
         assert compute_convergence_bonus_scenario(["cyber", "physical", "info"]) == 2.0
 
@@ -90,6 +94,40 @@ class TestConvergenceBonus:
 
     def test_empty(self):
         assert compute_convergence_bonus_scenario([]) == 0.0
+
+
+class TestConvergenceBonusScenarioSpecific:
+    """Phase 9 (2026-05-13) — participant-aware convergence semantics.
+
+    NP2 demands *multi-source* convergence. Three domains all attributed to
+    one participant country is one source flooding three pipes, not three
+    independent sources. The bonus is downgraded in that case.
+    """
+    def test_three_domains_multi_participant_full_bonus(self, monkeypatch):
+        monkeypatch.setattr(_radar_config, "CONVERGENCE_SCENARIO_SPECIFIC", True)
+        assert compute_convergence_bonus_scenario(
+            ["cyber", "physical", "info"], n_distinct_participants=2,
+        ) == 2.0
+
+    def test_three_domains_single_participant_downgraded(self, monkeypatch):
+        monkeypatch.setattr(_radar_config, "CONVERGENCE_SCENARIO_SPECIFIC", True)
+        # 3 domains lit by a single participant ⇒ downgrade to +1.0
+        assert compute_convergence_bonus_scenario(
+            ["cyber", "physical", "info"], n_distinct_participants=1,
+        ) == 1.0
+
+    def test_flag_off_keeps_legacy(self, monkeypatch):
+        monkeypatch.setattr(_radar_config, "CONVERGENCE_SCENARIO_SPECIFIC", False)
+        # Even with single participant, flag-off gives the old +2.0
+        assert compute_convergence_bonus_scenario(
+            ["cyber", "physical", "info"], n_distinct_participants=1,
+        ) == 2.0
+
+    def test_two_domains_still_bonus(self, monkeypatch):
+        monkeypatch.setattr(_radar_config, "CONVERGENCE_SCENARIO_SPECIFIC", True)
+        assert compute_convergence_bonus_scenario(
+            ["cyber", "physical"], n_distinct_participants=1,
+        ) == 1.0
 
 
 # ── TL derivation ──────────────────────────────────────────────────────────
@@ -189,7 +227,24 @@ class TestComputeScenarioScore:
         assert state.tl is None
         assert state.scoring_mode == "lite"
 
-    def test_global_signal(self):
+    def test_global_signal_decoupled_default(self):
+        """Phase 9 (2026-05-13) — with GLOBAL_SIGNALS_DECOUPLED on (default),
+        countryless signals do NOT contribute to per-scenario score.
+        """
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("greynoise", "greynoise", "cyber", [], raw_score=2.0),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True,
+                                       global_signal_weight=0.5)
+        assert state.score == 0.0
+        assert len(state.contributions) == 0
+        # Convergence bonus also zero — no active scenario-specific domain.
+        assert state.convergence_bonus == 0.0
+
+    def test_global_signal_legacy_when_flag_off(self, monkeypatch):
+        """Legacy behaviour retained behind the flag for emergency rollback."""
+        monkeypatch.setattr(_radar_config, "GLOBAL_SIGNALS_DECOUPLED", False)
         sc = _taiwan_scenario()
         signals = [
             _signal("greynoise", "greynoise", "cyber", [], raw_score=2.0),
@@ -219,7 +274,38 @@ class TestComputeScenarioScore:
         assert state.domains["cyber"] == 6.0
         assert state.score == 6.0
 
-    def test_convergence_bonus_full(self):
+    def test_convergence_bonus_full_multi_participant(self):
+        """Phase 9 — three domains with TWO participants gets the full +2.0."""
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=2.0),
+            _signal("opensky", "opensky", "physical", ["US"], raw_score=2.0),
+            _signal("gdelt", "gdelt", "info", ["TW"], raw_score=2.0),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True)
+        assert state.convergence_bonus == 2.0
+        # cyber 2.0 + physical 2.0*0.8 (US pw) + info 2.0 + bonus 2.0 = 7.6
+        assert state.score == pytest.approx(7.6, abs=0.01)
+
+    def test_convergence_bonus_three_domains_single_participant_downgraded(self):
+        """Phase 9 — three domains from a single participant ⇒ +1.0, not +2.0.
+
+        This is the NP2 rigor: one country flooding three pipes is not
+        multi-source convergence — it's one source with broad coverage.
+        """
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=2.0),
+            _signal("opensky", "opensky", "physical", ["TW"], raw_score=2.0),
+            _signal("gdelt", "gdelt", "info", ["TW"], raw_score=2.0),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True)
+        assert state.convergence_bonus == 1.0
+        assert state.score == 2.0 + 2.0 + 2.0 + 1.0  # = 7.0
+
+    def test_convergence_bonus_legacy_when_flag_off(self, monkeypatch):
+        """Flag-off keeps the legacy single-participant full bonus."""
+        monkeypatch.setattr(_radar_config, "CONVERGENCE_SCENARIO_SPECIFIC", False)
         sc = _taiwan_scenario()
         signals = [
             _signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=2.0),
@@ -228,7 +314,6 @@ class TestComputeScenarioScore:
         ]
         state = compute_scenario_score(sc, signals, is_focused=True)
         assert state.convergence_bonus == 2.0
-        assert state.score == 2.0 + 2.0 + 2.0 + 2.0
 
     def test_convergence_bonus_dual(self):
         sc = _taiwan_scenario()
@@ -238,6 +323,33 @@ class TestComputeScenarioScore:
         ]
         state = compute_scenario_score(sc, signals, is_focused=True)
         assert state.convergence_bonus == 1.0
+
+    def test_global_signals_do_not_inflate_convergence(self):
+        """Phase 9 regression — under GLOBAL_SIGNALS_DECOUPLED, countryless
+        signals must not create false convergence by lighting up domains.
+
+        Before Phase 9, two global signals (cf_botnet_overlap + threatfox)
+        lit the cyber domain for every scenario uniformly. Combined with a
+        single LLM-intel info item, that yielded 2 active domains and a
+        +1.0 convergence bonus baseline per scenario — which is exactly the
+        floor that pinned the system at TL=2.
+        """
+        sc = _taiwan_scenario()
+        signals = [
+            # Two global cyber signals like cf_botnet_overlap + threatfox.
+            _signal("cf_botnet", "cf_botnet_overlap", "cyber", [], raw_score=2.0),
+            _signal("threatfox", "threatfox", "cyber", [], raw_score=1.0),
+            # One legitimate scenario-specific info item.
+            _signal("gdelt", "gdelt", "info", ["TW"], raw_score=1.0),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True,
+                                       global_signal_weight=0.5)
+        # Score = info(1.0) only; cyber comes from globals → not counted.
+        assert state.domains["cyber"] == 0.0
+        assert state.domains["info"] == 1.0
+        # Only one active domain (info) → no convergence bonus.
+        assert state.convergence_bonus == 0.0
+        assert state.score == 1.0
 
     def test_to_dict(self):
         sc = _taiwan_scenario()
@@ -358,8 +470,24 @@ class TestEdgeCases:
         assert state.tl == 5
         assert state.contributions == []
 
-    def test_empty_countries_not_scored_per_country(self):
-        """Signal with empty countries treated as global."""
+    def test_empty_countries_decoupled_no_contribution(self):
+        """Phase 9 — countryless signals are excluded from per-scenario score
+        under GLOBAL_SIGNALS_DECOUPLED (default). They surface separately
+        via compute_global_threat(), tested in TestComputeGlobalThreat.
+        """
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("greynoise", "greynoise", "cyber", [], raw_score=2.0),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True,
+                                       global_signal_weight=0.5)
+        assert len(state.contributions) == 0
+
+    def test_empty_countries_legacy_global_contribution(self, monkeypatch):
+        """Flag-off — legacy behaviour: countryless signals add to per-scenario
+        score with role='global'.
+        """
+        monkeypatch.setattr(_radar_config, "GLOBAL_SIGNALS_DECOUPLED", False)
         sc = _taiwan_scenario()
         signals = [
             _signal("greynoise", "greynoise", "cyber", [], raw_score=2.0),
@@ -380,7 +508,10 @@ class TestEdgeCases:
         assert len(state.contributions) == 1
         assert state.contributions[0].final_contribution == 3.0
 
-    def test_mixed_global_and_per_country(self):
+    def test_mixed_global_and_per_country_decoupled(self):
+        """Phase 9 (2026-05-13) — decoupled default: only the per-country
+        signal counts toward the scenario score; the global is shed.
+        """
         sc = _taiwan_scenario()
         signals = [
             _signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=2.0),
@@ -388,7 +519,19 @@ class TestEdgeCases:
         ]
         state = compute_scenario_score(sc, signals, is_focused=True,
                                        global_signal_weight=0.5)
-        # bgp:TW = 2.0, greynoise:GLOBAL = 1.0
+        # bgp:TW = 2.0 only; greynoise (no countries) ignored.
+        assert abs(state.domains["cyber"] - 2.0) < 0.001
+
+    def test_mixed_global_and_per_country_legacy(self, monkeypatch):
+        monkeypatch.setattr(_radar_config, "GLOBAL_SIGNALS_DECOUPLED", False)
+        sc = _taiwan_scenario()
+        signals = [
+            _signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=2.0),
+            _signal("greynoise", "greynoise", "cyber", [], raw_score=2.0),
+        ]
+        state = compute_scenario_score(sc, signals, is_focused=True,
+                                       global_signal_weight=0.5)
+        # bgp:TW = 2.0, greynoise:GLOBAL = 1.0 (legacy 3.0 total)
         assert abs(state.domains["cyber"] - 3.0) < 0.001
 
 
@@ -465,6 +608,51 @@ class TestRealGeoData:
                 global_contribs = [c for c in state.contributions if c.contributing_country == "GLOBAL"]
                 assert len(tw_contribs) > 0
                 assert len(cn_contribs) > 0
-                assert len(global_contribs) > 0
+                # Phase 9 (2026-05-13) — under GLOBAL_SIGNALS_DECOUPLED (default),
+                # countryless signals no longer appear in per-scenario
+                # contributions. The greynoise global signal in the input
+                # is now reported via compute_global_threat() instead.
+                assert len(global_contribs) == 0
             else:
                 assert state.tl is None
+
+
+# ── Phase 9 (2026-05-13): global_threat envelope ───────────────────────────
+
+class TestComputeGlobalThreat:
+    """compute_global_threat aggregates countryless signals so analysts still
+    see them on the HUD even though they no longer contaminate per-scenario
+    TL scoring.
+    """
+
+    def test_aggregates_global_signals_only(self):
+        signals = [
+            _signal("cf_botnet", "cf_botnet_overlap", "cyber", [], raw_score=2.0),
+            _signal("threatfox", "threatfox", "cyber", [], raw_score=1.0),
+            _signal("gdelt", "gdelt", "info", ["TW"], raw_score=2.0),  # ignored
+        ]
+        gt = compute_global_threat(signals, global_signal_weight=0.5)
+        # 2.0*0.5 + 1.0*0.5 = 1.5 in cyber
+        assert gt["domains"]["cyber"] == pytest.approx(1.5, abs=0.001)
+        assert gt["domains"]["info"] == 0.0
+        assert gt["domains"]["physical"] == 0.0
+        assert gt["score"] == pytest.approx(1.5, abs=0.001)
+        assert len(gt["sources"]) == 2
+        sources_by_sensor = {s["sensor"] for s in gt["sources"]}
+        assert sources_by_sensor == {"cf_botnet_overlap", "threatfox"}
+
+    def test_empty_when_no_global_signals(self):
+        signals = [_signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=2.0)]
+        gt = compute_global_threat(signals, global_signal_weight=0.5)
+        assert gt["score"] == 0.0
+        assert gt["domains"] == {"cyber": 0.0, "physical": 0.0, "info": 0.0}
+        assert gt["sources"] == []
+
+    def test_global_signal_weight_applied(self):
+        signals = [_signal("cf_botnet", "cf_botnet_overlap", "cyber", [], raw_score=2.0)]
+        gt_half = compute_global_threat(signals, global_signal_weight=0.5)
+        gt_full = compute_global_threat(signals, global_signal_weight=1.0)
+        assert gt_half["score"] == pytest.approx(1.0, abs=0.001)
+        assert gt_full["score"] == pytest.approx(2.0, abs=0.001)
+        assert gt_half["global_signal_weight"] == 0.5
+        assert gt_full["global_signal_weight"] == 1.0

@@ -5357,6 +5357,56 @@
                 }
             }
 
+            // Phase 9 (2026-05-13) — TL Distribution Skew chip.
+            // Reads /api/v2/self_eval.tl_distribution_skew. Bands:
+            //   good:  tl5_pct ≥ 30% (peacetime calm dominant)
+            //   warn:  15% ≤ tl5_pct < 30%
+            //   crit:  tl5_pct < 15% OR calibration_skew_alert === true
+            //   na:    not enough data (have_enough_data === false)
+            const skewEl = document.getElementById('hud-skew-value');
+            const skew = data.tl_distribution_skew || null;
+            if (skewEl) {
+                if (!skew || skew.enabled === false) {
+                    skewEl.textContent = 'OFF';
+                    _applySelfEvalClass('hud-skew-chip', 'na');
+                } else if (skew.have_enough_data === false) {
+                    const n = skew.n_observations || 0;
+                    skewEl.textContent = 'n=' + n;
+                    _applySelfEvalClass('hud-skew-chip', 'na');
+                } else if (typeof skew.tl5_pct === 'number') {
+                    skewEl.textContent = skew.tl5_pct.toFixed(0) + '%';
+                    const band = skew.calibration_skew_alert ? 'crit'
+                               : skew.tl5_pct >= 30 ? 'good'
+                               : skew.tl5_pct >= 15 ? 'warn' : 'crit';
+                    _applySelfEvalClass('hud-skew-chip', band);
+                } else {
+                    skewEl.textContent = '—';
+                    _applySelfEvalClass('hud-skew-chip', 'na');
+                }
+                const chip = document.getElementById('hud-skew-chip');
+                if (chip && skew && skew.distribution_pct) {
+                    const parts = [
+                        'TL Distribution (last '
+                            + (skew.window_days || 7) + 'd)',
+                        '  TL5 (calm):     '
+                            + (skew.distribution_pct.TL5 || 0).toFixed(1) + '%',
+                        '  TL4:            '
+                            + (skew.distribution_pct.TL4 || 0).toFixed(1) + '%',
+                        '  TL3:            '
+                            + (skew.distribution_pct.TL3 || 0).toFixed(1) + '%',
+                        '  TL2:            '
+                            + (skew.distribution_pct.TL2 || 0).toFixed(1) + '%',
+                        '  TL1:            '
+                            + (skew.distribution_pct.TL1 || 0).toFixed(1) + '%',
+                        '  Floor (alert <): '
+                            + (skew.tl5_min_pct || 30) + '%',
+                        '  N observations: ' + (skew.n_observations || 0),
+                        '  Alert: ' + (skew.calibration_skew_alert ? 'YES' : 'no'),
+                    ];
+                    chip.title = parts.join('\n');
+                }
+            }
+
             // OBS-BG chip (ADR-V2-015 Phase 5) — bg_observer health.
             // Bands:
             //   good:  enabled, ≥1 cycle in 24h, alias_gap empty, empty_rate ≤ 0.5
@@ -8453,6 +8503,39 @@
                 dirWrap.style.display = (ds.adversary_offensive > 0 || ds.target_impact > 0) ? 'inline-flex' : 'none';
             } else if (dirWrap) {
                 dirWrap.style.display = 'none';
+            }
+
+            // Phase 9 (2026-05-13) — GLOBAL chip. Surfaces countryless threat
+            // signals (cf_botnet_overlap + threatfox) as an independent lane.
+            // Hidden when there is no global signal so it does not add UI
+            // noise on quiet days. Tooltip lists the contributing sensors.
+            const gtWrap = document.getElementById('hud-global-threat-chip');
+            const gtEl = document.getElementById('hud-global-threat');
+            const gt = data.global_threat || null;
+            if (gtWrap && gtEl) {
+                if (gt && typeof gt.score === 'number' && gt.score > 0) {
+                    gtEl.textContent = gt.score.toFixed(1);
+                    const _sources = Array.isArray(gt.sources) ? gt.sources : [];
+                    const _doms = gt.domains || {};
+                    const lines = [
+                        _t('hud.tooltip.global_threat'),
+                        '',
+                        'score: ' + gt.score.toFixed(2),
+                        'cyber: '    + (_doms.cyber    || 0).toFixed(2),
+                        'physical: ' + (_doms.physical || 0).toFixed(2),
+                        'info: '     + (_doms.info     || 0).toFixed(2),
+                        '',
+                        'sources (' + _sources.length + '):',
+                    ];
+                    _sources.slice(0, 5).forEach(s => {
+                        lines.push('  ' + s.sensor + ' +' + (s.contribution || 0).toFixed(2)
+                            + (s.value_display ? '  (' + s.value_display + ')' : ''));
+                    });
+                    gtWrap.setAttribute('data-tooltip', lines.join('\n'));
+                    gtWrap.style.display = 'inline-flex';
+                } else {
+                    gtWrap.style.display = 'none';
+                }
             }
 
             // Scenario chip — show focused scenario name (replaces Epicenter)
