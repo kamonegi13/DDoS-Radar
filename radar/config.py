@@ -355,17 +355,27 @@ ESCALATION_TL_THRESHOLDS      = {4: 2, 3: 4, 2: 6, 1: 9}
 #      still see them, but they no longer add ~1.5 to every scenario uniformly.
 #      Addresses the structural cyber baseline contamination (cf_botnet_overlap
 #      + threatfox uniformly contributing to every scenario).
-#   B. CONVERGENCE_SCENARIO_SPECIFIC:
+#   B. CONVERGENCE_SCENARIO_SPECIFIC: (DEFAULT OFF, 2026-05-13 PM)
 #      Convergence bonus requires ≥2 distinct participant countries firing —
 #      not just ≥3 domains being non-zero. NP2's "multi-source convergence"
 #      now means actual independent participants, not "any 3 domains happen to
 #      have any signal".
+#      DEFERRED: turning this on creates an NP1 risk — single-participant
+#      3-domain scenarios (e.g. an active campaign focused exclusively on TW
+#      across cyber/physical/info) get downgraded from +2.0 to +1.0 even
+#      though "one target across three domains" is itself a strong
+#      escalation signature. Re-enable only after a backtest confirms that
+#      no historical TL=2 firings driven by single-participant 3-domain
+#      patterns were real escalations. The participant-count proxy for
+#      multi-source convergence may need to be replaced by temporal-
+#      alignment or per-signal-confidence semantics first.
 #   D. CALIBRATION_SKEW_METRIC_ENABLED:
 #      Surface TL=5 share over rolling 7d in /api/v2/self_eval so the AP3
 #      CALIBRATION chip can warn the operator before governance deadlines
 #      slip silently (as happened for the 2026-04-28 RAISE_THRESHOLDS advisory).
 GLOBAL_SIGNALS_DECOUPLED       = os.getenv("GLOBAL_SIGNALS_DECOUPLED", "true").lower() == "true"
-CONVERGENCE_SCENARIO_SPECIFIC  = os.getenv("CONVERGENCE_SCENARIO_SPECIFIC", "true").lower() == "true"
+# Phase B deferred 2026-05-13 PM pending backtest. See block comment above.
+CONVERGENCE_SCENARIO_SPECIFIC  = os.getenv("CONVERGENCE_SCENARIO_SPECIFIC", "false").lower() == "true"
 CALIBRATION_SKEW_METRIC_ENABLED = os.getenv("CALIBRATION_SKEW_METRIC_ENABLED", "true").lower() == "true"
 # TL=5 share floor (percent) below which calibration_skew_alert fires.
 # 30% = if peacetime calm state holds <30% of last 7d, calibration is suspect.

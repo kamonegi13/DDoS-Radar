@@ -287,12 +287,17 @@ class TestComputeScenarioScore:
         # cyber 2.0 + physical 2.0*0.8 (US pw) + info 2.0 + bonus 2.0 = 7.6
         assert state.score == pytest.approx(7.6, abs=0.01)
 
-    def test_convergence_bonus_three_domains_single_participant_downgraded(self):
+    def test_convergence_bonus_three_domains_single_participant_downgraded(self, monkeypatch):
         """Phase 9 — three domains from a single participant ⇒ +1.0, not +2.0.
 
         This is the NP2 rigor: one country flooding three pipes is not
         multi-source convergence — it's one source with broad coverage.
+
+        Phase B is DEFERRED (flag default OFF as of 2026-05-13 PM) pending
+        backtest. This test exercises the on-state semantics so the
+        implementation stays correct for when it is re-enabled.
         """
+        monkeypatch.setattr(_radar_config, "CONVERGENCE_SCENARIO_SPECIFIC", True)
         sc = _taiwan_scenario()
         signals = [
             _signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=2.0),
@@ -303,9 +308,10 @@ class TestComputeScenarioScore:
         assert state.convergence_bonus == 1.0
         assert state.score == 2.0 + 2.0 + 2.0 + 1.0  # = 7.0
 
-    def test_convergence_bonus_legacy_when_flag_off(self, monkeypatch):
-        """Flag-off keeps the legacy single-participant full bonus."""
-        monkeypatch.setattr(_radar_config, "CONVERGENCE_SCENARIO_SPECIFIC", False)
+    def test_convergence_bonus_default_off_keeps_legacy(self):
+        """Phase B default OFF (2026-05-13 PM) — single-participant
+        3-domain pattern still earns the legacy +2.0 bonus.
+        """
         sc = _taiwan_scenario()
         signals = [
             _signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=2.0),
