@@ -370,37 +370,34 @@ def notify_scenario_tl_change(scenario_id: str, scenario_name: str,
 
     severity = _severity_for_tl(new_level, old_level)
     direction = "ESCALATED" if new_level < old_level else "DE-ESCALATED"
-    title = f"Threat Level {direction} — {scenario_name}"
+    # Headline carries direction + TL transition + scenario name in one
+    # scannable line; description carries the absolute score and the
+    # scenario_id (kept as code for click/grep ergonomics).
+    title = f"{direction} · TL{old_level} → TL{new_level} — {scenario_name}"
+    text = f"Score **{score:.2f}** · `{scenario_id}`"
 
-    text_parts = [
-        f"`{scenario_id}` moved from **TL{old_level}** to **TL{new_level}** "
-        f"(score: {score:.1f})."
-    ]
-
-    fields: list[dict] = [
-        {"name": "Scenario", "value": f"`{scenario_id}`", "inline": True},
-        {"name": "Previous", "value": f"TL{old_level}", "inline": True},
-        {"name": "Current",  "value": f"TL{new_level}", "inline": True},
-        {"name": "Score",    "value": f"{score:.2f}", "inline": True},
-    ]
+    # Fields carry only the diagnostic delta — the *why* this TL changed.
+    # The previous tabular restatement of scenario/previous/current/score
+    # was pure repetition of the title and description.
+    fields: list[dict] = []
     if what_changed:
         deltas = what_changed.get("domain_deltas") or {}
         if deltas:
-            parts = [f"{d.upper()}: {v:+.1f}" for d, v in deltas.items()]
+            parts = [f"{d.upper()} {v:+.1f}" for d, v in deltas.items()]
             fields.append({
-                "name": "Domain changes",
-                "value": ", ".join(parts), "inline": False,
+                "name": "Domains",
+                "value": " · ".join(parts), "inline": False,
             })
         new_sigs = what_changed.get("new_signals") or []
         if new_sigs:
             fields.append({
-                "name": "New signals",
+                "name": "Signals added",
                 "value": ", ".join(new_sigs)[:512], "inline": False,
             })
         lost_sigs = what_changed.get("removed_signals") or []
         if lost_sigs:
             fields.append({
-                "name": "Removed signals",
+                "name": "Signals removed",
                 "value": ", ".join(lost_sigs)[:512], "inline": False,
             })
 
@@ -412,7 +409,7 @@ def notify_scenario_tl_change(scenario_id: str, scenario_name: str,
         "what_changed": what_changed,
     }
     log.info(f"[Notify] {title} — {scenario_id} TL{old_level}->TL{new_level}")
-    _dispatch("scenario_tl_change", title, "\n".join(text_parts),
+    _dispatch("scenario_tl_change", title, text,
               severity=severity, fields=fields,
               url=_scenario_url(scenario_id), data=data)
 
@@ -427,12 +424,14 @@ def notify_ambush_alert(theater: str, alert_data: dict) -> None:
     z_score = alert_data.get("z_score", 0)
     accel = alert_data.get("acceleration", 0)
     velocity = alert_data.get("velocity", 0)
+    # Description retains the historical-context sentence (genuine analytic
+    # value) and the scenario id as code for click/grep. The previous
+    # standalone Theater field duplicated the title.
     text = (
-        f"Sudden coordinated acceleration detected on **{theater}**. "
+        f"`{theater}` — sudden coordinated acceleration. "
         f"This pattern historically precedes large-scale offensive activity."
     )
     fields = [
-        {"name": "Theater",  "value": f"`{theater}`", "inline": True},
         {"name": "Z-score",  "value": f"{z_score:.2f}", "inline": True},
         {"name": "Accel.",   "value": f"{accel:.2f}", "inline": True},
         {"name": "Velocity", "value": f"{velocity:.2f}", "inline": True},
@@ -456,17 +455,14 @@ def notify_sequence_complete(theater: str, chain_status: str,
     severity = "critical" if chain_status == "FULL_CHAIN" else "warn"
     title = f"Sequence Chain {chain_status} — {theater}"
     event_types = [e.get("type", "?") for e in events]
+    # Description carries the chain itself — that *is* the headline content.
+    # Previous Theater/Status/Length inline fields all restated title or
+    # description, so they're dropped.
     text = (
-        f"Theater **{theater}** completed a {chain_status.lower()} "
-        f"sequence: {' → '.join(event_types)}"
+        f"`{theater}` · {len(events)} events · "
+        f"{' → '.join(event_types)[:1024]}"
     )
-    fields = [
-        {"name": "Theater", "value": f"`{theater}`", "inline": True},
-        {"name": "Status",  "value": chain_status,    "inline": True},
-        {"name": "Length",  "value": str(len(events)), "inline": True},
-        {"name": "Chain",   "value": " → ".join(event_types)[:512],
-         "inline": False},
-    ]
+    fields: list[dict] = []
     data = {"theater": theater, "status": chain_status, "events": events}
     log.warning(f"[Notify] {title}")
     _dispatch("sequence_chain", title, text,

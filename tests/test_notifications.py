@@ -132,10 +132,18 @@ def test_scenario_tl_change_sends_discord_embed_with_np7_and_deep_link(
     # D1-B: severity → red color + 🔴 emoji
     assert embed["color"] == notifications._SEVERITY["critical"].discord_color
     assert embed["title"].startswith("🔴 ")
-    # D1-E: scenario_id appears as a field, not duplicated in the title
-    assert "(taiwan_contingency)" not in embed["title"]
+    # D1-E: scenario_id appears once (in the description as code), not
+    # duplicated in the title or restated as a labelled field.
+    assert "taiwan_contingency" not in embed["title"]
+    assert "`taiwan_contingency`" in embed["description"]
     field_names = {f["name"] for f in embed["fields"]}
-    assert "Scenario" in field_names
+    assert "Scenario" not in field_names, (
+        "redundant Scenario field must be dropped — scenario_id lives in "
+        "the description now (one mention, not two)"
+    )
+    # Fields carry only the diagnostic delta (the *why*).
+    assert "Domains" in field_names
+    assert "Signals added" in field_names
     # D1-D: deep link constructed from RADAR_PUBLIC_URL
     assert embed["url"] == (
         "https://radar.example.com/?focus=taiwan_contingency"
