@@ -612,6 +612,7 @@ const STRINGS = {
     'modal.help.ch11':                '11. Scenarios',
     'modal.help.ch12':                '12. API',
     'modal.help.ch13':                '13. Admin',
+    'modal.help.ch14':                '14. Operator',
     // Map dim overlay (focus-change loading state)
     'map.dim.switching':              'Switching to {name}…',
     'map.dim.timeout':                'Sync incomplete — showing last known state.',
