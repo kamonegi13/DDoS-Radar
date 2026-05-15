@@ -148,6 +148,22 @@ CURRENT_DATE_RANGE         = os.getenv("CURRENT_DATE_RANGE",  "1d")
 BASELINE_DATE_RANGE        = os.getenv("BASELINE_DATE_RANGE", "28d")
 CACHE_EXPIRY               = int(os.getenv("CACHE_EXPIRY", "900"))
 SCORE_REFRESH_SEC          = int(os.getenv("SCORE_REFRESH_SEC", "60"))   # Minimum scoring recalculation interval (seconds)
+
+# Background scoring worker (radar.scheduler._bg_scoring_worker).
+# Without this, /api/threat_data is the only path that writes a row to
+# the per-scenario `threat_history` table, so the 24h sparkline stays
+# empty whenever the dashboard isn't continuously open. The worker
+# drives the same code path users hit (in-process Flask test_client +
+# admin JWT) at a steady cadence so the historical record is honest
+# about what the engine concluded over time, not what an analyst
+# happened to be looking at. Default on per NP1 (sensitivity).
+BG_SCORING_ENABLED         = os.getenv("BG_SCORING_ENABLED", "true").lower() in ("true", "1", "yes")
+# 120s cadence: 720 writes/24h. The per-scenario threat_history retention
+# cap is 1000 rows (threat_append_scoped default), so 120s gives ~33h
+# of retained history and covers the 24h sparkline with margin. A 60s
+# cadence (matching SCORE_REFRESH_SEC) would truncate to ~16.7h, which
+# falls short of the 24h window the HUD chip advertises.
+BG_SCORING_INTERVAL_SEC    = int(os.getenv("BG_SCORING_INTERVAL_SEC", "120"))
 SERVER_HOST                = os.getenv("SERVER_HOST", "127.0.0.1")
 SERVER_PORT                = int(os.getenv("SERVER_PORT", "8000"))
 FLASK_DEBUG                = os.getenv("FLASK_DEBUG", "false").lower() in ("true", "1", "yes")

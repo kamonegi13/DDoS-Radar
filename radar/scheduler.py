@@ -736,3 +736,88 @@ def _corroboration_worker():
         except Exception as e:
             log.error(f"[Corroboration] Worker error: {e}")
         time.sleep(CORR_INTERVAL)
+
+
+def _bg_scoring_worker(interval_sec: int = 60, startup_delay_sec: int = 20):
+    """Daemon: trigger periodic threat scoring even when no client is viewing.
+
+    Without this, `threat_history` only grows when a user has the dashboard
+    open, because `/api/threat_data` is the only writer. That produced
+    sparse, gap-ridden 24h sparklines whenever the page was closed —
+    notably ~5 rows in 24h instead of the expected ~96 (15-min poll) or
+    ~1440 (60s tick) cadence.
+
+    The worker drives the same code path users hit by invoking the route
+    handler in-process via Flask's test client, bypassing only the network
+    layer (not the cache, not the scoring, not the persistence path). The
+    `?focus=` parameter picks the DEFAULT_FOCUSED_SCENARIO when scorable;
+    falls back to the first scorable scenario otherwise.
+
+    Auth: re-issues a short-lived admin JWT each cycle. The first admin
+    user discovered in the DB is used as the JWT identity so the
+    require_role gate accepts the call. If no admin exists the worker
+    logs once and idles until one appears.
+
+    Disable via BG_SCORING_ENABLED=false in config.env.
+    """
+    log.info(f"[bg_scoring] worker thread started (interval={interval_sec}s, "
+             f"startup_delay={startup_delay_sec}s)")
+    # Give other workers (HOD prefill, sensor schedulers) time to populate
+    # initial caches before we trigger the first score.
+    time.sleep(startup_delay_sec)
+
+    # Late imports to avoid circulars during module init.
+    from radar import app
+    from radar.scenarios import scenario_store
+    from radar.config import DEFAULT_FOCUSED_SCENARIO
+    from flask_jwt_extended import create_access_token
+
+    _no_admin_warned = False
+
+    while True:
+        try:
+            scorable = scenario_store.scorable()
+            if not scorable:
+                time.sleep(interval_sec)
+                continue
+
+            default = scenario_store.get(DEFAULT_FOCUSED_SCENARIO)
+            target = default if (default and default.is_scorable) else scorable[0]
+
+            # Resolve an admin identity for the JWT. The default admin user
+            # is created on first startup; later admins may be added via
+            # the User Management UI.
+            admin_name = next(
+                (u["username"] for u in _db.user_list() if u.get("role") == "admin"),
+                None,
+            )
+
+            if not admin_name:
+                if not _no_admin_warned:
+                    log.warning("[bg_scoring] no admin user found — "
+                                "skipping until one is provisioned")
+                    _no_admin_warned = True
+                time.sleep(interval_sec)
+                continue
+            _no_admin_warned = False
+
+            with app.app_context():
+                token = create_access_token(
+                    identity=admin_name,
+                    additional_claims={"role": "admin", "src": "bg_scoring"},
+                )
+
+            with app.test_client() as client:
+                rsp = client.get(
+                    f"/api/threat_data?focus={target.id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if rsp.status_code != 200:
+                    log.warning(
+                        f"[bg_scoring] /api/threat_data returned "
+                        f"HTTP {rsp.status_code} for focus={target.id}"
+                    )
+        except Exception:
+            log.exception("[bg_scoring] cycle failed (continuing)")
+
+        time.sleep(interval_sec)

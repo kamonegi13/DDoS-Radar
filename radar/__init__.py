@@ -270,7 +270,7 @@ def _sigterm_handler(signum, frame):
 _signal.signal(_signal.SIGTERM, _sigterm_handler)
 
 # ── Synchronous startup (must complete before serving requests) ──
-from radar.scheduler import _sensor_scheduler_worker, _cache_cleanup_worker, _corroboration_worker  # noqa: E402
+from radar.scheduler import _sensor_scheduler_worker, _cache_cleanup_worker, _corroboration_worker, _bg_scoring_worker  # noqa: E402
 from radar.scoring import prefill_hod_baseline_bg  # noqa: E402
 from radar.database import db as _db  # noqa: E402
 
@@ -326,6 +326,19 @@ threading.Thread(target=_cache_cleanup_worker, args=(registry,),
                  daemon=True, name='cache-cleanup').start()
 threading.Thread(target=_corroboration_worker,
                  daemon=True, name='corroboration').start()
+
+# Phase 5b: background scoring worker — populates threat_history at a
+# steady cadence regardless of dashboard view state. Without this, the
+# 24h sparkline goes empty whenever no analyst is actively polling
+# /api/threat_data. Default-on; gate via BG_SCORING_ENABLED=false in
+# config.env if a deployment wants the legacy on-demand-only behavior.
+from radar.config import BG_SCORING_ENABLED, BG_SCORING_INTERVAL_SEC  # noqa: E402
+if BG_SCORING_ENABLED:
+    threading.Thread(
+        target=_bg_scoring_worker,
+        args=(BG_SCORING_INTERVAL_SEC,),
+        daemon=True, name='bg-scoring',
+    ).start()
 
 # AP3 Background Observer (per-scenario observation health, opt-in via
 # BG_OBSERVER_ENABLED). The sensor owns the ticker thread; no-ops
