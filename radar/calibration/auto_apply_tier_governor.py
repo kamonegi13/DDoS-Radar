@@ -124,9 +124,14 @@ PROMOTE_TIER1_TO_TIER2 = {
 }
 PROMOTE_TIER2_TO_TIER3 = {
     "min_days_at_tier":      14.0,
-    "min_diff_log_match_rate": 0.99,
-    "max_revert_rate":         0.05,
+    "max_revert_rate":       0.05,
 }
+# The v1-vs-v2 diff-log match-rate gate was REMOVED 2026-05-29: it measured a
+# migration-rollout comparison that became meaningless once v2 went default-on
+# (v1 and v2 are *expected* to differ — v2 has stale-OK semantics, NULL-state
+# handling, and v2-only conclusion types). The live 0.45 match-rate was
+# permanently capping the governor at Tier 2. Promotion/demotion now gate on
+# revert_rate — the real signal that an auto-applied change was wrong.
 
 # Demotion thresholds (looser windows, but lower trigger).
 DEMOTE_TIER1_TO_TIER0 = {
@@ -136,7 +141,7 @@ DEMOTE_TIER2_TO_TIER1 = {
     "max_revert_rate_24h": 0.20,
 }
 DEMOTE_TIER3_TO_TIER2 = {
-    "min_diff_log_match_rate": 0.95,
+    "max_revert_rate_24h": 0.20,
 }
 
 # Circuit breaker.
@@ -415,12 +420,10 @@ def _check_promotion(
     elif prior == TIER_LOW_MED:
         c = PROMOTE_TIER2_TO_TIER3
         if (metrics["days_at_tier"] >= c["min_days_at_tier"]
-                and metrics["diff_log_match_rate"] >= c["min_diff_log_match_rate"]
                 and metrics["revert_rate_14d"] <= c["max_revert_rate"]):
             return (TIER_FULL,
-                    "tier2 stable {d:.1f}d, match_rate={mr:.4f}, revert_rate={rr:.3f}".format(
+                    "tier2 stable {d:.1f}d, revert_rate={rr:.3f}".format(
                         d=metrics["days_at_tier"],
-                        mr=metrics["diff_log_match_rate"],
                         rr=metrics["revert_rate_14d"]))
     return None
 
@@ -440,10 +443,10 @@ def _check_demotion(prior: int, metrics: dict) -> Optional[tuple[int, str]]:
                     f">= {c['max_revert_rate_24h']}")
     elif prior == TIER_FULL:
         c = DEMOTE_TIER3_TO_TIER2
-        if metrics["diff_log_match_rate"] < c["min_diff_log_match_rate"]:
+        if metrics["revert_rate_24h"] >= c["max_revert_rate_24h"]:
             return (TIER_LOW_MED,
-                    f"diff_log match_rate={metrics['diff_log_match_rate']:.4f} "
-                    f"< {c['min_diff_log_match_rate']}")
+                    f"24h revert_rate={metrics['revert_rate_24h']:.3f} "
+                    f">= {c['max_revert_rate_24h']}")
     return None
 
 
@@ -462,7 +465,6 @@ def _collect_metrics(current_tier_int: int) -> dict:
         "revert_rate_24h":         _revert_rate(window_seconds=86400.0),
         "revert_rate_7d":          _revert_rate(window_seconds=7 * 86400.0),
         "revert_rate_14d":         _revert_rate(window_seconds=14 * 86400.0),
-        "diff_log_match_rate":     _diff_log_match_rate(window_days=14),
         "days_at_tier":            _days_at_current_tier(),
     }
 
@@ -566,26 +568,6 @@ def _revert_rate(window_seconds: float) -> float:
                 if long_delta != 0 and (short_delta * long_delta) < 0:
                     reverts += 1
     return reverts / pairs if pairs > 0 else 0.0
-
-
-def _diff_log_match_rate(window_days: float) -> float:
-    try:
-        cutoff = time.time() - window_days * 86400.0
-        c = _repo()._conn()  # noqa: SLF001
-        total = c.execute(
-            "SELECT COUNT(*) FROM conclusion_diff_log WHERE sampled_at >= ?",
-            (cutoff,),
-        ).fetchone()[0]
-        if total == 0:
-            return 1.0  # no signal — don't penalise
-        match = c.execute(
-            "SELECT COUNT(*) FROM conclusion_diff_log "
-            "WHERE sampled_at >= ? AND diff_kind='match'",
-            (cutoff,),
-        ).fetchone()[0]
-        return match / total
-    except Exception:
-        return 1.0
 
 
 def _days_at_current_tier() -> float:
@@ -814,12 +796,6 @@ def _next_promotion_gates(current: int, metrics: dict) -> tuple[Optional[int], l
                 c["min_days_at_tier"],
                 round(metrics.get("days_at_tier", 0.0), 2),
                 metrics.get("days_at_tier", 0.0) >= c["min_days_at_tier"],
-            ),
-            _gate_status(
-                "min_diff_log_match_rate",
-                c["min_diff_log_match_rate"],
-                round(metrics.get("diff_log_match_rate", 0.0), 4),
-                metrics.get("diff_log_match_rate", 0.0) >= c["min_diff_log_match_rate"],
             ),
             _gate_status(
                 "max_revert_rate_14d",

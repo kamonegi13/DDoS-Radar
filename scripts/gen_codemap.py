@@ -56,7 +56,6 @@ DEFAULT_TARGETS: tuple[str, ...] = (
     "radar/conclusions/base.py",
     "radar/conclusions/api.py",
     "radar/conclusions/persistence.py",
-    "radar/conclusions/diff_sampler.py",
     "radar/conclusions/calibration.py",
     "radar/conclusions/trend.py",
     "radar/conclusions/per_domain.py",
