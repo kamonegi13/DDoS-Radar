@@ -302,3 +302,111 @@ def test_main_runs_when_force_overrides_flag(monkeypatch, stub_fetch_all):
     rc = runner.main()
     assert rc == 0
     assert _count_feedback_rows(cid) == 1
+
+
+# ── FALSE_NEGATIVE / TL-comparison behavior (2026-05-29 redesign) ──────────
+
+
+def _label_of(conclusion_id: str) -> str | None:
+    row = db._get_conn().execute(  # noqa: SLF001
+        "SELECT label FROM analyst_feedback "
+        "WHERE analyst_id = 'auto:rss' AND conclusion_id = ?",
+        (conclusion_id,),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def test_under_rated_threat_level_is_false_negative(stub_fetch_all):
+    """Tool said TL=2 but a mass-casualty event followed → FALSE_NEGATIVE.
+    This is the NP1-critical miss the old blanket-TP logic could never emit.
+    """
+    obs_at = _NOW - 24 * 3600
+    cid = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="2", observed_at=obs_at,
+    )
+    stub_fetch_all([
+        {"title": "Chinese missile strike kills 25 in Taiwan",
+         "summary": "", "link": ""},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    assert summary["persisted"] == 1
+    assert summary["label_FALSE_NEGATIVE"] == 1
+    assert _label_of(cid) == "FALSE_NEGATIVE"
+
+
+def test_tl1_under_kinetic_is_false_negative(stub_fetch_all):
+    obs_at = _NOW - 24 * 3600
+    cid = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="1", observed_at=obs_at,
+    )
+    stub_fetch_all([
+        {"title": "PLA airstrike near Taiwan", "summary": "", "link": ""},
+    ])
+    runner.run_etl(
+        db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    # kinetic verb (no fatalities) → expected_floor=3; tool_TL=1 < 3 → FN
+    assert _label_of(cid) == "FALSE_NEGATIVE"
+
+
+def test_adequately_rated_threat_level_is_true_positive(stub_fetch_all):
+    obs_at = _NOW - 24 * 3600
+    cid = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="4", observed_at=obs_at,
+    )
+    stub_fetch_all([
+        {"title": "Missile strike kills 25 in Taiwan", "summary": "", "link": ""},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    # mass-casualty → floor=4; tool_TL=4 >= 4 → TP
+    assert summary["label_TRUE_POSITIVE"] == 1
+    assert _label_of(cid) == "TRUE_POSITIVE"
+
+
+def test_non_threat_level_conclusion_is_skipped(stub_fetch_all):
+    obs_at = _NOW - 24 * 3600
+    cid = _make_conclusion(
+        kind=ConclusionType.TREND, state="rising", observed_at=obs_at,
+    )
+    stub_fetch_all([
+        {"title": "Missile strike kills 25 in Taiwan", "summary": "", "link": ""},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    # TREND conclusions are filtered out at the SQL layer (conclusion_type=
+    # 'threat_level'), so they are never scanned or labeled.
+    assert summary["persisted"] == 0
+    assert _label_of(cid) is None
+
+
+def test_event_before_conclusion_window_does_not_label(stub_fetch_all):
+    """An event that happened BEFORE the conclusion's forward window starts
+    is not something that conclusion could have failed to anticipate, so it
+    must not be labeled. Pin the event time via a past pubDate."""
+    obs_at = _NOW - 24 * 3600
+    cid = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="1", observed_at=obs_at,
+    )
+    # Event published well before the conclusion → event_at < observed_at.
+    stub_fetch_all([
+        {"title": "Missile strike kills 25 in Taiwan",
+         "summary": "",
+         "link": "",
+         "published": "Mon, 05 Jan 2026 00:00:00 GMT"},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=obs_at - 30 * 86400, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    assert summary["no_match"] >= 1
+    assert summary["persisted"] == 0
+    assert _label_of(cid) is None

@@ -363,6 +363,72 @@ def classify_conclusion(
     return None
 
 
+# ── graded under-rating classifier (NP1 — independent-evidence FN) ──────────
+#
+# The classify_conclusion FALSE_NEGATIVE rule above keys off TL==1 ("the tool
+# said calm"). In live operation focused scenarios sit at TL≥2 almost always,
+# so that binary gate essentially never fires — verified 2026-05-29: 0 FN
+# across 360k conclusions, leaving recall structurally pinned at 1.0.
+#
+# Two root defects it cannot address, and these functions do:
+#   1. *Graded under-rating.* NP1 (recall > precision) cares about a TL=2 call
+#      made just before a mass-casualty event just as much as a missed TL=1.
+#      We compare the tool's contemporaneous TL against the minimum level the
+#      event's magnitude warranted, not a single TL==1 trip-wire.
+#   2. *Circular evidence.* The internal-source substitute (LLM_INTEL /
+#      SEQUENCE) is the SAME signal set the scoring engine consumes — if it
+#      fires, the TL rises, so it can never reveal the tool's own blind spot.
+#      These functions are driven ONLY by external kinetic evidence (RSS /
+#      ACLED fatality counts), which is independent of the tool's sensors.
+
+EXPECTED_TL_MASS_CASUALTY = 4   # fatalities ≥ mass-casualty threshold
+EXPECTED_TL_KINETIC = 3         # armed violence (≥1 fatality or kinetic verb)
+EXPECTED_TL_ESCALATION = 2      # escalation signal only (mobilization, etc.)
+
+
+def expected_tl_floor(
+    *,
+    fatalities: int,
+    confidence: float,
+    mass_casualty_threshold: Optional[int] = None,
+) -> int:
+    """Minimum threat level the tool *should* have been showing given an
+    external kinetic event of this magnitude.
+
+    Driven by the rss_extractor severity ladder (NP6 — coupling kept
+    explicit): confidence 0.85 ⇒ a counted fatality figure, 0.60 ⇒ a kinetic
+    verb, 0.40 ⇒ an escalation verb only. Fatalities at/above the
+    mass-casualty threshold demand TL≥4; any armed violence TL≥3; a bare
+    escalation signal TL≥2.
+    """
+    threshold = (
+        mass_casualty_threshold
+        if mass_casualty_threshold is not None
+        else config.GROUND_TRUTH_FALSE_NEGATIVE_FATALITIES
+    )
+    if fatalities >= threshold:
+        return EXPECTED_TL_MASS_CASUALTY
+    if fatalities >= 1 or confidence >= 0.60:
+        return EXPECTED_TL_KINETIC
+    return EXPECTED_TL_ESCALATION
+
+
+def label_for_threat_level(
+    *, tool_tl: int, expected_floor: int
+) -> FeedbackLabel:
+    """Score a THREAT_LEVEL conclusion against an external event's expected
+    floor. FALSE_NEGATIVE when the tool under-rated (its TL fell below the
+    level the event warranted); TRUE_POSITIVE when it met or exceeded it.
+
+    This is the load-bearing FN-generating path (NP1). It only makes sense
+    for THREAT_LEVEL conclusions paired with *independent* external evidence;
+    the caller is responsible for both preconditions.
+    """
+    if tool_tl < expected_floor:
+        return FeedbackLabel.FALSE_NEGATIVE
+    return FeedbackLabel.TRUE_POSITIVE
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────
 
 
@@ -372,22 +438,39 @@ def list_conclusions_in_window(
     since: float,
     until: Optional[float] = None,
     limit: int = 1000,
+    conclusion_type: Optional[str] = None,
+    newest_first: bool = False,
 ) -> list[Conclusion]:
     """Pull conclusions observed in [since, until] for the ETL to classify.
 
-    The classifier needs ``observed_at`` ordering to pair each row with the
-    right forward window; we sort ascending so a single pass through the
-    result set walks time forward.
+    ``conclusion_type`` (e.g. ``"threat_level"``) restricts the scan at the
+    SQL layer so the ``limit`` budget is not consumed by diagnostic rows
+    (bg_observer / TREND / PER_DOMAIN), which vastly outnumber THREAT_LEVEL.
+
+    ``newest_first`` orders DESC so the ``limit`` captures the *most recent*
+    conclusions — required for the RSS correlator, whose feed contains
+    current news: only conclusions whose forward window overlaps recent
+    events can be labeled, and those are the newest ones. The result is
+    re-sorted ascending before return so downstream callers still see a
+    forward-walking sequence regardless of the SQL ordering.
+
+    The ACLED/GDELT classifier keeps the default ASC, unfiltered behaviour.
     """
     from radar.conclusions.persistence import _SELECT_COLS, _row_to_conclusion
     until = until if until is not None else time.time()
-    rows = db._get_conn().execute(  # noqa: SLF001
-        f"SELECT {_SELECT_COLS} FROM conclusions "
-        "WHERE observed_at >= ? AND observed_at <= ? "
-        "ORDER BY observed_at ASC LIMIT ?",
-        (since, until, max(1, min(limit, 10000))),
-    ).fetchall()
-    return [_row_to_conclusion(r) for r in rows]
+    sql = f"SELECT {_SELECT_COLS} FROM conclusions WHERE observed_at >= ? AND observed_at <= ?"
+    params: list = [since, until]
+    if conclusion_type is not None:
+        sql += " AND conclusion_type = ?"
+        params.append(conclusion_type)
+    sql += " ORDER BY observed_at " + ("DESC" if newest_first else "ASC")
+    sql += " LIMIT ?"
+    params.append(max(1, min(limit, 20000)))
+    rows = db._get_conn().execute(sql, params).fetchall()  # noqa: SLF001
+    conclusions = [_row_to_conclusion(r) for r in rows]
+    if newest_first:
+        conclusions.sort(key=lambda c: c.observed_at)
+    return conclusions
 
 
 def has_existing_auto_feedback(

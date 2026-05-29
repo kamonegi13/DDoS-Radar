@@ -558,3 +558,74 @@ class TestInternalSourceFalseNegative:
         )
         if verdict is not None:
             assert verdict.label.value != "FALSE_NEGATIVE"
+
+
+# ── graded under-rating classifier (NP1 — independent-evidence FN) ──────────
+
+
+class TestExpectedTlFloor:
+    """expected_tl_floor maps external-event magnitude → minimum TL the tool
+    should have shown. Drives the graded FALSE_NEGATIVE path (ADR 2026-05-29).
+    """
+
+    def test_mass_casualty_demands_tl4(self):
+        from radar.conclusions.ground_truth_etl import expected_tl_floor
+        # fatalities at/above threshold → TL≥4
+        assert expected_tl_floor(
+            fatalities=25, confidence=0.85, mass_casualty_threshold=10,
+        ) == 4
+
+    def test_counted_fatality_below_threshold_demands_tl3(self):
+        from radar.conclusions.ground_truth_etl import expected_tl_floor
+        assert expected_tl_floor(
+            fatalities=3, confidence=0.85, mass_casualty_threshold=10,
+        ) == 3
+
+    def test_kinetic_verb_no_fatalities_demands_tl3(self):
+        from radar.conclusions.ground_truth_etl import expected_tl_floor
+        # confidence 0.60 = kinetic verb only (rss_extractor ladder)
+        assert expected_tl_floor(
+            fatalities=0, confidence=0.60, mass_casualty_threshold=10,
+        ) == 3
+
+    def test_escalation_verb_only_demands_tl2(self):
+        from radar.conclusions.ground_truth_etl import expected_tl_floor
+        # confidence 0.40 = escalation verb only, fatalities 0
+        assert expected_tl_floor(
+            fatalities=0, confidence=0.40, mass_casualty_threshold=10,
+        ) == 2
+
+    def test_default_threshold_from_config(self):
+        from radar.conclusions.ground_truth_etl import expected_tl_floor
+        # falls back to config.GROUND_TRUTH_FALSE_NEGATIVE_FATALITIES (10)
+        assert expected_tl_floor(fatalities=10, confidence=0.85) == 4
+        assert expected_tl_floor(fatalities=9, confidence=0.85) == 3
+
+
+class TestLabelForThreatLevel:
+    """label_for_threat_level: under-rating → FN, met/exceeded → TP."""
+
+    def test_under_rating_is_false_negative(self):
+        from radar.conclusions.ground_truth_etl import label_for_threat_level
+        # tool said TL=2 but a mass-casualty event warranted TL=4 → miss
+        assert label_for_threat_level(
+            tool_tl=2, expected_floor=4,
+        ) == FeedbackLabel.FALSE_NEGATIVE
+
+    def test_tl1_under_kinetic_is_false_negative(self):
+        from radar.conclusions.ground_truth_etl import label_for_threat_level
+        assert label_for_threat_level(
+            tool_tl=1, expected_floor=3,
+        ) == FeedbackLabel.FALSE_NEGATIVE
+
+    def test_meeting_floor_is_true_positive(self):
+        from radar.conclusions.ground_truth_etl import label_for_threat_level
+        assert label_for_threat_level(
+            tool_tl=4, expected_floor=4,
+        ) == FeedbackLabel.TRUE_POSITIVE
+
+    def test_exceeding_floor_is_true_positive(self):
+        from radar.conclusions.ground_truth_etl import label_for_threat_level
+        assert label_for_threat_level(
+            tool_tl=5, expected_floor=3,
+        ) == FeedbackLabel.TRUE_POSITIVE

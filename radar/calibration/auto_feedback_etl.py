@@ -107,7 +107,7 @@ def run_ground_truth_pass(
 def run_rss_narrative_pass(
     *,
     window_days: int = 14,
-    limit: int = 1000,
+    limit: int = 4000,
     use_llm: bool = False,
 ) -> Optional[dict]:
     """One RSS narrative ETL pass.
