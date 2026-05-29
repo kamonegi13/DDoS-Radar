@@ -478,8 +478,6 @@
 <div id="scenario-bar">
     <div id="scenario-cards"></div>
 </div>
-<!-- §10.5 deadline pin: shown only when a deadline is approaching/past -->
-<div id="pending-decisions-pin" style="display:none;" onclick="openScenarioMgrTab()" data-i18n-tip="scenario.pending.pin_tip"></div>
 <div id="scenario-detail-panel" style="display:none;"></div>
 
 <!-- ── Domain Drilldown Panel ─────────────────────────────────────────── -->
@@ -1165,11 +1163,6 @@
                     <div style="margin-top:16px;border-top:1px solid #333;padding-top:12px;">
                         <button class="btn-tactical" onclick="loadCliteEvaluation()" data-i18n="scenario.clite.load_btn">Load C-lite Evaluation</button>
                         <div id="clite-eval-panel" style="margin-top:8px;"></div>
-                    </div>
-                    <!-- §10.5 Pending Decisions panel (TL recal + dual-weight) -->
-                    <div style="margin-top:16px;border-top:1px solid #333;padding-top:12px;">
-                        <button class="btn-tactical" onclick="loadPendingDecisions()" data-i18n="scenario.pending.load_btn">Load Pending Decisions</button>
-                        <div id="pending-decisions-panel" style="margin-top:8px;"></div>
                     </div>
                 </div>
             </div><!-- /tab-scenarios -->
@@ -3236,7 +3229,6 @@
             <li><span class="code-block">GET /api/weather_brief</span> — Maps sensor values to weather metaphors. Returns per-domain state, color, icon, and summary text. Used by the Weather Brief panel.</li>
             <li><span class="code-block">GET /api/app_config</span> — Returns default settings, global monitored country list, and strategic bloc architecture. Includes: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span> (startup defaults), <span class="code-block">strategic_blocs</span> (4 blocs with sub-categories and country lists), <span class="code-block">country_bloc_tags</span> (multi-threat country → blocs mapping), <span class="code-block">adversary_options</span> (5 adversary states: RU/CN/IR/KP/BY), <span class="code-block">available_countries</span> (full country list with code/name/region/lat/lng). Used for UI initialization on startup.</li>
             <li><span class="code-block">GET /api/scenarios</span> — List all registered scenarios with focused_scenario id. Returns merged Layer 1 (presets) + Layer 2 (DB customizations).</li>
-            <li><span class="code-block">GET /api/scenario/&lt;id&gt;/breakdown</span> — Detailed scenario data: participants with weights and roles.</li>
             <li><span class="code-block">GET /api/admin/scenarios</span> — (Admin) Full scenario list with source (preset/db) and is_scorable flags.</li>
             <li><span class="code-block">POST /api/admin/scenarios</span> — (Admin) Create a new custom scenario. Body: id, name_en, name_ja, participants, etc.</li>
             <li><span class="code-block">PUT /api/admin/scenarios/&lt;id&gt;</span> — (Admin) Update scenario metadata and participants.</li>
@@ -3280,7 +3272,6 @@
             <li><span class="code-block">GET /api/analytics/cmedium_recommendation?days=28&amp;source=all</span> — Per-scenario C-medium migration recommendation. Each scenario is classified INSUFFICIENT_DATA / LITE_SUFFICIENT / CONSIDER_C_MEDIUM with reason text. With Shadow Sampling enabled, background scenarios accumulate (lite, full) score pairs without requiring analyst focus rotation, so this endpoint produces actionable output even under single-analyst steady-state operation.</li>
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/weight_advisory?hours=168&amp;threshold_pct=30</span> — Per-participant static weight calibration advisory. Compares each participant's configured share (Layer 2 weight) against the observed contribution share over the lookback window. Underperformers (utilization &lt; 1−threshold and configured_weight ≥ 0.30) are flagged <code>ADVISORY_REVIEW_NEEDED</code> with a human-readable reason; overperformers carry an informational <code>note: "overperforming"</code> with no flag. The system never auto-mutates weights — that remains an analyst decision via the scenario admin UI. Backed by the per-cycle <code>scenario_contribution_log</code> table.</li>
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/weight_advisory/timeseries?hours=168&amp;bucket_count=12</span> — Time-series variant of <code>weight_advisory</code>. Splits the lookback window into <code>bucket_count</code> equal buckets (max 48) and reports per-bucket utilization per participant, enabling drift visualization and trend detection beyond the single aggregate snapshot. Backed by the same <code>scenario_contribution_log</code> table.</li>
-            <li><span class="code-block">GET /api/analytics/shadow_drift?days=14&amp;noise_band_pct=10</span> — Calibration drift detection from the shadow_sampler stream. Splits the lookback window in half and compares early vs recent (lite, full) score deltas per scenario. Returns <code>drift_direction</code> ∈ {<code>increasing</code>, <code>decreasing</code>, <code>stable</code>, <code>insufficient_data</code>} and <code>drift_magnitude_pct</code>. <code>noise_band_pct</code> sets the stable/drift boundary (1–100, default 10). Calibration-regularity instrumentation.</li>
             <li><span class="code-block">GET /api/v2/llm_routing</span> — Effective routing snapshot for every (use_case, slot). Each entry includes the resolved <code>model</code>, sampling parameters, <code>thinking_enabled</code>, <code>system_prefix</code>, the <code>feature_state</code> from the Feature Hub, and a live <code>available</code> probe against <code>/api/tags</code>. Used by the MODEL chip on the HUD.</li>
             <li><span class="code-block">GET /api/v2/llm_routing/overrides</span> — Current DB-backed routing overrides (Layer 3 in the override chain).</li>
             <li><span class="code-block">POST /api/v2/llm_routing/overrides</span> — (Admin) Upsert one (use_case, slot) override. Body: <span class="code-block">{"use_case":"verdict","slot":"primary","model":"gemma4:31b","temperature":0.0,"thinking_enabled":false,"reason":"swap to 31b for higher quality"}</span>. Any field omitted inherits from env or code default. Every change is appended to <code>llm_routing_override_history</code>.</li>
@@ -3356,7 +3347,6 @@
             <li><span class="code-block">GET /api/weather_brief</span> — センサー値を気象メタファーにマッピング。ドメインごとの状態、色、アイコン、サマリーテキストを返す。Weather Brief パネルで使用。</li>
             <li><span class="code-block">GET /api/app_config</span> — デフォルト設定、グローバル監視国リスト、戦略ブロックアーキテクチャを返す。含まれる内容: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span>（起動時デフォルト）、<span class="code-block">strategic_blocs</span>（サブカテゴリと国リスト付き4ブロック）、<span class="code-block">country_bloc_tags</span>（複数脅威国 → ブロックマッピング）、<span class="code-block">adversary_options</span>（5つの敵対国家: RU/CN/IR/KP/BY）、<span class="code-block">available_countries</span>（コード/名称/地域/緯度/経度付きの全国リスト）。起動時の UI 初期化に使用。</li>
             <li><span class="code-block">GET /api/scenarios</span> — 登録済み全シナリオと focused_scenario ID を返す。Layer 1（プリセット）+ Layer 2（DBカスタマイズ）のマージ結果。</li>
-            <li><span class="code-block">GET /api/scenario/&lt;id&gt;/breakdown</span> — シナリオ詳細: 重みと役割を含む参加国情報。</li>
             <li><span class="code-block">GET /api/admin/scenarios</span> — (Admin) ソース（preset/db）と is_scorable フラグ付きの完全シナリオリスト。</li>
             <li><span class="code-block">POST /api/admin/scenarios</span> — (Admin) カスタムシナリオを新規作成。ボディ: id, name_en, name_ja, participants 等。</li>
             <li><span class="code-block">PUT /api/admin/scenarios/&lt;id&gt;</span> — (Admin) シナリオのメタデータと参加国を更新。</li>
@@ -3400,7 +3390,6 @@
             <li><span class="code-block">GET /api/analytics/cmedium_recommendation?days=28&amp;source=all</span> — シナリオ毎の C-medium 移行推奨。各 scenario を INSUFFICIENT_DATA / LITE_SUFFICIENT / CONSIDER_C_MEDIUM に分類し reason を付与。Shadow Sampling 有効時は、アナリストの focus 切替に依存せず background scenario の (lite, full) スコアペアが蓄積されるため、単独アナリスト運用でも実用的な推奨が得られる。</li>
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/weight_advisory?hours=168&amp;threshold_pct=30</span> — participant 静的重みのキャリブレーション助言。各 participant の設定 share（Layer 2 重み）と観測 contribution share を期間内で比較し、過小寄与（utilization &lt; 1−threshold かつ configured_weight ≥ 0.30）を <code>ADVISORY_REVIEW_NEEDED</code> として人間可読な reason 付きでフラグする。過大寄与は <code>note: "overperforming"</code> の情報のみ（フラグ無し）。システムは重みを自動変更しない — それはアナリストが scenario admin UI で行う判断。サイクル毎の <code>scenario_contribution_log</code> テーブルに基づく。</li>
             <li><span class="code-block">GET /api/scenario/&lt;id&gt;/weight_advisory/timeseries?hours=168&amp;bucket_count=12</span> — <code>weight_advisory</code> の時系列版。期間を <code>bucket_count</code> 等分（最大48）に区切り、participant 毎のバケット別 utilization を返す。単一スナップショットでは見えない drift やトレンドの可視化に使用。同じ <code>scenario_contribution_log</code> テーブルに基づく。</li>
-            <li><span class="code-block">GET /api/analytics/shadow_drift?days=14&amp;noise_band_pct=10</span> — shadow_sampler ストリームに基づく calibration drift 検出。期間を前半／後半に分割し、scenario 毎の (lite, full) スコア差の早期 vs 直近を比較。<code>drift_direction</code> ∈ {<code>increasing</code>, <code>decreasing</code>, <code>stable</code>, <code>insufficient_data</code>} と <code>drift_magnitude_pct</code> を返す。<code>noise_band_pct</code> は安定／drift 判定の境界（1–100、既定 10）。calibration 規律の計装。</li>
             <li><span class="code-block">GET /api/v2/llm_routing</span> — 全 (use_case, slot) 組み合わせの実効ルーティングスナップショット。解決後の <code>model</code>、サンプリングパラメータ、<code>thinking_enabled</code>、<code>system_prefix</code>、Feature Hub の <code>feature_state</code>、<code>/api/tags</code> による <code>available</code> プローブ結果を含む。HUD の MODEL chip が参照。</li>
             <li><span class="code-block">GET /api/v2/llm_routing/overrides</span> — 現在の DB ベース ルーティングオーバーライド一覧（オーバーライドチェーンの Layer 3）。</li>
             <li><span class="code-block">POST /api/v2/llm_routing/overrides</span> — (Admin) (use_case, slot) のオーバーライド upsert。ボディ例: <span class="code-block">{"use_case":"verdict","slot":"primary","model":"gemma4:31b","temperature":0.0,"thinking_enabled":false,"reason":"高品質化のため 31b に変更"}</span>。省略フィールドは env / コードデフォルトを継承。変更は <code>llm_routing_override_history</code> に追記。</li>
@@ -3548,7 +3537,7 @@
                 </ul>
             </li>
             <li><b>HUD snooze indicator</b>: <span class="code-block">⏸ TRIAGE muted Nm</span> chip in the HUD TL group while a snooze is active. Click to release. Always visible while muted so analysts never wonder why TRIAGE is silent.</li>
-            <li><b>Pending Decisions actions</b>: each calibration card now carries [Accept] / [Extend +14d] / [Raise|Rollback ⚠] buttons. The button matching the current recommendation is emphasized green; non-recommended buttons stay visible but muted (override mode). Per-scenario [✓] [⏵+14d] inline on each TL roll-up row.</li>
+            <li><b>Pending Decisions actions</b> <i>(retired 2026-05-29)</i>: the §10.5 TL-recalibration and dual-weight governance cards were a one-time v1→v2 migration gate. Their evaluation deadlines (2026-04-28 / 2026-05-12) elapsed unactioned and TL-threshold calibration is now autonomous (tier governor); the panel was removed. The TRIAGE snooze / dismiss / visibility / per-user-threshold operations and the unified Decision History timeline below remain the live Decision Layer surface.</li>
             <li><b>Confirmation</b>: <span class="code-block">tl_recal_raise</span> and <span class="code-block">dual_weight_rollback</span> require <span class="code-block">np7_confirmed=true</span> AND a non-empty <span class="code-block">reason</span> in the request body. Server returns 400 if missing — UI must show the confirm modal first. Client-side <span class="code-block">prompt()</span> rejects empty reasons before submission (defense in depth).</li>
             <li><b>Decision History</b>: <span class="code-block">TOOLS ▾</span> → Decision History opens a 880px modal with filters (decision_type / window 24h-90d / action) and a time-descending list. Each row shows actor, action chip (color-coded), decision_type, target, confirmed badge, superseded badge (dimmed 55% opacity), reason, expiry, and parameters JSON. Single-place forensic timeline.</li>
             <li><b>API endpoints</b> (14 total):
@@ -3557,8 +3546,6 @@
                     <li><span class="code-block">POST /api/v2/decisions/triage/visibility</span></li>
                     <li><span class="code-block">POST /api/v2/decisions/triage/dismiss</span></li>
                     <li><span class="code-block">GET /api/v2/decisions/triage/state</span></li>
-                    <li><span class="code-block">POST /api/v2/decisions/tl_recalibration/{accept,extend,raise}</span></li>
-                    <li><span class="code-block">POST /api/v2/decisions/dual_weight/{accept,extend,rollback}</span></li>
                     <li><span class="code-block">GET/PUT /api/v2/decisions/threshold</span> — per-user TRIAGE thresholds</li>
                     <li><span class="code-block">GET /api/v2/decisions/history</span>, <span class="code-block">GET /api/v2/decisions/&lt;id&gt;</span></li>
                 </ul>
@@ -3711,7 +3698,7 @@
                 </ul>
             </li>
             <li><b>HUD snooze indicator</b>: snooze アクティブ中は HUD TL group 内に <span class="code-block">⏸ TRIAGE muted Nm</span> chip を常時表示。クリックで解除。muted 中であることを analyst が見落とせない設計。</li>
-            <li><b>Pending Decisions アクション</b>: 各 calibration カードに [Accept] / [Extend +14d] / [Raise|Rollback ⚠] ボタンを追加。現在の recommendation に対応するボタンを緑強調、それ以外は muted（override モード）。TL ロールアップ各シナリオ行にも [✓] [⏵+14d] をインライン配置。</li>
+            <li><b>Pending Decisions アクション</b> <i>(2026-05-29 退役)</i>: §10.5 の TL再校正・dual-weight ガバナンスカードは v1→v2 移行の一回限りゲートだった。評価期限（2026-04-28 / 2026-05-12）が未対応のまま経過し、TL閾値校正は tier governor により自律化されたため、パネルは撤去。TRIAGE の snooze / dismiss / visibility / per-user 閾値操作と、下記の統合 Decision History タイムラインが現役の Decision Layer surface。</li>
             <li><b>Confirmation</b>: <span class="code-block">tl_recal_raise</span> と <span class="code-block">dual_weight_rollback</span> はリクエスト body に <span class="code-block">np7_confirmed=true</span> AND 非空の <span class="code-block">reason</span> を要求。欠落時はサーバが 400 を返す — UI が confirm modal を出してから submit する義務。クライアント側 <span class="code-block">prompt()</span> も submit 前に空 reason を拒否（多層防御）。</li>
             <li><b>Decision History</b>: <span class="code-block">TOOLS ▾</span> → Decision History で 880px モーダルを開く。フィルタ（decision_type / window 24h-90d / action）+ 時系列降順リスト。各行は actor、action chip（色分け）、decision_type、target、confirmed バッジ、superseded バッジ（55% dim）、reason、expiry、parameters JSON を表示。一画面で過去の決断を監査可能。</li>
             <li><b>API endpoints</b>（合計 14 本）:
@@ -3720,8 +3707,6 @@
                     <li><span class="code-block">POST /api/v2/decisions/triage/visibility</span></li>
                     <li><span class="code-block">POST /api/v2/decisions/triage/dismiss</span></li>
                     <li><span class="code-block">GET /api/v2/decisions/triage/state</span></li>
-                    <li><span class="code-block">POST /api/v2/decisions/tl_recalibration/{accept,extend,raise}</span></li>
-                    <li><span class="code-block">POST /api/v2/decisions/dual_weight/{accept,extend,rollback}</span></li>
                     <li><span class="code-block">GET/PUT /api/v2/decisions/threshold</span> — per-user TRIAGE 閾値</li>
                     <li><span class="code-block">GET /api/v2/decisions/history</span>、<span class="code-block">GET /api/v2/decisions/&lt;id&gt;</span></li>
                 </ul>

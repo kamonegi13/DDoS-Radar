@@ -2463,16 +2463,12 @@ def get_threat_data():
                         pass
             _prev_focused_id = _focused_id
 
-            # Shadow sampling (ADR-025): synthesise a (lite, full) pair for one
-            # background scenario per cycle so the C-medium recommendation has
-            # data without depending on analyst focus rotation. Wrapped so any
-            # failure here cannot break the focused scoring path.
-            try:
-                from radar.shadow_sampler import shadow_sampler
-                shadow_sampler.record_shadow_sample(
-                    _focused_id, _signals, current_time)
-            except Exception:
-                pass
+            # Shadow sampling (ADR-025) RETIRED 2026-05-30: it measured
+            # lite-vs-full score divergence, which became ≡0 once the score
+            # paths were unified, so it fed a false "no drift" signal.
+            # Calibration is now ground-truth-derived (radar/conclusions/
+            # calibration.py); the sampler + /api/analytics/shadow_drift were
+            # removed.
 
             # F9: snapshot signals + baselines for the What-If Weight Slider.
             try:
@@ -2560,8 +2556,8 @@ def get_threat_data():
         try:
             from radar.routes.analyst import update_coverage_for_scenario
             update_coverage_for_scenario(focused_id, _routes.registry)
-        except Exception:
-            pass
+        except Exception as _cov_exc:
+            log.warning("[F5] coverage snapshot call failed: %s", _cov_exc)
 
         # TL Proximity: distance to the TL thresholds from the score that
         # actually drove the TL. Must use the focused scenario's post-bonus
@@ -2971,7 +2967,12 @@ def get_threat_data():
             _active_theaters.add(core_theater)
         _active_theaters.update(correlate_targets)
         _active_theaters.update(adversary_states)
-        _new_cache["strategic"]["active_theaters"] = sorted(_active_theaters)
+        _active_sorted = sorted(_active_theaters)
+        # ADR-V2-006 dual-write: `active_countries` is the canonical key;
+        # `active_theaters` is the legacy alias kept until the frontend fully
+        # migrates (radar.js reads active_countries first, falls back to it).
+        _new_cache["strategic"]["active_theaters"] = _active_sorted
+        _new_cache["strategic"]["active_countries"] = _active_sorted
         _new_cache["focused_scenario"] = _focused_id
 
         # Scenario results are computed upstream (see scenario scoring block

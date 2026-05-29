@@ -35,6 +35,11 @@ class SensorRegistry:
     def register(self, sensor: BaseSensor):
         with self._lock: self._sensors[sensor.name] = sensor
     def get(self, name: str) -> Optional[BaseSensor]: return self._sensors.get(name)
+    def all(self) -> list[BaseSensor]:
+        """Snapshot of every registered sensor. Append-only dict, so a
+        locked copy is iteration-safe. Used by the F5 coverage snapshot."""
+        with self._lock:
+            return list(self._sensors.values())
     def set_enabled(self, name: str, enabled: bool):
         with self._lock:
             if name in self._sensors: self._sensors[name].enabled = enabled

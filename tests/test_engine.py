@@ -1526,3 +1526,35 @@ class TestSecretIndicator:
         ]
         for k in synthetic_examples:
             assert not _looks_like_mask(k), f"false positive on {k[:8]}…"
+
+
+# ── F5 coverage regression: SensorRegistry.all() (2026-05-30) ──────────────
+# A missing registry.all() method made update_coverage_for_scenario raise
+# AttributeError every cycle, swallowed at debug level, leaving
+# scenario_sensor_coverage perpetually empty. Pin the contract.
+
+def test_sensor_registry_all_lists_registered_sensors():
+    from radar.engine import SensorRegistry
+    from radar.sensors.base import BaseSensor
+
+    class _Stub(BaseSensor):
+        def __init__(self, name):
+            self.name = name
+            self.domain = "cyber"
+        def fetch(self, context):
+            return {}
+
+    reg = SensorRegistry()
+    assert reg.all() == []
+    reg.register(_Stub("alpha"))
+    reg.register(_Stub("beta"))
+    names = sorted(s.name for s in reg.all())
+    assert names == ["alpha", "beta"]
+
+
+def test_update_coverage_skips_empty_scenario_id():
+    """Falsy scenario_id must early-return, not attempt a NULL upsert."""
+    from radar.routes.analyst import update_coverage_for_scenario
+    # Should not raise and should be a no-op for empty id.
+    update_coverage_for_scenario("", registry=None)
+    update_coverage_for_scenario(None, registry=None)

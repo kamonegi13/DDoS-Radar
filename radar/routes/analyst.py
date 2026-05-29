@@ -646,6 +646,9 @@ def update_coverage_for_scenario(scenario_id: str, registry) -> None:
     """Snapshot current sensor health for the focused scenario into
     scenario_sensor_coverage so the F5 coverage panel has fresh data.
     Best-effort: failures are logged but never raised."""
+    if not scenario_id:
+        log.debug("[F5] no focused scenario — coverage snapshot skipped")
+        return
     try:
         for sensor in registry.all():
             name = getattr(sensor, "name", "") or ""
@@ -678,4 +681,7 @@ def update_coverage_for_scenario(scenario_id: str, registry) -> None:
                 state=state, consecutive_failures=consecutive,
             )
     except Exception as e:
-        log.debug("[F5] coverage update failed: %s", e)
+        # WARNING, not debug: an exception here means the F5 coverage panel
+        # silently goes empty (this masked a registry.all() AttributeError
+        # for an unknown period before 2026-05-30). Surface it.
+        log.warning("[F5] coverage update failed for %s: %s", scenario_id, e)

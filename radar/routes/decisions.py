@@ -2,10 +2,12 @@
 
 Endpoint families:
   /api/v2/decisions/triage/*           — TRIAGE Lane operations
-  /api/v2/decisions/tl_recalibration/* — TL recal calibration governance
-  /api/v2/decisions/dual_weight/*      — Dual-weight calibration governance
   /api/v2/decisions/threshold/*        — TRIAGE per-user thresholds
   /api/v2/decisions/history            — Decision History timeline (AP4)
+
+(The tl_recalibration/* and dual_weight/* governance endpoints were retired
+2026-05-29 — they served the §10.5 v1→v2 migration gates, which elapsed
+unactioned; TL calibration is now autonomous via the tier governor.)
 
 All POST endpoints record into the unified `decisions` ledger, then
 optionally apply side effects (deadline extension, threshold update).
@@ -257,208 +259,10 @@ def triage_state():
     })
 
 
-# ── TL Recalibration governance ────────────────────────────────────────
-
-@bp.route("/api/v2/decisions/tl_recalibration/accept", methods=["POST"])
-@jwt_required()
-def tl_recal_accept():
-    """Accept current TL thresholds for a scenario. Extends the
-    recalibration deadline by 30 days. Admin only — calibration
-    governance is admin-scope.
-
-    Body: { scenario_id: str, reason?: str }
-    """
-    guard = _v2_enabled_or_503()
-    if guard is not None:
-        return guard
-    auth_err = _require_admin()
-    if auth_err is not None:
-        return auth_err
-
-    body = request.get_json(silent=True) or {}
-    sid = body.get("scenario_id")
-    if not sid:
-        return jsonify({"error": "scenario_id required"}), 400
-
-    from radar.database import db
-    decision_id = db.decisions.record(
-        decision_type="tl_recal_accept",
-        target_kind="scenario",
-        target_id=sid,
-        action="accept",
-        actor=_actor_string(),
-        reason=body.get("reason"),
-        parameters={"thresholds_kept": True, "extension_days": 30},
-        expires_at=time.time() + 30 * 86400,
-    )
-    return jsonify({"decision_id": decision_id, "scenario_id": sid,
-                    "extension_days": 30})
-
-
-@bp.route("/api/v2/decisions/tl_recalibration/extend", methods=["POST"])
-@jwt_required()
-def tl_recal_extend():
-    """Extend the TL recalibration deadline. Body: { scenario_id, days, reason? }.
-    days clamped to [1, 90]."""
-    guard = _v2_enabled_or_503()
-    if guard is not None:
-        return guard
-    auth_err = _require_admin()
-    if auth_err is not None:
-        return auth_err
-
-    body = request.get_json(silent=True) or {}
-    sid = body.get("scenario_id")
-    if not sid:
-        return jsonify({"error": "scenario_id required"}), 400
-    try:
-        days = int(body.get("days", 14))
-    except (ValueError, TypeError):
-        days = 14
-    days = max(1, min(days, 90))
-
-    from radar.database import db
-    decision_id = db.decisions.record(
-        decision_type="tl_recal_extend",
-        target_kind="scenario",
-        target_id=sid,
-        action="extend",
-        actor=_actor_string(),
-        reason=body.get("reason"),
-        parameters={"days": days},
-        expires_at=time.time() + days * 86400,
-    )
-    return jsonify({"decision_id": decision_id, "scenario_id": sid, "days": days})
-
-
-@bp.route("/api/v2/decisions/tl_recalibration/raise", methods=["POST"])
-@jwt_required()
-def tl_recal_raise():
-    """Apply RAISE_THRESHOLDS recommendation. Recall-reducing — requires
-    np7_confirmed=true and a reason.
-    Body: { scenario_id, new_thresholds, reason, np7_confirmed }."""
-    guard = _v2_enabled_or_503()
-    if guard is not None:
-        return guard
-    auth_err = _require_admin()
-    if auth_err is not None:
-        return auth_err
-
-    body = request.get_json(silent=True) or {}
-    confirm_err = _require_np7_confirm(body, action_name="tl_recal_raise")
-    if confirm_err is not None:
-        return confirm_err
-
-    sid = body.get("scenario_id")
-    new_thr = body.get("new_thresholds")
-    if not sid or not isinstance(new_thr, dict):
-        return jsonify({"error": "scenario_id and new_thresholds required"}), 400
-
-    from radar.database import db
-    decision_id = db.decisions.record(
-        decision_type="tl_recal_raise",
-        target_kind="scenario",
-        target_id=sid,
-        action="raise",
-        actor=_actor_string(),
-        reason=body["reason"],
-        parameters={"new_thresholds": new_thr, "np7_confirmed": True},
-        expires_at=None,
-    )
-    return jsonify({"decision_id": decision_id, "scenario_id": sid,
-                    "new_thresholds": new_thr})
-
-
-# ── Dual-weight governance ─────────────────────────────────────────────
-
-@bp.route("/api/v2/decisions/dual_weight/accept", methods=["POST"])
-@jwt_required()
-def dual_weight_accept():
-    """Accept current dual-weight calibration. 30d hold."""
-    guard = _v2_enabled_or_503()
-    if guard is not None:
-        return guard
-    auth_err = _require_admin()
-    if auth_err is not None:
-        return auth_err
-
-    body = request.get_json(silent=True) or {}
-    from radar.database import db
-    decision_id = db.decisions.record(
-        decision_type="dual_weight_accept",
-        target_kind="global",
-        target_id=None,
-        action="accept",
-        actor=_actor_string(),
-        reason=body.get("reason"),
-        parameters={"extension_days": 30},
-        expires_at=time.time() + 30 * 86400,
-    )
-    return jsonify({"decision_id": decision_id, "extension_days": 30})
-
-
-@bp.route("/api/v2/decisions/dual_weight/extend", methods=["POST"])
-@jwt_required()
-def dual_weight_extend():
-    """Extend dual-weight evaluation deadline. Body: { days, reason? }, days [1..90]."""
-    guard = _v2_enabled_or_503()
-    if guard is not None:
-        return guard
-    auth_err = _require_admin()
-    if auth_err is not None:
-        return auth_err
-
-    body = request.get_json(silent=True) or {}
-    try:
-        days = int(body.get("days", 14))
-    except (ValueError, TypeError):
-        days = 14
-    days = max(1, min(days, 90))
-
-    from radar.database import db
-    decision_id = db.decisions.record(
-        decision_type="dual_weight_extend",
-        target_kind="global",
-        target_id=None,
-        action="extend",
-        actor=_actor_string(),
-        reason=body.get("reason"),
-        parameters={"days": days},
-        expires_at=time.time() + days * 86400,
-    )
-    return jsonify({"decision_id": decision_id, "days": days})
-
-
-@bp.route("/api/v2/decisions/dual_weight/rollback", methods=["POST"])
-@jwt_required()
-def dual_weight_rollback():
-    """Rollback to single-weight. Recall-reducing — np7_confirmed required.
-    Body: { reason, np7_confirmed }."""
-    guard = _v2_enabled_or_503()
-    if guard is not None:
-        return guard
-    auth_err = _require_admin()
-    if auth_err is not None:
-        return auth_err
-
-    body = request.get_json(silent=True) or {}
-    confirm_err = _require_np7_confirm(body, action_name="dual_weight_rollback")
-    if confirm_err is not None:
-        return confirm_err
-
-    from radar.database import db
-    decision_id = db.decisions.record(
-        decision_type="dual_weight_rollback",
-        target_kind="global",
-        target_id=None,
-        action="rollback",
-        actor=_actor_string(),
-        reason=body["reason"],
-        parameters={"np7_confirmed": True},
-        expires_at=None,
-    )
-    return jsonify({"decision_id": decision_id})
-
+# TL-recal & dual-weight governance endpoints RETIRED 2026-05-29: the
+# §10.5 migration gates they served elapsed unactioned and TL calibration
+# is now autonomous (tier governor). The generic DecisionLedger + triage
+# and history endpoints below remain the live AP4 surface.
 
 # ── Per-user TRIAGE thresholds ─────────────────────────────────────────
 

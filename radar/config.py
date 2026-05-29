@@ -221,11 +221,6 @@ SHADOW_SAMPLING_REQUIRE_OVERLAP      = os.getenv("SHADOW_SAMPLING_REQUIRE_OVERLA
 SHADOW_SAMPLING_WARMUP_SEC           = int(os.getenv("SHADOW_SAMPLING_WARMUP_SEC", "600"))
 C_MEDIUM_DELTA_MISS_SHADOW           = float(os.getenv("C_MEDIUM_DELTA_MISS_SHADOW", "1.4"))
 
-# TL recalibration advisory (scenario-refactor §7.3.1). Operator-facing
-# flag surfaced through /api/analytics/tl_recalibration_advisory.
-TL_RECALIBRATION_MIN_OBS            = int(os.getenv("TL_RECALIBRATION_MIN_OBS", "100"))
-TL_RECALIBRATION_SKEW_THRESHOLD_PCT = float(os.getenv("TL_RECALIBRATION_SKEW_THRESHOLD_PCT", "70.0"))
-
 # Background TL display (scenario-refactor Phase 5 extension).
 # When False, the scenario bar renders only a score for background scenarios
 # (TL is only shown for focused). When True, background scenarios also show TL.

@@ -1540,33 +1540,11 @@ def compute_scenario_score(
     _maybe_persist_trend_conclusion(state)
     _maybe_persist_attack_mode_conclusion(state)
     _maybe_persist_anomaly_conclusions(state)
-    _maybe_sample_v1_v2_diff(state)
+    # v1-vs-v2 diff sampler RETIRED 2026-05-29: it shadow-wrote conclusion_diff_log
+    # to gate the v2 default-on flip (ADR-V2-001). v2 is long default-on; the
+    # diff became a moot comparison and its match-rate had been wrongly capping
+    # the auto-apply tier governor at Tier 2.
     return state
-
-
-def _maybe_sample_v1_v2_diff(state: "ScenarioState") -> None:
-    """v2.0 Phase 1 priority 6: rollout monitoring shadow-write.
-
-    Records one (v1, v2) TL diff row per cycle in conclusion_diff_log so
-    analysts can verify default-on safety before the flag flip. Runs only
-    for the focused scenario — background scenarios do not produce v2
-    rows in C-lite mode, so any diff would be vacuously v2_missing.
-    """
-    if not state.is_focused:
-        return
-    try:
-        from radar.conclusions.diff_sampler import (
-            sample_focused_tl_diff, sample_v2_only_diffs,
-        )
-        sample_focused_tl_diff(_db, state)
-        # Also append diff rows for the v2-only conclusion types
-        # (attack_mode, per_domain, trend). v1 has no equivalent so
-        # these always record diff_kind='v2_only_available' or
-        # 'v2_only_unavailable' — letting analysts query the diff log
-        # for null-zone patterns instead of scraping conclusions.
-        sample_v2_only_diffs(_db, state)
-    except Exception:
-        log.exception("v2 diff sampler failed (non-fatal)")
 
 
 # ── Weight calibration advisory (Item 2.2) ───────────────────────────────────

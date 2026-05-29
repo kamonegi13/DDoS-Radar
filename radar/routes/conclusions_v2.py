@@ -381,58 +381,8 @@ def _disclaimer() -> str:
     return config.V2_NP7_DISCLAIMER
 
 
-@bp.route("/api/v2/admin/conclusion_diff_stats", methods=["GET"])
-def v2_conclusion_diff_stats():
-    """Phase 1 priority 6 — rollout monitoring.
-
-    Returns the diff_kind distribution over the last `?window_hours=` hours
-    plus the most recent N divergence rows for analyst review. Used to gate
-    the v2 default-on flip (ADR-V2-001).
-
-    Analyst-only: this surface exposes raw v1/v2 mismatch detail.
-    """
-    guard = _v2_enabled_or_503()
-    if guard is not None:
-        return guard
-    auth_err = _require_analyst()
-    if auth_err is not None:
-        return auth_err
-
-    import time as _t
-    from radar.database import db
-
-    window_hours = _safe_int(request.args.get("window_hours"), 24,
-                             min_val=1, max_val=24 * 30)
-    limit = _safe_int(request.args.get("limit"), 50, min_val=1, max_val=500)
-    since = _t.time() - window_hours * 3600
-
-    conn = db._get_conn()  # noqa: SLF001
-    counts_rows = conn.execute(
-        "SELECT diff_kind, COUNT(*) AS n "
-        "FROM conclusion_diff_log WHERE sampled_at >= ? "
-        "GROUP BY diff_kind",
-        (since,),
-    ).fetchall()
-    counts = {r["diff_kind"]: r["n"] for r in counts_rows}
-    total = sum(counts.values())
-
-    recent_rows = conn.execute(
-        "SELECT sampled_at, scenario_id, conclusion_type, "
-        "       v1_state, v2_state, v2_conclusion_id, diff_kind, metadata "
-        "FROM conclusion_diff_log "
-        "WHERE diff_kind = 'divergence' AND sampled_at >= ? "
-        "ORDER BY sampled_at DESC LIMIT ?",
-        (since, limit),
-    ).fetchall()
-
-    return jsonify({
-        "api_version": API_VERSION,
-        "window_hours": window_hours,
-        "total_samples": total,
-        "diff_kind_counts": counts,
-        "match_rate": (counts.get("match", 0) / total) if total else None,
-        "recent_divergences": [dict(r) for r in recent_rows],
-    })
+# /api/v2/admin/conclusion_diff_stats RETIRED 2026-05-29 along with the
+# v1-vs-v2 diff sampler (the migration-rollout monitor it surfaced).
 
 
 @bp.route("/api/v2/admin/shadow_write_metrics", methods=["GET"])
