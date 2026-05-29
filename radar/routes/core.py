@@ -2560,8 +2560,8 @@ def get_threat_data():
         try:
             from radar.routes.analyst import update_coverage_for_scenario
             update_coverage_for_scenario(focused_id, _routes.registry)
-        except Exception:
-            pass
+        except Exception as _cov_exc:
+            log.warning("[F5] coverage snapshot call failed: %s", _cov_exc)
 
         # TL Proximity: distance to the TL thresholds from the score that
         # actually drove the TL. Must use the focused scenario's post-bonus
