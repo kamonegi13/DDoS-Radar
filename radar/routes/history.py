@@ -54,11 +54,11 @@ def api_history_theaters():
     items = _country_set_payload()
     resp = jsonify({"theaters": items, "countries": items})
     resp.headers["Deprecation"] = "true"
-    # Sunset 90 days out (RFC 8594 — informational only; we don't auto-cut).
-    resp.headers["Sunset"] = (
-        datetime.datetime.now(datetime.timezone.utc)
-        + datetime.timedelta(days=90)
-    ).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    # Sunset is a FIXED calendar date (RFC 8594 — informational; we don't
+    # auto-cut). Previously computed as now()+90d, which slid forward on every
+    # request and so could never actually arrive — a sunset that never sets.
+    # Pinned to the ADR-V2-003 v1-route sunset date.
+    resp.headers["Sunset"] = "Sun, 26 Jul 2026 00:00:00 GMT"
     resp.headers["Link"] = '</api/history/countries>; rel="successor-version"'
     return resp
 
@@ -67,7 +67,7 @@ def api_history_theaters():
 def api_history_timeseries():
     """Return time-series data for a country.
     GET /api/history/timeseries?country=TW&hours=168&series=combined,l3,l7
-    (legacy ?theater= still accepted, recorded via SR4 telemetry).
+    (the legacy ?theater= alias was removed (ADR-V2-006) — use ?country=).
     """
     theater = (_country_param("/api/history/timeseries") or _resolve_default_country()).upper()
     if not theater:
@@ -101,7 +101,7 @@ def api_history_timeseries():
 def api_history_hod_baseline():
     """Return HOD baseline data for a country.
     GET /api/history/hod_baseline?country=TW&type=hod_baseline
-    (legacy ?theater= still accepted, recorded via SR4 telemetry).
+    (the legacy ?theater= alias was removed (ADR-V2-006) — use ?country=).
     """
     theater = (_country_param("/api/history/hod_baseline") or _resolve_default_country()).upper()
     if not theater:
@@ -172,7 +172,7 @@ def api_history_alerts():
 def api_history_sequence_events():
     """Return sequence events with optional country filter.
     GET /api/history/sequence_events?country=TW&hours=48
-    (legacy ?theater= still accepted, recorded via SR4 telemetry).
+    (the legacy ?theater= alias was removed (ADR-V2-006) — use ?country=).
     """
     theater = _country_param("/api/history/sequence_events").upper()
     try:
@@ -212,7 +212,7 @@ def api_history_threat_levels():
 def api_history_export():
     """Export historical data as JSON for offline analysis.
     GET /api/history/export?country=TW&format=json
-    (legacy ?theater= still accepted, recorded via SR4 telemetry).
+    (the legacy ?theater= alias was removed (ADR-V2-006) — use ?country=).
     """
     auth_err = _require_admin()
     if auth_err:

@@ -2967,7 +2967,12 @@ def get_threat_data():
             _active_theaters.add(core_theater)
         _active_theaters.update(correlate_targets)
         _active_theaters.update(adversary_states)
-        _new_cache["strategic"]["active_theaters"] = sorted(_active_theaters)
+        _active_sorted = sorted(_active_theaters)
+        # ADR-V2-006 dual-write: `active_countries` is the canonical key;
+        # `active_theaters` is the legacy alias kept until the frontend fully
+        # migrates (radar.js reads active_countries first, falls back to it).
+        _new_cache["strategic"]["active_theaters"] = _active_sorted
+        _new_cache["strategic"]["active_countries"] = _active_sorted
         _new_cache["focused_scenario"] = _focused_id
 
         # Scenario results are computed upstream (see scenario scoring block

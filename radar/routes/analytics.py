@@ -168,7 +168,7 @@ def api_sitrep():
 def api_sequence_chain():
     """
     Return escalation chain status for all countries.
-    Query parameter: ?country=TW (omit for all countries; legacy ?theater= still accepted, recorded via SR4 telemetry).
+    Query parameter: ?country=TW (omit for all countries; the legacy ?theater= alias was removed (ADR-V2-006) — use ?country=).
     """
     theater_param = _country_param("/api/sequence_chain").upper()
     now = time.time()

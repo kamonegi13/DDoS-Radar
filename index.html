@@ -3229,7 +3229,6 @@
             <li><span class="code-block">GET /api/weather_brief</span> — Maps sensor values to weather metaphors. Returns per-domain state, color, icon, and summary text. Used by the Weather Brief panel.</li>
             <li><span class="code-block">GET /api/app_config</span> — Returns default settings, global monitored country list, and strategic bloc architecture. Includes: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span> (startup defaults), <span class="code-block">strategic_blocs</span> (4 blocs with sub-categories and country lists), <span class="code-block">country_bloc_tags</span> (multi-threat country → blocs mapping), <span class="code-block">adversary_options</span> (5 adversary states: RU/CN/IR/KP/BY), <span class="code-block">available_countries</span> (full country list with code/name/region/lat/lng). Used for UI initialization on startup.</li>
             <li><span class="code-block">GET /api/scenarios</span> — List all registered scenarios with focused_scenario id. Returns merged Layer 1 (presets) + Layer 2 (DB customizations).</li>
-            <li><span class="code-block">GET /api/scenario/&lt;id&gt;/breakdown</span> — Detailed scenario data: participants with weights and roles.</li>
             <li><span class="code-block">GET /api/admin/scenarios</span> — (Admin) Full scenario list with source (preset/db) and is_scorable flags.</li>
             <li><span class="code-block">POST /api/admin/scenarios</span> — (Admin) Create a new custom scenario. Body: id, name_en, name_ja, participants, etc.</li>
             <li><span class="code-block">PUT /api/admin/scenarios/&lt;id&gt;</span> — (Admin) Update scenario metadata and participants.</li>
@@ -3348,7 +3347,6 @@
             <li><span class="code-block">GET /api/weather_brief</span> — センサー値を気象メタファーにマッピング。ドメインごとの状態、色、アイコン、サマリーテキストを返す。Weather Brief パネルで使用。</li>
             <li><span class="code-block">GET /api/app_config</span> — デフォルト設定、グローバル監視国リスト、戦略ブロックアーキテクチャを返す。含まれる内容: <span class="code-block">default_core / default_correlates / default_adversaries / default_pins</span>（起動時デフォルト）、<span class="code-block">strategic_blocs</span>（サブカテゴリと国リスト付き4ブロック）、<span class="code-block">country_bloc_tags</span>（複数脅威国 → ブロックマッピング）、<span class="code-block">adversary_options</span>（5つの敵対国家: RU/CN/IR/KP/BY）、<span class="code-block">available_countries</span>（コード/名称/地域/緯度/経度付きの全国リスト）。起動時の UI 初期化に使用。</li>
             <li><span class="code-block">GET /api/scenarios</span> — 登録済み全シナリオと focused_scenario ID を返す。Layer 1（プリセット）+ Layer 2（DBカスタマイズ）のマージ結果。</li>
-            <li><span class="code-block">GET /api/scenario/&lt;id&gt;/breakdown</span> — シナリオ詳細: 重みと役割を含む参加国情報。</li>
             <li><span class="code-block">GET /api/admin/scenarios</span> — (Admin) ソース（preset/db）と is_scorable フラグ付きの完全シナリオリスト。</li>
             <li><span class="code-block">POST /api/admin/scenarios</span> — (Admin) カスタムシナリオを新規作成。ボディ: id, name_en, name_ja, participants 等。</li>
             <li><span class="code-block">PUT /api/admin/scenarios/&lt;id&gt;</span> — (Admin) シナリオのメタデータと参加国を更新。</li>
