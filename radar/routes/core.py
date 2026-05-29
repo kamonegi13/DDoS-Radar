@@ -2463,16 +2463,12 @@ def get_threat_data():
                         pass
             _prev_focused_id = _focused_id
 
-            # Shadow sampling (ADR-025): synthesise a (lite, full) pair for one
-            # background scenario per cycle so the C-medium recommendation has
-            # data without depending on analyst focus rotation. Wrapped so any
-            # failure here cannot break the focused scoring path.
-            try:
-                from radar.shadow_sampler import shadow_sampler
-                shadow_sampler.record_shadow_sample(
-                    _focused_id, _signals, current_time)
-            except Exception:
-                pass
+            # Shadow sampling (ADR-025) RETIRED 2026-05-30: it measured
+            # lite-vs-full score divergence, which became ≡0 once the score
+            # paths were unified, so it fed a false "no drift" signal.
+            # Calibration is now ground-truth-derived (radar/conclusions/
+            # calibration.py); the sampler + /api/analytics/shadow_drift were
+            # removed.
 
             # F9: snapshot signals + baselines for the What-If Weight Slider.
             try:

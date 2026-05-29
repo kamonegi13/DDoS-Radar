@@ -1125,51 +1125,6 @@ def api_cmedium_recommendation():
     })
 
 
-@bp.route("/api/analytics/shadow_drift", methods=["GET"])
-@_analytics_read
-def api_shadow_drift():
-    """Per-scenario calibration drift detection over shadow_sampler rows.
-
-    Companion to /cmedium_recommendation: that endpoint reports a binary
-    status from a static threshold and cannot warn an analyst that the
-    lite-vs-full delta is *trending upward* until the threshold trips.
-
-    This endpoint splits the lookback window into early/recent halves
-    and reports per-scenario:
-      - early_avg_delta, recent_avg_delta
-      - early_miss_rate, recent_miss_rate
-      - drift_direction: 'increasing' | 'decreasing' | 'stable' |
-        'insufficient_data'
-      - drift_magnitude_pct: signed (recent-early)/early percentage
-
-    Use the 'increasing' rows as a watch-list: calibration is degrading
-    but the binary recommendation has not flipped yet (NP1 sensitivity).
-
-    Query params:
-      - days: lookback window (default = C_MEDIUM_WINDOW_DAYS, max 365)
-      - noise_band_pct: drift_direction is 'stable' inside ± this band
-        (default 25, range 1-100)
-    """
-    days = _safe_int(
-        request.args.get("days", str(C_MEDIUM_WINDOW_DAYS)),
-        C_MEDIUM_WINDOW_DAYS, min_val=1, max_val=365,
-    )
-    noise_band = _safe_int(
-        request.args.get("noise_band_pct", "25"), 25, min_val=1, max_val=100,
-    )
-    out = _db.shadow_drift_stats(days=days, noise_band_pct=float(noise_band))
-    return jsonify(out)
-
-
-# §10.5 TL-recalibration & dual-weight advisories RETIRED 2026-05-29:
-# they were one-time v1→v2 migration gates whose deadlines
-# (2026-04-28 / 2026-05-12, max ext 05-12 / 05-26) all elapsed
-# unactioned. TL threshold calibration is now autonomous
-# (tl_threshold_calibrator + auto_tune_governor + tier governor);
-# the dual-weight rollback gate is moot. See decisions ledger for
-# any genuine NP7 human-judgment items.
-
-
 @bp.route("/api/analytics/calibration_advisory", methods=["GET"])
 @_analytics_read
 def api_calibration_advisory():
