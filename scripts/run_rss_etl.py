@@ -70,13 +70,20 @@ logging.basicConfig(
 
 # Conservative default RSS list. Mix of Western, non-Western, and regional
 # wires so framing biases partially cancel. Override with --feeds-file.
+#
+# Kept in sync with config.BG_OBSERVER_FEEDS (the curated, verified-live set
+# the scheduler-driven path uses). The old Reuters/AP URLs were dropped
+# 2026-05-29 — both 404 now; the surviving wires below all return content.
 DEFAULT_FEEDS: tuple[str, ...] = (
     "https://feeds.bbci.co.uk/news/world/rss.xml",
     "https://www.aljazeera.com/xml/rss/all.xml",
-    "https://www.reutersagency.com/feed/?best-topics=political-general&post_type=best",
-    "https://apnews.com/rss/apf-topnews",
-    "http://tass.com/rss/v2.xml",
     "http://www.xinhuanet.com/english/rss/worldrss.xml",
+    "https://www.scmp.com/rss/91/feed",
+    "http://tass.com/rss/v2.xml",
+    "https://www.channelnewsasia.com/rssfeeds/8395986",
+    "https://www.japantimes.co.jp/feed/",
+    "https://en.yna.co.kr/RSS/news.xml",
+    "http://www.taipeitimes.com/xml/index.rss",
 )
 
 # Generic User-Agent. Defends against trivial fingerprinting; nothing
