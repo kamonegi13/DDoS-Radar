@@ -35,5 +35,5 @@ structural changes to keep maps in sync.
 | `radar/conclusions/threat_level.py` | [radar.conclusions.threat_level.md](radar.conclusions.threat_level.md) | 173 |
 | `radar/conclusions/anomaly.py` | [radar.conclusions.anomaly.md](radar.conclusions.anomaly.md) | 246 |
 | `radar/conclusions/shadow_metrics.py` | [radar.conclusions.shadow_metrics.md](radar.conclusions.shadow_metrics.md) | 125 |
-| `radar/conclusions/ground_truth_etl.py` | [radar.conclusions.ground_truth_etl.md](radar.conclusions.ground_truth_etl.md) | 490 |
+| `radar/conclusions/ground_truth_etl.py` | [radar.conclusions.ground_truth_etl.md](radar.conclusions.ground_truth_etl.md) | 483 |
 | `radar/sensors/acled.py` | [radar.sensors.acled.md](radar.sensors.acled.md) | 199 |

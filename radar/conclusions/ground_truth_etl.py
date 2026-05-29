@@ -275,30 +275,23 @@ def classify_conclusion(
         countries=participant_countries,
     )
 
-    # Rule 1 — FALSE_NEGATIVE (NP1 critical).
-    # Two paths to qualify:
-    #   (a) Strong path: ≥1 ACLED event with severity ≥ fn_severity
-    #   (b) Internal-source substitute (added 2026-04-29 for ACLED-free
-    #       deployments): ≥2 distinct internal sources (LLM_INTEL OR
-    #       SEQUENCE) corroborate during the forward window. Two distinct
-    #       internal confirmations is a deliberately stricter bar than one
-    #       ACLED event because LLM_INTEL is LLM-judged (not human-verified)
-    #       and SEQUENCE is our own scoring layer's judgment.
+    # Rule 1 — FALSE_NEGATIVE (NP1 critical). EXTERNAL evidence only:
+    # ≥1 ACLED event with severity ≥ fn_severity in the forward window.
+    #
+    # The internal-source substitute (≥2 distinct LLM_INTEL/SEQUENCE events)
+    # was removed 2026-05-29: it was circular. LLM_INTEL and SEQUENCE are the
+    # same signals the scoring engine consumes — if they fire, the score (and
+    # TL) rises, so "TL=1 AND 2+ internal escalation signals" is near self-
+    # contradictory and can never reveal what the tool itself failed to see.
+    # Graded under-rating against independent RSS evidence (run_rss_etl.py,
+    # label_for_threat_level) is the real FN path now. Internal sources remain
+    # valid for TRUE_POSITIVE corroboration below (rule 2) — there they
+    # confirm the tool was right, which is not circular.
     if _is_quiet_threat_level(conclusion):
         critical = [
             e for e in in_window
             if e.source is EvidenceSource.ACLED and e.severity >= fn_severity
         ]
-        # Internal substitute: count distinct internal sources confirming.
-        internal_sources_present = {
-            e.source for e in in_window
-            if e.source in (EvidenceSource.LLM_INTEL, EvidenceSource.SEQUENCE)
-        }
-        if not critical and len(internal_sources_present) >= 2:
-            critical = [
-                e for e in in_window
-                if e.source in (EvidenceSource.LLM_INTEL, EvidenceSource.SEQUENCE)
-            ]
         if critical:
             analyst_id, url, notes = _provenance(critical)
             return AutoFeedback(

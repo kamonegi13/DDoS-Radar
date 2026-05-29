@@ -506,10 +506,13 @@ class TestInternalSourceProvenance:
 
 
 class TestInternalSourceFalseNegative:
-    """Rule 1 (FALSE_NEGATIVE) accepts ≥2 distinct internal sources as
-    ACLED substitute when ACLED is unavailable."""
+    """Rule 1 (FALSE_NEGATIVE) uses EXTERNAL evidence only. The internal-source
+    substitute (≥2 distinct LLM_INTEL/SEQUENCE) was removed 2026-05-29 as
+    circular — internal signals cannot reveal what the tool itself missed."""
 
-    def test_two_internal_sources_trigger_false_negative_on_quiet_tl(self):
+    def test_two_internal_sources_do_not_trigger_false_negative(self):
+        """Even 2 distinct internal sources must NOT flip TL=1 to FN: those
+        signals feed the score, so using them to judge a miss is circular."""
         from radar.conclusions.ground_truth_etl import (
             EvidenceSource, ExternalEvent, classify_conclusion,
         )
@@ -522,8 +525,8 @@ class TestInternalSourceFalseNegative:
         verdict = classify_conclusion(
             c, events, participant_countries=["TW"],
         )
-        assert verdict is not None
-        assert verdict.label.value == "FALSE_NEGATIVE"
+        if verdict is not None:
+            assert verdict.label.value != "FALSE_NEGATIVE"
 
     def test_one_internal_source_alone_does_not_trigger(self):
         """Single LLM_INTEL event is too weak to flip TL=1 alone."""
