@@ -204,7 +204,16 @@ C_MEDIUM_MIN_SWITCHES   = int(os.getenv("C_MEDIUM_MIN_SWITCHES", "10"))
 #   start to let baselines stabilise.
 # - C_MEDIUM_DELTA_MISS_SHADOW: separate (typically more conservative) miss
 #   threshold for shadow-sourced rows; analyst rows still use C_MEDIUM_DELTA_MISS.
-SHADOW_SAMPLING_ENABLED              = os.getenv("SHADOW_SAMPLING_ENABLED", "true").lower() in ("true", "1", "yes")
+#
+# RETIRED 2026-05-29 (default flipped true→false): the shadow sampler measured
+# lite-vs-full score divergence, but the Phase-9 GLOBAL_SIGNALS_DECOUPLED
+# refactor unified the two score paths, so delta ≡ 0 and the sampler reported
+# "no drift / OK" for every conclusion regardless of reality (NP5+8 design
+# failure). Calibration_status and the HUD DRIFT chip now derive from the
+# ground-truth confusion matrix (radar/conclusions/calibration.py). The
+# subsystem and its /api/analytics/shadow_drift endpoint are kept for now but
+# default-off; set SHADOW_SAMPLING_ENABLED=true to re-enable for diagnostics.
+SHADOW_SAMPLING_ENABLED              = os.getenv("SHADOW_SAMPLING_ENABLED", "false").lower() in ("true", "1", "yes")
 SHADOW_SAMPLING_INTERVAL_SEC         = int(os.getenv("SHADOW_SAMPLING_INTERVAL_SEC", "0"))
 SHADOW_SAMPLING_MIN_GAP_SEC          = int(os.getenv("SHADOW_SAMPLING_MIN_GAP_SEC", "300"))
 SHADOW_SAMPLING_MAX_PER_DAY          = int(os.getenv("SHADOW_SAMPLING_MAX_PER_DAY", "200"))

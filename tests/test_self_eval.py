@@ -63,39 +63,46 @@ def admin_headers(client):
     return {"Authorization": f"Bearer {r.get_json()['access_token']}"}
 
 
-def _patch_drift_stats(monkeypatch, by_scenario: dict, period_days: int = 28):
-    """Replace ``db.shadow_drift_stats`` with a stub returning the given
-    per-scenario map. Each entry must be a dict with at least
-    `sample_count` and `drift_magnitude_pct`."""
-    def _fake(*_a, **_kw):
-        return {
-            "period_days":   period_days,
-            "noise_band_pct": 25.0,
-            "by_scenario":   by_scenario,
-        }
-    monkeypatch.setattr(db, "shadow_drift_stats", _fake)
+def _patch_calibration(monkeypatch, recalls: dict):
+    """Stub the ground-truth drift path (2026-05-29 repoint). ``recalls``
+    maps scenario_id → recall float, or None for an INSUFFICIENT_DATA
+    scenario that must be excluded. Patches both scenario_store.scorable()
+    (the scenario list the drift loop walks) and calibration_status_for()
+    (the per-scenario recall source)."""
+    from radar.scenarios import scenario_store
+    import radar.conclusions as _conc
+
+    fake_scenarios = [type("S", (), {"id": sid})() for sid in recalls]
+    monkeypatch.setattr(scenario_store, "scorable", lambda: fake_scenarios)
+
+    def _fake_cs(_db, sid):
+        recall = recalls.get(sid)
+        if recall is None:
+            return {"status": "INSUFFICIENT_DATA", "recall": None}
+        return {"status": "OK", "recall": recall}
+    monkeypatch.setattr(_conc, "calibration_status_for", _fake_cs)
 
 
-def test_self_eval_drift_null_when_no_shadow_data(
+def test_self_eval_drift_null_when_no_calibration_data(
     client, admin_headers, monkeypatch,
 ):
-    _patch_drift_stats(monkeypatch, by_scenario={})
+    _patch_calibration(monkeypatch, recalls={})
     r = client.get("/api/v2/self_eval", headers=admin_headers)
     assert r.status_code == 200
     body = r.get_json()
     assert body["drift"] is None
     meta = body["drift_meta"]
     assert meta["scenarios_n"] == 0
-    assert meta["reason"] == "no_scenarios_with_sufficient_samples"
+    assert meta["reason"] == "no_scenarios_with_sufficient_recall_samples"
 
 
-def test_self_eval_drift_mean_abs(client, admin_headers, monkeypatch):
-    """3 scenarios, all with sample_count ≥ 8, drift magnitudes 2.0/4.0/6.0
-    → mean = 4.0 → drift ≈ 0.04 (within the green band)."""
-    _patch_drift_stats(monkeypatch, by_scenario={
-        "scenario_a": {"sample_count": 10, "drift_magnitude_pct":  2.0},
-        "scenario_b": {"sample_count": 12, "drift_magnitude_pct": -4.0},
-        "scenario_c": {"sample_count":  9, "drift_magnitude_pct":  6.0},
+def test_self_eval_drift_mean_miss_rate(client, admin_headers, monkeypatch):
+    """3 scenarios with recall 0.98/0.96/0.94 → miss rates 0.02/0.04/0.06
+    → mean = 0.04 (green band). Worst scenario surfaced in meta."""
+    _patch_calibration(monkeypatch, recalls={
+        "scenario_a": 0.98,
+        "scenario_b": 0.96,
+        "scenario_c": 0.94,
     })
     r = client.get("/api/v2/self_eval", headers=admin_headers)
     assert r.status_code == 200
@@ -103,34 +110,37 @@ def test_self_eval_drift_mean_abs(client, admin_headers, monkeypatch):
     assert body["drift"] == pytest.approx(0.04, abs=1e-4)
     meta = body["drift_meta"]
     assert meta["scenarios_n"] == 3
-    assert meta["max_pct"] == 6.0
+    assert meta["max_miss_rate"] == pytest.approx(0.06, abs=1e-4)
+    assert meta["worst_scenario"] == "scenario_c"
+    assert meta["source"] == "ground_truth"
 
 
-def test_self_eval_drift_skips_low_sample_n(
+def test_self_eval_drift_skips_insufficient_scenarios(
     client, admin_headers, monkeypatch,
 ):
-    """Scenario with sample_count < 8 is excluded entirely. The remaining
-    scenario alone (sample 10, drift 8.0) should give drift = 0.08."""
-    _patch_drift_stats(monkeypatch, by_scenario={
-        "scenario_thin":  {"sample_count": 5,  "drift_magnitude_pct": 50.0},
-        "scenario_solid": {"sample_count": 10, "drift_magnitude_pct":  8.0},
+    """An INSUFFICIENT_DATA scenario is excluded entirely. The remaining
+    scenario alone (recall 0.92) gives drift = 0.08."""
+    _patch_calibration(monkeypatch, recalls={
+        "scenario_thin":  None,
+        "scenario_solid": 0.92,
     })
     r = client.get("/api/v2/self_eval", headers=admin_headers)
     body = r.get_json()
     assert body["drift"] == pytest.approx(0.08, abs=1e-4)
     assert body["drift_meta"]["scenarios_n"] == 1
-    # 50.0% from the thin scenario must NOT have leaked into max_pct.
-    assert body["drift_meta"]["max_pct"] == 8.0
+    assert body["drift_meta"]["worst_scenario"] == "scenario_solid"
 
 
 def test_self_eval_drift_handles_db_error(
     client, admin_headers, monkeypatch,
 ):
-    """NP3 — if shadow_drift_stats raises, the chip degrades to None and
+    """NP3 — if the calibration read raises, the chip degrades to None and
     the error is surfaced under drift_meta.error rather than 500-ing."""
-    def _boom(*_a, **_kw):
-        raise RuntimeError("shadow table missing")
-    monkeypatch.setattr(db, "shadow_drift_stats", _boom)
+    from radar.scenarios import scenario_store
+
+    def _boom():
+        raise RuntimeError("scenario store down")
+    monkeypatch.setattr(scenario_store, "scorable", _boom)
 
     r = client.get("/api/v2/self_eval", headers=admin_headers)
     assert r.status_code == 200

@@ -628,40 +628,49 @@ def v2_self_eval():
         out["null_zone_days"] = None
         out["null_zone_error"] = str(e)
 
-    # Drift — global aggregate of per-scenario shadow_sampler drift.
-    # The HUD chip (radar.js#hud-drift-value) reads `data.drift` as a
-    # flat fraction in [0, 1]; bands are good ≤0.05, warn ≤0.10,
-    # crit >0.10. We compute mean(|drift_magnitude_pct|)/100 across
-    # scenarios with sample_count ≥ _MIN_SAMPLES_FOR_VERDICT (8) — the
-    # same threshold per-scenario calibration_status_for() trusts.
-    # Mean (not max) avoids over-reacting to a single noisy scenario;
-    # max is exposed separately in `drift_meta` for tooltips.
+    # Drift — global miss-rate aggregate from the ground-truth calibration
+    # signal (2026-05-29: repointed off the dead shadow sampler, whose
+    # lite-vs-full delta is ≡0 since the score paths were unified, so it
+    # always reported drift≈0 / "good" regardless of reality).
+    #
+    # The HUD chip (radar.js#hud-drift-value) reads `data.drift` as a flat
+    # fraction in [0, 1]; bands are good ≤0.05, warn ≤0.10, crit >0.10. We
+    # map drift = mean(1 - recall) — the miss rate — across scenarios whose
+    # calibration is no longer INSUFFICIENT_DATA. recall=1.0 ⇒ drift 0
+    # (good); recall=0.90 ⇒ 0.10 (warn); recall<0.90 ⇒ crit. This makes the
+    # chip move when the tool actually starts missing escalations (NP1).
     try:
         from radar.database import db as _shared_db
-        drift_stats = _shared_db.shadow_drift_stats()
-        magnitudes = []
-        for _sid, per in (drift_stats or {}).get("by_scenario", {}).items():
-            if int(per.get("sample_count", 0)) < 8:
+        from radar.scenarios import scenario_store
+        from radar.conclusions import calibration_status_for
+        from radar.conclusions import calibration as _calib_mod
+        miss_rates = []
+        worst = None
+        for sc in scenario_store.scorable():
+            cs = calibration_status_for(_shared_db, sc.id)
+            if cs.get("status") == "INSUFFICIENT_DATA" or cs.get("recall") is None:
                 continue
-            magnitudes.append(abs(float(per.get("drift_magnitude_pct", 0.0))))
-        if magnitudes:
-            mean_pct = sum(magnitudes) / len(magnitudes)
-            out["drift"] = round(mean_pct / 100.0, 4)
+            miss = 1.0 - float(cs["recall"])
+            miss_rates.append(miss)
+            if worst is None or miss > worst[1]:
+                worst = (sc.id, miss)
+        if miss_rates:
+            out["drift"] = round(sum(miss_rates) / len(miss_rates), 4)
             out["drift_meta"] = {
-                "method":         "mean_abs_drift_magnitude",
-                "scenarios_n":    len(magnitudes),
-                "max_pct":        round(max(magnitudes), 1),
-                "min_sample_n":   8,
-                "period_days":    drift_stats.get("period_days"),
+                "method":        "mean_miss_rate_ground_truth",
+                "scenarios_n":   len(miss_rates),
+                "max_miss_rate": round(worst[1], 4) if worst else None,
+                "worst_scenario": worst[0] if worst else None,
+                "window_days":   _calib_mod._WINDOW_DAYS,
+                "source":        "ground_truth",
             }
         else:
             out["drift"] = None
             out["drift_meta"] = {
-                "method":         "mean_abs_drift_magnitude",
-                "scenarios_n":    0,
-                "min_sample_n":   8,
-                "period_days":    drift_stats.get("period_days") if drift_stats else None,
-                "reason":         "no_scenarios_with_sufficient_samples",
+                "method":        "mean_miss_rate_ground_truth",
+                "scenarios_n":   0,
+                "source":        "ground_truth",
+                "reason":        "no_scenarios_with_sufficient_recall_samples",
             }
     except Exception as e:  # noqa: BLE001
         out["drift"] = None
