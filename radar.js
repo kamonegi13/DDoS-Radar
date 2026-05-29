@@ -6958,16 +6958,28 @@
             wrap.textContent = _t('drill_modal.empty.calibration');
             return wrap;
         }
-        // Surface canonical fields first when present, then fall back to raw dump
-        const canonical = ['status', 'sample_size', 'last_updated'];
+        // Surface canonical fields first when present, then fall back to raw
+        // dump. Shape (2026-05-29 ground-truth signal): status / recall /
+        // precision / fn / sample_n / last_label_at. Legacy keys (sample_size,
+        // last_updated) are still mapped so old persisted rows render too.
+        const labelKeys = {
+            status:       'drill_modal.calib.status',
+            recall:       'drill_modal.calib.recall',
+            precision:    'drill_modal.calib.precision',
+            fn:           'drill_modal.calib.fn',
+            sample_n:     'drill_modal.calib.sample_n',
+            last_label_at: 'drill_modal.calib.last_label_at',
+            sample_size:  'drill_modal.calib.sample_size',
+            last_updated: 'drill_modal.calib.last_updated',
+        };
+        const canonical = ['status', 'recall', 'precision', 'fn', 'sample_n',
+                           'last_label_at', 'sample_size', 'last_updated'];
+        const tsKeys = new Set(['last_label_at', 'last_updated']);
         const seen = new Set();
         canonical.forEach((k) => {
             if (k in cs) {
-                const labelKey = k === 'status' ? 'drill_modal.calib.status'
-                              : k === 'sample_size' ? 'drill_modal.calib.sample_size'
-                              : 'drill_modal.calib.last_updated';
-                const v = (k === 'last_updated') ? _ccFmtTimestamp(cs[k]) : cs[k];
-                wrap.appendChild(_ccDrillRow(_t(labelKey), v));
+                const v = tsKeys.has(k) ? _ccFmtTimestamp(cs[k]) : cs[k];
+                wrap.appendChild(_ccDrillRow(_t(labelKeys[k]), v));
                 seen.add(k);
             }
         });
@@ -6977,8 +6989,16 @@
             const display = (v != null && typeof v === 'object') ? JSON.stringify(v) : v;
             wrap.appendChild(_ccDrillRow(k, display));
         });
-        // Low-N warning (NP5+8) — surface when sample_size present and small
-        const n = parseFloat(cs.sample_size);
+        // DEGRADED warning (NP1) — recall has dropped below the sensitivity floor.
+        if (cs.status === 'DEGRADED') {
+            const warn = document.createElement('div');
+            warn.className = 'dm-warn';
+            warn.setAttribute('role', 'status');
+            warn.textContent = _t('drill_modal.calib.warn_degraded');
+            wrap.appendChild(warn);
+        }
+        // Low-N warning (NP5+8) — too few labeled samples to trust the number.
+        const n = parseFloat(cs.sample_n != null ? cs.sample_n : cs.sample_size);
         if (isFinite(n) && n > 0 && n < 10) {
             const warn = document.createElement('div');
             warn.className = 'dm-warn';

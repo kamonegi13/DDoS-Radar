@@ -221,9 +221,11 @@
         <!-- AP3 (Self-Evaluation): tool's own health metrics. RECALL =
              cumulative recall over analyst_feedback, NULL-ZONE = consecutive
              days where every threat_level conclusion was INSUFFICIENT_DATA
-             (chronic gap detector), DRIFT = calibration stability indicator
-             (placeholder until ledger has 30+ days of feedback). Each chip
-             colors green/amber/red based on the value's risk band. -->
+             (chronic gap detector), DRIFT = mean miss-rate (1 − recall) across
+             scenarios from the ground-truth confusion matrix (2026-05-29:
+             repointed off the retired shadow sampler, whose lite-vs-full delta
+             became ≡0 after the score paths were unified). Each chip colors
+             green/amber/red based on the value's risk band. -->
         <div class="hud-chip hud-self-eval" id="hud-recall-chip" title="Recall over analyst_feedback (TP/(TP+FN)). Green ≥0.8, amber ≥0.6, red <0.6.">
             <span class="hud-chip-label">RECALL</span>
             <span id="hud-recall-value" class="hud-chip-value">—</span>
@@ -232,15 +234,15 @@
             <span class="hud-chip-label">NULL-ZONE</span>
             <span id="hud-nullzone-value" class="hud-chip-value">—</span>
         </div>
-        <div class="hud-chip hud-self-eval" id="hud-drift-chip" title="Calibration drift indicator. Placeholder — populated once analyst_feedback ledger holds 30+ days of data.">
+        <div class="hud-chip hud-self-eval" id="hud-drift-chip" title="Mean miss-rate (1−recall) across scenarios, from the ground-truth confusion matrix. Green ≤0.05, amber ≤0.10, red >0.10. Hover drift_meta for the worst scenario.">
             <span class="hud-chip-label">DRIFT</span>
             <span id="hud-drift-value" class="hud-chip-value">—</span>
         </div>
-        <!-- Phase 9 (2026-05-13) — TL DISTRIBUTION SKEW chip. The legacy
-             DRIFT metric only watches score-magnitude variance; it cannot
-             detect the calibration failure "TL=5 share dropped to 0%" — the
-             mode that left the 2026-04-28 RAISE_THRESHOLDS advisory
-             un-actioned for 15+ days. This chip reads
+        <!-- Phase 9 (2026-05-13) — TL DISTRIBUTION SKEW chip. DRIFT (miss-rate)
+             and recall both need ground-truth labels to move; SKEW is a
+             label-free guard that catches the calibration failure "TL=5 share
+             dropped to 0%" — the mode that left the 2026-04-28 RAISE_THRESHOLDS
+             advisory un-actioned for 15+ days. This chip reads
              tl_distribution_skew.tl5_pct over a rolling 7d window. Green
              ≥30%, amber 15-30%, red <15% (or `calibration_skew_alert` set). -->
         <div class="hud-chip hud-self-eval" id="hud-skew-chip"
@@ -3056,10 +3058,15 @@
             <li>Schedule the runner via host cron or a remote routine: <span class="code-block">docker exec ddos-radar python scripts/run_ground_truth_etl.py</span> hourly is plenty.</li>
             <li>Auto rows carry <span class="code-block">analyst_id="auto:gdelt"</span> (and <span class="code-block">"auto:acled"</span> when ACLED is enabled). Use <span class="code-block">scripts/report_recall_metrics.py --exclude-auto</span> to compute recall on human-only labels for the CI gate baseline.</li>
         </ul>
-        <p>GDELT-only recovers TRUE_POSITIVE / FALSE_POSITIVE / TRUE_NEGATIVE rules; the FALSE_NEGATIVE-by-fatalities rule needs ACLED. Mix manual + auto for best coverage of the FN corner.</p>
+        <p>GDELT-only recovers TRUE_POSITIVE / FALSE_POSITIVE / TRUE_NEGATIVE rules. For the sensitivity-critical FALSE_NEGATIVE corner the primary automated source is the RSS correlator in §C (graded under-rating), which needs no API key; ACLED adds a fatality-count path on top. Mix manual + auto for best coverage.</p>
 
-        <h5>C. RSS / news-wire correlation (B1, optional)</h5>
-        <p>An optional second auto-source pulls public RSS feeds (BBC / Reuters / AP / Al Jazeera / TASS / Xinhua, configurable) and extracts kinetic-event mentions. <b>The extractor degrades gracefully without an LLM:</b> a deterministic keyword-and-regex baseline produces auto-feedback rows on its own. When a local Ollama instance is reachable the same pipeline can optionally upgrade extraction quality, but no LLM dependency is required for the gate to function. RSS auto rows carry <span class="code-block">analyst_id="auto:rss"</span>.</p>
+        <h5>C. RSS / news-wire correlation — the FALSE_NEGATIVE source (B1)</h5>
+        <p>RSS is the tool's one high-volume <i>external</i> (sensor-independent) ground-truth stream, so it is what lets the system detect its own blind spots. It pulls public RSS feeds and extracts kinetic-event mentions. <b>The extractor degrades gracefully without an LLM:</b> a deterministic keyword-and-regex baseline produces rows on its own; a reachable local Ollama can optionally refine extraction, but no LLM dependency is required. RSS auto rows carry <span class="code-block">analyst_id="auto:rss"</span>.</p>
+        <p><b>Graded under-rating (rewritten 2026-05-29).</b> Each kinetic event is mapped to the minimum threat level it warranted — mass-casualty ⇒ TL≥4, armed violence ⇒ TL≥3, escalation signal ⇒ TL≥2 — and compared against the tool's <i>contemporaneous</i> THREAT_LEVEL for that scenario (the conclusion whose forward window the event fell into). If the tool's TL was below the warranted floor it is labelled <b>FALSE_NEGATIVE</b>; if it met or exceeded it, <b>TRUE_POSITIVE</b>. This replaced an earlier path that blanket-stamped every country-matching conclusion as TRUE_POSITIVE, which pinned recall at 1.0 and could never surface a miss. The classifier deliberately uses external evidence only: the tool's own internal signals (LLM intel, sequence events) cannot reveal what the tool failed to see.</p>
+
+        <h5>F. Calibration status &amp; the DRIFT chip (ground-truth-derived)</h5>
+        <p>Every conclusion carries a <span class="code-block">calibration_status</span> snapshot (visible in the drill-down's Calibration tab). As of 2026-05-29 it is computed from the ground-truth confusion matrix for that scenario over a 30-day window — <code>recall</code>, <code>precision</code>, the TP/FP/TN/FN counts, and a status: <b>INSUFFICIENT_DATA</b> (fewer than 5 observed positives), <b>DEGRADED</b> (recall &lt; 0.70 — the tool is demonstrably missing escalations), or <b>OK</b>. The HUD <b>DRIFT</b> chip aggregates this as the mean miss-rate <code>(1 − recall)</code> across scenarios (green ≤0.05, amber ≤0.10, red &gt;0.10) and names the worst scenario in its tooltip.</p>
+        <p>This replaced the retired <i>shadow sampler</i>, which measured lite-vs-full score divergence. The Phase-9 score-path unification made that delta ≡ 0, so the old DRIFT chip reported "no drift / OK" on every conclusion regardless of reality (an NP5+8 degenerate-calibration failure). The new signal moves when the tool actually starts missing things.</p>
 
         <h5>D. Background Observer + OBS chip — per-scenario observation health</h5>
         <p>The "C-lite" mechanism (focused = full sensors, background = LLM intel + global only) is correctly wired but its actual signal supply is geographically biased: Taiwan / Korea / South China Sea scenarios receive ≈0 LLM intel rows per 24h, leaving their lite-mode scores driven almost entirely by global noise like <span class="code-block">cf_botnet_overlap</span>.</p>
@@ -3125,10 +3132,15 @@
             <li>ホスト cron またはリモート routine で定期実行: <span class="code-block">docker exec ddos-radar python scripts/run_ground_truth_etl.py</span> を 1 時間に 1 回で十分。</li>
             <li>自動行は <span class="code-block">analyst_id="auto:gdelt"</span>（ACLED 有効時は <span class="code-block">"auto:acled"</span> も）を持ちます。CI baseline は <span class="code-block">scripts/report_recall_metrics.py --exclude-auto</span> で人手ラベルのみから計算するのが推奨。</li>
         </ul>
-        <p>GDELT 単独で TRUE_POSITIVE / FALSE_POSITIVE / TRUE_NEGATIVE のルールは動作します。死者数による FALSE_NEGATIVE ルールだけは ACLED 必須。手動 + 自動の併用で FN コーナーのカバレッジが最良。</p>
+        <p>GDELT 単独で TRUE_POSITIVE / FALSE_POSITIVE / TRUE_NEGATIVE のルールは動作します。感度クリティカルな FALSE_NEGATIVE コーナーの主要な自動ソースは §C の RSS 相関（段階的過小評価検知、API キー不要）です。ACLED はその上に死者数経路を追加します。手動 + 自動の併用でカバレッジ最良。</p>
 
-        <h5>C. RSS / ニュースワイヤー相関 (B1、任意)</h5>
-        <p>もう一つの任意の自動ソースとして、公開 RSS フィード（BBC / Reuters / AP / Al Jazeera / TASS / Xinhua、設定可能）から動態事象の言及を抽出します。<b>抽出器は LLM 無しでも degrade gracefully に動作</b> — 決定論的なキーワード + 正規表現ベースラインだけで自動 feedback 行を生成します。ローカル Ollama が到達可能なら同じパイプラインが LLM で品質を補強できますが、ゲート機能のために LLM 依存は必須ではありません。RSS 自動行は <span class="code-block">analyst_id="auto:rss"</span> を持ちます。</p>
+        <h5>C. RSS / ニュースワイヤー相関 — FALSE_NEGATIVE の供給源 (B1)</h5>
+        <p>RSS はツール唯一の大容量な<i>外部</i>（センサー非依存）ground-truth ストリームであり、ツールが自身の盲点を検知できる根拠です。公開 RSS フィードから動態事象の言及を抽出します。<b>抽出器は LLM 無しでも degrade gracefully に動作</b> — 決定論的なキーワード + 正規表現ベースラインだけで行を生成します。ローカル Ollama が到達可能なら抽出品質を補強できますが、LLM 依存は必須ではありません。RSS 自動行は <span class="code-block">analyst_id="auto:rss"</span> を持ちます。</p>
+        <p><b>段階的過小評価検知（2026-05-29 改修）</b>。各動態事象を「本来あるべき最低脅威レベル」にマッピングし（大量死傷 ⇒ TL≥4、武力衝突 ⇒ TL≥3、エスカレーション兆候 ⇒ TL≥2）、そのシナリオの<i>同時刻</i>の THREAT_LEVEL（事象がその forward window に入る結論）と突き合わせます。ツールの TL が本来の下限を下回っていれば <b>FALSE_NEGATIVE</b>、満たすか上回れば <b>TRUE_POSITIVE</b>。これは「国が一致する全結論を無差別に TRUE_POSITIVE と刻印し recall を 1.0 に固定、見逃しを永遠に検知できなかった」旧経路を置換したものです。分類器は意図的に外部証拠のみを用います — ツール自身の内部信号（LLM intel、sequence event）では「ツールが見落としたもの」を明らかにできない（循環論法）からです。</p>
+
+        <h5>F. Calibration status と DRIFT チップ（ground-truth 由来）</h5>
+        <p>各結論は <span class="code-block">calibration_status</span> スナップショットを持ちます（drill-down の Calibration タブで可視）。2026-05-29 以降、これはそのシナリオの ground-truth 混同行列（30 日窓）から計算されます — <code>recall</code>、<code>precision</code>、TP/FP/TN/FN 件数、そして status: <b>INSUFFICIENT_DATA</b>（観測陽性が 5 件未満）、<b>DEGRADED</b>（recall &lt; 0.70 — ツールが明白にエスカレーションを見逃している）、<b>OK</b>。HUD <b>DRIFT</b> チップはこれをシナリオ横断の平均見逃し率 <code>(1 − recall)</code> として集約し（緑 ≤0.05、アンバー ≤0.10、赤 &gt;0.10）、tooltip に最悪シナリオを表示します。</p>
+        <p>これは退役した<i>shadow sampler</i>（lite-vs-full スコア乖離を測定）を置換したものです。Phase-9 のスコア経路統合でこの delta が ≡ 0 になり、旧 DRIFT チップは現実と無関係に全結論で「ドリフトなし / OK」を報告していました（NP5+8 の縮退キャリブレーション失敗）。新しい信号はツールが実際に見逃し始めると動きます。</p>
 
         <h5>D. Background Observer と OBS チップ — シナリオ別観測健全性</h5>
         <p>「C-lite」機構（focused = 全 sensor、background = LLM intel + global signal のみ）は配線上は正しく動いていますが、実際の信号供給は地理的に偏っています：Taiwan / Korea / South China Sea シナリオは過去 24h で LLM intel ≈0 件、lite-mode スコアは <span class="code-block">cf_botnet_overlap</span> のような global noise のみで動かされている状態です。</p>
