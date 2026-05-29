@@ -628,10 +628,53 @@ def v2_self_eval():
         out["null_zone_days"] = None
         out["null_zone_error"] = str(e)
 
-    # Drift — placeholder. Phase 4+: stddev of recall over rolling 7d
-    # windows. Today returns None so the chip renders "—" until we have
-    # a long enough analyst_feedback ledger to compute it.
-    out["drift"] = None
+    # Drift — global miss-rate aggregate from the ground-truth calibration
+    # signal (2026-05-29: repointed off the dead shadow sampler, whose
+    # lite-vs-full delta is ≡0 since the score paths were unified, so it
+    # always reported drift≈0 / "good" regardless of reality).
+    #
+    # The HUD chip (radar.js#hud-drift-value) reads `data.drift` as a flat
+    # fraction in [0, 1]; bands are good ≤0.05, warn ≤0.10, crit >0.10. We
+    # map drift = mean(1 - recall) — the miss rate — across scenarios whose
+    # calibration is no longer INSUFFICIENT_DATA. recall=1.0 ⇒ drift 0
+    # (good); recall=0.90 ⇒ 0.10 (warn); recall<0.90 ⇒ crit. This makes the
+    # chip move when the tool actually starts missing escalations (NP1).
+    try:
+        from radar.database import db as _shared_db
+        from radar.scenarios import scenario_store
+        from radar.conclusions import calibration_status_for
+        from radar.conclusions import calibration as _calib_mod
+        miss_rates = []
+        worst = None
+        for sc in scenario_store.scorable():
+            cs = calibration_status_for(_shared_db, sc.id)
+            if cs.get("status") == "INSUFFICIENT_DATA" or cs.get("recall") is None:
+                continue
+            miss = 1.0 - float(cs["recall"])
+            miss_rates.append(miss)
+            if worst is None or miss > worst[1]:
+                worst = (sc.id, miss)
+        if miss_rates:
+            out["drift"] = round(sum(miss_rates) / len(miss_rates), 4)
+            out["drift_meta"] = {
+                "method":        "mean_miss_rate_ground_truth",
+                "scenarios_n":   len(miss_rates),
+                "max_miss_rate": round(worst[1], 4) if worst else None,
+                "worst_scenario": worst[0] if worst else None,
+                "window_days":   _calib_mod._WINDOW_DAYS,
+                "source":        "ground_truth",
+            }
+        else:
+            out["drift"] = None
+            out["drift_meta"] = {
+                "method":        "mean_miss_rate_ground_truth",
+                "scenarios_n":   0,
+                "source":        "ground_truth",
+                "reason":        "no_scenarios_with_sufficient_recall_samples",
+            }
+    except Exception as e:  # noqa: BLE001
+        out["drift"] = None
+        out["drift_meta"] = {"error": str(e)}
 
     # bg_observer — per-cycle audit summary (ADR-V2-015 Phase 5).
     # Never errors out (NP3); returns nulls if the table is empty or
@@ -715,13 +758,140 @@ def v2_self_eval():
         out["by_model"] = routing.get("by_model", {})
         out["by_use_case"] = routing.get("by_use_case", {})
         out["shadow_diff"] = routing.get("shadow_diff", {})
+        # Phase 9.2 C6 — SHADOW_DUAL A/B between legacy and v10 candidate.
+        # Only populated when at least one routing feature is in
+        # SHADOW_DUAL state and the joined table has paired rows.
+        out["shadow_dual_diff"] = routing.get("shadow_dual_diff", {})
     except Exception as e:  # noqa: BLE001
         out["by_model"] = {}
         out["by_use_case"] = {}
         out["shadow_diff"] = {}
+        out["shadow_dual_diff"] = {}
         out["routing_error"] = str(e)
 
+    # Phase 9.2 C9 — embedding pipeline rollup.
+    try:
+        from radar.database import db as _shared_db
+        out["embedding_dedupe"] = _shared_db.llm_embedding_stats(hours=24)
+    except Exception as e:  # noqa: BLE001
+        out["embedding_dedupe"] = {}
+        out["embedding_error"] = str(e)
+
+    # Phase 9.2 C6 — derived Phase 1 GO judgment. Single scalar boolean
+    # plus per-axis breakdown so the LLM Console "Self-Eval" tab can
+    # render a green/red GO chip without analyst SQL.
+    out["phase8_go_status"] = _compute_phase8_go(out.get("shadow_dual_diff", {}))
+
+    # Phase 9 (2026-05-13) — TL distribution skew metric.
+    # The existing `drift` metric measures per-scenario score-magnitude
+    # drift; it cannot detect "TL=5 share dropped to 0%" — the failure
+    # mode that left the 2026-04-28 RAISE_THRESHOLDS advisory unactioned
+    # for 15+ days. This block surfaces TL=5 (peacetime calm) share over a
+    # configurable rolling window so the AP3 CALIBRATION chip can warn
+    # before the next governance deadline slips silently.
+    try:
+        if _config.CALIBRATION_SKEW_METRIC_ENABLED:
+            from radar.database import db as _shared_db
+            _window_hours = _config.CALIBRATION_SKEW_WINDOW_DAYS * 24
+            _stats = _shared_db.tl_calibration_stats(hours=_window_hours)
+            _n_total = int(_stats.get("total_observations", 0))
+            _dist = _stats.get("distribution", {}) or {}
+            _tl5_pct = float(_dist.get("TL5", {}).get("pct", 0.0))
+            _has_enough = _n_total >= _config.CALIBRATION_SKEW_MIN_OBSERVATIONS
+            _alert = bool(
+                _has_enough and _tl5_pct < _config.CALIBRATION_SKEW_TL5_MIN_PCT
+            )
+            out["tl_distribution_skew"] = {
+                "tl5_pct":            round(_tl5_pct, 1),
+                "tl5_min_pct":        _config.CALIBRATION_SKEW_TL5_MIN_PCT,
+                "window_days":        _config.CALIBRATION_SKEW_WINDOW_DAYS,
+                "n_observations":     _n_total,
+                "min_observations":   _config.CALIBRATION_SKEW_MIN_OBSERVATIONS,
+                "have_enough_data":   _has_enough,
+                "calibration_skew_alert": _alert,
+                "distribution_pct":   {
+                    k: float(v.get("pct", 0.0)) for k, v in _dist.items()
+                },
+                "method":             "tl5_share_vs_floor",
+            }
+        else:
+            out["tl_distribution_skew"] = {
+                "enabled": False,
+                "calibration_skew_alert": False,
+            }
+    except Exception as e:  # noqa: BLE001
+        out["tl_distribution_skew"] = {
+            "calibration_skew_alert": False,
+            "error": str(e),
+        }
+
     return jsonify(out)
+
+
+# ── Phase 1 GO judgment ────────────────────────────────────────────────────
+
+
+_PHASE1_GO_THRESHOLDS = {
+    "schema_compliance": 0.99,        # primary or shadow must hit
+    "agreement_rate":    0.60,        # ≥ 60% agreement required
+    "verdict_reproducibility": 1.00,  # = 1.00 required (deterministic)
+}
+
+
+def _compute_phase8_go(shadow_dual_diff: dict) -> dict:
+    """Reduce shadow_dual_diff into a per-use_case GO/NO-GO breakdown
+    plus an overall_go scalar so the UI chip renders without parsing
+    nested objects."""
+    out: dict = {}
+    overall = True
+    have_data = False
+    for uc, diff in (shadow_dual_diff or {}).items():
+        if not isinstance(diff, dict):
+            continue
+        have_data = True
+        sc = diff.get("schema_compliance") or {}
+        agree = diff.get("agreement_rate")
+        repro = diff.get("verdict_reproducibility")
+
+        sc_ok = (
+            isinstance(sc.get("shadow"), (int, float))
+            and sc["shadow"] >= _PHASE1_GO_THRESHOLDS["schema_compliance"]
+        )
+        agree_ok = (
+            isinstance(agree, (int, float))
+            and agree >= _PHASE1_GO_THRESHOLDS["agreement_rate"]
+        )
+        repro_ok = (
+            repro is None
+            or repro >= _PHASE1_GO_THRESHOLDS["verdict_reproducibility"]
+        )
+        all_ok = sc_ok and agree_ok and repro_ok
+        out[uc] = {
+            "schema_compliance": {
+                "value": sc.get("shadow"),
+                "ok": sc_ok,
+                "threshold": _PHASE1_GO_THRESHOLDS["schema_compliance"],
+            },
+            "agreement_rate": {
+                "value": agree,
+                "ok": agree_ok,
+                "threshold": _PHASE1_GO_THRESHOLDS["agreement_rate"],
+            },
+            "verdict_reproducibility": {
+                "value": repro,
+                "ok": repro_ok,
+                "threshold": _PHASE1_GO_THRESHOLDS["verdict_reproducibility"],
+            },
+            "n_paired": diff.get("n_paired"),
+            "use_case_go": all_ok,
+        }
+        if not all_ok:
+            overall = False
+    return {
+        "by_use_case": out,
+        "overall_go": overall if have_data else None,
+        "have_data": have_data,
+    }
 
 
 def _resolve_llm_prompt(db, sha256: str) -> dict:

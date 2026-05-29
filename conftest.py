@@ -12,6 +12,13 @@ test_analyst_permissions).
 
 Patching here, before any test module is imported, guarantees a
 single consistent patched runtime for the entire test session.
+
+Note: shared test fixtures (e.g. ``tier_governor_repo`` /
+``tier_governor_conn``) live in ``tests/conftest.py``. pytest auto-
+discovers nested conftests, and the rootdir conftest imported here
+is loaded strictly before any test module — preserving the gevent
+ordering documented above. Do NOT add a ``tests/__init__.py``;
+pytest is configured for rootdir-based imports.
 """
 from gevent import monkey as _monkey
 

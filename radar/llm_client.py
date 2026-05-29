@@ -29,6 +29,20 @@ log = logging.getLogger("radar")
 _TAGS_URL    = f"{LLM_HOST}/api/tags"
 _GENERATE_URL = f"{LLM_HOST}/api/generate"
 
+
+def _live_timeout() -> int:
+    """Phase 9.6 C23 — read LLM_TIMEOUT through the layered config so DB
+    overrides take effect without a container restart. Falls back to the
+    module-level constant captured from env at boot."""
+    try:
+        from radar.config_layered import get_config
+        v = get_config("LLM_TIMEOUT")
+        if v is not None:
+            return int(v)
+    except Exception:
+        pass
+    return LLM_TIMEOUT
+
 # Known small models that produce lower-quality structured output
 _LOW_QUALITY_MODEL_PATTERNS = ("1b", "3b", "0.5b", "1.5b")
 
@@ -199,7 +213,7 @@ def _log_call(caller: str, duration_ms: int, outcome: str,
               model: str = "",
               use_case: str = "",
               shadow_model_choice: str = "",
-              thinking_trace: str = ""):
+              thinking_trace: str = "") -> int:
     """Best-effort logging of an LLM call to llm_call_log.
     Verdict (auto_confirmed/pending/discarded_*) is recorded later by intel_queue.
     prompt_sha256 links the call to the persisted llm_prompts row (ADR-V2-009).
@@ -215,7 +229,7 @@ def _log_call(caller: str, duration_ms: int, outcome: str,
     """
     try:
         from radar.database import db
-        db.llm_call_log_append(
+        rowid = db.llm_call_log_append(
             caller=caller, model=model or LLM_MODEL, duration_ms=duration_ms,
             outcome=outcome, verdict="", confidence=confidence,
             headline=headline, error=error, prompt_sha256=prompt_sha256,
@@ -223,8 +237,109 @@ def _log_call(caller: str, duration_ms: int, outcome: str,
             shadow_model_choice=shadow_model_choice or None,
             thinking_trace=thinking_trace or None,
         )
+        return rowid if isinstance(rowid, int) else -1
     except Exception:
-        pass  # never let observability break the main flow
+        return -1  # never let observability break the main flow
+
+
+def _invoke_shadow(choice, prompt: str, system: str, max_tokens: int,
+                   primary_call_id: int, prompt_sha: str) -> None:
+    """Phase 9.2 C5 — fire a parallel SHADOW_DUAL invocation against the
+    v10 candidate model. NP3 — every error path is swallowed; SHADOW_DUAL
+    must NEVER affect the primary call.
+
+    Logs the v10 response to llm_shadow_invocation linked to the primary
+    call so /api/v2/self_eval can compute schema_compliance / agreement /
+    reproducibility.
+    """
+    if choice is None or primary_call_id <= 0:
+        return
+    try:
+        eff_system = choice.merge_system(system)
+        payload: dict = {
+            "model": choice.model,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": _build_options(0.0, max_tokens, choice),
+        }
+        if eff_system:
+            payload["system"] = eff_system
+        # See llm_analyze_json for rationale — honor routing.thinking_enabled.
+        if not choice.thinking_enabled:
+            payload["think"] = False
+        t0 = time.time()
+        try:
+            res = requests.post(
+                _GENERATE_URL, json=payload, timeout=_live_timeout(),
+                proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
+            )
+            duration_ms = int((time.time() - t0) * 1000)
+            if res.status_code != 200:
+                _persist_shadow(
+                    primary_call_id, choice.model, duration_ms,
+                    "http_error", None, None, prompt_sha,
+                    f"HTTP {res.status_code}",
+                )
+                return
+            rj = res.json()
+            text = rj.get("response", "").strip()
+            if not text:
+                text = rj.get("thinking", "").strip()
+        except requests.Timeout:
+            _persist_shadow(
+                primary_call_id, choice.model,
+                int((time.time() - t0) * 1000),
+                "timeout", None, None, prompt_sha, "timeout",
+            )
+            return
+        except Exception as exc:
+            _persist_shadow(
+                primary_call_id, choice.model,
+                int((time.time() - t0) * 1000),
+                "exception", None, None, prompt_sha, str(exc),
+            )
+            return
+
+        if "```" in text:
+            text = "\n".join(
+                ln for ln in text.split("\n") if not ln.strip().startswith("```")
+            )
+        conf = None
+        try:
+            data = json.loads(text)
+            conf = safe_float(data.get("confidence"), 0.0)
+        except json.JSONDecodeError:
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            if start >= 0 and end > start:
+                try:
+                    data = json.loads(text[start:end])
+                    conf = safe_float(data.get("confidence"), 0.0)
+                except json.JSONDecodeError:
+                    pass
+        outcome = "ok" if conf is not None else "parse_failed"
+        _persist_shadow(
+            primary_call_id, choice.model, duration_ms,
+            outcome, text, conf, prompt_sha, None,
+        )
+    except Exception:
+        # Truly defensive — SHADOW_DUAL never breaks the primary path.
+        log.debug("shadow_dual invocation failed", exc_info=True)
+
+
+def _persist_shadow(primary_call_id, model, duration_ms, outcome,
+                    response_text, confidence, prompt_sha256, error):
+    try:
+        from radar.database import db
+        db.llm_shadow_invocation_append(
+            primary_call_id=primary_call_id, model=model,
+            duration_ms=duration_ms, outcome=outcome,
+            response_text=response_text, confidence=confidence,
+            prompt_sha256=prompt_sha256, error=error,
+        )
+    except Exception:
+        pass
 
 
 def _maybe_persist_prompt(prompt: str, system: str, temperature: float) -> str:
@@ -385,12 +500,15 @@ def llm_analyze(prompt: str, system: str = "",
     }
     if eff_system:
         payload["system"] = eff_system
+    # See llm_analyze_json for rationale — honor routing.thinking_enabled.
+    if choice is not None and not choice.thinking_enabled:
+        payload["think"] = False
 
     try:
         res = requests.post(
             _GENERATE_URL,
             json=payload,
-            timeout=LLM_TIMEOUT,
+            timeout=_live_timeout(),
             proxies=GLOBAL_PROXIES,
             verify=SSL_VERIFY,
         )
@@ -435,6 +553,7 @@ def llm_analyze_json(prompt: str, system: str = "",
     # Resolve routing first so logs always carry use_case + active model.
     use_case_str = ""
     shadow_model_choice = ""
+    shadow_invocation = None  # Phase 9.2 — v10 candidate for SHADOW_DUAL
     choice = None
     try:
         from radar.llm_routing import choose_model
@@ -444,6 +563,7 @@ def llm_analyze_json(prompt: str, system: str = "",
             use_case_str = use_case.value if hasattr(use_case, "value") else str(use_case)
         if routing.shadow_choice:
             shadow_model_choice = routing.shadow_choice
+        shadow_invocation = routing.shadow_invocation
     except Exception:
         choice = None
 
@@ -471,13 +591,21 @@ def llm_analyze_json(prompt: str, system: str = "",
     }
     if eff_system:
         payload["system"] = eff_system
+    # Bench (2026-05-10): gemma4 family burns the entire token budget on
+    # internal CoT when think mode is left enabled, returning empty
+    # responses (~60-80% parse_failed in production). Routing already
+    # tracks whether reasoning is wanted (choice.thinking_enabled); when
+    # it's False we must explicitly tell Ollama to skip thinking, otherwise
+    # the model defaults to thinking-on for thinking-capable families.
+    if choice is not None and not choice.thinking_enabled:
+        payload["think"] = False
 
     t0 = time.time()
     try:
         res = requests.post(
             _GENERATE_URL,
             json=payload,
-            timeout=LLM_TIMEOUT,
+            timeout=_live_timeout(),
             proxies=GLOBAL_PROXIES,
             verify=SSL_VERIFY,
         )
@@ -526,7 +654,7 @@ def llm_analyze_json(prompt: str, system: str = "",
         )
     try:
         data = json.loads(text)
-        _log_call(
+        primary_id = _log_call(
             caller, duration_ms, "ok",
             confidence=safe_float(data.get("confidence"), 0.0),
             headline=str(data.get("headline", ""))[:200],
@@ -535,6 +663,9 @@ def llm_analyze_json(prompt: str, system: str = "",
             shadow_model_choice=shadow_model_choice,
             thinking_trace=thinking_trace,
         )
+        if shadow_invocation is not None and primary_id > 0:
+            _invoke_shadow(shadow_invocation, prompt, system, max_tokens,
+                           primary_id, prompt_sha)
         return {"ok": True, "data": data}
     except json.JSONDecodeError:
         # Try to extract JSON object from within the text
@@ -543,7 +674,7 @@ def llm_analyze_json(prompt: str, system: str = "",
         if start >= 0 and end > start:
             try:
                 data = json.loads(text[start:end])
-                _log_call(
+                primary_id = _log_call(
                     caller, duration_ms, "ok",
                     confidence=safe_float(data.get("confidence"), 0.0),
                     headline=str(data.get("headline", ""))[:200],
@@ -552,6 +683,9 @@ def llm_analyze_json(prompt: str, system: str = "",
                     shadow_model_choice=shadow_model_choice,
                     thinking_trace=thinking_trace,
                 )
+                if shadow_invocation is not None and primary_id > 0:
+                    _invoke_shadow(shadow_invocation, prompt, system,
+                                   max_tokens, primary_id, prompt_sha)
                 return {"ok": True, "data": data}
             except json.JSONDecodeError:
                 pass

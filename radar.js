@@ -885,6 +885,7 @@
         else { content.classList.add('content-collapsed'); btn.innerText = '＋'; }
     }
     const _ROLE_LEVEL = { viewer: 0, analyst: 1, admin: 2 };
+    window._applyRoleVisibility = _applyRoleVisibility;
     function _applyRoleVisibility(container) {
         const role = localStorage.getItem('radar_role') || 'viewer';
         const level = _ROLE_LEVEL[role] ?? 0;
@@ -904,15 +905,9 @@
         document.querySelectorAll('.modal-window').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.draggable-panel.floating').forEach(el => el.classList.remove('active'));
         const modal = document.getElementById(modalId);
+        if (!modal) return;
         modal.style.display = 'flex';
         document.getElementById('settings-backdrop').style.display = 'block';
-        if (modalId === 'settings-modal') {
-            _applyRoleVisibility(modal);
-            requestAnimationFrame(() => { _initMinimap(); _minimapFlyTo(_activeRegion); _updateMinimap(); });
-            // Auto-load the active tab's data on first open
-            const activeTab = modal.querySelector('.tab.active');
-            if (activeTab) activeTab.click();
-        }
     }
     function switchGuideChapter(n) {
         document.querySelectorAll('.guide-chapter').forEach(el => el.classList.remove('active'));
@@ -1311,21 +1306,21 @@
             .catch(() => {});
     }
     function switchTab(tabId) {
-        document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        const tabBtn = document.querySelector(`.tab[onclick*="'${tabId}'"]`);
-        if (tabBtn) tabBtn.classList.add('active');
-        document.getElementById(`tab-${tabId}`).classList.add('active');
-        const mapPanel = document.getElementById('modal-map-panel');
-        const showMap  = false;
-        if (mapPanel) mapPanel.style.display = 'none';
-        if (showMap) {
-            _initMinimap();
-            _minimapFlyTo(_activeRegion);
-            _syncPillsVisual();   // sync all tab pills to current selected region
-            _reapplyFilters();    // reapply current region filter
-            requestAnimationFrame(() => { _minimap?.invalidateSize(); _updateMinimap(); });
-        }
+        // Phase 10 — legacy MASTER CONFIGURATION shell removed. The
+        // tabs nav (.tabs > .tab) no longer exists; only the
+        // .tab-content children survive (orphaned then transplanted
+        // into #settings-v2-legacy-host). switchTab is kept as a
+        // compatibility wrapper for legacy callers (loadXxx() helpers
+        // that still call switchTab as part of their open path).
+        const target = document.getElementById(`tab-${tabId}`);
+        if (!target) return;
+        document.querySelectorAll('.tab-content').forEach(el => {
+            el.classList.remove('active');
+            el.style.display = 'none';
+        });
+        target.classList.add('active');
+        target.style.display = 'flex';
+        target.style.flexDirection = 'column';
     }
 
     // ── Panel Registry & Sidebar Order ──────────────────────────────────────────
@@ -1849,79 +1844,14 @@
     // THEATERS: dynamically fetched from app_config — initially empty
     let THEATERS = [];
 
-    // ── Region Preview Mini-map ────────────────────────────────────────────────
-    let _minimap = null;
-    let _minimapMarkers = null;
-    let _activeRegion    = '';          // selected region shared across tabs
-    let _syncPillsVisual = () => {};    // sync active state across all pill containers
+    // Phase 10 — Region Preview minimap removed along with the legacy
+    // MASTER CONFIGURATION shell. The minimap only ever appeared inside
+    // that modal's modal-map-panel; the main map provides the same
+    // information at full scale. _activeRegion is retained because a
+    // few legacy callers still reference it as a string filter token.
+    let _activeRegion    = '';
+    let _syncPillsVisual = () => {};
     let _reapplyFilters  = () => {};
-
-    const REGION_BOUNDS = {
-        "East Asia":   [[18, 98],  [52, 150]],
-        "SE Asia":     [[-10, 92], [28, 142]],
-        "S. Asia":     [[4, 58],   [38, 100]],
-        "C. Asia":     [[35, 42],  [62, 92]],
-        "Middle East": [[10, 30],  [44, 66]],
-        "N. Africa":   [[14, -20], [38, 58]],
-        "Africa":      [[-36, -22], [28, 58]],
-        "W. Europe":   [[34, -16], [72, 32]],
-        "N. Europe":   [[54, 4],   [72, 32]],
-        "E. Europe":   [[40, 12],  [62, 44]],
-        "Russia":      [[48, 28],  [78, 180]],
-        "N. America":  [[13, -170], [73, -52]],
-        "L. America":  [[-56, -84], [14, -33]],
-        "Caribbean":   [[4, -93],  [26, -57]],
-        "Oceania":     [[-48, 108], [5, 180]],
-    };
-
-    function _initMinimap() {
-        if (_minimap) return;
-        _minimap = L.map('modal-minimap', {
-            zoomControl: false, attributionControl: false,
-            dragging: true, scrollWheelZoom: true, doubleClickZoom: true, boxZoom: false,
-            maxBoundsViscosity: 0.6,
-        }).fitWorld();
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 8, subdomains: 'abcd',
-        }).addTo(_minimap);
-        _minimapMarkers = L.layerGroup().addTo(_minimap);
-    }
-
-    function _updateMinimap() {
-        if (!_minimap || !_minimapMarkers) return;
-        _minimapMarkers.clearLayers();
-        // Scope is now scenario-driven: participants come from the focused
-        // scenario's strategic_alert payload, not from DOM toggles.
-        const strat = (latestData || {}).strategic_alert || {};
-        const coreVal = resolveChainTargetCountry(strat);
-        const advSet  = new Set(strat.adversary_states || []);
-        const partSet = new Set(strat.active_theaters || []);
-        if (coreVal) partSet.add(coreVal);
-
-        THEATERS.forEach(t => {
-            if (t.lat == null || t.lng == null) return;
-            let color, radius, fillOpacity, weight, opacity;
-            if (t.code === coreVal)        { color = '#00ffff'; radius = 7; fillOpacity = 0.9; weight = 2;   opacity = 1.0; }
-            else if (advSet.has(t.code))   { color = '#ff5555'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
-            else if (partSet.has(t.code))  { color = '#ffaa00'; radius = 5; fillOpacity = 0.8; weight = 1.5; opacity = 1.0; }
-            else                           { color = '#334455'; radius = 2; fillOpacity = 0.5; weight = 0;   opacity = 0.5; }
-
-            L.circleMarker([t.lat, t.lng], { radius, color, fillColor: color, fillOpacity, weight, opacity })
-             .bindTooltip(`${t.name} (${t.code})`, { sticky: true, className: 'minimap-tooltip' })
-             .addTo(_minimapMarkers);
-        });
-        setTimeout(() => _minimap.invalidateSize(), 50);
-    }
-
-    function _minimapFlyTo(region) {
-        if (!_minimap) return;
-        if (!region) {
-            _minimap.flyToBounds([[-78, -175], [78, 175]], { padding: [4, 4], animate: true, duration: 0.4 });
-        } else {
-            const b = REGION_BOUNDS[region];
-            if (b) _minimap.flyToBounds(b, { padding: [8, 8], maxZoom: 6, animate: true, duration: 0.4 });
-        }
-    }
 
     // Region display order
     const REGION_ORDER = [
@@ -2539,33 +2469,67 @@
             const eff = Array.isArray(_modelEffective) ? _modelEffective : [];
             const pre = _modelPreflight || {};
             const oll = pre.ollama || {};
-            const rows = eff.map(e => {
+            // Build the model option list from what the preflight reported as
+            // probed locally, plus the v10 survey-recommended stack so an
+            // analyst can pick a model that's expected to be pulled even when
+            // probe is currently degraded. Deduped + sorted.
+            const v10Stack = [
+                'mistral-small3.2:24b', 'gemma4:26b', 'gemma4:31b',
+                'gpt-oss-safeguard:20b', 'gemma4:e4b', 'gpt-oss:120b',
+            ];
+            const observed = new Set(
+                eff.map(e => e.model).filter(Boolean).concat(v10Stack)
+            );
+            const modelOptions = Array.from(observed).sort();
+            const escAttr = s => _escHtml(s).replace(/"/g, '&quot;');
+            const rows = eff.map((e, i) => {
                 const avail = e.available
-                    ? '<span style="color:var(--color-good,#3a3)">✓</span>'
-                    : '<span style="color:var(--color-warning,#c80)">×</span>';
+                    ? '<span style="color:var(--color-good,#3a3)" title="model pulled locally">✓</span>'
+                    : '<span style="color:var(--color-warning,#c80)" title="model NOT pulled — preflight will downgrade go_no_go">×</span>';
                 const fs = e.feature_state || '?';
-                const think = e.thinking_enabled ? 'think:on' : 'think:off';
-                const sp = e.system_prefix
-                    ? ' · prefix=' + _escHtml(e.system_prefix)
-                    : '';
+                const fsBand = fs === 'on'      ? 'good'
+                             : fs === 'shadow'  ? 'warn'
+                             : 'na';
+                const opts = modelOptions.map(m =>
+                    '<option value="' + escAttr(m) + '"'
+                    + (m === e.model ? ' selected' : '') + '>'
+                    + _escHtml(m) + '</option>'
+                ).join('');
+                const tempVal = (e.temperature !== null && e.temperature !== undefined)
+                    ? Number(e.temperature).toFixed(2) : '';
                 return ''
-                    + '<tr>'
+                    + '<tr data-row-idx="' + i + '" '
+                    + 'data-use-case="' + escAttr(e.use_case) + '" '
+                    + 'data-slot="' + escAttr(e.slot) + '">'
                     + '<td>' + _escHtml(e.use_case) + '</td>'
                     + '<td>' + _escHtml(e.slot) + '</td>'
-                    + '<td><code>' + _escHtml(e.model) + '</code> ' + avail + '</td>'
-                    + '<td>' + _escHtml(fs) + '</td>'
-                    + '<td>temp=' + e.temperature
-                          + ' · top_p=' + (e.top_p ?? '—')
-                          + ' · top_k=' + (e.top_k ?? '—')
-                          + ' · seed=' + (e.seed ?? '—')
-                          + ' · ' + think + sp
+                    + '<td>'
+                    +   '<select class="lr-model" style="min-width:200px">'
+                    +     opts
+                    +   '</select> ' + avail
+                    + '</td>'
+                    + '<td><span class="hud-self-eval-' + fsBand + '" '
+                    +   'style="padding:1px 6px;border-radius:3px">'
+                    +   _escHtml(fs) + '</span></td>'
+                    + '<td>'
+                    +   '<input type="number" class="lr-temp" min="0" max="2" '
+                    +     'step="0.05" value="' + tempVal + '" '
+                    +     'style="width:65px"> '
+                    +   '<label style="font-size:0.85em;margin-left:6px">'
+                    +     '<input type="checkbox" class="lr-think" '
+                    +     (e.thinking_enabled ? 'checked' : '') + '> think'
+                    +   '</label>'
+                    + '</td>'
+                    + '<td style="white-space:nowrap">'
+                    +   '<button class="lr-save" data-i18n="llm_routing.save">Save</button> '
+                    +   '<button class="lr-reset" title="clear DB override → revert to env / code default" data-i18n="llm_routing.reset">Reset</button>'
                     + '</td>'
                     + '</tr>';
             }).join('');
             const head = ''
                 + '<thead><tr>'
                 + '<th>use_case</th><th>slot</th><th>model</th>'
-                + '<th>feature</th><th>sampling</th>'
+                + '<th>feature</th><th>sampling</th><th>action</th>'
                 + '</tr></thead>';
             const versionMsg = oll.version
                 ? 'Ollama ' + _escHtml(oll.version)
@@ -2580,16 +2544,38 @@
                   + pre.missing.map(_escHtml).join('</code>, <code>')
                   + '</code></p>'
                 : '';
+            // Embedding panel — independent of the routing table, but lives in
+            // the same modal because analysts think of it as part of the v10
+            // stack.
+            const emb = pre.embedding || {};
+            const embHtml = ''
+                + '<div style="margin-top:1em;padding:8px;border:1px solid '
+                +   'var(--color-panel-border,#2a3138);border-radius:4px">'
+                + '<b>Embedding (dedupe)</b><br>'
+                + 'model = <code>' + _escHtml(emb.model || '—') + '</code> '
+                + (emb.available
+                    ? '<span style="color:var(--color-good,#3a3)">✓ pulled</span>'
+                    : '<span style="color:var(--color-warning,#c80)">× not pulled</span>')
+                + ' · feature = <code>' + (emb.feature_active ? 'active' : 'inactive')
+                + '</code><br>'
+                + '<span style="font-size:0.85em;opacity:0.7">'
+                + 'Toggle the embedding_dedupe Feature Hub key in '
+                + '<a href="javascript:void(0)" onclick="(window._settingsOpen||window._llmFeaturesOpen||function(){})(\'llm.features\')">LLM Features</a>'
+                + ' to control whether embed_text() runs on incoming OSINT.'
+                + '</span></div>';
             const html = ''
                 + '<div class="modal-section">'
                 + '<p>' + versionMsg + ' · preflight: ' + goNoGo + '</p>'
                 + missing
-                + '<table class="rad-table">' + head
-                + '<tbody>' + rows + '</tbody></table>'
-                + '<p style="margin-top:1em;font-size:0.85em;opacity:0.7">'
-                + 'Routing follows DB override → env var → code default. '
-                + 'Use <code>POST /api/v2/llm_routing/overrides</code> '
-                + 'to change a (use_case, slot) at runtime.'
+                + '<table class="rad-table" id="llm-routing-table">'
+                +   head + '<tbody>' + rows + '</tbody></table>'
+                + embHtml
+                + '<div id="llm-routing-status" style="margin-top:0.6em;font-size:0.85em;min-height:1.2em"></div>'
+                + '<p style="margin-top:1em;font-size:0.8em;opacity:0.65">'
+                + 'Save writes a row to <code>llm_routing_override</code> (DB layer, '
+                + 'highest precedence). Reset deletes the override → reverts to env '
+                + 'var or code default. Every change is appended to '
+                + '<code>llm_routing_override_history</code> (NP6 audit).'
                 + '</p>'
                 + '</div>';
             // Lightweight single-instance modal — destroyed on close so the
@@ -2627,6 +2613,95 @@
             if (closeBtn) {
                 closeBtn.addEventListener('click', () => overlay.remove());
             }
+            // ── Inline override controls ────────────────────────────────
+            // Save button → POST /api/v2/llm_routing/overrides
+            // Reset button → DELETE /api/v2/llm_routing/overrides
+            // After either, refresh the modal so feature_state and
+            // model badges reflect the new state.
+            const setStatus = (msg, ok) => {
+                const el = document.getElementById('llm-routing-status');
+                if (!el) return;
+                el.style.color = ok
+                    ? 'var(--color-good,#3a3)'
+                    : 'var(--color-warning,#c80)';
+                el.textContent = msg;
+            };
+            const refreshAfterChange = async () => {
+                _modelChipLastFetchMs = 0;          // bust the cache
+                await _refreshModelChip();
+                overlay.remove();
+                _llmRoutingOpen();                  // re-render with fresh data
+            };
+            box.querySelectorAll('tr[data-use-case]').forEach(tr => {
+                const useCase = tr.getAttribute('data-use-case');
+                const slot    = tr.getAttribute('data-slot');
+                const modelEl = tr.querySelector('.lr-model');
+                const tempEl  = tr.querySelector('.lr-temp');
+                const thinkEl = tr.querySelector('.lr-think');
+                const saveBtn = tr.querySelector('.lr-save');
+                const resetBtn = tr.querySelector('.lr-reset');
+                if (saveBtn) {
+                    saveBtn.addEventListener('click', async () => {
+                        saveBtn.disabled = true;
+                        const body = {
+                            use_case: useCase,
+                            slot: slot,
+                            model: modelEl ? modelEl.value : null,
+                            thinking_enabled: thinkEl ? thinkEl.checked : null,
+                            reason: 'analyst override via routing modal',
+                        };
+                        const t = tempEl && tempEl.value !== ''
+                            ? Number(tempEl.value) : null;
+                        if (t !== null && !Number.isNaN(t)) body.temperature = t;
+                        try {
+                            const r = await fetch(
+                                '/api/v2/llm_routing/overrides',
+                                {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify(body),
+                                }
+                            );
+                            if (r.ok) {
+                                setStatus('Saved ' + useCase + '/' + slot, true);
+                                await refreshAfterChange();
+                            } else {
+                                const err = await r.text();
+                                setStatus('Save failed: HTTP ' + r.status
+                                          + ' — ' + err.slice(0, 120), false);
+                                saveBtn.disabled = false;
+                            }
+                        } catch (e) {
+                            setStatus('Save error: ' + (e && e.message || e), false);
+                            saveBtn.disabled = false;
+                        }
+                    });
+                }
+                if (resetBtn) {
+                    resetBtn.addEventListener('click', async () => {
+                        resetBtn.disabled = true;
+                        const url = '/api/v2/llm_routing/overrides'
+                            + '?use_case=' + encodeURIComponent(useCase)
+                            + '&slot=' + encodeURIComponent(slot)
+                            + '&reason=' + encodeURIComponent('reset to default');
+                        try {
+                            const r = await fetch(url, {method: 'DELETE'});
+                            if (r.ok) {
+                                setStatus('Reset ' + useCase + '/' + slot, true);
+                                await refreshAfterChange();
+                            } else {
+                                const err = await r.text();
+                                setStatus('Reset failed: HTTP ' + r.status
+                                          + ' — ' + err.slice(0, 120), false);
+                                resetBtn.disabled = false;
+                            }
+                        } catch (e) {
+                            setStatus('Reset error: ' + (e && e.message || e), false);
+                            resetBtn.disabled = false;
+                        }
+                    });
+                }
+            });
         };
         if (!_modelEffective) {
             _modelChipLastFetchMs = 0;
@@ -2635,7 +2710,2604 @@
             render();
         }
     }
-    window._llmRoutingOpen = _llmRoutingOpen;
+    // Phase 9.4 C16 — _llmRoutingOpen is no longer the canonical entry
+    // point. The old routing-modal-overlay implementation remains as a
+    // fallback (auto-tune wizard deeplinks etc.), but new callers should
+    // use _settingsOpen('llm.routing'). When the Settings shell is
+    // available we redirect transparently so any future caller of
+    // _llmRoutingOpen lands in the unified surface.
+    window._llmRoutingOpen = function legacyRoutingOpen() {
+        if (typeof window._settingsOpen === 'function') {
+            return window._settingsOpen('llm.routing');
+        }
+        return _llmRoutingOpen();
+    };
+    window._llmRoutingOpenLegacy = _llmRoutingOpen;  // escape hatch
+
+    // ════════════════════════════════════════════════════════════════════
+    // Settings shell — Phase 9.3 C10-C12 + 9.4 C13-C15 unified surface
+    //
+    // One modal, one left-nav, one right-pane renderer. Domains keyed by
+    // dotted-path string. Calling _settingsOpen('llm.routing') shows the
+    // modal pre-selected on that domain.
+    //
+    // Design intent:
+    //   - Every LLM setting reachable from one place (resolves user
+    //     complaint about 4-way LLM split: CONFIG SYSTEM + LLM Features
+    //     Hub + LLM Routing modal + config.env).
+    //   - Existing legacy modals (settings-modal, llm-features-modal,
+    //     llm-routing-modal-overlay) remain functional via their old
+    //     entry points; the new shell is additive in this commit, with
+    //     legacy redirect in C16.
+    // ════════════════════════════════════════════════════════════════════
+
+    // ── Phase R3 — verb-based group taxonomy ───────────────────────────
+    // SETTINGS is now organised by analyst workflow frequency:
+    //   OPERATE         — weekly tuning (scenarios, sensors, intel queue)
+    //   TUNE            — monthly tuning (scoring weights, thresholds)
+    //   LLM HEALTH      — LLM connection / features / routing / observability
+    //   INFRASTRUCTURE  — restart-required transport / cache / polling
+    //   ACCESS          — secrets / JWT / users (high-risk)
+    //   AUDIT           — read-only ledgers
+    //
+    // Most pages are auto-generated from the registry (config_layered).
+    // A handful keep custom renderers because their UI is too rich for
+    // generic forms (Sensor toggle list, LLM Routing matrix, Scenarios
+    // admin, Users admin, Decision Trail).
+    const _SETTINGS_DOMAINS = [
+        { group: 'OPERATE', label: 'Operate', sub: [
+            { id: 'operate.scope',       labelKey: 'settings.operate.scope',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.scope' },
+            { id: 'operate.intel',       labelKey: 'settings.operate.intel',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.intel' },
+            { id: 'operate.corroboration', labelKey: 'settings.operate.corroboration',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.corroboration' },
+            { id: 'operate.notifications', labelKey: 'settings.operate.notifications',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.notifications' },
+            { id: 'operate.calibration', labelKey: 'settings.operate.calibration',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.calibration' },
+            { id: 'operate.sensors',     labelKey: 'settings.operate.sensors',
+              fn: '_settingsRenderSensorsCatalog' },
+            { id: 'operate.scenarios',   labelKey: 'settings.operate.scenarios',
+              fn: '_settingsRenderScenariosList' },
+        ]},
+        { group: 'TUNE', label: 'Tune (Scoring)', sub: [
+            { id: 'tune.scoring',        labelKey: 'settings.tune.scoring',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.scoring' },
+            { id: 'tune.zscore',         labelKey: 'settings.tune.zscore',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.zscore' },
+            { id: 'tune.sequence',       labelKey: 'settings.tune.sequence',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.sequence' },
+            { id: 'tune.ddos',           labelKey: 'settings.tune.ddos',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.ddos' },
+            { id: 'tune.narrative',      labelKey: 'settings.tune.narrative',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.narrative' },
+            { id: 'tune.airspace',       labelKey: 'settings.tune.airspace',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.airspace' },
+            { id: 'tune.maritime',       labelKey: 'settings.tune.maritime',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.maritime' },
+            { id: 'tune.gdelt',          labelKey: 'settings.tune.gdelt',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.gdelt' },
+        ]},
+        { group: 'LLM_HEALTH', label: 'LLM Health', sub: [
+            { id: 'llm.connection',      labelKey: 'settings.llm.connection',
+              fn: '_settingsRenderLlmConnection' },
+            { id: 'llm.features',        labelKey: 'settings.llm.features',
+              fn: '_settingsRenderLlmFeatures' },
+            { id: 'llm.routing',         labelKey: 'settings.llm.routing',
+              fn: '_settingsRenderLlmRouting' },
+            { id: 'llm.embedding',       labelKey: 'settings.llm.embedding',
+              fn: '_settingsRenderLlmEmbedding' },
+            { id: 'llm.self_eval',       labelKey: 'settings.llm.self_eval',
+              fn: '_settingsRenderLlmSelfEval' },
+        ]},
+        { group: 'INFRASTRUCTURE', label: 'Infrastructure', sub: [
+            { id: 'infra.network',       labelKey: 'settings.infra.network',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.network' },
+            { id: 'infra.cache',         labelKey: 'settings.infra.cache',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.cache' },
+            { id: 'infra.poll',          labelKey: 'settings.infra.poll',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.poll' },
+            { id: 'infra.server',        labelKey: 'settings.infra.server',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.server' },
+            { id: 'infra.plugins',       labelKey: 'settings.infra.plugins',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.plugins' },
+            { id: 'infra.upstreams',     labelKey: 'settings.infra.upstreams',
+              fn: '_settingsRenderInfraUpstreams' },
+            { id: 'infra.fleet',         labelKey: 'settings.infra.fleet',
+              fn: '_settingsRenderInfraFleet' },
+            { id: 'infra.fetch_log',     labelKey: 'settings.infra.fetch_log',
+              fn: '_settingsRenderSensorsFetchLog' },
+        ]},
+        { group: 'ACCESS', label: 'Access', sub: [
+            { id: 'access.users',        labelKey: 'settings.access.users',
+              fn: '_settingsRenderOperatorsUsers' },
+            { id: 'access.api_keys',     labelKey: 'settings.access.api_keys',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'access.api_keys' },
+            { id: 'access.webhooks',     labelKey: 'settings.access.webhooks',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'access.webhooks' },
+            { id: 'access.jwt',          labelKey: 'settings.access.jwt',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'access.jwt' },
+            { id: 'access.admin',        labelKey: 'settings.access.admin',
+              fn: '_settingsRenderRegistryGroup', registryDomain: 'access.admin' },
+        ]},
+        { group: 'AUDIT', label: 'Audit', sub: [
+            { id: 'audit.changes',       labelKey: 'settings.audit.changes',
+              fn: '_settingsRenderAuditChanges' },
+            { id: 'audit.decisions',     labelKey: 'settings.audit.decisions',
+              fn: '_settingsRenderAuditDecisions' },
+            { id: 'audit.feedback',      labelKey: 'settings.audit.feedback',
+              fn: '_settingsRenderAuditFeedback' },
+            { id: 'audit.auto_judge',    labelKey: 'settings.audit.auto_judge',
+              fn: '_settingsRenderAuditAutoJudge' },
+        ]},
+    ];
+
+    // ── Phase 10 — legacy tab transplant + inline render ─────────────
+    // The legacy MASTER CONFIGURATION modal (#settings-modal) hosted
+    // 7 tab-content elements (sensors, fetchlog, upstreams, fleet,
+    // scenarios, sysconfig, users). At first call we *physically move*
+    // those <div class="tab-content"> nodes into the SETTINGS pane's
+    // legacy-host. The legacy modal shell becomes empty but the
+    // tab-content children continue to work because their IDs are
+    // stable and switchTab() / loadXxx() functions target them by id.
+    // This eliminates the modal-in-modal pattern: legacy tabs are
+    // rendered inline inside SETTINGS, sharing its panel-header-unified
+    // chrome.
+    let _settingsLegacyAdopted = false;
+    function _settingsAdoptLegacyTabs() {
+        if (_settingsLegacyAdopted) return;
+        const host = document.getElementById('settings-v2-legacy-host');
+        if (!host) return;
+        const ids = ['tab-sensors','tab-fetchlog','tab-upstreams',
+                     'tab-fleet','tab-scenarios','tab-sysconfig','tab-users'];
+        ids.forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.parentElement !== host) {
+                host.appendChild(el);
+            }
+        });
+        _settingsLegacyAdopted = true;
+    }
+
+    // Replacement for _legacyDelegate. Shows the requested tab-content
+    // inline within SETTINGS pane and triggers its loader. Does NOT
+    // open another modal.
+    function _settingsShowLegacyTab(tabId, loaderFn) {
+        _settingsAdoptLegacyTabs();
+        const render = document.getElementById('settings-v2-render');
+        const host = document.getElementById('settings-v2-legacy-host');
+        if (render) { render.innerHTML = ''; render.style.display = 'none'; }
+        if (!host) return;
+        host.style.display = 'flex';
+        host.querySelectorAll('.tab-content').forEach(t => {
+            t.classList.remove('active');
+            t.style.display = 'none';
+        });
+        const target = document.getElementById(tabId);
+        if (target) {
+            target.classList.add('active');
+            target.style.display = 'flex';
+            target.style.flexDirection = 'column';
+        }
+        // Re-apply role visibility for transplanted admin-gated panels
+        // (Scenarios / System / Users tabs use [data-role-min]).
+        if (typeof window._applyRoleVisibility === 'function') {
+            try { window._applyRoleVisibility(host); } catch (_) {}
+        }
+        if (typeof loaderFn === 'function') {
+            try { loaderFn(); } catch (_) {}
+        }
+    }
+    window._settingsShowLegacyTab = _settingsShowLegacyTab;
+
+    let _settingsCurrentDomain = 'operate.scope';
+
+    function _settingsOpen(domain) {
+        const modal = document.getElementById('settings-modal-v2');
+        if (!modal) return;
+        if (typeof domain === 'string' && domain) {
+            _settingsCurrentDomain = domain;
+        }
+        // Use the standard modal-window display path so SETTINGS shares
+        // the same chrome / backdrop / dismiss behavior as every other
+        // modal in the app (country / sitrep / evidence / help / etc.).
+        openModal('settings-modal-v2');
+        _settingsRenderNav();
+        _settingsRenderPane(_settingsCurrentDomain);
+    }
+    function _settingsClose() {
+        const modal = document.getElementById('settings-modal-v2');
+        if (modal) modal.style.display = 'none';
+        const bd = document.getElementById('settings-backdrop');
+        const stillOpen = document.querySelector(
+            '.modal-window[style*="display: flex"], '
+            + '.modal-window[style*="display:flex"]'
+        );
+        if (bd && !stillOpen) bd.style.display = 'none';
+    }
+    window._settingsOpen = _settingsOpen;
+    window._settingsClose = _settingsClose;
+
+    function _settingsRenderNav() {
+        const nav = document.getElementById('settings-v2-nav');
+        if (!nav) return;
+        const html = _SETTINGS_DOMAINS.map(grp => {
+            const items = grp.sub.map(s => {
+                const cls = 'settings-nav-item'
+                    + (s.id === _settingsCurrentDomain ? ' active' : '');
+                return '<div class="' + cls + '" '
+                    + 'data-domain="' + _escHtml(s.id) + '">'
+                    + _t(s.labelKey) + '</div>';
+            }).join('');
+            return '<div class="settings-nav-group">'
+                + '<div class="settings-nav-group-label">'
+                + _escHtml(grp.label) + '</div>'
+                + items + '</div>';
+        }).join('');
+        nav.innerHTML = html;
+        nav.querySelectorAll('[data-domain]').forEach(el => {
+            el.addEventListener('click', () => {
+                _settingsCurrentDomain = el.getAttribute('data-domain');
+                _settingsRenderNav();
+                _settingsRenderPane(_settingsCurrentDomain);
+            });
+        });
+    }
+
+    // ── Phase 11 — cfg-* design system helpers ────────────────────────
+    // Wrap pane content in the same visual idiom as the legacy MASTER
+    // CONFIGURATION tabs so SETTINGS feels consistent across every
+    // domain. All renderers below build their content via these
+    // helpers instead of hand-authoring h3 / inline-styled blocks.
+    function _settingsCfgPage(parts) {
+        // parts: { help: string|null, sections: [{title, body, danger?}] }
+        const help = parts.help
+            ? '<div class="help-text">' + parts.help + '</div>' : '';
+        const sections = (parts.sections || []).map(s => {
+            const cls = 'cfg-section' + (s.danger ? ' danger' : '');
+            const badges = (s.badges || []).join(' ');
+            const title = '<div class="cfg-section-title">'
+                + _escHtml(s.title)
+                + (badges ? ' ' + badges : '') + '</div>';
+            return '<div class="' + cls + '">' + title + s.body + '</div>';
+        }).join('');
+        return '<div class="cfg-scroll">' + help + sections + '</div>';
+    }
+    function _settingsCfgKV(rows) {
+        // rows: [{k: label, v: html}]
+        const inner = rows.map(r =>
+            '<div class="k">' + _escHtml(r.k) + '</div>'
+            + '<div class="v">' + r.v + '</div>'
+        ).join('');
+        return '<div class="cfg-kv">' + inner + '</div>';
+    }
+    function _settingsCfgChip(text, kind) {
+        return '<span class="cfg-status-chip ' + (kind || 'dim') + '">'
+            + _escHtml(text) + '</span>';
+    }
+    function _settingsCfgStatusEl() {
+        // Inline status span used by save/reset buttons.
+        return '<span class="cfg-status" data-cfg-status></span>';
+    }
+    function _settingsCfgSetStatus(pane, msg, kind) {
+        const el = pane.querySelector('[data-cfg-status]');
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'cfg-status ' + (kind || '');
+    }
+
+    function _settingsRenderPane(domain) {
+        const pane = document.getElementById('settings-v2-pane');
+        const render = document.getElementById('settings-v2-render');
+        const host = document.getElementById('settings-v2-legacy-host');
+        if (!pane || !render) return;
+        render.style.display = 'block';
+        render.innerHTML = '';
+        if (host) host.style.display = 'none';
+        let fn = null, registryDomain = null;
+        for (const grp of _SETTINGS_DOMAINS) {
+            for (const s of grp.sub) {
+                if (s.id === domain) {
+                    fn = s.fn;
+                    registryDomain = s.registryDomain || null;
+                    break;
+                }
+            }
+        }
+        const handler = fn && window[fn];
+        if (typeof handler === 'function') {
+            // Pass the render element AND a context object so the generic
+            // registry-driven renderer knows which domain it's rendering.
+            handler(render, { domain, registryDomain });
+        } else {
+            render.innerHTML = '<div style="opacity:0.6">Section not yet '
+                + 'available: <code>' + _escHtml(domain) + '</code></div>';
+        }
+    }
+
+    // ── Phase R3 — registry-driven generic renderer ───────────────────
+    // Fetches /api/v2/config/registry + /api/v2/config/values once per
+    // pane open, renders every key in the requested registry-domain
+    // (e.g. 'tune.scoring', 'operate.intel') as a labeled cfg-row form
+    // field. Save button POSTs to /api/v2/config; reset button DELETEs.
+    // No per-key UI code — adding a new field to the registry makes it
+    // appear in SETTINGS automatically.
+    let _settingsRegistryCache = null;       // {ts, registry, values}
+    const _SETTINGS_REGISTRY_TTL_MS = 5000;  // refetch each pane open
+
+    async function _settingsFetchRegistry() {
+        const now = Date.now();
+        if (_settingsRegistryCache &&
+            now - _settingsRegistryCache.ts < _SETTINGS_REGISTRY_TTL_MS) {
+            return _settingsRegistryCache;
+        }
+        try {
+            const [rReg, rVal] = await Promise.all([
+                fetch('/api/v2/config/registry'),
+                fetch('/api/v2/config/values'),
+            ]);
+            if (!rReg.ok || !rVal.ok) return null;
+            const reg = await rReg.json();
+            const val = await rVal.json();
+            const valIdx = {};
+            (val.values || []).forEach(v => { valIdx[v.key] = v; });
+            _settingsRegistryCache = {
+                ts: now,
+                registry: reg.registry || [],
+                groups: reg.groups || [],
+                values: valIdx,
+            };
+            return _settingsRegistryCache;
+        } catch (_) { return null; }
+    }
+
+    // ── SETTINGS UX redesign 2026-05-05 — unified 4-system badge taxonomy ──
+    //   1. value source  (where the displayed value came from)
+    //   2. apply timing  (when a saved change actually takes effect)
+    //   3. impact        (how dangerous a change is)
+    //   4. access        (icon-only — secret / immutable / bootstrap)
+    function _settingsBadgeSource(valueRow) {
+        if (!valueRow) return '';
+        const s = valueRow.source;
+        if (s === 'db')      return '<span class="cfg-badge cfg-badge-source-db" '
+            + 'title="Stored in DB (set via Settings UI). Overrides env / default.">DB</span>';
+        if (s === 'env')     return '<span class="cfg-badge cfg-badge-source-env" '
+            + 'title="Loaded from config.env on startup.">ENV</span>';
+        if (s === 'default') return '<span class="cfg-badge cfg-badge-source-default" '
+            + 'title="Using the registry default — no override in DB or env.">DEFAULT</span>';
+        return '';
+    }
+    function _settingsBadgeTiming(meta) {
+        // Read-only / env-only families never accept Settings-UI writes; they
+        // share one badge so the UI is honest about that fact.
+        if (meta.bootstrap || meta.immutable || meta.secret) {
+            return '<span class="cfg-badge cfg-badge-timing-readonly" '
+                + 'title="Read-only here. Edit in config.env (and restart) — '
+                + 'this key is bootstrap/immutable/secret.">READ-ONLY</span>';
+        }
+        if (meta.restart_required) {
+            return '<span class="cfg-badge cfg-badge-timing-restart" '
+                + 'title="Saved to DB now, but the new value only takes '
+                + 'effect after `docker compose restart`.">RESTART</span>';
+        }
+        // apply_timing label hint — TIMING_LIVE_NEXT_CYCLE keys take effect
+        // on next intel queue cycle (intel-related), not next scoring tick.
+        if (typeof meta.apply_timing === 'string'
+            && meta.apply_timing.indexOf('intel queue') >= 0) {
+            return '<span class="cfg-badge cfg-badge-timing-next-cycle" '
+                + 'title="Applies on the next intel queue cycle '
+                + '(typically &lt; 60s).">NEXT-CYCLE</span>';
+        }
+        return '<span class="cfg-badge cfg-badge-timing-live" '
+            + 'title="Applies live on the next scoring tick (~30s). '
+            + 'No restart required.">LIVE</span>';
+    }
+    function _settingsBadgeImpact(meta) {
+        if (meta.impact_level === 'high') {
+            const tip = meta.impact_warning
+                || 'High impact — changing this affects many downstream '
+                   + 'computations. A reason is required at SAVE time.';
+            return '<span class="cfg-badge cfg-badge-impact-high" '
+                + 'title="' + _escHtml(tip) + '">HIGH</span>';
+        }
+        if (meta.impact_level === 'med') {
+            return '<span class="cfg-badge cfg-badge-impact-med" '
+                + 'title="Medium impact — changes are visible in the next '
+                   + 'cycle, but rarely catastrophic.">MED</span>';
+        }
+        return '';  // LOW = no badge to keep the row uncluttered
+    }
+    function _settingsBadgeAccess(meta) {
+        // Icon-only chips — keep the row scan-able. Tooltip carries the
+        // explanation. Multiple flags can be present (e.g. JWT_SECRET_KEY
+        // is secret + immutable + bootstrap); render them in priority order.
+        const out = [];
+        if (meta.secret) {
+            out.push('<span class="cfg-badge cfg-badge-access" data-kind="secret" '
+                + 'title="Secret — the API never returns the plaintext value. '
+                + 'Set via config.env, then restart.">🔑</span>');
+        }
+        if (meta.bootstrap) {
+            out.push('<span class="cfg-badge cfg-badge-access" data-kind="bootstrap" '
+                + 'title="Bootstrap — read once at first startup, persisted to '
+                + 'DB. Cannot be edited from the UI.">★</span>');
+        } else if (meta.immutable) {
+            out.push('<span class="cfg-badge cfg-badge-access" data-kind="immutable" '
+                + 'title="Immutable — env-only. Edit config.env and restart.">🔒</span>');
+        }
+        return out.join('');
+    }
+    function _settingsKeyBadges(meta, valueRow) {
+        return [
+            _settingsBadgeSource(valueRow),
+            _settingsBadgeTiming(meta),
+            _settingsBadgeImpact(meta),
+            _settingsBadgeAccess(meta),
+        ].filter(Boolean).join(' ');
+    }
+    // Legacy helpers kept as thin shims — older renderers still call them.
+    function _settingsApplyTimingBadge(meta) { return _settingsBadgeTiming(meta); }
+    function _settingsImpactChip(meta) { return _settingsBadgeImpact(meta); }
+
+    // SETTINGS UX redesign 2026-05-05 — pick a widget based on the key's
+    // declared type, range, and enum so booleans / enums / ranges no longer
+    // render as plain text inputs.
+    function _settingsFieldHtml(meta, valueRow) {
+        const id = 'cfg-' + meta.key;
+        const cur = valueRow ? valueRow.value : meta.default;
+        const readOnly = meta.secret || meta.immutable || meta.bootstrap;
+        // (a) bool → toggle switch
+        if (meta.type === 'bool') {
+            const on = cur === true || cur === 'true';
+            return ''
+                + '<label class="cfg-toggle">'
+                +   '<input type="checkbox" id="' + id + '"'
+                +     (on ? ' checked' : '')
+                +     (readOnly ? ' disabled' : '') + '>'
+                +   '<span class="cfg-toggle-slider"></span>'
+                + '</label>'
+                + '<span class="cfg-toggle-label" id="' + id + '-lbl">'
+                +   (on ? 'ON' : 'OFF') + '</span>';
+        }
+        // (b) enum → segment (≤4) or select. Tooltip per option.
+        if (meta.enum && meta.enum.length) {
+            if (meta.enum.length <= 4) {
+                const segs = meta.enum.map(e => {
+                    const sel = String(cur) === String(e) ? ' active' : '';
+                    return '<button type="button" class="cfg-seg-btn' + sel + '"'
+                        + ' data-cfg-target="' + id + '"'
+                        + ' data-cfg-value="' + _escHtml(String(e)) + '"'
+                        + (readOnly ? ' disabled' : '')
+                        + '>' + _escHtml(String(e)) + '</button>';
+                }).join('');
+                return '<div class="cfg-segment">' + segs + '</div>'
+                    + '<input type="hidden" id="' + id + '"'
+                    + ' value="' + _escHtml(String(cur ?? '')) + '">';
+            }
+            const opts = meta.enum.map(e =>
+                '<option value="' + _escHtml(String(e)) + '"'
+                + (String(cur) === String(e) ? ' selected' : '') + '>'
+                + _escHtml(String(e)) + '</option>').join('');
+            return '<select id="' + id + '" class="cfg-select"'
+                + (readOnly ? ' disabled' : '') + '>' + opts + '</select>';
+        }
+        // (c) numeric — range slider + numeric input when both bounds exist
+        //     and the span is reasonable; otherwise plain numeric input.
+        if (meta.type === 'int' || meta.type === 'float') {
+            const step = meta.type === 'float' ? '0.01' : '1';
+            const hasMin = meta.min_value != null;
+            const hasMax = meta.max_value != null;
+            const span = hasMin && hasMax ? meta.max_value - meta.min_value : null;
+            // Slider when both bounds defined and span is bounded enough to
+            // be useful (avoid sliders for unbounded counters).
+            if (hasMin && hasMax && span > 0 && span <= 200000) {
+                const valStr = (cur != null && cur !== '') ? String(cur) : String(meta.min_value);
+                return '<div class="cfg-range-wrap">'
+                    +   '<span class="cfg-range-bounds">'
+                    +     _escHtml(String(meta.min_value)) + '</span>'
+                    +   '<input type="range" id="' + id + '-rng"'
+                    +     ' min="' + meta.min_value + '"'
+                    +     ' max="' + meta.max_value + '"'
+                    +     ' step="' + step + '"'
+                    +     ' value="' + _escHtml(valStr) + '"'
+                    +     (readOnly ? ' disabled' : '') + '>'
+                    +   '<span class="cfg-range-bounds">'
+                    +     _escHtml(String(meta.max_value)) + '</span>'
+                    +   '<input type="number" id="' + id + '" class="cfg-input"'
+                    +     ' min="' + meta.min_value + '"'
+                    +     ' max="' + meta.max_value + '"'
+                    +     ' step="' + step + '"'
+                    +     ' value="' + _escHtml(valStr) + '"'
+                    +     (readOnly ? ' disabled' : '') + '>'
+                    +   (meta.unit ? ' <span class="cfg-hint" style="margin:0;display:inline">'
+                        + _escHtml(meta.unit) + '</span>' : '')
+                    + '</div>';
+            }
+            const minA = hasMin ? ` min="${meta.min_value}"` : '';
+            const maxA = hasMax ? ` max="${meta.max_value}"` : '';
+            const valA = (cur != null && cur !== '') ? ` value="${_escHtml(String(cur))}"` : '';
+            return '<input type="number" id="' + id + '" class="cfg-input"'
+                + ' step="' + step + '"' + minA + maxA + valA
+                + (readOnly ? ' disabled' : '')
+                + ' style="max-width:140px">'
+                + (meta.unit ? ' <span class="cfg-hint" style="margin:0;display:inline">'
+                  + _escHtml(meta.unit) + '</span>' : '');
+        }
+        // (d) list[str] → tag editor (chip input)
+        if (meta.type === 'list[str]') {
+            const v = Array.isArray(cur) ? cur : (typeof cur === 'string' && cur
+                ? cur.split(',').map(s => s.trim()).filter(Boolean) : []);
+            const tags = v.map(t => '<span class="cfg-tag">'
+                + _escHtml(String(t))
+                + '<button type="button" class="cfg-tag-remove" '
+                +   'data-cfg-target="' + id + '" '
+                +   'data-cfg-tag="' + _escHtml(String(t)) + '"'
+                +   (readOnly ? ' disabled' : '')
+                +   '>×</button></span>').join('');
+            return '<div class="cfg-tags-wrap" data-cfg-target="' + id + '">'
+                +   tags
+                +   '<input type="text" class="cfg-tag-input"'
+                +     ' data-cfg-target="' + id + '"'
+                +     ' placeholder="add value, press Enter"'
+                +     (readOnly ? ' disabled' : '') + '>'
+                + '</div>'
+                + '<input type="hidden" id="' + id + '"'
+                + ' value="' + _escHtml(v.join(',')) + '">';
+        }
+        // (e) Secret string — disabled input + indicator placeholder.
+        if (meta.secret) {
+            const ind = valueRow && valueRow.indicator;
+            const placeholder = ind && ind.set
+                ? `configured · ends in …${ind.last4 || '????'}`
+                : '(unset)';
+            return '<input type="text" id="' + id + '" class="cfg-input secret-field"'
+                + ' value="" disabled'
+                + ' placeholder="' + _escHtml(placeholder) + '"'
+                + ' style="width:100%;max-width:560px">'
+                + ' <span class="cfg-hint" style="margin:0;display:inline">'
+                + 'edit in <code>config.env</code></span>';
+        }
+        // (f) plain string fallback
+        return '<input type="text" id="' + id + '" class="cfg-input"'
+            + ' value="' + _escHtml(String(cur ?? '')) + '"'
+            + (readOnly ? ' disabled' : '')
+            + ' style="width:100%;max-width:560px">';
+    }
+
+    // SETTINGS UX redesign — wire up the new widget event handlers.
+    // Toggle, segment, slider+number sync, tag editor.
+    function _wireKeyWidgets(pane) {
+        // Toggle: keep ON/OFF label in sync with checkbox state.
+        pane.querySelectorAll('.cfg-toggle input[type="checkbox"]').forEach(cb => {
+            const lbl = pane.querySelector('#' + cb.id + '-lbl');
+            cb.addEventListener('change', () => {
+                if (lbl) lbl.textContent = cb.checked ? 'ON' : 'OFF';
+            });
+        });
+        // Segment: clicking a button toggles `.active` and writes the
+        // hidden input the row reader uses.
+        pane.querySelectorAll('.cfg-seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.disabled) return;
+                const tgt = btn.getAttribute('data-cfg-target');
+                const val = btn.getAttribute('data-cfg-value');
+                const hidden = pane.querySelector('#' + CSS.escape(tgt));
+                if (hidden) hidden.value = val;
+                // Mark only the clicked button active within the same group.
+                btn.parentElement.querySelectorAll('.cfg-seg-btn').forEach(b =>
+                    b.classList.toggle('active', b === btn));
+            });
+        });
+        // Slider ↔ number two-way sync, plus the gradient fill update.
+        pane.querySelectorAll('.cfg-range-wrap').forEach(wrap => {
+            const rng = wrap.querySelector('input[type="range"]');
+            const num = wrap.querySelector('input[type="number"]');
+            if (!rng || !num) return;
+            const update = (src, dst) => {
+                dst.value = src.value;
+                const min = parseFloat(rng.min) || 0;
+                const max = parseFloat(rng.max) || 100;
+                const v = parseFloat(rng.value);
+                const pct = max === min ? 0 : ((v - min) / (max - min)) * 100;
+                rng.style.setProperty('--cfg-pct', pct + '%');
+            };
+            update(rng, num);  // init gradient
+            rng.addEventListener('input', () => update(rng, num));
+            num.addEventListener('input', () => {
+                rng.value = num.value;
+                update(rng, num);
+            });
+        });
+        // Tag editor: Enter inserts a chip; click on × removes one. We
+        // serialise to the hidden input as a comma-separated string so the
+        // existing readField path (`type === 'list[str]'`) keeps working.
+        pane.querySelectorAll('.cfg-tags-wrap').forEach(wrap => {
+            const tgt = wrap.getAttribute('data-cfg-target');
+            const hidden = pane.querySelector('#' + CSS.escape(tgt));
+            const input = wrap.querySelector('.cfg-tag-input');
+            const sync = () => {
+                const tags = Array.from(wrap.querySelectorAll('.cfg-tag'))
+                    .map(t => t.firstChild ? t.firstChild.textContent : '')
+                    .filter(Boolean);
+                if (hidden) hidden.value = tags.join(',');
+            };
+            if (input) {
+                input.addEventListener('keydown', e => {
+                    if (e.key !== 'Enter' && e.key !== ',') return;
+                    e.preventDefault();
+                    const v = (input.value || '').trim();
+                    if (!v) return;
+                    const chip = document.createElement('span');
+                    chip.className = 'cfg-tag';
+                    chip.textContent = v;
+                    const x = document.createElement('button');
+                    x.type = 'button';
+                    x.className = 'cfg-tag-remove';
+                    x.textContent = '×';
+                    x.addEventListener('click', () => {
+                        chip.remove();
+                        sync();
+                    });
+                    chip.appendChild(x);
+                    wrap.insertBefore(chip, input);
+                    input.value = '';
+                    sync();
+                });
+                wrap.addEventListener('click', e => {
+                    if (e.target === wrap) input.focus();
+                });
+            }
+            wrap.querySelectorAll('.cfg-tag-remove').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tag = btn.closest('.cfg-tag');
+                    if (tag) tag.remove();
+                    sync();
+                });
+            });
+        });
+    }
+
+    // SETTINGS UX redesign 2026-05-05 — single-line summary with `why` /
+    // `when` revealed on hover. Keeps the row scan-able while preserving
+    // the deeper rationale for analysts who want it.
+    function _settingsKeyExplain(meta) {
+        const what = (meta.what || meta.description || '').trim();
+        const why  = (meta.why  || '').trim();
+        const when = (meta.when || '').trim();
+        if (!what && !why && !when) return '';
+        // Build the tooltip body — only show `i` icon when there's deeper
+        // content beyond the visible summary line.
+        const tipParts = [];
+        if (why)  tipParts.push('Why: '  + why);
+        if (when) tipParts.push('When: ' + when);
+        const tipHtml = tipParts.length
+            ? '<span class="cfg-key-info" tabindex="0" '
+              + 'title="' + _escHtml(tipParts.join('\n\n')) + '">ⓘ</span>'
+            : '';
+        return '<div class="cfg-key-summary">'
+            +    (what ? _escHtml(what) : '')
+            +    (tipHtml ? ' ' + tipHtml : '')
+            + '</div>';
+    }
+    function _settingsKeyNow(meta, valueRow) {
+        // P5 — render a "Now" strip (current value provenance + restart-pending)
+        // for high-impact keys only, so the row doesn't get noisy for trivia.
+        if (meta.impact_level !== 'high') {
+            return (valueRow && valueRow.restart_pending)
+                ? '<div class="cfg-key-now" style="border-left-color:#ff9900">'
+                  + '<b>restart pending</b> — DB override saved, but the live '
+                  + 'process still runs the previous value.'
+                  + '</div>' : '';
+        }
+        const cur = valueRow ? valueRow.value : null;
+        const def = (meta.default !== null && meta.default !== undefined)
+            ? String(meta.default) : '—';
+        const fragments = [];
+        fragments.push('<b>Now:</b> ' + _escHtml(cur === null || cur === undefined
+            ? '(unset)' : String(cur)));
+        fragments.push('<b>Default:</b> ' + _escHtml(def));
+        if (meta.unit) fragments.push('<b>Unit:</b> ' + _escHtml(meta.unit));
+        if (meta.min_value != null && meta.max_value != null) {
+            fragments.push('<b>Range:</b> ' + _escHtml(String(meta.min_value))
+                + ' — ' + _escHtml(String(meta.max_value)));
+        }
+        if (valueRow && valueRow.restart_pending) {
+            fragments.push('<span style="color:#ffaa44">restart pending</span>');
+        }
+        return '<div class="cfg-key-now">' + fragments.join(' &nbsp;·&nbsp; ') + '</div>';
+    }
+    function _settingsRowHtml(meta, valueRow) {
+        const widget   = _settingsFieldHtml(meta, valueRow);
+        const badges   = _settingsKeyBadges(meta, valueRow);
+        const explain  = _settingsKeyExplain(meta);
+        const now      = _settingsKeyNow(meta, valueRow);
+        const buttons  = (meta.secret || meta.immutable || meta.bootstrap)
+            ? ''
+            : '<button class="btn-tactical cfg-save" '
+              + '        data-key="' + _escHtml(meta.key) + '">SAVE</button>'
+              + '<button class="btn-tactical cfg-reset" '
+              + '        data-key="' + _escHtml(meta.key) + '">RESET</button>';
+        return ''
+            + '<div class="cfg-row" data-key="' + _escHtml(meta.key) + '" '
+            +   'style="flex-wrap:nowrap;align-items:flex-start;gap:14px;'
+            +   'padding:10px 0;border-bottom:1px solid #161616">'
+            + '  <div style="min-width:240px;flex-shrink:0">'
+            + '    <div style="font-size:12px;color:#ccc;font-weight:bold;'
+            +       'word-break:break-all">' + _escHtml(meta.key) + '</div>'
+            + '    <div style="margin-top:4px">' + badges + '</div>'
+            + '  </div>'
+            + '  <div style="flex:1;min-width:0">'
+            +      widget
+            +      explain
+            +      now
+            + '  </div>'
+            + '  <div style="display:flex;flex-direction:column;gap:4px;'
+            +    'flex-shrink:0;align-self:flex-start;padding-top:1px">'
+            +    buttons
+            + '  </div>'
+            + '</div>';
+    }
+
+    // SETTINGS UX redesign 2026-05-05 — page-level explanation per domain.
+    // Each entry is { title, what, why, when }. Domains without an entry
+    // get a generic auto-generated header from the registry domain string.
+    const _SETTINGS_PAGE_DESCRIPTIONS = {
+        'operate.scope': {
+            title: 'Scenario Focus',
+            what: 'The scenario the analyst is currently focused on. Sensors '
+                + 'run at full coverage on this scenario; others run in C-lite '
+                + 'mode (LLM intel + global signals only).',
+            why: 'Compute budget. Running every sensor for every scenario '
+                + 'every cycle would saturate API quotas and CPU. Focusing '
+                + 'one scenario keeps recall high where it matters today.',
+            when: 'Whenever your operational priority shifts. Typical change '
+                + 'cadence is daily-to-weekly during a crisis.',
+        },
+        'operate.intel': {
+            title: 'LLM Intel Triage Thresholds',
+            what: 'Confidence boundaries that decide whether an LLM-extracted '
+                + 'intel item is auto-confirmed, sent to analyst review, or '
+                + 'silently discarded.',
+            why: 'NP1 — recall before precision. Lower thresholds catch more '
+                + 'real signals at the cost of analyst review load. Set the '
+                + 'AUTO-CONFIRM floor based on observed reversal rate.',
+            when: 'Monthly review of the auto-judge audit. Bump when the '
+                + 'reversal rate rises above ~10% or when silent drops are '
+                + 'masking known events.',
+        },
+        'operate.corroboration': {
+            title: 'Multi-source Corroboration',
+            what: 'Cross-source confirmation rules used to upgrade an intel '
+                + 'item from PENDING → AUTO-CONFIRMED.',
+            why: 'NP2 — multi-source convergence. A single noisy source must '
+                + 'never be enough on its own to drive a TL change.',
+            when: 'When you see analyst feedback flagging premature confirms, '
+                + 'tighten min-sources or independence; loosen if recall is '
+                + 'leaking.',
+        },
+        'operate.notifications': {
+            title: 'Alert Notification Routing',
+            what: 'Slack / Teams / generic webhook delivery for TL changes '
+                + 'and high-confidence intel.',
+            why: 'Out-of-band visibility for analysts not actively watching '
+                + 'the dashboard. Debounce protects against alert storms.',
+            when: 'When integrating new channels, or when a debounce window '
+                + 'is too tight (duplicate alerts) or too loose (silence).',
+        },
+        'operate.calibration': {
+            title: 'Auto-Calibration Tier Governor',
+            what: 'Operator controls for the self-promoting auto-tune '
+                + 'system. Caps the maximum tier the governor can reach '
+                + 'and sets the post-HIGH-change cool-down so chained '
+                + 'proposals can\'t pile on an unproven change.',
+            why: 'The tier governor evaluates its own reliability daily '
+                + 'and promotes 0→1→2→3 (proposal-only → LOW → '
+                + 'LOW+MED → FULL). The cap here is the operator\'s '
+                + 'kill-switch / pin: setting it to 0 halts auto-apply, '
+                + 'setting it to 3 allows full self-tuning. The governor '
+                + 'never exceeds this cap regardless of metrics.',
+            when: 'Drop the cap to 0 immediately on any suspicion of '
+                + 'mis-tuning. Pin to 1 or 2 if you want to stay below '
+                + 'the auto-determined ceiling. Restore to 3 to let '
+                + 'the system promote on its own schedule once the '
+                + 'incident is understood.',
+        },
+        'tune.scoring': {
+            title: 'Convergence Scoring Weights',
+            what: 'Domain weights for the multi-domain convergence formula '
+                + '(cyber / physical / info), plus the convergence bonus '
+                + 'and threat-level hysteresis.',
+            why: 'Heart of the scoring engine. The three weights MUST sum '
+                + 'to 1.0 — the registry validator rejects writes that '
+                + 'violate the invariant.',
+            when: 'Quarterly recalibration with at least 14d of post-event '
+                + 'analyst feedback. Single-cycle changes will swing TLs.',
+        },
+        'tune.zscore': {
+            title: 'Adaptive Z-score Baseline',
+            what: 'Sample-size and shape parameters for adaptive z-score '
+                + 'detection across sensors with seasonality.',
+            why: 'A static z-score threshold misses slow-onset anomalies and '
+                + 'over-fires on bursty channels. Adaptive baselines absorb '
+                + 'periodicity and quiet hours.',
+            when: 'When a new sensor is added or its variance pattern shifts '
+                + '(new feed source, traffic pattern change).',
+        },
+        'tune.sequence': {
+            title: 'Escalation Sequence Bonuses',
+            what: 'Window length and bonus magnitudes for the sequence '
+                + 'scorer (NARRATIVE_BURST → ISR_SURGE → SYNC_DDOS '
+                + '→ FIRMS_ANOMALY).',
+            why: 'Real escalations show ordered progression. Detecting the '
+                + 'sequence is stronger evidence than seeing each event '
+                + 'in isolation.',
+            when: 'Adjust window when reviewing post-incident timelines '
+                + 'and finding the sequence missed by < 1h or false-fired '
+                + 'across 24h+.',
+        },
+        'tune.ddos': {
+            title: 'DDoS Acceleration Detection',
+            what: 'Z-score and synchronization thresholds for the DDoS '
+                + 'acceleration engine (Ambush / C2 sync detection).',
+            why: 'Detects coordinated multi-source DDoS via 2nd-derivative '
+                + 'spike + cross-source timing alignment.',
+            when: 'Lower the C2 sync threshold during cooperative-attack '
+                + 'campaigns; raise it if individual large-volume sources '
+                + 'are over-flagged.',
+        },
+        'tune.narrative': {
+            title: 'Narrative Burst Detector',
+            what: 'RSS narrative volume z-score thresholds and baseline '
+                + 'retention.',
+            why: 'Information-domain signal. Narrative bursts often precede '
+                + 'kinetic events by 24-72h.',
+            when: 'When mainstream news cycles drown out signal — bump '
+                + 'CRITICAL up; when state-media silence masks events — '
+                + 'bring ALERT down.',
+        },
+        'tune.airspace': {
+            title: 'Airspace Anomaly Thresholds',
+            what: 'Closure rate and flight-anomaly thresholds for airspace '
+                + 'sensors (NOTAM / OpenSky / military air).',
+            why: 'Physical-domain leading indicator. Civilian airspace '
+                + 'closures and military air uplift are reliable warning '
+                + 'signs.',
+            when: 'Adjust when a participant nation publishes routine '
+                + 'NOTAM volume changes (exercise season, weather).',
+        },
+        'tune.maritime': {
+            title: 'Maritime / ISR Thresholds',
+            what: 'AIS dark-gap thresholds, anchoring radius, and ISR '
+                + 'aircraft surge thresholds.',
+            why: 'Physical-domain leading indicator. Dark gaps near choke '
+                + 'points and ISR concentration are pre-conflict signals.',
+            when: 'Tune to match shipping-lane geometry of newly-added '
+                + 'scenarios.',
+        },
+        'tune.gdelt': {
+            title: 'GDELT Geopolitical Tone',
+            what: 'Tone alert threshold and history window for the GDELT '
+                + 'geopolitical event monitor.',
+            why: 'Long-baseline information signal. -15.0 tone is a typical '
+                + 'pre-tension floor; -20.0+ is pre-invasion territory.',
+            when: 'Tighten window during quiet periods to spot small dips; '
+                + 'widen during high-activity periods to filter noise.',
+        },
+        'infra.network': {
+            title: 'Network & Proxy',
+            what: 'Outbound proxy and TLS verification policy for sensor '
+                + 'fetches.',
+            why: 'Restart-required because the requests session is built '
+                + 'once at startup. Behind a TLS-inspecting proxy you may '
+                + 'need to disable verification.',
+            when: 'On deployment to a new corporate environment, or when '
+                + 'the proxy CA chain changes.',
+        },
+        'infra.cache': {
+            title: 'Cache TTLs',
+            what: 'In-memory sensor-cache TTL settings.',
+            why: 'Trade freshness for upstream API quota. Most public OSINT '
+                + 'sources rate-limit aggressively.',
+            when: 'Lower TTL when investigating an active event in real '
+                + 'time; raise during quiet periods to spare quota.',
+        },
+        'infra.poll': {
+            title: 'Sensor Polling Cadence',
+            what: 'Per-sensor poll intervals (Diplomatic / Military / '
+                + 'Narrative / Telegram / Check-Host).',
+            why: 'Each upstream has its own quota and freshness. Telegram '
+                + 'channels need ≤15min for active campaigns; GDELT can '
+                + 'tolerate hourly.',
+            when: 'When you see "stale data" warnings on a sensor, or '
+                + 'rate-limit errors on an upstream.',
+        },
+        'infra.server': {
+            title: 'Server Bind & Ports',
+            what: 'Flask bind address / port and JWT expiry windows.',
+            why: 'Restart-required — Flask reads these once. Production '
+                + 'should bind 0.0.0.0 inside Docker; local dev uses '
+                + '127.0.0.1.',
+            when: 'On deployment to a new environment. Otherwise rarely.',
+        },
+        'infra.plugins': {
+            title: 'Plugin Sensor Loader',
+            what: 'Directory scan and enable/disable lists for BaseSensor '
+                + 'plugins under plugins/.',
+            why: 'Lets you ship optional sensors without modifying the '
+                + 'main image.',
+            when: 'When adding or removing plugins, or selectively '
+                + 'disabling one for triage.',
+        },
+        'access.api_keys': {
+            title: 'External API Keys',
+            what: 'Keys / tokens for upstream OSINT services (Cloudflare '
+                + 'Radar / OWM / GreyNoise / ThreatFox / OpenSky / ACLED).',
+            why: 'Secrets — never returned by the API. The UI shows only '
+                + 'a "configured · ends in …xxxx" indicator. Edit in '
+                + 'config.env, then docker compose restart.',
+            when: 'Rotate any key on suspected exposure. Provision '
+                + 'OpenSky OAuth2 credentials to lift the rate limit '
+                + 'from 400 → 4000 req/day.',
+        },
+        'access.webhooks': {
+            title: 'Notification Webhooks',
+            what: 'Slack / Teams / generic HTTP webhooks for outbound '
+                + 'alert delivery.',
+            why: 'Secrets — webhook URLs grant write access to a channel. '
+                + 'Edit in config.env to set; UI never returns the value.',
+            when: 'When connecting a new alerting channel, or when a '
+                + 'webhook is rotated by the receiving platform.',
+        },
+        'access.jwt': {
+            title: 'JWT Authentication',
+            what: 'JWT signing secret and access / refresh token expiry '
+                + 'windows.',
+            why: 'JWT_SECRET_KEY is bootstrap — auto-generated on first '
+                + 'start. Rotating it forces every user to re-authenticate.',
+            when: 'On suspected secret exposure (rotate). On compliance '
+                + 'audit findings (tighten access expiry).',
+        },
+        'access.admin': {
+            title: 'Admin Account',
+            what: 'Default password seeded for the admin user on first '
+                + 'startup.',
+            why: 'Bootstrap-only. Used once to create the admin row, '
+                + 'then ignored. Change the password via the user '
+                + 'management UI after first login.',
+            when: 'Never edit after first start. Use the user-management '
+                + 'reset flow if the password is lost.',
+        },
+    };
+    function _settingsPageHeader(dom, keysCount) {
+        const desc = _SETTINGS_PAGE_DESCRIPTIONS[dom];
+        const fallbackTitle = String(dom).replace(/\./g, ' / ').toUpperCase();
+        const title = desc ? desc.title : fallbackTitle;
+        const sub = String(dom) + '  ·  ' + keysCount + ' key'
+            + (keysCount === 1 ? '' : 's');
+        if (!desc) {
+            return '<div class="cfg-page-header">'
+                +    '<div class="cfg-page-title">' + _escHtml(title) + '</div>'
+                +    '<div class="cfg-page-subtitle">' + _escHtml(sub) + '</div>'
+                + '</div>';
+        }
+        const row = (label, body) =>
+            '<dt>' + label + '</dt><dd>' + _escHtml(body || '—') + '</dd>';
+        return '<div class="cfg-page-header">'
+            +    '<div class="cfg-page-title">' + _escHtml(title) + '</div>'
+            +    '<div class="cfg-page-subtitle">' + _escHtml(sub) + '</div>'
+            +    '<dl class="cfg-page-block">'
+            +       row('What',  desc.what)
+            +       row('Why',   desc.why)
+            +       row('When',  desc.when)
+            +    '</dl>'
+            + '</div>';
+    }
+
+    window._settingsRenderRegistryGroup = async function (pane, ctx) {
+        _settingsLoading(pane);
+        const cache = await _settingsFetchRegistry();
+        if (!cache) {
+            pane.innerHTML = _settingsCfgPage({
+                help: '<div class="cfg-status-banner">Registry API '
+                    + 'unavailable. Authenticate as admin and reload.</div>',
+                sections: [],
+            });
+            return;
+        }
+        const dom = ctx && ctx.registryDomain;
+        const keys = cache.registry.filter(k => k.domain === dom);
+        if (keys.length === 0) {
+            pane.innerHTML = _settingsCfgPage({
+                help: 'No registered keys in domain <code>'
+                    + _escHtml(String(dom)) + '</code>.',
+                sections: [],
+            });
+            return;
+        }
+        // Build the unified 3-section page: Page header / Configure / Apply.
+        const header = _settingsPageHeader(dom, keys.length);
+        const rows = keys.map(k =>
+            _settingsRowHtml(k, cache.values[k.key])).join('');
+        // Phase 3 hardening: operate.calibration gets a "Live status"
+        // section above Configure, fed from /api/v2/calibration/tier_governor.
+        // Other domains keep the canonical 2-section layout.
+        const sections = [];
+        if (dom === 'operate.calibration') {
+            sections.push({
+                title: 'Live status (Auto-Calibration)',
+                body: _autoCalLiveStatusPlaceholderHtml(),
+            });
+        }
+        sections.push({
+            title: 'Configure',
+            body: rows,
+        });
+        sections.push({
+            title: 'Apply',
+            body: '<div class="cfg-meta" style="margin:0;border:none">'
+                + '<span style="color:#888;font-size:11px">'
+                + 'Each row has its own SAVE / RESET. SAVE shows a '
+                + 'diff confirmation; HIGH-impact keys also require '
+                + 'a written reason.</span>'
+                + '</div>'
+                + _settingsCfgStatusEl(),
+        });
+        pane.innerHTML = _settingsCfgPage({
+            help: header,
+            sections,
+        });
+        _wireRegistryRowHandlers(pane);
+        if (dom === 'operate.calibration') {
+            _autoCalLiveStatusRefresh(pane);
+        }
+    };
+
+    // ── Auto-Calibration live status block (Phase 3 hardening) ──────────
+    // Renders into the placeholder built by _autoCalLiveStatusPlaceholderHtml
+    // when the SETTINGS Operate>Auto-Calibration page is shown. Reuses the
+    // /api/v2/calibration/tier_governor snapshot the HUD chip already polls.
+
+    function _autoCalLiveStatusPlaceholderHtml() {
+        return '<div id="autocal-live-status" '
+             + 'style="font:11.5px var(--font-mono,monospace);color:#cfd2d6;'
+             +        'padding:6px 0;line-height:1.55">'
+             +   '<span style="color:#888">Loading tier governor snapshot…</span>'
+             + '</div>';
+    }
+
+    async function _autoCalLiveStatusRefresh(pane) {
+        const host = pane.querySelector('#autocal-live-status');
+        if (!host) return;
+        try {
+            const resp = await fetch('/api/v2/calibration/tier_governor');
+            if (!resp.ok) {
+                host.innerHTML = '<span style="color:#a55">'
+                    + 'tier_governor endpoint unavailable ('
+                    + resp.status + '). Auth as analyst-or-admin and reload.'
+                    + '</span>';
+                return;
+            }
+            const body = await resp.json();
+            const s = (body && body.data) || null;
+            if (!s) {
+                host.innerHTML = '<span style="color:#a55">No snapshot data.'
+                    + '</span>';
+                return;
+            }
+            host.innerHTML = _autoCalLiveStatusHtml(s);
+        } catch (err) {
+            host.innerHTML = '<span style="color:#a55">'
+                + 'Snapshot fetch failed: ' + _escHtml(String(err)) + '</span>';
+        }
+    }
+
+    function _autoCalLiveStatusHtml(s) {
+        const tierColor = s.kill_switch_engaged ? '#e88'
+            : s.consecutive_failures > 0 ? '#e88'
+            : s.current_tier === 0 ? '#888'
+            : '#9ec';
+        const tierBadge =
+            '<span style="display:inline-block;padding:2px 8px;'
+            +              'border-radius:3px;background:#2a2d33;'
+            +              'color:' + tierColor + ';font-weight:600">'
+            +   'T' + s.current_tier + ' — ' + _escHtml(s.current_tier_name || '')
+            + '</span>';
+        const capWarn = s.kill_switch_engaged
+            ? ' <span style="color:#e88">(cap=' + s.cap
+              + ' < raw=' + s.raw_stored_tier + ' — kill-switch engaged)</span>'
+            : '';
+        const dwell = (typeof s.days_at_current_tier === 'number')
+            ? s.days_at_current_tier.toFixed(2) + 'd' : '—';
+        const enteredAt = s.tier_entered_at
+            ? new Date(s.tier_entered_at * 1000).toLocaleString()
+            : '—';
+
+        let gatesHtml = '';
+        if (s.next_tier !== null) {
+            const rows = (s.promotion_gates || []).map(g => {
+                const mark = g.met
+                    ? '<span style="color:#9ec">✓</span>'
+                    : '<span style="color:#888">✗</span>';
+                return '<div style="margin-left:14px">'
+                    + mark + ' '
+                    + _escHtml(g.name)
+                    + ': <code style="color:#cfd2d6">' + _escHtml(String(g.current))
+                    + '</code> (need '
+                    + _escHtml(String(g.required)) + ')'
+                    + '</div>';
+            }).join('');
+            gatesHtml = '<div style="margin-top:6px">'
+                + 'Promotion to <b>T' + s.next_tier + '</b>: '
+                + s.gates_met + '/' + s.gates_total + ' gates met'
+                + '</div>'
+                + rows;
+        } else {
+            gatesHtml = '<div style="margin-top:6px;color:#888">'
+                + 'At ceiling tier (T' + s.current_tier + ').</div>';
+        }
+
+        let cdHtml = '';
+        const cd = s.active_cooldowns || [];
+        if (cd.length > 0) {
+            cdHtml = '<div style="margin-top:6px">Active cooldowns:</div>'
+                + cd.map(c => {
+                    const mins = Math.round(c.remaining_seconds / 60);
+                    return '<div style="margin-left:14px">'
+                        + _escHtml(c.impact_level) + ' for ~' + mins
+                        + 'm (triggered_by ' + _escHtml(c.triggered_by) + ')'
+                        + '</div>';
+                }).join('');
+        }
+
+        let recentHtml = '';
+        const recent = s.recent_transitions || [];
+        if (recent.length > 0) {
+            recentHtml = '<div style="margin-top:6px">'
+                + 'Recent transitions (last ' + Math.min(5, recent.length)
+                + '):</div>'
+                + recent.slice(0, 5).map(t => {
+                    const ts = new Date(t.observed_at * 1000).toLocaleString();
+                    return '<div style="margin-left:14px;color:#aab">'
+                        + _escHtml(ts) + '  '
+                        + 'tier=' + t.tier + '  '
+                        + _escHtml(t.transition) + '  '
+                        + '<span style="color:#888">'
+                        + _escHtml((t.reason || '').slice(0, 80)) + '</span>'
+                        + '</div>';
+                }).join('');
+        }
+
+        return ''
+            + '<div>Tier: ' + tierBadge + capWarn + '</div>'
+            + '<div style="margin-top:4px">'
+            +   'Entered: ' + _escHtml(enteredAt) + ' (' + dwell + ' ago)'
+            + '</div>'
+            + gatesHtml
+            + cdHtml
+            + recentHtml;
+    }
+
+    function _wireRegistryRowHandlers(pane) {
+        const setStatus = (msg, kind) => _settingsCfgSetStatus(pane, msg, kind);
+        const readField = (key, meta) => {
+            // Bool: read the toggle checkbox state directly.
+            if (meta.type === 'bool') {
+                const cb = pane.querySelector('#cfg-' + CSS.escape(key));
+                return cb ? !!cb.checked : null;
+            }
+            const el = pane.querySelector('#cfg-' + CSS.escape(key));
+            if (!el) return undefined;
+            const v = el.value;
+            if (meta.type === 'int')   return v === '' ? null : Number(v);
+            if (meta.type === 'float') return v === '' ? null : Number(v);
+            // list[str]: hidden input is the comma-joined chip values.
+            if (meta.type === 'list[str]') {
+                return v === ''
+                    ? []
+                    : v.split(',').map(s => s.trim()).filter(Boolean);
+            }
+            return v;
+        };
+        // Wire the toggle / segment / slider / tag widgets.
+        _wireKeyWidgets(pane);
+        const metaByKey = {};
+        const cache = _settingsRegistryCache || {registry: []};
+        cache.registry.forEach(m => { metaByKey[m.key] = m; });
+
+        // SETTINGS UX redesign — diff preview before SAVE.
+        // Confirms with the analyst exactly what will change and surfaces
+        // the impact warning. window.confirm so the change can still be
+        // cancelled. High-impact keys then prompt for a reason as before.
+        const confirmDiff = (meta, oldValue, newValue) => {
+            if (oldValue === newValue
+                || JSON.stringify(oldValue) === JSON.stringify(newValue)) {
+                return { proceed: false, reason: null,
+                         err: 'No change to save' };
+            }
+            const fmt = v => v === null || v === undefined ? '(unset)'
+                : (Array.isArray(v) ? v.join(', ') : String(v));
+            const lines = [
+                meta.key + '  :  ' + fmt(oldValue) + '  →  ' + fmt(newValue),
+                '',
+                meta.impact_level === 'high' ? '⚠ HIGH IMPACT'
+                    : meta.impact_level === 'med' ? '◇ medium impact' : '',
+                meta.impact_warning || '',
+                '',
+                'Apply timing: ' + (meta.apply_timing || 'live'),
+            ].filter(Boolean).join('\n');
+            if (!window.confirm(lines + '\n\nProceed?')) {
+                return { proceed: false, reason: null, err: 'Cancelled' };
+            }
+            let reason = 'Settings UI';
+            if (meta.impact_level === 'high') {
+                reason = window.prompt(
+                    'HIGH IMPACT — please record a reason for this change:',
+                    '');
+                if (reason === null || !reason.trim()) {
+                    return { proceed: false, reason: null,
+                             err: 'Reason required for high-impact keys' };
+                }
+            }
+            return { proceed: true, reason, err: null };
+        };
+
+        pane.querySelectorAll('button.cfg-save').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const key = btn.getAttribute('data-key');
+                const meta = metaByKey[key];
+                if (!meta) return;
+                let value = readField(key, meta);
+                const oldRow = (cache.values && cache.values[key]) || null;
+                const oldValue = oldRow ? oldRow.value : meta.default;
+                const decision = confirmDiff(meta, oldValue, value);
+                if (!decision.proceed) {
+                    if (decision.err) setStatus(decision.err, 'err');
+                    return;
+                }
+                let reason = decision.reason;
+                btn.disabled = true;
+                try {
+                    const r = await fetch('/api/v2/config', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({key, value, reason: reason || 'Settings UI'}),
+                    });
+                    const data = await r.json().catch(() => ({}));
+                    if (r.ok) {
+                        const tag = data.restart_pending
+                            ? ' (restart pending)' : '';
+                        setStatus('Saved ' + key + tag, 'ok');
+                        _settingsRegistryCache = null;
+                        // Refresh the pane so the source chip updates.
+                        setTimeout(() => _settingsRenderPane(_settingsCurrentDomain), 200);
+                    } else {
+                        setStatus('Save failed: ' + (data.error || ('HTTP ' + r.status)), 'err');
+                    }
+                } catch (e) {
+                    setStatus('Error: ' + e, 'err');
+                }
+                btn.disabled = false;
+            });
+        });
+        pane.querySelectorAll('button.cfg-reset').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const key = btn.getAttribute('data-key');
+                if (!window.confirm('Clear the runtime override for ' + key
+                    + '? Value reverts to env / code default.')) return;
+                btn.disabled = true;
+                try {
+                    const r = await fetch('/api/v2/config', {
+                        method: 'DELETE',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({key, reason: 'Settings UI reset'}),
+                    });
+                    const data = await r.json().catch(() => ({}));
+                    if (r.ok) {
+                        setStatus('Reset ' + key, 'ok');
+                        _settingsRegistryCache = null;
+                        setTimeout(() => _settingsRenderPane(_settingsCurrentDomain), 200);
+                    } else {
+                        setStatus('Reset failed: ' + (data.error || ('HTTP ' + r.status)), 'err');
+                    }
+                } catch (e) {
+                    setStatus('Error: ' + e, 'err');
+                }
+                btn.disabled = false;
+            });
+        });
+    }
+
+    // ── Domain renderers ────────────────────────────────────────────────
+
+    async function _fetchEffectiveRouting() {
+        try {
+            const r = await fetch('/api/v2/llm_routing');
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+    async function _fetchPreflight() {
+        try {
+            const r = await fetch('/api/v2/llm_preflight');
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+    async function _fetchFeatures() {
+        try {
+            const r = await fetch('/api/v2/llm_features');
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+    async function _fetchSelfEval() {
+        try {
+            const r = await fetch('/api/v2/self_eval');
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+    async function _fetchAudit(domain) {
+        try {
+            const url = '/api/v2/llm_routing/audit?hours=720&limit=200';
+            const r = await fetch(url);
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+
+    function _settingsLoading(pane) {
+        pane.innerHTML = '<div style="opacity:0.6">Loading…</div>';
+    }
+
+    window._settingsRenderLlmConnection = async function (pane) {
+        _settingsLoading(pane);
+        const pre = await _fetchPreflight();
+        const oll = (pre && pre.ollama) || {};
+        const reachChip = oll.reachable
+            ? _settingsCfgChip('reachable', 'ok')
+            : _settingsCfgChip('offline', 'warn');
+        const verVal = oll.version
+            ? _escHtml(oll.version) + ' '
+              + (pre.version_ok
+                  ? _settingsCfgChip('≥0.22.0', 'ok')
+                  : _settingsCfgChip('need ≥0.22.0', 'warn'))
+            : '<span class="dim">—</span>';
+        const goChip = (pre && pre.go_no_go)
+            ? _settingsCfgChip('GO', 'ok')
+            : _settingsCfgChip('NO-GO', 'warn');
+        const statusBody = _settingsCfgKV([
+            { k: 'Ollama endpoint', v: reachChip },
+            { k: 'Server version',  v: verVal },
+            { k: 'Preflight gate',  v: goChip },
+            { k: 'Host',
+              v: '<code>' + _escHtml(oll.host || '—') + '</code>' },
+        ]);
+        // Production fallback model — LLM_MODEL is what runs whenever
+        // a use_case feature is OFF, SHADOW, or SHADOW_DUAL. Today every
+        // model_routing_* feature defaults to OFF, so LLM_MODEL is the
+        // model actually serving production calls. Surface it here so
+        // operators don't mistakenly think the Routing page is the
+        // single source of truth.
+        const fallbackModel = (pre && pre.model) || oll.model || '—';
+        const fallbackBody = _settingsCfgKV([
+            { k: 'LLM_MODEL (env)',
+              v: '<code>' + _escHtml(fallbackModel) + '</code> '
+                 + _settingsCfgChip('production', 'ok') },
+            { k: 'When it runs',
+              v: '<span class="cfg-hint" style="margin:0;display:inline">'
+                 + 'all use-cases whose <code>model_routing_*</code> '
+                 + 'feature is <b>off</b>, <b>shadow</b>, or '
+                 + '<b>shadow_dual</b> (NP3 fallback path).'
+                 + '</span>' },
+            { k: 'When it is bypassed',
+              v: '<span class="cfg-hint" style="margin:0;display:inline">'
+                 + 'only when the corresponding feature is set to '
+                 + '<b>on</b> in '
+                 + '<a href="javascript:void(0)" '
+                 + 'onclick="window._settingsOpen(\'llm.features\')">'
+                 + 'Features</a>; then '
+                 + '<a href="javascript:void(0)" '
+                 + 'onclick="window._settingsOpen(\'llm.routing\')">'
+                 + 'Routing</a> per-use_case overrides apply.'
+                 + '</span>' },
+        ]);
+        const noteBody =
+            '<div class="cfg-hint">'
+            + '<code>LLM_HOST</code>, <code>LLM_MODEL</code>, and '
+            + '<code>LLM_TIMEOUT</code> are env-backed and require a '
+            + 'container restart. Edit <code>config.env</code> on disk '
+            + 'and run <code>docker compose restart</code>.'
+            + '</div>'
+            + '<div class="cfg-hint">'
+            + 'Per-feature kill switch and runtime knobs live on the '
+            + '<a href="javascript:void(0)" onclick="window._settingsOpen(\'llm.features\')">'
+            + 'Features</a> page and persist live (no restart).'
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
+                + 'only.</b> Connection details and the production '
+                + 'fallback model are env-backed (restart-required). '
+                + 'Edit <code>config.env</code> on disk and run '
+                + '<code>docker compose restart</code>.</div>'
+                + 'LLM connection health and Ollama compatibility.',
+            sections: [
+                { title: 'CONNECTION STATUS', body: statusBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>',
+                           '<span class="cfg-restart-badge">restart</span>'] },
+                { title: 'PRODUCTION FALLBACK MODEL', body: fallbackBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>',
+                           '<span class="cfg-restart-badge">restart</span>'] },
+                { title: 'WHERE TO EDIT',     body: noteBody },
+            ],
+        });
+    };
+
+    window._settingsRenderLlmFeatures = async function (pane) {
+        _settingsLoading(pane);
+        const data = await _fetchFeatures();
+        if (!data) {
+            pane.innerHTML = _settingsCfgPage({
+                help: '<div class="cfg-status-banner">Feature Hub API '
+                    + 'unavailable. Authenticate as analyst or enable '
+                    + 'v2 endpoints.</div>',
+                sections: [],
+            });
+            return;
+        }
+        const features = data.features || [];
+        const tableRows = features.map(f => {
+            const state = String(f.current_state || 'off');
+            const opts = ['off','shadow','shadow_dual','on'].map(s =>
+                '<option value="' + s + '"'
+                + (s === state ? ' selected' : '')
+                + (s === 'shadow' && !f.supports_shadow ? ' disabled' : '')
+                + (s === 'shadow_dual' && !f.supports_shadow ? ' disabled' : '')
+                + '>' + s + '</option>'
+            ).join('');
+            return ''
+                + '<tr data-key="' + _escHtml(f.key) + '">'
+                + '<td><b>' + _escHtml(f.name) + '</b>'
+                + '<div class="cfg-meta" style="margin:0;border:none;padding:0">'
+                +   '<code>' + _escHtml(f.key) + '</code></div></td>'
+                + '<td>' + _escHtml(f.tier) + '</td>'
+                + '<td><select class="cfg-select lf-state">' + opts + '</select></td>'
+                + '<td><button class="btn-tactical lf-save">SAVE</button></td>'
+                + '</tr>';
+        }).join('');
+        const tableBody =
+            '<table class="cfg-table">'
+            + '<thead><tr>'
+            +   '<th>Feature</th><th>Tier</th><th>State</th><th></th>'
+            + '</tr></thead><tbody>' + tableRows + '</tbody></table>'
+            + '<div class="cfg-meta">' + _settingsCfgStatusEl()
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Per-feature LLM kill switches. State changes are '
+                + 'recorded in the audit log (NP6). '
+                + '<b>off</b> = disabled · '
+                + '<b>shadow</b> = run silently for evaluation · '
+                + '<b>shadow_dual</b> = run legacy + v10 in parallel · '
+                + '<b>on</b> = production. See INTEL GUIDE Ch.10 for '
+                + 'tier definitions.',
+            sections: [
+                { title: 'FEATURE STATES', body: tableBody,
+                  badges: ['<span class="cfg-live-badge">live</span>'] },
+            ],
+        });
+        pane.querySelectorAll('tr[data-key]').forEach(tr => {
+            const key = tr.getAttribute('data-key');
+            const sel = tr.querySelector('.lf-state');
+            const btn = tr.querySelector('.lf-save');
+            if (btn) btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                try {
+                    const r = await fetch(
+                        '/api/v2/llm_features/' + encodeURIComponent(key) + '/set',
+                        { method: 'POST',
+                          headers: {'Content-Type':'application/json'},
+                          body: JSON.stringify({state: sel.value,
+                                                reason: 'Settings UI'}) }
+                    );
+                    _settingsCfgSetStatus(pane,
+                        r.ok ? 'Saved ' + key + ' → ' + sel.value
+                             : 'Save failed: HTTP ' + r.status,
+                        r.ok ? 'ok' : 'err');
+                } catch (e) {
+                    _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+                }
+                btn.disabled = false;
+            });
+        });
+    };
+
+    window._settingsRenderLlmRouting = async function (pane) {
+        _settingsLoading(pane);
+        const data = await _fetchEffectiveRouting();
+        const eff = (data && data.effective) || [];
+        const escAttr = s => _escHtml(s).replace(/"/g, '&quot;');
+        const v10Stack = ['mistral-small3.2:24b','gemma4:26b','gemma4:31b',
+                          'gpt-oss-safeguard:20b','gemma4:e4b','gpt-oss:120b'];
+        const observed = new Set(
+            eff.map(e => e.model).filter(Boolean).concat(v10Stack)
+        );
+        const modelOpts = Array.from(observed).sort();
+        const rows = eff.map(e => {
+            const opts = modelOpts.map(m =>
+                '<option value="' + escAttr(m) + '"'
+                + (m === e.model ? ' selected' : '') + '>' + _escHtml(m) + '</option>'
+            ).join('');
+            const tempVal = (typeof e.temperature === 'number')
+                ? e.temperature.toFixed(2) : '';
+            const availChip = e.available
+                ? _settingsCfgChip('AVAIL', 'ok')
+                : _settingsCfgChip('MISSING', 'warn');
+            return ''
+                + '<tr data-uc="' + escAttr(e.use_case) + '" '
+                +   'data-slot="' + escAttr(e.slot) + '">'
+                + '<td><b>' + _escHtml(e.use_case) + '</b>'
+                +   '<div class="cfg-meta" style="margin:0;border:none;padding:0">'
+                +   _escHtml(e.slot) + '</div></td>'
+                + '<td><select class="cfg-select r-model" style="min-width:200px">'
+                +   opts + '</select></td>'
+                + '<td><input type="number" class="cfg-input r-temp" min="0" max="2" '
+                +   'step="0.05" value="' + tempVal + '" style="width:70px"></td>'
+                + '<td><label style="font-size:11px;color:#aaa"><input type="checkbox" class="r-think" '
+                +   (e.thinking_enabled ? 'checked' : '') + '> think</label></td>'
+                + '<td>' + availChip + '</td>'
+                + '<td><code>' + _escHtml(e.feature_state) + '</code></td>'
+                + '<td><button class="btn-tactical r-save">SAVE</button> '
+                + '<button class="btn-tactical r-reset">RESET</button></td>'
+                + '</tr>';
+        }).join('');
+        const tableBody =
+            '<table class="cfg-table">'
+            + '<thead><tr>'
+            +   '<th>use_case / slot</th><th>model</th><th>temp</th>'
+            +   '<th>think</th><th>avail</th><th>state</th><th></th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table>'
+            + '<div class="cfg-meta">' + _settingsCfgStatusEl() + '</div>';
+        const noteBody =
+            '<div class="cfg-hint">Routing follows '
+            + '<b>DB override → env var → code default</b>. '
+            + 'Overrides are recorded in <code>config_change_log</code> '
+            + 'and <code>llm_routing_override_history</code> for NP6 '
+            + 'audit. Reset clears the DB row, falling back to env/code.'
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Per-use-case LLM model routing. Edits persist to the '
+                + 'database and take effect on the next call (no restart).',
+            sections: [
+                { title: 'EFFECTIVE ROUTING', body: tableBody,
+                  badges: ['<span class="cfg-live-badge">live</span>'] },
+                { title: 'OVERRIDE PRECEDENCE', body: noteBody },
+            ],
+        });
+        pane.querySelectorAll('tr[data-uc]').forEach(tr => {
+            const uc = tr.getAttribute('data-uc');
+            const slot = tr.getAttribute('data-slot');
+            const m = tr.querySelector('.r-model');
+            const t = tr.querySelector('.r-temp');
+            const th = tr.querySelector('.r-think');
+            const sb = tr.querySelector('.r-save');
+            const rb = tr.querySelector('.r-reset');
+            if (sb) sb.addEventListener('click', async () => {
+                sb.disabled = true;
+                const body = {use_case: uc, slot, model: m.value,
+                              thinking_enabled: th.checked,
+                              reason: 'Settings UI'};
+                const tv = t.value !== '' ? Number(t.value) : null;
+                if (tv !== null && !Number.isNaN(tv)) body.temperature = tv;
+                try {
+                    const r = await fetch('/api/v2/llm_routing/overrides', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify(body),
+                    });
+                    _settingsCfgSetStatus(pane,
+                        r.ok ? 'Saved ' + uc + '/' + slot
+                             : 'Save failed', r.ok ? 'ok' : 'err');
+                    if (r.ok) _settingsRenderPane('llm.routing');
+                } catch (e) {
+                    _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+                }
+                sb.disabled = false;
+            });
+            if (rb) rb.addEventListener('click', async () => {
+                rb.disabled = true;
+                try {
+                    const r = await fetch(
+                        '/api/v2/llm_routing/overrides?use_case='
+                        + encodeURIComponent(uc) + '&slot='
+                        + encodeURIComponent(slot)
+                        + '&reason=' + encodeURIComponent('Settings UI reset'),
+                        { method: 'DELETE' }
+                    );
+                    _settingsCfgSetStatus(pane,
+                        r.ok ? 'Reset ' + uc + '/' + slot
+                             : 'Reset failed', r.ok ? 'ok' : 'err');
+                    if (r.ok) _settingsRenderPane('llm.routing');
+                } catch (e) {
+                    _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+                }
+                rb.disabled = false;
+            });
+        });
+    };
+
+    window._settingsRenderLlmIntelPipeline = async function (pane) {
+        // Pull current values via the registry-driven /api/v2/config shim.
+        // These keys all have apply_timing=live so writes take effect on the
+        // next intel cycle without restart.
+        _settingsLoading(pane);
+        let env = {};
+        try { env = await _v2ConfigLoad(); } catch (_) {}
+        const v = k => env[k] != null ? String(env[k]) : '';
+        const fld = (id, label, hint, attrs) =>
+            '<div class="cfg-row">'
+            + '<label class="cfg-label" style="width:240px">'
+            +   _escHtml(label) + '</label>'
+            + '<input id="ip-' + id + '" class="cfg-input" '
+            +   (attrs || '') + ' value="' + _escHtml(v(id)) + '">'
+            + '</div>'
+            + (hint
+                ? '<div class="cfg-hint" style="margin-left:248px">'
+                  + hint + '</div>'
+                : '');
+        const sel = (id, label, opts) =>
+            '<div class="cfg-row">'
+            + '<label class="cfg-label" style="width:240px">'
+            +   _escHtml(label) + '</label>'
+            + '<select id="ip-' + id + '" class="cfg-select">'
+            +   opts.map(([val, lab]) =>
+                  '<option value="' + val + '"'
+                  + (v(id) === val ? ' selected' : '') + '>'
+                  + _escHtml(lab) + '</option>').join('')
+            + '</select>'
+            + '</div>';
+        const triageBody =
+            fld('LLM_AUTO_CONFIRM_THRESHOLD',
+                'Auto-confirm threshold',
+                'Confidence ≥ this → AUTO-CONFIRMED (no analyst review).',
+                'type="number" min="0.5" max="1.0" step="0.05" '
+                + 'placeholder="0.80" style="max-width:100px"')
+            + fld('LLM_CONFIDENCE_MIN',
+                'Min confidence',
+                'Items below this are silently discarded.',
+                'type="number" min="0.1" max="0.9" step="0.05" '
+                + 'placeholder="0.35" style="max-width:100px"')
+            + fld('LLM_OVERRIDE_WINDOW',
+                'Override window (seconds)',
+                'Seconds within which AUTO-CONFIRMED items can be '
+                + 'overridden by an analyst.',
+                'type="number" min="300" max="86400" '
+                + 'placeholder="3600" style="max-width:120px"')
+            + fld('LLM_PENDING_AUTO_REJECT_HOURS',
+                'Auto-reject pending after (h)',
+                'Hours until unreviewed PENDING items are auto-rejected '
+                + '(0 = disabled).',
+                'type="number" min="0" max="168" step="1" '
+                + 'placeholder="24" style="max-width:100px"');
+        const retentionBody =
+            fld('INTEL_RETENTION_DAYS',
+                'Intel retention (days)',
+                'How long to keep intel rows after confirmation.',
+                'type="number" min="1" max="90" '
+                + 'placeholder="7" style="max-width:100px"')
+            + sel('INTEL_AGE_DECAY_ENABLED',
+                'Age-decay enabled (ADR-023)',
+                [['true','true'], ['false','false']])
+            + fld('INTEL_AGE_DECAY_TAU_HOURS',
+                'Age-decay τ (hours)',
+                'Time constant: weight=1/e at age=τ, ~0.05 at 3·τ. '
+                + 'Default 12 h ≈ 1 work cycle.',
+                'type="number" min="1" max="72" step="0.5" '
+                + 'placeholder="12" style="max-width:100px"');
+        const saveRow =
+            '<div class="cfg-row" style="margin-top:10px">'
+            + '<button class="btn-tactical btn-action" id="ip-save">SAVE</button>'
+            + _settingsCfgStatusEl()
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Thresholds that govern when LLM-extracted intel is '
+                + 'auto-confirmed, discarded, or kept for analyst review. '
+                + 'All knobs here are <b>live</b> — saved values take '
+                + 'effect on the next intel queue cycle without restart.',
+            sections: [
+                { title: 'TRIAGE THRESHOLDS', body: triageBody,
+                  badges: ['<span class="cfg-live-badge">live</span>'] },
+                { title: 'RETENTION & AGE-DECAY', body: retentionBody,
+                  badges: ['<span class="cfg-live-badge">live</span>'] },
+                { title: 'APPLY', body: saveRow },
+            ],
+        });
+        const saveBtn = pane.querySelector('#ip-save');
+        if (saveBtn) saveBtn.addEventListener('click', async () => {
+            saveBtn.disabled = true;
+            const keys = ['LLM_AUTO_CONFIRM_THRESHOLD', 'LLM_CONFIDENCE_MIN',
+                          'LLM_OVERRIDE_WINDOW', 'LLM_PENDING_AUTO_REJECT_HOURS',
+                          'INTEL_RETENTION_DAYS', 'INTEL_AGE_DECAY_ENABLED',
+                          'INTEL_AGE_DECAY_TAU_HOURS'];
+            const body = {};
+            keys.forEach(k => {
+                const el = pane.querySelector('#ip-' + k);
+                if (el && el.value !== '') body[k] = el.value;
+            });
+            try {
+                const result = await _v2ConfigSave(body);
+                if (result.ok) {
+                    _settingsCfgSetStatus(pane, 'Saved · live (no restart)', 'ok');
+                } else {
+                    const first = result.errors[0];
+                    _settingsCfgSetStatus(pane,
+                        'Save failed' + (first ? `: ${first.key} — ${first.error}` : ''),
+                        'err');
+                }
+            } catch (e) {
+                _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+            }
+            saveBtn.disabled = false;
+        });
+    };
+
+    window._settingsRenderLlmEmbedding = async function (pane) {
+        _settingsLoading(pane);
+        const pre = await _fetchPreflight();
+        const emb = (pre && pre.embedding) || {};
+        const se = await _fetchSelfEval();
+        const stat = (se && se.embedding_dedupe) || {};
+        const lang = stat.by_language || {};
+        const modelChip = emb.available
+            ? _settingsCfgChip('pulled', 'ok')
+            : _settingsCfgChip('missing', 'warn');
+        const stateChip = emb.feature_active
+            ? _settingsCfgChip('active', 'ok')
+            : _settingsCfgChip('inactive', 'dim');
+        const overviewBody = _settingsCfgKV([
+            { k: 'Model',          v: '<code>' + _escHtml(emb.model || '—') + '</code> ' + modelChip },
+            { k: 'Feature state',  v: stateChip + ' '
+                + '<span class="cfg-hint" style="margin:0;display:inline">'
+                + (emb.feature_active ? '(shadow or on)' : '(off)') + '</span>' },
+            { k: 'Calls (24h)',    v: stat.calls_24h ?? 0 },
+            { k: 'OK rate',        v: stat.ok_rate ?? '—' },
+            { k: 'Cache hit rate', v: stat.cache_hit_rate ?? '—' },
+            { k: 'Avg latency',    v: (stat.avg_duration_ms ?? '—') + ' ms' },
+        ]);
+        const langSection = Object.keys(lang).length === 0
+            ? '<div class="cfg-hint">No dedup decisions in the last 24 h. '
+              + 'Activate <code>embedding_dedupe</code> on the '
+              + '<a href="javascript:void(0)" '
+              + 'onclick="window._settingsOpen(\'llm.features\')">'
+              + 'Features</a> page to start collecting.</div>'
+            : '<table class="cfg-table"><thead><tr>'
+              + '<th>lang</th><th>detected</th><th>applied</th>'
+              + '<th>precision proxy</th><th>avg score</th>'
+              + '</tr></thead><tbody>'
+              + Object.keys(lang).map(L => {
+                  const v = lang[L] || {};
+                  return '<tr><td><code>' + _escHtml(L) + '</code></td>'
+                      + '<td>' + (v.detected ?? 0) + '</td>'
+                      + '<td>' + (v.applied ?? 0) + '</td>'
+                      + '<td>' + (v.precision_proxy ?? '—') + '</td>'
+                      + '<td>' + (v.avg_score ?? '—') + '</td></tr>';
+              }).join('') + '</tbody></table>';
+        pane.innerHTML = _settingsCfgPage({
+            help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
+                + 'only.</b> Embedding dedupe instrumentation. To '
+                + 'activate or change state, use '
+                + '<a href="javascript:void(0)" '
+                + 'onclick="window._settingsOpen(\'llm.features\')">'
+                + 'LLM → Features</a> '
+                + '(<code>embedding_dedupe</code>).</div>'
+                + 'OSINT dedupe via granite-embedding multilingual '
+                + 'vectors. Phase 1 GO requires per-language precision '
+                + 'thresholds (zh/ja/ar ≥ 0.90, ru ≥ 0.70).',
+            sections: [
+                { title: 'OVERVIEW',  body: overviewBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'BY LANGUAGE (24 H)', body: langSection,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+            ],
+        });
+    };
+
+    window._settingsRenderLlmSelfEval = async function (pane) {
+        _settingsLoading(pane);
+        const se = await _fetchSelfEval();
+        if (!se) {
+            pane.innerHTML = _settingsCfgPage({
+                help: '/api/v2/self_eval unavailable. Check JWT '
+                    + 'authentication and that the v2 endpoint is '
+                    + 'enabled.',
+                sections: [],
+            });
+            return;
+        }
+        const go = se.phase8_go_status || {};
+        const byUc = go.by_use_case || {};
+        const overall = go.overall_go;
+        const overallChip = overall === true
+            ? _settingsCfgChip('GO', 'ok')
+            : overall === false
+                ? _settingsCfgChip('NO-GO', 'warn')
+                : _settingsCfgChip('— (no data)', 'dim');
+        const rows = Object.keys(byUc).map(uc => {
+            const e = byUc[uc] || {};
+            const sc = e.schema_compliance || {};
+            const ag = e.agreement_rate || {};
+            const rp = e.verdict_reproducibility || {};
+            const cellCls = ok => ok === true ? 'ok'
+                : ok === false ? 'warn' : 'dim';
+            const cell = (m, ok) =>
+                '<td><span class="' + cellCls(ok) + '">'
+                + (m && (m.value !== null && m.value !== undefined)
+                    ? m.value : '—') + '</span></td>';
+            return '<tr><td><code>' + _escHtml(uc) + '</code></td>'
+                + cell(sc, sc.ok)
+                + cell(ag, ag.ok)
+                + cell(rp, rp.ok)
+                + '<td>' + (e.n_paired ?? 0) + '</td></tr>';
+        }).join('');
+        const tableBody = rows
+            ? '<table class="cfg-table"><thead><tr>'
+              + '<th>use_case</th><th>schema ≥ 0.99</th>'
+              + '<th>agree ≥ 0.60</th><th>repro = 1.00</th>'
+              + '<th>n_paired</th></tr></thead><tbody>'
+              + rows + '</tbody></table>'
+            : '<div class="cfg-hint">No SHADOW_DUAL data yet. '
+              + 'Promote a routing feature to '
+              + '<code>shadow_dual</code> on the '
+              + '<a href="javascript:void(0)" '
+              + 'onclick="window._settingsOpen(\'llm.features\')">'
+              + 'Features</a> page to start collecting.</div>';
+        const aggBody = _settingsCfgKV([
+            { k: 'Phase 1 GO judgment', v: overallChip },
+            { k: 'Recall (overall)',    v: '<b>' + (se.recall ?? '—') + '</b>' },
+            { k: 'Null-zone',           v: '<b>' + (se.null_zone_days ?? '—') + ' d</b>' },
+            { k: 'Drift',               v: '<b>' + (se.drift ?? '—') + '</b>' },
+        ]);
+
+        // ── Per-model health (B4 of the 2026-05-07 audit) ────────────
+        // by_model is computed regardless of whether SHADOW_DUAL is on
+        // — every llm_call_log row contributes. Surface it so analysts
+        // can see which model is failing parse / timing out / under-
+        // running before deciding to promote a use_case.
+        const byModel = se.by_model || {};
+        const modelRows = Object.keys(byModel).sort().map(m => {
+            const e = byModel[m] || {};
+            const okRateCls = (typeof e.ok_rate === 'number')
+                ? (e.ok_rate >= 0.95 ? 'ok'
+                   : e.ok_rate >= 0.80 ? 'warn' : 'crit')
+                : 'dim';
+            const okRateTxt = (typeof e.ok_rate === 'number')
+                ? (e.ok_rate * 100).toFixed(1) + '%' : '—';
+            const parseFailedTxt = (e.parse_failed ?? 0).toString();
+            const parseFailedCls = (e.parse_failed ?? 0) > 0 ? 'warn' : 'ok';
+            const timeoutCls = (e.timeout ?? 0) > 0 ? 'warn' : 'ok';
+            const avgConf = (typeof e.avg_confidence === 'number')
+                ? e.avg_confidence.toFixed(3) : '—';
+            const avgDur = (typeof e.avg_duration_ms === 'number')
+                ? Math.round(e.avg_duration_ms) + 'ms' : '—';
+            const useCases = Array.isArray(e.use_cases)
+                ? e.use_cases.join(', ') : '—';
+            const autoCnf = (typeof e.auto_confirmed_rate === 'number')
+                ? (e.auto_confirmed_rate * 100).toFixed(1) + '%' : '—';
+            return '<tr><td><code>' + _escHtml(m) + '</code></td>'
+                + '<td>' + (e.n ?? 0) + '</td>'
+                + '<td><span class="' + okRateCls + '">' + okRateTxt + '</span></td>'
+                + '<td><span class="' + parseFailedCls + '">' + parseFailedTxt + '</span></td>'
+                + '<td><span class="' + timeoutCls + '">' + (e.timeout ?? 0) + '</span></td>'
+                + '<td>' + (e.exception ?? 0) + '</td>'
+                + '<td>' + avgDur + '</td>'
+                + '<td>' + avgConf + '</td>'
+                + '<td>' + autoCnf + '</td>'
+                + '<td><code style="font-size:11px">' + _escHtml(useCases) + '</code></td>'
+                + '</tr>';
+        }).join('');
+        const modelTable = modelRows
+            ? '<table class="cfg-table"><thead><tr>'
+              + '<th>model</th><th>n</th><th>ok_rate</th>'
+              + '<th>parse_failed</th><th>timeout</th><th>exception</th>'
+              + '<th>avg_dur</th><th>avg_conf</th>'
+              + '<th>auto_confirmed</th><th>use_cases</th>'
+              + '</tr></thead><tbody>' + modelRows + '</tbody></table>'
+            : '<div class="cfg-hint">No LLM call activity in the '
+              + 'self_eval window. Either no LLM features have run, '
+              + 'or self_eval window pre-dates LLM activity.</div>';
+
+        // ── Per-use_case rollup (richer than Phase 8 SHADOW_DUAL go) ─
+        // by_use_case is a per-use-case summary derived from the same
+        // llm_call_log rows but bucketed by (use_case, primary_model).
+        // It exists even when SHADOW_DUAL is off, so we render both
+        // tables regardless of go-status.
+        const byUcRich = se.by_use_case || {};
+        const ucRichRows = Object.keys(byUcRich).sort().map(uc => {
+            const e = byUcRich[uc] || {};
+            const okRateCls = (typeof e.ok_rate === 'number')
+                ? (e.ok_rate >= 0.95 ? 'ok'
+                   : e.ok_rate >= 0.80 ? 'warn' : 'crit')
+                : 'dim';
+            const okRateTxt = (typeof e.ok_rate === 'number')
+                ? (e.ok_rate * 100).toFixed(1) + '%' : '—';
+            const avgConf = (typeof e.avg_confidence === 'number')
+                ? e.avg_confidence.toFixed(3) : '—';
+            const autoCnf = (typeof e.auto_confirmed_rate === 'number')
+                ? (e.auto_confirmed_rate * 100).toFixed(1) + '%' : '—';
+            return '<tr><td><code>' + _escHtml(uc) + '</code></td>'
+                + '<td>' + (e.n ?? 0) + '</td>'
+                + '<td><span class="' + okRateCls + '">' + okRateTxt + '</span></td>'
+                + '<td>' + avgConf + '</td>'
+                + '<td>' + autoCnf + '</td>'
+                + '<td><code>' + _escHtml(e.primary_model || '—') + '</code></td>'
+                + '</tr>';
+        }).join('');
+        const ucRichTable = ucRichRows
+            ? '<table class="cfg-table"><thead><tr>'
+              + '<th>use_case</th><th>n</th><th>ok_rate</th>'
+              + '<th>avg_conf</th><th>auto_confirmed</th>'
+              + '<th>primary_model</th>'
+              + '</tr></thead><tbody>' + ucRichRows + '</tbody></table>'
+            : '<div class="cfg-hint">No per-use_case data in window.</div>';
+
+        pane.innerHTML = _settingsCfgPage({
+            help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
+                + 'only.</b> AP3 self-evaluation. Per-model and '
+                + 'per-use_case rollups below come from llm_call_log '
+                + 'and are populated regardless of SHADOW_DUAL state. '
+                + 'Promote a routing feature to <code>shadow_dual</code> '
+                + 'on '
+                + '<a href="javascript:void(0)" '
+                + 'onclick="window._settingsOpen(\'llm.features\')">'
+                + 'LLM → Features</a> to also populate the '
+                + 'PHASE 1 GO criteria below.</div>'
+                + 'Sections: overall health · per-model rollup · '
+                + 'per-use_case rollup · Phase 1 GO (SHADOW_DUAL only).',
+            sections: [
+                { title: 'OVERALL HEALTH', body: aggBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'PER MODEL HEALTH', body: modelTable,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'PER USE_CASE ROLLUP', body: ucRichTable,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'PHASE 1 GO (SHADOW_DUAL)', body: tableBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+            ],
+        });
+    };
+
+    // ── Phase 10 — legacy tabs rendered inline in SETTINGS pane ───────
+    // Each renderer calls _settingsShowLegacyTab() which:
+    //   1. Adopts the legacy tab-content elements into legacy-host
+    //      (one-time DOM transplant, idempotent).
+    //   2. Hides the dynamic render area.
+    //   3. Shows the requested tab inside legacy-host.
+    //   4. Triggers the loader function.
+    // No second modal is opened — content renders inside the SETTINGS
+    // pane that is already open.
+
+    window._settingsRenderSensorsCatalog = async function () {
+        _settingsShowLegacyTab('tab-sensors',
+            typeof loadSensorConfig === 'function' ? loadSensorConfig : null);
+    };
+
+    window._settingsRenderSensorsFetchLog = async function () {
+        _settingsShowLegacyTab('tab-fetchlog',
+            typeof loadFetchLog === 'function' ? loadFetchLog : null);
+    };
+
+    window._settingsRenderInfraUpstreams = async function () {
+        _settingsShowLegacyTab('tab-upstreams',
+            typeof loadUpstreams === 'function' ? loadUpstreams : null);
+    };
+
+    window._settingsRenderInfraFleet = async function () {
+        _settingsShowLegacyTab('tab-fleet',
+            typeof loadFleetHealth === 'function' ? loadFleetHealth : null);
+    };
+
+    window._settingsRenderScenariosList = async function () {
+        _settingsShowLegacyTab('tab-scenarios',
+            typeof loadScenarioManager === 'function' ? loadScenarioManager : null);
+    };
+
+    window._settingsRenderSystemConfig = async function () {
+        _settingsShowLegacyTab('tab-sysconfig',
+            typeof loadEnvConfig === 'function' ? loadEnvConfig : null);
+    };
+
+    window._settingsRenderOperatorsUsers = async function () {
+        _settingsShowLegacyTab('tab-users',
+            typeof umgrLoadUsers === 'function' ? umgrLoadUsers : null);
+    };
+
+    // ── Tools → operate as workspace panels, not settings ────────────
+    // Tools (tradecraft, watchpane, autotune, attention) are workspace
+    // panels by design (`.draggable-panel`) — they coexist with the
+    // map for active analyst work. They don't fit inside the SETTINGS
+    // modal pattern. Each domain renderer surfaces a clear "OPEN AS
+    // PANEL" action that closes SETTINGS first to avoid the
+    // modal-stays-on-top + panel-behind antipattern. This is the
+    // single intentional exception to "no modal-in-modal" — and it's
+    // not a modal-in-modal: SETTINGS closes before the panel opens.
+
+    function _renderToolHandoff(pane, titleKey, hint, openFn) {
+        const labelGo = _t('settings.legacy.go') || 'OPEN';
+        const sectionBody =
+            '<div class="cfg-hint">' + _escHtml(hint) + '</div>'
+            + '<div class="cfg-row" style="margin-top:10px">'
+            + '<button class="btn-tactical btn-action">'
+            +   _escHtml(labelGo) + ' →</button>'
+            + '</div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Workspace tool — opens as a draggable panel that '
+                + 'coexists with the map. SETTINGS closes first to '
+                + 'avoid stacked surfaces.',
+            sections: [
+                { title: _t(titleKey), body: sectionBody },
+            ],
+        });
+        const btn = pane.querySelector('button.btn-action');
+        if (btn) btn.addEventListener('click', () => {
+            if (typeof window._settingsClose === 'function') {
+                window._settingsClose();
+            }
+            try { typeof openFn === 'function' && openFn(); } catch (_) {}
+        });
+    }
+
+    window._settingsRenderToolsTradecraft = async function (pane) {
+        _renderToolHandoff(pane, 'settings.tools.tradecraft',
+            'Analyst tradecraft rules. Opens as a draggable workspace panel '
+            + '(coexists with the map). SETTINGS closes first.',
+            window.toggleTradecraftPanel);
+    };
+
+    window._settingsRenderToolsWatchpane = async function (pane) {
+        _renderToolHandoff(pane, 'settings.tools.watchpane',
+            'Per-sensor observation panel + mute controls. Opens as a '
+            + 'draggable workspace panel.',
+            window.toggleSensorWatchpane);
+    };
+
+    window._settingsRenderToolsAutotune = async function (pane) {
+        _renderToolHandoff(pane, 'settings.tools.autotune',
+            'Auto-tune wizard. Opens as a stepwise modal (separate flow).',
+            window._wizardOpen);
+    };
+
+    window._settingsRenderToolsAttention = async function (pane) {
+        _renderToolHandoff(pane, 'settings.tools.attention',
+            'Attention rules live inside the Tradecraft panel.',
+            window.toggleTradecraftPanel);
+    };
+
+    // System.legacy is removed — every legacy field is reachable via
+    // its own dedicated SETTINGS domain (sensors / fetchlog /
+    // upstreams / fleet / scenarios / system.config / operators).
+    window._settingsRenderSystemLegacy = async function (pane) {
+        const link = (id, label) =>
+            '<li><a href="javascript:void(0)" '
+            + 'onclick="_settingsOpen(\'' + id + '\')">'
+            + _escHtml(label) + '</a></li>';
+        const body =
+            '<div class="cfg-hint">'
+            + 'The original MASTER CONFIGURATION modal has been '
+            + 'merged into this SETTINGS shell. All previous tabs '
+            + 'are now first-class SETTINGS domains.'
+            + '</div>'
+            + '<ul style="font-size:12px;line-height:1.8;color:#ccc;'
+            + 'padding-left:20px;margin:8px 0 0">'
+            + link('operate.sensors',   'Sensors')
+            + link('infra.fetch_log',   'Fetch Log')
+            + link('infra.upstreams',   'Upstreams')
+            + link('infra.fleet',       'Fleet Health')
+            + link('operate.scenarios', 'Scenarios')
+            + link('infra.server',      'Server / Env config')
+            + link('access.users',      'Users')
+            + '</ul>';
+        pane.innerHTML = _settingsCfgPage({
+            help: 'Legacy MASTER CONFIGURATION (deprecated). Use the '
+                + 'first-class entries below instead.',
+            sections: [
+                { title: 'WHERE THINGS MOVED', body: body },
+            ],
+        });
+    };
+
+    let _settingsAuditDomain = '';   // active filter
+    let _settingsAuditHours = 168;   // 7 days default
+
+    async function _fetchConfigAudit(domain, hours, limit) {
+        try {
+            const params = new URLSearchParams();
+            params.set('hours', String(hours || 168));
+            params.set('limit', String(limit || 200));
+            if (domain) params.set('domain', domain);
+            const r = await fetch('/api/v2/config_audit?' + params.toString());
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+
+    window._settingsRenderAuditChanges = async function (pane) {
+        _settingsLoading(pane);
+        const data = await _fetchConfigAudit(
+            _settingsAuditDomain, _settingsAuditHours, 200,
+        );
+        if (!data) {
+            pane.innerHTML = '<div style="opacity:0.6">'
+                + 'config_audit endpoint unavailable</div>';
+            return;
+        }
+        const domains = data.domains || [];
+        const rows = data.rows || [];
+        const domainOpts = '<option value="">All domains ('
+            + rows.length + ')</option>'
+            + domains.map(d =>
+                '<option value="' + _escHtml(d.domain) + '"'
+                + (d.domain === _settingsAuditDomain ? ' selected' : '')
+                + '>' + _escHtml(d.domain) + ' (' + d.count + ')</option>'
+            ).join('');
+        const hoursOpts = [
+            [24,    '24 h'],
+            [168,   '7 d'],
+            [720,   '30 d'],
+            [2160,  '90 d'],
+            [8760,  '1 y'],
+        ].map(([h, label]) =>
+            '<option value="' + h + '"'
+            + (h === _settingsAuditHours ? ' selected' : '')
+            + '>' + label + '</option>'
+        ).join('');
+        const fmtVal = v => {
+            if (v == null) return '<span class="dim">null</span>';
+            const s = typeof v === 'string' ? v : JSON.stringify(v);
+            return '<code>'
+                + _escHtml(s.length > 80 ? s.slice(0, 80) + '…' : s)
+                + '</code>';
+        };
+        const tableRows = rows.map(r => ''
+            + '<tr>'
+            + '<td style="white-space:nowrap"><code>'
+            +   new Date((r.ts||0)*1000).toISOString().slice(0,19)
+            + '</code></td>'
+            + '<td><code>' + _escHtml(r.domain || '') + '</code></td>'
+            + '<td><code>' + _escHtml(r.config_key || '') + '</code></td>'
+            + '<td>' + fmtVal(r.old_value) + '</td>'
+            + '<td>' + fmtVal(r.new_value) + '</td>'
+            + '<td>' + _escHtml(r.changed_by || '') + '</td>'
+            + '<td><span class="dim">'
+            +   _escHtml((r.reason || '').slice(0, 60)) + '</span></td>'
+            + '</tr>'
+        ).join('');
+        const filterRow =
+            '<div class="cfg-row" style="margin-bottom:10px">'
+            + '<label class="cfg-label">Domain</label>'
+            + '<select class="cfg-select" id="audit-domain-filter">'
+            +   domainOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Window</label>'
+            + '<select class="cfg-select" id="audit-hours-filter">'
+            +   hoursOpts + '</select>'
+            + '<span class="cfg-status">' + rows.length + ' rows</span>'
+            + '</div>';
+        const tableBody =
+            filterRow
+            + '<table class="cfg-table"><thead><tr>'
+            +   '<th>when (UTC)</th><th>domain</th><th>key</th>'
+            +   '<th>old</th><th>new</th><th>by</th><th>reason</th>'
+            + '</tr></thead><tbody>'
+            + (tableRows
+                ? tableRows
+                : '<tr><td colspan="7" class="dim" style="padding:1em">'
+                  + 'no changes in window</td></tr>')
+            + '</tbody></table>';
+        pane.innerHTML = _settingsCfgPage({
+            help: '<div class="cfg-status-banner"><b>AUDIT LEDGER — '
+                + 'view only.</b> Append-only NP6 disclosure surface. '
+                + 'No edit controls here by design.</div>'
+                + 'Unified audit ledger. Every config change — LLM '
+                + 'features, routing, sensor toggles, scenario state, '
+                + 'sysconfig env edits, noise exclusion rules — flows '
+                + 'through <code>config_change_log</code> and surfaces '
+                + 'here. Filter by domain or time window.',
+            sections: [
+                { title: 'CHANGE LEDGER', body: tableBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+            ],
+        });
+        const dEl = document.getElementById('audit-domain-filter');
+        const hEl = document.getElementById('audit-hours-filter');
+        if (dEl) dEl.addEventListener('change', () => {
+            _settingsAuditDomain = dEl.value;
+            _settingsRenderPane('audit.changes');
+        });
+        if (hEl) hEl.addEventListener('change', () => {
+            _settingsAuditHours = Number(hEl.value) || 168;
+            _settingsRenderPane('audit.changes');
+        });
+    };
+
+    // ── B1: analyst_feedback read-only viewer ────────────────────────────
+    let _feedbackHours = 720;            // 30 days default
+    let _feedbackKind = '';              // '' | 'human' | 'auto'
+    let _feedbackLabel = '';             // '' | TP / FP / TN / FN
+
+    async function _fetchAnalystFeedback(hours, kind, label, limit) {
+        try {
+            const params = new URLSearchParams();
+            params.set('hours', String(hours || 720));
+            params.set('limit', String(limit || 200));
+            if (kind) params.set('analyst_kind', kind);
+            if (label) params.set('label', label);
+            const r = await fetch('/api/v2/analyst_feedback?'
+                                  + params.toString());
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+
+    window._settingsRenderAuditFeedback = async function (pane) {
+        _settingsLoading(pane);
+        const data = await _fetchAnalystFeedback(
+            _feedbackHours, _feedbackKind, _feedbackLabel, 200,
+        );
+        if (!data) {
+            pane.innerHTML = '<div style="opacity:0.6">'
+                + '/api/v2/analyst_feedback unavailable. '
+                + 'Authenticate as analyst-or-admin.</div>';
+            return;
+        }
+        const summary = data.summary || {};
+        const items = data.items || [];
+
+        // Summary KV
+        const recallTxt = (typeof summary.recall === 'number')
+            ? summary.recall.toFixed(3)
+            : '<span class="dim">— (no TP+FN signal)</span>';
+        const precTxt = (typeof summary.precision === 'number')
+            ? summary.precision.toFixed(3)
+            : '<span class="dim">— (no TP+FP signal)</span>';
+        const aggBody = _settingsCfgKV([
+            { k: 'Window',
+              v: '<b>' + (summary.window_hours ?? 720) + ' h</b>' },
+            { k: 'Total feedback rows',
+              v: '<b>' + (summary.total ?? 0) + '</b>' },
+            { k: 'Human-authored / Auto-authored',
+              v: '<b>' + (summary.human_total ?? 0) + '</b> / '
+                 + (summary.auto_total ?? 0) },
+            { k: 'Distinct analysts',
+              v: '<b>' + (summary.distinct_analysts ?? 0) + '</b>' },
+            { k: 'Recall (TP/(TP+FN))', v: recallTxt },
+            { k: 'Precision (TP/(TP+FP))', v: precTxt },
+        ]);
+
+        // Confusion matrix per label
+        const lbl = summary.by_label || {};
+        const matrixBody =
+            '<table class="cfg-table"><thead><tr>'
+            + '<th>label</th><th>count</th>'
+            + '</tr></thead><tbody>'
+            + '<tr><td>TRUE_POSITIVE</td><td>'
+            +   (lbl.TRUE_POSITIVE || 0) + '</td></tr>'
+            + '<tr><td>FALSE_POSITIVE</td><td>'
+            +   (lbl.FALSE_POSITIVE || 0) + '</td></tr>'
+            + '<tr><td>TRUE_NEGATIVE</td><td>'
+            +   (lbl.TRUE_NEGATIVE || 0) + '</td></tr>'
+            + '<tr><td>FALSE_NEGATIVE</td><td>'
+            +   (lbl.FALSE_NEGATIVE || 0) + '</td></tr>'
+            + '</tbody></table>';
+
+        // Per-conclusion-type breakdown
+        const byCt = summary.by_conclusion_type || {};
+        const ctRows = Object.keys(byCt).sort().map(ct => {
+            const e = byCt[ct] || {};
+            return '<tr><td><code>' + _escHtml(ct) + '</code></td>'
+                + '<td>' + (e.TRUE_POSITIVE || 0) + '</td>'
+                + '<td>' + (e.FALSE_POSITIVE || 0) + '</td>'
+                + '<td>' + (e.TRUE_NEGATIVE || 0) + '</td>'
+                + '<td>' + (e.FALSE_NEGATIVE || 0) + '</td>'
+                + '</tr>';
+        }).join('');
+        const ctTable = ctRows
+            ? '<table class="cfg-table"><thead><tr>'
+              + '<th>conclusion_type</th>'
+              + '<th>TP</th><th>FP</th><th>TN</th><th>FN</th>'
+              + '</tr></thead><tbody>' + ctRows + '</tbody></table>'
+            : '<div class="cfg-hint">No feedback in window.</div>';
+
+        // Filter row
+        const hoursOpts = [
+            [24,    '24 h'], [168, '7 d'], [720, '30 d'],
+            [2160,  '90 d'], [8760, '1 y'],
+        ].map(([h, lbl]) =>
+            '<option value="' + h + '"'
+            + (h === _feedbackHours ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const kindOpts = [
+            ['', 'all'], ['human', 'human-authored only'],
+            ['auto', 'auto-authored only'],
+        ].map(([k, lbl]) =>
+            '<option value="' + k + '"'
+            + (k === _feedbackKind ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const labelOpts = [
+            ['', 'all labels'],
+            ['TRUE_POSITIVE',  'TP'],
+            ['FALSE_POSITIVE', 'FP'],
+            ['TRUE_NEGATIVE',  'TN'],
+            ['FALSE_NEGATIVE', 'FN'],
+        ].map(([k, lbl]) =>
+            '<option value="' + k + '"'
+            + (k === _feedbackLabel ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const filterRow =
+            '<div class="cfg-row" style="margin-bottom:10px">'
+            + '<label class="cfg-label">Window</label>'
+            + '<select class="cfg-select" id="fb-hours-filter">'
+            +   hoursOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Kind</label>'
+            + '<select class="cfg-select" id="fb-kind-filter">'
+            +   kindOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Label</label>'
+            + '<select class="cfg-select" id="fb-label-filter">'
+            +   labelOpts + '</select>'
+            + '<span class="cfg-status">' + items.length + ' items</span>'
+            + '</div>';
+
+        // Recent items table
+        const itemRows = items.map(it => {
+            const ts = new Date((it.observed_at || 0) * 1000)
+                          .toISOString().slice(0, 19);
+            return '<tr>'
+                + '<td style="white-space:nowrap"><code>' + ts
+                  + '</code></td>'
+                + '<td><code>' + _escHtml(it.scenario_id || '—')
+                  + '</code></td>'
+                + '<td><code>' + _escHtml(it.conclusion_type || '—')
+                  + '</code></td>'
+                + '<td><code>' + _escHtml(it.label || '—')
+                  + '</code></td>'
+                + '<td><code>' + _escHtml(it.analyst_id || '—')
+                  + '</code></td>'
+                + '<td><span class="dim">'
+                  + _escHtml((it.notes || '').slice(0, 60))
+                  + '</span></td>'
+                + '</tr>';
+        }).join('');
+        const itemsBody = filterRow
+            + '<table class="cfg-table"><thead><tr>'
+            + '<th>when (UTC)</th><th>scenario</th><th>type</th>'
+            + '<th>label</th><th>analyst</th><th>notes</th>'
+            + '</tr></thead><tbody>'
+            + (itemRows || '<tr><td colspan="6" class="dim" '
+               + 'style="padding:1em">no feedback in window</td></tr>')
+            + '</tbody></table>';
+
+        pane.innerHTML = _settingsCfgPage({
+            help: '<div class="cfg-status-banner"><b>FEEDBACK LEDGER — '
+                + 'view only.</b> Append-only NP6 ledger of analyst '
+                + 'TP/FP/TN/FN labels against conclusions. The POST '
+                + 'side lives at <code>POST /api/v2/conclusions/&lt;id&gt;'
+                + '/feedback</code>; this page rolls all rows up '
+                + 'across conclusions for the audit trail (AP4).</div>'
+                + 'Recall and precision are computed when there is at '
+                + 'least one TP+FN (recall) or TP+FP (precision) row '
+                + 'in the window.',
+            sections: [
+                { title: 'OVERALL', body: aggBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'CONFUSION MATRIX', body: matrixBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'PER CONCLUSION_TYPE', body: ctTable,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'RECENT FEEDBACK', body: itemsBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+            ],
+        });
+
+        const hEl2 = document.getElementById('fb-hours-filter');
+        const kEl = document.getElementById('fb-kind-filter');
+        const lEl = document.getElementById('fb-label-filter');
+        if (hEl2) hEl2.addEventListener('change', () => {
+            _feedbackHours = Number(hEl2.value) || 720;
+            _settingsRenderPane('audit.feedback');
+        });
+        if (kEl) kEl.addEventListener('change', () => {
+            _feedbackKind = kEl.value || '';
+            _settingsRenderPane('audit.feedback');
+        });
+        if (lEl) lEl.addEventListener('change', () => {
+            _feedbackLabel = lEl.value || '';
+            _settingsRenderPane('audit.feedback');
+        });
+    };
+
+    // ── B3: auto_judge_decisions read-only viewer ────────────────────────
+    let _ajHours = 720;
+    let _ajAction = '';     // '' | 'confirm' | 'reject' | 'pending'
+    let _ajApplied = '';    // '' | '1' | '0'
+    let _ajOverridden = ''; // '' | '1' | '0'
+
+    async function _fetchAutoJudgeDecisions(hours, action, applied,
+                                            overridden, limit) {
+        try {
+            const params = new URLSearchParams();
+            params.set('hours', String(hours || 720));
+            params.set('limit', String(limit || 200));
+            if (action) params.set('action', action);
+            if (applied !== '') params.set('applied', applied);
+            if (overridden !== '') params.set('overridden', overridden);
+            const r = await fetch('/api/v2/auto_judge/decisions?'
+                                  + params.toString());
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (_) { return null; }
+    }
+
+    window._settingsRenderAuditAutoJudge = async function (pane) {
+        _settingsLoading(pane);
+        const data = await _fetchAutoJudgeDecisions(
+            _ajHours, _ajAction, _ajApplied, _ajOverridden, 200,
+        );
+        if (!data) {
+            pane.innerHTML = '<div style="opacity:0.6">'
+                + '/api/v2/auto_judge/decisions unavailable. '
+                + 'Authenticate as analyst-or-admin.</div>';
+            return;
+        }
+        const summary = data.summary || {};
+        const items = data.items || [];
+        const byAction = summary.by_action || {};
+        const overrideRate = (typeof summary.override_rate === 'number')
+            ? (summary.override_rate * 100).toFixed(2) + '%'
+            : '<span class="dim">— (no applied rows)</span>';
+        const overrideCls = (typeof summary.override_rate === 'number')
+            ? (summary.override_rate >= 0.20 ? 'crit'
+               : summary.override_rate >= 0.10 ? 'warn' : 'ok')
+            : 'dim';
+
+        const aggBody = _settingsCfgKV([
+            { k: 'Window',           v: '<b>' + (summary.window_hours ?? 720) + ' h</b>' },
+            { k: 'Total decisions',  v: '<b>' + (summary.total ?? 0) + '</b>' },
+            { k: 'confirm / reject / pending',
+              v: '<b>' + (byAction.confirm || 0) + '</b> / '
+                 + '<b>' + (byAction.reject || 0) + '</b> / '
+                 + '<b>' + (byAction.pending || 0) + '</b>' },
+            { k: 'Applied / Overridden',
+              v: '<b>' + (summary.applied_total || 0) + '</b> / '
+                 + '<b>' + (summary.overridden_total || 0) + '</b>' },
+            { k: 'Override rate (overridden / applied)',
+              v: '<span class="' + overrideCls + '">' + overrideRate
+                 + '</span>' },
+        ]);
+
+        // Filters.
+        const hoursOpts = [
+            [24, '24 h'], [168, '7 d'], [720, '30 d'],
+            [2160, '90 d'], [8760, '1 y'],
+        ].map(([h, lbl]) =>
+            '<option value="' + h + '"'
+            + (h === _ajHours ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const actionOpts = [
+            ['', 'all'], ['confirm', 'confirm'],
+            ['reject', 'reject'], ['pending', 'pending'],
+        ].map(([k, lbl]) =>
+            '<option value="' + k + '"'
+            + (k === _ajAction ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const trinaryOpts = (current) => [
+            ['', 'any'], ['1', 'yes'], ['0', 'no'],
+        ].map(([k, lbl]) =>
+            '<option value="' + k + '"'
+            + (k === current ? ' selected' : '')
+            + '>' + lbl + '</option>'
+        ).join('');
+        const filterRow =
+            '<div class="cfg-row" style="margin-bottom:10px">'
+            + '<label class="cfg-label">Window</label>'
+            + '<select class="cfg-select" id="aj-hours-filter">'
+            +   hoursOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Action</label>'
+            + '<select class="cfg-select" id="aj-action-filter">'
+            +   actionOpts + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Applied</label>'
+            + '<select class="cfg-select" id="aj-applied-filter">'
+            +   trinaryOpts(_ajApplied) + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Overridden</label>'
+            + '<select class="cfg-select" id="aj-overridden-filter">'
+            +   trinaryOpts(_ajOverridden) + '</select>'
+            + '<span class="cfg-status">' + items.length + ' items</span>'
+            + '</div>';
+
+        // Items table.
+        const fmtConf = c => (typeof c === 'number')
+            ? c.toFixed(3) : '—';
+        const tableRows = items.map(it => {
+            const ts = new Date((it.ts || 0) * 1000)
+                          .toISOString().slice(0, 19);
+            const actCls = it.action_proposed === 'confirm' ? 'ok'
+                         : it.action_proposed === 'reject'  ? 'warn'
+                         : 'dim';
+            const overrideMark = it.analyst_overrode
+                ? '<span class="warn">↻ ' + _escHtml(
+                       it.analyst_override_action || '?')
+                  + (it.analyst_id ? ' ('
+                       + _escHtml(it.analyst_id) + ')' : '')
+                  + '</span>'
+                : '<span class="dim">—</span>';
+            return '<tr>'
+                + '<td style="white-space:nowrap"><code>' + ts + '</code></td>'
+                + '<td><code>' + _escHtml(it.item_id || '—').slice(0, 32)
+                  + '</code></td>'
+                + '<td><span class="' + actCls + '">'
+                  + _escHtml(it.action_proposed || '?') + '</span></td>'
+                + '<td>' + fmtConf(it.confidence) + '</td>'
+                + '<td>' + (it.layer1_corroborators || 0) + '</td>'
+                + '<td>' + (it.layer1_satisfied ? '✓' : '<span class="dim">—</span>') + '</td>'
+                + '<td>' + (it.applied ? '✓' : '<span class="dim">—</span>') + '</td>'
+                + '<td>' + overrideMark + '</td>'
+                + '<td><span class="dim">'
+                  + _escHtml((it.reason || '').slice(0, 60))
+                  + '</span></td>'
+                + '</tr>';
+        }).join('');
+        const itemsBody = filterRow
+            + '<table class="cfg-table"><thead><tr>'
+            + '<th>when (UTC)</th><th>item_id</th><th>action</th>'
+            + '<th>conf</th><th>l1_corr</th><th>l1_ok</th>'
+            + '<th>applied</th><th>override</th><th>reason</th>'
+            + '</tr></thead><tbody>'
+            + (tableRows || '<tr><td colspan="9" class="dim" '
+               + 'style="padding:1em">no decisions in window</td></tr>')
+            + '</tbody></table>';
+
+        pane.innerHTML = _settingsCfgPage({
+            help: '<div class="cfg-status-banner"><b>AUTO-JUDGE LEDGER — '
+                + 'view only.</b> Every Layer 1 / LLM-recheck second-pass '
+                + 'invocation appends a row to '
+                + '<code>auto_judge_decisions</code>. This page rolls '
+                + 'them up so an analyst can see what the auto-judge '
+                + 'has been confirming, rejecting, or applying — and '
+                + 'how often a human later overrode it.</div>'
+                + 'Override rate &gt; 20% suggests the auto-judge rules '
+                + 'are misfiring; investigate before raising the '
+                + 'auto-confirm tier.',
+            sections: [
+                { title: 'OVERALL', body: aggBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+                { title: 'RECENT DECISIONS', body: itemsBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+            ],
+        });
+
+        const hEl3 = document.getElementById('aj-hours-filter');
+        const aEl = document.getElementById('aj-action-filter');
+        const apEl = document.getElementById('aj-applied-filter');
+        const ovEl = document.getElementById('aj-overridden-filter');
+        if (hEl3) hEl3.addEventListener('change', () => {
+            _ajHours = Number(hEl3.value) || 720;
+            _settingsRenderPane('audit.auto_judge');
+        });
+        if (aEl) aEl.addEventListener('change', () => {
+            _ajAction = aEl.value || '';
+            _settingsRenderPane('audit.auto_judge');
+        });
+        if (apEl) apEl.addEventListener('change', () => {
+            _ajApplied = apEl.value || '';
+            _settingsRenderPane('audit.auto_judge');
+        });
+        if (ovEl) ovEl.addEventListener('change', () => {
+            _ajOverridden = ovEl.value || '';
+            _settingsRenderPane('audit.auto_judge');
+        });
+    };
 
     async function _refreshSelfEval() {
         const now = Date.now();
@@ -2682,6 +5354,56 @@
                 } else {
                     driftEl.textContent = '—';
                     _applySelfEvalClass('hud-drift-chip', 'na');
+                }
+            }
+
+            // Phase 9 (2026-05-13) — TL Distribution Skew chip.
+            // Reads /api/v2/self_eval.tl_distribution_skew. Bands:
+            //   good:  tl5_pct ≥ 30% (peacetime calm dominant)
+            //   warn:  15% ≤ tl5_pct < 30%
+            //   crit:  tl5_pct < 15% OR calibration_skew_alert === true
+            //   na:    not enough data (have_enough_data === false)
+            const skewEl = document.getElementById('hud-skew-value');
+            const skew = data.tl_distribution_skew || null;
+            if (skewEl) {
+                if (!skew || skew.enabled === false) {
+                    skewEl.textContent = 'OFF';
+                    _applySelfEvalClass('hud-skew-chip', 'na');
+                } else if (skew.have_enough_data === false) {
+                    const n = skew.n_observations || 0;
+                    skewEl.textContent = 'n=' + n;
+                    _applySelfEvalClass('hud-skew-chip', 'na');
+                } else if (typeof skew.tl5_pct === 'number') {
+                    skewEl.textContent = skew.tl5_pct.toFixed(0) + '%';
+                    const band = skew.calibration_skew_alert ? 'crit'
+                               : skew.tl5_pct >= 30 ? 'good'
+                               : skew.tl5_pct >= 15 ? 'warn' : 'crit';
+                    _applySelfEvalClass('hud-skew-chip', band);
+                } else {
+                    skewEl.textContent = '—';
+                    _applySelfEvalClass('hud-skew-chip', 'na');
+                }
+                const chip = document.getElementById('hud-skew-chip');
+                if (chip && skew && skew.distribution_pct) {
+                    const parts = [
+                        'TL Distribution (last '
+                            + (skew.window_days || 7) + 'd)',
+                        '  TL5 (calm):     '
+                            + (skew.distribution_pct.TL5 || 0).toFixed(1) + '%',
+                        '  TL4:            '
+                            + (skew.distribution_pct.TL4 || 0).toFixed(1) + '%',
+                        '  TL3:            '
+                            + (skew.distribution_pct.TL3 || 0).toFixed(1) + '%',
+                        '  TL2:            '
+                            + (skew.distribution_pct.TL2 || 0).toFixed(1) + '%',
+                        '  TL1:            '
+                            + (skew.distribution_pct.TL1 || 0).toFixed(1) + '%',
+                        '  Floor (alert <): '
+                            + (skew.tl5_min_pct || 30) + '%',
+                        '  N observations: ' + (skew.n_observations || 0),
+                        '  Alert: ' + (skew.calibration_skew_alert ? 'YES' : 'no'),
+                    ];
+                    chip.title = parts.join('\n');
                 }
             }
 
@@ -2801,7 +5523,170 @@
         // so the setInterval cadence is just the upper bound.
         _refreshModelChip();
         setInterval(_refreshModelChip, 5 * 60 * 1000);
+        // AUTO-CAL chip (Phase 3 hardening) — auto-apply tier governor.
+        // 60s upper bound; the governor itself only mutates on a daily
+        // tick so polling more aggressively is wasted.
+        _refreshAutoCalChip();
+        setInterval(_refreshAutoCalChip, 60 * 1000);
+        // CHRONIC chip (NP5+8 / ADR-V2-010 detector). 60s cadence;
+        // mutation is daily so a tighter poll is wasted.
+        _refreshChronicChip();
+        setInterval(_refreshChronicChip, 60 * 1000);
     });
+
+    // ── AUTO-CAL chip (Phase 3 hardening) ────────────────────────────────
+    // Polls /api/v2/calibration/tier_governor and renders:
+    //   - Label "AUTO-CAL: T{n}" (with kill-switch / failure suffix)
+    //   - Band: good (cap not engaged + no consecutive failures),
+    //           warn  (≥1 gate met for next promotion OR cooldown active),
+    //           crit  (kill_switch_engaged OR consecutive_failures > 0).
+    //   - Tooltip: tier name, dwell time, gates met / total, cooldowns.
+    let _autoCalLastFetchMs = 0;
+    const _AUTOCAL_TTL_MS = 30 * 1000;  // do-not-thrash floor
+
+    async function _refreshAutoCalChip() {
+        const now = Date.now();
+        if (now - _autoCalLastFetchMs < _AUTOCAL_TTL_MS) return;
+        _autoCalLastFetchMs = now;
+        const valEl = document.getElementById('hud-autocal-value');
+        const chip = document.getElementById('hud-autocal-chip');
+        if (!valEl || !chip) return;
+        try {
+            const resp = await fetch('/api/v2/calibration/tier_governor');
+            if (!resp.ok) return;  // 401 / 503 → leave previous values
+            const body = await resp.json();
+            const s = (body && body.data) || null;
+            if (!s) return;
+
+            // Label.
+            let suffix = '';
+            if (s.kill_switch_engaged) suffix = '!';
+            else if (s.consecutive_failures > 0) suffix = '…';
+            else if (s.next_tier !== null && s.gates_met > 0
+                     && s.gates_met >= s.gates_total) suffix = '↑';
+            valEl.textContent = 'T' + s.current_tier + suffix;
+
+            // Band.
+            let band = 'good';
+            if (s.kill_switch_engaged) band = 'crit';
+            else if (s.consecutive_failures > 0) band = 'crit';
+            else if ((s.active_cooldowns || []).length > 0) band = 'warn';
+            else if (s.gates_met > 0 && s.gates_met < s.gates_total) band = 'warn';
+            _applySelfEvalClass('hud-autocal-chip', band);
+
+            // Tooltip narrative — AP2 template-driven (no LLM).
+            const lines = [];
+            const tierName = s.current_tier_name || ('Tier ' + s.current_tier);
+            lines.push('Auto-Calibration: ' + tierName
+                       + ' (T' + s.current_tier + ')');
+            if (typeof s.days_at_current_tier === 'number') {
+                lines.push('  entered ' + s.days_at_current_tier.toFixed(2)
+                           + 'd ago');
+            }
+            if (s.kill_switch_engaged) {
+                lines.push('  kill-switch engaged: cap=' + s.cap
+                           + ' < raw_tier=' + s.raw_stored_tier);
+            }
+            if (s.consecutive_failures > 0) {
+                lines.push('  consecutive_failures=' + s.consecutive_failures);
+            }
+            if (s.next_tier !== null) {
+                lines.push('  T' + s.current_tier + ' → T' + s.next_tier
+                           + ': ' + s.gates_met + '/' + s.gates_total + ' gates met');
+                for (const g of (s.promotion_gates || [])) {
+                    const mark = g.met ? '✓' : '✗';
+                    lines.push('    ' + mark + ' ' + g.name + ': '
+                               + g.current + ' (need ' + g.required + ')');
+                }
+            } else {
+                lines.push('  at ceiling tier');
+            }
+            const cd = s.active_cooldowns || [];
+            if (cd.length > 0) {
+                lines.push('  cooldowns:');
+                for (const c of cd) {
+                    const mins = Math.round(c.remaining_seconds / 60);
+                    lines.push('    ' + c.impact_level + ' for '
+                               + mins + 'm (by ' + c.triggered_by + ')');
+                }
+            }
+            chip.title = lines.join('\n');
+        } catch (_) {
+            // NP3 — leave previous values.
+        }
+    }
+
+    // Click-handler hook used by the AUTO-CAL chip in index.html. Opens
+    // the SETTINGS modal at the Operate > Auto-Calibration sub-page.
+    window._openAutoCalSettings = function _openAutoCalSettings() {
+        try {
+            if (typeof window._settingsOpen === 'function') {
+                window._settingsOpen('operate.calibration');
+            }
+        } catch (_) { /* NP3 — silent */ }
+    };
+
+    // ── CHRONIC chip (NP5+8 / ADR-V2-010 detector) ───────────────────────
+    // Polls /api/v2/observability/chronic_inconclusive and renders the
+    // count of (scenario, conclusion_type) pairs whose UNAVAILABLE run
+    // has lasted past the operator-configurable threshold (default 7d).
+    // Bands: 0 → good, 1-2 → warn, ≥3 → crit. Tooltip lists the worst
+    // offending pairs (top 5) so an analyst can see *which* conclusions
+    // the system is structurally blind to.
+    let _chronicLastFetchMs = 0;
+    const _CHRONIC_TTL_MS = 30 * 1000;
+
+    async function _refreshChronicChip() {
+        const now = Date.now();
+        if (now - _chronicLastFetchMs < _CHRONIC_TTL_MS) return;
+        _chronicLastFetchMs = now;
+        const valEl = document.getElementById('hud-chronic-value');
+        const chip = document.getElementById('hud-chronic-chip');
+        if (!valEl || !chip) return;
+        try {
+            const resp = await fetch(
+                '/api/v2/observability/chronic_inconclusive');
+            if (!resp.ok) return;  // 401 / 503 → leave previous values
+            const body = await resp.json();
+            const s = (body && body.data) || null;
+            if (!s) return;
+
+            const summary = s.summary || {};
+            const chronicCount = Number(summary.chronic_count || 0);
+            const transientCount = Number(summary.transient_count || 0);
+            valEl.textContent = String(chronicCount);
+
+            let band = 'good';
+            if (chronicCount >= 3) band = 'crit';
+            else if (chronicCount >= 1) band = 'warn';
+            _applySelfEvalClass('hud-chronic-chip', band);
+
+            // Tooltip — template-driven (AP2: no LLM).
+            const lines = [];
+            const thr = (typeof s.threshold_days === 'number')
+                ? s.threshold_days.toFixed(1) : '?';
+            lines.push('Chronic inconclusive (NP5+8): '
+                       + chronicCount + ' state(s) past ' + thr + 'd');
+            lines.push('  transient: ' + transientCount);
+            const chronicList = (s.chronic || []).slice(0, 5);
+            if (chronicList.length > 0) {
+                lines.push('  worst:');
+                for (const st of chronicList) {
+                    const days = (typeof st.days_unavailable === 'number')
+                        ? st.days_unavailable.toFixed(1) + 'd'
+                        : '?d';
+                    lines.push('    ' + st.scenario_id + '/'
+                               + st.conclusion_type + ' — ' + days);
+                }
+            }
+            if (chronicCount === 0 && transientCount === 0) {
+                lines.push('  (no open unavailability runs — healthy)');
+            }
+            chip.title = lines.join('\n');
+        } catch (_) {
+            // NP3 — leave previous values.
+        }
+    }
 
     // ── Triage Lane / Alert Lane (AP1 — Active Triage) ──────────────────
     // Active Triage: ranks event-shaped conclusions (anomaly + attack_mode
@@ -3236,30 +6121,85 @@
         chip.style.display = 'inline-block';
     }
 
-    // ── Decision History modal (AP4, Phase 4) ─────────────────────────
-    // Loads /api/v2/decisions/history with the user's filter selections
-    // and renders a chronological list. Single-modal pattern matching
-    // the LLM Feature Hub UX.
+    // ── Decision History — Phase 10: absorbed into SETTINGS ──────────
+    // Decision History (AP4 audit trail) used to be a standalone
+    // modal. It is now SETTINGS → Audit → Decisions (audit.decisions
+    // domain). The legacy _decisionHistoryOpen entry point redirects
+    // to _settingsOpen('audit.decisions').
     window._decisionHistoryOpen = function () {
-        if (typeof openModal === 'function') openModal('decision-history-modal');
-        // Wire filter controls once.
-        const apply = document.getElementById('dh-filter-apply');
-        if (apply && apply.dataset.dhWired !== '1') {
-            apply.addEventListener('click', _dhLoad);
-            apply.dataset.dhWired = '1';
+        if (typeof window._settingsOpen === 'function') {
+            window._settingsOpen('audit.decisions');
         }
-        _dhLoad();
+    };
+    window._decisionHistoryClose = function () {
+        if (typeof window._settingsClose === 'function') {
+            window._settingsClose();
+        }
     };
 
-    window._decisionHistoryClose = function () {
-        // Prefer selective close (newly added closeModal) so other
-        // modals stay visible if any. Fallback to closeAllModals when
-        // running an older bundle without closeModal.
-        if (typeof window.closeModal === 'function') {
-            window.closeModal('decision-history-modal');
-        } else if (typeof closeAllModals === 'function') {
-            closeAllModals();
-        }
+    // SETTINGS sub-page renderer for AP4 Decision Trail. Same data
+    // path (/api/v2/decisions/history) and same row markup as the
+    // legacy modal, restyled to the cfg-* design system.
+    window._settingsRenderAuditDecisions = async function (pane) {
+        const filterBody =
+            '<div class="cfg-row">'
+            + '<label class="cfg-label">Type</label>'
+            + '<select id="dh-filter-type" class="cfg-select">'
+            +   '<option value="">All</option>'
+            +   '<option value="triage_snooze">TRIAGE snooze</option>'
+            +   '<option value="triage_visibility">TRIAGE visibility</option>'
+            +   '<option value="triage_dismiss">TRIAGE dismiss</option>'
+            +   '<option value="triage_threshold_override">TRIAGE threshold</option>'
+            +   '<option value="tl_recal_accept">TL recal accept</option>'
+            +   '<option value="tl_recal_extend">TL recal extend</option>'
+            +   '<option value="tl_recal_raise">TL recal raise</option>'
+            +   '<option value="dual_weight_accept">Dual-weight accept</option>'
+            +   '<option value="dual_weight_extend">Dual-weight extend</option>'
+            +   '<option value="dual_weight_rollback">Dual-weight rollback</option>'
+            + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Window</label>'
+            + '<select id="dh-filter-window" class="cfg-select">'
+            +   '<option value="86400">24 h</option>'
+            +   '<option value="604800" selected>7 d</option>'
+            +   '<option value="2592000">30 d</option>'
+            +   '<option value="7776000">90 d</option>'
+            + '</select>'
+            + '<label class="cfg-label" style="margin-left:8px">Action</label>'
+            + '<select id="dh-filter-action" class="cfg-select">'
+            +   '<option value="">All</option>'
+            +   '<option value="accept">accept</option>'
+            +   '<option value="extend">extend</option>'
+            +   '<option value="raise">raise</option>'
+            +   '<option value="rollback">rollback</option>'
+            +   '<option value="snooze">snooze</option>'
+            +   '<option value="dismiss">dismiss</option>'
+            +   '<option value="set">set</option>'
+            + '</select>'
+            + '<button type="button" id="dh-filter-apply" class="btn-tactical btn-action">'
+            +   'APPLY FILTERS</button>'
+            + '</div>';
+        const trailBody =
+            '<div class="dh-body" id="decision-history-body">'
+            + '<div class="dh-loading">Loading…</div></div>';
+        pane.innerHTML = _settingsCfgPage({
+            help: '<div class="cfg-status-banner"><b>AUDIT LEDGER — '
+                + 'view only.</b> Append-only AP4 Decision Trail. '
+                + 'No edit controls here by design.</div>'
+                + 'Every analyst action recorded with actor, reason, '
+                + 'and parameters. Combine with the '
+                + '<a href="javascript:void(0)" '
+                + 'onclick="window._settingsOpen(\'audit.changes\')">'
+                + 'Audit Changes</a> ledger for the full forensic '
+                + 'timeline.',
+            sections: [
+                { title: 'FILTERS',        body: filterBody },
+                { title: 'DECISION TRAIL', body: trailBody,
+                  badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
+            ],
+        });
+        const apply = document.getElementById('dh-filter-apply');
+        if (apply) apply.addEventListener('click', _dhLoad);
+        _dhLoad();
     };
 
     async function _dhLoad() {
@@ -4018,16 +6958,28 @@
             wrap.textContent = _t('drill_modal.empty.calibration');
             return wrap;
         }
-        // Surface canonical fields first when present, then fall back to raw dump
-        const canonical = ['status', 'sample_size', 'last_updated'];
+        // Surface canonical fields first when present, then fall back to raw
+        // dump. Shape (2026-05-29 ground-truth signal): status / recall /
+        // precision / fn / sample_n / last_label_at. Legacy keys (sample_size,
+        // last_updated) are still mapped so old persisted rows render too.
+        const labelKeys = {
+            status:       'drill_modal.calib.status',
+            recall:       'drill_modal.calib.recall',
+            precision:    'drill_modal.calib.precision',
+            fn:           'drill_modal.calib.fn',
+            sample_n:     'drill_modal.calib.sample_n',
+            last_label_at: 'drill_modal.calib.last_label_at',
+            sample_size:  'drill_modal.calib.sample_size',
+            last_updated: 'drill_modal.calib.last_updated',
+        };
+        const canonical = ['status', 'recall', 'precision', 'fn', 'sample_n',
+                           'last_label_at', 'sample_size', 'last_updated'];
+        const tsKeys = new Set(['last_label_at', 'last_updated']);
         const seen = new Set();
         canonical.forEach((k) => {
             if (k in cs) {
-                const labelKey = k === 'status' ? 'drill_modal.calib.status'
-                              : k === 'sample_size' ? 'drill_modal.calib.sample_size'
-                              : 'drill_modal.calib.last_updated';
-                const v = (k === 'last_updated') ? _ccFmtTimestamp(cs[k]) : cs[k];
-                wrap.appendChild(_ccDrillRow(_t(labelKey), v));
+                const v = tsKeys.has(k) ? _ccFmtTimestamp(cs[k]) : cs[k];
+                wrap.appendChild(_ccDrillRow(_t(labelKeys[k]), v));
                 seen.add(k);
             }
         });
@@ -4037,8 +6989,16 @@
             const display = (v != null && typeof v === 'object') ? JSON.stringify(v) : v;
             wrap.appendChild(_ccDrillRow(k, display));
         });
-        // Low-N warning (NP5+8) — surface when sample_size present and small
-        const n = parseFloat(cs.sample_size);
+        // DEGRADED warning (NP1) — recall has dropped below the sensitivity floor.
+        if (cs.status === 'DEGRADED') {
+            const warn = document.createElement('div');
+            warn.className = 'dm-warn';
+            warn.setAttribute('role', 'status');
+            warn.textContent = _t('drill_modal.calib.warn_degraded');
+            wrap.appendChild(warn);
+        }
+        // Low-N warning (NP5+8) — too few labeled samples to trust the number.
+        const n = parseFloat(cs.sample_n != null ? cs.sample_n : cs.sample_size);
         if (isFinite(n) && n > 0 && n < 10) {
             const warn = document.createElement('div');
             warn.className = 'dm-warn';
@@ -5563,6 +8523,39 @@
                 dirWrap.style.display = (ds.adversary_offensive > 0 || ds.target_impact > 0) ? 'inline-flex' : 'none';
             } else if (dirWrap) {
                 dirWrap.style.display = 'none';
+            }
+
+            // Phase 9 (2026-05-13) — GLOBAL chip. Surfaces countryless threat
+            // signals (cf_botnet_overlap + threatfox) as an independent lane.
+            // Hidden when there is no global signal so it does not add UI
+            // noise on quiet days. Tooltip lists the contributing sensors.
+            const gtWrap = document.getElementById('hud-global-threat-chip');
+            const gtEl = document.getElementById('hud-global-threat');
+            const gt = data.global_threat || null;
+            if (gtWrap && gtEl) {
+                if (gt && typeof gt.score === 'number' && gt.score > 0) {
+                    gtEl.textContent = gt.score.toFixed(1);
+                    const _sources = Array.isArray(gt.sources) ? gt.sources : [];
+                    const _doms = gt.domains || {};
+                    const lines = [
+                        _t('hud.tooltip.global_threat'),
+                        '',
+                        'score: ' + gt.score.toFixed(2),
+                        'cyber: '    + (_doms.cyber    || 0).toFixed(2),
+                        'physical: ' + (_doms.physical || 0).toFixed(2),
+                        'info: '     + (_doms.info     || 0).toFixed(2),
+                        '',
+                        'sources (' + _sources.length + '):',
+                    ];
+                    _sources.slice(0, 5).forEach(s => {
+                        lines.push('  ' + s.sensor + ' +' + (s.contribution || 0).toFixed(2)
+                            + (s.value_display ? '  (' + s.value_display + ')' : ''));
+                    });
+                    gtWrap.setAttribute('data-tooltip', lines.join('\n'));
+                    gtWrap.style.display = 'inline-flex';
+                } else {
+                    gtWrap.style.display = 'none';
+                }
             }
 
             // Scenario chip — show focused scenario name (replaces Epicenter)
@@ -8144,19 +11137,105 @@
     }
 
     // ── System Config (env_config) ────────────────────────────────────────────
+    // Secret indicator handling — the API returns {set, last4} for secret
+    // keys, never the plaintext. We render an empty input with a placeholder
+    // showing "configured · …last4" or "(unset)" so the analyst can see
+    // whether the secret exists without ever having the value in the DOM.
+    // On SAVE, secret-flagged inputs are OMITTED from the payload when
+    // empty, signalling "leave the existing value alone". This is the
+    // root-cause fix for the 2026-05-04 mask-corruption incident.
+    function _isSecretIndicator(v) {
+        return v && typeof v === 'object' && !Array.isArray(v)
+            && 'set' in v && 'last4' in v;
+    }
+
+    // ── /api/v2/config compatibility shim ─────────────────────────────────────
+    // Provides the legacy `{KEY: value | indicator}` shape over the v2
+    // registry-driven endpoints so existing form renderers keep working.
+    // The legacy /api/env_config* endpoints were retired 2026-05-05.
+    //
+    //  _v2ConfigLoad()              → flat dict {KEY: scalar | {set, last4}}
+    //  _v2ConfigSave(updates, opt)  → POSTs each key individually to
+    //                                  /api/v2/config; returns
+    //                                  {ok, updated, skipped, errors, needs_restart}.
+    //                                  opt.reason is forwarded for high-impact
+    //                                  keys (the v2 endpoint requires it).
+    async function _v2ConfigLoad() {
+        const r = await fetch('/api/v2/config/values',
+            { headers: typeof _adminHeaders === 'function' ? _adminHeaders() : {} });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const body = await r.json();
+        const flat = {};
+        (body.values || []).forEach(row => {
+            if (row.source === 'secret') {
+                flat[row.key] = row.indicator || { set: false, last4: null };
+            } else if (row.value !== null && row.value !== undefined) {
+                flat[row.key] = row.value;
+            }
+        });
+        return flat;
+    }
+
+    async function _v2ConfigSave(updates, opt) {
+        const reason = (opt && opt.reason) || null;
+        const headers = typeof _adminHeaders === 'function'
+            ? _adminHeaders({ 'Content-Type': 'application/json' })
+            : { 'Content-Type': 'application/json' };
+        const updated = [];
+        const skipped = [];
+        const errors = [];
+        const needs_restart = [];
+        for (const [key, value] of Object.entries(updates || {})) {
+            const body = reason ? { key, value, reason } : { key, value };
+            let r;
+            try {
+                r = await fetch('/api/v2/config', {
+                    method: 'POST', headers, body: JSON.stringify(body),
+                });
+            } catch (e) {
+                errors.push({ key, error: String(e) });
+                continue;
+            }
+            let data = {};
+            try { data = await r.json(); } catch (_) {}
+            if (r.ok && data.ok) {
+                updated.push(key);
+                if (data.restart_pending) needs_restart.push(key);
+            } else if (r.status === 403) {
+                // secret/immutable — silently skip (matches legacy behaviour
+                // where masked secrets weren't writeable either).
+                skipped.push(key);
+            } else {
+                errors.push({ key, error: data.error || ('HTTP ' + r.status) });
+            }
+        }
+        return { ok: errors.length === 0, updated, skipped, errors, needs_restart };
+    }
+
     async function loadEnvConfig() {
         const _rn = document.getElementById('env-restart-note');
         if (_rn) _rn.style.display = 'none';
         try {
-            const res = await fetch(`/api/env_config`, { headers: _adminHeaders() });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const cfg = await res.json();
+            const cfg = await _v2ConfigLoad();
             document.querySelectorAll('[id^="ec-"]').forEach(el => {
                 const key = el.id.replace('ec-', '');
                 if (key === 'LLM_MODEL_manual') return; // skip manual fallback field
-                if (cfg[key] !== undefined) {
-                    el.value = cfg[key];
-                    if (key === 'LLM_MODEL') el.dataset.current = cfg[key];
+                const val = cfg[key];
+                if (val === undefined) return;
+                if (_isSecretIndicator(val)) {
+                    // Secret — render empty input + indicator placeholder.
+                    // Marking the element ensures saveEnvConfig() omits it
+                    // from the POST payload when left blank.
+                    el.value = '';
+                    el.dataset.secret = '1';
+                    el.placeholder = val.set
+                        ? `(configured · ends in …${val.last4 || '????'})`
+                        : '(unset — enter to set)';
+                    el.classList.add('secret-field');
+                } else {
+                    el.value = val;
+                    delete el.dataset.secret;
+                    if (key === 'LLM_MODEL') el.dataset.current = val;
                 }
             });
             const st = document.getElementById('env-status');
@@ -8176,37 +11255,27 @@
             if (el.type === 'hidden' && el.value === '') return; // skip empty hidden
             const key = el.id.replace('ec-', '');
             if (_skipKeys.has(key)) return; // UI-only field, not a real config key
+            // Secret fields: empty = "no change". Skip silently. The backend
+            // also rejects any mask-shaped value as defense-in-depth.
+            if (el.dataset.secret === '1' && el.value === '') return;
             if (el.value !== '') updates[key] = el.value;
         });
         const st = document.getElementById('env-status');
         if (st) { st.textContent = _t('config.status.saving'); st.className = 'env-status'; }
         try {
-            const res = await fetch(`/api/env_config`, {
-                method: 'POST',
-                headers: _adminHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify(updates)
-            });
-            const data = await res.json();
-            if (data.ok) {
-                // Immediately reload reloadable keys (no restart needed for those)
-                let needsRestart = false;
-                try {
-                    const rel = await fetch('/api/env_config/reload', {
-                        method: 'POST',
-                        headers: _adminHeaders(),
-                    });
-                    const relData = await rel.json();
-                    needsRestart = relData.ok && relData.needs_restart && relData.needs_restart.length > 0;
-                } catch(_) {}
+            const result = await _v2ConfigSave(updates);
+            if (result.ok || result.errors.length === 0) {
                 const restartNote = document.getElementById('env-restart-note');
+                const needsRestart = result.needs_restart && result.needs_restart.length > 0;
                 if (restartNote) restartNote.style.display = needsRestart ? 'block' : 'none';
                 if (st) {
-                    st.textContent = _t('config.status.saved', {n: data.updated.length});
+                    st.textContent = _t('config.status.saved', {n: result.updated.length});
                     st.className = 'env-status ok';
                     setTimeout(() => { if (st) st.textContent = ''; }, 6000);
                 }
             } else {
-                throw new Error(data.error || 'Unknown error');
+                const first = result.errors[0];
+                throw new Error(first ? `${first.key}: ${first.error}` : 'Unknown error');
             }
         } catch(e) {
             if (st) { st.textContent = _t('config.status.error', {msg: e.message}); st.className = 'env-status err'; }
@@ -8528,7 +11597,10 @@
     let _umgrUser = localStorage.getItem('radar_username');
 
     window.toggleUserMgr = function() {
-        openModal('settings-modal');
+        if (typeof window._settingsOpen === 'function') {
+            window._settingsOpen('access.users');
+            return;
+        }
         switchTab('users');
         umgrLoadUsers();
     };
@@ -8774,14 +11846,16 @@
         const sel = document.getElementById('hist-theater');
         if (sel) {
             const prev = sel.value;
-            fetch('/api/history/theaters').then(r => {
+            fetch('/api/history/countries').then(r => {
                 if (!r.ok) throw new Error(r.status);
                 return r.json();
             }).then(data => {
-                const theaters = data.theaters || [];
-                if (!theaters.length) return;
+                // Canonical key is `countries`; tolerate the legacy
+                // `theaters` key if some intermediate proxy strips one.
+                const items = data.countries || data.theaters || [];
+                if (!items.length) return;
                 sel.innerHTML = '';
-                theaters.forEach(t => {
+                items.forEach(t => {
                     const o = document.createElement('option');
                     o.value = t; o.textContent = t;
                     sel.appendChild(o);
@@ -11571,7 +14645,10 @@
         return _t(key);
     }
     window.openScenarioMgrTab = function () {
-        openModal('settings-modal');
+        if (typeof window._settingsOpen === 'function') {
+            window._settingsOpen('operate.scenarios');
+            return;
+        }
         switchTab('scenarios');
     };
     async function _fetchPendingDecisions() {
@@ -11984,17 +15061,6 @@
         } catch (e) {
             pin.style.display = 'none';
         }
-    }
-    // Legacy rollup picker — retained as a no-op shim for any external
-    // caller that still imports it. F3 dropped the rollup card concept;
-    // pin and panel now use governance_state directly.
-    function _pickTlRollupRec(tl) {
-        const scs = tl.scenarios || [];
-        if (scs.some(s => s.decision && s.decision.recommendation === 'RAISE_THRESHOLDS'))
-            return 'RAISE_THRESHOLDS';
-        if (scs.some(s => s.decision && s.decision.recommendation === 'EXTEND_OR_WAIT'))
-            return 'EXTEND_OR_WAIT';
-        return 'ACCEPT_CURRENT';
     }
     // Kick off once after initial boot, then refresh hourly.
     setTimeout(_refreshPendingDecisionsPin, 12000);

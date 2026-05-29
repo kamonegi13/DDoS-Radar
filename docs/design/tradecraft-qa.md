@@ -100,7 +100,7 @@ verbatim in the auto-logged row. If absent, the backend synthesizes
 Run locally:
 
 ```bash
-python -m pytest test_analyst_permissions.py -v
+python -m pytest tests/test_analyst_permissions.py -v
 ```
 
 Expected result: **18 passed**.

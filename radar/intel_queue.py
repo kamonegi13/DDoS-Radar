@@ -458,23 +458,14 @@ class IntelQueue:
         headline = item.get("headline", "")
 
         # Multi-country support (Phase 3): derive countries from item,
-        # fall back to legacy theater field for backward compatibility.
-        # Safe Rename Pattern SR4 (ADR-V2-006): record fallback hits so we
-        # can identify any sensor still emitting only `theater=` after the
-        # 90-day observation window. The /api/admin/legacy_access endpoint
-        # exposes the per-source rollup; zero hits across a sensor for the
-        # full window is the cutover gate for A-5 sunset.
+        # fall back to single-country theater for sensors that haven't been
+        # migrated to emit `countries`/`country_weights` directly.
         countries: list[str] = item.get("countries", [])
         country_weights: dict[str, float] = item.get("country_weights", {})
         theater = item.get("theater", "")
         if not countries and theater:
             countries = [theater]
             country_weights = {theater: 1.0}
-            try:
-                from radar import legacy_telemetry as _lt
-                _lt.record_legacy_access(f"intel_queue.submit:{source_type}")
-            except Exception:
-                pass  # Telemetry must never break submit
 
         # Discard below minimum threshold
         if confidence < _confidence_min():
@@ -518,6 +509,76 @@ class IntelQueue:
                 )
                 self._record_verdict(source_type, "discarded_dedup_xtype", confidence, headline)
                 return None
+
+        # ── Phase 9.2 C8: embedding-based near-dup ────────────────────────────
+        # Sits between URL dedup (exact match) and Jaccard (token overlap).
+        # Catches same-event-different-wording cases the substring path
+        # misses, especially in multi-language transmedia (zh/ja/ar). Gated
+        # by the embedding_dedupe Feature Hub key:
+        #   OFF    → block skipped (no embed call)
+        #   SHADOW → embed_text runs, decision recorded with applied=0,
+        #            item passes through to legacy Jaccard. Measurement only.
+        #   ON     → as SHADOW but applied=1 and item is dropped here.
+        try:
+            from radar import llm_features as _lf
+            if _lf.is_active("embedding_dedupe"):
+                from radar.llm_embedding import (
+                    embed_text as _embed,
+                    cosine as _cos,
+                    detect_lang as _lang,
+                    log_dedup_decision as _log_dd,
+                )
+                head_plus = headline + " " + (item.get("raw_text") or "")[:500]
+                lang = _lang(head_plus)
+                emb = _embed(head_plus, caller=source_type)
+                if emb.vector is not None:
+                    threshold = 0.95
+                    best = None
+                    if hasattr(db, "intel_recent_by_source"):
+                        since = time.time() - 86400
+                        recents = db.intel_recent_by_source(
+                            source_type, since_ts=since, limit=50,
+                        )
+                        for prev in recents:
+                            prev_text = (
+                                prev.get("headline", "") + " "
+                                + (prev.get("raw_text") or "")[:500]
+                            )
+                            prev_emb = _embed(
+                                prev_text, caller=f"{source_type}.compare",
+                            )
+                            if prev_emb.vector is None:
+                                continue
+                            score = _cos(emb.vector, prev_emb.vector)
+                            if score >= threshold and (
+                                best is None or score > best[0]
+                            ):
+                                best = (score, prev["id"])
+                    if best is not None:
+                        applied = _lf.is_enabled("embedding_dedupe")
+                        _log_dd(
+                            item_id=str(item.get("id", "pending")),
+                            matched_item_id=str(best[1]),
+                            cosine_score=best[0], threshold=threshold,
+                            applied=applied,
+                            item_lang=lang, source=source_type,
+                        )
+                        if applied:
+                            log.info(
+                                f"[Intel] Embedding dedup: discarded "
+                                f"{source_type}/{source_id} "
+                                f"(cosine={best[0]:.3f} ≥ {threshold} "
+                                f"vs item {best[1]})"
+                            )
+                            self._record_verdict(
+                                source_type, "discarded_dedup_embed",
+                                confidence, headline,
+                            )
+                            return None
+                        # SHADOW falls through to legacy Jaccard
+        except Exception:
+            # NP3 — embedding errors never block the legacy path
+            log.debug("embedding dedup wire-up failed", exc_info=True)
 
         # ── Intra-source-type dedup: discard wire-service echo chambers ──────────
         # Within the same source_type with overlapping countries, check if we

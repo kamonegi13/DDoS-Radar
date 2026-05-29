@@ -29,7 +29,17 @@
 
     // ── Public entry points ─────────────────────────────────────────────
 
+    // Phase 9.4 C16 — redirect to the unified Settings shell. The legacy
+    // #llm-features-modal markup remains as a fallback (escape hatch
+    // for ops scripts that pin to it) but new callers land in the shell.
     window._llmFeaturesOpen = async function () {
+        if (typeof window._settingsOpen === 'function') {
+            return window._settingsOpen('llm.features');
+        }
+        if (typeof openModal === 'function') openModal('llm-features-modal');
+        await refresh();
+    };
+    window._llmFeaturesOpenLegacy = async function () {
         if (typeof openModal === 'function') openModal('llm-features-modal');
         await refresh();
     };

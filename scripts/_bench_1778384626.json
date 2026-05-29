@@ -1,0 +1,63 @@
+{
+  "started_at": "2026-05-10T12:43:46.023657",
+  "use_case": "sensor_extract",
+  "n_prompts": 6,
+  "stats": {
+    "gemma4:26b": {
+      "n_total": 6,
+      "n_parsed_ok": 0,
+      "n_required_complete": 0,
+      "n_degenerate": 0,
+      "n_http_error": 0,
+      "parse_rate": 0.0,
+      "field_complete_rate": 0.0,
+      "avg_duration_ms": 10906.3,
+      "p95_duration_ms": 11138.7
+    },
+    "gemma4:31b": {
+      "n_total": 6,
+      "n_parsed_ok": 0,
+      "n_required_complete": 0,
+      "n_degenerate": 0,
+      "n_http_error": 0,
+      "parse_rate": 0.0,
+      "field_complete_rate": 0.0,
+      "avg_duration_ms": 43798.1,
+      "p95_duration_ms": 51685.2
+    },
+    "gemma4:31b-coding-mtp-bf16": {
+      "n_total": 6,
+      "n_parsed_ok": 0,
+      "n_required_complete": 0,
+      "n_degenerate": 0,
+      "n_http_error": 0,
+      "parse_rate": 0.0,
+      "field_complete_rate": 0.0,
+      "avg_duration_ms": 121360.9,
+      "p95_duration_ms": 160177.1
+    },
+    "qwen3.5:35b": {
+      "n_total": 6,
+      "n_parsed_ok": 0,
+      "n_required_complete": 0,
+      "n_degenerate": 0,
+      "n_http_error": 0,
+      "parse_rate": 0.0,
+      "field_complete_rate": 0.0,
+      "avg_duration_ms": 18983.8,
+      "p95_duration_ms": 17509.0
+    },
+    "mistral-small3.2:24b": {
+      "n_total": 6,
+      "n_parsed_ok": 6,
+      "n_required_complete": 6,
+      "n_degenerate": 0,
+      "n_http_error": 0,
+      "parse_rate": 1.0,
+      "field_complete_rate": 1.0,
+      "avg_duration_ms": 15109.8,
+      "p95_duration_ms": 15111.7
+    }
+  },
+  "raw_results_count": 30
+}

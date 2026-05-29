@@ -178,6 +178,28 @@ def commit(proposal: Proposal) -> ProposalOutcome:
         )
         return ProposalOutcome(accepted=False, reason="recall_red")
 
+    # Rule 5 (2026-05-05): tier governor. The system gates whether
+    # proposals at this impact level are allowed to land in the live
+    # ledger right now. Tier 0 = nothing applies; promotions to Tier 1
+    # / 2 / 3 are decided autonomously from the auto_apply_tier_state
+    # audit log. NP3 — if the tier governor cannot evaluate (e.g.
+    # migration v52 hasn't run yet), it returns False, which is the
+    # safe default.
+    try:
+        from radar.calibration import auto_apply_tier_governor as _tier
+        if not _tier.is_apply_allowed(proposal.applied_by):
+            log.debug(
+                "governor rejected %s scope=%s: tier_gate "
+                "(applied_by=%s, tier=%d)",
+                proposal.key, proposal.scope_scenario_id,
+                proposal.applied_by,
+                _tier.current_tier().tier,
+            )
+            return ProposalOutcome(accepted=False, reason="tier_gate")
+    except Exception as _tg_exc:
+        log.debug("tier governor unavailable, gating proposal: %s", _tg_exc)
+        return ProposalOutcome(accepted=False, reason="tier_gate")
+
     # Read prior state (for cooldown + magnitude calculation).
     prior_rec = threshold_history.latest(
         proposal.key, scope_scenario_id=proposal.scope_scenario_id,
@@ -241,6 +263,15 @@ def commit(proposal: Proposal) -> ProposalOutcome:
         magnitude_pct=magnitude,
         revertible_to_id=revertible_to_id,
     )
+    # Tier-3 HIGH change → trigger downstream cooldown so LOW/MED
+    # calibrators don't pile chained proposals onto an unproven HIGH
+    # change. Best-effort: cooldown failures must never break commit.
+    try:
+        from radar.calibration import auto_apply_tier_governor as _tier
+        if _tier.APPLIED_BY_IMPACT.get(proposal.applied_by) == "high":
+            _tier.trigger_high_cooldown(triggered_by=proposal.applied_by)
+    except Exception as _tg_exc:
+        log.debug("HIGH cooldown trigger failed (non-fatal): %s", _tg_exc)
     return ProposalOutcome(
         accepted=True,
         reason=("magnitude_clamped" if was_clamped else "committed"),

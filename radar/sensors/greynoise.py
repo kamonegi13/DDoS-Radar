@@ -167,16 +167,26 @@ class GreyNoiseSensor(BaseSensor):
                 headers=self._get_headers(),
                 timeout=10, proxies=GLOBAL_PROXIES, verify=SSL_VERIFY
             )
-            if res.status_code == 401:
-                # Community API key cannot access GNQL Stats (Enterprise only)
-                # Warn once, then skip (do not repeat every poll)
+            if res.status_code != 200:
+                # GNQL Stats unavailable for this key/endpoint. Known cases:
+                #   401 — Community key (Enterprise-only feature)
+                #   410 — GreyNoise deprecated the v2 stats endpoint (2026)
+                #   403/429 — tier/rate limits
+                # All mean the same thing operationally: we cannot get a noise
+                # ratio, so the sensor degrades to UNKNOWN (no confidence
+                # suppression). That is *normal operation*, not a fetch
+                # failure — fetch() treats gnql_unavailable as success=True so
+                # the health dashboard doesn't show a permanent false DEGRADED.
+                # Warn once with the status, then stay quiet.
                 if not self._gnql_unavailable:
-                    log.warning(f"[GreyNoise] HTTP 401 — GNQL Stats requires an Enterprise API key. "
-                          f"Operating as UNKNOWN (no suppression) with Community key. (Suppressing further messages)")
+                    log.warning(
+                        "[GreyNoise] HTTP %s — GNQL Stats unavailable "
+                        "(v2 endpoint deprecated / Enterprise-only). Operating "
+                        "as UNKNOWN with no confidence suppression. "
+                        "(Suppressing further messages)", res.status_code,
+                    )
                     self._gnql_unavailable = True
                 return {"gnql_unavailable": True}
-            if res.status_code != 200:
-                return {}
             data = res.json()
             # Retrieve classification distribution
             classifications = data.get("stats", {}).get("classifications", [])

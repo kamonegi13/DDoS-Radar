@@ -8,7 +8,7 @@ import requests
 import threading
 import time
 import os as _os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 from radar.config import (
     CF_HEADERS, GLOBAL_PROXIES, SSL_VERIFY, CURRENT_DATE_RANGE,
@@ -1137,13 +1137,82 @@ CONTEXT_ALIGNMENT_BONUS = 0.5
 CONTEXT_ALIGNMENT_THRESHOLD = 3
 
 
-def compute_convergence_bonus_scenario(active_domains: list[str]) -> float:
+def compute_convergence_bonus_scenario(
+    active_domains: list[str],
+    n_distinct_participants: int | None = None,
+) -> float:
+    """Convergence bonus for a scenario.
+
+    Phase 9 (2026-05-13) — when `CONVERGENCE_SCENARIO_SPECIFIC` is on AND
+    a participant count is supplied, the bonus also requires multi-source
+    *participant* coverage, not just multi-domain. NP2 calls for "multiple
+    sensor convergence" — three domains lit by signals all attributed to
+    the same single country is not convergence in the NP2 sense, it is one
+    country flooding three pipes.
+
+    Tiers (when scenario-specific check enabled):
+      3+ domains AND 2+ participants → 2.0
+      2+ domains AND 1+ participants → 1.0
+      otherwise                       → 0.0
+
+    Legacy behavior (flag off or n_distinct_participants=None):
+      3+ domains → 2.0
+      2  domains → 1.0
+    """
+    from radar import config
     n = len(active_domains)
+    require_multi_participant = (
+        config.CONVERGENCE_SCENARIO_SPECIFIC
+        and n_distinct_participants is not None
+    )
     if n >= 3:
+        if require_multi_participant and n_distinct_participants < 2:
+            return 1.0  # downgrade: 3 domains but only 1 participant
         return 2.0
     if n == 2:
         return 1.0
     return 0.0
+
+
+def compute_global_threat(
+    all_signals: list[Signal],
+    global_signal_weight: float = 0.5,
+) -> dict:
+    """Phase 9 (2026-05-13) — global threat envelope.
+
+    With `GLOBAL_SIGNALS_DECOUPLED` on, signals lacking country attribution
+    (e.g. `cf_botnet_overlap`, `threatfox`) no longer contribute to per-
+    scenario score (which previously injected ~1.5 uniformly into every
+    scenario). They are aggregated here so analysts still see them as an
+    independent indicator surfaced on the HUD.
+
+    Returns a dict with `score`, per-domain breakdown, and the list of
+    contributing signal sources. Always returns a populated dict (zeros
+    when no global signals are present) so the API contract is stable.
+    """
+    domains: dict[str, float] = {"cyber": 0.0, "physical": 0.0, "info": 0.0}
+    sources: list[dict] = []
+    for s in all_signals:
+        if s.countries:
+            continue
+        contrib = float(s.raw_score) * float(global_signal_weight)
+        if s.domain in domains:
+            domains[s.domain] += contrib
+        sources.append({
+            "signal_source": s.signal_source,
+            "sensor":        s.sensor,
+            "domain":        s.domain,
+            "raw_score":     round(float(s.raw_score), 3),
+            "contribution":  round(contrib, 3),
+            "value_display": s.value_display,
+            "observed_at":   s.observed_at,
+        })
+    return {
+        "score":   round(sum(domains.values()), 3),
+        "domains": {k: round(v, 3) for k, v in domains.items()},
+        "sources": sources,
+        "global_signal_weight": global_signal_weight,
+    }
 
 
 def derive_tl(total_score: float, active_domains: list[str],
@@ -1265,6 +1334,30 @@ def _maybe_persist_attack_mode_conclusion(state: "ScenarioState") -> None:
         # NP3: augmentation never raises; on LLM failure it returns the
         # rule-based row unchanged so the ledger still advances.
         c = augment_attack_mode_with_llm(c, state)
+        # NP5+8 / AP3: enrich INSUFFICIENT_DATA rows with per-conclusion
+        # null-run length so the analyst surface can show "this NULL has
+        # been ongoing for N min" without waiting for the daily chronic
+        # snapshot pass. Pure metadata addition; never blocks save.
+        if c.state is None and c.conclusion_unavailable_reason is not None:
+            try:
+                from radar.conclusions.inconclusive_continuity import (
+                    current_run_length_sec,
+                )
+                run_sec = current_run_length_sec(
+                    _db, state.scenario_id,
+                    c.conclusion_type.value,
+                )
+                if run_sec is not None:
+                    md = dict(c.metadata or {})
+                    md["null_run_minutes"] = round(run_sec / 60.0, 1)
+                    md["null_severity"] = (
+                        "chronic" if run_sec >= 7 * 86400
+                        else "extended" if run_sec >= 24 * 3600
+                        else "transient"
+                    )
+                    c = replace(c, metadata=md)
+            except Exception:
+                pass  # NP3 — metadata enrichment never breaks save
         save_conclusion(_db, c)
         record_success("attack_mode")
     except Exception as exc:
@@ -1335,8 +1428,15 @@ def compute_scenario_score(
     from radar.scenarios import Scenario
     contributions: list[ScenarioContribution] = []
 
+    from radar import config as _scoring_config
     for signal in all_signals:
         if not signal.countries:
+            # Phase 9 (2026-05-13) — under GLOBAL_SIGNALS_DECOUPLED, global
+            # signals are excluded from per-scenario score and aggregated
+            # separately via compute_global_threat(). This removes the ~1.5
+            # constant floor that previously contaminated every scenario.
+            if _scoring_config.GLOBAL_SIGNALS_DECOUPLED:
+                continue
             final = signal.raw_score * global_signal_weight
             contributions.append(ScenarioContribution(
                 signal=signal,
@@ -1353,12 +1453,30 @@ def compute_scenario_score(
             ))
             continue
 
+        # Phase 9-E (2026-05-13 PM) — compute the signal's max country
+        # weight once per signal so the per-country loop can compare
+        # against it. Multi-country LLM signals where this country is
+        # materially below the primary subject are skipped to prevent
+        # cross-scenario tag bleed (e.g. Russia-Iran-US middle east story
+        # contaminating taiwan_contingency via secondary US tag).
+        _signal_max_cw = (
+            max(signal.country_weights.values())
+            if signal.country_weights else 1.0
+        )
         for country in signal.countries:
             if country not in scenario.participants:
                 continue
 
             participant = scenario.participants[country]
             llm_cw = signal.country_weights.get(country, 1.0)
+            # Phase 9-E filter: drop materially-secondary country tags.
+            # Single-country sensor signals (max == this weight) always pass.
+            # Uniform multi-country tags (ratio = 1.0) also pass.
+            if (_scoring_config.LLM_INTEL_PRIMARY_COUNTRY_ONLY
+                and _signal_max_cw > 0
+                and (llm_cw / _signal_max_cw)
+                    < _scoring_config.LLM_INTEL_PRIMARY_THRESHOLD):
+                continue
             pw = participant.weight
             final = signal.raw_score * llm_cw * pw
 
@@ -1393,7 +1511,14 @@ def compute_scenario_score(
         c.contributing_country for c in deduped
         if c.contributing_country != "GLOBAL"
     ))
-    convergence_bonus = compute_convergence_bonus_scenario(active_domains)
+    # Phase 9 (2026-05-13) — convergence test now also considers the number
+    # of distinct participant countries actually firing. NP2 demands true
+    # multi-source convergence; a single country flooding three domains is
+    # not what NP2 means.
+    convergence_bonus = compute_convergence_bonus_scenario(
+        active_domains,
+        n_distinct_participants=len(active_countries),
+    )
     total_score = sum(domains.values()) + convergence_bonus
 
     scoring_mode = "full" if is_focused else "lite"
@@ -1430,8 +1555,16 @@ def _maybe_sample_v1_v2_diff(state: "ScenarioState") -> None:
     if not state.is_focused:
         return
     try:
-        from radar.conclusions.diff_sampler import sample_focused_tl_diff
+        from radar.conclusions.diff_sampler import (
+            sample_focused_tl_diff, sample_v2_only_diffs,
+        )
         sample_focused_tl_diff(_db, state)
+        # Also append diff rows for the v2-only conclusion types
+        # (attack_mode, per_domain, trend). v1 has no equivalent so
+        # these always record diff_kind='v2_only_available' or
+        # 'v2_only_unavailable' — letting analysts query the diff log
+        # for null-zone patterns instead of scraping conclusions.
+        sample_v2_only_diffs(_db, state)
     except Exception:
         log.exception("v2 diff sampler failed (non-fatal)")
 

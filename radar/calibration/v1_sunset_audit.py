@@ -114,19 +114,15 @@ def _audit_active_code() -> list[Finding]:
 
 
 # (flag_name, expected_post_sunset_value, why)
+# Per-conclusion-type rollback flags (V2_TREND_ENABLED / V2_PER_DOMAIN_ENABLED /
+# V2_ATTACK_MODE_ENABLED / V2_CONTINUITY_LOG_ENABLED) were never wired into
+# the derivation gates and were retired post-sunset; only V2_CONCLUSION_LEDGER_ENABLED
+# actually gates the ledger writes.
 _FLAG_EXPECTATIONS: tuple[tuple[str, bool, str], ...] = (
     ("V2_CONCLUSION_LEDGER_ENABLED", True,
      "v1 is sunset; the ledger is the sole conclusion writer. Default should be true."),
     ("V2_CONCLUSION_DIFF_SAMPLER_ENABLED", False,
      "Sampler compares v1 against v2; with v1 removed it has no signal. Should remain false."),
-    ("V2_TREND_ENABLED", True,
-     "Per-conclusion-type rollback flag. Trend should default-on post-sunset."),
-    ("V2_PER_DOMAIN_ENABLED", True,
-     "Per-domain default-on post-sunset."),
-    ("V2_ATTACK_MODE_ENABLED", True,
-     "Attack mode default-on post-sunset."),
-    ("V2_CONTINUITY_LOG_ENABLED", True,
-     "Continuity log default-on post-sunset."),
 )
 
 

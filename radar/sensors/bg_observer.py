@@ -15,14 +15,8 @@ broadcast observer is structurally different — it scans across **all**
 scorable scenarios' participants every cycle. Routing it through the
 focused-only scheduler would either run it with an empty target set
 (broken contract) or misrepresent the broadcast nature. Instead, the
-sensor owns its own worker thread (the same pattern as
-:func:`radar.background_observer.start_worker`) and reports cycle
-results back through ``set_cache`` / ``log_fetch`` so the registry sees
-every cycle.
-
-The legacy ``radar.background_observer.start_worker`` entry point is
-preserved for one release as a compatibility shim. New deployments
-should rely on the sensor registration in ``radar/__init__.py``.
+sensor owns its own worker thread and reports cycle results back through
+``set_cache`` / ``log_fetch`` so the registry sees every cycle.
 """
 
 from __future__ import annotations
@@ -138,9 +132,8 @@ class BackgroundObserverSensor(BaseSensor):
         """Spawn the daemon ticker (idempotent).
 
         Returns the thread (or ``None`` if BG_OBSERVER_ENABLED=false).
-        Mirrors the behaviour of ``background_observer.start_worker``
-        but is owned by the sensor instance so the registry can
-        introspect / restart it later.
+        Owned by the sensor instance so the registry can introspect /
+        restart it later.
         """
         if not config.BG_OBSERVER_ENABLED:
             log.info("[bg_observer.sensor] disabled (BG_OBSERVER_ENABLED=false)")

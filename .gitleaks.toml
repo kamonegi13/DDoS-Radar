@@ -1,0 +1,27 @@
+# gitleaks project config.
+#
+# Inherit the upstream default ruleset and allowlist test fixtures and
+# example placeholders that are intrinsic to the project.
+#
+# Run locally: gitleaks detect           (full history)
+#              gitleaks protect --staged (staged changes — pre-commit)
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Project-specific false positives"
+
+# Restrict skip rules to test files + the example template.
+paths = [
+    '''test_.*\.py''',
+    '''config\.env\.example$''',
+]
+
+# Skip placeholder shapes commonly used in templates / docs.
+regexes = [
+    '''YOUR_[A-Z_]+''',
+    '''REPLACE_ME''',
+    '''XXXX+''',
+    '''<[a-z_-]+>''',
+]

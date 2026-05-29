@@ -25,8 +25,10 @@ embedding is purely additive.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
+import re
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -34,6 +36,56 @@ from typing import Optional
 import requests
 
 from radar.config import GLOBAL_PROXIES, LLM_HOST, LLM_TIMEOUT, SSL_VERIFY
+
+
+def _live_timeout() -> int:
+    """Phase 9.6 C23 — read LLM_TIMEOUT through layered config; falls
+    back to module-level constant captured from env at boot."""
+    try:
+        from radar.config_layered import get_config
+        v = get_config("LLM_TIMEOUT")
+        if v is not None:
+            return int(v)
+    except Exception:
+        pass
+    return LLM_TIMEOUT
+
+
+# ── Language detection (Phase 9.2 C8) ──────────────────────────────────────
+#
+# Lightweight Unicode-block-ratio classifier. Goal is to bucket items for
+# the by_language Phase 1 GO rollup (zh/ja/ar/ru thresholds), NOT to
+# achieve linguistic accuracy. Order matters: ja overlaps with zh by way
+# of CJK ideographs, so kana-presence wins.
+
+_RE_HIRAGANA = re.compile(r"[぀-ゟ゠-ヿ]")          # ja kana
+_RE_HANGUL   = re.compile(r"[가-힯]")                        # ko
+_RE_HAN      = re.compile(r"[一-鿿]")                        # zh/ja kanji
+_RE_CYRILLIC = re.compile(r"[Ѐ-ӿ]")                        # ru/uk
+_RE_ARABIC   = re.compile(r"[؀-ۿݐ-ݿ]")           # ar
+
+
+def detect_lang(text: str) -> str:
+    """Return one of {ja, ko, zh, ru, ar, en}. NP3 — never raises."""
+    if not text:
+        return "en"
+    n = max(len(text), 1)
+    ja = len(_RE_HIRAGANA.findall(text)) / n
+    ko = len(_RE_HANGUL.findall(text))   / n
+    han = len(_RE_HAN.findall(text))     / n
+    ru = len(_RE_CYRILLIC.findall(text)) / n
+    ar = len(_RE_ARABIC.findall(text))   / n
+    if ja > 0.05:
+        return "ja"
+    if ko > 0.10:
+        return "ko"
+    if han > 0.10:
+        return "zh"
+    if ru > 0.20:
+        return "ru"
+    if ar > 0.20:
+        return "ar"
+    return "en"
 
 log = logging.getLogger("radar.llm_embedding")
 
@@ -99,30 +151,102 @@ class EmbeddingResult:
     model: str
 
 
+def _log_embed_call(*, caller: str, model: str, duration_ms: int,
+                    text_sha256: Optional[str], vector_dim: Optional[int],
+                    cache_hit: bool, outcome: str,
+                    error: Optional[str] = None) -> None:
+    """Persist one row to llm_embed_call_log. Phase 9.2 C7 — visibility
+    into the embedding pipeline that was previously a black box."""
+    try:
+        from radar.database import db
+        conn = db._get_conn()  # noqa: SLF001
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO llm_embed_call_log "
+                "(ts, caller, model, duration_ms, text_sha256, vector_dim, "
+                " cache_hit, outcome, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (time.time(), caller[:64] or "unknown", model[:80],
+                 duration_ms, text_sha256, vector_dim,
+                 1 if cache_hit else 0, outcome[:24],
+                 (error or "")[:300] or None),
+            )
+    except Exception:
+        pass  # NP3 — observability never blocks the primary path
+
+
+def log_dedup_decision(*, item_id: str, matched_item_id: str,
+                       cosine_score: float, threshold: float,
+                       applied: bool, item_lang: Optional[str] = None,
+                       source: Optional[str] = None) -> None:
+    """Phase 9.2 C7 — record a near-duplicate decision so the by_language
+    Phase 1 GO rollup can compute precision proxies per language bucket.
+
+    applied=True  → ON state actually dropped the item
+    applied=False → SHADOW state recorded the would-be decision only
+    """
+    try:
+        from radar.database import db
+        conn = db._get_conn()  # noqa: SLF001
+        with conn.writing():
+            conn.execute(
+                "INSERT INTO llm_embed_dedup_log "
+                "(ts, item_id, matched_item_id, cosine_score, threshold, "
+                " applied, item_lang, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (time.time(), str(item_id)[:128], str(matched_item_id)[:128],
+                 float(cosine_score), float(threshold),
+                 1 if applied else 0, item_lang, source),
+            )
+    except Exception:
+        pass
+
+
 def embed_text(text: str, *, caller: str = "") -> EmbeddingResult:
     """Encode a single text. Returns ``EmbeddingResult`` with ``vector=None``
-    on any failure. NP3 — never raises."""
+    on any failure. NP3 — never raises. Every call is recorded to
+    llm_embed_call_log (Phase 9.2 C7) so the embedding pipeline is no
+    longer a black box."""
     model = _embedding_model()
+    text_sha = (
+        hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if text else None
+    )
+
     if not text or not text.strip():
+        _log_embed_call(caller=caller, model=model, duration_ms=0,
+                        text_sha256=None, vector_dim=None,
+                        cache_hit=False, outcome="empty_input")
         return EmbeddingResult(None, 0, "empty_input", model)
     if not _feature_active():
+        _log_embed_call(caller=caller, model=model, duration_ms=0,
+                        text_sha256=text_sha, vector_dim=None,
+                        cache_hit=False, outcome="feature_disabled")
         return EmbeddingResult(None, 0, "feature_disabled", model)
 
     cache_key = f"{model}:{text}"
     cached = _lru_get(cache_key)
     if cached is not None:
+        _log_embed_call(caller=caller, model=model, duration_ms=0,
+                        text_sha256=text_sha, vector_dim=len(cached),
+                        cache_hit=True, outcome="ok")
         return EmbeddingResult(cached, 0, None, model)
 
     payload = {"model": model, "input": text}
     t0 = time.time()
     try:
         res = requests.post(
-            _EMBED_URL, json=payload, timeout=LLM_TIMEOUT,
+            _EMBED_URL, json=payload, timeout=_live_timeout(),
             proxies=GLOBAL_PROXIES, verify=SSL_VERIFY,
         )
         duration_ms = int((time.time() - t0) * 1000)
         if res.status_code != 200:
             log.warning("[Embed] HTTP %d: %s", res.status_code, res.text[:200])
+            _log_embed_call(caller=caller, model=model,
+                            duration_ms=duration_ms,
+                            text_sha256=text_sha, vector_dim=None,
+                            cache_hit=False, outcome="http_error",
+                            error=f"HTTP {res.status_code}")
             return EmbeddingResult(
                 None, duration_ms, f"HTTP {res.status_code}", model,
             )
@@ -134,16 +258,31 @@ def embed_text(text: str, *, caller: str = "") -> EmbeddingResult:
         else:
             v = rj.get("embedding")
         if not isinstance(v, list) or not v:
+            _log_embed_call(caller=caller, model=model,
+                            duration_ms=duration_ms,
+                            text_sha256=text_sha, vector_dim=None,
+                            cache_hit=False, outcome="no_vector")
             return EmbeddingResult(None, duration_ms, "no_vector", model)
         _lru_put(cache_key, v)
+        _log_embed_call(caller=caller, model=model, duration_ms=duration_ms,
+                        text_sha256=text_sha, vector_dim=len(v),
+                        cache_hit=False, outcome="ok")
         return EmbeddingResult(v, duration_ms, None, model)
     except requests.Timeout:
-        return EmbeddingResult(None, int((time.time() - t0) * 1000),
-                               "timeout", model)
+        ms = int((time.time() - t0) * 1000)
+        _log_embed_call(caller=caller, model=model, duration_ms=ms,
+                        text_sha256=text_sha, vector_dim=None,
+                        cache_hit=False, outcome="timeout",
+                        error="timeout")
+        return EmbeddingResult(None, ms, "timeout", model)
     except Exception as exc:
+        ms = int((time.time() - t0) * 1000)
+        _log_embed_call(caller=caller, model=model, duration_ms=ms,
+                        text_sha256=text_sha, vector_dim=None,
+                        cache_hit=False, outcome="exception",
+                        error=str(exc))
         log.debug("embed_text failed: %s", exc)
-        return EmbeddingResult(None, int((time.time() - t0) * 1000),
-                               str(exc), model)
+        return EmbeddingResult(None, ms, str(exc), model)
 
 
 def embed_batch(texts: list[str], *, caller: str = "") -> list[Optional[list[float]]]:
@@ -228,4 +367,6 @@ __all__ = [
     "cosine",
     "near_duplicates",
     "embedding_preflight",
+    "detect_lang",
+    "log_dedup_decision",
 ]

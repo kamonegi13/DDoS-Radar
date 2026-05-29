@@ -40,15 +40,19 @@ if TYPE_CHECKING:
 
 FORMULA_REF = "radar/conclusions/attack_mode.py#derive_attack_mode@v2.0.0"
 
-# Thresholds. Each rule is conservative; we'd rather miss-classify than
-# silently call DDOS_PRECURSOR on every cycle. NP1 still applies — INSUFFICIENT
-# is preferred over wrong-attack-mode confidence.
-CYBER_DDOS_FLOOR = 5.0      # cyber domain score for DDOS_PRECURSOR
-INFO_NARRATIVE_FLOOR = 1.5  # info domain score for narrative buildup
-PHYSICAL_KINETIC_FLOOR = 3.0  # physical domain score for KINETIC_PREPARATION
-ALL_DOMAIN_HYBRID_FLOOR = 1.5  # per-domain min for HYBRID_PRESSURE
-HYBRID_INTEL_CLUSTER_MIN = 4  # active_countries count proxy for cluster size
-INFO_DOMINANCE_RATIO = 1.5    # info / max(other) for INFO_OPS_DOMINANT
+# Thresholds — recalibrated 2026-05-10 against 24h × 4 scenario observed
+# distribution. Original values (5.0/3.0/1.5) sat 2-3x above the all-time
+# observed maxima (cyber max=1.5, physical=0.0, info p95<2 except
+# middle_east) producing 100% NULL attack_mode in 3/4 scenarios — a direct
+# NP5+8 violation ("恒常的結論不可"). New floors recover NP1 sensitivity
+# while INFO_OPS_DOMINANT in middle_east continues to fire (the only mode
+# that worked under old thresholds).
+CYBER_DDOS_FLOOR = 1.2      # cyber domain — barely above 1.0 baseline
+INFO_NARRATIVE_FLOOR = 0.8  # info domain — fires with 1+ info source
+PHYSICAL_KINETIC_FLOOR = 1.0  # physical domain — any FIRED tripwire qualifies
+ALL_DOMAIN_HYBRID_FLOOR = 0.8  # per-domain min for HYBRID — aligned with info floor
+HYBRID_INTEL_CLUSTER_MIN = 4  # active_countries — kept; needs cluster size
+INFO_DOMINANCE_RATIO = 1.5    # info / max(other) — kept; works for middle_east
 
 
 @dataclass(frozen=True)

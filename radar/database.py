@@ -39,7 +39,6 @@ _A4_THEATER_TABLES: tuple[str, ...] = (
     "noise_exclusion",
     "confirmed_threats",
     "daily_summary",
-    "forecast_log",
     "cooccurrence_stats",
     "climate_events",
     "llm_intel",
@@ -88,6 +87,255 @@ def _migration_v40_schema_version_singleton(conn) -> None:
         (max(current, 40), last_at or time.time()),
     )
     conn.execute("DROP TABLE schema_version_old_v39")
+
+
+def _migration_v49_seed_config_runtime_from_env(conn) -> None:
+    """R4 — seed config_runtime_value from running os.environ for every
+    registered, mutable, non-secret/non-bootstrap key.
+
+    Idempotent: skips keys that already have a row. Safe to run on a
+    populated DB — only fills gaps. Env values are read at migration
+    time so the post-migration effective value matches pre-migration
+    exactly (no scoring drift).
+
+    Audit: each seeded row writes one config_change_log entry with
+    changed_by='migration:v49' for NP6 traceability.
+    """
+    import os as _os
+    import json as _json
+    import time as _time
+    try:
+        from radar.config_layered import all_keys, _coerce
+    except Exception:
+        # Registry not importable (very early bootstrap) — skip silently.
+        # Operators can re-run by deleting schema_version row v49 and
+        # restarting; the migration will retry.
+        return
+
+    # Ensure target table exists (v45b creates it; defensive create here
+    # protects against ordering anomalies).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS config_runtime_value (
+            config_key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            set_at     REAL NOT NULL,
+            set_by     TEXT NOT NULL
+        )
+    """)
+
+    seeded = 0
+    skipped_existing = 0
+    skipped_no_env = 0
+    now = _time.time()
+
+    for meta in all_keys(include_secrets=True):
+        if meta.secret or meta.immutable or meta.bootstrap:
+            continue
+        # Skip if a row already exists (idempotency).
+        existing = conn.execute(
+            "SELECT 1 FROM config_runtime_value WHERE config_key=?",
+            (meta.key,),
+        ).fetchone()
+        if existing:
+            skipped_existing += 1
+            continue
+        env_raw = _os.environ.get(meta.key)
+        if env_raw is None or env_raw == "":
+            skipped_no_env += 1
+            continue
+        coerced = _coerce(env_raw, meta.type_)
+        if coerced is None:
+            skipped_no_env += 1
+            continue
+        try:
+            conn.execute(
+                "INSERT INTO config_runtime_value "
+                "(config_key, value_json, set_at, set_by) "
+                "VALUES (?, ?, ?, ?)",
+                (meta.key, _json.dumps(coerced, default=str), now, "migration:v49"),
+            )
+            # Audit row — best effort. Column names per
+            # _migration_v45_config_change_log: ts, domain, config_key,
+            # old_value, new_value, changed_by, reason, request_id.
+            try:
+                conn.execute(
+                    "INSERT INTO config_change_log "
+                    "(ts, domain, config_key, old_value, new_value, "
+                    " changed_by, reason, request_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (now, meta.domain, meta.key,
+                     _json.dumps(None),
+                     _json.dumps(coerced, default=str),
+                     "migration:v49",
+                     "R4 seed from os.environ",
+                     None),
+                )
+            except Exception as exc:
+                log.debug("v49 audit insert failed for %s: %s", meta.key, exc)
+            seeded += 1
+        except Exception as exc:
+            log.warning("v49 seed %s failed: %s", meta.key, exc)
+
+    log.info(
+        "[migration v49] config_runtime_value seed — seeded=%d, "
+        "skipped_existing=%d, skipped_no_env=%d",
+        seeded, skipped_existing, skipped_no_env,
+    )
+
+
+def _migration_v48_llm_embedding_ledger(conn) -> None:
+    """Phase 9.2 C7 — per-call ledger for the embedding pipeline.
+
+    Two tables:
+      llm_embed_call_log    every embed_text() invocation with model,
+                             duration, cache_hit flag, outcome
+      llm_embed_dedup_log   every near-dup decision: matched item id,
+                             cosine score, threshold, applied flag
+                             (1=ON dedup'd, 0=SHADOW recorded only),
+                             detected language for the by_language
+                             rollup that answers the Phase 1 GO
+                             criterion (zh/ja/ar ≥ 0.90, ru ≥ 0.70).
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_embed_call_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts          REAL NOT NULL,
+            caller      TEXT NOT NULL,
+            model       TEXT NOT NULL,
+            duration_ms INTEGER,
+            text_sha256 TEXT,
+            vector_dim  INTEGER,
+            cache_hit   INTEGER NOT NULL DEFAULT 0,
+            outcome     TEXT NOT NULL DEFAULT '',
+            error       TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_embed_call_log_ts "
+        "ON llm_embed_call_log (ts DESC)"
+    )
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_embed_dedup_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts              REAL NOT NULL,
+            item_id         TEXT NOT NULL,
+            matched_item_id TEXT NOT NULL,
+            cosine_score    REAL NOT NULL,
+            threshold       REAL NOT NULL,
+            applied         INTEGER NOT NULL DEFAULT 0,
+            item_lang       TEXT,
+            source          TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_embed_dedup_log_ts "
+        "ON llm_embed_dedup_log (ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_embed_dedup_log_lang "
+        "ON llm_embed_dedup_log (item_lang, ts DESC)"
+    )
+
+
+def _migration_v47_llm_shadow_invocation(conn) -> None:
+    """Phase 9.2 C4 — dedicated table for SHADOW_DUAL parallel invocations.
+
+    When a feature is in SHADOW_DUAL state, llm_client invokes BOTH the
+    legacy (active) model AND the v10 candidate. The active call's result
+    is what the caller receives; the v10 result is recorded here so
+    /api/v2/self_eval can surface schema_compliance / agreement_rate /
+    verdict_reproducibility per Phase 1 GO judgment.
+
+    response_text is capped at 8KB and TTL'd via the existing 7d cleanup
+    sweep so the table doesn't unbound."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_shadow_invocation (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            primary_call_id INTEGER NOT NULL,
+            ts              REAL NOT NULL,
+            model           TEXT NOT NULL,
+            duration_ms     INTEGER,
+            outcome         TEXT NOT NULL DEFAULT '',
+            response_text   TEXT,
+            response_sha256 TEXT,
+            confidence      REAL,
+            prompt_sha256   TEXT,
+            error           TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_primary "
+        "ON llm_shadow_invocation (primary_call_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_ts "
+        "ON llm_shadow_invocation (ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_model "
+        "ON llm_shadow_invocation (model, ts DESC)"
+    )
+
+
+def _migration_v45b_config_runtime_value(conn) -> None:
+    """Phase 9.1 — runtime override values for declarative config keys.
+    Created alongside config_change_log so config_layered.set_config has
+    both tables on upgrade. Idempotent."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS config_runtime_value (
+            config_key  TEXT PRIMARY KEY,
+            value_json  TEXT NOT NULL,
+            set_at      REAL NOT NULL,
+            set_by      TEXT NOT NULL
+        )
+    """)
+
+
+def _migration_v45_config_change_log(conn) -> None:
+    """Phase 9.1 (Foundation) — unified audit ledger for every analyst-driven
+    runtime configuration change.
+
+    Today, runtime config changes are scattered across multiple tables:
+      - llm_feature_state_history (Feature Hub flips)
+      - llm_routing_override_history (Phase 8 routing override)
+      - sensor mute / unmute (no audit)
+      - scenario weight edits (no audit)
+      - sysconfig 'live' field edits (no audit)
+      - threat scoring threshold changes (no audit)
+
+    Phase 9 collapses this into ONE table that EVERY runtime config write
+    appends to. Domain-specific history tables (llm_feature_state_history
+    and llm_routing_override_history) remain as legacy mirrors for a 6-month
+    deprecation window; new code SHOULD use config_change_log.
+
+    NP6: every change carries actor identity, timestamp, old/new value, and
+    reason. UI surfaces this in Settings > Operators > Audit.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS config_change_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts           REAL NOT NULL,
+            domain       TEXT NOT NULL,
+            config_key   TEXT NOT NULL,
+            old_value    TEXT,
+            new_value    TEXT,
+            changed_by   TEXT NOT NULL,
+            reason       TEXT,
+            request_id   TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_config_change_log_ts "
+        "ON config_change_log (ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_config_change_log_domain "
+        "ON config_change_log (domain, ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_config_change_log_key "
+        "ON config_change_log (config_key, ts DESC)"
+    )
 
 
 def _migration_v42_llm_routing_overrides(conn) -> None:
@@ -616,6 +864,92 @@ CREATE TABLE IF NOT EXISTS llm_routing_override_history (
 CREATE INDEX IF NOT EXISTS idx_llm_routing_override_hist_ts
     ON llm_routing_override_history (changed_at DESC);
 
+-- Phase 9.1 (Foundation) — unified audit ledger for every runtime config
+-- change. Domain-specific history tables (llm_feature_state_history,
+-- llm_routing_override_history) remain as legacy mirrors; new code writes
+-- here too. NP6 single source of truth.
+CREATE TABLE IF NOT EXISTS config_change_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts           REAL NOT NULL,
+    domain       TEXT NOT NULL,
+    config_key   TEXT NOT NULL,
+    old_value    TEXT,
+    new_value    TEXT,
+    changed_by   TEXT NOT NULL,
+    reason       TEXT,
+    request_id   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_config_change_log_ts
+    ON config_change_log (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_config_change_log_domain
+    ON config_change_log (domain, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_config_change_log_key
+    ON config_change_log (config_key, ts DESC);
+
+-- Phase 9.1 (Foundation) — runtime override values for declarative config
+-- keys. Layer 3 in radar/config_layered.py. Single row per key (UNIQUE PK).
+CREATE TABLE IF NOT EXISTS config_runtime_value (
+    config_key  TEXT PRIMARY KEY,
+    value_json  TEXT NOT NULL,
+    set_at      REAL NOT NULL,
+    set_by      TEXT NOT NULL
+);
+
+-- Phase 9.2 C4 — dedicated table for SHADOW_DUAL parallel invocations.
+-- Only populated when a Feature Hub key is in SHADOW_DUAL state; the v10
+-- candidate's full response is recorded here for A/B with the legacy run.
+CREATE TABLE IF NOT EXISTS llm_shadow_invocation (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    primary_call_id INTEGER NOT NULL,
+    ts              REAL NOT NULL,
+    model           TEXT NOT NULL,
+    duration_ms     INTEGER,
+    outcome         TEXT NOT NULL DEFAULT '',
+    response_text   TEXT,
+    response_sha256 TEXT,
+    confidence      REAL,
+    prompt_sha256   TEXT,
+    error           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_primary
+    ON llm_shadow_invocation (primary_call_id);
+CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_ts
+    ON llm_shadow_invocation (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_shadow_inv_model
+    ON llm_shadow_invocation (model, ts DESC);
+
+-- Phase 9.2 C7 — embedding pipeline ledgers.
+CREATE TABLE IF NOT EXISTS llm_embed_call_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          REAL NOT NULL,
+    caller      TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    duration_ms INTEGER,
+    text_sha256 TEXT,
+    vector_dim  INTEGER,
+    cache_hit   INTEGER NOT NULL DEFAULT 0,
+    outcome     TEXT NOT NULL DEFAULT '',
+    error       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_embed_call_log_ts
+    ON llm_embed_call_log (ts DESC);
+
+CREATE TABLE IF NOT EXISTS llm_embed_dedup_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts              REAL NOT NULL,
+    item_id         TEXT NOT NULL,
+    matched_item_id TEXT NOT NULL,
+    cosine_score    REAL NOT NULL,
+    threshold       REAL NOT NULL,
+    applied         INTEGER NOT NULL DEFAULT 0,
+    item_lang       TEXT,
+    source          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_embed_dedup_log_ts
+    ON llm_embed_dedup_log (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_embed_dedup_log_lang
+    ON llm_embed_dedup_log (item_lang, ts DESC);
+
 -- v2.0 ADR-V2-009: sha256-deduplicated LLM prompt store.
 -- Every llm_client invocation persists its prompt here; llm_call_log.prompt_sha256
 -- references this table. Lets analysts retrieve the exact prompt text that
@@ -683,18 +1017,6 @@ CREATE INDEX IF NOT EXISTS idx_conclusion_diff_kind_time
 CREATE INDEX IF NOT EXISTS idx_conclusions_scen_type_time
     ON conclusions (scenario_id, conclusion_type, observed_at DESC);
 
--- v2.0 priority 3 (Safe Rename Pattern SR4): legacy_access_log.
--- Records every observed access of a deprecated identifier so that the
--- 90-day sunset criterion (ADR-V2-002) can be evaluated on data, not guesswork.
-CREATE TABLE IF NOT EXISTS legacy_access_log (
-    key         TEXT    PRIMARY KEY,
-    count       INTEGER NOT NULL DEFAULT 0,
-    first_seen  REAL    NOT NULL,
-    last_seen   REAL    NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_legacy_access_last_seen
-    ON legacy_access_log (last_seen DESC);
-
 -- CAC: Noise exclusion rules (analyst-defined)
 CREATE TABLE IF NOT EXISTS noise_exclusion (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -737,19 +1059,6 @@ CREATE TABLE IF NOT EXISTS daily_summary (
     UNIQUE(theater, day_bucket)
 );
 -- (idx_daily_summary_theater removed: exact duplicate of UNIQUE(theater, day_bucket))
-
--- CAC: Forecast log for prediction accuracy tracking
-CREATE TABLE IF NOT EXISTS forecast_log (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    theater       TEXT NOT NULL,
-    ts            REAL NOT NULL,
-    forecast_type TEXT NOT NULL DEFAULT '',
-    predicted     TEXT NOT NULL DEFAULT '',
-    actual        TEXT DEFAULT NULL,
-    resolved_at   REAL DEFAULT NULL,
-    accuracy      REAL DEFAULT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_forecast_theater_ts ON forecast_log (theater, ts);
 
 -- CAC: Co-occurrence statistics for sensor pattern learning (sensitivity UP only)
 CREATE TABLE IF NOT EXISTS cooccurrence_stats (
@@ -2494,6 +2803,113 @@ class RadarDB:
 
         (42, "llm_routing_override + history (Phase 8 analyst override surface)",
          _migration_v42_llm_routing_overrides),
+
+        (45, "config_change_log unified audit ledger (Phase 9 NP6)",
+         _migration_v45_config_change_log),
+
+        (46, "config_runtime_value runtime override store (Phase 9.1)",
+         _migration_v45b_config_runtime_value),
+
+        (47, "llm_shadow_invocation table for SHADOW_DUAL A/B (Phase 9.2 C4)",
+         _migration_v47_llm_shadow_invocation),
+
+        (48, "llm_embed_call_log + llm_embed_dedup_log (Phase 9.2 C7)",
+         _migration_v48_llm_embedding_ledger),
+
+        (49, "R4 seed config_runtime_value from os.environ for registry keys",
+         _migration_v49_seed_config_runtime_from_env),
+
+        # v50: drop SR4 legacy_access_log telemetry table. The 14-day
+        # zero-hits cutover gate (ADR-V2-006 A-5) was met; the dual-read
+        # path for `?theater=` was removed alongside this migration.
+        (50, "drop legacy_access_log (SR4 telemetry retired)", lambda conn: [
+            conn.execute("DROP INDEX IF EXISTS idx_legacy_access_last_seen"),
+            conn.execute("DROP TABLE IF EXISTS legacy_access_log"),
+        ]),
+
+        # v51: drop forecast_log. The CAC Phase D forecast tracker had
+        # production accuracy ~3% with degenerate predicted=TL1 in every
+        # row; the conclusions_ledger TREND deriver supersedes it with
+        # NP6-compliant audit trail.
+        (51, "drop forecast_log (degenerate accuracy, superseded by TREND ledger)",
+         lambda conn: [
+            conn.execute("DROP INDEX IF EXISTS idx_forecast_theater_ts"),
+            conn.execute("DROP TABLE IF EXISTS forecast_log"),
+        ]),
+
+        # v52: auto-apply tier governor (self-promoting calibration).
+        # `auto_apply_tier_state` records every tier transition (init /
+        # promote / demote / circuit_breaker / kill_switch) with the
+        # metrics that triggered it. NP6 — the audit log is the SoT for
+        # "why did the system change its own auto-apply confidence".
+        # `auto_apply_cooldown` lets a tier-3 HIGH-impact change halt
+        # downstream LOW/MED calibrators for a configurable window so
+        # chained proposals can't pile on top of an unproven change.
+        (52, "auto-apply tier governor (auto_apply_tier_state + cooldown)",
+         lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS auto_apply_tier_state (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                observed_at     REAL    NOT NULL,
+                tier            INTEGER NOT NULL,
+                transition      TEXT    NOT NULL,
+                reason          TEXT    NOT NULL DEFAULT '',
+                metrics_json    TEXT    NOT NULL DEFAULT '{}'
+            )"""),
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_auto_apply_tier_state_observed
+                ON auto_apply_tier_state (observed_at DESC)"""),
+            conn.execute("""CREATE TABLE IF NOT EXISTS auto_apply_cooldown (
+                impact_level    TEXT PRIMARY KEY,
+                cooldown_until  REAL NOT NULL,
+                triggered_by    TEXT NOT NULL DEFAULT '',
+                set_at          REAL NOT NULL
+            )"""),
+        ]),
+
+        # v53: durable "current tier entered_at" marker. The
+        # `auto_apply_tier_state` table is the audit ledger of every
+        # transition, but it can be truncated by operator cleanup or by
+        # tests that run against the live DB (Phase 1 closed the latter
+        # but the former remains a real-world possibility). When the
+        # ledger is wiped, `_days_at_current_tier()` resets to 0.0,
+        # which delays / blocks the 7d / 14d promotion gates even
+        # though the tier itself was correctly re-derived. The marker
+        # is a single-row scalar that survives ledger wipes by living
+        # in a separate physical table — the governor reads it as the
+        # SoT for dwell time, falling back to the ledger only if the
+        # marker is missing or mismatched. NP6 is preserved: every
+        # tier transition still appends to `auto_apply_tier_state`
+        # with metrics_json; the marker is a denormalised cache.
+        (53, "auto-apply tier governor: durable tier-entered marker",
+         lambda conn: [
+            conn.execute("""CREATE TABLE IF NOT EXISTS auto_apply_tier_marker (
+                marker_key      TEXT PRIMARY KEY,
+                tier            INTEGER NOT NULL,
+                entered_at      REAL    NOT NULL,
+                updated_at      REAL    NOT NULL,
+                metadata_json   TEXT    NOT NULL DEFAULT '{}'
+            )"""),
+            # Backfill: if there's already an active tier history,
+            # seed the marker from the most recent state-changing row
+            # so dwell time doesn't reset to "0d at tier" on first
+            # boot after the migration. Idempotent: no-op when ledger
+            # is empty (governor populates marker on next tick).
+            conn.execute("""
+                INSERT OR IGNORE INTO auto_apply_tier_marker
+                    (marker_key, tier, entered_at, updated_at, metadata_json)
+                SELECT
+                    'current_tier_entered_at',
+                    tier,
+                    observed_at,
+                    observed_at,
+                    json_object('backfilled_from_state_id', id,
+                                'transition', transition)
+                FROM auto_apply_tier_state
+                WHERE transition IN ('promote','demote','circuit_breaker',
+                                     'kill_switch_engaged','init')
+                ORDER BY id DESC
+                LIMIT 1
+            """),
+        ]),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -4199,6 +4615,96 @@ class RadarDB:
             for r in rows
         ]
 
+    # ── config_change_log (Phase 9.1 unified audit) ──────────────────────────
+    def config_change_log_append(self, *, domain: str, config_key: str,
+                                 old_value: "object" = None,
+                                 new_value: "object" = None,
+                                 changed_by: str = "unknown",
+                                 reason: "str | None" = None,
+                                 request_id: "str | None" = None) -> int:
+        """Append a row to the unified config audit ledger. Returns the new
+        row id. Old/new values are JSON-serialized so the column can hold
+        scalars, dicts, lists alike. NP3 — never raises; returns -1 on DB
+        failure so the caller's primary write path is not broken."""
+        import json
+        import time as _time
+
+        def _enc(v) -> "str | None":
+            if v is None:
+                return None
+            try:
+                return json.dumps(v, default=str, ensure_ascii=False)[:8000]
+            except Exception:
+                return str(v)[:8000]
+
+        try:
+            conn = self._get_conn()
+            with conn.writing():
+                cur = conn.execute(
+                    "INSERT INTO config_change_log "
+                    "(ts, domain, config_key, old_value, new_value, "
+                    " changed_by, reason, request_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (_time.time(), domain[:64], config_key[:128],
+                     _enc(old_value), _enc(new_value),
+                     (changed_by or "unknown")[:64],
+                     (reason or "")[:300] or None,
+                     request_id),
+                )
+                return cur.lastrowid or -1
+        except Exception:
+            log.debug("config_change_log_append failed", exc_info=True)
+            return -1
+
+    def config_change_log_recent(self, *, hours: int = 720,
+                                 domain: "str | None" = None,
+                                 limit: int = 200) -> list:
+        """Return recent config change rows for the Audit UI. Optional domain
+        filter (e.g. 'llm.routing', 'sensor.mute', 'scoring.threshold')."""
+        import time as _time
+        cutoff = _time.time() - hours * 3600
+        conn = self._get_conn()
+        try:
+            if domain:
+                rows = conn.execute(
+                    "SELECT id, ts, domain, config_key, old_value, new_value, "
+                    "       changed_by, reason, request_id "
+                    "FROM config_change_log WHERE ts >= ? AND domain = ? "
+                    "ORDER BY ts DESC LIMIT ?",
+                    (cutoff, domain, max(1, min(limit, 2000))),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, ts, domain, config_key, old_value, new_value, "
+                    "       changed_by, reason, request_id "
+                    "FROM config_change_log WHERE ts >= ? "
+                    "ORDER BY ts DESC LIMIT ?",
+                    (cutoff, max(1, min(limit, 2000))),
+                ).fetchall()
+        except Exception:
+            return []
+        return [
+            {"id": r[0], "ts": r[1], "domain": r[2], "config_key": r[3],
+             "old_value": r[4], "new_value": r[5], "changed_by": r[6],
+             "reason": r[7], "request_id": r[8]}
+            for r in rows
+        ]
+
+    def config_change_log_domains(self, *, hours: int = 720) -> list:
+        """Return distinct domains observed in the audit ledger over the
+        window so the Audit UI can populate its filter dropdown."""
+        import time as _time
+        cutoff = _time.time() - hours * 3600
+        try:
+            rows = self._get_conn().execute(
+                "SELECT domain, COUNT(*) AS n FROM config_change_log "
+                "WHERE ts >= ? GROUP BY domain ORDER BY n DESC",
+                (cutoff,),
+            ).fetchall()
+        except Exception:
+            return []
+        return [{"domain": r[0], "count": r[1]} for r in rows]
+
     # ── llm_call_log ─────────────────────────────────────────────────────────
     def llm_call_log_append(self, caller: str, model: str, duration_ms: int,
                             outcome: str, verdict: str = "",
@@ -4224,7 +4730,7 @@ class RadarDB:
         sm_choice = (shadow_model_choice or "")[:80] or None
         uc = (use_case or "")[:32] or None
         with conn.writing():
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO llm_call_log "
                 "(ts, caller, model, duration_ms, outcome, verdict, "
                 " confidence, headline, error, prompt_sha256, "
@@ -4235,6 +4741,41 @@ class RadarDB:
                  (error or "")[:300], prompt_sha256 or None,
                  uc, sm_choice, trace),
             )
+            return cur.lastrowid or -1
+
+    def llm_shadow_invocation_append(self, *, primary_call_id: int,
+                                      model: str, duration_ms: int,
+                                      outcome: str,
+                                      response_text: "str | None" = None,
+                                      confidence: "float | None" = None,
+                                      prompt_sha256: "str | None" = None,
+                                      error: "str | None" = None) -> int:
+        """Phase 9.2 C4 — record a SHADOW_DUAL parallel invocation. Linked
+        to the primary llm_call_log row by primary_call_id. NP3."""
+        import hashlib
+        import time as _time
+        try:
+            text = (response_text or "")[:8000]
+            sha = (
+                hashlib.sha256(text.encode("utf-8")).hexdigest()
+                if text else None
+            )
+            conn = self._get_conn()
+            with conn.writing():
+                cur = conn.execute(
+                    "INSERT INTO llm_shadow_invocation "
+                    "(primary_call_id, ts, model, duration_ms, outcome, "
+                    " response_text, response_sha256, confidence, "
+                    " prompt_sha256, error) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (primary_call_id, _time.time(), model[:80], duration_ms,
+                     outcome[:32], text or None, sha,
+                     float(confidence) if confidence is not None else None,
+                     prompt_sha256, (error or "")[:300] or None),
+                )
+                return cur.lastrowid or -1
+        except Exception:
+            return -1
 
     def auto_judge_decision_log(self, item_id: str, action_proposed: str,
                                  confidence: float, reason: str,
@@ -4561,11 +5102,161 @@ class RadarDB:
                 "v2_model": agg["v2_model"],
             }
 
+        # Phase 9.2 C6 — SHADOW_DUAL A/B between legacy and v10 candidate.
+        # When a feature is in SHADOW_DUAL, llm_shadow_invocation rows pair
+        # 1:1 with llm_call_log rows (FK primary_call_id). We compute
+        # per-use_case schema compliance + agreement + reproducibility +
+        # latency from the joined view.
+        shadow_dual_diff: dict[str, dict] = {}
+        try:
+            paired_rows = conn.execute(
+                "SELECT lcl.use_case AS use_case, "
+                "       lcl.outcome AS p_outcome, "
+                "       lcl.confidence AS p_conf, "
+                "       lcl.duration_ms AS p_ms, "
+                "       lcl.prompt_sha256 AS p_sha, "
+                "       lsi.model AS s_model, "
+                "       lsi.outcome AS s_outcome, "
+                "       lsi.confidence AS s_conf, "
+                "       lsi.duration_ms AS s_ms, "
+                "       lsi.response_sha256 AS s_resp_sha "
+                "FROM llm_call_log lcl "
+                "JOIN llm_shadow_invocation lsi "
+                "  ON lsi.primary_call_id = lcl.id "
+                "WHERE lcl.ts >= ? AND lcl.use_case IS NOT NULL",
+                (cutoff,),
+            ).fetchall()
+        except Exception:
+            paired_rows = []
+
+        # Bucket by use_case
+        per_uc: dict[str, list] = {}
+        for r in paired_rows:
+            per_uc.setdefault(r[0], []).append(r)
+
+        for uc, rows in per_uc.items():
+            n = len(rows)
+            if n == 0:
+                continue
+            p_ok = sum(1 for r in rows if r[1] == "ok")
+            s_ok = sum(1 for r in rows if r[6] == "ok")
+            both_ok = sum(1 for r in rows if r[1] == "ok" and r[6] == "ok")
+            agree = sum(
+                1 for r in rows
+                if r[1] == r[6] and r[1] == "ok"
+            )  # Both succeeded — count as agreement (P1 GO proxy)
+
+            # Reproducibility: same prompt_sha256 must produce same v10
+            # response_sha256 (deterministic with seed=42 for verdict).
+            prompt_to_resps: dict = {}
+            for r in rows:
+                if r[4] and r[9]:
+                    prompt_to_resps.setdefault(r[4], set()).add(r[9])
+            multi = sum(1 for v in prompt_to_resps.values() if len(v) > 1)
+            denom = sum(1 for v in prompt_to_resps.values() if len(v) > 0)
+            repro = (
+                round((denom - multi) / denom, 3) if denom > 0 else None
+            )
+
+            # Latency p99 (cheap via sort)
+            p_lats = sorted(r[3] for r in rows if r[1] == "ok" and r[3])
+            s_lats = sorted(r[8] for r in rows if r[6] == "ok" and r[8])
+            def _p99(xs):
+                if not xs:
+                    return None
+                idx = max(0, int(len(xs) * 0.99) - 1)
+                return xs[idx]
+
+            shadow_dual_diff[uc] = {
+                "n_paired": n,
+                "schema_compliance": {
+                    "primary": round(p_ok / n, 3),
+                    "shadow":  round(s_ok / n, 3),
+                },
+                "agreement_rate": (
+                    round(agree / n, 3) if n else None
+                ),
+                "v10_model": rows[0][5],
+                "verdict_reproducibility": repro,
+                "p99_latency_ms": {
+                    "primary": _p99(p_lats),
+                    "shadow":  _p99(s_lats),
+                },
+                "avg_confidence": {
+                    "primary": (
+                        round(sum(r[2] or 0 for r in rows if r[1] == "ok")
+                              / max(p_ok, 1), 3) if p_ok else None
+                    ),
+                    "shadow": (
+                        round(sum(r[7] or 0 for r in rows if r[6] == "ok")
+                              / max(s_ok, 1), 3) if s_ok else None
+                    ),
+                },
+            }
+
         return {
             "window_hours": hours,
             "by_model": by_model,
             "by_use_case": by_use_case,
             "shadow_diff": shadow_diff,
+            "shadow_dual_diff": shadow_dual_diff,
+        }
+
+    def llm_embedding_stats(self, hours: int = 24) -> dict:
+        """Phase 9.2 C9 — embedding pipeline rollups for the LLM Console
+        Self-Eval tab. NP3 — empty dict on DB failure."""
+        import time as _time
+        cutoff = _time.time() - hours * 3600
+        try:
+            conn = self._get_conn()
+            call_summary = conn.execute(
+                "SELECT COUNT(*) AS n, "
+                "       SUM(CASE WHEN outcome='ok' THEN 1 ELSE 0 END) AS ok, "
+                "       SUM(CASE WHEN cache_hit=1 THEN 1 ELSE 0 END) AS hits, "
+                "       AVG(CASE WHEN outcome='ok' THEN duration_ms END) AS avg_ms "
+                "FROM llm_embed_call_log WHERE ts >= ?",
+                (cutoff,),
+            ).fetchone()
+            n = call_summary[0] or 0
+            ok = call_summary[1] or 0
+            hits = call_summary[2] or 0
+
+            # Per-language dedup precision proxy: of the rows the embedding
+            # would dedupe (cosine ≥ threshold), how many were actually
+            # confirmed as duplicates by the downstream string-based path.
+            # We approximate "confirmed dup" as: the matched_item_id has
+            # status in ('confirmed', 'auto_confirmed') in llm_intel.
+            lang_rows = conn.execute(
+                "SELECT item_lang, COUNT(*) AS n_decided, "
+                "       SUM(CASE WHEN applied=1 THEN 1 ELSE 0 END) AS n_applied, "
+                "       AVG(cosine_score) AS avg_score "
+                "FROM llm_embed_dedup_log WHERE ts >= ? AND item_lang IS NOT NULL "
+                "GROUP BY item_lang",
+                (cutoff,),
+            ).fetchall()
+            by_language: dict = {}
+            for r in lang_rows:
+                lang = r[0]
+                detected = r[1] or 0
+                applied = r[2] or 0
+                if detected > 0:
+                    by_language[lang] = {
+                        "detected": detected,
+                        "would_dedup": detected,
+                        "applied": applied,
+                        "precision_proxy": round(applied / detected, 3),
+                        "avg_score": round(r[3] or 0, 3),
+                    }
+        except Exception:
+            return {}
+
+        return {
+            "window_hours": hours,
+            "calls_24h": n,
+            "ok_rate": round(ok / n, 3) if n else None,
+            "cache_hit_rate": round(hits / n, 3) if n else None,
+            "avg_duration_ms": round(call_summary[3]) if call_summary[3] else 0,
+            "by_language": by_language,
         }
 
     # ── CT Log per-domain known-CA history (ADR-024) ──────────────────────
@@ -4831,68 +5522,8 @@ class RadarDB:
                  "context_alignment": json.loads(r[8]),
                  "summary": json.loads(r[9])} for r in rows]
 
-    # ── forecast_log ───────────────────────────────────────────────────────
-    def forecast_log_add(self, theater: str, ts: float, forecast_type: str,
-                         predicted: str) -> int:
-        conn = self._get_conn()
-        with conn.writing():
-            cur = conn.execute(
-                "INSERT INTO forecast_log (theater, ts, forecast_type, predicted) "
-                "VALUES (?, ?, ?, ?)",
-                (theater, ts, forecast_type, predicted),
-            )
-        return cur.lastrowid
-
-    def forecast_log_resolve(self, forecast_id: int, actual: str, accuracy: float):
-        import time as _time
-        conn = self._get_conn()
-        with conn.writing():
-            conn.execute(
-                "UPDATE forecast_log SET actual=?, resolved_at=?, accuracy=? WHERE id=?",
-                (actual, _time.time(), accuracy, forecast_id),
-            )
-
-    def forecast_log_get(self, theater: str = None, limit: int = 100) -> list[dict]:
-        conn = self._get_conn()
-        if theater:
-            rows = conn.execute(
-                "SELECT id, theater, ts, forecast_type, predicted, actual, "
-                "resolved_at, accuracy FROM forecast_log WHERE theater=? "
-                "ORDER BY ts DESC LIMIT ?", (theater, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT id, theater, ts, forecast_type, predicted, actual, "
-                "resolved_at, accuracy FROM forecast_log ORDER BY ts DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [{"id": r[0], "theater": r[1], "ts": r[2], "forecast_type": r[3],
-                 "predicted": r[4], "actual": r[5], "resolved_at": r[6],
-                 "accuracy": r[7]} for r in rows]
-
-    def forecast_accuracy_summary(self, theater: str = None) -> dict:
-        """Aggregate forecast accuracy for resolved forecasts."""
-        conn = self._get_conn()
-        if theater:
-            row = conn.execute(
-                "SELECT COUNT(*) AS total, "
-                "SUM(CASE WHEN accuracy IS NOT NULL THEN 1 ELSE 0 END) AS resolved, "
-                "AVG(accuracy) AS avg_accuracy "
-                "FROM forecast_log WHERE theater=? AND resolved_at IS NOT NULL",
-                (theater,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                "SELECT COUNT(*) AS total, "
-                "SUM(CASE WHEN accuracy IS NOT NULL THEN 1 ELSE 0 END) AS resolved, "
-                "AVG(accuracy) AS avg_accuracy "
-                "FROM forecast_log WHERE resolved_at IS NOT NULL",
-            ).fetchone()
-        return {
-            "total_forecasts": row[0] if row else 0,
-            "resolved": row[1] if row else 0,
-            "avg_accuracy": round(row[2], 4) if row and row[2] is not None else None,
-        }
+    # forecast_log retired 2026-05-05 (production accuracy ~3% with
+    # degenerate predicted=TL1 — superseded by conclusions_ledger TREND).
 
     # ── cooccurrence_stats ─────────────────────────────────────────────────
     def cooccurrence_update(self, sensor_a: str, sensor_b: str, theater: str,
@@ -5090,14 +5721,6 @@ class RadarDB:
         deleted["daily_summary"] = cur.rowcount
         conn.commit()
 
-        # forecast_log: prediction accuracy tracking.
-        # 365 days because forecast_accuracy_summary() aggregates all rows;
-        # shorter retention silently converts overall accuracy into a rolling window.
-        _fc_days = int(_os.getenv("FORECAST_RETENTION_DAYS", "365"))
-        cutoff_fc = now - _fc_days * 86400
-        cur = conn.execute("DELETE FROM forecast_log WHERE ts < ?", (cutoff_fc,))
-        deleted["forecast_log"] = cur.rowcount
-        conn.commit()
 
         # scenario_contribution_log: per-cycle per-country contribution
         # snapshots feeding the weight_advisory endpoint. ~1 row/country/
@@ -5188,16 +5811,6 @@ class RadarDB:
             "AND decided_at < ?",
             (cutoff_dec,))
         deleted["decisions_superseded"] = cur.rowcount
-        conn.commit()
-
-        # legacy_access_log: v1 sunset telemetry. 90d covers post-sunset
-        # observation period; older rows have no operational value.
-        _lal_days = int(_os.getenv("LEGACY_ACCESS_LOG_RETENTION_DAYS", "90"))
-        cutoff_lal = now - _lal_days * 86400
-        cur = conn.execute(
-            "DELETE FROM legacy_access_log WHERE last_seen < ?",
-            (cutoff_lal,))
-        deleted["legacy_access_log"] = cur.rowcount
         conn.commit()
 
         # Phase 1 fix (2026-04-30 PM, problem 48): see
@@ -5366,6 +5979,21 @@ class RadarDB:
             "countries, country_weights FROM llm_intel "
             "WHERE raw_url=? AND ts >= ? ORDER BY ts DESC LIMIT ?",
             (raw_url, since_ts, limit),
+        ).fetchall()
+        return [self._intel_row_to_dict(r) for r in rows]
+
+    def intel_recent_by_source(self, source_type: str, since_ts: float = 0,
+                               limit: int = 50) -> list[dict]:
+        """Phase 9.2 C8 — recent intel rows for the same source_type, used
+        by the embedding-based dedup path in radar/intel_queue.submit().
+        Ordered most-recent-first."""
+        rows = self._get_conn().execute(
+            "SELECT id, source_type, source_id, theater, ts, status, confidence, "
+            "raw_text, raw_url, headline, llm_fields, score_delta, domain, "
+            "confirmed_by, confirmed_at, override_at, created_at, "
+            "countries, country_weights FROM llm_intel "
+            "WHERE source_type=? AND ts >= ? ORDER BY ts DESC LIMIT ?",
+            (source_type, since_ts, max(1, min(limit, 200))),
         ).fetchall()
         return [self._intel_row_to_dict(r) for r in rows]
 
@@ -6303,11 +6931,3 @@ from radar.config import PERSISTENCE_DIR  # noqa: E402
 _DB_PATH = os.path.join(PERSISTENCE_DIR, "radar.db")
 db = RadarDB(_DB_PATH)
 
-# Hydrate Safe Rename Pattern SR4 telemetry from disk so counters survive
-# restarts. Best-effort: if migration v23 has not yet run, the call is a no-op
-# and will succeed on the next module import (after migrations complete).
-try:
-    from radar import legacy_telemetry as _lt
-    _lt.hydrate_from_db(db)
-except Exception as _e:
-    log.warning("legacy_telemetry hydrate skipped: %s", _e)

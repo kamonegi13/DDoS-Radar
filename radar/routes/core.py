@@ -35,8 +35,7 @@ from radar.scoring import (
 )
 from radar.ws import emit_threat_update, emit_ambush_alert, emit_sequence_event
 from radar.notifications import (
-    notify_threat_level_change, notify_sequence_complete,
-    notify_scenario_tl_change,
+    notify_sequence_complete, notify_scenario_tl_change,
 )
 from radar.sensors.checkhost import CHECKHOST_NODES
 from radar.sensors.telegram import TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD, TelegramMirrorSensor
@@ -666,6 +665,10 @@ def get_threat_data():
         _cache_ts = st.global_cache.get("time", 0)
         _cache_focus = st.global_cache.get("focused_scenario")
     _focus_changed = (_cache_focus is not None and _cache_focus != _req_focus)
+    # Initialised at function scope so the cache-hit path (where the
+    # recompute branch is skipped) can reference it safely. The recompute
+    # branch overwrites it inside the focused-TL derivation block.
+    scoring_error_reason: str | None = None
     if (current_time - _cache_ts > SCORE_REFRESH_SEC) or force_sync or _focus_changed:
         # Read all sensor caches (extracted for readability)
         _sc = _read_sensor_caches(_routes.registry)
@@ -1020,8 +1023,39 @@ def get_threat_data():
             # Raw saturated near P50≈53% in normal operation (commodity cloud
             # ASN co-occurrence), so the percent value was uninformative.
             # IDF range is 0–~5; values ≥1.5 mean meaningful rare-ASN overlap.
+            #
+            # 2026-05-10: graduated scoring added because flat score=1
+            # at IDF≥1.5 fired 395 times / 24h (≈ every other tick),
+            # contributing a constant cyber=1 baseline that pushed
+            # threat_level L5→L4 spuriously (47% FP rate observed in
+            # taiwan_contingency analyst feedback). Status remains
+            # "FIRED" at IDF≥1.5 for analyst visibility, but score=0
+            # below IDF<2.0 so the contribution path
+            # (rationale_to_signal requires score>0) excludes commodity
+            # ASN co-occurrence from scenario scoring. True rare-ASN
+            # overlap (IDF≥2.0) still contributes; high overlap (IDF≥3.5)
+            # contributes double.
             max_overlap_idf = max(correlations_idf_l3.values(), default=0.0)
-            _overlap_active = add_rat("cf_botnet_overlap", "cyber", "FIRED" if high_correlation else "OK", f"{max_overlap_idf:.2f} IDF overlap", 1 if high_correlation else 0, "Shared botnet IDF≥1.5" if high_correlation else None, confidence=_cf_conf)
+            if max_overlap_idf >= 3.5:
+                _overlap_score = 2
+                _overlap_reason = f"Strong shared botnet IDF={max_overlap_idf:.2f} (≥3.5 — rare ASN overlap)"
+            elif max_overlap_idf >= 2.0:
+                _overlap_score = 1
+                _overlap_reason = f"Shared botnet IDF={max_overlap_idf:.2f} (≥2.0)"
+            elif high_correlation:
+                _overlap_score = 0
+                _overlap_reason = f"Marginal shared botnet IDF={max_overlap_idf:.2f} (≥1.5; below scoring floor)"
+            else:
+                _overlap_score = 0
+                _overlap_reason = None
+            _overlap_active = add_rat(
+                "cf_botnet_overlap", "cyber",
+                "FIRED" if high_correlation else "OK",
+                f"{max_overlap_idf:.2f} IDF overlap",
+                _overlap_score,
+                _overlap_reason,
+                confidence=_cf_conf,
+            )
             # Graduated L3→L7 vector shift scoring: moderate +1, severe +2
             _core_l7s = target_details.get(primary_ec, {}).get("avg_l7_spike", 0)
             _core_l3s = target_details.get(primary_ec, {}).get("avg_l3_spike", 0)
@@ -2454,6 +2488,19 @@ def get_threat_data():
                     _LATEST_SIGNALS_SNAPSHOT["scenario_baselines"] = _baselines
             except Exception:
                 pass
+
+            # Phase 9 (2026-05-13) — compute global_threat envelope outside
+            # the scenario loop. With GLOBAL_SIGNALS_DECOUPLED on, country-
+            # less signals (cf_botnet_overlap, threatfox, …) are excluded
+            # from per-scenario score; they surface here so the HUD can
+            # render an independent global-cyber chip.
+            try:
+                from radar.scoring import compute_global_threat
+                _global_threat_payload = compute_global_threat(
+                    _signals, global_signal_weight=GLOBAL_SIGNAL_WEIGHT,
+                )
+            except Exception:
+                _global_threat_payload = None
         except Exception as _sc_err:
             # SF4 (audit / NP1+NP6 fix, 2026-05-01): the previous behaviour
             # logged a warning, left _focused_tl == None, and the fallback
@@ -2476,7 +2523,8 @@ def get_threat_data():
         # Derive legacy threat_level from focused scenario TL.
         # This is the single source of truth — HUD top TL and scenario card
         # TL now always agree.
-        scoring_error_reason: str | None = None
+        # (`scoring_error_reason` is hoisted to function scope above so the
+        # cache-hit path can also reference it.)
         if _focused_tl is not None:
             threat_level = _focused_tl
             tl_raw = _focused_tl_raw if _focused_tl_raw is not None else _focused_tl
@@ -2528,16 +2576,9 @@ def get_threat_data():
             _prox_score = score_with_bonus
         tl_proximity = _routes.engine.compute_tl_proximity(_prox_score, threat_level)
 
-        # ── CAC Phase D: Forecast recording & resolution ──────────────────
+        # CAC Phase D escalation summary (forecast_log retired 2026-05-05).
         _escalation = _routes.engine.compute_escalation_progress(
             _db.threat_list(), _db.alert_list(limit=100))
-        try:
-            _routes.engine.record_forecast(
-                _db, core_theater, current_time, threat_level, _escalation)
-            _routes.engine.resolve_pending_forecasts(
-                _db, core_theater, current_time, threat_level)
-        except Exception:
-            pass  # Non-critical
 
         system_note = _routes.engine.build_system_note(threat_level, domain_scores, convergence_level, rationale, noise_filters_applied, tl_held)
         # Append new analysis annotations
@@ -2801,9 +2842,8 @@ def get_threat_data():
                 "core": ct_data.get(core_theater),
                 "status": ct_country_status.get(core_theater, "NORMAL"),
             },
-            # Phase D: Co-occurrence boost & Forecast accuracy
+            # Phase D: Co-occurrence boost (forecast_accuracy retired 2026-05-05).
             "cooccurrence_boost": cooc_boost,
-            "forecast_accuracy": _db.forecast_accuracy_summary(core_theater),
         }
 
         score_breakdown = {
@@ -2939,6 +2979,12 @@ def get_threat_data():
         # source of truth). Here we just propagate to cache.
         _new_cache["scenarios"] = _scenario_results
         _new_cache["scenario_history_starts_at"] = _db.scenario_history_start()
+        # Phase 9 (2026-05-13) — propagate global_threat envelope. May be
+        # None when the scoring block raised (SF4) or the helper failed.
+        try:
+            _new_cache["global_threat"] = _global_threat_payload
+        except NameError:
+            _new_cache["global_threat"] = None
 
         # ── Phase C: What-changed diff (under lock with cache swap) ────────
         global _prev_scenario_domains, _prev_scenario_signals
@@ -3013,17 +3059,19 @@ def get_threat_data():
         emit_threat_update(
             core_theater, _new_cache["strategic"], scenario_id=_focused_id or "",
         )
-        if threat_level != prev_threat_level:
-            notify_threat_level_change(core_theater, prev_threat_level, threat_level, score_with_bonus)
-            # Phase C: scenario-aware notification with what-changed
-            if _focused_id:
-                _sc_name = _scenario_results.get(
-                    _focused_id, {}).get("name_en", _focused_id)
-                notify_scenario_tl_change(
-                    _focused_id, _sc_name,
-                    prev_threat_level, threat_level,
-                    score_with_bonus, _what_changed,
-                )
+        # 2026-05-12: legacy theater-based notify_threat_level_change was
+        # removed — it fired alongside notify_scenario_tl_change on every
+        # TL transition, producing duplicate Discord/Slack notifications
+        # for the same event. CLAUDE.md flagged ``theater`` as a deprecated
+        # term; the scenario-aware notifier is the single source of truth.
+        if threat_level != prev_threat_level and _focused_id:
+            _sc_name = _scenario_results.get(
+                _focused_id, {}).get("name_en", _focused_id)
+            notify_scenario_tl_change(
+                _focused_id, _sc_name,
+                prev_threat_level, threat_level,
+                score_with_bonus, _what_changed,
+            )
         if is_ambush:
             emit_ambush_alert(core_theater, {
                 "z_score": ambush_z, "acceleration": acceleration_val,
@@ -3123,6 +3171,11 @@ def get_threat_data():
         "scenarios":       _scenario_results,
         "scenario_history_starts_at": _cache_snap.get("scenario_history_starts_at"),
         "participants":    _participant_map,
+        # Phase 9 (2026-05-13) — global_threat envelope (countryless signals).
+        # When GLOBAL_SIGNALS_DECOUPLED is off, this still surfaces the same
+        # information for HUD parity; the decoupling flag only controls
+        # whether the same signals are *also* folded into per-scenario score.
+        "global_threat":   _cache_snap.get("global_threat"),
     }
     # SF4 (audit): surface scoring failure to the frontend so the HUD can
     # render "—" / "ENGINE ERROR" instead of fabricating "TL5 / normal".
@@ -3135,13 +3188,15 @@ def get_threat_data():
             "Scoring engine encountered an exception. Conclusion unavailable "
             "for this tick — historical TL series was not updated."
         )
-    _resp = jsonify(_resp_payload)
-    _resp.headers["Deprecation"] = "true"
-    _resp.headers["Sunset"] = "2026-10-01"
-    _resp.headers["X-Deprecation-Notice"] = (
-        "Fields 'targets', 'strategic_alert', 'threat_history' are deprecated. "
-        "Use 'scenarios' for scenario-centric data. "
-        "These fields will be removed after 2026-10-01."
-    )
-    return _resp
+    # ADR-V2-003 (2026-04-29 contract correction): /api/threat_data is a
+    # permanent operational endpoint. The v2 conclusions API was promised
+    # as the successor but PF7 inventory found it was technically unable
+    # to replace this kitchen-sink envelope (response shape mismatch:
+    # threat_data drives HUD/Lane/map/sparkline; v2 conclusions ships
+    # scoring conclusions only). The `targets`, `strategic_alert`, and
+    # `threat_history` fields are likewise irreplaceable — they aggregate
+    # focused-scenario context the v2 ledger does not carry. The previous
+    # `Sunset: 2026-10-01` headers were removed 2026-05-05 to bring code
+    # into alignment with the ADR.
+    return jsonify(_resp_payload)
 

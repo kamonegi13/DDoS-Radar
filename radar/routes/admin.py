@@ -14,235 +14,264 @@ from radar.persistence import save_state
 from radar.sensors.telegram import TelegramMirrorSensor
 import radar.routes as _routes
 from radar.routes import bp, _require_admin, _require_analyst, _safe_int, _country_param
+from radar.audit_middleware import audit  # Phase 9.6 C20 — NP6 unified audit
 
-# -- Secret masking for GET /api/env_config -----------------------------------
+# -- Secret-value indicator (used by /api/v2/config/values) -------------------
 _SECRET_PATTERNS = ("SECRET", "PASSWORD", "TOKEN", "WEBHOOK", "API_KEY")
 
-def _mask_value(key: str, val: str) -> str:
-    """Mask sensitive config values, showing only the last 4 characters."""
-    if any(p in key.upper() for p in _SECRET_PATTERNS):
-        return val[-4:].rjust(len(val), '*') if len(val) > 4 else '****'
-    return val
 
-@bp.route("/api/env_config", methods=["GET"])
-def api_env_config_get():
-    """Read config.env and return all key=value pairs as JSON (excluding comments).
-    For keys missing from config.env, fall back to the currently running radar.config
-    values so the CONFIG panel always shows meaningful defaults."""
-    auth_err = _require_admin()
-    if auth_err: return auth_err
-    config = {}
-    try:
-        with open("config.env", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, val = line.partition("=")
-                key = key.strip()
-                # Strip inline comments and surrounding quotes
-                if "  #" in val:
-                    val = val.split("  #", 1)[0]
-                val = val.strip().strip('"').strip("'")
-                config[key] = val
-    except FileNotFoundError:
-        return jsonify({"error": "config.env not found"}), 404
-
-    # Fill in missing keys from the currently running radar.config module
-    # (these reflect the defaults baked into config.py for any key absent from config.env)
-    import radar.config as _cfg
-    _FALLBACK_KEYS = {
-        "DOMAIN_WEIGHT_CYBER":           str(_cfg.DOMAIN_WEIGHT_CYBER),
-        "DOMAIN_WEIGHT_PHYSICAL":        str(_cfg.DOMAIN_WEIGHT_PHYSICAL),
-        "DOMAIN_WEIGHT_INFO":            str(_cfg.DOMAIN_WEIGHT_INFO),
-        "THREAT_LEVEL_HYSTERESIS_CYCLES": str(_cfg.THREAT_LEVEL_HYSTERESIS_CYCLES),
-        "AIRSPACE_ANOMALY_THRESHOLD":    str(_cfg.AIRSPACE_ANOMALY_THRESHOLD),
-        "AIRSPACE_CLOSURE_THRESHOLD":    str(_cfg.AIRSPACE_CLOSURE_THRESHOLD),
-        "AIRSPACE_WINDOW":               str(_cfg.AIRSPACE_WINDOW),
-        "GDELT_TONE_ALERT_THRESHOLD":    str(_cfg.GDELT_TONE_ALERT_THRESHOLD),
-        "GDELT_HISTORY_WINDOW":          str(_cfg.GDELT_HISTORY_WINDOW),
-        "CONVERGENCE_DUAL_BONUS":        str(_cfg.CONVERGENCE_DUAL_BONUS),
-        "CONVERGENCE_FULL_BONUS":        str(_cfg.CONVERGENCE_FULL_BONUS),
-        "AMBUSH_ZSCORE_THRESHOLD":       str(_cfg.AMBUSH_ZSCORE_THRESHOLD),
-        "DERIVATIVE_WINDOW":             str(_cfg.DERIVATIVE_WINDOW),
-        "SYNC_DELTA_MS":                 str(_cfg.SYNC_DELTA_MS),
-        "SYNC_C2_THRESHOLD":             str(_cfg.SYNC_C2_THRESHOLD),
-        "NARRATIVE_ZSCORE_ALERT":        str(_cfg.NARRATIVE_ZSCORE_ALERT),
-        "NARRATIVE_ZSCORE_CRITICAL":     str(_cfg.NARRATIVE_ZSCORE_CRITICAL),
-        "NARRATIVE_BASELINE_DAYS":       str(_cfg.NARRATIVE_BASELINE_DAYS),
-        "SEQUENCE_WINDOW":               str(_cfg.SEQUENCE_WINDOW),
-        "SEQUENCE_FULL_BONUS":           str(_cfg.SEQUENCE_FULL_BONUS),
-        "SEQUENCE_PARTIAL_BONUS":        str(_cfg.SEQUENCE_PARTIAL_BONUS),
-        "ISR_SURGE_THRESHOLD":           str(_cfg.ISR_SURGE_THRESHOLD),
-        "GPS_JAM_THRESHOLD":             str(_cfg.GPS_JAM_THRESHOLD),
-        "GPS_JAM_CRITICAL_THRESHOLD":    str(_cfg.GPS_JAM_CRITICAL_THRESHOLD),
-        # CT_LOG_SURGE_THRESHOLD intentionally omitted — ADR-024 redesign
-        # replaced surge-based detection (cert volume) with trust-class
-        # signals (untrusted CA / wildcard TLD) so the legacy threshold
-        # has no operator effect. Hidden from the admin SYSCONFIG panel.
-        "USGS_MIN_MAGNITUDE":            str(_cfg.USGS_MIN_MAGNITUDE),
-        "LLM_AUTO_CONFIRM_THRESHOLD":    str(_cfg.LLM_AUTO_CONFIRM_THRESHOLD),
-        "LLM_CONFIDENCE_MIN":            str(_cfg.LLM_CONFIDENCE_MIN),
-        "LLM_PENDING_AUTO_REJECT_HOURS":      str(_cfg.LLM_PENDING_AUTO_REJECT_HOURS),
-        "INTEL_RETENTION_DAYS":               str(_cfg.INTEL_RETENTION_DAYS),
-        "INTEL_ITEM_TTL_HOURS":               str(_cfg.INTEL_ITEM_TTL_HOURS),
-        "INTEL_MAX_ITEMS_PER_SOURCE_THEATER": str(_cfg.INTEL_MAX_ITEMS_PER_SOURCE_THEATER),
-        "INTEL_AGE_DECAY_ENABLED":            str(_cfg.INTEL_AGE_DECAY_ENABLED).lower(),
-        "INTEL_AGE_DECAY_TAU_HOURS":          str(_cfg.INTEL_AGE_DECAY_TAU_HOURS),
-        "CORROBORATION_WINDOW_HOURS":         str(_cfg.CORROBORATION_WINDOW_HOURS),
-        "CORROBORATION_COOLDOWN_HOURS":       str(_cfg.CORROBORATION_COOLDOWN_HOURS),
-        "CORROBORATION_MIN_SOURCES":          str(_cfg.CORROBORATION_MIN_SOURCES),
-        "CORROBORATION_MIN_INDEPENDENCE":     str(_cfg.CORROBORATION_MIN_INDEPENDENCE),
-    }
-    for key, default_val in _FALLBACK_KEYS.items():
-        if key not in config:
-            config[key] = default_val
-
-    # Mask sensitive values before returning
-    masked = {k: _mask_value(k, v) for k, v in config.items()}
-    return jsonify(masked)
+def _is_secret_key(key: str) -> bool:
+    """True if a config key is a secret (API token, password, webhook URL)."""
+    return any(p in key.upper() for p in _SECRET_PATTERNS)
 
 
-@bp.route("/api/env_config", methods=["POST"])
-def api_env_config_post():
-    """Write updated key=value pairs to config.env, preserving comments and structure."""
-    auth_err = _require_admin()
-    if auth_err: return auth_err
-    updates = request.json or {}
-    if not updates:
-        return jsonify({"error": "No data provided"}), 400
+def _secret_indicator(val: str) -> dict:
+    """Return a structured indicator object for a secret value.
 
-    # Sanitize: reject unknown keys and strip control characters from values
-    _KNOWN_KEYS = set(_RELOADABLE_KEYS) | {
-        "LLM_HOST", "LLM_MODEL", "SERVER_PORT", "SERVER_HOST",
-        "JWT_SECRET_KEY", "DEFAULT_ADMIN_PASSWORD",
-        "CF_API_TOKEN", "CF_ZONE_ID", "OWM_API_KEY",
-        "NOTIFY_SLACK_WEBHOOK", "NOTIFY_TEAMS_WEBHOOK", "NOTIFY_WEBHOOK_URL",
-        "CORS_ALLOWED_ORIGINS",
-    }
-    for key in list(updates.keys()):
-        if key not in _KNOWN_KEYS:
-            return jsonify({"error": f"Unknown config key: {key}"}), 400
-        val = str(updates[key])
-        # Strip newlines and control chars to prevent injection
-        updates[key] = val.replace('\n', '').replace('\r', '').replace('\x00', '')
-
-    try:
-        with open("config.env", encoding="utf-8") as f:
-            lines = f.readlines()
-    except FileNotFoundError:
-        return jsonify({"error": "config.env not found"}), 404
-
-    updated_keys = set()
-    new_lines = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            key, _, _ = stripped.partition("=")
-            key = key.strip()
-            if key in updates:
-                # Preserve any inline comment on the same line
-                original_val_part = line.split("=", 1)[1]
-                inline_comment = ""
-                if "  #" in original_val_part:
-                    inline_comment = "  " + original_val_part.split("  #", 1)[1].rstrip("\n")
-                new_lines.append(f"{key}={updates[key]}{inline_comment}\n")
-                updated_keys.add(key)
-                continue
-        new_lines.append(line)
-
-    # Append new keys that were not found in the file
-    new_keys = set(updates.keys()) - updated_keys
-    # Skip non-config keys
-    new_keys.discard("admin-token")
-    new_keys.discard("LLM_MODEL_manual")  # UI-only fallback field, not a real config key
-    if new_keys:
-        new_lines.append("\n")
-        for key in sorted(new_keys):
-            new_lines.append(f"{key}={updates[key]}\n")
-            updated_keys.add(key)
-
-    try:
-        with open("config.env", "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
-    except OSError as exc:
-        return jsonify({"error": f"Cannot write config.env: {exc}"}), 500
-
-    return jsonify({"ok": True, "updated": sorted(updated_keys)})
+    The API NEVER returns the real secret value (this was the root cause of
+    the 2026-05-04 mask-corruption incident — a UI fed mask-string back into
+    POST and the backend wrote it to config.env). Instead we emit:
+      {"set": bool, "last4": str|None}
+    The frontend renders an empty input with a placeholder showing
+    set/unset state + the last 4 characters as proof-of-identity.
+    The POST handler refuses to accept a dict (or a mask-string) for secret
+    keys, requiring an empty string ("no change") or the new plaintext value.
+    """
+    if val is None or val == "":
+        return {"set": False, "last4": None}
+    s = str(val)
+    return {"set": True, "last4": s[-4:] if len(s) >= 4 else None}
 
 
-# Keys that can be reloaded without a server restart
-_RELOADABLE_KEYS = frozenset({
-    # LLM intel queue thresholds
-    "LLM_AUTO_CONFIRM_THRESHOLD", "LLM_CONFIDENCE_MIN",
-    "LLM_PENDING_AUTO_REJECT_HOURS", "INTEL_RETENTION_DAYS",
-    "INTEL_ITEM_TTL_HOURS", "INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
-    "INTEL_AGE_DECAY_ENABLED", "INTEL_AGE_DECAY_TAU_HOURS",
-    # Notifications (read dynamically in notifications.py)
-    "NOTIFY_ENABLED", "NOTIFY_DEBOUNCE_SEC",
-    "NOTIFY_SLACK_WEBHOOK", "NOTIFY_TEAMS_WEBHOOK", "NOTIFY_WEBHOOK_URL",
-    # Threat scoring thresholds
-    "GDELT_TONE_ALERT_THRESHOLD", "GDELT_HISTORY_WINDOW",
-    "AIRSPACE_ANOMALY_THRESHOLD", "AIRSPACE_CLOSURE_THRESHOLD",
-    "CONVERGENCE_DUAL_BONUS", "CONVERGENCE_FULL_BONUS",
-    "THREAT_LEVEL_HYSTERESIS_CYCLES",
-    "AMBUSH_ZSCORE_THRESHOLD", "SYNC_DELTA_MS", "SYNC_C2_THRESHOLD",
-    "SEQUENCE_WINDOW", "SEQUENCE_FULL_BONUS", "SEQUENCE_PARTIAL_BONUS",
-    # Narrative sensor
-    "NARRATIVE_ZSCORE_ALERT", "NARRATIVE_ZSCORE_CRITICAL", "NARRATIVE_BASELINE_DAYS",
-    # Sensor thresholds
-    "ISR_SURGE_THRESHOLD",
-    "GPS_JAM_THRESHOLD", "GPS_JAM_CRITICAL_THRESHOLD",
-    # CT_LOG_SURGE_THRESHOLD removed — see ADR-024; surge-based scoring is gone.
-    "USGS_MIN_MAGNITUDE",
-    # Domain weights
-    "DOMAIN_WEIGHT_CYBER", "DOMAIN_WEIGHT_PHYSICAL", "DOMAIN_WEIGHT_INFO",
-    # Telegram
-    "TELEGRAM_ATTACK_KEYWORDS", "TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD",
-    # Cross-source corroboration
-    "CORROBORATION_WINDOW_HOURS", "CORROBORATION_COOLDOWN_HOURS",
-    "CORROBORATION_MIN_SOURCES", "CORROBORATION_MIN_INDEPENDENCE",
-})
+# Mask-string regex used to defend against legacy clients that still try to
+# send a masked string back as the value (defensive — should never trigger
+# now that the API returns structured indicators instead of mask strings).
+_MASK_STRING_RE = re.compile(r'^\*{3,}[A-Za-z0-9]{0,4}$')
 
 
-@bp.route("/api/env_config/reload", methods=["POST"])
-def api_env_config_reload():
-    """Re-read config.env and update os.environ for reloadable keys.
-    Non-reloadable keys (LLM_HOST, SERVER_PORT, etc.) require a server restart.
-    Returns which keys were updated and which require restart.
+def _looks_like_mask(val: str) -> bool:
+    return isinstance(val, str) and bool(_MASK_STRING_RE.match(val))
+
+
+# ════════════════════════════════════════════════════════════════════════
+# v2 config endpoints (registry-driven)
+#
+# Reads / writes go through radar.config_layered which:
+#   - returns the registered metadata (so the UI auto-renders forms)
+#   - resolves values via DB → env → default chain
+#   - audits every write to config_change_log (NP6)
+#   - rejects secret/immutable/bootstrap keys with 403/422
+#
+# The legacy /api/env_config* endpoints were retired 2026-05-05 once the
+# frontend (radar.js _v2ConfigLoad / _v2ConfigSave) was fully migrated.
+# ════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/v2/config/registry", methods=["GET"])
+def api_v2_config_registry():
+    """Return the full config registry (metadata only — no values).
+    Drives the registry-driven Settings form generator. Admin-only.
+
+    Optional query params:
+      group=OPERATE|TUNE|LLM_HEALTH|INFRASTRUCTURE|ACCESS
+      include_secrets=true|false (default false; secret metadata never
+        includes the value, but the metadata itself can be restricted)
     """
     auth_err = _require_admin()
     if auth_err:
         return auth_err
     try:
-        config = {}
-        with open("config.env", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, val = line.partition("=")
-                key = key.strip()
-                # Strip inline comments
-                if "  #" in val:
-                    val = val.split("  #", 1)[0]
-                config[key] = val.strip()
-    except FileNotFoundError:
-        return jsonify({"error": "config.env not found"}), 404
+        from radar.config_layered import all_keys, groups, ALL_GROUPS
+    except Exception as exc:
+        return jsonify({"error": f"registry unavailable: {exc}"}), 503
 
-    reloaded = []
-    needs_restart = []
-    for key, val in config.items():
-        if key in _RELOADABLE_KEYS:
-            os.environ[key] = val
-            reloaded.append(key)
-        elif os.environ.get(key) != val:
-            needs_restart.append(key)
+    inc_secrets = request.args.get("include_secrets", "true").lower() in ("1","true","yes")
+    group = request.args.get("group") or None
+    if group is not None and group not in ALL_GROUPS:
+        return jsonify({"error": f"unknown group {group!r}"}), 400
 
-    return jsonify({"ok": True, "reloaded": sorted(reloaded), "needs_restart": sorted(needs_restart)})
+    out = []
+    for k in all_keys(include_secrets=inc_secrets, group=group):
+        out.append({
+            "key": k.key,
+            "domain": k.domain,
+            "group": k.group,
+            "type": k.type_,
+            "default": (None if k.secret else k.default),
+            "description": k.description,
+            "what": k.what,
+            "why": k.why,
+            "when": k.when,
+            "secret": k.secret,
+            "immutable": k.immutable,
+            "restart_required": k.restart_required,
+            "bootstrap": k.bootstrap,
+            "apply_timing": k.apply_timing,
+            "impact_level": k.impact_level,
+            "impact_warning": k.impact_warning,
+            "unit": k.unit,
+            "min_value": k.min_value,
+            "max_value": k.max_value,
+            "enum": list(k.enum) if k.enum else [],
+        })
+    return jsonify({
+        "registry": out,
+        "groups": list(ALL_GROUPS),
+        "generated_at": _time.time(),
+    })
+
+
+@bp.route("/api/v2/config/values", methods=["GET"])
+def api_v2_config_values():
+    """Return current effective values for non-secret keys.
+
+    Each entry: {key, value, source, restart_pending}
+      source: 'db' | 'env' | 'default'
+      restart_pending: True if DB has an override on a restart_required key
+                       and it differs from running env value.
+    Secret values are NEVER returned; secret keys appear with value=None
+    and source='secret' so the UI can render a masked field.
+    """
+    auth_err = _require_admin()
+    if auth_err:
+        return auth_err
+    try:
+        from radar.config_layered import (
+            all_keys, get_config, get_value_source, is_restart_pending,
+        )
+    except Exception as exc:
+        return jsonify({"error": f"registry unavailable: {exc}"}), 503
+
+    out = []
+    for k in all_keys(include_secrets=True):
+        if k.secret:
+            # Structured indicator — value is NEVER returned. last4 lets
+            # the UI prove "this is the configured key" without exposing it.
+            raw = os.environ.get(k.key, "")
+            out.append({
+                "key": k.key,
+                "value": None,
+                "source": "secret",
+                "restart_pending": False,
+                "indicator": _secret_indicator(raw),
+            })
+            continue
+        out.append({
+            "key": k.key,
+            "value": get_config(k.key),
+            "source": get_value_source(k.key),
+            "restart_pending": is_restart_pending(k.key),
+        })
+    return jsonify({"values": out, "generated_at": _time.time()})
+
+
+@bp.route("/api/v2/config", methods=["POST"])
+@audit(domain="config.runtime",
+       key_fn=lambda body, resp: (body or {}).get("key", "(missing)"),
+       new_value_fn=lambda body, resp: (body or {}).get("value"))
+def api_v2_config_post():
+    """Persist a config override.
+    Body: {key: str, value: any, reason: str?}
+    Returns: {ok, source, restart_pending} or {error}.
+
+    Errors:
+      400 — body missing key/value
+      403 — key is secret (UI must never write secrets)
+      404 — key not in registry
+      422 — validation failed (type / range / enum / impact-reason missing)
+    """
+    auth_err = _require_admin()
+    if auth_err:
+        return auth_err
+    body = request.get_json(silent=True) or {}
+    key = body.get("key")
+    if not key:
+        return jsonify({"error": "missing 'key'"}), 400
+    if "value" not in body:
+        return jsonify({"error": "missing 'value'"}), 400
+    value = body.get("value")
+    reason = (body.get("reason") or "").strip() or None
+
+    try:
+        from radar.config_layered import (
+            set_config, get_meta, get_value_source, is_restart_pending,
+        )
+    except Exception as exc:
+        return jsonify({"error": f"registry unavailable: {exc}"}), 503
+
+    meta = get_meta(key)
+    if meta is None:
+        return jsonify({"error": f"unknown config key {key!r}"}), 404
+    if meta.secret:
+        return jsonify({"error": f"key {key!r} is secret — refuse to write"}), 403
+    if meta.immutable or meta.bootstrap:
+        return jsonify({
+            "error": f"key {key!r} is env-only — edit config.env + restart"
+        }), 422
+
+    # Defense-in-depth — refuse mask-string writes. Should never trigger
+    # because secret keys are rejected with 403 above, but if any future
+    # non-secret key briefly passes a masked indicator, this catches it.
+    if isinstance(value, str) and _looks_like_mask(value):
+        return jsonify({
+            "error": "Refusing mask-string write (anti-corruption guard)",
+            "key": key,
+            "hint": "The API never returns secret values; masked indicators "
+                    "are display-only and must not be POSTed back.",
+        }), 422
+
+    by = get_jwt_identity() or "unknown"
+    ok, msg = set_config(key, value, by=by, reason=reason)
+    if not ok:
+        # set_config returns False with a descriptive message for any
+        # validator/coercion failure. Map all to 422 (semantic invalid).
+        return jsonify({"error": msg}), 422
+    return jsonify({
+        "ok": True,
+        "source": get_value_source(key),
+        "restart_pending": is_restart_pending(key),
+    })
+
+
+@bp.route("/api/v2/config", methods=["DELETE"])
+@audit(domain="config.runtime",
+       key_fn=lambda body, resp: (body or {}).get("key", "(missing)"))
+def api_v2_config_clear():
+    """Drop the DB override for a key (revert to env / code default).
+    Body: {key: str, reason: str?}
+    """
+    auth_err = _require_admin()
+    if auth_err:
+        return auth_err
+    body = request.get_json(silent=True) or {}
+    key = body.get("key")
+    if not key:
+        return jsonify({"error": "missing 'key'"}), 400
+    reason = (body.get("reason") or "").strip() or None
+
+    try:
+        from radar.config_layered import clear_config, get_meta
+    except Exception as exc:
+        return jsonify({"error": f"registry unavailable: {exc}"}), 503
+
+    meta = get_meta(key)
+    if meta is None:
+        return jsonify({"error": f"unknown config key {key!r}"}), 404
+    if meta.immutable or meta.bootstrap:
+        return jsonify({
+            "error": f"key {key!r} is env-only — no DB override to clear"
+        }), 422
+
+    by = get_jwt_identity() or "unknown"
+    ok, msg = clear_config(key, by=by, reason=reason)
+    if not ok:
+        return jsonify({"error": msg}), 422
+    return jsonify({"ok": True})
 
 
 @bp.route("/api/sensor_config", methods=["GET", "POST"])
+@audit(domain="sensor.enabled",
+       key_fn=lambda body, resp: (body or {}).get("name"),
+       new_value_fn=lambda body, resp: {"enabled": (body or {}).get("enabled")})
 def sensor_config():
     if request.method == "GET": return jsonify({"sensors": _routes.registry.config_list(), "domain_weights": _routes.engine.DOMAIN_WEIGHTS})
     auth_err = _require_admin()
@@ -298,6 +327,8 @@ def api_noise_exclusion_list():
 
 
 @bp.route("/api/noise_exclusion", methods=["POST"])
+@audit(domain="sensor.noise_exclusion",
+       key_fn=lambda body, resp: (body or {}).get("sensor"))
 def api_noise_exclusion_add():
     """Add a noise exclusion rule. Body: {sensor, theater, pattern, reason, expires_hours?}"""
     auth_err = _require_admin()
@@ -332,6 +363,8 @@ def api_noise_exclusion_add():
 
 
 @bp.route("/api/noise_exclusion/<int:rule_id>", methods=["DELETE"])
+@audit(domain="sensor.noise_exclusion",
+       key_fn=lambda body, resp: f"rule_id={request.view_args.get('rule_id') if hasattr(request,'view_args') else '?'}")
 def api_noise_exclusion_delete(rule_id):
     """Remove a noise exclusion rule."""
     auth_err = _require_admin()
@@ -397,13 +430,6 @@ def api_daily_summary():
     except (ValueError, TypeError):
         days = 90
     return jsonify(_db.daily_summary_get(theater, days))
-
-
-@bp.route("/api/forecast_accuracy", methods=["GET"])
-def api_forecast_accuracy():
-    """Get forecast accuracy summary."""
-    theater = _country_param("/api/forecast_accuracy") or None
-    return jsonify(_db.forecast_accuracy_summary(theater))
 
 
 @bp.route("/api/cooccurrence", methods=["GET"])
@@ -578,6 +604,9 @@ def api_admin_scenario_delete(scenario_id: str):
 
 
 @bp.route("/api/admin/scenarios/<scenario_id>/state", methods=["POST"])
+@audit(domain="scenario.state",
+       key_fn=lambda body, resp:
+           (request.view_args or {}).get("scenario_id"))
 def api_admin_scenario_state(scenario_id: str):
     auth_err = _require_admin()
     if auth_err: return auth_err
@@ -610,6 +639,9 @@ def api_admin_scenario_state(scenario_id: str):
 
 
 @bp.route("/api/admin/scenarios/<scenario_id>/enabled", methods=["POST"])
+@audit(domain="scenario.enabled",
+       key_fn=lambda body, resp:
+           (request.view_args or {}).get("scenario_id"))
 def api_admin_scenario_enabled(scenario_id: str):
     auth_err = _require_admin()
     if auth_err: return auth_err
@@ -632,6 +664,9 @@ def api_admin_scenario_enabled(scenario_id: str):
 
 
 @bp.route("/api/admin/scenarios/<scenario_id>/reset", methods=["POST"])
+@audit(domain="scenario.reset",
+       key_fn=lambda body, resp:
+           (request.view_args or {}).get("scenario_id"))
 def api_admin_scenario_reset(scenario_id: str):
     auth_err = _require_admin()
     if auth_err: return auth_err
@@ -748,40 +783,4 @@ def api_admin_sensor_health():
         "sensors": out_sensors,
     })
 
-
-# ── Safe Rename Pattern (SR4) telemetry ──────────────────────────────────────
-
-@bp.route("/api/admin/legacy_access", methods=["GET"])
-def api_admin_legacy_access():
-    """Dump observed accesses to deprecated identifiers / dict keys / API params.
-
-    Each row is one deprecated surface (e.g. ``Participant.theater``,
-    ``GET /api/threat_data?theater=``) with its access count and
-    first/last-seen timestamps. Used by ADR-V2-002 sunset evaluation:
-    a key with ``last_seen`` older than 30 days and matching the 90-day
-    window since dual-write rollout is a sunset candidate.
-
-    Snapshot reflects the in-memory counter, which is flushed to
-    ``legacy_access_log`` hourly by the cleanup worker.
-    """
-    auth_err = _require_admin()
-    if auth_err:
-        return auth_err
-    from radar import legacy_telemetry as _lt
-    snap = _lt.snapshot()
-    now = _time.time()
-    out = []
-    for stat in sorted(snap.values(), key=lambda s: s.last_seen, reverse=True):
-        out.append({
-            "key": stat.key,
-            "count": stat.count,
-            "first_seen": stat.first_seen,
-            "last_seen": stat.last_seen,
-            "age_hours_since_last_seen": round((now - stat.last_seen) / 3600.0, 2),
-        })
-    return jsonify({
-        "now": now,
-        "total_keys": len(out),
-        "items": out,
-    })
 

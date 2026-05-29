@@ -393,6 +393,259 @@ def _cache_cleanup_worker(registry=None):
                 except Exception as _g3b_exc:
                     log.warning("[G3B] run_once failed: %s", _g3b_exc)
 
+            # Phase G1: ground-truth correlation ETL (auto-feedback).
+            # Reads the conclusions ledger over the last 14 days, pulls
+            # GDELT tone spikes (+ ACLED fatality counts when API creds
+            # are configured), and writes auto-labelled rows into
+            # `analyst_feedback` with analyst_id `auto:gdelt` /
+            # `auto:acled` / `auto:both`. Without this pass the table is
+            # empty and the TL / LLM-confidence calibrators above have
+            # nothing to learn from. Gated on V2_GROUND_TRUTH_ETL_ENABLED.
+            if _cycle % 24 == 6:
+                try:
+                    from radar.calibration.auto_feedback_etl import (
+                        run_ground_truth_pass,
+                    )
+                    gt_counts = run_ground_truth_pass()
+                    if gt_counts:
+                        log.info(
+                            "[GroundTruthETL] daily pass: scanned=%d "
+                            "labelled=%d skipped=%d",
+                            gt_counts.get("scanned", 0),
+                            sum(v for k, v in gt_counts.items()
+                                if k.startswith("labelled_")),
+                            sum(v for k, v in gt_counts.items()
+                                if k.startswith("skipped_")),
+                        )
+                except Exception as _gt_exc:
+                    log.warning("[GroundTruthETL] daily pass failed: %s", _gt_exc)
+
+            # Phase G2: RSS narrative auto-feedback ETL.
+            # Same idea, but the evidence comes from the public-RSS
+            # kinetic-regex extractor (radar.conclusions.rss_extractor).
+            # No API key required; complements GDELT in regions where
+            # GDELT's English-press bias under-counts events.
+            if _cycle % 24 == 7:
+                try:
+                    from radar.calibration.auto_feedback_etl import (
+                        run_rss_narrative_pass,
+                    )
+                    rss_counts = run_rss_narrative_pass()
+                    if rss_counts:
+                        log.info(
+                            "[RssNarrativeETL] daily pass: feeds=%d "
+                            "matched=%d persisted=%d",
+                            rss_counts.get("feeds_fetched", 0),
+                            rss_counts.get("matched_items", 0),
+                            rss_counts.get("persisted", 0),
+                        )
+                except Exception as _rss_exc:
+                    log.warning(
+                        "[RssNarrativeETL] daily pass failed: %s", _rss_exc,
+                    )
+
+            # Phase G3: auto-apply tier governor (self-promoting).
+            # Reads its own audit log + threshold_history + diff_log to
+            # decide whether the system should promote (0→1→2→3) or
+            # demote based on observed reliability. Every transition
+            # is recorded to auto_apply_tier_state for NP6 audit.
+            # Failures here are caught inside the module; this outer
+            # try/except is the last-resort safety net.
+            if _cycle % 24 == 8:
+                try:
+                    from radar.calibration.auto_apply_tier_governor import (
+                        run_once as _tier_once,
+                    )
+                    tg = _tier_once()
+                    if tg.get("transition") not in (None, "unchanged"):
+                        log.info(
+                            "[TierGovernor] %s prior=%d new=%d reason=%s",
+                            tg.get("transition"),
+                            tg.get("prior_tier"),
+                            tg.get("new_tier"),
+                            tg.get("reason"),
+                        )
+                except Exception as _tg_exc:
+                    log.warning(
+                        "[TierGovernor] daily pass failed: %s", _tg_exc,
+                    )
+
+            # Chronic-inconclusive detector (ADR-V2-010 / NP5+8). Daily
+            # pass: snapshot the inconclusive_continuity_log, flag every
+            # (scenario, conclusion_type) whose open run has lasted past
+            # the threshold, and register one record_failure() per
+            # chronic state so the silent-failure ledger reflects the
+            # NP5+8 contract breach. The detector itself is NP3-tolerant
+            # — this outer try/except is just a safety net.
+            if _cycle % 24 == 9:
+                try:
+                    from radar.conclusions.inconclusive_continuity import (
+                        chronic_snapshot as _chronic_snap,
+                    )
+                    from radar.conclusions.shadow_metrics import (
+                        record_failure as _record_failure,
+                    )
+                    from radar.database import db as _shared_db
+                    snap = _chronic_snap(_shared_db)
+                    chronic = snap.get("chronic", []) or []
+                    for st in chronic:
+                        try:
+                            _record_failure(
+                                "inconclusive_chronic",
+                                RuntimeError(
+                                    f"chronic UNAVAILABLE: "
+                                    f"{st.get('scenario_id')}/"
+                                    f"{st.get('conclusion_type')} "
+                                    f"for {st.get('days_unavailable', 0):.1f}d"
+                                ),
+                            )
+                        except Exception:
+                            # record_failure must not be load-bearing.
+                            pass
+                    if chronic:
+                        log.warning(
+                            "[ChronicInconclusive] %d chronic state(s) "
+                            "flagged (threshold=%.1fd)",
+                            len(chronic),
+                            float(snap.get("threshold_days", 0)),
+                        )
+                except Exception as _chronic_exc:
+                    log.warning(
+                        "[ChronicInconclusive] daily pass failed: %s",
+                        _chronic_exc,
+                    )
+
+            # Inactive-scenario auto-dismiss (D1, 2026-05-08). Closes
+            # the original "pending decisions should be auto-processed"
+            # ask: a pending scenario_proposal whose target scenario
+            # has been moved to paused / archived state can never be
+            # applied (the wizard's apply path checks scenario state),
+            # and is a dead-letter by definition. Mechanical cleanup —
+            # no statistical judgment, no false-positive risk: the
+            # operator's choice to pause/archive a scenario is the
+            # judgment, this hook just propagates it.
+            #
+            # Symmetric with the chronic-inconclusive scheduler hook
+            # (offset 9): both auto-react to a state the analyst has
+            # already implicitly declared.
+            if _cycle % 24 == 10:
+                try:
+                    from radar.calibration import (
+                        proposal_lifecycle as _plc,
+                    )
+                    n = _plc.auto_dismiss_inactive_scenario_proposals()
+                    if n > 0:
+                        log.info(
+                            "[ProposalLifecycle] auto-dismissed %d "
+                            "pending proposals on inactive scenarios", n,
+                        )
+                    # D3 — diagnostic auto-acknowledge (Phase 4 of the
+                    # 2026-05-08 seam closure). Diagnostic-only types
+                    # (sensor_gap_detected / scenario_dormant /
+                    # needs_more_data) have no Apply path; their
+                    # 'pending' state is misleading. After 7 days we
+                    # mark them dismissed so the wizard's pending
+                    # lists self-clear.
+                    n_diag = _plc.auto_acknowledge_diagnostic_proposals()
+                    if n_diag > 0:
+                        log.info(
+                            "[ProposalLifecycle] auto-acknowledged %d "
+                            "diagnostic-only pending proposals", n_diag,
+                        )
+                    # Drift event lifecycle (P1-2, 2026-05-10): same daily
+                    # hook handles drift events symmetrically with proposals.
+                    # Amber events older than 3d -> auto-acknowledged so the
+                    # AUTO-TUNE chip's unack count reflects only attention-
+                    # worthy items. Red events older than 1d are escalated
+                    # via the notification channels (Slack/Teams/Discord
+                    # webhook) so an analyst is paged before the dashboard
+                    # check.
+                    n_amber = _plc.auto_acknowledge_amber_drift_events()
+                    if n_amber > 0:
+                        log.info(
+                            "[DriftLifecycle] auto-acknowledged %d "
+                            "amber drift events past timeout", n_amber,
+                        )
+                    # Stale actionable proposals (D5, 2026-05-10):
+                    # dismiss non-diagnostic pending rows on active
+                    # scenarios after 30d of inactivity. The underlying
+                    # signal is too old to drive a valid weight change.
+                    n_stale = _plc.auto_dismiss_stale_pending_proposals()
+                    if n_stale > 0:
+                        log.info(
+                            "[ProposalLifecycle] auto-dismissed %d stale "
+                            "pending proposals past 30d timeout", n_stale,
+                        )
+                    red_events = _plc.list_old_unack_red_drift_events()
+                    if red_events:
+                        try:
+                            from radar.notifications import notify_drift_unack
+                            notify_drift_unack(red_events)
+                        except Exception as _drift_notify_exc:
+                            log.warning(
+                                "[DriftLifecycle] notify_drift_unack failed: %s",
+                                _drift_notify_exc,
+                            )
+                except Exception as _plc_exc:
+                    log.warning(
+                        "[ProposalLifecycle] auto-dismiss/ack "
+                        "failed: %s", _plc_exc,
+                    )
+
+            # D4 (2026-05-08) — drip existing pending scenario_proposals
+            # through the Phase 3 auto-apply gate. Phase 3 only gates
+            # NEW emissions; rows that were already pending before the
+            # flag was flipped never see the gate (the dedup window
+            # blocks the proposer from re-emitting them). D4 closes
+            # that gap by drip-feeding existing pending through the
+            # same evaluation logic at scheduler tick rate. Rate-
+            # limited to REPROCESS_MAX_PER_TICK applies/call so a
+            # sudden tier promotion doesn't fire a flood.
+            if _cycle % 24 == 12:
+                try:
+                    from radar.calibration import (
+                        proposal_lifecycle as _plc,
+                    )
+                    summary = _plc.reprocess_pending_through_gate()
+                    if summary.get("applied", 0) > 0:
+                        log.info(
+                            "[ProposalLifecycle] reprocess: applied %d "
+                            "of %d checked (skipped: type=%d age=%d "
+                            "state_changed=%d, errors=%d)",
+                            summary["applied"], summary["checked"],
+                            summary["skipped_type"],
+                            summary["skipped_age"],
+                            summary["skipped_state_changed"],
+                            summary["errors"],
+                        )
+                except Exception as _rp_exc:
+                    log.warning(
+                        "[ProposalLifecycle] reprocess failed: %s",
+                        _rp_exc,
+                    )
+
+            # Follow-up watch — auto-detect when a deferred backlog
+            # item's trigger condition is met (B1 / B5+ / B7 / B9 from
+            # the 2026-05-05 audit). Emits a WARN on first transition
+            # to "met"; subsequent days log at INFO. Stateless across
+            # process restarts on purpose — false re-warns after a
+            # restart are cheaper than missed transitions.
+            if _cycle % 24 == 11:
+                try:
+                    from radar.observability.followup_watch import (
+                        run_once as _followup_once,
+                    )
+                    fw = _followup_once()
+                    if fw.get("fired"):
+                        log.debug(
+                            "[FollowupWatch] %d watch(es) currently met",
+                            len(fw["fired"]),
+                        )
+                except Exception as _fw_exc:
+                    log.warning(
+                        "[FollowupWatch] daily pass failed: %s", _fw_exc,
+                    )
+
             # Phase F3: scenario drift watchdog (per-scenario).
             # Runs hourly so dwell-time (≥3 consecutive runs = 3h) reaches
             # surfacing in <1 day. Records each detection; the API render
@@ -456,23 +709,6 @@ def _cache_cleanup_worker(registry=None):
             # Hourly: WAL checkpoint (flush WAL to main DB file)
             _db.wal_checkpoint()
 
-            # Hourly: persist legacy access telemetry (Safe Rename Pattern SR4).
-            # Cheap UPSERT — runs after the WAL checkpoint so a crash here
-            # at worst loses the increments since the last hour, never
-            # data already on disk.
-            try:
-                from radar import legacy_telemetry as _lt
-                flushed = _lt.flush_to_db(_db)
-                if flushed:
-                    log.info(f"[Cleanup] legacy_access flushed: {flushed} keys")
-            except Exception as e:
-                log.error(f"[Cleanup] legacy_access flush error: {e}")
-
-            # v1 sunset observation hook removed 2026-04-29 alongside the
-            # early ADR-V2-003 sunset. The summarize_v1_sunset helper that
-            # used to live here was reading from radar.conclusions.v1_sunset,
-            # which has been deleted.
-
             # Daily: prune SQLite tables
             if _cycle % DB_CLEANUP_EVERY == 0:
                 _db.periodic_cleanup()
@@ -500,3 +736,88 @@ def _corroboration_worker():
         except Exception as e:
             log.error(f"[Corroboration] Worker error: {e}")
         time.sleep(CORR_INTERVAL)
+
+
+def _bg_scoring_worker(interval_sec: int = 60, startup_delay_sec: int = 20):
+    """Daemon: trigger periodic threat scoring even when no client is viewing.
+
+    Without this, `threat_history` only grows when a user has the dashboard
+    open, because `/api/threat_data` is the only writer. That produced
+    sparse, gap-ridden 24h sparklines whenever the page was closed —
+    notably ~5 rows in 24h instead of the expected ~96 (15-min poll) or
+    ~1440 (60s tick) cadence.
+
+    The worker drives the same code path users hit by invoking the route
+    handler in-process via Flask's test client, bypassing only the network
+    layer (not the cache, not the scoring, not the persistence path). The
+    `?focus=` parameter picks the DEFAULT_FOCUSED_SCENARIO when scorable;
+    falls back to the first scorable scenario otherwise.
+
+    Auth: re-issues a short-lived admin JWT each cycle. The first admin
+    user discovered in the DB is used as the JWT identity so the
+    require_role gate accepts the call. If no admin exists the worker
+    logs once and idles until one appears.
+
+    Disable via BG_SCORING_ENABLED=false in config.env.
+    """
+    log.info(f"[bg_scoring] worker thread started (interval={interval_sec}s, "
+             f"startup_delay={startup_delay_sec}s)")
+    # Give other workers (HOD prefill, sensor schedulers) time to populate
+    # initial caches before we trigger the first score.
+    time.sleep(startup_delay_sec)
+
+    # Late imports to avoid circulars during module init.
+    from radar import app
+    from radar.scenarios import scenario_store
+    from radar.config import DEFAULT_FOCUSED_SCENARIO
+    from flask_jwt_extended import create_access_token
+
+    _no_admin_warned = False
+
+    while True:
+        try:
+            scorable = scenario_store.scorable()
+            if not scorable:
+                time.sleep(interval_sec)
+                continue
+
+            default = scenario_store.get(DEFAULT_FOCUSED_SCENARIO)
+            target = default if (default and default.is_scorable) else scorable[0]
+
+            # Resolve an admin identity for the JWT. The default admin user
+            # is created on first startup; later admins may be added via
+            # the User Management UI.
+            admin_name = next(
+                (u["username"] for u in _db.user_list() if u.get("role") == "admin"),
+                None,
+            )
+
+            if not admin_name:
+                if not _no_admin_warned:
+                    log.warning("[bg_scoring] no admin user found — "
+                                "skipping until one is provisioned")
+                    _no_admin_warned = True
+                time.sleep(interval_sec)
+                continue
+            _no_admin_warned = False
+
+            with app.app_context():
+                token = create_access_token(
+                    identity=admin_name,
+                    additional_claims={"role": "admin", "src": "bg_scoring"},
+                )
+
+            with app.test_client() as client:
+                rsp = client.get(
+                    f"/api/threat_data?focus={target.id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if rsp.status_code != 200:
+                    log.warning(
+                        f"[bg_scoring] /api/threat_data returned "
+                        f"HTTP {rsp.status_code} for focus={target.id}"
+                    )
+        except Exception:
+            log.exception("[bg_scoring] cycle failed (continuing)")
+
+        time.sleep(interval_sec)

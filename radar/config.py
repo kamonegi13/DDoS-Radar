@@ -148,6 +148,22 @@ CURRENT_DATE_RANGE         = os.getenv("CURRENT_DATE_RANGE",  "1d")
 BASELINE_DATE_RANGE        = os.getenv("BASELINE_DATE_RANGE", "28d")
 CACHE_EXPIRY               = int(os.getenv("CACHE_EXPIRY", "900"))
 SCORE_REFRESH_SEC          = int(os.getenv("SCORE_REFRESH_SEC", "60"))   # Minimum scoring recalculation interval (seconds)
+
+# Background scoring worker (radar.scheduler._bg_scoring_worker).
+# Without this, /api/threat_data is the only path that writes a row to
+# the per-scenario `threat_history` table, so the 24h sparkline stays
+# empty whenever the dashboard isn't continuously open. The worker
+# drives the same code path users hit (in-process Flask test_client +
+# admin JWT) at a steady cadence so the historical record is honest
+# about what the engine concluded over time, not what an analyst
+# happened to be looking at. Default on per NP1 (sensitivity).
+BG_SCORING_ENABLED         = os.getenv("BG_SCORING_ENABLED", "true").lower() in ("true", "1", "yes")
+# 120s cadence: 720 writes/24h. The per-scenario threat_history retention
+# cap is 1000 rows (threat_append_scoped default), so 120s gives ~33h
+# of retained history and covers the 24h sparkline with margin. A 60s
+# cadence (matching SCORE_REFRESH_SEC) would truncate to ~16.7h, which
+# falls short of the 24h window the HUD chip advertises.
+BG_SCORING_INTERVAL_SEC    = int(os.getenv("BG_SCORING_INTERVAL_SEC", "120"))
 SERVER_HOST                = os.getenv("SERVER_HOST", "127.0.0.1")
 SERVER_PORT                = int(os.getenv("SERVER_PORT", "8000"))
 FLASK_DEBUG                = os.getenv("FLASK_DEBUG", "false").lower() in ("true", "1", "yes")
@@ -188,7 +204,16 @@ C_MEDIUM_MIN_SWITCHES   = int(os.getenv("C_MEDIUM_MIN_SWITCHES", "10"))
 #   start to let baselines stabilise.
 # - C_MEDIUM_DELTA_MISS_SHADOW: separate (typically more conservative) miss
 #   threshold for shadow-sourced rows; analyst rows still use C_MEDIUM_DELTA_MISS.
-SHADOW_SAMPLING_ENABLED              = os.getenv("SHADOW_SAMPLING_ENABLED", "true").lower() in ("true", "1", "yes")
+#
+# RETIRED 2026-05-29 (default flipped true→false): the shadow sampler measured
+# lite-vs-full score divergence, but the Phase-9 GLOBAL_SIGNALS_DECOUPLED
+# refactor unified the two score paths, so delta ≡ 0 and the sampler reported
+# "no drift / OK" for every conclusion regardless of reality (NP5+8 design
+# failure). Calibration_status and the HUD DRIFT chip now derive from the
+# ground-truth confusion matrix (radar/conclusions/calibration.py). The
+# subsystem and its /api/analytics/shadow_drift endpoint are kept for now but
+# default-off; set SHADOW_SAMPLING_ENABLED=true to re-enable for diagnostics.
+SHADOW_SAMPLING_ENABLED              = os.getenv("SHADOW_SAMPLING_ENABLED", "false").lower() in ("true", "1", "yes")
 SHADOW_SAMPLING_INTERVAL_SEC         = int(os.getenv("SHADOW_SAMPLING_INTERVAL_SEC", "0"))
 SHADOW_SAMPLING_MIN_GAP_SEC          = int(os.getenv("SHADOW_SAMPLING_MIN_GAP_SEC", "300"))
 SHADOW_SAMPLING_MAX_PER_DAY          = int(os.getenv("SHADOW_SAMPLING_MAX_PER_DAY", "200"))
@@ -239,14 +264,6 @@ V2_API_ENABLED = os.getenv("V2_API_ENABLED", "true").lower() in ("true", "1", "y
 V2_CONCLUSION_DIFF_SAMPLER_ENABLED = os.getenv(
     "V2_CONCLUSION_DIFF_SAMPLER_ENABLED", "false",
 ).lower() in ("true", "1", "yes")
-
-# v2.0 Phase 2 individual-rollback flags (per docs/design/v2-migration.md §10.3).
-# Each conclusion type ships behind its own flag so a misbehaving deriver can
-# be disabled without taking down THREAT_LEVEL. All imply V2_CONCLUSION_LEDGER_ENABLED.
-V2_TREND_ENABLED = os.getenv("V2_TREND_ENABLED", "false").lower() in ("true", "1", "yes")
-V2_PER_DOMAIN_ENABLED = os.getenv("V2_PER_DOMAIN_ENABLED", "false").lower() in ("true", "1", "yes")
-V2_ATTACK_MODE_ENABLED = os.getenv("V2_ATTACK_MODE_ENABLED", "false").lower() in ("true", "1", "yes")
-V2_CONTINUITY_LOG_ENABLED = os.getenv("V2_CONTINUITY_LOG_ENABLED", "false").lower() in ("true", "1", "yes")
 
 # v2.0 Phase 2 後半 (ADR-V2-005): LLM augmentation for ATTACK_MODE conclusions.
 # When ENABLED, every successful rule-based attack-mode classification is also
@@ -334,9 +351,6 @@ SEQUENCE_PARTIAL_BONUS   = int(os.getenv("SEQUENCE_PARTIAL_BONUS", "2"))
 # D. Maritime / ISR
 AIS_DARK_GAP_THRESHOLD   = int(os.getenv("AIS_DARK_GAP_THRESHOLD", "3600"))
 AIS_ANCHOR_RADIUS_KM     = float(os.getenv("AIS_ANCHOR_RADIUS_KM", "50"))
-ISR_ICAO_TYPES           = [t.strip().upper() for t in os.getenv(
-    "ISR_ICAO_TYPES", "RC135,RC-135,E3,E-3,RQ4,RQ-4,P8,P-8,EP3,EP-3,U2,TR1,E8,E-8"
-).split(",") if t.strip()]
 ISR_SURGE_THRESHOLD      = int(os.getenv("ISR_SURGE_THRESHOLD", "3"))
 
 # ── Phase 2: Adaptive Z-score Config ─────────────────────────────────────────
@@ -357,6 +371,70 @@ FEINT_MIN_DISTRACTION_DOMAINS = int(os.getenv("FEINT_MIN_DISTRACTION_DOMAINS", "
 ESCALATION_HISTORY_MAX        = int(os.getenv("ESCALATION_HISTORY_MAX", "100"))
 # TL thresholds (score_with_bonus boundaries): TL4=2, TL3=4, TL2=6, TL1=9
 ESCALATION_TL_THRESHOLDS      = {4: 2, 3: 4, 2: 6, 1: 9}
+
+# ── Phase 9 (2026-05-13) — TL calibration noise-floor remediation ────────────
+# Three independent feature flags addressing the chronic TL≥2 stickiness:
+#   A. GLOBAL_SIGNALS_DECOUPLED:
+#      Exclude global signals (signal.countries == []) from per-scenario score.
+#      They are summed separately into the `global_threat` envelope so analysts
+#      still see them, but they no longer add ~1.5 to every scenario uniformly.
+#      Addresses the structural cyber baseline contamination (cf_botnet_overlap
+#      + threatfox uniformly contributing to every scenario).
+#   B. CONVERGENCE_SCENARIO_SPECIFIC: (DEFAULT OFF, 2026-05-13 PM)
+#      Convergence bonus requires ≥2 distinct participant countries firing —
+#      not just ≥3 domains being non-zero. NP2's "multi-source convergence"
+#      was intended to be tightened: actual independent participants vs.
+#      "any 3 domains happen to have any signal".
+#      STATUS — kept off after backtest (scripts/phase9_backtest_simulation.py
+#      on 14d of scenario_tl_observation data):
+#        * 0 historical observations would have been downgraded by B once
+#          A is also active (A's cyber-domain wipe drops most scenarios to
+#          ≤2 active domains, so B's ≥3-domain trigger never fires).
+#        * The original NP1 concern (B blocking real single-participant
+#          3-domain escalations) is therefore empirically null in the
+#          current data, but the theoretical objection still holds: three
+#          independent sensors firing on the same target IS multi-source
+#          convergence in NP2's spirit; the participant-count proxy
+#          inverts that intuition. The semantics need redesign
+#          (temporal-alignment or per-signal-confidence) before B is
+#          turned on, regardless of what the backtest shows.
+#      The implementation stays in tree for opt-in / future refinement.
+#   D. CALIBRATION_SKEW_METRIC_ENABLED:
+#      Surface TL=5 share over rolling 7d in /api/v2/self_eval so the AP3
+#      CALIBRATION chip can warn the operator before governance deadlines
+#      slip silently (as happened for the 2026-04-28 RAISE_THRESHOLDS advisory).
+GLOBAL_SIGNALS_DECOUPLED       = os.getenv("GLOBAL_SIGNALS_DECOUPLED", "true").lower() == "true"
+# Phase B deferred 2026-05-13 PM pending backtest. See block comment above.
+CONVERGENCE_SCENARIO_SPECIFIC  = os.getenv("CONVERGENCE_SCENARIO_SPECIFIC", "false").lower() == "true"
+CALIBRATION_SKEW_METRIC_ENABLED = os.getenv("CALIBRATION_SKEW_METRIC_ENABLED", "true").lower() == "true"
+# TL=5 share floor (percent) below which calibration_skew_alert fires.
+# 30% = if peacetime calm state holds <30% of last 7d, calibration is suspect.
+CALIBRATION_SKEW_TL5_MIN_PCT   = float(os.getenv("CALIBRATION_SKEW_TL5_MIN_PCT", "30.0"))
+CALIBRATION_SKEW_WINDOW_DAYS   = int(os.getenv("CALIBRATION_SKEW_WINDOW_DAYS", "7"))
+# Minimum observations in the window before we trust the skew measurement.
+CALIBRATION_SKEW_MIN_OBSERVATIONS = int(os.getenv("CALIBRATION_SKEW_MIN_OBSERVATIONS", "100"))
+
+# ── Phase 9-E (2026-05-13 PM) — LLM intel country-tag bleed mitigation ──────
+# Cross-scenario contamination observed: an article like "Russia reports
+# Iranian casualties from US-Israeli strikes" (a middle_east story) was
+# bleeding into taiwan_contingency because the LLM tagged US (weight 0.7)
+# alongside the primary subjects IR/IL (weight 1.0), and taiwan_contingency
+# treats US as primary_ally. The contribution chain pw(0.8) × llm_cw(0.7)
+# × raw_score(1.65) ≈ 0.92 added to taiwan score without the article
+# actually being about Taiwan.
+#
+# Fix: when a signal has graduated LLM country weights, only count
+# participant countries whose weight is within LLM_INTEL_PRIMARY_THRESHOLD
+# of the signal's max country weight. Single-country sensor signals
+# (max == this country's weight, ratio = 1.0) are always kept. Uniform
+# multi-country LLM tags (all weights identical) also keep all members.
+# The filter only drops countries the LLM judged as materially secondary.
+LLM_INTEL_PRIMARY_COUNTRY_ONLY = os.getenv("LLM_INTEL_PRIMARY_COUNTRY_ONLY", "true").lower() == "true"
+# Relative threshold: country_weight / max(country_weights) ≥ this.
+# 0.8 means a country tagged at ≤ 80% of the article's primary subject
+# is treated as incidental. Observed weights skew to {1.0, 0.9, 0.7},
+# so 0.8 drops 0.7 and keeps 0.9.
+LLM_INTEL_PRIMARY_THRESHOLD    = float(os.getenv("LLM_INTEL_PRIMARY_THRESHOLD", "0.8"))
 
 # ── Confidence Propagation Config ──────────────────────────────────────────
 CONFIDENCE_MIN_SAMPLES        = int(os.getenv("CONFIDENCE_MIN_SAMPLES", "10"))
@@ -395,9 +473,9 @@ GPS_JAM_THRESHOLD             = float(os.getenv("GPS_JAM_THRESHOLD", "3.0"))
 GPS_JAM_CRITICAL_THRESHOLD    = float(os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "7.0"))
 
 # S7: CT Log (signal-model redesign — see ADR-024)
-# Legacy CT_LOG_SURGE_THRESHOLD removed: the surge-volume scoring path was
-# replaced by identity-match scoring (untrusted CA / wildcard at gov-TLD).
-# New domain warm-up window: a domain whose first observation is younger than
+# Identity-match scoring (untrusted CA / wildcard at gov-TLD) replaces
+# surge-volume thresholding.
+# Domain warm-up window: a domain whose first observation is younger than
 # this is treated as "learning" — every CA seen is recorded into the known-CA
 # table without firing an anomaly. Without a warm-up the very first poll would
 # fire UNTRUSTED_CA_DETECTED for every CA the project has never recorded
@@ -543,6 +621,13 @@ BG_OBSERVER_FEEDS          = [
 
 
 # ── LLM Intelligence ──────────────────────────────────────────────────────────
+# Phase 9.1 C3 — these keys are now registered with radar/config_layered.py
+# below so the Settings UI can edit them through the unified surface. The
+# module-level constants here remain for backward compatibility (existing
+# `from radar.config import LLM_TIMEOUT` keeps working) but they reflect the
+# value AT IMPORT TIME ONLY. Code paths that mutate config at runtime should
+# read via `from radar.config_layered import get_config; get_config('LLM_TIMEOUT')`
+# instead so DB overrides take effect without a restart.
 LLM_ENABLED               = os.getenv("LLM_ENABLED", "false").lower() in ("true", "1", "yes")
 LLM_HOST                  = os.getenv("LLM_HOST", "http://localhost:11434")
 LLM_MODEL                 = os.getenv("LLM_MODEL", "llama3.2:3b")
@@ -580,3 +665,933 @@ CORROBORATION_MIN_INDEPENDENCE = float(os.getenv("CORROBORATION_MIN_INDEPENDENCE
 # CT_LOG_GOV_TLDS removed — last used by the legacy `gov_count` metric the
 # ADR-024 redesign deprecated. The wildcard-TLD detector now uses the
 # canonical _GOV_TLD_WILDCARD_TARGETS frozenset in radar/sensors/ct_log.py.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 9.1 C3 — declarative key registration with config_layered
+#
+# Every key listed here becomes editable through the unified Settings UI
+# (Phase 9.4). Three flags drive UI behavior:
+#
+#   restart_required=True   — DB write succeeds but takes effect after redeploy
+#                              (UI shows a "restart pending" badge)
+#   immutable=True          — env-only; UI displays read-only with an
+#                              "edit in config.env" hint (typically ports,
+#                              host names, transport-level settings)
+#   secret=True             — value is never echoed back over the API
+#
+# domain= prefixes group keys for the Settings left-nav. Convention:
+#   llm.connection / llm.intel_pipeline / llm.routing / llm.embedding
+#   sensor.* / scoring.* / network / server / api_keys
+# ─────────────────────────────────────────────────────────────────────────────
+try:  # pragma: no cover — registration is best-effort, never fatal
+    from radar.config_layered import (
+        ConfigKey, register,
+        GROUP_OPERATE, GROUP_TUNE, GROUP_LLM_HEALTH,
+        GROUP_INFRASTRUCTURE, GROUP_ACCESS,
+        TIMING_LIVE_NEXT_TICK, TIMING_LIVE_IMMEDIATE,
+        TIMING_LIVE_NEXT_CYCLE, TIMING_RESTART_REQUIRED,
+    )
+
+    register(
+        # ════════════════════════════════════════════════════════════════
+        # OPERATE — weekly tuning surface for analysts
+        # ════════════════════════════════════════════════════════════════
+        ConfigKey(
+            key="DEFAULT_FOCUSED_SCENARIO", domain="operate.scope",
+            default="taiwan_contingency", type_="str",
+            description="Startup default for the focused scenario.",
+            group=GROUP_OPERATE, apply_timing=TIMING_RESTART_REQUIRED,
+            restart_required=True,
+            what="Which scenario the engine boots into. The focused scenario "
+                 "runs every sensor at full coverage; non-focused scenarios "
+                 "run in C-lite mode (LLM intel + global signals only).",
+            why="Compute / API-quota budget. Running every sensor on every "
+                "scenario every cycle would saturate upstreams. Focusing one "
+                "scenario keeps recall high where it matters now.",
+            when="On deployment, set to your primary watch theatre. Analysts "
+                 "can re-focus at runtime via the scenario picker — this "
+                 "value is only the boot default.",
+        ),
+        ConfigKey(
+            key="GLOBAL_SIGNAL_WEIGHT", domain="operate.scope",
+            default=0.5, type_="float",
+            description="Weight applied to global (non-scenario) signals.",
+            group=GROUP_OPERATE, min_value=0.0, max_value=1.0,
+        ),
+        ConfigKey(
+            key="DOMAIN_CAP", domain="operate.scope",
+            default=6.0, type_="float",
+            description="Per-domain score cap before normalization.",
+            group=GROUP_OPERATE, min_value=1.0, max_value=20.0,
+        ),
+        ConfigKey(
+            key="SHOW_BACKGROUND_TL", domain="operate.scope",
+            default=False, type_="bool",
+            description="Show background-scenario threat levels in HUD.",
+            group=GROUP_OPERATE,
+        ),
+
+        # ── Notifications (operationally tuned) ──────────────────────────
+        ConfigKey(
+            key="NOTIFY_ENABLED", domain="operate.notifications",
+            default=True, type_="bool",
+            description="Master switch for outbound alert notifications.",
+            group=GROUP_OPERATE,
+        ),
+        ConfigKey(
+            key="NOTIFY_DEBOUNCE_SEC", domain="operate.notifications",
+            default=300, type_="int",
+            description="Suppress repeat alerts of same type within this window.",
+            group=GROUP_OPERATE, unit="s", min_value=0, max_value=3600,
+        ),
+
+        # ── LLM intel queue thresholds (analyst-tuned) ───────────────────
+        ConfigKey(
+            key="LLM_AUTO_CONFIRM_THRESHOLD", domain="operate.intel",
+            default=0.80, type_="float",
+            description="Confidence ≥ this → AUTO-CONFIRMED on submission.",
+            group=GROUP_OPERATE, min_value=0.5, max_value=1.0,
+            apply_timing=TIMING_LIVE_NEXT_CYCLE,
+            impact_level="med",
+            what="Confidence floor that promotes an LLM-extracted intel item "
+                 "from PENDING (analyst review) to AUTO-CONFIRMED (counted "
+                 "in scoring immediately).",
+            why="Trades analyst load against precision. Lower → more items "
+                 "auto-confirmed (less review burden, more false positives). "
+                 "Higher → safer, but analysts queue grows and reaction "
+                 "latency increases.",
+            when="Bump to 0.85 if the auto-judge audit shows reversal rate "
+                 "above ~10%. Drop to 0.75 if you observe known events "
+                 "stuck in PENDING for hours.",
+        ),
+        ConfigKey(
+            key="LLM_CONFIDENCE_MIN", domain="operate.intel",
+            default=0.35, type_="float",
+            description="Confidence < this → silently discarded.",
+            group=GROUP_OPERATE, min_value=0.1, max_value=0.9,
+            apply_timing=TIMING_LIVE_NEXT_CYCLE,
+            impact_level="med",
+            what="Confidence floor below which an LLM extraction is "
+                 "discarded silently — never reaches PENDING or scoring.",
+            why="NP1 (recall > precision). Set lower than you think; many "
+                 "early-stage signals come back at 0.40-0.55 and are real. "
+                 "Raised from 0.55 → 0.35 in 2026-04 after observability "
+                 "showed military_exercise averaging 0.39 (all silently "
+                 "dropped).",
+            when="Drop further if you suspect a sensor (Telegram, ground "
+                 "OSINT) is dropping items the analyst would have wanted "
+                 "to see.",
+        ),
+        ConfigKey(
+            key="LLM_PENDING_AUTO_REJECT_HOURS",
+            domain="operate.intel",
+            default=24.0, type_="float",
+            description="Hours after which unreviewed PENDING items are "
+                        "auto-rejected. 0 = disabled.",
+            group=GROUP_OPERATE, min_value=0, max_value=168, unit="h",
+            apply_timing=TIMING_LIVE_NEXT_CYCLE,
+            what="How long an item can sit in PENDING before the auto-judge "
+                 "marks it REJECTED (analyst can still override).",
+            why="Prevents unbounded PENDING queue growth. Stale uncorroborated "
+                 "items lose evidentiary value rapidly.",
+            when="Set lower (8-12h) for high-tempo operations; higher (48h+) "
+                 "if analyst coverage is gappy. 0 disables auto-reject.",
+        ),
+        ConfigKey(
+            key="INTEL_RETENTION_DAYS", domain="operate.intel",
+            default=7, type_="int",
+            description="Days to retain intel rows in the DB.",
+            group=GROUP_OPERATE, min_value=1, max_value=90, unit="d",
+            what="Days the radar.db keeps intel rows before periodic_cleanup "
+                 "deletes them.",
+            why="Bounds DB growth. After confirmation/rejection, the row's "
+                 "audit trail lives in conclusions_ledger anyway, so the "
+                 "intel row itself is short-lived.",
+            when="Raise to 30+d for long-arc analyses; lower to 3d if disk "
+                 "is constrained or you don't need historical re-scoring.",
+        ),
+        ConfigKey(
+            key="INTEL_ITEM_TTL_HOURS", domain="operate.intel",
+            default=48.0, type_="float",
+            description="Hours a confirmed intel item contributes to score.",
+            group=GROUP_OPERATE, min_value=1, max_value=168, unit="h",
+        ),
+        ConfigKey(
+            key="INTEL_MAX_ITEMS_PER_SOURCE_THEATER",
+            domain="operate.intel",
+            default=2, type_="int",
+            description="Cap on active intel items per (source, theater).",
+            group=GROUP_OPERATE, min_value=1, max_value=50,
+        ),
+        ConfigKey(
+            key="INTEL_AGE_DECAY_ENABLED", domain="operate.intel",
+            default=True, type_="bool",
+            description="Exponential age-decay on confirmed intel "
+                        "contributions (ADR-023).",
+            group=GROUP_OPERATE,
+        ),
+        ConfigKey(
+            key="INTEL_AGE_DECAY_TAU_HOURS", domain="operate.intel",
+            default=12.0, type_="float",
+            description="Decay time constant: weight=1/e at age=τ.",
+            group=GROUP_OPERATE, min_value=0.5, max_value=168, unit="h",
+        ),
+        ConfigKey(
+            key="LLM_OVERRIDE_WINDOW", domain="operate.intel",
+            default=3600, type_="int",
+            description="Seconds within which AUTO-CONFIRMED can be overridden.",
+            group=GROUP_OPERATE, min_value=300, max_value=86400, unit="s",
+        ),
+
+        # ── Cross-source corroboration ───────────────────────────────────
+        ConfigKey(
+            key="CORROBORATION_WINDOW_HOURS", domain="operate.corroboration",
+            default=8.0, type_="float",
+            description="How far back to look for signals from independent sources.",
+            group=GROUP_OPERATE, min_value=1, max_value=72, unit="h",
+        ),
+        ConfigKey(
+            key="CORROBORATION_COOLDOWN_HOURS", domain="operate.corroboration",
+            default=12.0, type_="float",
+            description="Cooldown per theater after a corroboration event fires.",
+            group=GROUP_OPERATE, min_value=1, max_value=72, unit="h",
+        ),
+        ConfigKey(
+            key="CORROBORATION_MIN_SOURCES", domain="operate.corroboration",
+            default=2, type_="int",
+            description="Minimum number of distinct independent source_types.",
+            group=GROUP_OPERATE, min_value=2, max_value=10,
+        ),
+        ConfigKey(
+            key="CORROBORATION_MIN_INDEPENDENCE", domain="operate.corroboration",
+            default=0.70, type_="float",
+            description="Minimum pairwise source independence score.",
+            group=GROUP_OPERATE, min_value=0.0, max_value=1.0,
+        ),
+
+        # ════════════════════════════════════════════════════════════════
+        # TUNE — performance/scoring tuning (monthly)
+        # ════════════════════════════════════════════════════════════════
+
+        # ── Threat scoring core ──────────────────────────────────────────
+        ConfigKey(
+            key="THREAT_LEVEL_HYSTERESIS_CYCLES", domain="tune.scoring",
+            default=1, type_="int",
+            description="Cycles a TL change must persist before promotion.",
+            group=GROUP_TUNE, min_value=0, max_value=10,
+            impact_level="high",
+            impact_warning="Hysteresis controls how fast TL transitions. "
+                          "Too low → TL flips on every tick (alarm fatigue). "
+                          "Too high → real escalations are masked.",
+            what="Number of consecutive scoring ticks a new TL must hold "
+                 "before the system actually promotes/demotes the threat "
+                 "level on the HUD and alerts.",
+            why="Single-tick TL changes are mostly noise (one upstream "
+                 "blipped, one transient corroboration). Hysteresis "
+                 "filters those without losing real escalations, which "
+                 "almost always span ≥ 2 ticks.",
+            when="Raise to 2-3 if the HUD is flickering between TL bands. "
+                 "Drop to 0 only for a debugging session — never in "
+                 "production (false-alert generator).",
+        ),
+        ConfigKey(
+            key="DOMAIN_WEIGHT_CYBER", domain="tune.scoring",
+            default=0.50, type_="float",
+            description="Cyber domain weight (must sum to 1.0 across 3).",
+            group=GROUP_TUNE, min_value=0.0, max_value=1.0,
+            impact_level="high",
+            impact_warning="Domain weights must sum to 1.0. Changing this "
+                          "rebalances all threat scores globally.",
+            what="Weight of the cyber-domain sub-score in the convergence "
+                 "formula. The 3 weights (cyber + physical + info) MUST "
+                 "sum to 1.0 — the registry validator rejects writes that "
+                 "violate this invariant.",
+            why="Cyber traditionally leads physical/info in pre-conflict "
+                 "phases (DDoS, BGP anomalies, CT-log shenanigans). The "
+                 "default 0.50 reflects that historic precedence.",
+            when="Lower (e.g. 0.40) when narrative-domain signal is "
+                 "dominating an analysis (ground OSINT cycle). Raise back "
+                 "to 0.50+ during ddos surge campaigns.",
+        ),
+        ConfigKey(
+            key="DOMAIN_WEIGHT_PHYSICAL", domain="tune.scoring",
+            default=0.30, type_="float",
+            description="Physical domain weight (must sum to 1.0 across 3).",
+            group=GROUP_TUNE, min_value=0.0, max_value=1.0,
+            impact_level="high",
+            impact_warning="Domain weights must sum to 1.0. Changing this "
+                          "rebalances all threat scores globally.",
+            what="Weight of the physical-domain sub-score (airspace, ISR, "
+                 "AIS, GPS jamming, seismic, FIRMS). 3 weights sum to 1.0.",
+            why="Physical signals are slower but more reliable. The 0.30 "
+                 "default keeps physical influence meaningful without "
+                 "letting an isolated airspace closure dominate.",
+            when="Raise during kinetic phases (active mobilisation). Lower "
+                 "if physical sensors are degraded (NOTAM disabled, IHR "
+                 "down) so you don't reward partial coverage.",
+        ),
+        ConfigKey(
+            key="DOMAIN_WEIGHT_INFO", domain="tune.scoring",
+            default=0.20, type_="float",
+            description="Info domain weight (must sum to 1.0 across 3).",
+            group=GROUP_TUNE, min_value=0.0, max_value=1.0,
+            impact_level="high",
+            impact_warning="Domain weights must sum to 1.0. Changing this "
+                          "rebalances all threat scores globally.",
+            what="Weight of the info-domain sub-score (narrative bursts, "
+                 "diplomatic, military exercise, hacktivist news, GDELT "
+                 "tone). 3 weights sum to 1.0.",
+            why="Info-domain signals lead by 24-72h but are noisier "
+                 "(propaganda, off-topic news). The 0.20 default keeps "
+                 "info as a leading indicator without dominating the score.",
+            when="Raise (0.30+) during info-ops campaigns where the "
+                 "narrative signal is reliable. Lower if false-positive "
+                 "rate climbs from media cycles unrelated to the scenario.",
+        ),
+        ConfigKey(
+            key="CONVERGENCE_DUAL_BONUS", domain="tune.scoring",
+            default=1, type_="int",
+            description="Bonus when 2 of 3 domains converge.",
+            group=GROUP_TUNE, min_value=0, max_value=10,
+        ),
+        ConfigKey(
+            key="CONVERGENCE_FULL_BONUS", domain="tune.scoring",
+            default=2, type_="int",
+            description="Bonus when all 3 domains converge.",
+            group=GROUP_TUNE, min_value=0, max_value=10,
+        ),
+        ConfigKey(
+            key="TRIANGULATION_BONUS", domain="tune.scoring",
+            default=0.5, type_="float",
+            description="Extra bonus for 3-domain convergence.",
+            group=GROUP_TUNE, min_value=0.0, max_value=5.0,
+        ),
+        ConfigKey(
+            key="SILENT_DIVERGENCE_THRESHOLD", domain="tune.scoring",
+            default=2, type_="int",
+            description="Min cyber+physical anomalies for silent divergence.",
+            group=GROUP_TUNE, min_value=1, max_value=10,
+        ),
+
+        # ── Sequence chain ───────────────────────────────────────────────
+        ConfigKey(
+            key="SEQUENCE_WINDOW", domain="tune.sequence",
+            default=86400, type_="int",
+            description="Chain detection window (seconds).",
+            group=GROUP_TUNE, min_value=600, max_value=604800, unit="s",
+        ),
+        ConfigKey(
+            key="SEQUENCE_FULL_BONUS", domain="tune.sequence",
+            default=3, type_="int",
+            description="Full-chain bonus points.",
+            group=GROUP_TUNE, min_value=0, max_value=20,
+        ),
+        ConfigKey(
+            key="SEQUENCE_PARTIAL_BONUS", domain="tune.sequence",
+            default=2, type_="int",
+            description="Partial-chain bonus points.",
+            group=GROUP_TUNE, min_value=0, max_value=20,
+        ),
+
+        # ── Adaptive Z-score baseline ────────────────────────────────────
+        ConfigKey(
+            key="ADAPTIVE_ZSCORE_ENABLED", domain="tune.zscore",
+            default=True, type_="bool",
+            description="Use adaptive Z-score baselines per theater.",
+            group=GROUP_TUNE,
+        ),
+        ConfigKey(
+            key="ADAPTIVE_ZSCORE_MIN_SAMPLES", domain="tune.zscore",
+            default=50, type_="int",
+            description="Min samples before adaptive baseline takes over.",
+            group=GROUP_TUNE, min_value=10, max_value=1000,
+        ),
+        ConfigKey(
+            key="ADAPTIVE_ZSCORE_SENSITIVITY", domain="tune.zscore",
+            default=1.5, type_="float",
+            description="Sensitivity multiplier for adaptive Z thresholds.",
+            group=GROUP_TUNE, min_value=0.5, max_value=5.0,
+        ),
+        ConfigKey(
+            key="THEATER_BASELINE_WINDOW", domain="tune.zscore",
+            default=30, type_="int",
+            description="Days for theater auto-baseline.",
+            group=GROUP_TUNE, min_value=7, max_value=180, unit="d",
+        ),
+        ConfigKey(
+            key="THEATER_BASELINE_MIN_SAMPLES", domain="tune.zscore",
+            default=20, type_="int",
+            description="Min samples for theater Z-score.",
+            group=GROUP_TUNE, min_value=5, max_value=200,
+        ),
+
+        # ── DDoS acceleration engine ─────────────────────────────────────
+        ConfigKey(
+            key="AMBUSH_ZSCORE_THRESHOLD", domain="tune.ddos",
+            default=2.0, type_="float",
+            description="Ambush Z-score threshold.",
+            group=GROUP_TUNE, min_value=0.5, max_value=10.0,
+        ),
+        ConfigKey(
+            key="DERIVATIVE_WINDOW", domain="tune.ddos",
+            default=5, type_="int",
+            description="Velocity derivative window (cycles).",
+            group=GROUP_TUNE, min_value=2, max_value=60,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="SYNC_DELTA_MS", domain="tune.ddos",
+            default=500.0, type_="float",
+            description="C2 sync delta (ms).",
+            group=GROUP_TUNE, min_value=10, max_value=10000, unit="ms",
+        ),
+        ConfigKey(
+            key="SYNC_C2_THRESHOLD", domain="tune.ddos",
+            default=0.70, type_="float",
+            description="C2 sync score threshold.",
+            group=GROUP_TUNE, min_value=0.0, max_value=1.0,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+
+        # ── Narrative burst detector ─────────────────────────────────────
+        ConfigKey(
+            key="NARRATIVE_ZSCORE_ALERT", domain="tune.narrative",
+            default=2.0, type_="float",
+            description="Narrative alert Z-score.",
+            group=GROUP_TUNE, min_value=1.0, max_value=10.0,
+        ),
+        ConfigKey(
+            key="NARRATIVE_ZSCORE_CRITICAL", domain="tune.narrative",
+            default=3.0, type_="float",
+            description="Narrative critical Z-score.",
+            group=GROUP_TUNE, min_value=2.0, max_value=15.0,
+        ),
+        ConfigKey(
+            key="NARRATIVE_BASELINE_DAYS", domain="tune.narrative",
+            default=30, type_="int",
+            description="Narrative baseline days.",
+            group=GROUP_TUNE, min_value=7, max_value=180, unit="d",
+        ),
+
+        # ── Airspace ─────────────────────────────────────────────────────
+        ConfigKey(
+            key="AIRSPACE_ANOMALY_THRESHOLD", domain="tune.airspace",
+            default=0.40, type_="float",
+            description="Airspace anomaly threshold.",
+            group=GROUP_TUNE, min_value=0.0, max_value=1.0,
+        ),
+        ConfigKey(
+            key="AIRSPACE_CLOSURE_THRESHOLD", domain="tune.airspace",
+            default=0.05, type_="float",
+            description="Airspace closure threshold.",
+            group=GROUP_TUNE, min_value=0.0, max_value=1.0,
+        ),
+        ConfigKey(
+            key="AIRSPACE_WINDOW", domain="tune.airspace",
+            default=20, type_="int",
+            description="Airspace baseline window (cycles).",
+            group=GROUP_TUNE, min_value=3, max_value=200,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+
+        # ── Maritime / ISR ───────────────────────────────────────────────
+        ConfigKey(
+            key="AIS_DARK_GAP_THRESHOLD", domain="tune.maritime",
+            default=3600, type_="int",
+            description="AIS dark-gap threshold (seconds).",
+            group=GROUP_TUNE, min_value=600, max_value=86400, unit="s",
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="AIS_ANCHOR_RADIUS_KM", domain="tune.maritime",
+            default=50.0, type_="float",
+            description="AIS anchor detection radius (km).",
+            group=GROUP_TUNE, min_value=1, max_value=500, unit="km",
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="ISR_SURGE_THRESHOLD", domain="tune.maritime",
+            default=3, type_="int",
+            description="ISR surge threshold (aircraft).",
+            group=GROUP_TUNE, min_value=1, max_value=50,
+        ),
+        ConfigKey(
+            key="GPS_JAM_THRESHOLD", domain="tune.maritime",
+            default=3.0, type_="float",
+            description="GPS jamming threshold.",
+            group=GROUP_TUNE, min_value=0.5, max_value=20.0,
+        ),
+        ConfigKey(
+            key="GPS_JAM_CRITICAL_THRESHOLD", domain="tune.maritime",
+            default=7.0, type_="float",
+            description="GPS jamming critical threshold.",
+            group=GROUP_TUNE, min_value=1.0, max_value=30.0,
+        ),
+        ConfigKey(
+            key="USGS_MIN_MAGNITUDE", domain="tune.maritime",
+            default=4.0, type_="float",
+            description="USGS minimum magnitude for cable risk.",
+            group=GROUP_TUNE, min_value=2.0, max_value=8.0,
+        ),
+
+        # ── GDELT ────────────────────────────────────────────────────────
+        ConfigKey(
+            key="GDELT_TONE_ALERT_THRESHOLD", domain="tune.gdelt",
+            default=-15.0, type_="float",
+            description="GDELT tone alert threshold (negative = hostile).",
+            group=GROUP_TUNE, min_value=-100.0, max_value=0.0,
+            what="GDELT geopolitical tone score below which the sensor "
+                 "fires (range −100…+100; more negative = more hostile).",
+            why="Empirical baselines: −12…−15 precedes military tension; "
+                 "−18…−25 precedes invasion. -15.0 is the early-warning "
+                 "floor that catches escalation before kinetic onset.",
+            when="Tighten (e.g. −12) for earlier signal at the cost of "
+                 "more noise; loosen (−18) when tone is dominated by "
+                 "routine media cycles unrelated to the scenario.",
+        ),
+        ConfigKey(
+            key="GDELT_HISTORY_WINDOW", domain="tune.gdelt",
+            default=28, type_="int",
+            description="GDELT history window (days).",
+            group=GROUP_TUNE, min_value=7, max_value=180, unit="d",
+            what="Look-back window for the GDELT tone baseline used by "
+                 "the z-score detector.",
+            why="Long enough to absorb weekly news cycles (28d ≈ 4 weeks), "
+                 "short enough that a regime shift doesn't take months to "
+                 "show up as the new normal.",
+            when="Shorten to 14d during regime transitions so baseline "
+                 "reflects current reality. Lengthen for slow-news "
+                 "regions.",
+        ),
+
+        # ════════════════════════════════════════════════════════════════
+        # LLM HEALTH — connection / features / routing / embedding
+        # ════════════════════════════════════════════════════════════════
+        ConfigKey(
+            key="LLM_ENABLED", domain="llm.connection",
+            default=False, type_="bool",
+            description="Master switch for LLM-powered text analysis.",
+            group=GROUP_LLM_HEALTH,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="LLM_HOST", domain="llm.connection",
+            default="http://localhost:11434", type_="str",
+            description="Ollama API endpoint URL. Inside Docker on Mac/Win "
+                        "use http://host.docker.internal:11434.",
+            group=GROUP_LLM_HEALTH,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="LLM_MODEL", domain="llm.connection",
+            default="llama3.2:3b", type_="str",
+            description="Production fallback model. Used when no use_case "
+                        "is supplied or the routing feature is OFF/SHADOW.",
+            group=GROUP_LLM_HEALTH,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="LLM_TIMEOUT", domain="llm.connection",
+            default=30, type_="int",
+            description="Per-call HTTP timeout in seconds (live).",
+            group=GROUP_LLM_HEALTH, min_value=5, max_value=600, unit="s",
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+        ),
+        ConfigKey(
+            key="LLM_FEATURE_KILL_SWITCH", domain="llm.connection",
+            default=False, type_="bool",
+            description="Global kill switch — forces every LLM feature OFF.",
+            group=GROUP_LLM_HEALTH,
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+            impact_level="high",
+            impact_warning="Disables ALL LLM analysis system-wide. Threat "
+                          "scoring continues but loses LLM-extracted intel.",
+        ),
+        ConfigKey(
+            key="LLM_EMBEDDING_MODEL", domain="llm.embedding",
+            default="granite-embedding:278m", type_="str",
+            description="Ollama tag of the embedding model used for OSINT dedupe.",
+            group=GROUP_LLM_HEALTH,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+
+        # ════════════════════════════════════════════════════════════════
+        # INFRASTRUCTURE — restart-required transport / cache / polling
+        # ════════════════════════════════════════════════════════════════
+        ConfigKey(
+            key="HTTP_PROXY", domain="infra.network",
+            default="", type_="str",
+            description="Outbound HTTP proxy (blank to disable).",
+            group=GROUP_INFRASTRUCTURE,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="HTTPS_PROXY", domain="infra.network",
+            default="", type_="str",
+            description="Outbound HTTPS proxy (blank to disable).",
+            group=GROUP_INFRASTRUCTURE,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="SSL_VERIFY", domain="infra.network",
+            default=True, type_="bool",
+            description="Verify TLS certs on outbound HTTP. Disable only "
+                        "for diagnostic use.",
+            group=GROUP_INFRASTRUCTURE,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+            impact_level="med",
+        ),
+        ConfigKey(
+            key="CACHE_EXPIRY", domain="infra.cache",
+            default=900, type_="int",
+            description="Default cache expiry (seconds).",
+            group=GROUP_INFRASTRUCTURE, min_value=60, max_value=86400, unit="s",
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="OPENSKY_MIN_INTERVAL", domain="infra.poll",
+            default=10, type_="int",
+            description="OpenSky minimum poll interval (seconds).",
+            group=GROUP_INFRASTRUCTURE, min_value=1, max_value=600, unit="s",
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="NARRATIVE_POLL_INTERVAL", domain="infra.poll",
+            default=1800, type_="int",
+            description="Narrative poll interval (seconds).",
+            group=GROUP_INFRASTRUCTURE, min_value=300, max_value=86400, unit="s",
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="TELEGRAM_MIRROR_POLL_INTERVAL", domain="infra.poll",
+            default=300, type_="int",
+            description="Telegram mirror poll interval (seconds).",
+            group=GROUP_INFRASTRUCTURE, min_value=60, max_value=3600, unit="s",
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="CHECKHOST_POLL_INTERVAL", domain="infra.poll",
+            default=600, type_="int",
+            description="Check-Host poll interval (seconds).",
+            group=GROUP_INFRASTRUCTURE, min_value=60, max_value=3600, unit="s",
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="CHECKHOST_TIMEOUT_MS", domain="infra.poll",
+            default=5000, type_="int",
+            description="Check-Host timeout (ms).",
+            group=GROUP_INFRASTRUCTURE, min_value=500, max_value=60000, unit="ms",
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="CHECKHOST_NODES", domain="infra.poll",
+            default=[], type_="list[str]",
+            description="Check-Host node list.",
+            group=GROUP_INFRASTRUCTURE,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="TELEGRAM_ATTACK_KEYWORDS", domain="infra.poll",
+            default=[], type_="list[str]",
+            description="Telegram attack keywords (comma-separated).",
+            group=GROUP_INFRASTRUCTURE,
+            apply_timing=TIMING_LIVE_NEXT_TICK,
+        ),
+        ConfigKey(
+            key="TELEGRAM_CLAIM_CONFIDENCE_THRESHOLD",
+            domain="infra.poll",
+            default=0.5, type_="float",
+            description="Telegram claim confidence threshold.",
+            group=GROUP_INFRASTRUCTURE, min_value=0.0, max_value=1.0,
+        ),
+
+        # ── Server / bootstrap ───────────────────────────────────────────
+        ConfigKey(
+            key="SERVER_HOST", domain="infra.server",
+            default="127.0.0.1", type_="str",
+            description="Bind address. Bootstrap-only.",
+            group=GROUP_INFRASTRUCTURE, bootstrap=True, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="SERVER_PORT", domain="infra.server",
+            default=8000, type_="int",
+            description="Bind port. Bootstrap-only.",
+            group=GROUP_INFRASTRUCTURE, bootstrap=True, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="FLASK_DEBUG", domain="infra.server",
+            default=False, type_="bool",
+            description="Flask debug mode. NEVER enable in production.",
+            group=GROUP_INFRASTRUCTURE,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+            impact_level="high",
+            impact_warning="Debug mode exposes the Werkzeug debugger which "
+                          "is an arbitrary-code-execution surface. Production: NEVER.",
+        ),
+        ConfigKey(
+            key="PERSISTENCE_SAVE_INTERVAL", domain="infra.server",
+            default=300, type_="int",
+            description="Persistence save interval (seconds).",
+            group=GROUP_INFRASTRUCTURE, min_value=30, max_value=3600, unit="s",
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+
+        # ── Plugins ──────────────────────────────────────────────────────
+        ConfigKey(
+            key="PLUGIN_DIR", domain="infra.plugins",
+            default="plugins", type_="str",
+            description="Plugin loader directory.",
+            group=GROUP_INFRASTRUCTURE,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="PLUGIN_ENABLED", domain="infra.plugins",
+            default="*", type_="str",
+            description="Enabled plugins (comma-separated, * = all).",
+            group=GROUP_INFRASTRUCTURE,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+        ConfigKey(
+            key="PLUGIN_DISABLED", domain="infra.plugins",
+            default="", type_="str",
+            description="Plugins to explicitly disable (comma-separated).",
+            group=GROUP_INFRASTRUCTURE,
+            apply_timing=TIMING_RESTART_REQUIRED, restart_required=True,
+        ),
+
+        # ════════════════════════════════════════════════════════════════
+        # ACCESS — secrets, JWT, admin (env-only via secret/immutable flags)
+        # ════════════════════════════════════════════════════════════════
+        ConfigKey(
+            key="JWT_SECRET_KEY", domain="access.jwt",
+            default="", type_="str",
+            description="JWT signing secret. Random if blank (rotates per restart).",
+            group=GROUP_ACCESS, secret=True, immutable=True, bootstrap=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="JWT_ACCESS_EXPIRES", domain="access.jwt",
+            default=3600, type_="int",
+            description="Access-token expiry (seconds).",
+            group=GROUP_ACCESS, immutable=True, bootstrap=True, unit="s",
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="JWT_REFRESH_EXPIRES", domain="access.jwt",
+            default=86400, type_="int",
+            description="Refresh-token expiry (seconds).",
+            group=GROUP_ACCESS, immutable=True, bootstrap=True, unit="s",
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="DEFAULT_ADMIN_PASSWORD", domain="access.admin",
+            default="", type_="str",
+            description="Admin password on first startup. Change via API after deploy.",
+            group=GROUP_ACCESS, secret=True, immutable=True, bootstrap=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+
+        # ── External API credentials ─────────────────────────────────────
+        ConfigKey(
+            key="CF_API_TOKEN", domain="access.api_keys",
+            default="", type_="str",
+            description="Cloudflare Radar API token.",
+            group=GROUP_ACCESS, secret=True, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="OWM_API_KEY", domain="access.api_keys",
+            default="", type_="str",
+            description="OpenWeatherMap API key.",
+            group=GROUP_ACCESS, secret=True, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="GREYNOISE_API_KEY", domain="access.api_keys",
+            default="", type_="str",
+            description="GreyNoise API key (optional, lifts rate limits).",
+            group=GROUP_ACCESS, secret=True, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="THREATFOX_API_KEY", domain="access.api_keys",
+            default="", type_="str",
+            description="ThreatFox API key (optional).",
+            group=GROUP_ACCESS, secret=True, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="OPENSKY_CLIENT_ID", domain="access.api_keys",
+            default="", type_="str",
+            description="OpenSky OAuth2 client ID.",
+            group=GROUP_ACCESS, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="OPENSKY_CLIENT_SECRET", domain="access.api_keys",
+            default="", type_="str",
+            description="OpenSky OAuth2 client secret.",
+            group=GROUP_ACCESS, secret=True, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="ACLED_API_KEY", domain="access.api_keys",
+            default="", type_="str",
+            description="ACLED ground-truth API key.",
+            group=GROUP_ACCESS, secret=True, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="ACLED_API_EMAIL", domain="access.api_keys",
+            default="", type_="str",
+            description="ACLED API email (paired with API key).",
+            group=GROUP_ACCESS, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+        ConfigKey(
+            key="CERTSPOTTER_API_TOKEN", domain="access.api_keys",
+            default="", type_="str",
+            description="Certspotter API token (optional, raises rate limits).",
+            group=GROUP_ACCESS, secret=True, immutable=True,
+            apply_timing=TIMING_RESTART_REQUIRED,
+        ),
+
+        # ── Webhooks (URLs are secrets — they are bearer-style endpoints) ─
+        ConfigKey(
+            key="NOTIFY_SLACK_WEBHOOK", domain="access.webhooks",
+            default="", type_="str",
+            description="Slack webhook URL.",
+            group=GROUP_ACCESS, secret=True,
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+        ),
+        ConfigKey(
+            key="NOTIFY_TEAMS_WEBHOOK", domain="access.webhooks",
+            default="", type_="str",
+            description="Microsoft Teams webhook URL.",
+            group=GROUP_ACCESS, secret=True,
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+        ),
+        ConfigKey(
+            key="NOTIFY_WEBHOOK_URL", domain="access.webhooks",
+            default="", type_="str",
+            description="Generic webhook URL.",
+            group=GROUP_ACCESS, secret=True,
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+        ),
+
+        # ── Auto-apply tier governor (self-promoting calibration) ────────
+        # Surfaces under SETTINGS → OPERATE → Calibration. The
+        # `_SETTINGS_DOMAINS` entry in radar.js maps that menu item to
+        # the `operate.calibration` registry domain.
+        ConfigKey(
+            key="AUTO_CALIBRATION_TIER_CAP", domain="operate.calibration",
+            default=3, type_="int",
+            description="Auto-apply tier ceiling (0=off, 3=full).",
+            group=GROUP_OPERATE, min_value=0, max_value=3,
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+            impact_level="high",
+            impact_warning="Lowering this halts auto-tune at runtime; "
+                           "raising it lets the governor consider "
+                           "promotion on the next daily evaluation.",
+            what="Maximum auto-apply tier the self-promoting governor "
+                 "is allowed to reach. Tier 0 disables auto-apply "
+                 "system-wide; Tier 3 enables full self-tuning across "
+                 "LOW/MED/HIGH impact keys.",
+            why="Operator kill-switch separate from per-proposal safety "
+                 "rules. Independent of the tier governor's own "
+                 "evaluation so an analyst can pin the system back to "
+                 "a known-good state during an incident.",
+            when="Drop to 0 immediately on any suspicion of mis-tuning. "
+                 "Restore to 3 after the cause is understood; the "
+                 "governor will re-promote on its own schedule if "
+                 "conditions warrant.",
+        ),
+        ConfigKey(
+            key="AUTO_APPLY_HIGH_COOLDOWN_HOURS", domain="operate.calibration",
+            default=24.0, type_="float",
+            description="Cooldown for LOW/MED calibrators after a HIGH change.",
+            group=GROUP_OPERATE, min_value=1.0, max_value=168.0, unit="h",
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+            what="When a HIGH-impact key is auto-applied at Tier 3, "
+                 "downstream LOW/MED calibrators are paused for this "
+                 "many hours so they don't pile chained proposals onto "
+                 "a single unproven change.",
+            why="Anti-oscillation. A HIGH change rebalances the entire "
+                 "scoring landscape; LOW/MED calibrators that propose "
+                 "during the absorption window are reacting to a "
+                 "transient state.",
+            when="Lengthen to 48-72h during initial Tier 3 operation; "
+                 "shorten to 12h once the system shows stable behaviour "
+                 "across multiple HIGH changes.",
+        ),
+        ConfigKey(
+            key="CHRONIC_INCONCLUSIVE_THRESHOLD_DAYS",
+            domain="operate.calibration",
+            default=7.0, type_="float",
+            description="Days an UNAVAILABLE conclusion may persist before "
+                        "it counts as chronic (NP5+8 design failure).",
+            group=GROUP_OPERATE, min_value=3.0, max_value=90.0, unit="d",
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+            what="Threshold for the chronic-inconclusive detector "
+                 "(ADR-V2-010). A scenario/conclusion-type pair whose "
+                 "open UNAVAILABLE run is older than this many days is "
+                 "flagged chronic; the daily scheduler hook calls "
+                 "record_failure('inconclusive_chronic', ...) so the "
+                 "HUD CHRONIC chip and the silent-failure ledger both "
+                 "reflect the breach.",
+            why="NP5+8: transient inconclusive is acceptable; chronic "
+                 "inconclusive after data has accumulated is a design "
+                 "failure. The threshold balances not crying wolf for a "
+                 "single-day sensor outage against catching genuine "
+                 "structural blind spots before they ossify.",
+            when="Reduce to 5d only if the false-positive rate is low "
+                 "AND the system has been live for >30d. Never below 3d "
+                 "(routine sensor outages would dominate). Raise to 14d "
+                 "during integration/testing windows where transient "
+                 "outages are expected.",
+        ),
+        ConfigKey(
+            key="SCENARIO_IMPROVER_AUTO_APPLY_ENABLED",
+            domain="operate.calibration",
+            default=False, type_="bool",
+            description="Master flag for scenario_improver tier-governor-"
+                        "gated auto-apply (2026-05-08 seam closure).",
+            group=GROUP_OPERATE,
+            apply_timing=TIMING_LIVE_IMMEDIATE,
+            impact_level="high",
+            impact_warning="When enabled, recall-positive scenario "
+                           "proposals (weight_too_low / "
+                           "missing_participant) auto-apply at Tier 1+ "
+                           "and recall-reducing proposals "
+                           "(weight_too_high / dormant_participant) "
+                           "auto-apply at Tier 3 with strong evidence. "
+                           "Disable IMMEDIATELY if any auto-applied "
+                           "change looks wrong; the tier governor "
+                           "kill-switch (AUTO_CALIBRATION_TIER_CAP=0) "
+                           "is the emergency brake.",
+            what="Routes scenario_improver / scenario_structure_proposer "
+                 "emissions through the auto_apply_tier_governor's "
+                 "is_apply_allowed() gate. When the gate passes, the "
+                 "proposed mutation is applied directly to the "
+                 "scenarios / scenario_participants tables and the "
+                 "proposal row goes to state='applied'. When false, "
+                 "every emission stays at state='pending' and the "
+                 "Wizard is the only apply path (historical behaviour).",
+            why="NP1: recall-positive proposals withheld in pending are "
+                "themselves a recall reduction. The tier governor's "
+                "self-evaluation provides the safety the analyst gate "
+                "was a proxy for. Default off until tier governor "
+                "stability is observed at T1+ in production.",
+            when="Flip on after the tier governor reports Tier 1+ for "
+                 "≥7 consecutive days AND override_rate < 5% in the "
+                 "audit.auto_judge ledger. Drop back to off if any "
+                 "auto-applied change is reverted by the analyst.",
+        ),
+    )
+except Exception:
+    # Registration is best-effort. NP3 — never crash on registry errors.
+    import traceback as _tb
+    _tb.print_exc()

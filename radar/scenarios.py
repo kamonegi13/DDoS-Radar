@@ -459,7 +459,7 @@ class ScenarioStore:
                 )
         # Validate that all participant country codes have coordinates
         from radar.config import COUNTRY_COORDS
-        for sc in merged.values():
+        for sc in self._scenarios.values():
             missing = [c for c in sc.participants if c not in COUNTRY_COORDS]
             if missing:
                 log.warning(

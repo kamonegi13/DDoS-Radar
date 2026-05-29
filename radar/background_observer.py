@@ -422,16 +422,3 @@ def _worker_loop(observer: "BackgroundObserver") -> None:
         time.sleep(config.BG_OBSERVER_INTERVAL_SEC)
 
 
-def start_worker() -> Optional[threading.Thread]:
-    """DEPRECATED (ADR-V2-015 Phase 4) — kept as a no-op compat shim.
-
-    The ticker is now owned by ``BackgroundObserverSensor`` registered
-    in ``radar/__init__.py``. Calling this function would either
-    double-start the worker or have no effect, so it logs a warning
-    and returns None. Removed in the release after Phase 4 lands.
-    """
-    log.warning(
-        "[bg_observer] start_worker() is deprecated — "
-        "BackgroundObserverSensor now owns the ticker (ADR-V2-015 Phase 4)"
-    )
-    return None

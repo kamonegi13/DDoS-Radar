@@ -173,8 +173,17 @@ _CONCLUSION_GEMMA31 = ModelChoice(
     top_k=64,
     seed=None,
     num_predict=1024,
-    system_prefix="<|think|>",        # narrative: thinking ON for reasoning
-    thinking_enabled=True,
+    # 2026-05-10: thinking disabled. All conclusion calls go through
+    # llm_analyze_json which requires the model to emit JSON in the
+    # `response` field. Bench (sensor_extract, gemma4:31b at thinking-on,
+    # num_predict=512) showed 0% parse rate / 92.8s avg latency because
+    # internal CoT consumed the entire token budget. With num_predict=1024
+    # the budget is doubled but JSON output is still not guaranteed; the
+    # operationally safe stance is thinking-off + JSON-only response. If
+    # narrative reasoning is needed for AP3 audit, route via a separate
+    # raw-text path (currently no caller uses llm_analyze).
+    system_prefix="",
+    thinking_enabled=False,
     use_case=UseCase.CONCLUSION,
 )
 
@@ -197,8 +206,11 @@ _DISCOVERY_GEMMA31 = ModelChoice(
     top_k=64,
     seed=None,
     num_predict=1024,
-    system_prefix="<|think|>",
-    thinking_enabled=True,
+    # See _CONCLUSION_GEMMA31 — same rationale: llm_analyze_json requires
+    # JSON output, thinking-on at any current num_predict cannot
+    # guarantee both reasoning + JSON in a single response.
+    system_prefix="",
+    thinking_enabled=False,
     use_case=UseCase.DISCOVERY,
 )
 
@@ -209,8 +221,11 @@ _DISCOVERY_GPT_OSS = ModelChoice(
     top_k=0,
     seed=None,
     num_predict=1024,
-    system_prefix="Reasoning: high",  # gpt-oss-safeguard policy reasoning
-    thinking_enabled=True,
+    # gpt-oss-safeguard's "Reasoning: high" prefix likewise drives the
+    # model into a reasoning-heavy path that empties the JSON `response`
+    # field. Same llm_analyze_json constraint as _DISCOVERY_GEMMA31.
+    system_prefix="",
+    thinking_enabled=False,
     use_case=UseCase.DISCOVERY,
 )
 
@@ -527,11 +542,20 @@ def feature_key_for(use_case: UseCase) -> str:
 
 @dataclass(frozen=True)
 class RoutingResult:
-    """Both the active choice (used to build the request) and the
-    shadow choice (recorded but not executed)."""
+    """Routing decision triplet:
+
+      active             ModelChoice that's actually invoked (returned to caller)
+      shadow_choice      model NAME the v10 router would have picked, recorded
+                         on llm_call_log.shadow_model_choice when set
+      shadow_invocation  Phase 9.2 SHADOW_DUAL — full ModelChoice for the v10
+                         candidate that should also be invoked in parallel
+                         and recorded to llm_shadow_invocation
+      state              "off" | "shadow" | "shadow_dual" | "on"
+    """
     active: ModelChoice
-    shadow_choice: Optional[str]   # model name v2 *would* have picked, when v1 active
-    state: str                     # "off" | "shadow" | "on"
+    shadow_choice: Optional[str]
+    shadow_invocation: Optional[ModelChoice] = None
+    state: str = "off"
 
 
 def choose_model(use_case: Optional[UseCase]) -> RoutingResult:
@@ -539,15 +563,22 @@ def choose_model(use_case: Optional[UseCase]) -> RoutingResult:
 
     NP3 — never raises. On any failure returns the legacy choice with
     state='off'.
+
+    State semantics:
+      off          → run legacy only
+      shadow       → run legacy, record v10 model NAME (no v10 invocation)
+      shadow_dual  → run legacy AND v10 (Phase 9.2 — doubles cost but
+                     produces real v10 compliance / latency data)
+      on           → run v10 only
     """
     if use_case is None:
         return RoutingResult(
             active=_legacy_choice(None),
             shadow_choice=None,
+            shadow_invocation=None,
             state="off",
         )
 
-    # Resolve Feature Hub state for this use case.
     try:
         from radar.llm_features import resolve_state, FeatureState
         key = feature_key_for(use_case)
@@ -557,6 +588,7 @@ def choose_model(use_case: Optional[UseCase]) -> RoutingResult:
         return RoutingResult(
             active=_legacy_choice(use_case),
             shadow_choice=None,
+            shadow_invocation=None,
             state="off",
         )
 
@@ -564,15 +596,35 @@ def choose_model(use_case: Optional[UseCase]) -> RoutingResult:
         return RoutingResult(
             active=_resolve_v2_choice(use_case),
             shadow_choice=None,
+            shadow_invocation=None,
             state="on",
         )
-    if state.value == "shadow":
-        # Run legacy but record what v2 would have picked.
+    if state.value == "shadow_dual":
+        # Run BOTH: legacy (active, returned to caller) and v10 candidate
+        # (shadow_invocation, recorded to llm_shadow_invocation table).
         try:
             v2 = _resolve_v2_choice(use_case)
             return RoutingResult(
                 active=replace(_legacy_choice(use_case), use_case=use_case),
                 shadow_choice=v2.model,
+                shadow_invocation=v2,
+                state="shadow_dual",
+            )
+        except Exception:
+            return RoutingResult(
+                active=_legacy_choice(use_case),
+                shadow_choice=None,
+                shadow_invocation=None,
+                state="shadow_dual",
+            )
+    if state.value == "shadow":
+        # Run legacy only; record the v10 model name (cheap A/B label).
+        try:
+            v2 = _resolve_v2_choice(use_case)
+            return RoutingResult(
+                active=replace(_legacy_choice(use_case), use_case=use_case),
+                shadow_choice=v2.model,
+                shadow_invocation=None,
                 state="shadow",
             )
         except Exception as exc:
@@ -580,12 +632,14 @@ def choose_model(use_case: Optional[UseCase]) -> RoutingResult:
             return RoutingResult(
                 active=_legacy_choice(use_case),
                 shadow_choice=None,
+                shadow_invocation=None,
                 state="shadow",
             )
     # OFF or unknown
     return RoutingResult(
         active=_legacy_choice(use_case),
         shadow_choice=None,
+        shadow_invocation=None,
         state="off",
     )
 

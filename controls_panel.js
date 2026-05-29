@@ -115,12 +115,28 @@
           kind: 'modal',
           openFn:  () => window._wizardOpen  && window._wizardOpen(),
           closeFn: () => window._wizardClose && window._wizardClose() },
+        // Phase 9.4 (C16) — both LLM cards now route to the unified
+        // Settings shell. The old llm-features-modal and ad-hoc routing
+        // overlay remain in the DOM as fallbacks for the auto-tune
+        // wizard's deeplinks but are no longer the primary entry points.
         { id: 'llm-features', section: 'automation', icon: '🤖',
           labelKey: 'tools.llm_features', descKey: 'controls.tool.llm_features.desc',
-          panelId: 'llm-features-modal', placeholderId: null,
+          panelId: 'settings-modal-v2', placeholderId: null,
           kind: 'modal',
-          openFn:  () => window._llmFeaturesOpen  && window._llmFeaturesOpen(),
-          closeFn: () => window._llmFeaturesClose && window._llmFeaturesClose() },
+          openFn:  () => (window._settingsOpen
+                          || window._llmFeaturesOpen
+                          || function(){})('llm.features'),
+          closeFn: () => (window._settingsClose
+                          || window._llmFeaturesClose
+                          || function(){})() },
+        { id: 'llm-routing', section: 'automation', icon: '🧩',
+          labelKey: 'tools.llm_routing', descKey: 'controls.tool.llm_routing.desc',
+          panelId: 'settings-modal-v2', placeholderId: null,
+          kind: 'modal',
+          openFn:  () => (window._settingsOpen
+                          || window._llmRoutingOpen
+                          || function(){})('llm.routing'),
+          closeFn: () => (window._settingsClose || function(){})() },
         { id: 'decision-history', section: 'automation', icon: '📜',
           labelKey: 'tools.decision_history', descKey: 'controls.tool.decision_history.desc',
           panelId: 'decision-history-modal', placeholderId: null,
