@@ -16,6 +16,16 @@ def db(tmp_path, monkeypatch):
     from radar.database import RadarDB
     tdb = RadarDB(str(tmp_path / "calib.db"))
     monkeypatch.setattr("radar.calibration.threshold_history.db", tdb)
+    # Isolation: the auto-apply tier gate reads its own module-global DB
+    # (the real radar.db), not this tmp fixture, so its verdict would
+    # otherwise depend on production tier state and reject every commit with
+    # reason='tier_gate'. The tier gate has dedicated coverage in
+    # test_auto_apply_tier_governor.py; neutralise it here so the cooldown /
+    # magnitude / unchanged rules can be exercised in isolation.
+    monkeypatch.setattr(
+        "radar.calibration.auto_apply_tier_governor.is_apply_allowed",
+        lambda *a, **k: True,
+    )
     yield tdb
     tdb.close()
 

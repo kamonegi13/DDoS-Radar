@@ -14,6 +14,14 @@ def db(tmp_path, monkeypatch):
     tdb = RadarDB(str(tmp_path / "tlc.db"))
     monkeypatch.setattr("radar.calibration.threshold_history.db", tdb)
     monkeypatch.setattr("radar.calibration.tl_threshold_calibrator.db", tdb)
+    # Isolation: neutralise the auto-apply tier gate, which reads the real
+    # radar.db (not this tmp fixture) and would otherwise reject every commit
+    # with reason='tier_gate' based on production tier state. Tier behaviour
+    # is covered by test_auto_apply_tier_governor.py.
+    monkeypatch.setattr(
+        "radar.calibration.auto_apply_tier_governor.is_apply_allowed",
+        lambda *a, **k: True,
+    )
     yield tdb
     tdb.close()
 
