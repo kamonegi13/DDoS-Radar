@@ -478,8 +478,6 @@
 <div id="scenario-bar">
     <div id="scenario-cards"></div>
 </div>
-<!-- §10.5 deadline pin: shown only when a deadline is approaching/past -->
-<div id="pending-decisions-pin" style="display:none;" onclick="openScenarioMgrTab()" data-i18n-tip="scenario.pending.pin_tip"></div>
 <div id="scenario-detail-panel" style="display:none;"></div>
 
 <!-- ── Domain Drilldown Panel ─────────────────────────────────────────── -->
@@ -1165,11 +1163,6 @@
                     <div style="margin-top:16px;border-top:1px solid #333;padding-top:12px;">
                         <button class="btn-tactical" onclick="loadCliteEvaluation()" data-i18n="scenario.clite.load_btn">Load C-lite Evaluation</button>
                         <div id="clite-eval-panel" style="margin-top:8px;"></div>
-                    </div>
-                    <!-- §10.5 Pending Decisions panel (TL recal + dual-weight) -->
-                    <div style="margin-top:16px;border-top:1px solid #333;padding-top:12px;">
-                        <button class="btn-tactical" onclick="loadPendingDecisions()" data-i18n="scenario.pending.load_btn">Load Pending Decisions</button>
-                        <div id="pending-decisions-panel" style="margin-top:8px;"></div>
                     </div>
                 </div>
             </div><!-- /tab-scenarios -->
@@ -3548,7 +3541,7 @@
                 </ul>
             </li>
             <li><b>HUD snooze indicator</b>: <span class="code-block">⏸ TRIAGE muted Nm</span> chip in the HUD TL group while a snooze is active. Click to release. Always visible while muted so analysts never wonder why TRIAGE is silent.</li>
-            <li><b>Pending Decisions actions</b>: each calibration card now carries [Accept] / [Extend +14d] / [Raise|Rollback ⚠] buttons. The button matching the current recommendation is emphasized green; non-recommended buttons stay visible but muted (override mode). Per-scenario [✓] [⏵+14d] inline on each TL roll-up row.</li>
+            <li><b>Pending Decisions actions</b> <i>(retired 2026-05-29)</i>: the §10.5 TL-recalibration and dual-weight governance cards were a one-time v1→v2 migration gate. Their evaluation deadlines (2026-04-28 / 2026-05-12) elapsed unactioned and TL-threshold calibration is now autonomous (tier governor); the panel was removed. The TRIAGE snooze / dismiss / visibility / per-user-threshold operations and the unified Decision History timeline below remain the live Decision Layer surface.</li>
             <li><b>Confirmation</b>: <span class="code-block">tl_recal_raise</span> and <span class="code-block">dual_weight_rollback</span> require <span class="code-block">np7_confirmed=true</span> AND a non-empty <span class="code-block">reason</span> in the request body. Server returns 400 if missing — UI must show the confirm modal first. Client-side <span class="code-block">prompt()</span> rejects empty reasons before submission (defense in depth).</li>
             <li><b>Decision History</b>: <span class="code-block">TOOLS ▾</span> → Decision History opens a 880px modal with filters (decision_type / window 24h-90d / action) and a time-descending list. Each row shows actor, action chip (color-coded), decision_type, target, confirmed badge, superseded badge (dimmed 55% opacity), reason, expiry, and parameters JSON. Single-place forensic timeline.</li>
             <li><b>API endpoints</b> (14 total):
@@ -3557,8 +3550,6 @@
                     <li><span class="code-block">POST /api/v2/decisions/triage/visibility</span></li>
                     <li><span class="code-block">POST /api/v2/decisions/triage/dismiss</span></li>
                     <li><span class="code-block">GET /api/v2/decisions/triage/state</span></li>
-                    <li><span class="code-block">POST /api/v2/decisions/tl_recalibration/{accept,extend,raise}</span></li>
-                    <li><span class="code-block">POST /api/v2/decisions/dual_weight/{accept,extend,rollback}</span></li>
                     <li><span class="code-block">GET/PUT /api/v2/decisions/threshold</span> — per-user TRIAGE thresholds</li>
                     <li><span class="code-block">GET /api/v2/decisions/history</span>, <span class="code-block">GET /api/v2/decisions/&lt;id&gt;</span></li>
                 </ul>
@@ -3711,7 +3702,7 @@
                 </ul>
             </li>
             <li><b>HUD snooze indicator</b>: snooze アクティブ中は HUD TL group 内に <span class="code-block">⏸ TRIAGE muted Nm</span> chip を常時表示。クリックで解除。muted 中であることを analyst が見落とせない設計。</li>
-            <li><b>Pending Decisions アクション</b>: 各 calibration カードに [Accept] / [Extend +14d] / [Raise|Rollback ⚠] ボタンを追加。現在の recommendation に対応するボタンを緑強調、それ以外は muted（override モード）。TL ロールアップ各シナリオ行にも [✓] [⏵+14d] をインライン配置。</li>
+            <li><b>Pending Decisions アクション</b> <i>(2026-05-29 退役)</i>: §10.5 の TL再校正・dual-weight ガバナンスカードは v1→v2 移行の一回限りゲートだった。評価期限（2026-04-28 / 2026-05-12）が未対応のまま経過し、TL閾値校正は tier governor により自律化されたため、パネルは撤去。TRIAGE の snooze / dismiss / visibility / per-user 閾値操作と、下記の統合 Decision History タイムラインが現役の Decision Layer surface。</li>
             <li><b>Confirmation</b>: <span class="code-block">tl_recal_raise</span> と <span class="code-block">dual_weight_rollback</span> はリクエスト body に <span class="code-block">np7_confirmed=true</span> AND 非空の <span class="code-block">reason</span> を要求。欠落時はサーバが 400 を返す — UI が confirm modal を出してから submit する義務。クライアント側 <span class="code-block">prompt()</span> も submit 前に空 reason を拒否（多層防御）。</li>
             <li><b>Decision History</b>: <span class="code-block">TOOLS ▾</span> → Decision History で 880px モーダルを開く。フィルタ（decision_type / window 24h-90d / action）+ 時系列降順リスト。各行は actor、action chip（色分け）、decision_type、target、confirmed バッジ、superseded バッジ（55% dim）、reason、expiry、parameters JSON を表示。一画面で過去の決断を監査可能。</li>
             <li><b>API endpoints</b>（合計 14 本）:
@@ -3720,8 +3711,6 @@
                     <li><span class="code-block">POST /api/v2/decisions/triage/visibility</span></li>
                     <li><span class="code-block">POST /api/v2/decisions/triage/dismiss</span></li>
                     <li><span class="code-block">GET /api/v2/decisions/triage/state</span></li>
-                    <li><span class="code-block">POST /api/v2/decisions/tl_recalibration/{accept,extend,raise}</span></li>
-                    <li><span class="code-block">POST /api/v2/decisions/dual_weight/{accept,extend,rollback}</span></li>
                     <li><span class="code-block">GET/PUT /api/v2/decisions/threshold</span> — per-user TRIAGE 閾値</li>
                     <li><span class="code-block">GET /api/v2/decisions/history</span>、<span class="code-block">GET /api/v2/decisions/&lt;id&gt;</span></li>
                 </ul>

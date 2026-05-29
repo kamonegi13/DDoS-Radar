@@ -298,12 +298,6 @@ const STRINGS = {
     // Labels for the inline badge that appears next to a settled card's
     // heading. Open cards have no badge. After Re-evaluate the card
     // returns to open state and these labels disappear.
-    'pd.gs.accepted':                  '✓ Accepted',
-    'pd.gs.extended':                  '⏵ Extended',
-    'pd.gs.raised':                    '↑ Raised',
-    'pd.gs.rolled_back':               '↩ Rolled back',
-    'pd.gs.reeval':                    '↻ Re-evaluate',
-    'pd.gs.reeval.tooltip':            'Reopen this decision — the data-driven recommendation will surface again on next refresh. Action recorded in the audit log (NP6).',
 
     // ── Scenario admin-override warning (Phase 3.3, problem 49, 2026-04-30 PM) ─
     // Surfaces when an admin has overridden the preset's enabled flag.
@@ -1684,23 +1678,6 @@ const STRINGS = {
     'scenario.clite.rec_insufficient_data':  'Insufficient data — more focus switches needed for evaluation',
 
     // §10.5 Pending Decisions (TL recalibration + ADR-015 dual-weight)
-    'scenario.pending.title':               'Pending Decisions (§10.5)',
-    'scenario.pending.load_btn':            'Load Pending Decisions',
-    'scenario.pending.tl_recal_name':       'TL Recalibration (§7.3.1)',
-    'scenario.pending.dual_weight_name':    'ADR-015 Dual-Weight',
-    'scenario.pending.pin_label':           'Pending Decisions',
-    'scenario.pending.pin_tip':             'Click to open Scenario Manager — §10.5 evaluation deadlines approaching',
-    'scenario.pending.days_remaining':      '{n} d remaining',
-    'scenario.pending.overdue_by':          'overdue by {n} d',
-    'scenario.pending.extended_hard':       'Hard deadline (one 14d extension): {d}',
-    'scenario.pending.extended_past':       'Extension window also exhausted — decision mandatory',
-    'scenario.pending.samples':             'Samples',
-    'scenario.pending.low_weight_pct':      'Low-Weight %',
-    'scenario.pending.tl_rollup':           '{raise} scenario(s) recommend RAISE, {extend} waiting for more data, {accept} balanced',
-    'scenario.pending.rec_accept_current':         'ACCEPT CURRENT — thresholds/weights are aligned',
-    'scenario.pending.rec_rollback_to_single_weight': 'ROLLBACK to single-weight — LLM country_weight noise exceeds §10.5 thresholds',
-    'scenario.pending.rec_raise_thresholds':       'RAISE TL thresholds — TL2/TL1 firing too frequently',
-    'scenario.pending.rec_extend_or_wait':          'EXTEND OR WAIT — insufficient samples for a confident call',
 
     // ══════════════════════════════════════════════════════════════
     // Login gate
