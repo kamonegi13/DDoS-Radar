@@ -63,7 +63,6 @@ const STRINGS = {
 
     // Drill-down modal (Layer 2 — audit_trace)
     'drill_modal.title':              'Conclusion Audit Trace',
-    'drill_modal.close':              '[ X ] Close',
     'drill_modal.loading':            'Loading audit trace…',
     'drill_modal.error.fetch_failed': 'Failed to fetch audit trace ({status})',
     'drill_modal.error.network':      'Network error while fetching audit trace',
@@ -562,13 +561,11 @@ const STRINGS = {
     // Country Intel modal
     // ══════════════════════════════════════════════════════════════
     'modal.country.title_prefix':     'Country Intel',
-    'modal.country.close':            '[ X ] Close',
 
     // ══════════════════════════════════════════════════════════════
     // SITREP modal
     // ══════════════════════════════════════════════════════════════
     'modal.sitrep.title':             'Situation Report (SITREP) — Threat Level Assessment',
-    'modal.sitrep.close':             '[ X ] Close',
     'modal.sitrep.timeline_label':    'THREAT LEVEL Timeline (last 288 cycles)',
     'modal.sitrep.report_label':      'Auto-generated Report',
 
@@ -576,7 +573,6 @@ const STRINGS = {
     // Evidence modal
     // ══════════════════════════════════════════════════════════════
     'modal.evidence.title':           'Analytic Rationale — Evidence Panel',
-    'modal.evidence.close':           '[ X ] Close',
     'modal.evidence.section_convergence': 'Convergence Score Breakdown',
     'modal.evidence.section_assessment':  'System Assessment',
     'modal.evidence.section_rationale':   'Sensor Rationale Matrix',
@@ -598,7 +594,6 @@ const STRINGS = {
     // Intel Guide modal
     // ══════════════════════════════════════════════════════════════
     'modal.help.title':               'Intelligence Operations Guide — MDO C4ISR Strategic Radar',
-    'modal.help.close':               '[ X ] Close',
     'modal.help.ch1':                 '1. Boundaries',
     'modal.help.ch2':                 '2. Conclusions',
     'modal.help.ch3':                 '3. Map',
@@ -630,7 +625,6 @@ const STRINGS = {
     // Panel — SALUTE Report
     // ══════════════════════════════════════════════════════════════
     'panel.salute.title':             'SALUTE REPORT',
-    'panel.salute.btn_close':         '[ X ] Close',
     'panel.salute.btn_copy':          'Copy',
     'panel.salute.btn_download':      'Download',
     'panel.salute.cross_ref':         'CROSS-REF',
@@ -1701,7 +1695,6 @@ const STRINGS = {
     // Auto-tuning Wizard (Tier 4 commits 13-15)
     // ══════════════════════════════════════════════════════════════
     'wizard.title':                    'Auto-tune Proposals',
-    'wizard.close':                    '[ X ] Close',
     'wizard.loading':                  'Loading proposals...',
     'wizard.empty':                    'No pending proposals.',
     'wizard.disclaimer':               'Tool conclusion only — final judgment by organizational process. Apply requires explicit confirmation.',
@@ -1782,7 +1775,6 @@ const STRINGS = {
     // ──────────────────────────────────────────────────────────────────
     'settings.v2.title':               'SETTINGS',
     'settings.v2.search_ph':           '/ search…',
-    'settings.v2.close':               '[ X ] Close',
     'settings.llm.connection':         'Connection',
     'settings.llm.intel_pipeline':     'Intel Pipeline',
     'settings.llm.features':           'Features',

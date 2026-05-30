@@ -641,7 +641,7 @@
 <div id="cc-drill-modal" class="modal-window" role="dialog" aria-modal="true" aria-labelledby="cc-drill-title">
     <div class="modal-header panel-header-unified">
         <div id="cc-drill-title" data-i18n="drill_modal.title">Conclusion Audit Trace</div>
-        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="window._ccCloseDrillModal()" data-i18n="drill_modal.close">[ X ] Close</button>
+        <span class="icon-btn" data-tooltip="Close" onclick="window._ccCloseDrillModal()" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
     </div>
     <div id="cc-drill-body" class="dm-body" tabindex="-1">
         <div class="dm-loading" data-i18n="drill_modal.loading">Loading audit trace...</div>
@@ -1166,7 +1166,7 @@
 <div id="country-modal" class="modal-window">
     <div class="modal-header panel-header-unified">
         <div id="country-modal-title">Country Intel</div>
-        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()" data-i18n="modal.country.close">[ X ] Close</button>
+        <span class="icon-btn" data-tooltip="Close" onclick="closeAllModals()" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
     </div>
     <div id="country-modal-body" style="overflow-y:auto; flex-grow:1; padding-top:4px;"></div>
 </div>
@@ -1174,7 +1174,7 @@
 <div id="sitrep-modal" class="modal-window" style="width:var(--modal-w-lg);">
     <div class="modal-header panel-header-unified">
         <div id="sitrep-modal-title" data-i18n="modal.sitrep.title">Situation Report (SITREP) — Threat Level Assessment</div>
-        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()" data-i18n="modal.sitrep.close">[ X ] Close</button>
+        <span class="icon-btn" data-tooltip="Close" onclick="closeAllModals()" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
     </div>
     <div style="overflow-y:auto; flex-grow:1; padding-top:10px; display:flex; flex-direction:column; gap:12px;">
         <div id="sitrep-summary" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px;"></div>
@@ -1218,7 +1218,7 @@
             <span data-i18n="panel.salute.title">SALUTE REPORT</span>
             <span class="salute-ts" id="salute-ts" style="font-size:9px; font-weight:normal; color:#666; margin-left:8px;">--:--Z</span>
         </div>
-        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeSaluteModal()" data-i18n="panel.salute.btn_close">[ X ] Close</button>
+        <span class="icon-btn" data-tooltip="Close" onclick="closeSaluteModal()" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
     </div>
     <div class="salute-body" style="overflow-y:auto; flex-grow:1; padding:12px;">
         <div style="color:#666; font-size:10px; text-align:center; padding:10px 0;" data-i18n="ui.loading">Loading...</div>
@@ -1447,7 +1447,7 @@
 <div id="evidence-modal" class="modal-window" style="width:var(--modal-w-xl);">
     <div class="modal-header panel-header-unified">
         <div data-i18n="modal.evidence.title">Analytic Rationale — Evidence Panel</div>
-        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()" data-i18n="modal.evidence.close">[ X ] Close</button>
+        <span class="icon-btn" data-tooltip="Close" onclick="closeAllModals()" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
     </div>
     <div style="overflow-y:auto; flex-grow:1; padding-top:10px;">
         <!-- Section 1: Convergence Score Breakdown -->
@@ -1499,7 +1499,7 @@
             <button id="guide-lang-btn-en" type="button" class="guide-lang-btn guide-lang-active" onclick="setGuideLang('en')">EN</button>
             <button id="guide-lang-btn-ja" type="button" class="guide-lang-btn" onclick="setGuideLang('ja')">日本語</button>
         </span>
-        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;" onclick="closeAllModals()" data-i18n="modal.help.close">[ X ] Close</button>
+        <span class="icon-btn" data-tooltip="Close" onclick="closeAllModals()" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
     </div>
     <div class="manual-content">
 
@@ -4372,9 +4372,7 @@
      style="width:760px; max-height:80vh;">
     <div class="modal-header panel-header-unified">
         <div id="autotune-wizard-title" data-i18n="wizard.title">Auto-tune Proposals</div>
-        <button class="btn-tactical" style="color:#ff2a2a; border-color:#ff2a2a66;"
-                onclick="window._wizardClose && window._wizardClose()"
-                data-i18n="wizard.close">[ X ] Close</button>
+        <span class="icon-btn" data-tooltip="Close" onclick="window._wizardClose && window._wizardClose()" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
     </div>
     <div class="wizard-body">
         <div class="wizard-tabs">
@@ -4437,10 +4435,7 @@
                           border:1px solid #444;
                           background:#0c0e11;
                           color:inherit;font-size:0.85em;width:220px">
-            <button class="btn-tactical"
-                    style="color:#ff2a2a; border-color:#ff2a2a66;"
-                    onclick="window._settingsClose && window._settingsClose()"
-                    data-i18n="settings.v2.close">[ X ] Close</button>
+            <span class="icon-btn" data-tooltip="Close" onclick="window._settingsClose && window._settingsClose()" style="color:#ff444488;" data-i18n-tip="panel.common.close_tooltip">✕</span>
         </div>
     </div>
     <div class="settings-v2-body" style="display:flex;flex:1;min-height:0;">
