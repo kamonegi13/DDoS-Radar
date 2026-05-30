@@ -718,7 +718,7 @@ const STRINGS = {
     'gn.log.no_lookups':              'No lookups yet.',
     'gn.log.noise':                   'NOISE',
     'gn.log.targeted':                'TARGETED',
-    'gn.no_theater_data':             'No theater data',
+    'gn.no_theater_data':             'No country data',
 
     // ══════════════════════════════════════════════════════════════
     // Sensor config / mute
@@ -788,7 +788,7 @@ const STRINGS = {
     'cip.baseline_label':             'Baseline (28d): {base}   Δ {delta}',
     'cip.threshold_label':            'Threshold: {n}',
     'cip.section.predictive':         '⚡ Predictive Indicators',
-    'cip.theater_label':              '(theater: {name})',
+    'cip.theater_label':              '(country: {name})',
     'cip.label.esc_velocity':         'Escalation Velocity',
     'cip.sub.1st_deriv':              '1st derivative / cycle',
     'cip.label.blockade_index':       'Blockade Index',
@@ -984,7 +984,7 @@ const STRINGS = {
     // Phase 3: Correlation Heatmap panel
     // ══════════════════════════════════════════════════════════════
     'tools.corr_heatmap':             'Sensor Heatmap',
-    'panel.corr.title':               'SENSOR × THEATER',
+    'panel.corr.title':               'SENSOR × COUNTRY',
     'panel.corr.loading':             'Loading sensor data...',
     'panel.corr.no_data':             'No sensor data available',
     'panel.heatmap.toggle.all':       'ALL',
