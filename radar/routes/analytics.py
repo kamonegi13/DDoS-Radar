@@ -7,9 +7,6 @@ from radar.auth import require_role
 from radar.config import (
     ADAPTIVE_ZSCORE_ENABLED, ADAPTIVE_ZSCORE_MIN_SAMPLES,
     SEQUENCE_WINDOW,
-    C_MEDIUM_WINDOW_DAYS, C_MEDIUM_MISS_THRESHOLD,
-    C_MEDIUM_DELTA_MISS, C_MEDIUM_MIN_SWITCHES,
-    C_MEDIUM_DELTA_MISS_SHADOW,
     SHOW_BACKGROUND_TL,
 )
 from radar import state as st
@@ -1004,125 +1001,13 @@ def adaptive_zscore_status():
     })
 
 
-_VALID_SOURCES = ("all", "analyst", "shadow_sampler")
-
-
-def _parse_source(raw: str | None) -> str | None:
-    """Map ?source= query value to focus_switch_log filter. 'all' (or
-    missing/invalid) returns None meaning no filter; 'analyst' /
-    'shadow_sampler' return the literal source value."""
-    if not raw:
-        return None
-    raw = raw.strip().lower()
-    if raw not in _VALID_SOURCES:
-        return None
-    return None if raw == "all" else raw
-
-
-@bp.route("/api/analytics/focus_switches", methods=["GET"])
-@_analytics_read
-def api_focus_switch_stats():
-    """C-medium migration metric: focus switch miss rate (Section 9.3.1).
-
-    Query params:
-      - days: lookback window (default 28)
-      - source: 'all' (default), 'analyst', or 'shadow_sampler' (ADR-025)
-    """
-    days = _safe_int(request.args.get("days", "28"), 28, min_val=1, max_val=365)
-    source = _parse_source(request.args.get("source"))
-    return jsonify(_db.focus_switch_stats(days=days, source=source))
-
-
-@bp.route("/api/analytics/clite_evaluation", methods=["GET"])
-@_analytics_read
-def api_clite_evaluation():
-    """Comprehensive C-lite vs C-medium evaluation dashboard.
-
-    Returns miss rate, delta distribution, per-scenario breakdown, and a
-    recommendation (LITE_SUFFICIENT / CONSIDER_C_MEDIUM / INSUFFICIENT_DATA).
-
-    Query params:
-      - days: lookback window (default 28)
-      - source: 'all' (default), 'analyst', or 'shadow_sampler' (ADR-025)
-    """
-    days = _safe_int(request.args.get("days", "28"), 28, min_val=1, max_val=365)
-    source = _parse_source(request.args.get("source"))
-    return jsonify(_db.focus_switch_detailed(days=days, source=source))
-
-
-@bp.route("/api/analytics/cmedium_recommendation", methods=["GET"])
-@_analytics_read
-def api_cmedium_recommendation():
-    """Per-scenario C-medium migration recommendation (scenario-refactor §9.3.1).
-
-    Honors C_MEDIUM_* config knobs:
-      - WINDOW_DAYS: observation window
-      - DELTA_MISS: |full_score - lite_score| above which an analyst switch counts as a miss
-      - DELTA_MISS_SHADOW: same threshold applied to shadow_sampler rows (ADR-025)
-      - MISS_THRESHOLD: miss_rate above which CONSIDER_C_MEDIUM fires
-      - MIN_SWITCHES: minimum switch count before any recommendation is meaningful
-
-    Query params:
-      - days: lookback window (default = C_MEDIUM_WINDOW_DAYS)
-      - source: 'all' (default), 'analyst', or 'shadow_sampler'
-    """
-    from radar.scenarios import scenario_store
-    days = _safe_int(
-        request.args.get("days", str(C_MEDIUM_WINDOW_DAYS)),
-        C_MEDIUM_WINDOW_DAYS, min_val=1, max_val=365,
-    )
-    source = _parse_source(request.args.get("source"))
-    lang = request.args.get("lang")
-    detailed = _db.focus_switch_detailed(days=days, source=source)
-    by_sid = detailed.get("by_scenario", {})
-
-    per_scenario = []
-    for sc in scenario_store.scorable():
-        stats = by_sid.get(sc.id, {})
-        switches = stats.get("switches", 0)
-        misses = stats.get("misses", 0)
-        max_delta = stats.get("max_delta", 0.0)
-        avg_delta = stats.get("avg_delta", 0.0)
-        miss_rate = round(misses / switches, 3) if switches else 0.0
-
-        if switches < C_MEDIUM_MIN_SWITCHES:
-            status = "INSUFFICIENT_DATA"
-            reason = (f"only {switches} focus switches in last {days}d "
-                      f"(need >= {C_MEDIUM_MIN_SWITCHES})")
-        elif miss_rate > C_MEDIUM_MISS_THRESHOLD:
-            status = "CONSIDER_C_MEDIUM"
-            reason = (f"miss_rate {miss_rate:.1%} exceeds threshold "
-                      f"{C_MEDIUM_MISS_THRESHOLD:.1%} "
-                      f"(|delta| > {C_MEDIUM_DELTA_MISS} on "
-                      f"{misses}/{switches} switches)")
-        else:
-            status = "LITE_SUFFICIENT"
-            reason = (f"miss_rate {miss_rate:.1%} within threshold "
-                      f"{C_MEDIUM_MISS_THRESHOLD:.1%}")
-
-        per_scenario.append({
-            "scenario_id": sc.id,
-            "label": _scenario_label(sc, lang),
-            "switches": switches,
-            "misses": misses,
-            "miss_rate": miss_rate,
-            "avg_delta": avg_delta,
-            "max_delta": max_delta,
-            "status": status,
-            "reason": reason,
-        })
-
-    return jsonify({
-        "period_days": days,
-        "source": source or "all",
-        "config": {
-            "delta_miss": C_MEDIUM_DELTA_MISS,
-            "delta_miss_shadow": C_MEDIUM_DELTA_MISS_SHADOW,
-            "miss_threshold": C_MEDIUM_MISS_THRESHOLD,
-            "min_switches": C_MEDIUM_MIN_SWITCHES,
-        },
-        "scenarios": per_scenario,
-    })
+# C-lite/C-medium evaluation endpoints (focus_switches, clite_evaluation,
+# cmedium_recommendation) RETIRED 2026-05-30. They gated whether to build
+# the C-medium scoring mode by measuring lite-vs-full divergence on focus
+# switches — but the Phase-9 score-path unification made lite≡full, so the
+# divergence is structurally 0 and the evaluation can no longer produce the
+# evidence it existed to gather. C-medium remains a valid future mode; its
+# evaluation tooling can be rebuilt if lite/full ever genuinely diverge.
 
 
 @bp.route("/api/analytics/calibration_advisory", methods=["GET"])

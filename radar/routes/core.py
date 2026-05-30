@@ -96,9 +96,6 @@ def _spawn_force_sensors_fetch(sensors_iter, ctx) -> None:
     threading.Thread(target=_runner, name="force-sensors-fetch", daemon=True).start()
 
 
-# Initialize to DEFAULT_FOCUSED_SCENARIO so the first scoring cycle can
-# detect if the user immediately switches focus away from the default.
-_prev_focused_id: str | None = DEFAULT_FOCUSED_SCENARIO
 # Phase C: what-changed tracking — guarded by _global_cache_lock
 _prev_scenario_domains: dict[str, dict[str, float]] = {}
 _prev_scenario_signals: dict[str, set[str]] = {}
@@ -2433,35 +2430,10 @@ def get_threat_data():
                 except Exception:
                     pass
 
-            # Focus switch detection (Section 9.3.1).
-            # is_miss is a C-medium migration indicator: it flags cases where
-            # LITE mode underestimated a scenario that subsequently reveals
-            # material signal on promotion to FULL. The measurement must
-            # compare the SAME scenario's pre-switch LITE score to its
-            # post-switch FULL score — not two different scenarios'
-            # current-cycle scores.
-            global _prev_focused_id
-            if _prev_focused_id is not None and _prev_focused_id != _focused_id:
-                _new_sd = _scenario_results.get(_focused_id, {})
-                if _new_sd:
-                    _full_score = _new_sd.get("score", 0)
-                    _prev_lite = _db.scenario_prev_lite_score(
-                        _focused_id, current_time)
-                    _lite_score = _prev_lite if _prev_lite is not None else 0.0
-                    _delta = abs(_full_score - _lite_score)
-                    try:
-                        _db.focus_switch_append(
-                            scenario_id=_focused_id,
-                            switched_at=current_time,
-                            lite_score=_lite_score,
-                            full_score=_full_score,
-                            delta=_delta,
-                            is_miss=(_delta >= 1.0),
-                            source="analyst",
-                        )
-                    except Exception:
-                        pass
-            _prev_focused_id = _focused_id
+            # Focus-switch lite-vs-full logging (Section 9.3.1 / C-medium
+            # evaluation) RETIRED 2026-05-30 along with the clite_evaluation /
+            # cmedium_recommendation endpoints — lite≡full after the score-path
+            # unification made the measured divergence structurally 0.
 
             # Shadow sampling (ADR-025) RETIRED 2026-05-30: it measured
             # lite-vs-full score divergence, which became ≡0 once the score
