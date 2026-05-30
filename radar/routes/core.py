@@ -2626,9 +2626,6 @@ def get_threat_data():
             },
             # Check-Host Survival (v9) — includes detailed data + asphyxiation flag
             "check_host": {
-                "theater_success_rate": ch_success_rate,
-                # ADR-V2-006 A-2: dual-write `country_*` alongside `theater_*` (additive).
-                # Same value, new key — frontend reads `country_success_rate ?? theater_success_rate`.
                 "country_success_rate": ch_success_rate,
                 "status":              ch_status,
                 "url_results":         core_checkhost.get("urls", {}),
@@ -2659,8 +2656,6 @@ def get_threat_data():
                 "active_channels":     telegram_active_ch,
                 "channels_monitored":  core_telegram.get("channels_monitored", []),
                 "target_urls":         core_telegram.get("target_urls", []),
-                "theater_breakdown":   telegram_data,
-                # ADR-V2-006 A-2: dual-write — same dict, new key.
                 "country_breakdown":   telegram_data,
                 "recent_hits":         list(TelegramMirrorSensor._intercept_log[:10]),
                 "last_poll_ts":        TelegramMirrorSensor._last_poll_ts,
@@ -2672,8 +2667,6 @@ def get_threat_data():
                 "noise_ratio":   gn_noise_ratio,
                 "suppressing":   gn_suppress,
                 "gnql_tier":     core_greynoise.get("gnql_tier", "none"),
-                "theater_data":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},
-                # ADR-V2-006 A-2: dual-write — same comprehension under new key.
                 "country_data":  {t: greynoise_data.get(t, {}) for t in (strategic_theaters_set or set())},
             },
             # Origin distribution entropy (attack source diversity tracking)
@@ -2842,9 +2835,6 @@ def get_threat_data():
             "focus": _req_focus,
             "data": target_details,
             "strategic": {
-                "core_theater": _original_core_theater or core_theater,
-                # ADR-V2-006 A-2: dual-write — same scalar/list under `country_*`.
-                # Frontend reads: `data.core_country ?? data.core_theater`.
                 "core_country": _original_core_theater or core_theater,
                 "effective_cores": effective_cores,
                 "primary_ec": primary_ec,
@@ -2856,10 +2846,6 @@ def get_threat_data():
                 # raw saturation (P50≈53% in normal ops). See v2-migration §10.2.1.
                 "correlations_idf": correlations_idf, "correlations_idf_l3": correlations_idf_l3, "correlations_idf_l7": correlations_idf_l7,
                 "adversary_strikes": adversary_strikes, "vector_shifts": vector_shifts,
-                "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
-                "degraded_theaters_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
-                "coordinated_theaters": elevated_theaters if is_coordinated else [],
-                # ADR-V2-006 A-2: dual-write — list aliases under `country_*`.
                 "degraded_countries": [t for t in degraded_targets_effective if t in strategic_theaters_set],
                 "degraded_countries_raw": [t for t in degraded_targets_raw if t in strategic_theaters_set],
                 "coordinated_countries": elevated_theaters if is_coordinated else [],
@@ -2910,8 +2896,6 @@ def get_threat_data():
                             "lat":       hs["lat"],
                             "lng":       hs["lng"],
                             "radius_km": hs.get("radius_km", 200),
-                            "theater":   hs["theater"],
-                            # ADR-V2-006 A-2: dual-write — same string, new key.
                             "country":   hs["theater"],
                             "isr_count": isr_data.get(hs["theater"], {}).get("count", 0),
                             "is_surge":  isr_data.get(hs["theater"], {}).get("is_surge", False),
@@ -2932,19 +2916,14 @@ def get_threat_data():
         }
         # Active theater set for frontend target filtering (Target Visibility,
         # Attack Origin Feed). Derived entirely from the
-        # focused scenario's participants (ADR-005). Exposed under strategic_alert
-        # so the frontend can read it as strat.active_theaters.
-        _active_theaters = set()
+        # focused scenario's participants (ADR-005). Exposed under
+        # strategic_alert as strat.active_countries.
+        _active_countries = set()
         if core_theater:
-            _active_theaters.add(core_theater)
-        _active_theaters.update(correlate_targets)
-        _active_theaters.update(adversary_states)
-        _active_sorted = sorted(_active_theaters)
-        # ADR-V2-006 dual-write: `active_countries` is the canonical key;
-        # `active_theaters` is the legacy alias kept until the frontend fully
-        # migrates (radar.js reads active_countries first, falls back to it).
-        _new_cache["strategic"]["active_theaters"] = _active_sorted
-        _new_cache["strategic"]["active_countries"] = _active_sorted
+            _active_countries.add(core_theater)
+        _active_countries.update(correlate_targets)
+        _active_countries.update(adversary_states)
+        _new_cache["strategic"]["active_countries"] = sorted(_active_countries)
         _new_cache["focused_scenario"] = _focused_id
 
         # Scenario results are computed upstream (see scenario scoring block
@@ -3013,7 +2992,7 @@ def get_threat_data():
             "convergence_level": convergence_level, "convergence_bonus": conv_bonus,
             "sequence_bonus": seq_bonus, "sequence_status": seq_status,
             "domain_cyber": round(domain_scores.get("cyber", 0), 2), "domain_physical": round(domain_scores.get("physical", 0), 2), "domain_info": round(domain_scores.get("info", 0), 2),
-            "core_theater": _original_core_theater or core_theater, "degraded_theaters": [t for t in degraded_targets_effective if t in strategic_theaters_set],
+            "core_country": _original_core_theater or core_theater, "degraded_countries": [t for t in degraded_targets_effective if t in strategic_theaters_set],
             "is_coordinated": is_coordinated, "system_note": system_note,
             "velocity": round(velocity_val, 5), "is_ambush": is_ambush,
             "blockade_index": deep_analytics["blockade_index"],
@@ -3063,8 +3042,8 @@ def get_threat_data():
         _snap_strategic = _cache_snap.get("strategic", {})
 
     results = []
-    _degraded_raw = _snap_strategic.get("degraded_theaters_raw", [])
-    _degraded_eff = _snap_strategic.get("degraded_theaters", [])
+    _degraded_raw = _snap_strategic.get("degraded_countries_raw", [])
+    _degraded_eff = _snap_strategic.get("degraded_countries", [])
     # Participant role lookup from the focused scenario (for map marker differentiation).
     _focused_participants = focused_scenario_obj.participants if focused_scenario_obj else {}
     # Targets panel: show all focused scenario participants (ADR-005).

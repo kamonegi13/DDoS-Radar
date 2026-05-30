@@ -1882,7 +1882,7 @@
         const displayGrid = document.getElementById('display-checkboxes');
         if (!displayGrid) return;
         const strat = (latestData || {}).strategic_alert || {};
-        const active = new Set(strat.active_countries || strat.active_theaters || []);
+        const active = new Set(strat.active_countries || []);
         const _coreVal = resolveChainTargetCountry(strat);
         if (_coreVal) active.add(_coreVal);
         displayGrid.innerHTML = '';
@@ -1910,7 +1910,7 @@
         // Scope is now derived from the focused scenario server-side; the URL
         // only needs to carry the focus id. Preserve the shape for legacy callers.
         const strat = (latestData || {}).strategic_alert || {};
-        const active = new Set(strat.active_countries || strat.active_theaters || []);
+        const active = new Set(strat.active_countries || []);
         const _coreVal = resolveChainTargetCountry(strat);
         if (_coreVal) active.add(_coreVal);
         return {
@@ -11846,7 +11846,7 @@
             }).then(data => {
                 // Canonical key is `countries`; tolerate the legacy
                 // `theaters` key if some intermediate proxy strips one.
-                const items = data.countries || data.theaters || [];
+                const items = data.countries || [];
                 if (!items.length) return;
                 sel.innerHTML = '';
                 items.forEach(t => {
