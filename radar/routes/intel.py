@@ -28,6 +28,22 @@ def _safe_float_env(name: str, default: float) -> float:
 # auth layer; these decorators are defence-in-depth so a future
 # refactor that drops the hook (e.g. selective endpoint exception)
 # cannot accidentally expose intel data to anonymous clients.
+
+def _expose_country(items: list[dict]) -> list[dict]:
+    """Display-layer rename: expose the intel item's primary country as
+    `country`, dropping the legacy scalar `theater` key. The DB column,
+    scoring pipeline, and sensor-emit contract keep `theater` internally
+    (it is sourced from the per-sensor submit contract, not API back-compat);
+    this only renames the field the frontend reads. The Phase-3 `countries`
+    list is unchanged. ADR-V2-006 intel tail, 2026-05-30."""
+    out = []
+    for it in items:
+        d = dict(it)
+        d["country"] = d.pop("theater", "") or d.get("country", "") or ""
+        out.append(d)
+    return out
+
+
 @bp.route("/api/intel")
 @require_role("admin", "analyst", "viewer")
 def intel_list():
@@ -83,7 +99,7 @@ def intel_list():
         if sid in _src_creds:
             it["source_credibility"] = round(_src_creds[sid], 3)
     return jsonify({
-        "items": filtered,
+        "items": _expose_country(filtered),
         "stats": intel_queue.stats(),
         "ts":    time.time(),
     })
@@ -143,7 +159,7 @@ def intel_pending_triage():
     enriched = [e for e in enriched if e["priority"] >= min_priority]
 
     return jsonify({
-        "items": enriched[:limit],
+        "items": _expose_country(enriched[:limit]),
         "total_pending": len(pending),
         "shown": min(len(enriched), limit),
         "ts": now,
