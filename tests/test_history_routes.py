@@ -71,35 +71,9 @@ def test_history_countries_returns_country_set(client, admin_headers):
     assert body["countries"] == sorted(body["countries"])
 
 
-def test_history_theaters_legacy_alias_still_works(client, admin_headers):
-    """Path `/api/history/theaters` continues to respond 200 with both keys
-    (`theaters` for legacy callers, `countries` for new callers) and the
-    Deprecation/Sunset/Link headers RFC-8594 expects."""
-    resp = client.get("/api/history/theaters", headers=admin_headers)
-    assert resp.status_code == 200
-    body = resp.get_json()
-    assert "theaters" in body
-    assert "countries" in body
-    assert body["theaters"] == body["countries"]
-    # RFC 8594 — informational only; we don't auto-disable.
-    assert resp.headers.get("Deprecation") == "true"
-    assert "Sunset" in resp.headers
-    link = resp.headers.get("Link", "")
-    assert "/api/history/countries" in link
-    assert 'rel="successor-version"' in link
-
-
-def test_legacy_and_canonical_paths_return_same_payload(client, admin_headers):
-    canonical = client.get(
-        "/api/history/countries", headers=admin_headers
-    ).get_json()
-    legacy = client.get(
-        "/api/history/theaters", headers=admin_headers
-    ).get_json()
-    assert canonical["countries"] == legacy["countries"]
-
-
-# ── Helper rename ────────────────────────────────────────────────────────────
+# Tests for the /api/history/theaters legacy alias were removed 2026-05-30
+# along with the endpoint (ADR-V2-006 closure — no external callers; the
+# frontend reads /api/history/countries). See test_history_countries_*.
 
 
 def test_resolve_default_country_helper_exists():

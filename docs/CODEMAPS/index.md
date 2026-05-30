@@ -17,9 +17,9 @@ structural changes to keep maps in sync.
 | `radar/llm_client.py` | [radar.llm_client.md](radar.llm_client.md) | 699 |
 | `radar/persistence.py` | [radar.persistence.md](radar.persistence.md) | 139 |
 | `radar/scheduler.py` | [radar.scheduler.md](radar.scheduler.md) | 823 |
-| `radar/config.py` | [radar.config.md](radar.config.md) | 1592 |
-| `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 3203 |
-| `radar/routes/analytics.py` | [radar.routes.analytics.md](radar.routes.analytics.md) | 1255 |
+| `radar/config.py` | [radar.config.md](radar.config.md) | 1585 |
+| `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 3154 |
+| `radar/routes/analytics.py` | [radar.routes.analytics.md](radar.routes.analytics.md) | 1134 |
 | `radar/routes/admin.py` | [radar.routes.admin.md](radar.routes.admin.md) | 786 |
 | `radar/routes/intel.py` | [radar.routes.intel.md](radar.routes.intel.md) | 389 |
 | `radar/routes/conclusions_v2.py` | [radar.routes.conclusions_v2.md](radar.routes.conclusions_v2.md) | 864 |

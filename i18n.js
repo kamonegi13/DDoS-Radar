@@ -1664,18 +1664,6 @@ const STRINGS = {
     'scenario.pattern.silent_div_tip': 'Silent Divergence: cyber and physical signals active with no information-domain coverage — a classic pre-conflict indicator',
     'scenario.pattern.ctx_align_tip':  'Context Alignment: 3+ axes (temporal, spatial, target, direction) converging — signals are correlated, not coincidental',
     'scenario.eta_tip':                'Estimated time to next threat level at current velocity',
-    'scenario.clite.title':            'C-lite Evaluation',
-    'scenario.clite.load_btn':         'Load C-lite Evaluation',
-    'scenario.clite.switches':         'Switches',
-    'scenario.clite.misses':           'Misses',
-    'scenario.clite.miss_rate':        'Miss Rate',
-    'scenario.clite.avg_delta':        'Avg Delta',
-    'scenario.clite.max_delta':        'Max Delta',
-    'scenario.clite.by_scenario':      'By Scenario',
-    'scenario.clite.scenario':         'Scenario',
-    'scenario.clite.rec_lite_sufficient':    'LITE mode is sufficient — background miss rate is low',
-    'scenario.clite.rec_consider_c_medium':  'Consider C-MEDIUM — background miss rate exceeds 15%',
-    'scenario.clite.rec_insufficient_data':  'Insufficient data — more focus switches needed for evaluation',
 
     // §10.5 Pending Decisions (TL recalibration + ADR-015 dual-weight)
 

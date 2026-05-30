@@ -1882,7 +1882,7 @@
         const displayGrid = document.getElementById('display-checkboxes');
         if (!displayGrid) return;
         const strat = (latestData || {}).strategic_alert || {};
-        const active = new Set(strat.active_countries || strat.active_theaters || []);
+        const active = new Set(strat.active_countries || []);
         const _coreVal = resolveChainTargetCountry(strat);
         if (_coreVal) active.add(_coreVal);
         displayGrid.innerHTML = '';
@@ -1910,7 +1910,7 @@
         // Scope is now derived from the focused scenario server-side; the URL
         // only needs to carry the focus id. Preserve the shape for legacy callers.
         const strat = (latestData || {}).strategic_alert || {};
-        const active = new Set(strat.active_countries || strat.active_theaters || []);
+        const active = new Set(strat.active_countries || []);
         const _coreVal = resolveChainTargetCountry(strat);
         if (_coreVal) active.add(_coreVal);
         return {
@@ -11846,7 +11846,7 @@
             }).then(data => {
                 // Canonical key is `countries`; tolerate the legacy
                 // `theaters` key if some intermediate proxy strips one.
-                const items = data.countries || data.theaters || [];
+                const items = data.countries || [];
                 if (!items.length) return;
                 sel.innerHTML = '';
                 items.forEach(t => {
@@ -14572,54 +14572,6 @@
     };
 
     // Phase D: C-lite evaluation panel
-    window.loadCliteEvaluation = async function() {
-        const panel = document.getElementById('clite-eval-panel');
-        if (!panel) return;
-        panel.innerHTML = `<div style="color:#666;font-size:10px;">${_t('ui.loading')}</div>`;
-        try {
-            const resp = await fetch('/api/analytics/clite_evaluation?days=28');
-            if (!resp.ok) { panel.innerHTML = `<div style="color:red;">${_t('ui.error')} ${resp.status}</div>`; return; }
-            const d = await resp.json();
-            const missRatePct = (d.miss_rate * 100).toFixed(1);
-            const recCls = d.recommendation === 'CONSIDER_C_MEDIUM'
-                ? 'clite-rec-warn' : 'clite-rec-ok';
-            let html = '<div class="clite-eval">';
-            html += `<div class="clite-eval-title">${_t('scenario.clite.title')}</div>`;
-            html += '<div class="clite-eval-stats">';
-            html += `<div class="clite-stat"><span class="clite-stat-value">${d.total_switches}</span>`;
-            html += `<span class="clite-stat-label">${_t('scenario.clite.switches')}</span></div>`;
-            html += `<div class="clite-stat"><span class="clite-stat-value">${d.misses}</span>`;
-            html += `<span class="clite-stat-label">${_t('scenario.clite.misses')}</span></div>`;
-            html += `<div class="clite-stat"><span class="clite-stat-value">${missRatePct}%</span>`;
-            html += `<span class="clite-stat-label">${_t('scenario.clite.miss_rate')}</span></div>`;
-            html += `<div class="clite-stat"><span class="clite-stat-value">${d.avg_delta.toFixed(1)}</span>`;
-            html += `<span class="clite-stat-label">${_t('scenario.clite.avg_delta')}</span></div>`;
-            html += `<div class="clite-stat"><span class="clite-stat-value">${d.max_delta.toFixed(1)}</span>`;
-            html += `<span class="clite-stat-label">${_t('scenario.clite.max_delta')}</span></div>`;
-            html += '</div>';
-            html += `<div class="clite-recommendation ${recCls}">`;
-            html += `${_t('scenario.clite.rec_' + d.recommendation.toLowerCase())}</div>`;
-            // Per-scenario breakdown
-            const byScen = d.by_scenario || {};
-            const sids = Object.keys(byScen);
-            if (sids.length > 0) {
-                html += `<div class="clite-breakdown-title">${_t('scenario.clite.by_scenario')}</div>`;
-                html += '<table class="clite-breakdown-table"><thead><tr>';
-                html += `<th>${_t('scenario.clite.scenario')}</th><th>${_t('scenario.clite.switches')}</th>`;
-                html += `<th>${_t('scenario.clite.misses')}</th><th>${_t('scenario.clite.avg_delta')}</th></tr></thead><tbody>`;
-                for (const sid of sids) {
-                    const s = byScen[sid];
-                    html += `<tr><td>${_escHtml(sid)}</td><td>${s.switches}</td>`;
-                    html += `<td>${s.misses}</td><td>${s.avg_delta.toFixed(1)}</td></tr>`;
-                }
-                html += '</tbody></table>';
-            }
-            html += '</div>';
-            panel.innerHTML = html;
-        } catch (e) {
-            panel.innerHTML = `<div style="color:red;">${_escHtml(e.message)}</div>`;
-        }
-    };
 
     // §10.5 Pending Decisions panel RETIRED 2026-05-29 (expired v1→v2
     // migration gates; TL calibration now autonomous via tier governor).

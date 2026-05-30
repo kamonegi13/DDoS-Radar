@@ -43,26 +43,6 @@ def api_history_countries():
     return jsonify({"countries": _country_set_payload()})
 
 
-@bp.route("/api/history/theaters", methods=["GET"])
-def api_history_theaters():
-    """Deprecated alias for /api/history/countries.
-
-    Kept so any external/embedded caller still using the legacy path keeps
-    working. Body includes BOTH ``theaters`` (legacy key) and ``countries``
-    (canonical key); ``Deprecation`` and ``Sunset`` headers signal the move.
-    """
-    items = _country_set_payload()
-    resp = jsonify({"theaters": items, "countries": items})
-    resp.headers["Deprecation"] = "true"
-    # Sunset is a FIXED calendar date (RFC 8594 — informational; we don't
-    # auto-cut). Previously computed as now()+90d, which slid forward on every
-    # request and so could never actually arrive — a sunset that never sets.
-    # Pinned to the ADR-V2-003 v1-route sunset date.
-    resp.headers["Sunset"] = "Sun, 26 Jul 2026 00:00:00 GMT"
-    resp.headers["Link"] = '</api/history/countries>; rel="successor-version"'
-    return resp
-
-
 @bp.route("/api/history/timeseries", methods=["GET"])
 def api_history_timeseries():
     """Return time-series data for a country.
@@ -81,7 +61,7 @@ def api_history_timeseries():
     cutoff = time.time() - hours * 3600
 
     # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
-    result = {"theater": theater, "country": theater, "hours": hours, "series": {}}
+    result = {"country": theater, "hours": hours, "series": {}}
 
     # Timestamped series (ts_db)
     ts_data = _db.ts_get_since(theater, cutoff)
@@ -135,7 +115,7 @@ def api_history_hod_baseline():
 
     return jsonify({
         # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
-        "theater": theater, "country": theater, "type": table,
+        "country": theater, "type": table,
         "total_points": len(entries),
         "hod_stats": hod_stats,
         "raw": [{"ts": ts, "value": v} for ts, v in entries[-200:]],
@@ -185,7 +165,7 @@ def api_history_sequence_events():
     if theater:
         events = _db.seq_events_since(theater, cutoff)
         # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
-        return jsonify({"theater": theater, "country": theater, "hours": hours, "events": events})
+        return jsonify({"country": theater, "hours": hours, "events": events})
     else:
         # All theaters
         theaters = _db.seq_distinct_theaters()
@@ -193,7 +173,7 @@ def api_history_sequence_events():
         for th in theaters:
             result[th] = _db.seq_events_since(th, cutoff)
         # ADR-V2-006 A-2: dual-write `countries` alongside legacy `theaters`.
-        return jsonify({"hours": hours, "theaters": result, "countries": result})
+        return jsonify({"hours": hours, "countries": result})
 
 
 @bp.route("/api/history/threat_levels", methods=["GET"])
@@ -223,8 +203,6 @@ def api_history_export():
         return jsonify({"error": "theater required"}), 400
 
     export = {
-        "theater": theater,
-        # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
         "country": theater,
         "exported_at": datetime.datetime.now().isoformat(),
         "timeseries_scored": [{"ts": t, "value": v} for t, v in _db.ts_get(theater)],

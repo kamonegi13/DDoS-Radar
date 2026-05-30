@@ -176,15 +176,9 @@ DEFAULT_FOCUSED_SCENARIO = os.getenv("DEFAULT_FOCUSED_SCENARIO", "taiwan_conting
 GLOBAL_SIGNAL_WEIGHT     = float(os.getenv("GLOBAL_SIGNAL_WEIGHT", "0.5"))
 DOMAIN_CAP               = float(os.getenv("DOMAIN_CAP", "6.0"))
 
-# C-lite → C-medium migration evaluation (scenario-refactor §9.3.1).
-# A focus switch is a "miss" when |full_score - lite_score| > C_MEDIUM_DELTA_MISS.
-# If the miss-rate over a C_MEDIUM_WINDOW_DAYS window exceeds
-# C_MEDIUM_MISS_THRESHOLD, the evaluator recommends migrating that scenario
-# to C-medium (per-country low-frequency fetches for background participants).
-C_MEDIUM_WINDOW_DAYS    = int(os.getenv("C_MEDIUM_WINDOW_DAYS", "28"))
-C_MEDIUM_MISS_THRESHOLD = float(os.getenv("C_MEDIUM_MISS_THRESHOLD", "0.15"))
-C_MEDIUM_DELTA_MISS     = float(os.getenv("C_MEDIUM_DELTA_MISS", "2.0"))
-C_MEDIUM_MIN_SWITCHES   = int(os.getenv("C_MEDIUM_MIN_SWITCHES", "10"))
+# C-lite → C-medium migration-evaluation knobs RETIRED 2026-05-30 with the
+# clite_evaluation / cmedium_recommendation endpoints (lite≡full made the
+# evaluation degenerate). C-medium remains a valid future mode.
 
 # Shadow Sampling (ADR-025). Background harness that synthesises (lite, full)
 # score pairs for non-focused scenarios at low frequency, populating
@@ -219,7 +213,6 @@ SHADOW_SAMPLING_MIN_GAP_SEC          = int(os.getenv("SHADOW_SAMPLING_MIN_GAP_SE
 SHADOW_SAMPLING_MAX_PER_DAY          = int(os.getenv("SHADOW_SAMPLING_MAX_PER_DAY", "200"))
 SHADOW_SAMPLING_REQUIRE_OVERLAP      = os.getenv("SHADOW_SAMPLING_REQUIRE_OVERLAP", "false").lower() in ("true", "1", "yes")
 SHADOW_SAMPLING_WARMUP_SEC           = int(os.getenv("SHADOW_SAMPLING_WARMUP_SEC", "600"))
-C_MEDIUM_DELTA_MISS_SHADOW           = float(os.getenv("C_MEDIUM_DELTA_MISS_SHADOW", "1.4"))
 
 # Background TL display (scenario-refactor Phase 5 extension).
 # When False, the scenario bar renders only a score for background scenarios

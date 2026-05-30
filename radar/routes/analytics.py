@@ -7,9 +7,6 @@ from radar.auth import require_role
 from radar.config import (
     ADAPTIVE_ZSCORE_ENABLED, ADAPTIVE_ZSCORE_MIN_SAMPLES,
     SEQUENCE_WINDOW,
-    C_MEDIUM_WINDOW_DAYS, C_MEDIUM_MISS_THRESHOLD,
-    C_MEDIUM_DELTA_MISS, C_MEDIUM_MIN_SWITCHES,
-    C_MEDIUM_DELTA_MISS_SHADOW,
     SHOW_BACKGROUND_TL,
 )
 from radar import state as st
@@ -104,7 +101,7 @@ def api_sitrep():
         trend_val = latest["threat_level"] - levels[0]
         trend = "ESCALATING" if trend_val < 0 else "DE-ESCALATING" if trend_val > 0 else "STABLE"
 
-    core = latest.get("core_theater") or "UNKNOWN"
+    core = latest.get("core_country") or "UNKNOWN"
     note = latest.get("system_note", "")
     
     text_lines = [
@@ -123,7 +120,7 @@ def api_sitrep():
         f"   ACTIVE DOMAINS       : {', '.join(active_domains) if active_domains else 'NONE'}",
     ]
     
-    degraded = latest.get("degraded_theaters", [])
+    degraded = latest.get("degraded_countries", [])
     if degraded: 
         text_lines += [f"   CRITICAL OUTAGES     : {', '.join(degraded)}"]
     
@@ -151,8 +148,6 @@ def api_sitrep():
             "threat_avg_1h": avg_d, 
             "convergence": dominant_conv, 
             "active_domains": active_domains, 
-            "core_theater": core,
-            # ADR-V2-006 A-2: dual-write `core_country` alongside legacy `core_theater`.
             "core_country": core,
             "span_minutes": span_min,
             "cycle_count": len(_tl)
@@ -200,7 +195,7 @@ def api_deep_analytics():
     Returns velocity/acceleration/ambush/narrative/ISR/AIS/blockade_index.
     """
     _default_theater = (
-        st.global_cache.get("strategic", {}).get("core_theater")
+        st.global_cache.get("strategic", {}).get("core_country")
         or ""
     )
     theater_param = (_country_param("/api/deep_analytics") or _default_theater).upper()
@@ -224,7 +219,7 @@ def api_deep_analytics():
     strategic    = st.global_cache.get("strategic", {})
     analytics_v9 = strategic.get("analytics", {})
     core_spike_v = strategic.get("threat_breakdown", {}).get("core_spike_val", 0.0)
-    is_degraded  = theater_param in strategic.get("degraded_theaters", [])
+    is_degraded  = theater_param in strategic.get("degraded_countries", [])
     # Use v9 blockade_index from cache if available, otherwise recompute with compute_blockade_index
     if "blockade_index" in analytics_v9:
         blockade_idx = analytics_v9["blockade_index"]
@@ -250,8 +245,6 @@ def api_deep_analytics():
 
     return jsonify({
         "ts": datetime.datetime.now().isoformat(),
-        "theater": theater_param,
-        # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
         "country": theater_param,
         "acceleration_engine": {
             "velocity":      round(velocity, 6),
@@ -320,7 +313,7 @@ def api_salute_report():
     now_ts = datetime.datetime.now(datetime.timezone.utc)
     dtg = now_ts.strftime("%d%H%MZ %b %Y").upper()
     threat_level = strat.get("threat_level", 5)
-    core   = strat.get("core_theater", "UNKNOWN")
+    core   = strat.get("core_country", "UNKNOWN")
     bd     = strat.get("threat_breakdown", {})
     adv_raw = strat.get("adversary_strikes", [])
     adv     = list(dict.fromkeys(a.get("actor", str(a)) if isinstance(a, dict) else str(a) for a in adv_raw))
@@ -362,7 +355,7 @@ def api_salute_report():
     activity = "; ".join(acts) if acts else ("通常 — 特記すべき活動なし" if ja else "ROUTINE — NO SIGNIFICANT ACTIVITY")
 
     # LOCATION: primary threat location
-    degraded = strat.get("degraded_theaters", [])
+    degraded = strat.get("degraded_countries", [])
     loc_parts = [f"{'主要' if ja else 'PRIMARY'}: {core}"]
     if degraded:
         loc_parts.append(f"{'劣化中' if ja else 'DEGRADED'}: {', '.join(degraded)}")
@@ -684,9 +677,7 @@ def api_score_breakdown():
 
     return jsonify({
         "ts":           datetime.datetime.now().isoformat(),
-        "theater":      strat.get("core_theater"),
-        # ADR-V2-006 A-2: dual-write `country` alongside legacy `theater`.
-        "country":      strat.get("core_theater"),
+        "country":      strat.get("core_country"),
         "threat_level": strat.get("threat_level", 5),
         "domains": {
             d: {
@@ -1004,125 +995,13 @@ def adaptive_zscore_status():
     })
 
 
-_VALID_SOURCES = ("all", "analyst", "shadow_sampler")
-
-
-def _parse_source(raw: str | None) -> str | None:
-    """Map ?source= query value to focus_switch_log filter. 'all' (or
-    missing/invalid) returns None meaning no filter; 'analyst' /
-    'shadow_sampler' return the literal source value."""
-    if not raw:
-        return None
-    raw = raw.strip().lower()
-    if raw not in _VALID_SOURCES:
-        return None
-    return None if raw == "all" else raw
-
-
-@bp.route("/api/analytics/focus_switches", methods=["GET"])
-@_analytics_read
-def api_focus_switch_stats():
-    """C-medium migration metric: focus switch miss rate (Section 9.3.1).
-
-    Query params:
-      - days: lookback window (default 28)
-      - source: 'all' (default), 'analyst', or 'shadow_sampler' (ADR-025)
-    """
-    days = _safe_int(request.args.get("days", "28"), 28, min_val=1, max_val=365)
-    source = _parse_source(request.args.get("source"))
-    return jsonify(_db.focus_switch_stats(days=days, source=source))
-
-
-@bp.route("/api/analytics/clite_evaluation", methods=["GET"])
-@_analytics_read
-def api_clite_evaluation():
-    """Comprehensive C-lite vs C-medium evaluation dashboard.
-
-    Returns miss rate, delta distribution, per-scenario breakdown, and a
-    recommendation (LITE_SUFFICIENT / CONSIDER_C_MEDIUM / INSUFFICIENT_DATA).
-
-    Query params:
-      - days: lookback window (default 28)
-      - source: 'all' (default), 'analyst', or 'shadow_sampler' (ADR-025)
-    """
-    days = _safe_int(request.args.get("days", "28"), 28, min_val=1, max_val=365)
-    source = _parse_source(request.args.get("source"))
-    return jsonify(_db.focus_switch_detailed(days=days, source=source))
-
-
-@bp.route("/api/analytics/cmedium_recommendation", methods=["GET"])
-@_analytics_read
-def api_cmedium_recommendation():
-    """Per-scenario C-medium migration recommendation (scenario-refactor §9.3.1).
-
-    Honors C_MEDIUM_* config knobs:
-      - WINDOW_DAYS: observation window
-      - DELTA_MISS: |full_score - lite_score| above which an analyst switch counts as a miss
-      - DELTA_MISS_SHADOW: same threshold applied to shadow_sampler rows (ADR-025)
-      - MISS_THRESHOLD: miss_rate above which CONSIDER_C_MEDIUM fires
-      - MIN_SWITCHES: minimum switch count before any recommendation is meaningful
-
-    Query params:
-      - days: lookback window (default = C_MEDIUM_WINDOW_DAYS)
-      - source: 'all' (default), 'analyst', or 'shadow_sampler'
-    """
-    from radar.scenarios import scenario_store
-    days = _safe_int(
-        request.args.get("days", str(C_MEDIUM_WINDOW_DAYS)),
-        C_MEDIUM_WINDOW_DAYS, min_val=1, max_val=365,
-    )
-    source = _parse_source(request.args.get("source"))
-    lang = request.args.get("lang")
-    detailed = _db.focus_switch_detailed(days=days, source=source)
-    by_sid = detailed.get("by_scenario", {})
-
-    per_scenario = []
-    for sc in scenario_store.scorable():
-        stats = by_sid.get(sc.id, {})
-        switches = stats.get("switches", 0)
-        misses = stats.get("misses", 0)
-        max_delta = stats.get("max_delta", 0.0)
-        avg_delta = stats.get("avg_delta", 0.0)
-        miss_rate = round(misses / switches, 3) if switches else 0.0
-
-        if switches < C_MEDIUM_MIN_SWITCHES:
-            status = "INSUFFICIENT_DATA"
-            reason = (f"only {switches} focus switches in last {days}d "
-                      f"(need >= {C_MEDIUM_MIN_SWITCHES})")
-        elif miss_rate > C_MEDIUM_MISS_THRESHOLD:
-            status = "CONSIDER_C_MEDIUM"
-            reason = (f"miss_rate {miss_rate:.1%} exceeds threshold "
-                      f"{C_MEDIUM_MISS_THRESHOLD:.1%} "
-                      f"(|delta| > {C_MEDIUM_DELTA_MISS} on "
-                      f"{misses}/{switches} switches)")
-        else:
-            status = "LITE_SUFFICIENT"
-            reason = (f"miss_rate {miss_rate:.1%} within threshold "
-                      f"{C_MEDIUM_MISS_THRESHOLD:.1%}")
-
-        per_scenario.append({
-            "scenario_id": sc.id,
-            "label": _scenario_label(sc, lang),
-            "switches": switches,
-            "misses": misses,
-            "miss_rate": miss_rate,
-            "avg_delta": avg_delta,
-            "max_delta": max_delta,
-            "status": status,
-            "reason": reason,
-        })
-
-    return jsonify({
-        "period_days": days,
-        "source": source or "all",
-        "config": {
-            "delta_miss": C_MEDIUM_DELTA_MISS,
-            "delta_miss_shadow": C_MEDIUM_DELTA_MISS_SHADOW,
-            "miss_threshold": C_MEDIUM_MISS_THRESHOLD,
-            "min_switches": C_MEDIUM_MIN_SWITCHES,
-        },
-        "scenarios": per_scenario,
-    })
+# C-lite/C-medium evaluation endpoints (focus_switches, clite_evaluation,
+# cmedium_recommendation) RETIRED 2026-05-30. They gated whether to build
+# the C-medium scoring mode by measuring lite-vs-full divergence on focus
+# switches — but the Phase-9 score-path unification made lite≡full, so the
+# divergence is structurally 0 and the evaluation can no longer produce the
+# evidence it existed to gather. C-medium remains a valid future mode; its
+# evaluation tooling can be rebuilt if lite/full ever genuinely diverge.
 
 
 @bp.route("/api/analytics/calibration_advisory", methods=["GET"])
