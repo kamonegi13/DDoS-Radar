@@ -20,6 +20,29 @@
             --role-observer:     #667788;  /* Gray — observer / regional */
             --color-text:        #ffffff;  /* Primary text */
             --color-text-dim:    #aaaaaa;  /* Secondary text */
+
+            /* ── Sizing / chrome tokens (2026-05-30 design-system unification) ──
+               Colours were already tokenised; spacing, radius, borders, surfaces,
+               and modal widths were not — every panel/modal hard-coded its own,
+               which is the root of the "no visual consistency" drift. One source
+               of truth now. */
+            --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+            --space-4: 16px; --space-5: 24px;
+            --radius-sm: 3px; --radius-md: 6px; --radius-lg: 8px;
+            --border-subtle:  1px solid #333;            /* default header divider */
+            --border-panel:   1px solid #444;            /* floating panel edge */
+            --border-accent:  1px solid var(--color-accent);
+            --surface-panel:  rgba(15, 15, 15, 0.97);
+            --surface-modal:  rgba(15, 15, 15, 0.98);
+            --shadow-panel:   0 10px 30px rgba(0, 0, 0, 0.8);
+            --shadow-modal:   0 10px 50px rgba(0, 255, 255, 0.12);
+            /* Responsive modal widths: scale on wide screens but cap for
+               line-length readability (filling a 2560px ultrawide edge-to-edge
+               hurts scanability more than it helps). */
+            --modal-w-sm: min(480px,  92vw);
+            --modal-w-md: min(760px,  92vw);
+            --modal-w-lg: min(960px,  94vw);
+            --modal-w-xl: min(1320px, 95vw);
         }
 
         /* ── Secret field mask (avoids password manager popups) ── */
@@ -471,7 +494,8 @@
             display: flex; justify-content: space-between; align-items: center;
             font-family: 'Segoe UI', Tahoma, sans-serif;
             font-size: 13px; color: #fff; text-transform: uppercase; letter-spacing: 1px; font-weight: bold;
-            border-bottom: 1px solid #555;
+            border-bottom: var(--border-subtle);
+            padding-bottom: var(--space-2);
         }
         .panel-header-unified > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
         .panel-header-unified > div { display: flex; align-items: center; flex-shrink: 0; }
@@ -484,7 +508,7 @@
         .docked .drag-handle { padding: 12px 15px; background: #1a1a1a; margin: 0; }
         .docked .panel-content { padding: 15px; display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
 
-        .floating { position: absolute; z-index: 4100; background: rgba(15, 15, 15, 0.97); padding: 15px 20px; border-radius: 8px; border: 1px solid #444; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8); }
+        .floating { position: absolute; z-index: 4100; background: var(--surface-panel); padding: var(--space-4) var(--space-5); border-radius: var(--radius-lg); border: var(--border-panel); box-shadow: var(--shadow-panel); }
         .floating.active { z-index: 4200; border-color: #777; box-shadow: 0 4px 25px rgba(0, 255, 255, 0.2); }
         .floating .drag-handle { margin: 0 0 10px 0; padding-bottom: 8px; }
         .floating .panel-content { padding: 0; display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
@@ -506,8 +530,8 @@
         
         /* ── Modals ── */
         #settings-backdrop { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.85); z-index: 5000; }
-        .modal-window { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 750px; max-width: 90vw; height: 80vh; max-height: 800px; background: rgba(15, 15, 15, 0.98); padding: 25px; border-radius: 8px; border: 1px solid var(--color-accent); box-shadow: 0 10px 50px rgba(0, 255, 255, 0.15); z-index: 5100; flex-direction: column; }
-        .modal-header { padding-bottom: 12px; font-size: 15px; }
+        .modal-window { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: var(--modal-w-md); height: 80vh; max-height: 800px; background: var(--surface-modal); padding: var(--space-5); border-radius: var(--radius-lg); border: var(--border-accent); box-shadow: var(--shadow-modal); z-index: 5100; flex-direction: column; }
+        .modal-header { font-size: 15px; }
         
         .tabs { display: flex; border-bottom: 1px solid #444; margin: 15px 0; }
         .tab { padding: 10px 20px; cursor: pointer; font-size: 13px; line-height: 1.2; color: var(--color-muted); border-bottom: 2px solid transparent; transition: 0.2s; flex-grow: 1; text-align: center; text-transform: uppercase; letter-spacing: 1px; }
@@ -541,8 +565,8 @@
         .region-pill.active { color: var(--color-accent); border-color: #00ffff88; background: rgba(0,255,255,0.07); }
 
         /* ── Settings Modal: Wide layout with mini-map ── */
-        #settings-modal { width: min(1060px, 95vw); }
-        #help-modal { width: min(1060px, 95vw); }
+        #settings-modal { width: var(--modal-w-xl); }
+        #help-modal { width: var(--modal-w-xl); }
         .modal-main-area { display: flex; gap: 12px; flex: 1; min-height: 0; overflow: hidden; }
         .modal-content-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
         .tab-content { display: none; flex-direction: column; flex: 1; overflow: hidden; min-height: 0; padding-right: 4px; }
@@ -1130,7 +1154,7 @@
         .sitrep-card-value { font-size: 20px; font-weight: bold; color: #eee; }
         .sitrep-card-sub   { font-size: 11px; color: var(--color-muted); margin-top: 2px; }
 
-        #country-modal { width: 620px; max-height: 80vh; }
+        #country-modal { width: var(--modal-w-md); max-height: 80vh; }
         .cip-header { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid #333; margin-bottom: 14px; }
         .cip-flag   { font-size: 28px; line-height: 1; }
         .cip-title  { font-size: 18px; font-weight: bold; color: #eee; }
