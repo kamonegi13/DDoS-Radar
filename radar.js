@@ -1248,9 +1248,9 @@
             const curTheater = resolveChainTargetCountry(strat);
             const active = _llmItems.filter(i =>
                 (i.status === 'auto_confirmed' || i.status === 'confirmed') &&
-                (!curTheater || i.theater === curTheater)
+                (!curTheater || i.country === curTheater)
             );
-            const reviewNeeded = _llmItems.filter(i => i.status === 'review_needed' && (!curTheater || i.theater === curTheater));
+            const reviewNeeded = _llmItems.filter(i => i.status === 'review_needed' && (!curTheater || i.country === curTheater));
             if (reviewNeeded.length > 0) {
                 llmIntelEl.textContent = `⚠ ${reviewNeeded.length} ${_t('chain.llm_intel.review')}`;
                 llmIntelEl.style.color = '#ff8800';
@@ -12984,7 +12984,7 @@
             <div class="llm-item-header">
                 <span class="llm-item-badge ${badgeClass}">${badgeLabel}</span>
                 <span class="llm-item-time">${ageStr}</span>
-                <span class="llm-item-theater">${_escHtml(item.country ?? item.theater ?? '')}</span>
+                <span class="llm-item-theater">${_escHtml(item.country ?? '')}</span>
                 <span class="${confClass}">${confPct}</span>
                 ${credLine}
                 ${corrLine}
@@ -13133,7 +13133,7 @@
                 <span class="llm-item-badge ${badgeClass}">${badgeLabel}</span>
                 <span class="llm-item-time">${timeStr}</span>
                 ${statusLabel}
-                <span class="llm-item-theater">${_escHtml(item.country ?? item.theater ?? '')}</span>
+                <span class="llm-item-theater">${_escHtml(item.country ?? '')}</span>
             </div>
             <div class="llm-item-headline">${_escHtml(item.headline || '')}</div>
             <div class="llm-item-conf"><span class="${confClass}">${confPct}</span> conf${scoreApplied ? '' : (scoreStr ? '<span class="llm-item-score">' + scoreStr + '</span>' : '')}</div>
