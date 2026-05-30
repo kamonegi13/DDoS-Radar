@@ -77,6 +77,15 @@ if ! python scripts/check_secrets.py; then
     FAIL=1
 fi
 
+step "v1→v2 migration-scaffolding residue (v1_sunset_audit)"
+# Surfaces migration leftovers that outlived the v1→v2 cutover (dead diff
+# samplers, stale flags, residual v1 code) — the orphan class that silently
+# degraded production before the 2026-05-30 teardown. Warn-only for now: the
+# only standing HIGH is transient (conclusion_diff_log had pre-retirement
+# writes inside the 24h window) and self-clears. Flip to `--strict` once that
+# window passes so scaffolding teardown is enforced, not manual.
+python -m radar.calibration.v1_sunset_audit || true
+
 if [[ $FAIL -eq 0 ]]; then
     echo
     echo "All gates passed."
