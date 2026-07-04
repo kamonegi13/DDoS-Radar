@@ -259,3 +259,120 @@ def test_endpoint_returns_v2_envelope_and_data(client, admin_headers):
     assert data["summary"]["chronic_count"] == 1
     assert data["chronic"][0]["scenario_id"] == "scenario_endpoint"
     assert data["chronic"][0]["is_chronic"] is True
+
+
+# ── duty-cycle chronic detection (2026-07-04) ────────────────────────────────
+#
+# The consecutive-run detector above is blind to flapping: production audit
+# 2026-07-03 found attack_mode INSUFFICIENT_DATA on ~20-30% of ticks across
+# ALL scenarios for two months, yet chronic_count stayed 0 because every run
+# closed within hours. Duty-cycle detection sums unavailable time over a
+# rolling window instead — time-based (run durations), so it stays correct
+# even if conclusion writes become change-gated.
+
+_DAY = 86400.0
+
+
+class TestDutyCycleStates:
+
+    def test_flapping_unavailability_is_duty_chronic(self):
+        """4 closed 1-day runs in a 14d window = 28.6% duty → chronic,
+        even though the latest state is 'available' (consecutive detector
+        sees nothing)."""
+        now = time.time()
+        for i in range(4):
+            start = now - (12 - i * 3) * _DAY
+            _insert("duty_a", "attack_mode",
+                    observed_at=start + _DAY, first_seen_at=start,
+                    is_available=1, reason="resolved")
+        states = ic.compute_duty_cycle_states(
+            db, now=now, window_days=14, duty_threshold=0.20,
+        )
+        mine = [s for s in states if s.scenario_id == "duty_a"]
+        assert len(mine) == 1
+        assert mine[0].is_chronic
+        assert 0.27 <= mine[0].duty_cycle <= 0.30
+        # And the consecutive detector indeed does NOT flag it.
+        assert all(
+            not st.is_chronic for st in ic.compute_states(
+                db, now=now, threshold_days=7.0,
+            ) if st.scenario_id == "duty_a"
+        )
+
+    def test_low_duty_is_not_chronic(self):
+        now = time.time()
+        start = now - 5 * _DAY
+        _insert("duty_b", "attack_mode",
+                observed_at=start + _DAY, first_seen_at=start,
+                is_available=1, reason="resolved")
+        states = ic.compute_duty_cycle_states(
+            db, now=now, window_days=14, duty_threshold=0.20,
+        )
+        mine = [s for s in states if s.scenario_id == "duty_b"]
+        assert len(mine) == 1
+        assert not mine[0].is_chronic
+        assert 0.06 <= mine[0].duty_cycle <= 0.08
+
+    def test_open_run_counts_toward_duty(self):
+        """An open run (latest row unavailable) contributes now-first_seen."""
+        now = time.time()
+        start = now - 4 * _DAY
+        _insert("duty_c", "attack_mode",
+                observed_at=now - 60, first_seen_at=start,
+                is_available=0)
+        states = ic.compute_duty_cycle_states(
+            db, now=now, window_days=14, duty_threshold=0.20,
+        )
+        mine = [s for s in states if s.scenario_id == "duty_c"]
+        assert len(mine) == 1
+        assert mine[0].is_chronic  # 4/14 = 28.6%
+        assert 0.27 <= mine[0].duty_cycle <= 0.30
+
+    def test_run_straddling_window_start_is_clamped(self):
+        """A closed run [now-20d, now-13d] only counts its 1 in-window day."""
+        now = time.time()
+        _insert("duty_d", "attack_mode",
+                observed_at=now - 13 * _DAY, first_seen_at=now - 20 * _DAY,
+                is_available=1, reason="resolved")
+        states = ic.compute_duty_cycle_states(
+            db, now=now, window_days=14, duty_threshold=0.20,
+        )
+        mine = [s for s in states if s.scenario_id == "duty_d"]
+        assert len(mine) == 1
+        assert not mine[0].is_chronic
+        assert 0.06 <= mine[0].duty_cycle <= 0.08
+
+
+class TestChronicSnapshotDutyMerge:
+
+    def test_snapshot_includes_duty_chronic_entry(self):
+        now = time.time()
+        for i in range(4):
+            start = now - (12 - i * 3) * _DAY
+            _insert("duty_snap", "attack_mode",
+                    observed_at=start + _DAY, first_seen_at=start,
+                    is_available=1, reason="resolved")
+        snap = ic.chronic_snapshot(db, now=now)
+        entries = [
+            c for c in snap["chronic"]
+            if c.get("scenario_id") == "duty_snap"
+        ]
+        assert len(entries) == 1
+        assert entries[0].get("criterion") == "duty_cycle"
+        assert snap["summary"]["chronic_count"] >= 1
+        assert "duty" in snap  # dedicated section with window/threshold
+
+    def test_consecutive_chronic_not_duplicated_by_duty(self):
+        """A pair chronic under BOTH criteria appears once (consecutive
+        wins; its entry carries criterion=consecutive_days)."""
+        now = time.time()
+        _insert("duty_both", "attack_mode",
+                observed_at=now - 60, first_seen_at=now - 9 * _DAY,
+                is_available=0)
+        snap = ic.chronic_snapshot(db, now=now)
+        entries = [
+            c for c in snap["chronic"]
+            if c.get("scenario_id") == "duty_both"
+        ]
+        assert len(entries) == 1
+        assert entries[0].get("criterion") == "consecutive_days"

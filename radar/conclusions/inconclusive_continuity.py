@@ -56,6 +56,17 @@ log = logging.getLogger("radar.conclusions.inconclusive_continuity")
 THRESHOLD_DAYS_MIN = 3.0
 THRESHOLD_DAYS_DEFAULT = 7.0
 
+# Duty-cycle criterion (2026-07-04). The consecutive-run rule above is
+# blind to flapping: attack_mode spent ~20-30% of ticks UNAVAILABLE for
+# two months across all scenarios while chronic_count stayed 0, because
+# every run closed within hours. Duty-cycle sums unavailable TIME over a
+# rolling window — duration-based, so it stays correct even when
+# conclusion writes are change-gated rather than per-tick.
+DUTY_WINDOW_DAYS_MIN = 7.0
+DUTY_WINDOW_DAYS_DEFAULT = 14.0
+DUTY_THRESHOLD_MIN = 0.05  # same anti-disable spirit as THRESHOLD_DAYS_MIN
+DUTY_THRESHOLD_DEFAULT = 0.20
+
 
 @dataclass(frozen=True)
 class ContinuityState:
@@ -139,6 +150,120 @@ def compute_states(
     return out
 
 
+@dataclass(frozen=True)
+class DutyCycleState:
+    """Rolling-window unavailability share for one (scenario, type)."""
+    scenario_id:      str
+    conclusion_type:  str
+    duty_cycle:       float  # 0..1 share of the window spent unavailable
+    unavailable_sec:  float
+    window_days:      float
+    is_chronic:       bool
+    runs_counted:     int
+
+
+def _resolve_duty_params() -> tuple[float, float]:
+    """(window_days, duty_threshold) via the layered config registry,
+    with the same graceful fallback as _resolve_threshold_days."""
+    try:
+        from radar.config_layered import get_config
+        window = float(get_config("CHRONIC_DUTY_WINDOW_DAYS"))
+    except Exception:
+        window = DUTY_WINDOW_DAYS_DEFAULT
+    try:
+        from radar.config_layered import get_config
+        thr = float(get_config("CHRONIC_DUTY_THRESHOLD"))
+    except Exception:
+        thr = DUTY_THRESHOLD_DEFAULT
+    window = max(DUTY_WINDOW_DAYS_MIN, window)
+    thr = min(1.0, max(DUTY_THRESHOLD_MIN, thr))
+    return window, thr
+
+
+def compute_duty_cycle_states(
+    db: "RadarDB",
+    *,
+    now: Optional[float] = None,
+    window_days: Optional[float] = None,
+    duty_threshold: Optional[float] = None,
+) -> list[DutyCycleState]:
+    """Per (scenario, type): share of the trailing window spent in an
+    unavailability run. Sums CLOSED runs (is_available=1 rows carry the
+    full [first_seen_at, observed_at] span; extends are not double-counted)
+    plus the currently OPEN run if the pair's latest row is unavailable.
+    Spans are clamped to the window. Empty list on any DB error (NP3)."""
+    n = float(now) if now is not None else time.time()
+    if window_days is None or duty_threshold is None:
+        cfg_window, cfg_thr = _resolve_duty_params()
+        window_days = window_days if window_days is not None else cfg_window
+        duty_threshold = (
+            duty_threshold if duty_threshold is not None else cfg_thr
+        )
+    window_days = max(DUTY_WINDOW_DAYS_MIN, float(window_days))
+    duty_threshold = min(1.0, max(DUTY_THRESHOLD_MIN, float(duty_threshold)))
+    window_sec = window_days * 86400.0
+    window_start = n - window_sec
+
+    try:
+        conn = db._get_conn()  # noqa: SLF001
+        closed = list(conn.execute(
+            "SELECT scenario_id, conclusion_type, first_seen_at, observed_at "
+            "FROM inconclusive_continuity_log "
+            "WHERE is_available = 1 AND observed_at >= ?",
+            (window_start,),
+        ))
+        latest_open = list(conn.execute(
+            "SELECT scenario_id, conclusion_type, first_seen_at "
+            "FROM inconclusive_continuity_log "
+            "WHERE id IN ("
+            "    SELECT MAX(id) FROM inconclusive_continuity_log "
+            "    GROUP BY scenario_id, conclusion_type"
+            ") AND is_available = 0"
+        ))
+    except sqlite3.OperationalError:
+        return []
+    except Exception as exc:
+        log.debug("compute_duty_cycle_states: query failed: %s", exc)
+        return []
+
+    acc: dict[tuple[str, str], list[float]] = {}  # key -> [sec, runs]
+    for r in closed:
+        overlap = min(float(r["observed_at"]), n) - max(
+            float(r["first_seen_at"]), window_start,
+        )
+        if overlap <= 0:
+            continue
+        cur = acc.setdefault(
+            (str(r["scenario_id"]), str(r["conclusion_type"])), [0.0, 0],
+        )
+        cur[0] += overlap
+        cur[1] += 1
+    for r in latest_open:
+        overlap = n - max(float(r["first_seen_at"]), window_start)
+        if overlap <= 0:
+            continue
+        cur = acc.setdefault(
+            (str(r["scenario_id"]), str(r["conclusion_type"])), [0.0, 0],
+        )
+        cur[0] += overlap
+        cur[1] += 1
+
+    out = [
+        DutyCycleState(
+            scenario_id=sid,
+            conclusion_type=ctype,
+            duty_cycle=round(min(1.0, sec / window_sec), 4),
+            unavailable_sec=round(sec, 1),
+            window_days=window_days,
+            is_chronic=(sec / window_sec) >= duty_threshold,
+            runs_counted=runs,
+        )
+        for (sid, ctype), (sec, runs) in acc.items()
+    ]
+    out.sort(key=lambda s: (-int(s.is_chronic), -s.duty_cycle))
+    return out
+
+
 def current_run_length_sec(
     db: "RadarDB",
     scenario_id: str,
@@ -183,10 +308,40 @@ def chronic_snapshot(
     consistent."""
     n = float(now) if now is not None else time.time()
     thr = _resolve_threshold_days()
+    duty_window, duty_thr = _resolve_duty_params()
     try:
         states = compute_states(db, now=n, threshold_days=thr)
-        chronic = [asdict(s) for s in states if s.is_chronic]
+        chronic = [
+            {**asdict(s), "criterion": "consecutive_days"}
+            for s in states if s.is_chronic
+        ]
         transient = [asdict(s) for s in states if not s.is_chronic]
+
+        # Merge duty-cycle chronic pairs not already flagged by the
+        # consecutive-run rule. Synthesized entries mirror the
+        # ContinuityState keys so downstream consumers (HUD chip,
+        # scheduler record_failure loop) work unchanged.
+        duty_states = compute_duty_cycle_states(
+            db, now=n, window_days=duty_window, duty_threshold=duty_thr,
+        )
+        flagged = {(c["scenario_id"], c["conclusion_type"]) for c in chronic}
+        for d in duty_states:
+            if not d.is_chronic:
+                continue
+            if (d.scenario_id, d.conclusion_type) in flagged:
+                continue
+            chronic.append({
+                "scenario_id":      d.scenario_id,
+                "conclusion_type":  d.conclusion_type,
+                "is_chronic":       True,
+                "days_unavailable": round(d.unavailable_sec / 86400.0, 4),
+                "first_seen_at":    n - d.window_days * 86400.0,
+                "last_observed_at": n,
+                "reason":           "duty_cycle",
+                "criterion":        "duty_cycle",
+                "duty_cycle":       d.duty_cycle,
+            })
+
         return {
             "computed_at":   n,
             "threshold_days": thr,
@@ -194,9 +349,17 @@ def chronic_snapshot(
                 "total":          len(states),
                 "chronic_count":  len(chronic),
                 "transient_count": len(transient),
+                "duty_chronic_count": sum(
+                    1 for d in duty_states if d.is_chronic
+                ),
             },
             "chronic":   chronic,
             "transient": transient,
+            "duty": {
+                "window_days": duty_window,
+                "threshold":   duty_thr,
+                "states":      [asdict(d) for d in duty_states],
+            },
         }
     except Exception as exc:
         log.warning("chronic_snapshot degraded: %s", exc)
@@ -204,8 +367,10 @@ def chronic_snapshot(
             "computed_at":   n,
             "threshold_days": thr,
             "summary": {"total": 0, "chronic_count": 0,
-                        "transient_count": 0},
+                        "transient_count": 0, "duty_chronic_count": 0},
             "chronic":   [],
             "transient": [],
+            "duty": {"window_days": duty_window, "threshold": duty_thr,
+                     "states": []},
             "error":     str(exc)[:200],
         }
