@@ -1997,6 +1997,75 @@
     color: #888;
 }
 
+/* ── Human-Anchor labeling queue (AP3, 2026-07-04) ─────────────────── */
+.anchor-body {
+    padding: 8px 10px;
+    color: var(--color-text);
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.anchor-body .anchor-progress {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-bottom: 8px;
+}
+.anchor-body .anchor-row {
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 8px;
+    background: var(--color-panel-alt, rgba(255, 255, 255, 0.02));
+}
+.anchor-body .anchor-row-meta {
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+.anchor-body .anchor-kind {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-accent);
+    border: 1px solid var(--color-accent);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.anchor-body .anchor-rationale {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-bottom: 6px;
+    line-height: 1.45;
+}
+.anchor-body .anchor-btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.anchor-body .anchor-label-btn {
+    font-size: 10px;
+    padding: 3px 6px;
+    background: transparent;
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    cursor: pointer;
+}
+.anchor-body .anchor-label-btn:hover {
+    border-color: var(--color-accent);
+}
+.anchor-body .anchor-label-btn.anchor-suggested {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+.anchor-body .anchor-label-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+.anchor-body .anchor-empty {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    padding: 12px 4px;
+}
+
 /* ── Sensor Watchpane (Layer 3) ───────────────────────────────────── */
 .wp-body {
     padding: 0;

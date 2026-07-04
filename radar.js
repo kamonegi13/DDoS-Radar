@@ -5532,6 +5532,10 @@
         // mutation is daily so a tighter poll is wasted.
         _refreshChronicChip();
         setInterval(_refreshChronicChip, 60 * 1000);
+        // ANCHOR chip (AP3 human-label queue). Weekly cadence content;
+        // 5 min poll is a generous upper bound.
+        _refreshAnchorChip();
+        setInterval(_refreshAnchorChip, 5 * 60 * 1000);
     });
 
     // ── AUTO-CAL chip (Phase 3 hardening) ────────────────────────────────
@@ -5687,6 +5691,172 @@
             // NP3 — leave previous values.
         }
     }
+
+    // ── ANCHOR chip + Human-Anchor labeling queue (AP3, 2026-07-04) ─────
+    // Calibration is otherwise 100% self-graded: every recall/precision
+    // figure comes from auto labels, and the auto-labeler has shipped two
+    // consecutive silent defects no metric could catch (grader == graded).
+    // The queue serves the few conclusions whose HUMAN label buys the most
+    // calibration information; answers post to the existing per-conclusion
+    // feedback endpoint (server derives analyst_id from the JWT).
+    let _anchorLastFetchMs = 0;
+    const _ANCHOR_TTL_MS = 60 * 1000;
+
+    async function _refreshAnchorChip(force) {
+        const now = Date.now();
+        if (!force && now - _anchorLastFetchMs < _ANCHOR_TTL_MS) return;
+        _anchorLastFetchMs = now;
+        const valEl = document.getElementById('hud-anchor-value');
+        const chip = document.getElementById('hud-anchor-chip');
+        if (!valEl || !chip) return;
+        try {
+            const resp = await fetch('/api/v2/human_anchor/queue');
+            if (!resp.ok) return;
+            const q = await resp.json();
+            const pending = q.pending || 0;
+            const done = q.human_labels_window || 0;
+            const target = q.target_per_week || 5;
+            valEl.textContent = done + '/' + target;
+            let band = 'good';
+            if (done < target && pending > 0) band = 'warn';
+            _applySelfEvalClass('hud-anchor-chip', band);
+            const lines = [];
+            lines.push('Human anchor (AP3): ' + done + '/' + target
+                       + ' human labels this week, ' + pending + ' queued');
+            for (const c of (q.candidates || []).slice(0, 5)) {
+                lines.push('  [' + c.kind + '] ' + c.scenario_id
+                           + ' TL' + c.state);
+            }
+            lines.push('Click to open the labeling queue.');
+            chip.title = lines.join('\n');
+        } catch (_) {
+            // NP3 — leave previous values.
+        }
+    }
+
+    let _anchorToggleFn = null;
+
+    function _anchorLabelButton(cand, label, isSuggested) {
+        const btn = document.createElement('button');
+        btn.className = 'anchor-label-btn'
+            + (isSuggested ? ' anchor-suggested' : '');
+        btn.textContent = _t('drill_modal.feedback.label.' + label);
+        btn.onclick = async () => {
+            let url = null;
+            if (label === 'TRUE_POSITIVE') {
+                url = window.prompt(
+                    _t('human_anchor.prompt.outcome_url'), '');
+            }
+            const payload = {
+                label: label,
+                notes: 'human-anchor queue (' + cand.kind + ')',
+            };
+            if (url && url.trim()) {
+                payload.observed_outcome_url = url.trim();
+            }
+            btn.disabled = true;
+            try {
+                const resp = await fetch(
+                    '/api/v2/conclusions/'
+                    + encodeURIComponent(cand.conclusion_id) + '/feedback',
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                if (resp.status === 201) {
+                    _refreshAnchorChip(true);
+                    _anchorRenderQueue();
+                } else {
+                    btn.disabled = false;
+                }
+            } catch (_) {
+                btn.disabled = false;
+            }
+        };
+        return btn;
+    }
+
+    async function _anchorRenderQueue() {
+        const body = document.querySelector('#human-anchor-panel .anchor-body');
+        if (!body) return;
+        body.innerHTML = '<div class="anchor-empty">'
+            + _escHtml(_t('human_anchor.loading')) + '</div>';
+        let q = null;
+        try {
+            const resp = await fetch('/api/v2/human_anchor/queue');
+            if (resp.ok) q = await resp.json();
+        } catch (_) { /* fall through to error state */ }
+        if (!q) {
+            body.innerHTML = '<div class="anchor-empty">'
+                + _escHtml(_t('human_anchor.error')) + '</div>';
+            return;
+        }
+        body.innerHTML = '';
+        const head = document.createElement('div');
+        head.className = 'anchor-progress';
+        head.textContent = _t('human_anchor.progress', {
+            done: q.human_labels_window || 0,
+            target: q.target_per_week || 5,
+        });
+        body.appendChild(head);
+        if (!q.candidates || q.candidates.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'anchor-empty';
+            empty.textContent = _t('human_anchor.empty');
+            body.appendChild(empty);
+            return;
+        }
+        for (const cand of q.candidates) {
+            const row = document.createElement('div');
+            row.className = 'anchor-row';
+            const meta = document.createElement('div');
+            meta.className = 'anchor-row-meta';
+            const when = new Date(cand.observed_at * 1000)
+                .toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+            meta.innerHTML =
+                '<span class="anchor-kind">' + _escHtml(cand.kind)
+                + '</span> <b>' + _escHtml(cand.scenario_id) + '</b> TL'
+                + _escHtml(String(cand.state)) + ' · ' + _escHtml(when);
+            row.appendChild(meta);
+            const why = document.createElement('div');
+            why.className = 'anchor-rationale';
+            why.textContent = cand.rationale;
+            row.appendChild(why);
+            const btns = document.createElement('div');
+            btns.className = 'anchor-btn-row';
+            const suggested = cand.suggested_labels || [];
+            const all = ['TRUE_POSITIVE', 'FALSE_POSITIVE',
+                         'TRUE_NEGATIVE', 'FALSE_NEGATIVE'];
+            for (const label of suggested) {
+                btns.appendChild(_anchorLabelButton(cand, label, true));
+            }
+            for (const label of all) {
+                if (suggested.indexOf(label) === -1) {
+                    btns.appendChild(_anchorLabelButton(cand, label, false));
+                }
+            }
+            row.appendChild(btns);
+            body.appendChild(row);
+        }
+    }
+
+    window.toggleHumanAnchorPanel = function () {
+        if (!_anchorToggleFn) {
+            _anchorToggleFn = window.createFloatingPanel({
+                id: 'human-anchor-panel',
+                titleKey: 'human_anchor.title',
+                titleFallback: 'Human Anchor Queue',
+                defaultLeft: Math.max(20, window.innerWidth - 540),
+                defaultTop: 150,
+                width: 500,
+                bodyClass: 'anchor-body',
+                onShow: () => { _anchorRenderQueue(); },
+            });
+            if (!_anchorToggleFn) return;
+        }
+        _anchorToggleFn();
+    };
 
     // ── Triage Lane / Alert Lane (AP1 — Active Triage) ──────────────────
     // Active Triage: ranks event-shaped conclusions (anomaly + attack_mode

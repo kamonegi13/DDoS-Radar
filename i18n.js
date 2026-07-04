@@ -124,6 +124,15 @@ const STRINGS = {
     'drill_modal.feedback.summary_empty':     'No feedback yet for this conclusion.',
     'drill_modal.feedback.disabled':          'Feedback unavailable for unsaved conclusions.',
     'drill_modal.feedback.status.no_label':   'Choose a label first.',
+
+    // Human-anchor labeling queue (AP3, 2026-07-04)
+    'human_anchor.title':              'Human Anchor Queue',
+    'human_anchor.loading':            'Loading queue…',
+    'human_anchor.error':              'Queue unavailable — check API/auth.',
+    'human_anchor.empty':              'Queue empty — every candidate this week has a human label. Thank you.',
+    'human_anchor.progress':           'Human labels this week: {done}/{target}. Each answer anchors recall to an independent judgment.',
+    'human_anchor.prompt.outcome_url': 'Outcome URL (news/ACLED evidence, optional — a URL also records a confirmed threat):',
+
     'drill_modal.feedback.status.submitting': 'Saving…',
     'drill_modal.feedback.status.saved':      'Feedback saved.',
     'drill_modal.feedback.status.bad_label':  'Server rejected the label.',
