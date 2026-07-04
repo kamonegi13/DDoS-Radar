@@ -528,7 +528,14 @@ def v2_self_eval():
 
     try:
         # Recall — re-use the same collect_metrics path the CI gate uses
-        # so the chip and the gate cannot disagree.
+        # so the chip and the gate cannot disagree. Windowed to the same
+        # horizon as per-conclusion calibration_status (2026-07-04): the
+        # previous all-time aggregate was a different number under the
+        # same "recall" label, and would have silently shifted once the
+        # 180d feedback retention started pruning. The auto/human split
+        # is surfaced so the analyst can see when recall is entirely
+        # self-graded (AP3 — zero human labels means the number has no
+        # independent anchor).
         import sys
         from pathlib import Path
         scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
@@ -536,8 +543,16 @@ def v2_self_eval():
             sys.path.insert(0, str(scripts_dir))
         from report_recall_metrics import collect_metrics  # noqa: E402
 
+        from radar.conclusions import calibration as _calib_mod
         from radar.database import db as _shared_db
-        cells = collect_metrics(_shared_db, exclude_auto=False)
+        _window_days = int(getattr(_calib_mod, "_WINDOW_DAYS", 30))
+        _since = _time.time() - _window_days * 86400.0
+        cells = collect_metrics(
+            _shared_db, exclude_auto=False, since=_since,
+        )
+        human_cells = collect_metrics(
+            _shared_db, exclude_auto=True, since=_since,
+        )
         if cells:
             tp = sum(c.tp for c in cells)
             fn = sum(c.fn for c in cells)
@@ -545,6 +560,15 @@ def v2_self_eval():
             out["recall"] = (
                 None if recall is None else round(float(recall), 3)
             )
+        labels_total = sum(c.total for c in cells)
+        labels_human = sum(c.total for c in human_cells)
+        out["recall_meta"] = {
+            "window_days":  _window_days,
+            "labels_total": labels_total,
+            "labels_human": labels_human,
+            "labels_auto":  labels_total - labels_human,
+            "source":       "ground_truth",
+        }
     except Exception as e:  # noqa: BLE001
         out["recall"] = None
         out["recall_error"] = str(e)

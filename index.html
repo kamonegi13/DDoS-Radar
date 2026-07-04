@@ -3083,7 +3083,7 @@
         <p>The counter is process-local and resets on container restart; <span class="code-block">last_failure_kind</span> in the breakdown shows the most recent exception class so the operator can grep the container log for the corresponding stack trace.</p>
 
         <h5>How recall feeds the HUD</h5>
-        <p>The <span class="code-block">/api/v2/self_eval</span> endpoint aggregates labelled rows into <code>recall = TP / (TP + FN)</code>. The HUD chip polls every 5 minutes:</p>
+        <p>The <span class="code-block">/api/v2/self_eval</span> endpoint aggregates labelled rows into <code>recall = TP / (TP + FN)</code>, windowed to the same 30-day horizon as per-conclusion <span class="code-block">calibration_status</span> (2026-07-04 — previously all-time, i.e. a different number under the same name). <span class="code-block">recall_meta</span> reports <code>window_days</code> and the <code>labels_auto</code> / <code>labels_human</code> split: when <code>labels_human = 0</code> the recall figure is entirely self-graded by the auto-label ETLs and has no independent anchor. The HUD chip polls every 5 minutes:</p>
         <ul>
             <li>Green when recall ≥ 0.80 (within calibration target)</li>
             <li>Amber when 0.60 ≤ recall &lt; 0.80 (drift forming)</li>
@@ -3157,7 +3157,7 @@
         <p>カウンタはプロセスローカルでコンテナ再起動でリセット。ブレークダウンの <span class="code-block">last_failure_kind</span> が最新の例外クラスを示すので、コンテナログから該当スタックトレースを grep できます。</p>
 
         <h5>recall が HUD に届く経路</h5>
-        <p><span class="code-block">/api/v2/self_eval</span> エンドポイントがラベル付き行を集計し <code>recall = TP / (TP + FN)</code> を計算。HUD チップは 5 分ごとにポーリング：</p>
+        <p><span class="code-block">/api/v2/self_eval</span> エンドポイントがラベル付き行を集計し <code>recall = TP / (TP + FN)</code> を計算。窓は per-conclusion の <span class="code-block">calibration_status</span> と同じ 30 日に統一（2026-07-04 — それ以前は全期間集計で、同じ「recall」の名で別の数値だった）。<span class="code-block">recall_meta</span> が <code>window_days</code> と <code>labels_auto</code> / <code>labels_human</code> の内訳を返す: <code>labels_human = 0</code> のとき recall は auto-label ETL による完全な自己採点であり、独立した検証点を持たない。HUD チップは 5 分ごとにポーリング：</p>
         <ul>
             <li>recall ≥ 0.80 で緑（calibration 目標内）</li>
             <li>0.60 ≤ recall &lt; 0.80 でアンバー（ドリフト形成中）</li>

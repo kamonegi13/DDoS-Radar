@@ -71,6 +71,10 @@ AUTO_ANALYST_LLM_INTEL = "auto:llm_intel"
 AUTO_ANALYST_SEQUENCE = "auto:sequence"
 AUTO_ANALYST_BOTH = "auto:both"
 AUTO_ANALYST_MIXED = "auto:mixed"  # ≥2 distinct sources of any kind
+# No-event labels (FP/TN after the horizon elapsed) are not corroborated
+# by any source — they assert an ABSENCE. Named honestly since 2026-07-04:
+# they used to masquerade as "auto:acled" even with ACLED unconfigured.
+AUTO_ANALYST_HORIZON = "auto:horizon"
 
 # Keep auto-feedback notes short and machine-parseable. The drill-down UI
 # already has plenty of room for human prose; this field is debug context.
@@ -348,7 +352,7 @@ def classify_conclusion(
         return AutoFeedback(
             conclusion_id=conclusion.id,
             label=FeedbackLabel.FALSE_POSITIVE,
-            analyst_id=AUTO_ANALYST_ACLED,
+            analyst_id=AUTO_ANALYST_HORIZON,
             observed_at=now,
             observed_outcome_url=None,
             notes=(
@@ -361,7 +365,7 @@ def classify_conclusion(
         return AutoFeedback(
             conclusion_id=conclusion.id,
             label=FeedbackLabel.TRUE_NEGATIVE,
-            analyst_id=AUTO_ANALYST_ACLED,
+            analyst_id=AUTO_ANALYST_HORIZON,
             observed_at=now,
             observed_outcome_url=None,
             notes=(

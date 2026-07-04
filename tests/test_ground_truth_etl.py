@@ -288,7 +288,10 @@ def test_tl5_with_no_events_after_horizon_yields_true_negative():
         c, [], participant_countries=["TW"], now=_NOW,
     )
     assert result.label == FeedbackLabel.TRUE_NEGATIVE
-    assert result.analyst_id == AUTO_ANALYST_ACLED
+    # No-event labels carry the honest "auto:horizon" identity (they
+    # assert an absence; nothing corroborated them).
+    from radar.conclusions.ground_truth_etl import AUTO_ANALYST_HORIZON
+    assert result.analyst_id == AUTO_ANALYST_HORIZON
 
 
 # ── Window / scoping ──────────────────────────────────────────────────────
