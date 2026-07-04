@@ -65,6 +65,7 @@ ground-truth 校正層は運用開始後 2 度壊れた。**recall/precision の
 | DB 整理 | migration v54 で `conclusion_diff_log` / `shadow_eval_log` を drop。`llm_prompts` に retention(120d、conclusions+30d が下限)。`LLM_CALL_LOG_RETENTION_DAYS` のデッドコード解消 |
 | **背景シナリオ TL (NP4)** | lite モードも同一式+同一ヒステリシスで TL を導出(従来は TL=None で 4 シナリオ中 3 つが 2 ヶ月間無結論)。信頼度 ×0.6 割引 + `lite_tl_note` を metadata に付記 |
 | **TL 二重系統の統一 (AP4)** | threat_level/trend 結論の永続化を `compute_scenario_score` 内(bonus/hysteresis **適用前**)から scoring tick の最終 TL 確定後へ移動。従来は台帳が UI 表示より平穏側の生 TL を記録しており(7 日間で SEVERE 436 vs 82、CRITICAL 2 vs 0)、replay がアナリストの見た画面を再現できなかった |
+| **bg_observer 信号の保持バッファ化** | `drain_signals()`(consume-on-read キュー)が「TTL 30分」を虚構化し、実寿命 ≤1 tick に。5分サイクル×2分tickの位相エイリアシングで info ドメインが明滅し taiwan の TL が約2分毎に TL4↔TL5 反転、velocity ボーナスと anomaly 台帳も汚染。`active_signals()`(非消費・期限内保持・同一記事はスライディングTTLでupsert)へ置換。位相シミュレーションテストで再発を恒久検知 |
 
 ### 0.1 Phase 5: Operational Maturation 詳細 (2026-04-29 〜 2026-04-30)
 

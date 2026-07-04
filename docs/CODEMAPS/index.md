@@ -25,7 +25,7 @@ structural changes to keep maps in sync.
 | `radar/routes/conclusions_v2.py` | [radar.routes.conclusions_v2.md](radar.routes.conclusions_v2.md) | 924 |
 | `radar/conclusions/base.py` | [radar.conclusions.base.md](radar.conclusions.base.md) | 136 |
 | `radar/conclusions/api.py` | [radar.conclusions.api.md](radar.conclusions.api.md) | 99 |
-| `radar/conclusions/persistence.py` | [radar.conclusions.persistence.md](radar.conclusions.persistence.md) | 324 |
+| `radar/conclusions/persistence.py` | [radar.conclusions.persistence.md](radar.conclusions.persistence.md) | 361 |
 | `radar/conclusions/calibration.py` | [radar.conclusions.calibration.md](radar.conclusions.calibration.md) | 207 |
 | `radar/conclusions/trend.py` | [radar.conclusions.trend.md](radar.conclusions.trend.md) | 234 |
 | `radar/conclusions/per_domain.py` | [radar.conclusions.per_domain.md](radar.conclusions.per_domain.md) | 173 |

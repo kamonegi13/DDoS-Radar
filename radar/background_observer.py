@@ -23,8 +23,9 @@ OPSEC + NP3 contract:
     3. Default disabled (``BG_OBSERVER_ENABLED=false``). Operators
        opt-in by flipping the flag — adding outbound HTTP traffic
        should be a deliberate operational decision.
-    4. Findings are EPHEMERAL signals: they expire after
-       ``BG_OBSERVER_SIGNAL_TTL_SEC`` (default 30m). The
+    4. Findings are EPHEMERAL signals: each remains active for every
+       scoring tick inside ``BG_OBSERVER_SIGNAL_TTL_SEC`` (default 30m),
+       then ages out; re-observing the same story slides its TTL. The
        ``scenario_contribution_log`` row written when they score is
        the durable artefact, surfaced via the OBS chip
        (signal_volume_24h metric).
@@ -36,8 +37,9 @@ Architecture:
         - fetch RSS feeds (configurable, default Western+non-Western mix)
         - extract kinetic events scoped to that country
         - for each match, push a Signal to ``_signal_queue``
-    drain_signals(now)  → called by the scoring tick to read fresh
-        signals (filters by TTL).
+    active_signals(now)  → called by the scoring tick to read every
+        signal still inside its TTL window (non-consuming; prunes
+        expired entries).
 
 The pure scheduling logic is testable without HTTP: tests inject a
 fake fetcher + fake clock to drive the cycle.
@@ -68,8 +70,8 @@ log = logging.getLogger("bg_observer")
 # ── Module-level signal queue ──────────────────────────────────────────────
 # `_signal_queue` accumulates Signal-shaped dicts (kept loose so we don't
 # have to import radar.scoring at module load — that would create a
-# circular import via radar/routes/__init__.py). The scoring tick drains
-# the queue at the start of each pass via drain_signals().
+# circular import via radar/routes/__init__.py). The scoring tick reads
+# the live window at the start of each pass via active_signals().
 _signal_queue: deque = deque()
 _queue_lock = threading.Lock()
 
@@ -91,19 +93,28 @@ class _PendingSignal:
 # ── Public API ─────────────────────────────────────────────────────────────
 
 
-def drain_signals(now: Optional[float] = None) -> list[_PendingSignal]:
-    """Return all queued signals younger than the configured TTL and clear
-    the queue. Called by the scoring tick on each pass."""
+def active_signals(now: Optional[float] = None) -> list[_PendingSignal]:
+    """Return every signal still inside its TTL window WITHOUT consuming
+    it; expired entries are pruned in place. Called by the scoring tick
+    on each pass.
+
+    State semantics, not queue semantics (2026-07-04 strobe fix): the
+    predecessor ``drain_signals()`` emptied the buffer on read, so a
+    signal's real lifetime was "until the next scoring tick" (≤2 min)
+    and the documented 30m TTL was a fiction. The 5-min observer cycle
+    aliased against the 2-min tick: the info-domain contribution strobed
+    on/off and the focused scenario's TL flipped TL4↔TL5 roughly every
+    other tick. A finding means "a kinetic mention was observed within
+    the TTL window" — that fact stays true for every tick in the window.
+    """
     if now is None:
         now = time.time()
     cutoff = now - config.BG_OBSERVER_SIGNAL_TTL_SEC
-    out: list[_PendingSignal] = []
     with _queue_lock:
-        while _signal_queue:
-            sig = _signal_queue.popleft()
-            if sig.observed_at >= cutoff:
-                out.append(sig)
-    return out
+        live = [s for s in _signal_queue if s.observed_at >= cutoff]
+        _signal_queue.clear()
+        _signal_queue.extend(live)
+        return list(live)
 
 
 def queue_size() -> int:
@@ -112,8 +123,27 @@ def queue_size() -> int:
         return len(_signal_queue)
 
 
+def _identity(sig: _PendingSignal) -> tuple:
+    """Stable identity of a finding: the 5-min cycle re-matches the same
+    headlines every pass, so retention without an upsert would stack the
+    same story up to TTL/cycle times."""
+    return (
+        sig.signal_source,
+        sig.domain,
+        sig.countries,
+        sig.evidence_url or sig.value_display,
+    )
+
+
 def _enqueue(sig: _PendingSignal) -> None:
     with _queue_lock:
+        key = _identity(sig)
+        for i, existing in enumerate(_signal_queue):
+            if _identity(existing) == key:
+                # Sliding TTL: a story still circulating in the feeds is
+                # still a current mention — refresh, never duplicate.
+                del _signal_queue[i]
+                break
         if len(_signal_queue) >= config.BG_OBSERVER_MAX_QUEUE:
             _signal_queue.popleft()  # drop oldest under pressure
         _signal_queue.append(sig)

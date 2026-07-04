@@ -2094,7 +2094,7 @@ def get_threat_data():
             # the rest of _signals uses.
             try:
                 from radar import background_observer as _bg_obs
-                for _ps in _bg_obs.drain_signals(now=current_time):
+                for _ps in _bg_obs.active_signals(now=current_time):
                     _signals.append(Signal(
                         signal_source=_ps.signal_source,
                         sensor=_ps.sensor,
@@ -2109,7 +2109,7 @@ def get_threat_data():
             except Exception as _bg_drain_err:
                 # SF3 (audit / NP1+NP6 fix, 2026-05-01): the previous comment
                 # claimed NP3 justified silence, but NP3 covers fault
-                # tolerance, not telemetry suppression. drain_signals()
+                # tolerance, not telemetry suppression. active_signals()
                 # clears the queue on call, so a swallowed exception here
                 # permanently loses every queued bg_observer signal with
                 # zero observable trace. Log + record_failure restores AP3
