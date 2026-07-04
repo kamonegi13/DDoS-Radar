@@ -103,12 +103,31 @@ def _read_recall_for_scenario(scenario_id: str) -> Optional[dict]:
             scenario_id, total, _min_feedback_per_cell(),
         )
         return None
+    last_label_row = conn.execute(
+        "SELECT MAX(af.observed_at) FROM analyst_feedback af "
+        "JOIN conclusions c ON af.conclusion_id = c.id "
+        "WHERE c.scenario_id = ? AND c.conclusion_type = 'threat_level'",
+        (scenario_id,),
+    ).fetchone()
     recall = tp / max(1, tp + fn)
     precision = tp / max(1, tp + fp)
     return {
         "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "total": total, "recall": recall, "precision": precision,
+        "last_label_at": last_label_row[0] if last_label_row else None,
     }
+
+
+def _last_applied_at(scenario_id: str) -> Optional[float]:
+    """Timestamp of this calibrator's most recent threshold change for the
+    scenario (any state), or None if it never changed anything."""
+    conn = db._get_conn()  # noqa: SLF001
+    row = conn.execute(
+        "SELECT MAX(emitted_at) FROM threshold_history "
+        "WHERE scope_scenario_id = ? AND applied_by = ?",
+        (scenario_id, APPLIED_BY),
+    ).fetchone()
+    return row[0] if row and row[0] is not None else None
 
 
 def _propose_for_band(
@@ -174,6 +193,29 @@ def calibrate_scenario(scenario_id: str) -> CalibrationResult:
             proposals_accepted=0, proposals_rejected=0,
             rejection_reasons={"insufficient_feedback": 1},
         )
+
+    # Evidence-freshness gate (2026-07-04, runaway-loop fix). Production
+    # audit found 12 consecutive -5% loosening passes on middle_east
+    # (05-30 … 07-02) all justified by the SAME frozen label set (fn=54,
+    # last label 2026-05-29): the all-time aggregate above never changes,
+    # so each pass re-applies the identical signal. Require at least one
+    # label NEWER than this calibrator's own last applied change — one
+    # evidence state may justify at most one adjustment.
+    last_label_at = metrics.get("last_label_at")
+    if last_label_at is not None:
+        last_applied = _last_applied_at(scenario_id)
+        if last_applied is not None and last_label_at <= last_applied:
+            log.info(
+                "tl_calibrator: %s no labels newer than last applied "
+                "change (label=%.0f <= applied=%.0f) — refusing to "
+                "re-apply the same evidence",
+                scenario_id, last_label_at, last_applied,
+            )
+            return CalibrationResult(
+                scenario_id=scenario_id, proposals_submitted=0,
+                proposals_accepted=0, proposals_rejected=0,
+                rejection_reasons={"no_new_evidence": 1},
+            )
 
     direction: Optional[str]
     # Phase 2 fix (2026-04-30 PM, problem 50): track WHY direction is

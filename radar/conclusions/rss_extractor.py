@@ -101,6 +101,83 @@ _ESCALATION_VERBS = re.compile(
     re.IGNORECASE,
 )
 
+# ── escalation-relevance gate (ground-truth labeling only) ─────────────────
+#
+# Added 2026-07-04: production ground truth was contaminated by domestic
+# accidents and natural disasters in participant countries (a bear-spray
+# incident and a typhoon were labeled as taiwan_contingency escalation
+# evidence). Labels demand higher precision than sensing: a wrong label
+# corrupts the recall metric, while a missed label merely shrinks sample
+# size. The gate is therefore applied by the ETL runners only — the
+# bg_observer sensing path keeps the wider net (NP1).
+
+# Inherently military kinetic vocabulary — sufficient escalation context
+# on its own. Deliberately excludes ambiguous verbs like "attack" /
+# "shooting" / "explosion", which fire on street crime and accidents.
+_STRONG_KINETIC = re.compile(
+    r"\b(missile|airstrike|air\s+strike|shelling|rocket|drone\s+strike|"
+    r"artillery|bombardment|invasion|incursion|shot\s+down|shootdown|"
+    r"torpedo)\b",
+    re.IGNORECASE,
+)
+
+# Military-actor nouns that upgrade a weak kinetic verb into plausible
+# interstate-escalation context.
+_MILITARY_ACTORS = re.compile(
+    r"\b(troops?|soldiers?|army|navy|air\s+force|military|armed\s+forces|"
+    r"marines?|warship|destroyer|frigate|aircraft\s+carrier|fighter\s+jet|"
+    r"warplane|bomber|paratroopers?|militia|special\s+forces|coast\s+guard)\b",
+    re.IGNORECASE,
+)
+
+# Non-conflict noise: disasters, accidents, wildlife, street crime, civic
+# events. These veto a match unless inherently military vocabulary is also
+# present ("missile test proceeds amid typhoon warnings" stays relevant).
+_NONCONFLICT_NOISE = re.compile(
+    r"\b(typhoon|hurricane|cyclone|earthquake|tsunami|flood(?:s|ing)?|"
+    r"landslide|wildfire|volcano|heat\s?wave|blizzard|drought|storm|"
+    r"outbreak|epidemic|pandemic|traffic|road\s+accident|car\s+crash|"
+    r"bus\s+crash|train\s+crash|derail(?:s|ed|ment)?|ferry|"
+    r"capsiz(?:e|ed|ing)|plane\s+crash|air\s+crash|helicopter\s+crash|"
+    r"crash(?:es|ed)?|bear|shark|robbery|burglary|homicide|murder|stabbing|"
+    r"shooting\s+spree|nightclub|festival|concert|stampede)\b",
+    re.IGNORECASE,
+)
+
+
+def is_escalation_relevant(text: str) -> bool:
+    """True iff ``text`` plausibly describes interstate-escalation activity,
+    as opposed to a disaster / accident / crime that merely happened in a
+    monitored country.
+
+    Decision ladder (NP6 — auditable in one read):
+      1. Inherently military vocabulary (strong kinetic or escalation verb)
+         qualifies outright and overrides the noise veto.
+      2. A weak kinetic verb ("attack", "shooting", …) qualifies only with
+         a military actor noun or ≥2 recognized countries in the text
+         (interstate framing).
+      3. Non-conflict noise vocabulary vetoes anything that qualified via
+         the weak path.
+
+    Used by the ground-truth ETL runners to gate evidence BEFORE labeling;
+    not applied to the bg_observer sensing path.
+    """
+    if not text:
+        return False
+    has_strong = bool(
+        _STRONG_KINETIC.search(text) or _ESCALATION_VERBS.search(text)
+    )
+    if has_strong:
+        return True
+    if not _KINETIC_VERBS.search(text):
+        return False
+    has_context = bool(_MILITARY_ACTORS.search(text)) or (
+        len(_detect_all_countries(text)) >= 2
+    )
+    if not has_context:
+        return False
+    return not _NONCONFLICT_NOISE.search(text)
+
 
 # ISO-2 country code → list of search aliases. Kept conservative — only
 # names whose appearance in a news headline reliably implicates the

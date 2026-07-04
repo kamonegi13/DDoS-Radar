@@ -186,7 +186,7 @@ def test_runner_dry_run_skips_writes(stub_fetch_all):
         kind=ConclusionType.THREAT_LEVEL, state="3", observed_at=obs_at,
     )
     stub_fetch_all([
-        {"title": "Taiwan Strait incident: 4 killed", "summary": "", "link": ""},
+        {"title": "Artillery shelling in Taiwan: 4 killed", "summary": "", "link": ""},
     ])
     summary = runner.run_etl(
         db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
@@ -317,12 +317,12 @@ def _label_of(conclusion_id: str) -> str | None:
 
 
 def test_under_rated_threat_level_is_false_negative(stub_fetch_all):
-    """Tool said TL=2 but a mass-casualty event followed → FALSE_NEGATIVE.
-    This is the NP1-critical miss the old blanket-TP logic could never emit.
+    """Tool sat at TL=4 (ELEVATED — calm side) but a mass-casualty event
+    followed → FALSE_NEGATIVE. This is the NP1-critical under-rating miss.
     """
     obs_at = _NOW - 24 * 3600
     cid = _make_conclusion(
-        kind=ConclusionType.THREAT_LEVEL, state="2", observed_at=obs_at,
+        kind=ConclusionType.THREAT_LEVEL, state="4", observed_at=obs_at,
     )
     stub_fetch_all([
         {"title": "Chinese missile strike kills 25 in Taiwan",
@@ -337,7 +337,10 @@ def test_under_rated_threat_level_is_false_negative(stub_fetch_all):
     assert _label_of(cid) == "FALSE_NEGATIVE"
 
 
-def test_tl1_under_kinetic_is_false_negative(stub_fetch_all):
+def test_tl1_critical_under_kinetic_is_true_positive(stub_fetch_all):
+    """Inversion sentinel (2026-07-03): TL1 = CRITICAL, the tool's MOST
+    alarmed state. A kinetic event corroborating it is a warning success,
+    never a FALSE_NEGATIVE. The inverted classifier failed exactly here."""
     obs_at = _NOW - 24 * 3600
     cid = _make_conclusion(
         kind=ConclusionType.THREAT_LEVEL, state="1", observed_at=obs_at,
@@ -349,14 +352,30 @@ def test_tl1_under_kinetic_is_false_negative(stub_fetch_all):
         db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
         scenario_filter=_SCENARIO, use_llm=False,
     )
-    # kinetic verb (no fatalities) → expected_floor=3; tool_TL=1 < 3 → FN
+    # kinetic verb → severity floor 3; severity(TL1)=5 ≥ 3 → TP
+    assert _label_of(cid) == "TRUE_POSITIVE"
+
+
+def test_tl5_normal_under_kinetic_is_false_negative(stub_fetch_all):
+    obs_at = _NOW - 24 * 3600
+    cid = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="5", observed_at=obs_at,
+    )
+    stub_fetch_all([
+        {"title": "PLA airstrike near Taiwan", "summary": "", "link": ""},
+    ])
+    runner.run_etl(
+        db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    # kinetic verb → severity floor 3; severity(TL5)=1 < 3 → FN
     assert _label_of(cid) == "FALSE_NEGATIVE"
 
 
 def test_adequately_rated_threat_level_is_true_positive(stub_fetch_all):
     obs_at = _NOW - 24 * 3600
     cid = _make_conclusion(
-        kind=ConclusionType.THREAT_LEVEL, state="4", observed_at=obs_at,
+        kind=ConclusionType.THREAT_LEVEL, state="2", observed_at=obs_at,
     )
     stub_fetch_all([
         {"title": "Missile strike kills 25 in Taiwan", "summary": "", "link": ""},
@@ -365,7 +384,7 @@ def test_adequately_rated_threat_level_is_true_positive(stub_fetch_all):
         db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
         scenario_filter=_SCENARIO, use_llm=False,
     )
-    # mass-casualty → floor=4; tool_TL=4 >= 4 → TP
+    # mass-casualty → severity floor 4; severity(TL2)=4 ≥ 4 → TP
     assert summary["label_TRUE_POSITIVE"] == 1
     assert _label_of(cid) == "TRUE_POSITIVE"
 
@@ -386,6 +405,142 @@ def test_non_threat_level_conclusion_is_skipped(stub_fetch_all):
     # 'threat_level'), so they are never scanned or labeled.
     assert summary["persisted"] == 0
     assert _label_of(cid) is None
+
+
+# ── episode model: one label per (scenario, country, event-day) ──────────
+
+
+def test_episode_dedup_one_label_per_event_day(stub_fetch_all):
+    """A single real-world event must yield ONE ground-truth trial, not one
+    label per ~2-min scoring tick. Five tick conclusions in the pre-event
+    window + two wire rewrites of the same story → exactly 1 feedback row,
+    graded on the BEST (most severe) TL the tool reached in the window."""
+    tick_ids = []
+    for hours_before in (60, 48, 36, 24, 12):
+        tick_ids.append(_make_conclusion(
+            kind=ConclusionType.THREAT_LEVEL,
+            state="5" if hours_before != 24 else "2",
+            observed_at=_NOW - hours_before * 3600,
+        ))
+    stub_fetch_all([
+        {"title": "Chinese missile strike kills 25 in Taiwan",
+         "summary": "", "link": "https://ex.test/a"},
+        {"title": "Missile strike on Taiwan kills at least 25, officials say",
+         "summary": "", "link": "https://ex.test/b"},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=_NOW - 4 * 86400, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    assert summary["persisted"] == 1
+    assert _count_feedback_rows() == 1
+    # Tool reached TL2 (SEVERE, severity 4) before the event → warning
+    # success despite the calm ticks around it.
+    best_cid = tick_ids[3]  # the TL2 tick at T-24h
+    assert _label_of(best_cid) == "TRUE_POSITIVE"
+
+
+def test_fn_attaches_to_latest_conclusion_before_event(stub_fetch_all):
+    """When the tool never reached the floor, the FN is recorded against
+    what the tool was showing as the event hit (the latest pre-event tick)."""
+    _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="5",
+        observed_at=_NOW - 30 * 3600,
+    )
+    latest = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="5",
+        observed_at=_NOW - 2 * 3600,
+    )
+    stub_fetch_all([
+        {"title": "PLA airstrike near Taiwan", "summary": "", "link": ""},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=_NOW - 4 * 86400, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    assert summary["persisted"] == 1
+    assert _label_of(latest) == "FALSE_NEGATIVE"
+
+
+def test_rerun_does_not_duplicate_episode_labels(stub_fetch_all):
+    _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="3",
+        observed_at=_NOW - 12 * 3600,
+    )
+    stub_fetch_all([
+        {"title": "Artillery shelling kills 3 in Taiwan", "summary": "", "link": ""},
+    ])
+    kwargs = dict(
+        feeds=("dummy://",), since=_NOW - 4 * 86400, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    runner.run_etl(db, **kwargs)
+    second = runner.run_etl(db, **kwargs)
+    assert second["persisted"] == 0
+    assert second["already_persisted"] >= 1
+    assert _count_feedback_rows() == 1
+
+
+# ── escalation-relevance gate: disasters/accidents/crime are not evidence ─
+
+
+def test_disaster_fatalities_are_not_ground_truth(stub_fetch_all):
+    """'Typhoon kills 12 in Japan' matched the old extractor (fatality count
+    + participant country) and contaminated taiwan_contingency's ground
+    truth. Natural disasters are not interstate escalation evidence."""
+    cid = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="5",
+        observed_at=_NOW - 12 * 3600,
+    )
+    stub_fetch_all([
+        {"title": "Typhoon Lan kills 12 in Japan", "summary": "", "link": ""},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=_NOW - 4 * 86400, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    assert summary["matched_items"] == 0
+    assert summary.get("irrelevant_items", 0) >= 1
+    assert summary["persisted"] == 0
+    assert _label_of(cid) is None
+
+
+def test_domestic_crime_is_not_ground_truth(stub_fetch_all):
+    """A civilian shooting in one participant country has no interstate-
+    escalation context (no military actor, no second country)."""
+    _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="5",
+        observed_at=_NOW - 12 * 3600,
+    )
+    stub_fetch_all([
+        {"title": "Mass shooting at Taiwan nightclub leaves 5 dead",
+         "summary": "", "link": ""},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=_NOW - 4 * 86400, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    assert summary["matched_items"] == 0
+    assert summary["persisted"] == 0
+
+
+def test_interstate_attack_with_two_countries_is_relevant(stub_fetch_all):
+    """A weak kinetic verb ('attacks') qualifies when the text names two
+    countries — the interstate framing is the escalation context."""
+    cid = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="2",
+        observed_at=_NOW - 12 * 3600,
+    )
+    stub_fetch_all([
+        {"title": "China attacks Taiwan patrol vessel, 2 killed",
+         "summary": "", "link": ""},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=_NOW - 4 * 86400, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    assert summary["matched_items"] >= 1
+    assert _label_of(cid) == "TRUE_POSITIVE"
 
 
 def test_event_before_conclusion_window_does_not_label(stub_fetch_all):

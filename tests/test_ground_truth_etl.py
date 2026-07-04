@@ -119,10 +119,11 @@ def cleanup_test_rows():
 # ── Rule 1: FALSE_NEGATIVE (NP1 critical) ────────────────────────────────
 
 
-def test_tl1_with_critical_acled_event_yields_false_negative():
-    """The NP1-critical case: tool said calm, ACLED records mass casualty."""
+def test_tl5_with_critical_acled_event_yields_false_negative():
+    """The NP1-critical case: tool said calm (TL5=NORMAL), ACLED records
+    a mass-casualty escalation in the forward window."""
     obs_at = _NOW - 24 * 3600
-    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="1", observed_at=obs_at)
+    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="5", observed_at=obs_at)
     evidence = [_acled_event(country="TW", at=obs_at + 6 * 3600, fatalities=15)]
 
     result = classify_conclusion(
@@ -134,10 +135,26 @@ def test_tl1_with_critical_acled_event_yields_false_negative():
     assert "fatalities=15" in result.notes
 
 
-def test_tl1_with_only_low_severity_does_not_trigger_false_negative():
-    """A 2-fatality event isn't escalation worth flagging the tool for."""
+def test_tl1_with_critical_acled_event_is_true_positive_not_false_negative():
+    """Inversion sentinel (2026-07-03): TL1 is CRITICAL — the tool's MOST
+    alarmed state. A mass-casualty event corroborating it is a success
+    (TRUE_POSITIVE). The inverted classifier scored this exact case as a
+    FALSE_NEGATIVE, punishing the tool for warning."""
     obs_at = _NOW - 24 * 3600
     c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="1", observed_at=obs_at)
+    evidence = [_acled_event(country="TW", at=obs_at + 6 * 3600, fatalities=15)]
+
+    result = classify_conclusion(
+        c, evidence, participant_countries=["TW", "JP"], now=_NOW,
+    )
+    assert result is not None
+    assert result.label == FeedbackLabel.TRUE_POSITIVE
+
+
+def test_tl5_with_only_low_severity_does_not_trigger_false_negative():
+    """A 2-fatality event isn't escalation worth flagging the tool for."""
+    obs_at = _NOW - 24 * 3600
+    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="5", observed_at=obs_at)
     evidence = [_acled_event(country="TW", at=obs_at + 1 * 3600, fatalities=2)]
 
     result = classify_conclusion(
@@ -150,13 +167,11 @@ def test_tl1_with_only_low_severity_does_not_trigger_false_negative():
 
 def test_false_negative_takes_precedence_over_true_positive():
     """FALSE_NEGATIVE is more important than TRUE_POSITIVE — check the
-    rule order. In practice TL=1 + critical event would never be a TP, but
-    ATTACK_MODE conclusions could overlap with critical ACLED events; the
-    FALSE_NEGATIVE check only fires for TL=1, so the rule dominance only
-    matters when a builder regression mis-emits TL=1 mid-attack. Verify the
-    ordering anyway."""
+    rule order. The FALSE_NEGATIVE check only fires for TL=5 (NORMAL), so
+    the rule dominance only matters when the tool sat calm through a
+    critical event. Verify the ordering anyway."""
     obs_at = _NOW - 24 * 3600
-    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="1", observed_at=obs_at)
+    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="5", observed_at=obs_at)
     evidence = [_acled_event(country="TW", at=obs_at + 1, fatalities=20)]
 
     result = classify_conclusion(
@@ -226,10 +241,10 @@ def test_provenance_tags_both_when_acled_and_gdelt_corroborate():
 # ── Rule 3: FALSE_POSITIVE ────────────────────────────────────────────────
 
 
-def test_high_tl_with_no_evidence_after_horizon_yields_false_positive():
+def test_severe_tl_with_no_evidence_after_horizon_yields_false_positive():
     fp_horizon = config.GROUND_TRUTH_FALSE_POSITIVE_HORIZON_DAYS
     obs_at = _NOW - (fp_horizon + 1) * 86400
-    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="4", observed_at=obs_at)
+    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="2", observed_at=obs_at)
 
     result = classify_conclusion(
         c, [], participant_countries=["TW"], now=_NOW,
@@ -239,11 +254,23 @@ def test_high_tl_with_no_evidence_after_horizon_yields_false_positive():
     assert "no ACLED/GDELT" in result.notes
 
 
-def test_high_tl_within_horizon_returns_none_pending_more_observation():
+def test_elevated_tl_is_not_an_alert_so_never_false_positive():
+    """TL4 (ELEVATED) is a calm-side state, not an alert the tool should
+    be penalized for. The inverted classifier treated TL≥3 (including
+    NORMAL) as alerts and flooded FALSE_POSITIVEs onto calm rows."""
+    fp_horizon = config.GROUND_TRUTH_FALSE_POSITIVE_HORIZON_DAYS
+    obs_at = _NOW - (fp_horizon + 1) * 86400
+    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="4", observed_at=obs_at)
+    assert classify_conclusion(
+        c, [], participant_countries=["TW"], now=_NOW,
+    ) is None
+
+
+def test_severe_tl_within_horizon_returns_none_pending_more_observation():
     """We can't know yet — wait for the horizon to elapse before deciding."""
     fp_horizon = config.GROUND_TRUTH_FALSE_POSITIVE_HORIZON_DAYS
     obs_at = _NOW - (fp_horizon - 1) * 86400  # not yet elapsed
-    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="4", observed_at=obs_at)
+    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="2", observed_at=obs_at)
     assert classify_conclusion(
         c, [], participant_countries=["TW"], now=_NOW,
     ) is None
@@ -252,10 +279,10 @@ def test_high_tl_within_horizon_returns_none_pending_more_observation():
 # ── Rule 4: TRUE_NEGATIVE ─────────────────────────────────────────────────
 
 
-def test_tl1_with_no_events_after_horizon_yields_true_negative():
+def test_tl5_with_no_events_after_horizon_yields_true_negative():
     fp_horizon = config.GROUND_TRUTH_FALSE_POSITIVE_HORIZON_DAYS
     obs_at = _NOW - (fp_horizon + 1) * 86400
-    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="1", observed_at=obs_at)
+    c = _make_conclusion(kind=ConclusionType.THREAT_LEVEL, state="5", observed_at=obs_at)
 
     result = classify_conclusion(
         c, [], participant_countries=["TW"], now=_NOW,
@@ -566,69 +593,77 @@ class TestInternalSourceFalseNegative:
 # ── graded under-rating classifier (NP1 — independent-evidence FN) ──────────
 
 
-class TestExpectedTlFloor:
-    """expected_tl_floor maps external-event magnitude → minimum TL the tool
-    should have shown. Drives the graded FALSE_NEGATIVE path (ADR 2026-05-29).
-    """
+class TestExpectedSeverityFloor:
+    """expected_severity_floor maps external-event magnitude → minimum
+    severity (5=CRITICAL … 1=NORMAL) the tool should have shown. Drives the
+    graded FALSE_NEGATIVE path."""
 
-    def test_mass_casualty_demands_tl4(self):
-        from radar.conclusions.ground_truth_etl import expected_tl_floor
-        # fatalities at/above threshold → TL≥4
-        assert expected_tl_floor(
+    def test_mass_casualty_demands_severity4(self):
+        from radar.conclusions.ground_truth_etl import expected_severity_floor
+        # fatalities at/above threshold → severity ≥ 4, i.e. TL ≤ 2 (SEVERE)
+        assert expected_severity_floor(
             fatalities=25, confidence=0.85, mass_casualty_threshold=10,
         ) == 4
 
-    def test_counted_fatality_below_threshold_demands_tl3(self):
-        from radar.conclusions.ground_truth_etl import expected_tl_floor
-        assert expected_tl_floor(
+    def test_counted_fatality_below_threshold_demands_severity3(self):
+        from radar.conclusions.ground_truth_etl import expected_severity_floor
+        assert expected_severity_floor(
             fatalities=3, confidence=0.85, mass_casualty_threshold=10,
         ) == 3
 
-    def test_kinetic_verb_no_fatalities_demands_tl3(self):
-        from radar.conclusions.ground_truth_etl import expected_tl_floor
+    def test_kinetic_verb_no_fatalities_demands_severity3(self):
+        from radar.conclusions.ground_truth_etl import expected_severity_floor
         # confidence 0.60 = kinetic verb only (rss_extractor ladder)
-        assert expected_tl_floor(
+        assert expected_severity_floor(
             fatalities=0, confidence=0.60, mass_casualty_threshold=10,
         ) == 3
 
-    def test_escalation_verb_only_demands_tl2(self):
-        from radar.conclusions.ground_truth_etl import expected_tl_floor
+    def test_escalation_verb_only_demands_severity2(self):
+        from radar.conclusions.ground_truth_etl import expected_severity_floor
         # confidence 0.40 = escalation verb only, fatalities 0
-        assert expected_tl_floor(
+        assert expected_severity_floor(
             fatalities=0, confidence=0.40, mass_casualty_threshold=10,
         ) == 2
 
     def test_default_threshold_from_config(self):
-        from radar.conclusions.ground_truth_etl import expected_tl_floor
+        from radar.conclusions.ground_truth_etl import expected_severity_floor
         # falls back to config.GROUND_TRUTH_FALSE_NEGATIVE_FATALITIES (10)
-        assert expected_tl_floor(fatalities=10, confidence=0.85) == 4
-        assert expected_tl_floor(fatalities=9, confidence=0.85) == 3
+        assert expected_severity_floor(fatalities=10, confidence=0.85) == 4
+        assert expected_severity_floor(fatalities=9, confidence=0.85) == 3
 
 
 class TestLabelForThreatLevel:
-    """label_for_threat_level: under-rating → FN, met/exceeded → TP."""
+    """label_for_threat_level: under-rating → FN, met/exceeded → TP.
+    tool_tl is the raw DEFCON-style TL (1=CRITICAL … 5=NORMAL); the floor
+    is in severity space (bigger = worse)."""
 
     def test_under_rating_is_false_negative(self):
         from radar.conclusions.ground_truth_etl import label_for_threat_level
-        # tool said TL=2 but a mass-casualty event warranted TL=4 → miss
+        # tool showed TL=4 (ELEVATED, severity 2) but a mass-casualty event
+        # warranted severity ≥ 4 → miss
         assert label_for_threat_level(
-            tool_tl=2, expected_floor=4,
+            tool_tl=4, expected_severity_floor=4,
         ) == FeedbackLabel.FALSE_NEGATIVE
 
-    def test_tl1_under_kinetic_is_false_negative(self):
+    def test_tl5_normal_under_kinetic_is_false_negative(self):
         from radar.conclusions.ground_truth_etl import label_for_threat_level
+        # TL=5 is NORMAL (severity 1) — calm through armed violence → miss
         assert label_for_threat_level(
-            tool_tl=1, expected_floor=3,
+            tool_tl=5, expected_severity_floor=3,
         ) == FeedbackLabel.FALSE_NEGATIVE
 
     def test_meeting_floor_is_true_positive(self):
         from radar.conclusions.ground_truth_etl import label_for_threat_level
+        # TL=2 (SEVERE) has severity 4 — meets a mass-casualty floor
         assert label_for_threat_level(
-            tool_tl=4, expected_floor=4,
+            tool_tl=2, expected_severity_floor=4,
         ) == FeedbackLabel.TRUE_POSITIVE
 
     def test_exceeding_floor_is_true_positive(self):
         from radar.conclusions.ground_truth_etl import label_for_threat_level
+        # TL=1 (CRITICAL, severity 5) exceeds a kinetic floor of 3.
+        # Inversion sentinel: the pre-2026-07-03 classifier graded exactly
+        # this case FALSE_NEGATIVE.
         assert label_for_threat_level(
-            tool_tl=5, expected_floor=3,
+            tool_tl=1, expected_severity_floor=3,
         ) == FeedbackLabel.TRUE_POSITIVE

@@ -125,3 +125,66 @@ def test_precision_min_floor_env_override(monkeypatch):
     # With precision EQUAL to floor+0.20, is_degenerate = (0.20 < 0.20) = False.
     # So direction='tighter' (recall=1.0, precision<0.30 ceiling).
     assert "degenerate_data_guard" not in result.rejection_reasons
+
+
+# ── evidence-freshness gate (2026-07-04, runaway-loop fix) ────────────────
+#
+# Production audit 2026-07-03/04: the calibrator re-applied a -5% loosening
+# to all middle_east bands 12 times between 05-30 and 07-02, every pass
+# driven by the SAME frozen evidence (fn=54, recall 0.798, last label
+# 2026-05-29). Root cause: _read_recall_for_scenario aggregates all-time
+# labels with no freshness requirement, so one stale low-recall cell keeps
+# justifying step after step. The gate requires at least one label NEWER
+# than the calibrator's own last applied change before it may act again.
+
+
+def test_freshness_gate_blocks_reapplying_stale_evidence(monkeypatch):
+    from radar.calibration import tl_threshold_calibrator as tc
+    _stub_metrics(monkeypatch, {
+        "tp": 213, "fp": 25, "fn": 54, "tn": 0,
+        "total": 292, "recall": 0.798, "precision": 0.895,
+        "last_label_at": 1_000_000.0,
+    })
+    # Calibrator already applied a change AFTER the newest label.
+    monkeypatch.setattr(tc, "_last_applied_at", lambda _sid: 1_000_500.0)
+    result = tc.calibrate_scenario("test_stale_evidence")
+    assert result.proposals_submitted == 0
+    assert "no_new_evidence" in result.rejection_reasons
+
+
+def test_freshness_gate_allows_action_on_new_evidence(monkeypatch):
+    from radar.calibration import auto_tune_governor
+    from radar.calibration import tl_threshold_calibrator as tc
+    _stub_metrics(monkeypatch, {
+        "tp": 20, "fp": 2, "fn": 30, "tn": 0,
+        "total": 52, "recall": 0.40, "precision": 0.90,
+        "last_label_at": 2_000_000.0,
+    })
+    monkeypatch.setattr(tc, "_last_applied_at", lambda _sid: 1_000_000.0)
+    monkeypatch.setenv("TL_CALIB_MIN_FEEDBACK_PER_CELL", "10")
+    monkeypatch.setenv("AUTO_TUNE_MIN_SAMPLE_N", "10")
+    monkeypatch.setenv("AUTO_TUNE_COOLDOWN_HOURS", "0.0")
+    monkeypatch.setattr(auto_tune_governor, "_recall_gate_is_red",
+                        lambda: False)
+    result = tc.calibrate_scenario("test_fresh_evidence")
+    assert result.proposals_submitted > 0
+
+
+def test_freshness_gate_permissive_when_no_prior_change(monkeypatch):
+    """First-ever calibration for a scenario (no threshold_history rows)
+    must not be blocked by the gate."""
+    from radar.calibration import auto_tune_governor
+    from radar.calibration import tl_threshold_calibrator as tc
+    _stub_metrics(monkeypatch, {
+        "tp": 20, "fp": 2, "fn": 30, "tn": 0,
+        "total": 52, "recall": 0.40, "precision": 0.90,
+        "last_label_at": 2_000_000.0,
+    })
+    monkeypatch.setattr(tc, "_last_applied_at", lambda _sid: None)
+    monkeypatch.setenv("TL_CALIB_MIN_FEEDBACK_PER_CELL", "10")
+    monkeypatch.setenv("AUTO_TUNE_MIN_SAMPLE_N", "10")
+    monkeypatch.setenv("AUTO_TUNE_COOLDOWN_HOURS", "0.0")
+    monkeypatch.setattr(auto_tune_governor, "_recall_gate_is_red",
+                        lambda: False)
+    result = tc.calibrate_scenario("test_first_calibration")
+    assert result.proposals_submitted > 0
