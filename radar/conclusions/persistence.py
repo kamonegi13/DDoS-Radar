@@ -116,8 +116,21 @@ def save_conclusion_gated(db: "RadarDB", c: Conclusion) -> bool:
 _BATCH_WINDOW_SEC = 5.0
 
 
-def _batch_signature(rows) -> list[tuple[str, str]]:
-    return sorted(rows)
+def _anomaly_identity(state, reason, meta: dict) -> tuple:
+    """Stable identity of one anomaly row. The state column only carries
+    the source bucket (e.g. 'llm_intel' — several concurrent anomalies
+    share it); the discriminating fields live in metadata. Multiplicity is
+    deliberately NOT part of the batch signature: live verification
+    (2026-07-04) showed same-identity row counts flapping tick to tick
+    (llm_intel 2↔4) as intel items age in and out, which would defeat the
+    gate without representing any new analyst-facing information."""
+    return (
+        str(state or ""),
+        str(reason or ""),
+        str(meta.get("signal_source") or meta.get("sensor") or ""),
+        str(meta.get("contributing_country") or ""),
+        str(meta.get("domain") or ""),
+    )
 
 
 def save_conclusions_batch_gated(
@@ -136,21 +149,22 @@ def save_conclusions_batch_gated(
 
     scenario_id = cs[0].scenario_id
     ctype = cs[0].conclusion_type
-    sig = _batch_signature([
-        (
-            c.state or "",
+    sig = sorted({
+        _anomaly_identity(
+            c.state,
             c.conclusion_unavailable_reason.value
             if c.conclusion_unavailable_reason is not None else "",
+            c.metadata or {},
         )
         for c in cs
-    ])
+    })
     # The previous batch is every row within a small window of the newest
     # timestamp: each Conclusion is built with its own time.time(), so
     # rows of one tick differ by microseconds — an exact MAX(observed_at)
     # match would see a single row and the signature would never match
     # (found live 2026-07-04: anomalies kept writing ~4 rows/tick).
     rows = db._get_conn().execute(  # noqa: SLF001
-        "SELECT state, conclusion_unavailable_reason, observed_at "
+        "SELECT state, conclusion_unavailable_reason, observed_at, metadata "
         "FROM conclusions "
         "WHERE scenario_id = ? AND conclusion_type = ? "
         "AND observed_at >= ("
@@ -160,10 +174,21 @@ def save_conclusions_batch_gated(
         (scenario_id, ctype.value, scenario_id, ctype.value,
          _BATCH_WINDOW_SEC),
     ).fetchall()
-    prev_sig = _batch_signature([
-        (str(r["state"] or ""), str(r["conclusion_unavailable_reason"] or ""))
+
+    def _parsed_meta(raw) -> dict:
+        try:
+            return json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            return {}
+
+    prev_sig = sorted({
+        _anomaly_identity(
+            r["state"],
+            r["conclusion_unavailable_reason"],
+            _parsed_meta(r["metadata"]),
+        )
         for r in rows
-    ])
+    })
     prev_at = max((float(r["observed_at"]) for r in rows), default=0.0)
     unchanged = (
         bool(rows)

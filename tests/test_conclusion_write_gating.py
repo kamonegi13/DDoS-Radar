@@ -206,3 +206,54 @@ class TestBatchGateTimestampJitter:
         ]
         assert save_conclusions_batch_gated(db, batch2) == 0
         assert len(_rows(sid, "anomaly")) == 4
+
+
+class TestBatchGateIdentitySet:
+    def test_multiplicity_flap_does_not_rewrite(self):
+        """Anomaly rows carry their identity in metadata (signal_source /
+        country / domain), not in state — several rows can share
+        state='llm_intel'. Live verification 2026-07-04 showed the count
+        of same-identity rows flapping tick to tick (2↔4), defeating a
+        multiset signature. The gate compares the IDENTITY SET: same
+        identities in different multiplicity must dedup."""
+        sid = f"{_TAG}_mult"
+        base = _NOW - 300
+        batch1 = [
+            _c(scenario=sid, state="llm_intel", observed_at=base + i * 0.01,
+               kind=ConclusionType.ANOMALY)
+            for i in range(4)
+        ]
+        assert save_conclusions_batch_gated(db, batch1) == 4
+        batch2 = [
+            _c(scenario=sid, state="llm_intel",
+               observed_at=base + 120 + i * 0.01,
+               kind=ConclusionType.ANOMALY)
+            for i in range(2)
+        ]
+        assert save_conclusions_batch_gated(db, batch2) == 0
+
+    def test_new_identity_in_metadata_rewrites(self):
+        """Same state but a NEW contributing country in metadata is a new
+        anomaly identity — the batch must be rewritten."""
+        sid = f"{_TAG}_ident"
+        base = _NOW - 300
+        b1 = [Conclusion(
+            id=f"{_TAG}-" + uuid.uuid4().hex[:10], scenario_id=sid,
+            conclusion_type=ConclusionType.ANOMALY, state="llm_intel",
+            confidence=0.8, observed_at=base, formula_ref="test",
+            threshold_ref={}, source_urls=(), calibration_status={},
+            final_judgment_disclaimer="test",
+            metadata={"signal_source": "llm_intel",
+                      "contributing_country": "TW", "domain": "info"},
+        )]
+        assert save_conclusions_batch_gated(db, b1) == 1
+        b2 = [Conclusion(
+            id=f"{_TAG}-" + uuid.uuid4().hex[:10], scenario_id=sid,
+            conclusion_type=ConclusionType.ANOMALY, state="llm_intel",
+            confidence=0.8, observed_at=base + 120, formula_ref="test",
+            threshold_ref={}, source_urls=(), calibration_status={},
+            final_judgment_disclaimer="test",
+            metadata={"signal_source": "llm_intel",
+                      "contributing_country": "CN", "domain": "info"},
+        )]
+        assert save_conclusions_batch_gated(db, b2) == 1
