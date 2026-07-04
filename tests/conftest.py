@@ -37,7 +37,7 @@ import pytest
 
 # v52 (auto_apply_tier_state, auto_apply_cooldown) + v53 (auto_apply_tier_marker)
 # + the foreign tables the governor's metric helpers query
-# (analyst_feedback, threshold_history, conclusion_diff_log).
+# (analyst_feedback, threshold_history).
 _TIER_GOVERNOR_TEST_SCHEMA = """
 CREATE TABLE IF NOT EXISTS auto_apply_tier_state (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,17 +92,6 @@ CREATE TABLE IF NOT EXISTS threshold_history (
     state               TEXT NOT NULL DEFAULT 'active'
 );
 
-CREATE TABLE IF NOT EXISTS conclusion_diff_log (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    sampled_at          REAL NOT NULL,
-    scenario_id         TEXT NOT NULL,
-    conclusion_type     TEXT NOT NULL,
-    v1_state            TEXT,
-    v2_state            TEXT,
-    is_match            INTEGER NOT NULL DEFAULT 0,
-    diff_kind           TEXT NOT NULL,
-    metadata            TEXT NOT NULL DEFAULT '{}'
-);
 """
 
 

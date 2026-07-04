@@ -99,21 +99,6 @@ def _insert_threshold_history(
         )
 
 
-def _insert_diff_log(conn, *, match: bool, ago_seconds: float = 0.0) -> None:
-    with conn.writing():
-        conn.execute(
-            "INSERT INTO conclusion_diff_log "
-            "(sampled_at, scenario_id, conclusion_type, v1_state, v2_state, "
-            " is_match, diff_kind, metadata) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                time.time() - ago_seconds, "test_scenario", "threat_level",
-                "TL3", "TL3", 1 if match else 0,
-                "match" if match else "divergence", "{}",
-            ),
-        )
-
-
 # ── Tier basics ──────────────────────────────────────────────────────────────
 
 
