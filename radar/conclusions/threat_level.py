@@ -57,6 +57,10 @@ THRESHOLD_REF: dict = {
 # isotonic regression once analyst feedback accumulates.
 _CONFIDENCE_DENOM = 12.0
 
+# Confidence multiplier for lite-mode (background) TLs — partial sensor
+# coverage means the same score carries less certainty (2026-07-04, NP4).
+_LITE_CONFIDENCE_FACTOR = 0.6
+
 
 def derive_threat_level(
     db: "RadarDB",
@@ -132,6 +136,14 @@ def derive_threat_level(
         )
 
     confidence = round(min(1.0, max(0.0, float(state.score) / _CONFIDENCE_DENOM)), 3)
+    # Background (lite) scenarios derive a TL from global + LLM signals
+    # only (C-lite: no per-country sensor depth). The level is still the
+    # maximum defensible conclusion (NP4), but its confidence is
+    # discounted so the analyst can weigh it against full-mode TLs
+    # (NP5+8 — conclusion quality must be visible, 2026-07-04).
+    is_lite = state.scoring_mode == "lite"
+    if is_lite:
+        confidence = round(confidence * _LITE_CONFIDENCE_FACTOR, 3)
 
     active_domain_count = sum(1 for v in state.domains.values() if v > 0)
     physical_score = float(state.domains.get("physical", 0.0))
@@ -169,5 +181,12 @@ def derive_threat_level(
             "physical_score": round(physical_score, 3),
             "rationale_matrix": rationale_matrix,
             "falsification": falsification,
+            **({
+                "lite_tl_note": (
+                    "background scenario (C-lite): TL derived from "
+                    "global + LLM-intel signals only; confidence "
+                    f"discounted x{_LITE_CONFIDENCE_FACTOR}"
+                ),
+            } if is_lite else {}),
         },
     )

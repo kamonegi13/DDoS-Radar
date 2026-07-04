@@ -1395,6 +1395,18 @@ def _maybe_persist_anomaly_conclusions(state: "ScenarioState") -> None:
         record_failure("anomaly", exc)
 
 
+def persist_tl_and_trend_conclusions(state: "ScenarioState") -> None:
+    """Persist THREAT_LEVEL then TREND for the FINAL analyst-facing TL.
+
+    Call AFTER scenario bonuses and hysteresis have been applied to
+    ``state.tl`` (routes/core.py scoring tick). Order matters: the trend
+    builder reads the freshly-written TL row. NP6/AP4: the ledger must
+    record the level the analyst actually saw, not the raw pre-governor
+    derivation (fixed 2026-07-04)."""
+    _maybe_persist_tl_conclusion(state)
+    _maybe_persist_trend_conclusion(state)
+
+
 def apply_hysteresis_to_tl(new_tl: Optional[int],
                            prev_tl: Optional[int]) -> tuple[Optional[int], bool]:
     """Scenario TL hysteresis: de-escalation (higher TL#) is limited to one
@@ -1524,7 +1536,12 @@ def compute_scenario_score(
     total_score = sum(domains.values()) + convergence_bonus
 
     scoring_mode = "full" if is_focused else "lite"
-    tl = derive_tl(total_score, active_domains, domains["physical"]) if is_focused else None
+    # NP4 (2026-07-04): background scenarios derive a TL too. Withholding
+    # it left 3 of 4 enabled scenarios with NO threat-level conclusion for
+    # two months — a direct NP4 violation. The lite TL uses the same
+    # formula on the lite score; derive_threat_level discounts its
+    # confidence and stamps a lite_tl_note so analysts can weigh it.
+    tl = derive_tl(total_score, active_domains, domains["physical"])
 
     state = ScenarioState(
         scenario_id=scenario.id,
@@ -1537,9 +1554,13 @@ def compute_scenario_score(
         tl=tl,
         contributions=deduped,
     )
-    _maybe_persist_tl_conclusion(state)
+    # THREAT_LEVEL + TREND persistence moved OUT of this function
+    # (2026-07-04): the scoring tick in routes/core.py applies scenario
+    # bonuses and de-escalation hysteresis AFTER this returns, so writing
+    # the TL here recorded a pre-governor level that diverged from what
+    # the UI showed (AP4 replay fidelity defect). The tick loop calls
+    # persist_tl_and_trend_conclusions(state) once the final TL is set.
     _maybe_persist_per_domain_conclusion(state)
-    _maybe_persist_trend_conclusion(state)
     _maybe_persist_attack_mode_conclusion(state)
     _maybe_persist_anomaly_conclusions(state)
     # v1-vs-v2 diff sampler RETIRED 2026-05-29: it shadow-wrote conclusion_diff_log

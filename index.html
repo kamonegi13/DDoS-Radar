@@ -2403,6 +2403,7 @@
             <li><b>Purpose (P4 traceability):</b> Every rationale must be traceable back to the source evidence. The detail panel is the analyst's primary tool for verifying why a scenario score has its current value, down to the individual sensor contribution and LLM reasoning.</li>
             <li><b>Switch Focus button:</b> For background scenarios, a <b>SWITCH FOCUS</b> button appears in the detail panel header. Clicking it promotes this scenario to FOCUSED mode (full 33-sensor scoring). This button is not shown when viewing the already-focused scenario.</li>
             <li><b>Bias warning banner:</b> For background scenarios, an orange warning banner is shown at the top of the panel stating that the score is derived from LLM intel + global signals only, and that per-country sensor signals are not being sampled. Do not compare background scores directly with the focused scenario score.</li>
+            <li><b>Background TL (2026-07-04, NP4):</b> Background scenarios now derive a threat level from the lite score using the same formula and hysteresis as the focused scenario — previously they emitted no TL at all. The TL conclusion carries <span class="code-block">scoring_mode: lite</span>, a confidence discount (×0.6), and a <span class="code-block">lite_tl_note</span> in its metadata. Weigh it accordingly: the level is the maximum defensible conclusion under partial sensor coverage, not a full-mode equivalent. Additionally, all THREAT_LEVEL conclusions are now persisted AFTER scenario bonuses and de-escalation hysteresis, so the ledger (and replay) match what the UI displayed — before this fix the ledger recorded the raw pre-governor TL.</li>
             <li><b>Domain bars:</b> Cyber / Physical / Information domain scores are shown as horizontal bars. The sum (capped per domain at DOMAIN_CAP=6.0) plus convergence bonus produces the scenario score.</li>
             <li><b>Contribution table columns:</b>
                 <ul>
@@ -2448,6 +2449,7 @@
             <li><b>目的（P4: 追跡可能性）:</b> 全ての根拠はソース証拠まで追跡可能でなければなりません。詳細パネルは、シナリオスコアが現在の値に至った理由を、個々のセンサー寄与度とLLM推論レベルまで検証するためのアナリストの主要ツールです。</li>
             <li><b>フォーカス切替ボタン:</b> バックグラウンドシナリオの場合、詳細パネルヘッダーに<b>フォーカス切替</b>ボタンが表示されます。クリックするとこのシナリオがFOCUSEDモード（全センサースコアリング）に昇格します。既にフォーカス中のシナリオを閲覧中はこのボタンは表示されません。</li>
             <li><b>バイアス警告バナー:</b> バックグラウンドシナリオでは、パネル上部にオレンジ色の警告バナーが表示され、スコアはLLMインテル + グローバル信号のみから導出されており、国別センサー信号はサンプリングされていないことを明示します。バックグラウンドスコアをフォーカスシナリオのスコアと直接比較しないでください。</li>
+            <li><b>バックグラウンド TL (2026-07-04, NP4):</b> バックグラウンドシナリオも lite スコアから focused と同じ式・同じヒステリシスで脅威レベルを導出するようになりました(従来は TL を一切出力していなかった)。この TL 結論は <span class="code-block">scoring_mode: lite</span>、信頼度割引(×0.6)、metadata の <span class="code-block">lite_tl_note</span> を持ちます。部分的センサーカバレッジ下での「実行可能な最大の結論」であり、full モードと等価ではない点に留意してください。また、すべての THREAT_LEVEL 結論はシナリオボーナスと de-escalation ヒステリシス適用<b>後</b>に永続化されるようになり、台帳(と replay)が UI 表示と一致します — 修正前は governor 適用前の生 TL が記録されていました。</li>
             <li><b>ドメインバー:</b> Cyber / Physical / Information の各ドメインスコアが水平バーで表示されます。合計（ドメインごとに DOMAIN_CAP=6.0 でキャップ）+ 収斂ボーナスがシナリオスコアとなります。</li>
             <li><b>寄与度テーブル列:</b>
                 <ul>
