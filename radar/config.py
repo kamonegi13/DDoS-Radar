@@ -253,6 +253,21 @@ V2_CONCLUSION_DIFF_SAMPLER_ENABLED = os.getenv(
     "V2_CONCLUSION_DIFF_SAMPLER_ENABLED", "false",
 ).lower() in ("true", "1", "yes")
 
+# Change-gated conclusion writes (2026-07-04). The append-only ledger used
+# to persist EVERY conclusion on every ~2min scoring tick: 89,884 anomaly
+# rows in one week collapsed to 12 distinct states — 99.99% redundancy,
+# 83% of the 1.7GB DB. With the gate on, a row is written only when the
+# state (or unavailable_reason) changes, plus a heartbeat row per
+# V2_CONCLUSION_HEARTBEAT_SEC so replay staleness is bounded and liveness
+# is provable. Replay semantics are preserved: latest-row-at-T still
+# yields the state that was in force at T.
+V2_CONCLUSION_WRITE_ON_CHANGE = os.getenv(
+    "V2_CONCLUSION_WRITE_ON_CHANGE", "true",
+).lower() in ("true", "1", "yes")
+V2_CONCLUSION_HEARTBEAT_SEC = int(
+    os.getenv("V2_CONCLUSION_HEARTBEAT_SEC", "3600"),
+)
+
 # v2.0 Phase 2 後半 (ADR-V2-005): LLM augmentation for ATTACK_MODE conclusions.
 # When ENABLED, every successful rule-based attack-mode classification is also
 # sent to the LLM for narrative + agreement + confidence nudge (±0.10 max).

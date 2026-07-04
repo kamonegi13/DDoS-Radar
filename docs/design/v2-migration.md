@@ -54,6 +54,16 @@ ground-truth 校正層は運用開始後 2 度壊れた。**recall/precision の
 
 **教訓**: (a) スケール方向のような意味論は型/テストで固定しない限り必ず反転事故が起きる。(b) 自動ラベルによる自己採点は、ラベル生成器のバグを自力検知できない — human anchor(人間ラベルの定常的最小量)が次の必須課題。(c) auto-tune は「evidence が更新されたか」を確認せずに繰り返し適用してはならない。
 
+**2026-07-04 後続修正**(同日、残タスク一括実施):
+
+| 項目 | 内容 |
+|------|------|
+| duty-cycle chronic 検知 | 連続 run 方式が見逃すフラッピング型の恒常的結論不可(attack_mode が tick の 20-30% で不可)を rolling window の不可時間比率で検知。`CHRONIC_DUTY_THRESHOLD`(0.20)/`CHRONIC_DUTY_WINDOW_DAYS`(14d) |
+| self_eval recall 統一 | HUD recall を per-conclusion calibration と同じ 30 日窓に統一し、`recall_meta` で auto/human ラベル内訳を開示。no-event ラベルの名義を `auto:acled`→`auto:horizon` に訂正 |
+| human anchor (AP3) | `/api/v2/human_anchor/queue` + HUD ANCHOR chip + ラベリングパネル。auto_fn_review / peak_severity / calm_anchor の 3 種を週次で人間ラベル対象に選定。人間の TP+URL は `confirmed_threats`(2023 年から休眠)へも追記され復活 |
+| **ADR-V2-008 修正: 書き込みゲート** | conclusions は「毎 tick 全件 append」から「**状態変化時 + heartbeat(既定 1h)のみ append**」へ(`V2_CONCLUSION_WRITE_ON_CHANGE`)。単一値タイプは型の最新行との比較、anomaly はバッチ集合シグネチャ比較。replay 意味論(latest-row-at-T)は不変、continuity 記録は毎 tick 継続。体積 ~20k 行/日 → 遷移+heartbeat のみ(推定 1/20〜1/50)。**retention 365d への引き上げは旧 bloat(per-tick 時代の ~1M 行)が 90d retention で洗い流れる 2026-10 以降に実施予定** |
+| DB 整理 | migration v54 で `conclusion_diff_log` / `shadow_eval_log` を drop。`llm_prompts` に retention(120d、conclusions+30d が下限)。`LLM_CALL_LOG_RETENTION_DAYS` のデッドコード解消 |
+
 ### 0.1 Phase 5: Operational Maturation 詳細 (2026-04-29 〜 2026-04-30)
 
 Phase 0-4 で「結論を出すツール」としての骨格が完成した後、運用上の盲点と analyst 体験の改善を一括投入したフェーズ。当初計画には無かったが、**実運用で明らかになった構造的問題を体系的に解消**するために起こした。
