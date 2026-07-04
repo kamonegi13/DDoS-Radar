@@ -180,3 +180,29 @@ class TestBatchGate:
 
     def test_empty_batch_is_noop(self):
         assert save_conclusions_batch_gated(db, []) == 0
+
+
+class TestBatchGateTimestampJitter:
+    def test_batch_rows_with_jittered_timestamps_still_dedup(self):
+        """Each Conclusion is built with its own time.time(), so rows in
+        one tick's batch differ by microseconds. The previous-batch lookup
+        must gather the whole batch (a small window around MAX), not just
+        the single newest row — otherwise the signature never matches and
+        every tick writes (found live 2026-07-04: anomaly kept writing
+        ~4 rows/tick post-gate)."""
+        sid = f"{_TAG}_jit"
+        base = _NOW - 300
+        batch1 = [
+            _c(scenario=sid, state="llm_intel", observed_at=base + i * 0.01,
+               kind=ConclusionType.ANOMALY)
+            for i in range(4)
+        ]
+        assert save_conclusions_batch_gated(db, batch1) == 4
+        batch2 = [
+            _c(scenario=sid, state="llm_intel",
+               observed_at=base + 120 + i * 0.01,
+               kind=ConclusionType.ANOMALY)
+            for i in range(4)
+        ]
+        assert save_conclusions_batch_gated(db, batch2) == 0
+        assert len(_rows(sid, "anomaly")) == 4

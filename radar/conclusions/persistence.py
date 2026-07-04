@@ -110,6 +110,12 @@ def save_conclusion_gated(db: "RadarDB", c: Conclusion) -> bool:
     return True
 
 
+# Rows written within this many seconds of a batch's newest timestamp are
+# considered the same batch (per-row time.time() jitter is microseconds;
+# the scoring tick is 120s, so 5s cannot bridge two ticks).
+_BATCH_WINDOW_SEC = 5.0
+
+
 def _batch_signature(rows) -> list[tuple[str, str]]:
     return sorted(rows)
 
@@ -138,25 +144,31 @@ def save_conclusions_batch_gated(
         )
         for c in cs
     ])
+    # The previous batch is every row within a small window of the newest
+    # timestamp: each Conclusion is built with its own time.time(), so
+    # rows of one tick differ by microseconds — an exact MAX(observed_at)
+    # match would see a single row and the signature would never match
+    # (found live 2026-07-04: anomalies kept writing ~4 rows/tick).
     rows = db._get_conn().execute(  # noqa: SLF001
         "SELECT state, conclusion_unavailable_reason, observed_at "
         "FROM conclusions "
         "WHERE scenario_id = ? AND conclusion_type = ? "
-        "AND observed_at = ("
+        "AND observed_at >= ("
         "    SELECT MAX(observed_at) FROM conclusions "
         "    WHERE scenario_id = ? AND conclusion_type = ?"
-        ")",
-        (scenario_id, ctype.value, scenario_id, ctype.value),
+        ") - ?",
+        (scenario_id, ctype.value, scenario_id, ctype.value,
+         _BATCH_WINDOW_SEC),
     ).fetchall()
     prev_sig = _batch_signature([
         (str(r["state"] or ""), str(r["conclusion_unavailable_reason"] or ""))
         for r in rows
     ])
+    prev_at = max((float(r["observed_at"]) for r in rows), default=0.0)
     unchanged = (
         bool(rows)
         and prev_sig == sig
-        and (cs[0].observed_at - float(rows[0]["observed_at"]))
-            < _heartbeat_sec()
+        and (cs[0].observed_at - prev_at) < _heartbeat_sec()
     )
     if unchanged:
         for c in cs:
