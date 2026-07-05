@@ -38,6 +38,7 @@ from radar.conclusions.human_anchor import (
     DEFAULT_WINDOW_DAYS,
     answer_model_for,
     human_label_count,
+    search_url_for,
     select_anchor_candidates,
 )
 from radar.database import db as _db
@@ -95,6 +96,10 @@ def v2_human_anchor_queue():
                 "is_escalation": o.is_escalation,
                 "tone":          o.tone,
             } for o in am.options],
+            # One-click external research aid (2026-07-05). Opens in the
+            # analyst's own browser; nothing is ingested — the judgment
+            # stays independent.
+            "search_url":        search_url_for(c),
         }
 
     from radar import config as _config

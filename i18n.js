@@ -132,6 +132,7 @@ const STRINGS = {
     'human_anchor.empty':              'Queue empty — every candidate this week has a human label. Thank you.',
     'human_anchor.progress':           'Human labels this week: {done}/{target}. Each answer anchors recall to an independent judgment.',
     'human_anchor.tool_showed':        'The tool {stance} here.',
+    'human_anchor.search':             '🔎 Check the news for this window ↗',
     'human_anchor.skip':               'Not sure — skip for now',
     'human_anchor.evidence.prompt':    'Add a source link (optional — records a confirmed threat):',
     'human_anchor.evidence.record':    'Record',

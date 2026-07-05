@@ -2066,6 +2066,17 @@
     line-height: 1.4;
     margin-bottom: 9px;
 }
+/* One-click external research link */
+.anchor-body .anchor-research {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--color-accent);
+    text-decoration: none;
+    margin-bottom: 9px;
+    border-bottom: 1px dotted var(--color-accent);
+    padding-bottom: 1px;
+}
+.anchor-body .anchor-research:hover { filter: brightness(1.3); }
 .anchor-body .anchor-answer-row {
     display: flex;
     flex-wrap: wrap;

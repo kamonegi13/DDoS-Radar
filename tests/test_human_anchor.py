@@ -171,6 +171,47 @@ class TestSelection:
         assert "China" in am.question and "Taiwan" in am.question
         assert "day" in am.question
 
+    def test_search_url_has_terms_and_date_window(self):
+        c = ha.AnchorCandidate(
+            conclusion_id="x", scenario_id="taiwan_contingency",
+            conclusion_type="threat_level", state="4",
+            observed_at=1_782_000_000.0, kind="calm_anchor",
+            rationale="", suggested_labels=(),
+        )
+        url = ha.search_url_for(c)
+        # Country terms present (URL-encoded '+' between words).
+        assert "Taiwan" in url and "China" in url
+        assert "escalation" in url
+        # Date-bounded to the forward window (after:/before: operators,
+        # colon URL-encoded as %3A).
+        assert "after%3A" in url and "before%3A" in url
+
+    def test_search_url_is_url_encoded(self):
+        c = ha.AnchorCandidate(
+            conclusion_id="x", scenario_id="eastern_europe",
+            conclusion_type="threat_level", state="5",
+            observed_at=1_782_000_000.0, kind="calm_anchor",
+            rationale="", suggested_labels=(),
+        )
+        url = ha.search_url_for(c)
+        assert " " not in url  # spaces encoded, never raw
+        assert url.startswith("https://")
+
+    def test_search_url_respects_config_template(self, monkeypatch):
+        monkeypatch.setattr(
+            config, "HUMAN_ANCHOR_SEARCH_URL",
+            "https://intranet.example/search?q={query}",
+        )
+        c = ha.AnchorCandidate(
+            conclusion_id="x", scenario_id="middle_east",
+            conclusion_type="threat_level", state="4",
+            observed_at=1_782_000_000.0, kind="calm_anchor",
+            rationale="", suggested_labels=(),
+        )
+        url = ha.search_url_for(c)
+        assert url.startswith("https://intranet.example/search?q=")
+        assert "Israel" in url and "Iran" in url
+
     def test_answer_model_attack_mode_fired_is_alert(self):
         c = ha.AnchorCandidate(
             conclusion_id="x", scenario_id="taiwan_contingency",
@@ -251,6 +292,9 @@ class TestQueueEndpoint:
         for c in body["candidates"]:
             assert c["rationale"]
             assert c["suggested_labels"]
+            assert c["question"]
+            assert c["answer_options"]
+            assert c["search_url"].startswith("http")
 
     def test_queue_requires_auth(self, client):
         r = client.get("/api/v2/human_anchor/queue")

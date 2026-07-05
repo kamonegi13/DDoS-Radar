@@ -5858,6 +5858,19 @@
         q.textContent = cand.question || '';
         card.appendChild(q);
 
+        // One-click research aid: opens an external news search for this
+        // window in a new tab. The analyst's own research — nothing is
+        // pulled back into the tool, so their answer stays independent.
+        if (cand.search_url) {
+            const res = document.createElement('a');
+            res.className = 'anchor-research';
+            res.href = cand.search_url;           // server-built http(s) URL
+            res.target = '_blank';
+            res.rel = 'noopener noreferrer';
+            res.textContent = _t('human_anchor.search');
+            card.appendChild(res);
+        }
+
         const answers = document.createElement('div');
         answers.className = 'anchor-answer-row';
         for (const opt of (cand.answer_options || [])) {

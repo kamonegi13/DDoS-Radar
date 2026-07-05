@@ -307,6 +307,18 @@ GROUND_TRUTH_FALSE_NEGATIVE_FATALITIES = int(
     os.getenv("GROUND_TRUTH_FALSE_NEGATIVE_FATALITIES", "10"),
 )
 
+# Human-anchor external-search deep link (2026-07-05). One-click research
+# aid: the analyst verifies "did a real escalation occur?" in their OWN
+# browser and nothing is ingested back into the pipeline — so their answer
+# stays an independent signal (automating the query construction, never the
+# judgment). {query} is URL-encoded and substituted. OPSEC: point this at
+# an internal / privacy-preserving engine if analyst research traffic to a
+# public search provider is a concern.
+HUMAN_ANCHOR_SEARCH_URL = os.getenv(
+    "HUMAN_ANCHOR_SEARCH_URL",
+    "https://www.google.com/search?tbm=nws&q={query}",
+)
+
 CF_HEADERS = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
 
 AIRSPACE_WINDOW             = int(os.getenv("AIRSPACE_WINDOW", "20"))

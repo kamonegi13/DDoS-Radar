@@ -40,6 +40,7 @@ import logging
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
+from urllib.parse import quote_plus
 
 from radar import config
 from radar.conclusions.feedback import FeedbackLabel
@@ -86,6 +87,45 @@ _SCENARIO_ESCALATION_HINT = {
     "korean_peninsula":   "a real Korean-peninsula military escalation",
     "south_china_sea":    "a real South China Sea military escalation",
 }
+
+# Search terms per scenario — full country names for good news recall,
+# kept separate from the prose hint above.
+_SCENARIO_SEARCH_TERMS = {
+    "taiwan_contingency": "Taiwan China military",
+    "eastern_europe":     "Russia Ukraine",
+    "middle_east":        "Israel Iran",
+    "korean_peninsula":   "North Korea South Korea military",
+    "south_china_sea":    "South China Sea military",
+}
+
+_DEFAULT_SEARCH_URL = "https://www.google.com/search?tbm=nws&q={query}"
+
+
+def search_url_for(candidate: AnchorCandidate) -> str:
+    """One-click external news-search deep link for verifying whether a
+    real escalation occurred in the candidate's forward window.
+
+    This automates the RESEARCH (query construction), never the JUDGMENT:
+    the link opens in the analyst's own browser and nothing is ingested
+    back into the tool, so the human's answer stays an independent signal —
+    the entire reason the anchor exists (an LLM/ETL ground-truth check
+    reading the same public feeds would recreate the correlated blind spot
+    that broke calibration twice). The engine is a config template
+    (``HUMAN_ANCHOR_SEARCH_URL``) with a ``{query}`` placeholder so
+    OPSEC-conscious deployments can point it elsewhere.
+    """
+    terms = _SCENARIO_SEARCH_TERMS.get(
+        candidate.scenario_id, candidate.scenario_id.replace("_", " "))
+    window_h = config.GROUND_TRUTH_WINDOW_HOURS
+    after = time.strftime("%Y-%m-%d", time.gmtime(candidate.observed_at))
+    # +1 day margin so the last day of the forward window is fully included.
+    before = time.strftime(
+        "%Y-%m-%d",
+        time.gmtime(candidate.observed_at + window_h * 3600 + 86400),
+    )
+    query = f"{terms} escalation after:{after} before:{before}"
+    template = getattr(config, "HUMAN_ANCHOR_SEARCH_URL", _DEFAULT_SEARCH_URL)
+    return template.replace("{query}", quote_plus(query))
 
 
 @dataclass(frozen=True)
