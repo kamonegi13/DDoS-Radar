@@ -125,13 +125,18 @@ const STRINGS = {
     'drill_modal.feedback.disabled':          'Feedback unavailable for unsaved conclusions.',
     'drill_modal.feedback.status.no_label':   'Choose a label first.',
 
-    // Human-anchor labeling queue (AP3, 2026-07-04)
+    // Human-anchor labeling queue (AP3, 2026-07-04; natural-question UX 2026-07-05)
     'human_anchor.title':              'Human Anchor Queue',
     'human_anchor.loading':            'Loading queue…',
     'human_anchor.error':              'Queue unavailable — check API/auth.',
     'human_anchor.empty':              'Queue empty — every candidate this week has a human label. Thank you.',
     'human_anchor.progress':           'Human labels this week: {done}/{target}. Each answer anchors recall to an independent judgment.',
-    'human_anchor.prompt.outcome_url': 'Outcome URL (news/ACLED evidence, optional — a URL also records a confirmed threat):',
+    'human_anchor.tool_showed':        'The tool {stance} here.',
+    'human_anchor.skip':               'Not sure — skip for now',
+    'human_anchor.evidence.prompt':    'Add a source link (optional — records a confirmed threat):',
+    'human_anchor.evidence.record':    'Record',
+    'human_anchor.recorded':           '✓ Recorded as {label}. Thank you — this anchors the tool\'s recall.',
+    'human_anchor.recorded_miss':      '✓ Recorded: the tool missed a real escalation. This is the most valuable label — thank you.',
 
     'drill_modal.feedback.status.submitting': 'Saving…',
     'drill_modal.feedback.status.saved':      'Feedback saved.',

@@ -329,12 +329,14 @@ def v2_conclusion_feedback_submit(conclusion_id: str):
     new_id = save_feedback(db, fb)
 
     # Human-confirmed escalation → revive the confirmed_threats ground-
-    # truth ledger (dormant since 2023). Only genuine human labels with
-    # an outcome URL qualify: a TRUE_POSITIVE from an analyst who can
-    # point at what happened is the highest-quality ground truth this
-    # system can collect. Best-effort — never breaks the feedback path.
+    # truth ledger (dormant since 2023). Both TRUE_POSITIVE (tool alerted
+    # and was right) and FALSE_NEGATIVE (tool stayed calm and missed it)
+    # assert a REAL escalation occurred — confirmed_threats records real
+    # threats independent of whether the tool caught them. Only genuine
+    # human labels with an outcome URL qualify. Best-effort — never breaks
+    # the feedback path.
     if (
-        label is FeedbackLabel.TRUE_POSITIVE
+        label in (FeedbackLabel.TRUE_POSITIVE, FeedbackLabel.FALSE_NEGATIVE)
         and outcome_url
         and not fb.analyst_id.startswith("auto:")
     ):
@@ -342,17 +344,28 @@ def v2_conclusion_feedback_submit(conclusion_id: str):
             from radar.scenarios import scenario_store
             sc = scenario_store.get(target.scenario_id)
             country = getattr(sc, "core_country", None) or target.scenario_id
-            try:
-                tl_val = int(target.state or "")
-            except (TypeError, ValueError):
-                tl_val = 0
+            missed = label is FeedbackLabel.FALSE_NEGATIVE
+            if missed:
+                # The tool's TL was calm and does not describe the real
+                # event; record a HIGH floor (TL3) plus a distinct
+                # classification so the miss is auditable.
+                tl_val = 3
+                classification = (
+                    f"human_confirmed_miss:{target.conclusion_type.value}")
+            else:
+                try:
+                    tl_val = int(target.state or "")
+                except (TypeError, ValueError):
+                    tl_val = 0
+                classification = (
+                    f"human_confirmed:{target.conclusion_type.value}")
             db.confirmed_threat_add(
                 theater=country,
                 ts=target.observed_at,
-                classification=f"human_confirmed:{target.conclusion_type.value}",
+                classification=classification,
                 sensors_active=[],
                 threat_level=tl_val,
-                notes=(notes or f"human TP via feedback {new_id}: "
+                notes=(notes or f"human label via feedback {new_id}: "
                                 f"{outcome_url}")[:500],
                 created_by=fb.analyst_id,
             )

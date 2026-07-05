@@ -36,6 +36,7 @@ from radar.conclusions.api import API_VERSION
 from radar.conclusions.human_anchor import (
     DEFAULT_QUEUE_LIMIT,
     DEFAULT_WINDOW_DAYS,
+    answer_model_for,
     human_label_count,
     select_anchor_candidates,
 )
@@ -69,12 +70,10 @@ def v2_human_anchor_queue():
     candidates = select_anchor_candidates(
         _db, now=now, window_days=window_days, limit=limit,
     )
-    from radar import config as _config
-    return jsonify({
-        "api_version": API_VERSION,
-        "generated_at": now,
-        "final_judgment_disclaimer": _config.V2_NP7_DISCLAIMER,
-        "candidates": [{
+
+    def _serialize(c):
+        am = answer_model_for(c)
+        return {
             "conclusion_id":    c.conclusion_id,
             "scenario_id":      c.scenario_id,
             "conclusion_type":  c.conclusion_type,
@@ -83,7 +82,27 @@ def v2_human_anchor_queue():
             "kind":             c.kind,
             "rationale":        c.rationale,
             "suggested_labels": list(c.suggested_labels),
-        } for c in candidates],
+            # Natural-language answering model (2026-07-05 UX): the analyst
+            # answers `question` with `answer_options`; the confusion-matrix
+            # label is pre-derived server-side so the UI never shows raw
+            # TP/FP/TN/FN as a choice.
+            "question":          am.question,
+            "tool_stance":       am.tool_stance,
+            "tool_stance_label": am.tool_stance_label,
+            "answer_options": [{
+                "label":         o.label,
+                "maps_to":       o.maps_to,
+                "is_escalation": o.is_escalation,
+                "tone":          o.tone,
+            } for o in am.options],
+        }
+
+    from radar import config as _config
+    return jsonify({
+        "api_version": API_VERSION,
+        "generated_at": now,
+        "final_judgment_disclaimer": _config.V2_NP7_DISCLAIMER,
+        "candidates": [_serialize(c) for c in candidates],
         "pending": len(candidates),
         "human_labels_window": human_label_count(
             _db, since=now - window_days * 86400.0,

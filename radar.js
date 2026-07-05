@@ -5736,45 +5736,146 @@
 
     let _anchorToggleFn = null;
 
-    function _anchorLabelButton(cand, label, isSuggested) {
-        const btn = document.createElement('button');
-        btn.className = 'anchor-label-btn'
-            + (isSuggested ? ' anchor-suggested' : '');
-        btn.textContent = _t('drill_modal.feedback.label.' + label);
-        btn.onclick = async () => {
-            let url = null;
-            if (label === 'TRUE_POSITIVE') {
-                url = window.prompt(
-                    _t('human_anchor.prompt.outcome_url'), '');
-            }
-            const payload = {
-                label: label,
-                notes: 'human-anchor queue (' + cand.kind + ')',
-            };
-            if (url && url.trim()) {
-                payload.observed_outcome_url = url.trim();
-            }
-            btn.disabled = true;
-            try {
-                const resp = await fetch(
-                    '/api/v2/conclusions/'
-                    + encodeURIComponent(cand.conclusion_id) + '/feedback',
-                    {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload),
-                    });
-                if (resp.status === 201) {
-                    _refreshAnchorChip(true);
-                    _anchorRenderQueue();
-                } else {
-                    btn.disabled = false;
-                }
-            } catch (_) {
-                btn.disabled = false;
-            }
+    // kind → friendly tag. Analysts see "why this one" at a glance without
+    // the confusion-matrix vocabulary.
+    const _ANCHOR_TAGS = {
+        auto_fn_review: { label: 'POSSIBLE MISS', cls: 'anchor-tag-miss' },
+        peak_severity:  { label: 'PEAK ALERT',   cls: 'anchor-tag-alert' },
+        calm_anchor:    { label: 'QUIET CHECK',  cls: 'anchor-tag-quiet' },
+    };
+
+    async function _anchorPostAnswer(cand, opt, url) {
+        const payload = {
+            label: opt.maps_to,
+            notes: 'human-anchor (' + cand.kind + ')',
         };
-        return btn;
+        if (url && url.trim()) payload.observed_outcome_url = url.trim();
+        try {
+            const resp = await fetch(
+                '/api/v2/conclusions/'
+                + encodeURIComponent(cand.conclusion_id) + '/feedback',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+            return resp.status === 201;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function _anchorConfirmText(opt) {
+        // Plain-language read-back of what got recorded (NP6 transparency).
+        if (opt.maps_to === 'FALSE_NEGATIVE') {
+            return _t('human_anchor.recorded_miss');
+        }
+        const nice = opt.maps_to.replace(/_/g, ' ').toLowerCase();
+        return _t('human_anchor.recorded', { label: nice });
+    }
+
+    function _anchorFinish(card, opt) {
+        card.innerHTML = '';
+        const done = document.createElement('div');
+        done.className = 'anchor-done anchor-tone-' + (opt.tone || 'quiet');
+        done.textContent = _anchorConfirmText(opt);
+        card.appendChild(done);
+        _refreshAnchorChip(true);
+    }
+
+    function _anchorOnAnswer(card, cand, opt) {
+        if (opt.is_escalation) {
+            // Affirming a real escalation is the high-value, evidence-worthy
+            // case — reveal an inline optional source-link field before
+            // recording (no ugly window.prompt).
+            const answers = card.querySelector('.anchor-answer-row');
+            if (answers) answers.remove();
+            const ev = document.createElement('div');
+            ev.className = 'anchor-evidence';
+            const lbl = document.createElement('div');
+            lbl.className = 'anchor-evidence-lbl';
+            lbl.textContent = _t('human_anchor.evidence.prompt');
+            const input = document.createElement('input');
+            input.type = 'url';
+            input.className = 'anchor-evidence-input';
+            input.placeholder = 'https://…';
+            const rec = document.createElement('button');
+            rec.className = 'anchor-answer-btn anchor-tone-escalation';
+            rec.textContent = _t('human_anchor.evidence.record');
+            rec.onclick = async () => {
+                rec.disabled = true;
+                if (await _anchorPostAnswer(cand, opt, input.value)) {
+                    _anchorFinish(card, opt);
+                } else {
+                    rec.disabled = false;
+                }
+            };
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') rec.click();
+            });
+            ev.appendChild(lbl);
+            ev.appendChild(input);
+            ev.appendChild(rec);
+            card.appendChild(ev);
+            input.focus();
+        } else {
+            // Quiet confirmation — frictionless one click.
+            (async () => {
+                if (await _anchorPostAnswer(cand, opt, null)) {
+                    _anchorFinish(card, opt);
+                }
+            })();
+        }
+    }
+
+    function _anchorRenderCard(cand) {
+        const card = document.createElement('div');
+        card.className = 'anchor-row';
+
+        const tag = _ANCHOR_TAGS[cand.kind]
+            || { label: cand.kind, cls: '' };
+        const when = new Date(cand.observed_at * 1000)
+            .toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+
+        const head = document.createElement('div');
+        head.className = 'anchor-row-head';
+        head.innerHTML =
+            '<span class="anchor-tag ' + tag.cls + '">'
+            + _escHtml(tag.label) + '</span>'
+            + '<span class="anchor-scn">' + _escHtml(cand.scenario_id)
+            + '</span><span class="anchor-when">' + _escHtml(when) + '</span>';
+        card.appendChild(head);
+
+        const stance = document.createElement('div');
+        stance.className = 'anchor-stance';
+        stance.textContent = _t('human_anchor.tool_showed', {
+            stance: cand.tool_stance_label || '—',
+        });
+        card.appendChild(stance);
+
+        const q = document.createElement('div');
+        q.className = 'anchor-question';
+        q.textContent = cand.question || '';
+        card.appendChild(q);
+
+        const answers = document.createElement('div');
+        answers.className = 'anchor-answer-row';
+        for (const opt of (cand.answer_options || [])) {
+            const b = document.createElement('button');
+            b.className = 'anchor-answer-btn anchor-tone-'
+                + (opt.tone || 'quiet');
+            b.textContent = opt.label;
+            b.onclick = () => _anchorOnAnswer(card, cand, opt);
+            answers.appendChild(b);
+        }
+        const skip = document.createElement('button');
+        skip.className = 'anchor-skip-btn';
+        skip.textContent = _t('human_anchor.skip');
+        skip.onclick = () => { card.remove(); };
+        answers.appendChild(skip);
+        card.appendChild(answers);
+
+        return card;
     }
 
     async function _anchorRenderQueue() {
@@ -5808,36 +5909,7 @@
             return;
         }
         for (const cand of q.candidates) {
-            const row = document.createElement('div');
-            row.className = 'anchor-row';
-            const meta = document.createElement('div');
-            meta.className = 'anchor-row-meta';
-            const when = new Date(cand.observed_at * 1000)
-                .toISOString().slice(0, 16).replace('T', ' ') + 'Z';
-            meta.innerHTML =
-                '<span class="anchor-kind">' + _escHtml(cand.kind)
-                + '</span> <b>' + _escHtml(cand.scenario_id) + '</b> TL'
-                + _escHtml(String(cand.state)) + ' · ' + _escHtml(when);
-            row.appendChild(meta);
-            const why = document.createElement('div');
-            why.className = 'anchor-rationale';
-            why.textContent = cand.rationale;
-            row.appendChild(why);
-            const btns = document.createElement('div');
-            btns.className = 'anchor-btn-row';
-            const suggested = cand.suggested_labels || [];
-            const all = ['TRUE_POSITIVE', 'FALSE_POSITIVE',
-                         'TRUE_NEGATIVE', 'FALSE_NEGATIVE'];
-            for (const label of suggested) {
-                btns.appendChild(_anchorLabelButton(cand, label, true));
-            }
-            for (const label of all) {
-                if (suggested.indexOf(label) === -1) {
-                    btns.appendChild(_anchorLabelButton(cand, label, false));
-                }
-            }
-            row.appendChild(btns);
-            body.appendChild(row);
+            body.appendChild(_anchorRenderCard(cand));
         }
     }
 

@@ -2011,59 +2011,134 @@
 }
 .anchor-body .anchor-row {
     border: 1px solid var(--color-border);
-    border-radius: 4px;
-    padding: 8px;
-    margin-bottom: 8px;
+    border-radius: 6px;
+    padding: 10px 11px;
+    margin-bottom: 10px;
     background: var(--color-panel-alt, rgba(255, 255, 255, 0.02));
 }
-.anchor-body .anchor-row-meta {
-    font-size: 12px;
-    margin-bottom: 4px;
+/* Header line: kind tag + scenario + timestamp */
+.anchor-body .anchor-row-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 7px;
 }
-.anchor-body .anchor-kind {
-    font-size: 10px;
+.anchor-body .anchor-tag {
+    font-size: 9px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+}
+.anchor-body .anchor-tag-miss {
+    color: var(--color-critical, #ff5c5c);
+    border: 1px solid var(--color-critical, #ff5c5c);
+}
+.anchor-body .anchor-tag-alert {
     color: var(--color-accent);
     border: 1px solid var(--color-accent);
-    border-radius: 3px;
-    padding: 0 4px;
 }
-.anchor-body .anchor-rationale {
-    font-size: 11px;
+.anchor-body .anchor-tag-quiet {
     color: var(--color-text-dim);
-    margin-bottom: 6px;
-    line-height: 1.45;
+    border: 1px solid var(--color-border);
 }
-.anchor-body .anchor-btn-row {
+.anchor-body .anchor-scn {
+    font-weight: 600;
+    font-size: 12px;
+}
+.anchor-body .anchor-when {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--color-text-dim);
+}
+/* The tool's own call, in plain language */
+.anchor-body .anchor-stance {
+    font-size: 12px;
+    color: var(--color-text);
+    margin-bottom: 3px;
+}
+/* The single natural question the analyst answers */
+.anchor-body .anchor-question {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-bottom: 9px;
+}
+.anchor-body .anchor-answer-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 6px;
 }
-.anchor-body .anchor-label-btn {
-    font-size: 10px;
-    padding: 3px 6px;
+.anchor-body .anchor-answer-btn {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--color-border);
     background: transparent;
     color: var(--color-text);
-    border: 1px solid var(--color-border);
-    border-radius: 3px;
     cursor: pointer;
+    font-weight: 600;
 }
-.anchor-body .anchor-label-btn:hover {
-    border-color: var(--color-accent);
+.anchor-body .anchor-answer-btn.anchor-tone-escalation {
+    border-color: var(--color-critical, #ff5c5c);
+    color: var(--color-critical, #ff5c5c);
 }
-.anchor-body .anchor-label-btn.anchor-suggested {
+.anchor-body .anchor-answer-btn.anchor-tone-quiet {
     border-color: var(--color-accent);
     color: var(--color-accent);
 }
-.anchor-body .anchor-label-btn:disabled {
-    opacity: 0.4;
-    cursor: default;
+.anchor-body .anchor-answer-btn:hover { filter: brightness(1.25); }
+.anchor-body .anchor-answer-btn:disabled { opacity: 0.4; cursor: default; }
+.anchor-body .anchor-skip-btn {
+    font-size: 11px;
+    padding: 6px 10px;
+    background: transparent;
+    color: var(--color-text-dim);
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
 }
-.anchor-body .anchor-empty {
+/* Inline optional evidence-URL field (escalation answers) */
+.anchor-body .anchor-evidence {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+}
+.anchor-body .anchor-evidence-lbl {
+    flex-basis: 100%;
     font-size: 11px;
     color: var(--color-text-dim);
-    padding: 12px 4px;
+}
+.anchor-body .anchor-evidence-input {
+    flex: 1 1 200px;
+    font-size: 12px;
+    padding: 5px 7px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg, #0e1013);
+    color: var(--color-text);
+}
+/* Plain-language confirmation after answering */
+.anchor-body .anchor-done {
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 4px 2px;
+}
+.anchor-body .anchor-done.anchor-tone-escalation {
+    color: var(--color-critical, #ff5c5c);
+}
+.anchor-body .anchor-done.anchor-tone-quiet {
+    color: var(--color-accent);
+}
+.anchor-body .anchor-empty {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    padding: 14px 4px;
+    line-height: 1.5;
 }
 
 /* ── Sensor Watchpane (Layer 3) ───────────────────────────────────── */

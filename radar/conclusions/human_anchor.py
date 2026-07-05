@@ -42,6 +42,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from radar import config
+from radar.conclusions.feedback import FeedbackLabel
 from radar.conclusions.severity import severity_of
 
 if TYPE_CHECKING:
@@ -63,6 +64,95 @@ class AnchorCandidate:
     kind:             str          # auto_fn_review | peak_severity | calm_anchor
     rationale:        str          # AP2 — deterministic template, no LLM
     suggested_labels: tuple[str, ...]
+
+
+# ── natural-language answering model (2026-07-05 UX) ────────────────────────
+#
+# Analysts must never think in TP/FP/TN/FN — those are a DERIVED quantity
+# (tool's call × reality). The analyst knows only what happened in the real
+# world; the tool knows what IT concluded. So we ask ONE natural question
+# ("did a real escalation occur?") and derive the confusion-matrix cell from
+# the tool's own stance. This is AP2 (plain-language self-explanation) and
+# strictly more transparent than presenting the four cells raw.
+
+_TL_NAMES = {1: "CRITICAL", 2: "SEVERE", 3: "HIGH", 4: "ELEVATED", 5: "NORMAL"}
+# severity ≥ 3 ⇔ TL ≤ 3 (HIGH / SEVERE / CRITICAL) counts as an alert.
+_ALERT_MIN_SEVERITY = 3
+
+_SCENARIO_ESCALATION_HINT = {
+    "taiwan_contingency": "a real China–Taiwan military escalation",
+    "eastern_europe":     "a real Russia–Ukraine escalation",
+    "middle_east":        "a real Israel–Iran/proxy escalation",
+    "korean_peninsula":   "a real Korean-peninsula military escalation",
+    "south_china_sea":    "a real South China Sea military escalation",
+}
+
+
+@dataclass(frozen=True)
+class AnchorAnswer:
+    """One natural-language answer + the confusion-matrix label it records."""
+    label:         str    # button text the analyst reads
+    maps_to:       str    # FeedbackLabel value posted to the feedback API
+    is_escalation: bool   # answer asserts a real escalation happened
+    tone:          str     # 'escalation' | 'quiet' — for button styling
+
+
+@dataclass(frozen=True)
+class AnswerModel:
+    question:          str
+    tool_stance:       str    # 'alert' | 'calm'
+    tool_stance_label: str    # plain language, e.g. 'raised a HIGH alert'
+    options:           tuple[AnchorAnswer, ...]
+
+
+def _tool_stance(conclusion_type: str, state: str) -> tuple[str, str]:
+    """Return (stance, plain-language label). stance ∈ {alert, calm}."""
+    if conclusion_type == "threat_level":
+        try:
+            tl = int(state)
+        except (TypeError, ValueError):
+            return "calm", "made no clear call"
+        name = _TL_NAMES.get(tl, f"TL{tl}")
+        if severity_of(tl) >= _ALERT_MIN_SEVERITY:
+            return "alert", f"raised a {name} alert"
+        return "calm", f"stayed calm ({name})"
+    # attack_mode and other event-shaped types
+    if state and state != "INSUFFICIENT_DATA":
+        return "alert", f"flagged {state}"
+    return "calm", "did not flag an attack"
+
+
+def answer_model_for(candidate: AnchorCandidate) -> AnswerModel:
+    """Build the natural-language question + answer options for one
+    candidate. The analyst answers whether a real escalation occurred; the
+    TP/FP/TN/FN label is derived here from the tool's own stance."""
+    stance, stance_label = _tool_stance(
+        candidate.conclusion_type, candidate.state)
+    hint = _SCENARIO_ESCALATION_HINT.get(
+        candidate.scenario_id, "a real interstate escalation")
+    window_days = max(1, config.GROUND_TRUTH_WINDOW_HOURS // 24)
+    question = (
+        f"In the ~{window_days} day(s) after this, did {hint} actually occur?"
+    )
+    if stance == "alert":
+        # Tool alerted: reality-occurred ⇒ TP, reality-quiet ⇒ FP.
+        yes_label = FeedbackLabel.TRUE_POSITIVE.value
+        no_label = FeedbackLabel.FALSE_POSITIVE.value
+    else:
+        # Tool calm: reality-occurred ⇒ the miss (FN), reality-quiet ⇒ TN.
+        yes_label = FeedbackLabel.FALSE_NEGATIVE.value
+        no_label = FeedbackLabel.TRUE_NEGATIVE.value
+    options = (
+        AnchorAnswer(
+            label="Yes — an escalation occurred",
+            maps_to=yes_label, is_escalation=True, tone="escalation"),
+        AnchorAnswer(
+            label="No — it stayed quiet",
+            maps_to=no_label, is_escalation=False, tone="quiet"),
+    )
+    return AnswerModel(
+        question=question, tool_stance=stance,
+        tool_stance_label=stance_label, options=options)
 
 
 def _human_labeled_ids(conn) -> set[str]:

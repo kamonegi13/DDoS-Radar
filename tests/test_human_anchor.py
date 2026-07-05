@@ -67,7 +67,7 @@ def _cleanup():
         )
         conn.execute(
             "DELETE FROM confirmed_threats WHERE created_by = 'admin' "
-            "AND classification LIKE 'human_confirmed:%'",
+            "AND classification LIKE 'human_confirmed%'",
         )
 
 
@@ -129,6 +129,59 @@ class TestSelection:
         assert len(calm) == 1
         assert calm[0].conclusion_id == aged
         assert "TRUE_NEGATIVE" in calm[0].suggested_labels
+
+    def test_answer_model_alert_stance_maps_yes_to_true_positive(self):
+        c = ha.AnchorCandidate(
+            conclusion_id="x", scenario_id="taiwan_contingency",
+            conclusion_type="threat_level", state="2",  # SEVERE = alert
+            observed_at=_NOW, kind="peak_severity",
+            rationale="", suggested_labels=(),
+        )
+        am = ha.answer_model_for(c)
+        assert am.tool_stance == "alert"
+        assert "SEVERE" in am.tool_stance_label
+        yes = next(o for o in am.options if o.is_escalation)
+        no = next(o for o in am.options if not o.is_escalation)
+        assert yes.maps_to == "TRUE_POSITIVE"
+        assert no.maps_to == "FALSE_POSITIVE"
+
+    def test_answer_model_calm_stance_maps_yes_to_false_negative(self):
+        c = ha.AnchorCandidate(
+            conclusion_id="x", scenario_id="korean_peninsula",
+            conclusion_type="threat_level", state="5",  # NORMAL = calm
+            observed_at=_NOW, kind="calm_anchor",
+            rationale="", suggested_labels=(),
+        )
+        am = ha.answer_model_for(c)
+        assert am.tool_stance == "calm"
+        yes = next(o for o in am.options if o.is_escalation)
+        no = next(o for o in am.options if not o.is_escalation)
+        # The analyst affirming an escalation on a calm call is the MISS.
+        assert yes.maps_to == "FALSE_NEGATIVE"
+        assert no.maps_to == "TRUE_NEGATIVE"
+
+    def test_answer_model_question_names_the_scenario(self):
+        c = ha.AnchorCandidate(
+            conclusion_id="x", scenario_id="taiwan_contingency",
+            conclusion_type="threat_level", state="4",
+            observed_at=_NOW, kind="calm_anchor",
+            rationale="", suggested_labels=(),
+        )
+        am = ha.answer_model_for(c)
+        assert "China" in am.question and "Taiwan" in am.question
+        assert "day" in am.question
+
+    def test_answer_model_attack_mode_fired_is_alert(self):
+        c = ha.AnchorCandidate(
+            conclusion_id="x", scenario_id="taiwan_contingency",
+            conclusion_type="attack_mode", state="SYNC_DDOS",
+            observed_at=_NOW, kind="auto_fn_review",
+            rationale="", suggested_labels=(),
+        )
+        am = ha.answer_model_for(c)
+        assert am.tool_stance == "alert"
+        assert next(o for o in am.options if o.is_escalation).maps_to \
+            == "TRUE_POSITIVE"
 
     def test_limit_respected_and_fn_prioritized(self):
         sid = f"{_TAG}_lim"
@@ -227,6 +280,31 @@ class TestConfirmedThreatsRevival:
         after = db._get_conn().execute(  # noqa: SLF001
             "SELECT COUNT(*) FROM confirmed_threats "
             "WHERE classification LIKE 'human_confirmed:%'",
+        ).fetchone()[0]
+        assert after == before + 1
+
+    def test_human_fn_with_url_writes_confirmed_miss(
+        self, client, admin_headers,
+    ):
+        """A human FALSE_NEGATIVE with an outcome URL also revives the
+        confirmed_threats ledger: a real escalation the tool missed is
+        confirmed ground truth (classification human_confirmed_miss)."""
+        cid = _mk_conclusion(scenario="taiwan_contingency", state="5",
+                             observed_at=_NOW - 86400)
+        before = db._get_conn().execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM confirmed_threats "
+            "WHERE classification LIKE 'human_confirmed_miss:%'",
+        ).fetchone()[0]
+        r = client.post(
+            f"/api/v2/conclusions/{cid}/feedback",
+            headers=admin_headers,
+            json={"label": "FALSE_NEGATIVE",
+                  "observed_outcome_url": "https://example.test/missed"},
+        )
+        assert r.status_code == 201
+        after = db._get_conn().execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM confirmed_threats "
+            "WHERE classification LIKE 'human_confirmed_miss:%'",
         ).fetchone()[0]
         assert after == before + 1
 
