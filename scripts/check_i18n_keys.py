@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""i18n key audit — EN-only UI + INTEL GUIDE bilingual parity (CLAUDE.md §3).
+"""i18n key audit — Japanese-only UI (CLAUDE.md §1, docs/design/ja-localization.md).
 
-Two independent checks fold into one CLI gate:
+Three independent checks fold into one CLI gate:
 
-  1. **STRINGS audit (UI side, EN-only)**
+  1. **STRINGS key audit**
      Cross-checks the ``STRINGS`` dictionary in ``i18n.js`` against keys
      actually referenced in HTML (``data-i18n*=``) and JS (``_t('key')``).
      Reports:
@@ -14,13 +14,20 @@ Two independent checks fold into one CLI gate:
        - opaque_calls:   ``_t(`tmpl.${var}`)`` template literals or var
                          args — flagged for manual review
 
-  2. **INTEL GUIDE parity (long-form bilingual prose)**
-     The help-modal in ``index.html`` keeps a hand-curated EN/JA pair for
-     analyst reading. The pair must match: every ``.guide-lang-en`` block
-     needs a sibling ``.guide-lang-ja`` and vice versa. A missing-pair is
-     a hard fail.
+  2. **Untranslated-value detection (fatal)**
+     Every STRINGS value must contain Japanese, unless it is legitimately
+     code — an ALL-CAPS state code, a unit, a number, pure symbols, or a
+     term that ja-localization.md §2 keeps in English on purpose (recall,
+     drift, BGP, NP6, sensor IDs …). Catches translation misses
+     structurally instead of by eyeball.
 
-Wired into ``scripts/check_ci.sh``. Use ``--strict`` to fail on any
+  3. **Japanese-only shell (fatal)**
+     The bilingual INTEL GUIDE was retired 2026-08-02. No
+     ``.guide-lang-en`` block may survive, and ``<html>`` must declare
+     ``lang="ja"`` so screen readers pick the Japanese TTS voice
+     (WCAG 2.2 SC 3.1.1 / 3.1.2).
+
+Wired into ``scripts/check_ci.sh``. Use ``--strict`` to also fail on
 undefined_refs (default: warn only).
 """
 
@@ -37,14 +44,33 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Files to scan for key references.
 _HTML_FILES = ("index.html",)
-# i18n.js excluded from JS scan (it's the dictionary itself, no _t() callers).
-_JS_FILES = ("radar.js", "tradecraft.js", "hud_v2_overlay.js", "wp_alarm.js")
+# Every JS file that calls _t(). i18n.js is excluded from the *reference*
+# scan (it is the dictionary itself; its own _t() uses are the runtime
+# implementation, not UI call sites).
+_JS_FILES = (
+    "radar.js",
+    "tradecraft.js",
+    "controls_panel.js",
+    "autotune_wizard.js",
+    "llm_features_hub.js",
+    "self_explanation.js",
+    "triage_display_mode.js",
+    "triage_score.js",
+    "map_dim.js",
+    "hud_v2_overlay.js",
+    "wp_alarm.js",
+    "login-init.js",
+)
 
-# Match `STRINGS = {` opener in i18n.js (replaces the old LANG.en block).
+# Match `STRINGS = {` opener in i18n.js.
 _STRINGS_OPEN = re.compile(r"^\s*const\s+STRINGS\s*=\s*\{\s*$")
 
 # Match a key definition line:  'namespace.key':  'value' or "value"
 _KEY_DEF = re.compile(r"""^\s*['"]([^'"]+)['"]\s*:\s*""")
+# Same, but also capturing a single-quoted value (for the translation check).
+_KEY_VAL = re.compile(
+    r"""^\s*'([A-Za-z0-9_.]+)'\s*:\s*'((?:[^'\\]|\\.)*)'\s*,?\s*(?://.*)?$"""
+)
 
 # data-i18n="key", data-i18n-html, data-i18n-tip, data-i18n-ph
 _HTML_ATTR = re.compile(r"""data-i18n(?:-(?:html|tip|ph))?\s*=\s*(?:"([^"]+)"|'([^']+)')""")
@@ -54,22 +80,83 @@ _HTML_ATTR = re.compile(r"""data-i18n(?:-(?:html|tip|ph))?\s*=\s*(?:"([^"]+)"|'(
 _T_LITERAL = re.compile(r"""(?<![A-Za-z0-9_])_t\(\s*(?:'([^'\\]+)'|"([^"\\]+)")\s*[,)]""")
 _T_OPAQUE = re.compile(r"""(?<![A-Za-z0-9_])_t\(\s*(?!['"])""")
 
-# INTEL GUIDE bilingual class markers. Defined in i18n.js setGuideLang().
+# Retired bilingual-guide marker — must no longer appear anywhere.
 _GUIDE_LANG_EN = re.compile(r'class\s*=\s*"[^"]*\bguide-lang-en\b[^"]*"')
-_GUIDE_LANG_JA = re.compile(r'class\s*=\s*"[^"]*\bguide-lang-ja\b[^"]*"')
+# <html lang="ja"> (attribute order agnostic).
+_HTML_LANG_JA = re.compile(r'<html\b[^>]*\blang\s*=\s*"ja"', re.IGNORECASE)
 
-# WCAG 2.2 SC 3.1.2 — every guide-lang-XX block must declare its language
-# so screen readers (VoiceOver / NVDA / JAWS) pick the correct TTS voice.
-# We assert presence of `lang="en"` for EN blocks and `lang="ja"` for JA
-# blocks on the SAME tag (any attribute order). Phase 6 / A11Y-006.
-_GUIDE_LANG_EN_WITH_LANG = re.compile(
-    r'<div\b(?=[^>]*\bclass\s*=\s*"[^"]*\bguide-lang-en\b[^"]*")'
-    r'(?=[^>]*\blang\s*=\s*"en")'
+# ── untranslated-value detection ──────────────────────────────────────────
+# Hiragana / katakana / CJK ideographs / Japanese punctuation.
+_JA_CHAR = re.compile(r"[぀-ヿ一-鿿、。（）「」]")
+
+# Terms ja-localization.md §2 deliberately keeps in English.
+_KEEP_EN = (
+    r"recall|precision|drift|Calibration|calibration|BGP|ASN|OSINT|HUMINT|"
+    r"SIGINT|LLM|RSS|C2|ISR|AIS|NOTAM|TTP|IoC|TL|GDELT|ACLED|Ollama|"
+    r"Cloudflare|OpenSky|RIPE|IODA|CRITICAL|SEVERE|HIGH|ELEVATED|NORMAL|"
+    r"TP|FP|FN|TN|F1|Z-score|NP[1-8]|AP[1-4]|ADR|full|lite|auto|OK|RED|"
+    r"API|UTC|JSON|CSV|PDF|Markdown|SITREP|HUD|ID|URL|IP|UI|conf|n/a|N/A"
 )
-_GUIDE_LANG_JA_WITH_LANG = re.compile(
-    r'<div\b(?=[^>]*\bclass\s*=\s*"[^"]*\bguide-lang-ja\b[^"]*")'
-    r'(?=[^>]*\blang\s*=\s*"ja")'
+# A value made up only of: whitespace, punctuation/symbols, digits,
+# {placeholders}, and the keep-English terms above needs no Japanese.
+_ONLY_CODE = re.compile(
+    rf"^(?:\s|[^\w\s]|\{{[a-zA-Z_][a-zA-Z0-9_]*\}}|\d|{_KEEP_EN})*$"
 )
+
+# Keys whose value is a machine identifier rather than prose, and therefore
+# legitimately contains no Japanese. Kept as an explicit list, not a clever
+# regex: a pattern loose enough to pass `eps={eps}` also passes real English,
+# which would defeat the gate. Adding a key here is a reviewable decision.
+_CODE_ONLY_KEYS: frozenset[str] = frozenset({
+    # ── identifiers / hyperparameters / DB columns ────────────────────
+    # Must match the API verbatim so an analyst can trace a displayed
+    # value back to its source row (NP6).
+    "discovery.panel.eps",
+    "discovery.panel.min_samples",
+    "discovery.panel.run_id",
+    "wizard.row.sample_n",
+    "wizard.row.run_id",
+    # ── time horizons and units ───────────────────────────────────────
+    "cc.horizon.short", "cc.horizon.medium", "cc.horizon.long",
+    "panel.llm_intel.diag_col_ms",
+    # ── formulas rendered verbatim ────────────────────────────────────
+    "drill_modal.calib.recall", "drill_modal.calib.precision",
+    "tl_prox.near_esc", "tl_prox.near_deesc",
+    "evidence.group.total", "sysconfig.llm.fetch_error",
+    # ── scoring-mode / rule-state codes (mirror API values) ───────────
+    "cc.scoring_mode.lite", "scenario.badge.lite",
+    "watchpane.scope.focused", "watchpane.scope.global",
+    "watchpane.row.suppressed", "watchpane.row.fired",
+    "hud.coord.mode.all", "hud.coord.mode.strong", "hud.coord.mode.off",
+    "wizard.tab.recall_positive", "wizard.tab.recall_negative",
+    "modal.help.ch10",
+    # ── HUD wordmarks: a dense uppercase chip row the INTEL GUIDE
+    #    references by these exact names. Kept English as a coherent set
+    #    (docs/design/ja-localization.md §2).
+    "hud.btn.sync", "hud.btn.chain", "hud.btn.tools", "hud.btn.evidence",
+    "hud.btn.salute", "hud.label.sys", "hud.label.climate",
+    "hud.label.intel", "hud.label.bg_alert", "hud.label.eta",
+    "hud.label.hod_z", "hud.label.context_align", "hud.label.direction",
+    "climate.badge_prefix", "llm_routing.chip.title", "fleet.col.cb",
+    "badge.media_alert", "badge.awacs",
+    # ── vendor / protocol / tradecraft acronyms ───────────────────────
+    "tools.telegram_sigint", "tools.greynoise",
+    "drill_modal.llm.temperature", "drill_modal.llm.sha256",
+    "gn.tier.enterprise", "gn.tier.community", "gn.tier.no_key",
+    "gn.result.noise", "gn.result.targeted", "gn.result.riot",
+    "panel.llm_intel.filter_apt",   # Advanced Persistent Threat
+    "panel.tradecraft.tab.ach",     # Analysis of Competing Hypotheses
+    "panel.usermgr.btn.pw",
+})
+
+
+def _needs_translation(key: str, value: str) -> bool:
+    """True when a STRINGS value looks like untranslated English prose."""
+    if _JA_CHAR.search(value):
+        return False
+    if key in _CODE_ONLY_KEYS:
+        return False
+    return not _ONLY_CODE.match(value)
 
 
 @dataclass(frozen=True)
@@ -77,10 +164,9 @@ class Report:
     defined_keys: frozenset[str]
     referenced_keys: frozenset[str]
     opaque_calls: tuple[tuple[str, int], ...] = field(default_factory=tuple)
+    untranslated: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     guide_en_count: int = 0
-    guide_ja_count: int = 0
-    guide_en_with_lang: int = 0
-    guide_ja_with_lang: int = 0
+    html_lang_ja: bool = False
 
     @property
     def undefined_refs(self) -> frozenset[str]:
@@ -91,14 +177,12 @@ class Report:
         return self.defined_keys - self.referenced_keys
 
     @property
-    def guide_parity_ok(self) -> bool:
-        return self.guide_en_count == self.guide_ja_count
+    def ja_only_ok(self) -> bool:
+        return self.guide_en_count == 0 and self.html_lang_ja
 
     @property
-    def guide_lang_attr_ok(self) -> bool:
-        # Every guide block must carry the matching lang attribute (WCAG 3.1.2).
-        return (self.guide_en_with_lang == self.guide_en_count
-                and self.guide_ja_with_lang == self.guide_ja_count)
+    def translation_ok(self) -> bool:
+        return not self.untranslated
 
     def to_dict(self) -> dict:
         return {
@@ -109,18 +193,20 @@ class Report:
             "opaque_calls": [
                 {"file": f, "line": ln} for f, ln in self.opaque_calls
             ],
+            "untranslated": [
+                {"key": k, "value": v} for k, v in self.untranslated
+            ],
             "guide_en_blocks": self.guide_en_count,
-            "guide_ja_blocks": self.guide_ja_count,
-            "guide_en_with_lang": self.guide_en_with_lang,
-            "guide_ja_with_lang": self.guide_ja_with_lang,
-            "guide_parity_ok": self.guide_parity_ok,
-            "guide_lang_attr_ok": self.guide_lang_attr_ok,
+            "html_lang_ja": self.html_lang_ja,
+            "ja_only_ok": self.ja_only_ok,
+            "translation_ok": self.translation_ok,
         }
 
 
-def parse_strings_keys(i18n_path: Path) -> set[str]:
-    """Extract every key from the STRINGS = { ... } object in i18n.js."""
+def parse_strings(i18n_path: Path) -> tuple[set[str], list[tuple[str, str]]]:
+    """Extract keys, and the (key, value) pairs that still look English."""
     keys: set[str] = set()
+    untranslated: list[tuple[str, str]] = []
     in_block = False
     depth = 0
     for line in i18n_path.read_text(encoding="utf-8").splitlines():
@@ -135,7 +221,10 @@ def parse_strings_keys(i18n_path: Path) -> set[str]:
         m = _KEY_DEF.match(line)
         if m:
             keys.add(m.group(1))
-    return keys
+        mv = _KEY_VAL.match(line)
+        if mv and _needs_translation(mv.group(1), mv.group(2)):
+            untranslated.append((mv.group(1), mv.group(2)))
+    return keys, untranslated
 
 
 def scan_html(path: Path) -> set[str]:
@@ -165,24 +254,8 @@ def scan_js(path: Path) -> tuple[set[str], list[tuple[str, int]]]:
     return refs, opaque
 
 
-def count_guide_blocks(html_path: Path) -> tuple[int, int, int, int]:
-    """Count `.guide-lang-en` / `.guide-lang-ja` blocks and how many of each
-    also declare the matching `lang="..."` attribute on the same tag.
-
-    Used to enforce INTEL GUIDE bilingual parity (every EN block needs a JA
-    block) plus the WCAG 3.1.2 lang-attribute contract (every block must
-    declare its language so screen readers pick the right TTS voice).
-    """
-    text = html_path.read_text(encoding="utf-8")
-    en = len(_GUIDE_LANG_EN.findall(text))
-    ja = len(_GUIDE_LANG_JA.findall(text))
-    en_with_lang = len(_GUIDE_LANG_EN_WITH_LANG.findall(text))
-    ja_with_lang = len(_GUIDE_LANG_JA_WITH_LANG.findall(text))
-    return en, ja, en_with_lang, ja_with_lang
-
-
 def build_report() -> Report:
-    defined = parse_strings_keys(_REPO_ROOT / "i18n.js")
+    defined, untranslated = parse_strings(_REPO_ROOT / "i18n.js")
     referenced: set[str] = set()
     opaque: list[tuple[str, int]] = []
 
@@ -199,18 +272,15 @@ def build_report() -> Report:
         referenced |= refs
         opaque.extend(op)
 
-    en_count, ja_count, en_with_lang, ja_with_lang = count_guide_blocks(
-        _REPO_ROOT / "index.html"
-    )
+    html_text = (_REPO_ROOT / "index.html").read_text(encoding="utf-8")
 
     return Report(
         defined_keys=frozenset(defined),
         referenced_keys=frozenset(referenced),
         opaque_calls=tuple(opaque),
-        guide_en_count=en_count,
-        guide_ja_count=ja_count,
-        guide_en_with_lang=en_with_lang,
-        guide_ja_with_lang=ja_with_lang,
+        untranslated=tuple(untranslated),
+        guide_en_count=len(_GUIDE_LANG_EN.findall(html_text)),
+        html_lang_ja=bool(_HTML_LANG_JA.search(html_text)),
     )
 
 
@@ -218,8 +288,8 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--strict", action="store_true",
-        help="Exit 1 if any undefined_refs OR INTEL GUIDE parity fails "
-             "(default: warn-only on undefined_refs; parity always fatal)",
+        help="Exit 1 on undefined_refs too (default: warn-only; "
+             "untranslated values and the JA-only shell are always fatal)",
     )
     parser.add_argument(
         "--json", action="store_true",
@@ -232,7 +302,7 @@ def main(argv: list[str]) -> int:
     if args.json:
         print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
     else:
-        print(f"i18n audit (EN-only UI per CLAUDE.md §3.1):")
+        print("i18n audit (Japanese-only UI per CLAUDE.md §1):")
         print(f"  defined keys:    {len(report.defined_keys)}")
         print(f"  referenced keys: {len(report.referenced_keys)}")
         print(f"  undefined refs:  {len(report.undefined_refs)} "
@@ -242,14 +312,13 @@ def main(argv: list[str]) -> int:
         print(f"  opaque _t calls: {len(report.opaque_calls)} "
               f"(template literals / variables — manual review)")
         print()
-        print(f"INTEL GUIDE parity (.guide-lang-en vs .guide-lang-ja):")
-        print(f"  EN blocks: {report.guide_en_count} "
-              f"(with lang=\"en\": {report.guide_en_with_lang})")
-        print(f"  JA blocks: {report.guide_ja_count} "
-              f"(with lang=\"ja\": {report.guide_ja_with_lang})")
-        print(f"  parity:    {'OK' if report.guide_parity_ok else 'FAIL'}")
-        print(f"  lang attr: {'OK' if report.guide_lang_attr_ok else 'FAIL'} "
-              f"(WCAG 3.1.2)")
+        print("Japanese-only shell:")
+        print(f"  untranslated values: {len(report.untranslated)} "
+              f"{'OK' if report.translation_ok else 'FAIL'}")
+        print(f"  guide-lang-en blocks: {report.guide_en_count} "
+              f"{'OK' if report.guide_en_count == 0 else 'FAIL (bilingual guide retired)'}")
+        print(f"  <html lang=\"ja\">: {'OK' if report.html_lang_ja else 'FAIL'} "
+              f"(WCAG 3.1.1)")
 
         if report.undefined_refs:
             print("\nUndefined references (top 30):", file=sys.stderr)
@@ -266,27 +335,29 @@ def main(argv: list[str]) -> int:
             if len(report.unused_keys) > 30:
                 print(f"  ... and {len(report.unused_keys) - 30} more")
 
-    # GUIDE parity AND lang-attribute presence are always fatal — bilingual
-    # contract + WCAG 3.1.2 are the gates we hold hard, since machine
-    # translation cannot rescue long-form prose and screen-reader voice
-    # selection breaks silently if `lang` is missing.
-    if not report.guide_lang_attr_ok:
-        print(
-            f"\nFAIL: INTEL GUIDE lang attribute missing on some blocks "
-            f"(EN: {report.guide_en_with_lang}/{report.guide_en_count}, "
-            f"JA: {report.guide_ja_with_lang}/{report.guide_ja_count}). "
-            f"Every .guide-lang-en must carry lang=\"en\" and every "
-            f".guide-lang-ja must carry lang=\"ja\" (WCAG 3.1.2).",
-            file=sys.stderr,
-        )
+    # Untranslated prose is fatal: the whole point of the Japanese-only
+    # rewrite is that no English sentence reaches the analyst. If a value
+    # is a legitimate code, add its term to _KEEP_EN rather than muting
+    # the gate.
+    if not report.translation_ok:
+        print(f"\nFAIL: {len(report.untranslated)} STRINGS values contain no "
+              f"Japanese and are not recognized codes:", file=sys.stderr)
+        for k, v in report.untranslated[:30]:
+            print(f"  - {k}: {v!r}", file=sys.stderr)
+        if len(report.untranslated) > 30:
+            print(f"  ... and {len(report.untranslated) - 30} more",
+                  file=sys.stderr)
         return 1
-    if not report.guide_parity_ok:
-        print(
-            f"\nFAIL: INTEL GUIDE bilingual parity broken "
-            f"({report.guide_en_count} EN vs {report.guide_ja_count} JA blocks). "
-            f"Every .guide-lang-en needs a sibling .guide-lang-ja and vice versa.",
-            file=sys.stderr,
-        )
+    if report.guide_en_count:
+        print(f"\nFAIL: {report.guide_en_count} .guide-lang-en block(s) remain. "
+              f"The bilingual INTEL GUIDE was retired 2026-08-02 — the guide "
+              f"is Japanese-only (docs/design/ja-localization.md §5).",
+              file=sys.stderr)
+        return 1
+    if not report.html_lang_ja:
+        print("\nFAIL: <html> must declare lang=\"ja\" so assistive tech "
+              "selects the Japanese voice (WCAG 2.2 SC 3.1.1).",
+              file=sys.stderr)
         return 1
     if args.strict and report.undefined_refs:
         return 1
