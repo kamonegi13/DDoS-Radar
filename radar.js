@@ -1784,25 +1784,26 @@
     const coordLinkLayer    = L.layerGroup().addTo(map);  // Constellation links
     const participantLayer  = L.layerGroup().addTo(map);  // Scenario participant role markers
 
+    // Leaflet renders these keys verbatim in the layer-toggle control.
     const overlayLayers = {
-        "Participants":      participantLayer,
-        "Target Nodes":      targetLayer,
-        "Cyber Strikes":     lineLayer,
-        "Attack Origins":    sourceLayer,
-        "BGP Outages":       iodaLayer,
-        "Airspace Anomaly":  airspaceLayer,
-        "ISR Zones":         isrZoneLayer,
-        "ISR Aircraft":      isrAircraftLayer,
-        "AIS Vessels":       aisVesselLayer,
-        "Weather Events":    weatherLayer,
-        "Media Tone Alert":  gdeltLayer,
-        "FIRMS Anomalies":   firmsLayer,
-        "Cable Routes":      cableRoutesLayer,
-        "Cable Chokepoints": chokepointsLayer,
-        "Threat Terrain":    threatTerrainLayer,
-        "Threat Halos":      haloLayer,
-        "Sensor Status":     sensorMarkerLayer,
-        "Coordination":      coordLinkLayer,
+        "参加国":               participantLayer,
+        "標的ノード":           targetLayer,
+        "サイバー攻撃":         lineLayer,
+        "攻撃元":               sourceLayer,
+        "BGP 障害":             iodaLayer,
+        "空域異常":             airspaceLayer,
+        "ISR 空域":             isrZoneLayer,
+        "ISR 機":               isrAircraftLayer,
+        "AIS 船舶":             aisVesselLayer,
+        "気象イベント":         weatherLayer,
+        "メディアトーン警告":   gdeltLayer,
+        "FIRMS 熱源異常":       firmsLayer,
+        "海底ケーブル経路":     cableRoutesLayer,
+        "ケーブルチョークポイント": chokepointsLayer,
+        "脅威地形":             threatTerrainLayer,
+        "脅威ハロー":           haloLayer,
+        "センサー状態":         sensorMarkerLayer,
+        "連携":                 coordLinkLayer,
     };
     L.control.layers(null, overlayLayers, { position: 'topright', collapsed: true }).addTo(map);
 
@@ -1853,12 +1854,6 @@
     let _syncPillsVisual = () => {};
     let _reapplyFilters  = () => {};
 
-    // Region display order
-    const REGION_ORDER = [
-        "East Asia","SE Asia","S. Asia","C. Asia","Middle East",
-        "N. Africa","Africa","W. Europe","N. Europe","E. Europe",
-        "Russia","N. America","L. America","Caribbean","Oceania","Other"
-    ];
 
     // Bloc bounds for minimap fly-to on bloc pill click
     const BLOC_BOUNDS = {
@@ -2346,7 +2341,7 @@
             'hud-llm-dot-offline', 'hud-llm-dot-disabled', 'hud-llm-dot-unknown',
         );
         dot.classList.add('hud-llm-dot-' + safe);
-        const base = 'LLM service health (' + safe + ').';
+        const base = 'LLM サービスの稼働状態 (' + safe + ')';
         chip.title = tooltipExtra ? base + '\n' + tooltipExtra : base;
     }
 
@@ -2383,13 +2378,13 @@
             const tipParts = [];
             if (model) tipParts.push('model=' + model);
             tipParts.push('calls/1h=' + calls1h);
-            if (ageMin !== null) tipParts.push('last_call=' + ageMin.toFixed(1) + 'm ago');
-            tipParts.push('click to open LLM Intelligence panel');
+            if (ageMin !== null) tipParts.push('last_call=' + ageMin.toFixed(1) + 'm 前');
+            tipParts.push('クリックで LLM Intelligence パネルを開く');
             _setLlmChipState(state, tipParts.join(' · '));
         } catch (e) {
             _llmChipFailStreak += 1;
             if (_llmChipFailStreak >= _LLM_CHIP_FAIL_STRIKE_LIMIT) {
-                _setLlmChipState('offline', 'fetch error: ' + (e && e.message || e));
+                _setLlmChipState('offline', '取得エラー: ' + (e && e.message || e));
             }
         }
     }
@@ -2447,16 +2442,16 @@
                 _applySelfEvalClass('hud-model-chip', 'warn');
             }
             const tip = [
-                'LLM model routing (v10 5-model stack)',
-                '  ollama: ' + (ollama.reachable ? 'reachable' : 'offline'),
-                '  ollama version: ' + (ollama.version || '—')
-                  + (data.version_ok ? ' ✓' : ' (need ≥0.22.0)'),
-                '  primary models pulled: ' + availableCount + '/' + primaryCount,
+                'LLM モデルルーティング (v10 5-model stack)',
+                '  ollama: ' + (ollama.reachable ? '到達可能' : 'オフライン'),
+                '  ollama バージョン: ' + (ollama.version || '—')
+                  + (data.version_ok ? ' ✓' : '（要 ≥0.22.0）'),
+                '  取得済み primary モデル: ' + availableCount + '/' + primaryCount,
             ];
             if (missing.length > 0) {
-                tip.push('  missing: ' + missing.join(', '));
+                tip.push('  未取得: ' + missing.join(', '));
             }
-            tip.push('  click to open routing controls');
+            tip.push('  クリックでルーティング設定を開く');
             chipEl.title = tip.join('\n');
         } catch (_) { /* NP3 — keep prior value on transient blip */ }
     }
@@ -2534,13 +2529,13 @@
             const versionMsg = oll.version
                 ? 'Ollama ' + _escHtml(oll.version)
                   + (pre.version_ok ? ' (≥0.22.0 OK)'
-                                    : ' — survey v10 requires ≥0.22.0')
-                : 'Ollama unreachable';
+                                    : ' — survey v10 は ≥0.22.0 が必要')
+                : 'Ollama に到達できません';
             const goNoGo = pre.go_no_go
                 ? '<b style="color:var(--color-good,#3a3)">GO</b>'
                 : '<b style="color:var(--color-warning,#c80)">NO-GO</b>';
             const missing = Array.isArray(pre.missing) && pre.missing.length
-                ? '<p>Missing primary models: <code>'
+                ? '<p>未取得の primary モデル: <code>'
                   + pre.missing.map(_escHtml).join('</code>, <code>')
                   + '</code></p>'
                 : '';
@@ -2602,7 +2597,7 @@
             box.innerHTML = ''
                 + '<div style="display:flex;justify-content:space-between;'
                 + 'align-items:center;margin-bottom:12px;">'
-                + '<h3 style="margin:0">LLM Model Routing (v10)</h3>'
+                + '<h3 style="margin:0">LLM モデルルーティング (v10)</h3>'
                 + '<button id="llm-routing-modal-close" style="'
                 + 'background:transparent;border:none;color:inherit;'
                 + 'font-size:1.4em;cursor:pointer;line-height:1">&times;</button>'
@@ -3021,8 +3016,8 @@
             // registry-driven renderer knows which domain it's rendering.
             handler(render, { domain, registryDomain });
         } else {
-            render.innerHTML = '<div style="opacity:0.6">Section not yet '
-                + 'available: <code>' + _escHtml(domain) + '</code></div>';
+            render.innerHTML = '<div style="opacity:0.6">未提供のセクション'
+                + ': <code>' + _escHtml(domain) + '</code></div>';
         }
     }
 
@@ -3249,7 +3244,7 @@
                 +   tags
                 +   '<input type="text" class="cfg-tag-input"'
                 +     ' data-cfg-target="' + id + '"'
-                +     ' placeholder="add value, press Enter"'
+                +     ' placeholder="値を入力して Enter"'
                 +     (readOnly ? ' disabled' : '') + '>'
                 + '</div>'
                 + '<input type="hidden" id="' + id + '"'
@@ -3259,14 +3254,14 @@
         if (meta.secret) {
             const ind = valueRow && valueRow.indicator;
             const placeholder = ind && ind.set
-                ? `configured · ends in …${ind.last4 || '????'}`
-                : '(unset)';
+                ? `設定済み · 末尾 …${ind.last4 || '????'}`
+                : '(未設定)';
             return '<input type="text" id="' + id + '" class="cfg-input secret-field"'
                 + ' value="" disabled'
                 + ' placeholder="' + _escHtml(placeholder) + '"'
                 + ' style="width:100%;max-width:560px">'
                 + ' <span class="cfg-hint" style="margin:0;display:inline">'
-                + 'edit in <code>config.env</code></span>';
+                + '<code>config.env</code> で編集</span>';
         }
         // (f) plain string fallback
         return '<input type="text" id="' + id + '" class="cfg-input"'
@@ -3636,7 +3631,7 @@
             what: '上流 OSINT サービス（Cloudflare Radar / OWM / GreyNoise / '
                 + 'ThreatFox / OpenSky / ACLED）のキー / トークン。',
             why: 'シークレットのため API は値を返さない。UI は「configured · '
-                + 'ends in …xxxx」の表示のみ。変更は config.env を編集し、'
+                + '設定済み · 末尾 …xxxx」の表示のみ。変更は config.env を編集し、'
                 + 'docker compose restart を実行する。',
             when: '漏洩が疑われるキーはローテーションする。OpenSky の OAuth2 '
                 + '資格情報を設定するとレート制限が 400 → 4000 req/day に'
@@ -3807,7 +3802,7 @@
             + '</span>';
         const capWarn = s.kill_switch_engaged
             ? ' <span style="color:#e88">(cap=' + s.cap
-              + ' < raw=' + s.raw_stored_tier + ' — kill-switch engaged)</span>'
+              + ' < raw=' + s.raw_stored_tier + ' — キルスイッチ作動中)</span>'
             : '';
         const dwell = (typeof s.days_at_current_tier === 'number')
             ? s.days_at_current_tier.toFixed(2) + 'd' : '—';
@@ -3825,29 +3820,29 @@
                     + mark + ' '
                     + _escHtml(g.name)
                     + ': <code style="color:#cfd2d6">' + _escHtml(String(g.current))
-                    + '</code> (need '
-                    + _escHtml(String(g.required)) + ')'
+                    + '</code>（必要 '
+                    + _escHtml(String(g.required)) + '）'
                     + '</div>';
             }).join('');
             gatesHtml = '<div style="margin-top:6px">'
-                + 'Promotion to <b>T' + s.next_tier + '</b>: '
-                + s.gates_met + '/' + s.gates_total + ' gates met'
+                + '<b>T' + s.next_tier + '</b> への昇格: ゲート '
+                + s.gates_met + '/' + s.gates_total + ' 達成'
                 + '</div>'
                 + rows;
         } else {
             gatesHtml = '<div style="margin-top:6px;color:#888">'
-                + 'At ceiling tier (T' + s.current_tier + ').</div>';
+                + '最上位ティア (T' + s.current_tier + ')。</div>';
         }
 
         let cdHtml = '';
         const cd = s.active_cooldowns || [];
         if (cd.length > 0) {
-            cdHtml = '<div style="margin-top:6px">Active cooldowns:</div>'
+            cdHtml = '<div style="margin-top:6px">作動中のクールダウン:</div>'
                 + cd.map(c => {
                     const mins = Math.round(c.remaining_seconds / 60);
                     return '<div style="margin-left:14px">'
-                        + _escHtml(c.impact_level) + ' for ~' + mins
-                        + 'm (triggered_by ' + _escHtml(c.triggered_by) + ')'
+                        + _escHtml(c.impact_level) + ' あと約 ' + mins
+                        + 'm（triggered_by ' + _escHtml(c.triggered_by) + '）'
                         + '</div>';
                 }).join('');
         }
@@ -3856,8 +3851,8 @@
         const recent = s.recent_transitions || [];
         if (recent.length > 0) {
             recentHtml = '<div style="margin-top:6px">'
-                + 'Recent transitions (last ' + Math.min(5, recent.length)
-                + '):</div>'
+                + '直近の遷移（最新 ' + Math.min(5, recent.length)
+                + ' 件）:</div>'
                 + recent.slice(0, 5).map(t => {
                     const ts = new Date(t.observed_at * 1000).toLocaleString();
                     return '<div style="margin-left:14px;color:#aab">'
@@ -3871,9 +3866,9 @@
         }
 
         return ''
-            + '<div>Tier: ' + tierBadge + capWarn + '</div>'
+            + '<div>ティア: ' + tierBadge + capWarn + '</div>'
             + '<div style="margin-top:4px">'
-            +   'Entered: ' + _escHtml(enteredAt) + ' (' + dwell + ' ago)'
+            +   '移行日時: ' + _escHtml(enteredAt) + '（' + dwell + ' 前）'
             + '</div>'
             + gatesHtml
             + cdHtml
@@ -4107,15 +4102,15 @@
         ]);
         const noteBody =
             '<div class="cfg-hint">'
-            + '<code>LLM_HOST</code>, <code>LLM_MODEL</code>, and '
-            + '<code>LLM_TIMEOUT</code> are env-backed and require a '
-            + 'container restart. Edit <code>config.env</code> on disk '
-            + 'and run <code>docker compose restart</code>.'
+            + '<code>LLM_HOST</code>、<code>LLM_MODEL</code>、'
+            + '<code>LLM_TIMEOUT</code> は env 由来のため、変更には'
+            + 'コンテナ再起動が必要。ディスク上の <code>config.env</code> を'
+            + '編集し、<code>docker compose restart</code> を実行する。'
             + '</div>'
             + '<div class="cfg-hint">'
-            + 'Per-feature kill switch and runtime knobs live on the '
+            + 'feature 単位のキルスイッチと実行時パラメータは '
             + '<a href="javascript:void(0)" onclick="window._settingsOpen(\'llm.features\')">'
-            + 'Features</a> page and persist live (no restart).'
+            + 'Features</a> ページにあり、再起動なしで即時反映される。'
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
             help: '<div class="cfg-status-banner"><b>ステータスページ — '
@@ -4171,7 +4166,7 @@
         const tableBody =
             '<table class="cfg-table">'
             + '<thead><tr>'
-            +   '<th>Feature</th><th>Tier</th><th>State</th><th></th>'
+            +   '<th>Feature</th><th>ティア</th><th>状態</th><th></th>'
             + '</tr></thead><tbody>' + tableRows + '</tbody></table>'
             + '<div class="cfg-meta">' + _settingsCfgStatusEl()
             + '</div>';
@@ -4261,11 +4256,12 @@
             + '</tr></thead><tbody>' + rows + '</tbody></table>'
             + '<div class="cfg-meta">' + _settingsCfgStatusEl() + '</div>';
         const noteBody =
-            '<div class="cfg-hint">Routing follows '
-            + '<b>DB override → env var → code default</b>. '
-            + 'Overrides are recorded in <code>config_change_log</code> '
-            + 'and <code>llm_routing_override_history</code> for NP6 '
-            + 'audit. Reset clears the DB row, falling back to env/code.'
+            '<div class="cfg-hint">ルーティングの優先順位は '
+            + '<b>DB override → env 変数 → コード既定値</b>。'
+            + 'オーバーライドは NP6 の監査のため '
+            + '<code>config_change_log</code> と '
+            + '<code>llm_routing_override_history</code> に記録される。'
+            + 'RESET は DB 行を削除し、env / コード既定値に戻す。'
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
             help: 'use_case 単位の LLM モデルルーティング。編集内容は'
@@ -4361,40 +4357,39 @@
             + '</div>';
         const triageBody =
             fld('LLM_AUTO_CONFIRM_THRESHOLD',
-                'Auto-confirm threshold',
-                'Confidence ≥ this → AUTO-CONFIRMED (no analyst review).',
+                '自動承認閾値',
+                'この確信度以上 → AUTO-CONFIRMED（アナリスト審査不要）',
                 'type="number" min="0.5" max="1.0" step="0.05" '
                 + 'placeholder="0.80" style="max-width:100px"')
             + fld('LLM_CONFIDENCE_MIN',
-                'Min confidence',
-                'Items below this are silently discarded.',
+                '最低確信度',
+                'これ未満のアイテムは通知なしで破棄',
                 'type="number" min="0.1" max="0.9" step="0.05" '
                 + 'placeholder="0.35" style="max-width:100px"')
             + fld('LLM_OVERRIDE_WINDOW',
-                'Override window (seconds)',
-                'Seconds within which AUTO-CONFIRMED items can be '
-                + 'overridden by an analyst.',
+                '取消可能時間（秒）',
+                'AUTO-CONFIRMED アイテムをアナリストが取り消せる時間',
                 'type="number" min="300" max="86400" '
                 + 'placeholder="3600" style="max-width:120px"')
             + fld('LLM_PENDING_AUTO_REJECT_HOURS',
-                'Auto-reject pending after (h)',
-                'Hours until unreviewed PENDING items are auto-rejected '
-                + '(0 = disabled).',
+                '保留自動拒否（時間）',
+                '未確認の PENDING アイテムを自動拒否するまでの時間'
+                + '（0 = 無効）',
                 'type="number" min="0" max="168" step="1" '
                 + 'placeholder="24" style="max-width:100px"');
         const retentionBody =
             fld('INTEL_RETENTION_DAYS',
-                'Intel retention (days)',
-                'How long to keep intel rows after confirmation.',
+                'インテル保持期間（日）',
+                'confirm 後にインテル行を保持する期間',
                 'type="number" min="1" max="90" '
                 + 'placeholder="7" style="max-width:100px"')
             + sel('INTEL_AGE_DECAY_ENABLED',
-                'Age-decay enabled (ADR-023)',
+                '経時減衰 (ADR-023)',
                 [['true','true'], ['false','false']])
             + fld('INTEL_AGE_DECAY_TAU_HOURS',
-                'Age-decay τ (hours)',
-                'Time constant: weight=1/e at age=τ, ~0.05 at 3·τ. '
-                + 'Default 12 h ≈ 1 work cycle.',
+                '減衰時定数 τ（時間）',
+                '重み=1/e @age=τ、≈0.05 @3·τ。'
+                + '既定 12 h ≈ 1 勤務シフト',
                 'type="number" min="1" max="72" step="0.5" '
                 + 'placeholder="12" style="max-width:100px"');
         const saveRow =
@@ -4468,14 +4463,14 @@
             { k: '平均レイテンシ', v: (stat.avg_duration_ms ?? '—') + ' ms' },
         ]);
         const langSection = Object.keys(lang).length === 0
-            ? '<div class="cfg-hint">No dedup decisions in the last 24 h. '
-              + 'Activate <code>embedding_dedupe</code> on the '
+            ? '<div class="cfg-hint">直近 24 h の重複排除判定なし。'
               + '<a href="javascript:void(0)" '
               + 'onclick="window._settingsOpen(\'llm.features\')">'
-              + 'Features</a> page to start collecting.</div>'
+              + 'Features</a> ページで <code>embedding_dedupe</code> を'
+              + '有効化すると収集が始まる。</div>'
             : '<table class="cfg-table"><thead><tr>'
-              + '<th>lang</th><th>detected</th><th>applied</th>'
-              + '<th>precision proxy</th><th>avg score</th>'
+              + '<th>言語</th><th>検出</th><th>適用</th>'
+              + '<th>precision 代理指標</th><th>平均スコア</th>'
               + '</tr></thead><tbody>'
               + Object.keys(lang).map(L => {
                   const v = lang[L] || {};
@@ -4522,7 +4517,7 @@
             ? _settingsCfgChip('GO', 'ok')
             : overall === false
                 ? _settingsCfgChip('NO-GO', 'warn')
-                : _settingsCfgChip('— (no data)', 'dim');
+                : _settingsCfgChip('—（データなし）', 'dim');
         const rows = Object.keys(byUc).map(uc => {
             const e = byUc[uc] || {};
             const sc = e.schema_compliance || {};
@@ -4546,12 +4541,11 @@
               + '<th>agree ≥ 0.60</th><th>repro = 1.00</th>'
               + '<th>n_paired</th></tr></thead><tbody>'
               + rows + '</tbody></table>'
-            : '<div class="cfg-hint">No SHADOW_DUAL data yet. '
-              + 'Promote a routing feature to '
-              + '<code>shadow_dual</code> on the '
+            : '<div class="cfg-hint">SHADOW_DUAL のデータがまだ無い。'
               + '<a href="javascript:void(0)" '
               + 'onclick="window._settingsOpen(\'llm.features\')">'
-              + 'Features</a> page to start collecting.</div>';
+              + 'Features</a> ページでルーティング feature を '
+              + '<code>shadow_dual</code> に昇格させると収集が始まる。</div>';
         const aggBody = _settingsCfgKV([
             { k: 'Phase 1 GO 判定', v: overallChip },
             { k: 'Recall (全体)',    v: '<b>' + (se.recall ?? '—') + '</b>' },
@@ -4603,9 +4597,9 @@
               + '<th>avg_dur</th><th>avg_conf</th>'
               + '<th>auto_confirmed</th><th>use_cases</th>'
               + '</tr></thead><tbody>' + modelRows + '</tbody></table>'
-            : '<div class="cfg-hint">No LLM call activity in the '
-              + 'self_eval window. Either no LLM features have run, '
-              + 'or self_eval window pre-dates LLM activity.</div>';
+            : '<div class="cfg-hint">self_eval の対象期間に LLM 呼び出しが'
+              + '無い。LLM feature が一度も実行されていないか、'
+              + 'self_eval の期間が LLM の稼働開始より前。</div>';
 
         // ── Per-use_case rollup (richer than Phase 8 SHADOW_DUAL go) ─
         // by_use_case is a per-use-case summary derived from the same
@@ -4747,27 +4741,29 @@
 
     window._settingsRenderToolsTradecraft = async function (pane) {
         _renderToolHandoff(pane, 'settings.tools.tradecraft',
-            'Analyst tradecraft rules. Opens as a draggable workspace panel '
-            + '(coexists with the map). SETTINGS closes first.',
+            'アナリストのトレードクラフト規範。マップと共存する'
+            + 'ドラッグ可能なワークスペースパネルとして開く。'
+            + 'SETTINGS は先に閉じる。',
             window.toggleTradecraftPanel);
     };
 
     window._settingsRenderToolsWatchpane = async function (pane) {
         _renderToolHandoff(pane, 'settings.tools.watchpane',
-            'Per-sensor observation panel + mute controls. Opens as a '
-            + 'draggable workspace panel.',
+            'センサー別の観測パネルとミュート操作。ドラッグ可能な'
+            + 'ワークスペースパネルとして開く。',
             window.toggleSensorWatchpane);
     };
 
     window._settingsRenderToolsAutotune = async function (pane) {
         _renderToolHandoff(pane, 'settings.tools.autotune',
-            'Auto-tune wizard. Opens as a stepwise modal (separate flow).',
+            'オートチューンウィザード。段階式のモーダル'
+            + '（独立したフロー）として開く。',
             window._wizardOpen);
     };
 
     window._settingsRenderToolsAttention = async function (pane) {
         _renderToolHandoff(pane, 'settings.tools.attention',
-            'Attention rules live inside the Tradecraft panel.',
+            '注目度ルールは Tradecraft パネル内にある。',
             window.toggleTradecraftPanel);
     };
 
@@ -4781,19 +4777,19 @@
             + _escHtml(label) + '</a></li>';
         const body =
             '<div class="cfg-hint">'
-            + 'The original MASTER CONFIGURATION modal has been '
-            + 'merged into this SETTINGS shell. All previous tabs '
-            + 'are now first-class SETTINGS domains.'
+            + '旧 MASTER CONFIGURATION モーダルはこの SETTINGS シェルに'
+            + '統合された。従来のタブはすべて SETTINGS の正式ドメインに'
+            + 'なっている。'
             + '</div>'
             + '<ul style="font-size:12px;line-height:1.8;color:#ccc;'
             + 'padding-left:20px;margin:8px 0 0">'
-            + link('operate.sensors',   'Sensors')
-            + link('infra.fetch_log',   'Fetch Log')
-            + link('infra.upstreams',   'Upstreams')
-            + link('infra.fleet',       'Fleet Health')
-            + link('operate.scenarios', 'Scenarios')
-            + link('infra.server',      'Server / Env config')
-            + link('access.users',      'Users')
+            + link('operate.sensors',   _t('settings.operate.sensors'))
+            + link('infra.fetch_log',   _t('settings.infra.fetch_log'))
+            + link('infra.upstreams',   _t('settings.infra.upstreams'))
+            + link('infra.fleet',       _t('settings.infra.fleet'))
+            + link('operate.scenarios', _t('settings.operate.scenarios'))
+            + link('infra.server',      _t('settings.infra.server'))
+            + link('access.users',      _t('settings.access.users'))
             + '</ul>';
         pane.innerHTML = _settingsCfgPage({
             help: '旧 MASTER CONFIGURATION（非推奨）。以下の正式な項目を'
@@ -4826,12 +4822,12 @@
         );
         if (!data) {
             pane.innerHTML = '<div style="opacity:0.6">'
-                + 'config_audit endpoint unavailable</div>';
+                + 'config_audit エンドポイントを利用できません。</div>';
             return;
         }
         const domains = data.domains || [];
         const rows = data.rows || [];
-        const domainOpts = '<option value="">All domains ('
+        const domainOpts = '<option value="">すべてのドメイン ('
             + rows.length + ')</option>'
             + domains.map(d =>
                 '<option value="' + _escHtml(d.domain) + '"'
@@ -4883,13 +4879,13 @@
         const tableBody =
             filterRow
             + '<table class="cfg-table"><thead><tr>'
-            +   '<th>when (UTC)</th><th>domain</th><th>key</th>'
-            +   '<th>old</th><th>new</th><th>by</th><th>reason</th>'
+            +   '<th>日時 (UTC)</th><th>ドメイン</th><th>キー</th>'
+            +   '<th>変更前</th><th>変更後</th><th>実行者</th><th>理由</th>'
             + '</tr></thead><tbody>'
             + (tableRows
                 ? tableRows
                 : '<tr><td colspan="7" class="dim" style="padding:1em">'
-                  + 'no changes in window</td></tr>')
+                  + 'この期間に変更はありません</td></tr>')
             + '</tbody></table>';
         pane.innerHTML = _settingsCfgPage({
             help: '<div class="cfg-status-banner"><b>監査台帳 — '
@@ -4953,10 +4949,10 @@
         // Summary KV
         const recallTxt = (typeof summary.recall === 'number')
             ? summary.recall.toFixed(3)
-            : '<span class="dim">— (no TP+FN signal)</span>';
+            : '<span class="dim">—（TP+FN のシグナルなし）</span>';
         const precTxt = (typeof summary.precision === 'number')
             ? summary.precision.toFixed(3)
-            : '<span class="dim">— (no TP+FP signal)</span>';
+            : '<span class="dim">—（TP+FP のシグナルなし）</span>';
         const aggBody = _settingsCfgKV([
             { k: 'ウィンドウ',
               v: '<b>' + (summary.window_hours ?? 720) + ' h</b>' },
@@ -4975,7 +4971,7 @@
         const lbl = summary.by_label || {};
         const matrixBody =
             '<table class="cfg-table"><thead><tr>'
-            + '<th>label</th><th>count</th>'
+            + '<th>ラベル</th><th>件数</th>'
             + '</tr></thead><tbody>'
             + '<tr><td>TRUE_POSITIVE</td><td>'
             +   (lbl.TRUE_POSITIVE || 0) + '</td></tr>'
@@ -5015,15 +5011,15 @@
             + '>' + lbl + '</option>'
         ).join('');
         const kindOpts = [
-            ['', 'all'], ['human', 'human-authored only'],
-            ['auto', 'auto-authored only'],
+            ['', 'すべて'], ['human', '人手ラベルのみ'],
+            ['auto', '自動ラベルのみ'],
         ].map(([k, lbl]) =>
             '<option value="' + k + '"'
             + (k === _feedbackKind ? ' selected' : '')
             + '>' + lbl + '</option>'
         ).join('');
         const labelOpts = [
-            ['', 'all labels'],
+            ['', 'すべてのラベル'],
             ['TRUE_POSITIVE',  'TP'],
             ['FALSE_POSITIVE', 'FP'],
             ['TRUE_NEGATIVE',  'TN'],
@@ -5069,11 +5065,12 @@
         }).join('');
         const itemsBody = filterRow
             + '<table class="cfg-table"><thead><tr>'
-            + '<th>when (UTC)</th><th>scenario</th><th>type</th>'
-            + '<th>label</th><th>analyst</th><th>notes</th>'
+            + '<th>日時 (UTC)</th><th>シナリオ</th><th>種別</th>'
+            + '<th>ラベル</th><th>アナリスト</th><th>メモ</th>'
             + '</tr></thead><tbody>'
             + (itemRows || '<tr><td colspan="6" class="dim" '
-               + 'style="padding:1em">no feedback in window</td></tr>')
+               + 'style="padding:1em">この期間にフィードバックはありません'
+               + '</td></tr>')
             + '</tbody></table>';
 
         pane.innerHTML = _settingsCfgPage({
@@ -5153,7 +5150,7 @@
         const byAction = summary.by_action || {};
         const overrideRate = (typeof summary.override_rate === 'number')
             ? (summary.override_rate * 100).toFixed(2) + '%'
-            : '<span class="dim">— (no applied rows)</span>';
+            : '<span class="dim">—（適用された行なし）</span>';
         const overrideCls = (typeof summary.override_rate === 'number')
             ? (summary.override_rate >= 0.20 ? 'crit'
                : summary.override_rate >= 0.10 ? 'warn' : 'ok')
@@ -5249,12 +5246,12 @@
         }).join('');
         const itemsBody = filterRow
             + '<table class="cfg-table"><thead><tr>'
-            + '<th>when (UTC)</th><th>item_id</th><th>action</th>'
-            + '<th>conf</th><th>l1_corr</th><th>l1_ok</th>'
-            + '<th>applied</th><th>override</th><th>reason</th>'
+            + '<th>日時 (UTC)</th><th>item_id</th><th>判定</th>'
+            + '<th>確信度</th><th>l1_corr</th><th>l1_ok</th>'
+            + '<th>適用</th><th>上書き</th><th>理由</th>'
             + '</tr></thead><tbody>'
             + (tableRows || '<tr><td colspan="9" class="dim" '
-               + 'style="padding:1em">no decisions in window</td></tr>')
+               + 'style="padding:1em">この期間に判断はありません</td></tr>')
             + '</tbody></table>';
 
         pane.innerHTML = _settingsCfgPage({
@@ -5374,9 +5371,9 @@
                 const chip = document.getElementById('hud-skew-chip');
                 if (chip && skew && skew.distribution_pct) {
                     const parts = [
-                        'TL Distribution (last '
-                            + (skew.window_days || 7) + 'd)',
-                        '  TL5 (calm):     '
+                        'TL 分布（直近 '
+                            + (skew.window_days || 7) + 'd）',
+                        '  TL5 (NORMAL):   '
                             + (skew.distribution_pct.TL5 || 0).toFixed(1) + '%',
                         '  TL4:            '
                             + (skew.distribution_pct.TL4 || 0).toFixed(1) + '%',
@@ -5386,10 +5383,10 @@
                             + (skew.distribution_pct.TL2 || 0).toFixed(1) + '%',
                         '  TL1:            '
                             + (skew.distribution_pct.TL1 || 0).toFixed(1) + '%',
-                        '  Floor (alert <): '
+                        '  下限（未満で警告）: '
                             + (skew.tl5_min_pct || 30) + '%',
-                        '  N observations: ' + (skew.n_observations || 0),
-                        '  Alert: ' + (skew.calibration_skew_alert ? 'YES' : 'no'),
+                        '  観測数: ' + (skew.n_observations || 0),
+                        '  警告: ' + (skew.calibration_skew_alert ? 'YES' : 'no'),
                     ];
                     chip.title = parts.join('\n');
                 }
@@ -5430,14 +5427,14 @@
                 const chip = document.getElementById('hud-bg-observer-chip');
                 if (chip && bg) {
                     const parts = [
-                        'bg_observer (BACKGROUND_ELIGIBLE sensor)',
-                        '  enabled: ' + (bg.enabled ? 'yes' : 'no'),
-                        '  cycles 24h: ' + (bg.cycles_24h ?? 0),
-                        '  matches total: ' + (bg.matches_total_24h ?? 0),
-                        '  matches/cyc avg: ' + (bg.matches_per_cycle_avg ?? '—'),
-                        '  empty cycle rate: ' + (bg.empty_rate_24h ?? '—'),
-                        '  alias gap: ' + (bg.alias_gap && bg.alias_gap.length
-                            ? bg.alias_gap.join(',') : 'none'),
+                        'bg_observer (BACKGROUND_ELIGIBLE センサー)',
+                        '  有効: ' + (bg.enabled ? 'はい' : 'いいえ'),
+                        '  サイクル数 24h: ' + (bg.cycles_24h ?? 0),
+                        '  マッチ総数: ' + (bg.matches_total_24h ?? 0),
+                        '  サイクル平均マッチ数: ' + (bg.matches_per_cycle_avg ?? '—'),
+                        '  空サイクル率: ' + (bg.empty_rate_24h ?? '—'),
+                        '  alias 未定義: ' + (bg.alias_gap && bg.alias_gap.length
+                            ? bg.alias_gap.join(',') : 'なし'),
                     ];
                     chip.title = parts.join('\n');
                 }
@@ -5467,7 +5464,7 @@
                     _applySelfEvalClass('hud-fault-chip', band);
                     const chip = document.getElementById('hud-fault-chip');
                     if (chip) {
-                        const lines = ['NP1-violating silent failures (lifetime)'];
+                        const lines = ['NP1 に違反するサイレント障害（累計）'];
                         if (sf && sf.by_category) {
                             const cats = Object.keys(sf.by_category).sort();
                             const np1Set = new Set(sf.np1_categories || []);
@@ -5483,9 +5480,9 @@
                             }
                         }
                         if (attn !== null) {
-                            lines.push('  attention metric collection errors: ' + attn);
+                            lines.push('  注目度メトリクスの収集エラー: ' + attn);
                         }
-                        if (lines.length === 1) lines.push('  (no failures)');
+                        if (lines.length === 1) lines.push('  （障害なし）');
                         chip.title = lines.join('\n');
                     }
                 }
@@ -5569,37 +5566,38 @@
             // Tooltip narrative — AP2 template-driven (no LLM).
             const lines = [];
             const tierName = s.current_tier_name || ('Tier ' + s.current_tier);
-            lines.push('Auto-Calibration: ' + tierName
+            lines.push('自動 Calibration: ' + tierName
                        + ' (T' + s.current_tier + ')');
             if (typeof s.days_at_current_tier === 'number') {
-                lines.push('  entered ' + s.days_at_current_tier.toFixed(2)
-                           + 'd ago');
+                lines.push('  ' + s.days_at_current_tier.toFixed(2)
+                           + 'd 前に移行');
             }
             if (s.kill_switch_engaged) {
-                lines.push('  kill-switch engaged: cap=' + s.cap
+                lines.push('  キルスイッチ作動中: cap=' + s.cap
                            + ' < raw_tier=' + s.raw_stored_tier);
             }
             if (s.consecutive_failures > 0) {
-                lines.push('  consecutive_failures=' + s.consecutive_failures);
+                lines.push('  連続失敗回数=' + s.consecutive_failures);
             }
             if (s.next_tier !== null) {
                 lines.push('  T' + s.current_tier + ' → T' + s.next_tier
-                           + ': ' + s.gates_met + '/' + s.gates_total + ' gates met');
+                           + ': 昇格ゲート ' + s.gates_met + '/'
+                           + s.gates_total + ' 達成');
                 for (const g of (s.promotion_gates || [])) {
                     const mark = g.met ? '✓' : '✗';
                     lines.push('    ' + mark + ' ' + g.name + ': '
-                               + g.current + ' (need ' + g.required + ')');
+                               + g.current + '（必要 ' + g.required + '）');
                 }
             } else {
-                lines.push('  at ceiling tier');
+                lines.push('  最上位ティア');
             }
             const cd = s.active_cooldowns || [];
             if (cd.length > 0) {
-                lines.push('  cooldowns:');
+                lines.push('  クールダウン:');
                 for (const c of cd) {
                     const mins = Math.round(c.remaining_seconds / 60);
-                    lines.push('    ' + c.impact_level + ' for '
-                               + mins + 'm (by ' + c.triggered_by + ')');
+                    lines.push('    ' + c.impact_level + ' あと '
+                               + mins + 'm（発動元: ' + c.triggered_by + '）');
                 }
             }
             chip.title = lines.join('\n');
@@ -5657,12 +5655,12 @@
             const lines = [];
             const thr = (typeof s.threshold_days === 'number')
                 ? s.threshold_days.toFixed(1) : '?';
-            lines.push('Chronic inconclusive (NP5+8): '
-                       + chronicCount + ' state(s) past ' + thr + 'd');
-            lines.push('  transient: ' + transientCount);
+            lines.push('恒常的な結論不可 (NP5+8): '
+                       + thr + 'd 超が ' + chronicCount + ' 件');
+            lines.push('  過渡的: ' + transientCount);
             const chronicList = (s.chronic || []).slice(0, 5);
             if (chronicList.length > 0) {
-                lines.push('  worst:');
+                lines.push('  深刻な順:');
                 for (const st of chronicList) {
                     const days = (typeof st.days_unavailable === 'number')
                         ? st.days_unavailable.toFixed(1) + 'd'
@@ -5672,7 +5670,7 @@
                 }
             }
             if (chronicCount === 0 && transientCount === 0) {
-                lines.push('  (no open unavailability runs — healthy)');
+                lines.push('  （未解消の結論不可なし — 健全）');
             }
             chip.title = lines.join('\n');
         } catch (_) {
@@ -5727,9 +5725,9 @@
     // kind → friendly tag. Analysts see "why this one" at a glance without
     // the confusion-matrix vocabulary.
     const _ANCHOR_TAGS = {
-        auto_fn_review: { label: 'POSSIBLE MISS', cls: 'anchor-tag-miss' },
-        peak_severity:  { label: 'PEAK ALERT',   cls: 'anchor-tag-alert' },
-        calm_anchor:    { label: 'QUIET CHECK',  cls: 'anchor-tag-quiet' },
+        auto_fn_review: { label: '見逃し疑い',   cls: 'anchor-tag-miss' },
+        peak_severity:  { label: 'ピーク警報',   cls: 'anchor-tag-alert' },
+        calm_anchor:    { label: '静穏時確認',   cls: 'anchor-tag-quiet' },
     };
 
     async function _anchorPostAnswer(cand, opt, url) {
@@ -5919,7 +5917,7 @@
             _anchorToggleFn = window.createFloatingPanel({
                 id: 'human-anchor-panel',
                 titleKey: 'human_anchor.title',
-                titleFallback: 'Human Anchor Queue',
+                titleFallback: '人間アンカーキュー',
                 defaultLeft: Math.max(20, window.innerWidth - 540),
                 defaultTop: 150,
                 width: 500,
@@ -6073,11 +6071,13 @@
         const bar = document.createElement('div');
         bar.className = 'tm-compact-bar';
         const pinTip = (typeof _t === 'function')
-            ? _t('triage.tooltip.pin_dock_pin') : 'Click to pin expanded view';
+            ? _t('triage.tooltip.pin_dock_pin')
+            : 'クリックで展開表示を固定 (ホバー解除・リロード後も維持)。';
         const barTip = (typeof _t === 'function')
             ? _t('triage.tooltip.pin_dock') : '';
         const menuTip = (typeof _t === 'function')
-            ? _t('triage.tooltip.menu') : 'TRIAGE actions';
+            ? _t('triage.tooltip.menu')
+            : 'トリアージ操作: 精査 / 確認済みにする / スヌーズ / 表示設定。';
         const actionsLabel = (typeof _t === 'function')
             ? _t('triage.label.actions') : 'ACTIONS';
         bar.title = barTip;
@@ -6465,13 +6465,12 @@
                 return;
             }
             body.innerHTML = '<div class="dh-summary">'
-                + items.length + ' decision' + (items.length === 1 ? '' : 's')
-                + ' · most recent first</div>'
+                + '判断 ' + items.length + ' 件 · 新しい順</div>'
                 + '<div class="dh-list">'
                 + items.map(_dhRenderRow).join('')
                 + '</div>';
         } catch (e) {
-            body.innerHTML = '<div class="dh-error">Failed to load: '
+            body.innerHTML = '<div class="dh-error">読み込みに失敗しました: '
                 + _escHtml(e.message) + '</div>';
         }
     }
@@ -7714,7 +7713,7 @@
         if (typeof Notification === 'undefined') return;
         if (Notification.permission !== 'granted') return;
         try {
-            const title = _t('watchpane.notify.title') || 'Sensor alarm';
+            const title = _t('watchpane.notify.title') || 'センサーアラーム';
             const body  = `${sensor.name} (${sensor.scope}) — ${_wpAlarmDescribe(alarm)}`;
             new Notification(title, { body, tag: `wp-alarm-${sensor.name}-${sensor.scope}` });
         } catch (e) {
@@ -8069,7 +8068,8 @@
         if (!candidate) {
             const errEl = document.getElementById('wp-alarm-error');
             if (errEl) {
-                errEl.textContent = _t('watchpane.alarm.error.invalid') || 'Invalid value';
+                errEl.textContent = _t('watchpane.alarm.error.invalid')
+                    || '不正な値 — 数値を入力（またはステータスを選択）';
                 errEl.style.display = '';
             }
             return;
@@ -8098,7 +8098,7 @@
         _wpToggleFn = window.createFloatingPanel({
             id: 'sensor-watchpane',
             titleKey: 'watchpane.title',
-            titleFallback: 'Sensor Watchpane',
+            titleFallback: 'センサー監視盤',
             defaultLeft: window.innerWidth - 440,
             defaultTop: 140,
             width: 420,
@@ -8174,7 +8174,7 @@
             latestData = await response.json();
 
             _lastSyncTime = Date.now();
-            lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()}`;
+            lastSyncedTimeText = `データ同期: ${new Date().toLocaleTimeString()}`;
             document.getElementById('update-time').innerText = lastSyncedTimeText;
             lastSyncedConfig = getCurrentConfig();
 
@@ -8344,10 +8344,10 @@
             });
             L.marker([w.lat, lngS], { icon })
              .bindPopup(
-                `<b>Weather: ${esc(w.code)}</b><br>` +
+                `<b>気象: ${esc(w.code)}</b><br>` +
                 `<span style="color:${col};">${esc(w.description)}</span><br>` +
-                `Severity: ${esc(w.severity)} | Wind: ${esc(w.wind_speed)} m/s` +
-                (isSevere ? '<br><i style="color:#ffaa00;">Noise filter active: suppresses BGP/Airspace alerts</i>' : '')
+                `深刻度: ${esc(w.severity)} | 風速: ${esc(w.wind_speed)} m/s` +
+                (isSevere ? '<br><i style="color:#ffaa00;">ノイズフィルタ作動中: BGP / 空域アラートを抑制</i>' : '')
              )
              .addTo(weatherLayer);
         });
@@ -8392,7 +8392,7 @@
                 html: `<div style="position:relative;width:10px;height:10px;transform:rotate(45deg);background:${col}33;border:2px solid ${col};filter:drop-shadow(0 0 3px ${col});box-sizing:border-box;"></div>`,
                 iconSize: [10, 10], iconAnchor: [5, 5],
             });
-            const nameList = info.ixps.slice(0, 5).map(n => esc(n)).join('<br>') + (count > 5 ? `<br>…and ${count-5} more` : '');
+            const nameList = info.ixps.slice(0, 5).map(n => esc(n)).join('<br>') + (count > 5 ? `<br>…ほか ${count-5} 件` : '');
             L.marker([info.lat, lngS], { icon })
              .bindPopup(`<b style="color:${col};">IXP [${esc(country)}]</b> × ${count}<br><span style="font-size:11px;color:#aaa;">${nameList}</span>`)
              .on('click', () => openCountryDetail(country))
@@ -8487,9 +8487,9 @@
                 nato_corridor:   'NATO ケーブル回廊',
             };
             const STATUS_BADGE = {
-                dark_gap:   `<span style="color:#ff3300;font-weight:bold;">⚠ AIS DARK GAP DETECTED</span>`,
+                dark_gap:   `<span style="color:#ff3300;font-weight:bold;">⚠ AIS ダークギャップ検出</span>`,
                 stationary: `<span style="color:#ff9900;font-weight:bold;">⚓ 停泊異常</span>`,
-                normal:     `<span style="color:#00cc66;">● NORMAL</span>`,
+                normal:     `<span style="color:#00cc66;">● 正常</span>`,
             };
             const cablesHtml = (c.cables && c.cables.length)
                 ? `<div style="margin-top:5px;color:#aaa;font-size:9px;">ケーブル: ${c.cables.map(cb => esc(cb)).join(', ')}</div>`
@@ -8535,10 +8535,10 @@
              .bindPopup(
                 `<div style="min-width:200px;padding:8px 10px 6px;">` +
                 `<div style="color:${col};font-weight:bold;font-size:12px;">✦ ${esc(hs.name)}</div>` +
-                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">ISR HOTSPOT ZONE · ${esc(hs.country)}</div>` +
-                `<div>ISR Aircraft: <b style="color:${col};">${esc(hs.isr_count)}</b></div>` +
-                `<div>Status: <b style="color:${col};">${isSurge ? '⚡ SURGE' : '● NORMAL'}</b></div>` +
-                `<div style="color:#555;font-size:9px;margin-top:4px;">Radius: ${esc(hs.radius_km || 200)} km</div>` +
+                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">ISR ホットスポット · ${esc(hs.country)}</div>` +
+                `<div>ISR 機数: <b style="color:${col};">${esc(hs.isr_count)}</b></div>` +
+                `<div>状態: <b style="color:${col};">${isSurge ? '⚡ 急増' : '● 正常'}</b></div>` +
+                `<div style="color:#555;font-size:9px;margin-top:4px;">半径: ${esc(hs.radius_km || 200)} km</div>` +
                 `</div>`
              )
              .addTo(isrZoneLayer);
@@ -8583,7 +8583,7 @@
             L.marker([v.lat, lngS], { icon })
              .bindPopup(
                 `<div style="min-width:200px;padding:8px 10px 6px;">` +
-                `<div style="color:#ff3300;font-weight:bold;font-size:12px;">⚓ AIS DARK GAP</div>` +
+                `<div style="color:#ff3300;font-weight:bold;font-size:12px;">⚓ AIS ダークギャップ</div>` +
                 `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">EMCON / トランスポンダ停波</div>` +
                 `<div>船舶: <b>${esc(v.name || v.mmsi)}</b></div>` +
                 `<div>停波時間: <b style="color:#ff3300;">${esc(v.gap_hours)} h</b></div>` +
@@ -8691,15 +8691,15 @@
             } else if (strat.threat_breakdown) {
                 const b = strat.threat_breakdown;
                 const lines = [
-                    `Threat Score: ${b.total_score}`,
-                    `Core Spike: ${b.core_spike_val}x  (>2x:${b.core_spike_2x?'✔':'✗'} >4x:${b.core_spike_4x?'✔':'✗'} >6x:${b.core_spike_6x?'✔':'✗'})`,
-                    `High Correlation(>45%): ${b.high_correlation?'✔':'✗'}`,
-                    `L7 Shift: ${b.core_shifted?'✔':'✗'}`,
-                    `Adversary Strike: ${b.major_adversary?'✔':'✗'}`,
-                    `BGP Degraded: ${b.core_degraded?'✔':'✗'}`,
-                    `Multi-Front(>3x): ${b.is_coordinated?'✔':'✗'}`,
-                    `Lv1 Hard Req: ${b.tl1_hard?'✔':'✗'}`,
-                    `\nClick to view full Rationale Matrix.`
+                    `脅威スコア: ${b.total_score}`,
+                    `中核スパイク: ${b.core_spike_val}x  (>2x:${b.core_spike_2x?'✔':'✗'} >4x:${b.core_spike_4x?'✔':'✗'} >6x:${b.core_spike_6x?'✔':'✗'})`,
+                    `高相関 (>45%): ${b.high_correlation?'✔':'✗'}`,
+                    `L7 シフト: ${b.core_shifted?'✔':'✗'}`,
+                    `敵対国の攻撃: ${b.major_adversary?'✔':'✗'}`,
+                    `BGP 劣化: ${b.core_degraded?'✔':'✗'}`,
+                    `多正面 (>3x): ${b.is_coordinated?'✔':'✗'}`,
+                    `TL1 必須条件: ${b.tl1_hard?'✔':'✗'}`,
+                    `\nクリックで根拠マトリクス全体を表示。`
                 ];
                 threatEl.setAttribute('data-tooltip', lines.join('\n'));
             }
@@ -8814,7 +8814,7 @@
                 const maxIdf = Number(maxEntry[1]) || 0;
                 const color = maxIdf >= 1.5 ? '#ff2a2a' : maxIdf >= 1.0 ? '#ffaa00' : '#888';
                 overlapEl.innerHTML = `<span style="color:${color}">${esc(maxEntry[0])}: ${maxIdf.toFixed(2)} IDF</span>`;
-                overlapEl.setAttribute('data-tooltip', Object.entries(_idfPairs).map(([k,v]) => `${k}: ${Number(v).toFixed(2)} IDF`).join('\n') + '\n(see map: Origin Overlap layer)');
+                overlapEl.setAttribute('data-tooltip', Object.entries(_idfPairs).map(([k,v]) => `${k}: ${Number(v).toFixed(2)} IDF`).join('\n') + '\n（マップの Origin Overlap レイヤーを参照）');
             } else {
                 overlapEl.innerHTML = _t('ui.none');
             }
@@ -8842,7 +8842,7 @@
             if (coordinatedEl) {
                 const _coordinatedList = strat.coordinated_countries;
                 if (_coordinatedList && _coordinatedList.length >= 2) {
-                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${esc(_coordinatedList.join(', '))}]</span>`;
+                    coordinatedEl.innerHTML = `<span class="alert-text">検出 [${esc(_coordinatedList.join(', '))}]</span>`;
                 } else {
                     coordinatedEl.innerText = "なし";
                 }
@@ -8886,7 +8886,7 @@
                 const b = strat.threat_breakdown || {};
                 const bonus = b.convergence_bonus || 0;
                 const held  = b.threat_held ? ' [HOLD]' : '';
-                convEl.setAttribute('data-tooltip', `Score: ${b.total_score} + Bonus: ${bonus} = ${b.score_with_bonus} → Threat Lv ${b.threat_raw}${held}`);
+                convEl.setAttribute('data-tooltip', `スコア: ${b.total_score} + ボーナス: ${bonus} = ${b.score_with_bonus} → 脅威レベル ${b.threat_raw}${held}`);
             }
 
             // Per-scenario sparkline (commit W). The legacy
@@ -9144,7 +9144,7 @@
                     if (airspD.status === "WEATHER_NOISE") {
                         badges += `<span class="tm-badge" style="border:1px solid #aaa; color:#aaa; background:rgba(170,170,170,0.15);" data-tooltip="${_t('tooltip.airspace_wx')}">${_t('badge.airspace_wx')}</span>`;
                     } else {
-                        badges += `<span class="tm-badge tm-badge-air" data-tooltip="Airspace Anomaly">✈</span>`;
+                        badges += `<span class="tm-badge tm-badge-air" data-tooltip="空域異常">✈</span>`;
                     }
                 }
 
@@ -9560,7 +9560,7 @@
                         latestData = { strategic_alert: data, targets: [], timestamp: new Date().toISOString() };
                     }
                     _lastSyncTime = Date.now();
-                    lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()} (WS Live)`;
+                    lastSyncedTimeText = `データ同期: ${new Date().toLocaleTimeString()} (WS Live)`;
                     document.getElementById('update-time').innerText = lastSyncedTimeText;
                     renderTelemetry(latestData);
                 });
@@ -10295,10 +10295,10 @@
             const threatColor = d => ['','#ff0000','#ff2a2a','#ffaa00','#ffff00','#66ff66'][d] || '#888';
             const trendIcon   = t => t === 'ESCALATING' ? '▲' : t === 'DE-ESCALATING' ? '▼' : '—';
             const cards = [
-                { label: _t('sitrep.card.threat_now'), value: `Lv ${s.threat_current || '—'}`, sub: `Trend: ${trendIcon(s.threat_trend)} ${s.threat_trend || '—'}`, color: threatColor(s.threat_current) },
-                { label: _t('sitrep.card.threat_1h'), value: `Lv ${s.threat_min_1h || '—'}–${s.threat_max_1h || '—'}`, sub: `Avg: ${s.threat_avg_1h || '—'}`, color: '#aaa' },
-                { label: _t('sitrep.card.convergence'), value: (s.convergence || 'NONE').replace(/_/g,' '), sub: `Domains: ${(s.active_domains || []).join(', ') || 'None'}`, color: s.convergence === 'FULL_CONVERGENCE' ? '#ff2a2a' : s.convergence === 'DUAL_DOMAIN' ? '#ffaa00' : '#888' },
-                { label: _t('sitrep.card.history'), value: `${s.cycle_count || 0} cycles`, sub: `${Math.round((s.span_minutes || 0) / 60 * 10) / 10}h window`, color: '#555' },
+                { label: _t('sitrep.card.threat_now'), value: `Lv ${s.threat_current || '—'}`, sub: `トレンド: ${trendIcon(s.threat_trend)} ${s.threat_trend || '—'}`, color: threatColor(s.threat_current) },
+                { label: _t('sitrep.card.threat_1h'), value: `Lv ${s.threat_min_1h || '—'}–${s.threat_max_1h || '—'}`, sub: `平均: ${s.threat_avg_1h || '—'}`, color: '#aaa' },
+                { label: _t('sitrep.card.convergence'), value: (s.convergence || 'NONE').replace(/_/g,' '), sub: `ドメイン: ${(s.active_domains || []).join(', ') || 'なし'}`, color: s.convergence === 'FULL_CONVERGENCE' ? '#ff2a2a' : s.convergence === 'DUAL_DOMAIN' ? '#ffaa00' : '#888' },
+                { label: _t('sitrep.card.history'), value: `${s.cycle_count || 0} サイクル`, sub: `${Math.round((s.span_minutes || 0) / 60 * 10) / 10}h の期間`, color: '#555' },
             ];
             document.getElementById('sitrep-summary').innerHTML = cards.map(c =>
                 `<div class="sitrep-card">
@@ -10513,7 +10513,7 @@
         };
 
         try {
-            const res = await fetch(`/api/weather_brief?lang=en`);
+            const res = await fetch(`/api/weather_brief?lang=ja`);
             const wb  = await res.json();
             const brief = wb.brief || {};
             const DOMAIN_ICON = { cyber:'⛈', maritime:'🌫', info:'📡', air:'🔭', infra:'🏗' };
@@ -10581,7 +10581,7 @@
         if (tsEl) tsEl.textContent = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}Z`;
 
         try {
-            const res = await fetch(`/api/salute_report?lang=en`);
+            const res = await fetch(`/api/salute_report?lang=ja`);
             const sal = (await res.json()).report || {};
             _lastSaluteData = sal;
             const fields = [
@@ -10622,8 +10622,8 @@
         const now = new Date();
         const dtg = now.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
         return [
-            `SALUTE REPORT — ${dtg}`,
-            `THREAT LEVEL: ${s.threat_level || '—'}`,
+            `SALUTE 報告 — ${dtg}`,
+            `脅威レベル: ${s.threat_level || '—'}`,
             '─'.repeat(40),
             `S (SIZE):      ${s.size || '—'}`,
             `A (ACTIVITY):  ${s.activity || '—'}`,
@@ -10632,9 +10632,9 @@
             `T (TIME):      ${s.time || '—'}`,
             `E (EQUIPMENT): ${s.equipment || '—'}`,
             '',
-            s.cross_ref ? `CROSS-REF:  ${s.cross_ref}` : '',
+            s.cross_ref ? `相互参照:  ${s.cross_ref}` : '',
             '',
-            s.assessment ? `ASSESSMENT:\n${s.assessment}` : '',
+            s.assessment ? `評価:\n${s.assessment}` : '',
         ].filter(Boolean).join('\n');
     }
 
@@ -11039,12 +11039,12 @@
             const fmt = params.displayFormat;
             const l3s = l3v == null ? '—' : fmt(l3v);
             const l7s = l7v == null ? '—' : fmt(l7v);
-            let tipHtml = `<b>${a} ↔ ${b}</b> — Coord: ${fmt(coordIdx)}`;
-            tipHtml += `<br><span style="color:#888">Origin:</span> ${fmt(overlap)} (<span style="color:#ff6666">L3:${l3s}</span> <span style="color:#66ff66">L7:${l7s}</span>)`;
-            if (bothElevated) tipHtml += `<br><span style="color:#ffaa00">▲ Both elevated (${spikeMap[a].toFixed(1)}× / ${spikeMap[b].toFixed(1)}×)</span>`;
-            if (isC2Sync) tipHtml += `<br><span style="color:#ff2200">⚡ C2-SYNC confirmed</span>`;
-            else if (c2Score > 0) tipHtml += `<br><span style="color:#ffaa00">◉ Partial temporal coherence</span>`;
-            if (strikeTargets.has(a) && strikeTargets.has(b)) tipHtml += `<br><span style="color:#ff4444">✦ Adversary strikes on both</span>`;
+            let tipHtml = `<b>${a} ↔ ${b}</b> — 協調度: ${fmt(coordIdx)}`;
+            tipHtml += `<br><span style="color:#888">攻撃元重複:</span> ${fmt(overlap)} (<span style="color:#ff6666">L3:${l3s}</span> <span style="color:#66ff66">L7:${l7s}</span>)`;
+            if (bothElevated) tipHtml += `<br><span style="color:#ffaa00">▲ 双方が上昇 (${spikeMap[a].toFixed(1)}× / ${spikeMap[b].toFixed(1)}×)</span>`;
+            if (isC2Sync) tipHtml += `<br><span style="color:#ff2200">⚡ C2-SYNC 確認</span>`;
+            else if (c2Score > 0) tipHtml += `<br><span style="color:#ffaa00">◉ 部分的な時間的一致</span>`;
+            if (strikeTargets.has(a) && strikeTargets.has(b)) tipHtml += `<br><span style="color:#ff4444">✦ 双方に敵対国の攻撃</span>`;
             coreLine.bindTooltip(tipHtml, {sticky: true, className: 'coord-tooltip'});
 
             // Midpoint percentage label
@@ -11465,8 +11465,8 @@
                     el.value = '';
                     el.dataset.secret = '1';
                     el.placeholder = val.set
-                        ? `(configured · ends in …${val.last4 || '????'})`
-                        : '(unset — enter to set)';
+                        ? `（設定済み · 末尾 …${val.last4 || '????'}）`
+                        : '（未設定 — 入力して設定）';
                     el.classList.add('secret-field');
                 } else {
                     el.value = val;
@@ -11511,7 +11511,7 @@
                 }
             } else {
                 const first = result.errors[0];
-                throw new Error(first ? `${first.key}: ${first.error}` : 'Unknown error');
+                throw new Error(first ? `${first.key}: ${first.error}` : '不明なエラー');
             }
         } catch(e) {
             if (st) { st.textContent = _t('config.status.error', {msg: e.message}); st.className = 'env-status err'; }
@@ -12752,7 +12752,7 @@
                 ? `<div style="color:#44aa44;font-size:8px;">✓ ${_t('panel.spof.redundant')}</div>`
                 : `<div style="color:#ff8800;font-size:8px;">⚠ ${_t('panel.spof.no_redundancy')}</div>`;
             if (info.critical_spofs > 0) {
-                html += `<div style="color:#ff2222;font-size:8px;">⛔ ${info.critical_spofs} CRITICAL SPOF</div>`;
+                html += `<div style="color:#ff2222;font-size:8px;">⛔ CRITICAL SPOF ${info.critical_spofs} 件</div>`;
             }
             html += `</div>`;
         }
@@ -12778,7 +12778,7 @@
                 const healthColor = entry.health === 'ok' ? '#44aa44' : entry.health === 'stale' ? '#ffcc00' : '#ff4444';
                 html += `<div class="spof-entry-health">`;
                 html += `<span style="color:${healthColor};font-size:8px;">● ${entry.health}</span>`;
-                if (entry.cache_age_sec != null) html += `<span style="color:#555;font-size:8px;">${Math.round(entry.cache_age_sec/60)}m ago</span>`;
+                if (entry.cache_age_sec != null) html += `<span style="color:#555;font-size:8px;">${Math.round(entry.cache_age_sec/60)}m 前</span>`;
                 if (entry.last_error) html += `<span style="color:#ff444488;font-size:7px;" title="${entry.last_error}">err</span>`;
                 html += `</div>`;
                 html += `</div>`;
@@ -13339,15 +13339,15 @@
         // Status label
         let statusLabel = '';
         if (isAutoJudged) {
-            statusLabel = '<span class="llm-status-label-auto" title="Auto-confirmed by background auto-judge (' + _escHtml(confirmedBy) + ')">AUTO</span>';
+            statusLabel = '<span class="llm-status-label-auto" title="バックグラウンドの auto-judge により自動承認 (' + _escHtml(confirmedBy) + ')">AUTO</span>';
         } else if (isAutoIngest) {
-            statusLabel = '<span class="llm-status-label-auto" title="Auto-confirmed at submit (confidence ≥ threshold)">AUTO</span>';
+            statusLabel = '<span class="llm-status-label-auto" title="投入時に自動承認（確信度 ≥ 閾値）">AUTO</span>';
         } else if (isReview) {
             statusLabel = '<span class="llm-status-label-review">REVIEW</span>';
         } else if (isPending) {
             statusLabel = '<span class="llm-status-label-pending">PENDING</span>';
         } else if (isManualConf) {
-            statusLabel = '<span class="llm-status-label-confirmed" title="Manually confirmed by ' + _escHtml(confirmedBy || 'analyst') + '">MANUAL</span>';
+            statusLabel = '<span class="llm-status-label-confirmed" title="' + _escHtml(confirmedBy || 'analyst') + ' が手動で承認">MANUAL</span>';
         } else if (item.status === 'rejected' || item.status === 'overridden') {
             statusLabel = '<span class="llm-status-label-rejected">' + _escHtml(item.status.toUpperCase()) + '</span>';
         }
@@ -13415,7 +13415,7 @@
             .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
             .catch(err => {
                 console.warn('[Intel] ' + path + ' failed:', err);
-                alert(_t(failedKey, { reason: err && err.message ? err.message : 'network error' }));
+                alert(_t(failedKey, { reason: err && err.message ? err.message : 'ネットワークエラー' }));
                 // Do NOT call _fetchLlmIntel/fetchDDoSData on failure — keep
                 // the item visibly in its prior state so the analyst sees
                 // the failure happened.
@@ -13932,8 +13932,8 @@
             };
             const d1h = sc.score_delta_1h;
             const d24h = sc.score_delta_24h;
-            const delta1hHtml = `<span class="sc-delta ${deltaCls(d1h)}" title="Δ score over last 1h">Δ1h ${fmtDelta(d1h)}</span>`;
-            const delta24hHtml = `<span class="sc-delta ${deltaCls(d24h)}" title="Δ score over last 24h">Δ24h ${fmtDelta(d24h)}</span>`;
+            const delta1hHtml = `<span class="sc-delta ${deltaCls(d1h)}" title="直近 1h のスコア変化">Δ1h ${fmtDelta(d1h)}</span>`;
+            const delta24hHtml = `<span class="sc-delta ${deltaCls(d24h)}" title="直近 24h のスコア変化">Δ24h ${fmtDelta(d24h)}</span>`;
 
             // OBS chip — per-scenario observation health (AP3 extension).
             // signal_volume_24h counts per-country contributions in
@@ -13957,21 +13957,21 @@
             // Tooltip — shows volume, distinct countries, last-signal age,
             // and the top contributing countries so the analyst can decide
             // whether the lite score reflects real observation.
-            let obsTip = `OBS ${obsValue} per-country signals / 24h`;
+            let obsTip = `OBS 国別シグナル ${obsValue} 件 / 24h`;
             if (typeof obsCountries === 'number') {
-                obsTip += `\nDistinct countries: ${obsCountries}`;
+                obsTip += `\n国数（実数）: ${obsCountries}`;
             }
             if (typeof obsLastAt === 'number' && obsLastAt > 0) {
                 const ageMin = Math.max(0, Math.round((Date.now() / 1000 - obsLastAt) / 60));
-                obsTip += `\nLast signal: ${ageMin}m ago`;
+                obsTip += `\n最終シグナル: ${ageMin}m 前`;
             } else if (obsVol === 0) {
-                obsTip += `\nNo per-country signals in 24h — score driven only by global noise`;
+                obsTip += `\n24h の国別シグナルなし — スコアはグローバルノイズのみで駆動`;
             }
             if (obsTop.length) {
                 const topStr = obsTop
                     .map(([cc, total]) => `${cc} ${(typeof total === 'number' ? total.toFixed(1) : '')}`)
                     .join(', ');
-                obsTip += `\nTop: ${topStr}`;
+                obsTip += `\n上位: ${topStr}`;
             }
             const obsHtml = `<span class="sc-obs ${obsCls}" title="${_escHtml(obsTip)}">OBS ${_escHtml(obsValue)}</span>`;
 
@@ -13989,14 +13989,14 @@
             // surfaces the rationale via tooltip.
             if (sc && sc.is_admin_override === true) {
                 const reason = (sc.preset_metadata && sc.preset_metadata.disabled_reason)
-                    || 'Preset (geo_data.json) recommends this scenario disabled.';
+                    || 'プリセット (geo_data.json) はこのシナリオの無効化を推奨。';
                 const tip = (typeof _t === 'function')
                     ? _t('scenario.warning.admin_override_enabled.tooltip',
                           { reason: reason })
-                    : 'Admin override: ' + reason;
+                    : '管理者オーバーライド: ' + reason;
                 const lbl = (typeof _t === 'function')
                     ? _t('scenario.warning.admin_override_enabled.label')
-                    : '⚠ Admin override';
+                    : '⚠ 管理者オーバーライド';
                 html += `<span class="scenario-warning-chip" title="${_escHtml(tip)}">${_escHtml(lbl)}</span>`;
             }
             html += patternHtml;
@@ -14526,7 +14526,7 @@
         html += `  <label>${_t('scenario.mgr.desc_en')} <input id="scmgr-desc-en" value="${_escHtml(sc.description_en||'')}"></label>`;
         html += `  <label>${_t('scenario.mgr.desc_ja')} <input id="scmgr-desc-ja" value="${_escHtml(sc.description_ja||'')}"></label>`;
         // Core country is a dropdown populated from currently-selected participants.
-        html += `  <label>${_t('scenario.mgr.core_country')} <select id="scmgr-core-sel"><option value="">(none)</option></select></label>`;
+        html += `  <label>${_t('scenario.mgr.core_country')} <select id="scmgr-core-sel"><option value="">(なし)</option></select></label>`;
         html += '</div>';
 
         // Country picker: bloc filter pills, search, full country list
@@ -14669,7 +14669,7 @@
         const sel = document.getElementById('scmgr-core-sel');
         if (!sel) return;
         const current = sel.value;
-        const opts = ['<option value="">(none)</option>'];
+        const opts = ['<option value="">(なし)</option>'];
         _scMgrGetSelectedRows().forEach(row => {
             const cc = row.getAttribute('data-cc');
             const name = row.querySelector('.scmgr-p-name')?.textContent || cc;
