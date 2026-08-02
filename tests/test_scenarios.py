@@ -347,3 +347,53 @@ class TestSignal:
         assert s.value_display == ""
         assert s.evidence_url is None
         assert s.llm_reasoning is None
+
+
+# ── ground-truth attribution countries (2026-08-02) ─────────────────────────
+#
+# Production audit: RSS ground-truth episodes fanned out to every scenario
+# where the article's country was ANY participant. US/CN/JP membership in
+# korean_peninsula pulled Iran/Ukraine/Taiwan articles into Korea's ground
+# truth (12/15 FALSE_NEGATIVEs in the 30-day window), which in turn drove
+# four -5% auto:tl_calibrator loosening proposals. Attribution is now
+# restricted to conflict-party roles.
+
+class TestGroundTruthCountries:
+    @staticmethod
+    def _scenario(participants: dict) -> Scenario:
+        return Scenario(
+            id="gt_roles_fixture",
+            name_en="fixture", name_ja="fixture",
+            description_en="", description_ja="",
+            core_country=None, state="active", enabled=True, tier=1,
+            participants=participants,
+        )
+
+    def test_conflict_party_roles_only(self):
+        sc = self._scenario({
+            "KR": Participant("KR", 1.0, Role.PRIMARY_TARGET),
+            "KP": Participant("KP", 1.0, Role.ADVERSARY),
+            "US": Participant("US", 0.8, Role.PRIMARY_ALLY),
+            "JP": Participant("JP", 0.6, Role.FORWARD_BASE),
+            "CN": Participant("CN", 0.3, Role.STRATEGIC_OBSERVER),
+        })
+        assert sc.ground_truth_countries == frozenset({"KR", "KP"})
+
+    def test_belligerents_and_proxy_fronts_included(self):
+        # middle_east-shaped: both principal belligerents and proxy fronts
+        # ARE the conflict; force projection and regional powers are not.
+        sc = self._scenario({
+            "IL": Participant("IL", 1.0, Role.PRINCIPAL_BELLIGERENT),
+            "IR": Participant("IR", 1.0, Role.PRINCIPAL_BELLIGERENT),
+            "YE": Participant("YE", 0.5, Role.PROXY_FRONT),
+            "US": Participant("US", 0.7, Role.FORCE_PROJECTION),
+            "SA": Participant("SA", 0.4, Role.REGIONAL_POWER),
+        })
+        assert sc.ground_truth_countries == frozenset({"IL", "IR", "YE"})
+
+    def test_supporting_roles_yield_empty_set(self):
+        sc = self._scenario({
+            "US": Participant("US", 0.8, Role.PRIMARY_ALLY),
+            "AU": Participant("AU", 0.2, Role.EXTENDED_DETERRENCE),
+        })
+        assert sc.ground_truth_countries == frozenset()

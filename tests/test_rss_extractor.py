@@ -60,8 +60,99 @@ def test_regex_takes_max_when_multiple_counts_present():
 def test_regex_emits_lower_confidence_for_verb_only_match():
     out = extract_kinetic_regex("Russian missile launched toward Ukraine; no immediate casualties")
     assert out is not None
-    assert out.fatalities == 1  # verb-only fallback severity
+    # Honest zero: no counted deaths in the text. Pre-2026-08-02 this tier
+    # fabricated fatalities=1; the severity floor now rides on confidence.
+    assert out.fatalities == 0
+    assert out.confidence == 0.60
     assert out.confidence < 0.80
+
+
+# ── kinetic-ACTION vs posture tier split (2026-08-02) ─────────────────────
+#
+# Production audit 2026-08-02: 12/15 korean_peninsula FALSE_NEGATIVEs in the
+# 30-day window were posture articles (weapons tests, deployments, defense-
+# industry unveilings) graded as kinetic violence because bare weapon nouns
+# ("missile", "rocket", "artillery") sat in the kinetic verb list. The
+# kinetic tier (floor: severity >= 3, i.e. TL <= 3) now requires an ACTION
+# — a strike/attack/launch event — while posture falls to the escalation
+# tier (floor: severity >= 2, TL <= 4) that _ESCALATION_VERBS was always
+# meant to own ("missile test" is literally listed there). Test fixtures
+# below are real headlines from the contaminated label set.
+
+
+def test_weapons_test_is_posture_not_kinetic_action():
+    out = extract_kinetic_regex(
+        "North Korea's Kim oversees latest naval weapons tests"
+    )
+    assert out is not None
+    assert out.country == "KP"
+    assert out.confidence == 0.40  # escalation tier → ELEVATED floor
+    assert out.fatalities == 0
+
+
+def test_missile_test_is_posture_not_kinetic_action():
+    out = extract_kinetic_regex(
+        "What does China's submarine missile test mean for its "
+        "nuclear triad expansion?"
+    )
+    assert out is not None
+    assert out.country == "CN"
+    assert out.confidence == 0.40
+
+
+def test_deployment_with_bare_weapon_noun_is_posture():
+    out = extract_kinetic_regex(
+        "Russia will respond proportionately to Seoul's deployment "
+        "of Typhon missile systems"
+    )
+    assert out is not None
+    assert out.confidence == 0.40  # "deployment" escalation verb; bare
+    # "missile systems" no longer promotes to the kinetic tier
+
+
+def test_defense_industry_unveiling_is_not_evidence_at_all():
+    # No action, no escalation verb — procurement news must not become
+    # ground truth (it would demand alert levels for a product launch).
+    out = extract_kinetic_regex(
+        "South Korea unveils KSAM-II surface-to-air missile to "
+        "replace US-made SM-2s"
+    )
+    assert out is None
+
+
+def test_missile_strike_is_kinetic_action():
+    out = extract_kinetic_regex(
+        "Russian missile strike hits Kyiv apartment block"
+    )
+    assert out is not None
+    assert out.confidence == 0.60
+    assert out.fatalities == 0
+
+
+def test_fires_missiles_is_kinetic_action():
+    out = extract_kinetic_regex("North Korea fires two missiles into sea")
+    assert out is not None
+    assert out.country == "KP"
+    assert out.confidence == 0.60
+
+
+def test_tier_confidence_maps_to_expected_severity_floor():
+    # Pin the extractor↔ground-truth coupling: the kinetic-action tier
+    # (conf 0.60, fatalities 0) still demands severity >= 3 via the
+    # confidence branch; the posture tier demands only severity >= 2.
+    from radar.conclusions.ground_truth_etl import expected_severity_floor
+    assert expected_severity_floor(fatalities=0, confidence=0.60) == 3
+    assert expected_severity_floor(fatalities=0, confidence=0.40) == 2
+
+
+def test_dotted_alias_matches_before_whitespace():
+    # "U.S." ends in a period, so the historical trailing \b never matched
+    # "U.S. airstrike" (period→space is not a word boundary). The alias
+    # boundary is now a (?!\w) lookahead. Latent since the alias table was
+    # introduced; discovered in the 2026-08-02 attribution audit.
+    out = extract_kinetic_regex("U.S. airstrike hits Iranian positions in Syria")
+    assert out is not None
+    assert out.country == "US"
 
 
 def test_regex_returns_none_when_no_country():

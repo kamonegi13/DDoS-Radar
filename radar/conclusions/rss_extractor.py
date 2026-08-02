@@ -69,16 +69,23 @@ _WORDS = {
     "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
 }
 
-# Kinetic verbs that indicate violence beyond mere fatality counts. Used
-# as a confirmation filter: if no fatality regex matches but a kinetic
-# verb appears alongside a country mention we can still record a low-
-# severity match. Without this, fatality-free reports (sanctions, exercise
-# announcements) would never qualify, but those are exactly the events
-# we *don't* want to label as escalations.
+# Kinetic ACTION vocabulary — an act of violence happened or is happening.
+# Used as a confirmation filter: if no fatality regex matches but a kinetic
+# action appears alongside a country mention we can still record a low-
+# severity match. Bare weapon nouns ("missile", "rocket", "artillery") are
+# deliberately NOT sufficient here: a weapons test, deployment, or
+# defense-industry unveiling mentions the same nouns without any violence,
+# and belongs to the escalation (posture) tier below. The 2026-08-02 audit
+# found 12/15 korean_peninsula FALSE_NEGATIVEs were posture articles graded
+# as kinetic violence through this list's bare nouns.
 _KINETIC_VERBS = re.compile(
-    r"\b(missile|airstrike|air\s+strike|shelling|rocket|drone\s+strike|"
-    r"artillery|attack(?:ed|s)?|bombing|explosion|invasion|ambush(?:ed)?|"
-    r"shoot(?:ing|s|down)?)\b",
+    r"\b(airstrike|air\s+strike|shelling|drone\s+strike|bombardment|"
+    r"bombing|explosion|invasion|incursion|ambush(?:ed)?|torpedo(?:ed)?|"
+    r"attack(?:ed|s)?|shoot(?:ing|s|down)?|shot\s+down|"
+    r"missiles?\s+(?:strike|attack|barrage|launch(?:ed)?|fired)|"
+    r"rockets?\s+(?:strike|attack|barrage|fire[ds]?)|"
+    r"artillery\s+(?:fire|strike|barrage|shelling)|"
+    r"(?:fires?|fired|launch(?:es|ed)?)\s+(?:\w+\s+){0,2}(?:missiles?|rockets?))\b",
     re.IGNORECASE,
 )
 
@@ -93,7 +100,7 @@ _ESCALATION_VERBS = re.compile(
     r"deploy(?:s|ed|ing|ment)?|"
     r"scrambl(?:e|es|ed|ing)|"
     r"intercept(?:s|ed|ing|ion)?|"
-    r"missile\s+test|test\s+launch|"
+    r"missiles?\s+tests?|weapons?\s+tests?|test\s+launch(?:es)?|"
     r"recall(?:s|ed|ing)?\s+(?:its\s+)?ambassador|"
     r"sever(?:s|ed|ing)?\s+(?:diplomatic\s+)?(?:ties|relations)|"
     r"expel(?:s|led|ling)?\s+(?:the\s+)?diplomat|"
@@ -258,7 +265,11 @@ def _detect_all_countries(
         if cc in seen:
             continue
         for alias in aliases:
-            if re.search(r"\b" + re.escape(alias) + r"\b", text, re.IGNORECASE):
+            # Trailing boundary is a (?!\w) lookahead, not \b: aliases that
+            # end in a period ("U.S.") never form a \b against following
+            # whitespace, so the historical \b silently dropped them.
+            if re.search(r"\b" + re.escape(alias) + r"(?!\w)", text,
+                         re.IGNORECASE):
                 found.append(cc)
                 seen.add(cc)
                 break
@@ -300,9 +311,11 @@ def _detect_country(text: str, allowed: Optional[Sequence[str]] = None) -> Optio
     )
     for cc, aliases in candidates:
         for alias in aliases:
-            # Word-boundary match so "Iran" doesn't match "Iranian" twice
-            # (we don't care which alias matched — first wins).
-            if re.search(r"\b" + re.escape(alias) + r"\b", text, re.IGNORECASE):
+            # Leading \b keeps "Iran" from matching inside "Iranian";
+            # trailing (?!\w) instead of \b so period-final aliases
+            # ("U.S.") match before whitespace.
+            if re.search(r"\b" + re.escape(alias) + r"(?!\w)", text,
+                         re.IGNORECASE):
                 return cc
     return None
 
@@ -349,10 +362,14 @@ def extract_kinetic_regex(
       - none of {fatality count, kinetic verb, escalation verb} appears.
 
     Severity / confidence ladder (NP1 — recall over precision; ADR-V2-015 Phase 6):
-      - fatality count present:   confidence 0.85, fatalities = parsed number
-      - kinetic verb only:        confidence 0.60, fatalities = 1
-      - escalation verb only:     confidence 0.40, fatalities = 0  (NEW)
-        (mobilization / diplomatic break / missile test / scramble etc.)
+      - fatality count present:    confidence 0.85, fatalities = parsed number
+      - kinetic action, no count:  confidence 0.60, fatalities = 0
+        (strike / bombing / invasion — violence happened, deaths unstated;
+        pre-2026-08-02 this tier fabricated fatalities=1)
+      - escalation posture only:   confidence 0.40, fatalities = 0
+        (mobilization / diplomatic break / weapons test / deployment etc.)
+    Downstream severity floors key on (fatalities, confidence) — see
+    ground_truth_etl.expected_severity_floor.
     """
     if not text:
         return None
@@ -375,7 +392,7 @@ def extract_kinetic_regex(
     if has_kinetic:
         return KineticMatch(
             country=country,
-            fatalities=1,
+            fatalities=0,
             summary=text.strip()[:240],
             source="regex",
             confidence=0.60,
@@ -427,7 +444,7 @@ def extract_kinetic_regex_all(
         ]
     if has_kinetic:
         return [
-            KineticMatch(country=c, fatalities=1,
+            KineticMatch(country=c, fatalities=0,
                          summary=summary, source="regex", confidence=0.60)
             for c in countries
         ]

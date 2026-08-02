@@ -35,6 +35,7 @@ import sys
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from typing import Iterable, Optional
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,6 +66,7 @@ from radar.conclusions.ground_truth_etl import (  # noqa: E402
 )
 from radar.conclusions.rss_extractor import (  # noqa: E402
     extract_kinetic,
+    extract_kinetic_regex_all,
     is_escalation_relevant,
 )
 from radar.conclusions.severity import severity_of  # noqa: E402
@@ -157,11 +159,19 @@ def fetch_all(feeds: Iterable[str]) -> list[dict]:
     return out
 
 
-def _participants_for(scenario_id: str) -> list[str]:
+def _attribution_countries_for(scenario_id: str) -> frozenset[str]:
+    """Countries allowed to anchor a ground-truth episode for the scenario.
+
+    Conflict parties only (Scenario.ground_truth_countries) — NOT all
+    participants. Supporting-role members (allies, bases, observers)
+    appear in headlines about other conflicts constantly; attributing
+    those articles here fabricated FALSE_NEGATIVEs against correctly-calm
+    scenarios (2026-08-02 korean_peninsula audit).
+    """
     sc = scenario_store.get(scenario_id)
     if sc is None:
-        return []
-    return sorted(sc.participants.keys())
+        return frozenset()
+    return sc.ground_truth_countries
 
 
 def _llm_invoke():
@@ -284,7 +294,14 @@ def run_etl(
     # link (NP6 provenance). De-dup by text (headlines repeat across feeds);
     # the escalation-relevance gate runs BEFORE extraction so a disaster
     # fatality count never becomes evidence.
-    matches: list[tuple] = []  # (KineticMatch, event_at, link)
+    #
+    # Attribution is multi-country (2026-08-02): every recognized country
+    # in the text is a candidate anchor, so "US strikes Iran" can anchor on
+    # IR for middle_east instead of whichever country the alias table lists
+    # first. Magnitude (fatalities / confidence) is an item-level fact
+    # shared by all candidates; the optional LLM pass refines magnitude
+    # only — attribution stays on the deterministic regex (NP6).
+    matches: list[tuple] = []  # (candidate_countries, KineticMatch, event_at, link)
     seen_summaries: set[str] = set()
     for item in items:
         text = (item.get("title", "") + " — " + item.get("summary", "")).strip()
@@ -294,10 +311,22 @@ def run_etl(
         if not is_escalation_relevant(text):
             counts["irrelevant_items"] += 1
             continue
-        result = extract_kinetic(text, use_llm=use_llm, llm_invoke=llm_invoke)
-        if result is not None:
-            event_at = _parse_published(item, fallback=until)
-            matches.append((result, event_at, (item.get("link") or "").strip()))
+        item_matches = extract_kinetic_regex_all(text)
+        if not item_matches:
+            continue
+        candidates = [m.country for m in item_matches]
+        magnitude = item_matches[0]
+        if use_llm and llm_invoke is not None:
+            refined = extract_kinetic(text, use_llm=True, llm_invoke=llm_invoke)
+            if refined is not None and refined.source == "llm":
+                magnitude = replace(
+                    magnitude, fatalities=refined.fatalities,
+                    confidence=refined.confidence, source="llm",
+                )
+        event_at = _parse_published(item, fallback=until)
+        matches.append(
+            (candidates, magnitude, event_at, (item.get("link") or "").strip())
+        )
     counts["matched_items"] = len(matches)
 
     # Conclusions per scenario, with severity precomputed. Non-numeric /
@@ -313,19 +342,25 @@ def run_etl(
 
     # Fold matches into episodes: (scenario, country, event UTC day) →
     # the max-floor evidence (worst event drives the expectation, NP1) and
-    # the earliest report time (anchors the pre-event window).
+    # the earliest report time (anchors the pre-event window). One article
+    # anchors AT MOST ONE episode per scenario, on the first candidate
+    # country that is a conflict party of that scenario — never on a
+    # supporting participant, and never once per mentioned country (a
+    # single event must be a single trial).
     episodes: dict[tuple, dict] = {}
     for scenario_id in by_scenario:
-        countries = set(_participants_for(scenario_id))
-        if not countries:
+        attribution = _attribution_countries_for(scenario_id)
+        if not attribution:
             continue
-        for match, event_at, link in matches:
-            if match.country not in countries:
+        for candidates, magnitude, event_at, link in matches:
+            anchor = next((c for c in candidates if c in attribution), None)
+            if anchor is None:
                 continue
+            match = replace(magnitude, country=anchor)
             floor = expected_severity_floor(
                 fatalities=match.fatalities, confidence=match.confidence,
             )
-            key = (scenario_id, match.country, utc_day(event_at))
+            key = (scenario_id, anchor, utc_day(event_at))
             ep = episodes.get(key)
             if ep is None:
                 episodes[key] = {
@@ -380,6 +415,7 @@ def run_etl(
             observed_outcome_url=ep["url"] or None,
             notes=(
                 f"{tag} rss/{match.source}: fatalities={match.fatalities} "
+                f"conf={match.confidence:.2f} "
                 f"expected_severity>={ep['floor']} "
                 f"tool_TL={representative.state}(sev={rep_sev}) "
                 f"ticks_in_window={len(candidates)} ({match.summary[:90]})"

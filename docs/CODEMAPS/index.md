@@ -13,7 +13,7 @@ structural changes to keep maps in sync.
 | `radar/intel_auto_judge.py` | [radar.intel_auto_judge.md](radar.intel_auto_judge.md) | 646 |
 | `radar/diagnostics.py` | [radar.diagnostics.md](radar.diagnostics.md) | 144 |
 | `radar/engine.py` | [radar.engine.md](radar.engine.md) | 1008 |
-| `radar/scenarios.py` | [radar.scenarios.md](radar.scenarios.md) | 597 |
+| `radar/scenarios.py` | [radar.scenarios.md](radar.scenarios.md) | 623 |
 | `radar/llm_client.py` | [radar.llm_client.md](radar.llm_client.md) | 699 |
 | `radar/persistence.py` | [radar.persistence.md](radar.persistence.md) | 139 |
 | `radar/scheduler.py` | [radar.scheduler.md](radar.scheduler.md) | 823 |
