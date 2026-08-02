@@ -83,6 +83,16 @@ API が返した生値をそのまま併記する。要約は読みやすさ、�
 | auto-tune | **オートチューン** | — | AP1 系 |
 | pending / applied | **保留 / 適用済み** | — | — |
 | acknowledge | **確認済みにする** | ~~了承~~ | 操作の意味を明示 |
+| discovery (scenario) | **シナリオ探索** | ~~発見~~ | DBSCAN で候補を探す工程。事実の発見ではない |
+| tier governor | **ティアガバナ** | — | 定訳なし。音写 |
+| silent failure | **サイレント障害** | ~~無言障害~~ | `record_failure()` 由来のコード語 |
+| miss rate | **見逃し率** | — | 1 − recall。`drill_modal.calib.fn`「見逃し」と整合 |
+| analyst blindness | **最終閲覧からの経過時間** | — | AP1 の実測プロキシを訳語にした。式中の識別子 `analyst_blindness` は不変 |
+| inspect (drill) | **精査** | — | 監査経路 drill-down を開く操作 |
+
+**TL 階梯と対応する severity**（`severity = 6 − TL`。比較は必ず severity 空間で行う）:
+`TL1 CRITICAL` / `TL2 SEVERE` / `TL3 HIGH` / `TL4 ELEVATED` / `TL5 NORMAL`。
+階梯名は訳さない（§2）。周辺の説明文のみ日本語にする。
 
 ## 4. 文体
 
@@ -106,6 +116,8 @@ API が返した生値をそのまま併記する。要約は読みやすさ、�
 | canvas 描画テキスト・トースト | 日本語へ直接書き換え（`_t()` を経由しない領域） |
 | `self_explanation.js` (AP2) | テンプレート文を日本語化。スロット名は不変 |
 | `<html lang>` | `ja`（WCAG 3.1.2） |
+| Markdown エクスポート (`radar/conclusions/markdown.py`) | **見出し・ラベルは日本語**。アナリストが読み回覧する成果物。ただし `state` / `formula_ref` / JSON ペイロードは生値のまま（NP6） |
+| サーバー生成の**画面表示**文言（AP3 の質問文 `human_anchor.py` 等） | **日本語**。「サーバー側だから英語」ではなく「画面に出るか」で判断する |
 | **サーバーログ・例外文言** | **英語のまま**。運用者＝開発者向けであり、grep 互換性を優先 |
 | **コードコメント・コミットメッセージ** | **英語のまま**（CLAUDE.md §3 を維持） |
 | **API のキー名・状態値** | **英語のまま**（契約であり表示物ではない） |

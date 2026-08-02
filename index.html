@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strategic MDO Radar (C4ISR)</title>
+    <title>戦略 MDO レーダー (C4ISR)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
     <script src="i18n.js"></script>
@@ -18,11 +18,11 @@
   <div style="background:#111820;border:1px solid #1e3a50;border-radius:8px;padding:32px 36px;width:340px;box-shadow:0 0 40px rgba(0,100,200,0.15);">
     <div style="text-align:center;margin-bottom:20px;">
       <div style="font-size:14px;color:#00ccff;font-weight:bold;letter-spacing:2px;">STRATEGIC MDO RADAR</div>
-      <div style="font-size:10px;color:#556;margin-top:4px;">C4ISR AUTHENTICATION REQUIRED</div>
+      <div style="font-size:10px;color:#556;margin-top:4px;">C4ISR 認証が必要です</div>
     </div>
-    <input id="login-user" type="text" placeholder="Username" autocomplete="username"
+    <input id="login-user" type="text" placeholder="ユーザー名" autocomplete="username"
       style="width:100%;padding:8px 10px;margin-bottom:10px;background:#0a0e14;border:1px solid #1e3a50;color:#cde;border-radius:4px;font-size:13px;box-sizing:border-box;" />
-    <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password"
+    <input id="login-pass" type="password" placeholder="パスワード" autocomplete="current-password"
       style="width:100%;padding:8px 10px;margin-bottom:14px;background:#0a0e14;border:1px solid #1e3a50;color:#cde;border-radius:4px;font-size:13px;box-sizing:border-box;" />
     <button id="login-btn"
       style="width:100%;padding:9px;background:#0066aa;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;letter-spacing:1px;">LOGIN</button>
@@ -104,7 +104,7 @@
              sync, tools, reports, settings, language, and user/logout. -->
         <button id="hud-hamburger-btn" class="hud-hamburger-btn"
                 onclick="toggleHudHamburger()" data-i18n-tip="hud.tooltip.hamburger"
-                aria-label="Controls Menu">☰</button>
+                aria-label="操作メニュー">☰</button>
     </div>
 
     <!-- ─── ROW 2: DRIVERS — What is pushing the score up? ─────────
@@ -191,7 +191,7 @@
              the chip. -->
         <div class="hud-chip hud-llm-chip" id="hud-llm-chip"
              onclick="toggleLlmIntelPanel && toggleLlmIntelPanel()"
-             title="LLM service health. Click to open the LLM Intelligence panel.">
+             title="LLM サービスの稼働状態。クリックで LLMインテリジェンス パネルを開く。">
             <span class="hud-llm-dot hud-llm-dot-unknown" id="hud-llm-dot" aria-hidden="true"></span>
             <span class="hud-chip-label">LLM</span>
         </div>
@@ -226,15 +226,15 @@
              repointed off the retired shadow sampler, whose lite-vs-full delta
              became ≡0 after the score paths were unified). Each chip colors
              green/amber/red based on the value's risk band. -->
-        <div class="hud-chip hud-self-eval" id="hud-recall-chip" title="Recall over analyst_feedback (TP/(TP+FN)). Green ≥0.8, amber ≥0.6, red <0.6.">
+        <div class="hud-chip hud-self-eval" id="hud-recall-chip" title="analyst_feedback に対する recall（TP/(TP+FN)）。緑 ≥0.8、橙 ≥0.6、赤 <0.6。">
             <span class="hud-chip-label">RECALL</span>
             <span id="hud-recall-value" class="hud-chip-value">—</span>
         </div>
-        <div class="hud-chip hud-self-eval" id="hud-nullzone-chip" title="Consecutive days where every threat_level conclusion was INSUFFICIENT_DATA. Green 0d, amber 1-3d, red ≥4d (chronic gap = design failure per NP5+8).">
+        <div class="hud-chip hud-self-eval" id="hud-nullzone-chip" title="すべての threat_level 結論が INSUFFICIENT_DATA だった連続日数。緑 0d、橙 1-3d、赤 ≥4d（恒常的な欠落は NP5+8 上の設計失敗）。">
             <span class="hud-chip-label">NULL-ZONE</span>
             <span id="hud-nullzone-value" class="hud-chip-value">—</span>
         </div>
-        <div class="hud-chip hud-self-eval" id="hud-drift-chip" title="Mean miss-rate (1−recall) across scenarios, from the ground-truth confusion matrix. Green ≤0.05, amber ≤0.10, red >0.10. Hover drift_meta for the worst scenario.">
+        <div class="hud-chip hud-self-eval" id="hud-drift-chip" title="ground-truth 混同行列から算出した、シナリオ横断の平均見逃し率（1−recall）。緑 ≤0.05、橙 ≤0.10、赤 >0.10。最悪のシナリオは drift_meta をホバーして確認。">
             <span class="hud-chip-label">DRIFT</span>
             <span id="hud-drift-value" class="hud-chip-value">—</span>
         </div>
@@ -246,7 +246,7 @@
              tl_distribution_skew.tl5_pct over a rolling 7d window. Green
              ≥30%, amber 15-30%, red <15% (or `calibration_skew_alert` set). -->
         <div class="hud-chip hud-self-eval" id="hud-skew-chip"
-             title="TL=5 (peacetime calm) share over rolling 7d. Green ≥30%, amber 15-30%, red <15%. Reads /api/v2/self_eval.tl_distribution_skew.">
+             title="直近 7d における TL=5（平時の平穏）の比率。緑 ≥30%、橙 15-30%、赤 <15%。/api/v2/self_eval.tl_distribution_skew を参照する。">
             <span class="hud-chip-label">SKEW</span>
             <span id="hud-skew-value" class="hud-chip-value">—</span>
         </div>
@@ -259,7 +259,7 @@
              analyst can see "the engine has been silently dropping
              signals" instead of having to read container logs. -->
         <div class="hud-chip hud-self-eval" id="hud-fault-chip"
-             title="NP1-violating silent failures recorded by record_failure(). Green 0, amber ≥1, red ≥10. Click for the /api/v2/self_eval breakdown.">
+             title="record_failure() が記録した NP1 違反のサイレント障害。緑 0、橙 ≥1、赤 ≥10。クリックで /api/v2/self_eval の内訳を表示。">
             <span class="hud-chip-label">FAULT</span>
             <span id="hud-fault-value" class="hud-chip-value">—</span>
         </div>
@@ -268,14 +268,14 @@
              amber ≤80% empty, red on alias_gap or 0 cycles. "OFF" when
              BG_OBSERVER_ENABLED=false (legitimate OPSEC choice). -->
         <div class="hud-chip hud-self-eval" id="hud-bg-observer-chip"
-             title="bg_observer (BACKGROUND_ELIGIBLE sensor) health — per-cycle match rate over 24h.">
+             title="bg_observer（BACKGROUND_ELIGIBLE センサー）の稼働状態 — 直近 24h のサイクルあたり一致率。">
             <span class="hud-chip-label">OBS-BG</span>
             <span id="hud-bg-observer-value" class="hud-chip-value">—</span>
         </div>
         <!-- AP3: auto-tune health chip — pending proposals and drift signal counts.
              Click opens the Auto-tune Wizard so analysts can act immediately. -->
         <div class="hud-chip hud-self-eval" id="hud-autotune-chip"
-             title="Auto-tune health: pending proposals + actionable drift signals. Click to open the Wizard."
+             title="オートチューン健全性: 保留中の提案 + 対応可能な drift シグナル。クリックでウィザードを開く。"
              onclick="window._wizardOpen && window._wizardOpen()"
              style="cursor:pointer;">
             <span class="hud-chip-label" data-i18n="autotune.chip.title">AUTO-TUNE</span>
@@ -286,7 +286,7 @@
              /api/v2/calibration/tier_governor snapshot. Click opens the
              Operate > Auto-Calibration SETTINGS pane for the full status block. -->
         <div class="hud-chip hud-self-eval" id="hud-autocal-chip"
-             title="Auto-Calibration tier governor (Phase 3). Polled from /api/v2/calibration/tier_governor."
+             title="Auto-Calibration ティアガバナ (Phase 3)。/api/v2/calibration/tier_governor をポーリングする。"
              onclick="window._openAutoCalSettings && window._openAutoCalSettings()"
              style="cursor:pointer;">
             <span class="hud-chip-label">AUTO-CAL</span>
@@ -300,7 +300,7 @@
              threshold knob and live status block are reachable in one
              gesture. -->
         <div class="hud-chip hud-self-eval" id="hud-chronic-chip"
-             title="Chronic-inconclusive detector (NP5+8 / ADR-V2-010). Polled from /api/v2/observability/chronic_inconclusive."
+             title="恒常的結論不可の検出器（NP5+8 / ADR-V2-010）。/api/v2/observability/chronic_inconclusive をポーリングする。"
              onclick="window._openAutoCalSettings && window._openAutoCalSettings()"
              style="cursor:pointer;">
             <span class="hud-chip-label">CHRONIC</span>
@@ -311,7 +311,7 @@
              self-graded by auto labels; this chip nags the analyst to
              supply the independent leg. Click opens the labeling queue. -->
         <div class="hud-chip hud-self-eval" id="hud-anchor-chip"
-             title="Human-anchor labeling queue. Polled from /api/v2/human_anchor/queue."
+             title="人間アンカーのラベル付けキュー。/api/v2/human_anchor/queue をポーリングする。"
              onclick="window.toggleHumanAnchorPanel && window.toggleHumanAnchorPanel()"
              style="cursor:pointer;">
             <span class="hud-chip-label">ANCHOR</span>
@@ -320,7 +320,7 @@
         <!-- LLM Feature Hub chip — shows N on / total features with shadow tail.
              Click opens the Feature Hub modal. -->
         <div class="hud-chip hud-self-eval" id="hud-llm-feat-chip"
-             title="LLM features: click to open Settings → LLM → Features."
+             title="LLM 機能: クリックで 設定 → LLM → 機能 を開く。"
              onclick="(window._settingsOpen||window._llmFeaturesOpen||function(){})('llm.features')"
              style="cursor:pointer;">
             <span class="hud-chip-label" data-i18n="llm_features.chip.title">LLM</span>
@@ -332,7 +332,7 @@
              amber = at least one missing, red = ollama unreachable.
              Click opens the model routing modal. -->
         <div class="hud-chip hud-self-eval" id="hud-model-chip"
-             title="LLM model routing: primary-model availability across the v10 5-model stack. Click to open Settings → LLM → Routing."
+             title="LLM モデルルーティング — v10 5 モデルスタックにおける primary モデルの可用性。クリックで 設定 → LLM → ルーティング を開く。"
              onclick="(window._settingsOpen||window._llmRoutingOpen||function(){})('llm.routing')"
              style="cursor:pointer;">
             <span class="hud-chip-label" data-i18n="llm_routing.chip.title">MODEL</span>
@@ -347,7 +347,7 @@
 <div id="hud-hamburger-panel" class="hud-hamburger-panel" style="display:none;">
     <div class="hh-header">
         <div class="hh-title" data-i18n="hud.hh.title">CONTROLS</div>
-        <button class="hh-close" onclick="closeHudHamburger()" aria-label="Close">&times;</button>
+        <button class="hh-close" onclick="closeHudHamburger()" aria-label="閉じる">&times;</button>
     </div>
     <div class="hh-body">
         <div class="hh-section hh-user-section" id="hud-user-info">
@@ -370,7 +370,7 @@
         </div>
         <div class="hh-section">
             <div class="hh-section-label" data-i18n="hud.hh.section.data">DATA</div>
-            <button id="btn-sync-top" class="btn-tactical btn-sync hh-action-wide" onclick="forceDataSync(event); closeHudHamburger();" data-i18n="hud.btn.sync" title="Click: instant snapshot refresh. Shift+Click: also fan out to fast sensors (background).">SYNC</button>
+            <button id="btn-sync-top" class="btn-tactical btn-sync hh-action-wide" onclick="forceDataSync(event); closeHudHamburger();" data-i18n="hud.btn.sync" title="クリック: スナップショットを即時更新。Shift+クリック: 高速センサーへのファンアウトも実行（バックグラウンド）。">SYNC</button>
         </div>
         <div class="hh-section">
             <div class="hh-section-label" data-i18n="hud.hh.section.reports">REPORTS</div>
@@ -380,7 +380,7 @@
                 <button class="hh-action" onclick="openSaluteModal(); closeHudHamburger();" data-i18n="hud.btn.salute">SALUTE</button>
                 <button class="hh-action" onclick="toggleChainPanel(); closeHudHamburger();" data-i18n="hud.btn.chain">CHAIN</button>
                 <button class="hh-action" id="hh-export-md" onclick="exportFocusedScenarioMarkdown(); closeHudHamburger();" data-i18n="hud.btn.export_md">EXPORT&nbsp;MD</button>
-                <button class="hh-action" id="hh-replay" onclick="openReplayMode(); closeHudHamburger();" title="Replay past conclusions on a timeline (AP4 — Decision Trail)">REPLAY</button>
+                <button class="hh-action" id="hh-replay" onclick="openReplayMode(); closeHudHamburger();" title="過去の結論をタイムライン上でリプレイする (AP4 — 判断履歴)">REPLAY</button>
             </div>
         </div>
         <div class="hh-section">
@@ -452,14 +452,14 @@
      while replay is active the HUD overlay + Triage Lane consume the
      replay envelope instead of polling. The badge on HUD makes it
      impossible to mistake replay state for live state. -->
-<div id="replay-bar" role="region" aria-label="Replay timeline" hidden>
+<div id="replay-bar" role="region" aria-label="リプレイタイムライン" hidden>
     <span class="rb-label">REPLAY</span>
-    <label for="rb-slider" class="sr-only">Replay timeline offset (seconds before now)</label>
+    <label for="rb-slider" class="sr-only">リプレイ時刻のオフセット（現在からの秒数）</label>
     <span id="rb-time" class="rb-time">—</span>
     <input type="range" id="rb-slider" min="-86400" max="0" step="60" value="0"
            aria-describedby="rb-time"
-           title="Drag back to step the conclusions ledger time-travel pointer (1 minute resolution).">
-    <button type="button" id="rb-live" class="rb-btn" onclick="exitReplayMode()" title="Return to live polling">LIVE</button>
+           title="ドラッグして結論台帳のタイムトラベルポインタを過去へ動かす（1 分刻み）。">
+    <button type="button" id="rb-live" class="rb-btn" onclick="exitReplayMode()" title="ライブポーリングに戻る">LIVE</button>
 </div>
 
 <!-- ── Alert Lane ─────────────────────────────────────────────────────
@@ -476,9 +476,9 @@
 <!-- The Triage Lane body. JS portal-moves this between
      #triage-lane-critical-slot (HUD flow, banner mode) and
      #triage-lane-dock-slot (absolute, inside #map-wrapper, pin-dock mode). -->
-<div id="alert-lane" role="region" aria-live="polite" aria-label="Active triage alerts" hidden>
+<div id="alert-lane" role="region" aria-live="polite" aria-label="アクティブなトリアージアラート" hidden>
     <div class="al-toolbar" id="al-toolbar"
-         title="TRIAGE: ranked attention queue. attention_score = novelty × confidence_delta × analyst_blindness. Higher rank = more deserving of immediate analyst attention.">
+         title="トリアージ: 注目度スコア順のキュー。attention_score = 新規性 × 確信度の変化 × 最終閲覧からの経過時間。上位ほどアナリストが即座に確認すべき対象。">
         <span class="al-title" data-i18n="alert_lane.title">TRIAGE</span>
         <span class="al-subtitle" data-i18n="alert_lane.subtitle">— ranked by attention score (novelty × confidence change × time since last viewed)</span>
     </div>
@@ -493,7 +493,7 @@
 
 <!-- ── Domain Drilldown Panel ─────────────────────────────────────────── -->
 <div id="domain-drilldown-panel">
-    <span id="dd-close-btn" onclick="toggleDrilldown()" title="Close">✕</span>
+    <span id="dd-close-btn" onclick="toggleDrilldown()" title="閉じる">✕</span>
     <div class="dd-inner">
         <div class="dd-domain-col">
             <div class="dd-domain-header">
@@ -571,9 +571,9 @@
              redundancy with drilldown header + API field keeps NP7 satisfied
              without consuming a viewport-top band. -->
         <div id="np7-map-attribution" role="note"
-             title="Tool conclusion only — final judgment by organizational process. This radar functions as one node in an organizational intelligence assessment process."
-             aria-label="Tool conclusion only — final judgment by organizational process.">
-            <span id="np7-attr-text">Tool conclusion · final judgment org-side</span>
+             title="本ツールの結論のみ — 最終判断は組織のプロセスによる。本レーダーは組織のインテリジェンス評価プロセスにおける一つのノードとして機能する。"
+             aria-label="本ツールの結論のみ — 最終判断は組織のプロセスによる。">
+            <span id="np7-attr-text">本ツールの結論 · 最終判断は組織側</span>
             <span class="np7-attr-info" aria-hidden="true">ⓘ</span>
         </div>
         <!-- BG scenario alert — floating notification on map top-center.
@@ -644,7 +644,7 @@
 <!-- Data Synced footer: fixed at bottom-right, always visible regardless of sidebar state -->
 <div class="sidebar-footer">
     <span id="update-time" data-i18n="footer.system_init">System Initializing...</span>
-    <button id="btn-sync-side" class="btn-tactical btn-sync" onclick="forceDataSync(event)" style="margin:0;" data-i18n="hud.btn.sync" title="Click: instant snapshot refresh. Shift+Click: also fan out to fast sensors (background).">SYNC</button>
+    <button id="btn-sync-side" class="btn-tactical btn-sync" onclick="forceDataSync(event)" style="margin:0;" data-i18n="hud.btn.sync" title="クリック: スナップショットを即時更新。Shift+クリック: 高速センサーへのファンアウトも実行（バックグラウンド）。">SYNC</button>
 </div>
 
 <div id="settings-backdrop" onclick="closeAllModals()"></div>
@@ -717,9 +717,9 @@
                     <span style="font-size:11px;color:#666;margin-left:6px;" data-i18n="modal.fleet.filter_label">Domain:</span>
                     <select id="fleet-domain-filter" onchange="_renderFleetCached()" class="btn-tactical" style="font-size:11px;">
                         <option value="all" data-i18n="modal.fleet.filter.all">All</option>
-                        <option value="cyber">Cyber</option>
-                        <option value="physical">Physical</option>
-                        <option value="info">Info</option>
+                        <option value="cyber">サイバー</option>
+                        <option value="physical">物理</option>
+                        <option value="info">情報</option>
                     </select>
                     <span id="fleet-ts" style="font-size:11px;color:#555;margin-left:auto;"></span>
                 </div>
@@ -738,39 +738,39 @@
 <div class="env-section-title" data-i18n="sysconfig.section.server">Server <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.server_restart">Restart the server after changes.</div>
                 <div class="env-field">
-                    <label>Listen Host (SERVER_HOST)</label>
+                    <label>待受ホスト (SERVER_HOST)</label>
                     <input class="env-input" id="ec-SERVER_HOST" type="text" placeholder="127.0.0.1">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.host_external">Set to 0.0.0.0 to allow external access</div>
                 </div>
                 <div class="env-field">
-                    <label>Listen Port (SERVER_PORT)</label>
+                    <label>待受ポート (SERVER_PORT)</label>
                     <input class="env-input" id="ec-SERVER_PORT" type="number" min="1024" max="65535" placeholder="8000">
                 </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.api_keys">API Keys <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
 
                 <div class="env-field">
-                    <label>Cloudflare Radar Token<span class="req">*</span></label>
+                    <label>Cloudflare Radar トークン<span class="req">*</span></label>
                     <input class="env-input" id="ec-CF_API_TOKEN" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>OpenWeatherMap API Key<span class="opt">(optional)</span></label>
+                    <label>OpenWeatherMap API キー<span class="opt">（任意）</span></label>
                     <input class="env-input" id="ec-OWM_API_KEY" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>GreyNoise API Key<span class="opt">(optional)</span></label>
+                    <label>GreyNoise API キー<span class="opt">（任意）</span></label>
                     <input class="env-input" id="ec-GREYNOISE_API_KEY" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>ThreatFox API Key<span class="opt">(optional)</span></label>
+                    <label>ThreatFox API キー<span class="opt">（任意）</span></label>
                     <input class="env-input" id="ec-THREATFOX_API_KEY" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>OpenSky Client ID<span class="opt">(optional)</span></label>
+                    <label>OpenSky クライアント ID<span class="opt">（任意）</span></label>
                     <input class="env-input" id="ec-OPENSKY_CLIENT_ID" type="text" autocomplete="off">
                 </div>
                 <div class="env-field">
-                    <label>OpenSky Client Secret<span class="opt">(optional)</span></label>
+                    <label>OpenSky クライアントシークレット<span class="opt">（任意）</span></label>
                     <input class="env-input secret-field" id="ec-OPENSKY_CLIENT_SECRET" type="text" autocomplete="off" data-1p-ignore>
                 </div>
 
@@ -801,9 +801,9 @@
                 <div class="env-field">
                     <label data-i18n="sysconfig.field.llm_model">Model</label>
                     <select class="env-input" id="ec-LLM_MODEL" style="max-width:260px;">
-                        <option value="">— loading… —</option>
+                        <option value="">— 読み込み中… —</option>
                     </select>
-                    <input class="env-input" id="ec-LLM_MODEL_manual" type="text" placeholder="e.g. llama3.2:3b" style="max-width:200px;margin-top:4px;display:none;">
+                    <input class="env-input" id="ec-LLM_MODEL_manual" type="text" placeholder="例: llama3.2:3b" style="max-width:200px;margin-top:4px;display:none;">
                 </div>
                 <div class="env-field">
                     <label data-i18n="sysconfig.field.llm_timeout">Request Timeout (s) <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></label>
@@ -858,15 +858,15 @@
 
                 <div class="env-section-title" data-i18n="sysconfig.section.network">Network / SSL <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div class="env-field">
-                    <label>HTTP Proxy</label>
+                    <label>HTTP プロキシ</label>
                     <input class="env-input" id="ec-HTTP_PROXY" type="text" placeholder="http://proxy:8080">
                 </div>
                 <div class="env-field">
-                    <label>HTTPS Proxy</label>
+                    <label>HTTPS プロキシ</label>
                     <input class="env-input" id="ec-HTTPS_PROXY" type="text" placeholder="http://proxy:8080">
                 </div>
                 <div class="env-field">
-                    <label>SSL Verification</label>
+                    <label>SSL 証明書検証</label>
                     <select class="env-input" id="ec-SSL_VERIFY" style="max-width:100px;">
                         <option value="true" data-i18n="sysconfig.field.ssl_enabled">Enabled</option>
                         <option value="false" data-i18n="sysconfig.field.ssl_disabled">Disabled</option>
@@ -1033,47 +1033,47 @@
                 <div class="env-section-title" data-i18n="sysconfig.section.auth">Authentication (JWT) <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.auth_desc">User authentication and session management. A default admin user is created on first startup.</div>
                 <div class="env-field">
-                    <label>Default Admin Password</label>
+                    <label>初期管理者パスワード</label>
                     <input class="env-input secret-field" id="ec-DEFAULT_ADMIN_PASSWORD" type="text" autocomplete="off" data-1p-ignore placeholder="admin">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.default_admin_pw">Admin password on first startup (change via API after deployment)</div>
                 </div>
                 <div class="env-field">
-                    <label>JWT Secret Key<span class="opt">(auto-generated if empty)</span></label>
-                    <input class="env-input secret-field" id="ec-JWT_SECRET_KEY" type="text" autocomplete="off" data-1p-ignore placeholder="Auto-generated">
+                    <label>JWT シークレットキー<span class="opt">（空欄なら自動生成）</span></label>
+                    <input class="env-input secret-field" id="ec-JWT_SECRET_KEY" type="text" autocomplete="off" data-1p-ignore placeholder="自動生成">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.jwt_secret">If blank, randomly generated on each startup (tokens invalidated on restart)</div>
                 </div>
                 <div class="env-field">
-                    <label>Access Token Expiry (seconds)</label>
+                    <label>アクセストークン有効期限（秒）</label>
                     <input class="env-input" id="ec-JWT_ACCESS_EXPIRES" type="number" style="max-width:90px;" placeholder="3600">
                 </div>
                 <div class="env-field">
-                    <label>Refresh Token Expiry (seconds)</label>
+                    <label>リフレッシュトークン有効期限（秒）</label>
                     <input class="env-input" id="ec-JWT_REFRESH_EXPIRES" type="number" style="max-width:90px;" placeholder="86400">
                 </div>
 
                 <div class="env-section-title" data-i18n="sysconfig.section.notifications">Alert Notifications <span class="cfg-live-badge" data-i18n="sysconfig.badge.live">live</span></div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.notifications">Sends external notifications on Threat Level changes and Ambush detection. Configure a Webhook URL to enable.</div>
                 <div class="env-field">
-                    <label>Notifications Enabled</label>
+                    <label>通知を有効化</label>
                     <select class="env-input" id="ec-NOTIFY_ENABLED" style="max-width:100px;">
-                        <option value="true">Enabled</option>
-                        <option value="false">Disabled</option>
+                        <option value="true">有効</option>
+                        <option value="false">無効</option>
                     </select>
                 </div>
                 <div class="env-field">
-                    <label>Slack Webhook URL <span class="opt">(optional)</span></label>
+                    <label>Slack Webhook URL <span class="opt">（任意）</span></label>
                     <input class="env-input wide" id="ec-NOTIFY_SLACK_WEBHOOK" type="text" placeholder="https://hooks.slack.com/services/...">
                 </div>
                 <div class="env-field">
-                    <label>Teams Webhook URL <span class="opt">(optional)</span></label>
+                    <label>Teams Webhook URL <span class="opt">（任意）</span></label>
                     <input class="env-input wide" id="ec-NOTIFY_TEAMS_WEBHOOK" type="text" placeholder="https://outlook.office.com/webhook/...">
                 </div>
                 <div class="env-field">
-                    <label>Generic Webhook URL <span class="opt">(optional)</span></label>
+                    <label>汎用 Webhook URL <span class="opt">（任意）</span></label>
                     <input class="env-input wide" id="ec-NOTIFY_WEBHOOK_URL" type="text" placeholder="https://your-server.com/webhook">
                 </div>
                 <div class="env-field">
-                    <label>Debounce Interval (seconds)</label>
+                    <label>デバウンス間隔（秒）</label>
                     <input class="env-input" id="ec-NOTIFY_DEBOUNCE_SEC" type="number" style="max-width:90px;" placeholder="300">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.debounce">Interval to suppress repeated alerts of the same type</div>
                 </div>
@@ -1081,16 +1081,16 @@
                 <div class="env-section-title" data-i18n="sysconfig.section.plugins">Plugin Sensors <span class="cfg-restart-badge" data-i18n="sysconfig.badge.restart">restart</span></div>
                 <div style="font-size:10px;color:#556;margin-bottom:8px;" data-i18n="sysconfig.help.plugins_desc">Dynamically loads BaseSensor subclasses from the plugins/ directory.</div>
                 <div class="env-field">
-                    <label>Plugin Directory</label>
+                    <label>プラグインディレクトリ</label>
                     <input class="env-input" id="ec-PLUGIN_DIR" type="text" placeholder="plugins">
                 </div>
                 <div class="env-field">
-                    <label>Enabled Plugins<span class="opt">(* = all)</span></label>
+                    <label>有効プラグイン<span class="opt">（* = すべて）</span></label>
                     <input class="env-input wide" id="ec-PLUGIN_ENABLED" type="text" placeholder="*">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.plugin_enabled">Comma-separated filenames (without extension), or * for all plugins</div>
                 </div>
                 <div class="env-field">
-                    <label>Disabled Plugins</label>
+                    <label>無効プラグイン</label>
                     <input class="env-input wide" id="ec-PLUGIN_DISABLED" type="text" placeholder="">
                     <div style="font-size:10px;color:#556;margin-top:2px;" data-i18n="sysconfig.help.plugin_disabled">Plugin names to explicitly disable (comma-separated)</div>
                 </div>
@@ -1312,7 +1312,7 @@
             <span class="llm-stat-auto"    id="llm-stat-auto"    title="Auto-confirmed: ingestion-time threshold + auto-judge background apply"  data-i18n-tip="panel.llm_intel.stat_auto_tip">● AUTO 0</span>
             <span class="llm-stat-manual"  id="llm-stat-manual"  title="Confirmed by an analyst (manual review)"                                  data-i18n-tip="panel.llm_intel.stat_manual_tip">✓ MANUAL 0</span>
             <span class="llm-stat-pending" id="llm-stat-pending" title="Awaiting analyst review or auto-judge insufficient evidence"               data-i18n-tip="panel.llm_intel.stat_pending_tip">⚠ PENDING 0</span>
-            <span class="llm-stat-review"  id="llm-stat-review"  title="Flagged for explicit analyst review" style="display:none">🔴 REVIEW 0</span>
+            <span class="llm-stat-review"  id="llm-stat-review"  title="アナリストによる明示的なレビュー対象としてフラグ付け" style="display:none">🔴 REVIEW 0</span>
             <span class="llm-stat-reject"  id="llm-stat-reject"  title="Rejected (auto-judge or analyst)"                                          data-i18n-tip="panel.llm_intel.stat_reject_tip">✗ REJECTED 0</span>
         </div>
         <!-- Diagnostics: per-sensor LLM call observability + filter breakdown -->
@@ -3051,10 +3051,10 @@
         <div class="wp-add-panel">
             <div class="wp-add-header">
                 <span data-i18n="watchpane.add.title">Add sensor</span>
-                <button type="button" class="wp-add-close" onclick="window._wpCloseAdd()" aria-label="Close">✕</button>
+                <button type="button" class="wp-add-close" onclick="window._wpCloseAdd()" aria-label="閉じる">✕</button>
             </div>
             <input type="text" id="wp-add-search" data-i18n-ph="watchpane.add.search_ph"
-                   placeholder="Filter sensors…" autocomplete="off" />
+                   placeholder="センサーを絞り込み…" autocomplete="off" />
             <div id="wp-add-list" class="wp-add-list"></div>
         </div>
     </div>
@@ -3062,7 +3062,7 @@
         <div class="wp-add-panel wp-alarm-panel">
             <div class="wp-add-header">
                 <span id="wp-alarm-title" data-i18n="watchpane.alarm.title">Alarm condition</span>
-                <button type="button" class="wp-add-close" onclick="window._wpCloseAlarmEditor()" aria-label="Close">✕</button>
+                <button type="button" class="wp-add-close" onclick="window._wpCloseAlarmEditor()" aria-label="閉じる">✕</button>
             </div>
             <div class="wp-alarm-form">
                 <div class="wp-alarm-row">
@@ -3161,7 +3161,7 @@
         <div id="settings-v2-title" data-i18n="settings.v2.title">SETTINGS</div>
         <div style="display:flex;gap:8px;align-items:center">
             <input id="settings-v2-search" type="text" autocomplete="off"
-                   placeholder="/ search…"
+                   placeholder="/ 検索…"
                    data-i18n-ph="settings.v2.search_ph"
                    style="padding:4px 8px;border-radius:4px;
                           border:1px solid #444;

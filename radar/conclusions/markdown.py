@@ -24,12 +24,16 @@ from typing import Iterable, Optional
 from radar.conclusions.base import Conclusion, ConclusionType
 
 
+# Analyst-facing report headings. The export is a deliverable the analyst
+# reads and circulates, so it follows the Japanese-only UI policy
+# (docs/design/ja-localization.md); identifiers and JSON payloads below
+# stay verbatim for NP6 traceability.
 _TYPE_TITLES = {
-    ConclusionType.THREAT_LEVEL: "Threat Level",
-    ConclusionType.TREND: "Trend",
-    ConclusionType.PER_DOMAIN: "Per-Domain Indicators",
-    ConclusionType.ANOMALY: "Anomalies",
-    ConclusionType.ATTACK_MODE: "Estimated Attack Mode",
+    ConclusionType.THREAT_LEVEL: "脅威レベル",
+    ConclusionType.TREND: "トレンド",
+    ConclusionType.PER_DOMAIN: "ドメイン別兆候",
+    ConclusionType.ANOMALY: "個別異常事象",
+    ConclusionType.ATTACK_MODE: "推定攻撃モード",
 }
 
 
@@ -58,31 +62,31 @@ def _render_conclusion_section(
     title = _TYPE_TITLES.get(c.conclusion_type, c.conclusion_type.value)
     lines = [f"## {title}", ""]
     if c.is_available():
-        lines.append(f"- **State**: `{c.state}`")
+        lines.append(f"- **状態**: `{c.state}`")
     else:
         reason = c.conclusion_unavailable_reason
         reason_value = reason.value if reason is not None else "unknown"
-        lines.append(f"- **State**: _unavailable_ — `{reason_value}`")
+        lines.append(f"- **状態**: _結論不可_ — `{reason_value}`")
     lines.extend([
-        f"- **Confidence**: {c.confidence:.2f}",
-        f"- **Observed at**: {_fmt_ts(c.observed_at)}",
-        f"- **Conclusion ID**: `{c.id}`",
-        f"- **Formula**: `{c.formula_ref}`",
+        f"- **確信度**: {c.confidence:.2f}",
+        f"- **観測時刻**: {_fmt_ts(c.observed_at)}",
+        f"- **結論 ID**: `{c.id}`",
+        f"- **導出式**: `{c.formula_ref}`",
         "",
-        "### Thresholds",
+        "### 閾値",
         "```json",
         _fmt_json(c.threshold_ref),
         "```",
         "",
     ])
     if c.source_urls:
-        lines.append("### Sources")
+        lines.append("### 一次ソース")
         for url in c.source_urls:
             lines.append(f"- {url}")
         lines.append("")
     if c.calibration_status:
         lines.extend([
-            "### Calibration",
+            "### Calibration",  # §2: 英語のまま
             "```json",
             _fmt_json(c.calibration_status),
             "```",
@@ -90,7 +94,7 @@ def _render_conclusion_section(
         ])
     if c.metadata:
         lines.extend([
-            "### Metadata",
+            "### メタデータ",
             "```json",
             _fmt_json(c.metadata),
             "```",
@@ -100,7 +104,7 @@ def _render_conclusion_section(
         prompt = audit_trace["llm_prompt"]
         if not prompt.get("missing"):
             lines.extend([
-                "<details><summary>LLM prompt (full text)</summary>",
+                "<details><summary>LLM プロンプト（全文）</summary>",
                 "",
                 f"- **sha256**: `{prompt.get('sha256', '')}`",
                 f"- **model**: `{prompt.get('model', '')}`",
@@ -137,13 +141,13 @@ def render_scenario_markdown(
     ts = generated_at if generated_at is not None else _time.time()
     title_name = scenario_name or scenario_id
     head = [
-        f"# DDoS-Radar Scenario Report — {title_name}",
+        f"# DDoS-Radar シナリオレポート — {title_name}",
         "",
-        f"- **Scenario ID**: `{scenario_id}`",
-        f"- **Generated (UTC)**: {_fmt_ts(ts)}",
+        f"- **シナリオ ID**: `{scenario_id}`",
+        f"- **生成時刻 (UTC)**: {_fmt_ts(ts)}",
     ]
     if api_version:
-        head.append(f"- **API version**: `{api_version}`")
+        head.append(f"- **API バージョン**: `{api_version}`")
     head.append("")
     if disclaimer:
         head.extend(["> " + line for line in disclaimer.splitlines()])
@@ -152,7 +156,7 @@ def render_scenario_markdown(
     sections = []
     conclusions_list = list(conclusions)
     if not conclusions_list:
-        sections.append("_No conclusions available for this scenario yet._")
+        sections.append("_このシナリオにはまだ結論がありません。_")
     else:
         for c in conclusions_list:
             trace = (audit_traces or {}).get(c.id)

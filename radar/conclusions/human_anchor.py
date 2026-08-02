@@ -80,12 +80,14 @@ _TL_NAMES = {1: "CRITICAL", 2: "SEVERE", 3: "HIGH", 4: "ELEVATED", 5: "NORMAL"}
 # severity ≥ 3 ⇔ TL ≤ 3 (HIGH / SEVERE / CRITICAL) counts as an alert.
 _ALERT_MIN_SEVERITY = 3
 
+# Analyst-facing prose. The UI is Japanese-only (docs/design/ja-localization.md);
+# these strings are rendered in the AP3 labeling panel, not logged.
 _SCENARIO_ESCALATION_HINT = {
-    "taiwan_contingency": "a real China–Taiwan military escalation",
-    "eastern_europe":     "a real Russia–Ukraine escalation",
-    "middle_east":        "a real Israel–Iran/proxy escalation",
-    "korean_peninsula":   "a real Korean-peninsula military escalation",
-    "south_china_sea":    "a real South China Sea military escalation",
+    "taiwan_contingency": "中国 — 台湾間の実際の軍事エスカレーション",
+    "eastern_europe":     "ロシア — ウクライナ間の実際のエスカレーション",
+    "middle_east":        "イスラエル — イラン / 代理勢力の実際のエスカレーション",
+    "korean_peninsula":   "朝鮮半島での実際の軍事エスカレーション",
+    "south_china_sea":    "南シナ海での実際の軍事エスカレーション",
 }
 
 # Search terms per scenario — full country names for good news recall,
@@ -151,15 +153,15 @@ def _tool_stance(conclusion_type: str, state: str) -> tuple[str, str]:
         try:
             tl = int(state)
         except (TypeError, ValueError):
-            return "calm", "made no clear call"
+            return "calm", "明確な判断を出していない"
         name = _TL_NAMES.get(tl, f"TL{tl}")
         if severity_of(tl) >= _ALERT_MIN_SEVERITY:
-            return "alert", f"raised a {name} alert"
-        return "calm", f"stayed calm ({name})"
+            return "alert", f"{name} の警戒を発していた"
+        return "calm", f"平穏と判断していた（{name}）"
     # attack_mode and other event-shaped types
     if state and state != "INSUFFICIENT_DATA":
-        return "alert", f"flagged {state}"
-    return "calm", "did not flag an attack"
+        return "alert", f"{state} を検知していた"
+    return "calm", "攻撃を検知していない"
 
 
 def answer_model_for(candidate: AnchorCandidate) -> AnswerModel:
@@ -169,10 +171,10 @@ def answer_model_for(candidate: AnchorCandidate) -> AnswerModel:
     stance, stance_label = _tool_stance(
         candidate.conclusion_type, candidate.state)
     hint = _SCENARIO_ESCALATION_HINT.get(
-        candidate.scenario_id, "a real interstate escalation")
+        candidate.scenario_id, "実際の国家間エスカレーション")
     window_days = max(1, config.GROUND_TRUTH_WINDOW_HOURS // 24)
     question = (
-        f"In the ~{window_days} day(s) after this, did {hint} actually occur?"
+        f"この時点から約 {window_days} 日以内に、{hint} は実際に起きましたか?"
     )
     if stance == "alert":
         # Tool alerted: reality-occurred ⇒ TP, reality-quiet ⇒ FP.
@@ -184,10 +186,10 @@ def answer_model_for(candidate: AnchorCandidate) -> AnswerModel:
         no_label = FeedbackLabel.TRUE_NEGATIVE.value
     options = (
         AnchorAnswer(
-            label="Yes — an escalation occurred",
+            label="はい — エスカレーションが起きた",
             maps_to=yes_label, is_escalation=True, tone="escalation"),
         AnchorAnswer(
-            label="No — it stayed quiet",
+            label="いいえ — 平穏なままだった",
             maps_to=no_label, is_escalation=False, tone="quiet"),
     )
     return AnswerModel(

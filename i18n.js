@@ -337,7 +337,7 @@ const STRINGS = {
     'hud.bg_alert.detail':            '{name} 直近1時間で +{delta} pt（背景）',
     'hud.tooltip.split_tag':          '攻撃側寄与 / 標的側寄与。偏りは攻勢的か防勢的かの構図を示唆する。',
     // ── Hamburger control panel ──────────────────────────────────
-    'hud.tooltip.hamburger':          '操作メニューを開く（ベクトル/同期/ツール/レポート/設定/言語/ユーザー）',
+    'hud.tooltip.hamburger':          '操作メニューを開く（ベクトル/同期/ツール/レポート/設定/ユーザー）',
     'hud.hh.title':                   '操作',
     'hud.hh.section.vector':          '表示ベクトル',
     'hud.hh.section.data':            'データ',

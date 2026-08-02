@@ -91,16 +91,19 @@ _JA_CHAR = re.compile(r"[぀-ヿ一-鿿、。（）「」]")
 
 # Terms ja-localization.md §2 deliberately keeps in English.
 _KEEP_EN = (
-    r"recall|precision|drift|Calibration|calibration|BGP|ASN|OSINT|HUMINT|"
+    r"recall|precision|drift|calibration|BGP|ASN|OSINT|HUMINT|"
     r"SIGINT|LLM|RSS|C2|ISR|AIS|NOTAM|TTP|IoC|TL|GDELT|ACLED|Ollama|"
     r"Cloudflare|OpenSky|RIPE|IODA|CRITICAL|SEVERE|HIGH|ELEVATED|NORMAL|"
-    r"TP|FP|FN|TN|F1|Z-score|NP[1-8]|AP[1-4]|ADR|full|lite|auto|OK|RED|"
-    r"API|UTC|JSON|CSV|PDF|Markdown|SITREP|HUD|ID|URL|IP|UI|conf|n/a|N/A"
+    r"TP|FP|FN|TN|F1|Z-score|SHA|NP[1-8]|AP[1-4]|ADR|full|lite|auto|OK|RED|"
+    r"API|UTC|JSON|CSV|PDF|Markdown|SITREP|HUD|ID|URL|IP|UI|conf|n/a"
 )
 # A value made up only of: whitespace, punctuation/symbols, digits,
 # {placeholders}, and the keep-English terms above needs no Japanese.
+# Case-insensitive so 'Recall (TP/(TP+FN))' and 'recall' both resolve
+# against the same term list.
 _ONLY_CODE = re.compile(
-    rf"^(?:\s|[^\w\s]|\{{[a-zA-Z_][a-zA-Z0-9_]*\}}|\d|{_KEEP_EN})*$"
+    rf"^(?:\s|[^\w\s]|\{{[a-zA-Z_][a-zA-Z0-9_]*\}}|\d|{_KEEP_EN})*$",
+    re.IGNORECASE,
 )
 
 # Keys whose value is a machine identifier rather than prose, and therefore
@@ -120,16 +123,13 @@ _CODE_ONLY_KEYS: frozenset[str] = frozenset({
     "cc.horizon.short", "cc.horizon.medium", "cc.horizon.long",
     "panel.llm_intel.diag_col_ms",
     # ── formulas rendered verbatim ────────────────────────────────────
-    "drill_modal.calib.recall", "drill_modal.calib.precision",
     "tl_prox.near_esc", "tl_prox.near_deesc",
     "evidence.group.total", "sysconfig.llm.fetch_error",
     # ── scoring-mode / rule-state codes (mirror API values) ───────────
-    "cc.scoring_mode.lite", "scenario.badge.lite",
+    "cc.scoring_mode.lite",
     "watchpane.scope.focused", "watchpane.scope.global",
     "watchpane.row.suppressed", "watchpane.row.fired",
     "hud.coord.mode.all", "hud.coord.mode.strong", "hud.coord.mode.off",
-    "wizard.tab.recall_positive", "wizard.tab.recall_negative",
-    "modal.help.ch10",
     # ── HUD wordmarks: a dense uppercase chip row the INTEL GUIDE
     #    references by these exact names. Kept English as a coherent set
     #    (docs/design/ja-localization.md §2).
@@ -141,7 +141,7 @@ _CODE_ONLY_KEYS: frozenset[str] = frozenset({
     "badge.media_alert", "badge.awacs",
     # ── vendor / protocol / tradecraft acronyms ───────────────────────
     "tools.telegram_sigint", "tools.greynoise",
-    "drill_modal.llm.temperature", "drill_modal.llm.sha256",
+    "drill_modal.llm.temperature",
     "gn.tier.enterprise", "gn.tier.community", "gn.tier.no_key",
     "gn.result.noise", "gn.result.targeted", "gn.result.riot",
     "panel.llm_intel.filter_apt",   # Advanced Persistent Threat
