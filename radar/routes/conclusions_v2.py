@@ -29,6 +29,7 @@ from radar.conclusions.api import (
 from radar.conclusions.base import ConclusionType
 from radar.conclusions.feedback import (
     AnalystFeedback,
+    FeedbackLabel,
     coerce_label,
     list_feedback,
     now_seconds,
@@ -326,6 +327,54 @@ def v2_conclusion_feedback_submit(conclusion_id: str):
         notes=notes,
     )
     new_id = save_feedback(db, fb)
+
+    # Human-confirmed escalation → revive the confirmed_threats ground-
+    # truth ledger (dormant since 2023). Both TRUE_POSITIVE (tool alerted
+    # and was right) and FALSE_NEGATIVE (tool stayed calm and missed it)
+    # assert a REAL escalation occurred — confirmed_threats records real
+    # threats independent of whether the tool caught them. Only genuine
+    # human labels with an outcome URL qualify. Best-effort — never breaks
+    # the feedback path.
+    if (
+        label in (FeedbackLabel.TRUE_POSITIVE, FeedbackLabel.FALSE_NEGATIVE)
+        and outcome_url
+        and not fb.analyst_id.startswith("auto:")
+    ):
+        try:
+            from radar.scenarios import scenario_store
+            sc = scenario_store.get(target.scenario_id)
+            country = getattr(sc, "core_country", None) or target.scenario_id
+            missed = label is FeedbackLabel.FALSE_NEGATIVE
+            if missed:
+                # The tool's TL was calm and does not describe the real
+                # event; record a HIGH floor (TL3) plus a distinct
+                # classification so the miss is auditable.
+                tl_val = 3
+                classification = (
+                    f"human_confirmed_miss:{target.conclusion_type.value}")
+            else:
+                try:
+                    tl_val = int(target.state or "")
+                except (TypeError, ValueError):
+                    tl_val = 0
+                classification = (
+                    f"human_confirmed:{target.conclusion_type.value}")
+            db.confirmed_threat_add(
+                theater=country,
+                ts=target.observed_at,
+                classification=classification,
+                sensors_active=[],
+                threat_level=tl_val,
+                notes=(notes or f"human label via feedback {new_id}: "
+                                f"{outcome_url}")[:500],
+                created_by=fb.analyst_id,
+            )
+        except Exception:
+            import logging
+            logging.getLogger("radar.routes.conclusions_v2").debug(
+                "confirmed_threats write skipped", exc_info=True,
+            )
+
     summary = summarize_feedback(db, conclusion_id)
     return jsonify({
         "api_version": API_VERSION,
@@ -528,7 +577,14 @@ def v2_self_eval():
 
     try:
         # Recall — re-use the same collect_metrics path the CI gate uses
-        # so the chip and the gate cannot disagree.
+        # so the chip and the gate cannot disagree. Windowed to the same
+        # horizon as per-conclusion calibration_status (2026-07-04): the
+        # previous all-time aggregate was a different number under the
+        # same "recall" label, and would have silently shifted once the
+        # 180d feedback retention started pruning. The auto/human split
+        # is surfaced so the analyst can see when recall is entirely
+        # self-graded (AP3 — zero human labels means the number has no
+        # independent anchor).
         import sys
         from pathlib import Path
         scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
@@ -536,8 +592,16 @@ def v2_self_eval():
             sys.path.insert(0, str(scripts_dir))
         from report_recall_metrics import collect_metrics  # noqa: E402
 
+        from radar.conclusions import calibration as _calib_mod
         from radar.database import db as _shared_db
-        cells = collect_metrics(_shared_db, exclude_auto=False)
+        _window_days = int(getattr(_calib_mod, "_WINDOW_DAYS", 30))
+        _since = _time.time() - _window_days * 86400.0
+        cells = collect_metrics(
+            _shared_db, exclude_auto=False, since=_since,
+        )
+        human_cells = collect_metrics(
+            _shared_db, exclude_auto=True, since=_since,
+        )
         if cells:
             tp = sum(c.tp for c in cells)
             fn = sum(c.fn for c in cells)
@@ -545,6 +609,15 @@ def v2_self_eval():
             out["recall"] = (
                 None if recall is None else round(float(recall), 3)
             )
+        labels_total = sum(c.total for c in cells)
+        labels_human = sum(c.total for c in human_cells)
+        out["recall_meta"] = {
+            "window_days":  _window_days,
+            "labels_total": labels_total,
+            "labels_human": labels_human,
+            "labels_auto":  labels_total - labels_human,
+            "source":       "ground_truth",
+        }
     except Exception as e:  # noqa: BLE001
         out["recall"] = None
         out["recall_error"] = str(e)

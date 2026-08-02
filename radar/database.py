@@ -989,27 +989,6 @@ CREATE INDEX IF NOT EXISTS idx_conclusions_scenario_time
 CREATE INDEX IF NOT EXISTS idx_conclusions_type_time
     ON conclusions (conclusion_type, observed_at DESC);
 
--- v2.0 Phase 1 (ADR-V2-001 rollout monitoring).
--- Per-cycle diff between v1's in-memory TL and the v2 conclusions ledger.
--- Append-only; analysts review divergence stats before flipping the
--- default-on switch.
-CREATE TABLE IF NOT EXISTS conclusion_diff_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    sampled_at      REAL    NOT NULL,
-    scenario_id     TEXT    NOT NULL,
-    conclusion_type TEXT    NOT NULL,
-    v1_state        TEXT,
-    v2_state        TEXT,
-    v2_conclusion_id TEXT,
-    is_match        INTEGER NOT NULL,
-    diff_kind       TEXT    NOT NULL,
-    metadata        TEXT    NOT NULL DEFAULT '{}'
-);
-CREATE INDEX IF NOT EXISTS idx_conclusion_diff_time
-    ON conclusion_diff_log (sampled_at DESC);
-CREATE INDEX IF NOT EXISTS idx_conclusion_diff_kind_time
-    ON conclusion_diff_log (diff_kind, sampled_at DESC);
-
 -- v2.0 Phase 2 (ADR-V2-010): inconclusive_continuity_log.
 -- Tracks consecutive cycles where a (scenario, conclusion_type) pair
 -- inconclusive_continuity_log: defined below near line 636 with stricter
@@ -1183,25 +1162,6 @@ CREATE TABLE IF NOT EXISTS shadow_sampler_state (
     last_full_score  REAL,
     last_delta       REAL
 );
-
--- Tier 1 calibration: shadow scoring log (ADR-015 dual-weight evaluation)
-CREATE TABLE IF NOT EXISTS shadow_eval_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    sampled_at      REAL NOT NULL,
-    scenario_id     TEXT NOT NULL,
-    shadow_variant  TEXT NOT NULL,
-    actual_score    REAL NOT NULL,
-    actual_tl       INTEGER,
-    shadow_score    REAL NOT NULL,
-    shadow_tl       INTEGER,
-    delta           REAL NOT NULL,
-    active_countries TEXT NOT NULL DEFAULT '[]',
-    notes           TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_shadow_eval_log_sid
-    ON shadow_eval_log (scenario_id, sampled_at DESC);
-CREATE INDEX IF NOT EXISTS idx_shadow_eval_log_variant
-    ON shadow_eval_log (shadow_variant, sampled_at DESC);
 
 -- ADR-024 redesign: per-domain known-CA history for CT log anomaly detection
 CREATE TABLE IF NOT EXISTS ct_log_known_ca_per_domain (
@@ -2910,6 +2870,13 @@ class RadarDB:
                 LIMIT 1
             """),
         ]),
+        (54, "drop retired scaffolding tables: conclusion_diff_log (v2 "
+             "rollout monitoring, writer retired 2026-05-29) and "
+             "shadow_eval_log (ADR-015 sampler never wired)",
+         lambda conn: [
+            conn.execute("DROP TABLE IF EXISTS conclusion_diff_log"),
+            conn.execute("DROP TABLE IF EXISTS shadow_eval_log"),
+        ]),
     ]
 
     def _run_migrations(self, conn: "_CooperativeConn"):
@@ -3722,127 +3689,10 @@ class RadarDB:
             "by_scenario": by_scenario,
         }
 
-    def shadow_eval_record(self, scenario_id: str, sampled_at: float,
-                           shadow_variant: str,
-                           actual_score: float, actual_tl: int | None,
-                           shadow_score: float, shadow_tl: int | None,
-                           active_countries: list[str],
-                           notes: str | None = None) -> None:
-        """Append a shadow evaluation sample.
-
-        Records the divergence between the live (dual-weight) score and a
-        shadow variant (e.g. flat country_weight = 1.0). The accumulated
-        delta distribution is what the Tier 1 calibration endpoint reports
-        on, and is the empirical basis for keeping or revising ADR-015.
-        """
-        delta = round(shadow_score - actual_score, 4)
-        conn = self._get_conn()
-        with conn.writing():
-            conn.execute(
-                "INSERT INTO shadow_eval_log "
-                "(sampled_at, scenario_id, shadow_variant, actual_score, "
-                " actual_tl, shadow_score, shadow_tl, delta, "
-                " active_countries, notes) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (sampled_at, scenario_id, shadow_variant,
-                 round(actual_score, 4),
-                 int(actual_tl) if actual_tl is not None else None,
-                 round(shadow_score, 4),
-                 int(shadow_tl) if shadow_tl is not None else None,
-                 delta,
-                 json.dumps(sorted(set(active_countries))),
-                 notes),
-            )
-
-    def shadow_eval_summary(self, days: int = 14,
-                            shadow_variant: str | None = None) -> dict:
-        """Return aggregated shadow-eval statistics for the calibration endpoint.
-
-        Output shape mirrors focus_switch_detailed() so the UI can reuse
-        the same rendering primitives. Recommendation thresholds:
-          - <30 samples → INSUFFICIENT_DATA
-          - |avg_delta| > 1.5 OR tl_disagree_rate > 0.20 → REVIEW_DUAL_WEIGHT
-          - otherwise → DUAL_WEIGHT_STABLE
-        """
-        conn = self._get_conn()
-        cutoff = time.time() - days * 86400
-        if shadow_variant:
-            rows = conn.execute(
-                "SELECT scenario_id, sampled_at, actual_score, actual_tl, "
-                "  shadow_score, shadow_tl, delta, shadow_variant "
-                "FROM shadow_eval_log "
-                "WHERE sampled_at > ? AND shadow_variant = ? "
-                "ORDER BY sampled_at DESC",
-                (cutoff, shadow_variant),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT scenario_id, sampled_at, actual_score, actual_tl, "
-                "  shadow_score, shadow_tl, delta, shadow_variant "
-                "FROM shadow_eval_log "
-                "WHERE sampled_at > ? "
-                "ORDER BY sampled_at DESC",
-                (cutoff,),
-            ).fetchall()
-        total = len(rows)
-        if total == 0:
-            return {
-                "period_days": days,
-                "shadow_variant": shadow_variant,
-                "total_samples": 0,
-                "recommendation": "INSUFFICIENT_DATA",
-                "by_scenario": {},
-            }
-        deltas = [r["delta"] for r in rows]
-        abs_deltas = [abs(d) for d in deltas]
-        avg_delta = round(sum(deltas) / total, 3)
-        avg_abs_delta = round(sum(abs_deltas) / total, 3)
-        max_abs_delta = round(max(abs_deltas), 3)
-        tl_disagree = sum(
-            1 for r in rows
-            if r["actual_tl"] is not None
-            and r["shadow_tl"] is not None
-            and r["actual_tl"] != r["shadow_tl"]
-        )
-        tl_disagree_rate = round(tl_disagree / total, 3)
-        by_scenario: dict[str, dict] = {}
-        for r in rows:
-            sid = r["scenario_id"]
-            slot = by_scenario.setdefault(sid, {
-                "samples": 0,
-                "tl_disagreements": 0,
-                "_deltas": [],
-            })
-            slot["samples"] += 1
-            slot["_deltas"].append(r["delta"])
-            if (r["actual_tl"] is not None
-                    and r["shadow_tl"] is not None
-                    and r["actual_tl"] != r["shadow_tl"]):
-                slot["tl_disagreements"] += 1
-        for slot in by_scenario.values():
-            d = slot.pop("_deltas")
-            slot["avg_delta"] = round(sum(d) / len(d), 3)
-            slot["avg_abs_delta"] = round(
-                sum(abs(x) for x in d) / len(d), 3)
-            slot["max_abs_delta"] = round(max(abs(x) for x in d), 3)
-        if total < 30:
-            recommendation = "INSUFFICIENT_DATA"
-        elif avg_abs_delta > 1.5 or tl_disagree_rate > 0.20:
-            recommendation = "REVIEW_DUAL_WEIGHT"
-        else:
-            recommendation = "DUAL_WEIGHT_STABLE"
-        return {
-            "period_days": days,
-            "shadow_variant": shadow_variant,
-            "total_samples": total,
-            "avg_delta": avg_delta,
-            "avg_abs_delta": avg_abs_delta,
-            "max_abs_delta": max_abs_delta,
-            "tl_disagreements": tl_disagree,
-            "tl_disagree_rate": tl_disagree_rate,
-            "recommendation": recommendation,
-            "by_scenario": by_scenario,
-        }
+    # shadow_eval_record / shadow_eval_summary removed 2026-07-04:
+    # the ADR-015 dual-weight shadow sampler was never wired to a
+    # caller (orphaned writer; 1 historical row). Table dropped by
+    # migration v30.
 
     def intel_count_24h_by_scenario(self, scenario_participants: dict[str, set[str]]) -> dict[str, int]:
         """Count LLM intel items (confirmed/auto_confirmed) in the last 24h per scenario.
@@ -5500,9 +5350,9 @@ class RadarDB:
         deleted["sensor_fetch_log"] = cur.rowcount
         conn.commit()
 
-        cur = conn.execute("DELETE FROM llm_call_log WHERE ts < ?", (cutoff_7d,))
-        deleted["llm_call_log"] = cur.rowcount
-        conn.commit()
+        # llm_call_log is pruned further below via the config-driven
+        # LLM_CALL_LOG_RETENTION_DAYS. A hardcoded 7d DELETE used to run
+        # here first, which made that setting dead code (2026-07-04 fix).
 
         cur = conn.execute(
             "DELETE FROM noise_exclusion WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
@@ -5596,6 +5446,21 @@ class RadarDB:
             "DELETE FROM conclusions WHERE observed_at < ?",
             (cutoff_conc,))
         deleted["conclusions"] = cur.rowcount
+        conn.commit()
+
+        # llm_prompts: sha256-keyed prompt store. Because prompts embed
+        # dynamic content, distinct hashes accumulate forever — this was
+        # the only genuinely unbounded table (2026-07-03 audit). Keyed on
+        # last_seen_at; floor = conclusions retention + 30d margin so any
+        # live conclusion can always resolve its llm_prompt_sha256 (NP6),
+        # regardless of how low an operator sets the knob.
+        _lp_days = int(_os.getenv("LLM_PROMPTS_RETENTION_DAYS", "120"))
+        _lp_days = max(_lp_days, _conc_days + 30)
+        cutoff_lp = now - _lp_days * 86400
+        cur = conn.execute(
+            "DELETE FROM llm_prompts WHERE last_seen_at < ?",
+            (cutoff_lp,))
+        deleted["llm_prompts"] = cur.rowcount
         conn.commit()
 
         # llm_call_log: per-call ledger (~1500 rows/day). 30d sufficient

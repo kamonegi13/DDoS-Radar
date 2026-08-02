@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Iterable, Optional
 from radar import config
 from radar.conclusions.base import Conclusion, ConclusionType
 from radar.conclusions.feedback import AnalystFeedback, FeedbackLabel
+from radar.conclusions.severity import TL_NORMAL, severity_of
 
 if TYPE_CHECKING:
     from radar.database import RadarDB
@@ -70,6 +71,10 @@ AUTO_ANALYST_LLM_INTEL = "auto:llm_intel"
 AUTO_ANALYST_SEQUENCE = "auto:sequence"
 AUTO_ANALYST_BOTH = "auto:both"
 AUTO_ANALYST_MIXED = "auto:mixed"  # ≥2 distinct sources of any kind
+# No-event labels (FP/TN after the horizon elapsed) are not corroborated
+# by any source — they assert an ABSENCE. Named honestly since 2026-07-04:
+# they used to masquerade as "auto:acled" even with ACLED unconfigured.
+AUTO_ANALYST_HORIZON = "auto:horizon"
 
 # Keep auto-feedback notes short and machine-parseable. The drill-down UI
 # already has plenty of room for human prose; this field is debug context.
@@ -194,18 +199,29 @@ def _provenance(events: list[ExternalEvent]) -> tuple[str, Optional[str], str]:
     return analyst_id, url, notes
 
 
+# Alert = severity ≥ 3, i.e. TL ≤ 3 (HIGH / SEVERE / CRITICAL). The TL scale
+# is DEFCON-style (1 = most severe) — see radar.conclusions.severity.
+_ALERT_SEVERITY_MIN = 3
+
+
 def _is_high_severity_conclusion(c: Conclusion) -> bool:
     """High-severity = states the tool is confident enough to bet recall on.
 
-    THREAT_LEVEL ≥ 3 or any FIRED ATTACK_MODE qualifies. This intentionally
-    does not include TREND/PER_DOMAIN — those are diagnostic surfaces, not
-    primary alerts, and auto-labeling them would generate noise without
-    feeding Design W's primary recall metric.
+    THREAT_LEVEL at HIGH or worse (TL ≤ 3, severity ≥ 3) or any FIRED
+    ATTACK_MODE qualifies. This intentionally does not include TREND /
+    PER_DOMAIN — those are diagnostic surfaces, not primary alerts, and
+    auto-labeling them would generate noise without feeding Design W's
+    primary recall metric.
+
+    Scale-direction note (2026-07-03 incident): an earlier version used
+    ``int(state) >= 3``, which under the DEFCON-style scale selects
+    HIGH/ELEVATED/NORMAL — mostly *calm* states — and excludes CRITICAL/
+    SEVERE. All comparisons now go through severity space.
     """
     if c.conclusion_type is ConclusionType.THREAT_LEVEL:
         try:
-            return int(c.state or "0") >= 3
-        except ValueError:
+            return severity_of(int(c.state or "")) >= _ALERT_SEVERITY_MIN
+        except (TypeError, ValueError):
             return False
     if c.conclusion_type is ConclusionType.ATTACK_MODE:
         return bool(c.state) and c.state != "INSUFFICIENT_DATA"
@@ -213,10 +229,12 @@ def _is_high_severity_conclusion(c: Conclusion) -> bool:
 
 
 def _is_quiet_threat_level(c: Conclusion) -> bool:
-    """TL=1 — the tool said "calm". The FALSE_NEGATIVE rule keys off this."""
+    """TL=5 (NORMAL) — the tool said "calm". The FALSE_NEGATIVE rule keys
+    off this. (The pre-2026-07-03 version tested TL==1, which is CRITICAL —
+    the exact opposite of calm.)"""
     return (
         c.conclusion_type is ConclusionType.THREAT_LEVEL
-        and c.state == "1"
+        and c.state == str(TL_NORMAL)
     )
 
 
@@ -235,19 +253,22 @@ def classify_conclusion(
     external evidence but we haven't accumulated enough horizon to call it
     a TRUE_NEGATIVE yet" — the next ETL pass will revisit it.
 
-    Rules (ordered; first matching wins):
+    Rules (ordered; first matching wins). TL scale is DEFCON-style
+    (1 = CRITICAL … 5 = NORMAL; see ``radar.conclusions.severity``):
 
-    1. **FALSE_NEGATIVE** (NP1 critical). TL=1 and ACLED reports any event
-       with ``severity >= false_negative_fatalities_severity`` in a
+    1. **FALSE_NEGATIVE** (NP1 critical). TL=5 (NORMAL — the tool said
+       calm) and ACLED reports any event with
+       ``severity >= false_negative_fatalities_severity`` in a
        participant country inside the forward window. The tool stayed quiet
        through a real escalation — this is the failure mode we *most* need
        to surface.
-    2. **TRUE_POSITIVE**. Conclusion is high-severity and any qualifying
-       event corroborates inside the forward window.
-    3. **FALSE_POSITIVE**. Conclusion is high-severity, observed at least
+    2. **TRUE_POSITIVE**. Conclusion is an alert (TL ≤ 3 or FIRED
+       ATTACK_MODE) and any qualifying event corroborates inside the
+       forward window.
+    3. **FALSE_POSITIVE**. Conclusion is an alert, observed at least
        ``false_positive_horizon_days`` ago, and zero qualifying events
        appear in the forward horizon.
-    4. **TRUE_NEGATIVE**. Conclusion is TL=1, observed at least
+    4. **TRUE_NEGATIVE**. Conclusion is TL=5, observed at least
        ``false_positive_horizon_days`` ago, and zero events. Quiet call,
        quiet world — small but useful for the Design W denominator.
 
@@ -331,7 +352,7 @@ def classify_conclusion(
         return AutoFeedback(
             conclusion_id=conclusion.id,
             label=FeedbackLabel.FALSE_POSITIVE,
-            analyst_id=AUTO_ANALYST_ACLED,
+            analyst_id=AUTO_ANALYST_HORIZON,
             observed_at=now,
             observed_outcome_url=None,
             notes=(
@@ -344,11 +365,11 @@ def classify_conclusion(
         return AutoFeedback(
             conclusion_id=conclusion.id,
             label=FeedbackLabel.TRUE_NEGATIVE,
-            analyst_id=AUTO_ANALYST_ACLED,
+            analyst_id=AUTO_ANALYST_HORIZON,
             observed_at=now,
             observed_outcome_url=None,
             notes=(
-                f"auto-correlation: TL=1 + zero events over "
+                f"auto-correlation: TL=NORMAL + zero events over "
                 f"{fp_horizon_days}d horizon"
             )[:_NOTE_TRUNCATE],
         )
@@ -358,41 +379,46 @@ def classify_conclusion(
 
 # ── graded under-rating classifier (NP1 — independent-evidence FN) ──────────
 #
-# The classify_conclusion FALSE_NEGATIVE rule above keys off TL==1 ("the tool
-# said calm"). In live operation focused scenarios sit at TL≥2 almost always,
-# so that binary gate essentially never fires — verified 2026-05-29: 0 FN
-# across 360k conclusions, leaving recall structurally pinned at 1.0.
+# The classify_conclusion FALSE_NEGATIVE rule above keys off TL==5 ("the tool
+# said calm") — a binary trip-wire that misses graded under-rating.
 #
 # Two root defects it cannot address, and these functions do:
-#   1. *Graded under-rating.* NP1 (recall > precision) cares about a TL=2 call
-#      made just before a mass-casualty event just as much as a missed TL=1.
-#      We compare the tool's contemporaneous TL against the minimum level the
-#      event's magnitude warranted, not a single TL==1 trip-wire.
+#   1. *Graded under-rating.* NP1 (recall > precision) cares about an
+#      ELEVATED (TL4) call made just before a mass-casualty event just as
+#      much as a missed NORMAL. We compare the tool's contemporaneous TL
+#      against the minimum severity the event's magnitude warranted, not a
+#      single TL==5 trip-wire.
 #   2. *Circular evidence.* The internal-source substitute (LLM_INTEL /
 #      SEQUENCE) is the SAME signal set the scoring engine consumes — if it
 #      fires, the TL rises, so it can never reveal the tool's own blind spot.
 #      These functions are driven ONLY by external kinetic evidence (RSS /
 #      ACLED fatality counts), which is independent of the tool's sensors.
+#
+# All floors are expressed in SEVERITY space (1=NORMAL … 5=CRITICAL, i.e.
+# severity = 6 − TL) so that "bigger = worse" holds in every comparison.
+# The pre-2026-07-03 version expressed floors as raw TLs under an inverted
+# reading of the scale and graded every conclusion backwards — see
+# tests/test_severity.py for the sentinels that prevent a recurrence.
 
-EXPECTED_TL_MASS_CASUALTY = 4   # fatalities ≥ mass-casualty threshold
-EXPECTED_TL_KINETIC = 3         # armed violence (≥1 fatality or kinetic verb)
-EXPECTED_TL_ESCALATION = 2      # escalation signal only (mobilization, etc.)
+EXPECTED_SEVERITY_MASS_CASUALTY = 4  # demand ≥ SEVERE (TL ≤ 2)
+EXPECTED_SEVERITY_KINETIC = 3        # demand ≥ HIGH (TL ≤ 3)
+EXPECTED_SEVERITY_ESCALATION = 2     # demand ≥ ELEVATED (TL ≤ 4)
 
 
-def expected_tl_floor(
+def expected_severity_floor(
     *,
     fatalities: int,
     confidence: float,
     mass_casualty_threshold: Optional[int] = None,
 ) -> int:
-    """Minimum threat level the tool *should* have been showing given an
+    """Minimum severity the tool *should* have been showing given an
     external kinetic event of this magnitude.
 
     Driven by the rss_extractor severity ladder (NP6 — coupling kept
     explicit): confidence 0.85 ⇒ a counted fatality figure, 0.60 ⇒ a kinetic
     verb, 0.40 ⇒ an escalation verb only. Fatalities at/above the
-    mass-casualty threshold demand TL≥4; any armed violence TL≥3; a bare
-    escalation signal TL≥2.
+    mass-casualty threshold demand at least SEVERE; any armed violence at
+    least HIGH; a bare escalation signal at least ELEVATED.
     """
     threshold = (
         mass_casualty_threshold
@@ -400,24 +426,26 @@ def expected_tl_floor(
         else config.GROUND_TRUTH_FALSE_NEGATIVE_FATALITIES
     )
     if fatalities >= threshold:
-        return EXPECTED_TL_MASS_CASUALTY
+        return EXPECTED_SEVERITY_MASS_CASUALTY
     if fatalities >= 1 or confidence >= 0.60:
-        return EXPECTED_TL_KINETIC
-    return EXPECTED_TL_ESCALATION
+        return EXPECTED_SEVERITY_KINETIC
+    return EXPECTED_SEVERITY_ESCALATION
 
 
 def label_for_threat_level(
-    *, tool_tl: int, expected_floor: int
+    *, tool_tl: int, expected_severity_floor: int
 ) -> FeedbackLabel:
     """Score a THREAT_LEVEL conclusion against an external event's expected
-    floor. FALSE_NEGATIVE when the tool under-rated (its TL fell below the
-    level the event warranted); TRUE_POSITIVE when it met or exceeded it.
+    severity floor. FALSE_NEGATIVE when the tool under-rated (its severity
+    fell below what the event warranted); TRUE_POSITIVE when it met or
+    exceeded it. ``tool_tl`` is the raw DEFCON-style TL; the severity
+    conversion happens here, in exactly one place.
 
     This is the load-bearing FN-generating path (NP1). It only makes sense
     for THREAT_LEVEL conclusions paired with *independent* external evidence;
     the caller is responsible for both preconditions.
     """
-    if tool_tl < expected_floor:
+    if severity_of(tool_tl) < expected_severity_floor:
         return FeedbackLabel.FALSE_NEGATIVE
     return FeedbackLabel.TRUE_POSITIVE
 
@@ -479,5 +507,61 @@ def has_existing_auto_feedback(
         "SELECT 1 FROM analyst_feedback WHERE conclusion_id = ? "
         "AND analyst_id = ? LIMIT 1",
         (conclusion_id, analyst_id),
+    ).fetchone()
+    return row is not None
+
+
+# ── episode / day granularity (anti pseudo-replication, 2026-07-04) ────────
+#
+# One external event must produce ONE ground-truth trial, not one label per
+# ~2-minute scoring tick. Before this discipline existed, a single article
+# labeled every conclusion in its 72h window (~23k labels / 30d), making
+# sample_n statistically meaningless. Two mechanisms enforce the trial unit:
+#
+#   * RSS runner  — groups evidence into (scenario, country, UTC-day)
+#     episodes and stamps the episode key into ``notes``;
+#     :func:`has_auto_feedback_for_episode` makes re-runs idempotent even
+#     when the representative conclusion would shift between runs.
+#   * ACLED/GDELT runner — caps per-conclusion verdicts at one label per
+#     (scenario, label, UTC-day of the conclusion) via
+#     :func:`has_auto_feedback_for_day`.
+
+
+def utc_day(ts: float) -> str:
+    """UTC calendar day of an epoch timestamp, e.g. ``"2026-07-04"``."""
+    return time.strftime("%Y-%m-%d", time.gmtime(ts))
+
+
+def episode_tag(scenario_id: str, country: str, day: str) -> str:
+    """Deterministic episode key stamped at the start of auto:rss notes."""
+    return f"episode={scenario_id}/{country}/{day}"
+
+
+def has_auto_feedback_for_episode(db: "RadarDB", tag: str) -> bool:
+    """True iff an auto:rss row for this episode tag already exists."""
+    row = db._get_conn().execute(  # noqa: SLF001
+        "SELECT 1 FROM analyst_feedback "
+        "WHERE analyst_id = 'auto:rss' AND notes LIKE ? LIMIT 1",
+        (tag + " %",),
+    ).fetchone()
+    return row is not None
+
+
+def has_auto_feedback_for_day(
+    db: "RadarDB",
+    *,
+    scenario_id: str,
+    label: str,
+    day: str,
+) -> bool:
+    """True iff any auto:* feedback with this label already exists for a
+    conclusion of ``scenario_id`` observed on UTC day ``day``."""
+    row = db._get_conn().execute(  # noqa: SLF001
+        "SELECT 1 FROM analyst_feedback f "
+        "JOIN conclusions c ON c.id = f.conclusion_id "
+        "WHERE f.analyst_id LIKE 'auto:%' AND f.label = ? "
+        "AND c.scenario_id = ? "
+        "AND date(c.observed_at, 'unixepoch') = ? LIMIT 1",
+        (label, scenario_id, day),
     ).fetchone()
     return row is not None

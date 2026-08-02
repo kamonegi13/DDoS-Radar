@@ -2015,6 +2015,7 @@ def get_threat_data():
             from radar.scoring import (
                 rationale_to_signal, compute_scenario_score, Signal,
                 derive_tl, apply_hysteresis_to_tl,
+                persist_tl_and_trend_conclusions,
                 compute_scenario_velocity, compute_scenario_acceleration,
                 compute_velocity_bonus,
                 SILENT_DIVERGENCE_BONUS, CONTEXT_ALIGNMENT_BONUS,
@@ -2093,7 +2094,7 @@ def get_threat_data():
             # the rest of _signals uses.
             try:
                 from radar import background_observer as _bg_obs
-                for _ps in _bg_obs.drain_signals(now=current_time):
+                for _ps in _bg_obs.active_signals(now=current_time):
                     _signals.append(Signal(
                         signal_source=_ps.signal_source,
                         sensor=_ps.sensor,
@@ -2108,7 +2109,7 @@ def get_threat_data():
             except Exception as _bg_drain_err:
                 # SF3 (audit / NP1+NP6 fix, 2026-05-01): the previous comment
                 # claimed NP3 justified silence, but NP3 covers fault
-                # tolerance, not telemetry suppression. drain_signals()
+                # tolerance, not telemetry suppression. active_signals()
                 # clears the queue on call, so a swallowed exception here
                 # permanently loses every queued bg_observer signal with
                 # zero observable trace. Log + record_failure restores AP3
@@ -2203,6 +2204,25 @@ def get_threat_data():
                     _state.tl = _held_tl
                     _tl_held_focused = _was_held
                     _focused_tl = _state.tl
+                else:
+                    # Background (lite) scenarios derive a TL too (NP4,
+                    # 2026-07-04). Apply the same de-escalation hysteresis
+                    # discipline as focused so every scenario's TL stream
+                    # obeys one governor.
+                    _prev_bg_tl = _db.scenario_tl_last(_sc.id)
+                    _state.tl, _ = apply_hysteresis_to_tl(
+                        _state.tl, _prev_bg_tl)
+
+                # Persist THREAT_LEVEL + TREND from the FINAL analyst-facing
+                # TL (post-bonus, post-hysteresis). Until 2026-07-04 these
+                # were written inside compute_scenario_score with the raw
+                # pre-governor TL, so the conclusions ledger — and AP4
+                # replay — diverged from what the UI actually showed.
+                try:
+                    persist_tl_and_trend_conclusions(_state)
+                except Exception:
+                    log.exception(
+                        "TL/trend conclusion persistence failed (non-fatal)")
 
                 _sd = _state.to_dict()
                 _sd["name_en"] = _sc.name_en

@@ -55,6 +55,155 @@ def save_conclusion(db: "RadarDB", c: Conclusion) -> None:
     _record_continuity(db, c)
 
 
+# ── change-gated writes (2026-07-04) ────────────────────────────────────────
+#
+# Production audit 2026-07-03: the per-tick append pattern wrote the SAME
+# conclusion every ~2 minutes (one week of anomalies: 89,884 rows, 12
+# distinct states), making the ledger a scoring-tick log rather than a
+# conclusions ledger — 83% of a 1.7GB DB, and it forced a 90d retention
+# that conflicts with AP4 replay depth. The gate writes only on state
+# change, plus a heartbeat row per V2_CONCLUSION_HEARTBEAT_SEC (bounds
+# replay staleness AND proves the pipeline was alive; a silent scoring
+# outage is distinguishable from a long unchanged state).
+#
+# Two shapes:
+#   * save_conclusion_gated       — SINGLE-VALUED types (threat_level,
+#     trend, per_domain, attack_mode): compare against the latest row of
+#     (scenario, type) — comparing per-state would break flap sequences
+#     (A→B→A must write three rows or replay reads B forever).
+#   * save_conclusions_batch_gated — MULTI-ROW set types (anomaly): the
+#     tick's full state-set signature vs the previous batch; any set
+#     change re-writes the whole batch so replay sees the complete active
+#     set at one timestamp.
+#
+# Continuity tracking (_record_continuity) runs on EVERY tick regardless
+# of gating — chronic-inconclusive detection needs the per-tick
+# observation stream, not the deduplicated ledger.
+
+
+def _write_on_change_enabled() -> bool:
+    return bool(getattr(config, "V2_CONCLUSION_WRITE_ON_CHANGE", True))
+
+
+def _heartbeat_sec() -> float:
+    return float(getattr(config, "V2_CONCLUSION_HEARTBEAT_SEC", 3600))
+
+
+def save_conclusion_gated(db: "RadarDB", c: Conclusion) -> bool:
+    """Change-gated append for single-valued conclusion types. Returns
+    True when a row was written, False when the write was deduplicated."""
+    if not _write_on_change_enabled():
+        save_conclusion(db, c)
+        return True
+    latest = latest_conclusion(db, c.scenario_id, c.conclusion_type)
+    unchanged = (
+        latest is not None
+        and latest.state == c.state
+        and latest.conclusion_unavailable_reason
+            == c.conclusion_unavailable_reason
+        and (c.observed_at - latest.observed_at) < _heartbeat_sec()
+    )
+    if unchanged:
+        _record_continuity(db, c)
+        return False
+    save_conclusion(db, c)
+    return True
+
+
+# Rows written within this many seconds of a batch's newest timestamp are
+# considered the same batch (per-row time.time() jitter is microseconds;
+# the scoring tick is 120s, so 5s cannot bridge two ticks).
+_BATCH_WINDOW_SEC = 5.0
+
+
+def _anomaly_identity(state, reason, meta: dict) -> tuple:
+    """Stable identity of one anomaly row. The state column only carries
+    the source bucket (e.g. 'llm_intel' — several concurrent anomalies
+    share it); the discriminating fields live in metadata. Multiplicity is
+    deliberately NOT part of the batch signature: live verification
+    (2026-07-04) showed same-identity row counts flapping tick to tick
+    (llm_intel 2↔4) as intel items age in and out, which would defeat the
+    gate without representing any new analyst-facing information."""
+    return (
+        str(state or ""),
+        str(reason or ""),
+        str(meta.get("signal_source") or meta.get("sensor") or ""),
+        str(meta.get("contributing_country") or ""),
+        str(meta.get("domain") or ""),
+    )
+
+
+def save_conclusions_batch_gated(
+    db: "RadarDB", conclusions: list[Conclusion],
+) -> int:
+    """Set-signature-gated append for multi-row types (anomaly). All
+    conclusions must share (scenario_id, conclusion_type, observed_at).
+    Returns the number of rows written (0 when deduplicated)."""
+    cs = list(conclusions)
+    if not cs:
+        return 0
+    if not _write_on_change_enabled():
+        for c in cs:
+            save_conclusion(db, c)
+        return len(cs)
+
+    scenario_id = cs[0].scenario_id
+    ctype = cs[0].conclusion_type
+    sig = sorted({
+        _anomaly_identity(
+            c.state,
+            c.conclusion_unavailable_reason.value
+            if c.conclusion_unavailable_reason is not None else "",
+            c.metadata or {},
+        )
+        for c in cs
+    })
+    # The previous batch is every row within a small window of the newest
+    # timestamp: each Conclusion is built with its own time.time(), so
+    # rows of one tick differ by microseconds — an exact MAX(observed_at)
+    # match would see a single row and the signature would never match
+    # (found live 2026-07-04: anomalies kept writing ~4 rows/tick).
+    rows = db._get_conn().execute(  # noqa: SLF001
+        "SELECT state, conclusion_unavailable_reason, observed_at, metadata "
+        "FROM conclusions "
+        "WHERE scenario_id = ? AND conclusion_type = ? "
+        "AND observed_at >= ("
+        "    SELECT MAX(observed_at) FROM conclusions "
+        "    WHERE scenario_id = ? AND conclusion_type = ?"
+        ") - ?",
+        (scenario_id, ctype.value, scenario_id, ctype.value,
+         _BATCH_WINDOW_SEC),
+    ).fetchall()
+
+    def _parsed_meta(raw) -> dict:
+        try:
+            return json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            return {}
+
+    prev_sig = sorted({
+        _anomaly_identity(
+            r["state"],
+            r["conclusion_unavailable_reason"],
+            _parsed_meta(r["metadata"]),
+        )
+        for r in rows
+    })
+    prev_at = max((float(r["observed_at"]) for r in rows), default=0.0)
+    unchanged = (
+        bool(rows)
+        and prev_sig == sig
+        and (cs[0].observed_at - prev_at) < _heartbeat_sec()
+    )
+    if unchanged:
+        for c in cs:
+            _record_continuity(db, c)
+        return 0
+    for c in cs:
+        save_conclusion(db, c)
+    return len(cs)
+
+
 def _record_continuity(db: "RadarDB", c: Conclusion) -> None:
     """Maintain inconclusive_continuity_log per (scenario_id, conclusion_type).
 

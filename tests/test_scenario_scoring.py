@@ -218,14 +218,19 @@ class TestComputeScenarioScore:
         assert state.domains["cyber"] == 3.0
         assert len(state.contributions) == 1
 
-    def test_background_no_tl(self):
+    def test_background_derives_lite_tl(self):
+        """NP4 (2026-07-04): background scenarios derive a TL from the
+        lite score instead of withholding it — 3 of 4 enabled scenarios
+        had produced NO threat-level conclusion for two months."""
         sc = _taiwan_scenario()
         signals = [
             _signal("bgp", "ioda_bgp", "cyber", ["TW"], raw_score=3.0),
         ]
         state = compute_scenario_score(sc, signals, is_focused=False)
-        assert state.tl is None
+        assert state.tl is not None
         assert state.scoring_mode == "lite"
+        # Same formula as focused: score 3.0, one domain -> TL4.
+        assert state.tl == 4
 
     def test_global_signal_decoupled_default(self):
         """Phase 9 (2026-05-13) — with GLOBAL_SIGNALS_DECOUPLED on (default),
@@ -628,7 +633,10 @@ class TestRealGeoData:
                 # is now reported via compute_global_threat() instead.
                 assert len(global_contribs) == 0
             else:
-                assert state.tl is None
+                # NP4 (2026-07-04): background scenarios now derive a
+                # lite TL instead of withholding it.
+                assert state.tl is not None
+                assert state.scoring_mode == "lite"
 
 
 # ── Phase 9-E (2026-05-13 PM): LLM intel country-tag bleed mitigation ──────
@@ -769,3 +777,38 @@ class TestComputeGlobalThreat:
         assert gt_full["score"] == pytest.approx(2.0, abs=0.001)
         assert gt_half["global_signal_weight"] == 0.5
         assert gt_full["global_signal_weight"] == 1.0
+
+
+class TestLiteTlConfidenceDiscount:
+    """derive_threat_level discounts lite-mode confidence and stamps a
+    lite_tl_note so analysts can weigh background TLs (2026-07-04)."""
+
+    def _state(self, *, mode):
+        from radar.scoring import ScenarioState
+        return ScenarioState(
+            scenario_id="taiwan_contingency",
+            is_focused=(mode == "full"),
+            scoring_mode=mode,
+            score=6.0,
+            domains={"cyber": 3.0, "physical": 3.0, "info": 0.0},
+            active_countries=["TW"],
+            convergence_bonus=0.0,
+            tl=2,
+            contributions=[],
+        )
+
+    def test_lite_confidence_below_full(self):
+        from radar.conclusions.threat_level import derive_threat_level
+        from radar.database import db
+        full_c = derive_threat_level(db, self._state(mode="full"))
+        lite_c = derive_threat_level(db, self._state(mode="lite"))
+        assert lite_c.confidence < full_c.confidence
+        assert lite_c.state == full_c.state == "2"
+
+    def test_lite_metadata_carries_note(self):
+        from radar.conclusions.threat_level import derive_threat_level
+        from radar.database import db
+        lite_c = derive_threat_level(db, self._state(mode="lite"))
+        assert "lite_tl_note" in lite_c.metadata
+        full_c = derive_threat_level(db, self._state(mode="full"))
+        assert "lite_tl_note" not in full_c.metadata

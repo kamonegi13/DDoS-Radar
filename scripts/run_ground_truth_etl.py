@@ -60,8 +60,10 @@ from radar.conclusions.ground_truth_etl import (  # noqa: E402
     EvidenceSource,
     ExternalEvent,
     classify_conclusion,
+    has_auto_feedback_for_day,
     has_existing_auto_feedback,
     list_conclusions_in_window,
+    utc_day,
 )
 from radar.database import RadarDB  # noqa: E402
 from radar.scenarios import scenario_store  # noqa: E402
@@ -362,6 +364,12 @@ def run_etl(
             len(acled), len(gdelt), len(llm_intel), len(sequence),
         )
 
+        # Day-cap (2026-07-04): one auto label per (scenario, label, UTC day
+        # of the conclusion). Conclusions are written every ~2 min, so
+        # per-conclusion verdicts alone pseudo-replicate one world state
+        # into hundreds of confusion-matrix entries per day. The in-run set
+        # mirrors the DB check so dry runs report realistic counts.
+        seen_day_keys: set[tuple] = set()
         for c in items:
             verdict: Optional[AutoFeedback] = classify_conclusion(
                 c, evidence, participant_countries=countries,
@@ -372,6 +380,14 @@ def run_etl(
             if has_existing_auto_feedback(db, c.id, verdict.analyst_id):
                 counts["already_persisted"] += 1
                 continue
+            day_key = (scenario_id, verdict.label.value, utc_day(c.observed_at))
+            if day_key in seen_day_keys or has_auto_feedback_for_day(
+                db, scenario_id=scenario_id, label=verdict.label.value,
+                day=utc_day(c.observed_at),
+            ):
+                counts["skipped_day_capped"] += 1
+                continue
+            seen_day_keys.add(day_key)
             counts[f"label_{verdict.label.value}"] += 1
             if dry_run:
                 counts["dry_run_skipped_write"] += 1

@@ -9,3 +9,4 @@ radar/llm_client.py.bak
 # Local arm64 test venv + operational backups (not for VCS)
 .venv-arm/
 config.env.bak-*
+backups/

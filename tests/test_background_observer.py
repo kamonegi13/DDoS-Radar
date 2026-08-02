@@ -100,7 +100,7 @@ def test_broadcast_emits_one_signal_per_country_per_match(enable_bg):
     assert out["enabled"] is True
     assert out["matches"] == 2
     assert set(out["matches_by_country"].keys()) == {"RU", "UA"}
-    sigs = bgo.drain_signals(now=fixed_now + 30)
+    sigs = bgo.active_signals(now=fixed_now + 30)
     assert {s.countries for s in sigs} == {("RU",), ("UA",)}
 
 
@@ -235,7 +235,7 @@ def test_cycle_log_counts_failed_feeds(enable_bg):
 # ── queue + TTL ──────────────────────────────────────────────────────────
 
 
-def test_drain_filters_stale_signals(enable_bg, monkeypatch):
+def test_active_signals_filters_stale(enable_bg, monkeypatch):
     monkeypatch.setattr(config, "BG_OBSERVER_SIGNAL_TTL_SEC", 60)
     obs = bgo.BackgroundObserver(
         scorable_scenarios_fn=lambda: [_SCENARIOS[1]],
@@ -249,12 +249,12 @@ def test_drain_filters_stale_signals(enable_bg, monkeypatch):
         cycle_log_fn=lambda r: None,
     )
     obs.tick()  # broadcast — emits RU + UA Signals
-    # Drain at far-future time so all should be stale (TTL=60s)
-    sigs = bgo.drain_signals(now=1_800_000_000.0 + 10_000)
+    # Read at far-future time so all should be stale (TTL=60s)
+    sigs = bgo.active_signals(now=1_800_000_000.0 + 10_000)
     assert sigs == []
 
 
-def test_drain_returns_fresh_signals(enable_bg):
+def test_active_signals_returns_fresh(enable_bg):
     obs = bgo.BackgroundObserver(
         scorable_scenarios_fn=lambda: [_SCENARIOS[1]],
         focused_id_fn=lambda: "x",
@@ -267,7 +267,7 @@ def test_drain_returns_fresh_signals(enable_bg):
         cycle_log_fn=lambda r: None,
     )
     obs.tick()
-    sigs = bgo.drain_signals(now=1_800_000_000.0 + 30)
+    sigs = bgo.active_signals(now=1_800_000_000.0 + 30)
     assert len(sigs) >= 1
     assert any(s.countries == ("RU",) for s in sigs)
     assert any(s.countries == ("UA",) for s in sigs)
@@ -283,7 +283,7 @@ def test_max_queue_cap_evicts_oldest(enable_bg, monkeypatch):
             sensor="t", signal_source="t", value_display=f"#{i}",
             evidence_url=None,
         ))
-    sigs = bgo.drain_signals(now=1_800_000_000.0 + 100)
+    sigs = bgo.active_signals(now=1_800_000_000.0 + 100)
     # Oldest dropped; only #1 and #2 remain
     assert [s.value_display for s in sigs] == ["#1", "#2"]
 
@@ -319,12 +319,93 @@ def test_fetch_error_does_not_crash_cycle(enable_bg):
 # ── public surface ──────────────────────────────────────────────────────
 
 
-def test_drain_signals_clears_queue():
+def test_active_signals_retains_buffer_within_ttl():
+    """Inverse of the retired consume-once contract: reading must NOT
+    empty the buffer while signals are inside their TTL window."""
     bgo._enqueue(bgo._PendingSignal(
         observed_at=1_800_000_000.0, domain="info", countries=("US",),
         raw_score=0.5, sensor="t", signal_source="t",
         value_display="x", evidence_url=None,
     ))
     assert bgo.queue_size() == 1
-    bgo.drain_signals(now=1_800_000_000.0 + 30)
+    bgo.active_signals(now=1_800_000_000.0 + 30)
+    assert bgo.queue_size() == 1
+
+
+# ── retained buffer semantics (2026-07-04 strobe fix) ────────────────────
+#
+# drain_signals() used to CONSUME the queue on read, so a signal's real
+# lifetime was "until the next scoring tick" (≤2 min) — the documented
+# 30m TTL was a fiction. With the 5-min bg cycle aliasing against the
+# 2-min tick, the info-domain contribution strobed 0↔1.17 and taiwan's
+# TL flipped TL4↔TL5 roughly every other tick (live observation
+# 2026-07-04). active_signals() is state semantics: the same signal is
+# visible to EVERY tick inside its TTL window.
+
+
+def _mk_sig(*, at, country="XX", display="s", source="t"):
+    return bgo._PendingSignal(
+        observed_at=at, domain="info", countries=(country,),
+        raw_score=0.5, sensor="t", signal_source=source,
+        value_display=display, evidence_url=None,
+    )
+
+
+def test_active_signals_visible_to_consecutive_ticks():
+    """Inversion sentinel for the consume-once regression: two reads in
+    a row (two scoring ticks) must BOTH see the signal."""
+    t0 = 1_800_000_000.0
+    bgo._enqueue(_mk_sig(at=t0))
+    first = bgo.active_signals(now=t0 + 120)
+    second = bgo.active_signals(now=t0 + 240)
+    assert len(first) == 1
+    assert len(second) == 1
+    assert second[0].value_display == "s"
+
+
+def test_active_signals_expire_after_ttl(monkeypatch):
+    monkeypatch.setattr(config, "BG_OBSERVER_SIGNAL_TTL_SEC", 60)
+    t0 = 1_800_000_000.0
+    bgo._enqueue(_mk_sig(at=t0))
+    assert len(bgo.active_signals(now=t0 + 30)) == 1
+    assert bgo.active_signals(now=t0 + 61) == []
+    # Expired entries are pruned from the buffer, not just filtered.
     assert bgo.queue_size() == 0
+
+
+def test_reenqueue_same_identity_slides_ttl_without_duplicating(monkeypatch):
+    """The 5-min cycle re-matches the same headlines every pass. The
+    buffer must upsert on identity (source, domain, countries, evidence/
+    display) — refreshing observed_at, never stacking duplicates."""
+    monkeypatch.setattr(config, "BG_OBSERVER_SIGNAL_TTL_SEC", 600)
+    t0 = 1_800_000_000.0
+    bgo._enqueue(_mk_sig(at=t0, display="same story"))
+    bgo._enqueue(_mk_sig(at=t0 + 300, display="same story"))
+    sigs = bgo.active_signals(now=t0 + 310)
+    assert len(sigs) == 1
+    assert sigs[0].observed_at == t0 + 300
+    # Slid TTL: still alive past the ORIGINAL observation's expiry.
+    assert len(bgo.active_signals(now=t0 + 700)) == 1
+
+
+def test_distinct_identities_coexist():
+    t0 = 1_800_000_000.0
+    bgo._enqueue(_mk_sig(at=t0, country="RU", display="a"))
+    bgo._enqueue(_mk_sig(at=t0, country="UA", display="a"))
+    bgo._enqueue(_mk_sig(at=t0, country="RU", display="b"))
+    assert len(bgo.active_signals(now=t0 + 10)) == 3
+
+
+def test_phase_alias_simulation_no_strobe(monkeypatch):
+    """5-min producer + 2-min consumer over 14 minutes: with retained
+    semantics every tick sees a live signal (the pre-fix consume-once
+    queue left ticks 2, 4-5, 7 empty)."""
+    monkeypatch.setattr(config, "BG_OBSERVER_SIGNAL_TTL_SEC", 1800)
+    t0 = 1_800_000_000.0
+    for cycle_at in (t0, t0 + 300, t0 + 600):
+        bgo._enqueue(_mk_sig(at=cycle_at, display="story"))
+    empty_ticks = [
+        tick for tick in range(1, 8)  # ticks at t0+120 … t0+840
+        if not bgo.active_signals(now=t0 + tick * 120)
+    ]
+    assert empty_ticks == []

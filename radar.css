@@ -1997,6 +1997,161 @@
     color: #888;
 }
 
+/* ── Human-Anchor labeling queue (AP3, 2026-07-04) ─────────────────── */
+.anchor-body {
+    padding: 8px 10px;
+    color: var(--color-text);
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.anchor-body .anchor-progress {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-bottom: 8px;
+}
+.anchor-body .anchor-row {
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 10px 11px;
+    margin-bottom: 10px;
+    background: var(--color-panel-alt, rgba(255, 255, 255, 0.02));
+}
+/* Header line: kind tag + scenario + timestamp */
+.anchor-body .anchor-row-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 7px;
+}
+.anchor-body .anchor-tag {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+}
+.anchor-body .anchor-tag-miss {
+    color: var(--color-critical, #ff5c5c);
+    border: 1px solid var(--color-critical, #ff5c5c);
+}
+.anchor-body .anchor-tag-alert {
+    color: var(--color-accent);
+    border: 1px solid var(--color-accent);
+}
+.anchor-body .anchor-tag-quiet {
+    color: var(--color-text-dim);
+    border: 1px solid var(--color-border);
+}
+.anchor-body .anchor-scn {
+    font-weight: 600;
+    font-size: 12px;
+}
+.anchor-body .anchor-when {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--color-text-dim);
+}
+/* The tool's own call, in plain language */
+.anchor-body .anchor-stance {
+    font-size: 12px;
+    color: var(--color-text);
+    margin-bottom: 3px;
+}
+/* The single natural question the analyst answers */
+.anchor-body .anchor-question {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-bottom: 9px;
+}
+/* One-click external research link */
+.anchor-body .anchor-research {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--color-accent);
+    text-decoration: none;
+    margin-bottom: 9px;
+    border-bottom: 1px dotted var(--color-accent);
+    padding-bottom: 1px;
+}
+.anchor-body .anchor-research:hover { filter: brightness(1.3); }
+.anchor-body .anchor-answer-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.anchor-body .anchor-answer-btn {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--color-text);
+    cursor: pointer;
+    font-weight: 600;
+}
+.anchor-body .anchor-answer-btn.anchor-tone-escalation {
+    border-color: var(--color-critical, #ff5c5c);
+    color: var(--color-critical, #ff5c5c);
+}
+.anchor-body .anchor-answer-btn.anchor-tone-quiet {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+.anchor-body .anchor-answer-btn:hover { filter: brightness(1.25); }
+.anchor-body .anchor-answer-btn:disabled { opacity: 0.4; cursor: default; }
+.anchor-body .anchor-skip-btn {
+    font-size: 11px;
+    padding: 6px 10px;
+    background: transparent;
+    color: var(--color-text-dim);
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+}
+/* Inline optional evidence-URL field (escalation answers) */
+.anchor-body .anchor-evidence {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+}
+.anchor-body .anchor-evidence-lbl {
+    flex-basis: 100%;
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+.anchor-body .anchor-evidence-input {
+    flex: 1 1 200px;
+    font-size: 12px;
+    padding: 5px 7px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg, #0e1013);
+    color: var(--color-text);
+}
+/* Plain-language confirmation after answering */
+.anchor-body .anchor-done {
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 4px 2px;
+}
+.anchor-body .anchor-done.anchor-tone-escalation {
+    color: var(--color-critical, #ff5c5c);
+}
+.anchor-body .anchor-done.anchor-tone-quiet {
+    color: var(--color-accent);
+}
+.anchor-body .anchor-empty {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    padding: 14px 4px;
+    line-height: 1.5;
+}
+
 /* ── Sensor Watchpane (Layer 3) ───────────────────────────────────── */
 .wp-body {
     padding: 0;

@@ -208,3 +208,53 @@ def test_self_eval_per_use_case_entry_shape(client, admin_headers):
     }
     missing = expected_keys - set(sample.keys())
     assert not missing, f"by_use_case entry missing keys: {missing}"
+
+
+# ── RECALL chip window + label-source breakdown (2026-07-04) ──────────────
+#
+# The chip previously called collect_metrics with no `since` (all-time) and
+# no source breakdown, while per-conclusion calibration_status uses a 30d
+# window — the same word "recall" meant two different numbers, and the
+# all-time figure silently shifts when feedback retention (180d) starts
+# pruning. The chip now uses the calibration window and reports how many
+# labels are auto vs human (AP3: the analyst must see that recall is
+# currently self-graded — human labels are 0 until the human-anchor loop
+# produces them).
+
+
+def test_self_eval_recall_uses_calibration_window_and_reports_breakdown(
+    client, admin_headers, monkeypatch,
+):
+    import sys
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    import report_recall_metrics as rrm
+
+    calls = []
+
+    def fake_collect(_db, **kw):
+        calls.append(kw)
+        if kw.get("exclude_auto"):
+            return [SimpleNamespace(tp=2, fn=0, fp=0, tn=0, total=2)]
+        return [SimpleNamespace(tp=9, fn=1, fp=0, tn=0, total=10)]
+
+    monkeypatch.setattr(rrm, "collect_metrics", fake_collect)
+
+    r = client.get("/api/v2/self_eval", headers=admin_headers)
+    assert r.status_code == 200
+    body = r.get_json()
+
+    assert body["recall"] == 0.9
+    meta = body["recall_meta"]
+    assert meta["window_days"] >= 1
+    assert meta["labels_total"] == 10
+    assert meta["labels_human"] == 2
+    assert meta["labels_auto"] == 8
+    assert meta["source"] == "ground_truth"
+    # Both collect calls must be windowed — no all-time aggregation.
+    assert len(calls) == 2
+    assert all(kw.get("since") is not None for kw in calls)

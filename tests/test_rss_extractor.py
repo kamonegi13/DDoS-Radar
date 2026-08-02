@@ -355,3 +355,76 @@ def test_pure_protest_not_treated_as_escalation():
     assert extract_kinetic_regex(
         "Protesters gathered outside the Russian embassy in London"
     ) is None
+
+
+# ── escalation-relevance gate (ground-truth labeling only) ────────────────
+#
+# Added 2026-07-04 after production ground truth was found contaminated
+# with domestic accidents and natural disasters in participant countries
+# (e.g. a bear-spray incident and a typhoon labeled as taiwan_contingency
+# escalation evidence). The gate is applied by the ETL runners only — the
+# bg_observer sensing path keeps the wider net (NP1).
+
+from radar.conclusions.rss_extractor import is_escalation_relevant  # noqa: E402
+
+
+def test_strong_kinetic_is_relevant():
+    assert is_escalation_relevant("Russian missile strike kills 12 in Kyiv")
+    assert is_escalation_relevant("Artillery shelling reported near Kharkiv")
+
+
+def test_escalation_verb_is_relevant():
+    assert is_escalation_relevant("China deploys troops near Taiwan strait")
+    assert is_escalation_relevant("North Korea missile test draws condemnation")
+
+
+def test_disaster_with_fatalities_is_not_relevant():
+    assert not is_escalation_relevant("Typhoon Lan kills 12 in Japan")
+    assert not is_escalation_relevant(
+        "Earthquake in Taiwan: death toll rises to 30"
+    )
+
+
+def test_domestic_accident_is_not_relevant():
+    assert not is_escalation_relevant(
+        "Bear spray goes off in Japan post office, 13 people treated"
+    )
+    assert not is_escalation_relevant(
+        "Bus crash in South Korea leaves 8 dead"
+    )
+
+
+def test_military_accident_without_kinetic_context_is_not_relevant():
+    # An army transport accident is not interstate escalation.
+    assert not is_escalation_relevant(
+        "Military plane crash kills 3 soldiers in Philippines training flight"
+    )
+
+
+def test_weak_kinetic_with_two_countries_is_relevant():
+    assert is_escalation_relevant("China attacks Taiwan patrol vessel")
+    assert is_escalation_relevant("Russia attacks Ukraine, kills 12")
+
+
+def test_weak_kinetic_single_country_no_actor_is_not_relevant():
+    assert not is_escalation_relevant(
+        "Mass shooting at Taiwan nightclub leaves 5 dead"
+    )
+    assert not is_escalation_relevant("Explosion at Manila fireworks factory")
+
+
+def test_weak_kinetic_with_military_actor_is_relevant():
+    assert is_escalation_relevant(
+        "Ambush on army patrol kills 4 troops in Philippines"
+    )
+
+
+def test_noise_does_not_veto_strong_kinetic():
+    # A missile test reported alongside storm coverage is still relevant.
+    assert is_escalation_relevant(
+        "North Korea missile test proceeds amid typhoon warnings"
+    )
+
+
+def test_empty_text_is_not_relevant():
+    assert not is_escalation_relevant("")

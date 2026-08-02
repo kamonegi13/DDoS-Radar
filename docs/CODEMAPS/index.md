@@ -7,8 +7,8 @@ structural changes to keep maps in sync.
 
 | Source file | Codemap | Lines |
 |-------------|---------|-------|
-| `radar/database.py` | [radar.database.md](radar.database.md) | 6764 |
-| `radar/scoring.py` | [radar.scoring.md](radar.scoring.md) | 1712 |
+| `radar/database.py` | [radar.database.md](radar.database.md) | 6629 |
+| `radar/scoring.py` | [radar.scoring.md](radar.scoring.md) | 1735 |
 | `radar/intel_queue.py` | [radar.intel_queue.md](radar.intel_queue.md) | 1211 |
 | `radar/intel_auto_judge.py` | [radar.intel_auto_judge.md](radar.intel_auto_judge.md) | 646 |
 | `radar/diagnostics.py` | [radar.diagnostics.md](radar.diagnostics.md) | 144 |
@@ -17,22 +17,22 @@ structural changes to keep maps in sync.
 | `radar/llm_client.py` | [radar.llm_client.md](radar.llm_client.md) | 699 |
 | `radar/persistence.py` | [radar.persistence.md](radar.persistence.md) | 139 |
 | `radar/scheduler.py` | [radar.scheduler.md](radar.scheduler.md) | 823 |
-| `radar/config.py` | [radar.config.md](radar.config.md) | 1585 |
-| `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 3154 |
+| `radar/config.py` | [radar.config.md](radar.config.md) | 1612 |
+| `radar/routes/core.py` | [radar.routes.core.md](radar.routes.core.md) | 3174 |
 | `radar/routes/analytics.py` | [radar.routes.analytics.md](radar.routes.analytics.md) | 1134 |
 | `radar/routes/admin.py` | [radar.routes.admin.md](radar.routes.admin.md) | 786 |
 | `radar/routes/intel.py` | [radar.routes.intel.md](radar.routes.intel.md) | 405 |
-| `radar/routes/conclusions_v2.py` | [radar.routes.conclusions_v2.md](radar.routes.conclusions_v2.md) | 864 |
+| `radar/routes/conclusions_v2.py` | [radar.routes.conclusions_v2.md](radar.routes.conclusions_v2.md) | 937 |
 | `radar/conclusions/base.py` | [radar.conclusions.base.md](radar.conclusions.base.md) | 136 |
 | `radar/conclusions/api.py` | [radar.conclusions.api.md](radar.conclusions.api.md) | 99 |
-| `radar/conclusions/persistence.py` | [radar.conclusions.persistence.md](radar.conclusions.persistence.md) | 212 |
+| `radar/conclusions/persistence.py` | [radar.conclusions.persistence.md](radar.conclusions.persistence.md) | 361 |
 | `radar/conclusions/calibration.py` | [radar.conclusions.calibration.md](radar.conclusions.calibration.md) | 207 |
 | `radar/conclusions/trend.py` | [radar.conclusions.trend.md](radar.conclusions.trend.md) | 234 |
 | `radar/conclusions/per_domain.py` | [radar.conclusions.per_domain.md](radar.conclusions.per_domain.md) | 173 |
 | `radar/conclusions/attack_mode.py` | [radar.conclusions.attack_mode.md](radar.conclusions.attack_mode.md) | 184 |
 | `radar/conclusions/attack_mode_extensions.py` | [radar.conclusions.attack_mode_extensions.md](radar.conclusions.attack_mode_extensions.md) | 227 |
-| `radar/conclusions/threat_level.py` | [radar.conclusions.threat_level.md](radar.conclusions.threat_level.md) | 173 |
+| `radar/conclusions/threat_level.py` | [radar.conclusions.threat_level.md](radar.conclusions.threat_level.md) | 192 |
 | `radar/conclusions/anomaly.py` | [radar.conclusions.anomaly.md](radar.conclusions.anomaly.md) | 246 |
 | `radar/conclusions/shadow_metrics.py` | [radar.conclusions.shadow_metrics.md](radar.conclusions.shadow_metrics.md) | 125 |
-| `radar/conclusions/ground_truth_etl.py` | [radar.conclusions.ground_truth_etl.md](radar.conclusions.ground_truth_etl.md) | 483 |
+| `radar/conclusions/ground_truth_etl.py` | [radar.conclusions.ground_truth_etl.md](radar.conclusions.ground_truth_etl.md) | 567 |
 | `radar/sensors/acled.py` | [radar.sensors.acled.md](radar.sensors.acled.md) | 199 |

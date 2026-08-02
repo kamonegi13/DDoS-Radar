@@ -50,14 +50,24 @@ from email.utils import parsedate_to_datetime  # noqa: E402
 
 from radar import config  # noqa: E402
 from radar.conclusions.base import ConclusionType  # noqa: E402
-from radar.conclusions.feedback import AnalystFeedback, save_feedback  # noqa: E402
+from radar.conclusions.feedback import (  # noqa: E402
+    AnalystFeedback,
+    FeedbackLabel,
+    save_feedback,
+)
 from radar.conclusions.ground_truth_etl import (  # noqa: E402
-    expected_tl_floor,
-    has_existing_auto_feedback,
+    episode_tag,
+    expected_severity_floor,
+    has_auto_feedback_for_episode,
     label_for_threat_level,
     list_conclusions_in_window,
+    utc_day,
 )
-from radar.conclusions.rss_extractor import extract_kinetic  # noqa: E402
+from radar.conclusions.rss_extractor import (  # noqa: E402
+    extract_kinetic,
+    is_escalation_relevant,
+)
+from radar.conclusions.severity import severity_of  # noqa: E402
 from radar.database import RadarDB  # noqa: E402
 from radar.scenarios import scenario_store  # noqa: E402
 
@@ -201,20 +211,30 @@ def run_etl(
     use_llm: bool = False,
     window_hours: Optional[int] = None,
 ) -> dict:
-    """Drive one RSS pass — TL-comparison ground-truth labeling.
+    """Drive one RSS pass — episode-based TL ground-truth labeling.
 
-    For each THREAT_LEVEL conclusion in the scan window, find external
-    kinetic events (from the RSS feed) that landed in a participant country
-    inside the conclusion's forward window, and compare the tool's threat
-    level against the minimum level those events warranted
-    (``expected_tl_floor``). Under-rating → FALSE_NEGATIVE (the NP1-critical
-    miss); meeting/exceeding the floor → TRUE_POSITIVE.
+    Evidence model (redesigned 2026-07-04): one external event = one
+    ground-truth trial. RSS matches are grouped into *episodes* keyed by
+    ``(scenario, country, UTC day of the event)``; each episode grades the
+    tool ONCE, against the pre-event window ``[event_at − window_h,
+    event_at]``:
 
-    This replaces the previous blanket-TRUE_POSITIVE stamping, which labeled
-    every country-matching conclusion of any type as a TP and pinned recall
-    at 1.0 regardless of tool quality (audit 2026-05-29). RSS is the only
-    high-volume *external* (sensor-independent) evidence stream, so it is the
-    one source that can legitimately reveal the tool's blind spots.
+      * TRUE_POSITIVE  — the tool reached the event's expected severity
+        floor at ANY point in the window (early warning achieved). The
+        label attaches to the conclusion that achieved the best severity.
+      * FALSE_NEGATIVE — the tool NEVER reached the floor (the NP1-critical
+        miss). The label attaches to the latest pre-event conclusion —
+        what the tool was showing as the event hit.
+
+    Evidence passes :func:`is_escalation_relevant` before it can label
+    anything — disasters, accidents, and street crime in participant
+    countries are not interstate-escalation ground truth (labels demand
+    higher precision than sensing; the bg_observer keeps the wide net).
+
+    History: this replaced (a) the blanket-TRUE_POSITIVE stamper that pinned
+    recall at 1.0 (audit 2026-05-29), and (b) the per-tick grader whose TL
+    scale was inverted and which labeled every ~2-min tick in the window,
+    producing ~23k pseudo-replicated labels per 30 d (audit 2026-07-03).
     """
     items = fetch_all(feeds)
     if not items:
@@ -234,9 +254,9 @@ def run_etl(
         )
 
     # THREAT_LEVEL only, newest-first: the RSS feed is current news, so only
-    # recent conclusions (whose forward window overlaps those events) can be
-    # labeled. Scanning newest-first keeps the limit budget on the rows that
-    # can actually match, instead of the oldest diagnostic rows.
+    # recent conclusions (whose pre-event window overlaps those events) can
+    # be labeled. Scanning newest-first keeps the limit budget on the rows
+    # that can actually match, instead of the oldest diagnostic rows.
     conclusions = list_conclusions_in_window(
         db, since=since, until=until, limit=limit,
         conclusion_type=ConclusionType.THREAT_LEVEL.value,
@@ -245,99 +265,127 @@ def run_etl(
     if scenario_filter:
         conclusions = [c for c in conclusions if c.scenario_id == scenario_filter]
 
-    # Extract once per RSS item, carrying an event timestamp. De-dup by text
-    # (many headlines repeat across feeds).
-    matches: list[tuple] = []  # (KineticMatch, event_at)
-    seen_summaries: set[str] = set()
-    for item in items:
-        text = (item.get("title", "") + " — " + item.get("summary", "")).strip()
-        if not text or text in seen_summaries:
-            continue
-        seen_summaries.add(text)
-        result = extract_kinetic(text, use_llm=use_llm, llm_invoke=llm_invoke)
-        if result is not None:
-            event_at = _parse_published(item, fallback=until)
-            matches.append((result, event_at))
-
     counts = {
         "feeds_fetched": len(items),
-        "matched_items": len(matches),
+        "matched_items": 0,
+        "irrelevant_items": 0,
         "scanned": len(conclusions),
+        "episodes": 0,
         "persisted": 0,
         "already_persisted": 0,
         "no_match": 0,
-        "skipped_non_threat_level": 0,
         "skipped_non_numeric_tl": 0,
         "label_TRUE_POSITIVE": 0,
         "label_FALSE_NEGATIVE": 0,
         "dry_run_skipped_write": 0,
     }
 
-    analyst_id = "auto:rss"
-    now_ts = time.time()
-
-    for c in conclusions:
-        # Only THREAT_LEVEL conclusions carry a level we can score against an
-        # external event. TREND / PER_DOMAIN / ATTACK_MODE are diagnostic
-        # surfaces — labeling them inflated the ledger without feeding recall.
-        if c.conclusion_type is not ConclusionType.THREAT_LEVEL:
-            counts["skipped_non_threat_level"] += 1
+    # Extract once per RSS item, carrying the event timestamp and the item
+    # link (NP6 provenance). De-dup by text (headlines repeat across feeds);
+    # the escalation-relevance gate runs BEFORE extraction so a disaster
+    # fatality count never becomes evidence.
+    matches: list[tuple] = []  # (KineticMatch, event_at, link)
+    seen_summaries: set[str] = set()
+    for item in items:
+        text = (item.get("title", "") + " — " + item.get("summary", "")).strip()
+        if not text or text in seen_summaries:
             continue
+        seen_summaries.add(text)
+        if not is_escalation_relevant(text):
+            counts["irrelevant_items"] += 1
+            continue
+        result = extract_kinetic(text, use_llm=use_llm, llm_invoke=llm_invoke)
+        if result is not None:
+            event_at = _parse_published(item, fallback=until)
+            matches.append((result, event_at, (item.get("link") or "").strip()))
+    counts["matched_items"] = len(matches)
+
+    # Conclusions per scenario, with severity precomputed. Non-numeric /
+    # out-of-range TLs (e.g. INSUFFICIENT_DATA rows) carry no gradable call.
+    by_scenario: dict[str, list] = {}
+    for c in conclusions:
         try:
-            tool_tl = int(c.state or "")
+            sev = severity_of(int(c.state or ""))
         except (TypeError, ValueError):
             counts["skipped_non_numeric_tl"] += 1
             continue
+        by_scenario.setdefault(c.scenario_id, []).append((c, sev))
 
-        countries = _participants_for(c.scenario_id)
+    # Fold matches into episodes: (scenario, country, event UTC day) →
+    # the max-floor evidence (worst event drives the expectation, NP1) and
+    # the earliest report time (anchors the pre-event window).
+    episodes: dict[tuple, dict] = {}
+    for scenario_id in by_scenario:
+        countries = set(_participants_for(scenario_id))
         if not countries:
             continue
+        for match, event_at, link in matches:
+            if match.country not in countries:
+                continue
+            floor = expected_severity_floor(
+                fatalities=match.fatalities, confidence=match.confidence,
+            )
+            key = (scenario_id, match.country, utc_day(event_at))
+            ep = episodes.get(key)
+            if ep is None:
+                episodes[key] = {
+                    "floor": floor, "match": match,
+                    "event_at": event_at, "url": link,
+                }
+            else:
+                ep["event_at"] = min(ep["event_at"], event_at)
+                if (floor, match.fatalities) > (ep["floor"], ep["match"].fatalities):
+                    ep.update({"floor": floor, "match": match, "url": link})
+    counts["episodes"] = len(episodes)
 
-        # Events that fell in a participant country inside this conclusion's
-        # forward window [observed_at, observed_at + window_h]. The conclusion
-        # is a pre-event assessment; an escalation it should have anticipated.
-        forward_end = c.observed_at + window_h * 3600.0
-        relevant = [
-            m for (m, event_at) in matches
-            if m.country in countries and c.observed_at <= event_at <= forward_end
+    analyst_id = "auto:rss"
+    now_ts = time.time()
+
+    for (scenario_id, country, day), ep in sorted(episodes.items()):
+        tag = episode_tag(scenario_id, country, day)
+        window_start = ep["event_at"] - window_h * 3600.0
+        candidates = [
+            (c, sev) for (c, sev) in by_scenario[scenario_id]
+            if window_start <= c.observed_at <= ep["event_at"]
         ]
-        if not relevant:
+        if not candidates:
             counts["no_match"] += 1
             continue
 
-        # Worst event drives the expectation (NP1 — be sensitive to the most
-        # severe thing the tool should have caught).
-        floors = [
-            expected_tl_floor(fatalities=m.fatalities, confidence=m.confidence)
-            for m in relevant
-        ]
-        expected_floor = max(floors)
-        worst = relevant[floors.index(expected_floor)]
+        best_c, best_sev = max(candidates, key=lambda t: (t[1], t[0].observed_at))
         label = label_for_threat_level(
-            tool_tl=tool_tl, expected_floor=expected_floor,
+            tool_tl=int(best_c.state), expected_severity_floor=ep["floor"],
         )
+        if label is FeedbackLabel.TRUE_POSITIVE:
+            representative, rep_sev = best_c, best_sev
+        else:
+            # FN: record what the tool was showing as the event hit.
+            representative, rep_sev = max(
+                candidates, key=lambda t: t[0].observed_at,
+            )
 
-        if has_existing_auto_feedback(db, c.id, analyst_id):
+        if has_auto_feedback_for_episode(db, tag):
             counts["already_persisted"] += 1
             continue
+        counts[f"label_{label.value}"] += 1
         if dry_run:
             counts["dry_run_skipped_write"] += 1
-            counts[f"label_{label.value}"] += 1
             continue
+        match = ep["match"]
         save_feedback(db, AnalystFeedback(
-            conclusion_id=c.id,
+            conclusion_id=representative.id,
             label=label,
             analyst_id=analyst_id,
             observed_at=now_ts,
-            observed_outcome_url=None,
+            observed_outcome_url=ep["url"] or None,
             notes=(
-                f"rss/{worst.source}: {worst.country} "
-                f"fatalities={worst.fatalities} expected_TL>={expected_floor} "
-                f"tool_TL={tool_tl} ({worst.summary[:90]})"
+                f"{tag} rss/{match.source}: fatalities={match.fatalities} "
+                f"expected_severity>={ep['floor']} "
+                f"tool_TL={representative.state}(sev={rep_sev}) "
+                f"ticks_in_window={len(candidates)} ({match.summary[:90]})"
             ),
         ))
         counts["persisted"] += 1
-        counts[f"label_{label.value}"] += 1
 
     return counts
 

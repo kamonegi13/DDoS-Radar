@@ -15,7 +15,7 @@
 |------|-----|
 | **現バージョン** | 2.1.0-operational-maturation |
 | **作成日** | 2026-04-25 |
-| **最終更新** | 2026-04-30 |
+| **最終更新** | 2026-07-04 (calibration インシデント記録の追記。2026-05 以降の Phase 6〜9.x 系列の詳細は git log が正) |
 | **現在のフェーズ** | **Phase 5 完了 — 安定運用フェーズへ移行** |
 | **採用方針** | **v1 並走 → shadow → opt-in → default-on の三段階で v2 へ移行**、v1 sunset 早期完了 (2026-04-29) |
 | **責任者** | kamonegi13(@juzo1192) |
@@ -28,10 +28,44 @@
 |-------|------|------|------------|
 | **Phase 0** | 設計確定、ADR 起こし、scaffolding (Conclusion dataclass, DB v19-v22, codemod 準備) | **完了 (2026-04-26)** | 2026-05-02 |
 | **Phase 1** | 基盤層: Conclusion Model 永続化、LLM プロンプト永続化、theater 撲滅、v2 API 骨格、NP7 disclaimer 強制 | **完了 (2026-04-27)** — Phase 1.1〜1.4 (P1/SR4/P2/C) 全 stage 済 | 2026-06-15 |
-| **Phase 2** | 結論層: 攻撃モード推定 + extensions、トレンド三層化、per-domain 構造化、importance ranking、Calibration governance、Design W default-on | **完了 (2026-04-29)** — 結論層実装済、ACLED+GDELT 自動突合 + 内部 evidence 拡張 (LLM_INTEL+SEQUENCE) で recall metrics 1.000、`docs/baselines/recall_metrics.json` 作成 + `opt_in: true` flip で Design W default-on 達成 | 2026-07-31 |
+| **Phase 2** | 結論層: 攻撃モード推定 + extensions、トレンド三層化、per-domain 構造化、importance ranking、Calibration governance、Design W default-on | **完了 (2026-04-29)** — 結論層実装済、Design W default-on 達成。**⚠️ 完了根拠とされた「recall metrics 1.000」は後日 2 度にわたり無効と判明**(05-29: blanket-TP 退化 / 07-03: TL スケール反転)。下記「Calibration インシデント記録」参照。recall の連続性は 2026-07-04 の再スタート以降のみ有効 | 2026-07-31 |
 | **Phase 3** | UI と運用: Analyst Workbench (4 ペイン)、drill-down、Markdown/PDF export、analyst feedback ループ、ACLED+GDELT 自動突合 ([v2-ui.md](v2-ui.md) で詳細設計) | **完了 (2026-04-26)** — workbench / drill-down / Markdown export / feedback ledger / LLM augmentation drill-down section / default-on | 2026-09-15 |
 | **Phase 4** | v1 sunset: deprecation header → 90 日 → v1 撤去、theater adapter 削除 | **完了 (2026-04-29)** — `/api/threat_data` は v2 後継不能のため 2026-04-29 契約訂正で除外、`/api/scenario/<id>/breakdown` (本番 0 hits) を即時撤去。観察データ (14d match_rate=1.0000、residual access 自分自身のみ) が 90 日待機の根拠を充足したため早期完了 | 2026-12-15 |
 | **Phase 5** | **Operational Maturation**: AP1-AP4 自動化原則実装、Operational Observability、CONTROLS Tools Hub redesign、ATTENTION rules engine、LLM Feature Hub、HUD divergence fix (V/W/X/Y)、TRIAGE display modes (A-D)、Decision Layer (5 phases + F1-F4)、Autotune audit fix (Phases 0-F) | **完了 (2026-04-30)** — 当初計画外の運用層拡充。詳細は §0.1 | — (2026-04-29〜04-30) |
+
+### 0.0 Calibration インシデント記録 (2026-05-29 / 2026-07-03〜04)
+
+ground-truth 校正層は運用開始後 2 度壊れた。**recall/precision の時系列は 2026-07-04 以前と以後で比較不能**である。
+
+| # | 発覚日 | 欠陥 | 影響 | 修復 |
+|---|--------|------|------|------|
+| 1 | 2026-05-29 | `run_rss_etl` が全マッチを無条件 TRUE_POSITIVE 化(blanket-TP)。FN=0 で recall≡1.0 に固定 | recall gate が動かない数値を守っていた | graded 分類器 (`expected_tl_floor` + `label_for_threat_level`) へ全面置換、17,758 行 purge |
+| 2 | 2026-07-03 | **置換後の graded 分類器が TL スケールを反転**(TL は 1=CRITICAL…5=NORMAL の DEFCON 型なのに 5=最深刻として実装)。警戒 (TL1-3) を FALSE_NEGATIVE、平穏 (TL4-5) を TRUE_POSITIVE と採点 | ①auto ラベル約 30k 行が逆向き教師信号 ②`tl_threshold_calibrator` が凍結 evidence (fn=54, last label 05-29) を根拠に middle_east 閾値へ **−5% を 12 回連続適用**(tl1_total 9.0→4.863、ほぼ半減)③HUD RECALL/DRIFT・CI recall gate・per-conclusion calibration_status すべて汚染 | 2026-07-04 一括修復(下記) |
+
+**2026-07-04 修復内容**(commit 参照):
+
+1. **意味論の明示化**: `radar/conclusions/severity.py` 新設(severity = 6 − TL)。TL の順序比較は severity 空間経由を必須化。`tests/test_severity.py` が反転を CI で恒久検知(inversion sentinels)
+2. **分類器修正**: `ground_truth_etl.py` の `_is_high_severity_conclusion`(alert = TL≤3)/ `_is_quiet_threat_level`(quiet = TL5)/ `expected_severity_floor` + `label_for_threat_level`(severity 空間で採点)
+3. **関連性ゲート**: `rss_extractor.is_escalation_relevant()` — 災害・事故・国内犯罪の死者数を ground truth から除外(クマスプレー・台風混入の再発防止)。センシング経路 (bg_observer) には非適用(NP1 維持)
+4. **エピソード単位化**: 1 外部イベント = 1 trial。RSS ETL は (scenario, country, UTC day) エピソードで pre-event window の最良 TL を採点(tick 疑似反復 ~23k labels/30d を排除)。ACLED/GDELT ETL は (scenario, label, day) で day-cap
+5. **暴走ガード**: `tl_threshold_calibrator` に evidence 鮮度ゲート追加 — 前回適用より新しいラベルが無い限り再適用禁止(同一 evidence は最大 1 回しか閾値を動かせない)
+6. **データ修復**: `scripts/remediate_inverted_calibration.py` — auto ラベル全 purge(gzip export 保全)+ 汚染閾値オーバーライドを derive_tl デフォルトへ監査可能リセット。`scripts/apply_calibration_remediation.sh` がデプロイ後の一括実行を担う
+7. **運用**: `scripts/backup_radar_db.sh` 新設(named volume `ddos-radar_radar-data` は従来バックアップ皆無だった)
+
+**教訓**: (a) スケール方向のような意味論は型/テストで固定しない限り必ず反転事故が起きる。(b) 自動ラベルによる自己採点は、ラベル生成器のバグを自力検知できない — human anchor(人間ラベルの定常的最小量)が次の必須課題。(c) auto-tune は「evidence が更新されたか」を確認せずに繰り返し適用してはならない。
+
+**2026-07-04 後続修正**(同日、残タスク一括実施):
+
+| 項目 | 内容 |
+|------|------|
+| duty-cycle chronic 検知 | 連続 run 方式が見逃すフラッピング型の恒常的結論不可(attack_mode が tick の 20-30% で不可)を rolling window の不可時間比率で検知。`CHRONIC_DUTY_THRESHOLD`(0.20)/`CHRONIC_DUTY_WINDOW_DAYS`(14d) |
+| self_eval recall 統一 | HUD recall を per-conclusion calibration と同じ 30 日窓に統一し、`recall_meta` で auto/human ラベル内訳を開示。no-event ラベルの名義を `auto:acled`→`auto:horizon` に訂正 |
+| human anchor (AP3) | `/api/v2/human_anchor/queue` + HUD ANCHOR chip + ラベリングパネル。auto_fn_review / peak_severity / calm_anchor の 3 種を週次で人間ラベル対象に選定。人間の TP+URL は `confirmed_threats`(2023 年から休眠)へも追記され復活 |
+| **ADR-V2-008 修正: 書き込みゲート** | conclusions は「毎 tick 全件 append」から「**状態変化時 + heartbeat(既定 1h)のみ append**」へ(`V2_CONCLUSION_WRITE_ON_CHANGE`)。単一値タイプは型の最新行との比較、anomaly はバッチ集合シグネチャ比較。replay 意味論(latest-row-at-T)は不変、continuity 記録は毎 tick 継続。体積 ~20k 行/日 → 遷移+heartbeat のみ(推定 1/20〜1/50)。**retention 365d への引き上げは旧 bloat(per-tick 時代の ~1M 行)が 90d retention で洗い流れる 2026-10 以降に実施予定** |
+| DB 整理 | migration v54 で `conclusion_diff_log` / `shadow_eval_log` を drop。`llm_prompts` に retention(120d、conclusions+30d が下限)。`LLM_CALL_LOG_RETENTION_DAYS` のデッドコード解消 |
+| **背景シナリオ TL (NP4)** | lite モードも同一式+同一ヒステリシスで TL を導出(従来は TL=None で 4 シナリオ中 3 つが 2 ヶ月間無結論)。信頼度 ×0.6 割引 + `lite_tl_note` を metadata に付記 |
+| **TL 二重系統の統一 (AP4)** | threat_level/trend 結論の永続化を `compute_scenario_score` 内(bonus/hysteresis **適用前**)から scoring tick の最終 TL 確定後へ移動。従来は台帳が UI 表示より平穏側の生 TL を記録しており(7 日間で SEVERE 436 vs 82、CRITICAL 2 vs 0)、replay がアナリストの見た画面を再現できなかった |
+| **bg_observer 信号の保持バッファ化** | `drain_signals()`(consume-on-read キュー)が「TTL 30分」を虚構化し、実寿命 ≤1 tick に。5分サイクル×2分tickの位相エイリアシングで info ドメインが明滅し taiwan の TL が約2分毎に TL4↔TL5 反転、velocity ボーナスと anomaly 台帳も汚染。`active_signals()`(非消費・期限内保持・同一記事はスライディングTTLでupsert)へ置換。位相シミュレーションテストで再発を恒久検知 |
 
 ### 0.1 Phase 5: Operational Maturation 詳細 (2026-04-29 〜 2026-04-30)
 

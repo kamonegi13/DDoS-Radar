@@ -1251,11 +1251,11 @@ def _maybe_persist_tl_conclusion(state: "ScenarioState") -> None:
     if state.tl is None:
         return
     try:
-        from radar.conclusions import save_conclusion
+        from radar.conclusions.persistence import save_conclusion_gated
         from radar.conclusions.shadow_metrics import record_failure, record_success
         from radar.conclusions.threat_level import derive_threat_level
         c = derive_threat_level(_db, state)
-        save_conclusion(_db, c)
+        save_conclusion_gated(_db, c)
         record_success("threat_level")
     except Exception as exc:
         # Phase 1 shadow-write must NEVER break v1 scoring. Log and swallow.
@@ -1276,11 +1276,11 @@ def _maybe_persist_per_domain_conclusion(state: "ScenarioState") -> None:
     if not config.V2_CONCLUSION_LEDGER_ENABLED:
         return
     try:
-        from radar.conclusions import save_conclusion
+        from radar.conclusions.persistence import save_conclusion_gated
         from radar.conclusions.per_domain import derive_per_domain
         from radar.conclusions.shadow_metrics import record_success
         c = derive_per_domain(_db, state)
-        save_conclusion(_db, c)
+        save_conclusion_gated(_db, c)
         record_success("per_domain")
     except Exception as exc:
         log.exception("v2 per_domain conclusion persistence failed (non-fatal)")
@@ -1302,11 +1302,11 @@ def _maybe_persist_trend_conclusion(state: "ScenarioState") -> None:
     if not state.is_focused:
         return
     try:
-        from radar.conclusions import save_conclusion
+        from radar.conclusions.persistence import save_conclusion_gated
         from radar.conclusions.shadow_metrics import record_success
         from radar.conclusions.trend import derive_trend
         c = derive_trend(_db, state.scenario_id)
-        save_conclusion(_db, c)
+        save_conclusion_gated(_db, c)
         record_success("trend")
     except Exception as exc:
         log.exception("v2 trend conclusion persistence failed (non-fatal)")
@@ -1326,7 +1326,7 @@ def _maybe_persist_attack_mode_conclusion(state: "ScenarioState") -> None:
     if not config.V2_CONCLUSION_LEDGER_ENABLED:
         return
     try:
-        from radar.conclusions import save_conclusion
+        from radar.conclusions.persistence import save_conclusion_gated
         from radar.conclusions.attack_mode import derive_attack_mode
         from radar.conclusions.attack_mode_llm import augment_attack_mode_with_llm
         from radar.conclusions.shadow_metrics import record_success
@@ -1358,7 +1358,7 @@ def _maybe_persist_attack_mode_conclusion(state: "ScenarioState") -> None:
                     c = replace(c, metadata=md)
             except Exception:
                 pass  # NP3 — metadata enrichment never breaks save
-        save_conclusion(_db, c)
+        save_conclusion_gated(_db, c)
         record_success("attack_mode")
     except Exception as exc:
         log.exception("v2 attack_mode conclusion persistence failed (non-fatal)")
@@ -1382,15 +1382,29 @@ def _maybe_persist_anomaly_conclusions(state: "ScenarioState") -> None:
     if not config.V2_CONCLUSION_LEDGER_ENABLED:
         return
     try:
-        from radar.conclusions import derive_anomaly, save_conclusion
+        from radar.conclusions import derive_anomaly
+        from radar.conclusions.persistence import save_conclusions_batch_gated
         from radar.conclusions.shadow_metrics import record_success
-        for c in derive_anomaly(_db, state):
-            save_conclusion(_db, c)
+        batch = list(derive_anomaly(_db, state))
+        save_conclusions_batch_gated(_db, batch)
+        for _ in batch:
             record_success("anomaly")
     except Exception as exc:
         log.exception("v2 anomaly conclusion persistence failed (non-fatal)")
         from radar.conclusions.shadow_metrics import record_failure
         record_failure("anomaly", exc)
+
+
+def persist_tl_and_trend_conclusions(state: "ScenarioState") -> None:
+    """Persist THREAT_LEVEL then TREND for the FINAL analyst-facing TL.
+
+    Call AFTER scenario bonuses and hysteresis have been applied to
+    ``state.tl`` (routes/core.py scoring tick). Order matters: the trend
+    builder reads the freshly-written TL row. NP6/AP4: the ledger must
+    record the level the analyst actually saw, not the raw pre-governor
+    derivation (fixed 2026-07-04)."""
+    _maybe_persist_tl_conclusion(state)
+    _maybe_persist_trend_conclusion(state)
 
 
 def apply_hysteresis_to_tl(new_tl: Optional[int],
@@ -1522,7 +1536,12 @@ def compute_scenario_score(
     total_score = sum(domains.values()) + convergence_bonus
 
     scoring_mode = "full" if is_focused else "lite"
-    tl = derive_tl(total_score, active_domains, domains["physical"]) if is_focused else None
+    # NP4 (2026-07-04): background scenarios derive a TL too. Withholding
+    # it left 3 of 4 enabled scenarios with NO threat-level conclusion for
+    # two months — a direct NP4 violation. The lite TL uses the same
+    # formula on the lite score; derive_threat_level discounts its
+    # confidence and stamps a lite_tl_note so analysts can weigh it.
+    tl = derive_tl(total_score, active_domains, domains["physical"])
 
     state = ScenarioState(
         scenario_id=scenario.id,
@@ -1535,9 +1554,13 @@ def compute_scenario_score(
         tl=tl,
         contributions=deduped,
     )
-    _maybe_persist_tl_conclusion(state)
+    # THREAT_LEVEL + TREND persistence moved OUT of this function
+    # (2026-07-04): the scoring tick in routes/core.py applies scenario
+    # bonuses and de-escalation hysteresis AFTER this returns, so writing
+    # the TL here recorded a pre-governor level that diverged from what
+    # the UI showed (AP4 replay fidelity defect). The tick loop calls
+    # persist_tl_and_trend_conclusions(state) once the final TL is set.
     _maybe_persist_per_domain_conclusion(state)
-    _maybe_persist_trend_conclusion(state)
     _maybe_persist_attack_mode_conclusion(state)
     _maybe_persist_anomaly_conclusions(state)
     # v1-vs-v2 diff sampler RETIRED 2026-05-29: it shadow-wrote conclusion_diff_log
