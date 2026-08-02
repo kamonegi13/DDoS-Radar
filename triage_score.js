@@ -71,14 +71,14 @@
         const why = [];
 
         if (!conclusion || !conclusion.id) {
-            return { score: 0, components: { novelty: 0, confDelta: 0, blindness: 0 }, why: ['no conclusion id'] };
+            return { score: 0, components: { novelty: 0, confDelta: 0, blindness: 0 }, why: ['conclusion id なし'] };
         }
         if (conclusion.conclusion_unavailable_reason) {
-            return { score: 0, components: { novelty: 0, confDelta: 0, blindness: 0 }, why: ['conclusion unavailable'] };
+            return { score: 0, components: { novelty: 0, confDelta: 0, blindness: 0 }, why: ['結論不可'] };
         }
         if (analystState && analystState.ackedIds && analystState.ackedIds.has &&
                 analystState.ackedIds.has(conclusion.id)) {
-            return { score: 0, components: { novelty: 0, confDelta: 0, blindness: 0 }, why: ['acknowledged'] };
+            return { score: 0, components: { novelty: 0, confDelta: 0, blindness: 0 }, why: ['確認済み'] };
         }
 
         // novelty: 1 for brand-new; ramps to 0 over NOVELTY_HORIZON_SEC.
@@ -87,12 +87,12 @@
         let novelty;
         if (lastFireTs == null) {
             novelty = 1.0;
-            why.push('novel: first fire in 48h');
+            why.push('novelty: 48h 以内の発火履歴なし');
         } else {
             const age = Math.max(0, ts - lastFireTs);
             novelty = _clamp01(1 - age / NOVELTY_HORIZON_SEC);
             const ageH = (age / 3600).toFixed(1);
-            why.push(`novelty ${novelty.toFixed(2)} (last fire ${ageH}h ago)`);
+            why.push(`novelty ${novelty.toFixed(2)}（前回発火 ${ageH}h 前）`);
         }
 
         // confidence_delta
@@ -102,11 +102,11 @@
         let confDelta;
         if (prevConf == null) {
             confDelta = _clamp01(conf);
-            why.push(`confidence ${conf.toFixed(2)} (no prior)`);
+            why.push(`確信度 ${conf.toFixed(2)}（前回値なし）`);
         } else {
             confDelta = _clamp01(Math.abs(conf - prevConf));
             const arrow = conf >= prevConf ? '↑' : '↓';
-            why.push(`Δconf ${confDelta.toFixed(2)} ${arrow} (was ${prevConf.toFixed(2)})`);
+            why.push(`Δconf ${confDelta.toFixed(2)} ${arrow}（前回 ${prevConf.toFixed(2)}）`);
         }
 
         // analyst_blindness
@@ -115,12 +115,12 @@
         let blindness;
         if (lastViewTs == null) {
             blindness = 1.0;
-            why.push('not viewed in 6h+');
+            why.push('6h 以上未確認');
         } else {
             const since = Math.max(0, ts - lastViewTs);
             blindness = _clamp01(since / BLINDNESS_HORIZON_SEC);
             const sinceH = (since / 3600).toFixed(1);
-            why.push(`blindness ${blindness.toFixed(2)} (last view ${sinceH}h ago)`);
+            why.push(`blindness ${blindness.toFixed(2)}（最終確認 ${sinceH}h 前）`);
         }
 
         const score = _clamp01(novelty * confDelta * blindness);

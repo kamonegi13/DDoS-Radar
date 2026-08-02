@@ -31,7 +31,7 @@
         console.warn('[login-init] token validation failed:', err);
         var errEl = document.getElementById('login-error');
         if (errEl) {
-          errEl.textContent = 'Could not verify saved session — check connection or sign in again.';
+          errEl.textContent = '保存済みセッションを検証できませんでした — 接続を確認するか、再度サインインしてください。';
           errEl.style.display = '';
         }
       });

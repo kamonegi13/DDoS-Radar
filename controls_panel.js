@@ -413,7 +413,7 @@
         return '<div class="cp-suggestion">'
             + '<span class="cp-sug-icon">💡</span>'
             + '<span class="cp-sug-text">'
-            + _escHtml(s.message || ('Suggested threshold for ' + s.rule_id))
+            + _escHtml(s.message || (s.rule_id + ' の推奨閾値'))
             + '</span>'
             + '<button class="cp-btn cp-btn-suggest" onclick="window._controlsApplySuggestion(\'' + s.rule_id + '\')">'
             +   _escHtml(_t('controls.btn.apply_threshold', { value: s.suggested })) + '</button>'
@@ -560,9 +560,9 @@
             // analyst knows to retry.
             console.warn('[Controls] snooze POST failed for', ruleId, e);
             if (typeof window.showToast === 'function') {
-                window.showToast('Snooze could not be saved to server — will reappear on refresh.');
+                window.showToast('スヌーズをサーバーに保存できませんでした — 再読み込み時に再表示されます。');
             } else {
-                alert('Snooze could not be saved to server — will reappear on refresh.');
+                alert('スヌーズをサーバーに保存できませんでした — 再読み込み時に再表示されます。');
             }
             // Roll back the optimistic local snooze so render() reflects truth.
             delete _snoozedUntil[ruleId];
@@ -574,7 +574,7 @@
         const sug = (_statusCache.suggestions || []).find(s => s.rule_id === ruleId);
         if (!sug) return;
         const ok = window.confirm(
-            'Apply suggested threshold ' + sug.suggested + ' for ' + ruleId + '?\n\n'
+            ruleId + ' に推奨閾値 ' + sug.suggested + ' を適用しますか？\n\n'
             + (sug.message || ''));
         if (!ok) return;
         try {
@@ -584,7 +584,7 @@
             });
             await refreshStatus();
         } catch (e) {
-            window.alert('Apply failed: ' + e);
+            window.alert('適用に失敗しました: ' + e);
         }
     };
 

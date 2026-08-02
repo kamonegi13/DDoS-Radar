@@ -25,7 +25,7 @@ const NOW = 1_800_000_000;
 
 test('narrateTL handles null conclusion gracefully', () => {
     const out = narrateTL(null);
-    assert.ok(/No threat_level/.test(out));
+    assert.ok(/threat_level の結論なし/.test(out));
 });
 
 test('narrateTL surfaces unavailable_reason when present', () => {
@@ -36,10 +36,10 @@ test('narrateTL surfaces unavailable_reason when present', () => {
         metadata: { reason_detail: 'derive_tl returned None' },
     };
     const out = narrateTL(c);
-    assert.ok(/unavailable/.test(out));
+    assert.ok(/結論不可/.test(out));
     assert.ok(/insufficient_data/.test(out));
     assert.ok(/derive_tl/.test(out));
-    assert.ok(/Tool conclusion/.test(out));
+    assert.ok(/本ツールの結論/.test(out));
 });
 
 test('narrateTL renders TL number, score, conf, active domains', () => {
@@ -55,11 +55,11 @@ test('narrateTL renders TL number, score, conf, active domains', () => {
         threshold_ref: { tl1: 9, tl2: 6, tl3: 4, tl4: 2 },
     };
     const out = narrateTL(c, { now: NOW });
-    assert.ok(/Threat Level: 3/.test(out));
-    assert.ok(/score 4\.20/.test(out));
-    assert.ok(/active domains 2/.test(out));
-    assert.ok(/conf 0\.62/.test(out));
-    assert.ok(/convergence \+0\.50/.test(out));
+    assert.ok(/脅威レベル: 3/.test(out));
+    assert.ok(/スコア 4\.20/.test(out));
+    assert.ok(/アクティブドメイン 2/.test(out));
+    assert.ok(/確信度 0\.62/.test(out));
+    assert.ok(/収斂 \+0\.50/.test(out));
 });
 
 test('narrateTL classifies which TL floors are crossed', () => {
@@ -71,8 +71,8 @@ test('narrateTL classifies which TL floors are crossed', () => {
         threshold_ref: { tl1: 9, tl2: 6, tl3: 4, tl4: 2 },
     };
     const out = narrateTL(c, { now: NOW });
-    assert.ok(/Crossed:.*TL2/.test(out));
-    assert.ok(/Next:.*TL1/.test(out));
+    assert.ok(/超過閾値:.*TL2/.test(out));
+    assert.ok(/次の閾値:.*TL1/.test(out));
 });
 
 test('narrateTL includes calibration when present', () => {
@@ -97,7 +97,7 @@ test('narrateTL renders last analyst view age', () => {
         threshold_ref: {},
     };
     const out = narrateTL(c, { now: NOW, lastViewTs: NOW - 7200 });
-    assert.ok(/Last analyst view: 2\.0h ago/.test(out));
+    assert.ok(/アナリスト最終確認: 2\.0h 前/.test(out));
 });
 
 test('narrateTL is deterministic (same input → same output)', () => {
@@ -167,9 +167,9 @@ test('narrateTL renders falsification block when metadata present', () => {
         },
     };
     const out = narrateTL(c, { now: NOW });
-    assert.ok(/What would change this:/.test(out), 'header missing');
-    assert.ok(/Rise to TL2/.test(out), 'rise-to-higher missing');
-    assert.ok(/Drop to TL4/.test(out), 'drop-to-lower missing');
+    assert.ok(/この結論が変わる条件:/.test(out), 'header missing');
+    assert.ok(/深刻度が TL2 へ上昇する条件/.test(out), 'rise-to-higher missing');
+    assert.ok(/深刻度が TL4 へ低下する条件/.test(out), 'drop-to-lower missing');
     assert.ok(/ct_log/.test(out), 'top signal sensitivity missing');
 });
 
@@ -185,7 +185,7 @@ test('narrateTL omits falsification when opts.includeFalsification=false', () =>
         },
     };
     const out = narrateTL(c, { now: NOW, includeFalsification: false });
-    assert.ok(!/What would change this/.test(out));
+    assert.ok(!/この結論が変わる条件/.test(out));
 });
 
 test('narrateTL surfaces "Already at TL1" when no higher rung exists', () => {
@@ -208,8 +208,8 @@ test('narrateTL surfaces "Already at TL1" when no higher rung exists', () => {
         },
     };
     const out = narrateTL(c, { now: NOW });
-    assert.ok(/Already at TL1/.test(out));
-    assert.ok(/Drop to TL2/.test(out));
+    assert.ok(/既に TL1/.test(out));
+    assert.ok(/深刻度が TL2 へ低下する条件/.test(out));
 });
 
 test('narrateTL skips falsification block when metadata.falsification is empty {}', () => {
@@ -218,20 +218,20 @@ test('narrateTL skips falsification block when metadata.falsification is empty {
         metadata: { score: 4.5, falsification: {} },
     };
     const out = narrateTL(c, { now: NOW });
-    assert.ok(!/What would change this/.test(out));
+    assert.ok(!/この結論が変わる条件/.test(out));
 });
 
 // ── narrateDomain ─────────────────────────────────────────────────────────
 
 test('narrateDomain handles null/empty', () => {
-    assert.ok(/No per_domain/.test(narrateDomain(null, 'cyber')));
-    assert.ok(/No per_domain/.test(narrateDomain({}, '')));
+    assert.ok(/per_domain の結論なし/.test(narrateDomain(null, 'cyber')));
+    assert.ok(/per_domain の結論なし/.test(narrateDomain({}, '')));
 });
 
 test('narrateDomain surfaces unavailable_reason', () => {
     const c = { conclusion_unavailable_reason: 'insufficient_data' };
     const out = narrateDomain(c, 'cyber');
-    assert.ok(/CYBER: unavailable/.test(out));
+    assert.ok(/CYBER: 結論不可/.test(out));
 });
 
 test('narrateDomain parses kv state and includes score', () => {
@@ -243,11 +243,11 @@ test('narrateDomain parses kv state and includes score', () => {
     };
     const cyberOut = narrateDomain(c, 'cyber');
     assert.ok(/CYBER: STABLE \(1\.20\)/.test(cyberOut));
-    assert.ok(/Below ELEVATED floor \(1\.50\)/.test(cyberOut));
+    assert.ok(/ELEVATED 下限（1\.50）未満/.test(cyberOut));
 
     const physOut = narrateDomain(c, 'physical');
     assert.ok(/PHYSICAL: ACTIVE \(3\.50\)/.test(physOut));
-    assert.ok(/At\/above ACTIVE/.test(physOut));
+    assert.ok(/ACTIVE（≥2\.50）以上/.test(physOut));
 });
 
 test('narrateDomain falls back to INSUFFICIENT_SIGNAL when domain absent in state', () => {
@@ -277,7 +277,7 @@ test('narrateDomain lists top 2 contributing signals from rationale_matrix', () 
         threshold_ref: { elevated_floor: 1.5, active_floor: 2.5 },
     };
     const out = narrateDomain(c, 'cyber');
-    assert.ok(/Top contributors/.test(out));
+    assert.ok(/主な寄与:/.test(out));
     assert.ok(/apt_intel 1\.50/.test(out));
     assert.ok(/bgp_anomaly 1\.00/.test(out));
     assert.ok(!/ct_log/.test(out), 'should cap at 2 contributors');

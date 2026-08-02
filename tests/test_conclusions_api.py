@@ -297,9 +297,9 @@ def test_md_export_renders_each_saved_conclusion(client, auth_headers):
 
     r = client.get(f"/api/v2/scenarios/{sid}/conclusions.md", headers=auth_headers)
     body = r.get_data(as_text=True)
-    assert "# DDoS-Radar Scenario Report" in body
-    assert "## Threat Level" in body
-    assert "## Trend" in body
+    assert "# DDoS-Radar シナリオレポート" in body
+    assert "## 脅威レベル" in body
+    assert "## トレンド" in body
     # NP7 disclaimer present as blockquote.
     assert f"> {config.V2_NP7_DISCLAIMER}" in body
 
@@ -309,7 +309,7 @@ def test_md_export_returns_placeholder_for_empty_scenario(client, auth_headers):
                    headers=auth_headers)
     assert r.status_code == 200
     body = r.get_data(as_text=True)
-    assert "_No conclusions available for this scenario yet._" in body
+    assert "_このシナリオにはまだ結論がありません。_" in body
     # Disclaimer still required when nothing is reported.
     assert f"> {config.V2_NP7_DISCLAIMER}" in body
 
@@ -342,7 +342,7 @@ def test_md_export_includes_audit_trace_when_requested(client, auth_headers,
         headers=auth_headers,
     )
     body = r.get_data(as_text=True)
-    assert "<details><summary>LLM prompt (full text)</summary>" in body
+    assert "<details><summary>LLM プロンプト（全文）</summary>" in body
     assert "please analyze md export" in body
 
 
