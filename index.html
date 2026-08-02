@@ -2344,7 +2344,7 @@
             <li><span class="code-block">llm_intel_signals</span> — confirmed LLM intel 信号の tick あたり drop。</li>
             <li><span class="code-block">bg_observer_drain</span> — bg_observer キュー drain 失敗。握り潰された例外は queued signal を永久に失っていました。</li>
             <li><span class="code-block">auto_judge_override_trail</span> — auto-judge 上書き時の台帳 DB write 失敗。</li>
-            <li><b>attention metric collection errors</b> — attention メトリック収集器の bare-except サイト。1 つの collector を壊す DB スキーマ変更が、ルールを silent に無効化する代わりにカウンタを増やします。</li>
+            <li><span class="code-block">attention_collection_errors</span> — attention メトリック収集器の bare-except サイト。1 つの collector を壊す DB スキーマ変更が、ルールを silent に無効化する代わりにカウンタを増やします。</li>
         </ul>
         <p>チップのバンド（プロセス起動以来の累計）:</p>
         <ul>
@@ -2591,7 +2591,7 @@
                     <li><b>Inspect top / Acknowledge top</b>: top-1 ランクアイテムの既存 al-btn-primary / al-btn フローへのショートカット。</li>
                     <li><b>Snooze</b> 30m / 2h / 4h / カスタム（1〜1440 分）。<span class="code-block">decisions</span> に <span class="code-block">expires_at</span> 付きで記録。TRIAGE 表示層は <span class="code-block">is_active(snooze)</span> と critical イベントチェックを組合せて UI 抑制を判定。<b>critical イベントは snooze をバイパス</b> — 台帳は事実を記録、クライアントが <span class="code-block">hasCritical=true</span> 時に抑制を拒否。</li>
                     <li><b>Visibility</b>: per-user always-visible モード（dormant 抑制）。同期読込用に <span class="code-block">localStorage.triage_always_visible</span> にミラー。</li>
-                    <li><b>Hide until next fire</b>: 24 時間 TTL の dismiss。期限自動解除、別 fingerprint の new fire で即時再表示。</li>
+                    <li><b>次の発火まで非表示</b>: 24 時間 TTL の dismiss。期限自動解除、別 fingerprint の new fire で即時再表示。</li>
                 </ul>
             </li>
             <li><b>HUD snooze indicator</b>: snooze アクティブ中は HUD TL group 内に <span class="code-block">⏸ TRIAGE muted Nm</span> chip を常時表示。クリックで解除。muted 中であることを analyst が見落とせない設計。</li>
