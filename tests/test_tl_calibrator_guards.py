@@ -80,6 +80,7 @@ def test_loosening_path_unaffected_by_guard(monkeypatch):
     _stub_metrics(monkeypatch, {
         "tp": 50, "fp": 5, "fn": 50, "tn": 100,
         "total": 205, "recall": 0.5, "precision": 0.91,
+        "last_fn_at": 2_000_000.0,
     })
     monkeypatch.setenv("TL_CALIB_MIN_FEEDBACK_PER_CELL", "10")
     monkeypatch.setenv("AUTO_TUNE_MIN_SAMPLE_N", "10")
@@ -102,6 +103,7 @@ def test_precision_min_floor_env_override(monkeypatch):
     _stub_metrics(monkeypatch, {
         "tp": 100, "fp": 400, "fn": 0, "tn": 0,
         "total": 500, "recall": 1.0, "precision": 0.20,
+        "last_fp_at": 2_000_000.0,
     })
     # Default: 0.10, so floor+0.20=0.30. precision=0.20 < 0.30 → degenerate.
     from radar.calibration.tl_threshold_calibrator import calibrate_scenario
@@ -143,7 +145,7 @@ def test_freshness_gate_blocks_reapplying_stale_evidence(monkeypatch):
     _stub_metrics(monkeypatch, {
         "tp": 213, "fp": 25, "fn": 54, "tn": 0,
         "total": 292, "recall": 0.798, "precision": 0.895,
-        "last_label_at": 1_000_000.0,
+        "last_label_at": 1_000_000.0, "last_fn_at": 1_000_000.0,
     })
     # Calibrator already applied a change AFTER the newest label.
     monkeypatch.setattr(tc, "_last_applied_at", lambda _sid: 1_000_500.0)
@@ -158,7 +160,7 @@ def test_freshness_gate_allows_action_on_new_evidence(monkeypatch):
     _stub_metrics(monkeypatch, {
         "tp": 20, "fp": 2, "fn": 30, "tn": 0,
         "total": 52, "recall": 0.40, "precision": 0.90,
-        "last_label_at": 2_000_000.0,
+        "last_label_at": 2_000_000.0, "last_fn_at": 2_000_000.0,
     })
     monkeypatch.setattr(tc, "_last_applied_at", lambda _sid: 1_000_000.0)
     monkeypatch.setenv("TL_CALIB_MIN_FEEDBACK_PER_CELL", "10")
@@ -178,7 +180,7 @@ def test_freshness_gate_permissive_when_no_prior_change(monkeypatch):
     _stub_metrics(monkeypatch, {
         "tp": 20, "fp": 2, "fn": 30, "tn": 0,
         "total": 52, "recall": 0.40, "precision": 0.90,
-        "last_label_at": 2_000_000.0,
+        "last_label_at": 2_000_000.0, "last_fn_at": 2_000_000.0,
     })
     monkeypatch.setattr(tc, "_last_applied_at", lambda _sid: None)
     monkeypatch.setenv("TL_CALIB_MIN_FEEDBACK_PER_CELL", "10")
@@ -188,3 +190,61 @@ def test_freshness_gate_permissive_when_no_prior_change(monkeypatch):
                         lambda: False)
     result = tc.calibrate_scenario("test_first_calibration")
     assert result.proposals_submitted > 0
+
+
+# ── direction-keyed freshness (2026-08-02, korea loosening incident) ──────
+#
+# Production audit 2026-08-02: korean_peninsula received four consecutive
+# -5% loosening proposals (07-21/24/27/30, cumulative -18.5%) all motivated
+# by the SAME contaminated FALSE_NEGATIVE set (cross-scenario attributed
+# articles, fn=11..15). The any-new-label gate kept opening because
+# TRUE_POSITIVE labels arrive weekly. The gate must key on the label class
+# that motivates the direction: 'looser' needs a NEW FALSE_NEGATIVE,
+# 'tighter' needs a NEW FALSE_POSITIVE.
+
+
+def test_looser_blocked_when_only_non_fn_labels_are_new(monkeypatch):
+    from radar.calibration import tl_threshold_calibrator as tc
+    _stub_metrics(monkeypatch, {
+        "tp": 30, "fp": 0, "fn": 15, "tn": 7,
+        "total": 52, "recall": 0.667, "precision": 1.0,
+        # Fresh TPs opened the old gate; the FN set is frozen.
+        "last_label_at": 2_000_000.0,
+        "last_fn_at": 1_000_000.0, "last_fp_at": None,
+    })
+    monkeypatch.setattr(tc, "_last_applied_at", lambda _sid: 1_500_000.0)
+    result = tc.calibrate_scenario("test_frozen_fn_cell")
+    assert result.proposals_submitted == 0
+    assert "no_new_evidence" in result.rejection_reasons
+
+
+def test_looser_blocked_when_no_fn_labels_exist(monkeypatch):
+    """recall can read 0.0 with tp=0 fn=0 (only FP/TN labels). Loosening
+    with zero demonstrated misses would be evidence-free."""
+    from radar.calibration import tl_threshold_calibrator as tc
+    _stub_metrics(monkeypatch, {
+        "tp": 0, "fp": 30, "fn": 0, "tn": 20,
+        "total": 50, "recall": 0.0, "precision": 0.0,
+        "last_label_at": 2_000_000.0,
+        "last_fn_at": None, "last_fp_at": 2_000_000.0,
+    })
+    monkeypatch.setattr(tc, "_last_applied_at", lambda _sid: None)
+    result = tc.calibrate_scenario("test_no_fn_evidence")
+    assert result.proposals_submitted == 0
+    assert "no_motivating_evidence" in result.rejection_reasons
+
+
+def test_tighter_keyed_on_fp_recency(monkeypatch):
+    from radar.calibration import tl_threshold_calibrator as tc
+    _stub_metrics(monkeypatch, {
+        "tp": 40, "fp": 160, "fn": 0, "tn": 10,
+        "total": 210, "recall": 1.0, "precision": 0.20,
+        # New TN/TP labels arrived, but no new FALSE_POSITIVE since the
+        # last tighten — the motivating class is stale.
+        "last_label_at": 2_000_000.0,
+        "last_fn_at": None, "last_fp_at": 1_000_000.0,
+    })
+    monkeypatch.setattr(tc, "_last_applied_at", lambda _sid: 1_500_000.0)
+    result = tc.calibrate_scenario("test_stale_fp_cell")
+    assert result.proposals_submitted == 0
+    assert "no_new_evidence" in result.rejection_reasons

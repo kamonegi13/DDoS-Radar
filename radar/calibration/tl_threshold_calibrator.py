@@ -85,13 +85,15 @@ def _read_recall_for_scenario(scenario_id: str) -> Optional[dict]:
     below threshold (NP3: skip rather than tune wrongly)."""
     conn = db._get_conn()  # noqa: SLF001
     rows = conn.execute(
-        "SELECT af.label, COUNT(*) FROM analyst_feedback af "
+        "SELECT af.label, COUNT(*), MAX(af.observed_at) "
+        "FROM analyst_feedback af "
         "JOIN conclusions c ON af.conclusion_id = c.id "
         "WHERE c.scenario_id = ? AND c.conclusion_type = 'threat_level' "
         "GROUP BY af.label",
         (scenario_id,),
     ).fetchall()
     counts = {row[0]: row[1] for row in rows}
+    latest = {row[0]: row[2] for row in rows}
     tp = counts.get("TRUE_POSITIVE", 0)
     fp = counts.get("FALSE_POSITIVE", 0)
     fn = counts.get("FALSE_NEGATIVE", 0)
@@ -103,18 +105,20 @@ def _read_recall_for_scenario(scenario_id: str) -> Optional[dict]:
             scenario_id, total, _min_feedback_per_cell(),
         )
         return None
-    last_label_row = conn.execute(
-        "SELECT MAX(af.observed_at) FROM analyst_feedback af "
-        "JOIN conclusions c ON af.conclusion_id = c.id "
-        "WHERE c.scenario_id = ? AND c.conclusion_type = 'threat_level'",
-        (scenario_id,),
-    ).fetchone()
     recall = tp / max(1, tp + fn)
     precision = tp / max(1, tp + fp)
     return {
         "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "total": total, "recall": recall, "precision": precision,
-        "last_label_at": last_label_row[0] if last_label_row else None,
+        "last_label_at": max(
+            (v for v in latest.values() if v is not None), default=None,
+        ),
+        # Per-class recency for the direction-keyed freshness gate:
+        # 'looser' must be motivated by a NEW miss, 'tighter' by a NEW
+        # false alarm — arrivals of other label classes must not reopen
+        # the gate (2026-08-02 korea loosening incident).
+        "last_fn_at": latest.get("FALSE_NEGATIVE"),
+        "last_fp_at": latest.get("FALSE_POSITIVE"),
     }
 
 
@@ -194,29 +198,6 @@ def calibrate_scenario(scenario_id: str) -> CalibrationResult:
             rejection_reasons={"insufficient_feedback": 1},
         )
 
-    # Evidence-freshness gate (2026-07-04, runaway-loop fix). Production
-    # audit found 12 consecutive -5% loosening passes on middle_east
-    # (05-30 … 07-02) all justified by the SAME frozen label set (fn=54,
-    # last label 2026-05-29): the all-time aggregate above never changes,
-    # so each pass re-applies the identical signal. Require at least one
-    # label NEWER than this calibrator's own last applied change — one
-    # evidence state may justify at most one adjustment.
-    last_label_at = metrics.get("last_label_at")
-    if last_label_at is not None:
-        last_applied = _last_applied_at(scenario_id)
-        if last_applied is not None and last_label_at <= last_applied:
-            log.info(
-                "tl_calibrator: %s no labels newer than last applied "
-                "change (label=%.0f <= applied=%.0f) — refusing to "
-                "re-apply the same evidence",
-                scenario_id, last_label_at, last_applied,
-            )
-            return CalibrationResult(
-                scenario_id=scenario_id, proposals_submitted=0,
-                proposals_accepted=0, proposals_rejected=0,
-                rejection_reasons={"no_new_evidence": 1},
-            )
-
     direction: Optional[str]
     # Phase 2 fix (2026-04-30 PM, problem 50): track WHY direction is
     # None so analysts can distinguish "genuinely no action" from
@@ -267,6 +248,48 @@ def calibrate_scenario(scenario_id: str) -> CalibrationResult:
             scenario_id=scenario_id, proposals_submitted=0,
             proposals_accepted=0, proposals_rejected=0,
             rejection_reasons={no_action_reason: 1},
+        )
+
+    # Evidence-freshness gate, keyed to the direction's motivating label
+    # class. History of this gate:
+    #   * 2026-07-04 (runaway-loop fix): 12 consecutive -5% loosenings on
+    #     middle_east were justified by the SAME frozen label set — the
+    #     gate then required ANY label newer than the last applied change.
+    #   * 2026-08-02 (korea loosening incident): that any-label form kept
+    #     reopening because TRUE_POSITIVEs arrive weekly while the
+    #     motivating FALSE_NEGATIVE set stayed frozen — four more -5%
+    #     loosenings from the same contaminated FNs. The gate now demands
+    #     a new label OF THE CLASS that motivates the move: a new miss to
+    #     loosen, a new false alarm to tighten. One motivating-evidence
+    #     state may justify at most one adjustment.
+    motivating_at = (
+        metrics.get("last_fn_at") if direction == "looser"
+        else metrics.get("last_fp_at")
+    )
+    if motivating_at is None:
+        log.info(
+            "tl_calibrator: %s direction=%s but no %s labels exist — "
+            "refusing an evidence-free adjustment",
+            scenario_id, direction,
+            "FALSE_NEGATIVE" if direction == "looser" else "FALSE_POSITIVE",
+        )
+        return CalibrationResult(
+            scenario_id=scenario_id, proposals_submitted=0,
+            proposals_accepted=0, proposals_rejected=0,
+            rejection_reasons={"no_motivating_evidence": 1},
+        )
+    last_applied = _last_applied_at(scenario_id)
+    if last_applied is not None and motivating_at <= last_applied:
+        log.info(
+            "tl_calibrator: %s direction=%s but newest motivating label "
+            "(%.0f) predates the last applied change (%.0f) — refusing "
+            "to re-apply the same evidence",
+            scenario_id, direction, motivating_at, last_applied,
+        )
+        return CalibrationResult(
+            scenario_id=scenario_id, proposals_submitted=0,
+            proposals_accepted=0, proposals_rejected=0,
+            rejection_reasons={"no_new_evidence": 1},
         )
 
     # Read current threshold values from threshold_history (or fall
