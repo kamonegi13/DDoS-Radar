@@ -1,5 +1,5 @@
 /**
- * DDoS-Radar i18n — UI string dictionary (Japanese-only as of 2026-08-02)
+ * Noroshi i18n — UI string dictionary (Japanese-only as of 2026-08-02)
  *
  * Policy: the UI is Japanese-only; there is no language switch. This stays
  * a keyed table rather than inline literals so the CI audit

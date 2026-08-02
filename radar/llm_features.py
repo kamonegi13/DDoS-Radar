@@ -2,7 +2,7 @@
 
 Background
 ----------
-LLM-driven features in DDoS-Radar accumulated organically and ended up
+LLM-driven features in Noroshi accumulated organically and ended up
 controlled through 8+ independent env flags (LLM_ENABLED,
 LLM_AUTO_JUDGE_SHADOW, LLM_AUTO_JUDGE_RECHECK,
 V2_ATTACK_MODE_LLM_AUGMENT_ENABLED, G3B_LLM_ENABLED, G3B_SHADOW_ENABLED,

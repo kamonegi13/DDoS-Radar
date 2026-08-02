@@ -1,6 +1,6 @@
 # Panel Chrome Contract
 
-> Floating & dockable panel rules for DDoS-Radar frontend.
+> Floating & dockable panel rules for Noroshi frontend.
 > Last updated: 2026-04-24
 
 ## Why this exists

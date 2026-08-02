@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """One-shot remediation for the 2026-07-03 TL-scale-inversion incident.
 
-Run INSIDE the ddos-radar container AFTER deploying the fixed image:
+Run INSIDE the noroshi container AFTER deploying the fixed image:
 
-    docker exec ddos-radar python3 scripts/remediate_inverted_calibration.py
+    docker exec noroshi python3 scripts/remediate_inverted_calibration.py
 
 What it does (idempotent; safe to re-run):
 

@@ -297,7 +297,7 @@ def test_md_export_renders_each_saved_conclusion(client, auth_headers):
 
     r = client.get(f"/api/v2/scenarios/{sid}/conclusions.md", headers=auth_headers)
     body = r.get_data(as_text=True)
-    assert "# DDoS-Radar シナリオレポート" in body
+    assert "# Noroshi シナリオレポート" in body
     assert "## 脅威レベル" in body
     assert "## トレンド" in body
     # NP7 disclaimer present as blockquote.

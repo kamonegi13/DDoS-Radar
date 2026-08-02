@@ -18,7 +18,7 @@ Configuration via environment variables:
                             (default: 300).
   NOTIFY_ENABLED          — "false" disables all notifications.
   RADAR_PUBLIC_URL        — Base URL the analyst uses to reach the
-                            DDoS-Radar UI. When set, notifications
+                            Noroshi UI. When set, notifications
                             embed a deep link to the affected scenario.
                             Example: http://192.168.107.1:8000
 
@@ -195,7 +195,7 @@ def _send_discord(title: str, text: str, severity: str,
             for f in fields[:25]  # Discord embed field cap
         ]
     payload = {
-        "username": "DDoS-Radar",
+        "username": "Noroshi",
         "embeds": [embed],
     }
     resp = requests.post(target, json=payload, timeout=10)
@@ -232,7 +232,7 @@ def _send_teams(title: str, text: str, severity: str,
     if url:
         card["potentialAction"] = [{
             "@type": "OpenUri",
-            "name": "Open in DDoS-Radar",
+            "name": "Open in Noroshi",
             "targets": [{"os": "default", "uri": url}],
         }]
     resp = requests.post(target, json=card, timeout=10)
@@ -295,7 +295,7 @@ def _dispatch(event_type: str, title: str, text: str, *,
     ``severity`` drives color, emoji, and (in future) digest routing.
     ``fields`` is a list of ``{name, value, inline?}`` dicts that each
     channel renders into its native field equivalent.
-    ``url`` is the deep link back into the DDoS-Radar UI (when
+    ``url`` is the deep link back into the Noroshi UI (when
     ``RADAR_PUBLIC_URL`` is configured by the caller).
     ``data`` is the raw event payload forwarded to the generic webhook.
     """

@@ -9,7 +9,7 @@ removal should be a focused 1-2 hour execution, not a discovery exercise.
 1. Confirm today's date is on or after 2026-07-26 UTC (the contract date).
 2. Run the pre-flight gate (Appendix bottom of this file):
    ```bash
-   docker exec ddos-radar python /app/scripts/list_v1_routes.py --check-stale --max-7d-hits 5
+   docker exec noroshi python /app/scripts/list_v1_routes.py --check-stale --max-7d-hits 5
    ```
    exit 0 → proceed; exit 1 → STOP and read the residual-traffic block in §6.
 3. Execute the 3 commits in §7 sequentially. Each one is mechanical
@@ -65,7 +65,7 @@ conclusions endpoint is a genuine successor).
 **Pre-flight gate** (run on sunset day before any removal):
 
 ```bash
-docker exec ddos-radar python /app/scripts/list_v1_routes.py --check-stale --max-7d-hits 5
+docker exec noroshi python /app/scripts/list_v1_routes.py --check-stale --max-7d-hits 5
 # exit 0 → safe to proceed; exit 1 → abort, residual traffic still hitting v1
 ```
 
@@ -179,7 +179,7 @@ that need to be retargeted to the v2 successor:
 
 ```bash
 # Find any test still hitting /api/threat_data or breakdown:
-grep -l "/api/threat_data\|/api/scenario.*breakdown" /Users/juzo1192/git/DDoS-Radar/test_*.py
+grep -l "/api/threat_data\|/api/scenario.*breakdown" /Users/juzo1192/git/Noroshi/test_*.py
 ```
 
 At inventory time: only `test_v1_sunset_headers.py` references these (and is
@@ -407,16 +407,16 @@ sequentially:
 
 ```bash
 # 1. Telemetry gate (must exit 0)
-docker exec ddos-radar python /app/scripts/list_v1_routes.py --check-stale --max-7d-hits 5
+docker exec noroshi python /app/scripts/list_v1_routes.py --check-stale --max-7d-hits 5
 
 # 2. Confirm no test still references /api/threat_data outside the to-be-deleted test
-grep -l "/api/threat_data\|/api/scenario.*breakdown" /Users/juzo1192/git/DDoS-Radar/test_*.py
+grep -l "/api/threat_data\|/api/scenario.*breakdown" /Users/juzo1192/git/Noroshi/test_*.py
 
 # 3. Confirm frontend has no remaining v1 fetch
-grep -n "/api/threat_data\b" /Users/juzo1192/git/DDoS-Radar/radar.js /Users/juzo1192/git/DDoS-Radar/index.html
+grep -n "/api/threat_data\b" /Users/juzo1192/git/Noroshi/radar.js /Users/juzo1192/git/Noroshi/index.html
 
 # 4. Confirm no sensor still emits theater= without countries=
-docker exec ddos-radar python -c "
+docker exec noroshi python -c "
 import sqlite3
 c = sqlite3.connect('radar/persistence/radar.db')
 for r in c.execute('SELECT key, count, last_seen FROM legacy_access_log WHERE key LIKE ? OR key LIKE ?', ('intel_queue.submit:%', '%?theater=')):

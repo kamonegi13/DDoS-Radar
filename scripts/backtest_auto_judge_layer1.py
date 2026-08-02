@@ -18,7 +18,7 @@ The output below either justifies Layer 1 with concrete counts, or tells
 us the data is too sparse to justify it yet — both are valid outcomes.
 
 Usage:
-    docker exec ddos-radar python scripts/backtest_auto_judge_layer1.py
+    docker exec noroshi python scripts/backtest_auto_judge_layer1.py
     # local (read-only is safe even with the container running, but
     # the canonical path goes through the container per CLAUDE.md):
     python scripts/backtest_auto_judge_layer1.py --db radar/persistence/radar.db

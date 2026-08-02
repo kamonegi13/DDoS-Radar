@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """One-shot remediation for the 2026-08-02 cross-scenario attribution incident.
 
-Run INSIDE the ddos-radar container AFTER deploying the fixed image:
+Run INSIDE the noroshi container AFTER deploying the fixed image:
 
-    docker exec ddos-radar python3 scripts/remediate_cross_scenario_labels.py          # dry run
-    docker exec ddos-radar python3 scripts/remediate_cross_scenario_labels.py --apply
+    docker exec noroshi python3 scripts/remediate_cross_scenario_labels.py          # dry run
+    docker exec noroshi python3 scripts/remediate_cross_scenario_labels.py --apply
 
 Background: RSS ground-truth episodes were attributed to every scenario in
 which the article's country was ANY participant. Supporting-role members

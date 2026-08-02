@@ -19,9 +19,9 @@ Two questions this answers from existing `scenario_tl_observation` rows:
 
 Read-only — never writes. Safe to run against a live container DB:
 
-    docker exec ddos-radar python scripts/phase9_backtest_simulation.py
-    docker exec ddos-radar python scripts/phase9_backtest_simulation.py --days 30
-    docker exec ddos-radar python scripts/phase9_backtest_simulation.py --scenario taiwan_contingency
+    docker exec noroshi python scripts/phase9_backtest_simulation.py
+    docker exec noroshi python scripts/phase9_backtest_simulation.py --days 30
+    docker exec noroshi python scripts/phase9_backtest_simulation.py --scenario taiwan_contingency
 """
 from __future__ import annotations
 

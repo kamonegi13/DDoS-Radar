@@ -15,7 +15,7 @@
 # recall baseline, and copy it back into the repo for commit.
 set -eu
 
-CONTAINER="ddos-radar"
+CONTAINER="noroshi"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "== waiting for ${CONTAINER} to be healthy =="

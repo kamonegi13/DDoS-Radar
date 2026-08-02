@@ -99,7 +99,7 @@ def test_renders_scenario_header_with_id_and_disclaimer():
         api_version="2.0",
         generated_at=1_700_000_000.0,
     )
-    assert md.startswith("# DDoS-Radar シナリオレポート — Taiwan Contingency\n")
+    assert md.startswith("# Noroshi シナリオレポート — Taiwan Contingency\n")
     assert "- **シナリオ ID**: `taiwan_contingency`" in md
     assert "- **生成時刻 (UTC)**: 2023-11-14T22:13:20+00:00" in md
     assert "- **API バージョン**: `2.0`" in md
@@ -112,7 +112,7 @@ def test_falls_back_to_id_when_no_scenario_name():
         [_make_tl()],
         disclaimer=_DISCLAIMER,
     )
-    assert md.startswith("# DDoS-Radar シナリオレポート — raw_scenario_id\n")
+    assert md.startswith("# Noroshi シナリオレポート — raw_scenario_id\n")
 
 
 def test_disclaimer_appears_only_once_per_report():

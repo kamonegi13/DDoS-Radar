@@ -6,7 +6,8 @@ persistence/
 __pycache__/
 radar/llm_client.py.bak
 
-# Local arm64 test venv + operational backups (not for VCS)
+# Local venvs + operational backups (not for VCS)
+.venv/
 .venv-arm/
 config.env.bak-*
 backups/

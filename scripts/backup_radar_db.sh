@@ -1,17 +1,23 @@
 #!/bin/sh
-# Backup the live radar.db from the ddos-radar container's named volume.
+# Backup the live radar.db from the noroshi container's named volume.
 #
-# The production DB lives in the docker named volume `ddos-radar_radar-data`
+# The production DB lives in the docker named volume `noroshi_radar-data`
 # (mounted at /app/radar/persistence), NOT in the repo working tree. This
 # script takes a consistent snapshot via the SQLite online backup API (safe
 # against concurrent WAL writers), copies it to the host, compresses it, and
 # rotates old backups.
 #
 # Usage:  scripts/backup_radar_db.sh [dest_dir]
-# Cron:   0 4 * * *  /Users/juzo1192/git/DDoS-Radar/scripts/backup_radar_db.sh
+# Cron:   0 4 * * *  /Users/juzo1192/git/Noroshi/scripts/backup_radar_db.sh
 set -eu
 
-CONTAINER="ddos-radar"
+# cron runs with a minimal PATH that omits the docker CLI, which made every
+# scheduled run fail with "docker: command not found" (silently, since only the
+# log recorded it). Prepend the usual homebrew / local install dirs.
+PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
+export PATH
+
+CONTAINER="noroshi"
 DEST_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)/backups}"
 KEEP=14
 STAMP="$(date +%Y%m%d-%H%M%S)"

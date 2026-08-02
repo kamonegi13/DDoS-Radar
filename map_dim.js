@@ -1,5 +1,5 @@
 /**
- * DDoS-Radar Map Dim — focus-change loading state machine.
+ * Noroshi Map Dim — focus-change loading state machine.
  *
  * Pure module (no DOM, no fetch) that tracks whether the map should
  * currently be dimmed because the analyst just switched scenario focus

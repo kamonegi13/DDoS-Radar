@@ -1290,8 +1290,8 @@
                     const color  = EVENT_COLORS[ev.type] || '#888';
                     const label  = EVENT_LABELS[ev.type] || ev.type;
                     const dt     = new Date(ev.ts * 1000);
-                    const _lang  = (localStorage.getItem('ddos_radar_lang') || 'en') === 'ja' ? 'ja-JP' : 'en-US';
-                    const timeStr = dt.toLocaleTimeString(_lang, {hour:'2-digit', minute:'2-digit'});
+                    // Japanese-only UI (2026-08-02): the old lang key is gone.
+                    const timeStr = dt.toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'});
                     // Single-line compact row: dot + label + time inline (Phase A2)
                     html += `<div class="chain-event" data-chain-type="${ev.type}">
                         <div class="chain-dot chain-dot-${ev.type}" style="background:${color};"></div>
@@ -5943,7 +5943,21 @@
     // Stage C (replay mode); today the local ledger is sufficient to
     // suppress acknowledged items in subsequent polls.
 
-    const _AL_STORAGE_KEY = 'ddos_radar_triage_state';
+    const _AL_STORAGE_KEY = 'noroshi_triage_state';
+    (function _alMigratePreRenameKey() {
+        // 2026-08-03 tool rename. The analyst's acked / lastView ledger lives
+        // in the browser, so carry it over from the pre-rename key. This shim
+        // (and the literal below) can be deleted once every browser that uses
+        // the tool has loaded it at least once.
+        const PRE_RENAME_KEY = 'ddos_radar_triage_state';
+        try {
+            if (localStorage.getItem(_AL_STORAGE_KEY)) return;
+            const legacy = localStorage.getItem(PRE_RENAME_KEY);
+            if (!legacy) return;
+            localStorage.setItem(_AL_STORAGE_KEY, legacy);
+            localStorage.removeItem(PRE_RENAME_KEY);
+        } catch (_) { /* storage disabled — nothing to migrate */ }
+    })();
     const _AL_MAX_ROWS = 5;
     const _alPriorByMode = {};  // {`${focused}|${type}|${state}`: {firstSeenTs, lastFireTs, prevConfidence}}
 
@@ -8678,7 +8692,7 @@
             if (selfExpl && tlConclusion) {
                 const persisted = (function () {
                     try {
-                        const raw = localStorage.getItem('ddos_radar_triage_state');
+                        const raw = localStorage.getItem('noroshi_triage_state');
                         if (!raw) return null;
                         const p = JSON.parse(raw);
                         return p && p.lastViewByScenario && p.lastViewByScenario[data.focused_scenario];

@@ -1,5 +1,5 @@
 /**
- * DDoS-Radar HUD↔v2 Conclusion overlay — pure reconciler
+ * Noroshi HUD↔v2 Conclusion overlay — pure reconciler
  *
  * Extracted from radar.js so the overlay can be unit-tested under Node
  * without a browser. Loaded as a plain script in index.html (exposes

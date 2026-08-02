@@ -1,8 +1,13 @@
+# Pin the compose project name so named volumes stay stable regardless of the
+# directory this repo is checked out into (2026-08-03 rename: the project name
+# used to be derived from the directory, which silently re-pointed the DB volume).
+name: noroshi
+
 services:
   radar:
     build: .
-    image: ddos-radar:latest
-    container_name: ddos-radar
+    image: noroshi:latest
+    container_name: noroshi
     restart: unless-stopped
     stop_grace_period: 30s
     ports:

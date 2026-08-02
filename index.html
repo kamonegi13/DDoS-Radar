@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>戦略 MDO レーダー (C4ISR)</title>
+    <title>Noroshi — 戦略 MDO レーダー (C4ISR)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
     <script src="i18n.js"></script>
@@ -2315,7 +2315,7 @@
         <ul>
             <li><span class="code-block">config.env</span> で <span class="code-block">V2_GROUND_TRUTH_ETL_ENABLED=true</span> を設定。</li>
             <li><span class="code-block">ACLED_API_KEY</span> / <span class="code-block">ACLED_API_EMAIL</span> を空のままにすると、警告とともに GDELT 単独モードで動作。<span class="code-block">--no-acled</span> で警告を抑止可能。</li>
-            <li>ホスト cron またはリモート routine で定期実行: <span class="code-block">docker exec ddos-radar python scripts/run_ground_truth_etl.py</span> を 1 時間に 1 回で十分。</li>
+            <li>ホスト cron またはリモート routine で定期実行: <span class="code-block">docker exec noroshi python scripts/run_ground_truth_etl.py</span> を 1 時間に 1 回で十分。</li>
             <li>自動行は <span class="code-block">analyst_id="auto:gdelt"</span>（ACLED 有効時は <span class="code-block">"auto:acled"</span> も）を持ちます。CI baseline は <span class="code-block">scripts/report_recall_metrics.py --exclude-auto</span> で人手ラベルのみから計算するのが推奨。</li>
         </ul>
         <p>GDELT 単独で TRUE_POSITIVE / FALSE_POSITIVE / TRUE_NEGATIVE のルールは動作します。感度クリティカルな FALSE_NEGATIVE コーナーの主要な自動ソースは §C の RSS 相関（段階的過小評価検知、API キー不要）です。ACLED はその上に死者数経路を追加します。手動 + 自動の併用でカバレッジ最良。</p>
@@ -2516,7 +2516,7 @@
 
         <p><b>13.2 シナリオマネージャー</b> — Config → Scenarios タブ（Admin のみ）</p>
         <ul>
-            <li><b>シナリオアーキテクチャ</b>: DDoS-Radar は国単位ではなくシナリオ単位（例: 「台湾有事」）で脅威をスコアリング。各シナリオは参加国（participants）をカップリングウェイト（0.0–1.0）とロール（primary_target、adversary、primary_ally 等）で定義。</li>
+            <li><b>シナリオアーキテクチャ</b>: Noroshi は国単位ではなくシナリオ単位（例: 「台湾有事」）で脅威をスコアリング。各シナリオは参加国（participants）をカップリングウェイト（0.0–1.0）とロール（primary_target、adversary、primary_ally 等）で定義。</li>
             <li><b>3層設計</b>: Layer 1 = geo_data.json のプリセット（読み取り専用）。Layer 2 = SQLite に保存された管理者カスタマイズ（プリセットを上書き）。Layer 3 = セッションオーバーライド（下記 H 参照）。</li>
             <li><b>作成</b>: 一意の ID（小文字、3–30文字）、日英バイリンガル名、コア国、参加国テーブルを指定してカスタムシナリオを新規作成。</li>
             <li><b>編集</b>: 名前、説明、コア国、参加国のウェイト/ロールを変更可能。変更は Layer 2（DB）に書き込まれ、元のプリセットは保持。</li>

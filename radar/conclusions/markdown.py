@@ -141,7 +141,7 @@ def render_scenario_markdown(
     ts = generated_at if generated_at is not None else _time.time()
     title_name = scenario_name or scenario_id
     head = [
-        f"# DDoS-Radar シナリオレポート — {title_name}",
+        f"# Noroshi シナリオレポート — {title_name}",
         "",
         f"- **シナリオ ID**: `{scenario_id}`",
         f"- **生成時刻 (UTC)**: {_fmt_ts(ts)}",

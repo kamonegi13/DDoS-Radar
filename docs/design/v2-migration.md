@@ -1,4 +1,4 @@
-# DDoS-Radar v2.0 移行設計ドキュメント
+# Noroshi v2.0 移行設計ドキュメント
 
 > **このドキュメントの目的**
 > CLAUDE.md で再定義された新しいツール目的 (NP1-NP7) に整合する **v2.0 アーキテクチャ** の単一情報源。
@@ -51,7 +51,7 @@ ground-truth 校正層は運用開始後 2 度壊れた。**recall/precision の
 4. **エピソード単位化**: 1 外部イベント = 1 trial。RSS ETL は (scenario, country, UTC day) エピソードで pre-event window の最良 TL を採点(tick 疑似反復 ~23k labels/30d を排除)。ACLED/GDELT ETL は (scenario, label, day) で day-cap
 5. **暴走ガード**: `tl_threshold_calibrator` に evidence 鮮度ゲート追加 — 前回適用より新しいラベルが無い限り再適用禁止(同一 evidence は最大 1 回しか閾値を動かせない)
 6. **データ修復**: `scripts/remediate_inverted_calibration.py` — auto ラベル全 purge(gzip export 保全)+ 汚染閾値オーバーライドを derive_tl デフォルトへ監査可能リセット。`scripts/apply_calibration_remediation.sh` がデプロイ後の一括実行を担う
-7. **運用**: `scripts/backup_radar_db.sh` 新設(named volume `ddos-radar_radar-data` は従来バックアップ皆無だった)
+7. **運用**: `scripts/backup_radar_db.sh` 新設(named volume `noroshi_radar-data` は従来バックアップ皆無だった)
 
 **教訓**: (a) スケール方向のような意味論は型/テストで固定しない限り必ず反転事故が起きる。(b) 自動ラベルによる自己採点は、ラベル生成器のバグを自力検知できない — human anchor(人間ラベルの定常的最小量)が次の必須課題。(c) auto-tune は「evidence が更新されたか」を確認せずに繰り返し適用してはならない。
 
@@ -499,7 +499,7 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 
 **Mode C 判定再評価**: 当初の T+7d (2026-05-03) は TREND short_term の live data 蓄積を待つ前提だったが、TREND derivation は THREAT_LEVEL 行を replay backfill 含めて読むため、live ledger 4h で既に real state を返している (`short_term=STABLE; medium_term=STABLE`)。技術条件は本日全て満たすので、残るのは operator self-validation のみ。**判定日を 2026-04-27 04:00 JST (T+24h) に圧縮**。
 
-**Mode C 判定手順**: `docker exec ddos-radar bash -c 'cd /app && PYTHONPATH=/app python scripts/check_mode_c_readiness.py --ack'` を 2026-04-27 04:00 JST 以降に実行。exit 0 を確認後、`radar/config.py` で `V2_API_ENABLED` のデフォルトを `true` に変更し v1 sunset T+90d (2026-07-26) カウントダウン開始。
+**Mode C 判定手順**: `docker exec noroshi bash -c 'cd /app && PYTHONPATH=/app python scripts/check_mode_c_readiness.py --ack'` を 2026-04-27 04:00 JST 以降に実行。exit 0 を確認後、`radar/config.py` で `V2_API_ENABLED` のデフォルトを `true` に変更し v1 sunset T+90d (2026-07-26) カウントダウン開始。
 
 **Mode C 切替: 2026-04-26 05:10 JST** — `check_mode_c_readiness.py --ack` が全 5 条件 PASS で exit 0 を返却 (C1: 14d 4438/4438 match / C2: 5/5 type live row / C3: 5/5 type non-replay row / C4: live TREND 6 行 real state / C5: operator ack)。`radar/config.py` で `V2_API_ENABLED` のデフォルトを `"true"` に変更。判定日を当初の T+24h からさらに圧縮した根拠: 操作者 1 名のため 24h 待機で増える観察データはなく、C1〜C4 の technical evidence と直近 1h ログの 5xx=0 / traceback=0 が既に no-complaint を裏付け、ロールバックは `V2_API_ENABLED=false` の env 一行で 1 restart 内に可能 (commitment 不可逆性が低い)。
 

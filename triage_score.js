@@ -1,5 +1,5 @@
 /**
- * DDoS-Radar Triage — pure attention_score / ranking
+ * Noroshi Triage — pure attention_score / ranking
  *
  * Implements the AP1 (Active Triage) score that ranks event-shaped
  * conclusions for the Alert Lane:

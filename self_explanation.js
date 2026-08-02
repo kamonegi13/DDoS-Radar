@@ -1,5 +1,5 @@
 /**
- * DDoS-Radar Self-Explanation — deterministic narrative generation (AP2).
+ * Noroshi Self-Explanation — deterministic narrative generation (AP2).
  *
  * Threat-intel analysts ask "why is this number what it is?" — and the
  * answer must be derivable, repeatable, and free of model opacity. This

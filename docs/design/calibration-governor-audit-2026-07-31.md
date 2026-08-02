@@ -21,7 +21,7 @@
 #### 観察項目
 ```bash
 # 過去 90d で skip した sensor 数 / 採用した提案数
-docker exec ddos-radar python -c "
+docker exec noroshi python -c "
 from radar.database import db
 import time
 conn = db._get_conn()
@@ -52,7 +52,7 @@ for r in conn.execute(
 
 #### 観察項目
 ```bash
-docker exec ddos-radar python -c "
+docker exec noroshi python -c "
 from radar.database import db
 import time
 # Run sensor_coverage_healthy 30 times over last 24h to see distribution
@@ -82,7 +82,7 @@ print(f'  threshold (default min=50): {\"HEALTHY\" if total >= 50 else \"DEGRADE
 
 #### 観察項目
 ```bash
-docker exec ddos-radar python -c "
+docker exec noroshi python -c "
 from radar.database import db
 import time
 conn = db._get_conn()
@@ -106,7 +106,7 @@ for r in conn.execute(
 
 #### 観察項目
 ```bash
-docker exec ddos-radar python -c "
+docker exec noroshi python -c "
 from radar.database import db
 import time
 conn = db._get_conn()
@@ -132,7 +132,7 @@ for r in conn.execute(
 ### 3.1 decisions テーブル retention
 
 ```bash
-docker exec ddos-radar python -c "
+docker exec noroshi python -c "
 from radar.database import db
 conn = db._get_conn()
 r = conn.execute('SELECT COUNT(*) FROM decisions').fetchone()

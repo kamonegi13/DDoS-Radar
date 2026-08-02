@@ -1,5 +1,5 @@
 /**
- * DDoS-Radar Triage Display Mode — pure state-machine
+ * Noroshi Triage Display Mode — pure state-machine
  *
  * Resolves the TRIAGE Lane display mode from the current
  * attention-score signals. Three modes:
