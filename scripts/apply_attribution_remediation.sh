@@ -1,18 +1,18 @@
 #!/bin/sh
-# Post-deploy driver for the 2026-07-03 TL-inversion remediation.
+# Post-deploy driver for the 2026-08-02 cross-scenario attribution remediation.
 #
 # Prerequisite (run manually first — rebuilds the image with the fixed
-# classifier and restarts the container):
+# attribution gate / tier split and restarts the container):
 #
 #     docker compose build && docker compose up -d
 #
 # Then:
 #
-#     scripts/apply_calibration_remediation.sh
+#     scripts/apply_attribution_remediation.sh
 #
-# Steps: purge contaminated labels + reset runaway threshold overrides,
-# re-run both ground-truth ETLs with the fixed code, snapshot a fresh
-# recall baseline, and copy it back into the repo for commit.
+# Steps: surgically purge cross-scenario auto:rss labels + reset the korea
+# loosening chain, re-run both ground-truth ETLs with the fixed attribution,
+# snapshot a fresh recall baseline, and copy it back into the repo for commit.
 set -eu
 
 CONTAINER="noroshi"
@@ -26,11 +26,11 @@ for _ in $(seq 1 30); do
 done
 docker inspect -f 'container health: {{.State.Health.Status}}' "${CONTAINER}"
 
-echo "== [1/4] purge contaminated labels + reset thresholds =="
-docker exec "${CONTAINER}" python3 scripts/remediate_inverted_calibration.py
+echo "== [1/4] purge cross-scenario labels + reset thresholds =="
+docker exec "${CONTAINER}" python3 scripts/remediate_cross_scenario_labels.py --apply
 
-echo "== [2/4] re-run RSS ground-truth ETL (fixed classifier) =="
-docker exec "${CONTAINER}" python3 scripts/run_rss_etl.py --force --limit 20000
+echo "== [2/4] re-run RSS ground-truth ETL (conflict-party attribution) =="
+docker exec "${CONTAINER}" python3 scripts/run_rss_etl.py --limit 20000
 
 echo "== [3/4] re-run ACLED/GDELT ground-truth ETL =="
 docker exec "${CONTAINER}" python3 scripts/run_ground_truth_etl.py --limit 20000

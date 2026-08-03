@@ -21,8 +21,8 @@ Signals examined:
 Read-only — no DB writes, no LLM calls.
 
 Usage:
-    docker exec ddos-radar python scripts/audit_intel_sensors.py
-    docker exec ddos-radar python scripts/audit_intel_sensors.py --json
+    docker exec noroshi python scripts/audit_intel_sensors.py
+    docker exec noroshi python scripts/audit_intel_sensors.py --json
 """
 from __future__ import annotations
 

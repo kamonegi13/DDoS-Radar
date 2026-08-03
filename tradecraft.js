@@ -720,7 +720,7 @@
                     _fetchJSON(`/api/analyst/assumptions/${id}/log`).then(j => {
                         const rows = j.entries || [];
                         if (!rows.length) { box.innerHTML = '<div class="tc-empty">—</div>'; return; }
-                        box.innerHTML = '<table class="tc-table tc-table-mini"><thead><tr><th>t</th><th>actor</th><th>action</th><th>note</th></tr></thead><tbody>'
+                        box.innerHTML = '<table class="tc-table tc-table-mini"><thead><tr><th>時刻</th><th>実行者</th><th>操作</th><th>備考</th></tr></thead><tbody>'
                             + rows.map(r => `<tr><td>${_esc(_fmtTs(r.changed_at))}</td><td>${_esc(r.changed_by || '')}</td><td>${_esc(r.change_type)}</td><td>${_esc(r.note || '')}</td></tr>`).join('')
                             + '</tbody></table>';
                     }).catch(e => { box.innerHTML = `<div class="tc-error">${_esc(e.message)}</div>`; });

@@ -305,29 +305,6 @@
         .hud-dropdown-item:hover { background: rgba(0,255,255,0.08); color: var(--color-accent); }
         .hud-settings-btn { min-width: 38px; padding: 5px 8px; }
 
-        /* INTEL GUIDE local language pill (bilingual prose toggle, not global UI lang) */
-        .guide-lang-pill {
-            display: inline-flex;
-            border: 1px solid #00ffff33;
-            border-radius: 3px;
-            overflow: hidden;
-            margin: 0 12px;
-            font-family: 'Courier New', monospace;
-        }
-        .guide-lang-btn {
-            background: transparent;
-            color: #445;
-            border: none;
-            padding: 5px 10px;
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            font-family: inherit;
-        }
-        .guide-lang-btn + .guide-lang-btn { border-left: 1px solid #00ffff22; }
-        .guide-lang-btn:hover { color: var(--color-text-dim); background: rgba(255,255,255,0.05); }
-        .guide-lang-btn.guide-lang-active { color: var(--color-accent); background: rgba(0,255,255,0.1); }
-
         /* ── Hamburger button (Row 1, top-right) ─────────────────── */
         .hud-hamburger-btn {
             background: transparent; border: 1px solid #00ffff66; color: var(--color-accent);
@@ -580,7 +557,6 @@
         .manual-content { display:grid; grid-template-columns:96px 1fr; grid-template-rows:auto 1fr; gap:0 10px; overflow:hidden; flex-grow:1; padding-right:15px; line-height:1.6; font-size:13px; color:#ddd; margin-top:15px; }
         .manual-content > p:first-child { grid-column:1 / -1; }
         /* i18n lang-toggle wrappers at intro level span full width */
-        .manual-content > .guide-lang-en,
         .manual-content > .guide-lang-ja { grid-column:1 / -1; }
         .manual-content h4 { color: var(--color-accent); border-bottom:1px dashed #555; padding-bottom:5px; margin-top:16px; margin-bottom:10px; font-size:14px; text-transform:uppercase; letter-spacing:1px; }
         .manual-content h4:first-child { margin-top:0; }

@@ -1,4 +1,4 @@
-"""radar -- MDO C4ISR Dashboard package.
+"""radar -- Noroshi MDO C4ISR Dashboard package.
 
 This package is the modularized form of the original radar_api.py monolith.
 Import the Flask app via: from radar import app

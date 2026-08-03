@@ -99,10 +99,10 @@ def test_renders_scenario_header_with_id_and_disclaimer():
         api_version="2.0",
         generated_at=1_700_000_000.0,
     )
-    assert md.startswith("# DDoS-Radar Scenario Report — Taiwan Contingency\n")
-    assert "- **Scenario ID**: `taiwan_contingency`" in md
-    assert "- **Generated (UTC)**: 2023-11-14T22:13:20+00:00" in md
-    assert "- **API version**: `2.0`" in md
+    assert md.startswith("# Noroshi シナリオレポート — Taiwan Contingency\n")
+    assert "- **シナリオ ID**: `taiwan_contingency`" in md
+    assert "- **生成時刻 (UTC)**: 2023-11-14T22:13:20+00:00" in md
+    assert "- **API バージョン**: `2.0`" in md
     assert f"> {_DISCLAIMER}" in md
 
 
@@ -112,7 +112,7 @@ def test_falls_back_to_id_when_no_scenario_name():
         [_make_tl()],
         disclaimer=_DISCLAIMER,
     )
-    assert md.startswith("# DDoS-Radar Scenario Report — raw_scenario_id\n")
+    assert md.startswith("# Noroshi シナリオレポート — raw_scenario_id\n")
 
 
 def test_disclaimer_appears_only_once_per_report():
@@ -131,21 +131,21 @@ def test_disclaimer_appears_only_once_per_report():
 
 def test_renders_conclusion_section_with_human_title():
     md = render_scenario_markdown("sid", [_make_tl()], disclaimer=_DISCLAIMER)
-    assert "## Threat Level" in md
+    assert "## 脅威レベル" in md
 
 
 def test_renders_state_confidence_observed_at_id_formula():
     c = _make_tl()
     md = render_scenario_markdown("sid", [c], disclaimer=_DISCLAIMER)
-    assert "- **State**: `3`" in md
-    assert "- **Confidence**: 0.78" in md
-    assert f"- **Conclusion ID**: `{c.id}`" in md
-    assert "- **Formula**: `radar/scoring.py#derive_tl@v2.0.1`" in md
+    assert "- **状態**: `3`" in md
+    assert "- **確信度**: 0.78" in md
+    assert f"- **結論 ID**: `{c.id}`" in md
+    assert "- **導出式**: `radar/scoring.py#derive_tl@v2.0.1`" in md
 
 
 def test_renders_thresholds_as_json_fenced_block():
     md = render_scenario_markdown("sid", [_make_tl()], disclaimer=_DISCLAIMER)
-    assert "### Thresholds" in md
+    assert "### 閾値" in md
     assert "```json" in md
     assert '"physical": 3.0' in md
     assert '"total": 9.0' in md
@@ -153,7 +153,7 @@ def test_renders_thresholds_as_json_fenced_block():
 
 def test_renders_source_urls_as_bullets():
     md = render_scenario_markdown("sid", [_make_tl()], disclaimer=_DISCLAIMER)
-    assert "### Sources" in md
+    assert "### 一次ソース" in md
     assert "- https://example.test/a" in md
     assert "- https://example.test/b" in md
 
@@ -161,7 +161,7 @@ def test_renders_source_urls_as_bullets():
 def test_omits_sources_section_when_empty():
     c = _make_tl(source_urls=())
     md = render_scenario_markdown("sid", [c], disclaimer=_DISCLAIMER)
-    assert "### Sources" not in md
+    assert "### 一次ソース" not in md
 
 
 def test_renders_calibration_when_present():
@@ -178,7 +178,7 @@ def test_omits_calibration_when_empty():
 
 def test_renders_metadata_when_present():
     md = render_scenario_markdown("sid", [_make_tl()], disclaimer=_DISCLAIMER)
-    assert "### Metadata" in md
+    assert "### メタデータ" in md
     assert '"raw_score": 9.4' in md
 
 
@@ -189,8 +189,8 @@ def test_renders_unavailable_state_with_reason():
     md = render_scenario_markdown(
         "sid", [_make_unavailable()], disclaimer=_DISCLAIMER,
     )
-    assert "## Estimated Attack Mode" in md
-    assert "_unavailable_" in md
+    assert "## 推定攻撃モード" in md
+    assert "_結論不可_" in md
     assert "`insufficient_data`" in md
 
 
@@ -212,7 +212,7 @@ def test_embeds_llm_prompt_details_when_audit_trace_provided():
     md = render_scenario_markdown(
         "sid", [c], disclaimer=_DISCLAIMER, audit_traces=audit,
     )
-    assert "<details><summary>LLM prompt (full text)</summary>" in md
+    assert "<details><summary>LLM プロンプト（全文）</summary>" in md
     assert f"- **sha256**: `{'ab' * 32}`" in md
     assert "- **model**: `llama3.1:8b`" in md
     assert "please analyze foo bar baz" in md
@@ -243,7 +243,7 @@ def test_omits_llm_prompt_block_when_marked_missing():
 
 def test_renders_placeholder_when_no_conclusions():
     md = render_scenario_markdown("sid", [], disclaimer=_DISCLAIMER)
-    assert "_No conclusions available for this scenario yet._" in md
+    assert "_このシナリオにはまだ結論がありません。_" in md
     # NP7 disclaimer still required even when there's nothing to report.
     assert f"> {_DISCLAIMER}" in md
 
@@ -263,4 +263,4 @@ def test_renders_iterable_input_not_just_list():
     def gen():
         yield _make_tl()
     md = render_scenario_markdown("sid", gen(), disclaimer=_DISCLAIMER)
-    assert "## Threat Level" in md
+    assert "## 脅威レベル" in md

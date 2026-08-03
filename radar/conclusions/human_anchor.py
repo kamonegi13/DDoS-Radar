@@ -80,12 +80,14 @@ _TL_NAMES = {1: "CRITICAL", 2: "SEVERE", 3: "HIGH", 4: "ELEVATED", 5: "NORMAL"}
 # severity ≥ 3 ⇔ TL ≤ 3 (HIGH / SEVERE / CRITICAL) counts as an alert.
 _ALERT_MIN_SEVERITY = 3
 
+# Analyst-facing prose. The UI is Japanese-only (docs/design/ja-localization.md);
+# these strings are rendered in the AP3 labeling panel, not logged.
 _SCENARIO_ESCALATION_HINT = {
-    "taiwan_contingency": "a real China–Taiwan military escalation",
-    "eastern_europe":     "a real Russia–Ukraine escalation",
-    "middle_east":        "a real Israel–Iran/proxy escalation",
-    "korean_peninsula":   "a real Korean-peninsula military escalation",
-    "south_china_sea":    "a real South China Sea military escalation",
+    "taiwan_contingency": "中国 — 台湾間の軍事エスカレーション",
+    "eastern_europe":     "ロシア — ウクライナ間のエスカレーション",
+    "middle_east":        "イスラエル — イラン / 代理勢力のエスカレーション",
+    "korean_peninsula":   "朝鮮半島での軍事エスカレーション",
+    "south_china_sea":    "南シナ海での軍事エスカレーション",
 }
 
 # Search terms per scenario — full country names for good news recall,
@@ -151,15 +153,15 @@ def _tool_stance(conclusion_type: str, state: str) -> tuple[str, str]:
         try:
             tl = int(state)
         except (TypeError, ValueError):
-            return "calm", "made no clear call"
+            return "calm", "明確な判断を出していない"
         name = _TL_NAMES.get(tl, f"TL{tl}")
         if severity_of(tl) >= _ALERT_MIN_SEVERITY:
-            return "alert", f"raised a {name} alert"
-        return "calm", f"stayed calm ({name})"
+            return "alert", f"{name} の警戒を発していた"
+        return "calm", f"平穏と判断していた（{name}）"
     # attack_mode and other event-shaped types
     if state and state != "INSUFFICIENT_DATA":
-        return "alert", f"flagged {state}"
-    return "calm", "did not flag an attack"
+        return "alert", f"{state} を検知していた"
+    return "calm", "攻撃を検知していない"
 
 
 def answer_model_for(candidate: AnchorCandidate) -> AnswerModel:
@@ -169,10 +171,10 @@ def answer_model_for(candidate: AnchorCandidate) -> AnswerModel:
     stance, stance_label = _tool_stance(
         candidate.conclusion_type, candidate.state)
     hint = _SCENARIO_ESCALATION_HINT.get(
-        candidate.scenario_id, "a real interstate escalation")
+        candidate.scenario_id, "国家間エスカレーション")
     window_days = max(1, config.GROUND_TRUTH_WINDOW_HOURS // 24)
     question = (
-        f"In the ~{window_days} day(s) after this, did {hint} actually occur?"
+        f"この時点から約 {window_days} 日以内に、{hint}は実際に起きましたか?"
     )
     if stance == "alert":
         # Tool alerted: reality-occurred ⇒ TP, reality-quiet ⇒ FP.
@@ -184,10 +186,10 @@ def answer_model_for(candidate: AnchorCandidate) -> AnswerModel:
         no_label = FeedbackLabel.TRUE_NEGATIVE.value
     options = (
         AnchorAnswer(
-            label="Yes — an escalation occurred",
+            label="はい — エスカレーションが起きた",
             maps_to=yes_label, is_escalation=True, tone="escalation"),
         AnchorAnswer(
-            label="No — it stayed quiet",
+            label="いいえ — 平穏なままだった",
             maps_to=no_label, is_escalation=False, tone="quiet"),
     )
     return AnswerModel(
@@ -231,10 +233,10 @@ def _auto_fn_candidates(conn, *, since: float, now: float,
             observed_at=float(r[4]),
             kind="auto_fn_review",
             rationale=(
-                f"The auto-labeler claims the tool under-rated an external "
-                f"event here (FALSE_NEGATIVE) — the NP1-critical miss class. "
-                f"Confirm the miss or refute the auto label. "
-                f"Auto evidence: {evidence}"
+                f"自動ラベラーは、ここで外部事象を過小評価した"
+                f"（FALSE_NEGATIVE）と判定している — NP1 上もっとも重い"
+                f"見逃しの類型。見逃しを追認するか、自動ラベルを否定するかを"
+                f"判断すること。自動ラベルの根拠: {evidence}"
             ),
             suggested_labels=("FALSE_NEGATIVE", "TRUE_POSITIVE"),
         ))
@@ -270,10 +272,10 @@ def _peak_severity_candidates(conn, *, since: float, now: float,
             observed_at=float(r[3]),
             kind="peak_severity",
             rationale=(
-                f"Most severe threat-level call for {sid} this week "
-                f"(TL{r[2]}, severity {sev}/5). Was this level warranted "
-                f"by what actually happened? This anchors the top of the "
-                f"tool's output, where alert credibility lives."
+                f"今週の {sid} で最も深刻な脅威レベル判定 "
+                f"(TL{r[2]}、深刻度 {sev}/5)。実際に起きたことに照らして、"
+                f"この水準は妥当だったか。警戒の信頼性が問われる"
+                f"出力の上端を、この 1 件で固定する。"
             ),
             suggested_labels=("TRUE_POSITIVE", "FALSE_POSITIVE"),
         ))
@@ -308,12 +310,12 @@ def _calm_anchor_candidates(conn, *, now: float, window_days: int,
             observed_at=float(r[3]),
             kind="calm_anchor",
             rationale=(
-                f"Calm-side call (TL{r[2]}) whose {horizon_days}d "
-                f"verification horizon has fully elapsed. Label "
-                f"TRUE_NEGATIVE if the world stayed quiet, FALSE_NEGATIVE "
-                f"if an escalation followed. Human negatives are the "
-                f"scarcest label class — without them the precision side "
-                f"of the confusion matrix is meaningless."
+                f"平穏側の判定 (TL{r[2]})。検証期間 {horizon_days} 日が"
+                f"完全に経過している。実際に平穏なままだったなら "
+                f"TRUE_NEGATIVE、エスカレーションが続いたなら "
+                f"FALSE_NEGATIVE。人手による negative は最も不足している"
+                f"ラベル類型であり、これが無いと混同行列の precision 側は"
+                f"意味を持たない。"
             ),
             suggested_labels=("TRUE_NEGATIVE", "FALSE_NEGATIVE"),
         ))

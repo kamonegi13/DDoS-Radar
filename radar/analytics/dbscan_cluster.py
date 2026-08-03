@@ -1,6 +1,6 @@
 """Pure-Python DBSCAN clustering over country-pair distances (G.3a).
 
-No numpy / scipy dependency — DDoS-Radar runs in a constrained Python
+No numpy / scipy dependency — Noroshi runs in a constrained Python
 environment and we only ever cluster a few dozen countries, so a
 pure-Python O(N²) implementation is comfortable.
 

@@ -168,8 +168,8 @@ class TestSelection:
             rationale="", suggested_labels=(),
         )
         am = ha.answer_model_for(c)
-        assert "China" in am.question and "Taiwan" in am.question
-        assert "day" in am.question
+        assert "中国" in am.question and "台湾" in am.question
+        assert "日" in am.question
 
     def test_search_url_has_terms_and_date_window(self):
         c = ha.AnchorCandidate(

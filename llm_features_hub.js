@@ -19,10 +19,10 @@
 
     const TIER_ORDER = ['core', 'augment', 'narrative', 'discovery'];
     const TIER_LABELS = {
-        core:      'Tier 0: Core (always-on, kill switch only)',
-        augment:   'Tier 1: Decision-Augmenting (analyst review)',
-        narrative: 'Tier 2: Narrative (display only, low risk)',
-        discovery: 'Tier 3: Discovery (NP7 — analyst confirmation)',
+        core:      'Tier 0: Core（常時稼働、kill switch でのみ停止）',
+        augment:   'Tier 1: 判断補助（アナリストレビュー対象）',
+        narrative: 'Tier 2: 説明生成（表示のみ、低リスク）',
+        discovery: 'Tier 3: Discovery（NP7 — アナリスト確認が必要）',
     };
 
     let _historyOpen = false;
@@ -55,14 +55,14 @@
         const meta = _featureMetaCache.get(key);
         if (meta && meta.np7_concern && state !== 'off') {
             const ok = window.confirm(
-                'NP7 — this feature affects scenario structure suggestions.\n\n'
-                + 'Setting it to "' + state + '" will let the LLM generate '
-                + 'discovery annotations.\n\n'
-                + 'Confirm enable?'
+                'NP7 — この機能はシナリオ構造の提案に影響します。\n\n'
+                + '状態を「' + state + '」に設定すると、LLM が discovery '
+                + 'アノテーションを生成するようになります。\n\n'
+                + '有効化してよろしいですか？'
             );
             if (!ok) return;
             reason = window.prompt(
-                'Optional: short reason for this change (audit trail)',
+                '任意: 変更理由を短く入力してください（監査経路に記録）',
                 ''
             ) || '';
         }
@@ -85,10 +85,10 @@
         if (state === 'on') {
             const ok = window.confirm(
                 '⚠ KILL SWITCH ⚠\n\n'
-                + 'Engaging this disables EVERY LLM-driven feature '
-                + 'including sensor intel extraction. New intel ingestion '
-                + 'will stop until you release the kill switch.\n\n'
-                + 'Confirm engage?'
+                + '作動させると、センサーのインテル抽出を含む LLM 駆動機能を'
+                + 'すべて無効化します。kill switch を解除するまで、'
+                + '新規インテルの取り込みは停止します。\n\n'
+                + '作動させてよろしいですか？'
             );
             if (!ok) return;
         }
@@ -145,13 +145,13 @@
             + '<span class="lfh-kill-icon">🔴</span>'
             + '<span class="lfh-kill-label">'
             + (killActive
-                ? 'KILL SWITCH ENGAGED — every LLM feature is OFF'
-                : 'Kill switch (drop all LLM features)')
+                ? 'KILL SWITCH 作動中 — LLM 機能はすべて OFF'
+                : 'Kill switch（LLM 機能を一括停止）')
             + '</span>'
             + '<button class="lfh-btn lfh-btn-' + (killActive ? 'release' : 'kill') + '"'
             + ' onclick="window._llmFeaturesKillSwitch(\''
             + (killActive ? 'off' : 'on') + '\')">'
-            + (killActive ? 'Release' : 'Engage') + '</button>'
+            + (killActive ? '解除' : '作動') + '</button>'
             + '</div>';
 
         // Per-tier groups
@@ -167,10 +167,10 @@
         // History toggle
         html += '<div class="lfh-history-toggle" onclick="window._llmFeaturesToggleHistory()">'
             + '<span class="lfh-history-chev" id="lfh-history-chev">▸</span>'
-            + ' Recent state changes (last 30d)'
+            + ' 最近の状態変更（直近 30d）'
             + '</div>';
         html += '<div class="lfh-history" id="lfh-history" style="display:none;">'
-            + '<div class="lfh-history-loading">Loading…</div>'
+            + '<div class="lfh-history-loading">読み込み中…</div>'
             + '</div>';
 
         body.innerHTML = html;
@@ -183,7 +183,7 @@
             : f.source === 'env' ? 'env'
             : 'default';
         const np7Tag = f.np7_concern
-            ? '<span class="lfh-np7-tag" title="NP7: structure-affecting feature">NP7</span>'
+            ? '<span class="lfh-np7-tag" title="NP7: 構造に影響する機能">NP7</span>'
             : '';
         // Build state buttons. supports_shadow controls whether SHADOW button shows.
         const stateBtns = [];
@@ -205,8 +205,8 @@
             +   stateBtns.join(' ')
             + (f.source === 'ui_override'
                 ? ' <button class="lfh-btn lfh-btn-clear" onclick="window._llmFeaturesClear(\''
-                  + _escHtml(f.key) + '\')" title="Drop UI override, revert to env+default">'
-                  + 'Auto (revert)</button>'
+                  + _escHtml(f.key) + '\')" title="UI 上書きを破棄し env+default に戻す">'
+                  + '自動（復帰）</button>'
                 : '')
             + '</div>'
             + '</div>';
@@ -229,11 +229,11 @@
             const body = await resp.json();
             const rows = (body && body.data) || [];
             if (!rows.length) {
-                el.innerHTML = '<div class="lfh-history-empty">No recent changes.</div>';
+                el.innerHTML = '<div class="lfh-history-empty">最近の変更なし。</div>';
                 return;
             }
             el.innerHTML = '<table class="lfh-history-table">'
-                + '<tr><th>When</th><th>Feature</th><th>From</th><th>To</th><th>By</th><th>Reason</th></tr>'
+                + '<tr><th>日時</th><th>機能</th><th>変更前</th><th>変更後</th><th>実行者</th><th>理由</th></tr>'
                 + rows.map(r => {
                     const t = r.changed_at
                         ? new Date(r.changed_at * 1000).toLocaleString('ja-JP', {
@@ -252,7 +252,7 @@
                 }).join('')
                 + '</table>';
         } catch (err) {
-            el.innerHTML = '<div class="lfh-history-empty">Failed to load.</div>';
+            el.innerHTML = '<div class="lfh-history-empty">読み込みに失敗しました。</div>';
         }
     }
 
@@ -265,12 +265,12 @@
             });
             const data = await resp.json();
             if (!resp.ok) {
-                window.alert('Operation failed: ' + (data.error || resp.status));
+                window.alert('操作に失敗しました: ' + (data.error || resp.status));
                 return false;
             }
             return true;
         } catch (err) {
-            window.alert('Network error: ' + err);
+            window.alert('ネットワークエラー: ' + err);
             return false;
         }
     }
@@ -290,7 +290,7 @@
         if (killActive) {
             valEl.textContent = 'KILL';
             chip.style.color = '#ff4444';
-            chip.title = 'Kill switch engaged — every LLM feature is OFF.';
+            chip.title = 'Kill switch 作動中 — LLM 機能はすべて OFF。';
             return;
         }
         let on = 0, shadow = 0, off = 0;
@@ -307,8 +307,8 @@
         else if (shadow > 0) chip.style.color = '#ffaa00';
         else if (on > 0) chip.style.color = 'var(--color-accent)';
         else chip.style.color = '#888';
-        chip.title = 'LLM features: ' + on + ' on, ' + shadow + ' shadow, '
-            + off + ' off. Click to manage.';
+        chip.title = 'LLM 機能: on ' + on + '、shadow ' + shadow + '、off '
+            + off + '。クリックで管理。';
     }
 
     function _escHtml(s) {

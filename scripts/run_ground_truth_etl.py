@@ -276,13 +276,18 @@ def _sequence_evidence_for_scenario(
 
 
 def _participants_for(scenario_id: str) -> list[str]:
-    """Look up the scenario's participant ISO-2 codes. Returns ``[]`` if
-    the scenario is unknown (deleted, renamed) — the conclusion still gets
-    skipped, not crashed."""
+    """Countries whose external events may ground-truth this scenario.
+
+    Conflict parties only (Scenario.ground_truth_countries), NOT all
+    participants — a US GDELT tone spike driven by Middle-East coverage
+    must not become korean_peninsula evidence via US primary_ally
+    membership (2026-08-02 attribution audit; same gate as the RSS ETL).
+    Returns ``[]`` if the scenario is unknown (deleted, renamed) — the
+    conclusion still gets skipped, not crashed."""
     sc = scenario_store.get(scenario_id)
     if sc is None:
         return []
-    return sorted(sc.participants.keys())
+    return sorted(sc.ground_truth_countries)
 
 
 def run_etl(

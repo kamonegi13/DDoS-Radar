@@ -69,7 +69,7 @@ test('missing maxScore defaults to 0 (→ dormant)', () => {
 test('hasCritical=true forces critical-banner regardless of low score', () => {
     const r = resolveMode({ maxScore: 0.05, hasCritical: true });
     assert.strictEqual(r.mode, MODE_CRITICAL);
-    assert.match(r.reason, /explicit critical/);
+    assert.match(r.reason, /明示的な critical イベント/);
 });
 
 test('hasCritical=true forces critical even with prevMode=dormant', () => {
@@ -86,7 +86,7 @@ test('sticky critical: prev=critical, score in [exit, enter) stays critical', ()
         prevMode: MODE_CRITICAL,
     });
     assert.strictEqual(r.mode, MODE_CRITICAL);
-    assert.match(r.reason, /sticky critical/);
+    assert.match(r.reason, /critical を維持/);
 });
 
 test('sticky critical: prev=critical, score < exit drops to pin-dock', () => {
@@ -104,7 +104,7 @@ test('sticky dormant: prev=dormant, score in [enter, exit) stays dormant', () =>
         prevMode: MODE_DORMANT,
     });
     assert.strictEqual(r.mode, MODE_DORMANT);
-    assert.match(r.reason, /sticky dormant/);
+    assert.match(r.reason, /dormant を維持/);
 });
 
 test('sticky dormant: prev=dormant, score >= dormantExit moves to pin-dock', () => {
@@ -137,7 +137,7 @@ test('hysteresis from pin-dock down: score in [dormantEnter, dormantExit) stays 
 test('alwaysVisible=true suppresses dormant even with score=0', () => {
     const r = resolveMode({ maxScore: 0, alwaysVisible: true });
     assert.strictEqual(r.mode, MODE_PIN_DOCK);
-    assert.match(r.reason, /always-visible/);
+    assert.match(r.reason, /常時表示/);
 });
 
 test('alwaysVisible does not block critical-banner', () => {
@@ -186,7 +186,7 @@ test('inverted critical thresholds get auto-corrected', () => {
 
 test('reason includes maxScore for debug', () => {
     const r = resolveMode({ maxScore: 0.65 });
-    assert.ok(r.reason.includes('0.65') || r.reason.includes('pin-dock band'));
+    assert.ok(r.reason.includes('0.65') || r.reason.includes('pin-dock 帯'));
 });
 
 test('result carries thresholds back so caller can render them', () => {

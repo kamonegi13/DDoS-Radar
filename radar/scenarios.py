@@ -46,6 +46,20 @@ class Role(Enum):
 
 _ROLE_VALUES = frozenset(r.value for r in Role)
 
+# Roles whose holders ARE the conflict, as opposed to supporting it
+# (allies, bases, observers, force projection). Ground-truth attribution
+# is restricted to these: supporting-role countries (US/CN/JP/RU…) appear
+# in headlines about OTHER conflicts constantly, and attributing those
+# articles here fabricates FALSE_NEGATIVEs against a correctly-calm
+# scenario (2026-08-02 korean_peninsula audit: 12/15 FNs were Iran /
+# Ukraine / China-strategic articles pulled in via participant fan-out).
+CONFLICT_PARTY_ROLES: frozenset[Role] = frozenset({
+    Role.ADVERSARY,
+    Role.PRIMARY_TARGET,
+    Role.PRINCIPAL_BELLIGERENT,
+    Role.PROXY_FRONT,
+})
+
 
 class SensorTier(Enum):
     GLOBAL = "global"
@@ -111,6 +125,18 @@ class Scenario:
         # at access time (not stored) to keep Role as the single source.
         return [country for country, p in self.participants.items()
                 if p.role == Role.ADVERSARY]
+
+    @property
+    def ground_truth_countries(self) -> frozenset[str]:
+        """Countries whose news mentions may ground-truth THIS scenario.
+
+        Restricted to CONFLICT_PARTY_ROLES — see the constant's comment
+        for the attribution-contamination rationale. Sensing (bg_observer)
+        deliberately keeps the wider all-participants net (NP1)."""
+        return frozenset(
+            country for country, p in self.participants.items()
+            if p.role in CONFLICT_PARTY_ROLES
+        )
 
     def to_dict(self) -> dict:
         return {

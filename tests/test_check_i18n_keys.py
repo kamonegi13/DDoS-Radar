@@ -1,9 +1,9 @@
-"""Tests for scripts/check_i18n_keys.py — EN-only UI + GUIDE parity audit.
+"""Tests for scripts/check_i18n_keys.py — Japanese-only UI audit.
 
 Pins the parser/scanner contracts so a refactor of the regexes can't
-silently start letting unknown keys through. The GUIDE parity check is
-also pinned because long-form prose is the one place we still demand
-hand-curated bilingual coverage (CLAUDE.md §3.2).
+silently start letting unknown keys through, and pins the
+untranslated-value detector — the gate that stops an English string from
+reaching the analyst (docs/design/ja-localization.md §6).
 """
 
 from __future__ import annotations
@@ -19,11 +19,16 @@ if str(_REPO_ROOT / "scripts") not in sys.path:
 
 from check_i18n_keys import (  # noqa: E402
     Report,
-    count_guide_blocks,
-    parse_strings_keys,
+    _needs_translation,
+    parse_strings,
     scan_html,
     scan_js,
 )
+
+
+def parse_strings_keys(path):
+    """Keys only — these tests predate the (keys, untranslated) tuple."""
+    return parse_strings(path)[0]
 
 
 # ── parse_strings_keys ────────────────────────────────────────────────────
@@ -180,76 +185,63 @@ const c = abc_t('not.captured');
     assert refs == set()
 
 
-# ── count_guide_blocks (GUIDE parity) ──────────────────────────────────────
+# ── untranslated-value detection ──────────────────────────────────────────
 
 
-def test_count_guide_blocks_paired(tmp_path):
-    p = tmp_path / "index.html"
+@pytest.mark.parametrize("value", [
+    "Threat Level",
+    "Open the audit-trace drilldown",
+    "No feedback yet for this conclusion",
+    "Acknowledge",
+])
+def test_needs_translation_flags_english_prose(value):
+    assert _needs_translation("some.key", value) is True
+
+
+@pytest.mark.parametrize("value", [
+    "\u8105\u5a01\u30ec\u30d9\u30eb",                    # plain Japanese
+    "TL3 \u306b\u4e0a\u6607",                        # mixed
+    "recall \u304c\u4f4e\u4e0b",                      # keeps an English term
+])
+def test_needs_translation_accepts_japanese(value):
+    assert _needs_translation("some.key", value) is False
+
+
+@pytest.mark.parametrize("value", [
+    "CRITICAL",          # DEFCON-style level name (\u00a72)
+    "SHA-256",           # acronym
+    "{n}",               # bare placeholder
+    "\u25b6",                 # symbol only
+    "42",                # number
+    "Recall (TP/(TP+FN))",   # formula built from kept-English terms
+])
+def test_needs_translation_accepts_codes_and_symbols(value):
+    assert _needs_translation("some.key", value) is False
+
+
+def test_needs_translation_honours_explicit_key_allowlist():
+    """Identifier-shaped values are exempted per key, not by regex — a
+    pattern loose enough to pass `eps={eps}` would also pass real English."""
+    assert _needs_translation("discovery.panel.eps", "eps={eps}") is False
+    assert _needs_translation("some.other.key", "eps={eps}") is True
+
+
+def test_parse_strings_reports_untranslated_values(tmp_path):
+    p = tmp_path / "i18n.js"
     p.write_text(
-        """
-<div class="guide-lang-en" lang="en">EN content</div>
-<div class="guide-lang-ja" lang="ja" style="display:none;">JA content</div>
-<div class="guide-lang-en" lang="en">More EN</div>
-<div class="guide-lang-ja" lang="ja">More JA</div>
-""",
+        "const STRINGS = {\n"
+        "    'a.ok': '\u8105\u5a01\u30ec\u30d9\u30eb',\n"
+        "    'a.code': 'CRITICAL',\n"
+        "    'a.bad': 'Threat Level',\n"
+        "};\n",
         encoding="utf-8",
     )
-    en, ja, en_lang, ja_lang = count_guide_blocks(p)
-    assert en == 2
-    assert ja == 2
-    assert en_lang == 2
-    assert ja_lang == 2
+    keys, untranslated = parse_strings(p)
+    assert keys == {"a.ok", "a.code", "a.bad"}
+    assert untranslated == [("a.bad", "Threat Level")]
 
 
-def test_count_guide_blocks_detects_orphan(tmp_path):
-    p = tmp_path / "index.html"
-    p.write_text(
-        """
-<div class="guide-lang-en" lang="en">EN content</div>
-<div class="guide-lang-ja" lang="ja">JA content</div>
-<div class="guide-lang-ja" lang="ja">orphan JA</div>
-""",
-        encoding="utf-8",
-    )
-    en, ja, _en_lang, _ja_lang = count_guide_blocks(p)
-    assert en == 1
-    assert ja == 2
-
-
-def test_count_guide_blocks_handles_multi_class(tmp_path):
-    p = tmp_path / "index.html"
-    p.write_text(
-        """
-<div class="guide-section guide-lang-en" lang="en">EN</div>
-<div class="guide-lang-ja some-other-class" lang="ja">JA</div>
-""",
-        encoding="utf-8",
-    )
-    en, ja, _en_lang, _ja_lang = count_guide_blocks(p)
-    assert en == 1
-    assert ja == 1
-
-
-def test_count_guide_blocks_lang_attribute_required(tmp_path):
-    """WCAG 3.1.2 — guide blocks without the matching `lang` attribute are
-    counted under the block totals but excluded from the with-lang totals,
-    so the `guide_lang_attr_ok` gate fires."""
-    p = tmp_path / "index.html"
-    p.write_text(
-        """
-<div class="guide-lang-en" lang="en">EN with lang</div>
-<div class="guide-lang-en">EN missing lang</div>
-<div class="guide-lang-ja" lang="ja">JA with lang</div>
-<div class="guide-lang-ja">JA missing lang</div>
-""",
-        encoding="utf-8",
-    )
-    en, ja, en_lang, ja_lang = count_guide_blocks(p)
-    assert (en, ja) == (2, 2)
-    assert (en_lang, ja_lang) == (1, 1)
-
-
-# ── Report (derived sets + parity) ────────────────────────────────────────
+# ── Report (derived sets + JA-only shell) ─────────────────────────────────
 
 
 def test_report_undefined_refs_are_referenced_minus_defined():
@@ -268,18 +260,17 @@ def test_report_unused_keys_are_defined_minus_referenced():
     assert r.unused_keys == {"b", "c"}
 
 
-def test_report_guide_parity_flags_imbalance():
-    matched = Report(
-        defined_keys=frozenset(), referenced_keys=frozenset(),
-        guide_en_count=10, guide_ja_count=10,
-    )
-    assert matched.guide_parity_ok is True
+def test_report_ja_only_requires_no_en_guide_and_lang_ja():
+    base = dict(defined_keys=frozenset(), referenced_keys=frozenset())
+    assert Report(**base, guide_en_count=0, html_lang_ja=True).ja_only_ok
+    assert not Report(**base, guide_en_count=1, html_lang_ja=True).ja_only_ok
+    assert not Report(**base, guide_en_count=0, html_lang_ja=False).ja_only_ok
 
-    skewed = Report(
-        defined_keys=frozenset(), referenced_keys=frozenset(),
-        guide_en_count=10, guide_ja_count=11,
-    )
-    assert skewed.guide_parity_ok is False
+
+def test_report_translation_ok_is_false_when_untranslated_present():
+    base = dict(defined_keys=frozenset(), referenced_keys=frozenset())
+    assert Report(**base).translation_ok is True
+    assert Report(**base, untranslated=(("k", "English"),)).translation_ok is False
 
 
 def test_report_to_dict_shape():
@@ -287,7 +278,9 @@ def test_report_to_dict_shape():
         defined_keys=frozenset({"a", "b"}),
         referenced_keys=frozenset({"a", "x"}),
         opaque_calls=(("file.js", 10),),
-        guide_en_count=3, guide_ja_count=3,
+        untranslated=(("k", "English"),),
+        guide_en_count=0,
+        html_lang_ja=True,
     )
     d = r.to_dict()
     assert d["defined_count"] == 2
@@ -295,9 +288,11 @@ def test_report_to_dict_shape():
     assert d["undefined_refs"] == ["x"]
     assert d["unused_keys"] == ["b"]
     assert d["opaque_calls"] == [{"file": "file.js", "line": 10}]
-    assert d["guide_en_blocks"] == 3
-    assert d["guide_ja_blocks"] == 3
-    assert d["guide_parity_ok"] is True
+    assert d["untranslated"] == [{"key": "k", "value": "English"}]
+    assert d["guide_en_blocks"] == 0
+    assert d["html_lang_ja"] is True
+    assert d["ja_only_ok"] is True
+    assert d["translation_ok"] is False
 
 
 # ── End-to-end against live tree ───────────────────────────────────────────
@@ -314,11 +309,22 @@ def test_live_tree_has_zero_undefined_refs():
     )
 
 
-def test_live_tree_has_balanced_guide_parity():
-    """Regression: every .guide-lang-en block needs a sibling .guide-lang-ja."""
+def test_live_tree_has_no_untranslated_strings():
+    """Regression: every STRINGS value is Japanese or a recognized code.
+    A failure here means a string would reach the analyst in English."""
     from check_i18n_keys import build_report
     report = build_report()
-    assert report.guide_parity_ok, (
-        f"INTEL GUIDE parity broken: "
-        f"{report.guide_en_count} EN vs {report.guide_ja_count} JA"
+    assert report.translation_ok, (
+        "Untranslated STRINGS values: "
+        f"{[k for k, _ in report.untranslated][:10]}"
     )
+
+
+def test_live_tree_is_japanese_only_shell():
+    """Regression: the bilingual guide stays retired and <html lang="ja">."""
+    from check_i18n_keys import build_report
+    report = build_report()
+    assert report.guide_en_count == 0, (
+        f"{report.guide_en_count} .guide-lang-en block(s) came back"
+    )
+    assert report.html_lang_ja, '<html lang="ja"> missing'

@@ -63,7 +63,7 @@ if ! python scripts/check_alias_coverage.py; then
     FAIL=1
 fi
 
-step "i18n key parity (EN-only UI + INTEL GUIDE bilingual, 2026-04-28 PM)"
+step "i18n key audit + untranslated detection (Japanese-only UI, 2026-08-02)"
 # GUIDE parity is fatal in the script. STRINGS undefined_refs/unused are
 # warn-only here — flip to --strict once the unused-key cleanup lands.
 python scripts/check_i18n_keys.py || { echo "FAIL: i18n audit reported issues. See output above." >&2; FAIL=1; }

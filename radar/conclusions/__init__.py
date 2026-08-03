@@ -1,4 +1,4 @@
-"""DDoS-Radar v2.0 Conclusion Model.
+"""Noroshi v2.0 Conclusion Model.
 
 Single source of truth for tool output: every conclusion (threat level, trend,
 per-domain, anomaly, attack mode) is wrapped in the unified `Conclusion`

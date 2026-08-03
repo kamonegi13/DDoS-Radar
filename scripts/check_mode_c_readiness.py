@@ -13,8 +13,8 @@ v1 sunset countdown start) requires:
 
 Run inside the container:
 
-    docker exec ddos-radar python scripts/check_mode_c_readiness.py
-    docker exec ddos-radar python scripts/check_mode_c_readiness.py --ack
+    docker exec noroshi python scripts/check_mode_c_readiness.py
+    docker exec noroshi python scripts/check_mode_c_readiness.py --ack
 
 Exit 0 = ready, exit 1 = not ready (per-condition reason printed).
 """

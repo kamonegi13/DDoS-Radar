@@ -41,7 +41,7 @@ function _conclusion(opts) {
 test('returns 0 score when conclusion has no id', () => {
     const r = computeAttentionScore(_conclusion({ id: null }), null, null, NOW);
     assert.strictEqual(r.score, 0);
-    assert.ok(r.why.some(w => /no conclusion id/.test(w)));
+    assert.ok(r.why.some(w => /conclusion id なし/.test(w)));
 });
 
 test('returns 0 when conclusion is unavailable', () => {
@@ -61,7 +61,7 @@ test('returns 0 when conclusion id is in ackedIds', () => {
     const acked = new Set(['c-1']);
     const r = computeAttentionScore(_conclusion(), null, { ackedIds: acked }, NOW);
     assert.strictEqual(r.score, 0);
-    assert.ok(r.why.some(w => /acknowledged/.test(w)));
+    assert.ok(r.why.some(w => /確認済み/.test(w)));
 });
 
 // ── novelty component ─────────────────────────────────────────────────────

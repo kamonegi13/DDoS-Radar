@@ -565,3 +565,59 @@ def test_event_before_conclusion_window_does_not_label(stub_fetch_all):
     assert summary["no_match"] >= 1
     assert summary["persisted"] == 0
     assert _label_of(cid) is None
+
+
+# ── conflict-party attribution gate (2026-08-02) ─────────────────────────
+#
+# Production audit: articles about OTHER conflicts were attributed to any
+# scenario in which a mentioned country was a participant. "US pounds Iran"
+# became korean_peninsula ground truth via the US primary_ally membership
+# and scored the (correctly calm) tool FALSE_NEGATIVE. Episodes may now be
+# anchored only on conflict-party countries (Scenario.ground_truth_countries).
+
+
+def test_supporting_role_country_cannot_create_ground_truth(stub_fetch_all):
+    """A U.S.-anchored Middle-East article must not label taiwan_contingency:
+    US is primary_ally there, and neither TW nor CN appears in the text."""
+    obs_at = _NOW - 24 * 3600
+    cid = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="4", observed_at=obs_at,
+    )
+    stub_fetch_all([
+        {"title": "Pentagon confirms new airstrike on Iran nuclear sites as Tehran vows response",
+         "summary": "", "link": ""},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    assert summary["matched_items"] == 1
+    assert summary["persisted"] == 0
+    assert _count_feedback_rows(cid) == 0
+
+
+def test_one_article_anchors_one_episode_per_scenario(stub_fetch_all):
+    """An article naming BOTH conflict parties (PLA + Taiwan) must yield
+    exactly one episode/label, anchored on one conflict-party country —
+    multi-country extraction must not double-count a single event."""
+    obs_at = _NOW - 24 * 3600
+    cid = _make_conclusion(
+        kind=ConclusionType.THREAT_LEVEL, state="3", observed_at=obs_at,
+    )
+    stub_fetch_all([
+        {"title": "PLA missile strike hits Taiwan radar site",
+         "summary": "", "link": ""},
+    ])
+    summary = runner.run_etl(
+        db, feeds=("dummy://",), since=obs_at - 1, until=_NOW,
+        scenario_filter=_SCENARIO, use_llm=False,
+    )
+    assert summary["persisted"] == 1
+    assert _count_feedback_rows(cid) == 1
+    note = db._get_conn().execute(  # noqa: SLF001
+        "SELECT notes FROM analyst_feedback WHERE conclusion_id = ?",
+        (cid,),
+    ).fetchone()[0]
+    # Anchor country must be a conflict party of the scenario (TW or CN),
+    # never a supporting participant.
+    assert "/TW/" in note or "/CN/" in note

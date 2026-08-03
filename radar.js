@@ -158,7 +158,7 @@
     // Legacy config shape retained for compatibility with forceDataSync diff logic;
     // under scenario-unit mode these fields are driven by the focused scenario.
     let lastSyncedConfig = { core: "", correlates: [], adversaries: [], displays: [] };
-    let lastSyncedTimeText = "System Initializing...";
+    let lastSyncedTimeText = "システム初期化中...";
     let isFirstLoad = true;
     let loaderLogInterval;
     let _nodeOkRetryTimer = null; // One-shot retry when CheckHost hasn't initialized yet
@@ -301,10 +301,10 @@
             if (d.ok) {
                 forceDataSync();
             } else {
-                alert(d.error || 'Failed');
+                alert(d.error || '失敗しました');
             }
         })
-        .catch(e => alert('Error: ' + e.message));
+        .catch(e => alert('エラー: ' + e.message));
     };
 
     // ── CAC: Confirmed Threat Classification ─────────────────────────────────
@@ -407,7 +407,7 @@
             .then(d => {
                 if (remEl) remEl.textContent = d.daily_remaining !== undefined ? _t('gn.remaining', {n: d.daily_remaining}) : '';
                 if (d.error) {
-                    if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Error: ${esc(d.error)}</span>`;
+                    if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">エラー: ${esc(d.error)}</span>`;
                     return;
                 }
                 const noiseStr  = d.noise ? `<span class="gn-result-noise">${_t('gn.result.noise')}</span>` : `<span class="gn-result-targeted">${_t('gn.result.targeted')}</span>`;
@@ -418,9 +418,9 @@
                 const cached    = d.cached ? ` <span style="color:#555;">${_t('gn.result.cached')}</span>` : '';
                 if (resultEl) resultEl.innerHTML =
                     `<div>${noiseStr} ${riotStr}${cached}</div>` +
-                    `<div style="color:#888;">Class: <span style="color:#ccc;">${esc(classStr)}</span></div>` +
-                    `<div style="color:#888;">Name:  <span style="color:#ccc;">${esc(nameStr)}</span></div>` +
-                    `<div style="color:#888;">Seen:  <span style="color:#ccc;">${esc(lastSeen)}</span></div>`;
+                    `<div style="color:#888;">分類: <span style="color:#ccc;">${esc(classStr)}</span></div>` +
+                    `<div style="color:#888;">名称: <span style="color:#ccc;">${esc(nameStr)}</span></div>` +
+                    `<div style="color:#888;">最終観測: <span style="color:#ccc;">${esc(lastSeen)}</span></div>`;
                 // Auto-log to investigation log and notebook
                 const logEntry = { ts: Date.now(), ip: d.ip, noise: d.noise, riot: d.riot, classification: classStr, name: nameStr, cached: d.cached };
                 _gnLog.unshift(logEntry);
@@ -429,7 +429,7 @@
                 renderGnLog();
             })
             .catch(e => {
-                if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">Network error: ${esc(e.message)}</span>`;
+                if (resultEl) resultEl.innerHTML = `<span style="color:#ff4444;">ネットワークエラー: ${esc(e.message)}</span>`;
             });
     }
 
@@ -846,14 +846,14 @@
     });
 
     const loaderLogs = [
-        "> Polling Cloudflare L3/L7 Telemetry...",
-        "> Fetching IODA BGP Outage Data...",
-        "> Scanning OpenSky Network for Airspace Anomalies...",
-        "> Checking NASA FIRMS Thermal Detectors...",
-        "> Cross-referencing ThreatFox APT Signatures...",
-        "> Retrieving GDELT Media Tone Indicators...",
-        "> Compiling PeeringDB/Chokepoint Critical Nodes...",
-        "> Calculating MDO Convergence Score..."
+        "> Cloudflare L3/L7 テレメトリを取得中...",
+        "> IODA の BGP 障害データを取得中...",
+        "> OpenSky Network で空域異常を走査中...",
+        "> NASA FIRMS の熱源検知を確認中...",
+        "> ThreatFox の APT シグネチャを突合中...",
+        "> GDELT のメディアトーン指標を取得中...",
+        "> PeeringDB / チョークポイントの重要ノードを集約中...",
+        "> MDO 収斂スコアを計算中..."
     ];
     if (isFirstLoad) {
         let logIdx = 0;
@@ -1290,8 +1290,8 @@
                     const color  = EVENT_COLORS[ev.type] || '#888';
                     const label  = EVENT_LABELS[ev.type] || ev.type;
                     const dt     = new Date(ev.ts * 1000);
-                    const _lang  = (localStorage.getItem('ddos_radar_lang') || 'en') === 'ja' ? 'ja-JP' : 'en-US';
-                    const timeStr = dt.toLocaleTimeString(_lang, {hour:'2-digit', minute:'2-digit'});
+                    // Japanese-only UI (2026-08-02): the old lang key is gone.
+                    const timeStr = dt.toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'});
                     // Single-line compact row: dot + label + time inline (Phase A2)
                     html += `<div class="chain-event" data-chain-type="${ev.type}">
                         <div class="chain-dot chain-dot-${ev.type}" style="background:${color};"></div>
@@ -1784,25 +1784,26 @@
     const coordLinkLayer    = L.layerGroup().addTo(map);  // Constellation links
     const participantLayer  = L.layerGroup().addTo(map);  // Scenario participant role markers
 
+    // Leaflet renders these keys verbatim in the layer-toggle control.
     const overlayLayers = {
-        "Participants":      participantLayer,
-        "Target Nodes":      targetLayer,
-        "Cyber Strikes":     lineLayer,
-        "Attack Origins":    sourceLayer,
-        "BGP Outages":       iodaLayer,
-        "Airspace Anomaly":  airspaceLayer,
-        "ISR Zones":         isrZoneLayer,
-        "ISR Aircraft":      isrAircraftLayer,
-        "AIS Vessels":       aisVesselLayer,
-        "Weather Events":    weatherLayer,
-        "Media Tone Alert":  gdeltLayer,
-        "FIRMS Anomalies":   firmsLayer,
-        "Cable Routes":      cableRoutesLayer,
-        "Cable Chokepoints": chokepointsLayer,
-        "Threat Terrain":    threatTerrainLayer,
-        "Threat Halos":      haloLayer,
-        "Sensor Status":     sensorMarkerLayer,
-        "Coordination":      coordLinkLayer,
+        "参加国":               participantLayer,
+        "標的ノード":           targetLayer,
+        "サイバー攻撃":         lineLayer,
+        "攻撃元":               sourceLayer,
+        "BGP 障害":             iodaLayer,
+        "空域異常":             airspaceLayer,
+        "ISR 空域":             isrZoneLayer,
+        "ISR 機":               isrAircraftLayer,
+        "AIS 船舶":             aisVesselLayer,
+        "気象イベント":         weatherLayer,
+        "メディアトーン警告":   gdeltLayer,
+        "FIRMS 熱源異常":       firmsLayer,
+        "海底ケーブル経路":     cableRoutesLayer,
+        "ケーブルチョークポイント": chokepointsLayer,
+        "脅威地形":             threatTerrainLayer,
+        "脅威ハロー":           haloLayer,
+        "センサー状態":         sensorMarkerLayer,
+        "連携":                 coordLinkLayer,
     };
     L.control.layers(null, overlayLayers, { position: 'topright', collapsed: true }).addTo(map);
 
@@ -1853,12 +1854,6 @@
     let _syncPillsVisual = () => {};
     let _reapplyFilters  = () => {};
 
-    // Region display order
-    const REGION_ORDER = [
-        "East Asia","SE Asia","S. Asia","C. Asia","Middle East",
-        "N. Africa","Africa","W. Europe","N. Europe","E. Europe",
-        "Russia","N. America","L. America","Caribbean","Oceania","Other"
-    ];
 
     // Bloc bounds for minimap fly-to on bloc pill click
     const BLOC_BOUNDS = {
@@ -2346,7 +2341,7 @@
             'hud-llm-dot-offline', 'hud-llm-dot-disabled', 'hud-llm-dot-unknown',
         );
         dot.classList.add('hud-llm-dot-' + safe);
-        const base = 'LLM service health (' + safe + ').';
+        const base = 'LLM サービスの稼働状態 (' + safe + ')';
         chip.title = tooltipExtra ? base + '\n' + tooltipExtra : base;
     }
 
@@ -2383,13 +2378,13 @@
             const tipParts = [];
             if (model) tipParts.push('model=' + model);
             tipParts.push('calls/1h=' + calls1h);
-            if (ageMin !== null) tipParts.push('last_call=' + ageMin.toFixed(1) + 'm ago');
-            tipParts.push('click to open LLM Intelligence panel');
+            if (ageMin !== null) tipParts.push('last_call=' + ageMin.toFixed(1) + 'm 前');
+            tipParts.push('クリックで LLM Intelligence パネルを開く');
             _setLlmChipState(state, tipParts.join(' · '));
         } catch (e) {
             _llmChipFailStreak += 1;
             if (_llmChipFailStreak >= _LLM_CHIP_FAIL_STRIKE_LIMIT) {
-                _setLlmChipState('offline', 'fetch error: ' + (e && e.message || e));
+                _setLlmChipState('offline', '取得エラー: ' + (e && e.message || e));
             }
         }
     }
@@ -2447,16 +2442,16 @@
                 _applySelfEvalClass('hud-model-chip', 'warn');
             }
             const tip = [
-                'LLM model routing (v10 5-model stack)',
-                '  ollama: ' + (ollama.reachable ? 'reachable' : 'offline'),
-                '  ollama version: ' + (ollama.version || '—')
-                  + (data.version_ok ? ' ✓' : ' (need ≥0.22.0)'),
-                '  primary models pulled: ' + availableCount + '/' + primaryCount,
+                'LLM モデルルーティング (v10 5-model stack)',
+                '  ollama: ' + (ollama.reachable ? '到達可能' : 'オフライン'),
+                '  ollama バージョン: ' + (ollama.version || '—')
+                  + (data.version_ok ? ' ✓' : '（要 ≥0.22.0）'),
+                '  取得済み primary モデル: ' + availableCount + '/' + primaryCount,
             ];
             if (missing.length > 0) {
-                tip.push('  missing: ' + missing.join(', '));
+                tip.push('  未取得: ' + missing.join(', '));
             }
-            tip.push('  click to open routing controls');
+            tip.push('  クリックでルーティング設定を開く');
             chipEl.title = tip.join('\n');
         } catch (_) { /* NP3 — keep prior value on transient blip */ }
     }
@@ -2484,8 +2479,8 @@
             const escAttr = s => _escHtml(s).replace(/"/g, '&quot;');
             const rows = eff.map((e, i) => {
                 const avail = e.available
-                    ? '<span style="color:var(--color-good,#3a3)" title="model pulled locally">✓</span>'
-                    : '<span style="color:var(--color-warning,#c80)" title="model NOT pulled — preflight will downgrade go_no_go">×</span>';
+                    ? '<span style="color:var(--color-good,#3a3)" title="モデルをローカルに取得済み">✓</span>'
+                    : '<span style="color:var(--color-warning,#c80)" title="モデル未取得 — preflight が go_no_go を降格させる">×</span>';
                 const fs = e.feature_state || '?';
                 const fsBand = fs === 'on'      ? 'good'
                              : fs === 'shadow'  ? 'warn'
@@ -2522,7 +2517,7 @@
                     + '</td>'
                     + '<td style="white-space:nowrap">'
                     +   '<button class="lr-save" data-i18n="llm_routing.save">Save</button> '
-                    +   '<button class="lr-reset" title="clear DB override → revert to env / code default" data-i18n="llm_routing.reset">Reset</button>'
+                    +   '<button class="lr-reset" title="DB override を解除 → env / コード既定値に戻す" data-i18n="llm_routing.reset">Reset</button>'
                     + '</td>'
                     + '</tr>';
             }).join('');
@@ -2534,13 +2529,13 @@
             const versionMsg = oll.version
                 ? 'Ollama ' + _escHtml(oll.version)
                   + (pre.version_ok ? ' (≥0.22.0 OK)'
-                                    : ' — survey v10 requires ≥0.22.0')
-                : 'Ollama unreachable';
+                                    : ' — survey v10 は ≥0.22.0 が必要')
+                : 'Ollama に到達できません';
             const goNoGo = pre.go_no_go
                 ? '<b style="color:var(--color-good,#3a3)">GO</b>'
                 : '<b style="color:var(--color-warning,#c80)">NO-GO</b>';
             const missing = Array.isArray(pre.missing) && pre.missing.length
-                ? '<p>Missing primary models: <code>'
+                ? '<p>未取得の primary モデル: <code>'
                   + pre.missing.map(_escHtml).join('</code>, <code>')
                   + '</code></p>'
                 : '';
@@ -2551,17 +2546,17 @@
             const embHtml = ''
                 + '<div style="margin-top:1em;padding:8px;border:1px solid '
                 +   'var(--color-panel-border,#2a3138);border-radius:4px">'
-                + '<b>Embedding (dedupe)</b><br>'
+                + '<b>Embedding（重複排除）</b><br>'
                 + 'model = <code>' + _escHtml(emb.model || '—') + '</code> '
                 + (emb.available
-                    ? '<span style="color:var(--color-good,#3a3)">✓ pulled</span>'
-                    : '<span style="color:var(--color-warning,#c80)">× not pulled</span>')
+                    ? '<span style="color:var(--color-good,#3a3)">✓ 取得済み</span>'
+                    : '<span style="color:var(--color-warning,#c80)">× 未取得</span>')
                 + ' · feature = <code>' + (emb.feature_active ? 'active' : 'inactive')
                 + '</code><br>'
                 + '<span style="font-size:0.85em;opacity:0.7">'
-                + 'Toggle the embedding_dedupe Feature Hub key in '
                 + '<a href="javascript:void(0)" onclick="(window._settingsOpen||window._llmFeaturesOpen||function(){})(\'llm.features\')">LLM Features</a>'
-                + ' to control whether embed_text() runs on incoming OSINT.'
+                + ' で Feature Hub の embedding_dedupe キーを切り替えると、'
+                + '受信 OSINT に対して embed_text() を実行するかを制御できる。'
                 + '</span></div>';
             const html = ''
                 + '<div class="modal-section">'
@@ -2572,10 +2567,10 @@
                 + embHtml
                 + '<div id="llm-routing-status" style="margin-top:0.6em;font-size:0.85em;min-height:1.2em"></div>'
                 + '<p style="margin-top:1em;font-size:0.8em;opacity:0.65">'
-                + 'Save writes a row to <code>llm_routing_override</code> (DB layer, '
-                + 'highest precedence). Reset deletes the override → reverts to env '
-                + 'var or code default. Every change is appended to '
-                + '<code>llm_routing_override_history</code> (NP6 audit).'
+                + 'Save は <code>llm_routing_override</code>（DB 層、最優先）に行を書き込む。'
+                + 'Reset は override を削除し、env 変数またはコード既定値に戻す。'
+                + 'すべての変更は <code>llm_routing_override_history</code> に追記される'
+                + '（NP6 の監査経路）。'
                 + '</p>'
                 + '</div>';
             // Lightweight single-instance modal — destroyed on close so the
@@ -2602,7 +2597,7 @@
             box.innerHTML = ''
                 + '<div style="display:flex;justify-content:space-between;'
                 + 'align-items:center;margin-bottom:12px;">'
-                + '<h3 style="margin:0">LLM Model Routing (v10)</h3>'
+                + '<h3 style="margin:0">LLM モデルルーティング (v10)</h3>'
                 + '<button id="llm-routing-modal-close" style="'
                 + 'background:transparent;border:none;color:inherit;'
                 + 'font-size:1.4em;cursor:pointer;line-height:1">&times;</button>'
@@ -2663,16 +2658,16 @@
                                 }
                             );
                             if (r.ok) {
-                                setStatus('Saved ' + useCase + '/' + slot, true);
+                                setStatus(useCase + '/' + slot + ' を保存', true);
                                 await refreshAfterChange();
                             } else {
                                 const err = await r.text();
-                                setStatus('Save failed: HTTP ' + r.status
+                                setStatus('保存できませんでした: HTTP ' + r.status
                                           + ' — ' + err.slice(0, 120), false);
                                 saveBtn.disabled = false;
                             }
                         } catch (e) {
-                            setStatus('Save error: ' + (e && e.message || e), false);
+                            setStatus('保存エラー: ' + (e && e.message || e), false);
                             saveBtn.disabled = false;
                         }
                     });
@@ -2687,16 +2682,16 @@
                         try {
                             const r = await fetch(url, {method: 'DELETE'});
                             if (r.ok) {
-                                setStatus('Reset ' + useCase + '/' + slot, true);
+                                setStatus(useCase + '/' + slot + ' をリセット', true);
                                 await refreshAfterChange();
                             } else {
                                 const err = await r.text();
-                                setStatus('Reset failed: HTTP ' + r.status
+                                setStatus('リセットできませんでした: HTTP ' + r.status
                                           + ' — ' + err.slice(0, 120), false);
                                 resetBtn.disabled = false;
                             }
                         } catch (e) {
-                            setStatus('Reset error: ' + (e && e.message || e), false);
+                            setStatus('リセットエラー: ' + (e && e.message || e), false);
                             resetBtn.disabled = false;
                         }
                     });
@@ -2755,7 +2750,7 @@
     // generic forms (Sensor toggle list, LLM Routing matrix, Scenarios
     // admin, Users admin, Decision Trail).
     const _SETTINGS_DOMAINS = [
-        { group: 'OPERATE', label: 'Operate', sub: [
+        { group: 'OPERATE', label: '運用', sub: [
             { id: 'operate.scope',       labelKey: 'settings.operate.scope',
               fn: '_settingsRenderRegistryGroup', registryDomain: 'operate.scope' },
             { id: 'operate.intel',       labelKey: 'settings.operate.intel',
@@ -2771,7 +2766,7 @@
             { id: 'operate.scenarios',   labelKey: 'settings.operate.scenarios',
               fn: '_settingsRenderScenariosList' },
         ]},
-        { group: 'TUNE', label: 'Tune (Scoring)', sub: [
+        { group: 'TUNE', label: 'チューニング（スコアリング）', sub: [
             { id: 'tune.scoring',        labelKey: 'settings.tune.scoring',
               fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.scoring' },
             { id: 'tune.zscore',         labelKey: 'settings.tune.zscore',
@@ -2789,7 +2784,7 @@
             { id: 'tune.gdelt',          labelKey: 'settings.tune.gdelt',
               fn: '_settingsRenderRegistryGroup', registryDomain: 'tune.gdelt' },
         ]},
-        { group: 'LLM_HEALTH', label: 'LLM Health', sub: [
+        { group: 'LLM_HEALTH', label: 'LLM ヘルス', sub: [
             { id: 'llm.connection',      labelKey: 'settings.llm.connection',
               fn: '_settingsRenderLlmConnection' },
             { id: 'llm.features',        labelKey: 'settings.llm.features',
@@ -2801,7 +2796,7 @@
             { id: 'llm.self_eval',       labelKey: 'settings.llm.self_eval',
               fn: '_settingsRenderLlmSelfEval' },
         ]},
-        { group: 'INFRASTRUCTURE', label: 'Infrastructure', sub: [
+        { group: 'INFRASTRUCTURE', label: 'インフラ', sub: [
             { id: 'infra.network',       labelKey: 'settings.infra.network',
               fn: '_settingsRenderRegistryGroup', registryDomain: 'infra.network' },
             { id: 'infra.cache',         labelKey: 'settings.infra.cache',
@@ -2819,7 +2814,7 @@
             { id: 'infra.fetch_log',     labelKey: 'settings.infra.fetch_log',
               fn: '_settingsRenderSensorsFetchLog' },
         ]},
-        { group: 'ACCESS', label: 'Access', sub: [
+        { group: 'ACCESS', label: 'アクセス', sub: [
             { id: 'access.users',        labelKey: 'settings.access.users',
               fn: '_settingsRenderOperatorsUsers' },
             { id: 'access.api_keys',     labelKey: 'settings.access.api_keys',
@@ -2831,7 +2826,7 @@
             { id: 'access.admin',        labelKey: 'settings.access.admin',
               fn: '_settingsRenderRegistryGroup', registryDomain: 'access.admin' },
         ]},
-        { group: 'AUDIT', label: 'Audit', sub: [
+        { group: 'AUDIT', label: '監査', sub: [
             { id: 'audit.changes',       labelKey: 'settings.audit.changes',
               fn: '_settingsRenderAuditChanges' },
             { id: 'audit.decisions',     labelKey: 'settings.audit.decisions',
@@ -3021,8 +3016,8 @@
             // registry-driven renderer knows which domain it's rendering.
             handler(render, { domain, registryDomain });
         } else {
-            render.innerHTML = '<div style="opacity:0.6">Section not yet '
-                + 'available: <code>' + _escHtml(domain) + '</code></div>';
+            render.innerHTML = '<div style="opacity:0.6">未提供のセクション'
+                + ': <code>' + _escHtml(domain) + '</code></div>';
         }
     }
 
@@ -3071,11 +3066,11 @@
         if (!valueRow) return '';
         const s = valueRow.source;
         if (s === 'db')      return '<span class="cfg-badge cfg-badge-source-db" '
-            + 'title="Stored in DB (set via Settings UI). Overrides env / default.">DB</span>';
+            + 'title="DB に保存された値（Settings UI で設定）。env / 既定値を上書きする。">DB</span>';
         if (s === 'env')     return '<span class="cfg-badge cfg-badge-source-env" '
-            + 'title="Loaded from config.env on startup.">ENV</span>';
+            + 'title="起動時に config.env から読み込んだ値。">ENV</span>';
         if (s === 'default') return '<span class="cfg-badge cfg-badge-source-default" '
-            + 'title="Using the registry default — no override in DB or env.">DEFAULT</span>';
+            + 'title="レジストリ既定値を使用中 — DB にも env にも override が無い。">DEFAULT</span>';
         return '';
     }
     function _settingsBadgeTiming(meta) {
@@ -3083,38 +3078,38 @@
         // share one badge so the UI is honest about that fact.
         if (meta.bootstrap || meta.immutable || meta.secret) {
             return '<span class="cfg-badge cfg-badge-timing-readonly" '
-                + 'title="Read-only here. Edit in config.env (and restart) — '
-                + 'this key is bootstrap/immutable/secret.">READ-ONLY</span>';
+                + 'title="ここでは読み取り専用。config.env で編集して再起動する — '
+                + 'このキーは bootstrap / immutable / secret のいずれか。">READ-ONLY</span>';
         }
         if (meta.restart_required) {
             return '<span class="cfg-badge cfg-badge-timing-restart" '
-                + 'title="Saved to DB now, but the new value only takes '
-                + 'effect after `docker compose restart`.">RESTART</span>';
+                + 'title="DB には即時保存されるが、新しい値が反映されるのは '
+                + '`docker compose restart` の後。">RESTART</span>';
         }
         // apply_timing label hint — TIMING_LIVE_NEXT_CYCLE keys take effect
         // on next intel queue cycle (intel-related), not next scoring tick.
         if (typeof meta.apply_timing === 'string'
             && meta.apply_timing.indexOf('intel queue') >= 0) {
             return '<span class="cfg-badge cfg-badge-timing-next-cycle" '
-                + 'title="Applies on the next intel queue cycle '
-                + '(typically &lt; 60s).">NEXT-CYCLE</span>';
+                + 'title="次のインテルキューサイクルで反映される'
+                + '（通常 &lt; 60s）。">NEXT-CYCLE</span>';
         }
         return '<span class="cfg-badge cfg-badge-timing-live" '
-            + 'title="Applies live on the next scoring tick (~30s). '
-            + 'No restart required.">LIVE</span>';
+            + 'title="次のスコアリング tick（約 30s）で即時反映される。'
+            + '再起動は不要。">LIVE</span>';
     }
     function _settingsBadgeImpact(meta) {
         if (meta.impact_level === 'high') {
             const tip = meta.impact_warning
-                || 'High impact — changing this affects many downstream '
-                   + 'computations. A reason is required at SAVE time.';
+                || '影響大 — 変更すると下流の多くの計算に波及する。'
+                   + '保存時に理由の記録が必要。';
             return '<span class="cfg-badge cfg-badge-impact-high" '
                 + 'title="' + _escHtml(tip) + '">HIGH</span>';
         }
         if (meta.impact_level === 'med') {
             return '<span class="cfg-badge cfg-badge-impact-med" '
-                + 'title="Medium impact — changes are visible in the next '
-                   + 'cycle, but rarely catastrophic.">MED</span>';
+                + 'title="影響中 — 変更は次のサイクルで見えるが、'
+                   + '致命的になることは稀。">MED</span>';
         }
         return '';  // LOW = no badge to keep the row uncluttered
     }
@@ -3125,16 +3120,16 @@
         const out = [];
         if (meta.secret) {
             out.push('<span class="cfg-badge cfg-badge-access" data-kind="secret" '
-                + 'title="Secret — the API never returns the plaintext value. '
-                + 'Set via config.env, then restart.">🔑</span>');
+                + 'title="シークレット — API は平文値を返さない。'
+                + 'config.env で設定して再起動する。">🔑</span>');
         }
         if (meta.bootstrap) {
             out.push('<span class="cfg-badge cfg-badge-access" data-kind="bootstrap" '
-                + 'title="Bootstrap — read once at first startup, persisted to '
-                + 'DB. Cannot be edited from the UI.">★</span>');
+                + 'title="Bootstrap — 初回起動時に一度だけ読み込み、DB に永続化される。'
+                + 'UI からは編集できない。">★</span>');
         } else if (meta.immutable) {
             out.push('<span class="cfg-badge cfg-badge-access" data-kind="immutable" '
-                + 'title="Immutable — env-only. Edit config.env and restart.">🔒</span>');
+                + 'title="Immutable — env 専用。config.env を編集して再起動する。">🔒</span>');
         }
         return out.join('');
     }
@@ -3249,7 +3244,7 @@
                 +   tags
                 +   '<input type="text" class="cfg-tag-input"'
                 +     ' data-cfg-target="' + id + '"'
-                +     ' placeholder="add value, press Enter"'
+                +     ' placeholder="値を入力して Enter"'
                 +     (readOnly ? ' disabled' : '') + '>'
                 + '</div>'
                 + '<input type="hidden" id="' + id + '"'
@@ -3259,14 +3254,14 @@
         if (meta.secret) {
             const ind = valueRow && valueRow.indicator;
             const placeholder = ind && ind.set
-                ? `configured · ends in …${ind.last4 || '????'}`
-                : '(unset)';
+                ? `設定済み · 末尾 …${ind.last4 || '????'}`
+                : '(未設定)';
             return '<input type="text" id="' + id + '" class="cfg-input secret-field"'
                 + ' value="" disabled'
                 + ' placeholder="' + _escHtml(placeholder) + '"'
                 + ' style="width:100%;max-width:560px">'
                 + ' <span class="cfg-hint" style="margin:0;display:inline">'
-                + 'edit in <code>config.env</code></span>';
+                + '<code>config.env</code> で編集</span>';
         }
         // (f) plain string fallback
         return '<input type="text" id="' + id + '" class="cfg-input"'
@@ -3396,24 +3391,24 @@
         if (meta.impact_level !== 'high') {
             return (valueRow && valueRow.restart_pending)
                 ? '<div class="cfg-key-now" style="border-left-color:#ff9900">'
-                  + '<b>restart pending</b> — DB override saved, but the live '
-                  + 'process still runs the previous value.'
+                  + '<b>再起動待ち</b> — DB override は保存されたが、'
+                  + '稼働中のプロセスはまだ以前の値で動作している。'
                   + '</div>' : '';
         }
         const cur = valueRow ? valueRow.value : null;
         const def = (meta.default !== null && meta.default !== undefined)
             ? String(meta.default) : '—';
         const fragments = [];
-        fragments.push('<b>Now:</b> ' + _escHtml(cur === null || cur === undefined
-            ? '(unset)' : String(cur)));
-        fragments.push('<b>Default:</b> ' + _escHtml(def));
-        if (meta.unit) fragments.push('<b>Unit:</b> ' + _escHtml(meta.unit));
+        fragments.push('<b>現在値:</b> ' + _escHtml(cur === null || cur === undefined
+            ? '(未設定)' : String(cur)));
+        fragments.push('<b>既定値:</b> ' + _escHtml(def));
+        if (meta.unit) fragments.push('<b>単位:</b> ' + _escHtml(meta.unit));
         if (meta.min_value != null && meta.max_value != null) {
-            fragments.push('<b>Range:</b> ' + _escHtml(String(meta.min_value))
+            fragments.push('<b>範囲:</b> ' + _escHtml(String(meta.min_value))
                 + ' — ' + _escHtml(String(meta.max_value)));
         }
         if (valueRow && valueRow.restart_pending) {
-            fragments.push('<span style="color:#ffaa44">restart pending</span>');
+            fragments.push('<span style="color:#ffaa44">再起動待ち</span>');
         }
         return '<div class="cfg-key-now">' + fragments.join(' &nbsp;·&nbsp; ') + '</div>';
     }
@@ -3454,237 +3449,228 @@
     // get a generic auto-generated header from the registry domain string.
     const _SETTINGS_PAGE_DESCRIPTIONS = {
         'operate.scope': {
-            title: 'Scenario Focus',
-            what: 'The scenario the analyst is currently focused on. Sensors '
-                + 'run at full coverage on this scenario; others run in C-lite '
-                + 'mode (LLM intel + global signals only).',
-            why: 'Compute budget. Running every sensor for every scenario '
-                + 'every cycle would saturate API quotas and CPU. Focusing '
-                + 'one scenario keeps recall high where it matters today.',
-            when: 'Whenever your operational priority shifts. Typical change '
-                + 'cadence is daily-to-weekly during a crisis.',
+            title: '注目シナリオ',
+            what: 'アナリストが現在注目しているシナリオ。このシナリオでは'
+                + 'センサーが全カバレッジで稼働し、それ以外は C-lite モード'
+                + '（LLM インテル + グローバルシグナルのみ）で稼働する。',
+            why: '計算資源の予算。全シナリオに対して全センサーを毎サイクル'
+                + '稼働させると API クォータと CPU が飽和する。1 つのシナリオ'
+                + 'に注目を絞ることで、今日重要な領域の recall を高く保つ。',
+            when: '運用上の優先度が変わったときに変更する。危機時の典型的な'
+                + '変更頻度は日次〜週次。',
         },
         'operate.intel': {
-            title: 'LLM Intel Triage Thresholds',
-            what: 'Confidence boundaries that decide whether an LLM-extracted '
-                + 'intel item is auto-confirmed, sent to analyst review, or '
-                + 'silently discarded.',
-            why: 'NP1 — recall before precision. Lower thresholds catch more '
-                + 'real signals at the cost of analyst review load. Set the '
-                + 'AUTO-CONFIRM floor based on observed reversal rate.',
-            when: 'Monthly review of the auto-judge audit. Bump when the '
-                + 'reversal rate rises above ~10% or when silent drops are '
-                + 'masking known events.',
+            title: 'LLM インテルのトリアージ閾値',
+            what: 'LLM が抽出したインテル項目を自動確定するか、アナリスト'
+                + 'レビューに回すか、通知なしで破棄するかを決める確信度の'
+                + '境界。',
+            why: 'NP1 — precision より recall を優先する。閾値を下げると'
+                + 'アナリストのレビュー負荷と引き換えに実シグナルをより多く'
+                + '捕捉する。AUTO-CONFIRM の下限は観測された反転率を基準に'
+                + '設定する。',
+            when: 'auto-judge 監査の月次レビュー時に変更する。反転率が '
+                + '10% 程度を超えたとき、または通知なしの破棄が既知事象を'
+                + '隠しているときに引き上げる。',
         },
         'operate.corroboration': {
-            title: 'Multi-source Corroboration',
-            what: 'Cross-source confirmation rules used to upgrade an intel '
-                + 'item from PENDING → AUTO-CONFIRMED.',
-            why: 'NP2 — multi-source convergence. A single noisy source must '
-                + 'never be enough on its own to drive a TL change.',
-            when: 'When you see analyst feedback flagging premature confirms, '
-                + 'tighten min-sources or independence; loosen if recall is '
-                + 'leaking.',
+            title: '多ソース裏付け',
+            what: 'インテル項目を PENDING → AUTO-CONFIRMED に昇格させる'
+                + 'ためのソース横断の確認ルール。',
+            why: 'NP2 — 多ソース収斂。ノイズの多い単一ソースだけで TL 変更'
+                + 'を駆動できてはならない。',
+            when: '早すぎる確定をアナリストのフィードバックが指摘している'
+                + 'ときは最小ソース数または独立性を厳しくする。recall が'
+                + '漏れているときは緩める。',
         },
         'operate.notifications': {
-            title: 'Alert Notification Routing',
-            what: 'Slack / Teams / generic webhook delivery for TL changes '
-                + 'and high-confidence intel.',
-            why: 'Out-of-band visibility for analysts not actively watching '
-                + 'the dashboard. Debounce protects against alert storms.',
-            when: 'When integrating new channels, or when a debounce window '
-                + 'is too tight (duplicate alerts) or too loose (silence).',
+            title: 'アラート通知のルーティング',
+            what: 'TL 変更と高確信度インテルを Slack / Teams / 汎用 webhook '
+                + 'へ配信する設定。',
+            why: 'ダッシュボードを常時見ていないアナリスト向けの帯域外可視化。'
+                + 'debounce がアラートストームを防ぐ。',
+            when: '新しいチャンネルを統合するとき、または debounce ウィンドウ'
+                + 'が狭すぎる（重複アラート）／広すぎる（無音）ときに変更する。',
         },
         'operate.calibration': {
-            title: 'Auto-Calibration Tier Governor',
-            what: 'Operator controls for the self-promoting auto-tune '
-                + 'system. Caps the maximum tier the governor can reach '
-                + 'and sets the post-HIGH-change cool-down so chained '
-                + 'proposals can\'t pile on an unproven change.',
-            why: 'The tier governor evaluates its own reliability daily '
-                + 'and promotes 0→1→2→3 (proposal-only → LOW → '
-                + 'LOW+MED → FULL). The cap here is the operator\'s '
-                + 'kill-switch / pin: setting it to 0 halts auto-apply, '
-                + 'setting it to 3 allows full self-tuning. The governor '
-                + 'never exceeds this cap regardless of metrics.',
-            when: 'Drop the cap to 0 immediately on any suspicion of '
-                + 'mis-tuning. Pin to 1 or 2 if you want to stay below '
-                + 'the auto-determined ceiling. Restore to 3 to let '
-                + 'the system promote on its own schedule once the '
-                + 'incident is understood.',
+            title: '自動 Calibration ティア governor',
+            what: '自己昇格するオートチューン機構の運用者向け制御。governor '
+                + 'が到達できる最大ティアに上限を設け、HIGH 変更後の'
+                + 'クールダウンを設定して、連鎖した提案が未検証の変更の上に'
+                + '積み重なることを防ぐ。',
+            why: 'ティア governor は自身の信頼性を日次で評価し、0→1→2→3 '
+                + '（提案のみ → LOW → LOW+MED → FULL）と昇格する。ここでの'
+                + '上限は運用者のキルスイッチ兼ピン留めであり、0 にすると'
+                + '自動適用が停止し、3 にすると完全な自己チューニングを'
+                + '許可する。governor はメトリクスに関わらずこの上限を'
+                + '超えない。',
+            when: 'ミスチューニングの疑いがあれば直ちに上限を 0 に落とす。'
+                + '自動決定される天井より下に留めたい場合は 1 または 2 に'
+                + 'ピン留めする。事象を把握できたら 3 に戻し、システム自身の'
+                + 'スケジュールで昇格させる。',
         },
         'tune.scoring': {
-            title: 'Convergence Scoring Weights',
-            what: 'Domain weights for the multi-domain convergence formula '
-                + '(cyber / physical / info), plus the convergence bonus '
-                + 'and threat-level hysteresis.',
-            why: 'Heart of the scoring engine. The three weights MUST sum '
-                + 'to 1.0 — the registry validator rejects writes that '
-                + 'violate the invariant.',
-            when: 'Quarterly recalibration with at least 14d of post-event '
-                + 'analyst feedback. Single-cycle changes will swing TLs.',
+            title: '収斂スコアリングの重み',
+            what: '多ドメイン収斂式のドメイン重み（cyber / physical / info）'
+                + 'と、収斂ボーナスおよび脅威レベルのヒステリシス。',
+            why: 'スコアリングエンジンの中核。3 つの重みの合計は必ず 1.0 で'
+                + 'なければならない。この不変条件に違反する書き込みは'
+                + 'レジストリのバリデータが拒否する。',
+            when: '事象後 14d 以上のアナリストフィードバックを揃えたうえで、'
+                + '四半期ごとに再 calibration する。単一サイクルでの変更は '
+                + 'TL を大きく振らせる。',
         },
         'tune.zscore': {
-            title: 'Adaptive Z-score Baseline',
-            what: 'Sample-size and shape parameters for adaptive z-score '
-                + 'detection across sensors with seasonality.',
-            why: 'A static z-score threshold misses slow-onset anomalies and '
-                + 'over-fires on bursty channels. Adaptive baselines absorb '
-                + 'periodicity and quiet hours.',
-            when: 'When a new sensor is added or its variance pattern shifts '
-                + '(new feed source, traffic pattern change).',
+            title: '適応 Z-score ベースライン',
+            what: '季節性を持つセンサー群に対する適応 Z-score 検知の'
+                + 'サンプルサイズおよび形状パラメータ。',
+            why: '固定の Z-score 閾値では緩やかに立ち上がる異常事象を'
+                + '見逃し、バースト性のチャネルでは過剰に発火する。'
+                + '適応ベースラインは周期性と静穏時間帯を吸収する。',
+            when: '新しいセンサーを追加したとき、またはその分散パターンが'
+                + '変化したとき（フィードソースの追加、トラフィック'
+                + 'パターンの変化）に変更する。',
         },
         'tune.sequence': {
-            title: 'Escalation Sequence Bonuses',
-            what: 'Window length and bonus magnitudes for the sequence '
-                + 'scorer (NARRATIVE_BURST → ISR_SURGE → SYNC_DDOS '
-                + '→ FIRMS_ANOMALY).',
-            why: 'Real escalations show ordered progression. Detecting the '
-                + 'sequence is stronger evidence than seeing each event '
-                + 'in isolation.',
-            when: 'Adjust window when reviewing post-incident timelines '
-                + 'and finding the sequence missed by < 1h or false-fired '
-                + 'across 24h+.',
+            title: 'エスカレーション順序ボーナス',
+            what: '順序スコアラー（NARRATIVE_BURST → ISR_SURGE → SYNC_DDOS '
+                + '→ FIRMS_ANOMALY）のウィンドウ長とボーナス量。',
+            why: '実際のエスカレーションは順序だった進行を示す。順序を検知'
+                + 'することは、各事象を個別に観測するよりも強い根拠になる。',
+            when: '事後のインシデントタイムラインをレビューし、1h 未満の差で'
+                + '順序を取り逃していた、または 24h 以上にまたがって誤発火'
+                + 'していた場合にウィンドウを調整する。',
         },
         'tune.ddos': {
-            title: 'DDoS Acceleration Detection',
-            what: 'Z-score and synchronization thresholds for the DDoS '
-                + 'acceleration engine (Ambush / C2 sync detection).',
-            why: 'Detects coordinated multi-source DDoS via 2nd-derivative '
-                + 'spike + cross-source timing alignment.',
-            when: 'Lower the C2 sync threshold during cooperative-attack '
-                + 'campaigns; raise it if individual large-volume sources '
-                + 'are over-flagged.',
+            title: 'DDoS 加速度検知',
+            what: 'DDoS 加速度エンジン（Ambush / C2 同期検知）の Z-score '
+                + 'および同期性の閾値。',
+            why: '2 階微分のスパイクとソース横断のタイミング整合から、'
+                + '協調した多ソース DDoS を検知する。',
+            when: '協調攻撃キャンペーン中は C2 同期閾値を下げる。単独の'
+                + '大容量ソースが過剰に検知される場合は上げる。',
         },
         'tune.narrative': {
-            title: 'Narrative Burst Detector',
-            what: 'RSS narrative volume z-score thresholds and baseline '
-                + 'retention.',
-            why: 'Information-domain signal. Narrative bursts often precede '
-                + 'kinetic events by 24-72h.',
-            when: 'When mainstream news cycles drown out signal — bump '
-                + 'CRITICAL up; when state-media silence masks events — '
-                + 'bring ALERT down.',
+            title: 'ナラティブバースト検知',
+            what: 'RSS ナラティブ量の Z-score 閾値とベースライン保持期間。',
+            why: 'Information ドメインのシグナル。ナラティブバーストは'
+                + '物理的な事象に 24-72h 先行することが多い。',
+            when: '主要メディアのニュースサイクルがシグナルを埋没させる'
+                + 'ときは CRITICAL を引き上げる。国営メディアの沈黙が事象を'
+                + '隠しているときは ALERT を引き下げる。',
         },
         'tune.airspace': {
-            title: 'Airspace Anomaly Thresholds',
-            what: 'Closure rate and flight-anomaly thresholds for airspace '
-                + 'sensors (NOTAM / OpenSky / military air).',
-            why: 'Physical-domain leading indicator. Civilian airspace '
-                + 'closures and military air uplift are reliable warning '
-                + 'signs.',
-            when: 'Adjust when a participant nation publishes routine '
-                + 'NOTAM volume changes (exercise season, weather).',
+            title: '空域異常の閾値',
+            what: '空域センサー（NOTAM / OpenSky / 軍用機）の閉鎖率および'
+                + '飛行異常の閾値。',
+            why: 'Physical ドメインの先行兆候。民間空域の閉鎖と軍用機の'
+                + '増勢は信頼できる警告サインである。',
+            when: '参加国が定常的な NOTAM 発行量の変化を出すとき（演習期、'
+                + '天候）に調整する。',
         },
         'tune.maritime': {
-            title: 'Maritime / ISR Thresholds',
-            what: 'AIS dark-gap thresholds, anchoring radius, and ISR '
-                + 'aircraft surge thresholds.',
-            why: 'Physical-domain leading indicator. Dark gaps near choke '
-                + 'points and ISR concentration are pre-conflict signals.',
-            when: 'Tune to match shipping-lane geometry of newly-added '
-                + 'scenarios.',
+            title: '海洋 / ISR 閾値',
+            what: 'AIS の dark gap 閾値、投錨半径、および ISR 機の急増閾値。',
+            why: 'Physical ドメインの先行兆候。チョークポイント付近の '
+                + 'dark gap と ISR の集中は紛争前のシグナルである。',
+            when: '新たに追加したシナリオの航路形状に合わせて調整する。',
         },
         'tune.gdelt': {
-            title: 'GDELT Geopolitical Tone',
-            what: 'Tone alert threshold and history window for the GDELT '
-                + 'geopolitical event monitor.',
-            why: 'Long-baseline information signal. -15.0 tone is a typical '
-                + 'pre-tension floor; -20.0+ is pre-invasion territory.',
-            when: 'Tighten window during quiet periods to spot small dips; '
-                + 'widen during high-activity periods to filter noise.',
+            title: 'GDELT 地政学トーン',
+            what: 'GDELT 地政学イベント監視のトーンアラート閾値と履歴'
+                + 'ウィンドウ。',
+            why: '長期ベースラインの information シグナル。トーン -15.0 は'
+                + '緊張前の典型的な下限、-20.0 を超えると侵攻直前の水準。',
+            when: '静穏期は小さな落ち込みを捉えるためウィンドウを狭める。'
+                + '活動が活発な時期はノイズを除くため広げる。',
         },
         'infra.network': {
-            title: 'Network & Proxy',
-            what: 'Outbound proxy and TLS verification policy for sensor '
-                + 'fetches.',
-            why: 'Restart-required because the requests session is built '
-                + 'once at startup. Behind a TLS-inspecting proxy you may '
-                + 'need to disable verification.',
-            when: 'On deployment to a new corporate environment, or when '
-                + 'the proxy CA chain changes.',
+            title: 'ネットワークとプロキシ',
+            what: 'センサー取得時のアウトバウンドプロキシと TLS 検証ポリシー。',
+            why: 'requests セッションは起動時に一度だけ構築されるため再起動'
+                + 'が必要。TLS 検査を行うプロキシの背後では検証を無効化する'
+                + '必要がある場合がある。',
+            when: '新しい企業環境へデプロイするとき、またはプロキシの CA '
+                + 'チェーンが変わったときに変更する。',
         },
         'infra.cache': {
-            title: 'Cache TTLs',
-            what: 'In-memory sensor-cache TTL settings.',
-            why: 'Trade freshness for upstream API quota. Most public OSINT '
-                + 'sources rate-limit aggressively.',
-            when: 'Lower TTL when investigating an active event in real '
-                + 'time; raise during quiet periods to spare quota.',
+            title: 'キャッシュ TTL',
+            what: 'インメモリのセンサーキャッシュの TTL 設定。',
+            why: '鮮度と上流 API クォータのトレードオフ。公開 OSINT ソースの'
+                + '多くは厳しいレート制限を課す。',
+            when: '進行中の事象をリアルタイムで調査するときは TTL を下げる。'
+                + '静穏期はクォータを温存するため上げる。',
         },
         'infra.poll': {
-            title: 'Sensor Polling Cadence',
-            what: 'Per-sensor poll intervals (Diplomatic / Military / '
-                + 'Narrative / Telegram / Check-Host).',
-            why: 'Each upstream has its own quota and freshness. Telegram '
-                + 'channels need ≤15min for active campaigns; GDELT can '
-                + 'tolerate hourly.',
-            when: 'When you see "stale data" warnings on a sensor, or '
-                + 'rate-limit errors on an upstream.',
+            title: 'センサーのポーリング頻度',
+            what: 'センサーごとのポーリング間隔（Diplomatic / Military / '
+                + 'Narrative / Telegram / Check-Host）。',
+            why: '上流ごとにクォータと鮮度が異なる。Telegram チャンネルは'
+                + '進行中のキャンペーンに対し 15min 以下が必要だが、GDELT '
+                + 'は毎時で足りる。',
+            when: 'センサーに「stale data」警告が出るとき、または上流で'
+                + 'レート制限エラーが出るときに変更する。',
         },
         'infra.server': {
-            title: 'Server Bind & Ports',
-            what: 'Flask bind address / port and JWT expiry windows.',
-            why: 'Restart-required — Flask reads these once. Production '
-                + 'should bind 0.0.0.0 inside Docker; local dev uses '
-                + '127.0.0.1.',
-            when: 'On deployment to a new environment. Otherwise rarely.',
+            title: 'サーバーの bind とポート',
+            what: 'Flask の bind アドレス / ポートと JWT の有効期限。',
+            why: 'Flask はこれらを一度しか読まないため再起動が必要。本番は '
+                + 'Docker 内で 0.0.0.0 に bind し、ローカル開発では '
+                + '127.0.0.1 を使う。',
+            when: '新しい環境へデプロイするときに変更する。それ以外では稀。',
         },
         'infra.plugins': {
-            title: 'Plugin Sensor Loader',
-            what: 'Directory scan and enable/disable lists for BaseSensor '
-                + 'plugins under plugins/.',
-            why: 'Lets you ship optional sensors without modifying the '
-                + 'main image.',
-            when: 'When adding or removing plugins, or selectively '
-                + 'disabling one for triage.',
+            title: 'プラグインセンサーのローダー',
+            what: 'plugins/ 配下の BaseSensor プラグインに対するディレクトリ'
+                + 'スキャンと有効化 / 無効化リスト。',
+            why: 'メインイメージを変更せずにオプションのセンサーを投入できる。',
+            when: 'プラグインを追加・削除するとき、またはトリアージのために'
+                + '個別に無効化するときに変更する。',
         },
         'access.api_keys': {
-            title: 'External API Keys',
-            what: 'Keys / tokens for upstream OSINT services (Cloudflare '
-                + 'Radar / OWM / GreyNoise / ThreatFox / OpenSky / ACLED).',
-            why: 'Secrets — never returned by the API. The UI shows only '
-                + 'a "configured · ends in …xxxx" indicator. Edit in '
-                + 'config.env, then docker compose restart.',
-            when: 'Rotate any key on suspected exposure. Provision '
-                + 'OpenSky OAuth2 credentials to lift the rate limit '
-                + 'from 400 → 4000 req/day.',
+            title: '外部 API キー',
+            what: '上流 OSINT サービス（Cloudflare Radar / OWM / GreyNoise / '
+                + 'ThreatFox / OpenSky / ACLED）のキー / トークン。',
+            why: 'シークレットのため API は値を返さない。UI は「configured · '
+                + '設定済み · 末尾 …xxxx」の表示のみ。変更は config.env を編集し、'
+                + 'docker compose restart を実行する。',
+            when: '漏洩が疑われるキーはローテーションする。OpenSky の OAuth2 '
+                + '資格情報を設定するとレート制限が 400 → 4000 req/day に'
+                + '緩和される。',
         },
         'access.webhooks': {
-            title: 'Notification Webhooks',
-            what: 'Slack / Teams / generic HTTP webhooks for outbound '
-                + 'alert delivery.',
-            why: 'Secrets — webhook URLs grant write access to a channel. '
-                + 'Edit in config.env to set; UI never returns the value.',
-            when: 'When connecting a new alerting channel, or when a '
-                + 'webhook is rotated by the receiving platform.',
+            title: '通知 webhook',
+            what: 'アラート送信に使う Slack / Teams / 汎用 HTTP webhook。',
+            why: 'シークレット。webhook URL はチャンネルへの書き込み権限を'
+                + '与える。設定は config.env を編集する。UI は値を返さない。',
+            when: '新しいアラートチャンネルを接続するとき、または受信側'
+                + 'プラットフォームが webhook をローテーションしたときに'
+                + '変更する。',
         },
         'access.jwt': {
-            title: 'JWT Authentication',
-            what: 'JWT signing secret and access / refresh token expiry '
-                + 'windows.',
-            why: 'JWT_SECRET_KEY is bootstrap — auto-generated on first '
-                + 'start. Rotating it forces every user to re-authenticate.',
-            when: 'On suspected secret exposure (rotate). On compliance '
-                + 'audit findings (tighten access expiry).',
+            title: 'JWT 認証',
+            what: 'JWT の署名シークレットと access / refresh トークンの'
+                + '有効期限。',
+            why: 'JWT_SECRET_KEY は bootstrap 値で初回起動時に自動生成される。'
+                + 'ローテーションすると全ユーザーの再認証が必要になる。',
+            when: 'シークレット漏洩が疑われるとき（ローテーション）。'
+                + 'コンプライアンス監査の指摘があるとき（access の有効期限を'
+                + '短縮）。',
         },
         'access.admin': {
-            title: 'Admin Account',
-            what: 'Default password seeded for the admin user on first '
-                + 'startup.',
-            why: 'Bootstrap-only. Used once to create the admin row, '
-                + 'then ignored. Change the password via the user '
-                + 'management UI after first login.',
-            when: 'Never edit after first start. Use the user-management '
-                + 'reset flow if the password is lost.',
+            title: '管理者アカウント',
+            what: '初回起動時に admin ユーザーへ投入される既定パスワード。',
+            why: 'bootstrap 専用。admin 行の作成に一度だけ使われ、以降は'
+                + '無視される。初回ログイン後はユーザー管理 UI から'
+                + 'パスワードを変更する。',
+            when: '初回起動後は変更しない。パスワードを紛失した場合は'
+                + 'ユーザー管理のリセット手順を使う。',
         },
     };
     function _settingsPageHeader(dom, keysCount) {
         const desc = _SETTINGS_PAGE_DESCRIPTIONS[dom];
         const fallbackTitle = String(dom).replace(/\./g, ' / ').toUpperCase();
         const title = desc ? desc.title : fallbackTitle;
-        const sub = String(dom) + '  ·  ' + keysCount + ' key'
-            + (keysCount === 1 ? '' : 's');
+        const sub = String(dom) + '  ·  ' + keysCount + ' キー';
         if (!desc) {
             return '<div class="cfg-page-header">'
                 +    '<div class="cfg-page-title">' + _escHtml(title) + '</div>'
@@ -3697,9 +3683,9 @@
             +    '<div class="cfg-page-title">' + _escHtml(title) + '</div>'
             +    '<div class="cfg-page-subtitle">' + _escHtml(sub) + '</div>'
             +    '<dl class="cfg-page-block">'
-            +       row('What',  desc.what)
-            +       row('Why',   desc.why)
-            +       row('When',  desc.when)
+            +       row('概要',   desc.what)
+            +       row('意義',   desc.why)
+            +       row('変更時',  desc.when)
             +    '</dl>'
             + '</div>';
     }
@@ -3709,8 +3695,9 @@
         const cache = await _settingsFetchRegistry();
         if (!cache) {
             pane.innerHTML = _settingsCfgPage({
-                help: '<div class="cfg-status-banner">Registry API '
-                    + 'unavailable. Authenticate as admin and reload.</div>',
+                help: '<div class="cfg-status-banner">レジストリ API に'
+                    + '接続できません。admin として認証し、再読み込みして'
+                    + 'ください。</div>',
                 sections: [],
             });
             return;
@@ -3719,8 +3706,8 @@
         const keys = cache.registry.filter(k => k.domain === dom);
         if (keys.length === 0) {
             pane.innerHTML = _settingsCfgPage({
-                help: 'No registered keys in domain <code>'
-                    + _escHtml(String(dom)) + '</code>.',
+                help: 'ドメイン <code>'
+                    + _escHtml(String(dom)) + '</code> に登録済みのキーがない。',
                 sections: [],
             });
             return;
@@ -3735,21 +3722,21 @@
         const sections = [];
         if (dom === 'operate.calibration') {
             sections.push({
-                title: 'Live status (Auto-Calibration)',
+                title: 'ライブ状態（自動 Calibration）',
                 body: _autoCalLiveStatusPlaceholderHtml(),
             });
         }
         sections.push({
-            title: 'Configure',
+            title: '設定',
             body: rows,
         });
         sections.push({
-            title: 'Apply',
+            title: '適用',
             body: '<div class="cfg-meta" style="margin:0;border:none">'
                 + '<span style="color:#888;font-size:11px">'
-                + 'Each row has its own SAVE / RESET. SAVE shows a '
-                + 'diff confirmation; HIGH-impact keys also require '
-                + 'a written reason.</span>'
+                + '各行が個別に SAVE / RESET を持つ。SAVE は差分の確認を'
+                + '表示する。HIGH インパクトのキーは変更理由の記入も必須。'
+                + '</span>'
                 + '</div>'
                 + _settingsCfgStatusEl(),
         });
@@ -3772,7 +3759,7 @@
         return '<div id="autocal-live-status" '
              + 'style="font:11.5px var(--font-mono,monospace);color:#cfd2d6;'
              +        'padding:6px 0;line-height:1.55">'
-             +   '<span style="color:#888">Loading tier governor snapshot…</span>'
+             +   '<span style="color:#888">ティアガバナのスナップショットを読み込み中…</span>'
              + '</div>';
     }
 
@@ -3783,22 +3770,22 @@
             const resp = await fetch('/api/v2/calibration/tier_governor');
             if (!resp.ok) {
                 host.innerHTML = '<span style="color:#a55">'
-                    + 'tier_governor endpoint unavailable ('
-                    + resp.status + '). Auth as analyst-or-admin and reload.'
+                    + 'tier_governor エンドポイントを利用できません ('
+                    + resp.status + ')。analyst または admin で認証して再読み込みしてください。'
                     + '</span>';
                 return;
             }
             const body = await resp.json();
             const s = (body && body.data) || null;
             if (!s) {
-                host.innerHTML = '<span style="color:#a55">No snapshot data.'
+                host.innerHTML = '<span style="color:#a55">スナップショットのデータがありません。'
                     + '</span>';
                 return;
             }
             host.innerHTML = _autoCalLiveStatusHtml(s);
         } catch (err) {
             host.innerHTML = '<span style="color:#a55">'
-                + 'Snapshot fetch failed: ' + _escHtml(String(err)) + '</span>';
+                + 'スナップショットを取得できませんでした: ' + _escHtml(String(err)) + '</span>';
         }
     }
 
@@ -3815,7 +3802,7 @@
             + '</span>';
         const capWarn = s.kill_switch_engaged
             ? ' <span style="color:#e88">(cap=' + s.cap
-              + ' < raw=' + s.raw_stored_tier + ' — kill-switch engaged)</span>'
+              + ' < raw=' + s.raw_stored_tier + ' — キルスイッチ作動中)</span>'
             : '';
         const dwell = (typeof s.days_at_current_tier === 'number')
             ? s.days_at_current_tier.toFixed(2) + 'd' : '—';
@@ -3833,29 +3820,29 @@
                     + mark + ' '
                     + _escHtml(g.name)
                     + ': <code style="color:#cfd2d6">' + _escHtml(String(g.current))
-                    + '</code> (need '
-                    + _escHtml(String(g.required)) + ')'
+                    + '</code>（必要 '
+                    + _escHtml(String(g.required)) + '）'
                     + '</div>';
             }).join('');
             gatesHtml = '<div style="margin-top:6px">'
-                + 'Promotion to <b>T' + s.next_tier + '</b>: '
-                + s.gates_met + '/' + s.gates_total + ' gates met'
+                + '<b>T' + s.next_tier + '</b> への昇格: ゲート '
+                + s.gates_met + '/' + s.gates_total + ' 達成'
                 + '</div>'
                 + rows;
         } else {
             gatesHtml = '<div style="margin-top:6px;color:#888">'
-                + 'At ceiling tier (T' + s.current_tier + ').</div>';
+                + '最上位ティア (T' + s.current_tier + ')。</div>';
         }
 
         let cdHtml = '';
         const cd = s.active_cooldowns || [];
         if (cd.length > 0) {
-            cdHtml = '<div style="margin-top:6px">Active cooldowns:</div>'
+            cdHtml = '<div style="margin-top:6px">作動中のクールダウン:</div>'
                 + cd.map(c => {
                     const mins = Math.round(c.remaining_seconds / 60);
                     return '<div style="margin-left:14px">'
-                        + _escHtml(c.impact_level) + ' for ~' + mins
-                        + 'm (triggered_by ' + _escHtml(c.triggered_by) + ')'
+                        + _escHtml(c.impact_level) + ' あと約 ' + mins
+                        + 'm（triggered_by ' + _escHtml(c.triggered_by) + '）'
                         + '</div>';
                 }).join('');
         }
@@ -3864,8 +3851,8 @@
         const recent = s.recent_transitions || [];
         if (recent.length > 0) {
             recentHtml = '<div style="margin-top:6px">'
-                + 'Recent transitions (last ' + Math.min(5, recent.length)
-                + '):</div>'
+                + '直近の遷移（最新 ' + Math.min(5, recent.length)
+                + ' 件）:</div>'
                 + recent.slice(0, 5).map(t => {
                     const ts = new Date(t.observed_at * 1000).toLocaleString();
                     return '<div style="margin-left:14px;color:#aab">'
@@ -3879,9 +3866,9 @@
         }
 
         return ''
-            + '<div>Tier: ' + tierBadge + capWarn + '</div>'
+            + '<div>ティア: ' + tierBadge + capWarn + '</div>'
             + '<div style="margin-top:4px">'
-            +   'Entered: ' + _escHtml(enteredAt) + ' (' + dwell + ' ago)'
+            +   '移行日時: ' + _escHtml(enteredAt) + '（' + dwell + ' 前）'
             + '</div>'
             + gatesHtml
             + cdHtml
@@ -3923,30 +3910,30 @@
             if (oldValue === newValue
                 || JSON.stringify(oldValue) === JSON.stringify(newValue)) {
                 return { proceed: false, reason: null,
-                         err: 'No change to save' };
+                         err: '保存する変更がありません' };
             }
-            const fmt = v => v === null || v === undefined ? '(unset)'
+            const fmt = v => v === null || v === undefined ? '(未設定)'
                 : (Array.isArray(v) ? v.join(', ') : String(v));
             const lines = [
                 meta.key + '  :  ' + fmt(oldValue) + '  →  ' + fmt(newValue),
                 '',
-                meta.impact_level === 'high' ? '⚠ HIGH IMPACT'
-                    : meta.impact_level === 'med' ? '◇ medium impact' : '',
+                meta.impact_level === 'high' ? '⚠ 影響大'
+                    : meta.impact_level === 'med' ? '◇ 影響中' : '',
                 meta.impact_warning || '',
                 '',
-                'Apply timing: ' + (meta.apply_timing || 'live'),
+                '反映タイミング: ' + (meta.apply_timing || 'live'),
             ].filter(Boolean).join('\n');
-            if (!window.confirm(lines + '\n\nProceed?')) {
-                return { proceed: false, reason: null, err: 'Cancelled' };
+            if (!window.confirm(lines + '\n\n実行しますか?')) {
+                return { proceed: false, reason: null, err: 'キャンセルしました' };
             }
             let reason = 'Settings UI';
             if (meta.impact_level === 'high') {
                 reason = window.prompt(
-                    'HIGH IMPACT — please record a reason for this change:',
+                    '影響大 — この変更の理由を記録してください:',
                     '');
                 if (reason === null || !reason.trim()) {
                     return { proceed: false, reason: null,
-                             err: 'Reason required for high-impact keys' };
+                             err: '影響大のキーには理由が必要です' };
                 }
             }
             return { proceed: true, reason, err: null };
@@ -3976,16 +3963,16 @@
                     const data = await r.json().catch(() => ({}));
                     if (r.ok) {
                         const tag = data.restart_pending
-                            ? ' (restart pending)' : '';
-                        setStatus('Saved ' + key + tag, 'ok');
+                            ? '（再起動待ち）' : '';
+                        setStatus(key + ' を保存' + tag, 'ok');
                         _settingsRegistryCache = null;
                         // Refresh the pane so the source chip updates.
                         setTimeout(() => _settingsRenderPane(_settingsCurrentDomain), 200);
                     } else {
-                        setStatus('Save failed: ' + (data.error || ('HTTP ' + r.status)), 'err');
+                        setStatus('保存できませんでした: ' + (data.error || ('HTTP ' + r.status)), 'err');
                     }
                 } catch (e) {
-                    setStatus('Error: ' + e, 'err');
+                    setStatus('エラー: ' + e, 'err');
                 }
                 btn.disabled = false;
             });
@@ -3993,8 +3980,8 @@
         pane.querySelectorAll('button.cfg-reset').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const key = btn.getAttribute('data-key');
-                if (!window.confirm('Clear the runtime override for ' + key
-                    + '? Value reverts to env / code default.')) return;
+                if (!window.confirm(key + ' のランタイム override を解除しますか?'
+                    + ' 値は env / コード既定値に戻ります。')) return;
                 btn.disabled = true;
                 try {
                     const r = await fetch('/api/v2/config', {
@@ -4004,14 +3991,14 @@
                     });
                     const data = await r.json().catch(() => ({}));
                     if (r.ok) {
-                        setStatus('Reset ' + key, 'ok');
+                        setStatus(key + ' をリセット', 'ok');
                         _settingsRegistryCache = null;
                         setTimeout(() => _settingsRenderPane(_settingsCurrentDomain), 200);
                     } else {
-                        setStatus('Reset failed: ' + (data.error || ('HTTP ' + r.status)), 'err');
+                        setStatus('リセットできませんでした: ' + (data.error || ('HTTP ' + r.status)), 'err');
                     }
                 } catch (e) {
-                    setStatus('Error: ' + e, 'err');
+                    setStatus('エラー: ' + e, 'err');
                 }
                 btn.disabled = false;
             });
@@ -4058,7 +4045,7 @@
     }
 
     function _settingsLoading(pane) {
-        pane.innerHTML = '<div style="opacity:0.6">Loading…</div>';
+        pane.innerHTML = '<div style="opacity:0.6">読み込み中...</div>';
     }
 
     window._settingsRenderLlmConnection = async function (pane) {
@@ -4078,10 +4065,10 @@
             ? _settingsCfgChip('GO', 'ok')
             : _settingsCfgChip('NO-GO', 'warn');
         const statusBody = _settingsCfgKV([
-            { k: 'Ollama endpoint', v: reachChip },
-            { k: 'Server version',  v: verVal },
-            { k: 'Preflight gate',  v: goChip },
-            { k: 'Host',
+            { k: 'Ollama エンドポイント', v: reachChip },
+            { k: 'サーバーバージョン',  v: verVal },
+            { k: 'Preflight ゲート',  v: goChip },
+            { k: 'ホスト',
               v: '<code>' + _escHtml(oll.host || '—') + '</code>' },
         ]);
         // Production fallback model — LLM_MODEL is what runs whenever
@@ -4095,51 +4082,51 @@
             { k: 'LLM_MODEL (env)',
               v: '<code>' + _escHtml(fallbackModel) + '</code> '
                  + _settingsCfgChip('production', 'ok') },
-            { k: 'When it runs',
+            { k: '稼働条件',
               v: '<span class="cfg-hint" style="margin:0;display:inline">'
-                 + 'all use-cases whose <code>model_routing_*</code> '
-                 + 'feature is <b>off</b>, <b>shadow</b>, or '
-                 + '<b>shadow_dual</b> (NP3 fallback path).'
+                 + '<code>model_routing_*</code> feature が <b>off</b>、'
+                 + '<b>shadow</b>、<b>shadow_dual</b> のすべての use-case'
+                 + '（NP3 のフォールバック経路）。'
                  + '</span>' },
-            { k: 'When it is bypassed',
+            { k: 'バイパス条件',
               v: '<span class="cfg-hint" style="margin:0;display:inline">'
-                 + 'only when the corresponding feature is set to '
-                 + '<b>on</b> in '
+                 + '対応する feature が '
                  + '<a href="javascript:void(0)" '
                  + 'onclick="window._settingsOpen(\'llm.features\')">'
-                 + 'Features</a>; then '
+                 + 'Features</a> で <b>on</b> に設定されている場合のみ。'
+                 + 'その場合は '
                  + '<a href="javascript:void(0)" '
                  + 'onclick="window._settingsOpen(\'llm.routing\')">'
-                 + 'Routing</a> per-use_case overrides apply.'
+                 + 'Routing</a> の use_case 別オーバーライドが適用される。'
                  + '</span>' },
         ]);
         const noteBody =
             '<div class="cfg-hint">'
-            + '<code>LLM_HOST</code>, <code>LLM_MODEL</code>, and '
-            + '<code>LLM_TIMEOUT</code> are env-backed and require a '
-            + 'container restart. Edit <code>config.env</code> on disk '
-            + 'and run <code>docker compose restart</code>.'
+            + '<code>LLM_HOST</code>、<code>LLM_MODEL</code>、'
+            + '<code>LLM_TIMEOUT</code> は env 由来のため、変更には'
+            + 'コンテナ再起動が必要。ディスク上の <code>config.env</code> を'
+            + '編集し、<code>docker compose restart</code> を実行する。'
             + '</div>'
             + '<div class="cfg-hint">'
-            + 'Per-feature kill switch and runtime knobs live on the '
+            + 'feature 単位のキルスイッチと実行時パラメータは '
             + '<a href="javascript:void(0)" onclick="window._settingsOpen(\'llm.features\')">'
-            + 'Features</a> page and persist live (no restart).'
+            + 'Features</a> ページにあり、再起動なしで即時反映される。'
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
-            help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
-                + 'only.</b> Connection details and the production '
-                + 'fallback model are env-backed (restart-required). '
-                + 'Edit <code>config.env</code> on disk and run '
-                + '<code>docker compose restart</code>.</div>'
-                + 'LLM connection health and Ollama compatibility.',
+            help: '<div class="cfg-status-banner"><b>ステータスページ — '
+                + '閲覧専用。</b>接続情報と本番フォールバックモデルは env '
+                + '由来のため再起動が必要。ディスク上の <code>config.env'
+                + '</code> を編集し、<code>docker compose restart</code> を'
+                + '実行する。</div>'
+                + 'LLM の接続状態と Ollama の互換性を表示する。',
             sections: [
-                { title: 'CONNECTION STATUS', body: statusBody,
+                { title: '接続ステータス', body: statusBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>',
                            '<span class="cfg-restart-badge">restart</span>'] },
-                { title: 'PRODUCTION FALLBACK MODEL', body: fallbackBody,
+                { title: '本番フォールバックモデル', body: fallbackBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>',
                            '<span class="cfg-restart-badge">restart</span>'] },
-                { title: 'WHERE TO EDIT',     body: noteBody },
+                { title: '編集場所',     body: noteBody },
             ],
         });
     };
@@ -4149,9 +4136,9 @@
         const data = await _fetchFeatures();
         if (!data) {
             pane.innerHTML = _settingsCfgPage({
-                help: '<div class="cfg-status-banner">Feature Hub API '
-                    + 'unavailable. Authenticate as analyst or enable '
-                    + 'v2 endpoints.</div>',
+                help: '<div class="cfg-status-banner">Feature Hub API に'
+                    + '接続できません。analyst として認証するか、v2 '
+                    + 'エンドポイントを有効化してください。</div>',
                 sections: [],
             });
             return;
@@ -4179,20 +4166,20 @@
         const tableBody =
             '<table class="cfg-table">'
             + '<thead><tr>'
-            +   '<th>Feature</th><th>Tier</th><th>State</th><th></th>'
+            +   '<th>Feature</th><th>ティア</th><th>状態</th><th></th>'
             + '</tr></thead><tbody>' + tableRows + '</tbody></table>'
             + '<div class="cfg-meta">' + _settingsCfgStatusEl()
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
-            help: 'Per-feature LLM kill switches. State changes are '
-                + 'recorded in the audit log (NP6). '
-                + '<b>off</b> = disabled · '
-                + '<b>shadow</b> = run silently for evaluation · '
-                + '<b>shadow_dual</b> = run legacy + v10 in parallel · '
-                + '<b>on</b> = production. See INTEL GUIDE Ch.10 for '
-                + 'tier definitions.',
+            help: 'feature 単位の LLM キルスイッチ。状態変更は監査ログに'
+                + '記録される（NP6）。'
+                + '<b>off</b> = 無効 · '
+                + '<b>shadow</b> = 評価用に通知なしで実行 · '
+                + '<b>shadow_dual</b> = legacy と v10 を並行実行 · '
+                + '<b>on</b> = 本番。ティアの定義は INTEL GUIDE Ch.10 を'
+                + '参照。',
             sections: [
-                { title: 'FEATURE STATES', body: tableBody,
+                { title: 'FEATURE の状態', body: tableBody,
                   badges: ['<span class="cfg-live-badge">live</span>'] },
             ],
         });
@@ -4211,11 +4198,11 @@
                                                 reason: 'Settings UI'}) }
                     );
                     _settingsCfgSetStatus(pane,
-                        r.ok ? 'Saved ' + key + ' → ' + sel.value
-                             : 'Save failed: HTTP ' + r.status,
+                        r.ok ? key + ' → ' + sel.value + ' を保存'
+                             : '保存できませんでした: HTTP ' + r.status,
                         r.ok ? 'ok' : 'err');
                 } catch (e) {
-                    _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+                    _settingsCfgSetStatus(pane, 'エラー: ' + e, 'err');
                 }
                 btn.disabled = false;
             });
@@ -4269,19 +4256,21 @@
             + '</tr></thead><tbody>' + rows + '</tbody></table>'
             + '<div class="cfg-meta">' + _settingsCfgStatusEl() + '</div>';
         const noteBody =
-            '<div class="cfg-hint">Routing follows '
-            + '<b>DB override → env var → code default</b>. '
-            + 'Overrides are recorded in <code>config_change_log</code> '
-            + 'and <code>llm_routing_override_history</code> for NP6 '
-            + 'audit. Reset clears the DB row, falling back to env/code.'
+            '<div class="cfg-hint">ルーティングの優先順位は '
+            + '<b>DB override → env 変数 → コード既定値</b>。'
+            + 'オーバーライドは NP6 の監査のため '
+            + '<code>config_change_log</code> と '
+            + '<code>llm_routing_override_history</code> に記録される。'
+            + 'RESET は DB 行を削除し、env / コード既定値に戻す。'
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
-            help: 'Per-use-case LLM model routing. Edits persist to the '
-                + 'database and take effect on the next call (no restart).',
+            help: 'use_case 単位の LLM モデルルーティング。編集内容は'
+                + 'データベースに永続化され、次の呼び出しから有効になる'
+                + '（再起動不要）。',
             sections: [
-                { title: 'EFFECTIVE ROUTING', body: tableBody,
+                { title: '実効ルーティング', body: tableBody,
                   badges: ['<span class="cfg-live-badge">live</span>'] },
-                { title: 'OVERRIDE PRECEDENCE', body: noteBody },
+                { title: 'オーバーライドの優先順位', body: noteBody },
             ],
         });
         pane.querySelectorAll('tr[data-uc]').forEach(tr => {
@@ -4306,11 +4295,11 @@
                         body: JSON.stringify(body),
                     });
                     _settingsCfgSetStatus(pane,
-                        r.ok ? 'Saved ' + uc + '/' + slot
-                             : 'Save failed', r.ok ? 'ok' : 'err');
+                        r.ok ? uc + '/' + slot + ' を保存'
+                             : '保存できませんでした', r.ok ? 'ok' : 'err');
                     if (r.ok) _settingsRenderPane('llm.routing');
                 } catch (e) {
-                    _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+                    _settingsCfgSetStatus(pane, 'エラー: ' + e, 'err');
                 }
                 sb.disabled = false;
             });
@@ -4325,11 +4314,11 @@
                         { method: 'DELETE' }
                     );
                     _settingsCfgSetStatus(pane,
-                        r.ok ? 'Reset ' + uc + '/' + slot
-                             : 'Reset failed', r.ok ? 'ok' : 'err');
+                        r.ok ? uc + '/' + slot + ' をリセット'
+                             : 'リセットできませんでした', r.ok ? 'ok' : 'err');
                     if (r.ok) _settingsRenderPane('llm.routing');
                 } catch (e) {
-                    _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+                    _settingsCfgSetStatus(pane, 'エラー: ' + e, 'err');
                 }
                 rb.disabled = false;
             });
@@ -4368,40 +4357,39 @@
             + '</div>';
         const triageBody =
             fld('LLM_AUTO_CONFIRM_THRESHOLD',
-                'Auto-confirm threshold',
-                'Confidence ≥ this → AUTO-CONFIRMED (no analyst review).',
+                '自動承認閾値',
+                'この確信度以上 → AUTO-CONFIRMED（アナリスト審査不要）',
                 'type="number" min="0.5" max="1.0" step="0.05" '
                 + 'placeholder="0.80" style="max-width:100px"')
             + fld('LLM_CONFIDENCE_MIN',
-                'Min confidence',
-                'Items below this are silently discarded.',
+                '最低確信度',
+                'これ未満のアイテムは通知なしで破棄',
                 'type="number" min="0.1" max="0.9" step="0.05" '
                 + 'placeholder="0.35" style="max-width:100px"')
             + fld('LLM_OVERRIDE_WINDOW',
-                'Override window (seconds)',
-                'Seconds within which AUTO-CONFIRMED items can be '
-                + 'overridden by an analyst.',
+                '取消可能時間（秒）',
+                'AUTO-CONFIRMED アイテムをアナリストが取り消せる時間',
                 'type="number" min="300" max="86400" '
                 + 'placeholder="3600" style="max-width:120px"')
             + fld('LLM_PENDING_AUTO_REJECT_HOURS',
-                'Auto-reject pending after (h)',
-                'Hours until unreviewed PENDING items are auto-rejected '
-                + '(0 = disabled).',
+                '保留自動拒否（時間）',
+                '未確認の PENDING アイテムを自動拒否するまでの時間'
+                + '（0 = 無効）',
                 'type="number" min="0" max="168" step="1" '
                 + 'placeholder="24" style="max-width:100px"');
         const retentionBody =
             fld('INTEL_RETENTION_DAYS',
-                'Intel retention (days)',
-                'How long to keep intel rows after confirmation.',
+                'インテル保持期間（日）',
+                'confirm 後にインテル行を保持する期間',
                 'type="number" min="1" max="90" '
                 + 'placeholder="7" style="max-width:100px"')
             + sel('INTEL_AGE_DECAY_ENABLED',
-                'Age-decay enabled (ADR-023)',
+                '経時減衰 (ADR-023)',
                 [['true','true'], ['false','false']])
             + fld('INTEL_AGE_DECAY_TAU_HOURS',
-                'Age-decay τ (hours)',
-                'Time constant: weight=1/e at age=τ, ~0.05 at 3·τ. '
-                + 'Default 12 h ≈ 1 work cycle.',
+                '減衰時定数 τ（時間）',
+                '重み=1/e @age=τ、≈0.05 @3·τ。'
+                + '既定 12 h ≈ 1 勤務シフト',
                 'type="number" min="1" max="72" step="0.5" '
                 + 'placeholder="12" style="max-width:100px"');
         const saveRow =
@@ -4410,16 +4398,16 @@
             + _settingsCfgStatusEl()
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
-            help: 'Thresholds that govern when LLM-extracted intel is '
-                + 'auto-confirmed, discarded, or kept for analyst review. '
-                + 'All knobs here are <b>live</b> — saved values take '
-                + 'effect on the next intel queue cycle without restart.',
+            help: 'LLM が抽出したインテルを自動確定するか、破棄するか、'
+                + 'アナリストレビュー用に残すかを決める閾値。ここの調整項目は'
+                + 'すべて <b>live</b> で、保存値は再起動なしに次のインテル'
+                + 'キューのサイクルから有効になる。',
             sections: [
-                { title: 'TRIAGE THRESHOLDS', body: triageBody,
+                { title: 'トリアージ閾値', body: triageBody,
                   badges: ['<span class="cfg-live-badge">live</span>'] },
-                { title: 'RETENTION & AGE-DECAY', body: retentionBody,
+                { title: '保持期間と age-decay', body: retentionBody,
                   badges: ['<span class="cfg-live-badge">live</span>'] },
-                { title: 'APPLY', body: saveRow },
+                { title: '適用', body: saveRow },
             ],
         });
         const saveBtn = pane.querySelector('#ip-save');
@@ -4437,15 +4425,15 @@
             try {
                 const result = await _v2ConfigSave(body);
                 if (result.ok) {
-                    _settingsCfgSetStatus(pane, 'Saved · live (no restart)', 'ok');
+                    _settingsCfgSetStatus(pane, '保存 · 即時反映（再起動不要）', 'ok');
                 } else {
                     const first = result.errors[0];
                     _settingsCfgSetStatus(pane,
-                        'Save failed' + (first ? `: ${first.key} — ${first.error}` : ''),
+                        '保存できませんでした' + (first ? `: ${first.key} — ${first.error}` : ''),
                         'err');
                 }
             } catch (e) {
-                _settingsCfgSetStatus(pane, 'Error: ' + e, 'err');
+                _settingsCfgSetStatus(pane, 'エラー: ' + e, 'err');
             }
             saveBtn.disabled = false;
         });
@@ -4465,24 +4453,24 @@
             ? _settingsCfgChip('active', 'ok')
             : _settingsCfgChip('inactive', 'dim');
         const overviewBody = _settingsCfgKV([
-            { k: 'Model',          v: '<code>' + _escHtml(emb.model || '—') + '</code> ' + modelChip },
-            { k: 'Feature state',  v: stateChip + ' '
+            { k: 'モデル',          v: '<code>' + _escHtml(emb.model || '—') + '</code> ' + modelChip },
+            { k: 'Feature 状態',  v: stateChip + ' '
                 + '<span class="cfg-hint" style="margin:0;display:inline">'
-                + (emb.feature_active ? '(shadow or on)' : '(off)') + '</span>' },
-            { k: 'Calls (24h)',    v: stat.calls_24h ?? 0 },
-            { k: 'OK rate',        v: stat.ok_rate ?? '—' },
-            { k: 'Cache hit rate', v: stat.cache_hit_rate ?? '—' },
-            { k: 'Avg latency',    v: (stat.avg_duration_ms ?? '—') + ' ms' },
+                + (emb.feature_active ? '(shadow または on)' : '(off)') + '</span>' },
+            { k: '呼び出し数 (24h)',    v: stat.calls_24h ?? 0 },
+            { k: 'OK 率',        v: stat.ok_rate ?? '—' },
+            { k: 'キャッシュヒット率', v: stat.cache_hit_rate ?? '—' },
+            { k: '平均レイテンシ', v: (stat.avg_duration_ms ?? '—') + ' ms' },
         ]);
         const langSection = Object.keys(lang).length === 0
-            ? '<div class="cfg-hint">No dedup decisions in the last 24 h. '
-              + 'Activate <code>embedding_dedupe</code> on the '
+            ? '<div class="cfg-hint">直近 24 h の重複排除判定なし。'
               + '<a href="javascript:void(0)" '
               + 'onclick="window._settingsOpen(\'llm.features\')">'
-              + 'Features</a> page to start collecting.</div>'
+              + 'Features</a> ページで <code>embedding_dedupe</code> を'
+              + '有効化すると収集が始まる。</div>'
             : '<table class="cfg-table"><thead><tr>'
-              + '<th>lang</th><th>detected</th><th>applied</th>'
-              + '<th>precision proxy</th><th>avg score</th>'
+              + '<th>言語</th><th>検出</th><th>適用</th>'
+              + '<th>precision 代理指標</th><th>平均スコア</th>'
               + '</tr></thead><tbody>'
               + Object.keys(lang).map(L => {
                   const v = lang[L] || {};
@@ -4493,20 +4481,19 @@
                       + '<td>' + (v.avg_score ?? '—') + '</td></tr>';
               }).join('') + '</tbody></table>';
         pane.innerHTML = _settingsCfgPage({
-            help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
-                + 'only.</b> Embedding dedupe instrumentation. To '
-                + 'activate or change state, use '
+            help: '<div class="cfg-status-banner"><b>ステータスページ — '
+                + '閲覧専用。</b>embedding dedupe の計測値。有効化や状態変更は '
                 + '<a href="javascript:void(0)" '
                 + 'onclick="window._settingsOpen(\'llm.features\')">'
                 + 'LLM → Features</a> '
-                + '(<code>embedding_dedupe</code>).</div>'
-                + 'OSINT dedupe via granite-embedding multilingual '
-                + 'vectors. Phase 1 GO requires per-language precision '
-                + 'thresholds (zh/ja/ar ≥ 0.90, ru ≥ 0.70).',
+                + '(<code>embedding_dedupe</code>) から行う。</div>'
+                + 'granite-embedding の多言語ベクトルによる OSINT の重複排除。'
+                + 'Phase 1 GO には言語別の precision 閾値'
+                + '（zh/ja/ar ≥ 0.90、ru ≥ 0.70）を満たす必要がある。',
             sections: [
-                { title: 'OVERVIEW',  body: overviewBody,
+                { title: '概要',  body: overviewBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
-                { title: 'BY LANGUAGE (24 H)', body: langSection,
+                { title: '言語別 (24 H)', body: langSection,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });
@@ -4517,9 +4504,8 @@
         const se = await _fetchSelfEval();
         if (!se) {
             pane.innerHTML = _settingsCfgPage({
-                help: '/api/v2/self_eval unavailable. Check JWT '
-                    + 'authentication and that the v2 endpoint is '
-                    + 'enabled.',
+                help: '/api/v2/self_eval に接続できません。JWT 認証と '
+                    + 'v2 エンドポイントが有効かを確認してください。',
                 sections: [],
             });
             return;
@@ -4531,7 +4517,7 @@
             ? _settingsCfgChip('GO', 'ok')
             : overall === false
                 ? _settingsCfgChip('NO-GO', 'warn')
-                : _settingsCfgChip('— (no data)', 'dim');
+                : _settingsCfgChip('—（データなし）', 'dim');
         const rows = Object.keys(byUc).map(uc => {
             const e = byUc[uc] || {};
             const sc = e.schema_compliance || {};
@@ -4555,15 +4541,14 @@
               + '<th>agree ≥ 0.60</th><th>repro = 1.00</th>'
               + '<th>n_paired</th></tr></thead><tbody>'
               + rows + '</tbody></table>'
-            : '<div class="cfg-hint">No SHADOW_DUAL data yet. '
-              + 'Promote a routing feature to '
-              + '<code>shadow_dual</code> on the '
+            : '<div class="cfg-hint">SHADOW_DUAL のデータがまだ無い。'
               + '<a href="javascript:void(0)" '
               + 'onclick="window._settingsOpen(\'llm.features\')">'
-              + 'Features</a> page to start collecting.</div>';
+              + 'Features</a> ページでルーティング feature を '
+              + '<code>shadow_dual</code> に昇格させると収集が始まる。</div>';
         const aggBody = _settingsCfgKV([
-            { k: 'Phase 1 GO judgment', v: overallChip },
-            { k: 'Recall (overall)',    v: '<b>' + (se.recall ?? '—') + '</b>' },
+            { k: 'Phase 1 GO 判定', v: overallChip },
+            { k: 'Recall (全体)',    v: '<b>' + (se.recall ?? '—') + '</b>' },
             { k: 'Null-zone',           v: '<b>' + (se.null_zone_days ?? '—') + ' d</b>' },
             { k: 'Drift',               v: '<b>' + (se.drift ?? '—') + '</b>' },
         ]);
@@ -4612,9 +4597,9 @@
               + '<th>avg_dur</th><th>avg_conf</th>'
               + '<th>auto_confirmed</th><th>use_cases</th>'
               + '</tr></thead><tbody>' + modelRows + '</tbody></table>'
-            : '<div class="cfg-hint">No LLM call activity in the '
-              + 'self_eval window. Either no LLM features have run, '
-              + 'or self_eval window pre-dates LLM activity.</div>';
+            : '<div class="cfg-hint">self_eval の対象期間に LLM 呼び出しが'
+              + '無い。LLM feature が一度も実行されていないか、'
+              + 'self_eval の期間が LLM の稼働開始より前。</div>';
 
         // ── Per-use_case rollup (richer than Phase 8 SHADOW_DUAL go) ─
         // by_use_case is a per-use-case summary derived from the same
@@ -4648,27 +4633,25 @@
               + '<th>avg_conf</th><th>auto_confirmed</th>'
               + '<th>primary_model</th>'
               + '</tr></thead><tbody>' + ucRichRows + '</tbody></table>'
-            : '<div class="cfg-hint">No per-use_case data in window.</div>';
+            : '<div class="cfg-hint">この期間に use_case 別のデータがありません。</div>';
 
         pane.innerHTML = _settingsCfgPage({
-            help: '<div class="cfg-status-banner"><b>STATUS PAGE — view '
-                + 'only.</b> AP3 self-evaluation. Per-model and '
-                + 'per-use_case rollups below come from llm_call_log '
-                + 'and are populated regardless of SHADOW_DUAL state. '
-                + 'Promote a routing feature to <code>shadow_dual</code> '
-                + 'on '
+            help: '<div class="cfg-status-banner"><b>ステータスページ — '
+                + '閲覧専用。</b>AP3 の自己評価。以下のモデル別 / use_case '
+                + '別の集計は llm_call_log 由来で、SHADOW_DUAL の状態に'
+                + '関わらず記録される。下部の PHASE 1 GO 基準も埋めるには、'
                 + '<a href="javascript:void(0)" '
                 + 'onclick="window._settingsOpen(\'llm.features\')">'
-                + 'LLM → Features</a> to also populate the '
-                + 'PHASE 1 GO criteria below.</div>'
-                + 'Sections: overall health · per-model rollup · '
-                + 'per-use_case rollup · Phase 1 GO (SHADOW_DUAL only).',
+                + 'LLM → Features</a> でルーティング feature を '
+                + '<code>shadow_dual</code> に昇格させる。</div>'
+                + 'セクション構成: 全体ヘルス · モデル別集計 · '
+                + 'use_case 別集計 · Phase 1 GO（SHADOW_DUAL のみ）。',
             sections: [
-                { title: 'OVERALL HEALTH', body: aggBody,
+                { title: '全体ヘルス', body: aggBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
-                { title: 'PER MODEL HEALTH', body: modelTable,
+                { title: 'モデル別ヘルス', body: modelTable,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
-                { title: 'PER USE_CASE ROLLUP', body: ucRichTable,
+                { title: 'USE_CASE 別集計', body: ucRichTable,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
                 { title: 'PHASE 1 GO (SHADOW_DUAL)', body: tableBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
@@ -4740,9 +4723,9 @@
             +   _escHtml(labelGo) + ' →</button>'
             + '</div>';
         pane.innerHTML = _settingsCfgPage({
-            help: 'Workspace tool — opens as a draggable panel that '
-                + 'coexists with the map. SETTINGS closes first to '
-                + 'avoid stacked surfaces.',
+            help: 'ワークスペースツール — マップと共存するドラッグ可能な'
+                + 'パネルとして開く。面の重なりを避けるため SETTINGS は'
+                + '先に閉じる。',
             sections: [
                 { title: _t(titleKey), body: sectionBody },
             ],
@@ -4758,27 +4741,29 @@
 
     window._settingsRenderToolsTradecraft = async function (pane) {
         _renderToolHandoff(pane, 'settings.tools.tradecraft',
-            'Analyst tradecraft rules. Opens as a draggable workspace panel '
-            + '(coexists with the map). SETTINGS closes first.',
+            'アナリストのトレードクラフト規範。マップと共存する'
+            + 'ドラッグ可能なワークスペースパネルとして開く。'
+            + 'SETTINGS は先に閉じる。',
             window.toggleTradecraftPanel);
     };
 
     window._settingsRenderToolsWatchpane = async function (pane) {
         _renderToolHandoff(pane, 'settings.tools.watchpane',
-            'Per-sensor observation panel + mute controls. Opens as a '
-            + 'draggable workspace panel.',
+            'センサー別の観測パネルとミュート操作。ドラッグ可能な'
+            + 'ワークスペースパネルとして開く。',
             window.toggleSensorWatchpane);
     };
 
     window._settingsRenderToolsAutotune = async function (pane) {
         _renderToolHandoff(pane, 'settings.tools.autotune',
-            'Auto-tune wizard. Opens as a stepwise modal (separate flow).',
+            'オートチューンウィザード。段階式のモーダル'
+            + '（独立したフロー）として開く。',
             window._wizardOpen);
     };
 
     window._settingsRenderToolsAttention = async function (pane) {
         _renderToolHandoff(pane, 'settings.tools.attention',
-            'Attention rules live inside the Tradecraft panel.',
+            '注目度ルールは Tradecraft パネル内にある。',
             window.toggleTradecraftPanel);
     };
 
@@ -4792,25 +4777,25 @@
             + _escHtml(label) + '</a></li>';
         const body =
             '<div class="cfg-hint">'
-            + 'The original MASTER CONFIGURATION modal has been '
-            + 'merged into this SETTINGS shell. All previous tabs '
-            + 'are now first-class SETTINGS domains.'
+            + '旧 MASTER CONFIGURATION モーダルはこの SETTINGS シェルに'
+            + '統合された。従来のタブはすべて SETTINGS の正式ドメインに'
+            + 'なっている。'
             + '</div>'
             + '<ul style="font-size:12px;line-height:1.8;color:#ccc;'
             + 'padding-left:20px;margin:8px 0 0">'
-            + link('operate.sensors',   'Sensors')
-            + link('infra.fetch_log',   'Fetch Log')
-            + link('infra.upstreams',   'Upstreams')
-            + link('infra.fleet',       'Fleet Health')
-            + link('operate.scenarios', 'Scenarios')
-            + link('infra.server',      'Server / Env config')
-            + link('access.users',      'Users')
+            + link('operate.sensors',   _t('settings.operate.sensors'))
+            + link('infra.fetch_log',   _t('settings.infra.fetch_log'))
+            + link('infra.upstreams',   _t('settings.infra.upstreams'))
+            + link('infra.fleet',       _t('settings.infra.fleet'))
+            + link('operate.scenarios', _t('settings.operate.scenarios'))
+            + link('infra.server',      _t('settings.infra.server'))
+            + link('access.users',      _t('settings.access.users'))
             + '</ul>';
         pane.innerHTML = _settingsCfgPage({
-            help: 'Legacy MASTER CONFIGURATION (deprecated). Use the '
-                + 'first-class entries below instead.',
+            help: '旧 MASTER CONFIGURATION（非推奨）。以下の正式な項目を'
+                + '使用する。',
             sections: [
-                { title: 'WHERE THINGS MOVED', body: body },
+                { title: '移動先一覧', body: body },
             ],
         });
     };
@@ -4837,12 +4822,12 @@
         );
         if (!data) {
             pane.innerHTML = '<div style="opacity:0.6">'
-                + 'config_audit endpoint unavailable</div>';
+                + 'config_audit エンドポイントを利用できません。</div>';
             return;
         }
         const domains = data.domains || [];
         const rows = data.rows || [];
-        const domainOpts = '<option value="">All domains ('
+        const domainOpts = '<option value="">すべてのドメイン ('
             + rows.length + ')</option>'
             + domains.map(d =>
                 '<option value="' + _escHtml(d.domain) + '"'
@@ -4883,36 +4868,36 @@
         ).join('');
         const filterRow =
             '<div class="cfg-row" style="margin-bottom:10px">'
-            + '<label class="cfg-label">Domain</label>'
+            + '<label class="cfg-label">ドメイン</label>'
             + '<select class="cfg-select" id="audit-domain-filter">'
             +   domainOpts + '</select>'
-            + '<label class="cfg-label" style="margin-left:8px">Window</label>'
+            + '<label class="cfg-label" style="margin-left:8px">期間</label>'
             + '<select class="cfg-select" id="audit-hours-filter">'
             +   hoursOpts + '</select>'
-            + '<span class="cfg-status">' + rows.length + ' rows</span>'
+            + '<span class="cfg-status">' + rows.length + ' 行</span>'
             + '</div>';
         const tableBody =
             filterRow
             + '<table class="cfg-table"><thead><tr>'
-            +   '<th>when (UTC)</th><th>domain</th><th>key</th>'
-            +   '<th>old</th><th>new</th><th>by</th><th>reason</th>'
+            +   '<th>日時 (UTC)</th><th>ドメイン</th><th>キー</th>'
+            +   '<th>変更前</th><th>変更後</th><th>実行者</th><th>理由</th>'
             + '</tr></thead><tbody>'
             + (tableRows
                 ? tableRows
                 : '<tr><td colspan="7" class="dim" style="padding:1em">'
-                  + 'no changes in window</td></tr>')
+                  + 'この期間に変更はありません</td></tr>')
             + '</tbody></table>';
         pane.innerHTML = _settingsCfgPage({
-            help: '<div class="cfg-status-banner"><b>AUDIT LEDGER — '
-                + 'view only.</b> Append-only NP6 disclosure surface. '
-                + 'No edit controls here by design.</div>'
-                + 'Unified audit ledger. Every config change — LLM '
-                + 'features, routing, sensor toggles, scenario state, '
-                + 'sysconfig env edits, noise exclusion rules — flows '
-                + 'through <code>config_change_log</code> and surfaces '
-                + 'here. Filter by domain or time window.',
+            help: '<div class="cfg-status-banner"><b>監査台帳 — '
+                + '閲覧専用。</b>追記のみの NP6 導出開示面。設計上、'
+                + 'ここに編集操作は置かない。</div>'
+                + '統合監査台帳。LLM feature、ルーティング、センサーの'
+                + '有効化切替、シナリオ状態、sysconfig の env 編集、'
+                + 'ノイズ除外ルールなど、すべての設定変更が '
+                + '<code>config_change_log</code> を経由してここに現れる。'
+                + 'ドメインまたは時間ウィンドウで絞り込める。',
             sections: [
-                { title: 'CHANGE LEDGER', body: tableBody,
+                { title: '変更台帳', body: tableBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });
@@ -4954,8 +4939,8 @@
         );
         if (!data) {
             pane.innerHTML = '<div style="opacity:0.6">'
-                + '/api/v2/analyst_feedback unavailable. '
-                + 'Authenticate as analyst-or-admin.</div>';
+                + '/api/v2/analyst_feedback を利用できません。'
+                + 'analyst または admin で認証してください。</div>';
             return;
         }
         const summary = data.summary || {};
@@ -4964,19 +4949,19 @@
         // Summary KV
         const recallTxt = (typeof summary.recall === 'number')
             ? summary.recall.toFixed(3)
-            : '<span class="dim">— (no TP+FN signal)</span>';
+            : '<span class="dim">—（TP+FN のシグナルなし）</span>';
         const precTxt = (typeof summary.precision === 'number')
             ? summary.precision.toFixed(3)
-            : '<span class="dim">— (no TP+FP signal)</span>';
+            : '<span class="dim">—（TP+FP のシグナルなし）</span>';
         const aggBody = _settingsCfgKV([
-            { k: 'Window',
+            { k: 'ウィンドウ',
               v: '<b>' + (summary.window_hours ?? 720) + ' h</b>' },
-            { k: 'Total feedback rows',
+            { k: 'フィードバック総件数',
               v: '<b>' + (summary.total ?? 0) + '</b>' },
-            { k: 'Human-authored / Auto-authored',
+            { k: '人手記入 / 自動記入',
               v: '<b>' + (summary.human_total ?? 0) + '</b> / '
                  + (summary.auto_total ?? 0) },
-            { k: 'Distinct analysts',
+            { k: 'アナリスト実数',
               v: '<b>' + (summary.distinct_analysts ?? 0) + '</b>' },
             { k: 'Recall (TP/(TP+FN))', v: recallTxt },
             { k: 'Precision (TP/(TP+FP))', v: precTxt },
@@ -4986,7 +4971,7 @@
         const lbl = summary.by_label || {};
         const matrixBody =
             '<table class="cfg-table"><thead><tr>'
-            + '<th>label</th><th>count</th>'
+            + '<th>ラベル</th><th>件数</th>'
             + '</tr></thead><tbody>'
             + '<tr><td>TRUE_POSITIVE</td><td>'
             +   (lbl.TRUE_POSITIVE || 0) + '</td></tr>'
@@ -5014,7 +4999,7 @@
               + '<th>conclusion_type</th>'
               + '<th>TP</th><th>FP</th><th>TN</th><th>FN</th>'
               + '</tr></thead><tbody>' + ctRows + '</tbody></table>'
-            : '<div class="cfg-hint">No feedback in window.</div>';
+            : '<div class="cfg-hint">この期間にフィードバックがありません。</div>';
 
         // Filter row
         const hoursOpts = [
@@ -5026,15 +5011,15 @@
             + '>' + lbl + '</option>'
         ).join('');
         const kindOpts = [
-            ['', 'all'], ['human', 'human-authored only'],
-            ['auto', 'auto-authored only'],
+            ['', 'すべて'], ['human', '人手ラベルのみ'],
+            ['auto', '自動ラベルのみ'],
         ].map(([k, lbl]) =>
             '<option value="' + k + '"'
             + (k === _feedbackKind ? ' selected' : '')
             + '>' + lbl + '</option>'
         ).join('');
         const labelOpts = [
-            ['', 'all labels'],
+            ['', 'すべてのラベル'],
             ['TRUE_POSITIVE',  'TP'],
             ['FALSE_POSITIVE', 'FP'],
             ['TRUE_NEGATIVE',  'TN'],
@@ -5046,16 +5031,16 @@
         ).join('');
         const filterRow =
             '<div class="cfg-row" style="margin-bottom:10px">'
-            + '<label class="cfg-label">Window</label>'
+            + '<label class="cfg-label">期間</label>'
             + '<select class="cfg-select" id="fb-hours-filter">'
             +   hoursOpts + '</select>'
-            + '<label class="cfg-label" style="margin-left:8px">Kind</label>'
+            + '<label class="cfg-label" style="margin-left:8px">種別</label>'
             + '<select class="cfg-select" id="fb-kind-filter">'
             +   kindOpts + '</select>'
-            + '<label class="cfg-label" style="margin-left:8px">Label</label>'
+            + '<label class="cfg-label" style="margin-left:8px">ラベル</label>'
             + '<select class="cfg-select" id="fb-label-filter">'
             +   labelOpts + '</select>'
-            + '<span class="cfg-status">' + items.length + ' items</span>'
+            + '<span class="cfg-status">' + items.length + ' 件</span>'
             + '</div>';
 
         // Recent items table
@@ -5080,31 +5065,32 @@
         }).join('');
         const itemsBody = filterRow
             + '<table class="cfg-table"><thead><tr>'
-            + '<th>when (UTC)</th><th>scenario</th><th>type</th>'
-            + '<th>label</th><th>analyst</th><th>notes</th>'
+            + '<th>日時 (UTC)</th><th>シナリオ</th><th>種別</th>'
+            + '<th>ラベル</th><th>アナリスト</th><th>メモ</th>'
             + '</tr></thead><tbody>'
             + (itemRows || '<tr><td colspan="6" class="dim" '
-               + 'style="padding:1em">no feedback in window</td></tr>')
+               + 'style="padding:1em">この期間にフィードバックはありません'
+               + '</td></tr>')
             + '</tbody></table>';
 
         pane.innerHTML = _settingsCfgPage({
-            help: '<div class="cfg-status-banner"><b>FEEDBACK LEDGER — '
-                + 'view only.</b> Append-only NP6 ledger of analyst '
-                + 'TP/FP/TN/FN labels against conclusions. The POST '
-                + 'side lives at <code>POST /api/v2/conclusions/&lt;id&gt;'
-                + '/feedback</code>; this page rolls all rows up '
-                + 'across conclusions for the audit trail (AP4).</div>'
-                + 'Recall and precision are computed when there is at '
-                + 'least one TP+FN (recall) or TP+FP (precision) row '
-                + 'in the window.',
+            help: '<div class="cfg-status-banner"><b>フィードバック台帳 — '
+                + '閲覧専用。</b>結論に対するアナリストの TP/FP/TN/FN '
+                + 'ラベルを記録する追記のみの NP6 台帳。POST 側は '
+                + '<code>POST /api/v2/conclusions/&lt;id&gt;/feedback</code> '
+                + 'にある。このページは監査経路（AP4）のため、結論横断で'
+                + '全行を集計する。</div>'
+                + 'recall と precision は、ウィンドウ内に TP+FN（recall）'
+                + 'または TP+FP（precision）の行が 1 件以上ある場合に'
+                + '算出される。',
             sections: [
-                { title: 'OVERALL', body: aggBody,
+                { title: '全体', body: aggBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
-                { title: 'CONFUSION MATRIX', body: matrixBody,
+                { title: '混同行列', body: matrixBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
-                { title: 'PER CONCLUSION_TYPE', body: ctTable,
+                { title: 'CONCLUSION_TYPE 別', body: ctTable,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
-                { title: 'RECENT FEEDBACK', body: itemsBody,
+                { title: '直近のフィードバック', body: itemsBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });
@@ -5155,8 +5141,8 @@
         );
         if (!data) {
             pane.innerHTML = '<div style="opacity:0.6">'
-                + '/api/v2/auto_judge/decisions unavailable. '
-                + 'Authenticate as analyst-or-admin.</div>';
+                + '/api/v2/auto_judge/decisions を利用できません。'
+                + 'analyst または admin で認証してください。</div>';
             return;
         }
         const summary = data.summary || {};
@@ -5164,23 +5150,23 @@
         const byAction = summary.by_action || {};
         const overrideRate = (typeof summary.override_rate === 'number')
             ? (summary.override_rate * 100).toFixed(2) + '%'
-            : '<span class="dim">— (no applied rows)</span>';
+            : '<span class="dim">—（適用された行なし）</span>';
         const overrideCls = (typeof summary.override_rate === 'number')
             ? (summary.override_rate >= 0.20 ? 'crit'
                : summary.override_rate >= 0.10 ? 'warn' : 'ok')
             : 'dim';
 
         const aggBody = _settingsCfgKV([
-            { k: 'Window',           v: '<b>' + (summary.window_hours ?? 720) + ' h</b>' },
-            { k: 'Total decisions',  v: '<b>' + (summary.total ?? 0) + '</b>' },
+            { k: 'ウィンドウ',           v: '<b>' + (summary.window_hours ?? 720) + ' h</b>' },
+            { k: '判断総件数',  v: '<b>' + (summary.total ?? 0) + '</b>' },
             { k: 'confirm / reject / pending',
               v: '<b>' + (byAction.confirm || 0) + '</b> / '
                  + '<b>' + (byAction.reject || 0) + '</b> / '
                  + '<b>' + (byAction.pending || 0) + '</b>' },
-            { k: 'Applied / Overridden',
+            { k: '適用済み / 上書き済み',
               v: '<b>' + (summary.applied_total || 0) + '</b> / '
                  + '<b>' + (summary.overridden_total || 0) + '</b>' },
-            { k: 'Override rate (overridden / applied)',
+            { k: '上書き率 (overridden / applied)',
               v: '<span class="' + overrideCls + '">' + overrideRate
                  + '</span>' },
         ]);
@@ -5211,19 +5197,19 @@
         ).join('');
         const filterRow =
             '<div class="cfg-row" style="margin-bottom:10px">'
-            + '<label class="cfg-label">Window</label>'
+            + '<label class="cfg-label">期間</label>'
             + '<select class="cfg-select" id="aj-hours-filter">'
             +   hoursOpts + '</select>'
-            + '<label class="cfg-label" style="margin-left:8px">Action</label>'
+            + '<label class="cfg-label" style="margin-left:8px">アクション</label>'
             + '<select class="cfg-select" id="aj-action-filter">'
             +   actionOpts + '</select>'
-            + '<label class="cfg-label" style="margin-left:8px">Applied</label>'
+            + '<label class="cfg-label" style="margin-left:8px">適用済み</label>'
             + '<select class="cfg-select" id="aj-applied-filter">'
             +   trinaryOpts(_ajApplied) + '</select>'
-            + '<label class="cfg-label" style="margin-left:8px">Overridden</label>'
+            + '<label class="cfg-label" style="margin-left:8px">override 済み</label>'
             + '<select class="cfg-select" id="aj-overridden-filter">'
             +   trinaryOpts(_ajOverridden) + '</select>'
-            + '<span class="cfg-status">' + items.length + ' items</span>'
+            + '<span class="cfg-status">' + items.length + ' 件</span>'
             + '</div>';
 
         // Items table.
@@ -5260,29 +5246,28 @@
         }).join('');
         const itemsBody = filterRow
             + '<table class="cfg-table"><thead><tr>'
-            + '<th>when (UTC)</th><th>item_id</th><th>action</th>'
-            + '<th>conf</th><th>l1_corr</th><th>l1_ok</th>'
-            + '<th>applied</th><th>override</th><th>reason</th>'
+            + '<th>日時 (UTC)</th><th>item_id</th><th>判定</th>'
+            + '<th>確信度</th><th>l1_corr</th><th>l1_ok</th>'
+            + '<th>適用</th><th>上書き</th><th>理由</th>'
             + '</tr></thead><tbody>'
             + (tableRows || '<tr><td colspan="9" class="dim" '
-               + 'style="padding:1em">no decisions in window</td></tr>')
+               + 'style="padding:1em">この期間に判断はありません</td></tr>')
             + '</tbody></table>';
 
         pane.innerHTML = _settingsCfgPage({
-            help: '<div class="cfg-status-banner"><b>AUTO-JUDGE LEDGER — '
-                + 'view only.</b> Every Layer 1 / LLM-recheck second-pass '
-                + 'invocation appends a row to '
-                + '<code>auto_judge_decisions</code>. This page rolls '
-                + 'them up so an analyst can see what the auto-judge '
-                + 'has been confirming, rejecting, or applying — and '
-                + 'how often a human later overrode it.</div>'
-                + 'Override rate &gt; 20% suggests the auto-judge rules '
-                + 'are misfiring; investigate before raising the '
-                + 'auto-confirm tier.',
+            help: '<div class="cfg-status-banner"><b>auto-judge 台帳 — '
+                + '閲覧専用。</b>Layer 1 / LLM 再チェックの 2 パス目が'
+                + '呼ばれるたびに <code>auto_judge_decisions</code> へ 1 行'
+                + '追記される。このページはそれらを集計し、auto-judge が何を'
+                + '確定・棄却・適用してきたか、そして後から人間がどれだけ'
+                + '上書きしたかをアナリストが確認できるようにする。</div>'
+                + '上書き率が 20% を超える場合は auto-judge のルールが'
+                + '誤作動している可能性がある。auto-confirm のティアを'
+                + '上げる前に調査する。',
             sections: [
-                { title: 'OVERALL', body: aggBody,
+                { title: '全体', body: aggBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
-                { title: 'RECENT DECISIONS', body: itemsBody,
+                { title: '直近の判断', body: itemsBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });
@@ -5386,9 +5371,9 @@
                 const chip = document.getElementById('hud-skew-chip');
                 if (chip && skew && skew.distribution_pct) {
                     const parts = [
-                        'TL Distribution (last '
-                            + (skew.window_days || 7) + 'd)',
-                        '  TL5 (calm):     '
+                        'TL 分布（直近 '
+                            + (skew.window_days || 7) + 'd）',
+                        '  TL5 (NORMAL):   '
                             + (skew.distribution_pct.TL5 || 0).toFixed(1) + '%',
                         '  TL4:            '
                             + (skew.distribution_pct.TL4 || 0).toFixed(1) + '%',
@@ -5398,10 +5383,10 @@
                             + (skew.distribution_pct.TL2 || 0).toFixed(1) + '%',
                         '  TL1:            '
                             + (skew.distribution_pct.TL1 || 0).toFixed(1) + '%',
-                        '  Floor (alert <): '
+                        '  下限（未満で警告）: '
                             + (skew.tl5_min_pct || 30) + '%',
-                        '  N observations: ' + (skew.n_observations || 0),
-                        '  Alert: ' + (skew.calibration_skew_alert ? 'YES' : 'no'),
+                        '  観測数: ' + (skew.n_observations || 0),
+                        '  警告: ' + (skew.calibration_skew_alert ? 'YES' : 'no'),
                     ];
                     chip.title = parts.join('\n');
                 }
@@ -5442,14 +5427,14 @@
                 const chip = document.getElementById('hud-bg-observer-chip');
                 if (chip && bg) {
                     const parts = [
-                        'bg_observer (BACKGROUND_ELIGIBLE sensor)',
-                        '  enabled: ' + (bg.enabled ? 'yes' : 'no'),
-                        '  cycles 24h: ' + (bg.cycles_24h ?? 0),
-                        '  matches total: ' + (bg.matches_total_24h ?? 0),
-                        '  matches/cyc avg: ' + (bg.matches_per_cycle_avg ?? '—'),
-                        '  empty cycle rate: ' + (bg.empty_rate_24h ?? '—'),
-                        '  alias gap: ' + (bg.alias_gap && bg.alias_gap.length
-                            ? bg.alias_gap.join(',') : 'none'),
+                        'bg_observer (BACKGROUND_ELIGIBLE センサー)',
+                        '  有効: ' + (bg.enabled ? 'はい' : 'いいえ'),
+                        '  サイクル数 24h: ' + (bg.cycles_24h ?? 0),
+                        '  マッチ総数: ' + (bg.matches_total_24h ?? 0),
+                        '  サイクル平均マッチ数: ' + (bg.matches_per_cycle_avg ?? '—'),
+                        '  空サイクル率: ' + (bg.empty_rate_24h ?? '—'),
+                        '  alias 未定義: ' + (bg.alias_gap && bg.alias_gap.length
+                            ? bg.alias_gap.join(',') : 'なし'),
                     ];
                     chip.title = parts.join('\n');
                 }
@@ -5479,7 +5464,7 @@
                     _applySelfEvalClass('hud-fault-chip', band);
                     const chip = document.getElementById('hud-fault-chip');
                     if (chip) {
-                        const lines = ['NP1-violating silent failures (lifetime)'];
+                        const lines = ['NP1 に違反するサイレント障害（累計）'];
                         if (sf && sf.by_category) {
                             const cats = Object.keys(sf.by_category).sort();
                             const np1Set = new Set(sf.np1_categories || []);
@@ -5495,9 +5480,9 @@
                             }
                         }
                         if (attn !== null) {
-                            lines.push('  attention metric collection errors: ' + attn);
+                            lines.push('  注目度メトリクスの収集エラー: ' + attn);
                         }
-                        if (lines.length === 1) lines.push('  (no failures)');
+                        if (lines.length === 1) lines.push('  （障害なし）');
                         chip.title = lines.join('\n');
                     }
                 }
@@ -5581,37 +5566,38 @@
             // Tooltip narrative — AP2 template-driven (no LLM).
             const lines = [];
             const tierName = s.current_tier_name || ('Tier ' + s.current_tier);
-            lines.push('Auto-Calibration: ' + tierName
+            lines.push('自動 Calibration: ' + tierName
                        + ' (T' + s.current_tier + ')');
             if (typeof s.days_at_current_tier === 'number') {
-                lines.push('  entered ' + s.days_at_current_tier.toFixed(2)
-                           + 'd ago');
+                lines.push('  ' + s.days_at_current_tier.toFixed(2)
+                           + 'd 前に移行');
             }
             if (s.kill_switch_engaged) {
-                lines.push('  kill-switch engaged: cap=' + s.cap
+                lines.push('  キルスイッチ作動中: cap=' + s.cap
                            + ' < raw_tier=' + s.raw_stored_tier);
             }
             if (s.consecutive_failures > 0) {
-                lines.push('  consecutive_failures=' + s.consecutive_failures);
+                lines.push('  連続失敗回数=' + s.consecutive_failures);
             }
             if (s.next_tier !== null) {
                 lines.push('  T' + s.current_tier + ' → T' + s.next_tier
-                           + ': ' + s.gates_met + '/' + s.gates_total + ' gates met');
+                           + ': 昇格ゲート ' + s.gates_met + '/'
+                           + s.gates_total + ' 達成');
                 for (const g of (s.promotion_gates || [])) {
                     const mark = g.met ? '✓' : '✗';
                     lines.push('    ' + mark + ' ' + g.name + ': '
-                               + g.current + ' (need ' + g.required + ')');
+                               + g.current + '（必要 ' + g.required + '）');
                 }
             } else {
-                lines.push('  at ceiling tier');
+                lines.push('  最上位ティア');
             }
             const cd = s.active_cooldowns || [];
             if (cd.length > 0) {
-                lines.push('  cooldowns:');
+                lines.push('  クールダウン:');
                 for (const c of cd) {
                     const mins = Math.round(c.remaining_seconds / 60);
-                    lines.push('    ' + c.impact_level + ' for '
-                               + mins + 'm (by ' + c.triggered_by + ')');
+                    lines.push('    ' + c.impact_level + ' あと '
+                               + mins + 'm（発動元: ' + c.triggered_by + '）');
                 }
             }
             chip.title = lines.join('\n');
@@ -5669,12 +5655,12 @@
             const lines = [];
             const thr = (typeof s.threshold_days === 'number')
                 ? s.threshold_days.toFixed(1) : '?';
-            lines.push('Chronic inconclusive (NP5+8): '
-                       + chronicCount + ' state(s) past ' + thr + 'd');
-            lines.push('  transient: ' + transientCount);
+            lines.push('恒常的な結論不可 (NP5+8): '
+                       + thr + 'd 超が ' + chronicCount + ' 件');
+            lines.push('  過渡的: ' + transientCount);
             const chronicList = (s.chronic || []).slice(0, 5);
             if (chronicList.length > 0) {
-                lines.push('  worst:');
+                lines.push('  深刻な順:');
                 for (const st of chronicList) {
                     const days = (typeof st.days_unavailable === 'number')
                         ? st.days_unavailable.toFixed(1) + 'd'
@@ -5684,7 +5670,7 @@
                 }
             }
             if (chronicCount === 0 && transientCount === 0) {
-                lines.push('  (no open unavailability runs — healthy)');
+                lines.push('  （未解消の結論不可なし — 健全）');
             }
             chip.title = lines.join('\n');
         } catch (_) {
@@ -5721,13 +5707,13 @@
             if (done < target && pending > 0) band = 'warn';
             _applySelfEvalClass('hud-anchor-chip', band);
             const lines = [];
-            lines.push('Human anchor (AP3): ' + done + '/' + target
-                       + ' human labels this week, ' + pending + ' queued');
+            lines.push('人間アンカー (AP3): 今週の人手ラベル ' + done + '/' + target
+                       + ' 件、キュー滞留 ' + pending + ' 件');
             for (const c of (q.candidates || []).slice(0, 5)) {
                 lines.push('  [' + c.kind + '] ' + c.scenario_id
                            + ' TL' + c.state);
             }
-            lines.push('Click to open the labeling queue.');
+            lines.push('クリックでラベリングキューを開く。');
             chip.title = lines.join('\n');
         } catch (_) {
             // NP3 — leave previous values.
@@ -5739,9 +5725,9 @@
     // kind → friendly tag. Analysts see "why this one" at a glance without
     // the confusion-matrix vocabulary.
     const _ANCHOR_TAGS = {
-        auto_fn_review: { label: 'POSSIBLE MISS', cls: 'anchor-tag-miss' },
-        peak_severity:  { label: 'PEAK ALERT',   cls: 'anchor-tag-alert' },
-        calm_anchor:    { label: 'QUIET CHECK',  cls: 'anchor-tag-quiet' },
+        auto_fn_review: { label: '見逃し疑い',   cls: 'anchor-tag-miss' },
+        peak_severity:  { label: 'ピーク警報',   cls: 'anchor-tag-alert' },
+        calm_anchor:    { label: '静穏時確認',   cls: 'anchor-tag-quiet' },
     };
 
     async function _anchorPostAnswer(cand, opt, url) {
@@ -5931,7 +5917,7 @@
             _anchorToggleFn = window.createFloatingPanel({
                 id: 'human-anchor-panel',
                 titleKey: 'human_anchor.title',
-                titleFallback: 'Human Anchor Queue',
+                titleFallback: '人間アンカーキュー',
                 defaultLeft: Math.max(20, window.innerWidth - 540),
                 defaultTop: 150,
                 width: 500,
@@ -5957,7 +5943,21 @@
     // Stage C (replay mode); today the local ledger is sufficient to
     // suppress acknowledged items in subsequent polls.
 
-    const _AL_STORAGE_KEY = 'ddos_radar_triage_state';
+    const _AL_STORAGE_KEY = 'noroshi_triage_state';
+    (function _alMigratePreRenameKey() {
+        // 2026-08-03 tool rename. The analyst's acked / lastView ledger lives
+        // in the browser, so carry it over from the pre-rename key. This shim
+        // (and the literal below) can be deleted once every browser that uses
+        // the tool has loaded it at least once.
+        const PRE_RENAME_KEY = 'ddos_radar_triage_state';
+        try {
+            if (localStorage.getItem(_AL_STORAGE_KEY)) return;
+            const legacy = localStorage.getItem(PRE_RENAME_KEY);
+            if (!legacy) return;
+            localStorage.setItem(_AL_STORAGE_KEY, legacy);
+            localStorage.removeItem(PRE_RENAME_KEY);
+        } catch (_) { /* storage disabled — nothing to migrate */ }
+    })();
     const _AL_MAX_ROWS = 5;
     const _alPriorByMode = {};  // {`${focused}|${type}|${state}`: {firstSeenTs, lastFireTs, prevConfidence}}
 
@@ -6085,11 +6085,13 @@
         const bar = document.createElement('div');
         bar.className = 'tm-compact-bar';
         const pinTip = (typeof _t === 'function')
-            ? _t('triage.tooltip.pin_dock_pin') : 'Click to pin expanded view';
+            ? _t('triage.tooltip.pin_dock_pin')
+            : 'クリックで展開表示を固定 (ホバー解除・リロード後も維持)。';
         const barTip = (typeof _t === 'function')
             ? _t('triage.tooltip.pin_dock') : '';
         const menuTip = (typeof _t === 'function')
-            ? _t('triage.tooltip.menu') : 'TRIAGE actions';
+            ? _t('triage.tooltip.menu')
+            : 'トリアージ操作: 精査 / 確認済みにする / スヌーズ / 表示設定。';
         const actionsLabel = (typeof _t === 'function')
             ? _t('triage.label.actions') : 'ACTIONS';
         bar.title = barTip;
@@ -6182,37 +6184,37 @@
         const visMode = _triageStateCache.visibility === 'always' ? 'always' : 'default';
         const visChecked = visMode === 'always' ? 'checked' : '';
         const snoozeStatus = _triageIsSnoozed()
-            ? '<div class="tm-pop-status">⏸ Snoozed (active)</div>'
+            ? '<div class="tm-pop-status">⏸ スヌーズ中</div>'
             : '';
         const dismissStatus = _triageIsDismissed()
-            ? '<div class="tm-pop-status">✕ Dismissed (active)</div>'
+            ? '<div class="tm-pop-status">✕ 非表示中</div>'
             : '';
         pop.innerHTML = `
             <div class="tm-pop-section">
-                <div class="tm-pop-header">Quick actions</div>
-                <button type="button" class="tm-pop-btn" data-act="inspect">▶ Inspect top item</button>
-                <button type="button" class="tm-pop-btn" data-act="ack">✓ Acknowledge top</button>
+                <div class="tm-pop-header">クイック操作</div>
+                <button type="button" class="tm-pop-btn" data-act="inspect">▶ 最上位項目を精査</button>
+                <button type="button" class="tm-pop-btn" data-act="ack">✓ 最上位項目を確認済みにする</button>
             </div>
             <div class="tm-pop-section">
-                <div class="tm-pop-header">Suspend display</div>
+                <div class="tm-pop-header">表示の一時停止</div>
                 ${snoozeStatus}
-                <button type="button" class="tm-pop-btn" data-act="snooze" data-min="30">⏸ Snooze 30 min</button>
-                <button type="button" class="tm-pop-btn" data-act="snooze" data-min="120">⏸ Snooze 2 hours</button>
-                <button type="button" class="tm-pop-btn" data-act="snooze" data-min="240">⏸ Snooze 4 hours</button>
-                <button type="button" class="tm-pop-btn" data-act="snooze-custom">⏸ Snooze custom...</button>
-                ${_triageIsSnoozed() ? '<button type="button" class="tm-pop-btn tm-pop-btn-danger" data-act="snooze-release">⏵ Release snooze</button>' : ''}
+                <button type="button" class="tm-pop-btn" data-act="snooze" data-min="30">⏸ 30 分スヌーズ</button>
+                <button type="button" class="tm-pop-btn" data-act="snooze" data-min="120">⏸ 2 時間スヌーズ</button>
+                <button type="button" class="tm-pop-btn" data-act="snooze" data-min="240">⏸ 4 時間スヌーズ</button>
+                <button type="button" class="tm-pop-btn" data-act="snooze-custom">⏸ スヌーズ時間を指定...</button>
+                ${_triageIsSnoozed() ? '<button type="button" class="tm-pop-btn tm-pop-btn-danger" data-act="snooze-release">⏵ スヌーズを解除</button>' : ''}
             </div>
             <div class="tm-pop-section">
-                <div class="tm-pop-header">Visibility</div>
+                <div class="tm-pop-header">表示設定</div>
                 <label class="tm-pop-toggle">
                     <input type="checkbox" data-act="visibility" ${visChecked}>
-                    Always visible (suppress dormant)
+                    常に表示（dormant を抑止）
                 </label>
                 ${dismissStatus}
-                <button type="button" class="tm-pop-btn" data-act="dismiss">✕ Hide until next fire</button>
+                <button type="button" class="tm-pop-btn" data-act="dismiss">✕ 次の発火まで非表示</button>
             </div>
             <div class="tm-pop-footer">
-                <span class="tm-pop-np1-note">⚠ Critical events bypass snooze + dismiss (NP1).</span>
+                <span class="tm-pop-np1-note">⚠ critical 事象はスヌーズと非表示を迂回する (NP1)。</span>
             </div>
         `;
         // Position next to the ⋯ button.
@@ -6245,7 +6247,7 @@
                     const min = parseInt(target.getAttribute('data-min'), 10) || 30;
                     await _triageActionSnooze(min);
                 } else if (act === 'snooze-custom') {
-                    const ans = prompt('Snooze for how many minutes? (1–1440)', '60');
+                    const ans = prompt('何分スヌーズしますか? (1–1440)', '60');
                     const min = Math.max(1, Math.min(parseInt(ans, 10) || 0, 1440));
                     if (min > 0) await _triageActionSnooze(min);
                 } else if (act === 'snooze-release') {
@@ -6364,7 +6366,7 @@
             chip = document.createElement('span');
             chip.id = 'hud-triage-snooze';
             chip.className = 'hud-triage-snooze-chip';
-            chip.title = 'TRIAGE Lane is muted (NP1: critical events still surface). Click to release.';
+            chip.title = 'トリアージレーンをミュート中 (NP1: critical 事象は引き続き表示)。クリックで解除。';
             chip.addEventListener('click', () => _triageActionSnoozeRelease());
             // Attach near other HUD chips. Look for hud-tl-group or HUD root.
             const target = document.getElementById('hud-tl-group')
@@ -6372,7 +6374,7 @@
                 || document.getElementById('hud');
             if (target) target.appendChild(chip);
         }
-        chip.textContent = '⏸ TRIAGE muted ' + remMin + 'm';
+        chip.textContent = '⏸ トリアージをミュート中 ' + remMin + 'm';
         chip.style.display = 'inline-block';
     }
 
@@ -6398,24 +6400,24 @@
     window._settingsRenderAuditDecisions = async function (pane) {
         const filterBody =
             '<div class="cfg-row">'
-            + '<label class="cfg-label">Type</label>'
+            + '<label class="cfg-label">種別</label>'
             + '<select id="dh-filter-type" class="cfg-select">'
-            +   '<option value="">All</option>'
-            +   '<option value="triage_snooze">TRIAGE snooze</option>'
-            +   '<option value="triage_visibility">TRIAGE visibility</option>'
-            +   '<option value="triage_dismiss">TRIAGE dismiss</option>'
-            +   '<option value="triage_threshold_override">TRIAGE threshold</option>'
+            +   '<option value="">すべて</option>'
+            +   '<option value="triage_snooze">トリアージ: スヌーズ</option>'
+            +   '<option value="triage_visibility">トリアージ: 表示設定</option>'
+            +   '<option value="triage_dismiss">トリアージ: 非表示</option>'
+            +   '<option value="triage_threshold_override">トリアージ: 閾値</option>'
             + '</select>'
-            + '<label class="cfg-label" style="margin-left:8px">Window</label>'
+            + '<label class="cfg-label" style="margin-left:8px">期間</label>'
             + '<select id="dh-filter-window" class="cfg-select">'
             +   '<option value="86400">24 h</option>'
             +   '<option value="604800" selected>7 d</option>'
             +   '<option value="2592000">30 d</option>'
             +   '<option value="7776000">90 d</option>'
             + '</select>'
-            + '<label class="cfg-label" style="margin-left:8px">Action</label>'
+            + '<label class="cfg-label" style="margin-left:8px">アクション</label>'
             + '<select id="dh-filter-action" class="cfg-select">'
-            +   '<option value="">All</option>'
+            +   '<option value="">すべて</option>'
             +   '<option value="accept">accept</option>'
             +   '<option value="extend">extend</option>'
             +   '<option value="raise">raise</option>'
@@ -6425,24 +6427,23 @@
             +   '<option value="set">set</option>'
             + '</select>'
             + '<button type="button" id="dh-filter-apply" class="btn-tactical btn-action">'
-            +   'APPLY FILTERS</button>'
+            +   'フィルタ適用</button>'
             + '</div>';
         const trailBody =
             '<div class="dh-body" id="decision-history-body">'
-            + '<div class="dh-loading">Loading…</div></div>';
+            + '<div class="dh-loading">読み込み中...</div></div>';
         pane.innerHTML = _settingsCfgPage({
-            help: '<div class="cfg-status-banner"><b>AUDIT LEDGER — '
-                + 'view only.</b> Append-only AP4 Decision Trail. '
-                + 'No edit controls here by design.</div>'
-                + 'Every analyst action recorded with actor, reason, '
-                + 'and parameters. Combine with the '
+            help: '<div class="cfg-status-banner"><b>監査台帳 — '
+                + '閲覧専用。</b>追記のみの AP4 判断履歴。設計上、'
+                + 'ここに編集操作は置かない。</div>'
+                + 'すべてのアナリスト操作を実行者・理由・パラメータ付きで'
+                + '記録する。完全なフォレンジックタイムラインを得るには '
                 + '<a href="javascript:void(0)" '
                 + 'onclick="window._settingsOpen(\'audit.changes\')">'
-                + 'Audit Changes</a> ledger for the full forensic '
-                + 'timeline.',
+                + '変更監査</a>台帳と併せて参照する。',
             sections: [
-                { title: 'FILTERS',        body: filterBody },
-                { title: 'DECISION TRAIL', body: trailBody,
+                { title: 'フィルタ',        body: filterBody },
+                { title: '判断履歴', body: trailBody,
                   badges: ['<span class="cfg-readonly-badge">read-only</span>'] },
             ],
         });
@@ -6454,7 +6455,7 @@
     async function _dhLoad() {
         const body = document.getElementById('decision-history-body');
         if (!body) return;
-        body.innerHTML = '<div class="dh-loading">Loading…</div>';
+        body.innerHTML = '<div class="dh-loading">読み込み中...</div>';
 
         const typeSel = document.getElementById('dh-filter-type');
         const windowSel = document.getElementById('dh-filter-window');
@@ -6474,17 +6475,16 @@
             const data = await resp.json();
             const items = data.decisions || [];
             if (items.length === 0) {
-                body.innerHTML = '<div class="dh-empty">No decisions match the current filters.</div>';
+                body.innerHTML = '<div class="dh-empty">現在のフィルタに一致する判断がありません。</div>';
                 return;
             }
             body.innerHTML = '<div class="dh-summary">'
-                + items.length + ' decision' + (items.length === 1 ? '' : 's')
-                + ' · most recent first</div>'
+                + '判断 ' + items.length + ' 件 · 新しい順</div>'
                 + '<div class="dh-list">'
                 + items.map(_dhRenderRow).join('')
                 + '</div>';
         } catch (e) {
-            body.innerHTML = '<div class="dh-error">Failed to load: '
+            body.innerHTML = '<div class="dh-error">読み込みに失敗しました: '
                 + _escHtml(e.message) + '</div>';
         }
     }
@@ -6537,9 +6537,9 @@
         const label = lane.querySelector('.tm-cb-label');
         if (!items || !label) return;
         if (mode === 'critical-banner') {
-            label.textContent = '⚠ TRIAGE ALERT';
+            label.textContent = '⚠ トリアージアラート';
         } else {
-            label.textContent = 'TRIAGE';
+            label.textContent = 'トリアージ';
         }
         const top3 = (ranked || []).slice(0, 3);
         items.innerHTML = top3.map((it) => {
@@ -6747,15 +6747,15 @@
             const rank = document.createElement('span');
             rank.className = 'al-rank';
             rank.textContent = '#' + it.rank;
-            rank.title = 'Triage attention score: ' + it.score.toFixed(2)
+            rank.title = 'トリアージ注目度スコア: ' + it.score.toFixed(2)
                 + (it.why && it.why.length
-                    ? '\n\nWhy ranked here:\n  · ' + it.why.join('\n  · ')
+                    ? '\n\nこの順位になった理由:\n  · ' + it.why.join('\n  · ')
                     : '');
 
             const score = document.createElement('span');
             score.className = 'al-score';
             score.textContent = it.score.toFixed(2);
-            score.title = 'attention_score = novelty × confidence_delta × analyst_blindness';
+            score.title = '注目度スコア: attention_score = novelty × confidence_delta × analyst_blindness';
 
             const mode = document.createElement('span');
             mode.className = 'al-mode';
@@ -6775,10 +6775,10 @@
             ackBtn.type = 'button';
             ackBtn.className = 'al-btn';
             ackBtn.textContent = (typeof _t === 'function')
-                ? _t('alert_lane.btn_ack') : 'Acknowledge';
+                ? _t('alert_lane.btn_ack') : '確認済みにする';
             ackBtn.title = (typeof _t === 'function')
                 ? _t('alert_lane.btn_ack_tip')
-                : 'Acknowledge — drop until next state change';
+                : '確認済みにする — 状態が変化するまでこの項目を非表示にする';
             ackBtn.addEventListener('click', () => {
                 _alAcknowledge(focusedId, it.conclusion.id);
                 _refreshAlertLane(focusedId);
@@ -6788,10 +6788,10 @@
             drillBtn.type = 'button';
             drillBtn.className = 'al-btn al-btn-primary';
             drillBtn.textContent = (typeof _t === 'function')
-                ? _t('alert_lane.btn_drill') : 'Inspect ▶';
+                ? _t('alert_lane.btn_drill') : '精査 ▶';
             drillBtn.title = (typeof _t === 'function')
                 ? _t('alert_lane.btn_drill_tip')
-                : 'Open the audit-trace drilldown for this conclusion';
+                : 'この結論の監査経路 drill-down を開く';
             drillBtn.addEventListener('click', () => _ccOpenDrillModal(it.conclusion));
 
             actions.appendChild(ackBtn);
@@ -7727,7 +7727,7 @@
         if (typeof Notification === 'undefined') return;
         if (Notification.permission !== 'granted') return;
         try {
-            const title = _t('watchpane.notify.title') || 'Sensor alarm';
+            const title = _t('watchpane.notify.title') || 'センサーアラーム';
             const body  = `${sensor.name} (${sensor.scope}) — ${_wpAlarmDescribe(alarm)}`;
             new Notification(title, { body, tag: `wp-alarm-${sensor.name}-${sensor.scope}` });
         } catch (e) {
@@ -7938,7 +7938,7 @@
         const listEl = document.getElementById('wp-add-list');
         if (!listEl) return;
         if (!_wpCatalog) {
-            listEl.innerHTML = `<div class="wp-add-empty">${_escHtml(_t('ui.loading') || 'Loading…')}</div>`;
+            listEl.innerHTML = `<div class="wp-add-empty">${_escHtml(_t('ui.loading') || '読み込み中...')}</div>`;
             return;
         }
         const f = (filter || '').toLowerCase().trim();
@@ -8082,7 +8082,8 @@
         if (!candidate) {
             const errEl = document.getElementById('wp-alarm-error');
             if (errEl) {
-                errEl.textContent = _t('watchpane.alarm.error.invalid') || 'Invalid value';
+                errEl.textContent = _t('watchpane.alarm.error.invalid')
+                    || '不正な値 — 数値を入力（またはステータスを選択）';
                 errEl.style.display = '';
             }
             return;
@@ -8111,7 +8112,7 @@
         _wpToggleFn = window.createFloatingPanel({
             id: 'sensor-watchpane',
             titleKey: 'watchpane.title',
-            titleFallback: 'Sensor Watchpane',
+            titleFallback: 'センサー監視盤',
             defaultLeft: window.innerWidth - 440,
             defaultTop: 140,
             width: 420,
@@ -8187,7 +8188,7 @@
             latestData = await response.json();
 
             _lastSyncTime = Date.now();
-            lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()}`;
+            lastSyncedTimeText = `データ同期: ${new Date().toLocaleTimeString()}`;
             document.getElementById('update-time').innerText = lastSyncedTimeText;
             lastSyncedConfig = getCurrentConfig();
 
@@ -8266,7 +8267,7 @@
                 const logEl = document.getElementById('loader-log');
                 if (logEl) {
                     logEl.style.color = "#00ffff";
-                    logEl.innerText = "> Initialization Complete. Rendering Dashboard.";
+                    logEl.innerText = "> 初期化完了。ダッシュボードを描画中。";
                 }
                 const loader = document.getElementById('global-loader');
                 setTimeout(() => {
@@ -8357,10 +8358,10 @@
             });
             L.marker([w.lat, lngS], { icon })
              .bindPopup(
-                `<b>Weather: ${esc(w.code)}</b><br>` +
+                `<b>気象: ${esc(w.code)}</b><br>` +
                 `<span style="color:${col};">${esc(w.description)}</span><br>` +
-                `Severity: ${esc(w.severity)} | Wind: ${esc(w.wind_speed)} m/s` +
-                (isSevere ? '<br><i style="color:#ffaa00;">Noise filter active: suppresses BGP/Airspace alerts</i>' : '')
+                `深刻度: ${esc(w.severity)} | 風速: ${esc(w.wind_speed)} m/s` +
+                (isSevere ? '<br><i style="color:#ffaa00;">ノイズフィルタ作動中: BGP / 空域アラートを抑制</i>' : '')
              )
              .addTo(weatherLayer);
         });
@@ -8405,7 +8406,7 @@
                 html: `<div style="position:relative;width:10px;height:10px;transform:rotate(45deg);background:${col}33;border:2px solid ${col};filter:drop-shadow(0 0 3px ${col});box-sizing:border-box;"></div>`,
                 iconSize: [10, 10], iconAnchor: [5, 5],
             });
-            const nameList = info.ixps.slice(0, 5).map(n => esc(n)).join('<br>') + (count > 5 ? `<br>…and ${count-5} more` : '');
+            const nameList = info.ixps.slice(0, 5).map(n => esc(n)).join('<br>') + (count > 5 ? `<br>…ほか ${count-5} 件` : '');
             L.marker([info.lat, lngS], { icon })
              .bindPopup(`<b style="color:${col};">IXP [${esc(country)}]</b> × ${count}<br><span style="font-size:11px;color:#aaa;">${nameList}</span>`)
              .on('click', () => openCountryDetail(country))
@@ -8434,9 +8435,9 @@
             const popupHtml = `
                 <div style="min-width:220px;padding:10px 12px 8px;">
                     <div style="color:#5ab8cc;font-weight:bold;font-size:12px;letter-spacing:0.5px;margin-bottom:2px;">▬ ${esc(route.name)}</div>
-                    <div style="color:#335566;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">SUBMARINE CABLE ROUTE</div>
+                    <div style="color:#335566;font-size:9px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a2e3a;padding-bottom:6px;">海底ケーブル経路</div>
                     <div style="color:#889;font-size:10px;margin-bottom:6px;">${esc(route.description || '')}</div>
-                    ${route.connects && route.connects.length ? `<div style="color:#446677;font-size:9px;border-top:1px solid #1a2e3a;padding-top:5px;line-height:1.7;">CONNECTS:<br><span style="color:#667;">${route.connects.map(c => esc(c)).join(' → ')}</span></div>` : ''}
+                    ${route.connects && route.connects.length ? `<div style="color:#446677;font-size:9px;border-top:1px solid #1a2e3a;padding-top:5px;line-height:1.7;">接続先:<br><span style="color:#667;">${route.connects.map(c => esc(c)).join(' → ')}</span></div>` : ''}
                 </div>
             `;
             segs.forEach(pts => {
@@ -8495,17 +8496,17 @@
 
             // Rich popup
             const TYPE_LABEL = {
-                cable_landing:   'Cable Landing Station',
-                maritime_strait: 'Maritime Chokepoint',
-                nato_corridor:   'NATO Cable Corridor',
+                cable_landing:   '陸揚局',
+                maritime_strait: '海上チョークポイント',
+                nato_corridor:   'NATO ケーブル回廊',
             };
             const STATUS_BADGE = {
-                dark_gap:   `<span style="color:#ff3300;font-weight:bold;">⚠ AIS DARK GAP DETECTED</span>`,
-                stationary: `<span style="color:#ff9900;font-weight:bold;">⚓ STATIONARY ANOMALY</span>`,
-                normal:     `<span style="color:#00cc66;">● NORMAL</span>`,
+                dark_gap:   `<span style="color:#ff3300;font-weight:bold;">⚠ AIS ダークギャップ検出</span>`,
+                stationary: `<span style="color:#ff9900;font-weight:bold;">⚓ 停泊異常</span>`,
+                normal:     `<span style="color:#00cc66;">● 正常</span>`,
             };
             const cablesHtml = (c.cables && c.cables.length)
-                ? `<div style="margin-top:5px;color:#aaa;font-size:9px;">CABLES: ${c.cables.map(cb => esc(cb)).join(', ')}</div>`
+                ? `<div style="margin-top:5px;color:#aaa;font-size:9px;">ケーブル: ${c.cables.map(cb => esc(cb)).join(', ')}</div>`
                 : '';
 
             L.marker([c.lat, lngS], {icon})
@@ -8548,10 +8549,10 @@
              .bindPopup(
                 `<div style="min-width:200px;padding:8px 10px 6px;">` +
                 `<div style="color:${col};font-weight:bold;font-size:12px;">✦ ${esc(hs.name)}</div>` +
-                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">ISR HOTSPOT ZONE · ${esc(hs.country)}</div>` +
-                `<div>ISR Aircraft: <b style="color:${col};">${esc(hs.isr_count)}</b></div>` +
-                `<div>Status: <b style="color:${col};">${isSurge ? '⚡ SURGE' : '● NORMAL'}</b></div>` +
-                `<div style="color:#555;font-size:9px;margin-top:4px;">Radius: ${esc(hs.radius_km || 200)} km</div>` +
+                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">ISR ホットスポット · ${esc(hs.country)}</div>` +
+                `<div>ISR 機数: <b style="color:${col};">${esc(hs.isr_count)}</b></div>` +
+                `<div>状態: <b style="color:${col};">${isSurge ? '⚡ 急増' : '● 正常'}</b></div>` +
+                `<div style="color:#555;font-size:9px;margin-top:4px;">半径: ${esc(hs.radius_km || 200)} km</div>` +
                 `</div>`
              )
              .addTo(isrZoneLayer);
@@ -8596,12 +8597,12 @@
             L.marker([v.lat, lngS], { icon })
              .bindPopup(
                 `<div style="min-width:200px;padding:8px 10px 6px;">` +
-                `<div style="color:#ff3300;font-weight:bold;font-size:12px;">⚓ AIS DARK GAP</div>` +
-                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">EMCON / TRANSPONDER SILENT</div>` +
-                `<div>Vessel: <b>${esc(v.name || v.mmsi)}</b></div>` +
-                `<div>Silent: <b style="color:#ff3300;">${esc(v.gap_hours)} h</b></div>` +
-                `<div>Chokepoint: ${esc(v.chokepoint)}</div>` +
-                `<div>Distance: ${esc(v.dist_km)} km</div>` +
+                `<div style="color:#ff3300;font-weight:bold;font-size:12px;">⚓ AIS ダークギャップ</div>` +
+                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">EMCON / トランスポンダ停波</div>` +
+                `<div>船舶: <b>${esc(v.name || v.mmsi)}</b></div>` +
+                `<div>停波時間: <b style="color:#ff3300;">${esc(v.gap_hours)} h</b></div>` +
+                `<div>チョークポイント: ${esc(v.chokepoint)}</div>` +
+                `<div>距離: ${esc(v.dist_km)} km</div>` +
                 `</div>`
              )
              .addTo(aisVesselLayer);
@@ -8616,11 +8617,11 @@
             L.marker([v.lat, lngS], { icon })
              .bindPopup(
                 `<div style="min-width:200px;padding:8px 10px 6px;">` +
-                `<div style="color:#ff9900;font-weight:bold;font-size:12px;">⚓ STATIONARY ANOMALY</div>` +
-                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">NON-COMMERCIAL VESSEL ANCHORED</div>` +
-                `<div>Vessel: <b>${esc(v.name || v.mmsi)}</b></div>` +
-                `<div>Chokepoint: ${esc(v.chokepoint)}</div>` +
-                `<div>Distance: ${esc(v.dist_km)} km</div>` +
+                `<div style="color:#ff9900;font-weight:bold;font-size:12px;">⚓ 停泊異常</div>` +
+                `<div style="color:#446677;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin:4px 0;">非商用船舶の投錨</div>` +
+                `<div>船舶: <b>${esc(v.name || v.mmsi)}</b></div>` +
+                `<div>チョークポイント: ${esc(v.chokepoint)}</div>` +
+                `<div>距離: ${esc(v.dist_km)} km</div>` +
                 `</div>`
              )
              .addTo(aisVesselLayer);
@@ -8691,7 +8692,7 @@
             if (selfExpl && tlConclusion) {
                 const persisted = (function () {
                     try {
-                        const raw = localStorage.getItem('ddos_radar_triage_state');
+                        const raw = localStorage.getItem('noroshi_triage_state');
                         if (!raw) return null;
                         const p = JSON.parse(raw);
                         return p && p.lastViewByScenario && p.lastViewByScenario[data.focused_scenario];
@@ -8704,15 +8705,15 @@
             } else if (strat.threat_breakdown) {
                 const b = strat.threat_breakdown;
                 const lines = [
-                    `Threat Score: ${b.total_score}`,
-                    `Core Spike: ${b.core_spike_val}x  (>2x:${b.core_spike_2x?'✔':'✗'} >4x:${b.core_spike_4x?'✔':'✗'} >6x:${b.core_spike_6x?'✔':'✗'})`,
-                    `High Correlation(>45%): ${b.high_correlation?'✔':'✗'}`,
-                    `L7 Shift: ${b.core_shifted?'✔':'✗'}`,
-                    `Adversary Strike: ${b.major_adversary?'✔':'✗'}`,
-                    `BGP Degraded: ${b.core_degraded?'✔':'✗'}`,
-                    `Multi-Front(>3x): ${b.is_coordinated?'✔':'✗'}`,
-                    `Lv1 Hard Req: ${b.tl1_hard?'✔':'✗'}`,
-                    `\nClick to view full Rationale Matrix.`
+                    `脅威スコア: ${b.total_score}`,
+                    `中核スパイク: ${b.core_spike_val}x  (>2x:${b.core_spike_2x?'✔':'✗'} >4x:${b.core_spike_4x?'✔':'✗'} >6x:${b.core_spike_6x?'✔':'✗'})`,
+                    `高相関 (>45%): ${b.high_correlation?'✔':'✗'}`,
+                    `L7 シフト: ${b.core_shifted?'✔':'✗'}`,
+                    `敵対国の攻撃: ${b.major_adversary?'✔':'✗'}`,
+                    `BGP 劣化: ${b.core_degraded?'✔':'✗'}`,
+                    `多正面 (>3x): ${b.is_coordinated?'✔':'✗'}`,
+                    `TL1 必須条件: ${b.tl1_hard?'✔':'✗'}`,
+                    `\nクリックで根拠マトリクス全体を表示。`
                 ];
                 threatEl.setAttribute('data-tooltip', lines.join('\n'));
             }
@@ -8827,7 +8828,7 @@
                 const maxIdf = Number(maxEntry[1]) || 0;
                 const color = maxIdf >= 1.5 ? '#ff2a2a' : maxIdf >= 1.0 ? '#ffaa00' : '#888';
                 overlapEl.innerHTML = `<span style="color:${color}">${esc(maxEntry[0])}: ${maxIdf.toFixed(2)} IDF</span>`;
-                overlapEl.setAttribute('data-tooltip', Object.entries(_idfPairs).map(([k,v]) => `${k}: ${Number(v).toFixed(2)} IDF`).join('\n') + '\n(see map: Origin Overlap layer)');
+                overlapEl.setAttribute('data-tooltip', Object.entries(_idfPairs).map(([k,v]) => `${k}: ${Number(v).toFixed(2)} IDF`).join('\n') + '\n（マップの Origin Overlap レイヤーを参照）');
             } else {
                 overlapEl.innerHTML = _t('ui.none');
             }
@@ -8835,10 +8836,10 @@
             if (strat.vector_shifts && strat.vector_shifts.length > 0) {
                 shiftEl.innerHTML = `<span class="alert-text">${esc(strat.vector_shifts.join(', '))}</span>`;
             } else {
-                shiftEl.innerText = "None";
+                shiftEl.innerText = "なし";
             }
 
-            let strikesText = "None";
+            let strikesText = "なし";
             if (strat.adversary_strikes && strat.adversary_strikes.length > 0) {
                 let arr = [];
                 strat.adversary_strikes.forEach(strike => { arr.push(`<span class="warn-text">${esc(strike.actor)}➔${esc(strike.target)} (x${esc(strike.spike)})</span>`); });
@@ -8848,15 +8849,16 @@
 
             // ADR-V2-006 A-2: legacy theater_* fallbacks retired.
             const _degradedList = strat.degraded_countries;
-            const degraded = _degradedList && _degradedList.length > 0 ? esc(_degradedList.join(', ')) : "None";
-            outagesEl.innerHTML = `<span class="${degraded !== 'None' ? 'warn-text' : ''}">${degraded}</span>`;
+            const _hasDegraded = !!(_degradedList && _degradedList.length > 0);
+            const degraded = _hasDegraded ? esc(_degradedList.join(', ')) : "なし";
+            outagesEl.innerHTML = `<span class="${_hasDegraded ? 'warn-text' : ''}">${degraded}</span>`;
 
             if (coordinatedEl) {
                 const _coordinatedList = strat.coordinated_countries;
                 if (_coordinatedList && _coordinatedList.length >= 2) {
-                    coordinatedEl.innerHTML = `<span class="alert-text">ACTIVE [${esc(_coordinatedList.join(', '))}]</span>`;
+                    coordinatedEl.innerHTML = `<span class="alert-text">検出 [${esc(_coordinatedList.join(', '))}]</span>`;
                 } else {
-                    coordinatedEl.innerText = "None";
+                    coordinatedEl.innerText = "なし";
                 }
             }
 
@@ -8898,7 +8900,7 @@
                 const b = strat.threat_breakdown || {};
                 const bonus = b.convergence_bonus || 0;
                 const held  = b.threat_held ? ' [HOLD]' : '';
-                convEl.setAttribute('data-tooltip', `Score: ${b.total_score} + Bonus: ${bonus} = ${b.score_with_bonus} → Threat Lv ${b.threat_raw}${held}`);
+                convEl.setAttribute('data-tooltip', `スコア: ${b.total_score} + ボーナス: ${bonus} = ${b.score_with_bonus} → 脅威レベル ${b.threat_raw}${held}`);
             }
 
             // Per-scenario sparkline (commit W). The legacy
@@ -9156,7 +9158,7 @@
                     if (airspD.status === "WEATHER_NOISE") {
                         badges += `<span class="tm-badge" style="border:1px solid #aaa; color:#aaa; background:rgba(170,170,170,0.15);" data-tooltip="${_t('tooltip.airspace_wx')}">${_t('badge.airspace_wx')}</span>`;
                     } else {
-                        badges += `<span class="tm-badge tm-badge-air" data-tooltip="Airspace Anomaly">✈</span>`;
+                        badges += `<span class="tm-badge tm-badge-air" data-tooltip="空域異常">✈</span>`;
                     }
                 }
 
@@ -9572,7 +9574,7 @@
                         latestData = { strategic_alert: data, targets: [], timestamp: new Date().toISOString() };
                     }
                     _lastSyncTime = Date.now();
-                    lastSyncedTimeText = `Data Synced: ${new Date().toLocaleTimeString()} (WS Live)`;
+                    lastSyncedTimeText = `データ同期: ${new Date().toLocaleTimeString()} (WS Live)`;
                     document.getElementById('update-time').innerText = lastSyncedTimeText;
                     renderTelemetry(latestData);
                 });
@@ -9866,7 +9868,7 @@
                     ${torSub ? `<div class="cip-card-sub">${torSub}</div>` : ''}
                 </div>
                 ${torUsers ? `<div class="cip-card">
-                    <div class="cip-card-label">Bridge Users</div>
+                    <div class="cip-card-label">ブリッジ利用者数</div>
                     <div class="cip-card-value">${torUsers}</div>
                 </div>` : ''}
             </div>
@@ -10307,10 +10309,10 @@
             const threatColor = d => ['','#ff0000','#ff2a2a','#ffaa00','#ffff00','#66ff66'][d] || '#888';
             const trendIcon   = t => t === 'ESCALATING' ? '▲' : t === 'DE-ESCALATING' ? '▼' : '—';
             const cards = [
-                { label: _t('sitrep.card.threat_now'), value: `Lv ${s.threat_current || '—'}`, sub: `Trend: ${trendIcon(s.threat_trend)} ${s.threat_trend || '—'}`, color: threatColor(s.threat_current) },
-                { label: _t('sitrep.card.threat_1h'), value: `Lv ${s.threat_min_1h || '—'}–${s.threat_max_1h || '—'}`, sub: `Avg: ${s.threat_avg_1h || '—'}`, color: '#aaa' },
-                { label: _t('sitrep.card.convergence'), value: (s.convergence || 'NONE').replace(/_/g,' '), sub: `Domains: ${(s.active_domains || []).join(', ') || 'None'}`, color: s.convergence === 'FULL_CONVERGENCE' ? '#ff2a2a' : s.convergence === 'DUAL_DOMAIN' ? '#ffaa00' : '#888' },
-                { label: _t('sitrep.card.history'), value: `${s.cycle_count || 0} cycles`, sub: `${Math.round((s.span_minutes || 0) / 60 * 10) / 10}h window`, color: '#555' },
+                { label: _t('sitrep.card.threat_now'), value: `Lv ${s.threat_current || '—'}`, sub: `トレンド: ${trendIcon(s.threat_trend)} ${s.threat_trend || '—'}`, color: threatColor(s.threat_current) },
+                { label: _t('sitrep.card.threat_1h'), value: `Lv ${s.threat_min_1h || '—'}–${s.threat_max_1h || '—'}`, sub: `平均: ${s.threat_avg_1h || '—'}`, color: '#aaa' },
+                { label: _t('sitrep.card.convergence'), value: (s.convergence || 'NONE').replace(/_/g,' '), sub: `ドメイン: ${(s.active_domains || []).join(', ') || 'なし'}`, color: s.convergence === 'FULL_CONVERGENCE' ? '#ff2a2a' : s.convergence === 'DUAL_DOMAIN' ? '#ffaa00' : '#888' },
+                { label: _t('sitrep.card.history'), value: `${s.cycle_count || 0} サイクル`, sub: `${Math.round((s.span_minutes || 0) / 60 * 10) / 10}h の期間`, color: '#555' },
             ];
             document.getElementById('sitrep-summary').innerHTML = cards.map(c =>
                 `<div class="sitrep-card">
@@ -10327,7 +10329,7 @@
             drawThreatTimeline(canvas, entries);
 
         } catch(e) {
-            document.getElementById('sitrep-text').textContent = `Error: ${e.message}`;
+            document.getElementById('sitrep-text').textContent = `エラー: ${e.message}`;
         }
     }
 
@@ -10398,13 +10400,12 @@
         }
         el.style.display = 'inline-block';
         el.textContent = '⚠ v1 TL' + v1Tl + ' / v2 TL' + v2Tl;
-        el.title = 'v1 derive_tl() returned TL' + v1Tl
-            + ' but v2 conclusion ledger says TL' + v2Tl
-            + ' for ' + (focusedId || '?')
-            + '. The badge above shows v2 (overlay priority); HUD sparkline'
-            + ' and FOCUS card now also follow v2. Click the THREAT LV badge'
-            + ' for the v2 audit trace, or wait one scoring tick — the'
-            + ' difference usually clears within 10–30s of TL transitions.';
+        el.title = (focusedId || '?') + ' について v1 derive_tl() は TL' + v1Tl
+            + ' を返したが、v2 結論台帳は TL' + v2Tl + ' としている。'
+            + '上のバッジは v2 を表示している（オーバーレイ優先）。HUD スパークライン'
+            + 'と FOCUS カードも v2 に追従する。THREAT LV バッジをクリックすると'
+            + ' v2 の監査経路を開く。あるいはスコアリング tick を 1 回待つ — '
+            + '差分は TL 遷移から通常 10–30s 以内に解消する。';
     }
 
     // ── Per-scenario sparkline (commit W) ──────────────────────────────
@@ -10526,7 +10527,7 @@
         };
 
         try {
-            const res = await fetch(`/api/weather_brief?lang=en`);
+            const res = await fetch(`/api/weather_brief?lang=ja`);
             const wb  = await res.json();
             const brief = wb.brief || {};
             const DOMAIN_ICON = { cyber:'⛈', maritime:'🌫', info:'📡', air:'🔭', infra:'🏗' };
@@ -10594,7 +10595,7 @@
         if (tsEl) tsEl.textContent = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}Z`;
 
         try {
-            const res = await fetch(`/api/salute_report?lang=en`);
+            const res = await fetch(`/api/salute_report?lang=ja`);
             const sal = (await res.json()).report || {};
             _lastSaluteData = sal;
             const fields = [
@@ -10635,8 +10636,8 @@
         const now = new Date();
         const dtg = now.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
         return [
-            `SALUTE REPORT — ${dtg}`,
-            `THREAT LEVEL: ${s.threat_level || '—'}`,
+            `SALUTE 報告 — ${dtg}`,
+            `脅威レベル: ${s.threat_level || '—'}`,
             '─'.repeat(40),
             `S (SIZE):      ${s.size || '—'}`,
             `A (ACTIVITY):  ${s.activity || '—'}`,
@@ -10645,9 +10646,9 @@
             `T (TIME):      ${s.time || '—'}`,
             `E (EQUIPMENT): ${s.equipment || '—'}`,
             '',
-            s.cross_ref ? `CROSS-REF:  ${s.cross_ref}` : '',
+            s.cross_ref ? `相互参照:  ${s.cross_ref}` : '',
             '',
-            s.assessment ? `ASSESSMENT:\n${s.assessment}` : '',
+            s.assessment ? `評価:\n${s.assessment}` : '',
         ].filter(Boolean).join('\n');
     }
 
@@ -11052,12 +11053,12 @@
             const fmt = params.displayFormat;
             const l3s = l3v == null ? '—' : fmt(l3v);
             const l7s = l7v == null ? '—' : fmt(l7v);
-            let tipHtml = `<b>${a} ↔ ${b}</b> — Coord: ${fmt(coordIdx)}`;
-            tipHtml += `<br><span style="color:#888">Origin:</span> ${fmt(overlap)} (<span style="color:#ff6666">L3:${l3s}</span> <span style="color:#66ff66">L7:${l7s}</span>)`;
-            if (bothElevated) tipHtml += `<br><span style="color:#ffaa00">▲ Both elevated (${spikeMap[a].toFixed(1)}× / ${spikeMap[b].toFixed(1)}×)</span>`;
-            if (isC2Sync) tipHtml += `<br><span style="color:#ff2200">⚡ C2-SYNC confirmed</span>`;
-            else if (c2Score > 0) tipHtml += `<br><span style="color:#ffaa00">◉ Partial temporal coherence</span>`;
-            if (strikeTargets.has(a) && strikeTargets.has(b)) tipHtml += `<br><span style="color:#ff4444">✦ Adversary strikes on both</span>`;
+            let tipHtml = `<b>${a} ↔ ${b}</b> — 協調度: ${fmt(coordIdx)}`;
+            tipHtml += `<br><span style="color:#888">攻撃元重複:</span> ${fmt(overlap)} (<span style="color:#ff6666">L3:${l3s}</span> <span style="color:#66ff66">L7:${l7s}</span>)`;
+            if (bothElevated) tipHtml += `<br><span style="color:#ffaa00">▲ 双方が上昇 (${spikeMap[a].toFixed(1)}× / ${spikeMap[b].toFixed(1)}×)</span>`;
+            if (isC2Sync) tipHtml += `<br><span style="color:#ff2200">⚡ C2-SYNC 確認</span>`;
+            else if (c2Score > 0) tipHtml += `<br><span style="color:#ffaa00">◉ 部分的な時間的一致</span>`;
+            if (strikeTargets.has(a) && strikeTargets.has(b)) tipHtml += `<br><span style="color:#ff4444">✦ 双方に敵対国の攻撃</span>`;
             coreLine.bindTooltip(tipHtml, {sticky: true, className: 'coord-tooltip'});
 
             // Midpoint percentage label
@@ -11478,8 +11479,8 @@
                     el.value = '';
                     el.dataset.secret = '1';
                     el.placeholder = val.set
-                        ? `(configured · ends in …${val.last4 || '????'})`
-                        : '(unset — enter to set)';
+                        ? `（設定済み · 末尾 …${val.last4 || '????'}）`
+                        : '（未設定 — 入力して設定）';
                     el.classList.add('secret-field');
                 } else {
                     el.value = val;
@@ -11524,7 +11525,7 @@
                 }
             } else {
                 const first = result.errors[0];
-                throw new Error(first ? `${first.key}: ${first.error}` : 'Unknown error');
+                throw new Error(first ? `${first.key}: ${first.error}` : '不明なエラー');
             }
         } catch(e) {
             if (st) { st.textContent = _t('config.status.error', {msg: e.message}); st.className = 'env-status err'; }
@@ -12347,7 +12348,7 @@
         ctx.beginPath(); ctx.moveTo(pad.left, avgY); ctx.lineTo(w - pad.right, avgY); ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = '#ffaa00'; ctx.font = '7px monospace'; ctx.textAlign = 'left';
-        ctx.fillText('avg', w - pad.right + 2, avgY + 3);
+        ctx.fillText('平均', w - pad.right + 2, avgY + 3);
         ctx.textAlign = 'left';
     }
 
@@ -12765,7 +12766,7 @@
                 ? `<div style="color:#44aa44;font-size:8px;">✓ ${_t('panel.spof.redundant')}</div>`
                 : `<div style="color:#ff8800;font-size:8px;">⚠ ${_t('panel.spof.no_redundancy')}</div>`;
             if (info.critical_spofs > 0) {
-                html += `<div style="color:#ff2222;font-size:8px;">⛔ ${info.critical_spofs} CRITICAL SPOF</div>`;
+                html += `<div style="color:#ff2222;font-size:8px;">⛔ CRITICAL SPOF ${info.critical_spofs} 件</div>`;
             }
             html += `</div>`;
         }
@@ -12791,7 +12792,7 @@
                 const healthColor = entry.health === 'ok' ? '#44aa44' : entry.health === 'stale' ? '#ffcc00' : '#ff4444';
                 html += `<div class="spof-entry-health">`;
                 html += `<span style="color:${healthColor};font-size:8px;">● ${entry.health}</span>`;
-                if (entry.cache_age_sec != null) html += `<span style="color:#555;font-size:8px;">${Math.round(entry.cache_age_sec/60)}m ago</span>`;
+                if (entry.cache_age_sec != null) html += `<span style="color:#555;font-size:8px;">${Math.round(entry.cache_age_sec/60)}m 前</span>`;
                 if (entry.last_error) html += `<span style="color:#ff444488;font-size:7px;" title="${entry.last_error}">err</span>`;
                 html += `</div>`;
                 html += `</div>`;
@@ -12918,106 +12919,106 @@
     const _HEATMAP_SENSORS = [
         { name: 'cloudflare_radar', lbl: 'CF',   domain: 'cyber',    extract: (_i, td) => {
             const sp = td && td.avg_spike || 0;
-            return sp >= 3 ? {level:2, label:sp.toFixed(1)+'×', tip:'DDoS spike '+sp.toFixed(1)+'×'}
-                 : sp >= 1.5 ? {level:1, label:sp.toFixed(1)+'×', tip:'Elevated '+sp.toFixed(1)+'×'}
-                 : {level:0, label:sp > 0 ? sp.toFixed(1)+'×' : '—', tip:'Normal'};
+            return sp >= 3 ? {level:2, label:sp.toFixed(1)+'×', tip:'DDoS スパイク '+sp.toFixed(1)+'×'}
+                 : sp >= 1.5 ? {level:1, label:sp.toFixed(1)+'×', tip:'上昇 '+sp.toFixed(1)+'×'}
+                 : {level:0, label:sp > 0 ? sp.toFixed(1)+'×' : '—', tip:'正常'};
         }},
         { name: 'ioda_bgp', lbl: 'IODA', domain: 'cyber',    extract: (i) => {
             const st = i.ioda_status || 'NORMAL';
-            return st === 'BGP_OUTAGE' ? {level: i.is_bgp_degraded ? 2 : 1, label:'OUT', tip:'BGP Outage'+(i.is_bgp_degraded?'':' (Wx)')}
-                 : {level:0, label:'OK', tip:'Normal'};
+            return st === 'BGP_OUTAGE' ? {level: i.is_bgp_degraded ? 2 : 1, label:'OUT', tip:'BGP 障害'+(i.is_bgp_degraded?'':'（気象要因）')}
+                 : {level:0, label:'OK', tip:'正常'};
         }},
         { name: 'ripe_bgp', lbl: 'BGP',  domain: 'cyber',    extract: (i) => {
             const b = i.bgp_routing || {};
-            return b.is_anomaly ? {level:2, label:'⚠'+((b.drop_pct||0))+'%', tip:'BGP anomaly, drop '+(b.drop_pct||0)+'%'}
-                 : {level:0, label:b.announced_prefixes != null ? b.announced_prefixes+'pfx' : '—', tip:'Stable'};
+            return b.is_anomaly ? {level:2, label:'⚠'+((b.drop_pct||0))+'%', tip:'BGP 異常、経路減少 '+(b.drop_pct||0)+'%'}
+                 : {level:0, label:b.announced_prefixes != null ? b.announced_prefixes+'pfx' : '—', tip:'安定'};
         }},
         { name: 'check_host', lbl: 'CH',  domain: 'cyber',    extract: (_i, _td, code, sa) => {
             const ch = (sa.analytics || {}).check_host || {};
-            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'Core only'};
+            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'コア国のみ'};
             const sr = ch.country_success_rate;
-            return sr != null && sr < 0.5 ? {level:2, label:Math.round(sr*100)+'%', tip:'Reachability '+Math.round(sr*100)+'%'}
-                 : sr != null && sr < 0.9 ? {level:1, label:Math.round(sr*100)+'%', tip:'Partial: '+Math.round(sr*100)+'%'}
-                 : {level:0, label:sr != null ? Math.round(sr*100)+'%' : '—', tip:'OK'};
+            return sr != null && sr < 0.5 ? {level:2, label:Math.round(sr*100)+'%', tip:'到達率 '+Math.round(sr*100)+'%'}
+                 : sr != null && sr < 0.9 ? {level:1, label:Math.round(sr*100)+'%', tip:'一部到達: '+Math.round(sr*100)+'%'}
+                 : {level:0, label:sr != null ? Math.round(sr*100)+'%' : '—', tip:'正常'};
         }},
         { name: 'threatfox', lbl: 'TFX', domain: 'cyber',    extract: (_i, _td, code, sa) => {
             const r = (sa.rationale_matrix||[]).find(e => e.sensor === 'threatfox');
-            return r && r.status === 'FIRED' ? {level:1, label:'⚠', tip:r.fired_reason||'Active'} : {level:0, label:'—', tip:'Clear'};
+            return r && r.status === 'FIRED' ? {level:1, label:'⚠', tip:r.fired_reason||'アクティブ'} : {level:0, label:'—', tip:'異常なし'};
         }},
         { name: 'greynoise', lbl: 'GN',  domain: 'cyber',    extract: (_i, _td, code, sa) => {
             const gn = (sa.analytics || {}).greynoise || {};
-            if (gn.suppressing) return {level:1, label:'NOISE', tip:'Noise dominant — suppressing cyber'};
-            return {level:0, label:gn.noise_class || '—', tip:gn.noise_class || 'Unknown'};
+            if (gn.suppressing) return {level:1, label:'NOISE', tip:'ノイズ優勢 — cyber を抑制中'};
+            return {level:0, label:gn.noise_class || '—', tip:gn.noise_class || '不明'};
         }},
         { name: 'openweather', lbl: 'WX', domain: 'physical', extract: (i) => {
             const wx = i.weather || {};
             const s = wx.severity || 'NORMAL';
-            return s === 'SEVERE' ? {level:2, label:'SEV', tip:wx.condition||'Severe weather'}
-                 : s === 'MODERATE' ? {level:1, label:'MOD', tip:wx.condition||'Moderate'}
-                 : {level:0, label:'OK', tip:wx.condition||'Normal'};
+            return s === 'SEVERE' ? {level:2, label:'SEV', tip:wx.condition||'荒天'}
+                 : s === 'MODERATE' ? {level:1, label:'MOD', tip:wx.condition||'中程度'}
+                 : {level:0, label:'OK', tip:wx.condition||'正常'};
         }},
         { name: 'opensky', lbl: 'AIR',   domain: 'physical', extract: (i) => {
             const a = i.airspace || {};
             return a.status === 'CLOSURE' || a.status === 'ANOMALY' ? {level:2, label:a.status.slice(0,4), tip:a.airport+': '+a.status}
-                 : a.status === 'WEATHER_NOISE' ? {level:1, label:'Wx', tip:a.airport+': weather noise'}
+                 : a.status === 'WEATHER_NOISE' ? {level:1, label:'Wx', tip:a.airport+': 気象ノイズ'}
                  : {level:0, label:a.count != null ? a.count : '—', tip:a.airport||'—'};
         }},
         { name: 'ihr_health', lbl: 'IHR', domain: 'physical', extract: (i) => {
             const st = i.ihr_status || 'NORMAL';
-            return st === 'DISCO_EVENT' ? {level:2, label:'DISCO', tip:'IHR disconnection event'}
-                 : st === 'HEGEMONY_ALARM' ? {level:1, label:'HEG', tip:'Hegemony alarm'}
-                 : st === 'DELAY_ANOMALY' ? {level:1, label:'DLY', tip:'Delay anomaly'}
-                 : {level:0, label:'OK', tip:'Normal'};
+            return st === 'DISCO_EVENT' ? {level:2, label:'DISCO', tip:'IHR 切断イベント'}
+                 : st === 'HEGEMONY_ALARM' ? {level:1, label:'HEG', tip:'ヘゲモニー警報'}
+                 : st === 'DELAY_ANOMALY' ? {level:1, label:'DLY', tip:'遅延異常'}
+                 : {level:0, label:'OK', tip:'正常'};
         }},
         { name: 'ripe_atlas', lbl: 'ATL', domain: 'physical', extract: (i) => {
             const a = i.ripe_atlas || {};
             const st = a.status || 'NORMAL';
-            return st === 'PROBE_BLACKOUT' ? {level:2, label:'OUT', tip:'Probe blackout'}
-                 : st === 'PROBE_DROP' ? {level:1, label:'DROP', tip:'Probe drop'}
-                 : {level:0, label:a.probes && a.probes.active != null ? a.probes.active : '—', tip:'Normal'};
+            return st === 'PROBE_BLACKOUT' ? {level:2, label:'OUT', tip:'プローブ全断'}
+                 : st === 'PROBE_DROP' ? {level:1, label:'DROP', tip:'プローブ減少'}
+                 : {level:0, label:a.probes && a.probes.active != null ? a.probes.active : '—', tip:'正常'};
         }},
         { name: 'isr_hotspot', lbl: 'ISR', domain: 'physical', extract: (_i, _td, code, sa) => {
             const isr = (sa.analytics || {}).isr || {};
-            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'Core only'};
-            return isr.is_surge ? {level:2, label:isr.count, tip:'ISR surge: '+isr.count+' aircraft'}
-                 : isr.count > 0 ? {level:0, label:isr.count, tip:isr.count+' aircraft'}
-                 : {level:0, label:'0', tip:'No ISR activity'};
+            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'コア国のみ'};
+            return isr.is_surge ? {level:2, label:isr.count, tip:'ISR 急増: '+isr.count+' 機'}
+                 : isr.count > 0 ? {level:0, label:isr.count, tip:isr.count+' 機'}
+                 : {level:0, label:'0', tip:'ISR 活動なし'};
         }},
         { name: 'ais_maritime', lbl: 'AIS', domain: 'physical', extract: (_i, _td, code, sa) => {
             const ais = (sa.analytics || {}).ais || {};
-            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'Core only'};
-            return ais.has_anomaly ? {level:2, label:ais.dark_gaps+'gap', tip:'Dark gaps: '+ais.dark_gaps}
-                 : {level:0, label:'OK', tip:'Normal'};
+            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'コア国のみ'};
+            return ais.has_anomaly ? {level:2, label:ais.dark_gaps+'gap', tip:'AIS 消失区間: '+ais.dark_gaps}
+                 : {level:0, label:'OK', tip:'正常'};
         }},
         { name: 'space_weather', lbl: 'SpWx', domain: 'physical', extract: (_i, _td, _c, sa) => {
             const sw = (sa.analytics || {}).space_weather || {};
-            if (sw.suppressing) return {level:2, label:sw.storm_level||'⚠', tip:'Suppressing physical: '+(sw.suppress_reason||'')};
+            if (sw.suppressing) return {level:2, label:sw.storm_level||'⚠', tip:'physical を抑制中: '+(sw.suppress_reason||'')};
             const kp = sw.kp_index;
-            return kp >= 5 ? {level:1, label:'Kp'+kp, tip:'Kp index: '+kp} : {level:0, label:kp != null ? 'Kp'+kp : '—', tip:'Quiet'};
+            return kp >= 5 ? {level:1, label:'Kp'+kp, tip:'Kp 指数: '+kp} : {level:0, label:kp != null ? 'Kp'+kp : '—', tip:'静穏'};
         }},
         { name: 'gdelt', lbl: 'GDT',     domain: 'info',     extract: (i) => {
             const g = i.gdelt || {};
-            return g.status === 'ALERT' ? {level:2, label:g.tone_current != null ? g.tone_current.toFixed(0) : '⚠', tip:'GDELT alert, tone='+((g.tone_current||0).toFixed(1))}
-                 : {level:0, label:g.tone_current != null ? g.tone_current.toFixed(0) : '—', tip:'Tone: '+(g.tone_current||'—')};
+            return g.status === 'ALERT' ? {level:2, label:g.tone_current != null ? g.tone_current.toFixed(0) : '⚠', tip:'GDELT アラート、tone='+((g.tone_current||0).toFixed(1))}
+                 : {level:0, label:g.tone_current != null ? g.tone_current.toFixed(0) : '—', tip:'tone: '+(g.tone_current||'—')};
         }},
         { name: 'rss_narrative', lbl: 'RSS', domain: 'info',  extract: (_i, _td, code, sa) => {
             const r = (sa.rationale_matrix||[]).find(e => e.sensor === 'rss_narrative');
-            return r && r.status === 'FIRED' ? {level:1, label:'⚠', tip:r.fired_reason||'Narrative burst'} : {level:0, label:'—', tip:'Clear'};
+            return r && r.status === 'FIRED' ? {level:1, label:'⚠', tip:r.fired_reason||'ナラティブバースト'} : {level:0, label:'—', tip:'異常なし'};
         }},
         { name: 'telegram_mirror', lbl: 'TG', domain: 'info', extract: (_i, _td, code, sa) => {
             const tg = (sa.analytics || {}).telegram_mirror || {};
-            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'Core only'};
-            return tg.has_intent ? {level:2, label:'INTENT', tip:'Telegram intent detected'}
-                 : tg.status === 'TARGETS_FOUND' ? {level:1, label:'TGT', tip:'Targets found'}
-                 : {level:0, label:tg.status||'—', tip:tg.status||'Pending'};
+            if (resolveChainTargetCountry(sa) !== code) return {level:-1, label:'—', tip:'コア国のみ'};
+            return tg.has_intent ? {level:2, label:'INTENT', tip:'Telegram で攻撃意図を検出'}
+                 : tg.status === 'TARGETS_FOUND' ? {level:1, label:'TGT', tip:'標的を検出'}
+                 : {level:0, label:tg.status||'—', tip:tg.status||'保留'};
         }},
         { name: 'tor_metrics', lbl: 'TOR',  domain: 'info',   extract: (i) => {
             const t = i.tor_metrics || {};
             const st = t.status || 'NORMAL';
-            return st === 'CENSORSHIP_INDICATOR' ? {level:2, label:'CENS', tip:'Censorship indicator'}
-                 : st === 'RELAY_DROP' ? {level:1, label:'DROP', tip:'Relay drop'}
-                 : st === 'USER_SURGE' ? {level:1, label:'SURGE', tip:'User surge'}
-                 : {level:0, label:'OK', tip:'Normal'};
+            return st === 'CENSORSHIP_INDICATOR' ? {level:2, label:'CENS', tip:'検閲の兆候'}
+                 : st === 'RELAY_DROP' ? {level:1, label:'DROP', tip:'リレー減少'}
+                 : st === 'USER_SURGE' ? {level:1, label:'SURGE', tip:'ユーザー急増'}
+                 : {level:0, label:'OK', tip:'正常'};
         }},
     ];
 
@@ -13352,15 +13353,15 @@
         // Status label
         let statusLabel = '';
         if (isAutoJudged) {
-            statusLabel = '<span class="llm-status-label-auto" title="Auto-confirmed by background auto-judge (' + _escHtml(confirmedBy) + ')">AUTO</span>';
+            statusLabel = '<span class="llm-status-label-auto" title="バックグラウンドの auto-judge により自動承認 (' + _escHtml(confirmedBy) + ')">AUTO</span>';
         } else if (isAutoIngest) {
-            statusLabel = '<span class="llm-status-label-auto" title="Auto-confirmed at submit (confidence ≥ threshold)">AUTO</span>';
+            statusLabel = '<span class="llm-status-label-auto" title="投入時に自動承認（確信度 ≥ 閾値）">AUTO</span>';
         } else if (isReview) {
             statusLabel = '<span class="llm-status-label-review">REVIEW</span>';
         } else if (isPending) {
             statusLabel = '<span class="llm-status-label-pending">PENDING</span>';
         } else if (isManualConf) {
-            statusLabel = '<span class="llm-status-label-confirmed" title="Manually confirmed by ' + _escHtml(confirmedBy || 'analyst') + '">MANUAL</span>';
+            statusLabel = '<span class="llm-status-label-confirmed" title="' + _escHtml(confirmedBy || 'analyst') + ' が手動で承認">MANUAL</span>';
         } else if (item.status === 'rejected' || item.status === 'overridden') {
             statusLabel = '<span class="llm-status-label-rejected">' + _escHtml(item.status.toUpperCase()) + '</span>';
         }
@@ -13428,7 +13429,7 @@
             .then(() => { _fetchLlmIntel(); fetchDDoSData(); })
             .catch(err => {
                 console.warn('[Intel] ' + path + ' failed:', err);
-                alert(_t(failedKey, { reason: err && err.message ? err.message : 'network error' }));
+                alert(_t(failedKey, { reason: err && err.message ? err.message : 'ネットワークエラー' }));
                 // Do NOT call _fetchLlmIntel/fetchDDoSData on failure — keep
                 // the item visibly in its prior state so the analyst sees
                 // the failure happened.
@@ -13945,8 +13946,8 @@
             };
             const d1h = sc.score_delta_1h;
             const d24h = sc.score_delta_24h;
-            const delta1hHtml = `<span class="sc-delta ${deltaCls(d1h)}" title="Δ score over last 1h">Δ1h ${fmtDelta(d1h)}</span>`;
-            const delta24hHtml = `<span class="sc-delta ${deltaCls(d24h)}" title="Δ score over last 24h">Δ24h ${fmtDelta(d24h)}</span>`;
+            const delta1hHtml = `<span class="sc-delta ${deltaCls(d1h)}" title="直近 1h のスコア変化">Δ1h ${fmtDelta(d1h)}</span>`;
+            const delta24hHtml = `<span class="sc-delta ${deltaCls(d24h)}" title="直近 24h のスコア変化">Δ24h ${fmtDelta(d24h)}</span>`;
 
             // OBS chip — per-scenario observation health (AP3 extension).
             // signal_volume_24h counts per-country contributions in
@@ -13970,21 +13971,21 @@
             // Tooltip — shows volume, distinct countries, last-signal age,
             // and the top contributing countries so the analyst can decide
             // whether the lite score reflects real observation.
-            let obsTip = `OBS ${obsValue} per-country signals / 24h`;
+            let obsTip = `OBS 国別シグナル ${obsValue} 件 / 24h`;
             if (typeof obsCountries === 'number') {
-                obsTip += `\nDistinct countries: ${obsCountries}`;
+                obsTip += `\n国数（実数）: ${obsCountries}`;
             }
             if (typeof obsLastAt === 'number' && obsLastAt > 0) {
                 const ageMin = Math.max(0, Math.round((Date.now() / 1000 - obsLastAt) / 60));
-                obsTip += `\nLast signal: ${ageMin}m ago`;
+                obsTip += `\n最終シグナル: ${ageMin}m 前`;
             } else if (obsVol === 0) {
-                obsTip += `\nNo per-country signals in 24h — score driven only by global noise`;
+                obsTip += `\n24h の国別シグナルなし — スコアはグローバルノイズのみで駆動`;
             }
             if (obsTop.length) {
                 const topStr = obsTop
                     .map(([cc, total]) => `${cc} ${(typeof total === 'number' ? total.toFixed(1) : '')}`)
                     .join(', ');
-                obsTip += `\nTop: ${topStr}`;
+                obsTip += `\n上位: ${topStr}`;
             }
             const obsHtml = `<span class="sc-obs ${obsCls}" title="${_escHtml(obsTip)}">OBS ${_escHtml(obsValue)}</span>`;
 
@@ -14002,14 +14003,14 @@
             // surfaces the rationale via tooltip.
             if (sc && sc.is_admin_override === true) {
                 const reason = (sc.preset_metadata && sc.preset_metadata.disabled_reason)
-                    || 'Preset (geo_data.json) recommends this scenario disabled.';
+                    || 'プリセット (geo_data.json) はこのシナリオの無効化を推奨。';
                 const tip = (typeof _t === 'function')
                     ? _t('scenario.warning.admin_override_enabled.tooltip',
                           { reason: reason })
-                    : 'Admin override: ' + reason;
+                    : '管理者オーバーライド: ' + reason;
                 const lbl = (typeof _t === 'function')
                     ? _t('scenario.warning.admin_override_enabled.label')
-                    : '⚠ Admin override';
+                    : '⚠ 管理者オーバーライド';
                 html += `<span class="scenario-warning-chip" title="${_escHtml(tip)}">${_escHtml(lbl)}</span>`;
             }
             html += patternHtml;
@@ -14539,7 +14540,7 @@
         html += `  <label>${_t('scenario.mgr.desc_en')} <input id="scmgr-desc-en" value="${_escHtml(sc.description_en||'')}"></label>`;
         html += `  <label>${_t('scenario.mgr.desc_ja')} <input id="scmgr-desc-ja" value="${_escHtml(sc.description_ja||'')}"></label>`;
         // Core country is a dropdown populated from currently-selected participants.
-        html += `  <label>${_t('scenario.mgr.core_country')} <select id="scmgr-core-sel"><option value="">(none)</option></select></label>`;
+        html += `  <label>${_t('scenario.mgr.core_country')} <select id="scmgr-core-sel"><option value="">(なし)</option></select></label>`;
         html += '</div>';
 
         // Country picker: bloc filter pills, search, full country list
@@ -14564,15 +14565,15 @@
         html += '    <thead><tr>';
         html += '      <th style="width:28px;"></th>';
         html += `      <th style="width:50px;">${_t('scenario.mgr.country')}</th>`;
-        html += '      <th>Name</th>';
-        html += '      <th style="width:110px;">Bloc</th>';
+        html += '      <th>国名</th>';
+        html += '      <th style="width:110px;">ブロック</th>';
         html += `      <th style="width:165px;">${_t('scenario.mgr.role')}</th>`;
         html += `      <th style="width:80px;">${_t('scenario.mgr.weight')}</th>`;
         html += '    </tr></thead>';
         html += '    <tbody id="scmgr-picker-body">';
         const sortedTheaters = (THEATERS || []).slice().sort((a, b) => a.name.localeCompare(b.name));
         if (sortedTheaters.length === 0) {
-            html += '<tr><td colspan="6" class="scmgr-p-empty">Country list not loaded.</td></tr>';
+            html += '<tr><td colspan="6" class="scmgr-p-empty">国リストを読み込めていません。</td></tr>';
         } else {
             for (const t of sortedTheaters) {
                 const sel = participants[t.code];
@@ -14682,7 +14683,7 @@
         const sel = document.getElementById('scmgr-core-sel');
         if (!sel) return;
         const current = sel.value;
-        const opts = ['<option value="">(none)</option>'];
+        const opts = ['<option value="">(なし)</option>'];
         _scMgrGetSelectedRows().forEach(row => {
             const cc = row.getAttribute('data-cc');
             const name = row.querySelector('.scmgr-p-name')?.textContent || cc;

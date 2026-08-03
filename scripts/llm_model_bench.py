@@ -1,6 +1,6 @@
 """LLM model benchmark — empirical comparison harness.
 
-Replays real DDoS-Radar prompts from ``llm_prompts`` against every
+Replays real Noroshi prompts from ``llm_prompts`` against every
 candidate model installed on the local Ollama. Scores each call on
 parse success, required-field presence, latency, and degenerate-loop
 detection.
@@ -39,7 +39,7 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 # Host filesystem stores a *stale* radar.db; the live one lives in the
 # docker volume mounted into the container. Override via --db if you
 # already have a fresh export at /tmp/radar_live.db (run
-# ``docker cp ddos-radar:/app/radar/persistence/radar.db /tmp/radar_live.db``
+# ``docker cp noroshi:/app/radar/persistence/radar.db /tmp/radar_live.db``
 # before launching the bench).
 DEFAULT_DB_PATH = Path("/tmp/radar_live.db")
 FALLBACK_DB_PATH = Path(__file__).resolve().parent.parent / "radar" / "persistence" / "radar.db"
@@ -417,7 +417,7 @@ def main() -> None:
         db_path = FALLBACK_DB_PATH
     if not db_path.exists():
         raise SystemExit(f"DB not found at {db_path}; run "
-                         f"`docker cp ddos-radar:/app/radar/persistence/radar.db "
+                         f"`docker cp noroshi:/app/radar/persistence/radar.db "
                          f"/tmp/radar_live.db` first")
 
     print(f"[bench] using DB: {db_path}")

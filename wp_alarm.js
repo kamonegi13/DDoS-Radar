@@ -1,5 +1,5 @@
 /**
- * DDoS-Radar Watchpane Alarm — pure evaluator
+ * Noroshi Watchpane Alarm — pure evaluator
  *
  * Extracted from radar.js so the evaluator can be unit-tested under Node
  * without a browser. Loaded as a plain script in index.html (exposes

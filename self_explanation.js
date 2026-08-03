@@ -1,5 +1,5 @@
 /**
- * DDoS-Radar Self-Explanation — deterministic narrative generation (AP2).
+ * Noroshi Self-Explanation — deterministic narrative generation (AP2).
  *
  * Threat-intel analysts ask "why is this number what it is?" — and the
  * answer must be derivable, repeatable, and free of model opacity. This
@@ -37,10 +37,10 @@
     function _fmtAge(ts, now) {
         if (typeof ts !== 'number' || !isFinite(ts) || ts <= 0) return null;
         const sec = Math.max(0, (now == null ? Date.now() / 1000 : now) - ts);
-        if (sec < 60) return 'just now';
-        if (sec < 3600) return Math.round(sec / 60) + 'm ago';
-        if (sec < 86400) return (sec / 3600).toFixed(1) + 'h ago';
-        return (sec / 86400).toFixed(1) + 'd ago';
+        if (sec < 60) return 'たった今';
+        if (sec < 3600) return Math.round(sec / 60) + 'm 前';
+        if (sec < 86400) return (sec / 3600).toFixed(1) + 'h 前';
+        return (sec / 86400).toFixed(1) + 'd 前';
     }
 
     /**
@@ -53,18 +53,18 @@
     function narrateTL(c, opts) {
         const now = (opts && typeof opts.now === 'number') ? opts.now : Date.now() / 1000;
         const lines = [];
-        if (!c) return 'No threat_level conclusion available.';
+        if (!c) return 'threat_level の結論なし。';
 
         if (c.conclusion_unavailable_reason) {
-            lines.push('TL: unavailable (' + c.conclusion_unavailable_reason + ')');
+            lines.push('TL: 結論不可（' + c.conclusion_unavailable_reason + '）');
             const reason = c.metadata && c.metadata.reason_detail;
-            if (reason) lines.push('Reason: ' + reason);
-            lines.push('Tool conclusion only — final judgment org-side.');
+            if (reason) lines.push('理由: ' + reason);
+            lines.push('本ツールの結論であり、最終判断は組織側で行う。');
             return lines.join('\n');
         }
 
         const tl = c.state;
-        lines.push('Threat Level: ' + (tl != null ? tl : '—'));
+        lines.push('脅威レベル: ' + (tl != null ? tl : '—'));
 
         const md = c.metadata || {};
         const score = (typeof md.score === 'number') ? md.score : null;
@@ -72,10 +72,10 @@
         const conv = (typeof md.convergence_bonus === 'number') ? md.convergence_bonus : null;
         const conf = (typeof c.confidence === 'number') ? c.confidence : null;
         const detailParts = [];
-        if (score != null) detailParts.push('score ' + _fmtNum(score));
-        if (adc != null) detailParts.push('active domains ' + adc);
-        if (conv != null) detailParts.push('convergence +' + _fmtNum(conv));
-        if (conf != null) detailParts.push('conf ' + _fmtNum(conf));
+        if (score != null) detailParts.push('スコア ' + _fmtNum(score));
+        if (adc != null) detailParts.push('アクティブドメイン ' + adc);
+        if (conv != null) detailParts.push('収斂 +' + _fmtNum(conv));
+        if (conf != null) detailParts.push('確信度 ' + _fmtNum(conf));
         if (detailParts.length) lines.push(detailParts.join(' · '));
 
         // Threshold context — find which floors the score did/didn't cross.
@@ -92,8 +92,8 @@
                 }
             });
         }
-        if (crossed.length) lines.push('Crossed: ' + crossed.join(', '));
-        if (next.length) lines.push('Next: ' + next[0]);
+        if (crossed.length) lines.push('超過閾値: ' + crossed.join(', '));
+        if (next.length) lines.push('次の閾値: ' + next[0]);
 
         // Calibration
         const cal = c.calibration_status || {};
@@ -113,7 +113,7 @@
         if (flip && fals && (fals.threshold_distance || fals.signal_sensitivity)) {
             const flLines = _renderFalsificationLines(fals);
             if (flLines.length) {
-                lines.push('What would change this:');
+                lines.push('この結論が変わる条件:');
                 flLines.forEach(l => lines.push('  ' + l));
             }
         }
@@ -121,9 +121,9 @@
         // Analyst review recency
         const lastView = opts && opts.lastViewTs;
         const ageStr = _fmtAge(lastView, now);
-        if (ageStr) lines.push('Last analyst view: ' + ageStr);
+        if (ageStr) lines.push('アナリスト最終確認: ' + ageStr);
 
-        lines.push('Tool conclusion only — final judgment org-side.');
+        lines.push('本ツールの結論であり、最終判断は組織側で行う。');
         return lines.join('\n');
     }
 
@@ -142,15 +142,15 @@
         if (upObj.target_tl != null) {
             const conds = upObj.conditions || [];
             if (conds.length === 0) {
-                out.push('Would rise to TL' + upObj.target_tl
-                         + ' (all conditions already met)');
+                out.push('深刻度は TL' + upObj.target_tl
+                         + ' へ上昇（条件はすべて充足済み）');
             } else {
                 const parts = conds.map(_fmtFalsCondGap);
-                out.push('Rise to TL' + upObj.target_tl + ' if '
-                         + parts.join(' AND '));
+                out.push('深刻度が TL' + upObj.target_tl + ' へ上昇する条件: '
+                         + parts.join(' かつ '));
             }
         } else {
-            out.push('Already at TL1 (no higher severity defined)');
+            out.push('既に TL1（これ以上の深刻度は未定義）');
         }
 
         // Lower severity (higher TL number) — what would trigger drop.
@@ -162,7 +162,8 @@
                 // narrative tight. Sort by absolute gap.
                 parts.sort((a, b) => a.gap - b.gap);
                 const closest = parts[0];
-                out.push('Drop to TL' + downObj.target_tl + ' if ' + closest.text);
+                out.push('深刻度が TL' + downObj.target_tl + ' へ低下する条件: '
+                         + closest.text);
             }
         }
 
@@ -172,11 +173,11 @@
             .filter(s => s && Number.isFinite(s.moves_tl_by) && s.moves_tl_by !== 0)
             .slice(0, 2);
         sens.forEach(s => {
-            const dir = s.moves_tl_by > 0 ? 'fall' : 'rise';
-            out.push('If ' + (s.sensor || '?') + ' (' + (s.domain || '?')
-                     + ' contrib ' + _fmtNum(s.current_contribution)
-                     + ') drops to 0, TL would ' + dir
-                     + ' to TL' + s.hypothetical_tl_if_drops_to_zero);
+            const dir = s.moves_tl_by > 0 ? '低下' : '上昇';
+            out.push((s.sensor || '?') + '（' + (s.domain || '?')
+                     + ' 寄与 ' + _fmtNum(s.current_contribution)
+                     + '）が 0 になると深刻度は TL'
+                     + s.hypothetical_tl_if_drops_to_zero + ' へ' + dir);
         });
 
         return out;
@@ -184,24 +185,24 @@
 
     function _fmtFalsCondGap(c) {
         // Used in to_higher_tl: "score reaches 6.0 (currently 4.2, gap +1.8)"
-        const field = c.field === 'active_domain_count' ? 'active domains'
-                    : c.field === 'physical_score'      ? 'physical score'
-                    : 'score';
+        const field = c.field === 'active_domain_count' ? 'アクティブドメイン数'
+                    : c.field === 'physical_score'      ? 'physical スコア'
+                    : 'スコア';
         return field + ' ≥ ' + _fmtNum(c.target)
-             + ' (currently ' + _fmtNum(c.current)
-             + ', gap +' + _fmtNum(c.gap) + ')';
+             + '（現在 ' + _fmtNum(c.current)
+             + '、差 +' + _fmtNum(c.gap) + '）';
     }
 
     function _fmtFalsCondTrigger(c) {
         // Used in to_lower_tl: returns a {text, gap} so the caller
         // can sort by closest trigger.
-        const field = c.field === 'active_domain_count' ? 'active domains'
-                    : c.field === 'physical_score'      ? 'physical score'
-                    : 'score';
+        const field = c.field === 'active_domain_count' ? 'アクティブドメイン数'
+                    : c.field === 'physical_score'      ? 'physical スコア'
+                    : 'スコア';
         return {
             text: field + ' < ' + _fmtNum(c.trigger_below)
-                + ' (currently ' + _fmtNum(c.current)
-                + ', margin ' + _fmtNum(c.gap) + ')',
+                + '（現在 ' + _fmtNum(c.current)
+                + '、余裕 ' + _fmtNum(c.gap) + '）',
             gap: Math.abs(c.gap || 0),
         };
     }
@@ -215,10 +216,10 @@
      */
     function narrateDomain(c, domain) {
         const lines = [];
-        if (!c || !domain) return 'No per_domain conclusion available.';
+        if (!c || !domain) return 'per_domain の結論なし。';
 
         if (c.conclusion_unavailable_reason) {
-            lines.push(domain.toUpperCase() + ': unavailable (' + c.conclusion_unavailable_reason + ')');
+            lines.push(domain.toUpperCase() + ': 結論不可（' + c.conclusion_unavailable_reason + '）');
             return lines.join('\n');
         }
 
@@ -246,11 +247,11 @@
         const activeFloor = thr.active_floor;
         if (typeof elevatedFloor === 'number' && score != null) {
             if (score < elevatedFloor) {
-                lines.push('Below ELEVATED floor (' + _fmtNum(elevatedFloor) + ')');
+                lines.push('ELEVATED 下限（' + _fmtNum(elevatedFloor) + '）未満');
             } else if (typeof activeFloor === 'number' && score < activeFloor) {
-                lines.push('At ELEVATED (≥' + _fmtNum(elevatedFloor) + '), below ACTIVE (' + _fmtNum(activeFloor) + ')');
+                lines.push('ELEVATED（≥' + _fmtNum(elevatedFloor) + '）到達、ACTIVE（' + _fmtNum(activeFloor) + '）未満');
             } else if (typeof activeFloor === 'number') {
-                lines.push('At/above ACTIVE (≥' + _fmtNum(activeFloor) + ')');
+                lines.push('ACTIVE（≥' + _fmtNum(activeFloor) + '）以上');
             }
         }
 
@@ -260,7 +261,7 @@
             .filter(r => r && r.domain === domain && typeof r.final_contribution === 'number')
             .slice(0, 2);
         if (inDomain.length) {
-            lines.push('Top contributors:');
+            lines.push('主な寄与:');
             inDomain.forEach(r => {
                 lines.push('  · ' + (r.sensor || '?') + ' ' + _fmtNum(r.final_contribution));
             });
@@ -302,26 +303,26 @@
 
         // Scenario subject — wrapped in "on" so the sentence reads naturally.
         if (c.scenario_id) {
-            parts.push('on ' + String(c.scenario_id));
+            parts.push('シナリオ ' + String(c.scenario_id));
         }
 
         // Confidence as percent.
         if (typeof c.confidence === 'number') {
-            parts.push('confidence ' + Math.round(c.confidence * 100) + '%');
+            parts.push('確信度 ' + Math.round(c.confidence * 100) + '%');
         }
 
         // Age — observed_at is unix seconds.
         const observedAt = (typeof c.observed_at === 'number') ? c.observed_at : null;
         if (observedAt) {
-            parts.push('observed ' + _fmtAge(observedAt, now));
+            parts.push('観測 ' + _fmtAge(observedAt, now));
         }
 
         // Ranking rationale — chain the reasons with semicolons.
         if (why.length > 0) {
-            parts.push('— ranked #' + item.rank + ' because ' + why.join('; '));
+            parts.push('— 注目度順位 #' + item.rank + ' の根拠: ' + why.join('; '));
         } else if (typeof item.score === 'number') {
-            parts.push('— ranked #' + item.rank
-                      + ' (score ' + item.score.toFixed(2) + ')');
+            parts.push('— 注目度順位 #' + item.rank
+                      + '（スコア ' + item.score.toFixed(2) + '）');
         }
 
         // Compose with comma joins. Defensive against accidental commas inside

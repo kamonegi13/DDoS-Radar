@@ -416,9 +416,9 @@
                 }
                 // Tooltip gives the breakdown plus diagnostic count
                 chip.title = (
-                    `Recall+ ${recallPos}, Recall- ${recallNeg}, ` +
-                    `Structure ${structure}, Diagnostic ${diagnostic}, ` +
-                    `Drift unack ${drift}. Click to open the Wizard.`
+                    `Recall+ ${recallPos}、Recall- ${recallNeg}、` +
+                    `Structure ${structure}、Diagnostic ${diagnostic}、` +
+                    `Drift 未確認 ${drift}。クリックでオートチューンウィザードを開く。`
                 );
             }
         } catch (err) {

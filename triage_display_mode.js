@@ -1,5 +1,5 @@
 /**
- * DDoS-Radar Triage Display Mode — pure state-machine
+ * Noroshi Triage Display Mode — pure state-machine
  *
  * Resolves the TRIAGE Lane display mode from the current
  * attention-score signals. Three modes:
@@ -109,7 +109,7 @@
         if (hasCritical) {
             return {
                 mode: MODE_CRITICAL,
-                reason: 'explicit critical event',
+                reason: '明示的な critical イベント',
                 maxScore: maxScore,
                 thresholds: thr,
             };
@@ -128,8 +128,8 @@
         if (prev === MODE_CRITICAL && maxScore >= thr.criticalExit) {
             return {
                 mode: MODE_CRITICAL,
-                reason: 'sticky critical; ' + maxScore.toFixed(2)
-                      + ' still ≥ criticalExit ' + thr.criticalExit.toFixed(2),
+                reason: 'critical を維持: ' + maxScore.toFixed(2)
+                      + ' が criticalExit ' + thr.criticalExit.toFixed(2) + ' 以上',
                 maxScore: maxScore,
                 thresholds: thr,
             };
@@ -139,7 +139,7 @@
         if (alwaysVisible) {
             return {
                 mode: MODE_PIN_DOCK,
-                reason: 'analyst override: always-visible',
+                reason: 'アナリスト設定: 常時表示',
                 maxScore: maxScore,
                 thresholds: thr,
             };
@@ -149,8 +149,8 @@
         if (prev === MODE_DORMANT && maxScore < thr.dormantExit) {
             return {
                 mode: MODE_DORMANT,
-                reason: 'sticky dormant; ' + maxScore.toFixed(2)
-                      + ' < dormantExit ' + thr.dormantExit.toFixed(2),
+                reason: 'dormant を維持: ' + maxScore.toFixed(2)
+                      + ' が dormantExit ' + thr.dormantExit.toFixed(2) + ' 未満',
                 maxScore: maxScore,
                 thresholds: thr,
             };
@@ -168,9 +168,9 @@
         // 5. Default: pin-dock band (between dormantEnter and criticalEnter).
         return {
             mode: MODE_PIN_DOCK,
-            reason: 'in pin-dock band ['
+            reason: 'pin-dock 帯 ['
                   + thr.dormantEnter.toFixed(2) + ', '
-                  + thr.criticalEnter.toFixed(2) + ')',
+                  + thr.criticalEnter.toFixed(2) + ') 内',
             maxScore: maxScore,
             thresholds: thr,
         };

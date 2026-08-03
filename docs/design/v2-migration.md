@@ -1,4 +1,4 @@
-# DDoS-Radar v2.0 移行設計ドキュメント
+# Noroshi v2.0 移行設計ドキュメント
 
 > **このドキュメントの目的**
 > CLAUDE.md で再定義された新しいツール目的 (NP1-NP7) に整合する **v2.0 アーキテクチャ** の単一情報源。
@@ -41,6 +41,7 @@ ground-truth 校正層は運用開始後 2 度壊れた。**recall/precision の
 |---|--------|------|------|------|
 | 1 | 2026-05-29 | `run_rss_etl` が全マッチを無条件 TRUE_POSITIVE 化(blanket-TP)。FN=0 で recall≡1.0 に固定 | recall gate が動かない数値を守っていた | graded 分類器 (`expected_tl_floor` + `label_for_threat_level`) へ全面置換、17,758 行 purge |
 | 2 | 2026-07-03 | **置換後の graded 分類器が TL スケールを反転**(TL は 1=CRITICAL…5=NORMAL の DEFCON 型なのに 5=最深刻として実装)。警戒 (TL1-3) を FALSE_NEGATIVE、平穏 (TL4-5) を TRUE_POSITIVE と採点 | ①auto ラベル約 30k 行が逆向き教師信号 ②`tl_threshold_calibrator` が凍結 evidence (fn=54, last label 05-29) を根拠に middle_east 閾値へ **−5% を 12 回連続適用**(tl1_total 9.0→4.863、ほぼ半減)③HUD RECALL/DRIFT・CI recall gate・per-conclusion calibration_status すべて汚染 | 2026-07-04 一括修復(下記) |
+| 3 | 2026-08-02 | **クロスシナリオ帰属汚染**: ground-truth ETL が記事を「participant 国を含む全シナリオ」へ fan-out。支援役 (US/CN/JP の primary_ally / forward_base / strategic_observer) の言及だけでイラン・ウクライナ記事が korean_peninsula の ground truth に。さらに extractor の kinetic tier が裸の武器名詞 (missile 等) でも発火し、兵器試験・配備報道を「kinetic 暴力 (floor sev≥3)」と採点 | ①auto:rss 222 行中 83 行汚染 (korea FN12+TP33 / taiwan TP23 / middle_east TP12 / e_europe TP3) — 平穏シナリオに偽 FN、緊張シナリオに偽 TP ②凍結 FN 群が `tl_threshold_calibrator` を駆動し korea 閾値へ **−5% ×4 回**(07-21〜30、tl1_total 9.0→7.331)。07-04 の鮮度ゲートは「任意の新ラベル到着」で通過(TP は毎週届く)③korea miss rate 0.44 は測定アーティファクト(TL skew は middle_east/e_europe の実緊張でありデフォルト閾値稼働 — 別問題ではない)。**live TL への影響なし**(derive_tl は override 未消費、Phase B 設計) | 2026-08-02 一括修復: (a) 帰属を conflict-party roles (adversary/primary_target/principal_belligerent/proxy_front) に制限 — `Scenario.ground_truth_countries`、RSS/ACLED/GDELT 両 ETL 適用、1 記事 = シナリオ毎 1 エピソード (b) kinetic tier を action 動詞必須に分離、posture は escalation tier (floor sev≥2) へ、fatalities=1 捏造廃止 (c) 鮮度ゲートを direction-keyed 化 (looser には新 FN、tighter には新 FP を要求) (d) `remediate_cross_scenario_labels.py` で外科的 purge + korea 閾値 revert (e) 副次発見: alias 末尾 `\b` が "U.S." にマッチしない境界バグ修正 (`(?!\w)`) |
 
 **2026-07-04 修復内容**(commit 参照):
 
@@ -50,7 +51,7 @@ ground-truth 校正層は運用開始後 2 度壊れた。**recall/precision の
 4. **エピソード単位化**: 1 外部イベント = 1 trial。RSS ETL は (scenario, country, UTC day) エピソードで pre-event window の最良 TL を採点(tick 疑似反復 ~23k labels/30d を排除)。ACLED/GDELT ETL は (scenario, label, day) で day-cap
 5. **暴走ガード**: `tl_threshold_calibrator` に evidence 鮮度ゲート追加 — 前回適用より新しいラベルが無い限り再適用禁止(同一 evidence は最大 1 回しか閾値を動かせない)
 6. **データ修復**: `scripts/remediate_inverted_calibration.py` — auto ラベル全 purge(gzip export 保全)+ 汚染閾値オーバーライドを derive_tl デフォルトへ監査可能リセット。`scripts/apply_calibration_remediation.sh` がデプロイ後の一括実行を担う
-7. **運用**: `scripts/backup_radar_db.sh` 新設(named volume `ddos-radar_radar-data` は従来バックアップ皆無だった)
+7. **運用**: `scripts/backup_radar_db.sh` 新設(named volume `noroshi_radar-data` は従来バックアップ皆無だった)
 
 **教訓**: (a) スケール方向のような意味論は型/テストで固定しない限り必ず反転事故が起きる。(b) 自動ラベルによる自己採点は、ラベル生成器のバグを自力検知できない — human anchor(人間ラベルの定常的最小量)が次の必須課題。(c) auto-tune は「evidence が更新されたか」を確認せずに繰り返し適用してはならない。
 
@@ -498,7 +499,7 @@ v2.0 で新たに採用する設計判断。命名規則は `ADR-V2-NN`。番号
 
 **Mode C 判定再評価**: 当初の T+7d (2026-05-03) は TREND short_term の live data 蓄積を待つ前提だったが、TREND derivation は THREAT_LEVEL 行を replay backfill 含めて読むため、live ledger 4h で既に real state を返している (`short_term=STABLE; medium_term=STABLE`)。技術条件は本日全て満たすので、残るのは operator self-validation のみ。**判定日を 2026-04-27 04:00 JST (T+24h) に圧縮**。
 
-**Mode C 判定手順**: `docker exec ddos-radar bash -c 'cd /app && PYTHONPATH=/app python scripts/check_mode_c_readiness.py --ack'` を 2026-04-27 04:00 JST 以降に実行。exit 0 を確認後、`radar/config.py` で `V2_API_ENABLED` のデフォルトを `true` に変更し v1 sunset T+90d (2026-07-26) カウントダウン開始。
+**Mode C 判定手順**: `docker exec noroshi bash -c 'cd /app && PYTHONPATH=/app python scripts/check_mode_c_readiness.py --ack'` を 2026-04-27 04:00 JST 以降に実行。exit 0 を確認後、`radar/config.py` で `V2_API_ENABLED` のデフォルトを `true` に変更し v1 sunset T+90d (2026-07-26) カウントダウン開始。
 
 **Mode C 切替: 2026-04-26 05:10 JST** — `check_mode_c_readiness.py --ack` が全 5 条件 PASS で exit 0 を返却 (C1: 14d 4438/4438 match / C2: 5/5 type live row / C3: 5/5 type non-replay row / C4: live TREND 6 行 real state / C5: operator ack)。`radar/config.py` で `V2_API_ENABLED` のデフォルトを `"true"` に変更。判定日を当初の T+24h からさらに圧縮した根拠: 操作者 1 名のため 24h 待機で増える観察データはなく、C1〜C4 の technical evidence と直近 1h ログの 5xx=0 / traceback=0 が既に no-complaint を裏付け、ロールバックは `V2_API_ENABLED=false` の env 一行で 1 restart 内に可能 (commitment 不可逆性が低い)。
 

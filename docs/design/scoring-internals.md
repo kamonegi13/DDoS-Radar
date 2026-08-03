@@ -3,7 +3,7 @@
 > Threat scoring formula, thresholds, and known pitfalls.
 > Last updated: 2026-04-24
 
-This document is the reference for the DDoS-Radar threat scoring pipeline. CLAUDE.md points here instead of inlining the details so the per-session context stays small.
+This document is the reference for the Noroshi threat scoring pipeline. CLAUDE.md points here instead of inlining the details so the per-session context stays small.
 
 ## Scoring formula
 
