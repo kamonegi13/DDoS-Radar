@@ -109,12 +109,15 @@ D-01（ラベル生成器バグは構造では直らない）の実例群であ�
 | F-04 | **ゲーティング判定順序の隠れた非対称 2 件**: (a) 呼出側抑制が既に立っていると noise 規則は評価されるが**適用されず理由も記録されない** → なぜ抑制されたかが追えない（NP6）。(b) noise 規則は**非発火の観測にも適用され** `noise_filters_applied` カウンタを膨らませる → 指標が実態を反映しない | MEDIUM | S1-PIPE-009 の真理値表、無テスト（GAP-01） | ◎ |
 | F-06 | **telegram_mirror の burst 検知が原理的に死んでいる**（**実測確認済み・NP1 直撃**）: ベースライン保持上限が「日数」の生値。`telegram.py:297` は `bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]`（= 30 サンプル）だが、取得周期 900s → 96 サイクル/日なので **実効窓は約 7.5 時間**。Z-score が直近数時間の自分自身に対して正規化され、burst が検知できない。<br>**同一バグを rss_narrative は 2026-04-29 に修正済み** — `cap = NARRATIVE_BASELINE_DAYS × cycles_per_day`（rss_narrative.py:626-627）で、docstring に「本番で `no_burst_this_cycle` 棄却率 100% を観測」と修正理由が明記されている。**にもかかわらず `telegram.py:275` は「rss_narrative と同じロジック」と自己申告しながら片側だけ未修正**<br>**含意**: 同型バグの水平展開が行われず、しかも docstring の自己申告がそれを隠した。D2 E-18（記述ドリフト）が実害を生んだ実証例 | **CRITICAL** | radar/sensors/telegram.py:290-298 vs radar/sensors/rss_narrative.py:615-634（両方を実ファイルで確認） | ◎ + **現行系で即修正すべき**（1 行）。v3 では**ベースライン基盤の一元化により同型バグを構造的に不可能にする MUST**（A-03 と同根） |
 | F-08 | **gps_jamming が恒久的に無発火**（**実測確認済み・NP1 直撃**）: 比較される値はすべて **0–1 の比率**（`jam_ratio = total_bad / total_aircraft`、タイル別 `bad/(good+bad)`、`max_ratio`）だが、閾値は**百分率を想定した** `GPS_JAM_THRESHOLD=3.0` / `GPS_JAM_CRITICAL_THRESHOLD=7.0`。<br>結果として `jammed_tiles` は常に 0（比率が 3.0 以上になり得ない）、`max_ratio >= 7.0` も `jam_ratio >= 3.0` も成立不能 → **`is_jammed` / `is_critical` は常に False、`country_status` は常に `"NORMAL"`**。GPS 妨害は開戦前兆の古典的指標であり、物理ドメインのセンサー 1 基が完全に沈黙している<br>**発見を妨げた要因**: テスト 0 件。閾値は config registry でチューナブルとして公開されている（config.py:1135,1141）ため、アナリストが「3%」のつもりで調整しても永久に直らない（正しくは 0.03） | **CRITICAL** | radar/sensors/gps_jamming.py:178,184-197,209,213（比率算出と比較を実ファイルで確認）、radar/config.py:487-488 | ◎ + **現行系で即修正すべき**（閾値を 0.03/0.07 にするか、比率を百分率化するか。**単位を型で表現する**のが v3 の規範） |
+| F-09 | **見出し照合が英語専用 → 非ラテン文字ソースは収斂に寄与できない**（**実測確認済み・NP2 直撃**）: `_headline_tokens` は `re.findall(r"[a-z]{3,}", headline.lower())`（intel_queue.py:341）でトークン化するため、**日本語・中国語・ロシア語・アラビア語の見出しはトークン 0 個**になる。`_jaccard` は空集合に対し 0.0 を返す（:346-347）ので、これらの見出しは決して一致しない。<br>**影響は dedup だけでは済まない**: 同じトークナイザが**クロスソース種別の corroboration 記録**にも使われている（:698-702）。つまり **TASS / 新華社 / KCNA / 日本語ソース同士は互いを裏付けとして記録できない** → 多ソース収斂の入力が構造的に英語圏に偏る。埋め込みによる言語非依存 dedup は存在するが**既定 OFF**<br>**含意**: 多言語 OSINT を前提とする設計と正面から矛盾する。NP2 が「複数センサーの収斂で結論強度を担保」と定めるのに、非英語ソースはその母数に入らない | **CRITICAL** | radar/intel_queue.py:339-350（トークン化と Jaccard）、:610-618（dedup）、:697-702（corroboration） | ◎ 言語非依存の照合（正規化 + 埋め込み）**MUST**。**現行系でも埋め込み dedup の既定 ON 化を検討すべき** |
+| F-10 | **corroboration エンジンの出力が自動確認され得ない（自己矛盾）**: auto-confirm 適格 ecosystem は `{independent, cert, us_gov}` に固定（intel_queue.py:228-229）。`classify_ecosystem` は `_MEDIA_ECOSYSTEMS` の prefix に一致しない source_id に**空文字を返す**（:194-207）ため、`diplomatic_*` / `ground_osint_*` / `narrative_*` / `hacknews_*`、そして **corroboration エンジンが合成した `corroborated_*` 自身**が適格集合に入らない。<br>**tier3（corroborated 救済）という経路を作りながら、その出力は永久に pending に留まる**。pending 滞留の主因候補 | **HIGH** | radar/intel_queue.py:165-207,228-229,253-254；intel_auto_judge.py:175 | ◎ ecosystem 分類を「未分類 = 不適格」から明示的な信頼度モデルへ。**オーナー裁定候補**（意図的な保守設計か、見落としか） |
+| F-11 | **theater 互換パスが recall を削っている**: auto-judge の corroborator 計数・重複却下・寄与キャップがすべてレガシー単一 `theater` をキーにしているため、`countries` のみを持つ item は **corroborator 0 固定** → tier3・自動確認・重複却下の全経路から外れる | **HIGH** | S1-intel DP7（radar/intel_auto_judge.py） | ◎ C-01（theater 残滓）の実害。v3 語彙統一で解消 |
 | F-07 | **対象 country の解決規則が 2 系統に分裂**: LLM 系 4 基は全 participant の和集合をカバーするが、gdelt / telegram / tor / travel / convergence の 5 基は focused 対象のみ。**C-lite 契約と不整合で、background シナリオの country は統計系センサーのベースラインが育たない** → focus を切り替えた瞬間は検知力が低い | **HIGH** | S1-sensors-info-llm §8-A4 | ◎ ベースライン育成範囲を C-lite 契約と整合させる **MUST** |
 | F-05 | **採点ティックが非冪等**: Z-score 算出が走行統計を書き換えるため、同一入力の再実行が同一結果にならない。**replay パリティ検証（S5）の前提を壊す** | **HIGH** | S1-PIPE の DP5 | ◎ 統計更新と採点の分離 **MUST**。**S5 の replay 設計に直接影響** |
 
 ## 統計
 
-- 総数 63 件: CRITICAL 4 / HIGH 22 / MEDIUM 28 / LOW 10
+- 総数 66 件: CRITICAL 5 / HIGH 24 / MEDIUM 28 / LOW 10
 - **現行系でも即修正すべきもの**: **F-08 / F-06（検知が死んでいる）**、F-02、B-01、B-02、B-08、E-01、C-03 の一部
 - **現行系で要対処**: F-01（起動時の補償実行）、B-09（UI 参照消失の調査）
 
@@ -129,6 +132,7 @@ D-01（ラベル生成器バグは構造では直らない）の実例群であ�
 | **F-08** | gps_jamming が**恒久的に無発火**（単位不整合により全条件が成立不能） | 不明（実装当初から） | テスト 0 件。閾値は「チューナブル」として UI に露出しており、健全に見える |
 | **F-06** | telegram_mirror の burst 検知が約 7.5 時間窓に潰れ機能不全 | rss_narrative 修正（2026-04-29）以降ずっと | テスト無し。docstring が「rss_narrative と同じ」と偽って自己申告 |
 | **F-02** | force 取得で cloudflare / ioda が一度も取得されない | 不明 | force 経路が完全無テスト |
+| **F-09** | 非ラテン文字ソースが dedup / 収斂の双方に寄与できない | 不明 | 英語ソースでは正常動作するため症状が出ない |
 
 **共通構造**: (1) テストが無い経路にある、(2) UI 上は正常に見える、(3) センサーは
 「動いている」（fetch 成功・health OK）が**判定だけが死んでいる**。
