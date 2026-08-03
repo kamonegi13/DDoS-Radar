@@ -56,15 +56,20 @@ n=2 → `DUAL_DOMAIN`、n=3 → `FULL_CONVERGENCE` **MUST**。
 
 | TL | 条件 |
 |----|------|
-| 1 (CRITICAL) | `score >= 9` **かつ** `len(active_domains) >= 3` **かつ** `physical_score >= 3.0` |
-| 2 (SEVERE) | `score >= 6` **かつ** `len(active_domains) >= 2` |
-| 3 (HIGH) | `4 <= score < 6` |
-| 4 (ELEVATED) | `2 <= score < 4` |
-| 5 (NORMAL) | `score < 2` |
+| 1 (CRITICAL) | `total_score >= 9` **かつ** `physical_score >= 3.0` |
+| 2 (SEVERE) | `total_score >= 6` **かつ** `len(active_domains) >= 2` |
+| 3 (HIGH) | `total_score >= 4` |
+| 4 (ELEVATED) | `total_score >= 2` |
+| 5 (NORMAL) | 上記いずれも不成立 |
 
 上位条件から順に評価し、最初に成立した TL を返す。ゲート不成立時は 1 段下へ落ちる
-（score 10 / 3 domain / physical 2.9 → TL2、score 7 / 1 domain → TL3）。
+（score 10 / physical 2.9 → TL2、score 7 / 1 domain → TL3）。
+
+**重要**: **TL1 に「ドメイン数」の条件は存在しない**（`active_domains` は TL2 でのみ使われる）。
+テスト `test_tl1` が 3 ドメインを渡しているのは十分条件の例示であって必要条件ではない。
+本仕様の初版はこれを必要条件と誤記していた（2026-08-04 修正）。
 **閾値**: TL1 floor 9 + physical 3.0、TL2 floor 6 + 2 domains、TL3 floor 4、TL4 floor 2
+**実装参照**: `radar/scoring.py:1218-1228`、バージョンタグ `DERIVE_TL_FORMULA_REF = "radar/scoring.py#derive_tl@v2.0.1"`
 **根拠**: radar/engine.py（derive_tl）
 **検証**: test_engine.py::TestWeightedConvergenceEngine::test_tl5_low_score / _tl4_moderate /
 _tl3_elevated / _tl2_requires_dual_domain / _tl1_requires_physical；
@@ -455,6 +460,7 @@ principal_belligerent がそれぞれの weight（ともに 1.0）で対称に�
 | A3 | Blockade Index で CheckHost None を 1.0（健全）扱いする fail-open | NP1（感度優先）に反する。センサー欠測を「健全」と読むと封鎖を見逃す |
 | A4 | TL 帯幅（TL4:2、TL3:2、TL2:3）が近接判定 1.5 に対して狭く、多くのスコアが NEAR_ESCALATION に分類される | 近接警告の実効性。閾値を帯幅に対する相対値にすべきか |
 | A5 | `derive_tl` の TL1 条件は「score >= 9」だがテストは 10.0 でしか検証していない（9.0 ちょうどの境界が未検証） | 境界の意図確認 |
+| A6 | **TL1（最も重い結論）がドメイン数を要求しない** — TL2 が 2 ドメインを要求するのに、その上位である TL1 は単一ドメインでも `score>=9 かつ physical>=3.0` で発火する。NP2（多ソース収斂）の観点では逆転している | 意図的か（physical>=3.0 が実質的に収斂の代理になっている？）、それとも見落としか。**NP1/NP2 の両面で裁定が要る最重要項目** |
 
 ---
 

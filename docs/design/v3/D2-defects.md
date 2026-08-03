@@ -113,11 +113,15 @@ D-01（ラベル生成器バグは構造では直らない）の実例群であ�
 | F-10 | **corroboration エンジンの出力が自動確認され得ない（自己矛盾）**: auto-confirm 適格 ecosystem は `{independent, cert, us_gov}` に固定（intel_queue.py:228-229）。`classify_ecosystem` は `_MEDIA_ECOSYSTEMS` の prefix に一致しない source_id に**空文字を返す**（:194-207）ため、`diplomatic_*` / `ground_osint_*` / `narrative_*` / `hacknews_*`、そして **corroboration エンジンが合成した `corroborated_*` 自身**が適格集合に入らない。<br>**tier3（corroborated 救済）という経路を作りながら、その出力は永久に pending に留まる**。pending 滞留の主因候補 | **HIGH** | radar/intel_queue.py:165-207,228-229,253-254；intel_auto_judge.py:175 | ◎ ecosystem 分類を「未分類 = 不適格」から明示的な信頼度モデルへ。**オーナー裁定候補**（意図的な保守設計か、見落としか） |
 | F-11 | **theater 互換パスが recall を削っている**: auto-judge の corroborator 計数・重複却下・寄与キャップがすべてレガシー単一 `theater` をキーにしているため、`countries` のみを持つ item は **corroborator 0 固定** → tier3・自動確認・重複却下の全経路から外れる | **HIGH** | S1-intel DP7（radar/intel_auto_judge.py） | ◎ C-01（theater 残滓）の実害。v3 語彙統一で解消 |
 | F-07 | **対象 country の解決規則が 2 系統に分裂**: LLM 系 4 基は全 participant の和集合をカバーするが、gdelt / telegram / tor / travel / convergence の 5 基は focused 対象のみ。**C-lite 契約と不整合で、background シナリオの country は統計系センサーのベースラインが育たない** → focus を切り替えた瞬間は検知力が低い | **HIGH** | S1-sensors-info-llm §8-A4 | ◎ ベースライン育成範囲を C-lite 契約と整合させる **MUST** |
+| F-12 | **結論不可の 4 列挙のうち 3 つに生成経路が無い**: `calibration_pending` / `sensor_degraded` / `upstream_failure` はコード上どこからも生成されず、**全ての結論不可が `insufficient_data` に潰れている**。NP5+8 が要求する「なぜ結論できないか」の区別が実質失われている | **HIGH** | S1-conclusions A1 / DP2（radar/conclusions/base.py の UnavailableReason と生成箇所の突合） | ◎ **NP5+8 の中核要件として P で再設計 MUST**。E-17（抑止の痕跡ゼロ）と同根 |
+| F-13 | **閾値の設計文書乖離が 4 倍規模**: ATTACK_MODE の実装値は 1.2 / 0.8 / 1.0 / 0.8（attack_mode.py:50-53）だが、設計文書と D5 台帳はいずれも 5.0 / 1.5 / 3.0 / 1.5 のまま（**2026-05-10 の再較正が未反映**）。PER_DOMAIN も実値 2.5/1.5 に対し台帳は 3.0/1.5/1.5<br>**さらに**: 当該テスト群は定数を import して相対検証するため、**値を変えてもテストは全通過する** → 閾値変更に対する安全網が存在しない | **HIGH** | radar/conclusions/attack_mode.py:50-53, per_domain.py:51-52（実測）、D5 訂正節 | ◎ 閾値は宣言的 registry + **値を pin するテスト** MUST（A-13 と併せて） |
+| F-14 | **TL 導出式が 3 箇所に複製**、うち sensitivity.py の複製は `active_domain_count` を引数に取りながら TL1 判定で使っていない | MEDIUM | S1-conclusions DP1 | ◎ A-02 の一例。単一実装 MUST |
+| F-15 | **慢性検知のデューティ側パラメータが config registry 未登録**: `CHRONIC_DUTY_WINDOW_DAYS` / `CHRONIC_DUTY_THRESHOLD` が registry に無く、docstring が謳う SETTINGS からの調整が**沈黙のフォールバックで効かない** | MEDIUM | S1-conclusions DP3 | ◎ |
 | F-05 | **採点ティックが非冪等**: Z-score 算出が走行統計を書き換えるため、同一入力の再実行が同一結果にならない。**replay パリティ検証（S5）の前提を壊す** | **HIGH** | S1-PIPE の DP5 | ◎ 統計更新と採点の分離 **MUST**。**S5 の replay 設計に直接影響** |
 
 ## 統計
 
-- 総数 66 件: CRITICAL 5 / HIGH 24 / MEDIUM 28 / LOW 10
+- 総数 70 件: CRITICAL 5 / HIGH 27 / MEDIUM 30 / LOW 10
 - **現行系でも即修正すべきもの**: **F-08 / F-06（検知が死んでいる）**、F-02、B-01、B-02、B-08、E-01、C-03 の一部
 - **現行系で要対処**: F-01（起動時の補償実行）、B-09（UI 参照消失の調査）
 
