@@ -107,12 +107,26 @@ D-01（ラベル生成器バグは構造では直らない）の実例群であ�
 | F-02 | **force 取得の許可リストが最重要 2 センサーに永久に不一致**（**実測で確認済み**）: `_FORCE_SYNC_SENSORS` は `"cf"` / `"ioda"` を含むが、実際の登録名は `"cloudflare_radar"`（cloudflare.py:26）/ `"ioda_bgp"`（ioda.py:42）。突合は `s.name in _FORCE_SYNC_SENSORS`（core.py:80）なので、`force=sensors` でこの 2 基は**決して取得されない** | **HIGH** | radar/routes/core.py:59-61,80 vs sensors/cloudflare.py:26, sensors/ioda.py:42（いずれも実ファイルで確認） | ◎ + **現行系で即修正可**（2 語）。force 経路が完全無テスト（S1-PIPE GAP-11）だったため長期未発見 |
 | F-03 | **noise 除外規則が表示用整形文字列への部分文字列一致**: 突合対象がアナリスト向けに整形された理由文字列のため、**文言を変えると運用中の除外規則が無言で壊れる** | **HIGH** | S1-PIPE の DP4 | ◎ 構造化キーでの突合 **MUST** |
 | F-04 | **ゲーティング判定順序の隠れた非対称 2 件**: (a) 呼出側抑制が既に立っていると noise 規則は評価されるが**適用されず理由も記録されない** → なぜ抑制されたかが追えない（NP6）。(b) noise 規則は**非発火の観測にも適用され** `noise_filters_applied` カウンタを膨らませる → 指標が実態を反映しない | MEDIUM | S1-PIPE-009 の真理値表、無テスト（GAP-01） | ◎ |
+| F-06 | **telegram_mirror の burst 検知が原理的に死んでいる**（**実測確認済み・NP1 直撃**）: ベースライン保持上限が「日数」の生値。`telegram.py:297` は `bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]`（= 30 サンプル）だが、取得周期 900s → 96 サイクル/日なので **実効窓は約 7.5 時間**。Z-score が直近数時間の自分自身に対して正規化され、burst が検知できない。<br>**同一バグを rss_narrative は 2026-04-29 に修正済み** — `cap = NARRATIVE_BASELINE_DAYS × cycles_per_day`（rss_narrative.py:626-627）で、docstring に「本番で `no_burst_this_cycle` 棄却率 100% を観測」と修正理由が明記されている。**にもかかわらず `telegram.py:275` は「rss_narrative と同じロジック」と自己申告しながら片側だけ未修正**<br>**含意**: 同型バグの水平展開が行われず、しかも docstring の自己申告がそれを隠した。D2 E-18（記述ドリフト）が実害を生んだ実証例 | **CRITICAL** | radar/sensors/telegram.py:290-298 vs radar/sensors/rss_narrative.py:615-634（両方を実ファイルで確認） | ◎ + **現行系で即修正すべき**（1 行）。v3 では**ベースライン基盤の一元化により同型バグを構造的に不可能にする MUST**（A-03 と同根） |
+| F-07 | **対象 country の解決規則が 2 系統に分裂**: LLM 系 4 基は全 participant の和集合をカバーするが、gdelt / telegram / tor / travel / convergence の 5 基は focused 対象のみ。**C-lite 契約と不整合で、background シナリオの country は統計系センサーのベースラインが育たない** → focus を切り替えた瞬間は検知力が低い | **HIGH** | S1-sensors-info-llm §8-A4 | ◎ ベースライン育成範囲を C-lite 契約と整合させる **MUST** |
 | F-05 | **採点ティックが非冪等**: Z-score 算出が走行統計を書き換えるため、同一入力の再実行が同一結果にならない。**replay パリティ検証（S5）の前提を壊す** | **HIGH** | S1-PIPE の DP5 | ◎ 統計更新と採点の分離 **MUST**。**S5 の replay 設計に直接影響** |
 
 ## 統計
 
-- 総数 60 件: CRITICAL 2 / HIGH 21 / MEDIUM 28 / LOW 10
-- **現行系でも即修正すべきもの**: F-02（2 語、実測確認済み）、B-01、B-02、B-08、E-01、C-03 の一部
+- 総数 62 件: CRITICAL 3 / HIGH 22 / MEDIUM 28 / LOW 10
+- **現行系でも即修正すべきもの**: **F-06（1 行、検知が死んでいる）**、F-02（2 語）、B-01、B-02、B-08、E-01、C-03 の一部
 - **現行系で要対処**: F-01（起動時の補償実行）、B-09（UI 参照消失の調査）
+
+### 診断が見つけた「沈黙した検知失敗」
+
+このツールの charter は「見逃しは誤検知より悪い」（NP1）と定め、過去 3 回の calibration
+インシデントはいずれも**全テスト通過のまま数週間 prod を劣化させた**。今回の診断は同種の
+沈黙failure を 2 件見つけた:
+
+- **F-06**: telegram_mirror の burst 検知が約 7.5 時間窓に潰れ、実質機能していない
+- **F-02**: force 取得で cloudflare と ioda が一度も取得されていない
+
+どちらもテストが無い経路にあり、UI 上は正常に見える。**これが「recall を測っているのに
+recall が落ちていることに気づけない」構造**であり、v3 の S5（検証仕様）が対処すべき対象。
 - 「◎ 設計で構造的に解消」26 / 「○ 規律併用」2 / 「× 構造では直らない」3 / オーナー判断 1 /
   現行系でも即修正推奨 4（B-01, B-02, B-08, C-03 の一部）+ 要調査 1（B-09）
