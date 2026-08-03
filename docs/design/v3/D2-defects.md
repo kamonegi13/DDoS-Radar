@@ -66,8 +66,41 @@
 | D-02 | **外部 API の脆さ**: ソース側の廃止・仕様変更・ブロック（IHR 400、CISA URL rot、ThreatFox 認証化、NOTAM API 消滅…）は v3 でも起き続ける | HIGH（恒常） | D1-sensors §4 | × 対処は設計でなく運用容易性: ソース死活の可視化（既にある）+ 差し替え容易な ingestion kit（A-02 の副産物） |
 | D-03 | **単独運用の錬度依存**: TL 直接比較禁止（severity=6−TL）のような「知っていないと壊す」規約は構造では強制しきれない | MEDIUM | 反転事故 2 回 | × 型で表現できるものは型へ（P で SeverityScale 型等を検討）、残りは検証ゲート |
 
+## E. 較正系の詳細診断（Phase S の仕様抽出で派生。素材: [_drafts/S1-calibration-llm-raw.md](_drafts/S1-calibration-llm-raw.md) / [_drafts/S1-calibration-proposals-raw.md](_drafts/S1-calibration-proposals-raw.md)）
+
+較正系は 3 インシデントを生き延びた中核だが、詳細仕様抽出により**機能していない機構**が複数見つかった。
+D-01（ラベル生成器バグは構造では直らない）の実例群であり、v3 では「動いているつもりで動いていない」
+状態を検出する仕組み（S5）が要る。
+
+| ID | 欠陥 | 重大度 | 証拠 | 直るか |
+|----|------|--------|------|--------|
+| E-01 | **Defer が構造的に機能しない**: snooze 復活は `state_changed_at` を更新するが `emitted_at` は据え置く。D5 stale-dismiss は `emitted_at` で判定するため、既定設定（snooze 30d = stale 30d）では **Defer した提案は復活直後の次ティックで必ず `auto:timeout_no_action` で dismissed になる** | **HIGH** | database.py:5534,5542 vs proposal_lifecycle.py:309,350 | ◎ 状態機械の再設計。**現行系でも要修正** |
+| E-02 | **FN 1 件が全世界の recall-negative 提案を止める**: `analyst_feedback_fn` が国フィルタ無しのグローバル集計で、`fn > 0` は evidence_strength を即 insufficient にする。30 日窓内にどこか 1 件でも FN が付くとあらゆる国の weight_too_high / dormant_participant が emit 不能 | **HIGH** | _proposal_guards.py:189-193 × :412-413（コード内で「保守的に過剰計上」と自認） | ◎ スコープ付き集計へ。NP1 的には安全側だが**意図した設計か要確認**（オーナー判断候補） |
+| E-03 | **ガード本体が死んでいる**: `evaluate_for_country` / `is_truly_dormant` は本番から一度も呼ばれず、実際の weight_too_high は 4 ヘルパーを個別に呼ぶ再実装経路。**GuardDecision の 3 フラグ算出式はテストでのみ実行される仕様** | **HIGH** | scenario_improver.py:468-511 vs _proposal_guards.py:441-483 | ◎ 単一経路化 |
+| E-04 | **role_reclassify の auto-apply が構造上不可能**: structure_proposer は evidence に `evidence_strength` を書かないが、auto-apply は `strong` を要求 → フラグ ON でも永久に適用されないデッドパス | MEDIUM | scenario_structure_proposer.py:197-218 × scenario_improver.py:268,303-311 | ◎ |
+| E-05 | **P4「結論不可の明示」が死んでいる**: `build_needs_more_data_event` の本番呼び出し元が存在せず、`_rule_weight_too_high` は証拠不足時に単に continue。NP5+8 の transitional 表明が実際には出ない | MEDIUM | _proposal_writer.py:208-237 vs scenario_improver.py:508-511 | ◎ NP5+8 の実装要件として P で再設計 |
+| E-06 | **sensor_disable の dry-run が台帳を汚す**: `V2_AUTO_DISABLE_ENABLED` が false でも `state='applied'` を書き `state_changed_by='auto:escalation_dry_run'` にする → AP3 スコアボードと drift の closed/applied 集計が「実際には無効化していない」行で汚染 | MEDIUM | sensor_disable_proposer.py:260-287 | ◎ |
+| E-07 | **`already_disabled` が提案を止めない**: ガードが「再提案しない」意図で False（= 提案続行）を返す | MEDIUM | sensor_disable_proposer.py:117-155 | ◎ |
+| E-08 | **NP6 違反（LLM 注釈）**: docstring は `prompt_sha256` + `raw_response` を記録すると書くが、実装は `prompt_version` のみ。**導出開示の鎖が切れている** | MEDIUM（NP6 上は HIGH） | g3b_llm_annotator.py docstring:37-39 vs :258-269 | ◎ |
+| E-09 | **llm_confidence_calibrator が収束しない**: 提案値は常に `global_min ± 0.05` で直近採択値を読まない。加えて 0.02 差分ガードは常に通過、clamp は既定設定で実効しない | MEDIUM | llm_confidence_calibrator.py:122-148,138-145 | ◎ |
+| E-10 | **同 calibrator の sample_n が無意味**: JOIN が `li.theater = c.scenario_id` でセンサ単位でなくシナリオ単位 → 「その source_type の llm_intel が 1 件でもあるシナリオの全 feedback」を重複カウント | MEDIUM | llm_confidence_calibrator.py:98-105 | ◎ |
+| E-11 | **revert_rate の系統的過小評価**: 系列の最終ペアは分母に入るが分子に決して入らない。float 変換失敗も分母のみ増加。加えて `applied_by` フィルタが無く**人間の手動 revert も tier 降格の母数に混入** | MEDIUM | auto_apply_tier_governor.py:551-569,529-535 | ◎ |
+| E-12 | **`governor_snapshot()` が「Pure read」契約を破る**: marker 復旧経路で DB 書き込みが起きる（state 表 truncate + marker 生存時、ポーリングの初回に復旧行が書かれる） | MEDIUM | auto_apply_tier_governor.py:814-816 vs :616-624 | ◎ |
+| E-13 | **未知の `applied_by` が最も緩い impact=low に落ちる**（「保守的既定」と称するが逆） | MEDIUM | auto_apply_tier_governor.py:247 | ◎ fail-closed へ |
+| E-14 | **scenario_apply の部分失敗**: mutation 永続化後の台帳 flip 失敗で「シナリオは新状態・台帳は pending」が意図的に残る → 再適用で二重変更しうる | MEDIUM | scenario_apply.py:274-294 | ◎ トランザクション境界の再設計 |
+| E-15 | **discovery の supersede 誤爆**: 後方互換 LIKE フォールバックが先頭国の一致だけで別クラスタを superseded にしうる | LOW | scenario_discoverer.py:208-225 | ◎ |
+| E-16 | **discovery が共通 emit を迂回**: `_emit` を通らないため dedup 窓・active cap・auto-apply フック・evidence_strength 刻印を一切受けない | MEDIUM | scenario_discoverer.py:226-247 | ◎ |
+| E-17 | **抑止の痕跡がゼロ**: `rejection_reason` 列が無く、ガードが emit を止めると永続記録が残らない（ログのみ）。NP6 の「なぜ結論を出さなかったか」が追えない | MEDIUM | database.py:1280-1298 | ◎ **NP6 の要件として P で必須設計** |
+| E-18 | **記述ドリフト群**（全て docstring が実装と食い違う。仕様の一次ソースとして docstring を信用できない証拠）: P2「≥4 of 5」vs 実装 5/5 ／ evidence_strength「strong=4+/moderate=2-3」vs 実装 5/3-4/1-2 ／ **P5「analyst FN ≥ 1」vs 実装 FN == 0（不等号反転）** ／ `participant_remove` が 2 箇所で定義食い違い ／「pending が毎パス evidence を更新する」パスは不在 ／ run_now docstring に 3 phase 欠落 ／ tier governor の「DB-stored config」は未実装 ／ CB スコープの doc/impl 乖離 | MEDIUM | 各 file:line は素材ドラフト参照 | ○ v3 では docstring でなく仕様書が正本（S0 規約）。**再発防止には CI 的な仕組みが要る** |
+| E-19 | **scheduler のログ集計キー不一致**: `k.startswith("labelled_")` を合計するが ETL の実カウンタは `label_*` → **常に 0 を表示** | LOW | scheduler.py:415-416 vs run_ground_truth_etl.py:336-401 | ◎ |
+| E-20 | **死んだメトリクス**: `governor_proposal_count` / `governor_accept_rate` は収集されるが判定に一切使われない。後者は真の受理率でなく「窓内に 1 件でもあれば 1.0」のプロキシ | LOW | auto_apply_tier_governor.py:463-464,504-513 | ◎ |
+
+**補足（良い先例）**: tier governor のテストは `_block_live_db_access` autouse フィクスチャで本番 DB アクセスを
+構造的に遮断している（「リファクタ前のスイートが毎回本番 tier 履歴を truncate していた」ことへの対策）。
+これは **B-08（テストの本番 DB 汚染）の既知の先例であり、v3 では全テストに適用すべきパターン**。
+
 ## 統計
 
-- 総数 35 件: CRITICAL 2 / HIGH 13 / MEDIUM 14 / LOW 6
+- 総数 55 件: CRITICAL 2 / HIGH 16 / MEDIUM 27 / LOW 10
 - 「◎ 設計で構造的に解消」26 / 「○ 規律併用」2 / 「× 構造では直らない」3 / オーナー判断 1 /
   現行系でも即修正推奨 4（B-01, B-02, B-08, C-03 の一部）+ 要調査 1（B-09）
