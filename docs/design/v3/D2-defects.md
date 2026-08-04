@@ -117,11 +117,12 @@ D-01（ラベル生成器バグは構造では直らない）の実例群であ�
 | F-13 | **閾値の設計文書乖離が 4 倍規模**: ATTACK_MODE の実装値は 1.2 / 0.8 / 1.0 / 0.8（attack_mode.py:50-53）だが、設計文書と D5 台帳はいずれも 5.0 / 1.5 / 3.0 / 1.5 のまま（**2026-05-10 の再較正が未反映**）。PER_DOMAIN も実値 2.5/1.5 に対し台帳は 3.0/1.5/1.5<br>**さらに**: 当該テスト群は定数を import して相対検証するため、**値を変えてもテストは全通過する** → 閾値変更に対する安全網が存在しない | **HIGH** | radar/conclusions/attack_mode.py:50-53, per_domain.py:51-52（実測）、D5 訂正節 | ◎ 閾値は宣言的 registry + **値を pin するテスト** MUST（A-13 と併せて） |
 | F-14 | **TL 導出式が 3 箇所に複製**、うち sensitivity.py の複製は `active_domain_count` を引数に取りながら TL1 判定で使っていない | MEDIUM | S1-conclusions DP1 | ◎ A-02 の一例。単一実装 MUST |
 | F-15 | **慢性検知のデューティ側パラメータが config registry 未登録**: `CHRONIC_DUTY_WINDOW_DAYS` / `CHRONIC_DUTY_THRESHOLD` が registry に無く、docstring が謳う SETTINGS からの調整が**沈黙のフォールバックで効かない** | MEDIUM | S1-conclusions DP3 | ◎ |
+| F-16 | **recall baseline に系列断絶の防護が無い**（**実測確認済み**）: `docs/baselines/recall_metrics.json` の `since` は **null**（全履歴比較）。「2026-07-04 以前の recall はクロスシナリオ帰属修正**前**の別系列であり比較禁止」という規則は**手続きとしてしか存在せず、コード側の強制が無い**。再 baseline を怠ると CI ゲートが系列断絶をまたいで比較する<br>**含意**: 較正インシデント #3 の教訓（汚染ラベルが calibrator を駆動した）が、測定基盤の側では制度化されていない。D-01（ラベル生成器バグは構造では直らない）の実例 | **HIGH** | docs/baselines/recall_metrics.json（`since: null` を実測）、S1-calibration DP19 | ◎ baseline に系列 ID / 有効期間を持たせ、**跨いだ比較を機械的に拒否する MUST**（S5 の要件へ） |
 | F-05 | **採点ティックが非冪等**: Z-score 算出が走行統計を書き換えるため、同一入力の再実行が同一結果にならない。**replay パリティ検証（S5）の前提を壊す** | **HIGH** | S1-PIPE の DP5 | ◎ 統計更新と採点の分離 **MUST**。**S5 の replay 設計に直接影響** |
 
 ## 統計
 
-- 総数 70 件: CRITICAL 5 / HIGH 27 / MEDIUM 30 / LOW 10
+- 総数 71 件: CRITICAL 5 / HIGH 28 / MEDIUM 30 / LOW 10
 - **現行系でも即修正すべきもの**: **F-08 / F-06（検知が死んでいる）**、F-02、B-01、B-02、B-08、E-01、C-03 の一部
 - **現行系で要対処**: F-01（起動時の補償実行）、B-09（UI 参照消失の調査）
 

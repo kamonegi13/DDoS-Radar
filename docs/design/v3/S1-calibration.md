@@ -1,14 +1,13 @@
 # S1 — 較正機構 挙動仕様
 
-**スコープ**: ground-truth ラベル生成 → recall メトリクス → 閾値較正（提案・台帳・系譜）→
-提案系（生成・ガード・状態機械・適用）→ 自動適用 tier 統治 → LLM 較正系。
-スコアリング式は S1-scoring-core、`calibration_status` の**出力形**は S1-conclusions、
-較正 API の HTTP 契約は S2-api、センサー健全性の一次判定は S1-sensors-* が担当する。
+**スコープ**: ground-truth ラベル生成 → recall メトリクス → 閾値較正（提案・台帳・系譜）→ 提案系（生成・
+ガード・状態機械・適用）→ 自動適用 tier 統治 → LLM 較正系。スコアリング式は S1-scoring-core、
+`calibration_status` の**出力形**は S1-conclusions、較正 API の HTTP 契約は S2-api、センサー健全性の一次判定は
+S1-sensors-* が担当する。
 
 **規約**: [S0-spec-conventions.md](S0-spec-conventions.md)。分類 CORE / ACCIDENTAL / DEFECT-PRESERVE。
 
-**最重要要件**: 較正層は運用開始後 **3 回壊れた**。修正で入ったガードは v3 で挙動として厳密に保存する。
-該当条項に「由来: インシデント #n」を明記した。
+**最重要要件**: 較正層は運用開始後 **3 回壊れた**。修正で入ったガードは v3 で挙動として厳密に保存する（該当条項に「由来: インシデント #n」を明記）。
 
 | # | 日付 | 事象 | 主要な修正 |
 |---|------|------|-----------|
@@ -17,8 +16,7 @@
 | #3 | 2026-08-02 | **クロスシナリオ帰属汚染**: 支援役の言及で他紛争の記事が別シナリオの ground truth に。korea 閾値が −5% ×4 | 帰属を conflict-party role に限定、kinetic tier の action 動詞必須化、鮮度ゲートの direction-keyed 化 |
 
 **一次ソース**: 実装 + テスト。**docstring は一次ソースとして採用しない**（DP1 のとおり記述ドリフトが systemic）。
-素材: [_drafts/S1-calibration-llm-raw.md](_drafts/S1-calibration-llm-raw.md)、
-[_drafts/S1-calibration-proposals-raw.md](_drafts/S1-calibration-proposals-raw.md)。
+素材: [_drafts/S1-calibration-llm-raw.md](_drafts/S1-calibration-llm-raw.md)、[_drafts/S1-calibration-proposals-raw.md](_drafts/S1-calibration-proposals-raw.md)。
 
 ## 1. 用語
 
@@ -133,8 +131,7 @@ invasion / "missiles strike|launch|fired" 等）。`missile` / `rocket` / `artil
 **最も早い報道時刻**が事前窓の起点となる **MUST**。
 **根拠**: ground_truth_etl.py:514-537；run_rss_etl.py:343-374
 **検証**: tests/test_run_rss_etl.py（23 件）
-**分類**: CORE。**由来: インシデント #2 の後続修正**（1 記事が 72h 窓の全結論を採点し 30 日で約 23,000 ラベルを
-生成、sample_n が統計的に無意味化していた）
+**分類**: CORE。**由来: インシデント #2 の後続修正**（1 記事が 72h 窓の全結論を採点し 30 日で約 23,000 ラベルを生成、sample_n が統計的に無意味化していた）
 
 #### S1-CALIB-012: エピソードの採点は事前窓の最良 severity に対して 1 回だけ行う
 **挙動**: 窓 `[event_at − window_h, event_at]` 内の当該シナリオ結論群に対し**1 回だけ**採点 **MUST**。窓内に
@@ -184,8 +181,7 @@ invasion / "missiles strike|launch|fired" 等）。`missile` / `rocket` / `artil
 **根拠**: tl_threshold_calibrator.py:253-293
 **検証**: tests/test_tl_calibrator_guards.py::test_freshness_gate_blocks_reapplying_stale_evidence / _allows_action_on_new_evidence /
 _permissive_when_no_prior_change / **test_looser_blocked_when_only_non_fn_labels_are_new** / _blocked_when_no_fn_labels_exist / _tighter_keyed_on_fp_recency
-**分類**: CORE。**由来: インシデント #3**。前身（2026-07-04 の「任意の新ラベル」形）は TP が毎週届くため
-素通りし、凍結した FN 群で korea 閾値を 4 回追加緩和した
+**分類**: CORE。**由来: インシデント #3**。前身（2026-07-04 の「任意の新ラベル」形）は TP が毎週届くため素通りし、凍結した FN 群で korea 閾値を 4 回追加緩和した
 
 #### S1-CALIB-017: 鮮度ゲートの前回適用時刻はシナリオ単位・自動較正由来のみを見る
 **挙動**: 「前回適用時刻」は閾値台帳の `scope_scenario_id` 一致かつ `applied_by` が当該較正器マーカー一致の行の
@@ -211,8 +207,7 @@ revert はクロックをリセットしない。DB エラーは伝播し提案�
 `evidence = {recall, precision, tp, fp, fn, tn, direction, prior_value}` を持つ **MUST**。
 **根拠**: tl_threshold_calibrator.py:137-169
 **検証**: tests/test_tl_threshold_calibrator.py
-**分類**: CORE（NP6）。evidence に**鮮度ゲートの入力が含まれない**ため台帳から「どの FN がこの変更を
-正当化したか」を再構成できない → §5-DP2
+**分類**: CORE（NP6）。evidence に**鮮度ゲートの入力が含まれない**ため台帳から「どの FN がこの変更を正当化したか」を再構成できない → §5-DP2
 
 #### S1-CALIB-020: 較正値は現時点で採点に消費されない
 **挙動**: TL 導出は既定値をハードコードし、較正された閾値を読まない。提案は台帳に記録されるが**採点に
@@ -315,8 +310,7 @@ labels_human, labels_auto, source}` を返す **MUST**（人手と自動の比�
 purge、baseline の再生成、30 日ローリング窓による自然な排出）であり、**コードによる強制は存在しない**。
 **根拠**: docs/design/v2-migration.md:31,38,41-44；scripts/remediate_inverted_calibration.py:48,51-87；scripts/remediate_cross_scenario_labels.py
 **検証**: tests/test_remediate_cross_scenario_labels.py（6 件、purge と閾値 revert）
-**分類**: **DEFECT-PRESERVE**（§5-DP19）— CI ゲートが `since: null` の全履歴を比較するため、再 baseline を
-人手で怠れば断絶をまたぐ
+**分類**: **DEFECT-PRESERVE**（§5-DP19）— CI ゲートが `since: null` の全履歴を比較するため、再 baseline を人手で怠れば断絶をまたぐ
 
 #### S1-CALIB-031: 自動チューニングの recall ゲートは現在恒久的に開いている
 **挙動**: 提案単位の統治層は「recall が red なら拒否」という規則を持つが、**呼び出す関数が実在せず**、例外が
@@ -700,8 +694,7 @@ production scoring への副作用は無い **MUST**。
 | g3b 日次上限 / CB 失敗数 / バッチ | 50 / 5 / 20 | `G3B_*` | 不可 | 064,065 |
 | LLM 信頼度較正 最小 / recall floor | 30 / 0.85 | `LLM_CONF_CALIB_*` | 不可 | 066 |
 
-**v3 への示唆**: 較正系の閾値は **DB override が 1 つも実装されていない**（提案の適用値のみが台帳経由で可変）。
-NP6 の観点では、結論と自動判断に影響する全閾値を宣言的 registry に載せるべき（D2 A-13）。
+**v3 への示唆**: 較正系の閾値は **DB override が 1 つも実装されていない**（提案の適用値のみが台帳経由で可変）。NP6 の観点では、結論と自動判断に影響する全閾値を宣言的 registry に載せるべき（D2 A-13）。
 
 ## 4. ACCIDENTAL（オーナー裁定待ち）
 
@@ -793,20 +786,15 @@ D5 台帳のうち較正領域に属するテスト全件:
 | GAP-12 | Design W ゲートの境界値ちょうど（`drop == max_drop` → PASS）が未検証 | 029 |
 | GAP-13 | 系譜の部分グラフ（DB エラー時）と revert 後の `effective_to` 未設定が未検証 | 023, 025 |
 
-**良い先例（v3 に持ち込む）**: tier governor のテストは autouse フィクスチャで本番 DB アクセスを構造的に
-遮断している（リファクタ前のスイートが毎回本番 tier 履歴を truncate していたことへの対策）。
-**v3 では全テストにこのパターンを適用 MUST**（D2 B-08）。
+**良い先例（v3 に持ち込む）**: tier governor のテストは autouse フィクスチャで本番 DB アクセスを構造的に遮断
+している（リファクタ前のスイートが毎回本番 tier 履歴を truncate していたことへの対策）。**v3 では全テストにこのパターンを適用 MUST**（D2 B-08）。
 
 ## 7. 未決事項
 
-1. **ラベル生成器の検証系（D2 D-01）が仕様化できていない**。3 インシデントはすべて測定系のロジックバグで、
-   全テスト通過のまま数週間 prod を劣化させた。「平穏期に FN が湧いたら生成器を疑う」型の反事実チェックは
-   S5（検証系）で**仕様として**設計する必要がある。本書は現行のガード群を保存するにとどまる
-2. **系列エポックの表現**（条項 030 / DP19）。ラベル行に生成器バージョンを刻むのか、baseline 側にエポック id を
-   持つのか、両方か。P で決める
+1. **ラベル生成器の検証系（D2 D-01）が仕様化できていない**。3 インシデントはすべて測定系のロジックバグで、全テスト通過のまま数週間 prod を劣化させた。
+   「平穏期に FN が湧いたら生成器を疑う」型の反事実チェックは S5（検証系）で**仕様として**設計する必要がある。本書は現行のガード群を保存するにとどまる
+2. **系列エポックの表現**（条項 030 / DP19）。ラベル行に生成器バージョンを刻むのか、baseline 側にエポック id を持つのか、両方か。P で決める
 3. **TL 閾値較正の有効化条件**（条項 020）。現在は休眠しているためインシデント #2/#3 が live TL に波及しなかった。
    有効化の前提として DP21 / DP22 / GAP-03 の解消を先行させるべきかをオーナー裁定
-4. **提案系の「休眠フルスタック」判断**。DP7 / DP8 / DP17 は「機能していない機構」であり、v3 で復活させるか
-   凍結するかはオーナー判断（D2 C-02 の tradecraft と同種の論点）
-5. `_proposal_guards` の 5 ソース定義と drift 監視の被覆判定が**別の集計を別の場所で持つ**。統合可能かは
-   P の層設計で判断する
+4. **提案系の「休眠フルスタック」判断**。DP7 / DP8 / DP17 は「機能していない機構」であり、v3 で復活させるか凍結するかはオーナー判断（D2 C-02 の tradecraft と同種の論点）
+5. 提案ガードの 5 ソース定義と drift 監視の被覆判定が**別の集計を別の場所で持つ**。統合可能かは P の層設計で判断する
