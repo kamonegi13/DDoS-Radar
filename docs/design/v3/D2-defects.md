@@ -120,9 +120,31 @@ D-01（ラベル生成器バグは構造では直らない）の実例群であ�
 | F-16 | **recall baseline に系列断絶の防護が無い**（**実測確認済み**）: `docs/baselines/recall_metrics.json` の `since` は **null**（全履歴比較）。「2026-07-04 以前の recall はクロスシナリオ帰属修正**前**の別系列であり比較禁止」という規則は**手続きとしてしか存在せず、コード側の強制が無い**。再 baseline を怠ると CI ゲートが系列断絶をまたいで比較する<br>**含意**: 較正インシデント #3 の教訓（汚染ラベルが calibrator を駆動した）が、測定基盤の側では制度化されていない。D-01（ラベル生成器バグは構造では直らない）の実例 | **HIGH** | docs/baselines/recall_metrics.json（`since: null` を実測）、S1-calibration DP19 | ◎ baseline に系列 ID / 有効期間を持たせ、**跨いだ比較を機械的に拒否する MUST**（S5 の要件へ） |
 | F-05 | **採点ティックが非冪等**: Z-score 算出が走行統計を書き換えるため、同一入力の再実行が同一結果にならない。**replay パリティ検証（S5）の前提を壊す** | **HIGH** | S1-PIPE の DP5 | ◎ 統計更新と採点の分離 **MUST**。**S5 の replay 設計に直接影響** |
 
+
+## G. Phase S 後半で判明した欠陥（S2 / S3 / S4 / S5 / services / frontend 由来）
+
+| ID | 欠陥 | 重大度 | 証拠 | 直るか |
+|----|------|--------|------|--------|
+| G-01 | **feedback 投稿に role ゲートが無い**（**実測確認済み**）: `POST /api/v2/conclusions/<id>/feedback` は `@jwt_required()` のみで `_require_analyst()` を呼ばない。同一ファイルの兄弟 endpoint は 3 箇所で `_require_analyst` / `_require_admin` を強制している。**feedback ラベルは較正系（analyst_feedback → recall メトリクス → 閾値 calibrator）の入力**であり、較正災害 3 件がすべてラベル汚染由来だった経緯からすると認可の穴は重い | **HIGH** | radar/routes/conclusions_v2.py:281-283（ゲート不在）vs :452,:487,:559（兄弟 endpoint はゲートあり） | ◎ + **現行系で即修正すべき**（1 行）。S2-PROP-021 が analyst 以上への引き上げを提案 |
+| G-02 | **利用者別 ATTENTION 閾値が評価に一切効かない**（**5 件目の沈黙失敗**）: 設定・一覧・削除 API は存在し永続化もされるが、読み取り元は「一覧を返す API」1 箇所のみ。ルール評価は常にハードコード閾値を読む。**API が 200 を返すため UI 上は健全に見える** | **HIGH** | S1-services S1-SVC-027 / DP4 | ◎ + 現行系でも修正候補 |
+| G-03 | **attention_score の実装がフロントエンドにしか存在しない**: バックエンドに同等実装・API・永続化が無く、**AP1 の順位付けがどの台帳にも残らない**。AP4「過去の自動化判断が事後検証できる」から AP1 だけが構造的に抜けている | **HIGH** | S1-services S1-SVC-030 / DP6 | ◎ **AP1/AP4 整合の設計要件**として P へ |
+| G-04 | **gps_jamming は単位不整合に加えて到達性でも壊れている**: `GPS_JAM_THRESHOLD` は config registry に登録済みなのに、センサーは `_os.getenv` を直読み（gps_jamming.py:182-183）→ **SETTINGS からの DB override が効かない**。F-08 は二重に壊れていた | **HIGH** | S5-VERIF-013、gps_jamming.py:182-183 | ◎ 設定到達性検査を S5 の常時監視へ |
+| G-05 | **30 日 replay パリティが現行データでは物理的に不可能**: `sensor_observation_ts` は TTL 24h で、信号レベルで 30 日を再生できる表がゼロ。30 日以上を持つのは `scenario_tl_observation`(42d) と `conclusions`(90d) だけで、どちらも post-scoring aggregate → ANOMALY・寄与内訳・source_urls は原理的に replay 不能 | **CRITICAL**（R3 パリティゲートの前提が崩れる） | S5-VERIF-018、§6-2 | ◎ **信号台帳 retention 60 日化がパリティゲート成立の前提条件**。P2 の最優先事項 |
+| G-06 | **並走装置が既に解体済**: `scripts/replay_*.py` は 1 本も存在せず、v1/v2 用 `replay_v1_v2_diff.py` は削除済、`conclusion_diff_log` は migration v54 で drop 済。`/api/v2/replay` にはテストが 1 件も無い | **HIGH** | S5 GAP-04 / GAP-01 | ◎ S5-VERIF-017〜031 は全て新規実装。**「既存の replay 機構を再利用できる」という当初の前提は誤りだった** |
+| G-07 | **auto_tune_governor の recall ゲートが恒久 open**: 存在しない関数を呼んでおり、例外は「不確実なら許可」にフォールバックする設計のため、**recall が RED でも提案が通る** | **CRITICAL** | S5-VERIF-039 | ◎ + **現行系で要検証・修正**。NP1 の防衛線 |
+| G-08 | **baseline 8 cell 中 4 件が構成上 recall=1.0 固定**: attack_mode 系 4 件が `fn=0 ∧ tn=0` → recall が常に 1.0。**これは較正インシデント #1（blanket-TP）の退化シグネチャそのもの**が baseline に残存している | **HIGH** | S5-VERIF-037、recall_metrics.json 実測 | ◎ S5 の系譜監査で検出対象に |
+| G-09 | **What-If がフロントで TL 導出を再実装、しかもドメイン上限がバックエンドと異なる**: アナリストに誤った差分を示しうる。F-14（TL 導出式の 3 複製）の**4 つ目**で、値が違う唯一のもの | **HIGH** | S1-UI-055 / DP4 | ◎ |
+| G-10 | **描画スキップ署名が地図オーバーレイ・participants・相関マップを含まない**: タイムスタンプが動かない限りこれらの変化は描画されない。「データは更新されているが表示だけが死ぬ」型 | MEDIUM | S1-UI-012 / DP3 | ◎ |
+| G-11 | **移行 35 表のうち 17 表に retention が無い**（`threshold_history` / `scenario_proposals` / `auto_judge_decisions` 等）。成長が遅く顕在化していないだけで、`llm_prompts` を「唯一の無制限表」と誤認した 2026-07-03 監査と同型 | MEDIUM | S3-DATA-044 | ◎ |
+| G-12 | **CI ゲートの実効カバレッジが 9 分の 1**: 導入済み pre-commit は `check_ci.sh` ではなく `check_secrets.sh`（シークレット走査のみ）、`.github/workflows/` も不在。**4 ゲートは手動実行しない限り動かない** | **HIGH** | S4-NF-056 | ◎ v3 は CI 必須。**現行系でも即対処可** |
+| G-13 | **契約の分裂**: エラー body 4 系統 + 成功 body 3 系統、v2 envelope 4 形（**NP7 disclaimer が欠ける形が存在**）、認可強制 3 系統・403 文言 3 種、フラグと認可の評価順が endpoint 間で不統一（503 か 403 かが分かれる） | MEDIUM | S2 DEFECT-PRESERVE 15 件 | ◎ S2 の PROPOSAL で統一 |
+| G-14 | **role が実装上 3 値だが CLAUDE.md は 2 値と記述** | LOW | S1-services §7-4 | ◎ |
+
+**訂正**: S4 が「バックアップ欠測を新規発見」と報告したが、これは**既知のインシデント**（04:00 cron の PATH に docker が無く 2026-07-04〜08-03 に沈黙欠測、その後修正済み）。実測でも 07-04 / 08-03 / **08-04 04:00** の 3 世代が存在し、cron は現在復旧している。ただし `KEEP=14` に対し 3 世代しか無い事実は残り、**欠測を検知する仕組みが無い**という指摘（S4-NF-053: 最新バックアップ経過時間の指標化 MUST）は有効。
+
 ## 統計
 
-- 総数 71 件: CRITICAL 5 / HIGH 28 / MEDIUM 30 / LOW 10
+- 総数 85 件: CRITICAL 8 / HIGH 37 / MEDIUM 33 / LOW 11
 - **現行系でも即修正すべきもの**: **F-08 / F-06（検知が死んでいる）**、F-02、B-01、B-02、B-08、E-01、C-03 の一部
 - **現行系で要対処**: F-01（起動時の補償実行）、B-09（UI 参照消失の調査）
 
