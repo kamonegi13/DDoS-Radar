@@ -82,6 +82,8 @@ D1 の全モジュールが仕様化済または理由付き除外、対応条�
 | P5 | [v3/P5-accidental-rulings.md](v3/P5-accidental-rulings.md) | **ACCIDENTAL 155 件の裁定**。KEEP 6 / DROP 35 / SIMPLIFY 86 / OWNER 20（実質 13 決定）。複雑さは 8 本の根本原因に集約 |
 | P4 | [v3/P4-processing-steps.md](v3/P4-processing-steps.md) | **入力 → 出力の処理ステップ 11 段への機能分解**。P1（層 = 誰が管轄するか）と直交する動的な流れ（= 何をするか）。見通しの中心文書 |
 | P6 | [v3/P6-consolidation-rulings.md](v3/P6-consolidation-rulings.md) | **統合裁定 O-14〜O-19**（2026-08-06 再評価由来）。採点パイプライン一本化 / トレンド・severity 単一化 / TL 1 ストリーム化 / 収斂統合とインテルの位置づけ / 設定の二分 / API・UI 導出設計（WP-4.0）。**推奨 = 実装既定** |
+| P7 | [v3/P7-api-derivation.md](v3/P7-api-derivation.md) | **API 導出設計**（WP-4.0 成果物）。O-1〜O-12 から順方向導出した v3 面 = REST 約 61 本 + WS 4 イベント（現行 167+10 から約 63% 削減）。O×endpoint マトリクス、threat_data 分解、narrate の AP2 準拠化、**全 167 endpoint の処遇表** |
+| P8 | [v3/P8-ui-derivation.md](v3/P8-ui-derivation.md) | **UI 導出設計**（WP-4.0 成果物）。アナリスト一次ループ（状況確認 10 秒 → トリアージ 30 秒 → ドリルダウン → フィードバック → 週次検証）、Tier 0-2 の画面インベントリ、O→画面トレーサビリティ、**AP3 合成信頼度 1 チップ化**、**地図の Tier 1 降格 + レイヤ半減**、宙吊りパネル全数裁定 |
 
 
 - strangler 切断順序、フロントエンド greenfield 計画、shadow 並走 + パリティゲート数値、旧系 sunset 条件
@@ -160,3 +162,10 @@ D1 の全モジュールが仕様化済または理由付き除外、対応条�
   CALIBRATION_WINDOW_DAYS 注記）を修正、迂回キー数を S1-CONF-008（95/98）に統一。
   **WP-0.1 完了（本番反映 2026-08-06）**: `SIGNAL_LEDGER_RETENTION_DAYS`（registry 登録・既定 60・下限 60）を
   採点 tick から 3 層解決経由で供給。**パリティ測定可能日 = 2026-09-05**。再確認 2026-08-13 / 09-05。
+- **2026-08-06（同日）**: **WP-4.0 完了 — P7（API 導出）/ P8（UI 導出）**。O-1〜O-12 + I-2 から順方向導出:
+  API は **167 → 約 61 本（63% 削減）**で全 endpoint が目的写像を持つ（写像なしの keep はゼロ）。
+  drop の主要裁定: 報告 1 系統化（SALUTE / weather_brief / sitrep / daily_summary 廃止 — G-17 の構造ごと）、
+  spof / ip_check / deep_analytics / discovery 廃止・凍結、narrate は決定論テンプレートに置換（AP2）。
+  UI は**アナリスト一次ループを一次構造**とし（地図中心 → 状況ボード中心）、AP3 12 チップ → 合成 1 チップ、
+  Watchpane 廃止（S10 と責務重複）、宙吊りパネル全数裁定。S1-frontend 72 条項の生死一覧は P8 §8。
+  **Phase 4 の前提が揃い、残る先行作業は Phase 1（L5）**。

@@ -33,7 +33,7 @@
 | WP-2.8 | **パリティハーネス** | 2 | WP-2.4, 2.3 | **cutover の前提** |
 | WP-3.1 | L3 結論層（結論不可の一級市民化を含む） | 3 | WP-2.4 | |
 | WP-3.2 | L4 較正層 | 3 | WP-3.1 | |
-| WP-4.0 | **API/UI 導出設計**（P6 O-19） | 4 | WP-3.1 | **設計。WP-4.1/4.2 の前提** |
+| WP-4.0 | **API/UI 導出設計**（P6 O-19） | 4 | — | **完了 2026-08-06** → P7 / P8 |
 | WP-4.1 | L6 公開 API | 4 | WP-3.1, **WP-4.0** | |
 | WP-4.2 | L7 フロントエンド | 4 | WP-4.1, **WP-4.0** | greenfield |
 | WP-5.1 | shadow 並走とパリティ測定 | 5 | WP-2.8, 全実装 | 30 日以上 |
@@ -289,7 +289,13 @@ timeout・リトライ・レート制限・CB・tolerant パーサ・LLM 投入�
 
 ## Phase 4 — L6/L7
 
-### WP-4.0 — API/UI 導出設計 【WP-4.1/4.2 の前提・設計セッションで実施】
+### WP-4.0 — API/UI 導出設計 【**完了 2026-08-06**】
+
+**成果物**: [P7-api-derivation.md](P7-api-derivation.md)（O×endpoint マトリクス、REST 167→約 61 本、
+threat_data 分解、narrate の AP2 準拠化、全 167 endpoint の処遇表）/
+[P8-ui-derivation.md](P8-ui-derivation.md)（アナリスト一次ループ、Tier 0-2 画面インベントリ、
+O→画面トレーサビリティ、AP3 合成チップ、地図の降格とレイヤ半減、宙吊りパネル全数裁定）。
+完了条件 4 件はすべて両文書内で充足。以下は当初定義（記録として保存）。
 
 **目的**: API と UI を「消費者の有無」ではなく「目的の要求」から導出する（P6 O-19）。
 
@@ -310,7 +316,8 @@ timeout・リトライ・レート制限・CB・tolerant パーサ・LLM 投入�
 
 ### WP-4.1 — L6 公開 API
 
-**前提として読む**: `docs/design/v3/S2-api-contract.md`（52 条項 + 21 PROPOSAL）、**WP-4.0 の必要性マトリクス**
+**前提として読む**: **`P7-api-derivation.md`（面の正）**、`docs/design/v3/S2-api-contract.md`
+（52 条項 + 21 PROPOSAL — 意味論の参照元。矛盾時は P7 が優越）
 
 **完了条件**:
 1. 読み取り API に副作用が無い（A-01 の構造的解消）
@@ -320,8 +327,8 @@ timeout・リトライ・レート制限・CB・tolerant パーサ・LLM 投入�
 
 ### WP-4.2 — L7 フロントエンド
 
-**前提として読む**: **WP-4.0 の一次ループ + O→画面要素表 + 宙吊りパネル裁定**、
-`docs/design/v3/S1-frontend-behavior.md`（72 条項 — WP-4.0 の裁定で上書きされた条項は WP-4.0 が優越）、
+**前提として読む**: **`P8-ui-derivation.md`（画面の正。§8 に条項の生死一覧）**、
+`docs/design/v3/S1-frontend-behavior.md`（72 条項 — P8 §8 で上書きされた条項は P8 が優越）、
 `S4-nonfunctional.md`（i18n・パネル契約）
 
 **完了条件**:
