@@ -3162,14 +3162,17 @@ class RadarDB:
         row = self._get_conn().execute("SELECT COUNT(*) FROM time_series_ts").fetchone()
         return row[0] if row else 0
 
-    # ── sensor_observation_ts (Phase 3 watchpane sparklines) ────────────────
+    # ── sensor_observation_ts (watchpane sparklines + v3 parity replay) ─────
     # Per-sensor per-scope observation series. Written from the scoring tick
-    # after cache swap; read by /api/v2/sensors/<n>/observations to render
-    # real 1h sparklines. 24h TTL is enough for the planned 1h–6h windows.
+    # after cache swap; read by /api/v2/sensors/<n>/observations and, once
+    # 30 days have accumulated, by the v3 parity harness (S5-VERIF-018).
+    # ttl_sec is caller-supplied on purpose: the 86400.0 default that used to
+    # live here silently capped replay at 24h (D2 G-05). The caller resolves
+    # it from SIGNAL_LEDGER_RETENTION_DAYS via signal_ledger_ttl_sec().
     def sensor_obs_record(
         self, sensor: str, scope: str, ts: float, score: float,
+        ttl_sec: float,
         baseline: float | None = None, status: str | None = None,
-        ttl_sec: float = 86400.0,
     ) -> None:
         """Insert one observation point and opportunistically prune > ttl_sec."""
         conn = self._get_conn()

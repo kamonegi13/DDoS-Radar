@@ -16,6 +16,7 @@ from radar.config import (  # noqa: E501
     GDELT_HISTORY_WINDOW, GDELT_TONE_ALERT_THRESHOLD, GLOBAL_SIGNAL_WEIGHT,
     HOD_BASELINE_DAYS, HOD_MIN_SAME_HOUR, ISR_HOTSPOTS, OWM_API_KEY,
     SCORE_REFRESH_SEC, SHOW_BACKGROUND_TL, STATE_ASNS, STRATEGIC_BLOCS,
+    signal_ledger_ttl_sec,
 )
 from radar.models import RationaleEntry
 from radar import state as st
@@ -2990,17 +2991,20 @@ def get_threat_data():
                 _prev_scenario_domains[_focused_id] = dict(_cur_doms)
                 _prev_scenario_signals[_focused_id] = _cur_sigs
 
-        # Phase 3 Layer 3: persist per-sensor observation row for the focused
-        # scope so /api/v2/sensors/<n>/observations can render real 1h
-        # sparklines (no longer degraded). One row per rationale entry.
+        # Persist per-sensor observation rows for the focused scope. Serves
+        # /api/v2/sensors/<n>/observations sparklines AND the v3 parity
+        # replay window (WP-0.1: retention 60d, the parity-eligible date
+        # counts from when this retention started accumulating).
         # Failures are swallowed — telemetry must never break the score path.
         try:
+            _obs_ttl_sec = signal_ledger_ttl_sec()
             for _r in rationale:
                 _db.sensor_obs_record(
                     sensor=_r.sensor,
                     scope="focused",
                     ts=current_time,
                     score=float(_r.score or 0),
+                    ttl_sec=_obs_ttl_sec,
                     baseline=None,
                     status=_r.status,
                 )
