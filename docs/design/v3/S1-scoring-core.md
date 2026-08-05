@@ -423,7 +423,7 @@ principal_belligerent がそれぞれの weight（ともに 1.0）で対称に�
 |---|---|---|---|---|
 | ドメインスコア上限 | 10 | — （ハードコード） | 不可 | S1-SCORE-002 |
 | cyber ドメイン重み | 0.50 | `DOMAIN_WEIGHT_CYBER` | 可 | S1-SCORE-002 |
-| TL1 floor | score 9 + 3 domains + physical 3.0 | — | 不可 | S1-SCORE-004 |
+| TL1 floor | score 9 + physical 3.0（**ドメイン数条件なし** — 本文 S1-SCORE-004 の 2026-08-04 訂正を反映、2026-08-06 カタログ同期） | — | 不可 | S1-SCORE-004 |
 | TL2 floor | score 6 + 2 domains | — | 不可 | S1-SCORE-004 |
 | TL3 floor | score 4 | — | 不可 | S1-SCORE-004 |
 | TL4 floor | score 2 | — | 不可 | S1-SCORE-004 |

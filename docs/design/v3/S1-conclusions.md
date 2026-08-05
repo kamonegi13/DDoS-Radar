@@ -205,6 +205,10 @@ TREND は台帳の TL 行から算出されるため `source_urls` は**常に�
 **挙動**: 窓幅 W に対し `[now−W, now)` を現在期間、`[now−2W, now−W)` を直前期間とし、各期間内の THREAT_LEVEL
 台帳行の **severity 平均の差 `delta = cur_mean − prev_mean`** で分類 **MUST**。severity は TL1→4 / TL2→3 /
 TL3→2 / TL4→1 / TL5→0 の写像 **MUST**。他シナリオの行、state が null の行、1..5 以外の state 文字列は**除外 MUST**。
+**⚠ 同語異義注意（2026-08-06 追記）**: この写像は trend.py 内部の `5 − TL` であり、本仕様用語節および
+プロジェクト規約の `severity = 6 − TL` と**切片が異なる**。差分（delta）計算のため現行では実害が無いが、
+TL 反転事故 2 回の前歴があるプロジェクトで同語二系統は危険。**v3 では 6−TL に統一する**（P6 O-15。
+定数シフトは delta に消えるためパリティ影響なし）。
 **根拠**: trend.py:48, 149-193
 **検証**: TR::test_window_seam_classifies_rows_into_correct_slice / ::test_rows_for_other_scenarios_are_ignored / ::test_unknown_tl_state_is_ignored
 **分類**: CORE
@@ -571,7 +575,7 @@ TL 判定（severity 最大。**生 TL 比較禁止**）/ (3) `calm_anchor` — 
 | ATTACK_MODE cluster_min / dominance_ratio / tentative | 4 / 1.5 / 0.6 | — | 不可 | 024, 025 |
 | 拡張 confidence 帯 | [0.55, 0.85] → 上限 0.95、既定 base 0.60、margin 係数 0.30 | — | 不可 | 027 |
 | LLM 補強有効 / nudge 上限 | False / ±0.10 | `V2_ATTACK_MODE_LLM_AUGMENT_ENABLED` | 不可 | 028 |
-| 較正窓 / 最小陽性 / DEGRADED 下限 / TTL | 30 日 / 5 / 0.70 / 300s | `CALIBRATION_WINDOW_DAYS` | 不可 | 029, 030 |
+| 較正窓 / 最小陽性 / DEGRADED 下限 / TTL | 30 日 / 5 / 0.70 / 300s | `CALIBRATION_WINDOW_DAYS`（**未配線** — どこにも定義されず getattr 既定 30 が常に勝つ。S1-calibration DP4 と同記述に 2026-08-06 同期） | 不可 | 029, 030 |
 | 変化ゲート / heartbeat / バッチ窓 | True / 3600s / 5.0s | `V2_CONCLUSION_WRITE_ON_CHANGE` / `V2_CONCLUSION_HEARTBEAT_SEC` | 不可 | 031, 032 |
 | 慢性連続日数閾値 | 7.0（下限 3.0） | `CHRONIC_INCONCLUSIVE_THRESHOLD_DAYS` | **可** | 034 |
 | デューティ窓 / 閾値 | 14.0 日（下限 7.0） / 0.20（下限 0.05） | `CHRONIC_DUTY_WINDOW_DAYS` / `CHRONIC_DUTY_THRESHOLD` | **不可（registry 未登録 — §6 DP3）** | 034 |
@@ -596,7 +600,7 @@ P では結論に影響する全閾値を単一の宣言的 registry に載せ�
 | 2 | D5 §3-7: PER_DOMAIN 閾値 3.0 / 1.5 / 1.5 | **2.5 / 1.5 / 1.0**（2026-04-26 再較正） | D5 台帳訂正要 |
 | 3 | D5 §2.1: attack_mode cyber≥5.0 ∧ info≥1.5 / phys≥3.0 | 同 #1 | D5 台帳訂正要 |
 | 4 | D5 §3-7: 「実値はテストのみが保持」 | テストは**定数相対**で値を pin していない | D5 台帳訂正要（GAP-01/02） |
-| 5 | S1-SCORE-004: TL1 は `len(active_domains) >= 3` を要求 | **その条件は存在しない**（score≥9 ∧ physical≥3.0 の 2 条件） | §5-A4（姉妹仕様の訂正要） |
+| 5 | S1-SCORE-004: TL1 は `len(active_domains) >= 3` を要求 | **その条件は存在しない**（score≥9 ∧ physical≥3.0 の 2 条件） | **解消済**（S1-SCORE-004 本文 2026-08-04 訂正・閾値カタログ 2026-08-06 同期）。TL1 にドメイン数要求を**課すべきか**は ADR-V3-004 により cutover 後裁定（P5 §4 O-1） |
 | 6 | v2-migration §6.1: threshold_ref を「動的に埋める」 | **凍結された 6 キー定数** | 軽微・文書訂正 |
 | 7 | v2-migration §6.1: frequency「5 分間隔」 | 採点ティック周期 + 変化ゲート（heartbeat 3600s） | 軽微・文書訂正 |
 | 8 | v2-migration §6.2: TREND 目標語彙 RAPIDLY_* 系 | ESCALATING / RISING / STABLE / COOLING / DEEPER_DECAY | §5-A5（文書側は drift として自認済） |
@@ -614,7 +618,7 @@ P では結論に影響する全閾値を単一の宣言的 registry に載せ�
 | A1 | `ConclusionUnavailableReason` 4 値のうち `calibration_pending` / `sensor_degraded` / `upstream_failure` を**生成する経路が存在しない**。全結論不可が `insufficient_data` に潰れている | NP5+8 は「なぜ結論できないか」の区別を要求している。センサー劣化と較正待ちを区別できないと、アナリストは「待てば直る」のか「壊れている」のか判断できない。v3 で 3 値を実装するか、列挙から落とすか |
 | A2 | 台帳行が無いときの結論不可応答が `Conclusion` 型を経由せず dict を手組み（006）。スキーマ不変条件の検証を通らない | 「試みて失敗した」と「まだ何も無い」を型で区別する意図は理解できるが、NP7/スキーマ強制の抜け穴になっている |
 | A3 | TL confidence の分母 12.0 が明示的な暫定値（isotonic 回帰は ADR-V2-010 で予定されたまま未着手） | confidence が線形写像である限り「確信度」の意味が薄い。v3 で確率的較正を入れるか、名称を変えるか |
-| A4 | S1-SCORE-004 の TL1「3 ドメイン」条件が実装に無い（§4 #5） | 実装が正しいのか仕様が正しいのか。**TL1 = 最も重い結論**の発火条件なので NP1 上重要 |
+| A4 | S1-SCORE-004 の TL1「3 ドメイン」条件が実装に無い（§4 #5） | **解消済**: 実装が正（仕様初版の誤記。S1-SCORE-004 本文 2026-08-04 訂正）。ドメイン数要求を課すか否かは ADR-V3-004 で cutover 後裁定（P5 §4 O-1） |
 | A5 | TREND 語彙が設計目標（RAPIDLY_* 5 値）と別物のまま定着 | UI/通知/自己説明がすべて現語彙に依存済。目標形に戻す価値があるか |
 | A6 | PER_DOMAIN の分類順序で **DEGRADING が ELEVATED より優先**。prior 4.0 → cur 2.0 は ELEVATED でなく DEGRADING | 「高いが下がっている」を DEGRADING と呼ぶのは妥当だが、絶対水準の情報が state から消える。packed state 1 本では両立できない |
 | A7 | ANOMALY の 12h を設計文書が長く "half-life" と誤記（実際は 1/e 時定数、半減期 8.32h） | 実装は式どおり。呼称のみ訂正でよいか、意図が半減期 12h だったのか |
