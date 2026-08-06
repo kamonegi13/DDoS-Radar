@@ -826,6 +826,19 @@ def v2_self_eval():
     except Exception as e:  # noqa: BLE001
         out["gate_lineage_error"] = str(e)
 
+    # ops_health — WP-0.3 / S4-NF-053. The operational twin of the four
+    # analytical checks: `backup.age_hours` answers "when did we last have
+    # a restorable copy" (the 04:00 cron failed silently for a month
+    # because nothing asked), and `capacity` tracks the DB growth that
+    # ADR-V3-005's 60-day retention rests on. An unknown backup age is
+    # reported as INSUFFICIENT, never OK — that is what the outage looked
+    # like from inside.
+    try:
+        from radar.verification.ops_health import snapshot as _oh_snapshot
+        out["ops_health"] = _oh_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["ops_health_error"] = str(e)
+
     # l5_heartbeat — WP-1.4 condition 3. "When did each self-check last
     # run" in one glance. A self-evaluation surface that quietly stopped
     # updating reports yesterday's health with today's confidence, so the

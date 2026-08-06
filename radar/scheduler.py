@@ -725,6 +725,18 @@ def _cache_cleanup_worker(registry=None):
             except Exception as _gl_exc:
                 log.warning("[GateLineage] daily check failed: %s", _gl_exc)
 
+            # WP-0.3 / S4-NF-053: backup age + capacity trend. The backup
+            # cron failed silently for a month because nothing measured
+            # when it last succeeded; this makes that age a metric.
+            try:
+                from radar.verification.ops_health import (
+                    run_daily_check_if_due as _ops_health_check,
+                )
+                if _ops_health_check():
+                    log.info("[OpsHealth] daily ops-health check ran")
+            except Exception as _oh_exc:
+                log.warning("[OpsHealth] daily check failed: %s", _oh_exc)
+
             # ATTENTION adaptive learning (commit O): hourly observation
             # tick + nightly p95 recompute + nightly cleanup.
             try:

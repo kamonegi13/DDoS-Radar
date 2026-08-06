@@ -320,16 +320,17 @@ EXPECTED_JOBS = {
     "config_reachability_daily",
     "window_unit_health_daily",
     "gate_lineage_daily",
+    "ops_health_daily",
 }
 
 
 class TestHeartbeat:
-    def test_all_four_checks_register_themselves(self):
+    def test_all_known_checks_register_themselves(self):
         # Superset, not equality: _KNOWN_JOBS is a session-lifetime global,
         # so another test registering a throwaway job must not break this
         # one depending on execution order.
         from radar.verification import (config_reachability, firing_monitor,  # noqa: F401
-                                        window_unit_health)
+                                        ops_health, window_unit_health)
         assert EXPECTED_JOBS <= {j.job_id for j in l5_common.known_jobs()}
 
     def test_every_scheduled_check_registers_itself(self):
