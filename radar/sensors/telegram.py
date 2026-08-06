@@ -287,14 +287,39 @@ class TelegramMirrorSensor(BaseSensor):
         return round(z, 3), round(mean, 4), round(std, 4)
 
     @classmethod
-    def _update_baseline_tg(cls, theater: str, today_normalized: float):
-        """Append today's normalized frequency to rolling baseline (capped at NARRATIVE_BASELINE_DAYS)."""
+    def _update_baseline_tg(cls, theater: str, today_normalized: float,
+                            poll_interval: int = TELEGRAM_MIRROR_POLL):
+        """Append today's normalized frequency to the rolling baseline.
+
+        Bug fix 2026-08-07 (F-06): the cap was `NARRATIVE_BASELINE_DAYS`
+        *entries*, but the sensor fetches every `poll_interval` seconds
+        (96 cycles/day at the 900 s default). The declared 30-day window
+        was therefore only ~7.5 hours and the z-score normalised against
+        the last few hours of itself, so bursts were compared to the
+        burst. rss_narrative carried the identical defect and was fixed on
+        2026-04-29 (rss_narrative.py:626-633); this is the same
+        correction, `days x cycles_per_day`.
+
+        The cadence is passed in from the caller's live `self.poll_interval`
+        rather than read from the module constant. They are equal today —
+        __init__ passes TELEGRAM_MIRROR_POLL — but a frozen constant would
+        become a silent false negative if this sensor ever gained the
+        adaptive polling ct_log and ooni use: the L5 window verifier reads
+        the live attribute, so the cap must too, or the two would disagree
+        about the same window and the verifier would report OK for a
+        window that had quietly shrunk. The default keeps the classmethod
+        callable without an instance.
+        """
+        cycles_per_day = max(1, int(86400 / max(1, poll_interval)))
+        # max(1, days): `list[-0:]` is the whole list, so a misconfigured
+        # 0 would silently disable truncation instead of shrinking it.
+        cap = max(1, NARRATIVE_BASELINE_DAYS) * cycles_per_day
         with cls._intercept_lock:
             if theater not in cls._baseline_tg:
                 cls._baseline_tg[theater] = {"daily_counts": [], "last_updated": 0.0}
             bl = cls._baseline_tg[theater]
             bl["daily_counts"].append(today_normalized)
-            bl["daily_counts"] = bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]
+            bl["daily_counts"] = bl["daily_counts"][-cap:]
             bl["last_updated"] = time.time()
 
     @staticmethod
@@ -390,7 +415,7 @@ class TelegramMirrorSensor(BaseSensor):
             # Z-score analysis: normalize hits per channel scraped
             normalized = total_kw_hits / max(channels_scraped, 1)
             z_score = self._compute_zscore_tg(theater, normalized)[0]
-            self._update_baseline_tg(theater, normalized)
+            self._update_baseline_tg(theater, normalized, self.poll_interval)
 
             is_burst = False
             if z_score >= NARRATIVE_ZSCORE_CRITICAL:
