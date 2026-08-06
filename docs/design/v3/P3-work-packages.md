@@ -20,7 +20,7 @@
 | WP-0.2 | 検知回復のための現行系修正 | 0 | — | 独立・小規模 |
 | WP-0.3 | 容量実測とバックアップ健全性指標 | 0 | WP-0.1 | 独立 |
 | WP-1.1 | L5: 発火生存監視 | 1 | — | **完了 2026-08-06**（現行系に対して構築） |
-| WP-1.2 | L5: 設定到達性検査 | 1 | — | 同上 |
+| WP-1.2 | L5: 設定到達性検査 | 1 | — | **完了 2026-08-06**（現行系に対して構築） |
 | WP-1.3 | L5: 窓健全性・単位整合検査 | 1 | — | 同上 |
 | WP-1.4 | L5: ゲート生存検査・系譜監査 | 1 | — | 同上 |
 | WP-2.1 | K カーネル（型・provenance・閾値） | 2 | — | v3 基盤 |
@@ -154,6 +154,9 @@ override 行と監査行が書かれ UI に新値が出るが、**誰もその�
 3. registry 既定値と直読み既定値の不一致（5 件、`PLUGIN_ENABLED` は意味論が反転）を検出できる
 
 **やってはいけないこと**: この検査を「CI ゲート」として作るだけで終わらせない。**実行時の到達性**が問題であり、静的検査だけでは import 時凍結（71 キー）を捉えきれない
+
+**完了記録（2026-08-06）**: `radar/verification/config_static_audit.py`（AST 分類器 — import 束縛解決でエイリアスを追跡、動的キーは dynamic として必ず表面化）+ `config_reachability.py`（判定 + L5 日次ジョブ 2 本目 + snapshot）。**受け入れ: S1-CONF-008 と完全一致** — 99 キー中 BYPASSED 94 + DEAD 1（`LLM_OVERRIDE_WINDOW`）= 迂回 95、FULL 2（CHRONIC + WP-0.1 の `SIGNAL_LEDGER_RETENTION_DAYS` を経由と正しく分類）、PARTIAL 2。直読み 58 キー/65 箇所、import 凍結 71（うち凍結のみ 38）、既定値不一致 5 件（`PLUGIN_ENABLED` 意味論反転含む、secret は値秘匿）。逆欠陥 S1-CONF-010（解決経由だが未登録: `CHRONIC_DUTY_*` 2 キー）も検出。実行時読み取りトラッカーは `get_config` 内 0.33µs/call、`config_read_stats`（migration v56）へ日次永続、**never-read 判定はキー毎の 24h 観測床**（S5-VERIF-014）。CI 回帰ゲート `scripts/check_config_reachability.py` は **AST レジストリ抽出で radar 無 import・無 DB 書込**（mtime + importtime で証明）、baseline 比較で新規迂回のみ fail。`config_layered.py` の虚偽 docstring（実在しない CI ゲート）を訂正。新規 117 テスト / 全スイート 2231 passed。
+**K 層への申し送り**: `PLUGIN_ENABLED` の registry `'*'` は typo ではなく**未調停の第二意見**（plugin_loader は `''` = opt-in を意図してコメント明記）— K 層で経路統一する前に既定値の裁定が必要（統一すると plugin 自動ロードが有効化される）。
 
 ### WP-1.3 — 窓健全性・単位整合検査
 
