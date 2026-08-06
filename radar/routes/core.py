@@ -57,8 +57,14 @@ log = logging.getLogger("radar")
 # whose cold latency was the dominant cause of the "huge wait" focus-change
 # regressions. Slow sensors continue to refresh on their normal scheduler.
 # (Issue A — Phase 4 commit 3.)
+# Names must match the registry exactly: the force path filters registered
+# sensors by name, so an unknown entry matches nothing and that sensor
+# silently never refreshes. "cf" / "ioda" did exactly that until 2026-08-07
+# (F-02) — the registry knows them as cloudflare_radar / ioda_bgp.
+# tests/test_force_sync_sensors.py pins the whole set against the registry.
 _FORCE_SYNC_SENSORS: frozenset[str] = frozenset({
-    "cf", "ioda", "opensky", "gdelt", "check_host", "telegram_mirror",
+    "cloudflare_radar", "ioda_bgp", "opensky", "gdelt", "check_host",
+    "telegram_mirror",
 })
 
 # Guard so a single in-flight force=sensors greenlet covers concurrent SYNC
