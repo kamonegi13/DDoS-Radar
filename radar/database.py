@@ -3520,6 +3520,27 @@ class RadarDB:
                 (job_id, last_run_at, next_run_at),
             )
 
+    def l5_job_all(self) -> list[dict]:
+        """Every scheduled L5 check's persisted state (the heartbeat source)."""
+        rows = self._get_conn().execute(
+            "SELECT job_id, last_run_at, next_run_at FROM l5_job_state "
+            "ORDER BY job_id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def user_attention_thresholds_all(self) -> list[dict]:
+        """Every stored per-user ATTENTION threshold override.
+
+        Read-only, for the WP-1.4 lineage audit. The evaluation path in
+        radar/attention.py reads none of these rows — that is defect G-02,
+        and this accessor exists to measure it, not to feed it.
+        """
+        rows = self._get_conn().execute(
+            "SELECT user_id, rule_id, threshold, set_at "
+            "FROM user_attention_thresholds ORDER BY user_id, rule_id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def l5_check_append(self, ts: float, check_id: str, target: str,
                         verdict: str, measured_json: str | None = None,
                         expected_json: str | None = None,

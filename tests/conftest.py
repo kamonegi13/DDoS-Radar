@@ -187,10 +187,15 @@ def l5_tmp_db(tmp_path, monkeypatch):
     Usage:  inst = l5_tmp_db(firing_monitor, "l5")
     """
     from radar.database import RadarDB
+    from radar.verification import l5_common
 
     def _bind(module, subdir: str = "l5"):
         inst = RadarDB(str(tmp_path / subdir / "radar.db"))
         monkeypatch.setattr(module, "_db", lambda: inst)
+        # The shared plumbing resolves its own handle (the heartbeat reads
+        # l5_job_state directly), so point it at the same temp database —
+        # otherwise a test would silently assert against production rows.
+        monkeypatch.setattr(l5_common, "db", lambda: inst)
         return inst
 
     return _bind

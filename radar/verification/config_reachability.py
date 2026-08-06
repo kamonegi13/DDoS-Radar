@@ -65,6 +65,9 @@ REASON_OK = "resolving"
 _db = l5_common.db
 _now = l5_common.now
 
+l5_common.register_job(JOB_ID, label="Config reachability",
+                       interval_sec=JOB_INTERVAL_SEC)
+
 
 def _audit() -> static_audit.AuditResult:
     """Seam for tests; production shares one memoised repo scan."""

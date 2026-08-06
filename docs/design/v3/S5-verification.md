@@ -300,7 +300,8 @@ A→B→A の復帰は**必ず 3 行として記録 MUST**。多値型（ANOMALY
 
 #### S5-VERIF-037: 退化した cell を検知能力の証拠にしてはならない
 **挙動**: `fn == 0` かつ `tn == 0` の cell は recall が構成上 1.0 に固定されるため **`DEGENERATE` として表示 MUST**、ゲートの合否根拠にしてはならない **MUST NOT**。`tp + fn < 5` の cell も `INSUFFICIENT_DATA` として扱う **MUST**。cutover 判定では**非退化 cell のみを数える MUST**。
-**根拠**: 較正インシデント #1（2026-05-29、blanket-TP により recall が 1.0 に固定され、ゲートは動かない数値を守っていた）。**実測: 現行 baseline の 8 cell 中 4 件（attack_mode 全 4 シナリオ）が `fn=0 ∧ tn=0` で recall=1.0**、precision は 0.235〜0.50
+**根拠**: 較正インシデント #1（2026-05-29、blanket-TP により recall が 1.0 に固定され、ゲートは動かない数値を守っていた）。**実測: 現行 baseline の 8 cell 中 5 件が `fn=0 ∧ tn=0` で recall=1.0**（`eastern_europe/attack_mode`, `eastern_europe/threat_level`, `korean_peninsula/attack_mode`, `middle_east/attack_mode`, `taiwan_contingency/attack_mode`）、precision は 0.235〜0.50。
+**2026-08-06 実ファイル検証で 4→5 に更正**（`eastern_europe/threat_level` も該当。`middle_east/threat_level` は tn=1 で非該当）。**検出は件数でなく述語で行う**（件数は baseline 再生成のたびに変わる）
 **検証**: tests/test_check_recall_baseline.py（16 件。退化検出は不在）
 **分類**: **NEW**
 
@@ -607,7 +608,7 @@ A→B→A の復帰は**必ず 3 行として記録 MUST**。多値型（ANOMALY
 | ID | 事象 | 裁定の論点 |
 |---|---|---|
 | A1 | パリティ一致率の下限 0.98（CUT-01）と型別下限（CUT-04）は**実測に基づかない設定値** | 並走 14 日の実測分布を見てから確定するか、先に固定して未達なら v3 側を直すか。**後者を推奨**（先に緩めると根拠が消える） |
-| A2 | 現行 baseline 8 cell 中 4 件（attack_mode 全件）が退化しており、CUT-07（非退化 cell ≥ 4）は **threat_level の 4 cell でぎりぎり満たす** | cutover 前にラベル生成器側で attack_mode の TN/FN を出せるようにするか、attack_mode を recall 判定の対象外と明示するか |
+| A2 | 現行 baseline 8 cell 中 **5 件**が退化しており（attack_mode 全 4 + `eastern_europe/threat_level`）、**CUT-07（非退化 cell ≥ 4）は現在不合格（3 < 4）**。非退化かつ `tp+fn ≥ 5` を満たすのは `korean_peninsula/threat_level`（tp=4 fn=3）/ `middle_east/threat_level`（tp=33 fn=0）/ `taiwan_contingency/threat_level`（tp=24 fn=1）の **3 件のみ**。**2026-08-07 更正: 退化セル 4→5 の帰結。解消には threat_level の負例ラベル（TRUE_NEGATIVE / FALSE_NEGATIVE）収集が必要 — アナリスト運用への申し送り** | cutover 前にラベル生成器側で attack_mode の TN/FN を出せるようにするか、attack_mode を recall 判定の対象外と明示するか。**いずれの裁定でも CUT-07 は現状未達**であり、cutover 判定の前に非退化 cell を 4 件以上へ増やす運用（負例ラベル収集）が先行して要る |
 | A3 | LLM 補強を伴う結論型（attack_mode LLM augment、既定 OFF）をパリティ対象に含めるか | 含めるなら S5-VERIF-022 の応答再生が必須。除外するなら「パリティ未検証の経路」として台帳に明記が要る |
 | A4 | 信号台帳 retention 60 日（S5-VERIF-018）と conclusions の 90d→365d 化保留（D3 §3-3）の整合 | 365d 化するなら信号台帳も揃えるか、パリティ窓だけ 60 日で足りるとするか |
 | A5 | rollback（S5-VERIF-045）を自動発火にするか手動にするか | 自動は誤検知で不安定化するリスク、手動は反応遅延のリスク。NP1 では自動側、NP7 では人間判断側 |

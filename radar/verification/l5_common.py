@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 log = logging.getLogger("radar")
@@ -137,6 +138,100 @@ def summary_verdict(counts: dict) -> str:
     if counts.get("ANOMALY"):
         return "ANOMALY"
     return "WARN" if counts.get("WARN") else "OK"
+
+
+# ── the L5 heartbeat ────────────────────────────────────────────────────────
+#
+# WP-1.4 condition 3: "when did each self-check last run" must be one
+# glance. A self-evaluation surface that silently stopped updating is
+# worse than none — it reports yesterday's health with today's confidence.
+#
+# Checks self-register at import rather than being listed here, so adding a
+# fifth check cannot leave it out of the heartbeat by omission. The static
+# expectation lives in tests/test_gate_lineage.py, which fails if a
+# registered check disappears.
+
+STALE_INTERVAL_MULTIPLIER = 2.0   # silent past 2 scheduled runs -> WARN
+
+_KNOWN_JOBS: dict[str, "JobSpec"] = {}
+
+
+@dataclass(frozen=True)
+class JobSpec:
+    job_id: str
+    label: str
+    interval_sec: float
+
+
+def register_job(job_id: str, *, label: str,
+                 interval_sec: float = JOB_INTERVAL_SEC) -> None:
+    """Declare a scheduled L5 check. Idempotent; called at module import."""
+    _KNOWN_JOBS[job_id] = JobSpec(job_id=job_id, label=label,
+                                  interval_sec=float(interval_sec))
+
+
+def known_jobs() -> tuple[JobSpec, ...]:
+    return tuple(sorted(_KNOWN_JOBS.values(), key=lambda j: j.job_id))
+
+
+def _job_verdict(state: Optional[dict], spec: JobSpec,
+                 ts: float) -> tuple[str, str]:
+    """(verdict, reason) for one scheduled job. Pure."""
+    last_run_at = None if state is None else state.get("last_run_at")
+    if last_run_at is None:
+        # Never ran: not yet evidence of failure (a fresh deployment looks
+        # identical), but it must not read as healthy either.
+        return ("INSUFFICIENT", "never_ran")
+    silence = ts - float(last_run_at)
+    if silence > STALE_INTERVAL_MULTIPLIER * spec.interval_sec:
+        return ("WARN", "l5_job_stale")
+    return ("OK", "ran_recently")
+
+
+def heartbeat_snapshot(now: Optional[float] = None) -> dict:
+    """Liveness of every L5 check, for /api/v2/self_eval.
+
+    Covers the union of registered checks and rows found in l5_job_state,
+    so a job written by a check this process never imported still shows up.
+    Degrades to UNKNOWN rather than to an empty (green-looking) block: an
+    unanswerable query is not a healthy one (S5-VERIF-006).
+    """
+    # `now` shadows the module-level helper of the same name here, so the
+    # clock is resolved inline rather than through it.
+    ts = time.time() if now is None else now
+    try:
+        states = {row["job_id"]: row for row in db().l5_job_all()}
+    except Exception as exc:  # noqa: BLE001 - degrade to UNKNOWN, not to OK
+        log.warning("l5 heartbeat query failed: %s", exc)
+        return {"verdict": "UNKNOWN", "error": str(exc), "jobs": []}
+
+    specs = {spec.job_id: spec for spec in known_jobs()}
+    for job_id in states:
+        specs.setdefault(job_id, JobSpec(job_id=job_id, label=job_id,
+                                         interval_sec=JOB_INTERVAL_SEC))
+
+    jobs = []
+    for job_id in sorted(specs):
+        spec = specs[job_id]
+        state = states.get(job_id)
+        verdict, reason = _job_verdict(state, spec, ts)
+        jobs.append({
+            "job_id": job_id,
+            "label": spec.label,
+            "verdict": verdict,
+            "reason": reason,
+            "interval_sec": spec.interval_sec,
+            "last_run_at": None if state is None else state.get("last_run_at"),
+            "next_run_at": None if state is None else state.get("next_run_at"),
+            "silence_sec": (None if state is None
+                            or state.get("last_run_at") is None
+                            else round(ts - float(state["last_run_at"]), 1)),
+        })
+
+    present = {job["verdict"] for job in jobs}
+    overall = next((v for v in VERDICT_ORDER if v in present), "INSUFFICIENT")
+    return {"verdict": overall, "jobs": jobs,
+            "stale_multiplier": STALE_INTERVAL_MULTIPLIER}
 
 
 def run_daily_if_due(*, db_fn: Callable, job_id: str, run_fn: Callable,

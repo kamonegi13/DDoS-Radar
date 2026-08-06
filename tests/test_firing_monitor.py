@@ -48,11 +48,9 @@ def _spec(sensor: str, flag_id: str = "is_probe", interval: int = 10) -> FlagSpe
 
 
 @pytest.fixture
-def fm_db(tmp_path, monkeypatch):
+def fm_db(l5_tmp_db):
     """Bind the monitor to a throwaway RadarDB (real schema, real accessors)."""
-    inst = RadarDB(str(tmp_path / "l5" / "radar.db"))
-    monkeypatch.setattr(firing_monitor, "_db", lambda: inst)
-    return inst
+    return l5_tmp_db(firing_monitor, "l5")
 
 
 @pytest.fixture

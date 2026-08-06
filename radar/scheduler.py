@@ -711,6 +711,20 @@ def _cache_cleanup_worker(registry=None):
                 log.warning("[WindowUnitHealth] daily check failed: %s",
                             _wu_exc)
 
+            # WP-1.4: safety-gate liveness + label lineage. Catches the
+            # class where a guard stopped guarding silently — the recall
+            # gate whose fail-open branch fires on every call (G-07), stored
+            # ATTENTION thresholds nothing reads (G-02), and recall cells
+            # whose value is pinned by construction (G-08 / F-16).
+            try:
+                from radar.verification.gate_lineage import (
+                    run_daily_check_if_due as _gate_lineage_check,
+                )
+                if _gate_lineage_check():
+                    log.info("[GateLineage] daily gate/lineage check ran")
+            except Exception as _gl_exc:
+                log.warning("[GateLineage] daily check failed: %s", _gl_exc)
+
             # ATTENTION adaptive learning (commit O): hourly observation
             # tick + nightly p95 recompute + nightly cleanup.
             try:

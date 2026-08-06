@@ -806,6 +806,32 @@ def v2_self_eval():
     except Exception as e:  # noqa: BLE001
         out["window_unit_health_error"] = str(e)
 
+    # gate_lineage — WP-1.4. Where the other three ask whether the system
+    # is measuring, this asks whether its guards are still participating:
+    # `dead_gates` names a safety gate that takes its fail-open branch on
+    # every call (G-07), `ineffective_overrides` analyst settings nothing
+    # reads (G-02), `degenerate_cells` recall figures pinned to 1.0 by
+    # construction (G-08).
+    try:
+        from radar.verification.gate_lineage import snapshot as _gl_snapshot
+        out["gate_lineage"] = _gl_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["gate_lineage_error"] = str(e)
+
+    # l5_heartbeat — WP-1.4 condition 3. "When did each self-check last
+    # run" in one glance. A self-evaluation surface that quietly stopped
+    # updating reports yesterday's health with today's confidence, so the
+    # freshness of the checks is itself part of the surface.
+    # Keep this block LAST: checks register their job at module import, and
+    # the four imports above are what guarantees a complete roster here.
+    # (Jobs that have ever run are also recovered from l5_job_state, so a
+    # reorder degrades the roster rather than emptying it.)
+    try:
+        from radar.verification.l5_common import heartbeat_snapshot
+        out["l5_heartbeat"] = heartbeat_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["l5_heartbeat_error"] = str(e)
+
     # attention metrics collection errors (SF5).
     try:
         from radar.attention import _collect_metrics as _att_metrics  # noqa: SLF001

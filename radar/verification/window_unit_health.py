@@ -70,6 +70,9 @@ REASON_UNIT_OK = "unit_consistent"
 _db = l5_common.db
 _now = l5_common.now
 
+l5_common.register_job(JOB_ID, label="Baseline window / unit consistency",
+                       interval_sec=JOB_INTERVAL_SEC)
+
 
 # ── S5-VERIF-010/011: window health ────────────────────────────────────────
 def window_verdict(effective_h: Optional[float],

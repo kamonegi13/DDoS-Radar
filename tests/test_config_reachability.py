@@ -50,10 +50,8 @@ class _BrokenDB:
 
 
 @pytest.fixture
-def cr_db(tmp_path, monkeypatch):
-    inst = RadarDB(str(tmp_path / "l5cfg" / "radar.db"))
-    monkeypatch.setattr(cr, "_db", lambda: inst)
-    return inst
+def cr_db(l5_tmp_db):
+    return l5_tmp_db(cr, "l5cfg")
 
 
 def _key(name: str, **kw) -> ConfigKey:

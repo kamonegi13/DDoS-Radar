@@ -47,6 +47,9 @@ CHECK_RESULT_RETENTION_DAYS = l5_common.CHECK_RESULT_RETENTION_DAYS
 _db = l5_common.db
 _now = l5_common.now
 
+l5_common.register_job(JOB_ID, label="Detection-flag firing liveness",
+                       interval_sec=JOB_INTERVAL_SEC)
+
 
 def _is_enabled(sensor_name: str) -> bool:
     """Whether the registry considers this sensor enabled.
