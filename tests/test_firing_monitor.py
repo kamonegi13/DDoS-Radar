@@ -210,6 +210,86 @@ class TestSilenceVerdicts:
         assert r["fire_count_30d"] == 0  # state was seeded directly, no fire log
 
 
+class TestNeverFiredRatioSemantics:
+    """S5-VERIF-003 as amended 2026-08-06 (owner-approved).
+
+    A flat 30-day never-fired grace was asymmetrically harsher than the
+    rule for fired flags — a flag with a 30d interval that fired 30d ago is
+    merely WARN, while an identical flag that never fired was ANOMALY. It
+    also produced a groundless ANOMALY burst for genuinely rare flags
+    (180d intervals) 31 days after deployment, which would have polluted
+    CUT-08. Never-fired now uses the same ratio semantics, anchored at
+    first_observed_at, with 30 days kept only as an observation floor.
+    """
+
+    NOW = 1_700_000_000.0
+
+    def _verdict(self, fm_db, monkeypatch, interval_days, age_days):
+        sensor = f"probe_{uuid.uuid4().hex[:8]}"
+        monkeypatch.setattr(flag_catalog, "CATALOG",
+                            (_spec(sensor, interval=interval_days),))
+        fm_db.flag_state_upsert(
+            sensor, "is_probe", self.NOW - age_days * DAY, fired=False)
+        results = [r for r in firing_monitor.evaluate_silence(now=self.NOW)
+                   if r["sensor"] == sensor]
+        assert len(results) == 1
+        return results[0]
+
+    @pytest.mark.parametrize("interval,age,expected", [
+        (7, 31, "ANOMALY"),          # ratio ~4.4 — clearly dead
+        (30, 31, "WARN"),            # ratio ~1.03 — overdue, not yet damning
+        (30, 90, "ANOMALY"),         # ratio 3.0 — boundary
+        (30, 89, "WARN"),            # ratio ~2.97 — just below
+        (180, 31, "INSUFFICIENT"),   # ratio ~0.17 — the false burst removed
+        (10, 29, "INSUFFICIENT"),    # under the observation floor
+        (1, 29, "INSUFFICIENT"),     # floor wins even at ratio 29
+    ])
+    def test_never_fired_verdict_boundaries(self, fm_db, monkeypatch,
+                                            interval, age, expected):
+        result = self._verdict(fm_db, monkeypatch, interval, age)
+        assert result["verdict"] == expected, result
+
+    def test_observation_floor_is_thirty_days(self, fm_db, monkeypatch):
+        assert flag_catalog.NEVER_FIRED_GRACE_DAYS == 30
+        assert self._verdict(fm_db, monkeypatch, 1, 29)["verdict"] == "INSUFFICIENT"
+        assert self._verdict(fm_db, monkeypatch, 1, 30)["verdict"] == "ANOMALY"
+
+    def test_reasons_distinguish_the_three_never_fired_states(self, fm_db,
+                                                              monkeypatch):
+        assert self._verdict(fm_db, monkeypatch, 10, 29)["reason"] == \
+            "never_fired_within_grace"
+        assert self._verdict(fm_db, monkeypatch, 180, 31)["reason"] == \
+            "never_fired_within_interval"
+        assert self._verdict(fm_db, monkeypatch, 7, 31)["reason"] == "never_fired"
+
+    def test_silence_ratio_is_reported_for_never_fired_flags(self, fm_db,
+                                                             monkeypatch):
+        """NP6: the number the verdict was derived from must be visible."""
+        result = self._verdict(fm_db, monkeypatch, 30, 90)
+        assert result["silence_ratio"] == pytest.approx(3.0, abs=1e-6)
+        assert result["last_fired_at"] is None
+
+    @pytest.mark.parametrize("age,expected", [(31, "WARN"), (90, "ANOMALY")])
+    def test_never_fired_matches_fired_at_the_same_ratio(self, fm_db, monkeypatch,
+                                                         age, expected):
+        """The asymmetry the amendment removes: identical silence, identical
+        interval, identical verdict — whether or not it ever fired."""
+        never = self._verdict(fm_db, monkeypatch, 30, age)
+
+        fired_sensor = f"probe_{uuid.uuid4().hex[:8]}"
+        monkeypatch.setattr(flag_catalog, "CATALOG",
+                            (_spec(fired_sensor, interval=30),))
+        fm_db.flag_state_upsert(
+            fired_sensor, "is_probe", self.NOW - 400 * DAY, fired=False)
+        fm_db.flag_state_upsert(
+            fired_sensor, "is_probe", self.NOW - age * DAY, fired=True)
+        fired = [r for r in firing_monitor.evaluate_silence(now=self.NOW)
+                 if r["sensor"] == fired_sensor][0]
+
+        assert never["verdict"] == fired["verdict"] == expected
+        assert never["silence_ratio"] == pytest.approx(fired["silence_ratio"])
+
+
 class TestDisabledSensorsSkipped:
     def test_disabled_sensor_is_not_evaluated(self, fm_db, monkeypatch):
         from radar import registry

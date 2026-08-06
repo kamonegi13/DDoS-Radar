@@ -46,9 +46,19 @@ UNIT_VOCABULARY = frozenset({
 # Deliberately module constants rather than config-registry keys (P6 O-18):
 # a verification gate whose thresholds can be relaxed at runtime is not a
 # gate. Changing these is a code change with a diff and a review.
+#
+# Amended 2026-08-06 (owner-approved): the two ratios now govern BOTH
+# fired and never-fired flags. A never-fired flag is measured as
+# age-since-first-observation over the same expected interval, so an
+# identical silence yields an identical verdict either way.
+# NEVER_FIRED_GRACE_DAYS is no longer a verdict trigger — it is only the
+# observation floor below which no verdict is issued at all. The previous
+# flat-30d rule was asymmetrically harsher than the fired-flag rule and
+# produced a groundless ANOMALY burst for rare flags (180d intervals) 31
+# days after deployment, which would have polluted the CUT-08 gate.
 SILENCE_WARN_RATIO = 1.0        # silence >= 1x the expected interval  -> WARN
 SILENCE_ANOMALY_RATIO = 3.0     # silence >= 3x the expected interval  -> ANOMALY
-NEVER_FIRED_GRACE_DAYS = 30     # never fired since first sight        -> ANOMALY
+NEVER_FIRED_GRACE_DAYS = 30     # observation floor before ANY verdict
 
 # Fire-log retention. Matched to SIGNAL_LEDGER_RETENTION_DAYS (WP-0.1) so a
 # 30-day parity replay can also replay the firing history behind it.

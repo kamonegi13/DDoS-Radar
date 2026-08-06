@@ -112,10 +112,25 @@ def _verdict_for(spec, state: dict | None, now: float) -> tuple[str, str, float 
         # Explicit None check: 0.0 is a real timestamp, and `or now` would
         # silently reclassify a decade of silence as a fresh observation.
         age = now - float(now if first_seen is None else first_seen)
-        if age >= flag_catalog.NEVER_FIRED_GRACE_DAYS * _DAY:
-            # The F-08 symptom: alive since day one, never once fired.
-            return "ANOMALY", "never_fired", None
-        return "INSUFFICIENT", "never_fired_within_grace", None
+        # S5-VERIF-003 as amended 2026-08-06 (owner-approved): a flag that
+        # never fired is measured with the SAME ratio semantics as one that
+        # fired long ago, anchored at first_observed_at instead of
+        # last_fired_at. NEVER_FIRED_GRACE_DAYS survives only as an
+        # observation floor — no verdict before 30 days of watching. The
+        # old flat-30d rule was harsher on never-fired flags than on fired
+        # ones and manufactured an ANOMALY burst for genuinely rare flags.
+        ratio = age / window if window > 0 else 0.0
+        if age < flag_catalog.NEVER_FIRED_GRACE_DAYS * _DAY:
+            return "INSUFFICIENT", "never_fired_within_grace", ratio
+        if ratio >= flag_catalog.SILENCE_ANOMALY_RATIO:
+            # The F-08 symptom: alive far past its expected cadence,
+            # never once fired.
+            return "ANOMALY", "never_fired", ratio
+        if ratio >= flag_catalog.SILENCE_WARN_RATIO:
+            return "WARN", "never_fired", ratio
+        # Observed long enough to judge the clock, not long enough to tell
+        # a dead detector from a rare phenomenon.
+        return "INSUFFICIENT", "never_fired_within_interval", ratio
 
     ratio = (now - float(last_fired)) / window if window > 0 else 0.0
     if ratio >= flag_catalog.SILENCE_ANOMALY_RATIO:

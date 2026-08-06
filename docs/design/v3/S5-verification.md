@@ -46,10 +46,14 @@ CLAUDE.md の用語定義に従う（country / scenario / participant / focused 
 **分類**: **NEW**
 
 #### S5-VERIF-003: 長期無発火を数値規則で異常と判定する
-**挙動**: 毎日 `silence_ratio = (now − last_fired_at) / (expected_fire_interval_days × 86400)` を評価し、`>= 1.0` → **WARN**、`>= 3.0` → **ANOMALY MUST**。一度も発火せず `now − first_observed_at >= 30 日` なら **ANOMALY MUST**（実装当初から無発火 = F-08 の症状）。
-**閾値**: WARN 倍率 1.0 / ANOMALY 倍率 3.0 / 未発火猶予 30 日
-**根拠**: D2 F-08（gps_jamming が実装当初から恒久無発火、テスト 0 件で長期未発見）
-**検証**: 未検証
+**挙動**: 毎日、発火済み・未発火の**両方を同一の比率意味論**で評価 **MUST**。
+- **発火済み**: `silence_ratio = (now − last_fired_at) / (expected_fire_interval_days × 86400)`
+- **未発火**: `age = now − first_observed_at` とし、`age < 30 日` なら **INSUFFICIENT MUST**（観測床 — 30 日未満では判定を出さない）。`age >= 30 日` なら `silence_ratio = age / (expected_fire_interval_days × 86400)`
+
+いずれの場合も `silence_ratio >= 1.0` → **WARN**、`>= 3.0` → **ANOMALY MUST**。未発火で `silence_ratio < 1.0` は **INSUFFICIENT MUST**（「死んでいる」と「稀にしか起きない」をまだ区別できない）。判定の由来となった `silence_ratio` は結果に含める **MUST**（NP6）。
+**閾値**: WARN 倍率 1.0 / ANOMALY 倍率 3.0 / 未発火の観測床 30 日
+**根拠**: D2 F-08（gps_jamming が実装当初から恒久無発火、テスト 0 件で長期未発見）。**2026-08-06 改訂（オーナー承認）: 一律 30 日は発火済みフラグより厳しい非対称で、interval 180d の稀発火フラグに根拠なき ANOMALY 初期バーストを生む（CUT-08 汚染）。無発火も同一の比率意味論に統一。** 30 日は判定トリガではなく観測床としてのみ残す。
+**検証**: tests/test_firing_monitor.py `TestNeverFiredRatioSemantics`（境界値 + 発火済みとの対称性）、tests/test_f08_acceptance.py（F-08 を 3× interval 超で ANOMALY 検出、31 日時点では ANOMALY でないことも固定）
 **分類**: **NEW**
 
 #### S5-VERIF-004: health は「取得の生存」と「判定の生存」の 2 軸で表明する

@@ -118,27 +118,58 @@ class TestL5DetectsPermanentNonFiring:
         assert all(r["last_fired_at"] is None
                    for r in fm_db.flag_state_for(SENSOR))
 
-    @pytest.fixture
-    def recorded(self, fm_db, jammed_payload):
-        """31 days of successful fetches that never once fire.
+    # is_jammed expects a fire every 30d, is_critical every 90d. Under the
+    # 2026-08-06 amendment a never-fired flag reaches ANOMALY at 3x its own
+    # interval, so the observation window must clear 3 x 90d = 270d for the
+    # slowest flag in the sensor.
+    OBSERVED_DAYS = 300
 
-        The wall-clock row written by the real fetch() in `jammed_payload`
-        is cleared first so the synthetic clock below is unambiguous; that
-        the hook wrote it at all is asserted separately above.
-        """
+    def _replay(self, fm_db, payload, span_days):
+        """Clear the wall-clock row from the real fetch(), then replay the
+        sensor on a synthetic clock for `span_days` of never-firing fetches."""
         conn = fm_db._get_conn()
         with conn.writing():
             conn.execute("DELETE FROM sensor_flag_state WHERE sensor = ?", (SENSOR,))
             conn.execute("DELETE FROM sensor_flag_fire_log WHERE sensor = ?", (SENSOR,))
-        for age_days in (31, 20, 10, 3, 0):
+        ages = sorted({span_days, span_days // 2, span_days // 4, 3, 0},
+                      reverse=True)
+        for age_days in ages:
             firing_monitor.record_evaluation(
-                SENSOR, jammed_payload, now=self.NOW - age_days * DAY)
+                SENSOR, payload, now=self.NOW - age_days * DAY)
         return fm_db
+
+    @pytest.fixture
+    def recorded(self, fm_db, jammed_payload):
+        """300 days of successful fetches that never once fire.
+
+        The wall-clock row written by the real fetch() in `jammed_payload`
+        is cleared first so the synthetic clock is unambiguous; that the
+        hook wrote it at all is asserted separately above.
+        """
+        return self._replay(fm_db, jammed_payload, self.OBSERVED_DAYS)
+
+    @pytest.mark.parametrize("flag,expected", [
+        ("is_jammed", "WARN"),          # interval 30d -> ratio ~1.03
+        ("is_critical", "INSUFFICIENT"),  # interval 90d -> ratio ~0.34
+    ])
+    def test_day_31_is_not_yet_anomaly(self, fm_db, jammed_payload, flag,
+                                       expected):
+        """Pins the 2026-08-06 amendment. Under the old flat-30d rule both
+        flags were ANOMALY at day 31 regardless of their expected cadence —
+        the groundless burst that would have polluted CUT-08. The verdict
+        now scales with each flag's own interval."""
+        self._replay(fm_db, jammed_payload, 31)
+        results = {(r["sensor"], r["flag_id"]): r
+                   for r in firing_monitor.evaluate_silence(now=self.NOW)}
+        result = results[(SENSOR, flag)]
+        assert result["verdict"] == expected, result
+        assert result["verdict"] != "ANOMALY"
 
     def test_state_shows_a_live_sensor_that_never_fired(self, recorded):
         rows = {r["flag_id"]: r for r in recorded.flag_state_for(SENSOR)}
         for flag in ("is_jammed", "is_critical"):
-            assert rows[flag]["first_observed_at"] == self.NOW - 31 * DAY
+            assert rows[flag]["first_observed_at"] == \
+                self.NOW - self.OBSERVED_DAYS * DAY
             assert rows[flag]["last_eval_at"] == self.NOW, \
                 "the sensor is being evaluated — fetch liveness is fine"
             assert rows[flag]["last_fired_at"] is None, \
@@ -153,6 +184,8 @@ class TestL5DetectsPermanentNonFiring:
         assert r["reason"] == "never_fired"
         assert r["last_fired_at"] is None
         assert r["fire_count_30d"] == 0
+        assert r["silence_ratio"] >= 3.0, \
+            "ANOMALY must be justified by >=3x the flag's own interval"
 
     def test_detection_health_is_anomaly_while_fetch_health_is_not(
             self, recorded, jammed_payload):
