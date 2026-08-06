@@ -19,7 +19,7 @@
 | WP-0.1 | 信号台帳 retention 60 日化 | 0 | — | **時間律速・最優先** |
 | WP-0.2 | 検知回復のための現行系修正 | 0 | — | 独立・小規模 |
 | WP-0.3 | 容量実測とバックアップ健全性指標 | 0 | WP-0.1 | 独立 |
-| WP-1.1 | L5: 発火生存監視 | 1 | — | 現行系に対して構築 |
+| WP-1.1 | L5: 発火生存監視 | 1 | — | **完了 2026-08-06**（現行系に対して構築） |
 | WP-1.2 | L5: 設定到達性検査 | 1 | — | 同上 |
 | WP-1.3 | L5: 窓健全性・単位整合検査 | 1 | — | 同上 |
 | WP-1.4 | L5: ゲート生存検査・系譜監査 | 1 | — | 同上 |
@@ -133,6 +133,10 @@ cutover 可能日は「本作業の完了 + 30 日」より前には来ない。
 3. **受け入れ検証**: 修正前の gps_jamming（F-08）を「恒久無発火」として検出できる
 
 **やってはいけないこと**: WP-0.2 で F-08 を修正した後に作ると検証できない。**修正前のデータか、合成データで検証する**
+
+**完了記録（2026-08-06）**: `radar/verification/`（flag_catalog: 23 センサー / 42 フラグ + `NO_DETECTION_FLAGS` 11 で全 34 センサーを第三状態なしに全数分類、firing_monitor）、DB migration v55（`sensor_flag_state` / `sensor_flag_fire_log` 60d / `l5_check_result` 365d / `l5_job_state`）。記録点は `BaseSensor.set_cache()`（1 評価 = 1 トランザクション）、日次検査は `l5_job_state` の永続スケジュール駆動（F-01 の揮発カウンタ不使用・再起動時は超過分を補償実行）。`detection_health` は fetch 側 health と**別軸**で追加（採点 confidence に入る既存 health は不変更 — パリティ基準線保護）。露出は `/api/v2/self_eval` の `firing_liveness` ブロック（照会失敗は `firing_liveness_error` として可視化、S5-VERIF-006）。
+**受け入れ検証（条件 3）**: 実 `GpsJammingSensor.fetch()` に 8% 不良比率の合成タイル（正しい単位なら発火すべきデータ）→ `is_jammed=False` を確認した上で 31 日分評価 → `ANOMALY / never_fired` を両フラグで検出（`tests/test_f08_acceptance.py`）。gps_jamming.py は無改変。新規テスト 204 件 / 全スイート 2100 passed / check_ci.sh 全ゲート通過。
+**フォローアップ**: (1) **LLM 系 4 センサー（apt_intel / hacktivist_intel / hacktivist_news / ground_osint）の判定フラグは cache に現れない**（intel_queue へ直行、set_cache は `{"submitted": N}` のみ）— 発火監視には intel 台帳側の別フックが必要。WP-1.4 か独立 WP で扱う。 (2) **S5-VERIF-003 の一律 30 日猶予は expected_fire_interval 180d の稀発火フラグと緊張** — 仕様どおり実装したため、デプロイ約 31 日後に稀発火フラグの ANOMALY 初期バーストが出る見込み（Phase 5 ゲート CUT-08「未解決 ANOMALY = 0」に関係）。猶予を per-flag 化するかはオーナー裁定候補。
 
 ### WP-1.2 — 設定到達性検査
 

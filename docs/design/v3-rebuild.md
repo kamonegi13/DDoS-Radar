@@ -169,3 +169,17 @@ D1 の全モジュールが仕様化済または理由付き除外、対応条�
   UI は**アナリスト一次ループを一次構造**とし（地図中心 → 状況ボード中心）、AP3 12 チップ → 合成 1 チップ、
   Watchpane 廃止（S10 と責務重複）、宙吊りパネル全数裁定。S1-frontend 72 条項の生死一覧は P8 §8。
   **Phase 4 の前提が揃い、残る先行作業は Phase 1（L5）**。
+- **2026-08-06（同日）**: **実装体制の改訂（オーナー指示）+ WP-1.1 完了**。
+  「実装は Opus セッションで」を廃し、**Fable がオーケストレーターとして全体統括、処理内容に応じて
+  subagent の実行モデル（sonnet / opus / haiku）を指定して委譲**する体制へ移行
+  （設定: メインセッション = claude-fable-5[1m]、agents 定義 48 件に model frontmatter 付与済）。
+  **WP-1.1（L5: 発火生存監視）完了** — 体制の初適用: 構造調査 = Explore(sonnet)、実装 + 修正 = opus、
+  レビュー = code-reviewer + python-reviewer(sonnet) 並列、統括・裁定・最終検証 = Fable。
+  成果: `radar/verification/`（宣言的フラグカタログ 42 フラグ + firing_monitor）、migration v55、
+  リポジトリ初の**永続スケジュール**（`l5_job_state`、F-01 型の揮発カウンタ不使用）、
+  `detection_health` 別軸追加（採点側 health 不変更）、self_eval に `firing_liveness` ブロック。
+  受け入れ検証: 修正前 gps_jamming（F-08）を実センサーコード + 合成データで ANOMALY/never_fired として
+  検出（P3 の WP-1.1 完了記録参照）。レビュー指摘 HIGH 2 件（監査台帳のエピソード境界 / hot-path
+  書込バッチ化）+ N+1 を修正済。新規テスト 204 / 全スイート 2100 passed / CI 全ゲート通過。
+  フォローアップ 2 件（LLM 系センサーのフラグは cache 不可視 / S5-VERIF-003 一律 30d 猶予と
+  180d 間隔フラグの緊張）は P3 の WP-1.1 完了記録に記載。**次: WP-1.2〜1.4（L5 残り）**。
