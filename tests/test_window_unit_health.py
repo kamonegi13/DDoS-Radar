@@ -1,19 +1,26 @@
 """WP-1.3 — window health / unit consistency check (S5-VERIF-007..011).
 
-Two acceptance targets, both still unfixed on purpose (WP-0.2 owns the
-repairs; a check written after the fix proves nothing):
+Two acceptance targets, both repaired by WP-0.2 on 2026-08-07:
 
-  F-06  telegram_mirror caps its rolling baseline at NARRATIVE_BASELINE_DAYS
-        *samples* rather than days x cycles-per-day. At a 900 s cadence the
-        declared 30-day window is really 7.5 hours, so the z-score
-        normalises against the last few hours of itself.
-  F-08  gps_jamming compares a ratio in [0,1] against thresholds defaulting
-        to 3.0 / 7.0, i.e. a percent scale. The comparison can never be
-        true, and fetch health stays green forever.
+  F-06  telegram_mirror capped its rolling baseline at
+        NARRATIVE_BASELINE_DAYS *samples* rather than days x
+        cycles-per-day. At a 900 s cadence the declared 30-day window was
+        really 7.5 hours, so the z-score normalised against the last few
+        hours of itself.
+  F-08  gps_jamming compared a ratio in [0,1] against thresholds
+        defaulting to 3.0 / 7.0, i.e. a percent scale. The comparison
+        could never be true, and fetch health stayed green throughout.
 
-The check must detect both from the *current* source, and must classify
-every catalogued baseline and comparison — including the healthy ones, so
-"nothing to say" and "not looked at" stay distinguishable.
+Each defect now has a paired class: `...Recovery` asserts the live system
+reads healthy on that axis, and `...DetectionCapability` re-proves the
+checker against a synthetic replica of the pre-fix shape. The pairing is
+the point — an acceptance test that only ever ran against a live defect
+would stop meaning anything the moment the defect was fixed, and the
+check would quietly become unverifiable.
+
+The check must classify every catalogued baseline and comparison —
+including the healthy ones, so "nothing to say" and "not looked at" stay
+distinguishable.
 """
 import json
 import os
@@ -60,16 +67,19 @@ def _window_result(target, results=None):
 
 
 # ── F-06 ACCEPTANCE ─────────────────────────────────────────────────────────
-class TestF06Acceptance:
-    def test_real_telegram_baseline_caps_at_thirty_samples(
+class TestF06Recovery:
+    """WP-0.2 repaired F-06. These now assert the RECOVERY; the detector's
+    ability to catch the defect class is preserved by the synthetic spec in
+    TestF06DetectionCapability below — a check that can only be validated
+    against a live defect stops being validatable the moment it succeeds."""
+
+    def test_real_telegram_baseline_now_holds_the_declared_window(
             self, telegram_baseline_clean):
-        """Drive the real classmethod — prove the cap is samples, not days."""
         sensor_cls = telegram_baseline_clean
-        for _ in range(120):
+        for _ in range(3000):
             sensor_cls._update_baseline_tg("TW", 1.0)
         counts = sensor_cls._baseline_tg["TW"]["daily_counts"]
-        assert len(counts) == 30, \
-            "cap is NARRATIVE_BASELINE_DAYS raw samples (F-06)"
+        assert len(counts) == 30 * 96, "days x cycles_per_day at 900 s"
 
     def test_real_rss_baseline_caps_at_days_times_cycles(self):
         from radar.sensors.rss_narrative import RssNarrativeSensor
@@ -80,13 +90,14 @@ class TestF06Acceptance:
         assert len(sensor._baseline["TW"]["daily_counts"]) == 30 * 48, \
             "the 2026-04-29 fix multiplies by cycles_per_day"
 
-    def test_check_reports_anomaly_for_telegram(self):
+    def test_check_now_reports_ok_for_telegram(self):
+        # L5 observing the recovery: the window that read 7.5 h now reads
+        # 720 h and the axis goes green without the check changing.
         result = _window_result("telegram_mirror._baseline_tg")
-        assert result["verdict"] == "ANOMALY"
-        assert result["reason"] == "window_mismatch"
-        assert result["effective_window_h"] == pytest.approx(7.5)
+        assert result["verdict"] == "OK"
+        assert result["effective_window_h"] == pytest.approx(720.0)
         assert result["declared_window_h"] == pytest.approx(720.0)
-        assert result["deviation"] > 0.98
+        assert result["deviation"] == pytest.approx(0.0)
 
     def test_check_reports_ok_for_rss_narrative(self):
         result = _window_result("rss_narrative._baseline")
@@ -94,60 +105,114 @@ class TestF06Acceptance:
         assert result["effective_window_h"] == pytest.approx(720.0)
         assert result["deviation"] == pytest.approx(0.0)
 
-    def test_telegram_source_is_unmodified(self):
-        # Guard: a later session must not 'helpfully' fix F-06 and quietly
-        # destroy this acceptance test. WP-0.2 owns the repair.
+    def test_telegram_source_carries_the_fix(self):
+        # Guard, inverted: the repair must not be reverted, and the old
+        # sample-count cap must not reappear.
         src = (REPO_ROOT / "radar" / "sensors" / "telegram.py").read_text(
             encoding="utf-8")
-        assert 'bl["daily_counts"] = bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]' \
-            in src, "F-06 must remain unfixed until WP-0.2"
+        assert 'bl["daily_counts"] = bl["daily_counts"][-cap:]' in src
+        assert "cycles_per_day" in src
+        assert 'bl["daily_counts"][-NARRATIVE_BASELINE_DAYS:]' not in src
 
-    def test_detection_survives_a_cadence_change(self, monkeypatch):
-        # Even at a 30x slower cadence the window is still 10x short, and
-        # the number must be recomputed rather than remembered.
-        sensor = registry.get("telegram_mirror")
-        monkeypatch.setattr(sensor, "poll_interval", 3600)
-        result = _window_result("telegram_mirror._baseline_tg")
-        assert result["effective_window_h"] == pytest.approx(30.0)
+    def test_recovery_survives_a_cadence_change(self):
+        # The repaired cap is derived from the cadence, so a slower poll
+        # keeps the window at 30 days instead of stretching it.
+        spec = next(s for s in wc.CATALOG
+                    if s.baseline_id == "telegram_mirror._baseline_tg")
+        assert wc.effective_window_hours(spec, 3600) == pytest.approx(720.0)
+        assert wc.effective_window_hours(spec, 300) == pytest.approx(720.0)
+
+
+class TestF06DetectionCapability:
+    """The detector still catches the defect class, proven against a
+    synthetic replica of the pre-fix shape rather than the live sensor."""
+
+    def _broken_spec(self):
+        return wc.WindowSpec(
+            baseline_id="synthetic_broken._baseline", sensor="telegram_mirror",
+            kind=wc.KIND_ROLLING_LIST, cap_mode=wc.CAP_FIXED, cap_value=30,
+            declared_days=30, declared_key="NARRATIVE_BASELINE_DAYS",
+            note="Replica of telegram's pre-WP-0.2 cap (F-06).")
+
+    def test_a_sample_capped_baseline_is_still_an_anomaly(self, monkeypatch):
+        spec = self._broken_spec()
+        monkeypatch.setattr(wc, "CATALOG", (spec,))
+        result = _window_result("synthetic_broken._baseline")
         assert result["verdict"] == "ANOMALY"
+        assert result["reason"] == "window_mismatch"
+        assert result["effective_window_h"] == pytest.approx(7.5)
+        assert result["deviation"] > 0.98
+
+    def test_the_pre_fix_arithmetic_is_unchanged(self):
+        spec = self._broken_spec()
+        assert wc.cap_samples(spec, 900) == 30
+        assert wc.effective_window_hours(spec, 900) == pytest.approx(7.5)
 
 
 # ── F-08 ACCEPTANCE ─────────────────────────────────────────────────────────
-class TestF08Acceptance:
-    def test_both_gps_thresholds_are_unit_mismatches(self):
+class TestF08Recovery:
+    """WP-0.2 repaired F-08; the unit axis observes it. Detection capability
+    for the class is preserved by TestF08DetectionCapability below."""
+
+    def test_both_gps_thresholds_are_now_consistent(self):
         results = _by_target(wuh.evaluate_units())
         for cid in ("gps_jamming.is_jammed", "gps_jamming.is_critical"):
             result = results[cid]
-            assert result["verdict"] == "ANOMALY", cid
-            assert result["reason"] == "unit_mismatch", cid
+            assert result["verdict"] == "OK", cid
+            assert result["reason"] == "unit_consistent", cid
 
-    def test_the_percent_scaled_defaults_are_reported(self):
+    def test_the_ratio_scaled_defaults_are_reported(self):
         results = _by_target(wuh.evaluate_units())
-        assert results["gps_jamming.is_jammed"]["threshold_value"] == 3.0
-        assert results["gps_jamming.is_critical"]["threshold_value"] == 7.0
+        assert results["gps_jamming.is_jammed"]["threshold_value"] == 0.03
+        assert results["gps_jamming.is_critical"]["threshold_value"] == 0.07
         assert results["gps_jamming.is_jammed"]["domain"] == ["ratio", 0.0, 1.0]
 
-    def test_partial_overlap_of_the_tunable_range_is_quantified(self):
-        # S5-VERIF-009a nuance: min_value 0.5 means part of the tunable
-        # range IS reachable — 2.6% of it. Reporting "0%" would be wrong.
+    def test_the_whole_tunable_range_is_reachable(self):
+        # Was 2.6% (min 0.5, max 20.0) and 0% (min 1.0, max 30.0); the
+        # rescaled ranges sit entirely inside the [0,1] domain.
         results = _by_target(wuh.evaluate_units())
         jammed = results["gps_jamming.is_jammed"]
-        assert jammed["registry_min"] == 0.5 and jammed["registry_max"] == 20.0
-        assert jammed["range_overlap_fraction"] == pytest.approx(0.5 / 19.5)
-        critical = results["gps_jamming.is_critical"]
-        assert critical["range_overlap_fraction"] == 0.0
+        assert jammed["registry_min"] == 0.005 and jammed["registry_max"] == 0.2
+        assert jammed["range_overlap_fraction"] == 1.0
+        assert results["gps_jamming.is_critical"]["range_overlap_fraction"] == 1.0
 
-    def test_all_other_comparisons_are_consistent(self):
+    def test_no_comparison_is_anomalous_any_more(self):
         results = _by_target(wuh.evaluate_units())
         offenders = {t: r["reason"] for t, r in results.items()
                      if r["verdict"] == "ANOMALY"}
-        assert set(offenders) == {"gps_jamming.is_jammed",
-                                  "gps_jamming.is_critical"}
+        assert offenders == {}
 
-    def test_gps_jamming_source_is_unmodified(self):
+    def test_gps_jamming_source_carries_the_fix(self):
         src = (REPO_ROOT / "radar" / "sensors" / "gps_jamming.py").read_text(
             encoding="utf-8")
-        assert '"GPS_JAM_THRESHOLD",          "3.0"' in src
+        assert '"GPS_JAM_THRESHOLD",          "0.03"' in src
+        assert '"GPS_JAM_CRITICAL_THRESHOLD", "0.07"' in src
+
+
+class TestF08DetectionCapability:
+    """The unit checker still catches a percent-vs-ratio comparison, proven
+    against a synthetic replica of the pre-fix declaration."""
+
+    def _broken_spec(self):
+        return wc.ThresholdComparisonSpec(
+            comparison_id="synthetic.percent_vs_ratio", sensor="gps_jamming",
+            domain_kind="ratio", domain_lo=0.0, domain_hi=1.0,
+            threshold_key="SYNTHETIC_PERCENT_THRESHOLD",
+            note="Replica of the pre-WP-0.2 GPS declaration (F-08).")
+
+    def test_a_percent_threshold_on_a_ratio_domain_is_an_anomaly(
+            self, monkeypatch):
+        from radar import config_layered
+        meta = config_layered.ConfigKey(
+            key="SYNTHETIC_PERCENT_THRESHOLD", domain="test", default=3.0,
+            type_="float", min_value=0.5, max_value=20.0)
+        monkeypatch.setattr(config_layered, "get_meta",
+                            lambda key: meta if key == meta.key else None)
+        monkeypatch.setattr(wc, "THRESHOLD_CATALOG", (self._broken_spec(),))
+        result = _by_target(wuh.evaluate_units())["synthetic.percent_vs_ratio"]
+        assert result["verdict"] == "ANOMALY"
+        assert result["reason"] == "unit_mismatch"
+        assert result["range_overlap_fraction"] == pytest.approx(0.5 / 19.5)
 
 
 # ── S5-VERIF-007: unit annotations ─────────────────────────────────────────
@@ -157,11 +222,13 @@ class TestUnitAnnotation:
         assert results["isr_hotspot.surge"]["verdict"] == "WARN"
         assert results["isr_hotspot.surge"]["reason"] == "missing_unit"
 
-    def test_missing_unit_is_recorded_even_on_an_anomaly(self):
-        # The GPS keys are unannotated too; the worse verdict wins but the
-        # fact must not vanish.
+    def test_the_repaired_keys_now_declare_their_unit(self):
+        # S5-VERIF-007: the absent annotation is how F-08's scale error
+        # stayed invisible. WP-0.2 added it to both GPS keys; the rest of
+        # the compared thresholds are still bare.
         results = _by_target(wuh.evaluate_units())
-        assert results["gps_jamming.is_jammed"]["unit_declared"] == ""
+        assert results["gps_jamming.is_jammed"]["unit_declared"] == "ratio"
+        assert results["isr_hotspot.surge"]["unit_declared"] == ""
 
     def test_literal_comparisons_are_not_charged_for_annotations(self):
         results = _by_target(wuh.evaluate_units())
@@ -263,8 +330,13 @@ class TestDailyJob:
         targets = {r["target"] for r in wuh_db.l5_check_latest(wuh.CHECK_ID,
                                                                limit=200)}
         assert wuh.SUMMARY_TARGET in targets
-        assert "telegram_mirror._baseline_tg" in targets
-        assert "gps_jamming.is_jammed" in targets
+        # Standing non-OK findings from both axes. telegram is deliberately
+        # absent: WP-0.2 repaired it, and OK results are not appended.
+        assert "sensor_zscore_stats" in targets      # WARN unbounded
+        assert "isr_hotspot.surge" in targets         # WARN missing_unit
+        # Both WP-0.2 repairs are absent: OK results are not appended.
+        assert "telegram_mirror._baseline_tg" not in targets
+        assert "gps_jamming.is_jammed" not in targets
 
     def test_not_due_is_skipped(self, wuh_db):
         now = time.time()
@@ -282,7 +354,9 @@ class TestDailyJob:
         rows = [r for r in wuh_db.l5_check_latest(wuh.CHECK_ID, limit=200)
                 if r["target"] == wuh.SUMMARY_TARGET]
         measured = json.loads(rows[0]["measured_json"])
-        assert measured["ANOMALY"] >= 3          # telegram + 2 GPS keys
+        assert measured["ANOMALY"] == 0, \
+            "both WP-0.2 repairs landed — nothing should be anomalous"
+        assert measured["WARN"] >= 2             # check_host + zscore_stats
         assert measured["windows_total"] == len(wc.CATALOG)
         assert measured["comparisons_total"] == len(wc.THRESHOLD_CATALOG)
 
@@ -302,12 +376,14 @@ class TestSnapshot:
                       "window_anomalies", "unit_anomalies", "warns"):
             assert field in snap, field
 
-    def test_snapshot_names_both_defects(self, wuh_db):
+    def test_snapshot_shows_both_axes_recovered(self, wuh_db):
+        # The WP-0.2 endpoint state: F-06 and F-08 both repaired, so the
+        # anomaly lists are empty while the standing WARNs remain.
         snap = wuh.snapshot()
-        window_targets = {a["target"] for a in snap["window_anomalies"]}
-        unit_targets = {a["target"] for a in snap["unit_anomalies"]}
-        assert "telegram_mirror._baseline_tg" in window_targets
-        assert {"gps_jamming.is_jammed", "gps_jamming.is_critical"} <= unit_targets
+        assert snap["window_anomalies"] == []
+        assert snap["unit_anomalies"] == []
+        assert snap["counts"]["ANOMALY"] == 0
+        assert snap["counts"]["WARN"] >= 2
 
     def test_snapshot_is_json_serializable(self, wuh_db):
         json.dumps(wuh.snapshot())

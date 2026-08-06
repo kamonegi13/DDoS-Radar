@@ -101,16 +101,19 @@ class ThresholdComparisonSpec:
 
 # ── baseline inventory ──────────────────────────────────────────────────────
 CATALOG: tuple[WindowSpec, ...] = (
-    # ── the defect ─────────────────────────────────────────────────────────
     WindowSpec(
         baseline_id="telegram_mirror._baseline_tg", sensor="telegram_mirror",
-        kind=KIND_ROLLING_LIST, cap_mode=CAP_FIXED, cap_value=30,
+        kind=KIND_ROLLING_LIST, cap_mode=CAP_DAYS_X_CYCLES,
         declared_days=30, declared_key="NARRATIVE_BASELINE_DAYS",
-        source="radar/sensors/telegram.py:297",
-        note="F-06. `[-NARRATIVE_BASELINE_DAYS:]` truncates to 30 raw "
-             "samples; at the live 900 s cadence that is 7.5 h against a "
-             "declared 30 d. Class-level state shared by every instance."),
-    # ── the same bug, already fixed — the control case ─────────────────────
+        source="radar/sensors/telegram.py:289-322",
+        note="Was F-06: the cap truncated to 30 raw samples (7.5 h at the "
+             "900 s cadence) against a declared 30 d. Repaired 2026-08-07 "
+             "(WP-0.2) to days x cycles_per_day, matching rss_narrative. "
+             "The sensor derives that cap from its LIVE poll_interval, the "
+             "same value sample_interval_sec() reads here, so the two "
+             "cannot drift apart if the cadence ever becomes adaptive. "
+             "Class-level state shared by every instance."),
+    # ── the same bug, fixed earlier — the control case ─────────────────────
     WindowSpec(
         baseline_id="rss_narrative._baseline", sensor="rss_narrative",
         kind=KIND_ROLLING_LIST, cap_mode=CAP_DAYS_X_CYCLES,
@@ -204,15 +207,18 @@ THRESHOLD_CATALOG: tuple[ThresholdComparisonSpec, ...] = (
         comparison_id="gps_jamming.is_jammed", sensor="gps_jamming",
         domain_kind="ratio", domain_lo=0.0, domain_hi=1.0,
         threshold_key="GPS_JAM_THRESHOLD",
-        source="radar/sensors/gps_jamming.py:182,186",
-        note="F-08. `bad / (good + bad)` is a fraction; the threshold "
-             "defaults to 3.0 on a percent scale. Never true."),
+        source="radar/sensors/gps_jamming.py:188,203",
+        note="Was F-08: `bad / (good + bad)` is a fraction but the "
+             "threshold defaulted to 3.0 on a percent scale, so the "
+             "comparison was never true. Repaired 2026-08-07 (WP-0.2) to "
+             "0.03 with unit='ratio' and a rescaled tunable range."),
     ThresholdComparisonSpec(
         comparison_id="gps_jamming.is_critical", sensor="gps_jamming",
         domain_kind="ratio", domain_lo=0.0, domain_hi=1.0,
         threshold_key="GPS_JAM_CRITICAL_THRESHOLD",
-        source="radar/sensors/gps_jamming.py:183,209",
-        note="F-08, CRITICAL tier. Same ratio, threshold defaults to 7.0."),
+        source="radar/sensors/gps_jamming.py:189,215",
+        note="Was F-08, CRITICAL tier. Same ratio against a 7.0 percent "
+             "threshold; repaired 2026-08-07 (WP-0.2) to 0.07."),
     ThresholdComparisonSpec(
         comparison_id="isr_hotspot.surge", sensor="isr_hotspot",
         domain_kind="count", domain_lo=0.0, domain_hi=None,
@@ -231,8 +237,9 @@ THRESHOLD_CATALOG: tuple[ThresholdComparisonSpec, ...] = (
         domain_kind="z", domain_lo=None, domain_hi=None,
         threshold_key="NARRATIVE_ZSCORE_ALERT",
         source="radar/sensors/telegram.py:396-399",
-        note="z-score against a z threshold. Unit-consistent — but see "
-             "F-06: the baseline it standardises against is 7.5 h wide."),
+        note="z-score against a z threshold. Unit-consistent, and since "
+             "the F-06 repair (2026-08-07) the baseline it standardises "
+             "against is the declared 30 d rather than 7.5 h."),
     ThresholdComparisonSpec(
         comparison_id="rss_narrative.zscore_critical", sensor="rss_narrative",
         domain_kind="z", domain_lo=None, domain_hi=None,

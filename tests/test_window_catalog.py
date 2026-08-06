@@ -98,10 +98,11 @@ class TestSpecWellFormedness:
 # ── effective-window arithmetic (S5-VERIF-010/011) ─────────────────────────
 class TestEffectiveWindow:
     def test_fixed_cap_is_samples_times_cadence(self):
-        # F-06 in one line: 30 samples at 900 s is 7.5 h, not 30 days.
-        spec = _spec("telegram_mirror._baseline_tg")
-        assert wc.cap_samples(spec, 900) == 30
-        assert wc.effective_window_hours(spec, 900) == pytest.approx(7.5)
+        # A sample-count cap holds however much wall-clock the cadence
+        # gives it — the arithmetic that made F-06 a 7.5 h window.
+        spec = _spec("check_host._url_latency_history")
+        assert wc.cap_samples(spec, 600) == 12
+        assert wc.effective_window_hours(spec, 600) == pytest.approx(2.0)
 
     def test_declared_window_is_days_in_hours(self):
         spec = _spec("telegram_mirror._baseline_tg")
@@ -120,8 +121,18 @@ class TestEffectiveWindow:
         assert wc.effective_window_hours(spec, 900) == pytest.approx(720.0)
 
     def test_fixed_cap_window_moves_with_cadence(self):
+        # The defining hazard of a fixed cap: the window silently follows
+        # the cadence instead of the declaration.
+        spec = _spec("check_host._url_latency_history")
+        assert wc.effective_window_hours(spec, 1800) == pytest.approx(6.0)
+
+    def test_derived_cap_window_does_not_move_with_cadence(self):
+        # The repaired shape (telegram, post-WP-0.2) holds 30 days at any
+        # cadence — that is the whole point of deriving from cycles/day.
         spec = _spec("telegram_mirror._baseline_tg")
-        assert wc.effective_window_hours(spec, 1800) == pytest.approx(15.0)
+        for interval in (300, 900, 1800, 3600):
+            assert wc.effective_window_hours(spec, interval) == \
+                pytest.approx(720.0)
 
     def test_deviation_is_relative_to_the_declaration(self):
         assert wc.window_deviation(7.5, 720.0) == pytest.approx(0.98958, abs=1e-5)
@@ -155,11 +166,11 @@ class TestSampleInterval:
     def test_runtime_cadence_change_is_observed(self, monkeypatch):
         # ct_log / ooni mutate poll_interval while running; the catalog must
         # read the live attribute rather than a cached one.
-        spec = _spec("telegram_mirror._baseline_tg")
-        sensor = registry.get("telegram_mirror")
+        spec = _spec("check_host._url_latency_history")
+        sensor = registry.get("check_host")
         monkeypatch.setattr(sensor, "poll_interval", 3600)
         assert wc.sample_interval_sec(spec) == 3600
-        assert wc.effective_window_hours(spec, 3600) == pytest.approx(30.0)
+        assert wc.effective_window_hours(spec, 3600) == pytest.approx(12.0)
 
     def test_unknown_sensor_yields_no_interval(self):
         spec = _spec("sensor_zscore_stats")

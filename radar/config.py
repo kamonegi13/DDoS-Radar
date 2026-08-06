@@ -507,8 +507,11 @@ USGS_MIN_MAGNITUDE            = float(os.getenv("USGS_MIN_MAGNITUDE", "4.0"))
 USGS_CABLE_RADIUS_KM          = float(os.getenv("USGS_CABLE_RADIUS_KM", "200"))
 
 # S6: GPS Jamming
-GPS_JAM_THRESHOLD             = float(os.getenv("GPS_JAM_THRESHOLD", "3.0"))
-GPS_JAM_CRITICAL_THRESHOLD    = float(os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "7.0"))
+# F-08 fix (2026-08-07): ratio scale, matching the [0,1] domain of the
+# compared value. Kept identical to the sensor's own getenv defaults so
+# clearing an override cannot resurrect the percent scale.
+GPS_JAM_THRESHOLD             = float(os.getenv("GPS_JAM_THRESHOLD", "0.03"))
+GPS_JAM_CRITICAL_THRESHOLD    = float(os.getenv("GPS_JAM_CRITICAL_THRESHOLD", "0.07"))
 
 # S7: CT Log (signal-model redesign — see ADR-024)
 # Identity-match scoring (untrusted CA / wildcard at gov-TLD) replaces
@@ -1176,15 +1179,15 @@ try:  # pragma: no cover — registration is best-effort, never fatal
         ),
         ConfigKey(
             key="GPS_JAM_THRESHOLD", domain="tune.maritime",
-            default=3.0, type_="float",
-            description="GPS jamming threshold.",
-            group=GROUP_TUNE, min_value=0.5, max_value=20.0,
+            default=0.03, type_="float",
+            description="GPS jamming threshold (fraction of bad aircraft).",
+            group=GROUP_TUNE, min_value=0.005, max_value=0.2, unit="ratio",
         ),
         ConfigKey(
             key="GPS_JAM_CRITICAL_THRESHOLD", domain="tune.maritime",
-            default=7.0, type_="float",
-            description="GPS jamming critical threshold.",
-            group=GROUP_TUNE, min_value=1.0, max_value=30.0,
+            default=0.07, type_="float",
+            description="GPS jamming critical threshold (fraction).",
+            group=GROUP_TUNE, min_value=0.01, max_value=0.5, unit="ratio",
         ),
         ConfigKey(
             key="USGS_MIN_MAGNITUDE", domain="tune.maritime",
