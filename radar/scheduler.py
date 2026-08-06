@@ -664,6 +664,22 @@ def _cache_cleanup_worker(registry=None):
             except Exception as _drift_exc:
                 log.warning("[DriftWatchdog] run_once failed: %s", _drift_exc)
 
+            # WP-1.1 / S5-VERIF-016: firing-liveness check, one run per day.
+            # Called every hour on purpose — the *job* owns its schedule via
+            # the persisted `next_run_at` in l5_job_state, so an overdue run
+            # is compensated on the first tick after a restart. This is the
+            # replacement for the `_cycle % 24` pattern above, which is
+            # defect F-01: a process restarting inside 24h never reaches the
+            # higher offsets, so those jobs silently never ran.
+            try:
+                from radar.verification.firing_monitor import (
+                    run_daily_check_if_due as _firing_check,
+                )
+                if _firing_check():
+                    log.info("[FiringLiveness] daily detection-liveness check ran")
+            except Exception as _fl_exc:
+                log.warning("[FiringLiveness] daily check failed: %s", _fl_exc)
+
             # ATTENTION adaptive learning (commit O): hourly observation
             # tick + nightly p95 recompute + nightly cleanup.
             try:

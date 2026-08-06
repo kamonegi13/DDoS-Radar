@@ -759,6 +759,22 @@ def v2_self_eval():
     except Exception as e:  # noqa: BLE001
         out["silent_failures"] = {"error": str(e)}
 
+    # firing_liveness — WP-1.1 / S5-VERIF-003+016. The companion to
+    # silent_failures: that block reports code paths that threw and were
+    # swallowed, this one reports detectors that never threw and never
+    # fired. `anomalies` lists sensor x flag pairs whose detection logic
+    # has been silent far past its expected firing interval — the class of
+    # defect F-08 (gps_jamming) belongs to, where fetch health stayed OK
+    # for the sensor's entire lifetime while nothing was ever detected.
+    # On failure the error is surfaced rather than collapsed into an empty
+    # (green-looking) block: an unanswerable query is not a healthy one
+    # (S5-VERIF-006).
+    try:
+        from radar.verification.firing_monitor import snapshot as _fl_snapshot
+        out["firing_liveness"] = _fl_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["firing_liveness_error"] = str(e)
+
     # attention metrics collection errors (SF5).
     try:
         from radar.attention import _collect_metrics as _att_metrics  # noqa: SLF001
