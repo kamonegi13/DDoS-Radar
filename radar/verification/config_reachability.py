@@ -27,30 +27,27 @@ UNKNOWN, never to a green default (S5-VERIF-006).
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-import time
 from typing import Optional
 
 from radar import config_layered
 from radar.verification import config_static_audit as static_audit
+from radar.verification import l5_common
 
 log = logging.getLogger("radar")
 
 JOB_ID = "config_reachability_daily"
 CHECK_ID = "config_reachability"
-JOB_INTERVAL_SEC = 86400.0
-SUMMARY_TARGET = "__summary__"
+JOB_INTERVAL_SEC = l5_common.JOB_INTERVAL_SEC
+SUMMARY_TARGET = l5_common.SUMMARY_TARGET
 TARGET_PREFIX = "config:"
 
-_DAY = 86400.0
+_DAY = l5_common.DAY
 # S5-VERIF-014: "監査は起動から 24 時間以上稼働した実績に基づく MUST".
 MIN_RUNTIME_OBSERVATION_SEC = 86400.0
-# Aligned with firing_monitor / ADR-V3-005 — a finding must outlive the
-# conclusions it casts doubt on.
-CHECK_RESULT_RETENTION_DAYS = 365
+CHECK_RESULT_RETENTION_DAYS = l5_common.CHECK_RESULT_RETENTION_DAYS
 
-_VERDICT_ORDER = ("ANOMALY", "WARN", "INSUFFICIENT", "OK")
+_VERDICT_ORDER = l5_common.VERDICT_ORDER
 
 # Verdict reasons, kept greppable.
 REASON_BYPASSED = "bypassed"
@@ -64,19 +61,14 @@ REASON_WINDOW_UNKNOWN = "runtime_window_unknown"
 REASON_OK = "resolving"
 
 
-def _db():
-    """Lazy singleton accessor (the seam tests bind to a temp DB)."""
-    from radar.database import db
-    return db
+# Module-level seams: tests bind `_db` to a throwaway database.
+_db = l5_common.db
+_now = l5_common.now
 
 
 def _audit() -> static_audit.AuditResult:
     """Seam for tests; production shares one memoised repo scan."""
     return static_audit.audit_cached()
-
-
-def _now(now: float | None) -> float:
-    return time.time() if now is None else now
 
 
 def target_for(key: str) -> str:
@@ -249,20 +241,9 @@ def _classification_hash(rows: list[dict]) -> str:
 # ── ledger ──────────────────────────────────────────────────────────────────
 def _append_result(handle, ts: float, target: str, verdict: str,
                    measured: dict, expected: dict) -> None:
-    """Append one ledger row, carrying first_detected_at across runs."""
-    previous = handle.l5_check_last_for_target(CHECK_ID, target)
-    if (previous and previous.get("verdict") == verdict
-            and previous.get("first_detected_at") is not None):
-        first_detected_at = previous["first_detected_at"]
-    else:
-        first_detected_at = ts
-    handle.l5_check_append(
-        ts=ts, check_id=CHECK_ID, target=target, verdict=verdict,
-        measured_json=json.dumps(measured, sort_keys=True, default=str),
-        expected_json=json.dumps(expected, sort_keys=True, default=str),
-        first_detected_at=first_detected_at,
-        ttl_sec=CHECK_RESULT_RETENTION_DAYS * _DAY,
-    )
+    l5_common.append_result(handle, check_id=CHECK_ID, ts=ts, target=target,
+                            verdict=verdict, measured=measured,
+                            expected=expected)
 
 
 def _expected_block() -> dict:
@@ -272,21 +253,12 @@ def _expected_block() -> dict:
     }
 
 
-def _record_results(handle, ts: float, rows: list[dict]) -> dict:
-    """Append transitions only. Returns the verdict counts."""
-    counts = {v: 0 for v in _VERDICT_ORDER}
-    for row in rows:
-        verdict = row["verdict"]
-        counts[verdict] = counts.get(verdict, 0) + 1
-        target = target_for(row["key"])
-
-        previous = handle.l5_check_last_for_target(CHECK_ID, target)
-        if previous and previous.get("verdict") == verdict:
-            continue                      # unchanged — no daily no-op row
-        if verdict == "OK" and not previous:
-            continue                      # nothing to close
-
-        _append_result(handle, ts, target, verdict, measured={
+def _ledger_row(row: dict) -> dict:
+    """One verdict row in the shape l5_common.record_results expects."""
+    return {
+        "target": target_for(row["key"]),
+        "verdict": row["verdict"],
+        "measured": {
             "reason": row["reason"],
             "static_class": row["static_class"],
             "direct_read_sites": row["direct_read_sites"],
@@ -295,50 +267,45 @@ def _record_results(handle, ts: float, rows: list[dict]) -> dict:
             "read_count": row["read_count"],
             "last_read_at": row["last_read_at"],
             "default_mismatches": row["default_mismatches"],
-        }, expected=_expected_block())
-    return counts
+        },
+        "expected": _expected_block(),
+    }
+
+
+def _record_results(handle, ts: float, rows: list[dict]) -> dict:
+    """Append transitions only — ~94 stable ANOMALYs must not recur daily."""
+    return l5_common.record_results(
+        handle, check_id=CHECK_ID, ts=ts,
+        rows=[_ledger_row(row) for row in rows], transition_only=True)
+
+
+def _run(handle, ts: float) -> None:
+    """One reachability run. Called by the l5_common job skeleton."""
+    flush_read_stats(now=ts)
+    result = _audit()
+    # Start (never restart) the per-key observation window before judging,
+    # so the 24h floor of S5-VERIF-014 is measured against each key's own
+    # exposure rather than the deployment's age.
+    handle.config_read_stats_note_considered(sorted(result.keys), now=ts)
+    reads, available = _runtime_view(ts)
+    rows = _evaluate_rows(result, reads, ts, available)
+    counts = _record_results(handle, ts, rows)
+
+    measured = dict(counts)
+    measured["classification_hash"] = _classification_hash(rows)
+    _append_result(handle, ts, SUMMARY_TARGET,
+                   l5_common.summary_verdict(counts), measured=measured,
+                   expected={"registered_total": len(rows)})
+    if counts["ANOMALY"]:
+        log.warning("[ConfigReachability] %d key(s) ANOMALY, %d WARN",
+                    counts["ANOMALY"], counts["WARN"])
 
 
 def run_daily_check_if_due(now: float | None = None) -> bool:
-    """Run the reachability check if the persisted schedule says it is due.
-
-    Returns True when the check actually ran. Driven by `next_run_at` in
-    l5_job_state, so an overdue run is compensated on the first tick after
-    a restart rather than skipped forever (defect F-01).
-    """
-    ts = _now(now)
-    try:
-        handle = _db()
-        job = handle.l5_job_get(JOB_ID)
-        if job and job.get("next_run_at") is not None and job["next_run_at"] > ts:
-            return False
-
-        flush_read_stats(now=ts)
-        result = _audit()
-        # Start (never restart) the per-key observation window before
-        # judging, so the 24h floor of S5-VERIF-014 is measured against
-        # each key's own exposure rather than the deployment's age.
-        handle.config_read_stats_note_considered(sorted(result.keys), now=ts)
-        reads, available = _runtime_view(ts)
-        rows = _evaluate_rows(result, reads, ts, available)
-        counts = _record_results(handle, ts, rows)
-
-        summary_verdict = ("ANOMALY" if counts["ANOMALY"]
-                           else "WARN" if counts["WARN"] else "OK")
-        measured = dict(counts)
-        measured["classification_hash"] = _classification_hash(rows)
-        _append_result(handle, ts, SUMMARY_TARGET, summary_verdict,
-                       measured=measured,
-                       expected={"registered_total": len(rows)})
-        handle.l5_job_set(JOB_ID, last_run_at=ts,
-                          next_run_at=ts + JOB_INTERVAL_SEC)
-        if counts["ANOMALY"]:
-            log.warning("[ConfigReachability] %d key(s) ANOMALY, %d WARN",
-                        counts["ANOMALY"], counts["WARN"])
-        return True
-    except Exception as exc:  # noqa: BLE001 - a failed check must not kill the worker
-        log.warning("config-reachability daily check failed: %s", exc)
-        return False
+    """Run the reachability check if the persisted schedule says it is due."""
+    return l5_common.run_daily_if_due(
+        db_fn=_db, job_id=JOB_ID, run_fn=_run, interval_sec=JOB_INTERVAL_SEC,
+        now_ts=now, label="config-reachability")
 
 
 # ── AP3 self-evaluation surface ─────────────────────────────────────────────

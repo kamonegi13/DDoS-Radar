@@ -696,6 +696,21 @@ def _cache_cleanup_worker(registry=None):
                 log.warning("[ConfigReachability] daily check failed: %s",
                             _cr_exc)
 
+            # WP-1.3 / S5-VERIF-007..011: baseline-window health and
+            # threshold/value unit consistency, same persistent-schedule
+            # contract. Detects the F-06 class (a 30-day window that is
+            # really 7.5 hours) and the F-08 class (a ratio compared against
+            # a percent-scaled threshold).
+            try:
+                from radar.verification.window_unit_health import (
+                    run_daily_check_if_due as _window_unit_check,
+                )
+                if _window_unit_check():
+                    log.info("[WindowUnitHealth] daily window/unit check ran")
+            except Exception as _wu_exc:
+                log.warning("[WindowUnitHealth] daily check failed: %s",
+                            _wu_exc)
+
             # ATTENTION adaptive learning (commit O): hourly observation
             # tick + nightly p95 recompute + nightly cleanup.
             try:

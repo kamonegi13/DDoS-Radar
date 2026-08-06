@@ -791,6 +791,21 @@ def v2_self_eval():
     except Exception as e:  # noqa: BLE001
         out["config_reachability_error"] = str(e)
 
+    # window_unit_health — WP-1.3 / S5-VERIF-007..011. The fourth member of
+    # the family, and the one that explains a subset of the others: a
+    # detector can be alive, its config reachable, and still be measuring
+    # nothing, because its baseline holds 7.5 hours while claiming 30 days
+    # (F-06) or because its threshold is on a different scale than the value
+    # it is compared against (F-08). `window_anomalies` and `unit_anomalies`
+    # name those directly.
+    try:
+        from radar.verification.window_unit_health import (
+            snapshot as _wu_snapshot,
+        )
+        out["window_unit_health"] = _wu_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["window_unit_health_error"] = str(e)
+
     # attention metrics collection errors (SF5).
     try:
         from radar.attention import _collect_metrics as _att_metrics  # noqa: SLF001

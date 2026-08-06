@@ -170,3 +170,27 @@ def tier_governor_conn(tier_governor_repo):
     """Convenience: yield the in-memory conn behind the governor repo
     so tests can write fixture data directly via raw SQL."""
     return tier_governor_repo._conn()  # noqa: SLF001
+
+
+# ── L5 verification fixtures ─────────────────────────────────────────────────
+#
+# Every L5 check (firing_monitor, config_reachability, window_unit_health)
+# exposes a module-level `_db` seam precisely so tests can point it at a
+# throwaway database. Truncating tables on the live singleton is forbidden
+# (see the tier-governor note above — that pattern once wiped production
+# state); a temp RadarDB exercises the real schema and the real accessors
+# without going near production rows.
+@pytest.fixture
+def l5_tmp_db(tmp_path, monkeypatch):
+    """Factory: bind an L5 check module's `_db` to a fresh temp RadarDB.
+
+    Usage:  inst = l5_tmp_db(firing_monitor, "l5")
+    """
+    from radar.database import RadarDB
+
+    def _bind(module, subdir: str = "l5"):
+        inst = RadarDB(str(tmp_path / subdir / "radar.db"))
+        monkeypatch.setattr(module, "_db", lambda: inst)
+        return inst
+
+    return _bind

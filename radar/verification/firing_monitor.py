@@ -23,39 +23,29 @@ to a green default — an unanswerable query is not a healthy one
 """
 from __future__ import annotations
 
-import json
 import logging
-import time
 
-from radar.verification import flag_catalog
+from radar.verification import flag_catalog, l5_common
 
 log = logging.getLogger("radar")
 
 JOB_ID = "firing_liveness_daily"
 CHECK_ID = "firing_liveness"
-JOB_INTERVAL_SEC = 86400.0
-SUMMARY_TARGET = "__summary__"
+JOB_INTERVAL_SEC = l5_common.JOB_INTERVAL_SEC
+SUMMARY_TARGET = l5_common.SUMMARY_TARGET
 
 # Worst-first. detection_health reports the first verdict present.
-_VERDICT_ORDER = ("ANOMALY", "WARN", "INSUFFICIENT", "OK")
+_VERDICT_ORDER = l5_common.VERDICT_ORDER
 
-_DAY = 86400.0
+_DAY = l5_common.DAY
 _FIRE_COUNT_WINDOW_SEC = 30 * _DAY
 
-# l5_check_result retention. Aligned with the conclusions-ledger horizon
-# (ADR-V3-005): a verification finding must stay queryable for at least as
-# long as the conclusions it casts doubt on.
-CHECK_RESULT_RETENTION_DAYS = 365
+CHECK_RESULT_RETENTION_DAYS = l5_common.CHECK_RESULT_RETENTION_DAYS
 
-
-def _db():
-    """Lazy singleton accessor (also the seam tests bind to a temp DB)."""
-    from radar.database import db
-    return db
-
-
-def _now(now: float | None) -> float:
-    return time.time() if now is None else now
+# Module-level seams: tests bind `_db` to a throwaway database, so these
+# stay module attributes rather than direct l5_common calls.
+_db = l5_common.db
+_now = l5_common.now
 
 
 def _is_enabled(sensor_name: str) -> bool:
@@ -258,27 +248,9 @@ def detection_health_bulk(sensor_names=None, now: float | None = None) -> dict:
 # ── S5-VERIF-016: the daily job on a persistent schedule ───────────────────
 def _append_result(handle, ts: float, target: str, verdict: str,
                    measured: dict, expected: dict) -> None:
-    """Append one ledger row, carrying first_detected_at across runs.
-
-    Carry-forward only continues an episode: it requires the *latest* row
-    for this target to hold the same verdict. Recovery rows (below) are
-    what make that correct — without them a fixed-then-broken-again target
-    would inherit the first episode's start time and read as one long
-    incident.
-    """
-    previous = handle.l5_check_last_for_target(CHECK_ID, target)
-    if (previous and previous.get("verdict") == verdict
-            and previous.get("first_detected_at") is not None):
-        first_detected_at = previous["first_detected_at"]
-    else:
-        first_detected_at = ts
-    handle.l5_check_append(
-        ts=ts, check_id=CHECK_ID, target=target, verdict=verdict,
-        measured_json=json.dumps(measured, sort_keys=True),
-        expected_json=json.dumps(expected, sort_keys=True),
-        first_detected_at=first_detected_at,
-        ttl_sec=CHECK_RESULT_RETENTION_DAYS * _DAY,
-    )
+    l5_common.append_result(handle, check_id=CHECK_ID, ts=ts, target=target,
+                            verdict=verdict, measured=measured,
+                            expected=expected)
 
 
 def _expected_block() -> dict:
@@ -290,69 +262,54 @@ def _expected_block() -> dict:
     }
 
 
-def _record_results(handle, ts: float, results: list[dict]) -> dict:
-    """Append every non-OK result plus any OK recovery transition.
-
-    Returns the verdict counts. OK targets are logged only when the
-    previous ledger row for them was non-OK, so the ledger stays bounded
-    (one row per transition) while still closing each episode.
-    """
-    counts = {"ANOMALY": 0, "WARN": 0, "INSUFFICIENT": 0, "OK": 0}
-    for result in results:
-        verdict = result["verdict"]
-        counts[verdict] = counts.get(verdict, 0) + 1
-        target = f"{result['sensor']}:{result['flag_id']}"
-
-        if verdict == "OK":
-            previous = handle.l5_check_last_for_target(CHECK_ID, target)
-            if not previous or previous.get("verdict") == "OK":
-                continue  # nothing to close — never append daily no-ops
-
-        measured = {
+def _ledger_row(result: dict) -> dict:
+    """One silence result in the shape l5_common.record_results expects."""
+    expected = dict(_expected_block())
+    expected["expected_fire_interval_days"] = \
+        result["expected_fire_interval_days"]
+    return {
+        "target": f"{result['sensor']}:{result['flag_id']}",
+        "verdict": result["verdict"],
+        "measured": {
             "reason": result["reason"],
             "silence_ratio": result["silence_ratio"],
             "last_fired_at": result["last_fired_at"],
             "first_observed_at": result["first_observed_at"],
             "fire_count_30d": result["fire_count_30d"],
-        }
-        expected = dict(_expected_block())
-        expected["expected_fire_interval_days"] = \
-            result["expected_fire_interval_days"]
-        _append_result(handle, ts, target, verdict, measured, expected)
-    return counts
+        },
+        "expected": expected,
+    }
+
+
+def _record_results(handle, ts: float, results: list[dict]) -> dict:
+    """Append every non-OK result plus any OK recovery transition.
+
+    The catalog is bounded (42 flags), so a daily census is affordable and
+    makes the ledger answer "what did this check see on day N" directly.
+    """
+    return l5_common.record_results(
+        handle, check_id=CHECK_ID, ts=ts,
+        rows=[_ledger_row(result) for result in results],
+        transition_only=False)
+
+
+def _run(handle, ts: float) -> None:
+    """One silence-check run. Called by the l5_common job skeleton."""
+    results = evaluate_silence(now=ts)
+    counts = _record_results(handle, ts, results)
+    _append_result(handle, ts, SUMMARY_TARGET,
+                   l5_common.summary_verdict(counts), measured=counts,
+                   expected={"flags_total": len(results)})
+    if counts["ANOMALY"]:
+        log.warning("[FiringLiveness] %d flag(s) ANOMALY, %d WARN",
+                    counts["ANOMALY"], counts["WARN"])
 
 
 def run_daily_check_if_due(now: float | None = None) -> bool:
-    """Run the silence check if the persisted schedule says it is due.
-
-    Returns True when the check actually ran. Driven by `next_run_at` in
-    l5_job_state rather than an in-process counter, so an overdue job runs
-    on the first tick after a restart instead of being skipped forever
-    (defect F-01).
-    """
-    ts = _now(now)
-    try:
-        handle = _db()
-        job = handle.l5_job_get(JOB_ID)
-        if job and job.get("next_run_at") is not None and job["next_run_at"] > ts:
-            return False
-
-        results = evaluate_silence(now=ts)
-        counts = _record_results(handle, ts, results)
-
-        summary_verdict = ("ANOMALY" if counts["ANOMALY"]
-                           else "WARN" if counts["WARN"] else "OK")
-        _append_result(handle, ts, SUMMARY_TARGET, summary_verdict,
-                       measured=counts,
-                       expected={"flags_total": len(results)})
-        handle.l5_job_set(JOB_ID, last_run_at=ts, next_run_at=ts + JOB_INTERVAL_SEC)
-        if counts["ANOMALY"]:
-            log.warning("[FiringLiveness] %d flag(s) ANOMALY, %d WARN",
-                        counts["ANOMALY"], counts["WARN"])
-        return True
-    except Exception as exc:  # noqa: BLE001 - a failed check must not kill the worker
-        log.warning("firing-monitor daily check failed: %s", exc)
-        return False
+    """Run the silence check if the persisted schedule says it is due."""
+    return l5_common.run_daily_if_due(
+        db_fn=_db, job_id=JOB_ID, run_fn=_run, interval_sec=JOB_INTERVAL_SEC,
+        now_ts=now, label="firing-monitor")
 
 
 # ── AP3 self-evaluation surface ────────────────────────────────────────────
