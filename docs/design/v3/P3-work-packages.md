@@ -22,7 +22,7 @@
 | WP-1.1 | L5: 発火生存監視 | 1 | — | **完了 2026-08-06**（現行系に対して構築） |
 | WP-1.2 | L5: 設定到達性検査 | 1 | — | **完了 2026-08-06**（現行系に対して構築） |
 | WP-1.3 | L5: 窓健全性・単位整合検査 | 1 | — | **完了 2026-08-06**（現行系に対して構築） |
-| WP-1.4 | L5: ゲート生存検査・系譜監査 | 1 | — | 同上 |
+| WP-1.4 | L5: ゲート生存検査・系譜監査 | 1 | — | **完了 2026-08-07**（現行系に対して構築 — **Phase 1 完遂**） |
 | WP-2.1 | K カーネル（型・provenance・閾値） | 2 | — | v3 基盤 |
 | WP-2.2 | L1 観測台帳 + ベースライン基盤 | 2 | WP-2.1 | v3 基盤 |
 | WP-2.3 | 移行 ETL | 2 | WP-2.2 | データ連続 |
@@ -181,6 +181,11 @@ override 行と監査行が書かれ UI に新値が出るが、**誰もその�
      eastern_europe/threat_level。middle_east/threat_level は tn=1 のため述語を満たさない。検出器は件数でなく述語で実装する）を検出
    — F-16（baseline の `since: null` により系列断絶を跨いで比較）を検出
 3. L5 自身のハートビートが出力され、「自己評価が最後に走ったのはいつか」が見える
+
+**完了記録（2026-08-07）**: `radar/verification/gate_lineage.py`（L5 検査 4 本目）+ l5_common に heartbeat（KNOWN_JOBS 自己登録 + `l5_heartbeat` ブロック）。
+**受け入れ**: G-07 = recall ゲートを ANOMALY/gate_dead として検出（**更正: import は PEP-420 で成功し attribute 段階で死んでいる** — probe は failed_stage + 環境文脈を明示）。G-02 = 合成 override 行で override_ineffective / stale_override を検出（実 DB は 0 行 = OK/no_overrides_stored が正直な読み）。G-08 = 述語ベースで**退化セル 5 件**を正確に列挙。F-16 = since:null → unbounded_series、epoch 欠如 → WARN。
+**重大発見（オーナー申し送り）**: 4→5 更正の帰結として **CUT-07（非退化 cell ≥ 4）は現在不合格（3 < 4）**。生存 3 セル = korean_peninsula / middle_east / taiwan_contingency の threat_level。解消は WP-0.2 でも K 層でも不可能 — **threat_level の負例ラベル（TRUE_NEGATIVE/FALSE_NEGATIVE）収集というアナリスト運用**が前提で、リードタイムがある。cutover 判定の前提条件として早期着手を要する。
+新規 60 テスト / 全スイート 2404 passed。**Phase 1（L5 自己検証層）完遂** — 既知欠陥 7 件のうち検出対象とした全件（F-08/F-06/G-15/G-07/G-02/G-08/F-16）を現行系で実検出。
 
 ---
 
