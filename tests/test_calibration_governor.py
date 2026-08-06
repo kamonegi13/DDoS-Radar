@@ -253,3 +253,94 @@ class TestGovernorUnchanged:
         outcome = gov.commit(_proposal(key="x", new_value=9.0))
         assert not outcome.accepted
         assert outcome.reason == "unchanged"
+
+
+# ── WP-0.2 G-07: the recall gate, exercised for real ───────────────────────
+class TestRecallGateIsActuallyWired:
+    """Every other test in this file monkeypatches `_recall_gate_is_red`,
+    which is exactly why G-07 survived: the real path had never run. These
+    exercise it unmocked.
+
+    The gate calls `scripts.check_recall_baseline.evaluate_against_baseline`
+    — a function that did not exist until 2026-08-07, so the call raised
+    AttributeError, was swallowed by `except Exception: return False`, and
+    the governor treated every proposal as recall-safe.
+    """
+
+    def _baseline(self, tmp_path, recall):
+        import json
+        path = tmp_path / "baseline.json"
+        path.write_text(json.dumps({
+            "schema_version": 1, "exclude_auto": False, "since": None,
+            "opt_in": False,
+            "cells": [{"scenario_id": "s1", "conclusion_type": "threat_level",
+                       "tp": 10, "fp": 1, "tn": 5, "fn": 2, "total": 18,
+                       "recall": recall, "precision": 0.9,
+                       "distinct_analysts": 2}],
+        }), encoding="utf-8")
+        return path
+
+    def test_the_gate_no_longer_takes_the_fail_open_branch(self, tmp_path,
+                                                           monkeypatch,
+                                                           caplog):
+        import logging
+
+        import scripts.check_recall_baseline as recall_mod
+        from radar.calibration import auto_tune_governor as gov
+
+        monkeypatch.setattr(recall_mod, "_BASELINE_PATH",
+                            self._baseline(tmp_path, 0.80))
+        monkeypatch.setattr(recall_mod, "_collect_snapshot",
+                            lambda **kw: {"cells": [
+                                {"scenario_id": "s1",
+                                 "conclusion_type": "threat_level",
+                                 "recall": 0.80, "tp": 10, "fn": 2}]})
+        with caplog.at_level(logging.DEBUG, logger="radar"):
+            result = gov._recall_gate_is_red()
+
+        assert isinstance(result, bool)
+        assert "recall gate eval failed" not in caplog.text, \
+            "G-07: the gate is still falling into its except branch"
+
+    def test_the_gate_reports_red_on_a_real_regression(self, tmp_path,
+                                                       monkeypatch):
+        import scripts.check_recall_baseline as recall_mod
+        from radar.calibration import auto_tune_governor as gov
+
+        monkeypatch.setattr(recall_mod, "_BASELINE_PATH",
+                            self._baseline(tmp_path, 0.90))
+        monkeypatch.setattr(recall_mod, "_collect_snapshot",
+                            lambda **kw: {"cells": [
+                                {"scenario_id": "s1",
+                                 "conclusion_type": "threat_level",
+                                 "recall": 0.40, "tp": 4, "fn": 6}]})
+        assert gov._recall_gate_is_red() is True, \
+            "a 50-point recall drop must close the gate"
+
+    def test_the_gate_stays_green_when_recall_holds(self, tmp_path,
+                                                    monkeypatch):
+        import scripts.check_recall_baseline as recall_mod
+        from radar.calibration import auto_tune_governor as gov
+
+        monkeypatch.setattr(recall_mod, "_BASELINE_PATH",
+                            self._baseline(tmp_path, 0.80))
+        monkeypatch.setattr(recall_mod, "_collect_snapshot",
+                            lambda **kw: {"cells": [
+                                {"scenario_id": "s1",
+                                 "conclusion_type": "threat_level",
+                                 "recall": 0.80, "tp": 10, "fn": 2}]})
+        assert gov._recall_gate_is_red() is False
+
+    def test_fail_open_semantics_are_preserved_for_real_failures(
+            self, monkeypatch):
+        """ADR-V3-006 freezes the "uncertain -> allow" behaviour until
+        cutover. Fixing the missing function must not change it: an
+        unexpected error still returns False (allow)."""
+        import scripts.check_recall_baseline as recall_mod
+        from radar.calibration import auto_tune_governor as gov
+
+        def _boom(**kw):
+            raise RuntimeError("db unavailable")
+
+        monkeypatch.setattr(recall_mod, "evaluate_against_baseline", _boom)
+        assert gov._recall_gate_is_red() is False

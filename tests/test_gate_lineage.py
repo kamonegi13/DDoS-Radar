@@ -49,26 +49,28 @@ def _by_target(results):
 
 
 # ── G-07: the recall gate is dead ──────────────────────────────────────────
-class TestGateLivenessAcceptance:
-    def test_the_real_recall_gate_probes_as_dead(self):
-        result = _by_target(gl.evaluate_gates())["gate:auto_tune_recall"]
-        assert result["verdict"] == "ANOMALY"
-        assert result["reason"] == gl.REASON_GATE_DEAD
+class TestGateLivenessRecovery:
+    """WP-0.2 restored the missing API, so the probe observes the recovery.
+    Dead-gate detection stays proven by TestModuleAttrProbe below, which
+    exercises both failure stages against synthetic modules."""
 
-    def test_the_evidence_names_the_missing_api(self):
-        # NP6: the finding has to be actionable without re-deriving it.
+    def test_the_real_recall_gate_now_probes_as_alive(self):
         result = _by_target(gl.evaluate_gates())["gate:auto_tune_recall"]
-        assert "evaluate_against_baseline" in result["evidence"]
-        assert "scripts.check_recall_baseline" in result["evidence"]
+        assert result["verdict"] == "OK", result["evidence"]
+        assert result["reason"] == gl.REASON_GATE_ALIVE
 
-    def test_the_evidence_names_which_stage_failed(self):
+    def test_no_failure_stage_is_recorded(self):
         result = _by_target(gl.evaluate_gates())["gate:auto_tune_recall"]
-        assert result["failed_stage"] in ("import", "attribute")
+        assert result["failed_stage"] == ""
+        assert result["evidence"] == ""
+        assert result["consequence"] == ""
 
-    def test_the_consequence_of_the_dead_gate_is_recorded(self):
+    def test_the_probe_still_declares_what_it_requires(self):
+        # The declaration is the contract that made the recovery automatic:
+        # the probe never changed, the callee did.
         result = _by_target(gl.evaluate_gates())["gate:auto_tune_recall"]
-        assert "fail-open" in result["consequence"] or \
-            "fail open" in result["consequence"]
+        assert result["requires"] == \
+            "scripts.check_recall_baseline.evaluate_against_baseline"
 
     def test_the_probe_does_not_call_the_governor(self, monkeypatch):
         # A liveness probe that committed a proposal would write
@@ -423,7 +425,9 @@ class TestDailyJob:
         assert job["next_run_at"] == pytest.approx(now + gl.JOB_INTERVAL_SEC)
         targets = {r["target"]
                    for r in gl_db.l5_check_latest(gl.CHECK_ID, limit=200)}
-        assert "gate:auto_tune_recall" in targets
+        # The gate is OK now, so it is not appended; the lineage findings
+        # remain (G-08 / F-16 are analyst-operations work, not WP-0.2).
+        assert "gate:auto_tune_recall" not in targets
         assert DEGENERATE_TARGETS <= targets
         assert l5_common.SUMMARY_TARGET in targets
 
@@ -454,9 +458,9 @@ class TestSnapshot:
                       "lineage_findings"):
             assert field in snap, field
 
-    def test_snapshot_names_all_four_defects(self, gl_db):
+    def test_snapshot_reflects_the_gate_recovery(self, gl_db):
         snap = gl.snapshot()
-        assert "auto_tune_recall" in snap["dead_gates"][0]["gate_id"]
+        assert snap["dead_gates"] == [], "WP-0.2 restored the recall gate"
         assert len(snap["degenerate_cells"]) == 5
         reasons = {f["reason"] for f in snap["lineage_findings"]}
         assert gl.REASON_UNBOUNDED in reasons
