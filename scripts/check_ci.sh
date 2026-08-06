@@ -78,6 +78,14 @@ if ! python scripts/check_config_reachability.py; then
     FAIL=1
 fi
 
+step "K-kernel discipline (WP-2.1 / P6 O-18)"
+# v3 code reads configuration through Threshold, never os.getenv (G-15),
+# and never imports radar.* at module scope (that boots the legacy app).
+if ! python scripts/check_kernel_discipline.py; then
+    echo "FAIL: kernel discipline violation. See output above." >&2
+    FAIL=1
+fi
+
 step "Secret scan (Phase 1 audit follow-up)"
 # Pure-Python scanner; no external dependency. Conservative regexes, with
 # placeholder/identifier suppression. Flips fatal so leaked credentials
