@@ -680,6 +680,22 @@ def _cache_cleanup_worker(registry=None):
             except Exception as _fl_exc:
                 log.warning("[FiringLiveness] daily check failed: %s", _fl_exc)
 
+            # WP-1.2 / S5-VERIF-013+014: config reachability, one run per
+            # day on the same persistent-schedule contract. The job also
+            # flushes the in-process config read tracker, so the "which
+            # registered keys does anything actually read" evidence survives
+            # a restart.
+            try:
+                from radar.verification.config_reachability import (
+                    run_daily_check_if_due as _config_reach_check,
+                )
+                if _config_reach_check():
+                    log.info("[ConfigReachability] daily config reachability "
+                             "check ran")
+            except Exception as _cr_exc:
+                log.warning("[ConfigReachability] daily check failed: %s",
+                            _cr_exc)
+
             # ATTENTION adaptive learning (commit O): hourly observation
             # tick + nightly p95 recompute + nightly cleanup.
             try:

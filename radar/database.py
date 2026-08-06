@@ -253,6 +253,41 @@ def _migration_v55_firing_liveness(conn) -> None:
     """)
 
 
+def _migration_v56_config_read_stats(conn) -> None:
+    """WP-1.2 (v3 Phase 1) — persisted config read tracker.
+
+    S5-VERIF-014 requires the reachability audit to rest on at least 24h
+    of observed runtime, which an in-process counter cannot provide across
+    restarts. `config_layered` counts reads in memory; the daily job merges
+    them here and resets the counters, so `first_read_at` is the earliest
+    read ever observed and `read_count` accumulates over the deployment's
+    lifetime. Also declared in the _SCHEMA_SQL baseline.
+
+    `first_considered_at` is when the key first entered the audit's field of
+    view (written for every registered key on each daily run, read or not).
+    The 24h floor is measured per key against it: a key registered today
+    must not inherit a months-old observation window from unrelated keys.
+    `first_read_at` / `last_read_at` stay NULL until something reads it.
+
+    A table left over from an earlier shape is rebuilt rather than patched:
+    it is a read-count accumulator with no dependants, so recreating it
+    costs at most one observation window and keeps the schema single-valued.
+    """
+    existing = {row[1] for row in
+                conn.execute("PRAGMA table_info(config_read_stats)").fetchall()}
+    if existing and "first_considered_at" not in existing:
+        conn.execute("DROP TABLE config_read_stats")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS config_read_stats (
+            config_key          TEXT PRIMARY KEY,
+            first_considered_at REAL    NOT NULL,
+            first_read_at       REAL,
+            last_read_at        REAL,
+            read_count          INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+
 def _migration_v48_llm_embedding_ledger(conn) -> None:
     """Phase 9.2 C7 — per-call ledger for the embedding pipeline.
 
@@ -1596,6 +1631,21 @@ CREATE TABLE IF NOT EXISTS l5_job_state (
     job_id      TEXT PRIMARY KEY,
     last_run_at REAL,
     next_run_at REAL
+);
+
+-- config_read_stats: which registered config keys were actually READ at
+-- runtime, merged from the in-process tracker in radar/config_layered.py.
+-- S5-VERIF-014 requires the "registered but never read" verdict to rest on
+-- >= 24h of observation, which no volatile counter can survive.
+-- first_considered_at is the per-key start of the observation window; the
+-- 24h floor is measured against it so a newly registered key cannot inherit
+-- another key's history and be accused of never being read on day one.
+CREATE TABLE IF NOT EXISTS config_read_stats (
+    config_key          TEXT PRIMARY KEY,
+    first_considered_at REAL    NOT NULL,
+    first_read_at       REAL,
+    last_read_at        REAL,
+    read_count          INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -3000,6 +3050,10 @@ class RadarDB:
                 LIMIT 1
             """),
         ]),
+        # v56: WP-1.2 config reachability — persisted read tracker.
+        (56, "config reachability: config_read_stats (S5-VERIF-014)",
+         _migration_v56_config_read_stats),
+
         # v55: WP-1.1 L5 firing-liveness monitoring. Mirrors the baseline
         # declarations in _SCHEMA_SQL for already-provisioned DBs.
         (55, "L5 firing liveness: sensor_flag_state + sensor_flag_fire_log "
@@ -3508,6 +3562,84 @@ class RadarDB:
             (check_id, target),
         ).fetchone()
         return dict(row) if row else None
+
+    @staticmethod
+    def _read_stat_row(key: str, entry: dict, ts: float) -> tuple:
+        first = entry.get("first_read_at")
+        last = entry.get("last_read_at")
+        first = ts if first is None else float(first)
+        last = ts if last is None else float(last)
+        count = entry.get("read_count")
+        return (key, min(first, ts), first, last,
+                0 if count is None else int(count))
+
+    def config_read_stats_merge(self, entries: dict,
+                                now: float | None = None) -> int:
+        """Merge in-process config read counters into the persisted table.
+
+        `entries` maps config key -> {first_read_at, last_read_at,
+        read_count}. Counts ADD (the caller drains its tracker on a
+        successful merge, so a restart continues the same total),
+        first_read_at / first_considered_at only ever move backwards and
+        last_read_at only forwards. Returns the number of keys merged.
+        """
+        if not entries:
+            return 0
+        ts = time.time() if now is None else now
+        rows = [self._read_stat_row(key, entry, ts)
+                for key, entry in entries.items()]
+        conn = self._get_conn()
+        with conn.writing():
+            conn.executemany(
+                "INSERT INTO config_read_stats (config_key, "
+                "  first_considered_at, first_read_at, last_read_at, "
+                "  read_count) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT (config_key) DO UPDATE SET "
+                "  first_considered_at = MIN(first_considered_at, "
+                "                            excluded.first_considered_at), "
+                "  first_read_at = MIN(COALESCE(first_read_at, "
+                "                               excluded.first_read_at), "
+                "                      excluded.first_read_at), "
+                "  last_read_at  = MAX(COALESCE(last_read_at, "
+                "                               excluded.last_read_at), "
+                "                      excluded.last_read_at), "
+                "  read_count    = read_count + excluded.read_count",
+                rows,
+            )
+        return len(rows)
+
+    def config_read_stats_note_considered(self, keys, now: float) -> int:
+        """Start the observation window for keys not yet tracked.
+
+        Written for every registered key on each daily run so the 24h floor
+        of S5-VERIF-014 is measured per key. Never touches an existing row —
+        a key's window starts once and does not restart.
+        """
+        rows = [(key, float(now)) for key in keys]
+        if not rows:
+            return 0
+        conn = self._get_conn()
+        with conn.writing():
+            conn.executemany(
+                "INSERT INTO config_read_stats "
+                "(config_key, first_considered_at, read_count) "
+                "VALUES (?, ?, 0) ON CONFLICT (config_key) DO NOTHING",
+                rows,
+            )
+        return len(rows)
+
+    def config_read_stats_all(self) -> dict:
+        """{config key: {first_considered_at, first_read_at, last_read_at,
+        read_count}}."""
+        rows = self._get_conn().execute(
+            "SELECT config_key, first_considered_at, first_read_at, "
+            "last_read_at, read_count FROM config_read_stats"
+        ).fetchall()
+        return {r["config_key"]: {
+            "first_considered_at": r["first_considered_at"],
+            "first_read_at": r["first_read_at"],
+            "last_read_at": r["last_read_at"],
+            "read_count": int(r["read_count"])} for r in rows}
 
     # ── time_series value-only (combined/l3/l7) ─────────────────────────────
     def series_append(self, theater: str, series_type: str,

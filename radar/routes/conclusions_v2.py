@@ -775,6 +775,22 @@ def v2_self_eval():
     except Exception as e:  # noqa: BLE001
         out["firing_liveness_error"] = str(e)
 
+    # config_reachability — WP-1.2 / S5-VERIF-013+014. The third member of
+    # the same family: silent_failures reports code that threw, firing_
+    # liveness reports detectors that never fired, this reports *settings
+    # that are never read*. `anomalies` lists registry keys whose value no
+    # running code path resolves through the 3-layer chain — an analyst can
+    # edit them in SETTINGS, get a success response and a new displayed
+    # value, and change nothing (defect G-15). Same S5-VERIF-006 rule: a
+    # lookup that failed is surfaced, not collapsed into an empty block.
+    try:
+        from radar.verification.config_reachability import (
+            snapshot as _cr_snapshot,
+        )
+        out["config_reachability"] = _cr_snapshot()
+    except Exception as e:  # noqa: BLE001
+        out["config_reachability_error"] = str(e)
+
     # attention metrics collection errors (SF5).
     try:
         from radar.attention import _collect_metrics as _att_metrics  # noqa: SLF001
