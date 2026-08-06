@@ -288,6 +288,14 @@ def v2_conclusion_feedback_submit(conclusion_id: str):
     client cannot spoof either. Returns the new id + the post-write
     aggregate so the UI can update its multi-analyst view in one round-trip.
     """
+    # G-01 (2026-08-07): this was the only mutating endpoint here without a
+    # role gate, so a read-only viewer could write the ground-truth labels
+    # that recall metrics and the auto-tune governor calibrate against.
+    # Authorization first, matching the sibling endpoints: an unauthorized
+    # caller must not learn the feature-flag state from a 503.
+    auth_err = _require_analyst()
+    if auth_err is not None:
+        return auth_err
     guard = _v2_enabled_or_503()
     if guard is not None:
         return guard
