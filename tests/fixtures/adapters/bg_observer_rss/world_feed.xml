@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>World</title>
+    <item>
+      <title>Russia strikes Ukraine power grid, at least 12 killed</title>
+      <description>Overnight missile attack on Kyiv left twelve dead, officials said.</description>
+      <link>https://news.test/a</link>
+      <guid>https://news.test/a</guid>
+      <pubDate>Mon, 04 Aug 2026 06:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Taiwan reports Chinese airstrike drill near the median line</title>
+      <description>Taipei said an airstrike exercise took place east of the strait.</description>
+      <link>https://news.test/b</link>
+      <guid>https://news.test/b</guid>
+    </item>
+    <item>
+      <title>Japan deploys additional patrol aircraft</title>
+      <description>Tokyo announced a deployment to the southwest islands.</description>
+      <link>https://news.test/c</link>
+      <guid>https://news.test/c</guid>
+    </item>
+    <item>
+      <title>Bank holiday shortens trading week</title>
+      <description>Markets close early.</description>
+      <link>https://news.test/d</link>
+      <guid>https://news.test/d</guid>
+    </item>
+    <item>
+      <title>Ukraine says shelling continued near the border</title>
+      <description>Kyiv reported shelling overnight.</description>
+      <link>https://news.test/e</link>
+      <guid>https://news.test/e</guid>
+    </item>
+  </channel>
+</rss>

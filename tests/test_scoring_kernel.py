@@ -41,16 +41,23 @@ def taiwan() -> Scenario:
 
 def obs(sensor="cf", domain=CYBER, score=3.0, country="TW", *,
         status="FIRED", source="", suppressed=False, weights=None,
-        origin="sensor", value="") -> Observation:
+        origin="sensor", value="", observed_at=None) -> Observation:
     if weights is not None:
         countries = tuple(CountryWeight(c, Ratio(w)) for c, w in weights)
     elif country:
         countries = (CountryWeight(country, Ratio(1.0)),)
     else:
         countries = ()
+    # WP-2.4 addendum: llm_intel must carry a timestamp. Defaulted to NOW
+    # here so the age term is exactly 1.0 and every figure pinned in this
+    # file keeps the value it was pinned at; the term itself is exercised
+    # in tests/test_scoring_intel_decay.py.
+    if observed_at is None and origin == "llm_intel":
+        observed_at = NOW
     return Observation(sensor=sensor, domain=domain, status=status,
                        score=score, signal_source=source, countries=countries,
-                       suppressed=suppressed, origin=origin, value=value)
+                       suppressed=suppressed, origin=origin, value=value,
+                       observed_at=observed_at)
 
 
 def settings(**overrides) -> ScoringSettings:
@@ -193,14 +200,14 @@ class TestAdmissionAndDomainTotals:
              obs(sensor="b", source="s2", score=3.0),
              obs(sensor="c", source="s3", score=9.0, suppressed=True),
              obs(sensor="d", source="s4", score=9.0, status="CLEAR")),
-            taiwan(), settings=settings())
+            taiwan(), settings=settings(), now=NOW)
         totals = contrib.domain_totals(built, domain_cap=6.0)
         assert totals[CYBER] == pytest.approx(5.0)
 
     def test_the_domain_cap_clips_before_anything_else(self):
         built = contrib.build_contributions(
             (obs(sensor="a", source="s1", score=10.0),), taiwan(),
-            settings=settings())
+            settings=settings(), now=NOW)
         assert contrib.domain_totals(built, domain_cap=6.0)[CYBER] == 6.0
 
     def test_every_domain_is_reported_even_at_zero(self):
@@ -263,7 +270,7 @@ class TestDedup:
         built = contrib.build_contributions(
             (obs(sensor="ioda_bgp", source="bgp", score=2.0),
              obs(sensor="ripe_bgp", source="bgp", score=3.0)),
-            taiwan(), settings=settings())
+            taiwan(), settings=settings(), now=NOW)
         deduped = contrib.dedup_max(built)
         assert len(deduped) == 1
         assert deduped[0].score == pytest.approx(3.0)
@@ -272,21 +279,21 @@ class TestDedup:
         built = contrib.build_contributions(
             (obs(sensor="ioda_bgp", source="bgp", score=2.0, country="TW"),
              obs(sensor="ripe_bgp", source="bgp", score=2.0, country="JP")),
-            taiwan(), settings=settings())
+            taiwan(), settings=settings(), now=NOW)
         assert len(contrib.dedup_max(built)) == 2
 
     def test_different_source_same_country_is_kept_separately(self):
         built = contrib.build_contributions(
             (obs(sensor="ioda", source="bgp", score=2.0),
              obs(sensor="cf", source="cloudflare", score=1.5)),
-            taiwan(), settings=settings())
+            taiwan(), settings=settings(), now=NOW)
         assert len(contrib.dedup_max(built)) == 2
 
     def test_a_tie_keeps_the_first_seen(self):
         built = contrib.build_contributions(
             (obs(sensor="first", source="bgp", score=2.0),
              obs(sensor="second", source="bgp", score=2.0)),
-            taiwan(), settings=settings())
+            taiwan(), settings=settings(), now=NOW)
         deduped = contrib.dedup_max(built)
         assert len(deduped) == 1 and deduped[0].sensor == "first"
 
@@ -296,18 +303,18 @@ class TestDedup:
 class TestContributionFormula:
     def test_score_is_raw_times_llm_weight_times_participant_weight(self):
         built = contrib.build_contributions(
-            (obs(score=3.0, country="US"),), taiwan(), settings=settings())
+            (obs(score=3.0, country="US"),), taiwan(), settings=settings(), now=NOW)
         assert built[0].score == pytest.approx(3.0 * 1.0 * 0.8)
 
     def test_the_trace_records_every_factor(self):
         built = contrib.build_contributions(
-            (obs(score=3.0, country="US"),), taiwan(), settings=settings())
+            (obs(score=3.0, country="US"),), taiwan(), settings=settings(), now=NOW)
         assert built[0].trace == (
             "3.00 (raw) × 1.00 (llm:US) × 0.80 (participant:US) = 2.40")
 
     def test_a_non_llm_signal_carries_weight_one(self):
         built = contrib.build_contributions(
-            (obs(score=2.0, country="TW"),), taiwan(), settings=settings())
+            (obs(score=2.0, country="TW"),), taiwan(), settings=settings(), now=NOW)
         assert built[0].llm_country_weight == 1.0
 
 
@@ -316,18 +323,18 @@ class TestContributionFormula:
 class TestParticipantMembership:
     def test_a_non_participant_country_contributes_nothing(self):
         built = contrib.build_contributions(
-            (obs(score=5.0, country="FR"),), taiwan(), settings=settings())
+            (obs(score=5.0, country="FR"),), taiwan(), settings=settings(), now=NOW)
         assert built == ()
 
     def test_the_adversary_contributes_with_its_own_weight(self):
         built = contrib.build_contributions(
-            (obs(score=3.0, country="CN"),), taiwan(), settings=settings())
+            (obs(score=3.0, country="CN"),), taiwan(), settings=settings(), now=NOW)
         assert built[0].score == pytest.approx(3.0 * 0.7)
         assert built[0].role == "adversary"
 
     def test_the_adversary_counts_among_active_countries(self):
         built = contrib.build_contributions(
-            (obs(score=3.0, country="CN"),), taiwan(), settings=settings())
+            (obs(score=3.0, country="CN"),), taiwan(), settings=settings(), now=NOW)
         assert contrib.active_countries(built) == ("CN",)
 
 
@@ -336,7 +343,7 @@ class TestParticipantMembership:
 class TestGlobalSignals:
     def test_countryless_signals_are_decoupled_by_default(self):
         built = contrib.build_contributions(
-            (obs(score=5.0, country=""),), taiwan(), settings=settings())
+            (obs(score=5.0, country=""),), taiwan(), settings=settings(), now=NOW)
         assert built == ()
 
     def test_they_cannot_light_a_domain_and_satisfy_the_tl2_gate(self):
@@ -351,7 +358,7 @@ class TestGlobalSignals:
     def test_the_legacy_path_weights_them_when_coupling_is_on(self):
         built = contrib.build_contributions(
             (obs(score=4.0, country=""),), taiwan(),
-            settings=settings(global_signals_decoupled=False))
+            settings=settings(global_signals_decoupled=False), now=NOW)
         assert built[0].country == "GLOBAL"
         assert built[0].score == pytest.approx(2.0)
         assert built[0].trace == "4.00 (raw) × 0.50 (global) = 2.00"
@@ -359,7 +366,7 @@ class TestGlobalSignals:
     def test_global_is_excluded_from_the_participant_count(self):
         built = contrib.build_contributions(
             (obs(score=4.0, country=""),), taiwan(),
-            settings=settings(global_signals_decoupled=False))
+            settings=settings(global_signals_decoupled=False), now=NOW)
         assert contrib.active_countries(built) == ()
 
     def test_the_global_envelope_aggregates_them_separately(self):
@@ -367,14 +374,14 @@ class TestGlobalSignals:
             (obs(sensor="a", source="s1", score=4.0, country=""),
              obs(sensor="b", source="s2", domain=INFO, score=2.0, country=""),
              obs(sensor="c", source="s3", score=9.0, country="TW")),
-            global_signal_weight=Ratio(0.5))
+            global_signal_weight=Ratio(0.5), now=NOW)
         assert envelope["score"] == pytest.approx(3.0)
         assert envelope["domains"][CYBER] == pytest.approx(2.0)
         assert set(envelope["sources"]) == {"s1", "s2"}
 
     def test_the_envelope_is_empty_without_global_signals(self):
         envelope = contrib.global_threat(
-            (obs(score=9.0, country="TW"),), global_signal_weight=Ratio(0.5))
+            (obs(score=9.0, country="TW"),), global_signal_weight=Ratio(0.5), now=NOW)
         assert envelope["score"] == 0.0 and envelope["sources"] == ()
 
 
@@ -384,40 +391,40 @@ class TestLlmPrimaryCountry:
     def test_a_secondary_country_below_the_ratio_is_dropped(self):
         built = contrib.build_contributions(
             (obs(score=3.0, weights=(("US", 1.0), ("TW", 0.5)),
-                 origin="llm_intel"),), taiwan(), settings=settings())
+                 origin="llm_intel"),), taiwan(), settings=settings(), now=NOW)
         assert {c.country for c in built} == {"US"}
 
     def test_the_boundary_ratio_is_kept(self):
         """`>=`, so exactly 0.8 survives."""
         built = contrib.build_contributions(
             (obs(score=3.0, weights=(("US", 1.0), ("TW", 0.8)),
-                 origin="llm_intel"),), taiwan(), settings=settings())
+                 origin="llm_intel"),), taiwan(), settings=settings(), now=NOW)
         assert {c.country for c in built} == {"US", "TW"}
 
     def test_just_below_the_boundary_is_dropped(self):
         built = contrib.build_contributions(
             (obs(score=3.0, weights=(("US", 1.0), ("TW", 0.79)),
-                 origin="llm_intel"),), taiwan(), settings=settings())
+                 origin="llm_intel"),), taiwan(), settings=settings(), now=NOW)
         assert {c.country for c in built} == {"US"}
 
     def test_an_override_raises_the_bar(self):
         built = contrib.build_contributions(
             (obs(score=3.0, weights=(("US", 1.0), ("TW", 0.9)),
                  origin="llm_intel"),), taiwan(),
-            settings=settings(llm_primary_threshold=Ratio(0.95)))
+            settings=settings(llm_primary_threshold=Ratio(0.95)), now=NOW)
         assert {c.country for c in built} == {"US"}
 
     def test_the_flag_off_lets_every_tag_bleed_through(self):
         built = contrib.build_contributions(
             (obs(score=3.0, weights=(("US", 1.0), ("TW", 0.2)),
                  origin="llm_intel"),), taiwan(),
-            settings=settings(llm_primary_country_only=False))
+            settings=settings(llm_primary_country_only=False), now=NOW)
         assert {c.country for c in built} == {"US", "TW"}
 
     def test_a_single_country_sensor_signal_always_passes(self):
         built = contrib.build_contributions(
             (obs(score=3.0, weights=(("TW", 0.1),)),), taiwan(),
-            settings=settings())
+            settings=settings(), now=NOW)
         assert {c.country for c in built} == {"TW"}
 
 
@@ -869,7 +876,7 @@ class TestScenarioSelection:
         built = contrib.build_contributions(
             (obs(sensor="a", source="s1", score=3.0, country="IL"),
              obs(sensor="b", source="s2", score=3.0, country="IR")),
-            middle_east, settings=settings())
+            middle_east, settings=settings(), now=NOW)
         assert [c.score for c in built] == [3.0, 3.0]
 
     def test_duplicate_participants_are_refused(self):
@@ -1191,7 +1198,7 @@ class TestPublishedFiguresCannotBeEdited:
 
     def test_the_envelope_from_contributions_is_frozen_too(self):
         envelope = contrib.global_threat(
-            (obs(score=4.0, country=""),), global_signal_weight=Ratio(0.5))
+            (obs(score=4.0, country=""),), global_signal_weight=Ratio(0.5), now=NOW)
         with pytest.raises(TypeError):
             envelope["domains"][CYBER] = 99.0
 

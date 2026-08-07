@@ -31,6 +31,17 @@ PIPE_CLAUSES: tuple[str, ...] = tuple(
     f"S1-PIPE-{n:03d}" for n in range(1, 48))
 S1_SCORING_CLAUSES: frozenset = frozenset(SCORE_CLAUSES + PIPE_CLAUSES)
 
+# ── the addendum: clauses from a THIRD book that land in this kernel ──────
+# S1-intel.md is L3's book — an intel queue state machine, review states and
+# TTLs — and ruling on all of it here would be claiming an analysis WP-2.7
+# did not do. Exactly one of its clauses reaches the scoring arithmetic:
+# S1-INTEL-020's exponential age term, which the design sheet §9 ruling 1
+# places in L2 because leaving it upstream is the "bespoke decay" P6 O-17
+# abolishes. It is kept in its own partition, and a test pins the partition
+# at one member, so that "addendum" cannot quietly become a second
+# unaccounted universe.
+INTEL_ADDENDUM_CLAUSES: tuple[str, ...] = ("S1-INTEL-020",)
+
 
 # ── exclusion rationale vocabulary ────────────────────────────────────────
 
@@ -366,7 +377,15 @@ EXCLUDED: dict[str, Excluded] = {entry.clause: entry for entry in (
              "forget. ACCIDENTAL A7 cannot arise."),
     Excluded("S1-PIPE-023", Rationale.MOVED_TO_ADAPTER,
              "Signal-set construction decides which observations exist. "
-             "The kernel scores the set it is handed."),
+             "The kernel scores the set it is handed. PARTIAL, since the "
+             "WP-2.4 addendum: clause (4) injects LLM intel 'already time-"
+             "decayed', and that decay is now S1-INTEL-020 in "
+             "v3.scoring.decay (ADDENDUM_IMPLEMENTED) rather than the "
+             "adapter's, because a decay upstream of the kernel is the "
+             "bespoke decay P6 O-17 abolishes. The clause's remaining "
+             "halves — the 48h TTL drop (radar/intel_queue.py:999) and the "
+             "2-per-(source_type, country) cap (:1005-1017) — are still "
+             "set construction and land in WP-4.1."),
     Excluded("S1-PIPE-024", Rationale.MOVED_TO_L1,
              "Injection and drain failures are ledger-side, and the "
              "kernel performs no destructive reads to fail at."),
@@ -424,6 +443,26 @@ EXCLUDED: dict[str, Excluded] = {entry.clause: entry for entry in (
 )}
 
 
+# ── addendum (WP-2.4 addendum, landed WP-2.7) ─────────────────────────────
+
+ADDENDUM_IMPLEMENTED: dict[str, Implemented] = {
+    entry.clause: entry for entry in (
+        Implemented(
+            "S1-INTEL-020",
+            "decay.intel_age_weight + contributions.build_contributions",
+            "TestIntelAgeWeight",
+            "The exponential half only: score_delta x exp(-max(0, age)/tau), "
+            "tau pinned at 12h. Traced with ast to radar/intel_queue.py:"
+            "88-106 and 1001-1003, whose DECAYED value is what both "
+            "consumers read (radar/routes/core.py:1925 positional 5 = "
+            "`score`; :2078 raw_score). The same function's TTL cut and "
+            "per-(source_type, country) cap are set construction and stay "
+            "with S1-PIPE-023. Production's env-only switches "
+            "(INTEL_AGE_DECAY_ENABLED, per-source tau) are not carried: "
+            "`v3/` forbids env reads and neither is set in config.env."),
+    )}
+
+
 def accounted_for() -> frozenset:
     return frozenset(IMPLEMENTED) | frozenset(EXCLUDED)
 
@@ -441,5 +480,6 @@ def exclusions_by_rationale() -> dict:
 
 
 __all__ = ["S1_SCORING_CLAUSES", "SCORE_CLAUSES", "PIPE_CLAUSES",
+           "INTEL_ADDENDUM_CLAUSES", "ADDENDUM_IMPLEMENTED",
            "IMPLEMENTED", "EXCLUDED", "Implemented", "Excluded", "Rationale",
            "accounted_for", "unaccounted", "exclusions_by_rationale"]

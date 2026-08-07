@@ -47,6 +47,20 @@ EXPECTED_MODULES = frozenset({
     "radar", "radar.config", "radar.config_layered", "radar.database",
     "radar.models", "radar.state", "radar.scoring", "radar.scenarios",
     "radar.conclusions", "radar.geo",
+    # Admitted 2026-08-08 for §7-2 #38: the driver must apply production's
+    # OWN intel age term (`_age_weight`) rather than a copy, and calling it
+    # means importing the module that owns it. Reviewed at import time
+    # before admitting, which is what this check exists to force:
+    #   * one logger and one INFO line about the decay setting
+    #   * one `threading.Lock` — a lock, not a thread (`:302`); the
+    #     measured thread count stays 1 and the harness asserts it
+    #   * module-level data (credibility bootstrap, media ecosystems,
+    #     stopwords, dedup constants)
+    #   * `intel_queue = IntelQueue()` at `:1211`, and the class defines no
+    #     `__init__`, so construction touches nothing
+    #   * `from radar.database import db` binds the refusing stub; every
+    #     use of it is inside a method none of which this path calls
+    "radar.intel_queue",
 })
 
 

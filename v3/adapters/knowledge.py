@@ -93,8 +93,14 @@ WP26_KNOWLEDGE: frozenset = frozenset(
 WP27_KNOWLEDGE: frozenset = frozenset(
     key for key, item in KNOWLEDGE.items() if item.batch == WP27)
 
-#: §6-2's one-fact-one-test mapping for the WP-2.6 batch. The value is the
+#: §6-2's one-fact-one-test mapping, across every batch. The value is the
 #: test function name that pins the fact; the meta-test checks it exists.
+#:
+#: The registry is keyed to what the BUILT adapters claim, not to a batch
+#: label: a fact enters here when the adapter that names it in
+#: `knowledge_refs` ships, and the meta-test compares the two sets in both
+#: directions. That is what keeps the ledger from drifting mid-port —
+#: a claim with no test and a test with no claimant both fail.
 KNOWLEDGE_TESTS: dict[str, str] = {
     "K01": "test_k01_opensky_three_adapters_share_one_rate_limit_group",
     "K02": "test_k02_aishub_rate_limit_is_http_200_with_empty_body",
@@ -111,6 +117,12 @@ KNOWLEDGE_TESTS: dict[str, str] = {
     "K16": "test_k16_usgs_nuclear_candidate_needs_magnitude_depth_and_territory",
     "K17": "test_k17_space_weather_suppresses_at_kp_six_or_xray_class_m",
     "K19": "test_k19_ioda_falls_back_to_cloudflare_radar",
+    # ── WP-2.7 ──────────────────────────────────────────────────────────
+    "K18": "test_k18_gdelt_tone_is_baselined_per_weekday",
+    "K08": "test_k08_feeds_get_a_two_stage_parse_and_a_named_death_cause",
+    "K07": "test_k07_the_diplomatic_feed_liveness_ledger_survives_as_data",
+    "K13": "test_k13_the_user_agent_pool_and_the_backoff_are_both_present",
+    "K20": "test_k20_three_governments_publish_in_three_formats",
 }
 
 

@@ -66,6 +66,14 @@ from __future__ import annotations
 import json
 import sys
 
+#: The signal source production stamps on an intel contribution
+#: (`radar/intel_queue.py:1024-1025` returns `sensor` and `signal_source`
+#: both as this literal). The v3 projection recovers `origin` from the same
+#: string (`v3/parity/adapter.py`), so a test compares the two spellings
+#: rather than letting one import the other — this module is the LEGACY
+#: side and must not take its vocabulary from the rewrite.
+LLM_INTEL_SIGNAL_SOURCE = "llm_intel"
+
 #: No environment variables are set. They would be pointless here: every
 #: switch the legacy system exposes (`BG_SCORING_ENABLED`,
 #: `BG_OBSERVER_ENABLED`, `RADAR_RATE_LIMIT_ENABLED`, `PLUGIN_ENABLED`)
@@ -130,7 +138,53 @@ def _build_scenario(spec: dict):
     })
 
 
-def _build_signals(rows: list, scoring):
+def _intel_age_weight(age_sec: float, source_type: str = "") -> float:
+    """PRODUCTION's age term, called. Not a second implementation.
+
+    `radar/intel_queue.py:88-106`. S5-VERIF-031 forbids reproducing a
+    formula in the harness, and this one is worth the clause twice over:
+    the function reads its tau from the environment
+    (`INTEL_AGE_DECAY_TAU_HOURS`, `config.env:96` = 12.0) and can be
+    switched off entirely (`INTEL_AGE_DECAY_ENABLED`). A copy here would
+    hold the deployed value at the moment it was written and then quietly
+    stop agreeing with the system it is supposed to be measuring.
+
+    `source_type` is passed empty. The per-source tau override
+    (`INTEL_AGE_DECAY_TAU_HOURS_<TYPE>`) is unset in the deployed
+    `config.env` and is deliberately not ported (design sheet §7-2 #36) —
+    but the base tau IS read live, so a changed deployment shows up here as
+    a real disagreement with v3's pinned 12h rather than being absorbed.
+    """
+    from radar.intel_queue import _age_weight
+    return float(_age_weight(age_sec, source_type))
+
+
+def _production_score(row: dict, *, now: float) -> float:
+    """The number production's scoring core actually receives.
+
+    An intel row is the one case where the ledger's `raw_score` is NOT
+    what legacy scores. `intel_queue.get_active_rationale` multiplies
+    `score_delta` by the age weight and publishes the PRODUCT as `score`
+    (`radar/intel_queue.py:1001-1003`, `:1026`), and both consumers take
+    that field (`radar/routes/core.py:1925` positional 5, `:2078`
+    `raw_score=`). v3 stores the undecayed number with the item's own
+    `observed_at` and applies the term in L2 instead, so handing the raw
+    number to this side compared a decayed reading against an undecayed
+    one and blamed the difference on the rewrite (§7-2 #38).
+
+    Age is measured from the item's `observed_at` to the TICK, which is
+    what `now = time.time()` means at `get_active_rationale`'s call site.
+    Production then overwrites the timestamp with the tick's own clock
+    (`core.py:2074`), which is why the age has to be taken here — one
+    step later it no longer exists.
+    """
+    score = float(row.get("raw_score") or 0.0)
+    if (row.get("signal_source") or "") != LLM_INTEL_SIGNAL_SOURCE:
+        return score
+    return score * _intel_age_weight(now - float(row["observed_at"]))
+
+
+def _build_signals(rows: list, scoring, *, now: float):
     """Rows -> legacy Signals, via the REAL `rationale_to_signal`.
 
     The admission predicate (suppressed / not FIRED / score <= 0) and the
@@ -152,7 +206,7 @@ def _build_signals(rows: list, scoring):
             domain=row["domain"],
             status=row["status"],
             value=str(row.get("value") or ""),
-            score=float(row.get("raw_score") or 0.0),
+            score=_production_score(row, now=now),
             suppressed=bool(row.get("suppressed")),
             suppress_reason=row.get("suppress_reason"),
             confidence=(1.0 if row.get("confidence") is None
@@ -207,7 +261,8 @@ def main() -> int:
     results = []
 
     for tick in request["ticks"]:
-        signals = _build_signals(tick["rows"], scoring)
+        signals = _build_signals(tick["rows"], scoring,
+                                 now=float(tick["tick_ts"]))
         for scenario_id, scenario in scenarios.items():
             # THE REAL FUNCTIONS. S5-VERIF-031: no formula is reproduced
             # here; this file only marshals arguments.

@@ -1,0 +1,9 @@
+{
+  "timeline": [
+    {"series": "Average Tone",
+     "data": [
+       {"date": "20260806T120000Z", "value": -2.0},
+       {"date": "20260807T120000Z", "value": -1.0}
+     ]}
+  ]
+}

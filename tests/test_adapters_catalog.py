@@ -55,6 +55,157 @@ def _design_sheet_rows() -> list[tuple[int, str]]:
     return [(int(number), name) for number, name in rows]
 
 
+def _design_sheet_rows_27() -> list[tuple[int, str]]:
+    """Parse §3-3's table out of the document, same as §3-2's."""
+    text = SPEC.read_text(encoding="utf-8")
+    section = text.split("### 3-3.")[1].split("### 3-4.")[0]
+    rows = re.findall(r"^\|\s*(\d+)\s*\|\s*`([a-z0-9_]+)`\s*\|",
+                      section, flags=re.MULTILINE)
+    return [(int(number), name) for number, name in rows]
+
+
+class TestTotalityAcrossBothBatches:
+    """The full 34 (§3-0), parsed from the sheet rather than restated.
+
+    WP-2.6 shipped 22. WP-2.7 ships the shared machinery first and its
+    per-source declarations after, so the roster is deliberately short —
+    and `PENDING_WP27` is what makes short different from missing. Both
+    directions fail: an adapter built without striking its row, and a row
+    left standing after its adapter ships.
+    """
+
+    def test_the_wp27_transcription_matches_the_document(self):
+        from v3.adapters.catalog import WP27_DESIGN_SHEET_ROWS
+        assert _design_sheet_rows_27() == list(WP27_DESIGN_SHEET_ROWS)
+
+    def test_the_two_sheets_declare_thirty_four_adapters(self):
+        from v3.adapters.catalog import declared_adapter_ids
+        assert len(_design_sheet_rows()) + len(_design_sheet_rows_27()) == 34
+        assert len(declared_adapter_ids()) == 34
+        assert len(set(declared_adapter_ids())) == 34
+
+    def test_the_row_numbers_run_one_to_thirty_four_without_a_gap(self):
+        numbers = [n for n, _ in _design_sheet_rows() + _design_sheet_rows_27()]
+        assert numbers == list(range(1, 35))
+
+    def test_the_one_not_ported_adapter_is_the_one_the_sheet_rules_out(self):
+        from v3.adapters.catalog import NOT_PORTED, buildable_adapter_ids
+        assert set(NOT_PORTED) == {"convergence_tracker"}
+        assert len(buildable_adapter_ids()) == 33
+        assert "convergence_tracker" not in buildable_adapter_ids()
+
+    def test_every_not_ported_entry_carries_its_reason(self):
+        from v3.adapters.catalog import NOT_PORTED
+        for name, reason in NOT_PORTED.items():
+            assert "§4-3" in reason, name
+            assert len(reason) > 80, name
+
+    def test_pending_names_only_rows_the_sheet_declares(self):
+        from v3.adapters.catalog import PENDING_WP27, buildable_adapter_ids
+        assert not set(PENDING_WP27) - set(buildable_adapter_ids())
+
+    def test_the_two_deferred_adapters_are_the_ones_ruling_nine_names(self):
+        """Ruling 9 (2026-08-08): `hacktivist_intel` and `ground_osint` go
+        to WP-4.1, because their input is another adapter's OUTPUT and the
+        declaration model has no vocabulary for that. Forcing it breaks
+        barrier 1 (a cache handle inside `normalize`) or barriers 2/4 (the
+        adapter reading for itself) — the §2-4 lesson repeating.
+
+        Deferred is its own state, distinct from pending: pending means
+        "this batch still owes it", deferred means "this batch cannot
+        express it and another one will".
+        """
+        from v3.adapters.catalog import DEFERRED_WP41, buildable_adapter_ids
+        assert set(DEFERRED_WP41) == {"hacktivist_intel", "ground_osint"}
+        assert not set(DEFERRED_WP41) - set(buildable_adapter_ids())
+
+    def test_every_deferred_entry_names_its_reason_and_its_landing_wp(self):
+        """A deferral with no stated cause is indistinguishable from a
+        port somebody abandoned — the same argument `disabled_reason` and
+        `RequestChain.reason` carry."""
+        from v3.adapters.catalog import DEFERRED_WP41
+        for name, reason in DEFERRED_WP41.items():
+            assert "WP-4.1" in reason, name
+            assert "H-3" in reason, name
+            assert len(reason) > 120, name
+
+    def test_the_deferred_share_a_mechanism_with_reduction_and_suppression(
+            self):
+        """§7-2 #11 (reduction) and #35 (suppression) are the same gap.
+
+        All three need another adapter's output. Ruling 9 takes option (c)
+        — one wiring in the composition root — precisely so three separate
+        mechanisms are not invented, which is A-02 (the same computation
+        implemented several times) reproduced on purpose.
+        """
+        from v3.adapters.catalog import DEFERRED_WP41
+        blob = " ".join(DEFERRED_WP41.values())
+        assert "#11" in blob and "#35" in blob
+
+    def test_a_deferred_adapter_is_neither_pending_nor_built(self):
+        from v3.adapters.catalog import (ALL_ADAPTERS, DEFERRED_WP41,
+                                         PENDING_WP27)
+        built = {adapter.adapter_id.value for adapter in ALL_ADAPTERS}
+        assert built & set(DEFERRED_WP41) == set()
+        assert set(PENDING_WP27) & set(DEFERRED_WP41) == set()
+
+    def test_a_pending_adapter_is_not_also_built(self):
+        from v3.adapters.catalog import ALL_ADAPTERS, PENDING_WP27
+        built = {adapter.adapter_id.value for adapter in ALL_ADAPTERS}
+        assert built & set(PENDING_WP27) == set(), \
+            "an adapter shipped without striking its PENDING_WP27 row"
+
+    def test_the_built_roster_is_exactly_declared_minus_ruled_out_minus_pending(
+            self):
+        from v3.adapters.catalog import ALL_ADAPTERS, expected_adapter_ids
+        built = {adapter.adapter_id.value for adapter in ALL_ADAPTERS}
+        assert built == set(expected_adapter_ids())
+
+    def test_the_wp27_batch_still_accounts_for_all_eleven_rows(self):
+        """The invariant that holds at every point of the port.
+
+        §3-3 lists twelve rows; `convergence_tracker` is not ported, so
+        eleven are buildable. Each of those eleven is in exactly one state
+        at all times — shipped, still owed, or deferred to WP-4.1 — so a
+        row cannot be quietly dropped by moving it out of `PENDING_WP27`
+        without it turning up somewhere else.
+        """
+        from v3.adapters.catalog import (DEFERRED_WP41, PENDING_WP27,
+                                         WP27_ADAPTERS, WP27_DESIGN_SHEET_ROWS,
+                                         NOT_PORTED)
+        rows = {name for _, name in WP27_DESIGN_SHEET_ROWS}
+        buildable = rows - set(NOT_PORTED)
+        shipped = {adapter.adapter_id.value for adapter in WP27_ADAPTERS}
+        assert len(buildable) == 11
+        assert shipped | set(PENDING_WP27) | set(DEFERRED_WP41) == buildable
+        assert len(shipped) + len(PENDING_WP27) + len(DEFERRED_WP41) == 11
+
+    def test_ruling_nine_leaves_nine_adapters_for_this_work_package(self):
+        """Ruling 9's arithmetic, reconciled and derived rather than
+        asserted.
+
+        The ruling states the WP-2.7 population as **10, not 12**: the
+        twelve §3-3 rows less the two deferred ones. Nine of those ten are
+        BUILT — the tenth is `convergence_tracker`, which §4-3 rules out as
+        an adapter altogether and which was already excluded from the
+        sheet's own "実移植は 11" count. So the totality shape is
+        34 declared / 33 buildable / 31 built / 2 deferred, and 31 is
+        22 + 9 rather than 22 + 10.
+        """
+        from v3.adapters.catalog import (ALL_ADAPTERS, DEFERRED_WP41,
+                                         PENDING_WP27, WP26_ADAPTERS,
+                                         WP27_ADAPTERS, buildable_adapter_ids,
+                                         declared_adapter_ids)
+        assert len(declared_adapter_ids()) == 34
+        assert len(buildable_adapter_ids()) == 33
+        assert len(DEFERRED_WP41) == 2
+        if not PENDING_WP27:                       # the finished shape
+            assert len(WP26_ADAPTERS) == 22
+            assert len(WP27_ADAPTERS) == 9
+            assert len(ALL_ADAPTERS) == 31
+            assert len(buildable_adapter_ids()) - len(DEFERRED_WP41) == 31
+
+
 class TestTheRosterMatchesTheDesignSheet:
     def test_the_transcription_matches_the_document(self):
         assert _design_sheet_rows() == list(WP26_DESIGN_SHEET_ROWS)
@@ -63,11 +214,20 @@ class TestTheRosterMatchesTheDesignSheet:
         assert len(WP26_DESIGN_SHEET_ROWS) == 22
 
     def test_every_declared_adapter_is_built(self):
-        assert tuple(adapter.name for adapter in WP26_ADAPTERS) == \
+        """Sheet order, across both batches.
+
+        Comparing `WP26_ADAPTERS` alone stopped being the whole roster the
+        moment WP-2.7 shipped its first declaration; the tuple compared
+        here is the one `expected_adapter_ids()` derives, so a §3-3 row
+        landing out of order fails just as a §3-2 one would.
+        """
+        from v3.adapters.catalog import ALL_ADAPTERS
+        assert tuple(adapter.name for adapter in ALL_ADAPTERS) == \
             expected_adapter_ids()
 
     def test_no_adapter_is_built_that_the_sheet_does_not_list(self):
-        assert set(adapter.name for adapter in WP26_ADAPTERS) == \
+        from v3.adapters.catalog import ALL_ADAPTERS
+        assert set(adapter.name for adapter in ALL_ADAPTERS) == \
             set(expected_adapter_ids())
 
     def test_the_only_rename_is_the_one_the_sheet_mandates(self):
@@ -128,6 +288,65 @@ class TestTheExpectedDifferenceRegister:
         assert "ISR_HOTSPOTS" in section and "AISHub" in section
         assert "WP-4.1" in section          # H-1 names its landing WP
         assert "裁定待ち" in section          # H-2 says the ruling is open
+
+    def test_ruling_nine_is_recorded_where_the_code_points(self):
+        """`DEFERRED_WP41` cites §3-5 H-3 and 裁定要求 9. A citation to a
+        section that does not say what the code claims is how "raised for
+        a ruling" became an assertion nobody could check — the same
+        failure `test_the_open_hand_offs_are_written_down_where_the_code_
+        points` exists to prevent for H-1 and H-2.
+        """
+        from v3.adapters.catalog import DEFERRED_WP41
+        text = SPEC.read_text(encoding="utf-8")
+        section = text.split("### 3-5.")[1].split("\n## ")[0]
+        assert "H-3" in section
+        for name in DEFERRED_WP41:
+            assert f"`{name}`" in section, name
+        # The ruling itself, not merely the request.
+        assert "裁定（オーナー、2026-08-08）" in section
+        assert "WP-4.1" in section
+
+    def test_the_deferral_is_no_longer_an_open_ruling_request(self):
+        """§8's entry must not still read as awaiting a decision. An open
+        request and a closed one call for opposite actions from whoever
+        picks the work package up next."""
+        text = SPEC.read_text(encoding="utf-8")
+        heading = [line for line in text.splitlines()
+                   if line.startswith("### 裁定要求 9")]
+        assert len(heading) == 1
+        assert "裁定済み" in heading[0]
+
+    def test_the_totality_the_ruling_states_is_the_one_the_code_derives(self):
+        """The sheet's arithmetic and the catalog's must agree.
+
+        The ruling as written says "22+10"; the sheet reconciles that to
+        31 built, because `convergence_tracker` is one of the ten rows and
+        is not an adapter (§4-3). Numbers restated in prose drift from
+        numbers that are computed, so the prose is checked against the
+        computation rather than trusted alongside it.
+        """
+        from v3.adapters.catalog import (DEFERRED_WP41, buildable_adapter_ids,
+                                         declared_adapter_ids)
+        text = SPEC.read_text(encoding="utf-8")
+        section = text.split("### 3-5.")[1].split("\n## ")[0]
+        assert f"| declared | **{len(declared_adapter_ids())}** |" in section
+        assert f"| buildable | **{len(buildable_adapter_ids())}** |" in section
+        assert f"| deferred | **{len(DEFERRED_WP41)}** |" in section
+        built = len(buildable_adapter_ids()) - len(DEFERRED_WP41)
+        assert f"| built（完了時） | **{built}** |" in section
+
+    def test_the_retired_parity_difference_says_what_replaced_it(self):
+        """§7-2 #38 was fixed rather than carried. A register entry that
+        is simply deleted leaves a reader unable to tell a repaired
+        difference from one nobody wrote down."""
+        text = SPEC.read_text(encoding="utf-8")
+        section = text.split("### 7-2.")[1].split("\n## ")[0]
+        row = [line for line in section.splitlines()
+               if line.startswith("| 38 ")]
+        assert len(row) == 1
+        assert "RETIRED" in row[0]
+        assert "_age_weight" in row[0]
+        assert "S5-VERIF-031" in row[0]
 
     def test_the_split_is_seven_cyber_and_fifteen_physical(self):
         registry = build_registry()
@@ -212,19 +431,39 @@ class TestKnowledgeLedger:
         assert set(re.findall(r"\bK(\d{2})\b", section)) == \
             {f"{n:02d}" for n in range(1, 21)}
 
-    def test_every_fact_this_batch_owns_has_a_test(self):
-        assert set(KNOWLEDGE_TESTS) == WP26_KNOWLEDGE
+    def test_every_fact_a_built_adapter_claims_has_a_test(self):
+        """The invariant that survives a port in progress.
 
-    def test_every_named_test_exists_in_this_module(self):
+        Keying this to a batch label meant the check stopped moving as
+        soon as WP-2.7 shipped its first adapter. Keyed to what the BUILT
+        roster claims, it stays load-bearing throughout: an adapter that
+        lands naming a fact with no test fails, and a test naming a fact
+        no shipped adapter claims fails too.
+        """
+        from v3.adapters.catalog import ALL_ADAPTERS
+        claimed = {ref for adapter in ALL_ADAPTERS
+                   for ref in adapter.knowledge_refs}
+        assert set(KNOWLEDGE_TESTS) == claimed
+
+    def test_every_named_test_exists_somewhere_in_the_adapter_suites(self):
         """A mapping entry whose test was renamed away stops being a claim
-        and starts being a lie."""
-        module = globals()
-        for key, name in sorted(KNOWLEDGE_TESTS.items()):
-            found = any(name in dir(value) for value in module.values()
-                        if isinstance(value, type)) or name in module
-            assert found, f"{key} names a missing test: {name}"
+        and starts being a lie.
 
-    def test_every_fact_this_batch_owns_is_claimed_by_an_adapter(self):
+        Searched across the adapter suites rather than this module alone —
+        the WP-2.7 facts are pinned in `test_adapters_info.py`, and a
+        check that only looked here would have reported them missing while
+        they existed, or (worse) invited them to be written here away from
+        the adapters they describe.
+        """
+        names: set = set()
+        for path in sorted(REPO_ROOT.glob("tests/test_adapters_*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.FunctionDef):
+                    names.add(node.name)
+        for key, name in sorted(KNOWLEDGE_TESTS.items()):
+            assert name in names, f"{key} names a missing test: {name}"
+
+    def test_the_wp26_facts_are_all_claimed_by_a_wp26_adapter(self):
         claimed = {ref for adapter in WP26_ADAPTERS
                    for ref in adapter.knowledge_refs}
         assert claimed == WP26_KNOWLEDGE

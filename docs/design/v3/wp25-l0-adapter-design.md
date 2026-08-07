@@ -216,6 +216,14 @@ class AuthRequirement:
 **`RequestSpec` は関数を持たない** — 「取りに行き方」を式で書けてしまう余地を残さない。
 `RequestChain.advance_on` も**閉じた定数集合**であって述語ではない（述語を許せば「取りに行き方」になる）。
 
+**この「宣言データ / 振る舞い」の区別は本書を貫く一般則である**（裁定要求 10、2026-08-08 裁定）。
+`RequestSpec`（取りに行く先はデータ、取りに行き方は関数ではない）、
+`RequestContinuation.carries`（どのフィールドが取っ手かはデータ、どう復号するかはカーネル）、
+`IntelProfile.dispositions`（どの値がどの処分になるかはデータ、評価は共有実装 1 本）は**同一の形**である。
+守っている不変条件は「フィールド数の上限」ではなく **「実装が 1 本であること」**。
+表（データ）にはセンサー固有の分岐を隠す場所が無いが、callable にはある — だから
+**規則はどこでも同じ: 表に callable が入ったら `DomainError`**（`ResponseValue.path` と同一の論拠）。
+
 4 点の設計上の要点:
 
 | # | 形 | なぜその形か |
@@ -419,7 +427,16 @@ L=両方、または固有ルール群が大きい）。
 | 33 | `ground_osint` | telegram ログ + 他センサー cache 相互参照 | SENSI-044..047 + INGEST-* | — | **L** | **DP2（B-03）**: 参照先 cache の鮮度・健全性を検査せず読む。STALE/ERROR/CIRCUIT_OPEN が健全と同一視され、裏付け能力が無言で劣化 → **K 層 `Evidence.fresh()` 経由に置換**。型が鮮度検査を強制する |
 | 34 | `convergence_tracker` | 8 センサー状態 + intel 台帳直読 | SENSI-048..054 + INGEST-* | — | — | **アダプタとして移植しない**（§4-3）。**DP3（A-09）** 専用 SQLite を直接開く / **DP10** 採点層所有データへの越境読み / **A5** domain=`mixed`（語彙外の第 4 値）— いずれも移植先を持たない。判定結果は独立性メタデータへ還元 |
 
-**WP-2.7 内訳**: S=3 / M=6 / L=2 / 移植せず=1（`convergence_tracker`）。**実移植は 11 アダプタ**。
+**WP-2.7 内訳**: S=3 / M=6 / L=2 / 移植せず=1（`convergence_tracker`）。当初想定の実移植は 11 アダプタ。
+
+**着地（2026-08-08、WP-2.7 完了時点）**: **build されたのは 9 基** —
+`gdelt` / `tor_metrics` / `bg_observer_rss` / `telegram_mirror` / `rss_narrative` / `travel_advisory`（info 6）
+＋ `diplomatic` / `military_exercise` / `hacktivist_news`（LLM 3）。
+残り 3 行の処分はいずれも裁定済みで、**保留ではない**:
+`hacktivist_intel` / `ground_osint` は **WP-4.1 へ繰延**（裁定要求 9 / §3-5 H-3 — 入力が別アダプタの出力）、
+`convergence_tracker` は **移植せず**（§4-3）。
+総和は **34 declared / 33 buildable / 2 deferred / 31 built**（WP-2.6 の 22 ＋ WP-2.7 の 9）であり、
+`catalog.PENDING_WP27` は**空**になった — 以後この列に行が現れたら、それは新しい負債である。
 
 ### 3-4. 全体の複雑度分布
 
@@ -517,6 +534,82 @@ YAGNI であり、`chokepoints` を足した時と同じく「実際の展開者
 > なお台帳のフィールド名は `country` ではなく **`theater`** である（廃止用語が `geo_data.json` に残存。
 > 用語統一の対象だが、本 WP では読み替えるに留める）。
 
+#### H-3（引き継ぎ、WP-2.7 実装中に確定、2026-08-08）— 入力が「別アダプタの出力」であるアダプタを宣言型が表現できない
+
+**事実**: WP-2.7 の 12 基のうち **3 基は HTTP を持たない**（§3-0 が母数 28 から除外した「メタ 3 基」）。
+`hacktivist_intel` は `telegram_mirror` のクラス変数 `_intercept_log` を読み、
+`ground_osint` は同じログに加えて **`cloudflare_radar` と `check_host` の live cache** を読む
+（`radar/sensors/ground_osint_sensor.py:67-82`、`ast` で確認。**鮮度も健全性も検査していない** = DP2/B-03 そのもの）。
+`convergence_tracker` は 8 センサーの状態を読む（移植しない、§4-3）。
+
+**現状の v3**: `SourceAdapter.requests` は `RequestSpec | RequestChain | RequestContinuation` しか取れず、
+`normalize` は **取得済みバイト列 1 件**しか受け取らない（§2-2 の barrier 1）。
+「別アダプタの出力を入力とする」ことを宣言する語彙が**無い**。
+`NormalizeContext` に足すのは H-1 で退けたのと同じ理由（消費者が決まる前の型拡張は YAGNI）で採らない。
+
+**帰結**: `hacktivist_intel` / `ground_osint` の 2 基は、**宣言モデルの現状では移植できない**。
+無理に移植すれば (a) `normalize` に他アダプタの cache ハンドルを渡す（barrier 1 の破壊）か、
+(b) アダプタが自前で読む（barrier 2/4 の破壊）のどちらかになる。
+**§2-4 の教訓の反復**: 表現できないものを表現できるふりをすると、沈黙が平穏として読まれる。
+
+**引き渡し先**: **WP-4.1（合成ルート）**。解くべきは「L1 に落ちた観測を次サイクルの別アダプタの入力にする」
+配線であり、これは §7-2 #11 / #35 の reduction・suppression と**同じ層の同じ問題**
+（どれも「別アダプタの出力を要する」）。3 件をまとめて 1 つの機構で解くべきである。
+**裁定要求 9** に上げる。
+
+**痕跡**: 本 WP は 2 基を移植せず、`v3/adapters/llm/extraction.py` の共有機構
+（4 スロット・エンベロープ・投入層）だけを先に着地させた。上流入力が配線され次第、
+両基は `IntelProfile` を 1 つ書くだけで載る。
+
+> **裁定（オーナー、2026-08-08）— H-3 は裁定済み。推奨 (c) を採用し、2 基は WP-4.1 へ繰延。**
+>
+> **裁定内容**: `hacktivist_intel` / `ground_osint` は **WP-4.1 へ DEFERRED**。
+> 理由は本節の記述どおり — 入力が別アダプタの**出力**であり、宣言モデルに語彙が無い。
+> 無理に通せば barrier 1 か barrier 2/4 のどちらかが壊れ、**それは §2-4 の教訓の反復**である。
+> §7-2 #11（reduction）・#35（suppression）と**同じ構造ギャップ**なので、
+> **3 件を 1 つの機構で解く**（別々に解けば A-02 = 同一計算の複数実装の再生産になる）。
+>
+> **母数への影響**: WP-2.7 の対象は **12 行から 10 行**（12 − 繰延 2）。
+> このうち `convergence_tracker` は §4-3 が既にアダプタとして移植対象外としているため、
+> **実際に build されるのは 9 基**。全体の総和は次の形になる:
+>
+> | 量 | 値 | 導出 |
+> |---|---|---|
+> | declared | **34** | §3-2 の 22 + §3-3 の 12（両表を文書からパースして突合） |
+> | buildable | **33** | 34 − NOT_PORTED 1（`convergence_tracker`、§4-3） |
+> | deferred | **2** | `hacktivist_intel` / `ground_osint`（本裁定） |
+> | built（完了時） | **31** | 33 − 2 = WP-2.6 の 22 + WP-2.7 の 9 |
+>
+> 裁定文中の「22+10」は §3-3 の**行数**（12 − 2 = 10）で数えたもので、
+> そこから `convergence_tracker` を引くと build 数は 9 になる。
+> **数はコードで導出する**（`expected_adapter_ids()` = buildable − pending − deferred）ので、
+> 表の値は主張ではなく計算結果であり、`tests/test_adapters_catalog.py::TestTotalityAcrossBothBatches`
+> が両方向で fail する（繰延を striking せずに ship しても、ship せずに striking しても落ちる）。
+>
+> **実装**: `v3/adapters/catalog.py::DEFERRED_WP41`。理由・着地 WP・#11/#35 との同一機構性を
+> エントリ本文に持たせ、テストがその 3 点の存在を検査する。
+> **DEFERRED は PENDING と別の状態である** — pending は「本 WP がまだ負っている」、
+> deferred は「本 WP には表現できず、表現できる WP を名指した」。
+> `ground_osint` のエントリには**配線側への申し送り**を含めた: 本番は参照先 cache の鮮度も健全性も
+> 検査していない（裸の `try/except Exception: pass`）ので、`Evidence.fresh()` を通さない配線は
+> DP2/B-03 ごと移植することになる。
+
+#### H-4（引き継ぎ、WP-2.7 実装中に確定、2026-08-08）— `hacktivist_news` の `attack_type` 既定値が「DDoS」である
+
+**事実**: `safe_enum(data.get("attack_type"), {"DDoS","defacement","data_leak","combined","none"}, "DDoS")`
+（`hacktivist_news_sensor.py:411-414`、`ast` 確認）。すなわち **LLM 応答が当該フィールドを欠落・破損させた場合、
+表中で最大の `type_bonus`（+0.5、確認済み DDoS キャンペーンと同値）が付く**。
+結果、**中身の無い応答（1.5）が、正しく報告された低緊急度のデータ漏洩（0.7）より高く出る**。
+
+**なぜ §7-2 ではないか**: 現時点で差分は無い。**現行踏襲で移植した**（`v3/adapters/llm/hacktivist_news.py::ATTACK_TYPE_DEFAULT`）。
+移植中に既定値を変えることは「転写を書き換えに変える手直し」そのものであり、
+保守的な `"none"` への変更は**登録して承認を得るべき変更**であって黙って直すものではない。
+
+**放置すれば必ず差分になる理由**: この既定値は**モデルの故障モードとスコアが結び付いている**唯一の箇所である。
+モデル・プロンプト・`max_tokens` のいずれかが変われば欠落率が変わり、スコア分布が理由なく動く。
+**着地先**: cutover 判定時のオーナー裁定（A6 と同じ扱い — 現行踏襲、裁定は cutover 後）。
+**証跡**: `test_a_malformed_answer_is_scored_as_a_ddos_campaign`（既定値・スコア・順序関係を pin）。
+
 #### H-2（裁定要求・オーナー保留）— AISHub エンベロープの欠陥を保存した
 
 **欠陥**: AISHub の応答は `[header, [vessel, ...]]` である。現行系は
@@ -579,6 +672,38 @@ O-17 は現行のインテル周辺を「事実上の第二の採点パイプラ
 **根拠**: A-02 実測 — LLM 投入骨格が **8 複製**し `max_tokens` が 200〜400 でばらついている。
 複製が 8 あるということは、プロンプト・温度・解析の癖が 8 通りあるということであり、
 S5-VERIF-022 の「記録済み応答の再生」はそのすべてに対して成立しなければならない。**投入口を 1 つにする**。
+
+#### 4-1-1. 着地形（実装済み、2026-08-08）— 4 スロットは「振る舞い」の上限である
+
+S1-sensors-info-llm §4 表 2 の「per-sensor は 4 スロット」を、実装は次のとおり解釈して着地させた
+（裁定要求 10、オーナー裁定 7）。
+
+| `IntelProfile` の面 | 種別 | 内容 |
+|---|---|---|
+| `prefilter` / `prompt` / `score_delta` / `domain` | **振る舞い（4 スロット）** | S1 表 2 のとおり。callable は**この 3 つだけ**であり、スイートが callable 集合を pin する |
+| `dispositions` | 宣言データ | 応答処分表。`(field, values) → DROP(reason) / CAP(cap) / ACCEPT`。`matches_unrecognised` が `safe_enum` の既定値を表す |
+| `signal_field` / `signal_absent_reason` | 宣言データ | 「どのキーがモデル自身の signal 判定を運ぶか」と「否のときの沈黙名」。7 系は `escalation_signal`、`hacktivist_news` だけ `is_active_campaign`（`:362`）で沈黙名も `not_active_campaign`（`:367`） |
+| `response_items_key` | 宣言データ | 1 応答が**複数の答え**を返すキー名。`rss_narrative` の `clusters` のみ。空なら 1 応答 1 item |
+| `llm_field_keys` / `max_tokens` / `schema_keys` | 宣言データ | 従来どおり |
+
+**なぜ 4 スロットを「フィールド数」と読まないか**: 4 スロットが防いでいるのは
+**センサー固有の振る舞いが抽出経路に戻ってくること**（A-02 の 8 複製）であって、データクラスの
+フィールド数ではない。処分表は**分岐を隠す場所を持たない** — 行を読んで DROP/CAP/ACCEPT を適用するだけで、
+そこにセンサーの癖を書き込む余地が無い。逆に**第 5 の callable にはそれがある**。
+したがって守るべき不変条件は **「抽出の実装が 1 本であること」** であり、スイートはフィールド数ではなく
+**callable 集合**を pin する（`TestTheProfileIsFourSlots`）。
+
+**表が持つ不変条件**（型が強制、`DispositionRule.__post_init__`）:
+- **callable は `DomainError`**（`ResponseValue.path` と同形）
+- **DROP は reason 必須**（S1-INGEST-020「どの沈黙だったか」が共有名に潰れない）
+- **CAP の値が confidence 床（0.35）を下回ることを禁じる**。本番は上限適用を床判定の**前**（`military_exercise.py:348`）と**後**（`:385`）の 2 箇所で行っており、
+  両順序が一致するのは「すべての上限が床以上」である間だけである。この不変条件があるので
+  **共有実装は 1 つの評価順序で足りる**（順序が観測可能にならない）。
+- 同一 `(field, value)` を 2 行が主張することを禁じる（到達不能な行を作らない）
+
+**評価順序**: 表は共有チェック**より前**に評価する。本番で非 relevance 規則を持つ唯一の系
+（`military_exercise`）がその順序であり（`:343` が `escalation_signal` 判定より前）、
+かつ**より具体的な沈黙を残す**（S1-INGEST-020）。二重失格 item の理由名だけが変わる — §7-2 #48 に登録。
 
 ### 4-2. intel item は L1 の観測として落ちる
 
@@ -769,12 +894,29 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 | 33 | `ioda_bgp` | 現行系は `alert.get("level", "normal")` を素のまま `"critical" in levels` で比較する（`radar/sensors/ioda.py:116-122`、大小文字を区別）。v3 は `.lower()` してから `LEVEL_RANK` で比較する | **sensitive**（上流が `"CRITICAL"` を返した場合、現行系は normal と読み v3 は critical と読む） | **登録**（2026-08-08）。IODA は小文字で publish しているため実データ上の差はゼロ。NP1 側なので revert しない |
 | 34 | 全アダプタ（**cross-cutting**） | **ペイロードが言及しなかった国に対して観測行を出さない**。現行系は `COUNTRY_COORDS` の**全エントリ**に `"NORMAL"` を書く（`radar/sensors/ioda.py:139,174`、`ihr.py:177`、`ripe_atlas.py:158`）。v3 のアダプタはペイロードに現れた対象にのみ行を出す（`ihr_health` のみスコープ内の沈黙国を `OK` / `"—"` として出すよう修正済） | 採点面 中立／**観測面 insensitive**（「不在」と「測って何も無かった」が区別できなくなる — §7-2 #7 が `threatfox` について既に裁定した NP1 の形と同型） | **登録**（2026-08-08、WP-2.6 remediation で発見）。**未裁定**: 22 基すべてに跨る規約であり、アダプタごとに 4 通りの判断をするより 1 行で覆うべきと判断した。**裁定要求 7** を参照。#7 の前例（「見ていない」と「見たが 0」を区別可能にすることは NP1 の要求）が適用されるなら全アダプタで沈黙国にも行を出す方向になるが、その決定は観測件数を大きく増やすためオーナー裁定を要する |
 | 35 | 全アダプタ（**cross-cutting**） | **抑制（suppression）は採点層の join であり L0 では表現できない**。`is_suppressed=sw_suppress`（space weather）は `ihr_disco` / `ihr_delay` / `ripe_atlas` に届き（`core.py:1495-1496,1550`）、weather と space weather の対は `ioda_bgp` に届く（`core.py:1090-1095`、value の ` weather_muted={…}` 断片は `:1090`）。いずれも**別アダプタの出力**を要するため、`normalize` が構造上到達できない（§2-2 barrier 4） | **sensitive**（v3 は抑制されるべき観測を抑制せずに出す = 誤検知側） | **登録**（2026-08-08）。実装先は **WP-4.1** の合成ルート（`suppressed` / `suppress_reason` は `ObservationDraft` に既にフィールドがあるので、決めるのは「誰が誰を抑制するか」の配線のみ）。**配線完了時点で retire** |
+| 36 | **L2（WP-2.4 補遺）** | **LLM インテルの経年減衰が L0/L3 から L2 へ移る**。現行系は `intel_queue.get_active_rationale`（`radar/intel_queue.py:1001-1003`）で `score_delta × exp(−max(0,age)/τ)` を計算し、**減衰後の値**を消費者に渡す（`core.py:1925` の第 5 位置引数 = `add_rat` の `score`／`core.py:2078` の `raw_score`。いずれも `ast` で確認）。v3 は L0 が**未減衰の `score_delta` と item 自身の `observed_at`** を出し、`v3/scoring/decay.py` が唯一の減衰項を持つ。τ は `Threshold.pinned` で 12.0h（`config.env:96` の実配備値と一致）。**現行系の env スイッチ 2 件（`INTEL_AGE_DECAY_ENABLED`、source_type 別 τ 上書き）は移植しない** — `v3/` は env 読取を規律ゲートで禁じており、かつ実配備でどちらも既定のまま | **実配備の設定下では中立**（同じ式・同じ τ）。設定を変えた場合のみ差分 | **登録**（WP-2.7、§9 裁定 1 の実装）。**注意**: 現行系は `Signal(observed_at=current_time)`（`core.py:2074`）で **tick の時刻**を刻むため、下流で齢を復元すると常に 0 になる。v3 が `observed_at` を運ぶのはこの破壊を避けるため |
+| 37 | **L2（WP-2.4 補遺）** | **48h TTL の打ち切りと (source_type, country) あたり 2 件の上限を L2 に置かない**。どちらも `get_active_rationale` の同じ関数内にあるが（`intel_queue.py:999` / `:1005-1017`）、**信号集合の構成**（S1-PIPE-023）であって算術ではない。v3 では合成ルート（WP-4.1）の責務 | **sensitive**（v3 は現行系が捨てる寄与を保持しうる。48h で weight は e^-4 ≈ 0.018 まで落ちるので影響は小さいが 0 ではない） | **登録**（WP-2.7）。**retire 条件**: WP-4.1 が信号集合構成に TTL と cap を置いた時点。近似で L2 に置かない理由は、置けば「減衰は L2、選抜も L2」となり O-17 が畳んだ責務が再び分かれるため |
+| 38 | ~~**パリティハーネス（WP-2.8）**~~ | ~~**intel 行について両系の入力が非対称になる**~~ | ~~insensitive~~ | **RETIRED（2026-08-08、オーナー裁定により本 WP で修正）**。登録時の差分は「v2 ドライバが未減衰の `raw_score` を `radar.scoring` に渡す」ことだった。**`v3/parity/_v2_subprocess.py` が本番の `radar.intel_queue._age_weight` を*呼ぶ*ようにした**（S5-VERIF-031 — 式の再実装は禁止。`rationale_to_signal` と同じ扱いで、この層は引数を整えるだけ）。齢は **item の `observed_at` から tick まで**で測る（`get_active_rationale` の `now = time.time()` の意味であり、その 1 ステップ後には `core.py:2074` が tick 時刻で上書きして齢が消える）。**証跡**: `tests/test_parity_harness.py::TestIntelRowsAreAgedOnBothSides` — 6h 齢・score 6.0 の intel 行 1 件で、修正前は legacy が TL3・v3 が TL4（半 τ の減衰が閾値 4.0 をまたぐ）、修正後は両系 TL4 で一致率 1.0。`TestTheDriverUsesProductionsOwnDecay` が「`exp(` を書いていないこと」と「両系の `llm_intel` 綴りが一致すること」を pin。**残る差分**: `INTEL_AGE_DECAY_TAU_HOURS` を既定の 12.0 から動かした場合のみ（v2 は env を実読、v3 は pin）。それは #36 が既に登録済みの内容であり、本行に固有の差分は残らない。**副作用の記録**: `_age_weight` を呼ぶため sandbox に `radar.intel_queue` が 1 モジュール増えた。import 時の面（logger 1・`threading.Lock` 1・データ定数・`__init__` を持たない `IntelQueue()`・stub 済み `db`）を審査のうえ `EXPECTED_MODULES` に追加し、`test_reaching_for_the_production_term_did_not_widen_the_sandbox` が thread 1・boot なし・DB 呼出 1 件（既知の refused read）を pin する |
+| 39 | `v3/adapters/llm/extraction.py` | **プロンプト注入フレーズ集合を移植していない**。`sanitize()` は切り詰め・NFKC・制御文字除去・チャットテンプレート区切りの除去を持つが、`radar/llm_client.py:61-99` の 4 言語ぶんの注入フレーズ正規表現は転写していない | 検知感度には中立（セキュリティ管理面の差分） | **登録**（WP-2.7）。S1-INGEST-011 が「関数本体は S4 担当」と明記しており、本 WP の範囲外。**解消条件**: S4 のサニタイズ管理が v3 に着地した時点。**それまで本番と同等の注入耐性は無い** |
+| 40 | `tor_metrics` / `gdelt`（**#9 family、WP-2.7**） | **L1 のベースラインが未配線の間、判定を保留してスコアを出さない**。`tor_metrics` は `drop_pct` / `surge_pct` の双方が前サイクルの計数（`_prev_relay_counts` / `_prev_user_counts`、`radar/sensors/tor_metrics.py:34-35`）を要するため 4 段ステータス（`CENSORSHIP_INDICATOR` 2 / `RELAY_DROP` 1 / `USER_SURGE` **0** / `NORMAL` 0、`core.py:1560-1561`）を一切評価できず、両行とも `STATUS_OBSERVED` / 0.0。`gdelt` は `is_alert` が OR の 2 項（`gdelt.py:73`）のうち **固定閾値の項は評価して FIRED まで出す**が、**曜日別 Z の項（K18）は L1 待ち**なので、固定閾値に達しない場合は `OK` ではなく `STATUS_OBSERVED` にする | **insensitive**（v3 が低く出る = **C-02 / C-03 直撃**） | **登録**（WP-2.7、2026-08-08）。#9 と同一原因・同一着地先（**WP-4.1** の `NormalizeContext` ベースライン供給）。**gdelt の固定閾値項をあえて発火させる**のは、保留に倒すと本番が出す発火を落とすことになり、それ自体が insensitive を増やすため。**規律は #9 のもの**: 保留マーカーは型を当てにされているキーを占有しない — `drop_pct` は数値（`tor_metrics.py:78`）、`status` / `is_alert` は閉じた語彙（`core.py:1131,1560`）なので、判定キーは**不在**にし兄弟キー（`drop_verdict` / `trend_verdict` / `dow_verdict`）で名指す。**retire 条件**: WP-4.1 が両基にベースラインを供給した時点 |
+| 41 | `tor_metrics` / `gdelt`（**#11 family、WP-2.7**） | **1 国 1 サイクルにつき本番 1 エントリのところ v3 は 2 行出す**。`tor_metrics` は `/summary` と `/clients` の 2 応答（本番は両者を突合してから 1 つの `add_rat("tor_metrics")` に畳む、`core.py:1576`）、`gdelt` は `1d` と `{history_window}d` の 2 窓（本番は `delta` を計算して 1 エントリ、`gdelt.py:57`）。`normalize` は構造上 1 ペイロードしか見ない（§2-2 barrier 1）ため畳み込めない。命名は `tor_metrics` + `tor_clients` / `gdelt` + `gdelt_baseline` | **観測面 sensitive**（行数増）／**採点面 中立**（増える側は `STATUS_OBSERVED` / 0.0 で S1-SCORE-008 の MAX 畳み込みに寄与しない） | **登録**（WP-2.7、2026-08-08）。#11 の family。**名前を分けるのは選択ではなく制約** — L1 は `UNIQUE (tick_id, sensor, signal_source, country)` で、同キー・同内容の行は `DomainError` ですらなく**沈黙して落ちる**（`store.py:290`）。`ripe_atlas`（#28）/ `ihr_health`（#30）と違い**本番に借りられる別名が無い**ため、新しい名前を作っている — これは裁定要求 5 が「発明になる」と指摘した形そのものであり、**推奨 (b)（WP-4.1 の reduction）で一括解消されるまでの暫定**である。**retire 条件**: WP-4.1 の reduction が 2 行を 1 行へ畳んだ時点 |
+| 42 | `gdelt` | **`WEATHER_NOISE` / `SUPPRESSED` を出せない**。本番は `weather_conditions[code]["is_severe"]` で `is_alert` を打ち消し `status="WEATHER_NOISE"` → `add_rat(..., "SUPPRESSED", ..., is_suppressed=True, suppress_reason="Severe weather detected")`（`gdelt.py:58,73,83` / `core.py:1132`）。`weather_conditions` は **別アダプタ（`openweather`）の出力**であり `normalize` は到達できない（§2-2 barrier 4） | **sensitive**（抑制されるべき観測が抑制されずに出る = 誤検知側） | **登録**（WP-2.7、2026-08-08）。#35 の family、着地先も同じ **WP-4.1** の合成ルート。`suppressed=False` を黙って残すと「悪天候ではなかった」と読まれるため、`flags["weather_verdict"] = "pending_wp41_weather_join"` で**検査していない事実**を明示する。**retire 条件**: #35 の配線と同時 |
+| 43 | `gdelt` | **`STATUS_NO_DATA` を出す**。本番のセンサーは `{"status": "NO_DATA"}` を書く（`gdelt.py:55`）が、採点層は `core_tone.get("status", "NO_DATA")` を **`add_rat` の value 文字列**として渡すだけで status は `OK`（`core.py:1132`）。すなわち「GDELT が答えなかった」と「トーンは平穏」が同じ `OK` になる。v3 は 429/503（`gdelt.py:27`）・空 timeline（`:29`）・解析不能をすべて `STATUS_NO_DATA` として出す | 採点面 中立（両系 score 0）／**観測面 sensitive**（沈黙と平穏が区別可能になる） | **登録**（WP-2.7、2026-08-08）。#14（`ripe_bgp` の NO_DATA）と**同型**であり、根拠も同じ — 沈黙と正常の区別はツール定義の責務 (3)「結論不可の明示」そのもの。**特に本件は捏造の回避でもある**: レート制限応答をトーン 0.0 として読むと、閾値 −15.0 より上の「中立な報道」を情報源が report していないのに publish することになる || 44 | `bg_observer_rss` | **フィード台帳は `config.py:654-661` の既定 3 本ではなく `config.env:187` の実配備 9 本を pin する**。既定は BBC / Al Jazeera / AP の西側 3 本のみで、本センサーは**西側ソース偏重を是正するために存在する**。実配備が足している 6 本（SCMP・TASS・新華社・CNA・Japan Times・聯合ニュース・台北時報）が台湾・朝鮮半島シナリオを可視にしている当のソースである。稼働ログ `[bg_observer.sensor] started — interval=300s, feeds=9` で実配備値を確認 | コード既定を転写していたら **insensitive**（フィード 2/3 と非西側全滅）。実配備を pin したので**差分なし** | **登録**（WP-2.7、2026-08-08）。pin の根拠は `gdelt` のトーン閾値と同じ「実配備値を pin する」原則。`config.env` が変わったら CI が落ちるよう `test_the_deployed_ledger_matches_config_env_exactly` が突合する |
+| 45 | `bg_observer_rss` | **feed 死因の分類が `fetch_log.outcome` に届かない**。`classify_feed` は §1-7 の死因を返すが、fetch カーネルは HTTP 結果からしか `outcome` を書かないため、`returns_html` / `rss_empty` は台帳に載らない。現行系の `feeds_failed` カウンタ（A10: 「取得成功だが 0 件」を障害と同一計上）も再現していない | 観測面のみ（採点中立）。A10 の**分離自体は達成**（`parse_feed` が原因を返す）だが、**記録先が無い** | **登録**（WP-2.7、2026-08-08）。**解消条件**: WP-4.1 が `classify_feed` を `record_fetch` に配線した時点。バイト列を二度パースしないため、アダプタに台帳ハンドルを渡すのではなく**カーネルに関数を渡す**形にしてある |
+| 46 | `bg_observer_rss` | **実配備フィードのうち 3 本が平文 HTTP**（新華社・TASS・台北時報）。`config.py:648-653` は「網路経路上の攻撃者が悪意ある RSS を注入できないよう既定リストは TLS のみにする」と明記し、**新華社エントリはまさにその理由で既定から外された**と書いてあるが、実配備はそれを上書きして 3 本を戻している | セキュリティ管理面（検知感度は中立） | **登録・現行踏襲**（WP-2.7、2026-08-08）。`https://` へ書き換えて 404 になればフィードが消える = insensitive 方向であり、スキームは S4 が持つ判断。`PLAINTEXT_FEEDS` に名前を出してあるので修理は 1 行 |
+| 47 | `bg_observer_rss` | **`evidence_url` に記事リンクを載せる**。現行系は `evidence_url=None`（`background_observer.py:398`）で表示文字列しか持たないため、**アナリストがスコアの出所の記事に到達できない** | 中立（追加のみ） | **登録**（WP-2.7、2026-08-08）。NP6 — 検証経路の無い結論を出さない |
+| 48 | LLM 抽出全系（**cross-cutting**） | **二重失格 item の drop reason 名が変わりうる**。共有実装は処分表を最初に評価する（§4-1-1）。本番は `military_exercise` が `event_type` を先（`:343`）、`theater_link` を scope 判定の後（`:374`）に置き、`diplomatic` は `escalation_signal` と床を同時に見る（`:479`）。**スコアと採否は不変**（CAP が床を下回れない不変条件が保証する）。変わるのは「どの理由で落ちたか」の名前だけ | 中立（採否・スコア不変）／診断面のみ | **登録**（WP-2.7、2026-08-08）。1 実装に 8 通りの評価順序を持たせないための代償。**併せて修正した 2 件の不忠実**: (a) `escalation_signal` を `is False` で判定していた（本番は `not data.get(..., False)` なので**キー欠落は drop**）、(b) `theater_link` の未知値を direct 扱いしていた（本番は `safe_enum` 既定 `none` = **drop**）。どちらも v3 が**多く通す** sensitive 方向だったので、本番に合わせて戻した |
+| 49 | `diplomatic` / `hacktivist_news` | **feed 死因の `unknown` を持たない**。本番の `_classify_feed` は 5 値（`rss_with_items` / `rss_empty` / `returns_html` / `unparseable` / `unknown`）を返す。共有パーサは前 4 者を保ち、catch-all の `unknown` の代わりに `http_error` / `geo_block` / `entity_attack` を返す | 観測面 sensitive（原因が特定される）／採点中立 | **登録**（WP-2.7、2026-08-08）。`unknown` は原因が調べられなくなる場所であり、K08 の資産価値は「5 通りに分ける」ことではなく「**名前の付いた原因を返す**」ことにある |
+| 50 | `telegram_mirror` | **UA プールを回さない**。K13 のプール 5 本は**宣言データとして持つ**が、リクエストは先頭 1 本を送る。リクエストごとの選択を宣言型が表現できない（`RequestSpec.headers` は固定写像）ため | 未知（`t.me` が単一 UA を throttle する可能性）。**potentially insensitive** | **登録**（WP-2.7、2026-08-08）。**着地先: WP-4.1**（`USER_AGENT_POOL` は export 済で、配線側はそれを引くだけ — 二重台帳を作らない）。retry/backoff は既にカーネル（`v3/fetch/policy.py`）が持つ |
+| 51 | `telegram_mirror` / `rss_narrative` / `travel_advisory`（**#11 family、WP-2.7**） | **1 サイクル 1 国につき本番 1 エントリのところ、v3 は入力ペイロードごとに 1 行出し、行ごとに別 `signal_source` を持つ**（`telegram_{channel}` / `narrative_{feed}` / `advisory_{us,uk,ca}`）。本番はチャンネル群・フィード群・3 政府をそれぞれ**畳んでから**命名するため、借りられる名前が存在しない | 観測面 sensitive（行数増）／**採点中立**（増える側は `STATUS_OBSERVED` / 0.0 で S1-SCORE-008 の MAX 畳み込みに寄与しない） | **登録**（WP-2.7、2026-08-08）。**名前を分けるのは選択ではなく制約** — L1 は `UNIQUE (tick_id, sensor, signal_source, country)` で、同キー・同内容の行は `DomainError` ですらなく**沈黙して落ちる**（`store.py:290`、S5-VERIF-019）。#41 と同型の暫定であり、**retire 条件**: WP-4.1 の reduction が畳んだ時点。畳み込みに要る算術（`theater_status` / `claim_confidence` / `converge` / `burst_status` / `first_signal_zscore`）は**すべて export 済**で、reduction は書き直さず呼ぶ（DP4） |
+| 52 | `rss_narrative` | **A8 の `NARRATIVE_ZSCORE_FIRST_SIGNAL` を `Threshold.pinned` で出典開示する**（既定 3.0 = CRITICAL）。本番は比較地点で `os.getenv` を直読し（`:610`）どのレジストリにも無い。`v3/` は env 読取を規律ゲートで禁じている | 実配備の設定下では中立（同じ値） | **登録**（WP-2.7、2026-08-08）。§3-3 は「NP1 直結の値なので**運用可変キーに登録**」（O-18 (a) 群）と定めており、pin はその registry が着地するまでの形。**retire 条件**: 運用可変キーのレジストリが v3 に着地した時点。**本項が重要な理由**: 静穏なベースラインに対する最初の活動を CRITICAL バーストに変える分岐であり、**センサー中最も感度の高い数値が設定画面から見えない** |
+| 53 | `rss_narrative` | **`TACTICAL_KEYWORDS`（110 国）と `NARRATIVE_GEO_TERMS`（36 国）を転写せず `NormalizeContext` で受ける**（`tactical_keywords` / `geo_terms` を追加）。フィード台帳（9 本）は転写する — 取得先を決めるため | 中立（同じデータを別経路で受ける） | **登録**（WP-2.7、2026-08-08）。座標を受けるのと同じ論拠: **コードリリース無しに変わる配備データ**であり、`v3/` 側の複製は同期させ続ける第 2 台帳になる |
 
 ---
 
 ## 8. 裁定要求
 
-以下 8 件は本書の権限を超える。**各件に推奨を付す**。（1〜4 は 2026-08-07、5〜8 は WP-2.6 remediation で追加、2026-08-08）
+以下 10 件は本書の権限を超える。**各件に推奨を付す**。（1〜4 は 2026-08-07、5〜8 は WP-2.6 remediation で追加、9・10 は WP-2.7 実装中に追加、いずれも 2026-08-08。**9 と 10 は裁定済み**）
 
 ### 裁定要求 1 — LLM インテルの時間減衰をどこに置くか（O-17 との整合）
 
@@ -932,6 +1074,58 @@ WP-2.8 のパリティ突合（観測件数を含む）と L1 の保持容量に
 **現行系側も直すべき**だが、それは本 WP の範囲外（D2 の欠陥台帳に起票する）。
 
 
+### 裁定要求 9 — 「別アダプタの出力を入力とする」アダプタをどう表現するか（§3-5 H-3） 〔**裁定済み 2026-08-08 — 推奨 (c) 採択。§3-5 H-3 の裁定ブロックと §9 の裁定 5 が正**〕
+
+**問題**: WP-2.7 の 12 基のうち `hacktivist_intel` / `ground_osint` の 2 基は HTTP を持たず、
+入力が**他アダプタの出力**である（前者は telegram の傍受ログ、後者はそれに加えて
+`cloudflare_radar` / `check_host` の live cache）。現行の宣言モデルは
+`RequestSpec | RequestChain | RequestContinuation` しか取れず、`normalize` は取得済みバイト列 1 件しか見ない
+（§2-2 barrier 1）。**表現する語彙が無い**ため、本 WP では 2 基を移植していない。
+
+**なぜ本書で決めないか**: 解は 3 つあり、いずれも L0 の外に波及する。
+(a) `NormalizeContext` に「他アダプタの直近観測」を載せる（H-1 で退けた形の再導入。消費者が決まる前の型拡張）。
+(b) L1 の観測台帳を入力とする**第 2 種のアダプタ**を宣言型に足す（`requests` の無いアダプタ = 新しい種類）。
+(c) 合成ルート（WP-4.1）に「前サイクルの観測 → 次サイクルの入力」の 1 機構を置き、
+    §7-2 #11（reduction）・#35（suppression）・本件を**同じ配線で解く**。
+
+**推奨: (c)**。3 件はいずれも「別アダプタの出力を要する」という同一の構造ギャップであり、
+別々に解けば 3 通りの機構ができる — A-02（同一計算の複数実装）の再生産そのものである。
+(b) はアダプタの種類を 2 つにするため、規律検査（barrier 2/3/4）も 2 通りになる。
+
+**裁定が要る理由**: (c) を採ると **WP-2.7 の母数が 12 から 10 に減り**、残る 2 基の着地が WP-4.1 になる。
+これは P3 のバッチ境界（§3-0「バッチ割当は書の境界と完全に一致する」）を動かす判断であり、本書の権限を超える。
+
+**併記すべき事実**: 現行系の `ground_osint` は参照先 cache の**鮮度も健全性も検査していない**
+（`ground_osint_sensor.py:67-82`、`ast` で確認。裸の `try/except Exception: pass` で
+`cf.get_cache()` / `ch.get_cache()` を読む）。DP2/B-03 そのものであり、
+配線を作る側は `Evidence.fresh()` を通す形にしなければ欠陥ごと移植することになる。
+
+
+### 裁定要求 10 — `IntelProfile` の 4 スロットに応答処分（drop / cap）が収まらない 〔**裁定済み 2026-08-08 — §4-1-1 が正**〕
+
+**問題**: S1-sensors-info-llm §4 表 2 は per-sensor の面を
+`prefilter | prompt | score_delta | domain` の **4 スロット**に限る。
+しかし `military_exercise` は本番で **LLM 応答後の処分**を 2 つ持つ（`military_exercise.py:343-349`）—
+`event_type=="none"` を**自前の drop code** で捨て、`status_report` / `historical_analysis` は
+**捨てずに confidence 上限 0.50 で保持**する（S1-SENSI-035、NP1: 自動確認はさせないがレビュー対象には残す）。
+4 スロットのどれでもない。3 つの選択肢があった:
+(a) 第 5 スロット（callable）を足す — A-02 の 8 複製が戻る入口を開ける。
+(b) 処分を捨てる — S1-SENSI-035 の MUST 違反、かつ「どの沈黙だったか」（S1-INGEST-020）が消える。
+(c) 処分を**宣言データ**として持ち、評価は共有実装 1 本に置く。
+
+**裁定（オーナー、2026-08-08）: (c)**。**4 スロットの上限は「振る舞い」に対するものであり、
+アダプタが宣言する「データ」を禁じてはいない**。`RequestSpec`（取得関数ではなく宣言データ）と
+`RequestContinuation`（どのフィールドが取っ手か、であって取り方ではない）と**同一の形**である。
+守るべき不変条件は **「抽出の実装が 1 本であること」**。表には分岐を隠す場所が無く、callable にはある。
+
+**実装**: §4-1-1 の表を正とする。`DispositionRule` は callable を `DomainError` で拒否し（`ResponseValue.path` と同形）、
+DROP には reason を必須とし（S1-INGEST-020 の沈黙名が保存される）、
+**CAP が confidence 床を下回ることを禁じる**（これにより共有実装の単一評価順序が観測可能にならない）。
+`signal_field` / `signal_absent_reason` / `response_items_key` も同じ論拠の宣言データである。
+スイートは**フィールド数ではなく callable 集合**を pin する。
+
+**残る差分**: 評価順序に起因する drop reason 名の変化のみ — §7-2 #48 に登録済。
+
 ---
 
 ## 9. 裁定（Fable、2026-08-07）
@@ -942,3 +1136,11 @@ WP-2.8 のパリティ突合（観測件数を含む）と L1 の保持容量に
 | 2 | **第 1 層で F-09 解消と定義する**。決定論正規化 + スクリプト認識分節で非ラテン見出しが空トークンにならないこと = 欠陥の定義そのものの解消。第 2 層（埋め込み）は enhancement であり既定 OFF — 有効化するなら VERIF-022 記録が前提（決定論を壊してまで欠陥を直さない）。D2 F-09 の閉鎖注記にこの定義を明記する | 裁定要求 2 |
 | 3 | **承認 — L1 が 3 表を所有**（A-09 単一管轄）。WP-2.2 完了時に予告した**最小 migration リスト機構をこの拡張で実装**する（schema v2）。稼働中の v3 store は存在しない（パリティ窓未開放・本番 ETL 未実行）ため開発 store の再生成は許容 | 裁定要求 3 |
 | 4 | **廃止 + 事前登録で進める。ただし登録エントリは「承認待ち（オーナー）」を明記**。fallback はほぼ全記事に発火する parser-gives-up 判定であり、除去はノイズ除去であって実信号の recall 低下ではない（NP2: 偽の裏付けは収斂を汚染する）。§7-2 の 6 件登録全体の最終承認は cutover 判定前のオーナー事項として申し送る | 裁定要求 4 |
+
+## 10. 裁定（オーナー、2026-08-08）
+
+| # | 裁定 | 補足 |
+|---|------|------|
+| 5 | **推奨 (c) を採択 — `hacktivist_intel` / `ground_osint` は WP-4.1 へ繰延**。入力が別アダプタの出力であり、宣言モデルに語彙が無い。無理に通せば barrier 1 か barrier 2/4 が壊れ、それは §2-4 の教訓の反復である。§7-2 #11（reduction）・#35（suppression）と同一機構で一括して解く。WP-2.7 の対象は 12 → **10 行**（build されるのは 9 基）。総和は **34 declared / 33 buildable / 2 deferred / 31 built** | 裁定要求 9。詳細と導出は §3-5 H-3 の裁定ブロック。実装は `catalog.DEFERRED_WP41` |
+| 6 | **§7-2 #38 は登録で終わらせず、本 WP で v2 ドライバを修正する**。`v3/parity/_v2_subprocess.py` は intel 行に**本番の減衰**を適用する。式の再実装は S5-VERIF-031 が禁じるので、`rationale_to_signal` と同じく**本番の関数 `radar.intel_queue._age_weight` を呼ぶ**。齢を含むパリティフィクスチャで両系一致を証明すること | 裁定要求なし（オーナー発意のエスカレーション）。実施済 — #38 は RETIRED、証跡は `TestIntelRowsAreAgedOnBothSides` / `TestTheDriverUsesProductionsOwnDecay` |
+| 7 | **裁定要求 10 — 推奨 (c) を採択**。4 スロットの上限は**振る舞い**に対するもので、宣言データを禁じない。`IntelProfile` に応答処分表（`dispositions`）・signal キー名（`signal_field` / `signal_absent_reason`）・複数答えキー（`response_items_key`）を**データとして**持たせ、評価は `build_item` 1 本のまま。表に callable が入れば `DomainError`。守る不変条件は「抽出実装が 1 本であること」であり、スイートは callable 集合を pin する | 裁定要求 10。実装と不変条件は §4-1-1。残差分は §7-2 #48（drop reason 名のみ） |

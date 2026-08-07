@@ -119,12 +119,16 @@ class TestLegacySandbox:
 
     def test_only_the_scoring_dependency_chain_loads(self, seeded,
                                                      parity_ledger):
+        """Against the driver's own declared set, not a second copy of it.
+
+        A transcription here would let the declaration grow without the
+        suite noticing, which is exactly the drift the declaration exists
+        to catch.
+        """
+        from v3.parity.driver_v2 import EXPECTED_MODULES
         store, _ = seeded
         run = _run(store, parity_ledger)
-        assert set(run.sandbox.radar_modules) <= {
-            "radar", "radar.config", "radar.config_layered", "radar.database",
-            "radar.models", "radar.state", "radar.scoring", "radar.scenarios",
-            "radar.conclusions", "radar.geo"}
+        assert set(run.sandbox.radar_modules) <= EXPECTED_MODULES
 
     def test_the_only_database_call_attempted_is_a_refused_read(
             self, seeded, parity_ledger):
@@ -929,6 +933,163 @@ class TestDriverHardening:
             driver_v2.replay(store, (taiwan(),), start=T0,
                              end=T0 + 7 * TICK, tick_interval_sec=TICK,
                              timeout_sec=0.001)
+
+
+class TestIntelRowsAreAgedOnBothSides:
+    """§7-2 #38, repaired: the two sides received asymmetric input.
+
+    The L1 row's `raw_score` is the UNDECAYED `score_delta` by design — v3
+    carries the item's own `observed_at` and applies the age term once, in
+    L2 (`v3/scoring/decay.py`, the WP-2.4 addendum). Production applies it
+    upstream instead, inside `intel_queue.get_active_rationale`, and hands
+    the scoring layer a number that has ALREADY been multiplied
+    (`radar/routes/core.py:1925` / `:2078`). Replaying the ledger row into
+    the legacy driver raw therefore fed production's scoring core an input
+    production never gives it, and every window containing an intel row
+    disagreed in the insensitive direction for a reason that had nothing to
+    do with either implementation.
+
+    The fixture holds ONE six-hour-old intel row scored 6.0. Half a tau of
+    age weighs it to 3.64, which is below TL3's floor of 4.0 and above
+    TL4's of 2.0 — so an undecayed legacy side reads TL3 where v3 reads
+    TL4, and the disagreement is visible in the series rather than in the
+    third decimal place.
+    """
+
+    #: 48h. The row has to outlive its own age for the tick to see it at
+    #: all; production's TTL cut is the same 48h and is WP-4.1's (§7-2 #37).
+    HORIZON_SEC = 48 * 3600.0
+    AGE_SEC = 6 * 3600.0          # half of the pinned tau (12h)
+    SCORE = 6.0
+
+    def _intel_store(self, tmp_path):
+        store = LedgerStore(str(tmp_path / "intel.db"))
+        observed = T0 - self.AGE_SEC
+        store.append_signal(SignalObservation(
+            tick_id="intel-0", sensor="llm_intel", signal_source="llm_intel",
+            domain="info", country="TW",
+            evidence=Evidence.observe(
+                {"headline": "aged report"}, observed_at=observed,
+                freshness_horizon_sec=self.HORIZON_SEC, source="llm_intel"),
+            status="FIRED", raw_score=self.SCORE, confidence=1.0),
+            now=observed)
+        return store
+
+    def test_an_aged_intel_row_reads_the_same_on_both_sides(self, tmp_path,
+                                                            parity_ledger):
+        store = self._intel_store(tmp_path)
+        run = run_parity(
+            store=store, parity_ledger=parity_ledger, scenarios=(taiwan(),),
+            start=T0, end=T0 + 3 * TICK, tick_interval_sec=TICK,
+            legacy_code_version="fx", v3_code_version="fx", now=T0)
+        v3_series = [r.threat_level.value for _, r in
+                     run.v3_result.series_for("taiwan_contingency")]
+        legacy_series = [r.threat_level.value for _, r in
+                         run.legacy_result.series_for("taiwan_contingency")]
+        assert v3_series == legacy_series
+        assert run.report.summary.agreement_rate == pytest.approx(1.0)
+        store.close()
+
+    def test_the_age_actually_moves_the_verdict(self, tmp_path,
+                                                parity_ledger):
+        """Without this, agreement above could be agreement on a no-op.
+
+        Six hours of decay has to be worth a whole threat level, or the
+        first test would pass just as well against the defect it exists to
+        pin.
+        """
+        store = self._intel_store(tmp_path)
+        run = run_parity(
+            store=store, parity_ledger=parity_ledger, scenarios=(taiwan(),),
+            start=T0, end=T0 + 3 * TICK, tick_interval_sec=TICK,
+            legacy_code_version="fx", v3_code_version="fx", now=T0)
+        levels = {r.threat_level.value for _, r in
+                  run.legacy_result.series_for("taiwan_contingency")}
+        # Undecayed the score is 6.0 -> TL3 (floor 4.0). Decayed it is 3.64
+        # -> TL4 (floor 2.0). Reading TL3 here means the legacy side never
+        # applied the term.
+        assert levels == {4}, (
+            f"legacy read {levels}; TL3 means the driver fed "
+            f"radar.scoring an undecayed intel score")
+        store.close()
+
+    def test_reaching_for_the_production_term_did_not_widen_the_sandbox(
+            self, tmp_path, parity_ledger):
+        """Calling `_age_weight` imports `radar.intel_queue`. Cost, measured.
+
+        The module was reviewed before being admitted to `EXPECTED_MODULES`
+        (one logger, one Lock, module-level data, and an `IntelQueue()` with
+        no `__init__`). This asserts the review was right rather than
+        trusting it: still one thread, still no application boot, and still
+        the single refused database read.
+        """
+        store = self._intel_store(tmp_path)
+        run = run_parity(
+            store=store, parity_ledger=parity_ledger, scenarios=(taiwan(),),
+            start=T0, end=T0 + TICK, tick_interval_sec=TICK,
+            legacy_code_version="fx", v3_code_version="fx", now=T0)
+        assert "radar.intel_queue" in run.sandbox.radar_modules
+        assert run.sandbox.thread_count == 1
+        assert run.sandbox.booted_application is False
+        assert set(run.sandbox.database_attempts) == {"_get_conn"}
+        store.close()
+
+    def test_the_undecayed_number_is_what_the_ledger_stores(self, tmp_path):
+        """The repair is in the driver, not in what L1 keeps.
+
+        Storing a pre-decayed number would rebuild the bespoke decay O-17
+        removed, and would make the row's meaning depend on when it was
+        written rather than on when the event happened.
+        """
+        store = self._intel_store(tmp_path)
+        rows = store.signals_between(T0 - self.AGE_SEC - 1, T0)
+        assert [row["raw_score"] for row in rows] == [self.SCORE]
+        store.close()
+
+
+class TestTheDriverUsesProductionsOwnDecay:
+    """S5-VERIF-031 again: call the real term, never re-derive it.
+
+    The clause's cited counterexample is a hand-copied `derive_tl` that
+    stopped tracking its original. An `exp(-age/tau)` written here would be
+    the same mistake with a different formula — and a worse one, because
+    the copy would be inside the harness that exists to detect drift.
+    """
+
+    def _decay_source(self):
+        import ast
+        tree = ast.parse((REPO_ROOT / "v3" / "parity" /
+                          "_v2_subprocess.py").read_text(encoding="utf-8"))
+        function = next(node for node in ast.walk(tree)
+                        if isinstance(node, ast.FunctionDef)
+                        and node.name == "_intel_age_weight")
+        body = function.body
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)):
+            body = body[1:]
+        return "\n".join(ast.unparse(node) for node in body)
+
+    def test_the_production_function_is_called(self):
+        code = self._decay_source()
+        assert "_age_weight" in code
+        assert "intel_queue" in code
+
+    def test_no_second_exponential_is_written(self):
+        code = self._decay_source()
+        for forbidden in ("exp(", "math.", "43200", "12 * 3600", "tau"):
+            assert forbidden not in code, forbidden
+
+    def test_both_sides_spell_the_intel_source_the_same_way(self):
+        """One literal, two readers, compared rather than trusted.
+
+        The v3 projection recovers `origin` from this string
+        (`v3/parity/adapter.py`) and the driver selects rows to age by it.
+        If they drifted, intel would be aged on one side only — which is
+        precisely the defect being repaired, reintroduced by a typo.
+        """
+        from v3.parity import _v2_subprocess
+        from v3.scoring.inputs import ORIGIN_LLM_INTEL
+        assert _v2_subprocess.LLM_INTEL_SIGNAL_SOURCE == ORIGIN_LLM_INTEL
 
 
 class TestSubprocessUsesTheRealConverter:

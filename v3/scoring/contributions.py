@@ -24,6 +24,7 @@ from typing import Iterable, Mapping
 
 from v3.kernel import Ratio
 from v3.kernel.errors import DomainError
+from v3.scoring import decay
 from v3.scoring.inputs import (DOMAINS, Observation, Scenario)
 
 GLOBAL_COUNTRY = "GLOBAL"
@@ -48,6 +49,12 @@ class Contribution:
     participant_weight: float
     score: float
     trace: str
+    # S1-INTEL-020's exponential, 1.0 for anything that is not LLM intel.
+    # Separate from `raw_score` so both numbers stay on the record, the way
+    # production publishes `score` and `score_raw` together
+    # (radar/intel_queue.py:1026-1027): "3.0, two days old" and "1.1" are
+    # different disclosures and only the first can be argued with.
+    age_weight: float = 1.0
 
     @property
     def dedup_key(self) -> tuple[str, str]:
@@ -66,19 +73,35 @@ class Contribution:
             "participant_weight": self.participant_weight,
             "score": self.score,
             "trace": self.trace,
+            "age_weight": self.age_weight,
         }
 
 
+def _age_fragment(age_weight: float, age_sec: float) -> str:
+    """The decay factor, present only where a decay happened.
+
+    S1-SCORE-009 pins the sensor trace format exactly; appending a
+    `× 1.00 (decay:0.0h)` to every ordinary reading would change a pinned
+    string for no information. The hours are printed alongside the weight
+    because the weight alone cannot be checked without them.
+    """
+    if age_weight == 1.0:
+        return ""
+    return f" × {age_weight:.2f} (decay:{age_sec / 3600.0:.1f}h)"
+
+
 def _trace(raw: float, llm_weight: float, participant_weight: float,
-           country: str, final: float) -> str:
-    return (f"{raw:.2f} (raw) "
+           country: str, final: float, age_fragment: str = "") -> str:
+    return (f"{raw:.2f} (raw){age_fragment} "
             f"× {llm_weight:.2f} (llm:{country}) "
             f"× {participant_weight:.2f} (participant:{country}) "
             f"= {final:.2f}")
 
 
-def _global_trace(raw: float, weight: float, final: float) -> str:
-    return (f"{raw:.2f} (raw) × {weight:.2f} (global) = {final:.2f}")
+def _global_trace(raw: float, weight: float, final: float,
+                  age_fragment: str = "") -> str:
+    return (f"{raw:.2f} (raw){age_fragment} "
+            f"× {weight:.2f} (global) = {final:.2f}")
 
 
 def _passes_primary_filter(llm_weight: float, max_weight: float,
@@ -105,7 +128,7 @@ def _passes_primary_filter(llm_weight: float, max_weight: float,
 
 def build_contributions(observations: Iterable[Observation],
                         scenario: Scenario,
-                        *, settings) -> tuple[Contribution, ...]:
+                        *, settings, now: float) -> tuple[Contribution, ...]:
     """Project admitted observations onto one scenario's participants.
 
     Clauses realised here:
@@ -115,11 +138,26 @@ def build_contributions(observations: Iterable[Observation],
       S1-SCORE-012  countryless signals are decoupled by default
       S1-SCORE-014  LLM multi-country tags filtered by primary ratio
       S1-SCORE-018  admission predicate and the empty-field fallbacks
+      S1-INTEL-020  the LLM intel age term (WP-2.4 addendum)
+
+    `now` is required rather than defaulted: an omitted clock would be
+    read as "age zero", which is the shape that makes stale intel score
+    like fresh intel and is exactly what the term exists to stop.
     """
     built: list[Contribution] = []
     for observation in observations:
         if not observation.admits():
             continue
+
+        # S1-INTEL-020. The innermost factor, matching production, where
+        # the decay is applied in intel_queue before the scenario formulas
+        # multiply the two country weights (radar/scoring.py:1446-1533).
+        age_weight = decay.age_weight_for(observation, now=now)
+        aged = observation.score * age_weight
+        age_fragment = _age_fragment(
+            age_weight,
+            0.0 if observation.observed_at is None
+            else max(0.0, now - observation.observed_at))
 
         if observation.is_global:
             # S1-SCORE-012. Decoupled is the default because a global
@@ -128,7 +166,7 @@ def build_contributions(observations: Iterable[Observation],
             if settings.global_signals_decoupled:
                 continue
             weight = settings.global_signal_weight.value
-            final = observation.score * weight
+            final = aged * weight
             built.append(Contribution(
                 sensor=observation.sensor,
                 signal_source=observation.signal_source,
@@ -139,7 +177,9 @@ def build_contributions(observations: Iterable[Observation],
                 llm_country_weight=1.0,
                 participant_weight=weight,
                 score=final,
-                trace=_global_trace(observation.score, weight, final)))
+                trace=_global_trace(observation.score, weight, final,
+                                    age_fragment),
+                age_weight=age_weight))
             continue
 
         weights = [entry.weight.value for entry in observation.countries]
@@ -156,7 +196,7 @@ def build_contributions(observations: Iterable[Observation],
                     threshold=settings.llm_primary_threshold):
                 continue
             participant_weight = participant.weight.value
-            final = observation.score * llm_weight * participant_weight
+            final = aged * llm_weight * participant_weight
             built.append(Contribution(
                 sensor=observation.sensor,
                 signal_source=observation.signal_source,
@@ -168,7 +208,9 @@ def build_contributions(observations: Iterable[Observation],
                 participant_weight=participant_weight,
                 score=final,
                 trace=_trace(observation.score, llm_weight,
-                             participant_weight, entry.country, final)))
+                             participant_weight, entry.country, final,
+                             age_fragment),
+                age_weight=age_weight))
     return tuple(built)
 
 
@@ -230,7 +272,7 @@ def active_countries(contributions: Iterable[Contribution]) -> tuple[str, ...]:
 
 
 def global_threat(observations: Iterable[Observation], *,
-                  global_signal_weight: Ratio) -> dict:
+                  global_signal_weight: Ratio, now: float) -> dict:
     """S1-SCORE-013: countryless signals, aggregated in their own envelope.
 
     Separate from every scenario score by construction, so that
@@ -245,7 +287,7 @@ def global_threat(observations: Iterable[Observation], *,
     for observation in observations:
         if not observation.admits() or not observation.is_global:
             continue
-        weighted = observation.score * weight
+        weighted = decay.effective_score(observation, now=now) * weight
         score += weighted
         if observation.domain in totals:
             totals[observation.domain] += weighted

@@ -20,6 +20,7 @@ Nothing here has import-time side effects, and nothing imports the legacy
 `radar` package except through `Threshold`, lazily, at resolution time.
 """
 from v3.scoring.contributions import Contribution
+from v3.scoring.decay import age_weight_for, effective_score, intel_age_weight
 from v3.scoring.convergence import (DUAL_DOMAIN, FULL_CONVERGENCE, NONE,
                                     SINGLE_DOMAIN, convergence_bonus,
                                     convergence_level)
@@ -28,7 +29,8 @@ from v3.scoring.inputs import (CountryWeight, Observation, Participant,
                                PatternFlags, PriorState, Scenario,
                                ScoringInputs, SequenceEvent)
 from v3.scoring.kernel import score_scenario, score_tick
-from v3.scoring.registry import EXCLUDED, IMPLEMENTED, S1_SCORING_CLAUSES
+from v3.scoring.registry import (ADDENDUM_IMPLEMENTED, EXCLUDED, IMPLEMENTED,
+                                 S1_SCORING_CLAUSES)
 from v3.scoring.result import BonusBreakdown, ScoringResult, TickResult
 from v3.scoring.settings import ScoringSettings, resolve_settings
 from v3.scoring.threat_level import apply_hysteresis, derive_tl
@@ -57,6 +59,9 @@ __all__ = [
     "apply_hysteresis",
     "convergence_level",
     "convergence_bonus",
+    "intel_age_weight",
+    "age_weight_for",
+    "effective_score",
     "NONE",
     "SINGLE_DOMAIN",
     "DUAL_DOMAIN",
@@ -69,5 +74,6 @@ __all__ = [
     # clause accounting
     "IMPLEMENTED",
     "EXCLUDED",
+    "ADDENDUM_IMPLEMENTED",
     "S1_SCORING_CLAUSES",
 ]

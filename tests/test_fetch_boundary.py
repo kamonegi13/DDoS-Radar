@@ -237,7 +237,7 @@ class TestTheFallbackChainIsEvaluatedByTheKernel:
         from v3.adapters.types import FALLBACK_TRIGGERS
         assert FALLBACK_TRIGGERS == {"failure", "failure_or_empty"}
 
-    def test_only_the_runner_decides_whether_an_alternative_runs(self):
+    def _fetch_callers(self):
         import ast
         callers = []
         for path in sorted((REPO_ROOT / "v3").rglob("*.py")):
@@ -248,4 +248,31 @@ class TestTheFallbackChainIsEvaluatedByTheKernel:
                         getattr(getattr(node.func, "value", None), "id",
                                 None) == "client":
                     callers.append(path.relative_to(REPO_ROOT).as_posix())
-        assert sorted(set(callers)) == ["v3/fetch/runner.py"]
+        return sorted(set(callers))
+
+    def test_only_the_runner_decides_whether_an_alternative_runs(self):
+        """The two kernel modules that issue a request, and no others.
+
+        WP-2.7 added `v3/fetch/llm.py`, the single LLM submission mouth
+        (§4-1). It is a KERNEL module, not an adapter, and it issues one
+        POST with no alternatives — the next test pins that. The
+        invariant this class defends is that no ADAPTER reaches the
+        client, which the following test states directly; widening this
+        list without widening that one would be widening the barrier.
+        """
+        assert self._fetch_callers() == ["v3/fetch/llm.py",
+                                         "v3/fetch/runner.py"]
+
+    def test_no_adapter_ever_reaches_the_client(self):
+        assert not [caller for caller in self._fetch_callers()
+                    if caller.startswith("v3/adapters/")]
+
+    def test_the_llm_mouth_declares_no_fallback_chain(self):
+        """A fallback inside the submission path would be a second
+        policy-maker: `RequestChain` is the runner's to evaluate."""
+        import ast
+        tree = ast.parse((REPO_ROOT / "v3" / "fetch" / "llm.py").read_text(
+            encoding="utf-8"))
+        names = {ast.unparse(node) for node in ast.walk(tree)}
+        assert not any("RequestChain" in name or "RequestContinuation" in name
+                       for name in names)

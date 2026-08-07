@@ -27,6 +27,15 @@ from v3.adapters.cyber.greynoise import GREYNOISE_ADAPTER
 from v3.adapters.cyber.ooni_censorship import OONI_CENSORSHIP_ADAPTER
 from v3.adapters.cyber.ripe_bgp import RIPE_BGP_ADAPTER
 from v3.adapters.cyber.threatfox import THREATFOX_ADAPTER
+from v3.adapters.info.bg_observer_rss import BG_OBSERVER_RSS_ADAPTER
+from v3.adapters.info.gdelt import GDELT_ADAPTER
+from v3.adapters.info.rss_narrative import RSS_NARRATIVE_ADAPTER
+from v3.adapters.info.telegram_mirror import TELEGRAM_MIRROR_ADAPTER
+from v3.adapters.info.tor_metrics import TOR_METRICS_ADAPTER
+from v3.adapters.info.travel_advisory import TRAVEL_ADVISORY_ADAPTER
+from v3.adapters.llm.diplomatic import DIPLOMATIC_ADAPTER
+from v3.adapters.llm.hacktivist_news import HACKTIVIST_NEWS_ADAPTER
+from v3.adapters.llm.military_exercise import MILITARY_EXERCISE_ADAPTER
 from v3.adapters.physical.ais_maritime import AIS_MARITIME_ADAPTER
 from v3.adapters.physical.check_host import CHECK_HOST_ADAPTER
 from v3.adapters.physical.gps_jamming import GPS_JAMMING_ADAPTER
@@ -84,13 +93,124 @@ WP26_ADAPTERS: tuple[SourceAdapter, ...] = (
 )
 
 
-def expected_adapter_ids() -> tuple[str, ...]:
-    """Design-sheet identifiers with the mandated renames applied."""
+# ── WP-2.7: §3-3's twelve ────────────────────────────────────────────────
+
+#: The design sheet §3-3 table, in its order. `(row, id_in_the_table)`.
+WP27_DESIGN_SHEET_ROWS: tuple[tuple[int, str], ...] = (
+    (23, "gdelt"), (24, "rss_narrative"), (25, "telegram_mirror"),
+    (26, "tor_metrics"), (27, "travel_advisory"), (28, "bg_observer_rss"),
+    (29, "diplomatic"), (30, "military_exercise"), (31, "hacktivist_intel"),
+    (32, "hacktivist_news"), (33, "ground_osint"), (34, "convergence_tracker"),
+)
+
+#: §4-3 / §3-3 row 34. Not an omission — a ruling, with its reason next to
+#: it. `convergence_tracker` was a second scoring pipeline: a private
+#: SQLite (A-09), a cross-layer read of scoring-owned data (DP10), and
+#: `domain="mixed"`, a fourth value outside the three-domain vocabulary
+#: (A5). Its question — "are several sources seeing one event?" — is
+#: answered by `v3.matching.corroborate` and returned as metadata that
+#: carries no score, because O-17 keeps the convergence arithmetic in the
+#: S5 formula alone.
+NOT_PORTED: dict = {
+    "convergence_tracker":
+        "design sheet §4-3: not ported as an adapter. Its verdict becomes "
+        "independence metadata (v3.matching.corroborate); its three defects "
+        "(A-09 private store, DP10 cross-layer read, A5 domain='mixed') "
+        "have no destination in v3.",
+}
+
+#: §3-5 H-3 / **裁定要求 9, ruled 2026-08-08**: two rows leave this batch.
+#:
+#: Both have no HTTP at all — their input is ANOTHER adapter's OUTPUT, and
+#: the declaration model has no vocabulary for that. `SourceAdapter.requests`
+#: holds `RequestSpec | RequestChain | RequestContinuation`, and `normalize`
+#: sees exactly one already-fetched payload (§2-2 barrier 1). Building them
+#: anyway costs one of the barriers: either a cache handle is passed into
+#: `normalize` (barrier 1 gone) or the adapter reads for itself (barriers
+#: 2/4 gone). §2-4 is the record of what happens when a model is made to
+#: look as though it can express something it cannot — eight adapters that
+#: could not issue their own production request, and nobody noticing because
+#: nothing had called them yet.
+#:
+#: DEFERRED is not PENDING. Pending means this batch still owes the work;
+#: deferred means this batch cannot express it and names the one that can.
+DEFERRED_WP41: dict = {
+    "hacktivist_intel":
+        "design sheet §3-5 H-3 / 裁定要求 9 (ruled 2026-08-08): no HTTP. "
+        "Its input is `telegram_mirror`'s class-variable intercept log, "
+        "i.e. another adapter's output, which the declaration model cannot "
+        "state. Landing WP-4.1 (composition root), by the SAME wiring as "
+        "§7-2 #11 (reduction) and #35 (suppression) — all three need "
+        "another adapter's output, and solving them separately would build "
+        "three mechanisms for one gap (A-02 reproduced deliberately). The "
+        "shared extraction machinery is already here: it needs one "
+        "`IntelProfile` once the input is wired.",
+    "ground_osint":
+        "design sheet §3-5 H-3 / 裁定要求 9 (ruled 2026-08-08): no HTTP. "
+        "Reads the telegram intercept log AND the live caches of "
+        "`cloudflare_radar` and `check_host` "
+        "(`radar/sensors/ground_osint_sensor.py:67-82`, ast-verified) — "
+        "another adapter's output again. Landing WP-4.1, by the same "
+        "wiring as §7-2 #11 (reduction) and #35 (suppression). Whoever "
+        "builds that wiring MUST route the reads through "
+        "`Evidence.fresh()`: production checks neither freshness nor "
+        "health (a bare `try/except Exception: pass`), which is DP2/B-03 "
+        "itself, and copying the wiring would copy the defect.",
+}
+
+#: Built so far in the WP-2.7 batch, in design-sheet order. The shared
+#: machinery landed first (`v3/fetch/llm.py`, `v3/adapters/llm/extraction
+#: .py`, `v3/matching/corroboration.py`) and these sit on it.
+WP27_ADAPTERS: tuple[SourceAdapter, ...] = (
+    GDELT_ADAPTER, RSS_NARRATIVE_ADAPTER, TELEGRAM_MIRROR_ADAPTER,
+    TOR_METRICS_ADAPTER, TRAVEL_ADVISORY_ADAPTER,
+    BG_OBSERVER_RSS_ADAPTER,
+    DIPLOMATIC_ADAPTER, MILITARY_EXERCISE_ADAPTER,
+    HACKTIVIST_NEWS_ADAPTER,
+)
+
+#: The rows §3-3 declares that this package does not yet export. This
+#: exists so the gap is a FAILING LIST rather than an absence: the suite
+#: recomputes it from the design sheet and the built roster, so adding an
+#: adapter without removing its row here fails, and so does leaving a row
+#: here after its adapter ships.
+PENDING_WP27: tuple[str, ...] = ()
+
+
+def declared_adapter_ids() -> tuple[str, ...]:
+    """All 34 design-sheet identifiers, renames applied, sheet order."""
     return tuple(DESIGN_SHEET_RENAMES.get(name, name)
-                 for _, name in WP26_DESIGN_SHEET_ROWS)
+                 for _, name in WP26_DESIGN_SHEET_ROWS + WP27_DESIGN_SHEET_ROWS)
 
 
-def build_registry(adapters=WP26_ADAPTERS) -> AdapterRegistry:
+def buildable_adapter_ids() -> tuple[str, ...]:
+    """The 34 minus the ones ruled not-ported. What may exist as code.
+
+    A deferred adapter is still buildable — WP-4.1 will build it. What it
+    is not is *expected here*, which is a different question and a
+    different function.
+    """
+    return tuple(name for name in declared_adapter_ids()
+                 if name not in NOT_PORTED)
+
+
+def expected_adapter_ids() -> tuple[str, ...]:
+    """What the built registry must contain, right now.
+
+    Buildable minus still-pending minus deferred. Deriving it rather than
+    listing it is what makes `PENDING_WP27` and `DEFERRED_WP41`
+    load-bearing: shipping an adapter without striking its row leaves the
+    roster short and the suite red, and so does striking a row without
+    shipping.
+    """
+    return tuple(name for name in buildable_adapter_ids()
+                 if name not in PENDING_WP27 and name not in DEFERRED_WP41)
+
+
+ALL_ADAPTERS: tuple[SourceAdapter, ...] = WP26_ADAPTERS + WP27_ADAPTERS
+
+
+def build_registry(adapters=ALL_ADAPTERS) -> AdapterRegistry:
     """The registry a composition root receives.
 
     Going through `AdapterRegistry` rather than exposing a list is what
@@ -101,5 +221,8 @@ def build_registry(adapters=WP26_ADAPTERS) -> AdapterRegistry:
     return AdapterRegistry(adapters)
 
 
-__all__ = ["WP26_ADAPTERS", "WP26_DESIGN_SHEET_ROWS", "DESIGN_SHEET_RENAMES",
-           "expected_adapter_ids", "build_registry"]
+__all__ = ["WP26_ADAPTERS", "WP26_DESIGN_SHEET_ROWS",
+           "WP27_ADAPTERS", "WP27_DESIGN_SHEET_ROWS",
+           "ALL_ADAPTERS", "DESIGN_SHEET_RENAMES", "NOT_PORTED",
+           "PENDING_WP27", "DEFERRED_WP41", "declared_adapter_ids",
+           "buildable_adapter_ids", "expected_adapter_ids", "build_registry"]

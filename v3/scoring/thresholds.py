@@ -246,6 +246,25 @@ _PINNED: dict[str, Threshold] = {
         0.5, unit="score",
         provenance_ref="radar/scoring.py:1139 CONTEXT_ALIGNMENT_BONUS "
                        "(no S1 clause)"),
+    # WP-2.4 ADDENDUM (design sheet §9 ruling 1). The one LLM-intel decay
+    # term. Pinned rather than registry-backed because O-18's second
+    # criterion is not met: production reads it from the environment only
+    # (radar/intel_queue.py:86), there is no DB override, and a live dial
+    # on the age curve re-times every intel contribution at once — a
+    # re-calibration, not an operational adjustment. The deployed value is
+    # 12.0 (config.env:96), which is also the code default.
+    #
+    # Two production escape hatches are deliberately NOT carried: the
+    # INTEL_AGE_DECAY_ENABLED flag and the per-source_type tau override
+    # (INTEL_AGE_DECAY_TAU_HOURS_<SOURCE>). Both are env reads, which
+    # `v3/` forbids, and neither is set in the deployed configuration.
+    # Registered as an expected difference in the design sheet §7-2.
+    "INTEL_AGE_DECAY_TAU_H": Threshold.pinned(
+        12.0, unit="h",
+        provenance_ref="S1-INTEL-020 exponential age-decay; "
+                       "radar/intel_queue.py:86 (INTEL_AGE_DECAY_TAU_HOURS "
+                       "default 12) and :106 (exp(-age/(tau*3600))); "
+                       "deployed value config.env:96"),
     # S1-SCORE-028.
     "TEMPORAL_COHERENCE_WINDOW_S": Threshold.pinned(
         10.0, unit="s",
@@ -286,6 +305,12 @@ SEQUENCE_DEDUP_WINDOW_S = _pinned_number("SEQUENCE_DEDUP_WINDOW_S")
 TEMPORAL_COHERENCE_WINDOW_S = _pinned_number("TEMPORAL_COHERENCE_WINDOW_S")
 TEMPORAL_COHERENCE_BONUS = _pinned_number("TEMPORAL_COHERENCE_BONUS")
 
+INTEL_AGE_DECAY_TAU_H = _pinned_number("INTEL_AGE_DECAY_TAU_H")
+# Derived once, here, so no formula re-types the hours-to-seconds
+# conversion. F-06 was a "30 day" window holding 30 samples: a unit
+# converted at two call sites is a unit converted differently at one.
+INTEL_AGE_DECAY_TAU_SEC = INTEL_AGE_DECAY_TAU_H * 3600.0
+
 VELOCITY_MIN_OBSERVATIONS = int(_pinned_number("VELOCITY_MIN_OBSERVATIONS"))
 ACCELERATION_MIN_OBSERVATIONS = int(
     _pinned_number("ACCELERATION_MIN_OBSERVATIONS"))
@@ -325,6 +350,7 @@ __all__ = [
     "SEQUENCE_DECAY_FLOOR", "SEQUENCE_MIN_BONUS", "SEQUENCE_DEDUP_WINDOW_S",
     "SEQUENCE_CHAIN_TYPES",
     "TEMPORAL_COHERENCE_WINDOW_S", "TEMPORAL_COHERENCE_BONUS",
+    "INTEL_AGE_DECAY_TAU_H", "INTEL_AGE_DECAY_TAU_SEC",
     "VELOCITY_MIN_OBSERVATIONS", "ACCELERATION_MIN_OBSERVATIONS",
     "VELOCITY_BONUS_CAP", "VELOCITY_BONUS_SCALE", "VELOCITY_EPSILON",
     "ACCELERATION_BONUS_MAX", "ACCELERATION_BONUS_SCALE",

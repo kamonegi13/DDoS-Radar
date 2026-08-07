@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Diplomatic wire</title>
+    <item>
+      <title>State Department issues a warning 1</title>
+      <description>A condemnation of the incursion.</description>
+      <link>https://dip.test/kw1</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>State Department issues a warning 2</title>
+      <description>A condemnation of the incursion.</description>
+      <link>https://dip.test/kw2</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>State Department issues a warning 3</title>
+      <description>A condemnation of the incursion.</description>
+      <link>https://dip.test/kw3</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>State Department issues a warning 4</title>
+      <description>A condemnation of the incursion.</description>
+      <link>https://dip.test/kw4</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>State Department issues a warning 5</title>
+      <description>A condemnation of the incursion.</description>
+      <link>https://dip.test/kw5</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>State Department issues a warning 6</title>
+      <description>A condemnation of the incursion.</description>
+      <link>https://dip.test/kw6</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>State Department issues a warning 7</title>
+      <description>A condemnation of the incursion.</description>
+      <link>https://dip.test/kw7</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>Taiwan cultural exchange 1</title>
+      <description>A friendly visit to Taipei.</description>
+      <link>https://dip.test/th1</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>Taiwan cultural exchange 2</title>
+      <description>A friendly visit to Taipei.</description>
+      <link>https://dip.test/th2</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>Taiwan cultural exchange 3</title>
+      <description>A friendly visit to Taipei.</description>
+      <link>https://dip.test/th3</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>Old sanction announcement</title>
+      <description>Archive.</description>
+      <link>https://dip.test/old</link>
+      <pubDate>Fri, 10 Nov 2023 22:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>State Department issues a warning 1</title>
+      <description>Reprint.</description>
+      <link>https://dip.test/dup</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

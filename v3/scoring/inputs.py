@@ -140,6 +140,17 @@ class Observation:
     # THIS, never against a rendered label — DP4 was rules silently dying
     # whenever display wording changed.
     value: str = ""
+    # When the observed event happened upstream, NOT when the tick ran.
+    # WP-2.4 ADDENDUM (design sheet §9 ruling 1): the age term in
+    # `v3.scoring.decay` needs this and the tick's `now`, and nothing else.
+    # Production destroys the distinction at exactly this point —
+    # radar/routes/core.py:2074 builds the intel Signal with
+    # `observed_at=current_time` — so an age recovered downstream there is
+    # always zero. Optional, because a sensor reading has no age term
+    # (decay.age_weight_for); mandatory for llm_intel, because "no
+    # timestamp" would otherwise have to be guessed as fresh or as spent,
+    # and both are guesses about the one quantity the term uses.
+    observed_at: Optional[float] = None
 
     def __init_subclass__(cls, **kwargs):
         raise TypeError(
@@ -184,6 +195,17 @@ class Observation:
         object.__setattr__(self, "countries", countries)
         object.__setattr__(self, "value",
                            _text(self.value, name="value", allow_empty=True))
+        if self.observed_at is not None:
+            object.__setattr__(
+                self, "observed_at",
+                _timestamp(self.observed_at, name="observed_at"))
+        elif self.origin == ORIGIN_LLM_INTEL:
+            raise DomainError(
+                f"{self.sensor!r} is llm_intel and must carry observed_at: "
+                f"the age decay (S1-INTEL-020) is computed from it and the "
+                f"tick's now. Defaulting it to the tick would read every "
+                f"stale item as fresh, which is the direction that reads "
+                f"as more threat, not less.")
 
     @property
     def is_global(self) -> bool:

@@ -1,0 +1,8 @@
+{
+  "version": "9.0",
+  "bridges": [
+    {"h": "BBBB1111", "average_clients": {"tw": 120.5, "cn": 40.0}},
+    {"h": "BBBB2222", "average_clients": {"tw": 30.25}},
+    {"h": "BBBB3333", "average_clients": {"us": 99.0}}
+  ]
+}

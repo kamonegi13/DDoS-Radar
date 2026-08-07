@@ -705,6 +705,17 @@ class NormalizeContext:
     chokepoints: tuple = ()
     #: Scenario adversaries, for rules phrased "inside hostile territory".
     adversaries: tuple[str, ...] = ()
+    #: ISO2 -> the escalation vocabulary watched for that country
+    #: (`geo_data.json` `TACTICAL_KEYWORDS`, 110 entries). Supplied rather
+    #: than transcribed for the same reason the coordinates are: it is
+    #: deployment data that changes without a code release, and a copy
+    #: under `v3/` would be a second ledger to keep in step.
+    tactical_keywords: Mapping[str, tuple] = field(default_factory=dict)
+    #: ISO2 -> place names that mark an article as being ABOUT that
+    #: country (`geo_data.json` `NARRATIVE_GEO_TERMS`, 36 entries). Same
+    #: reasoning; `rss_narrative` needs both to decide whether a burst in
+    #: an adversary's wire is about the theatre it is being counted for.
+    geo_terms: Mapping[str, tuple] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.now <= 0:
@@ -726,6 +737,10 @@ class NormalizeContext:
                                for code, name in
                                dict(self.country_names).items()}))
         object.__setattr__(self, "chokepoints", tuple(self.chokepoints))
+        for name in ("tactical_keywords", "geo_terms"):
+            object.__setattr__(self, name, MappingProxyType({
+                str(code).upper(): tuple(terms)
+                for code, terms in dict(getattr(self, name)).items()}))
 
 
 @dataclass(frozen=True, slots=True)

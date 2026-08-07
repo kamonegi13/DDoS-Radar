@@ -28,6 +28,7 @@ from v3.scoring.registry import IMPLEMENTED
 from v3.scoring.result import BonusBreakdown, ScoringResult, TickResult
 from v3.scoring.threat_level import apply_hysteresis, derive_tl
 from v3.scoring.thresholds import (CONTEXT_ALIGNMENT_BONUS,
+                                   INTEL_AGE_DECAY_TAU_H,
                                    SILENT_DIVERGENCE_BONUS)
 
 # Derived from the clause registry rather than restated, so the disclosure
@@ -83,7 +84,7 @@ def score_scenario(scenario: Scenario, inputs: ScoringInputs,
 
     # (1) contributions, (2) dedup, (3) per-domain totals under the cap
     built = contrib.build_contributions(inputs.observations, scenario,
-                                        settings=settings)
+                                        settings=settings, now=inputs.now)
     deduped = contrib.dedup_max(built)
     domains = contrib.domain_totals(deduped, domain_cap=settings.domain_cap)
     active_domains = contrib.active_domains(domains)
@@ -147,6 +148,10 @@ def score_scenario(scenario: Scenario, inputs: ScoringInputs,
             **{f"bonus_{name}": value
                for name, value in breakdown.as_dict().items()
                if name != "total"},
+            # WP-2.4 addendum: a pinned constant, so it is not in
+            # `settings.disclosed()` — but a published intel contribution
+            # is unreproducible without it (NP6).
+            "intel_age_decay_tau_h": INTEL_AGE_DECAY_TAU_H,
             **settings.disclosed(),
         },
         source_refs=tuple(sorted({c.signal_source for c in deduped})))
@@ -212,7 +217,8 @@ def score_tick(inputs: ScoringInputs) -> TickResult:
         results=results,
         global_threat=contrib.global_threat(
             inputs.observations,
-            global_signal_weight=inputs.settings.global_signal_weight),
+            global_signal_weight=inputs.settings.global_signal_weight,
+            now=inputs.now),
         next_sequence_events=chain_events,
         skipped=tuple(skipped))
 

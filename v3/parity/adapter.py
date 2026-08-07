@@ -33,6 +33,7 @@ from v3.kernel.errors import DomainError
 from v3.ledger import LedgerStore
 from v3.ledger.schema import SIGNAL_RETENTION_DAYS
 from v3.scoring import CountryWeight, Observation
+from v3.scoring.inputs import ORIGIN_LLM_INTEL, ORIGIN_SENSOR
 
 #: Used per-row when a stored horizon is non-positive (the L1 schema
 #: should prevent it, but a zero would silently make a row never fresh).
@@ -158,24 +159,42 @@ class LedgerInputAdapter:
 # ── the two projections, both pure functions of the same rows ────────────
 
 def to_v3_observations(rows: Sequence[Mapping]) -> tuple[Observation, ...]:
-    """Ledger rows as scoring-kernel observations."""
+    """Ledger rows as scoring-kernel observations.
+
+    `origin` is recovered from `signal_source`, not guessed. S1-INTEL-020
+    pins the intel signal source to the literal `llm_intel` ("信号系統は
+    llm_intel 固定 MUST") and it is the dedup unit S1-SCORE-008 folds on,
+    so the row already states what it is; the L1 table has no separate
+    `origin` column. Recovering it matters because the WP-2.4 addendum's
+    age term fires on origin alone — projecting an intel row as an
+    ordinary sensor reading would score a two-day-old report at full
+    weight, which is the silent direction.
+    """
     built = []
     for row in rows:
         country = (row.get("country") or "").strip()
         countries = ((CountryWeight(country, Ratio(1.0)),) if country
                      and country.upper() != "GLOBAL" else ())
         confidence = row.get("confidence")
+        source = row.get("signal_source") or ""
+        origin = (ORIGIN_LLM_INTEL if source == ORIGIN_LLM_INTEL
+                  else ORIGIN_SENSOR)
         built.append(Observation(
             sensor=row["sensor"],
             domain=row["domain"],
             status=row["status"],
             score=float(row.get("raw_score") or 0.0),
-            signal_source=row.get("signal_source") or "",
+            signal_source=source,
             countries=countries,
             confidence=Ratio(1.0 if confidence is None else float(confidence)),
             suppressed=bool(row.get("suppressed")),
             suppress_reason=row.get("suppress_reason"),
             value=str(row.get("payload") or ""),
+            origin=origin,
+            # Carried for every row, not only intel: an observation whose
+            # own timestamp is dropped here cannot be aged by anything
+            # downstream, and the harness would have no way to notice.
+            observed_at=float(row["observed_at"]),
         ))
     return tuple(built)
 

@@ -618,6 +618,14 @@ class TestNoPlaceholderCanReachTheWire:
                              "lonmax", "lonmin"],
             "check_host": ["request_id", "target_url"],
             "ct_log": ["domain"],
+            # WP-2.7. `{gdelt_query}` is the per-country search expression
+            # (`QUERY_TEMPLATES`, or a name-based fallback), and
+            # `{history_window}` the baseline span in days — production
+            # reads it from `GDELT_HISTORY_WINDOW`, default 28
+            # (`radar/routes/core.py:643`). Both are the composition
+            # root's to supply: the templates need the country-name ledger
+            # and nothing under `v3/` reads configuration.
+            "gdelt": ["country", "gdelt_query", "history_window"],
             "gps_jamming": ["date"],
             "greynoise": ["country"],
             "ihr_health": ["since_iso", "until_iso"],
@@ -627,6 +635,14 @@ class TestNoPlaceholderCanReachTheWire:
             "mil_support_air": ["country", "lamax", "lamin", "lat", "lng",
                                 "lomax", "lomin", "zone"],
             "ooni_censorship": ["country", "since_date", "until_date"],
+            # WP-2.7. `{channel}` is a scope placeholder, not a country:
+            # production scrapes each unique `t.me/s/<channel>` exactly
+            # once and reuses the result across every theatre whose
+            # `THREAT_ACTOR_MAPPING` entry names it
+            # (`radar/sensors/telegram.py:346-356`). The channel roster
+            # lives in `geo_data.json`, so the composition root supplies
+            # it for the same reason it supplies the coordinates.
+            "telegram_mirror": ["channel"],
             "opensky": ["country", "lamax", "lamin", "lomax", "lomin"],
             "openweather": ["country", "lat", "lon"],
             "peeringdb_ixp": ["country"],
@@ -635,6 +651,15 @@ class TestNoPlaceholderCanReachTheWire:
             # so no caller can forget to supply them.
             "ripe_atlas": ["country"],
             "ripe_bgp": ["country"],
+            # WP-2.7. `{country_lower}` is a SEPARATE slot from
+            # `{country}` on purpose: Onionoo matches case-sensitively
+            # (`radar/sensors/tor_metrics.py:54,89` send `code.lower()`),
+            # and an upper-case code comes back HTTP 200 with an empty
+            # relay list — which this layer would read as a country with
+            # no Tor presence rather than as a request that missed. The
+            # label keeps `{country}` because the ledger's country column
+            # is upper-case ISO2.
+            "tor_metrics": ["country", "country_lower"],
             "usgs_seismic": ["since_iso"],
         }
 
@@ -649,6 +674,14 @@ class TestNoPlaceholderCanReachTheWire:
         ("space_weather", {}),
         ("gps_jamming", {"date": "2026-08-06"}),
         ("apt_intel", {}),
+        # WP-2.7. Declared AND driven to the wire in the same pass: §2-4's
+        # eight silent defects survived to WP-2.6 precisely because no
+        # test took a declaration through the expander and the client, so
+        # "nobody has called it yet" hid the fact that it could not work.
+        ("gdelt", {"country": "TW", "history_window": "28",
+                   "gdelt_query": '"Taiwan" (military OR invasion OR strait '
+                                  'OR conflict)'}),
+        ("tor_metrics", {"country": "TW", "country_lower": "tw"}),
     ])
     def test_the_rest_of_the_roster_also_reaches_the_wire_resolved(
             self, name, values):

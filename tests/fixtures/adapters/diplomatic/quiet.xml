@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Quiet wire</title>
+    <item>
+      <title>Ministry publishes annual cookbook</title>
+      <description>Recipes.</description>
+      <link>https://dip.test/q1</link>
+      <pubDate>Tue, 14 Nov 2023 20:13:20 GMT</pubDate>
+    </item>
+    <item>
+      <title>Ambassador attends a concert</title>
+      <description>Music.</description>
+      <link>https://dip.test/q2</link>
+      <pubDate>Tue, 14 Nov 2023 21:13:20 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
