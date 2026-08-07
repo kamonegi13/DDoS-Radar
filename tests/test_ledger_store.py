@@ -122,16 +122,20 @@ class TestAppendOnlySignals:
                 evidence={"ratio": 0.08},   # not kernel Evidence
                 status="FIRED")
 
-    def test_the_only_update_api_is_the_baseline_job(self, store):
-        # Baselines are the one thing that legitimately changes in place,
-        # and only through the explicit job. Nothing may revise an
-        # observation.
+    def test_every_in_place_writer_is_individually_sanctioned(self, store):
+        # Nothing may revise an observation. Three APIs write in place, and
+        # each is allowed for a stated reason:
+        #   update_baselines      the explicit baseline job (A-03 / F-05)
+        #   upsert_baseline_value the ETL's aggregate-baseline import
+        #   set_checkpoint        ETL progress in schema_meta — metadata
+        #                         about the migration, not ledger content
         public = {name for name in dir(store) if not name.startswith("_")}
         mutators = {name for name in public
                     if name.startswith(("update_", "edit_", "modify_",
-                                        "set_", "revise_"))}
-        assert mutators == {"update_baselines"}, \
-            "the ledger records facts; it does not revise them"
+                                        "set_", "revise_", "upsert_"))}
+        assert mutators == {"update_baselines", "upsert_baseline_value",
+                            "set_checkpoint"}, \
+            "the ledger records facts; every in-place writer needs a reason"
 
     def test_there_is_no_delete_api_besides_the_retention_job(self, store):
         public = {name for name in dir(store) if not name.startswith("_")}

@@ -104,6 +104,12 @@ class LedgerStore:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+            # WAL + NORMAL: fsync at checkpoints rather than at every
+            # commit. Safe against process crash (WAL replays); the
+            # exposure is a power loss losing the last transactions, which
+            # for an append-only observation ledger costs one tick, not
+            # integrity. FULL would make the 1M-row migration fsync-bound.
+            self._conn.execute("PRAGMA synchronous=NORMAL")
             self._read_conn: Optional[sqlite3.Connection] = None
             # Writes are serialised in-process: sqlite allows one writer,
             # and the fold job is a read-modify-write that must not
@@ -169,6 +175,21 @@ class LedgerStore:
         return self._read_conn
 
     @contextmanager
+    def _maybe_transaction(self, connection=None):
+        """Join the caller's transaction, or open one.
+
+        The ETL batches a whole chunk into one transaction and passes it
+        down; everything else gets its own. The lock is held by whoever
+        opened the transaction, and it is not reentrant, so a passed-in
+        connection must never re-acquire it.
+        """
+        if connection is not None:
+            yield connection
+            return
+        with self.transaction() as own:
+            yield own
+
+    @contextmanager
     def transaction(self):
         """One serialised write transaction. Rolls back on any exception.
 
@@ -186,7 +207,8 @@ class LedgerStore:
 
     # ── signal ledger (append-only) ─────────────────────────────────────
     def append_signal(self, observation: SignalObservation,
-                      now: Optional[float] = None) -> bool:
+                      now: Optional[float] = None, *, connection=None
+                      ) -> bool:
         """Record one signal. Returns False when the tick already exists.
 
         The evidence is freshness-checked here, at the boundary: a stale
@@ -201,8 +223,8 @@ class LedgerStore:
         ts = time.time() if now is None else now
         payload = observation.evidence.fresh(now=ts)   # raises when stale
 
-        with self.transaction() as connection:
-            cursor = connection.execute(
+        with self._maybe_transaction(connection) as conn:
+            cursor = conn.execute(
                 "INSERT OR IGNORE INTO signal_observation "
                 "(tick_id, sensor, signal_source, domain, country, "
                 " observed_at, recorded_at, raw_score, status, flags, "
@@ -221,7 +243,7 @@ class LedgerStore:
                  observation.evidence.freshness_horizon_sec))
             if cursor.rowcount > 0:
                 return True
-            stored = connection.execute(
+            stored = conn.execute(
                 "SELECT raw_score, status, observed_at FROM "
                 "signal_observation WHERE tick_id = ? AND sensor = ? "
                 "AND signal_source = ? AND country = ?",
@@ -274,14 +296,15 @@ class LedgerStore:
             "SELECT COUNT(*) FROM signal_observation").fetchone()[0])
 
     # ── TL stream (P6 O-16: one unthinned stream) ───────────────────────
-    def append_tl(self, observation: TLObservation) -> bool:
+    def append_tl(self, observation: TLObservation, *,
+                  connection=None) -> bool:
         """Append one TL tick. Every tick, including repeats and null zone."""
         if not isinstance(observation, TLObservation):
             raise TypeError(
                 f"append_tl expects a TLObservation, got "
                 f"{type(observation).__name__}")
-        with self.transaction() as connection:
-            cursor = connection.execute(
+        with self._maybe_transaction(connection) as conn:
+            cursor = conn.execute(
                 "INSERT OR IGNORE INTO tl_observation "
                 "(tick_id, scenario_id, observed_at, tl, score, cyber, "
                 " physical, info, convergence_bonus, scoring_mode, "
@@ -293,7 +316,7 @@ class LedgerStore:
                  observation.scoring_mode, observation.countries_json()))
             if cursor.rowcount > 0:
                 return True
-            stored = connection.execute(
+            stored = conn.execute(
                 "SELECT tl, score, observed_at FROM tl_observation "
                 "WHERE tick_id = ? AND scenario_id = ?",
                 (observation.tick_id, observation.scenario_id)).fetchone()
@@ -333,7 +356,8 @@ class LedgerStore:
             "SELECT COUNT(*) FROM tl_observation").fetchone()[0])
 
     # ── conclusions (storage + retention only; L3 owns semantics) ───────
-    def append_conclusion(self, record: ConclusionRecord) -> bool:
+    def append_conclusion(self, record: ConclusionRecord, *,
+                          connection=None) -> bool:
         """Append one conclusion. L1 owns storage and retention only.
 
         Note for WP-3.1: unlike signals and TL ticks, conclusions have no
@@ -346,8 +370,8 @@ class LedgerStore:
                 f"append_conclusion expects a ConclusionRecord, got "
                 f"{type(record).__name__}: a kwargs bag accepts a typo "
                 f"silently and stores a row missing the field you set")
-        with self.transaction() as connection:
-            cursor = connection.execute(
+        with self._maybe_transaction(connection) as conn:
+            cursor = conn.execute(
                 "INSERT OR IGNORE INTO conclusion "
                 "(id, scenario_id, conclusion_type, state, confidence, "
                 " observed_at, formula_ref, threshold_ref, source_urls, "
@@ -409,7 +433,149 @@ class LedgerStore:
             (baseline_id, sensor, country, bucket)).fetchone()
         return dict(row) if row else None
 
-    # ── retention (the only sanctioned deleter) ─────────────────────────
+    # ── migration support (WP-2.3) ──────────────────────────────────────
+    #
+    # Checkpoints live in the TARGET store: the source is opened read-only
+    # and must stay byte-identical, so progress state cannot be written
+    # there even in principle (S3-DATA-023).
+    def checkpoint(self, table: str) -> Optional[tuple]:
+        """Last migrated (ordering value, rowid) pair for `table`, or None.
+
+        A pair, not a scalar: the ordering column is not unique, so a
+        scalar cursor cannot resume inside a tie group without skipping
+        the rest of it.
+        """
+        row = self._read_connection().execute(
+            "SELECT value FROM schema_meta WHERE key = ?",
+            (f"etl_checkpoint:{table}",)).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["value"])
+        return (payload[0], int(payload[1]))
+
+    def set_checkpoint(self, table: str, value, rowid: int, *,
+                       connection=None) -> None:
+        """Record the composite cursor.
+
+        `connection` lets the ETL write the checkpoint inside the same
+        transaction as the chunk it covers, so the two can never disagree.
+        """
+        payload = json.dumps([value, int(rowid)], allow_nan=False,
+                             ensure_ascii=False)
+        statement = ("INSERT INTO schema_meta (key, value) VALUES (?, ?) "
+                     "ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+        params = (f"etl_checkpoint:{table}", payload)
+        if connection is not None:
+            connection.execute(statement, params)
+            return
+        with self.transaction() as own:
+            own.execute(statement, params)
+
+    def upsert_baseline_value(self, *, baseline_id: str, sensor: str,
+                              country: str, bucket: int, value: float,
+                              connection=None) -> None:
+        """Store a v1 aggregate baseline value.
+
+        `sample_count` stays 0 on purpose: v1 stored only the aggregate and
+        never recorded how many samples produced it. Writing 1 would assert
+        a sample size that never existed, and a later consumer would have
+        no way to tell the difference.
+        """
+        with self._maybe_transaction(connection) as conn:
+            conn.execute(
+                "INSERT INTO baseline_stat (baseline_id, sensor, country, "
+                " bucket, sample_count, mean, m2, updated_at) "
+                "VALUES (?,?,?,?,0,?,0.0,?) "
+                "ON CONFLICT (baseline_id, sensor, country, bucket) "
+                "DO UPDATE SET mean = excluded.mean, "
+                "  updated_at = excluded.updated_at",
+                (baseline_id, sensor, country, int(bucket), float(value),
+                 time.time()))
+
+    # Reconciliation support (WP-2.3). Read-only by construction.
+    _MIGRATED_TABLE = {"conclusions": "conclusion",
+                       "scenario_tl_observation": "tl_observation",
+                       "hod_baseline": ("baseline_stat", "hod"),
+                       "checkhost_hod": ("baseline_stat", "checkhost_hod"),
+                       "bgp_hod": ("baseline_stat", "bgp_hod"),
+                       "gdelt_dow": ("baseline_stat", "gdelt_dow")}
+
+    def migrated_row_count(self, source_table: str) -> int:
+        """Rows in the v3 destination of a v1 table (acceptance criterion 1)."""
+        target = self._MIGRATED_TABLE.get(source_table)
+        if target is None:
+            return 0
+        if isinstance(target, tuple):
+            table, baseline_id = target
+            return int(self._read_connection().execute(
+                f'SELECT COUNT(*) FROM "{table}" '  # noqa: S608 - fixed map
+                f"WHERE baseline_id = ?", (baseline_id,)).fetchone()[0])
+        return int(self._read_connection().execute(
+            f'SELECT COUNT(*) FROM "{target}"').fetchone()[0])  # noqa: S608
+
+    def rows_at_offsets(self, table: str, order_columns: tuple,
+                        offsets: list) -> list:
+        """Rows at given offsets in a declared value order (criterion 2).
+
+        Offsets rather than a full materialisation: the migrated tables
+        run to a million rows.
+        """
+        if table not in ("conclusion", "tl_observation", "signal_observation"):
+            raise ValueError(f"unknown ledger table {table!r}")
+        ordering = ", ".join(f'"{column}" ASC' for column in order_columns)
+        rows = []
+        for offset in offsets:
+            row = self._read_connection().execute(
+                f'SELECT * FROM "{table}" ORDER BY {ordering} '  # noqa: S608
+                f"LIMIT 1 OFFSET ?", (offset,)).fetchone()
+            if row is not None:
+                rows.append(row)
+        return rows
+
+    def baseline_value_rows(self, baseline_id: str, *, offsets: list) -> list:
+        """(country, bucket, value) triples for a migrated baseline."""
+        rows = []
+        for offset in offsets:
+            row = self._read_connection().execute(
+                "SELECT country, bucket, mean AS value FROM baseline_stat "
+                "WHERE baseline_id = ? ORDER BY country ASC, bucket ASC "
+                "LIMIT 1 OFFSET ?", (baseline_id, offset)).fetchone()
+            if row is not None:
+                rows.append({"country": row["country"],
+                             "bucket": row["bucket"], "value": row["value"]})
+        return rows
+
+    def oldest_observed_at(self, table: str) -> Optional[float]:
+        if table not in ("conclusion", "tl_observation", "signal_observation"):
+            raise ValueError(f"unknown ledger table {table!r}")
+        row = self._read_connection().execute(
+            f'SELECT MIN(observed_at) FROM "{table}"').fetchone()  # noqa: S608
+        return None if row[0] is None else float(row[0])
+
+    def count_conclusions_with_prompt_ref(self) -> int:
+        return int(self._read_connection().execute(
+            "SELECT COUNT(*) FROM conclusion "
+            "WHERE llm_prompt_sha256 IS NOT NULL").fetchone()[0])
+
+    def wipe_migrated_tables(self) -> dict:
+        """Empty the migration targets (S3-DATA-030's wipe-then-copy norm)."""
+        emptied: dict = {}
+        with self.transaction() as connection:
+            self._set_prune_flag(connection, True)
+            for table in ("conclusion", "tl_observation", "baseline_stat"):
+                cursor = connection.execute(
+                    f'DELETE FROM "{table}"')  # noqa: S608 - fixed literal
+                emptied[table] = cursor.rowcount
+            connection.execute(
+                "DELETE FROM schema_meta WHERE key LIKE 'etl_checkpoint:%'")
+            self._set_prune_flag(connection, False)
+        return emptied
+
+    # ── deletion (two sanctioned deleters, both explicit) ───────────────
+    #   prune_expired         retention, driven by the policy registry
+    #   wipe_migrated_tables  S3-DATA-030's wipe-then-copy migration norm
+    # Both open the append-only trigger gate inside one transaction and
+    # close it in the same one.
     def prune_expired(self, now: Optional[float] = None) -> dict:
         """Apply every retention policy in the registry. Returns row counts."""
         from v3.ledger.retention import prune
