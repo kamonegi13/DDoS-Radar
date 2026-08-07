@@ -15,7 +15,17 @@ cannot reliably eyeball:
      dependency (config_layered, for Threshold.registry_backed) must stay
      inside a function so it is paid only on resolution.
 
-A third rule is heuristic and reported as such: flagging `int(...)` /
+  3. **No HTTP or socket library outside v3/fetch/client.py.** The shared
+     fetch client is the only egress; S4-NF-061 requires the closure be
+     structural because A-10 showed an optional shared helper attracts
+     zero callers. LIMITATION, stated rather than implied: this reads
+     import statements, so a dynamic `importlib.import_module("requests")`
+     or `__import__` is invisible to it. That shape is not statically
+     decidable; the runtime barriers (a socket-patched test executing
+     every normalize) are what cover it, which is why §2-2 uses four
+     independent barriers rather than one.
+
+A fourth rule is heuristic and reported as such: flagging `int(...)` /
 `float(...)` applied to something named like a threat level, and direct
 ordering comparisons between such names. ThreatLevel already raises on
 all of these at runtime; the static pass only catches them earlier, and
@@ -38,6 +48,20 @@ _DEFAULT_ROOTS = ("v3",)
 # `from os import environ` and `from os import getenv as x` alike.
 _CANON_GETENV = "os.getenv"
 _CANON_ENVIRON = "os.environ"
+# WP-2.5 / S4-NF-061: every outward request goes through the shared fetch
+# client, and the rule is enforced rather than requested. A-10 measured
+# what "put the helper in the base class" achieves on its own — zero
+# callers across 28 fetch implementations, and 429 handled by 8 of 36
+# sensors. The clause offers two enforcement branches ("make it
+# type-unreachable, or forbid direct calls in CI"); this is the second,
+# chosen because a determined caller can always `import` past a type.
+_HTTP_MODULES = frozenset({
+    "requests", "httpx", "aiohttp", "urllib3", "urllib.request",
+    "urllib.error", "http.client", "socket", "ssl", "ftplib", "telnetlib",
+    "websocket", "websockets",
+})
+# The one sanctioned egress. Anything else naming an HTTP library fails.
+_HTTP_OWNER = "v3/fetch/client.py"
 # Names that suggest a threat level / a unit-bearing value. Heuristic:
 # these rules depend on naming, and the runtime types enforce the same
 # contracts regardless.
@@ -131,6 +155,7 @@ class _KernelVisitor(ast.NodeVisitor):
         self.is_test_path = any(marker in rel_path
                                 for marker in _TEST_PATH_MARKERS)
         self.is_seam_owner = rel_path.endswith(_SEAM_OWNER)
+        self.is_http_owner = rel_path.endswith(_HTTP_OWNER)
 
     # ── module-scope legacy imports ────────────────────────────────────
     def visit_FunctionDef(self, node):  # noqa: N802
@@ -139,6 +164,31 @@ class _KernelVisitor(ast.NodeVisitor):
         self._function_depth -= 1
 
     visit_AsyncFunctionDef = visit_FunctionDef
+
+    def _check_http_import(self, module: str, node: ast.AST) -> None:
+        """No outward-facing library outside the shared fetch client.
+
+        Matched in BOTH directions against the listed names, because a
+        dotted module relates to an entry either way round:
+        `urllib.request` is caught by the entry `urllib.request`, and
+        `from urllib import request` presents as the module `urllib`,
+        whose entry is a prefix of nothing but which is itself a prefix of
+        a listed name. Exact-match alone missed the second shape entirely.
+        """
+        if not module or self.is_http_owner:
+            return
+        if not any(module == entry
+                   or module.startswith(entry + ".")
+                   or entry.startswith(module + ".")
+                   for entry in _HTTP_MODULES):
+            return
+        self.findings.append(Finding(
+            self.rel_path, node.lineno, "http-outside-fetch-kernel",
+            f"import of {module!r}: every outward request goes through "
+            f"v3.fetch.HttpClient, which is the only module allowed to "
+            f"import an HTTP or socket library (S4-NF-061). A-10 measured "
+            f"the alternative — a shared helper that was optional had zero "
+            f"callers across 28 fetch implementations."))
 
     def _check_legacy_import(self, module: str, node: ast.AST) -> None:
         if not module or not (module == "radar" or module.startswith("radar.")):
@@ -153,10 +203,12 @@ class _KernelVisitor(ast.NodeVisitor):
     def visit_Import(self, node):  # noqa: N802
         for alias in node.names:
             self._check_legacy_import(alias.name, node)
+            self._check_http_import(alias.name, node)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node):  # noqa: N802
         self._check_legacy_import(node.module or "", node)
+        self._check_http_import(node.module or "", node)
         self.generic_visit(node)
 
     # ── environment reads ──────────────────────────────────────────────

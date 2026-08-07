@@ -199,3 +199,25 @@ def l5_tmp_db(tmp_path, monkeypatch):
         return inst
 
     return _bind
+
+
+# ── shared discipline-gate loader ────────────────────────────────────────
+#
+# Four test modules were each re-implementing this importlib dance, and two
+# of them had drifted apart on which module names they considered
+# forbidden. One loader, one list.
+@pytest.fixture(scope="session")
+def discipline_gate():
+    """The kernel discipline gate, loaded once per session."""
+    import importlib.util
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "check_kernel_discipline",
+        root / "scripts" / "check_kernel_discipline.py")
+    module = importlib.util.module_from_spec(spec)
+    _sys.modules["check_kernel_discipline"] = module
+    spec.loader.exec_module(module)
+    return module

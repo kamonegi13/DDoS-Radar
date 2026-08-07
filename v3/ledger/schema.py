@@ -15,12 +15,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 # ADR-V3-005 / P1 §5: the signal horizon is derived from the parity
 # requirement (30-day replay window x 2), not chosen for convenience.
 SIGNAL_RETENTION_DAYS = 60
 CONCLUSION_RETENTION_DAYS = 365
+# WP-2.5 §1-6: raw bodies are opt-in and short-lived. Keeping 60 days of
+# every body for 34 adapters is a capacity decision outside S3's estimate
+# and nobody has approved it; `body_sha256` proves identity without it.
+RAW_BODY_RETENTION_DAYS = 7
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,11 +89,36 @@ RETENTION_POLICIES: tuple[RetentionPolicy, ...] = (
     RetentionPolicy(
         table="schema_meta", time_column=None, retention_days=None,
         rationale="Store metadata."),
+    # ── schema v2 (WP-2.5, L0) ──────────────────────────────────────────
+    RetentionPolicy(
+        table="fetch_log", time_column="requested_at",
+        retention_days=SIGNAL_RETENTION_DAYS,
+        rationale="WP-2.5 §1-6: every fetch is recorded. Follows the signal "
+                  "horizon because a fetch record explains the observation "
+                  "it did or did not produce, and the two must stay "
+                  "co-resident to be readable together."),
+    RetentionPolicy(
+        table="llm_call", time_column="called_at",
+        retention_days=CONCLUSION_RETENTION_DAYS,
+        rationale="S5-VERIF-022: parity must replay recorded LLM responses "
+                  "by prompt_sha256 rather than calling a model. The record "
+                  "has to outlive the conclusion it justifies, so it follows "
+                  "the conclusion horizon."),
+    RetentionPolicy(
+        table="fetch_body", time_column="recorded_at",
+        retention_days=RAW_BODY_RETENTION_DAYS,
+        rationale="WP-2.5 §1-6: opt-in raw bodies, short-lived. Identity is "
+                  "proved by fetch_log.body_sha256; the body itself is a "
+                  "debugging convenience, not evidence."),
+    RetentionPolicy(
+        table="fetch_schedule", time_column=None, retention_days=None,
+        rationale="Current per-adapter state (last run, breaker). Not a "
+                  "history — one row per adapter, updated in place."),
 )
 
 PERSISTED_TABLES: tuple[str, ...] = (
     "signal_observation", "tl_observation", "conclusion", "baseline_stat",
-    "schema_meta",
+    "schema_meta", "fetch_schedule", "fetch_log", "llm_call", "fetch_body",
 )
 
 # ── DDL ─────────────────────────────────────────────────────────────────
@@ -228,6 +257,175 @@ BEGIN
 END;
 """
 
+
+# ── migrations ──────────────────────────────────────────────────────────
+#
+# The minimal mechanism WP-2.2's completion note promised, implemented by
+# the extension that first needed it (ruling 3). Deliberately minimal: a
+# numbered list of statements, applied in order, above whatever version
+# the store records. No downgrades — a store that has run a newer version
+# is not something this list can reason about.
+#
+# `SCHEMA_SQL` stays the v1 baseline. New tables arrive as migrations even
+# though `CREATE TABLE IF NOT EXISTS` would also work on a fresh store,
+# because the point of the list is that the UPGRADE path is exercised on
+# every run rather than only in the one deployment that happens to be old.
+
+
+@dataclass(frozen=True)
+class Migration:
+    """One schema step. `statements` run individually, in order."""
+
+    version: int
+    statements: tuple[str, ...]
+    rationale: str
+
+    def __post_init__(self) -> None:
+        if self.version < 2:
+            raise ValueError(
+                f"migration versions start at 2 (1 is SCHEMA_SQL's "
+                f"baseline), got {self.version}")
+        if not self.statements:
+            raise ValueError(f"migration {self.version} has no statements")
+
+
+_MIGRATION_2 = Migration(
+    version=2,
+    rationale="WP-2.5: L0's three tables. A-09 keeps them here rather than "
+              "in a second store owned by the fetch layer.",
+    statements=(
+        # Per-adapter current state: when it last ran, and its breaker.
+        # One row per adapter, updated in place — F-01's repair is that
+        # scheduling reads a PERSISTED last_run_at instead of a process
+        # counter that resets to zero on restart.
+        """
+        CREATE TABLE IF NOT EXISTS fetch_schedule (
+            adapter_id              TEXT PRIMARY KEY,
+            last_run_at             REAL,
+            last_outcome            TEXT,
+            breaker_state           TEXT NOT NULL DEFAULT 'CLOSED',
+            breaker_fail_count      INTEGER NOT NULL DEFAULT 0,
+            breaker_opened_at       REAL,
+            breaker_recovery_delay_sec REAL NOT NULL DEFAULT 300.0,
+            updated_at              REAL NOT NULL
+        )
+        """,
+        # Every fetch, always. `outcome` carries the feed death-cause
+        # classification (§1-7) so a dead feed stays visible instead of
+        # looking like an absence.
+        """
+        CREATE TABLE IF NOT EXISTS fetch_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            adapter_id    TEXT NOT NULL,
+            requested_at  REAL NOT NULL,
+            url_sha256    TEXT NOT NULL,
+            http_status   INTEGER,
+            latency_ms    REAL,
+            outcome       TEXT NOT NULL,
+            body_sha256   TEXT,
+            breaker_state TEXT NOT NULL DEFAULT 'CLOSED',
+            detail        TEXT NOT NULL DEFAULT ''
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_fetch_log_adapter_time "
+        "ON fetch_log (adapter_id, requested_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_fetch_log_time "
+        "ON fetch_log (requested_at DESC)",
+        # S5-VERIF-022's precondition. Every field here is required for
+        # replay; a row missing one of them makes its conclusion type
+        # non-replayable, which the clause says must then be excluded from
+        # parity and the exclusion stated.
+        """
+        CREATE TABLE IF NOT EXISTS llm_call (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            adapter_id    TEXT NOT NULL,
+            called_at     REAL NOT NULL,
+            prompt        TEXT NOT NULL,
+            prompt_sha256 TEXT NOT NULL,
+            response      TEXT NOT NULL,
+            model_id      TEXT NOT NULL,
+            temperature   REAL NOT NULL
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_llm_call_prompt "
+        "ON llm_call (prompt_sha256, called_at DESC)",
+        # Opt-in, short-lived. Keyed by content hash so an unchanged body
+        # fetched a hundred times is stored once.
+        """
+        CREATE TABLE IF NOT EXISTS fetch_body (
+            body_sha256 TEXT PRIMARY KEY,
+            adapter_id  TEXT NOT NULL,
+            recorded_at REAL NOT NULL,
+            body        BLOB NOT NULL
+        )
+        """,
+        # fetch_log is a record of what happened; a record that can be
+        # edited afterwards is not one.
+        """
+        CREATE TRIGGER IF NOT EXISTS fetch_log_no_update
+        BEFORE UPDATE ON fetch_log
+        BEGIN
+            SELECT RAISE(ABORT, 'fetch_log is append-only');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS llm_call_no_update
+        BEFORE UPDATE ON llm_call
+        BEGIN
+            -- One line: SQLite does not concatenate adjacent string
+            -- literals the way Python does.
+            SELECT RAISE(ABORT, 'llm_call is append-only (S5-VERIF-022)');
+        END
+        """,
+    ))
+
+_MIGRATION_3 = Migration(
+    version=3,
+    rationale="WP-2.5 review: the v2 tables were append-only by convention "
+              "only. llm_call in particular is S5-VERIF-022's replay "
+              "substrate — a deleted row is a conclusion that can never be "
+              "reproduced, and nothing stopped a DELETE.",
+    statements=(
+        # Guarded by the same pruning flag the v1 tables use, so the
+        # retention job remains the single sanctioned deleter.
+        """
+        CREATE TRIGGER IF NOT EXISTS fetch_log_no_delete
+        BEFORE DELETE ON fetch_log
+        WHEN (SELECT value FROM schema_meta WHERE key = 'pruning') IS NULL
+        BEGIN
+            SELECT RAISE(ABORT,
+                'fetch_log rows are removed only by the retention job');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS llm_call_no_delete
+        BEFORE DELETE ON llm_call
+        WHEN (SELECT value FROM schema_meta WHERE key = 'pruning') IS NULL
+        BEGIN
+            SELECT RAISE(ABORT,
+                'llm_call rows are removed only by the retention job');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS fetch_body_no_delete
+        BEFORE DELETE ON fetch_body
+        WHEN (SELECT value FROM schema_meta WHERE key = 'pruning') IS NULL
+        BEGIN
+            SELECT RAISE(ABORT,
+                'fetch_body rows are removed only by the retention job');
+        END
+        """,
+    ))
+
+MIGRATIONS: tuple[Migration, ...] = (_MIGRATION_2, _MIGRATION_3)
+
+if MIGRATIONS and MIGRATIONS[-1].version != SCHEMA_VERSION:
+    raise RuntimeError(
+        f"SCHEMA_VERSION is {SCHEMA_VERSION} but the last migration is "
+        f"{MIGRATIONS[-1].version}: a store would report a version it had "
+        f"not actually reached")
+
 __all__ = ["SCHEMA_SQL", "SCHEMA_VERSION", "RETENTION_POLICIES",
            "RetentionPolicy", "PERSISTED_TABLES", "SIGNAL_RETENTION_DAYS",
-           "CONCLUSION_RETENTION_DAYS"]
+           "CONCLUSION_RETENTION_DAYS", "RAW_BODY_RETENTION_DAYS",
+           "Migration", "MIGRATIONS"]

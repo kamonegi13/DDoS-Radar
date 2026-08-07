@@ -127,10 +127,7 @@ class LedgerStore:
 
     def _apply_schema(self) -> None:
         self._conn.executescript(schema_module.SCHEMA_SQL)
-        self._conn.execute(
-            "INSERT INTO schema_meta (key, value) VALUES ('version', ?) "
-            "ON CONFLICT (key) DO NOTHING",
-            (str(schema_module.SCHEMA_VERSION),))
+        self._migrate()
         # Defence in depth. The prune gate is opened and closed inside one
         # transaction, so a durable flag here can only mean a process died
         # mid-prune. Leaving it would disable the append-only triggers
@@ -145,6 +142,47 @@ class LedgerStore:
                 "triggers disabled", self._path)
             self._conn.execute("DELETE FROM schema_meta WHERE key = ?",
                                (_PRUNE_FLAG,))
+
+    def _migrate(self) -> None:
+        """Apply every migration above the recorded version, in order.
+
+        A fresh store records no version, which reads as 0 and therefore
+        takes the full list — so the upgrade path is exercised on every
+        new store rather than only on the one deployment that happens to
+        be old. That is the whole point of having a list at all.
+
+        Each migration runs inside one transaction with the version bump,
+        so a store is never left claiming a version it did not reach.
+        """
+        current = self.schema_version()
+        if current > schema_module.SCHEMA_VERSION:
+            raise RuntimeError(
+                f"v3 ledger at {self._path} reports schema v{current}, newer "
+                f"than this code's v{schema_module.SCHEMA_VERSION}. Refusing "
+                f"to open: downgrading a store is not something a forward "
+                f"migration list can reason about.")
+        for migration in schema_module.MIGRATIONS:
+            if migration.version <= current:
+                continue
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                for statement in migration.statements:
+                    self._conn.execute(statement)
+                self._conn.execute(
+                    "INSERT INTO schema_meta (key, value) VALUES "
+                    "('version', ?) ON CONFLICT (key) DO UPDATE SET value = ?",
+                    (str(migration.version), str(migration.version)))
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
+            self._conn.execute("COMMIT")
+            log.info("v3 ledger: applied schema migration v%d (%s)",
+                     migration.version, migration.rationale)
+        if not schema_module.MIGRATIONS:
+            self._conn.execute(
+                "INSERT INTO schema_meta (key, value) VALUES ('version', ?) "
+                "ON CONFLICT (key) DO NOTHING",
+                (str(schema_module.SCHEMA_VERSION),))
 
     def schema_version(self) -> int:
         row = self._conn.execute(

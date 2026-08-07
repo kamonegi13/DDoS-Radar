@@ -1,0 +1,9 @@
+{
+  "data": [
+    {"id": 1, "name": "TWIX", "country": "TW", "city": "Taipei"},
+    {"id": 2, "name": "JPIX", "country": "JP", "city": "Tokyo"},
+    {"id": 3, "name": "BBIX", "country": "JP", "city": "Osaka"},
+    {"id": 4, "name": "Equinix HK", "country": "HK", "city": "Hong Kong"},
+    {"id": 5, "name": "no-country", "city": "Nowhere"}
+  ]
+}

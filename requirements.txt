@@ -12,4 +12,9 @@ gevent-websocket>=0.10
 websocket-client>=1.7
 h3>=3.7
 defusedxml>=0.7
+# Stage-2 tolerant XML recovery in v3/fetch/parse.py. Was previously
+# present only as a transitive dep of pytrends: a production image
+# without it lost ALL feed recovery silently, because the import sat
+# inside a try/except that reported the result as UNPARSEABLE.
+lxml>=5.0
 pytrends>=4.9
