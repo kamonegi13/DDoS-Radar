@@ -295,6 +295,25 @@ class LedgerStore:
         return int(self._read_connection().execute(
             "SELECT COUNT(*) FROM signal_observation").fetchone()[0])
 
+    def max_freshness_horizon(self) -> Optional[float]:
+        """The longest freshness horizon any stored signal declares.
+
+        Replay needs this to know how far BEFORE a window it must read.
+        Deriving the answer from rows inside the window is circular: a
+        sensor whose last observation predates the window contributes no
+        row to look at, so its horizon never enters the maximum, so the
+        lookback is too short to load it, so it stays invisible. A slow
+        sensor is exactly the one that suffers, and it suffers identically
+        on both sides of a parity comparison — a shared blind spot that
+        raises the agreement rate while hiding a detection gap.
+
+        A whole-table MAX() is cheap and cannot be circular.
+        """
+        row = self._read_connection().execute(
+            "SELECT MAX(freshness_horizon_sec) FROM signal_observation"
+        ).fetchone()
+        return None if row is None or row[0] is None else float(row[0])
+
     # ── TL stream (P6 O-16: one unthinned stream) ───────────────────────
     def append_tl(self, observation: TLObservation, *,
                   connection=None) -> bool:
