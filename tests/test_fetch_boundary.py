@@ -180,3 +180,72 @@ class TestTheKernelIsTheOnlyEgress:
         fields = {f.name for f in dataclasses.fields(FetchedPayload)}
         fields |= {f.name for f in dataclasses.fields(NormalizeContext)}
         assert not (fields & {"client", "session", "store", "ledger"})
+
+
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
+class TestTheExpanderIsInsideTheKernel:
+    """Ruling 4 put placeholder expansion in `v3/fetch`, not in the
+    composition root.
+
+    The argument is the client's argument. A substitution each caller
+    performs is a substitution each caller can get wrong, and a wrong one
+    produces a request that succeeds and answers about nothing — K02
+    records AISHub replying HTTP 200 with an empty body to a rejected
+    query. One expander means one refusal path.
+    """
+
+    def test_it_lives_under_the_fetch_kernel(self):
+        assert (REPO_ROOT / "v3" / "fetch" / "expand.py").exists()
+
+    def test_it_imports_no_http_or_socket_library(self):
+        import ast
+        tree = ast.parse((REPO_ROOT / "v3" / "fetch" / "expand.py")
+                         .read_text(encoding="utf-8"))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported |= {alias.name for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+        assert not (imported & {"requests", "httpx", "socket", "ssl",
+                                "urllib", "urllib.request", "http.client"})
+
+    def test_importing_it_starts_no_thread(self):
+        proc = _run("import threading; before = threading.active_count(); "
+                    "import v3.fetch.expand; "
+                    "print(threading.active_count() - before)")
+        assert proc.returncode == 0 and proc.stdout.strip() == "0"
+
+    def test_expansion_takes_no_credentials(self):
+        """A concrete request in a plan is addressable, not authenticated:
+        the client is still the only place a secret meets a request."""
+        import dataclasses
+
+        from v3.fetch.expand import ExpansionInput, ExpansionScope
+        fields = {f.name for f in dataclasses.fields(ExpansionInput)}
+        fields |= {f.name for f in dataclasses.fields(ExpansionScope)}
+        assert not (fields & {"credentials", "secrets", "key", "token",
+                              "client", "session"})
+
+
+class TestTheFallbackChainIsEvaluatedByTheKernel:
+    """Ruling 3. Adapters declare THAT a fallback exists and why; the
+    runner decides whether it runs. An adapter that could express HOW
+    would be expressing a fetch policy."""
+
+    def test_the_trigger_is_one_of_a_closed_set(self):
+        from v3.adapters.types import FALLBACK_TRIGGERS
+        assert FALLBACK_TRIGGERS == {"failure", "failure_or_empty"}
+
+    def test_only_the_runner_decides_whether_an_alternative_runs(self):
+        import ast
+        callers = []
+        for path in sorted((REPO_ROOT / "v3").rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and \
+                        getattr(node.func, "attr", None) == "fetch" and \
+                        getattr(getattr(node.func, "value", None), "id",
+                                None) == "client":
+                    callers.append(path.relative_to(REPO_ROOT).as_posix())
+        assert sorted(set(callers)) == ["v3/fetch/runner.py"]

@@ -1,0 +1,17 @@
+[
+  {
+    "ERROR": false,
+    "USERNAME": "guest",
+    "FORMAT": "AIS",
+    "RECORDS": 1
+  },
+  {
+    "MMSI": 412345678,
+    "TIME": "1700000000",
+    "LONGITUDE": 121.05,
+    "LATITUDE": 21.95,
+    "SOG": 0.2,
+    "NAME": "GREY HULL",
+    "SHIPTYPE": 35
+  }
+]

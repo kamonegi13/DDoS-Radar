@@ -1,0 +1,20 @@
+{
+  "dimension_count": 1,
+  "v": 0,
+  "result": [
+    {
+      "anomaly_count": 210,
+      "confirmed_count": 150,
+      "failure_count": 12,
+      "measurement_count": 900,
+      "measurement_start_day": "2026-08-05"
+    },
+    {
+      "anomaly_count": 260,
+      "confirmed_count": 190,
+      "failure_count": 9,
+      "measurement_count": 1000,
+      "measurement_start_day": "2026-08-06"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+[
+  {
+    "ERROR": false,
+    "USERNAME": "guest",
+    "FORMAT": "AIS",
+    "RECORDS": 2
+  },
+  [
+    {
+      "MMSI": 412345678,
+      "TIME": "1700000000",
+      "LONGITUDE": 121.05,
+      "LATITUDE": 21.95,
+      "COG": 180.0,
+      "SOG": 0.2,
+      "HEADING": 180,
+      "NAVSTAT": 1,
+      "IMO": 9000001,
+      "NAME": "GREY HULL",
+      "CALLSIGN": "BXYZ",
+      "SHIPTYPE": 35,
+      "A": 10,
+      "B": 90,
+      "C": 8,
+      "D": 8,
+      "DRAUGHT": 6.5,
+      "DEST": "UNKNOWN",
+      "ETA": "00-00 00:00"
+    },
+    {
+      "MMSI": 477000111,
+      "TIME": "1700000000",
+      "LONGITUDE": 121.2,
+      "LATITUDE": 22.1,
+      "COG": 90.0,
+      "SOG": 12.4,
+      "HEADING": 90,
+      "NAVSTAT": 0,
+      "IMO": 9000002,
+      "NAME": "EVER GIVEN II",
+      "CALLSIGN": "VRXY",
+      "SHIPTYPE": 70,
+      "A": 20,
+      "B": 300,
+      "C": 20,
+      "D": 20,
+      "DRAUGHT": 14.0,
+      "DEST": "KHH",
+      "ETA": "01-02 10:00"
+    }
+  ]
+]

@@ -1,0 +1,20 @@
+{
+  "query": "metadata.destination_country:Taiwan",
+  "count": 500,
+  "stats": {
+    "classifications": [
+      {
+        "classification": "benign",
+        "count": 380
+      },
+      {
+        "classification": "malicious",
+        "count": 90
+      },
+      {
+        "classification": "unknown",
+        "count": 30
+      }
+    ]
+  }
+}

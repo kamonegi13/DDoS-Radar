@@ -16,7 +16,10 @@ import pytest
 from v3.adapters import reference, types
 from v3.adapters.types import (AUTH_API_KEY, AdapterId, AuthRequirement,
                                FetchedPayload, NormalizeContext,
-                               ObservationDraft, RequestSpec, SourceAdapter)
+                               ObservationDraft, RequestChain, RequestSpec,
+                               SourceAdapter)
+from v3.fetch import expand
+from v3.fetch.expand import ExpansionScope
 from v3.kernel import Window
 from v3.kernel.errors import DomainError
 
@@ -66,12 +69,12 @@ class TestRequestSpec:
     def test_a_callable_parameter_is_refused(self):
         """§2-1: a function here would be 'how to fetch'."""
         with pytest.raises(DomainError, match="how to fetch"):
-            RequestSpec(url="https://x.test", params={"t": lambda: "now"})
+            RequestSpec(url="https://x.test", params=(("t", lambda: "now"),))
 
     def test_params_are_read_only(self):
-        spec = RequestSpec(url="https://x.test", params={"a": "1"})
+        spec = RequestSpec(url="https://x.test", params=(("a", "1"),))
         with pytest.raises(TypeError):
-            spec.params["a"] = "2"
+            spec.params[0] = ("a", "2")
 
 
 # ── auth is declared, never held ────────────────────────────────────────
@@ -81,7 +84,8 @@ class TestAuthRequirement:
         assert AuthRequirement().is_required is False
 
     def test_an_api_key_requirement_names_a_secret_not_a_value(self):
-        auth = AuthRequirement(kind=AUTH_API_KEY, key_id="THREATFOX_AUTH_KEY")
+        auth = AuthRequirement(kind=AUTH_API_KEY, key_id="THREATFOX_AUTH_KEY",
+                               name="Auth-Key", value_template="{secret}")
         assert auth.key_id == "THREATFOX_AUTH_KEY"
         assert "secret" not in str(auth).lower() or True   # no value present
 
@@ -290,8 +294,8 @@ class TestReferenceAdapter:
 
     def test_the_count_is_carried_in_the_flags(self):
         by_country = {d.country: d for d in self._normalize("ix.json")}
-        assert by_country["JP"].flags["ix_count"] == 2
-        assert by_country["TW"].flags["ix_count"] == 1
+        assert by_country["JP"].flags["count"] == 2
+        assert by_country["TW"].flags["count"] == 1
 
     def test_a_record_without_a_country_is_dropped(self):
         assert len(self._normalize("ix.json")) == 3
@@ -322,11 +326,24 @@ class TestReferenceAdapter:
         assert adapter.min_interval_sec == 10.0     # K15
         assert adapter.knowledge_refs == ("K15",)
 
-    def test_it_is_marked_as_an_exemplar_not_a_finished_port(self):
-        """Honesty about status: WP-2.6 finalises the scoring rule."""
+    def test_the_exemplar_now_points_at_the_finished_port(self):
+        """WP-2.5 shipped this declaration-only and said so. WP-2.6
+        finalised the scoring rule against S1-SENS-035 and moved the
+        implementation into the physical batch; this module re-exports it
+        so one declaration stays the only declaration."""
+        from v3.adapters.physical import peeringdb_ixp
         doc = reference.__doc__ or ""
-        assert "PATTERN EXEMPLAR" in doc
-        assert "WP-2.6" in doc
+        assert "WP-2.6 finalised" in doc
+        assert reference.PEERINGDB_IXP_ADAPTER is \
+            peeringdb_ixp.PEERINGDB_IXP_ADAPTER
+
+    def test_the_finalised_rule_is_an_inventory_not_an_alarm(self):
+        """core.py:1193 emits OK with score 0, unconditionally. The
+        exemplar's FIRED-on-zero guess would have fired permanently for
+        every country PeeringDB has no record of."""
+        drafts = self._normalize("ix.json")
+        assert {draft.status for draft in drafts} == {"OK"}
+        assert {draft.raw_score for draft in drafts} == {0.0}
 
     def test_the_fixture_is_recorded_not_fetched(self):
         assert (FIXTURES / "peeringdb_ixp" / "ix.json").exists()
@@ -512,3 +529,107 @@ class TestClosureSmugglingIsCaught:
                 NormalizeContext(adapter_id=reference.PEERINGDB_IXP, now=T0))
         assert drafts
         assert guard.reached_the_network is False
+
+
+# ── the barriers, restated over the WP-2.6 model additions ─────────────
+#
+# Ruling 6: every capability added in the retroactive WP-2.5 fix must keep
+# the four barriers intact. Three of them are new places a callable could
+# have been smuggled in — a chain's trigger, an expansion value, a body —
+# and each is closed at construction rather than at use.
+
+class TestTheNewCapabilitiesCarryNoCallables:
+    def _specs(self):
+        return (RequestSpec(url="https://a.test"),
+                RequestSpec(url="https://b.test"))
+
+    def test_a_chain_trigger_is_a_declared_condition(self):
+        with pytest.raises(DomainError, match="advance_on"):
+            RequestChain(alternatives=self._specs(), reason="K05",
+                         advance_on=lambda outcome: outcome.succeeded)
+
+    def test_a_body_value_cannot_be_computed(self):
+        with pytest.raises(DomainError, match="how to fetch"):
+            RequestSpec(url="https://a.test", method="POST",
+                        body={"days": lambda: 1},
+                        body_content_type="application/json")
+
+    def test_an_expansion_value_cannot_be_computed(self):
+        with pytest.raises(DomainError, match="not a computation"):
+            ExpansionScope(values={"since_iso": lambda: "now"})
+
+    def test_a_per_request_auth_override_is_still_a_declaration(self):
+        """It names a key_id. There is nowhere to put a value, and nowhere
+        to put a function that would fetch one."""
+        auth = AuthRequirement(kind=AUTH_API_KEY, key_id="CF_API_TOKEN",
+                               name="Authorization",
+                               value_template="Bearer {secret}")
+        spec = RequestSpec(url="https://cf.test", auth=auth)
+        assert spec.auth.key_id == "CF_API_TOKEN"
+        assert not hasattr(spec.auth, "secret")
+        assert not hasattr(spec.auth, "value")
+
+    def test_the_expander_is_reachable_without_the_client(self):
+        """Barrier 1 for the new module: expansion is a pure function of a
+        declaration and data, so it cannot become a place to fetch.
+
+        `deferred` is keyword-only and holds a set of NAMES — the slots a
+        `RequestContinuation` fills from its first response. It carries no
+        response, no client and no callable, so the barrier is unchanged:
+        the expander still cannot fetch, it can only decline to resolve a
+        name somebody else has promised.
+        """
+        signature = inspect.signature(expand.expand_spec)
+        assert list(signature.parameters) == ["spec", "scope", "deferred"]
+        deferred = signature.parameters["deferred"]
+        assert deferred.kind is inspect.Parameter.KEYWORD_ONLY
+        assert deferred.default == frozenset()
+        module_source = inspect.getsource(expand)
+        assert "requests" not in module_source.split('"""')[2]
+
+
+class TestSecretsNeverEnterADeclarationOrAPlan:
+    """Ruling 1's kept property, now that auth has more shape.
+
+    A declaration names a `key_id`; the composition root supplies the
+    material; the client is the only place the two meet. More fields on
+    `AuthRequirement` is more surface for a value to be pasted into, so
+    the property is asserted rather than assumed.
+    """
+
+    def test_no_shipped_declaration_carries_a_value_shaped_field(self):
+        from v3.adapters.catalog import WP26_ADAPTERS
+        for adapter in WP26_ADAPTERS:
+            for requirement in (adapter.auth,) + tuple(
+                    spec.auth for spec in adapter.declared_specs
+                    if spec.auth is not None):
+                if not requirement.declares_credential:
+                    continue
+                assert requirement.value_template.replace(
+                    "{secret}", "") .strip() in ("", "Bearer"), (
+                    f"{adapter.name}'s template carries literal text beyond "
+                    f"a scheme token: {requirement.value_template!r}")
+
+    def test_rendering_needs_a_supplied_secret(self):
+        auth = AuthRequirement(kind=AUTH_API_KEY, key_id="K", name="key",
+                               value_template="{secret}")
+        assert auth.render("live") == "live"
+        with pytest.raises(TypeError):
+            auth.render()
+
+    def test_a_plan_carries_no_credential(self):
+        """The expander runs before the client, so a concrete request in a
+        plan is addressable but not authenticated. A leaked plan is not a
+        leaked key."""
+        from v3.adapters.catalog import build_registry
+        from v3.fetch import runner
+        registry = build_registry()
+        adapter = registry.get(registry.resolve("openweather"))
+        plan = runner.run_due(
+            T0, [adapter], {},
+            expansions={"openweather": expand.ExpansionInput(scopes=(
+                expand.ExpansionScope(values={"country": "TW", "lat": "25",
+                                              "lon": "121"}, scope_key="TW"),))})
+        spec = plan.planned[0].steps[0].primary
+        assert [name for name, _ in spec.params] == ["lat", "lon", "units"]
+        assert "appid" not in dict(spec.params)

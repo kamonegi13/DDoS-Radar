@@ -1,0 +1,33 @@
+{
+  "status": "ok",
+  "data_call_name": "country-routing-stats",
+  "data": {
+    "resource": "TW",
+    "query_starttime": "2026-08-01T00:00:00",
+    "query_endtime": "2026-08-07T00:00:00",
+    "stats": [
+      {
+        "stats_timestamp": "2026-08-05T00:00:00",
+        "asns_ris": 400,
+        "asns_stats": 402,
+        "routed_space": 1000,
+        "registered_space": 1100,
+        "announced_space": 990,
+        "seen_ases": 402,
+        "announced_prefixes": 8100
+      },
+      {
+        "stats_timestamp": "2026-08-06T00:00:00",
+        "asns_ris": 401,
+        "seen_ases": 403,
+        "announced_prefixes": 8150
+      },
+      {
+        "stats_timestamp": "2026-08-07T00:00:00",
+        "asns_ris": 399,
+        "seen_ases": 398,
+        "announced_prefixes": 6100
+      }
+    ]
+  }
+}

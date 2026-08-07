@@ -1,0 +1,26 @@
+[
+  {
+    "ERROR": false,
+    "USERNAME": "guest",
+    "FORMAT": "AIS",
+    "RECORDS": 2
+  },
+  {
+    "MMSI": 412999999,
+    "TIME": "1700000000",
+    "LONGITUDE": 121.05,
+    "LATITUDE": 21.95,
+    "SOG": "",
+    "NAME": "BROKEN ROW",
+    "SHIPTYPE": "N/A"
+  },
+  {
+    "MMSI": 477000111,
+    "TIME": "1699996400",
+    "LONGITUDE": 121.2,
+    "LATITUDE": 22.1,
+    "SOG": 12.4,
+    "NAME": "EVER GIVEN II",
+    "SHIPTYPE": 70
+  }
+]

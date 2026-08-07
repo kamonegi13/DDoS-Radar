@@ -1,0 +1,45 @@
+{
+  "type": "alerts",
+  "error": null,
+  "data": [
+    {
+      "entity": {
+        "type": "country",
+        "code": "TW",
+        "name": "Taiwan"
+      },
+      "datasource": "bgp",
+      "level": "critical",
+      "time": 1700000000,
+      "value": 120,
+      "historyValue": 900,
+      "condition": "<"
+    },
+    {
+      "entity": {
+        "type": "country",
+        "code": "TW",
+        "name": "Taiwan"
+      },
+      "datasource": "bgp",
+      "level": "normal",
+      "time": 1700003600,
+      "value": 880,
+      "historyValue": 900,
+      "condition": "<"
+    },
+    {
+      "entity": {
+        "type": "country",
+        "code": "PH",
+        "name": "Philippines"
+      },
+      "datasource": "merit-nt",
+      "level": "warning",
+      "time": 1700003000,
+      "value": 300,
+      "historyValue": 500,
+      "condition": "<"
+    }
+  ]
+}

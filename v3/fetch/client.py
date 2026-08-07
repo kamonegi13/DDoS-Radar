@@ -29,8 +29,7 @@ from typing import Mapping, Optional
 
 import requests
 
-from v3.adapters.types import (AUTH_API_KEY, AUTH_OAUTH2, AuthRequirement,
-                               FetchedPayload, RequestSpec)
+from v3.adapters.types import (AuthRequirement, FetchedPayload, RequestSpec)
 from v3.fetch import policy
 from v3.kernel.errors import DomainError
 
@@ -42,6 +41,13 @@ CONNECTION_ERROR = "connection_error"
 RATE_LIMITED = "rate_limited"
 TOO_LARGE = "too_large"
 AUTH_MISSING = "auth_missing"
+
+#: A continuation's first request answered, but not with the handle its
+#: second request is addressed by (`radar/sensors/checkhost.py:62-63` —
+#: `if not request_id: ... "no request_id"`). Recorded as its own outcome
+#: rather than folded into `http_error`: the fetch succeeded, and calling
+#: that a transport failure would send the breaker after the wrong thing.
+CONTINUATION_UNRESOLVED = "continuation_unresolved"
 
 RETRYABLE_STATUSES: frozenset = frozenset({429, 500, 502, 503, 504})
 
@@ -176,20 +182,48 @@ class HttpClient:
             close()
 
     # ── auth ────────────────────────────────────────────────────────────
-    def _auth_headers(self, auth: AuthRequirement) -> dict:
-        if not auth.is_required:
-            return {}
+    def _apply_auth(self, auth: AuthRequirement) -> tuple:
+        """`(headers, params)` the declaration asks for. Nothing more.
+
+        This method used to decide the header name itself — `Auth-Key` for
+        every api_key adapter — which was right for abuse.ch and wrong for
+        Cloudflare, GreyNoise and OpenWeather. It now applies exactly what
+        the `AuthRequirement` declares and knows no source names at all.
+        """
+        if not auth.declares_credential:
+            return ({}, [])
         secret = self._credentials.get(auth.key_id)
         if not secret:
+            if auth.optional:
+                # Production's behaviour, not a degradation we invented:
+                # OpenSky runs anonymous at 400 req/day, CertSpotter's free
+                # tier works tokenless, ThreatFox's key is an `if key:`
+                # guard. Refusing to fetch here took three sensors dark for
+                # anyone running the shipped config.env.example.
+                return ({}, [])
             raise KeyError(auth.key_id)
-        if auth.kind == AUTH_API_KEY:
-            # abuse.ch ThreatFox requires Auth-Key on get_iocs too, since
-            # 2024 (D1 §4 K10). The header name is the adapter's business;
-            # supplying the value is the composition root's.
-            return {"Auth-Key": secret}
-        if auth.kind == AUTH_OAUTH2:
-            return {"Authorization": f"Bearer {secret}"}
-        return {}
+        value = auth.render(secret)
+        if auth.in_query:
+            return ({}, [(auth.name, value)])
+        return ({auth.name: value}, [])
+
+    # ── waiting ─────────────────────────────────────────────────────────
+    def pause(self, seconds: float) -> None:
+        """Wait out a declared inter-request delay.
+
+        `RequestContinuation.delay_sec` says HOW LONG the upstream needs;
+        this decides HOW to wait, which is why the sleep lives here and
+        not in the adapter. `radar/sensors/checkhost.py:66` is a bare
+        `time.sleep(5)` inside the sensor — the exact "how to fetch" an
+        adapter must not be able to express, and the reason the suite
+        could not test that path without spending five real seconds.
+        """
+        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
+            raise DomainError(
+                f"pause takes a number of seconds, got "
+                f"{type(seconds).__name__}")
+        if seconds > 0:
+            self._sleep(float(seconds))
 
     # ── the one fetch path ──────────────────────────────────────────────
     def fetch(self, spec: RequestSpec, *, now: float,
@@ -199,10 +233,13 @@ class HttpClient:
         if not isinstance(spec, RequestSpec):
             raise DomainError(
                 f"fetch takes a RequestSpec, got {type(spec).__name__}")
-        requirement = auth or AuthRequirement()
+        # A per-request declaration wins: `ioda_bgp`'s fallback is a
+        # Cloudflare endpoint needing Cloudflare's token while its primary
+        # needs none, so the credential belongs to the request.
+        requirement = spec.auth or auth or AuthRequirement()
         started = time.perf_counter()
         try:
-            headers = {**dict(spec.headers), **self._auth_headers(requirement)}
+            auth_headers, auth_params = self._apply_auth(requirement)
         except KeyError as missing:
             return FetchOutcome(
                 outcome=AUTH_MISSING, url=spec.url, requested_at=now,
@@ -210,14 +247,20 @@ class HttpClient:
                 detail=f"credential {missing.args[0]!r} was not supplied by "
                        f"the composition root; nothing under v3/ reads the "
                        f"environment")
+        headers = {**dict(spec.headers), **auth_headers}
+        params = list(spec.params) + auth_params
+        body = spec.body_bytes()
+        if body is not None:
+            headers["Content-Type"] = spec.body_content_type
 
         last_detail = ""
         status: Optional[int] = None
         for attempt in range(1, self._max_attempts + 1):
             try:
                 response = self._session.request(
-                    spec.method, spec.url, params=dict(spec.params),
-                    headers=headers, timeout=self.timeout, stream=True)
+                    spec.method, spec.url, params=params,
+                    headers=headers, data=body, timeout=self.timeout,
+                    stream=True)
             except requests.Timeout as exc:
                 last_detail = f"timeout after {self._timeout_sec}s: {exc}"
                 if attempt < self._max_attempts:
@@ -299,4 +342,5 @@ class HttpClient:
 
 __all__ = ["HttpClient", "FetchOutcome", "OK", "HTTP_ERROR", "TIMEOUT",
            "CONNECTION_ERROR", "RATE_LIMITED", "TOO_LARGE", "AUTH_MISSING",
+           "CONTINUATION_UNRESOLVED",
            "RETRYABLE_STATUSES", "RETRY_AFTER_HEADERS"]

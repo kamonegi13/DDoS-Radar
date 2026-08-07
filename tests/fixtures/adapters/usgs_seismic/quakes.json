@@ -1,0 +1,62 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "us7000abcd",
+      "properties": {
+        "mag": 5.1,
+        "place": "45 km NNE of Kilju, North Korea",
+        "time": 1700000000000,
+        "type": "earthquake",
+        "tsunami": 0
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          129.1,
+          41.3,
+          2.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "us7000abce",
+      "properties": {
+        "mag": 4.4,
+        "place": "Luzon Strait",
+        "time": 1699996400000,
+        "type": "earthquake",
+        "tsunami": 0
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.0,
+          21.0,
+          25.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "us7000abcf",
+      "properties": {
+        "mag": 4.2,
+        "place": "Southern Alaska",
+        "time": 1699992800000,
+        "type": "earthquake",
+        "tsunami": 0
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -150.0,
+          61.0,
+          40.0
+        ]
+      }
+    }
+  ]
+}

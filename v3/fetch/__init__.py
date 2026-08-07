@@ -20,6 +20,10 @@ past the circuit breaker (B-01).
 from v3.fetch.breaker import (BreakerState, effective_state, should_skip,
                               step)
 from v3.fetch.client import FetchOutcome, HttpClient
+from v3.fetch.expand import (ExpansionInput, ExpansionScope,
+                             ResolvedContinuation, ResolvedStep,
+                             carried_values, continue_with, expand_requests,
+                             expand_spec, placeholders_in)
 from v3.fetch.limiter import LimiterState, is_allowed, wait_seconds
 from v3.fetch.parse import DEATH_CAUSES, FeedItem, ParseResult, parse_feed
 from v3.fetch.registry import AdapterRegistry
@@ -37,4 +41,7 @@ __all__ = [
     "LimiterState", "is_allowed", "wait_seconds",
     "parse_feed", "ParseResult", "FeedItem", "DEATH_CAUSES",
     "is_due", "next_run_at", "overdue_by",
+    "ExpansionInput", "ExpansionScope", "ResolvedStep",
+    "ResolvedContinuation", "carried_values", "continue_with",
+    "expand_requests", "expand_spec", "placeholders_in",
 ]

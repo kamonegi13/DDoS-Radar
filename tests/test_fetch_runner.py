@@ -6,12 +6,17 @@ shared quotas without a socket, a database or a clock anywhere in sight.
 `execute_plan` is exercised against a temp ledger and an injected fake
 session — never the network (§6-1).
 """
+import json
+
 import pytest
 
-from v3.adapters.types import (AdapterId, NormalizeContext, ObservationDraft,
-                               RequestSpec, SourceAdapter)
+from v3.adapters.types import (FALLBACK_ON_FAILURE,
+                               FALLBACK_ON_FAILURE_OR_EMPTY, AdapterId,
+                               NormalizeContext, ObservationDraft,
+                               RequestChain, RequestSpec, SourceAdapter)
 from v3.fetch import breaker, client, recorder, runner
 from v3.fetch.breaker import BreakerState
+from v3.fetch.expand import ExpansionInput, ExpansionScope
 from v3.fetch.limiter import LimiterState
 from v3.fetch.registry import AdapterRegistry
 from v3.fetch.state import AdapterState
@@ -529,3 +534,231 @@ class TestOneAdapterCycleIsOneTransaction:
                     transaction_lines.append(node.lineno)
         assert fetch_lines and transaction_lines
         assert max(fetch_lines) < min(transaction_lines)
+
+
+# ── chains: the fallback runs ONLY when the primary does not answer ─────
+#
+# WP-2.6 fidelity sweep, ruling 3. The runner used to fetch every declared
+# spec unconditionally, so `ioda_bgp`'s Cloudflare fallback ran beside
+# IODA rather than instead of it — and a Cloudflare traffic anomaly could
+# FIRED-override IODA's OK. A difference in the sensitive direction,
+# produced by the kernel rather than by data.
+
+def _chain_adapter(name="ioda_bgp", advance_on=FALLBACK_ON_FAILURE,
+                   normalize=None):
+    return SourceAdapter(
+        adapter_id=AdapterId(name), category="physical",
+        requests=(RequestChain(
+            alternatives=(RequestSpec(url="https://primary.test/a",
+                                      label="primary"),
+                          RequestSpec(url="https://fallback.test/b",
+                                      label="fallback")),
+            advance_on=advance_on,
+            reason="K19: production reaches the second source only when the "
+                   "first returns None"),),
+        cadence=Window.from_days(1.0, cadence_sec=3600.0),
+        normalize=normalize or _drafts, freshness_horizon_sec=3600.0)
+
+
+class TestFallbackChains:
+    def _run(self, adapter, *responses, states=None):
+        plan = runner.run_due(T0, [adapter], states or {})
+        session = _Session(*responses)
+        http = client.HttpClient(session=session, sleeper=lambda _s: None)
+        return plan, session, http
+
+    def test_a_healthy_primary_means_the_fallback_is_never_fetched(self,
+                                                                   store):
+        adapter = _chain_adapter()
+        plan, session, http = self._run(adapter, _Response(200, b"ok"))
+        runner.execute_plan(plan, AdapterRegistry([adapter]), client=http,
+                            store=store, tick_id="t1")
+        assert session.calls == ["https://primary.test/a"]
+
+    def test_a_failing_primary_reaches_the_fallback(self, store):
+        adapter = _chain_adapter()
+        plan, session, http = self._run(adapter, _Response(404, b""),
+                                        _Response(200, b"ok"))
+        result = runner.execute_plan(plan, AdapterRegistry([adapter]),
+                                     client=http, store=store, tick_id="t1")
+        assert session.calls == ["https://primary.test/a",
+                                 "https://fallback.test/b"]
+        # The source answered, so the cycle succeeded — the primary's
+        # failure lives in fetch_log, which is where it belongs.
+        assert result.results[0].outcome == client.OK
+        assert result.results[0].observations == 1
+
+    def test_the_primarys_failure_is_still_recorded(self, store):
+        adapter = _chain_adapter()
+        plan, session, http = self._run(adapter, _Response(404, b""),
+                                        _Response(200, b"ok"))
+        runner.execute_plan(plan, AdapterRegistry([adapter]), client=http,
+                            store=store, tick_id="t1")
+        rows = recorder.fetch_log_for(store, "ioda_bgp")
+        # fetch_log_for reads newest-first.
+        assert sorted(row["outcome"] for row in rows) == [client.HTTP_ERROR,
+                                                          client.OK]
+
+    def test_a_rescued_cycle_does_not_advance_the_breaker(self, store):
+        adapter = _chain_adapter()
+        plan, session, http = self._run(adapter, _Response(404, b""),
+                                        _Response(200, b"ok"))
+        result = runner.execute_plan(plan, AdapterRegistry([adapter]),
+                                     client=http, store=store, tick_id="t1")
+        assert result.results[0].state.breaker.fail_count == 0
+
+    def test_both_failing_is_still_a_failure(self, store):
+        adapter = _chain_adapter()
+        plan, session, http = self._run(adapter, _Response(404, b""),
+                                        _Response(410, b""))
+        result = runner.execute_plan(plan, AdapterRegistry([adapter]),
+                                     client=http, store=store, tick_id="t1")
+        assert result.results[0].outcome != client.OK
+        assert result.results[0].observations == 0
+        assert result.results[0].state.breaker.fail_count == 1
+
+    def test_only_the_answering_alternative_is_normalized(self, store):
+        """The defect exactly: two payloads reaching `normalize`, and the
+        FIRED one winning."""
+        seen: list = []
+
+        def _record(payload, context):
+            seen.append(payload.url)
+            return ()
+
+        adapter = _chain_adapter(normalize=_record)
+        plan, session, http = self._run(adapter, _Response(200, b"ok"))
+        runner.execute_plan(plan, AdapterRegistry([adapter]), client=http,
+                            store=store, tick_id="t1")
+        assert seen == ["https://primary.test/a"]
+
+    def test_an_empty_body_advances_only_when_declared(self, store):
+        adapter = _chain_adapter(advance_on=FALLBACK_ON_FAILURE_OR_EMPTY)
+        plan, session, http = self._run(adapter, _Response(200, b""),
+                                        _Response(200, b"ok"))
+        runner.execute_plan(plan, AdapterRegistry([adapter]), client=http,
+                            store=store, tick_id="t1")
+        assert session.calls == ["https://primary.test/a",
+                                 "https://fallback.test/b"]
+
+    def test_an_empty_body_is_an_answer_by_default(self, store):
+        """K05: HTTP 200 with an empty array is an authoritative success.
+        Falling through would let a slower source overwrite a fresh
+        negative."""
+        adapter = _chain_adapter(advance_on=FALLBACK_ON_FAILURE)
+        plan, session, http = self._run(adapter, _Response(200, b""),
+                                        _Response(200, b"ok"))
+        runner.execute_plan(plan, AdapterRegistry([adapter]), client=http,
+                            store=store, tick_id="t1")
+        assert session.calls == ["https://primary.test/a"]
+
+    def test_the_plan_shows_the_chain_as_one_step(self):
+        adapter = _chain_adapter()
+        plan = runner.run_due(T0, [adapter], {})
+        step = plan.planned[0].steps[0]
+        assert step.is_chain and len(step.alternatives) == 2
+        assert len(plan.planned[0].requests) == 2
+
+
+# ── expansion: the plan carries concrete requests ───────────────────────
+
+class TestPlaceholderExpansionInThePlan:
+    def _templated(self, name="ripe_bgp", label="stats"):
+        return SourceAdapter(
+            adapter_id=AdapterId(name), category="cyber",
+            requests=(RequestSpec(url="https://ripe.test/stats",
+                                  params=(("resource", "{country}"),),
+                                  label=label),),
+            cadence=Window.from_days(1.0, cadence_sec=3600.0),
+            normalize=_drafts, freshness_horizon_sec=3600.0)
+
+    def test_a_supplied_scope_produces_a_concrete_request(self):
+        adapter = self._templated()
+        plan = runner.run_due(T0, [adapter], {}, expansions={
+            "ripe_bgp": ExpansionInput(scopes=(
+                ExpansionScope(values={"country": "TW"}, scope_key="TW"),))})
+        spec = plan.planned[0].steps[0].primary
+        assert spec.param_values("resource") == ("TW",)
+
+    def test_n_scopes_produce_n_steps(self):
+        adapter = self._templated(label="stats:{country}")
+        plan = runner.run_due(T0, [adapter], {}, expansions={
+            "ripe_bgp": ExpansionInput(scopes=tuple(
+                ExpansionScope(values={"country": code}, scope_key=code)
+                for code in ("TW", "JP", "US")))})
+        assert len(plan.planned[0].steps) == 3
+        assert [step.scope_key for step in plan.planned[0].steps] == [
+            "TW", "JP", "US"]
+
+    def test_a_missing_value_is_a_recorded_skip_not_a_sent_request(self):
+        """`{country}` on the wire is a request that answers about nothing
+        and records as a success (K02). It must not be reachable."""
+        adapter = self._templated()
+        plan = runner.run_due(T0, [adapter], {})
+        assert plan.planned == ()
+        skipped = plan.skipped_for(runner.UNRESOLVED)
+        assert len(skipped) == 1
+        assert "country" in skipped[0].detail
+
+    def test_one_unsupplied_adapter_does_not_take_the_cycle_down(self):
+        good = _adapter("space_weather")
+        bad = self._templated()
+        plan = runner.run_due(T0, [good, bad], {})
+        assert plan.planned_ids == ("space_weather",)
+        assert plan.skipped_for(runner.UNRESOLVED)[0].adapter_id.value == \
+            "ripe_bgp"
+
+    def test_the_expanded_request_is_what_reaches_the_session(self, store):
+        adapter = self._templated()
+        plan = runner.run_due(T0, [adapter], {}, expansions={
+            "ripe_bgp": ExpansionInput(scopes=(
+                ExpansionScope(values={"country": "TW"}, scope_key="TW"),))})
+        session = _Session(_Response(200, b"ok"))
+        http = client.HttpClient(session=session, sleeper=lambda _s: None)
+        runner.execute_plan(plan, AdapterRegistry([adapter]), client=http,
+                            store=store, tick_id="t1")
+        assert session.calls == ["https://ripe.test/stats"]
+
+    def test_run_due_is_still_pure_with_expansion(self):
+        adapter = self._templated()
+        expansion = {"ripe_bgp": ExpansionInput(scopes=(
+            ExpansionScope(values={"country": "TW"}, scope_key="TW"),))}
+        first = runner.run_due(T0, [adapter], {}, expansions=expansion)
+        second = runner.run_due(T0, [adapter], {}, expansions=expansion)
+        assert first.planned[0].steps == second.planned[0].steps
+
+
+# ── ruling 5: a draft's reason is recorded, once, by the runner ─────────
+
+class TestFiredReasonReachesTheLedger:
+    def _adapter_with_reason(self, reason):
+        def _normalize(payload, context):
+            return (ObservationDraft(
+                signal_source="bgp", domain="physical", country="TW",
+                status="FIRED", raw_score=1.0, value="bgp=OUTAGE",
+                reason=reason, flags={"level": "critical"}),)
+        return _adapter("ioda_bgp", normalize=_normalize)
+
+    def test_the_reason_is_stored_under_one_canonical_key(self, store):
+        adapter = self._adapter_with_reason("BGP anomaly confirmed")
+        plan = runner.run_due(T0, [adapter], {})
+        http = client.HttpClient(session=_Session(_Response()),
+                                 sleeper=lambda _s: None)
+        runner.execute_plan(plan, AdapterRegistry([adapter]), client=http,
+                            store=store, tick_id="t1")
+        row = store.latest_signal_at(T0 + 1, sensor="ioda_bgp",
+                                    country="TW", signal_source="bgp")
+        flags = json.loads(row["flags"])
+        assert flags[runner.FIRED_REASON_FLAG] == "BGP anomaly confirmed"
+        assert flags["level"] == "critical"
+
+    def test_no_reason_adds_no_key(self, store):
+        adapter = self._adapter_with_reason("")
+        plan = runner.run_due(T0, [adapter], {})
+        http = client.HttpClient(session=_Session(_Response()),
+                                 sleeper=lambda _s: None)
+        runner.execute_plan(plan, AdapterRegistry([adapter]), client=http,
+                            store=store, tick_id="t1")
+        row = store.latest_signal_at(T0 + 1, sensor="ioda_bgp",
+                                    country="TW", signal_source="bgp")
+        assert runner.FIRED_REASON_FLAG not in json.loads(row["flags"])

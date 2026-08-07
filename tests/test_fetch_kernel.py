@@ -4,10 +4,15 @@ Design sheet §6-3. Nothing here touches the network: the client is
 exercised through an injected fake session, which is the same seam the
 34 adapters will use in WP-2.6/2.7.
 """
+import ast
+import inspect
+import json
+
 import pytest
 
-from v3.adapters.types import (AUTH_API_KEY, AdapterId, AuthRequirement,
-                               RequestSpec, SourceAdapter)
+from v3.adapters.types import (AUTH_API_KEY, AUTH_IN_QUERY, AUTH_OAUTH2,
+                               AdapterId, AuthRequirement, RequestSpec,
+                               SourceAdapter)
 from v3.fetch import breaker, client, limiter, parse, policy, schedule
 from v3.fetch.breaker import BreakerState
 from v3.fetch.limiter import LimiterState
@@ -397,7 +402,8 @@ class TestRegistry:
     def test_required_secrets_are_enumerable(self):
         registry = AdapterRegistry([
             _adapter("threatfox", auth=AuthRequirement(
-                kind=AUTH_API_KEY, key_id="THREATFOX_AUTH_KEY")),
+                kind=AUTH_API_KEY, key_id="THREATFOX_AUTH_KEY",
+                name="Auth-Key", value_template="{secret}")),
             _adapter("open_one")])
         assert registry.required_key_ids() == ("THREATFOX_AUTH_KEY",)
 
@@ -514,7 +520,9 @@ class TestClient:
                                  credentials={"THREATFOX_AUTH_KEY": "secret"})
         http.fetch(RequestSpec(url="https://x.test/a"), now=T0,
                    auth=AuthRequirement(kind=AUTH_API_KEY,
-                                        key_id="THREATFOX_AUTH_KEY"))
+                                        key_id="THREATFOX_AUTH_KEY",
+                                        name="Auth-Key",
+                                        value_template="{secret}"))
         assert session.calls[0]["headers"]["Auth-Key"] == "secret"
 
     def test_a_missing_credential_fails_without_a_request(self):
@@ -523,7 +531,9 @@ class TestClient:
         http = client.HttpClient(session=session, sleeper=lambda _s: None)
         outcome = http.fetch(RequestSpec(url="https://x.test/a"), now=T0,
                              auth=AuthRequirement(kind=AUTH_API_KEY,
-                                                  key_id="MISSING"))
+                                                  key_id="MISSING",
+                                                  name="Auth-Key",
+                                                  value_template="{secret}"))
         assert outcome.outcome == client.AUTH_MISSING
         assert session.calls == []
         assert "composition root" in outcome.detail
@@ -799,3 +809,181 @@ class TestHashabilityRuling:
         assert RequestSpec(url="https://x.test") == \
             RequestSpec(url="https://x.test")
         assert LimiterState().record("g", T0) == LimiterState().record("g", T0)
+
+
+# ── the client applies the DECLARATION, and nothing else ────────────────
+#
+# WP-2.6 fidelity sweep. `_auth_headers` used to decide the header name
+# itself — `Auth-Key` for every api_key adapter — which is correct for
+# abuse.ch and wrong for Cloudflare, GreyNoise and OpenWeather. Three
+# sources were presenting a credential no server would read.
+
+class TestAuthIsAppliedAsDeclared:
+    def _client(self, credentials=None, response=None):
+        session = _Session(response or _Response())
+        return client.HttpClient(session=session, sleeper=lambda _s: None,
+                                 credentials=credentials or {}), session
+
+    def test_a_declared_header_name_is_the_one_sent(self):
+        http, session = self._client({"GREYNOISE_API_KEY": "gn"})
+        http.fetch(RequestSpec(url="https://x.test/a"), now=T0,
+                   auth=AuthRequirement(kind=AUTH_API_KEY,
+                                        key_id="GREYNOISE_API_KEY",
+                                        name="key",
+                                        value_template="{secret}"))
+        assert session.calls[0]["headers"]["key"] == "gn"
+        assert "Auth-Key" not in session.calls[0]["headers"]
+
+    def test_a_bearer_template_is_rendered(self):
+        http, session = self._client({"CF_API_TOKEN": "tok"})
+        http.fetch(RequestSpec(url="https://x.test/a"), now=T0,
+                   auth=AuthRequirement(kind=AUTH_API_KEY,
+                                        key_id="CF_API_TOKEN",
+                                        name="Authorization",
+                                        value_template="Bearer {secret}"))
+        assert session.calls[0]["headers"]["Authorization"] == "Bearer tok"
+
+    def test_a_query_placed_credential_never_becomes_a_header(self):
+        """OpenWeather reads no auth header. `appid` is a query parameter."""
+        http, session = self._client({"OWM_API_KEY": "owm"})
+        http.fetch(RequestSpec(url="https://x.test/a",
+                               params=(("lat", "25.0"),)), now=T0,
+                   auth=AuthRequirement(kind=AUTH_API_KEY,
+                                        key_id="OWM_API_KEY",
+                                        placement=AUTH_IN_QUERY,
+                                        name="appid",
+                                        value_template="{secret}"))
+        call = session.calls[0]
+        assert ("appid", "owm") in list(call["params"])
+        assert all("owm" not in str(v) for v in call["headers"].values())
+
+    def test_the_declared_parameters_keep_their_place_ahead_of_the_key(self):
+        http, session = self._client({"OWM_API_KEY": "owm"})
+        http.fetch(RequestSpec(url="https://x.test/a",
+                               params=(("lat", "25"), ("lon", "121"))), now=T0,
+                   auth=AuthRequirement(kind=AUTH_API_KEY,
+                                        key_id="OWM_API_KEY",
+                                        placement=AUTH_IN_QUERY,
+                                        name="appid",
+                                        value_template="{secret}"))
+        assert list(session.calls[0]["params"]) == [
+            ("lat", "25"), ("lon", "121"), ("appid", "owm")]
+
+    def test_an_absent_optional_credential_fetches_anonymously(self):
+        """OpenSky's production default. Refusing here took three physical
+        sensors dark for every deployment running the shipped example."""
+        http, session = self._client({})
+        outcome = http.fetch(RequestSpec(url="https://x.test/a"), now=T0,
+                             auth=AuthRequirement(
+                                 kind=AUTH_OAUTH2,
+                                 key_id="OPENSKY_CLIENT_CREDENTIALS",
+                                 name="Authorization",
+                                 value_template="Bearer {secret}",
+                                 optional=True))
+        assert outcome.outcome == client.OK
+        assert len(session.calls) == 1
+        assert "Authorization" not in session.calls[0]["headers"]
+
+    def test_a_supplied_optional_credential_is_still_used(self):
+        http, session = self._client({"OPENSKY_CLIENT_CREDENTIALS": "tok"})
+        http.fetch(RequestSpec(url="https://x.test/a"), now=T0,
+                   auth=AuthRequirement(kind=AUTH_OAUTH2,
+                                        key_id="OPENSKY_CLIENT_CREDENTIALS",
+                                        name="Authorization",
+                                        value_template="Bearer {secret}",
+                                        optional=True))
+        assert session.calls[0]["headers"]["Authorization"] == "Bearer tok"
+
+    def test_an_absent_mandatory_credential_still_refuses(self):
+        http, session = self._client({})
+        outcome = http.fetch(RequestSpec(url="https://x.test/a"), now=T0,
+                             auth=AuthRequirement(kind=AUTH_API_KEY,
+                                                  key_id="CF_API_TOKEN",
+                                                  name="Authorization",
+                                                  value_template="Bearer {secret}"))
+        assert outcome.outcome == client.AUTH_MISSING
+        assert session.calls == []
+
+    def test_a_per_request_credential_beats_the_adapter_one(self):
+        """ioda_bgp: the primary needs nothing, the fallback needs
+        Cloudflare's token."""
+        http, session = self._client({"CF_API_TOKEN": "tok"})
+        spec = RequestSpec(url="https://cf.test/a",
+                           auth=AuthRequirement(kind=AUTH_API_KEY,
+                                                key_id="CF_API_TOKEN",
+                                                name="Authorization",
+                                                value_template="Bearer {secret}"))
+        http.fetch(spec, now=T0, auth=AuthRequirement())
+        assert session.calls[0]["headers"]["Authorization"] == "Bearer tok"
+
+    def test_no_declared_credential_means_no_auth_of_any_kind(self):
+        http, session = self._client({"CF_API_TOKEN": "tok"})
+        http.fetch(RequestSpec(url="https://x.test/a"), now=T0)
+        headers = session.calls[0]["headers"]
+        assert "Authorization" not in headers and "Auth-Key" not in headers
+
+    def test_the_client_knows_no_source_names(self):
+        """The repaired defect was a header name written into the kernel.
+
+        Read as CODE, not as text: the comment explaining the repair
+        naturally names `Auth-Key`, and a check that could not tell the
+        two apart would push the explanation out of the file that needs
+        it most.
+        """
+        tree = ast.parse(inspect.getsource(client))
+        literals = {node.value for node in ast.walk(tree)
+                    if isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)}
+        # Docstrings are prose, not wire values.
+        code_literals = literals - set(ast.get_docstring(tree) or "")
+        for name in ("Auth-Key", "appid", "Bearer {secret}"):
+            offenders = [text for text in code_literals
+                         if name in text and "\n" not in text]
+            assert not offenders, (
+                f"{name!r} is back in client.py as a value ({offenders}); "
+                f"the header is the adapter's declaration, not the "
+                f"kernel's assumption")
+
+
+class TestBodiesAndRepeatedParameters:
+    def _client(self, response=None):
+        session = _Session(response or _Response())
+        return client.HttpClient(session=session,
+                                 sleeper=lambda _s: None), session
+
+    def test_a_json_body_is_sent_as_bytes_with_its_content_type(self):
+        http, session = self._client()
+        http.fetch(RequestSpec(url="https://tf.test/", method="POST",
+                               body={"query": "get_iocs", "days": 1},
+                               body_content_type="application/json"), now=T0)
+        call = session.calls[0]
+        assert call["method"] == "POST"
+        assert json.loads(call["data"].decode()) == {"query": "get_iocs",
+                                                     "days": 1}
+        assert call["headers"]["Content-Type"] == "application/json"
+
+    def test_a_bodyless_request_sends_no_body(self):
+        http, session = self._client()
+        http.fetch(RequestSpec(url="https://x.test/a"), now=T0)
+        assert session.calls[0]["data"] is None
+
+    def test_repeated_parameters_reach_the_session_intact(self):
+        http, session = self._client()
+        http.fetch(RequestSpec(
+            url="https://ch.test/", params=(("host", "https://gov.tw"),
+                                            ("max_nodes", "5"),
+                                            ("node[]", "jp1"),
+                                            ("node[]", "us1"))), now=T0)
+        assert list(session.calls[0]["params"]) == [
+            ("host", "https://gov.tw"), ("max_nodes", "5"),
+            ("node[]", "jp1"), ("node[]", "us1")]
+
+    def test_the_session_receives_a_sequence_not_a_mapping(self):
+        """A mapping at the boundary would collapse the repeats we just
+        went to the trouble of declaring."""
+        http, session = self._client()
+        http.fetch(RequestSpec(url="https://x.test",
+                               params=(("a", "1"), ("a", "2"))), now=T0)
+        params = session.calls[0]["params"]
+        assert not isinstance(params, dict)
+        assert len(list(params)) == 2

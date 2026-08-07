@@ -1,0 +1,17 @@
+{
+  "count": 2,
+  "results": [
+    {
+      "entity": {"type": "country", "code": "TW", "name": "Taiwan"},
+      "asn": 3462,
+      "deviation": 4.2,
+      "timebin": "2026-08-07T08:00:00Z"
+    },
+    {
+      "country": "PH",
+      "originasn": 9299,
+      "deviation": 2.1,
+      "timebin": "2026-08-07T08:15:00Z"
+    }
+  ]
+}

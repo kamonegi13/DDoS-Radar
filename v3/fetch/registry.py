@@ -104,11 +104,35 @@ class AdapterRegistry:
         return {group: tuple(sorted(names))
                 for group, names in sorted(grouped.items())}
 
+    def _key_ids(self, *, required: bool) -> tuple[str, ...]:
+        found: set = set()
+        for adapter in self.enabled():
+            for requirement in (adapter.auth,) + tuple(
+                    spec.auth for spec in adapter.declared_specs
+                    if spec.auth is not None):
+                if requirement.key_id and \
+                        requirement.is_required is required and \
+                        requirement.declares_credential:
+                    found.add(requirement.key_id)
+        return tuple(sorted(found))
+
     def required_key_ids(self) -> tuple[str, ...]:
-        """Secrets the composition root must supply. Nothing reads env."""
-        return tuple(sorted({
-            adapter.auth.key_id for adapter in self.enabled()
-            if adapter.auth.is_required and adapter.auth.key_id}))
+        """Secrets the composition root MUST supply. Nothing reads env.
+
+        Optional credentials are not here: OpenSky ships anonymous, and
+        listing its key as required would make a supported production
+        configuration look like a misconfiguration.
+        """
+        return self._key_ids(required=True)
+
+    def optional_key_ids(self) -> tuple[str, ...]:
+        """Secrets that RAISE a source's quota or coverage when supplied.
+
+        Enumerable so that "we are running three sensors anonymously" is a
+        readable fact rather than something an operator discovers from a
+        rate-limit graph.
+        """
+        return self._key_ids(required=False)
 
 
 __all__ = ["AdapterRegistry"]
