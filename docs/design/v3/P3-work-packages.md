@@ -27,7 +27,7 @@
 | WP-2.2 | L1 観測台帳 + ベースライン基盤 | 2 | WP-2.1 | **完了 2026-08-07**（v3 基盤） |
 | WP-2.3 | 移行 ETL | 2 | WP-2.2 | **完了 2026-08-07**（データ連続） |
 | WP-2.4 | L2 採点カーネル | 2 | WP-2.1, 2.2 | **完了 2026-08-07**（純関数・冪等） |
-| WP-2.5 | L0 取得カーネル | 2 | WP-2.1 | 共有基盤 |
+| WP-2.5 | L0 取得カーネル | 2 | WP-2.1 | **完了 2026-08-07**（共有基盤） |
 | WP-2.6 | L0 アダプタ移植（Cyber/Physical 22） | 2 | WP-2.5 | 分割可 |
 | WP-2.7 | L0 アダプタ移植（Info/LLM/メタ 12） | 2 | WP-2.5 | 分割可 |
 | WP-2.8 | **パリティハーネス** | 2 | WP-2.4, 2.3 | **完了 2026-08-07**（cutover の前提 — 2.5〜2.7 より先行実装） |
@@ -284,6 +284,10 @@ timeout・リトライ・レート制限・CB・tolerant パーサ・LLM 投入�
 **WP-2.7 は P6 O-17 に従う**: LLM 抽出は S2 の一アダプタ、intel item は観測として L1 へ。
 収斂の数式は S5 の 1 箇所のみ（convergence_tracker / 照合エンジンを独立スコアラーとして移植しない）。
 規模が大きいため**着手時に詳細設計 1 枚を先行**させる
+
+**WP-2.5 完了記録（2026-08-07、設計シート `wp25-l0-adapter-design.md` + 裁定 §9 準拠・乖離ゼロ）**: `v3/fetch/`（純粋状態機械の CB/リミッタ/スケジュール + 唯一の HTTP import = client.py をゲート規則 3 で強制 + 2 段 tolerant パーサ）+ `v3/adapters/`（宣言モデル + 構造的 I/O 障壁 4 層 + 参照実装 peeringdb_ixp）+ `v3/matching/`（F-09 第 1 層 — 非ラテン見出しの空トークン化を両側から pin: 新実装は非空、旧 `[a-z]{3,}` は空を実証）+ L1 schema v3（fetch_schedule/fetch_log/llm_call/fetch_body、予告済み migration 機構、全表 no_delete トリガー）。
+**レビュー（BLOCK → 全修正）**: CRITICAL 1 — **lxml が未宣言の偶発依存**（pytrends の連れ子。本番イメージで第 2 段リカバリが静かに全滅 = 回復可能 feed が全部 UNPARSEABLE）→ 明示宣言 + module スコープ import で起動時に大声で失敗。HIGH 5 — body 上限が全バッファ後に発火（無効）→ streaming 化 / entity 爆弾が寛容段へ素通りし OK 報告 → ENTITY_ATTACK として短絡 / recorder のトランザクション規律迂回 → 1 アダプタ 1 トランザクション（リモートタイムアウト越しに write lock を持たない配置を AST で固定）/ llm_call 等の削除防止トリガー欠如 → v3 migration / ゲートの `from urllib import request` 盲点 → 双方向 prefix 照合。
+**障壁証明が本物の穴を発見**: closure 密輸されたクライアントは**自前で例外を飲むため例外ベース検出をすり抜ける** → 障壁 4 を getaddrinfo+connect の試行記録方式へ強化（WP-2.6/2.7 の全アダプタテストが使うガード）。新規 294 テスト / 全スイート 3750 passed。
 
 ### WP-2.8 — パリティハーネス 【cutover の前提】
 
