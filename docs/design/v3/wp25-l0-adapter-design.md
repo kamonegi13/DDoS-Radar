@@ -858,8 +858,10 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 > insensitive 方向（v3 が低く出る）は C-02/C-03 に直撃するため、**特に登録を優先する**。
 
 > **承認状態（2026-08-08 追記）**: §9 のオーナー包括承認は **#1〜#53** を対象とする。
-> **#54〜#62 は WP-3.1（L3 結論層）で新規に登録したもので、同種の包括承認を待つ**
-> （#59〜#62 は WP-3.1 の敵対的レビューで発見された 3 CRITICAL / 4 HIGH の是正に伴うもの）。
+> **#54〜#70 は WP-3.1（L3 結論層）/ WP-3.2（L4 較正層）で新規に登録したもので、同種の包括承認を待つ**
+> （#59〜#62 は WP-3.1 の敵対的レビューで発見された 3 CRITICAL / 4 HIGH の是正に伴うもの。
+> **#63〜#70 は WP-3.2**。うち #63・#64 は本番関数との差分スイープ 122,284 入力で**実測検出**したもの、
+> #65〜#70 は S1-calibration §5 の DEFECT-PRESERVE に対する v3 規範の実装）。
 > 本表は L0 アダプタ以外の層の差分も受ける — 登録簿を層ごとに分ければ「どこにも
 > 登録されていない差分」の生息域ができるため、**単一の登録簿を維持する**。
 > #57（結論不可 4 分岐）には**オーナー裁定要求が 1 件**含まれる（`calibration_pending`
@@ -928,6 +930,14 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 | 60 | L3 `availability`（**WP-3.1**） | **NP1 の override はソース 0 件のとき適用しない**。警報側の候補でも「一件も参照していない」状態では発表せず結論不可にする | sensitive 方向の**制限**だが、代替は「例外で 5 型すべてが消える」であり、欠落 tick は全下流ビューで健全 tick と区別できない | **登録**（WP-3.1 レビュー指摘 C-3、2026-08-08 是正）。部分的な証拠からの警報は発表する（NP1）。**無い証拠からの警報は発表しない** — `Conclusion` が G-17 として state を拒否するため、override すると `DomainError` が `derive_all` を貫通し、**平穏シナリオは 5 行そろって記録され警報シナリオだけが消える**。証跡: `TestNP1Asymmetry::test_an_alerting_candidate_with_no_basis_is_not_overridden` / `::test_that_alerting_scenario_still_produces_a_conclusion` |
 | 61 | L3 永続化（**WP-3.1**、#58 の補正） | **書込同一性に「どのガードが発言したか」を含める**（state / reason に加え `suppression.(guard_id, reason, overridden)`）。ANOMALY バッチ署名には加えて **importance の 10 点バンド**と scenario_id を含める | 台帳行数が増える方向（= 記録が増える）。**是正前は insensitive**: 全ソース死亡でも TL が動かなければ「変化なし」で書かれず、台帳最新行が健全な 4 ソースを主張し続けた（G-17 の 1 層下） | **登録**（WP-3.1 レビュー指摘 C-1 / H-1 / H-3、2026-08-08 是正）。S1-CONC-032 が署名から除くのは**多重度**であって**規模**ではない。バンド化により減衰ドリフト（900s tick で約 2%）では署名が動かず、8→100 の変化では動く。scenario_id 追加は**シナリオ横断の取り違え**（別シナリオの初回異常が消える）の封じ込め。証跡: `TestHealthCollapseIsAlwaysWritten` / `TestImportanceIsNotMultiplicity` / `TestScenariosDoNotCollapseIntoEachOther` |
 | 62 | L3 `per_domain` / `views`（**WP-3.1**、軽微 2 件） | (a) `confidence` の magnitude 項に**下限 0 クランプ**を追加（本番 `per_domain.py:172` は上限のみ。同モジュールの `classify` は負のドメインスコアが起こると明記しており、負値では confidence が負になり `Conclusion` が拒否 → v3 では tick 全体が消える）。(b) `severity_window_pair` の窓幅に `Window.effective_seconds`（cadence 刻みで floor）ではなく**宣言値**を使う | (a) 本番も同じ式で壊れる入力でのみ差が出る。(b) floor すると窓が短くなり標本不足→INSUFFICIENT に倒れる = **insensitive** ので宣言値が正 | **登録**（WP-3.1 レビュー指摘 M-1 / L-1、2026-08-08）。証跡: `TestSeverityWindowPair::test_the_span_is_the_declared_window_not_a_floored_sample_count` |
+| 63 | L4 `history.clamp_magnitude`（**WP-3.2**） | `prior == 0` で**記録する `magnitude_pct` を 100.0（センチネル）にする**。本番 `auto_tune_governor.commit` は candidate=100.0 → 上限超過と判定 → `_clamp_to_magnitude` が prior==0 では new をそのまま返すのに、**台帳には `magnitude = max_pct`（10.0）を書く** | 中立（採点に影響しない台帳表記のみ）。ただし本番の記録は**無制限の変更を「予算ちょうど」と申告**しており NP6 に反する | **登録**（差分スイープ 122,284 入力中 9,961 件で検出、2026-08-08）。ACCIDENTAL A13 の隣接。値そのもの（クランプしない）は本番と一致 |
+| 64 | L4 `status.design_w_gate`（**WP-3.2**） | recall 低下の境界比較を**有理数で行う**（`Fraction`）。本番は float 減算のため `1.0 - 0.95 = 0.050000000000000044 > 0.05` となり、S1-CALIB-029 分岐⑤の「**境界の等号は PASS 側 MUST**」が**二進表現できない recall 対では成立していない** | v3 が PASS、本番が FAIL。**条項どおりなのは v3**。方向としては v3 が緩い側だが、差は許容幅ちょうど 1 単位に限られる | **登録**（差分スイープ 6,000 対中 3 件で検出、2026-08-08）。S5-VERIF-034 の「丸め前の有理数で比較 MUST」の実装でもある |
+| 65 | L4 較正入力（**WP-3.2**、DP23） | 較正入力の窓を**明示（`EpochStamp`）**し、`tp+fn == 0` を **`None`（測れない）**とする。本番 `tl_threshold_calibrator` は窓を持たず（全履歴）、`tp/max(1,tp+fn)` で **0.0（測った、そして最悪）**を返す | **sensitive 側**（0.0 は recall floor を必ず下回るため本番は緩和提案を出す。v3 は測定不能として提案しない） | **登録**。DP23 の v3 規範そのもの。証跡: `TestDirectionDecision::test_an_unmeasurable_recall_never_loosens` |
+| 66 | L4 `proposals.stepped_value`（**WP-3.2**、DP22） | ±5% ステップに**絶対上下限**（band 既定値の 0.5〜2.0 倍）を追加。本番は下限が無く、反復緩和が幾何級数的に 0 へ収束する（middle_east は 12 連続緩和） | 中立〜sensitive（閾値が下がり切るのを止める＝発火しやすさの暴走を止める） | **登録**。DP22 の v3 規範。証跡: `TestStep::test_repeated_loosening_stops_at_an_absolute_floor` |
+| 67 | L4 `proposals.generate`（**WP-3.2**、DP2） | 提案の `Provenance.inputs` に**鮮度ゲートの入力**（`motivating_at` / `last_applied_at`）と**エポック・窓・exclude_auto** を含める。本番 evidence は `{recall, precision, tp, fp, fn, tn, direction, prior_value}` のみ | 中立（記録が増える方向） | **登録**。NP6: 台帳から「どの FN がこの変更を正当化したか」を再構成できるようにする |
+| 68 | L4 `history.lineage`（**WP-3.2**、DP20） | 探索結果に **`complete` / `truncated_because`** を持たせる。本番は欠損行・深さ上限・循環のいずれでも**部分グラフを黙って返す** | 中立（記録が増える方向） | **登録**。証跡: `TestLineage::test_a_missing_predecessor_makes_the_walk_incomplete` |
+| 69 | L4 `guards.evaluate`（**WP-3.2**、DP18 / G-07） | ガード述語が例外を投げた場合を**発火（拒否）として扱う**。本番 `auto_tune_governor._recall_gate_is_red` は裸の `except` で False（= red でない）を返し、呼ぶ関数が存在しないため**恒久的に開いている** | **sensitive 側**（v3 は較正変更を止める方向に倒れる） | **登録**。ADR-V3-006（fail-closed）の適用であり、WP-3.2 完了条件 1 の一部。証跡: `TestGuardsFailClosed`（4 件） |
+| 70 | L4 `status.design_w_gate`（**WP-3.2**、S5-VERIF-037/038） | (a) ゲートは **strict**（本番 `check_recall_post_autotune.py` は既定 warn-only、`check_ci.sh` が `--strict` を付けないため構造上 CI を落とせない）。(b) **退化 cell（`fn==0 ∧ tn==0`）は判定の根拠にできない** — baseline 側は warn、現行側で新たに退化したら FAIL | (a) sensitive 側。(b) sensitive 側（本番は退化 cell の recall=1.0 を「改善」として通す） | **登録**。S5-VERIF-037 の「件数でなく述語で」を型で強制（`CalibrationEvidence` が退化 cell を含めない）。証跡: `TestDegenerateCellsCannotBecomeEvidence` / `TestDesignWGate::test_a_cell_that_becomes_degenerate_fails` |
 
 ---
 

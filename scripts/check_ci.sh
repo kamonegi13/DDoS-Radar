@@ -96,6 +96,17 @@ if ! python scripts/check_conclusion_thresholds.py; then
     FAIL=1
 fi
 
+step "L4 calibration threshold fidelity (WP-3.2)"
+# Same discipline as the L3 gate, for the layer that broke three times.
+# Reads module constants, dict keys AND os.getenv defaults, because
+# calibration keeps most of its numbers inside function bodies. Names it
+# cannot reach are declared with a reason, and the completeness check
+# refuses a pinned threshold that is in neither list.
+if ! python scripts/check_calibration_thresholds.py; then
+    echo "FAIL: calibration thresholds drifted from production. See above." >&2
+    FAIL=1
+fi
+
 step "Secret scan (Phase 1 audit follow-up)"
 # Pure-Python scanner; no external dependency. Conservative regexes, with
 # placeholder/identifier suppression. Flips fatal so leaked credentials
