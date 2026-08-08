@@ -227,28 +227,84 @@ class TestHistoricalDefect:
             Threshold.pinned(3.0, unit="ratio", provenance_ref="the F-08 value")
 
 
-class TestDefaultResolverIntegration:
-    """The one permitted legacy dependency, exercised for real.
+class TestTheLegacyFallbackIsGone:
+    """WP-4.4 -> §7-2 #115 sweep: the kernel has no default resolver.
 
-    Kept separate because it boots the legacy app (importing radar.* does
-    that); the rest of the kernel suite never touches it. tests/test_
-    kernel_boundary.py proves the import stays lazy.
+    It used to have one, and it was the single live path from a composed
+    v3 process into v1 — `from radar import config_layered` boots the
+    Flask app, the migrations and ~40 sensor threads against the
+    production database, reached by any registry-backed threshold that
+    resolved with no injected chain. The composition root answered with a
+    `sys.meta_path` barrier, which converted the boot into an obscure
+    ImportError; neither outcome is a resolution, and v3 never wanted the
+    fallback in the first place. Absent, the failure names the seam.
+
+    These tests read the LIVE legacy registry deliberately (that is what
+    makes the trap below a finding rather than a fixture), but they hand
+    the value to the kernel through the injection seam — which is how
+    every v3 caller reaches it.
     """
 
-    def test_a_real_registry_key_resolves_through_the_three_layer_chain(self):
-        import radar.config  # noqa: F401 - populates the registry
+    def test_a_registry_backed_threshold_refuses_to_resolve_unaided(self):
         threshold = Threshold.registry_backed("SIGNAL_LEDGER_RETENTION_DAYS",
                                               unit="d")
-        resolved = threshold.resolve()
+        with pytest.raises(ThresholdResolutionError) as exc:
+            threshold.resolve()
+        message = str(exc.value)
+        assert "no resolver was supplied" in message
+        assert "v3/config/resolution.py" in message, \
+            "the failure must name the seam, or it is just an error"
+
+    def test_the_kernel_has_no_default_resolver_attribute_at_all(self):
+        import v3.kernel.threshold as threshold_module
+        assert not hasattr(threshold_module, "_default_resolver")
+
+    def test_no_v3_module_imports_the_legacy_registry_at_any_scope(self):
+        """The property the removal buys, as a fact about the tree.
+
+        AST, not substring: the removal's whole value is that no CODE
+        path reaches `radar.*`, and the docstrings that explain why are
+        exactly the text a substring sweep would trip over.
+        """
+        import ast
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent / "v3"
+        offenders = []
+        for path in sorted(root.rglob("*.py")):
+            if "parity/_v2_subprocess.py" in path.as_posix():
+                continue        # licensed: runs the legacy system on purpose
+            for node in ast.walk(ast.parse(path.read_text())):
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    names = [node.module or ""]
+                else:
+                    continue
+                if any(name == "radar" or name.startswith("radar.")
+                       for name in names):
+                    offenders.append(f"{path.name}:{node.lineno}")
+        assert offenders == []
+
+    def test_the_same_key_resolves_through_an_injected_chain(self):
+        import radar.config  # noqa: F401 - populates the registry
+        from radar import config_layered
+        threshold = Threshold.registry_backed("SIGNAL_LEDGER_RETENTION_DAYS",
+                                              unit="d")
+        resolved = threshold.resolve(resolver=lambda key: (
+            config_layered.get_config(key),
+            config_layered.get_value_source(key)))
         assert resolved.value == 60
         assert resolved.source in ("db", "env", "default")
         assert resolved.key == "SIGNAL_LEDGER_RETENTION_DAYS"
 
     def test_an_unregistered_key_raises_rather_than_returning_none(self):
         import radar.config  # noqa: F401
+        from radar import config_layered
         threshold = Threshold.registry_backed("NO_SUCH_KEY_WP21", unit="d")
         with pytest.raises(ThresholdResolutionError):
-            threshold.resolve()
+            threshold.resolve(resolver=lambda key: (
+                config_layered.get_config(key),
+                config_layered.get_value_source(key)))
 
     def test_the_kernel_catches_the_stale_gps_override_still_in_the_db(self):
         """A live finding, pinned as a test.
@@ -276,13 +332,18 @@ class TestDefaultResolverIntegration:
         live_value = config_layered.get_config("GPS_JAM_THRESHOLD")
         threshold = Threshold.registry_backed("GPS_JAM_THRESHOLD",
                                               unit="ratio")
+        # Through the injection seam, because the kernel no longer has a
+        # legacy fallback. The VALUE is still the live one, which is what
+        # makes this a finding rather than a fixture.
+        live = lambda key: (config_layered.get_config(key),        # noqa: E731
+                            config_layered.get_value_source(key))
         if live_value == 3.0:
             with pytest.raises(DomainError) as exc:
-                threshold.resolve()
+                threshold.resolve(resolver=live)
             assert "percentage" in str(exc.value), \
                 "the error must name the scale confusion, not just the range"
         else:
-            assert threshold.resolve().value == Ratio(0.03)
+            assert threshold.resolve(resolver=live).value == Ratio(0.03)
 
     def test_a_ratio_threshold_never_accepts_a_percent_scaled_value(self):
         # The general form of the trap above, independent of live state.

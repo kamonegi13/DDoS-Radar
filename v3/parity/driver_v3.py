@@ -21,6 +21,7 @@ from typing import Iterable, Mapping, Optional, Sequence
 
 from v3.intel import adjudication as INTEL
 from v3.ledger import LedgerStore
+from v3.runtime import chain as CHAIN
 from v3.parity.adapter import LedgerInputAdapter, to_v3_observations
 from v3.parity.compare import THREAT_LEVEL, Contributor, Reading, TickKey
 from v3.scoring import (PriorState, Scenario, ScoringInputs, ScoringSettings,
@@ -46,13 +47,18 @@ def replay(store: LedgerStore, scenarios: Sequence[Scenario], *,
            tick_interval_sec: float,
            settings: Optional[ScoringSettings] = None,
            focused_scenario_id: Optional[str] = None,
-           chain_countries: Optional[Mapping[str, str]] = None,
            initial_prior: Optional[PriorState] = None) -> ReplayResult:
     """Score every tick in the window and collect the readings.
 
     `settings` is passed in rather than resolved, so a replay cannot be
     perturbed by a registry change between runs — the same reason the
     kernel takes them as an argument at all (P6 O-18).
+
+    The sequence chain's owner is the one thing that must NOT be pinned
+    per run: production selects it from each tick's own spike, so a
+    replay that carried one country for the whole window would measure a
+    system nobody runs. It is recomputed per tick from that tick's rows,
+    through the same rule the live tick uses (§7-2 #115).
     """
     effective = settings or ScoringSettings()
     adapter = LedgerInputAdapter(store, tick_interval_sec=tick_interval_sec)
@@ -78,7 +84,7 @@ def replay(store: LedgerStore, scenarios: Sequence[Scenario], *,
             settings=effective,
             focused_scenario_id=focused,
             prior=prior,
-            chain_countries=dict(chain_countries or {}),
+            chain_countries=CHAIN.chain_owners(scenarios, observations),
         ))
         for scenario_id, scored in result.results.items():
             reading = Reading(

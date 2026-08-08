@@ -33,11 +33,12 @@ would be a rename with no behaviour attached to it.
 """
 from __future__ import annotations
 
-from typing import Mapping, Optional, Sequence
+from typing import Optional, Sequence
 
 from v3.kernel.errors import DomainError
 from v3.ledger.records import TLObservation
 from v3.parity.adapter import LedgerInputAdapter, to_v3_observations
+from v3.runtime import chain
 from v3.runtime.geo import Geography
 from v3.scoring import (Participant, PriorState, Scenario, ScoringInputs,
                         ScoringSettings, TickResult, score_tick)
@@ -83,13 +84,12 @@ def scenarios_for(geography: Geography, scenario_ids: Sequence[str]
                   ) -> tuple[Scenario, ...]:
     """The kernel's view of the declared scenarios.
 
-    `core_country` is deliberately NOT derived. `ScoringInputs.
-    chain_country_for` documents why: production picks a dual-core
-    scenario's chain owner by live spike ("whichever belligerent is
-    currently escalating"), and any static rule picks the same country
-    forever — wrong for exactly the scenario that motivates the field
-    (middle_east has IL and IR both at weight 1.0). The choice is the
-    caller's, supplied through `chain_countries`.
+    `core_country` is READ from the geography, exactly as production reads
+    it (`radar/scenarios.py::derive_country_context`, `core = focused.
+    core_country`). That is a declaration, not a derivation — the thing
+    the ruling forbids deriving is the dual-core scenario's OWNER, which
+    `core_country: null` deliberately leaves unstated and which
+    `v3/runtime/chain.py` measures per tick from that tick's observations.
     """
     built = []
     for scenario_id in scenario_ids:
@@ -99,6 +99,7 @@ def scenarios_for(geography: Geography, scenario_ids: Sequence[str]
                 f"unknown scenario {scenario_id!r}; declared scenarios are "
                 f"{sorted(geography.scenarios)}")
         participants = declared.get("participants", {}) or {}
+        core = declared.get("core_country")
         built.append(Scenario(
             scenario_id=scenario_id,
             participants=tuple(
@@ -109,7 +110,8 @@ def scenarios_for(geography: Geography, scenario_ids: Sequence[str]
                     participants.items(),
                     key=lambda item: (-float(item[1].get("weight", 0.0)),
                                       item[0]))),
-            enabled=bool(declared.get("enabled", True))))
+            enabled=bool(declared.get("enabled", True)),
+            core_country=str(core).upper() if core else None))
     return tuple(built)
 
 
@@ -164,7 +166,6 @@ def assemble(*, now: float, store, geography: Optional[Geography] = None,
              settings: ScoringSettings,
              focused_scenario_id: Optional[str] = None,
              prior: Optional[PriorState] = None,
-             chain_countries: Optional[Mapping[str, str]] = None,
              tick_interval_sec: float = DEFAULT_TICK_INTERVAL_SEC,
              scenarios: Optional[Sequence[Scenario]] = None
              ) -> ScoringInputs:
@@ -181,6 +182,13 @@ def assemble(*, now: float, store, geography: Optional[Geography] = None,
     the substitution is confined to one call and `geography` is not
     consulted at all, so a what-if cannot leak into the tick's view of the
     world.
+
+    **The sequence chain's owner is chosen HERE, from these observations.**
+    It is not a parameter, and that is the point: production picks the
+    owner by live spike, so anything a caller could pass — an operator's
+    environment variable most of all — would be a constant standing in
+    for a measurement. `v3/runtime/chain.py` transcribes production's
+    rule; this is the layer that holds the data it needs.
     """
     if not isinstance(settings, ScoringSettings):
         raise DomainError(
@@ -209,16 +217,17 @@ def assemble(*, now: float, store, geography: Optional[Geography] = None,
             f"focused scenario {focused_scenario_id!r} is not among the "
             f"scenarios being scored {sorted(s.scenario_id for s in scenarios)}"
             f": a focus nothing scores is a focus that silently means lite")
+    observations = observations_at(store, now=now,
+                                   tick_interval_sec=tick_interval_sec)
     return ScoringInputs(
         now=now,
-        observations=observations_at(store, now=now,
-                                     tick_interval_sec=tick_interval_sec),
+        observations=observations,
         scenarios=scenarios,
         settings=settings,
         focused_scenario_id=focused_scenario_id,
         prior=prior if prior is not None else prior_state(
             store, now=now, scenario_ids=[s.scenario_id for s in scenarios]),
-        chain_countries=dict(chain_countries or {}))
+        chain_countries=chain.chain_owners(scenarios, observations))
 
 
 def score(inputs: ScoringInputs) -> TickResult:

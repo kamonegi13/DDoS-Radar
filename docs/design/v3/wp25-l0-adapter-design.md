@@ -982,6 +982,42 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 > 告知する**（`Deployment.scenarios_without_chain_owner` / `absent.sequence_chain_owner`）。
 > これが #115 の登録内容である。
 
+> **#115 追補 — オーナー裁定による是正（2026-08-08）**: 上記 2 件の「対策」は
+> **どちらも不十分だった**と裁定され、両方が構造で解かれた。**retire 1 件（#115）・
+> 新規登録 1 件（#116）**。
+>
+> **(1') 障壁は正しいが、地雷は除去できた。** `_default_resolver` は
+> **削除した**。障壁（`LegacyImportBarrier`）が変えたのは「静かに v1 が起動する」→
+> 「スタックトレース」までであって、v3 はそもそもこの fallback を望んでいない —
+> 合成ルートは常に自前の解決チェーンを注入する（`v3/config/resolution.py`、
+> `resolver=` の唯一の許諾先）。使えない fallback が残っている状態の到達可能な結果は
+> 「障壁の外では v1 起動」「障壁の内では不可解な ImportError」の 2 つだけで、
+> どちらも解決ではない。不在にすれば失敗は**求めていたシームを名指す**。
+> registry-backed な `Threshold` を resolver 無しで解決すると
+> `ThresholdResolutionError` になり、`resolve_settings()` も注入無しでは同様に失敗する。
+> pinned は resolver を参照しないので無影響。`v3/__init__.py` の「唯一許された legacy
+> 依存」の記述も撤回した — **v3 から `radar.*` への依存は 0 件**になり、それを
+> AST で強制する（`tests/test_kernel_threshold.py::TestTheLegacyFallbackIsGone`、
+> `_v2_subprocess.py` のみ許諾）。障壁は残す: 守る対象が「転写漏れ」から
+> 「将来の編集・依存」に変わっただけで、必要性は変わらない。
+>
+> **(2') 「運用者が供給する」は同じ欠陥に人の名前を付けただけだった。**
+> 環境変数 `NOROSHI_V3_CHAIN_COUNTRIES` は**廃止**。定数はどの由来であれ
+> 「middle_east の IL/IR が同重みで、静的な答えはエスカレートしている側を永久に
+> 選ばない」という当初裁定の失敗そのものになる。正しい解は、**合成ルートがその
+> ティックの観測を持っている**という事実を使うこと — 本番の選択規則を転写し
+> （`v3/runtime/chain.py`、AST で照合）、毎ティック計算して
+> `ScoringInputs.chain_countries` に渡す。カーネルは純粋なまま、
+> 裁定（「選択はオーケストレータの仕事」）も維持され、**今度はオーケストレータが
+> 実際に選択を行う**。順位付けに使う量だけが差分として残り、#116 に登録した
+> （`avg_spike` は v3 が計算していないだけでなく**入力を取得していない**ため、
+> L1 配線では解けない）。
+>
+> 同時に、`assemble` / `score_cycle` / `run_tick` / `parity.driver_v3.replay` から
+> `chain_countries` 引数を**削除**した。供給シームを残せば定数は別の扉から戻る。
+> whatif（C6）も供給をやめ、`assemble` が測る — 反実仮想と実ティックが
+> 同じ belligerent の連鎖を読むようになった。
+
 > **WP-4.3（cutover 阻害の解消・L7 ログインゲート・裁定要求 13 の実装）の更新（2026-08-08）**:
 > 本 WP は **retire 2 件（#103 / #99）**、**範囲縮小 1 件（#105）**、**新規登録 3 件（#109〜#111）**。
 > **#103 は本プログラム唯一の cutover 阻害項目であり、これで阻害はゼロになった**。
@@ -1126,7 +1162,7 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 | 81 | L4 `lifecycle`（**WP-3.3**、A9 / S1-CALIB-052） | **提案の状態を列ではなく指令台帳の fold にする**。本番は `state` 列を UPDATE で動かし、アナリスト裁定と自動裁定は `state_changed_by` のマーカー文字列でしか区別できない。加えて **非 pending からの遷移を例外にする**（本番は UPDATE が 0 行に一致して成功を返す） | 中立（6 状態・遷移可能集合は条項どおり）。ただし**アナリストが「却下した」と信じた操作が記録されない**経路が消える = G-01 と同型の穴の封鎖 | **登録**（WP-3.3、2026-08-08）。actor / 時刻 / 理由が遷移ごとに書込面の既存規律で載るため、マーカー文字列が意味を担わなくなる。`reverted` は条項どおり**宣言され到達不能**（閾値台帳専用）。証跡: `TestTheStateMachineIsTheClause`（8 件） |
 | 82 | L4 `lifecycle.defer_survives_revival`（**WP-3.3**、DP6 HIGH） | **本番の欠陥をそのまま移植した**: snooze 復活は `state_changed_at` で判定して `pending` に戻すが `emitted_at` を更新せず、自動 dismiss は `emitted_at` で判定する。既定（snooze 30 日 = stale 30 日）では Defer は「30 日後に必ず却下」と同義 | **insensitive**（アナリストが保留したつもりの提案が消える）。ただし本番と同一 | **登録 + 裁定要求 11**（WP-3.3、2026-08-08）。S1-CALIB-054 は DEFECT-PRESERVE かつ「**現行系でも要修正**」。港で黙って直すと本番との差分になり、黙って残すと欠陥が二重化する。よって**移植して証明した** — `TestDeferIsStructurallyBroken` が条項が「未検証」と記す相互作用を初めて pin する。境界は等号なので復活の瞬間は生存し、次ティックで死ぬ（`revival_boundary_is_equality`）。**retire 条件**: 本番修正の裁定が下りた時点で両系同時に修正 |
 | 83 | L4 `queue.pending_count`（**WP-3.3**、A6 / ADR-V3-006） | **cap 用の pending 計数が例外時に fail-CLOSED**（例外を伝播）。本番 `scenario_improver` は計数失敗を 0 件として扱うため、DB 障害中は**上限が消える** | **sensitive 側**（v3 は提案を出さない方向に倒れる） | **登録**（WP-3.3、2026-08-08）。ADR-V3-006 の適用。負荷時に消える上限は、最も必要な瞬間に不在の上限である |
-| 84 | L2 採点ティック配線（**WP-4.1e**） | **採点ティックが v3 自身の 3 層解決で settings を解決する**（`v3/runtime/scoring.py::settings_for`）。WP-4.1d 以前は `Threshold.resolve` の registry-backed 分岐が legacy `radar.config_layered` に落ちており、C7 override は台帳・監査行・設定画面には届くが**式には届かなかった** | **中立**（override 不在時の解決値は同一）。override 存在時は**本番と同じ値**になる — つまり本項は差分ではなく**差分の解消** | **登録**（WP-4.1e、2026-08-08）。「解消」を登録するのは、G-15 が「読まれない登録値」であり、その反転（読まれるようになった）は**公開数値が動きうる変更**だから。加えて `at=now` で override fold を束縛するため、**過去ティックの再生は当時の override で解決する**（P7 導出原則 4）。証跡: `TestAnOverrideChangesAScoredOutcome`（3 件）+ 4 つの mutation |
+| 84 | L2 採点ティック配線（**WP-4.1e**） | **採点ティックが v3 自身の 3 層解決で settings を解決する**（`v3/runtime/scoring.py::settings_for`）。WP-4.1d 以前は `Threshold.resolve` の registry-backed 分岐が legacy `radar.config_layered` に落ちており、C7 override は台帳・監査行・設定画面には届くが**式には届かなかった** | **中立**（override 不在時の解決値は同一）。override 存在時は**本番と同じ値**になる — つまり本項は差分ではなく**差分の解消** | **登録**（WP-4.1e、2026-08-08）。「解消」を登録するのは、G-15 が「読まれない登録値」であり、その反転（読まれるようになった）は**公開数値が動きうる変更**だから。加えて `at=now` で override fold を束縛するため、**過去ティックの再生は当時の override で解決する**（P7 導出原則 4）。証跡: `TestAnOverrideChangesAScoredOutcome`（3 件）+ 4 つの mutation  **追補（2026-08-08、§7-2 #115 の掃引）— retire しない（本行は「解消の登録」であり、公開数値が動きうる事実の記録として残す）。** 本行が言う「落ちていた」経路は**削除した**: `Threshold._default_resolver` を除去し、registry-backed な `Threshold` を resolver 無しで解決すると `ThresholdResolutionError` になる。`resolve_settings()` も注入無しでは同様。配線（#84 の内容）に加えて、**配線を迂回する経路そのものが存在しなくなった** — 「合成ルートが注入し忘れる」という綴りは型で消えている。証跡: `tests/test_kernel_threshold.py::TestTheLegacyFallbackIsGone`（5 件）/ `tests/test_scoring_registry.py::test_resolve_settings_without_an_injection_refuses` |
 | 85 | L1 `tl_observation` の書き手（**WP-4.1e**） | **採点ティックが TL ストリームを書く**。WP-4.1d までこの表の書き手は `v3/etl/migrate.py` だけで、稼働中の v3 は 1 行も書かなかった（= R3 の系列・トレンド窓・null-zone がすべて空） | **sensitive**（結論不可だった読み取りが結論を返すようになる） | **登録**（WP-4.1e、2026-08-08）。ヒステリシスの `previous_tl` も同じ表から読む（`prior_state`）ため、**再起動が保持中の TL を一斉に解放する**（= 配備が引き起こす見かけの de-escalation）経路も同時に閉じる。自分が書いた行を自分の prior として読まないよう `observed_at >= now` を除外する — 除外しないと同一 tick の再実行が別結果になり `append_tl` が冪等再生を拒否する。証跡: `TestHysteresisSurvivesTheProcess`（3 件） |
 | 86 | L6/S8 注目スコアの ack 取り扱い（**WP-4.1f**、AP1 / G-03） | **確認済み（ack）を保存スコアに畳み込まない**。`triage_score.js:79-82` は ack 済みの結論を 3 因子の計算前に score 0 へ固定する。v3 は「ツールがその所見をどう見ているか」を台帳に書き、ack/snooze/dismiss は**射影時に利用者ごとに付す注記**にする | **中立〜sensitive**（利用者から見える行は増える方向。本番は ack 後に行が消え、v3 は状態付きで残る） | **登録**（WP-4.1f、2026-08-08）。理由は保存形の一貫性: スナップショットは共有の 1 記録であり、**誰が見ているかで値が変わるスコアは 1 記録たりえない**。加えて ack 後に行が消える形は「対処した」と「見ていない」が外から同一に見える（NP1 上望ましくない）。**解消条件**: なし（意図的差分）。証跡: `tests/test_api_attention.py::TestAckHasTwoReaders` |
 | 87 | L6/S8 `analyst_blindness` の出所（**WP-4.1f**） | **組織の最終操作時刻から測る**。本番は `analystState.lastViewTs`（`localStorage`、ブラウザ単位、サーバから不可視、キャッシュ削除で消滅）。v3 は指令台帳の最新行（ラベル / ack / snooze / dismiss）を読む | **中立**（同一ブラウザで運用している限り実質同値）／**理屈上 sensitive**（別端末での操作も blindness を下げるため、複数人運用では v3 の方が blindness が低く出る＝スコアが下がる方向もある） | **登録**（WP-4.1f、2026-08-08）。ブラウザ内の時刻はサーバにも AP4 にも見えないため、その値で採点した順位は**原理的に再生できない**（= G-03 の中核）。**解消条件**: なし（意図的差分。台帳が見られる事実に置き換えたもの）。証跡: `tests/test_attention_ledger.py::TestSupplyReadsOneSourcePerFactor` + mutation「blindness stops reading the command ledger」 |
@@ -1158,7 +1194,8 @@ L2 の条項レジストリと同じ機構であり、**転写のドリフトが
 | 112 | L8 WebSocket チャネルを合成しない（**WP-4.4**、P7 §1.3） | **影配備は socket 面を一切マウントしない**。本番は socket.io で `threat_update` 等を押し出す。v3 のイベント語彙と発行者の有無は `v3/api/ws_publish.py` に着地済だが、`create_channel` を呼ぶ合成が存在しない | 中立（画面はポーリングで同じ射影を読む。検知内容は変わらない） | **登録**（WP-4.4、2026-08-08）。理由は実測: **`v3/ui/` に socket クライアントが 1 つも無い**（`grep -n "socket" v3/ui/*.js` が 0 件）。読み手ゼロの並行面を影稼働に足すのは、parity と無関係な故障要因を増やすだけである。`notification_result` の不発行（#93）とは別の話で、あちらは**発行者**が無く、こちらは**受け手**が無い。**解消条件**: `v3/ui/` に socket クライアントが着地したとき（P8 のライブ更新スライス）。証跡: `TestDeliberateAbsences::test_no_socket_channel_is_mounted` / `composition.WEBSOCKET_ABSENT` |
 | 113 | L8 実行モデル（**WP-4.4**、S4-NF / P4） | **1 プロセス・gunicorn gthread ワーカー 1・取得ループ 1 スレッド・gevent monkey-patch 無し**。本番は gevent + `GeventWebSocketWorker` で、import 時に約 40 スレッドを起こし、センサーを並行に走らせる。v3 の 1 サイクルはアダプタを**逐次**に回る | **insensitive になりうる**（サイクル所要時間が取得間隔を超えると、周期内に全アダプタを回りきれず、遅い側の観測が落ちる。落ちた観測は「静かな世界」と区別がつかない） | **登録**（WP-4.4、2026-08-08）。並行度とサイクル順序は明示的に合成ルートの決定事項（§1-2）であり、**逐次は「まだ測っていない既定」であって最適化の結論ではない**。並行化を先に入れると、レート制限・サーキットブレーカー・抑制の生産者順序（`order_producers_first`）が同時に動くため、遅延の原因が特定できなくなる。**解消条件**: Phase 5 の影稼働で 1 サイクルの実測所要時間が `NOROSHI_V3_TICK_INTERVAL_SEC` を超えることが観測された時点。まず間隔を伸ばし、それでも足りなければ並行度を入れる（順序は逆にしない）。証跡: `TickReport.planned` / `skipped` と `fetch_log` |
 | 114 | L8 設定の入口（**WP-4.4**、G-15 / S1-SVC-010） | **影配備はプロセス内で `config.env` を読まない**。環境変数は docker CLI がホスト側で `env_file` として読み、コンテナに渡す。v3 が読む名前は `v3/server/settings.py::KEY_IDS` + 設定レジストリの可変キー + アダプタが宣言した資格情報 ID の**合併に限定**され、その集合は宣言から導出される。本番は python-dotenv でプロセス内に読み込み、鍵が無ければ生成して `config.env` に**追記**する | 中立（読む値は同じ。書かない点が違う） | **登録**（WP-4.4、2026-08-08）。#100 が「鍵を生成しない」を閉じたのに対し、こちらは「**あのファイルへの書き込みハンドルを持たない**」を配備の形で閉じる（`Dockerfile.v3` は `config.env` を COPY せず、compose はマウントしない）。稼働中の秘密を持つファイルに第 2 の書き手が現れると、負けた側の鍵の変更が全アナリストをログアウトさせる。さらに `env_file` はファイルを丸ごと渡すため、compose の `environment:` が **`JWT_SECRET_KEY` と `DEFAULT_ADMIN_PASSWORD` を空で上書き**する — v3 はどちらも読まないが、影が侵害されたときに v1 のトークンを偽造できる材料を持たせない（最小権限）。**解消条件**: なし（意図的差分・恒久）。証跡: `TestTheDeploymentShapeIsBesideV1NotInsteadOfIt`（`test_v1s_own_secrets_are_blanked_in_the_shadow` を含む）/ `--check` の `environment_keys` |
-| 115 | L8 系列連鎖の所有国が既定で未供給（**WP-4.4**、S1-PIPE-016） | **`NOROSHI_V3_CHAIN_COUNTRIES` を供給しない限り、どのシナリオにも chain owner が無い**。本番は生スパイク平均で dual-core の primary_ec を選ぶ（`radar/routes/core.py:878-881`）。v3 は裁定どおり導出せず、未供給のまま focus されると `chain_country_for` が例外を投げる | **insensitive**（focused ボーナスの系列・時間的一貫性の加点が出ない。さらに例外により当該ティック全体が失敗するため、その周期の結論行が書かれない） | **登録**（WP-4.4、2026-08-08）。導出で埋めることは裁定違反（静的規則は middle_east のように IL/IR が同重みのシナリオで永久に同じ国を選ぶ）。合成ルートは**起動時に未供給のシナリオを名指しで告知**し、症状が「静かに結論が増えなくなる」になる前に運用者へ渡す。**解消条件**: 生スパイクから所有国を選ぶ供給側（`v3/runtime/scoring.py` のスライス）が着地したとき。それまでは運用手順書 §1 のとおり運用者が明示供給する。証跡: `test_a_scenario_with_no_chain_owner_is_announced_before_it_bites` |
+| ~~115~~ | ~~L8 系列連鎖の所有国が既定で未供給~~（**WP-4.4**、S1-PIPE-016） | ~~`NOROSHI_V3_CHAIN_COUNTRIES` を供給しない限り、どのシナリオにも chain owner が無い~~。本番は生スパイク平均で dual-core の primary_ec を選ぶ（`radar/routes/core.py:878-881`）。v3 は裁定どおり導出せず、未供給のまま focus されると `chain_country_for` が例外を投げる | ~~**insensitive**（focused ボーナスの系列・時間的一貫性の加点が出ない。さらに例外により当該ティック全体が失敗するため、その周期の結論行が書かれない）~~ | **RETIRED（2026-08-08、オーナー裁定）**。登録時の緩和（環境変数による供給）は**裁定で却下**された — 定数は「いま誰がエスカレートしているか」を永久に固定するため、静的導出を禁じた当初の裁定が防ごうとした失敗そのものであり、**運用者の名前が付くだけで欠陥は同じ**。解消は登録時の解消条件どおり「生スパイクから所有国を選ぶ供給側」の着地: `v3/runtime/chain.py` が本番の 2 段（(a) `radar/scenarios.py::derive_country_context` の effective_cores = 宣言 `core_country`、無ければ weight 0.9 以上の `principal_belligerent` を**ソートして**列挙／(b) `core.py:878-881` の `max(cores, key=強度)` — `max` は**先頭の最大要素**を返すのでソート順が同点時の決定規則）を転写し、**そのティックの観測から毎ティック選ぶ**。`scenarios_for` は宣言された `core_country` を読む（宣言の読み取りであって所有国の導出ではない）。選ばれた国は `TickReport.chain_owners` に開示される（NP6）。**残る差分は #116（順位付け量）に登録**。合成ルートの告知は残るが意味が変わり、「未設定のシナリオ」ではなく**候補が 1 国も無いシナリオ**（`core_country` 未宣言かつ weight 0.9 以上の principal_belligerent 不在 = シナリオ定義の穴）を名指す。証跡: `tests/test_runtime_chain_owner.py`（37 件、うち AST 転写照合 3 件・受入 7 件・ミューテーション 5/5 検出・silent-stop 回帰 5 件）、`tests/test_v3_server.py::TestDeliberateAbsences`（告知の意味変更 3 件） |
+| 116 | L8 系列連鎖の所有国を選ぶ**量**（**WP-4.4 後続**、S1-PIPE-016 / §7-2 #9） | **候補国の順位付けに `avg_spike` ではなく「そのティックで採点に寄与した観測スコアの合計」を使う**。本番は `avg_spike`（`core.py:817` = 対象国あたりの攻撃元分布 × ベースライン比の加重平均）で primary_ec を選ぶ。v3 はこの量を持たない — §7-2 #9 が記録するとおり計算していないだけでなく、**入力そのものを取得していない**: `CLOUDFLARE_RADAR_ADAPTER` の 4 リクエストに `attacks/layer{3,7}/top/locations/origin`（`core.py:747-748` が対象国ごとに叩く攻撃元分布、および `core.py:741-742` の 90 日ベースライン）が無い。したがって L1 配線では解けない。代替は**生きた測定**であること（定数ではないこと）を最優先に選んだ最小の量: カーネル自身の `Observation.admits()` を述語に、その国を名指す観測の `score` を合計する。結合重みは掛けない（`avg_spike` も掛けていない） | **中立〜sensitive**（v3 は 3 ドメイン全部を見るが本番は cyber の DDoS スパイクのみ。cyber 以外でエスカレーションが見えている局面で v3 は本番と違う belligerent を選びうる。選択が変えるのは focused ボーナスが**どちらの系列連鎖を読むか**であり、より多くの証跡を持つ側を選ぶ方向は recall 側 = NP1 整合。同点時の決定規則は本番と同一〔ソート順の先頭〕なので、静穏ティックでは両者一致する） | **登録**（2026-08-08、#115 の retire と同時）。**解消条件**: v3 が `attacks/layer{3,7}/top/locations/origin` を取得し攻撃元分布ベースラインを L1 に持ったとき — そのとき §7-2 #9 の `cloudflare_radar` 行も同時に解消しうる（両者は同じ入力を待っている）。**規律**: 代替量を「本番の規則」と称してはならない。本行が差分であること、方向が上記であることを明示したうえで進める。証跡: `tests/test_runtime_chain_owner.py::TestTheAvgSpikeObstacleIsRealAndRegistered`（本番が origin エンドポイントを叩くこと・v3 が叩かないことの両方を実測） |
 
 ---
 

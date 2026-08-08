@@ -17,16 +17,22 @@ again.
 
 **A port collision.** v1 binds 8000. Refused by name.
 
-**A transitive import.** This is the live one, and it is not hypothetical:
-`v3/kernel/threshold.py::_default_resolver` does `from radar import
-config_layered`, which runs `radar/__init__.py` — the Flask app, the
-migrations and ~40 sensor threads, against the production database. It is
-reached whenever a registry-backed `Threshold` resolves with no injected
-resolver. The composition root supplies v3's own chain everywhere it
-knows about, but "everywhere it knows about" is exactly the assurance a
-barrier replaces with a fact. `LegacyImportBarrier` sits on `sys.meta_path`
-and raises, so the landmine detonates as a stack trace in a shadow process
-instead of a second application inside the live one.
+**A transitive import.** Importing any `radar.*` module runs
+`radar/__init__.py` — the Flask app, the migrations and ~40 sensor
+threads, against the production database. Wiring WP-4.4 found one live
+path to it: `v3/kernel/threshold.py::_default_resolver`, reached whenever
+a registry-backed `Threshold` resolved with no injected resolver. **That
+particular landmine is gone** — the fallback was removed in the §7-2 #115
+sweep, because v3's composition root always injects its own chain and an
+unusable fallback that boots v1 is worse than a loud failure.
+
+The barrier stays, and the reason it stays is the reason it was built:
+the composition root supplies v3's chain everywhere it knows about, and
+"everywhere it knows about" is exactly the assurance a barrier replaces
+with a fact. An adapter, a dependency or a future edit can still reach for
+`radar.*`; `LegacyImportBarrier` sits on `sys.meta_path` and raises, so
+any such reach detonates as a stack trace in a shadow process instead of
+as a second application inside the live one.
 
 The barrier is installed by the composition root and removed by
 `Deployment.close()`. It is not installed at import — this module is as
@@ -184,12 +190,11 @@ class LegacyImportBarrier:
             raise LegacyImportRefused(
                 f"import of {fullname!r} was refused: this is a composed v3 "
                 f"process and importing radar.* boots the legacy "
-                f"application against the production database. The usual "
-                f"cause is a registry-backed Threshold resolving with no "
-                f"injected resolver — v3/kernel/threshold.py::"
-                f"_default_resolver terminates in radar.config_layered. "
-                f"Supply the composition root's chain "
-                f"(v3/runtime/config.py::build_resolver).")
+                f"application against the production database. Nothing "
+                f"under v3/ may import it: configuration resolves through "
+                f"v3's own chain (v3/config/resolution.py, built by "
+                f"v3/runtime/config.py::build_resolver), and the kernel "
+                f"has no legacy fallback to fall into.")
         return None
 
 

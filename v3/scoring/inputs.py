@@ -528,6 +528,12 @@ class ScoringInputs:
         middle_east has IL and IR both at weight 1.0, so any static rule
         picks the same country forever, regardless of who is escalating.
 
+        "Supplied" means MEASURED by the caller, not configured by one.
+        `v3/runtime/chain.py` transcribes production's selection and runs
+        it against the tick's own observations; a constant of any origin,
+        including an operator's environment variable, is the static rule
+        this method refuses, wearing a different hat.
+
         A single-core scenario needs nothing supplied. A dual-core one
         without an explicit choice is an error, not a guess.
         """

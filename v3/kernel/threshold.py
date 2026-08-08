@@ -90,21 +90,29 @@ class ResolvedThreshold:
         return f"{self.value} [{self.source}: {origin}]"
 
 
-def _default_resolver(key: str) -> tuple[Any, str]:
-    """Resolve through the LEGACY 3-layer registry.
-
-    Imported lazily and only here: importing `radar.*` boots the whole
-    application, so the kernel must never do it at module scope.
-
-    This is the fallback, not the destination. v3 has its own 3-layer
-    chain (`v3/config/resolution.py`, override -> env -> default), owned by
-    the composition root and injected through `resolve(resolver=...)`. The
-    kernel does not know that chain exists — it takes a callable and never
-    imports L1 — which is exactly what keeps this type pure while the layer
-    below it changes.
-    """
-    from radar import config_layered
-    return (config_layered.get_config(key), config_layered.get_value_source(key))
+#: There is deliberately NO fallback resolver. Until WP-4.4 this module
+#: held `_default_resolver`, which did `from radar import config_layered`
+#: whenever a registry-backed threshold resolved with no injected chain —
+#: and that import boots the legacy Flask app, its migrations and ~40
+#: sensor threads against the production database. Wiring v3 found it as
+#: the one live path from a v3 process into v1, and the composition root
+#: answered with a `sys.meta_path` barrier that turns the import into a
+#: stack trace.
+#:
+#: A barrier is the right guard for code v3 does not own (an adapter, a
+#: dependency). It is the wrong repair for a fallback v3 never wants: v3's
+#: composition root injects its own chain everywhere
+#: (`v3/config/resolution.py`, the single licensed `resolver=` call site),
+#: so the fallback's only reachable outcomes were "boots v1" outside the
+#: barrier and "obscure ImportError" inside it. Neither is a resolution.
+#: Absent, the failure says what actually went wrong and names the seam.
+_NO_RESOLVER = (
+    "no resolver was supplied and this kernel has no fallback: v3's "
+    "3-layer chain lives in v3/config/resolution.py and is injected by the "
+    "composition root (v3/runtime/config.py::build_resolver). The removed "
+    "fallback read the LEGACY registry, which boots radar/__init__.py — "
+    "the Flask app, the migrations and ~40 sensor threads — against the "
+    "production database.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,8 +179,10 @@ class Threshold:
         It is not a free-for-all. The discipline gate licenses `resolver=`
         in exactly one non-test file (`_RESOLVER_OWNER`), because a private
         resolver constructed at an arbitrary call site is the G-15 shape:
-        a configuration path nobody else can see. Left unset, resolution
-        falls to `_default_resolver` and the LEGACY registry answers.
+        a configuration path nobody else can see. Left unset on a
+        registry-backed threshold, this RAISES — see `_NO_RESOLVER` for
+        why an unusable fallback was worse than a loud failure. A pinned
+        threshold never consults a resolver, so it is unaffected.
         """
         if not self.is_registry_backed:
             return ResolvedThreshold(
@@ -180,9 +190,11 @@ class Threshold:
                 source=SOURCE_PINNED, key=None,
                 provenance_ref=self.provenance_ref, resolved_at=time.time())
 
-        resolve_fn = _default_resolver if resolver is None else resolver
+        if resolver is None:
+            raise ThresholdResolutionError(
+                f"cannot resolve threshold {self.key!r}: {_NO_RESOLVER}")
         try:
-            value, source = resolve_fn(self.key)
+            value, source = resolver(self.key)
         except Exception as exc:  # noqa: BLE001 - surfaced, never defaulted
             raise ThresholdResolutionError(
                 f"could not resolve threshold {self.key!r}: "

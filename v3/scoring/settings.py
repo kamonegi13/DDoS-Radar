@@ -163,9 +163,11 @@ def resolve_settings(resolve_threshold=None) -> ScoringSettings:
     (`ConfigResolver.settings_resolver(ledger=..., at=...)`) — which is what
     makes an analyst's C7 override reach the scoring path rather than stop
     at the settings screen. Left unset it falls to `Threshold.resolve`,
-    whose registry-backed branch still terminates in the legacy
-    `radar.config_layered` registry; that is the pre-v3 behaviour, kept for
-    the parity period and for callers that have no ledger.
+    which for a registry-backed key now RAISES: the legacy fallback that
+    used to answer there was removed in the §7-2 #115 sweep, because it
+    booted the v1 application and v3 never wanted it. So an uninjected
+    call fails loudly instead of resolving through a system nobody is
+    running.
 
     The parameter is deliberately NOT named `resolver`: that name is the
     kernel's own seam, whose use outside `v3/config/resolution.py` the

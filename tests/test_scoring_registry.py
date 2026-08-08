@@ -252,27 +252,23 @@ class TestThresholdDuality:
     def test_resolve_settings_reads_every_variable_key_through_the_chain(self):
         """The production boundary, exercised without booting the app.
 
-        `_default_resolver` is the kernel's lazy hook into the legacy
-        3-layer registry. Substituting it here is the only way to prove
-        resolve_settings() actually resolves — the alternative was
-        shipping the one impure function in the layer untested.
+        Through the INJECTION POINT, which is how every real caller
+        reaches it. The earlier version of this test substituted the
+        kernel's private legacy fallback; that fallback is gone (§7-2 #115
+        sweep) and reaching for a private attribute was always a second
+        configuration path in test clothing.
         """
-        import v3.kernel.threshold as threshold_module
         from v3.scoring.settings import resolve_settings
         from v3.scoring.thresholds import VARIABLE
 
         asked = []
 
-        def fake(key):
+        def answer(key):
             asked.append(key)
             return (VARIABLE[key].default, "db")
 
-        original = threshold_module._default_resolver
-        threshold_module._default_resolver = fake
-        try:
-            resolved = resolve_settings()
-        finally:
-            threshold_module._default_resolver = original
+        resolved = resolve_settings(
+            lambda threshold: threshold.resolve(resolver=answer))
 
         assert sorted(asked) == sorted(VARIABLE)
         assert resolved.domain_cap == 6.0
@@ -282,17 +278,23 @@ class TestThresholdDuality:
 
     def test_resolve_settings_refuses_a_missing_key_rather_than_defaulting(self):
         """G-15: a silent fallback is how 95 dead keys stayed invisible."""
-        import v3.kernel.threshold as threshold_module
         from v3.kernel.errors import ThresholdResolutionError
         from v3.scoring.settings import resolve_settings
 
-        original = threshold_module._default_resolver
-        threshold_module._default_resolver = lambda key: (None, "default")
-        try:
-            with pytest.raises(ThresholdResolutionError):
-                resolve_settings()
-        finally:
-            threshold_module._default_resolver = original
+        with pytest.raises(ThresholdResolutionError):
+            resolve_settings(lambda threshold: threshold.resolve(
+                resolver=lambda key: (None, "default")))
+
+    def test_resolve_settings_without_an_injection_refuses(self):
+        """The §7-2 #115 sweep's other half: an uninjected call used to
+        resolve through the LEGACY registry, which meant booting v1. It
+        now fails loudly and names the chain it wanted."""
+        from v3.kernel.errors import ThresholdResolutionError
+        from v3.scoring.settings import resolve_settings
+
+        with pytest.raises(ThresholdResolutionError) as exc:
+            resolve_settings()
+        assert "v3/config/resolution.py" in str(exc.value)
 
     def test_resolution_is_not_reachable_from_the_kernel(self):
         """The impure step lives in settings.py and only there."""

@@ -27,7 +27,7 @@ Three of the values are refused rather than defaulted:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Mapping, Optional
 
 from v3.auth import session as SESSION
@@ -47,11 +47,12 @@ PORT_KEY = "NOROSHI_V3_PORT"
 SCENARIOS_KEY = "NOROSHI_V3_SCENARIOS"
 INTERVAL_KEY = "NOROSHI_V3_TICK_INTERVAL_SEC"
 COOKIE_SECURE_KEY = "NOROSHI_V3_COOKIE_SECURE"
-#: `scenario_id:CC` pairs. Which belligerent owns a scenario's sequence
-#: chain is the composition root's to supply and is deliberately NOT
-#: derived (`v3/runtime/scoring.py::scenarios_for`): production picks it
-#: by live spike, and any static rule picks the same country forever.
-CHAIN_COUNTRIES_KEY = "NOROSHI_V3_CHAIN_COUNTRIES"
+# There is deliberately NO key for the sequence chain's owner. WP-4.4
+# registered one (§7-2 #115) and the owner ruling struck it out: production
+# picks a dual-core scenario's owner by live spike, so a configured
+# constant picks the same country forever — the very failure the original
+# ruling forbade, with an operator's name on it. The owner is measured per
+# tick in `v3/runtime/chain.py`.
 
 #: 8300 rather than 8000. Distance from v1's port is the point.
 DEFAULT_PORT = 8300
@@ -65,7 +66,7 @@ DEFAULT_HOST = "127.0.0.1"
 #: print the whole set from one place.
 KEY_IDS: tuple[str, ...] = (
     LEDGER_PATH_KEY, GEO_PATH_KEY, HOST_KEY, PORT_KEY, SCENARIOS_KEY,
-    INTERVAL_KEY, COOKIE_SECURE_KEY, CHAIN_COUNTRIES_KEY,
+    INTERVAL_KEY, COOKIE_SECURE_KEY,
     SESSION.SIGNING_KEY_ID, SESSION.BOOTSTRAP_KEY_ID,
 )
 
@@ -87,20 +88,6 @@ def _flag(raw: str, key: str, fallback: bool) -> bool:
         f"comes to be off in production.")
 
 
-def _pairs(raw: str, key: str) -> dict:
-    parsed = {}
-    for chunk in str(raw).split(","):
-        item = chunk.strip()
-        if not item:
-            continue
-        name, separator, code = item.partition(":")
-        if not separator or not name.strip() or not code.strip():
-            raise DomainError(
-                f"{key} takes `scenario_id:CC` pairs separated by commas, "
-                f"got {item!r}")
-        parsed[name.strip()] = code.strip().upper()
-    return parsed
-
 
 @dataclass(frozen=True, slots=True)
 class ServerSettings:
@@ -118,7 +105,6 @@ class ServerSettings:
     scenario_ids: tuple[str, ...] = ()
     interval_sec: float = DEFAULT_INTERVAL_SEC
     cookie_secure: bool = True
-    chain_countries: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "ledger_path",
@@ -138,8 +124,6 @@ class ServerSettings:
                                str(item).strip()
                                for item in self.scenario_ids
                                if str(item).strip())))
-        object.__setattr__(self, "chain_countries",
-                           dict(self.chain_countries))
 
     @property
     def ledger_name(self) -> str:
@@ -153,8 +137,7 @@ class ServerSettings:
                 "port": self.port, "geo_path": self.geo_path,
                 "scenario_ids": list(self.scenario_ids),
                 "interval_sec": self.interval_sec,
-                "cookie_secure": self.cookie_secure,
-                "chain_countries": dict(self.chain_countries)}
+                "cookie_secure": self.cookie_secure}
 
 
 def from_environment(source: Optional[Mapping[str, str]] = None
@@ -190,9 +173,7 @@ def from_environment(source: Optional[Mapping[str, str]] = None
         interval_sec=float(str(material.get(INTERVAL_KEY, "")
                                or DEFAULT_INTERVAL_SEC)),
         cookie_secure=_flag(material.get(COOKIE_SECURE_KEY, ""),
-                            COOKIE_SECURE_KEY, True),
-        chain_countries=_pairs(material.get(CHAIN_COUNTRIES_KEY, ""),
-                               CHAIN_COUNTRIES_KEY))
+                            COOKIE_SECURE_KEY, True))
 
 
 def describe() -> tuple[dict, ...]:
@@ -215,8 +196,6 @@ def describe() -> tuple[dict, ...]:
         {"key": COOKIE_SECURE_KEY, "required": False,
          "note": "refresh cookie の Secure 属性。既定 true。"
                  "http で動かす検証時のみ false"},
-        {"key": CHAIN_COUNTRIES_KEY, "required": False,
-         "note": "`scenario_id:CC` の組。系列連鎖の所有国は導出しない"},
         {"key": SESSION.SIGNING_KEY_ID, "required": False,
          "note": "署名鍵。無ければ auth ルート全件が 503。v3 は生成しない"},
         {"key": SESSION.BOOTSTRAP_KEY_ID, "required": False,
@@ -227,4 +206,4 @@ def describe() -> tuple[dict, ...]:
 __all__ = ["ServerSettings", "from_environment", "describe", "KEY_IDS",
            "LEDGER_PATH_KEY", "GEO_PATH_KEY", "HOST_KEY", "PORT_KEY",
            "SCENARIOS_KEY", "INTERVAL_KEY", "COOKIE_SECURE_KEY",
-           "CHAIN_COUNTRIES_KEY", "DEFAULT_PORT", "DEFAULT_HOST"]
+           "DEFAULT_PORT", "DEFAULT_HOST"]

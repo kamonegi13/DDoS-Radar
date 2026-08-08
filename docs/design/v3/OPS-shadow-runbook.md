@@ -58,12 +58,21 @@ NOROSHI_V3_LEDGER_PATH=/tmp/noroshi_v3_check.db python -m v3.server --check
 | `absent` | 意図的に無いもの。`websocket`・繰延中の P7 4 件・`sequence_chain_owner` |
 
 > **`absent.sequence_chain_owner` が空でない状態で focus を設定してはならない。**
-> focused ボーナスの畳み込みは `chain_country_for` を呼び、所有国が未供給の
+> focused ボーナスの畳み込みは `chain_country_for` を呼び、所有国を決められない
 > シナリオでは**例外を投げる**。ループは NP3 により死なないので、症状は
-> 「落ちる」ではなく「**結論行が静かに増えなくなる**」になる。供給は
-> `NOROSHI_V3_CHAIN_COUNTRIES='taiwan_contingency:TW,middle_east:IL'` の形。
-> どの belligerent を置くかは「いま誰がエスカレートしているか」の判断であり、
-> ツールが導出してはならない（静的規則は永久に同じ国を選ぶ）。
+> 「落ちる」ではなく「**結論行が静かに増えなくなる**」になる。
+>
+> **これは運用者が供給する項目ではない（2026-08-08 改訂、§7-2 #115 retire）。**
+> 所有国は毎ティック、そのティックの観測から選ばれる（`v3/runtime/chain.py` —
+> 本番の `max(effective_cores, key=avg_spike)` の転写）。設定用の環境変数
+> `NOROSHI_V3_CHAIN_COUNTRIES` は**廃止した**: 定数は「いま誰がエスカレート
+> しているか」を永久に固定するため、導出禁止の裁定が防ごうとした失敗そのものに
+> なる（運用者の名前が付くだけで欠陥は同じ）。
+>
+> したがってこの欄が空でないときは**設定漏れではなくシナリオ定義の穴**である —
+> `core_country` が未宣言で、weight 0.9 以上の `principal_belligerent` 参加国も
+> 居ない。`geo_data.json` の当該シナリオを直すか、focus しないこと。
+> 誰が選ばれたかは各ティックの `TickReport.chain_owners` に出る（NP6）。
 
 一度だけティックを回して中身を見たいとき（**実際に外部 API を叩く**）:
 

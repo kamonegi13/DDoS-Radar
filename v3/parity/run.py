@@ -117,7 +117,6 @@ def run_parity(*, store: LedgerStore, parity_ledger: ParityLedger,
                scenarios: Sequence[Scenario],
                start: float, end: float, tick_interval_sec: float,
                settings: Optional[ScoringSettings] = None,
-               chain_countries: Optional[Mapping[str, str]] = None,
                legacy_code_version: str = "unknown",
                v3_code_version: str = "unknown",
                migration_report: Optional[Mapping] = None,
@@ -137,7 +136,7 @@ def run_parity(*, store: LedgerStore, parity_ledger: ParityLedger,
     v3_result = driver_v3.replay(
         store, scenarios, start=start, end=end,
         tick_interval_sec=tick_interval_sec, settings=effective,
-        focused_scenario_id=None, chain_countries=chain_countries)
+        focused_scenario_id=None)
     legacy_result = driver_v2.replay(
         store, scenarios, start=start, end=end,
         tick_interval_sec=tick_interval_sec,

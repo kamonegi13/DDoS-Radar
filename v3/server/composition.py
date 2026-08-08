@@ -50,10 +50,12 @@ from v3.fetch.client import HttpClient
 from v3.kernel.errors import DomainError
 from v3.ledger.store import LedgerStore
 from v3.runtime import auth as AUTH
+from v3.runtime import chain as CHAIN
 from v3.runtime import config as CONFIG
 from v3.runtime import geo as GEO
 from v3.runtime import health as HEALTH
 from v3.runtime import ops_health as OPS
+from v3.runtime import scoring as SCORING
 from v3.runtime import secrets as SECRETS
 from v3.runtime import tick as TICK
 from v3.runtime.loop import Runtime
@@ -138,6 +140,11 @@ class Deployment:
         configuration: focus is a C1 command, its record IS the state
         (`v3/commands/state.py`), and a composition root that carried its
         own copy would be the second source that disagrees.
+
+        The sequence chain's owner is not passed either, for a stronger
+        reason: it is MEASURED inside the tick from that tick's own
+        observations (`v3/runtime/chain.py`). There is nothing here to
+        supply, which is what stops a constant being supplied.
         """
         at = float(self._clock() if now is None else now)
         return TICK.run_tick(
@@ -146,18 +153,25 @@ class Deployment:
             scenario_ids=self.scenario_ids, credentials=self.credentials,
             config=self.resolver,
             focused_scenario_id=focus_state(ReadOnlyLedger(self.store),
-                                            until=at),
-            chain_countries=dict(self.settings.chain_countries) or None)
+                                            until=at))
 
     # ── the API's seams ─────────────────────────────────────────────────
     def scenario_refs(self) -> tuple[ScenarioRef, ...]:
         """What the API is told about the scenarios. Built from the
         geography, because a second reader of deployment data is a second
-        ledger that drifts."""
+        ledger that drifts.
+
+        `chain_country` is the DECLARED core country and nothing else. A
+        dual-core scenario reports `None` here and is honest about it:
+        its owner is whichever belligerent is escalating at the instant
+        the question is asked, so a value cached on a deployment-level
+        projection would be a stale answer to a live question.
+        """
         refs = []
         for scenario_id in self.scenario_ids:
             declared = self.geography.scenarios.get(scenario_id) or {}
             participants = declared.get("participants", {}) or {}
+            core = declared.get("core_country")
             refs.append(ScenarioRef(
                 scenario_id=scenario_id,
                 participants={str(code).upper(): float(row.get("weight", 0.0))
@@ -165,7 +179,7 @@ class Deployment:
                 adversaries=GEO.adversaries_of(self.geography, scenario_id),
                 roles={str(code).upper(): str(row.get("role", ""))
                        for code, row in participants.items()},
-                chain_country=self.settings.chain_countries.get(scenario_id)))
+                chain_country=str(core).upper() if core else None))
         return tuple(refs)
 
     def observed_span_sec(self, now: float) -> Optional[float]:
@@ -226,25 +240,27 @@ class Deployment:
 
     # ── disclosure ──────────────────────────────────────────────────────
     def scenarios_without_chain_owner(self) -> tuple[str, ...]:
-        """Scenarios whose sequence chain has no owner yet.
+        """Scenarios no measurement can give a sequence-chain owner.
 
-        Found by wiring rather than by reading: the focused-only bonus
-        fold calls `ScoringInputs.chain_country_for`, which RAISES for a
-        scenario with neither a supplied chain country nor a
-        `core_country` — and `v3/runtime/scoring.py::scenarios_for`
-        deliberately sets no `core_country`, because production picks a
-        dual-core scenario's chain owner by live spike and any static rule
-        picks the same country forever.
+        Not "unconfigured" — that mitigation is retired. The owner is
+        chosen per tick from that tick's observations
+        (`v3/runtime/chain.py`), so the only scenario left without one is
+        a scenario with no candidates at all: it declares no
+        `core_country` AND has no `principal_belligerent` participant at
+        or above the weight floor. That is a hole in the geography, not a
+        missing environment variable, and no amount of evidence fills it.
 
-        The consequence is real and it is not visible until an analyst
-        acts: nothing is focused at start-up, so the tick is fine; the
-        first C1 focus command makes every subsequent tick raise, and NP3
-        keeps the loop alive around it, so conclusions quietly stop being
-        written. Announcing it at composition is what turns "quietly
-        stops" into "was told before it could happen".
+        The consequence is unchanged and is why this is announced at
+        composition: the focused-only bonus fold calls
+        `ScoringInputs.chain_country_for`, which RAISES for such a
+        scenario. Nothing is focused at start-up, so the tick is fine; the
+        first C1 focus command would make every subsequent tick raise, and
+        NP3 keeps the loop alive around it, so conclusions quietly stop
+        being written. Said at composition, "quietly stops" becomes "was
+        told before it could happen".
         """
-        return tuple(scenario_id for scenario_id in self.scenario_ids
-                     if not self.settings.chain_countries.get(scenario_id))
+        return CHAIN.scenarios_without_cores(
+            SCORING.scenarios_for(self.geography, self.scenario_ids))
 
     def announcements(self) -> tuple[str, ...]:
         """One plain sentence per degraded thing (NP6 / AP2 shape)."""
@@ -257,13 +273,16 @@ class Deployment:
         unowned = self.scenarios_without_chain_owner()
         if unowned:
             lines.append(
-                f"sequence chain: 所有国が未供給のシナリオ "
-                f"{list(unowned)} — この状態で focus を設定すると、"
-                f"focused ボーナスの畳み込みが chain_country_for で例外を"
-                f"投げ、以後のティックが毎回失敗する（ループは NP3 で"
-                f"生き残るため、結論行が静かに増えなくなる）。"
-                f"{SETTINGS.CHAIN_COUNTRIES_KEY} に "
-                f"`scenario_id:CC` を供給すること")
+                f"sequence chain: 所有国の候補が 1 国も無いシナリオ "
+                f"{list(unowned)} — core_country が未宣言で、weight "
+                f"{CHAIN.CORE_WEIGHT_FLOOR} 以上の "
+                f"{CHAIN.PRINCIPAL_BELLIGERENT} 参加国も居ない。"
+                f"この状態で focus を設定すると、focused ボーナスの"
+                f"畳み込みが chain_country_for で例外を投げ、以後の"
+                f"ティックが毎回失敗する（ループは NP3 で生き残るため、"
+                f"結論行が静かに増えなくなる）。所有国は毎ティック観測から"
+                f"選ぶ（§7-2 #115）ので、これは設定漏れではなく"
+                f"シナリオ定義の穴である")
         return tuple(lines)
 
     def disclosure(self) -> dict:

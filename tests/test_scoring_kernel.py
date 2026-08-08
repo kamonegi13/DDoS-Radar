@@ -1090,20 +1090,26 @@ class TestPurityAndIdempotence:
             score_tick(inputs).results["taiwan_contingency"]
 
     def test_scoring_never_resolves_a_threshold(self):
-        """Break the registry outright; scoring must not notice."""
+        """Break resolution outright; scoring must not notice.
+
+        The kernel has no default resolver any more (§7-2 #115 sweep), so
+        the way to break resolution is to break the only remaining path:
+        `Threshold.resolve` itself. If any formula reached for a
+        registry-backed value at tick time, this would raise.
+        """
         import v3.kernel.threshold as threshold_module
 
-        def explode(key):
+        def explode(self, resolver=None):
             raise AssertionError(
-                f"score_tick resolved {key!r} — the kernel must read no "
-                f"configuration at tick time")
+                f"score_tick resolved {self.key or self.provenance_ref!r} — "
+                f"the kernel must read no configuration at tick time")
 
-        original = threshold_module._default_resolver
-        threshold_module._default_resolver = explode
+        original = threshold_module.Threshold.resolve
+        threshold_module.Threshold.resolve = explode
         try:
             result = score_tick(self._busy_inputs())
         finally:
-            threshold_module._default_resolver = original
+            threshold_module.Threshold.resolve = original
         assert result.results["taiwan_contingency"].threat_level is not None
 
     def test_the_input_is_not_mutated(self):

@@ -154,6 +154,11 @@ class TickReport:
     #: a websocket event whose payload is not also in the tick's own
     #: record is an event nobody can check afterwards (AP4).
     attention: Mapping[str, object] = field(default_factory=dict)
+    #: scenario_id -> the belligerent whose escalation chain the focused
+    #: bonus read this tick. Measured, never configured (§7-2 #115): a
+    #: dual-core scenario's owner moves with the evidence, so which one it
+    #: was IS part of what the tick concluded.
+    chain_owners: Mapping[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {"tick_id": self.tick_id, "now": self.now,
@@ -168,7 +173,8 @@ class TickReport:
                 "coverage": dict(self.coverage),
                 "scoring": dict(self.scoring),
                 "settings": dict(self.settings),
-                "attention": dict(self.attention)}
+                "attention": dict(self.attention),
+                "chain_owners": dict(self.chain_owners)}
 
 
 def fetch_cycle(*, now: float, registry, store, client,
@@ -217,33 +223,35 @@ def conclude(*, now: float, store, scenario_id: str, health: InputHealth,
 
 def score_cycle(*, now: float, store, geography: Geography,
                 scenario_ids: Sequence[str], config, tick_id: str,
-                focused_scenario_id: Optional[str] = None,
-                chain_countries: Optional[Mapping[str, str]] = None):
+                focused_scenario_id: Optional[str] = None):
     """Steps 5a-5c: resolve, assemble, score, write the TL stream.
 
     The three impure steps and the one pure one, in the order S1-PIPE-020
     fixes. Resolution is bounded at `now` so a replayed tick computes with
     the override that was in force then.
 
-    Returns `(TickResult, ScoringSettings)`. The settings come back because
-    the report discloses them: a score whose thresholds are not published
-    with it cannot be argued with (NP6).
+    Returns `(TickResult, ScoringSettings, chain_owners)`. The settings
+    come back because the report discloses them — a score whose thresholds
+    are not published with it cannot be argued with (NP6) — and the chain
+    owners for the same reason: the focused bonus is computed against ONE
+    belligerent's escalation chain, chosen from this tick's observations
+    (`v3/runtime/chain.py`), and a bonus whose owner nobody can name
+    afterwards is a bonus nobody can check.
     """
     settings = scoring_module.settings_for(store, config=config, at=now)
-    result = scoring_module.score(scoring_module.assemble(
+    inputs = scoring_module.assemble(
         now=now, store=store, geography=geography,
         scenario_ids=scenario_ids, settings=settings,
-        focused_scenario_id=focused_scenario_id,
-        chain_countries=chain_countries))
+        focused_scenario_id=focused_scenario_id)
+    result = scoring_module.score(inputs)
     scoring_module.persist_tl(store, result, tick_id=tick_id)
-    return result, settings
+    return result, settings, dict(inputs.chain_countries)
 
 
 def run_tick(*, now: float, registry, store, client, geography: Geography,
              scenario_ids: Sequence[str],
              credentials: Optional[CredentialPlan] = None,
              config=None, focused_scenario_id: Optional[str] = None,
-             chain_countries: Optional[Mapping[str, str]] = None,
              score=None) -> TickReport:
     """One whole tick. The composition root's single unit of work.
 
@@ -295,12 +303,12 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
     # same reader the parity harness uses, so what parity measures is
     # what production scored (S5-VERIF-031).
     settings_disclosure: Mapping[str, object] = {}
+    chain_owners: Mapping[str, str] = {}
     if config is not None:
-        result, settings = score_cycle(
+        result, settings, chain_owners = score_cycle(
             now=now, store=store, geography=geography,
             scenario_ids=scenarios, config=config, tick_id=identity,
-            focused_scenario_id=focused_scenario_id,
-            chain_countries=chain_countries)
+            focused_scenario_id=focused_scenario_id)
         results_by_scenario = dict(result.results)
         settings_disclosure = settings.disclosed()
     else:
@@ -345,7 +353,8 @@ def run_tick(*, now: float, registry, store, client, geography: Geography,
         scoring={scenario_id: scored.as_dict()
                  for scenario_id, scored in results_by_scenario.items()},
         settings=settings_disclosure,
-        attention=ranking.as_dict())
+        attention=ranking.as_dict(),
+        chain_owners=dict(chain_owners))
 
 
 __all__ = ["run_tick", "fetch_cycle", "score_cycle", "conclude",

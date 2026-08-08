@@ -58,6 +58,11 @@ def _scenarios(context, weights) -> tuple:
     Built from the composition root's `ScenarioRef`s rather than from
     `geo_data.json`: the API does not read deployment data, and a second
     reader of it is a second ledger that drifts.
+
+    `chain_country` carries the DECLARED core country through, so a
+    single-core scenario keeps its owner here for the same reason the
+    tick's `scenarios_for` reads it. A dual-core one arrives with None
+    and `assemble` measures its owner from the observations.
     """
     built = []
     for ref in context.scenarios:
@@ -80,7 +85,7 @@ def _scenarios(context, weights) -> tuple:
                             role=str(dict(ref.roles).get(country, "")))
                 for country, weight in sorted(
                     merged.items(), key=lambda item: (-item[1], item[0]))),
-            enabled=True))
+            enabled=True, core_country=ref.chain_country))
     return tuple(built)
 
 
@@ -141,18 +146,17 @@ def simulate(context) -> ApiResponse:
     varied_scenarios = _scenarios(context, weights)
     focused = None if focus is None else str(focus)
 
-    # Supplied by the composition root, exactly as the tick receives it.
-    # Deriving it here would make a counterfactual score a scenario
-    # differently from the tick that scores it for real.
-    chains = {ref.scenario_id: ref.chain_country
-              for ref in context.scenarios if ref.chain_country}
-
+    # The sequence chain's owner is NOT passed in. `assemble` measures it
+    # from the same observations it is about to score (§7-2 #115), which is
+    # exactly what the tick does — so a counterfactual reads the same
+    # belligerent's chain the real run reads, without this handler holding
+    # a second copy of the rule.
     def _run(scenarios, settings):
         inputs = scoring_module.assemble(
             now=context.now, store=context.ledger,
             geography=None, scenario_ids=[s.scenario_id for s in scenarios],
             settings=settings, focused_scenario_id=focused,
-            chain_countries=chains, scenarios=scenarios)
+            scenarios=scenarios)
         return scoring_module.score(inputs)
 
     try:

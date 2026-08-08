@@ -640,23 +640,57 @@ class TestDeliberateAbsences:
             self, deployment):
         """The trap wiring found: focusing a scenario with no chain owner
         makes every later tick raise, and NP3 keeps the loop alive around
-        it — so conclusions quietly stop. Said at composition instead."""
+        it — so conclusions quietly stop. Said at composition instead.
+
+        The MITIGATION changed in the §7-2 #115 sweep and the announcement
+        did not: the owner is now measured per tick
+        (`v3/runtime/chain.py`), so what is left here is the scenario no
+        measurement can serve — this fixture's geography declares no
+        `core_country` and has no principal belligerent, which is a hole
+        in the scenario definition rather than an unset variable.
+        """
         assert deployment.scenarios_without_chain_owner() == (SCENARIO,)
         assert any("sequence chain" in line
                    for line in deployment.announcements())
         assert deployment.disclosure()["absent"]["sequence_chain_owner"] \
             == [SCENARIO]
 
-    def test_supplying_the_owner_clears_the_announcement(self, tmp_path,
-                                                         registry, geography):
+    def test_a_declared_core_country_clears_the_announcement(self, tmp_path,
+                                                             registry):
+        """Nothing is configured to clear it — the geography is fixed."""
+        document = json.loads(json.dumps(GEO_DOC))
+        document["SCENARIOS"][SCENARIO]["core_country"] = "TW"
         built = composition.compose(
-            _settings(tmp_path, chain_countries={SCENARIO: "TW"}),
-            environment={}, registry=registry, geography=geography,
+            _settings(tmp_path), environment={}, registry=registry,
+            geography=geo_module.from_document(document),
             client=_Client(), clock=lambda: NOW, barrier=False)
         try:
             assert built.scenarios_without_chain_owner() == ()
             assert not any("sequence chain" in line
                            for line in built.announcements())
+            assert built.scenario_refs()[0].chain_country == "TW"
+        finally:
+            built.close()
+
+    def test_a_dual_core_scenario_carries_no_cached_owner(self, tmp_path,
+                                                          registry):
+        """`ScenarioRef.chain_country` is the DECLARED core and nothing
+        else. A dual-core scenario's owner moves with the evidence, so a
+        value cached on a deployment projection would be a stale answer to
+        a live question."""
+        document = json.loads(json.dumps(GEO_DOC))
+        document["SCENARIOS"][SCENARIO] = {
+            "core_country": None,
+            "participants": {
+                "TW": {"weight": 1.0, "role": "principal_belligerent"},
+                "CN": {"weight": 1.0, "role": "principal_belligerent"}}}
+        built = composition.compose(
+            _settings(tmp_path), environment={}, registry=registry,
+            geography=geo_module.from_document(document),
+            client=_Client(), clock=lambda: NOW, barrier=False)
+        try:
+            assert built.scenario_refs()[0].chain_country is None
+            assert built.scenarios_without_chain_owner() == ()
         finally:
             built.close()
 
