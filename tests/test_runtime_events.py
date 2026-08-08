@@ -28,6 +28,7 @@ from v3.adapters.types import (CYBER, PHYSICAL, ObservationDraft,
 from v3.kernel.errors import DomainError
 from v3.runtime import attribution as A
 from v3.runtime import events as E
+from v3.runtime import reduce_cyber as RC
 from v3.scoring import (CountryWeight, Observation, Participant, Scenario,
                         ScoringInputs, ScoringSettings)
 
@@ -103,13 +104,27 @@ class TestEveryProductionSiteIsAccountedFor:
         # the AST pass must actually find the sites, or it proves nothing
         assert len(production) >= 6, production
         accounted = ({entry.event_type for entry in E.REGISTRATIONS}
+                     | {entry.event_type for entry in E.CONJUNCTIONS}
                      | {entry.event_type for entry in E.ABSENCES})
         assert production - accounted == set(), production - accounted
 
     def test_nothing_is_claimed_that_production_does_not_register(self):
         production = self._production_event_types()
-        claimed = {entry.event_type for entry in E.REGISTRATIONS}
+        claimed = ({entry.event_type for entry in E.REGISTRATIONS}
+                   | {entry.event_type for entry in E.CONJUNCTIONS})
         assert claimed - production == set()
+
+    def test_no_type_is_both_supplied_and_declared_absent(self):
+        """The disclosure's own consistency: an `Absence` left behind
+        after its link landed is a false statement about coverage, and
+        §7-2 #122 is exactly the row that had one."""
+        supplied = ({entry.event_type for entry in E.REGISTRATIONS}
+                    | {entry.event_type for entry in E.CONJUNCTIONS})
+        stated_absent = {entry.event_type for entry in E.ABSENCES}
+        assert supplied & stated_absent == {"CENSORSHIP_DETECTED"}, (
+            "the only type that may be both is CENSORSHIP_DETECTED, which "
+            "production registers from two independent composites and v3 "
+            "supplies one of")
 
     def test_every_absence_states_a_direction_and_a_reason(self):
         for entry in E.ABSENCES:
@@ -444,25 +459,39 @@ class TestTheInputCannotBeBuiltWithoutDeciding:
 # ══ 6. what is still missing, said out loud ══════════════════════════════
 
 class TestTheRemainderIsDisclosed:
-    def test_two_of_four_chain_links_are_supplied(self):
+    def test_three_of_four_chain_links_are_supplied(self):
         coverage = E.chain_coverage()
-        assert coverage["supplied"] == ["ISR_SURGE", "FIRMS_ANOMALY"]
-        assert coverage["missing"] == ["NARRATIVE_BURST", "SYNC_DDOS"]
+        assert coverage["supplied"] == ["ISR_SURGE", "SYNC_DDOS",
+                                        "FIRMS_ANOMALY"]
+        assert coverage["missing"] == ["NARRATIVE_BURST"]
 
-    def test_the_chain_bonus_is_still_unreachable_and_says_so(self):
-        """Honesty over optimism: three link types are the minimum tier,
-        so two supplied links cannot produce a chain bonus at all. A fix
-        that left this unsaid would read as 'the chain works now'."""
+    def test_the_chain_bonus_became_reachable_and_says_so(self):
+        """§7-2 #122's real consequence, and the reason the disclosure has
+        to state it rather than let a reader infer it: three link types
+        ARE the minimum tier, so `cf_botnet_overlap` did not add a row,
+        it turned `chain_bonus` from structurally-zero into something that
+        can fire. The FULL tier is still out of reach on
+        `NARRATIVE_BURST`, and that is still said."""
         coverage = E.chain_coverage()
-        assert coverage["chain_bonus_reachable"] is False
+        assert coverage["chain_bonus_reachable"] is True
         assert coverage["minimum_for_a_bonus"] == 3
+        assert len(coverage["supplied"]) < len(coverage["chain_types"])
 
-    def test_the_missing_links_name_their_register_rows(self):
+    def test_the_missing_link_names_its_register_row(self):
         rows = {item["event_type"]: item
                 for item in E.chain_coverage()["absences"]}
-        assert "#122" in rows["SYNC_DDOS"]["register_ref"]
-        assert rows["SYNC_DDOS"]["direction"] == "insensitive"
+        assert "SYNC_DDOS" not in rows
         assert rows["NARRATIVE_BURST"]["direction"] == "insensitive"
+
+    def test_the_conjunction_is_disclosed_beside_the_absences(self):
+        """A link supplied by a CONJUNCTION is supplied differently from
+        one supplied by a row, and an analyst reading "SYNC_DDOS: live"
+        cannot otherwise tell that it takes two verdicts in one tick."""
+        rows = {item["event_type"]: item
+                for item in E.chain_coverage()["conjunctions"]}
+        assert rows["SYNC_DDOS"]["signal_sources"] == [
+            RC.COORDINATED_SIGNAL, RC.BOTNET_OVERLAP_SIGNAL]
+        assert rows["SYNC_DDOS"]["gate_ref"] == "radar/routes/core.py:1309"
 
     def test_the_narrative_fold_really_does_withhold(self, store):
         """The stated reason, measured rather than asserted: if
@@ -533,14 +562,13 @@ class TestTheTickDisclosesTheChain:
         assert disclosure["live"] == {"IL": ["ISR_SURGE"],
                                       "IR": ["FIRMS_ANOMALY"]}
         assert disclosure["count"] == 2
-        assert disclosure["coverage"]["chain_bonus_reachable"] is False
+        assert disclosure["coverage"]["chain_bonus_reachable"] is True
 
     def test_an_empty_chain_still_says_what_is_unsupplied(self):
         from v3.runtime.tick import _chain_event_disclosure
         disclosure = _chain_event_disclosure(())
         assert disclosure["live"] == {} and disclosure["count"] == 0
-        assert disclosure["coverage"]["missing"] == ["NARRATIVE_BURST",
-                                                     "SYNC_DDOS"]
+        assert disclosure["coverage"]["missing"] == ["NARRATIVE_BURST"]
 
     def test_the_report_serialises_it(self):
         from v3.runtime.tick import TickReport

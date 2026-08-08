@@ -16,6 +16,19 @@ returned True — FIRED and not muted / suppressed / noise-excluded
 value, and it is deliberately not `admits()`: the gate has no score
 condition, which is how `cf_botnet_overlap` gates a link while scoring 0.
 
+**Two shapes, because production has two.** Most registrations read ONE
+row and anchor the event to the country that row is about. `SYNC_DDOS`
+does not: its gate is a CONJUNCTION of two countryless verdicts
+(`core.py:1309` — `is_coordinated and high_correlation and _coord_active
+and _overlap_active`, which is `cf_coordinated` and `cf_botnet_overlap`
+each having fired unmuted, since `_overlap_active` already implies
+`high_correlation` and `_coord_active` implies `is_coordinated`), and it
+fires `scenario_wide=True` so `resolve_seq_fire_targets` returns every
+effective core rather than one country (`radar/scoring.py:117-124`). A
+countryless row anchors nothing through the per-country path — it has no
+`countries` at all — so transcribing this link as a `Registration` would
+have produced a rule that is present, tested, and permanently silent.
+
 **Who the event belongs to.** Production calls `_seq_fire(core_theater,
 ...)` (`core.py:573-588`), which resolves targets through
 `resolve_seq_fire_targets(_original_core_theater, effective_cores, ...)`
@@ -43,9 +56,11 @@ calibration failure. Registered as a difference rather than copied.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence
+from typing import Container, Mapping, Optional, Sequence
 
 from v3.runtime import attribution, chain
+from v3.runtime.reduce_cyber import (BOTNET_OVERLAP_SIGNAL,
+                                     COORDINATED_SIGNAL)
 from v3.scoring import Observation, Scenario
 from v3.scoring.inputs import SequenceEvent
 
@@ -76,6 +91,33 @@ class Registration:
     def admits(self, observation: Observation) -> bool:
         return (observation.passes_gate()
                 and observation.score >= self.min_score)
+
+
+@dataclass(frozen=True, slots=True)
+class Conjunction:
+    """An event production registers from SEVERAL rows at once.
+
+    `signal_sources` are all required, all in the SAME tick, and each on
+    the same predicate a `Registration` uses — `passes_gate()`, which is
+    `add_rat`'s return value (`radar/routes/core.py:997`). Nothing here
+    reads a score: `cf_botnet_overlap` scores 0 across the whole marginal
+    IDF band and still opens this link, which is precisely the property
+    `admits()` would have deleted.
+
+    The event is anchored to every eligible country rather than to one,
+    because production fires it `scenario_wide=True`
+    (`radar/routes/core.py:1319`) and `resolve_seq_fire_targets` then
+    returns every effective core: coordinated cross-theatre DDoS is a
+    statement about the theatre, not about one belligerent.
+    """
+
+    event_type: str
+    signal_sources: tuple[str, ...]
+    production_ref: str
+    gate_ref: str
+
+    def admits(self, passing: Container[str]) -> bool:
+        return all(name in passing for name in self.signal_sources)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +165,21 @@ REGISTRATIONS: tuple[Registration, ...] = (
         production_ref="radar/routes/core.py:1710-1713"),
 )
 
+#: §7-2 #122. The gate at `core.py:1309` has four conjuncts and reduces
+#: to two: `_overlap_active` is `add_rat("cf_botnet_overlap", ...,
+#: "FIRED" if high_correlation else "OK", ...)`'s return, so it already
+#: carries `high_correlation`, and `_coord_active` likewise carries
+#: `is_coordinated`. Both are the gate-passing facts of the two rows the
+#: cloudflare fold now emits, so the two-source form is the four-conjunct
+#: form, not an approximation of it.
+CONJUNCTIONS: tuple[Conjunction, ...] = (
+    Conjunction(
+        event_type=SYNC_DDOS,
+        signal_sources=(COORDINATED_SIGNAL, BOTNET_OVERLAP_SIGNAL),
+        production_ref="radar/routes/core.py:1308-1319",
+        gate_ref="radar/routes/core.py:1309"),
+)
+
 ABSENCES: tuple[Absence, ...] = (
     Absence(
         event_type=NARRATIVE_BURST,
@@ -134,15 +191,6 @@ ABSENCES: tuple[Absence, ...] = (
                "row ever passes the gate",
         direction="insensitive",
         register_ref="§7-2 #123 (residual), §7-2 #9/#11 family"),
-    Absence(
-        event_type=SYNC_DDOS,
-        production_ref="radar/routes/core.py:1309-1319",
-        reason="the gate is `is_coordinated and high_correlation and "
-               "_coord_active and _overlap_active`; v3 emits "
-               "cf_coordinated but has no cf_botnet_overlap and no IDF "
-               "correlation at all",
-        direction="insensitive",
-        register_ref="§7-2 #122"),
     Absence(
         event_type="CENSORSHIP_DETECTED",
         production_ref="radar/routes/core.py:1602-1607 (tor_metrics + "
@@ -164,11 +212,18 @@ ABSENCES: tuple[Absence, ...] = (
 _BY_SOURCE: Mapping[str, Registration] = {
     entry.signal_source: entry for entry in REGISTRATIONS}
 
+#: Every name a conjunction reads. Derived from `CONJUNCTIONS` rather than
+#: listed, so adding a conjunction cannot leave its inputs filtered out of
+#: `sequence_history` — which would make the link work live and vanish on
+#: the next tick, the hardest shape of this defect to see.
+_CONJUNCTION_SOURCES: frozenset = frozenset(
+    name for entry in CONJUNCTIONS for name in entry.signal_sources)
+
 #: The only row names that can become an event. Exported so a caller
 #: reading a whole retention window can drop the rest BEFORE projecting
 #: them — a day of L1 is tens of thousands of rows and all but a handful
 #: are irrelevant here.
-SUPPLIED_SOURCES: frozenset = frozenset(_BY_SOURCE)
+SUPPLIED_SOURCES: frozenset = frozenset(_BY_SOURCE) | _CONJUNCTION_SOURCES
 
 
 def eligible_countries(scenarios: Sequence[Scenario]) -> frozenset:
@@ -214,21 +269,20 @@ def arriving_from(observations: Sequence[Observation],
         registration = _BY_SOURCE.get(observation.signal_source)
         if registration is None or not registration.admits(observation):
             continue
-        occurred_at = observation.observed_at
+        occurred_at = _stamp(observation, now)
         if occurred_at is None:
-            if now is None:
-                continue
-            occurred_at = now
+            continue
         for entry in observation.countries:
             if entry.country not in eligible:
                 continue
             events.append(SequenceEvent(
                 country=entry.country,
                 event_type=registration.event_type,
-                occurred_at=float(occurred_at),
+                occurred_at=occurred_at,
                 # The adapter id, because that is what the kernel's
                 # `admitted_sensors` set is keyed by (`kernel.py:198-200`).
                 justified_by=(observation.sensor,)))
+    events.extend(_conjunction_events(observations, eligible, now))
     # Sorted so the dedup inside `advance()` sees a stable order: it keeps
     # the FIRST of a duplicate pair, and an unordered input would make
     # which one survives depend on the ledger's row order.
@@ -236,17 +290,76 @@ def arriving_from(observations: Sequence[Observation],
         event.occurred_at, event.country, event.event_type)))
 
 
+def _stamp(observation: Observation, now: Optional[float]) -> Optional[float]:
+    """The observation's own timestamp, or `now` if it carried none."""
+    if observation.observed_at is not None:
+        return float(observation.observed_at)
+    return None if now is None else float(now)
+
+
+def _conjunction_events(observations: Sequence[Observation],
+                        eligible: frozenset,
+                        now: Optional[float]) -> list[SequenceEvent]:
+    """Events whose gate reads several rows of the SAME tick.
+
+    **Grouped by `observed_at`, and that is not a heuristic.** Every draft
+    a cycle writes is stamped with the one `now` the cycle started from
+    (`v3/fetch/runner.py:562`), so rows of one tick share the value
+    exactly and rows of different ticks never do. Without the grouping,
+    `sequence_history` — which hands a whole retention window to this
+    function in one call — would conjoin a `cf_coordinated` from Monday
+    with a `cf_botnet_overlap` from Tuesday and mint a SYNC_DDOS
+    production never fired. That is the sensitive direction, which is
+    exactly why it has to be refused: an invented link is indistinguishable
+    from an observed one once it is in the chain.
+
+    The anchor set is every eligible country, not one. Production's is the
+    FOCUSED scenario's effective cores; v3 has no focused scenario and
+    scores every scorable one from a single acquisition, so the union is
+    what exists — the §7-2 #124 widening, in the sensitive direction, and
+    consistent with the rows themselves being computed over the union.
+    """
+    if not CONJUNCTIONS:
+        return []
+    by_tick: dict[float, dict[str, str]] = {}
+    for observation in observations:
+        if observation.signal_source not in _CONJUNCTION_SOURCES:
+            continue
+        if not observation.passes_gate():
+            continue
+        occurred_at = _stamp(observation, now)
+        if occurred_at is None:
+            continue
+        by_tick.setdefault(occurred_at, {}).setdefault(
+            observation.signal_source, observation.sensor)
+    events: list[SequenceEvent] = []
+    for occurred_at, passing in by_tick.items():
+        for conjunction in CONJUNCTIONS:
+            if not conjunction.admits(passing):
+                continue
+            justified = tuple(sorted({passing[name] for name
+                                      in conjunction.signal_sources}))
+            for country in sorted(eligible):
+                events.append(SequenceEvent(
+                    country=country, event_type=conjunction.event_type,
+                    occurred_at=occurred_at, justified_by=justified))
+    return events
+
+
 def chain_coverage() -> dict:
     """Which of the four chain links v3 can currently supply (AP3/NP6).
 
-    Reported rather than assumed: with two of four supplied, `chain_bonus`
-    cannot reach even its three-link partial tier, so the chain bonus
-    stays 0 and only `temporal_coherence_bonus` becomes live. A fix that
-    left this unsaid would read as "the chain works now".
+    Reported rather than assumed. With §7-2 #122 landed this reaches
+    THREE of four, which is `SEQUENCE_MIN_CHAIN`, so `chain_bonus` becomes
+    structurally reachable for the first time — a change of kind, not of
+    degree, and one a reader must be able to see without diffing this
+    module. The remaining absence (`NARRATIVE_BURST`) is what still keeps
+    the FULL tier out of reach, and it is still stated.
     """
     from v3.scoring.thresholds import (SEQUENCE_CHAIN_TYPES,
                                        SEQUENCE_MIN_CHAIN)
-    supplied = {entry.event_type for entry in REGISTRATIONS}
+    supplied = ({entry.event_type for entry in REGISTRATIONS}
+                | {entry.event_type for entry in CONJUNCTIONS})
     present = tuple(name for name in SEQUENCE_CHAIN_TYPES if name in supplied)
     return {"chain_types": list(SEQUENCE_CHAIN_TYPES),
             "supplied": list(present),
@@ -254,6 +367,11 @@ def chain_coverage() -> dict:
                         if name not in supplied],
             "minimum_for_a_bonus": SEQUENCE_MIN_CHAIN,
             "chain_bonus_reachable": len(present) >= SEQUENCE_MIN_CHAIN,
+            "conjunctions": [{"event_type": item.event_type,
+                              "signal_sources": list(item.signal_sources),
+                              "gate_ref": item.gate_ref,
+                              "production_ref": item.production_ref}
+                             for item in CONJUNCTIONS],
             "absences": [{"event_type": item.event_type,
                           "reason": item.reason,
                           "direction": item.direction,
@@ -262,7 +380,8 @@ def chain_coverage() -> dict:
                          for item in ABSENCES]}
 
 
-__all__ = ["Registration", "Absence", "REGISTRATIONS", "ABSENCES",
+__all__ = ["Registration", "Conjunction", "Absence", "REGISTRATIONS",
+           "CONJUNCTIONS", "ABSENCES",
            "SUPPLIED_SOURCES", "arriving_from", "eligible_countries",
            "chain_coverage",
            "NARRATIVE_BURST", "ISR_SURGE", "SYNC_DDOS", "FIRMS_ANOMALY"]

@@ -10,15 +10,16 @@ perform because it sees one payload by construction (§2-2):
           `avg_spike` against the target's hour-of-day history ->
           `cf_spike_core` (§7-2 #9's last withheld member, §7-2 #116's
           ranking quantity; `core.py:763-817` and `:1006-1025`) — plus the
-          THREE further entries production derives from the same numbers,
-          which §7-2 #121 registered as missing: `cf_vector_shift`,
-          `cf_adversary_strike`, `cf_coordinated` (`core.py:1063-1076`).
-          ALL FOUR are decided once per cycle rather than per country and
-          carry NO country, which is production's own attribution —
-          `_derived_rows` names the line that settles it. The per-target
-          numbers those four are made of stay on `cf_spike_target`, the
-          OBSERVED measurement face that mirrors production's
-          `target_details` (`core.py:831`).
+          FOUR further entries production derives from the same numbers:
+          `cf_vector_shift`, `cf_adversary_strike`, `cf_coordinated`
+          (§7-2 #121, `core.py:1063-1076`) and `cf_botnet_overlap`
+          (§7-2 #122, `core.py:1042-1062`, whose IDF correlation is
+          `v3/runtime/correlation.py`). ALL FIVE are decided once per
+          cycle rather than per country and carry NO country, which is
+          production's own attribution — `_derived_rows` names the line
+          that settles it. The per-target numbers those five are made of
+          stay on `cf_spike_target`, the OBSERVED measurement face that
+          mirrors production's `target_details` (`core.py:831`).
 
 Moved out of `reduce_physical.py` when the second half landed: that
 module is the physical-domain folds, and one adapter's two halves living
@@ -43,6 +44,8 @@ from v3.adapters.cyber.cloudflare_radar import (BGP_HIJACK_SIGNAL,
 from v3.adapters.types import (CYBER, STATUS_FIRED, STATUS_OBSERVED,
                                STATUS_OK, ObservationDraft)
 from v3.runtime.baselines import ADVERSARY_ORIGINS, EFFECTIVE_CORES
+from v3.runtime.correlation import (botnet_overlap_verdict, high_correlation,
+                                    pairwise_idf)
 from v3.runtime.reduce_common import _by_country, _first_url, _min_confidence
 from v3.runtime.spike import (OriginSpike, adversary_strike_verdict,
                               coordinated_verdict, elevated_targets,
@@ -63,6 +66,13 @@ SHARE_BASELINE_REF = "cf_attack_share_baseline"
 VECTOR_SHIFT_SIGNAL = "cf_vector_shift"
 ADVERSARY_STRIKE_SIGNAL = "cf_adversary_strike"
 COORDINATED_SIGNAL = "cf_coordinated"
+#: `core.py:1056` — production's FIFTH entry off the same distribution,
+#: and §7-2 #122's whole subject. It reads the IDF-weighted overlap
+#: between participants' ORIGIN-COUNTRY histograms, which are the same
+#: `l3_pct` numbers `cf_spike_target` already carries; the register's
+#: belief that it needed `attacks/layer7/top/ases/origin` was a misread of
+#: `compute_idf_weights`' docstring — see `v3/runtime/correlation.py`.
+BOTNET_OVERLAP_SIGNAL = "cf_botnet_overlap"
 
 #: Every entry the cloudflare fold files under a SIGNAL name, which is
 #: the whole reason each is countryless (`core.py:2039-2041`). Named as a
@@ -71,7 +81,7 @@ COORDINATED_SIGNAL = "cf_coordinated"
 #: with a country while its three siblings had none.
 COUNTRYLESS_SIGNALS: frozenset = frozenset({
     SPIKE_SIGNAL, VECTOR_SHIFT_SIGNAL, ADVERSARY_STRIKE_SIGNAL,
-    COORDINATED_SIGNAL})
+    COORDINATED_SIGNAL, BOTNET_OVERLAP_SIGNAL})
 
 #: The global TARGET shares, whose `share_pct` decides which origins are
 #: eligible to be `shift_actors` (`core.py:744-745`, `:806`).
@@ -187,7 +197,7 @@ def stored_baseline(snapshot: Optional[Mapping[str, Sequence]],
 def _fold_cf_spike(drafts: Sequence[ObservationDraft],
                    baselines: Mapping[str, Any],
                    now: float) -> list[ObservationDraft]:
-    """Four origin payloads -> the measurement face, then the four entries.
+    """Four origin payloads -> the measurement face, then the five entries.
 
     **The four inputs never reach L1.** Production writes ONE rationale
     record per cycle (`core.py:1025`); the per-window, per-layer rows
@@ -295,14 +305,14 @@ def _derived_rows(measured: Mapping[str, OriginSpike], *,
                   contributing: Sequence[ObservationDraft],
                   history: Mapping[str, Sequence[float]]
                   ) -> list[ObservationDraft]:
-    """The FOUR entries production makes of one cycle's origin data.
+    """The FIVE entries production makes of one cycle's origin data.
 
-    **None of the four is per-scenario, and none carries a country.** The
+    **None of the five is per-scenario, and none carries a country.** The
     line that settles it is `radar/routes/core.py:2039-2041`, where a
     rationale entry acquires a country ONLY if `rat.sensor in
     FOCUSED_ONLY_SENSOR_NAMES`. That frozenset (`radar/scenarios.py:75-79`)
-    holds sensor names — `cloudflare_radar`, `ioda_bgp`, ... — and all four
-    entries are filed under SIGNAL names, so none matches and all four
+    holds sensor names — `cloudflare_radar`, `ioda_bgp`, ... — and all five
+    entries are filed under SIGNAL names, so none matches and all five
     become countryless Signals (`radar/scoring.py:79`). Countryless is
     not a gap here: it is production's own attribution, it is what
     `compute_global_threat` aggregates (`radar/scoring.py:1177-1215`), and
@@ -311,7 +321,7 @@ def _derived_rows(measured: Mapping[str, OriginSpike], *,
     (`radar/scoring.py:1452-1453`). v3 reaches the same place through
     `Observation.is_global` and S1-SCORE-012.
 
-    `cf_spike_core` was the fourth for one release and was emitted per
+    `cf_spike_core` was one of them for one release and was emitted per
     participant instead (§7-2 #118). The register called that a
     sensitive-direction widening of "one row into N"; it was in fact
     "zero into N x coupling weight", because the countryless row scores
@@ -331,12 +341,23 @@ def _derived_rows(measured: Mapping[str, OriginSpike], *,
     `RationaleEntry`, so it decorates the CAC direction and nothing else.
     Carried in the flags for the same reason production computes it.
 
-    The set the four range over is the CYCLE's countries, where
+    The set the five range over is the CYCLE's countries, where
     production's is the focused scenario's `strategic_theaters`. v3 scores
     every scenario from one acquisition, so the union is what exists. That
     widening is §7-2 #124's, and it is the direction NP1 accepts — the
     rows carry `targets_measured` / `effective_cores` / `primary_core` so
     which set decided them is readable off the row.
+
+    **The fifth entry is `cf_botnet_overlap` (§7-2 #122)**, and it needed
+    no fetch: the histograms it correlates are the ORIGIN-COUNTRY
+    distributions already on every `OriginSpike`, not the ASN histogram
+    the register named. For this row the widened set is NOT simply the
+    sensitive direction — `idf_weights` is scoped to the compared
+    countries (`core.py:846-855`), so a wider scope both adds pairs (which
+    can only raise `max`) and re-weights every key (which can move it
+    either way). Registered under §7-2 #124 with that asymmetry stated;
+    the row carries `correlation_targets` and `idf_weights_l3` so the
+    scope that decided it is readable.
     """
     shifted = sorted(country for country, spike in measured.items()
                      if spike.is_vector_shift)
@@ -382,6 +403,21 @@ def _derived_rows(measured: Mapping[str, OriginSpike], *,
     strike = adversary_strike_verdict(strikes)
     coordinated = coordinated_verdict(elevated)
 
+    # `core.py:785,810` — `normalized_dist_l3` keyed by ORIGIN COUNTRY, one
+    # entry per code in `set(o_l3) | set(o_l7)`. A code seen only in the L7
+    # payload is present here with 0.0, and it must be: `compute_idf_weights`
+    # counts KEYS, so dropping the zeros would lower every document
+    # frequency and inflate the weights.
+    distributions_l3 = {
+        country: {code: float(working.get("l3_pct", 0.0))
+                  for code, working in target_spike.origins.items()}
+        for country, target_spike in measured.items()}
+    correlations = pairwise_idf(distributions_l3)
+    # `core.py:1042` — `max(..., default=0.0)`; `core.py:918` — `any(...)`.
+    max_overlap = correlations.max_overlap
+    correlated = high_correlation(correlations.overlaps)
+    overlap = botnet_overlap_verdict(max_overlap, correlated)
+
     shared = {"targets_measured": sorted(measured),
               "effective_cores": list(ranked),
               "primary_core": primary}
@@ -419,6 +455,20 @@ def _derived_rows(measured: Mapping[str, OriginSpike], *,
         _derived_draft(COORDINATED_SIGNAL, coordinated, contributing,
                        {**shared, "elevated_targets": elevated,
                         "production_ref": "radar/routes/core.py:863-864,1076"}),
+        _derived_draft(BOTNET_OVERLAP_SIGNAL, overlap, contributing,
+                       # The whole derivation, because a bare "1.83 IDF
+                       # overlap" is not a checkable claim: the pair map
+                       # says which two countries produced it and the
+                       # weight map says which origins were treated as
+                       # rare. Both are bounded by the cycle's countries
+                       # and their origin codes (NP6).
+                       {**shared, "max_overlap_idf": max_overlap,
+                        "high_correlation": correlated,
+                        "overlaps_idf_l3": dict(correlations.overlaps),
+                        "idf_weights_l3": dict(correlations.weights),
+                        "correlation_targets": sorted(distributions_l3),
+                        "layer": "l3",
+                        "production_ref": "radar/routes/core.py:1042-1062"}),
     ]
 
 

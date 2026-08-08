@@ -43,6 +43,7 @@ from v3.fetch import schedule as SCHED
 from v3.ledger import LedgerStore
 from v3.runtime import baselines as B
 from v3.runtime import chain as CHAIN
+from v3.runtime import correlation as CORR
 from v3.runtime import record as REC
 from v3.runtime import reduce as R
 from v3.runtime import reduce_cyber as RC
@@ -1161,9 +1162,47 @@ class TestTheWholeThingRuns:
 # carries the effective cores to the fold.
 
 
+def _production_idf_weights(distributions):
+    """`radar/scoring.py:679-711`, re-typed from the source."""
+    if not distributions:
+        return {}
+    n_docs = sum(1 for d in distributions.values() if d)
+    if n_docs <= 0:
+        return {}
+    df = {}
+    for d in distributions.values():
+        if not d:
+            continue
+        for k in d.keys():
+            df[k] = df.get(k, 0) + 1
+    if not df:
+        return {}
+    raw = {k: math.log((n_docs + 1) / (cnt + 1)) for k, cnt in df.items()}
+    max_w = max(raw.values()) or 1.0
+    if max_w <= 0:
+        return {k: 0.0 for k in raw}
+    return {k: max(0.0, w / max_w) for k, w in raw.items()}
+
+
+def _production_overlap_idf(dist1, dist2, idf_weights):
+    """`radar/scoring.py:713-736`, re-typed. Iterates a plain SET, as
+    production does — the float-order difference against v3's sorted
+    iteration is a thing this sweep measures rather than hides."""
+    if not dist1 or not dist2 or not idf_weights:
+        return 0.0
+    s1 = sum(dist1.values()) or 1.0
+    s2 = sum(dist2.values()) or 1.0
+    all_keys = set(dist1) | set(dist2)
+    num = sum(
+        min(dist1.get(k, 0.0) / s1, dist2.get(k, 0.0) / s2)
+        * idf_weights.get(k, 0.0)
+        for k in all_keys)
+    return round(num * 100, 2)
+
+
 def _production_derived(*, targets, adversary_states, strategic,
                         effective_cores, global_l3, global_l7):
-    """`core.py:737-919` and `:1063-1076`, re-typed from the source.
+    """`core.py:737-919` and `:1042-1076`, re-typed from the source.
 
     `targets` is `{country: (o_l3, o_l7, b_l3, b_l7)}`. Written in
     production's own shape — accumulators, list appends, `target_details`
@@ -1172,7 +1211,9 @@ def _production_derived(*, targets, adversary_states, strategic,
     """
     adversary_strikes, vector_shifts = [], []
     target_details = {}
+    origin_distributions_l3 = {}
     for t in targets:
+        normalized_dist_l3 = {}
         o_l3, o_l7, b_l3, b_l7 = targets[t]
         g_l3_share_display, g_l7_share_display = (global_l3.get(t, 0.0),
                                                  global_l7.get(t, 0.0))
@@ -1197,6 +1238,9 @@ def _production_derived(*, targets, adversary_states, strategic,
             l3_spike = (local_l3_pct / base_l3) if local_l3_pct > 0 else 0.0
             l7_spike = (local_l7_pct / base_l7) if local_l7_pct > 0 else 0.0
             spike_factor = min(max(l3_spike, l7_spike), 25.0)
+            # `core.py:785` — every code in the union, zeros included: the
+            # IDF's document frequency counts KEYS, not values.
+            normalized_dist_l3[code] = local_l3_pct
             if has_baseline and current_local_pct >= 1.0:
                 target_weighted_spike += spike_factor * current_local_pct
                 target_l3_spike_sum += l3_spike * current_local_pct
@@ -1231,6 +1275,31 @@ def _production_derived(*, targets, adversary_states, strategic,
                              "avg_l3_spike": round(avg_l3_spike, 2),
                              "avg_l7_spike": round(avg_l7_spike, 2),
                              "shift_actors": sorted(shift_actors)}
+        # `core.py:810`
+        origin_distributions_l3[t] = normalized_dist_l3
+
+    # `core.py:842-861`, L3 only — the map `:918` and `:1042` read.
+    _corr_theaters = [t for t in targets if t in origin_distributions_l3]
+    _scoped_dists_l3 = {t: origin_distributions_l3.get(t, {})
+                        for t in _corr_theaters}
+    _idf_w_l3 = _production_idf_weights(_scoped_dists_l3)
+    correlations_idf_l3 = {}
+    for i, a in enumerate(_corr_theaters):
+        for b in _corr_theaters[i + 1:]:
+            correlations_idf_l3[f"{a}-{b}"] = _production_overlap_idf(
+                _scoped_dists_l3[a], _scoped_dists_l3[b], _idf_w_l3)
+    # `core.py:917-918`
+    _HIGH_CORR_IDF_MIN = 1.5
+    high_correlation = any(v >= _HIGH_CORR_IDF_MIN
+                           for v in correlations_idf_l3.values())
+    # `core.py:1042-1054`
+    max_overlap_idf = max(correlations_idf_l3.values(), default=0.0)
+    if max_overlap_idf >= 3.5:
+        _overlap_score = 2
+    elif max_overlap_idf >= 2.0:
+        _overlap_score = 1
+    else:
+        _overlap_score = 0
 
     elevated_theaters = [t for t in strategic
                          if target_details.get(t, {}).get("avg_spike", 0) > 3.0]
@@ -1263,6 +1332,9 @@ def _production_derived(*, targets, adversary_states, strategic,
         "cf_vector_shift": (core_shifted, float(_shift_score)),
         "cf_adversary_strike": (major_adversary, float(_adv_score)),
         "cf_coordinated": (is_coordinated, 1.0 if is_coordinated else 0.0),
+        "cf_botnet_overlap": (high_correlation, float(_overlap_score)),
+        "max_overlap_idf": max_overlap_idf,
+        "overlaps_idf_l3": correlations_idf_l3,
         "shifted": sorted(vector_shifts),
         "elevated": sorted(elevated_theaters),
         "strike_count": _adv_count,
@@ -1539,6 +1611,21 @@ class TestTheDerivedSweepAgreesWithProduction:
                 theirs["elevated"]
             assert rows[RC.ADVERSARY_STRIKE_SIGNAL].flags["strike_count"] == \
                 theirs["strike_count"]
+            # §7-2 #122. The INDEX is compared with a tolerance of one
+            # rounding unit and the VERDICT exactly: production sums the
+            # weighted intersection over a plain `set` whose `str` hash is
+            # per-process, so its own raw index is not bit-reproducible
+            # across restarts. v3 sorts. The difference has never moved a
+            # verdict in this sweep and cannot exceed the rounding.
+            overlap = rows[RC.BOTNET_OVERLAP_SIGNAL]
+            assert overlap.flags["max_overlap_idf"] == \
+                pytest.approx(theirs["max_overlap_idf"], abs=0.01)
+            # The whole pair map, as a multiset: production keys pairs in
+            # participant order and v3 sorts each pair, so the KEYS differ
+            # by construction while the values may not.
+            assert sorted(overlap.flags["overlaps_idf_l3"].values()) == \
+                pytest.approx(sorted(theirs["overlaps_idf_l3"].values()),
+                              abs=0.01)
 
 
 class TestThePrimaryCoreSelectionIsLoadBearing:
@@ -1603,6 +1690,26 @@ class TestTheDerivedMutantsAreCaught:
     programme treats it as a finding rather than a nuisance.
     """
 
+    #: `(module, name) -> mutant value`. Two modules because the family
+    #: spans two: `v3/runtime/spike.py` decides four of the five derived
+    #: rows and `v3/runtime/correlation.py` decides the fifth (§7-2 #122).
+    #: One corpus for both, so a surviving mutant is a statement about the
+    #: SWEEP as much as about the constant — which is what the last two
+    #: survivors turned out to be.
+    CORRELATION_MUTANTS = {
+        "HIGH_CORR_IDF_MIN": 0.0,
+        "STRONG_OVERLAP_IDF_MIN": 0.0,
+        "OVERLAP_IDF_MIN": 0.0,
+        "STRONG_OVERLAP_SCORE": 9.0,
+        "OVERLAP_SCORE": 9.0,
+        # The 2026-05-10 repair itself: FIRED at zero. A mutant that
+        # scores the marginal band re-opens the 47%-FP defect.
+        "MARGINAL_OVERLAP_SCORE": 9.0,
+        "OVERLAP_SCALE": 1.0,
+        "OVERLAP_ROUND_DIGITS": 0,
+        "IDF_SMOOTHING": 0,
+    }
+
     MUTANTS = {
         "PER_ORIGIN_L7_MIN": 1.0, "PER_ORIGIN_L7_RATIO": 1.0,
         "PER_ORIGIN_L7_PCT_MIN": 0.0, "STRIKE_SPIKE_MIN": 1.0,
@@ -1635,11 +1742,15 @@ class TestTheDerivedMutantsAreCaught:
                 built.append(case)
         return built
 
-    @pytest.mark.parametrize("name,value", sorted(MUTANTS.items()))
-    def test_a_mutated_constant_disagrees_with_production(self, name, value,
-                                                          monkeypatch):
-        assert getattr(S, name) != value, f"{name} mutant is a no-op"
-        monkeypatch.setattr(S, name, value)
+    @pytest.mark.parametrize("module,name,value", (
+        [(S, name, value) for name, value in sorted(MUTANTS.items())]
+        + [(CORR, name, value)
+           for name, value in sorted(CORRELATION_MUTANTS.items())]),
+        ids=lambda item: item if isinstance(item, str) else "")
+    def test_a_mutated_constant_disagrees_with_production(self, module, name,
+                                                          value, monkeypatch):
+        assert getattr(module, name) != value, f"{name} mutant is a no-op"
+        monkeypatch.setattr(module, name, value)
         for targets, drafts, share_l3, share_l7, adv, cores in self._cases():
             theirs = _production_derived(
                 targets=targets, adversary_states=adv,
