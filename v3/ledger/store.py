@@ -329,6 +329,36 @@ class LedgerStore:
         return [dict(row) for row in
                 self._read_connection().execute(query, params).fetchall()]
 
+    def count_signal_source_observations(self, *, signal_source: str,
+                                         start: float, end: float,
+                                         countries: tuple = (),
+                                         status: Optional[str] = None) -> int:
+        """How often one signal source was seen in a window (S1-CONC-023).
+
+        A COUNT rather than a materialised list: L3 asks this once per
+        emitted anomaly, and loading a day of rows to call len() on them
+        is the shape that makes a derived view look expensive enough to
+        justify a cached counter — which is the state O-16 removes.
+
+        `countries` scopes the count to a scenario's participants; empty
+        means unscoped. `status` scopes it to one reading status, which
+        L3's novelty term needs: this table holds one row per POLL, not
+        per firing, so an unfiltered count says a healthy quiet sensor
+        repeated itself ninety-six times today.
+        """
+        query = ("SELECT COUNT(*) FROM signal_observation "
+                 "WHERE signal_source = ? AND observed_at >= ? "
+                 "AND observed_at <= ?")
+        params: list = [signal_source, start, end]
+        if status is not None:
+            query += " AND status = ?"
+            params.append(status)
+        if countries:
+            placeholders = ",".join("?" for _ in countries)
+            query += f" AND country IN ({placeholders})"  # noqa: S608
+            params.extend(countries)
+        return int(self._read_connection().execute(query, params).fetchone()[0])
+
     def count_signals(self) -> int:
         return int(self._read_connection().execute(
             "SELECT COUNT(*) FROM signal_observation").fetchone()[0])
@@ -452,6 +482,21 @@ class LedgerStore:
             "ORDER BY observed_at DESC, id DESC LIMIT 1",
             (scenario_id, conclusion_type, at_ts)).fetchone()
         return dict(row) if row else None
+
+    def conclusions_between(self, *, scenario_id: str, conclusion_type: str,
+                            start: float, end: float) -> list:
+        """One type's rows across a window, oldest first.
+
+        L3 uses this to compare a whole tick's anomaly batch against the
+        previous one (S1-CONC-032): a several-row conclusion type has no
+        single latest row to compare against.
+        """
+        rows = self._read_connection().execute(
+            "SELECT * FROM conclusion WHERE scenario_id = ? "
+            "AND conclusion_type = ? AND observed_at >= ? "
+            "AND observed_at <= ? ORDER BY observed_at ASC, id ASC",
+            (scenario_id, conclusion_type, start, end)).fetchall()
+        return [dict(row) for row in rows]
 
     def count_conclusions(self) -> int:
         return int(self._read_connection().execute(

@@ -86,6 +86,16 @@ if ! python scripts/check_kernel_discipline.py; then
     FAIL=1
 fi
 
+step "L3 conclusion threshold fidelity (WP-3.1)"
+# Every pinned conclusion threshold is compared against the production
+# module constant by AST. WP-2.6 found 97 transcription infidelities in
+# values that looked correctly copied; a deliberate difference must be
+# registered in wp25-l0-adapter-design.md §7-2 and in EXPECTED_DIFFS.
+if ! python scripts/check_conclusion_thresholds.py; then
+    echo "FAIL: conclusion thresholds drifted from production. See above." >&2
+    FAIL=1
+fi
+
 step "Secret scan (Phase 1 audit follow-up)"
 # Pure-Python scanner; no external dependency. Conservative regexes, with
 # placeholder/identifier suppression. Flips fatal so leaked credentials

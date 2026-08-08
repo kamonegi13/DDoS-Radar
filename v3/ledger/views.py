@@ -17,6 +17,7 @@ import time
 from typing import Optional
 
 from v3.kernel import Window
+from v3.kernel.window import DAY_SEC
 
 DIRECTION_WORSENING = "worsening"
 DIRECTION_IMPROVING = "improving"
@@ -67,6 +68,83 @@ def trend_over(store, scenario_id: str, *, window: Window,
     return {"direction": direction, "samples": len(rows),
             "first_severity": first, "last_severity": last,
             "window_days": window.declared_days}
+
+
+def observed_span(store, scenario_id: str, *,
+                  now: Optional[float] = None) -> dict:
+    """How long this scenario has been observed at all.
+
+    Read off the stream rather than kept as a per-scenario counter: a
+    counter is state, and state is what O-16 removes. L3's
+    `calibration_pending` guard asks this question — "has the tool watched
+    long enough for its own thresholds to mean anything here" — and the
+    answer has to be a projection so that a restart cannot reset it.
+    """
+    ts = _now(now)
+    rows = series_between(store, scenario_id, start=0.0, end=ts)
+    if not rows:
+        return {"first_observed_at": None, "last_observed_at": None,
+                "span_sec": 0.0, "samples": 0}
+    first = rows[0]["observed_at"]
+    last = rows[-1]["observed_at"]
+    return {"first_observed_at": first, "last_observed_at": last,
+            "span_sec": max(0.0, ts - first), "samples": len(rows)}
+
+
+def severity_window_pair(store, scenario_id: str, *, window: Window,
+                         now: Optional[float] = None) -> dict:
+    """Mean SEVERITY over [now-W, now) and [now-2W, now-W), plus the delta.
+
+    S1-CONC-016's window seam, as a query over the one TL stream. The
+    conclusion layer classifies the delta; the arithmetic that turns rows
+    into two means belongs with the rows.
+
+    Severity is `6 - TL` (P6 O-15), not the `5 - TL` the legacy trend
+    module used privately. The delta is identical — a constant shift
+    cancels in a difference — but the reported means move by exactly 1.0,
+    which is registered as an expected difference rather than left as a
+    second severity scale in a project that has inverted this one twice.
+
+    Half-open at both seams, matching production: a row exactly at
+    `now - W` belongs to the current period, and a row at `now` is not yet
+    in the window.
+    """
+    if not isinstance(window, Window):
+        raise TypeError(
+            f"severity_window_pair needs a kernel Window, got "
+            f"{type(window).__name__}: a bare duration cannot say what "
+            f"cadence it assumes (F-06)")
+    ts = _now(now)
+    # The DECLARED span, not `effective_seconds`. A trend window is a
+    # wall-clock period, not a sample budget: `effective_seconds` floors
+    # to a whole number of cadence steps, which at a 7000s cadence turns
+    # a 1-day window into 84000s. A shorter window holds fewer rows, is
+    # likelier to miss MIN_SAMPLES, and answers INSUFFICIENT — the
+    # insensitive direction. `Window` is still required as the argument
+    # type so a bare duration cannot be passed (F-06); it is the cadence
+    # DECLARATION that matters here, not the derived sample count.
+    span = window.declared_days * DAY_SEC
+    current_start = ts - span
+    rows = series_between(store, scenario_id, start=ts - 2 * span, end=ts)
+
+    current: list[float] = []
+    previous: list[float] = []
+    for row in rows:
+        level = row["threat_level"]
+        if level is None or row["observed_at"] >= ts:
+            continue
+        target = current if row["observed_at"] >= current_start else previous
+        target.append(float(level.severity()))
+
+    current_mean = sum(current) / len(current) if current else None
+    previous_mean = sum(previous) / len(previous) if previous else None
+    delta = (None if current_mean is None or previous_mean is None
+             else current_mean - previous_mean)
+    return {"current_mean_severity": current_mean, "current_n": len(current),
+            "previous_mean_severity": previous_mean,
+            "previous_n": len(previous), "delta_severity": delta,
+            "window_days": window.declared_days,
+            "window_seconds": span}
 
 
 def null_zone_spans(store, scenario_id: str, *,
@@ -148,6 +226,7 @@ def transitions_only(store, scenario_id: str, *,
     return transitions
 
 
-__all__ = ["series_between", "trend_over", "null_zone_spans",
-           "chronic_null_zone", "transitions_only", "DIRECTION_WORSENING",
-           "DIRECTION_IMPROVING", "DIRECTION_FLAT", "DIRECTION_INSUFFICIENT"]
+__all__ = ["series_between", "trend_over", "observed_span",
+           "severity_window_pair", "null_zone_spans", "chronic_null_zone",
+           "transitions_only", "DIRECTION_WORSENING", "DIRECTION_IMPROVING",
+           "DIRECTION_FLAT", "DIRECTION_INSUFFICIENT"]
